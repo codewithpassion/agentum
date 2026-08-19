@@ -5,6 +5,30 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 4 — Phase 3: agent computer, agent browser, right-rail agent screen (2026-08-20)
+
+**Goal:** Implement Phase 3 of docs/plan.md (final phase) — give each agent a computer and a browser, and surface both in a right-rail agent screen.
+
+**What we did:**
+- Built modules/computer wrapping `@cloudflare/computer` 0.2.1 (preview): an AgentComputer DO per agent via `withWorkspace`, WorkerShellBackend exec working locally, 5 MCP tools, path/SSRF-style validation
+- Added a shared modules/activity log (D1 `agent_activity` table + API) used by both computer and browser
+- Built modules/browser on the Browser Run Workers binding + `@cloudflare/playwright` — real binding verified, 5 MCP tools, screenshots to R2, SSRF guard; Chromium (not Kitesurf) with session reuse via undocumented `persistent:true`
+- Built the right-rail agent screen: Screen/Files/Activity/Profile tabs, polling 4s working / 15s idle, upload into the agent computer, GrokBot-style empty states
+- 266 unit tests + 12 e2e passing; Phase 3 browser acceptance passed all steps with real Anthropic + Browser Run, including an agent-to-agent delegation -> browse -> file -> wiki chain (screenshots in docs/acceptance/phase3/)
+
+**Lessons learned:**
+- WorkerShellBackend requires `WorkspaceServiceProxy` as a named export of the Worker entry module — it's looked up via `ctx.exports`, and this is undocumented
+- Kitesurf through the Browser Run binding never acquires a session (`sessionId()` undefined in @cloudflare/playwright 1.3.5), so multi-call flows need Chromium; session reuse requires `persistent:true` on both launch AND connect, absent from the published types
+- The browser binding in local dev needs `remote:true` + `wrangler login` + `CLOUDFLARE_ACCOUNT_ID`; miniflare's local Chrome fails to start on this box
+- D1's `unixepoch()*1000` column default is whole-second precision — set `createdAt` from JS or same-run rows order randomly
+- The sync-status UI only flips to "registered with Anthropic" on the next data refresh (registration is waitUntil-async) — minor UX gap, a freshly created agent gives no ready signal
+- Known gaps deferred: Files-tab download link serves a JSON envelope, not raw bytes (needs a bytes route in 3a); Slack live round-trip still blocked on tokens; Worker Loader availability in the deployed CF env unverified
+
+**Avoid next time:**
+- Don't use Kitesurf through the Browser Run binding for anything needing more than one call — it's sessionless there
+- Don't rely on D1 timestamp column defaults for ordering rows created in the same second
+- Don't expect miniflare's local Chrome to work on this machine — go straight to `remote:true`
+
 ## Cycle 3 — Phase 2: Anthropic Managed Agents, agent router, MCP, wiki, Slack (2026-08-20)
 
 **Goal:** Implement Phase 2 of docs/plan.md — wire real Anthropic Managed Agents into the workspace (routing, MCP tool access), plus the wiki module and Slack connector.
