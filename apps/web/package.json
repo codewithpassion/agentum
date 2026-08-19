@@ -8,6 +8,7 @@
   "scripts": {
     "build": "vite build",
     "cf-typegen": "wrangler types",
+    "create-dev-user": "bun scripts/create-dev-user.ts",
     "deploy": "bun run build && wrangler deploy",
     "dev": "vite dev --port 3000",
     "generate-routes": "tsr generate",
@@ -15,6 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@clerk/backend": "^3.16.8",
     "@clerk/hono": "^0.1.69",
     "@clerk/tanstack-react-start": "^1.4.21",
     "@tailwindcss/vite": "^4.1.18",

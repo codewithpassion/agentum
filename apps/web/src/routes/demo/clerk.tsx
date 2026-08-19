@@ -21,6 +21,16 @@ function ClerkDemo() {
           <div className="flex justify-center pt-2">
             <SignIn routing="hash" />
           </div>
+          {import.meta.env.DEV ? (
+            <div className="flex justify-center">
+              <a
+                className="rounded-full border border-[var(--chip-line)] border-dashed px-3 py-1.5 text-[var(--sea-ink-soft)] text-xs no-underline transition hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]"
+                href="/api/dev-login"
+              >
+                Dev login (local only)
+              </a>
+            </div>
+          ) : null}
           <p className="demo-muted text-center text-xs">
             Built with{" "}
             <a

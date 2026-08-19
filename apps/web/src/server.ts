@@ -1,3 +1,4 @@
+import { createClerkClient } from "@clerk/backend";
 import { clerkMiddleware, getAuth } from "@clerk/hono";
 import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
@@ -9,6 +10,36 @@ app.use("*", clerkMiddleware());
 app.get("/api/health", (c) => {
   const auth = getAuth(c);
   return c.json({ status: "ok", userId: auth?.userId ?? null });
+});
+
+// One-click dev login: mints a one-time Clerk sign-in token for the dev user
+// and hands it to /dev-login to redeem client-side. Only active when
+// DEV_LOGIN_EMAIL is configured, which must never be set in a deployed
+// environment - that absence is the safety switch for this route.
+app.get("/api/dev-login", async (c) => {
+  const email = c.env.DEV_LOGIN_EMAIL;
+  if (!email) {
+    return c.text("Dev login is not configured.", 404);
+  }
+
+  const clerkClient = createClerkClient({ secretKey: c.env.CLERK_SECRET_KEY });
+  const { data } = await clerkClient.users.getUserList({
+    emailAddress: [email],
+  });
+  const [user] = data;
+  if (!user) {
+    return c.text(
+      `Dev login user ${email} does not exist yet. Run "bun run create-dev-user" in apps/web.`,
+      404
+    );
+  }
+
+  const { token } = await clerkClient.signInTokens.createSignInToken({
+    expiresInSeconds: 60,
+    userId: user.id,
+  });
+
+  return c.redirect(`/dev-login?token=${encodeURIComponent(token)}`);
 });
 
 // Everything else is handled by TanStack Start (SSR pages, server functions, assets).
