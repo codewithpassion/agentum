@@ -12,6 +12,15 @@ Biome (the underlying engine) provides robust linting and formatting. Most issue
 
 ---
 
+## Dev login (testing)
+
+`/login` (apps/web) has a "Dev login (local only)" link, visible only in `bun run dev`. It hits `GET /api/dev-login`, which mints a Clerk sign-in token for a dedicated dev user and redirects to `/dev-login` to redeem it - a real Clerk session, no password needed in the browser. Use it to sign in as a real user when testing or driving the app via browser automation, instead of going through Clerk's UI.
+
+- Only active when `DEV_LOGIN_EMAIL`/`DEV_LOGIN_PASSWORD` are set in `apps/web/.env.local` - never set these in a deployed environment, since their absence is what disables the route.
+- Create/refresh the dev user with `bun run create-dev-user` (from `apps/web`).
+
+---
+
 ## Core Principles
 
 Write code that is **accessible, performant, type-safe, and maintainable**. Focus on clarity and explicit intent over brevity.

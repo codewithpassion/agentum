@@ -39,19 +39,6 @@ export default function Header() {
           >
             Docs
           </a>
-          <details className="relative w-full sm:w-auto">
-            <summary className="nav-link cursor-pointer list-none">
-              Demos
-            </summary>
-            <div className="mt-2 min-w-56 rounded-xl border border-[var(--line)] bg-[var(--header-bg)] p-2 shadow-lg sm:absolute sm:right-0">
-              <a
-                className="block rounded-lg px-3 py-2 text-[var(--sea-ink-soft)] text-sm no-underline transition hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]"
-                href="/demo/clerk"
-              >
-                Clerk
-              </a>
-            </div>
-          </details>
         </div>
 
         <div className="ml-auto flex items-center gap-1.5 sm:gap-2">

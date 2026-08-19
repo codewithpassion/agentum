@@ -1,4 +1,5 @@
-import { Show, SignInButton, UserButton } from "@clerk/tanstack-react-start";
+import { Show, UserButton } from "@clerk/tanstack-react-start";
+import { Link } from "@tanstack/react-router";
 
 export default function HeaderUser() {
   return (
@@ -7,7 +8,9 @@ export default function HeaderUser() {
         <UserButton />
       </Show>
       <Show when="signed-out">
-        <SignInButton />
+        <Link className="nav-link" to="/login">
+          Sign in
+        </Link>
       </Show>
     </>
   );

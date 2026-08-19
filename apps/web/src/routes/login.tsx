@@ -1,11 +1,11 @@
 import { Show, SignIn, useUser } from "@clerk/tanstack-react-start";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/demo/clerk")({
-  component: ClerkDemo,
+export const Route = createFileRoute("/login")({
+  component: LoginPage,
 });
 
-function ClerkDemo() {
+function LoginPage() {
   return (
     <main className="demo-page demo-center">
       <section className="demo-panel w-full max-w-md space-y-6">

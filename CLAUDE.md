@@ -104,3 +104,13 @@ bun --hot ./index.ts
 ```
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+
+## Dev login (testing)
+
+`apps/web` exposes a one-click dev login for local testing: `/login` has a
+"Dev login (local only)" link (dev builds only) that hits `GET /api/dev-login`,
+mints a Clerk sign-in token for a dedicated dev user, and redeems it at
+`/dev-login` to establish a real session without going through Clerk's UI.
+Only active when `DEV_LOGIN_EMAIL`/`DEV_LOGIN_PASSWORD` are set in
+`apps/web/.env.local` (never set these in a deployed environment). Create/
+refresh the dev user with `bun run create-dev-user` from `apps/web`.
