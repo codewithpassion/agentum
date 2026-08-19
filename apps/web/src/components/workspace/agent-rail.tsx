@@ -2,12 +2,18 @@ import { useCallback, useEffect, useState } from "react";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { type Agent, type AgentStatusView, getAgentStatus } from "#/lib/api";
+import { pollIntervalFor } from "#/lib/use-agent-screen";
 import type { AgentStatusEvent } from "#/modules/messaging/realtime";
+import { AgentActivityTab } from "./agent-activity-tab";
+import { AgentFilesTab } from "./agent-files-tab";
+import { AgentScreenTab } from "./agent-screen-tab";
 import { ConnectorCard } from "./connector-card";
 import { McpUrlField } from "./mcp-url";
 
-/** Phase 3 fills these with the agent's computer and browser (see docs/plan.md). */
-const PLACEHOLDER_TABS = ["Screen", "Files", "Activity"] as const;
+/** The agent's screen (docs/plan.md 3c); Profile is the phase 1 rail, tabbed. */
+const TABS = ["Screen", "Files", "Activity", "Profile"] as const;
+
+type Tab = (typeof TABS)[number];
 
 const STATUS_COLORS = {
   error: "var(--ws-danger)",
@@ -161,6 +167,52 @@ function AgentActions({
   );
 }
 
+function TabButton({
+  active,
+  onSelect,
+  tab,
+}: {
+  active: boolean;
+  onSelect: (tab: Tab) => void;
+  tab: Tab;
+}) {
+  const select = useCallback(() => onSelect(tab), [onSelect, tab]);
+
+  return (
+    <button
+      aria-selected={active}
+      className={`ws-focus w-full rounded-md px-2 py-1 text-xs ${active ? "bg-[var(--ws-panel)] text-[var(--ws-text)]" : "text-[var(--ws-muted)] hover:text-[var(--ws-text)]"}`}
+      onClick={select}
+      role="tab"
+      type="button"
+    >
+      {tab}
+    </button>
+  );
+}
+
+function ProfilePanel({
+  agent,
+  mcpUrl,
+  onDelete,
+  onEdit,
+}: {
+  agent: Agent;
+  mcpUrl: string | null;
+  onDelete: (agent: Agent) => void;
+  onEdit: (agent: Agent) => void;
+}) {
+  return (
+    <div className="space-y-5">
+      <McpUrlField url={mcpUrl} />
+      <ConnectorCard agentId={agent.id} />
+      <Section body={agent.soul} title="Soul" />
+      <Section body={agent.instructions} title="Instructions" />
+      <AgentActions agent={agent} onDelete={onDelete} onEdit={onEdit} />
+    </div>
+  );
+}
+
 export function AgentRail({
   agent,
   liveStatus,
@@ -177,6 +229,10 @@ export function AgentRail({
   onEdit: (agent: Agent) => void;
 }) {
   const status = useAgentStatus(agent, liveStatus);
+  const [tab, setTab] = useState<Tab>("Screen");
+  // A working agent is worth watching closely; an idle one is not worth the
+  // requests (see lib/use-agent-screen).
+  const pollMs = pollIntervalFor(status?.status === "working");
 
   return (
     <aside
@@ -197,34 +253,45 @@ export function AgentRail({
             </div>
           </div>
 
-          <nav aria-label="Agent screen">
-            <ul className="m-0 flex list-none gap-1 rounded-lg bg-[var(--ws-surface)] p-1">
-              {PLACEHOLDER_TABS.map((tab) => (
-                <li className="flex-1" key={tab}>
-                  <button
-                    className="w-full cursor-not-allowed rounded-md px-2 py-1 text-[var(--ws-muted)] text-xs"
-                    disabled
-                    title="Available in phase 3"
-                    type="button"
-                  >
-                    {tab}
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-[var(--ws-muted)] text-xs">
-              The agent's computer and browser land here in phase 3.
-            </p>
-          </nav>
+          <div
+            aria-label="Agent screen"
+            className="flex gap-1 rounded-lg bg-[var(--ws-surface)] p-1"
+            role="tablist"
+          >
+            {TABS.map((name) => (
+              <div className="flex-1" key={name}>
+                <TabButton active={tab === name} onSelect={setTab} tab={name} />
+              </div>
+            ))}
+          </div>
 
-          <McpUrlField url={mcpUrl} />
-
-          <ConnectorCard agentId={agent.id} />
-
-          <Section body={agent.soul} title="Soul" />
-          <Section body={agent.instructions} title="Instructions" />
-
-          <AgentActions agent={agent} onDelete={onDelete} onEdit={onEdit} />
+          <div role="tabpanel">
+            {tab === "Screen" ? (
+              <AgentScreenTab
+                agentId={agent.id}
+                key={agent.id}
+                pollMs={pollMs}
+              />
+            ) : null}
+            {tab === "Files" ? (
+              <AgentFilesTab agentId={agent.id} key={agent.id} />
+            ) : null}
+            {tab === "Activity" ? (
+              <AgentActivityTab
+                agentId={agent.id}
+                key={agent.id}
+                pollMs={pollMs}
+              />
+            ) : null}
+            {tab === "Profile" ? (
+              <ProfilePanel
+                agent={agent}
+                mcpUrl={mcpUrl}
+                onDelete={onDelete}
+                onEdit={onEdit}
+              />
+            ) : null}
+          </div>
         </div>
       ) : (
         <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">

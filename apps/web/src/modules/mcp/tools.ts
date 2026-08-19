@@ -4,6 +4,15 @@ import { z } from "zod";
 import type { Db } from "#/db/client";
 import type { Agent } from "#/modules/agents/schema";
 import { listAgents } from "#/modules/agents/service";
+import { createBrowserClient } from "#/modules/browser/client";
+import { absoluteUrl } from "#/modules/browser/service";
+import { summarizeSnapshot } from "#/modules/browser/snapshot";
+import { createComputerClient } from "#/modules/computer/client";
+import {
+  TOOL_OUTPUT_MAX_BYTES,
+  truncateText,
+  withTruncationNote,
+} from "#/modules/computer/output";
 import { publishMessage } from "#/modules/messaging/publish";
 import {
   getMessage,
@@ -33,6 +42,8 @@ export interface McpToolContext {
   agent: Agent;
   db: Db;
   env: Env;
+  /** The URL this tool call arrived on, so tools can hand back absolute links. */
+  requestUrl: string;
 }
 
 const DEFAULT_MESSAGE_LIMIT = 30;
@@ -40,6 +51,8 @@ const MAX_MESSAGE_LIMIT = 100;
 const MESSAGE_BODY_MAX_LENGTH = 50_000;
 const WIKI_BODY_MAX_LENGTH = 200_000;
 const WIKI_TITLE_MAX_LENGTH = 200;
+const COMPUTER_CONTENT_MAX_LENGTH = 500_000;
+const COMPUTER_COMMAND_MAX_LENGTH = 4000;
 
 const json = (payload: unknown): CallToolResult => ({
   content: [{ text: JSON.stringify(payload), type: "text" }],
@@ -303,6 +316,234 @@ const registerWikiTools = (server: McpServer, ctx: McpToolContext): void => {
   );
 };
 
+// --- computer ----------------------------------------------------------------
+
+const COMPUTER_INTRO =
+  "Your private computer - a filesystem only you can reach, whose files persist between sessions.";
+
+const registerComputerFileTools = (
+  server: McpServer,
+  ctx: McpToolContext
+): void => {
+  const computer = () => createComputerClient(ctx.db, ctx.env, ctx.agent.id);
+
+  server.registerTool(
+    "computer_read_file",
+    {
+      description: `${COMPUTER_INTRO} Read a file's contents by absolute path. Large files are refused rather than silently cut, so list the directory first if you are unsure of the size.`,
+      inputSchema: {
+        path: z.string().describe('Absolute path, e.g. "/notes/plan.md".'),
+      },
+      title: "Read a file on your computer",
+    },
+    async ({ path }) => {
+      const result = await computer().readFile(path);
+      return result.ok
+        ? json({ content: result.content, path, size: result.size })
+        : fail(result.reason);
+    }
+  );
+
+  server.registerTool(
+    "computer_write_file",
+    {
+      description: `${COMPUTER_INTRO} Create or overwrite a file at an absolute path; missing parent directories are created for you. This replaces the whole file - use computer_edit_file to change part of one.`,
+      inputSchema: {
+        content: z.string().max(COMPUTER_CONTENT_MAX_LENGTH),
+        path: z.string().describe('Absolute path, e.g. "/notes/plan.md".'),
+      },
+      title: "Write a file on your computer",
+    },
+    async ({ content, path }) => {
+      const result = await computer().writeFile(path, content);
+      return result.ok
+        ? json({ created: result.created, path, size: result.size })
+        : fail(result.reason);
+    }
+  );
+
+  server.registerTool(
+    "computer_edit_file",
+    {
+      description: `${COMPUTER_INTRO} Replace one exact string in a file with another. old_string must appear exactly once, so include enough surrounding lines to make it unique; read the file first if you are not sure.`,
+      inputSchema: {
+        new_string: z.string().describe("What to put in its place."),
+        old_string: z
+          .string()
+          .describe("The exact text to replace, including whitespace."),
+        path: z.string(),
+      },
+      title: "Edit a file on your computer",
+    },
+    async ({ new_string, old_string, path }) => {
+      const result = await computer().editFile(path, old_string, new_string);
+      return result.ok
+        ? json({ path, size: result.size })
+        : fail(result.reason);
+    }
+  );
+
+  server.registerTool(
+    "computer_list_dir",
+    {
+      description: `${COMPUTER_INTRO} List the entries in a directory, marking which are directories. Start at "/" to see everything you have.`,
+      inputSchema: {
+        path: z.string().describe('Absolute directory path; "/" is the root.'),
+      },
+      title: "List a directory on your computer",
+    },
+    async ({ path }) => {
+      const result = await computer().listDir(path);
+      return result.ok
+        ? json({ entries: result.entries, path })
+        : fail(result.reason);
+    }
+  );
+};
+
+const registerComputerExec = (server: McpServer, ctx: McpToolContext): void => {
+  server.registerTool(
+    "computer_exec",
+    {
+      description: `${COMPUTER_INTRO} Run a shell command against those files and get back its stdout, stderr and exit code. The working directory is "/" and the shell is a small POSIX one - expect coreutils-style commands, not a package manager. Long output is truncated with a note saying so.`,
+      inputSchema: {
+        command: z
+          .string()
+          .max(COMPUTER_COMMAND_MAX_LENGTH)
+          .describe('A shell command, e.g. "wc -l /notes/plan.md".'),
+      },
+      title: "Run a command on your computer",
+    },
+    async ({ command }) => {
+      const result = await createComputerClient(
+        ctx.db,
+        ctx.env,
+        ctx.agent.id
+      ).exec(command);
+      if (!result.ok) {
+        return fail(result.reason);
+      }
+      return json({
+        exitCode: result.exitCode,
+        stderr: withTruncationNote(
+          truncateText(result.stderr, TOOL_OUTPUT_MAX_BYTES)
+        ),
+        stdout: withTruncationNote(
+          truncateText(result.stdout, TOOL_OUTPUT_MAX_BYTES)
+        ),
+      });
+    }
+  );
+};
+
+// --- browser ------------------------------------------------------------------
+
+const BROWSER_INTRO =
+  "Your own browser - one page, kept open between tool calls, so what you navigate to is still there next time.";
+
+const registerBrowserTools = (server: McpServer, ctx: McpToolContext): void => {
+  const browser = () => createBrowserClient(ctx.db, ctx.env, ctx.agent.id);
+
+  server.registerTool(
+    "browser_navigate",
+    {
+      description: `${BROWSER_INTRO} Open an http or https URL and get back the page's title and the start of its content. Private and loopback addresses are refused.`,
+      inputSchema: {
+        url: z.string().describe('Absolute URL, e.g. "https://example.com".'),
+      },
+      title: "Open a page in your browser",
+    },
+    async ({ url }) => {
+      const result = await browser().navigate(url);
+      return result.ok
+        ? json({
+            summary: summarizeSnapshot(result.snapshot),
+            title: result.snapshot.title,
+            url: result.snapshot.url,
+          })
+        : fail(result.reason);
+    }
+  );
+
+  server.registerTool(
+    "browser_snapshot",
+    {
+      description: `${BROWSER_INTRO} Read the page that is currently open: its title, visible text, and every link on it with the URL each one goes to. This is how you decide what to click next.`,
+      inputSchema: {},
+      title: "Read the open page",
+    },
+    async () => {
+      const result = await browser().snapshot();
+      return result.ok ? json(result.snapshot) : fail(result.reason);
+    }
+  );
+
+  server.registerTool(
+    "browser_click",
+    {
+      description: `${BROWSER_INTRO} Click the first element matching a CSS selector, then read the page back - so a click that follows a link returns the page it landed on. Take a browser_snapshot first if you are unsure what to target.`,
+      inputSchema: {
+        selector: z
+          .string()
+          .describe('A CSS selector, e.g. "a[href=\'/docs\']" or "#submit".'),
+      },
+      title: "Click on the open page",
+    },
+    async ({ selector }) => {
+      const result = await browser().click(selector);
+      return result.ok
+        ? json({
+            summary: summarizeSnapshot(result.snapshot),
+            url: result.snapshot.url,
+          })
+        : fail(result.reason);
+    }
+  );
+
+  server.registerTool(
+    "browser_fill",
+    {
+      description: `${BROWSER_INTRO} Type a value into the input, textarea or select matching a CSS selector, replacing whatever is in it. Submit the form afterwards with browser_click.`,
+      inputSchema: {
+        selector: z.string().describe('A CSS selector, e.g. "input[name=q]".'),
+        value: z.string().describe("The text to put in the field."),
+      },
+      title: "Fill a field on the open page",
+    },
+    async ({ selector, value }) => {
+      const result = await browser().fill(selector, value);
+      return result.ok
+        ? json({ filled: result.selector, url: result.url })
+        : fail(result.reason);
+    }
+  );
+
+  server.registerTool(
+    "browser_screenshot",
+    {
+      description: `${BROWSER_INTRO} Capture the page as a PNG. It is saved in the workspace and the returned URL renders inline in a message or a wiki page, so link to it when what you saw is worth showing.`,
+      inputSchema: {},
+      title: "Screenshot the open page",
+    },
+    async () => {
+      const result = await browser().screenshot();
+      if (!result.ok) {
+        return fail(result.reason);
+      }
+      const { screenshot } = result;
+      return json({
+        markdown: `![Screenshot of ${screenshot.pageUrl}](${absoluteUrl(ctx.env.PUBLIC_APP_URL, ctx.requestUrl, screenshot.url)})`,
+        pageUrl: screenshot.pageUrl,
+        url: absoluteUrl(
+          ctx.env.PUBLIC_APP_URL,
+          ctx.requestUrl,
+          screenshot.url
+        ),
+      });
+    }
+  );
+};
+
 export const registerWorkspaceTools = (
   server: McpServer,
   ctx: McpToolContext
@@ -313,4 +554,7 @@ export const registerWorkspaceTools = (
   registerPostMessage(server, ctx);
   registerListAgents(server, ctx);
   registerWikiTools(server, ctx);
+  registerComputerFileTools(server, ctx);
+  registerComputerExec(server, ctx);
+  registerBrowserTools(server, ctx);
 };

@@ -43,6 +43,20 @@
       "when": 1787155773875,
       "tag": "0005_slack_connector",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787159829807,
+      "tag": "0006_agent_activity",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787161445250,
+      "tag": "0007_browser",
+      "breakpoints": true
     }
   ]
 }

@@ -2,7 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "agentum",
   "compatibility_date": "2026-08-19",
-  "compatibility_flags": ["nodejs_compat"],
+  // `experimental` is what unlocks the Worker Loader binding below, which the
+  // agent computer's shell backend runs commands in.
+  "compatibility_flags": ["nodejs_compat", "experimental"],
   "main": "src/server.ts",
   "observability": { "enabled": true },
   // database_id is a placeholder: local dev runs against miniflare's D1, and no
@@ -21,6 +23,15 @@
       "bucket_name": "agentum-attachments"
     }
   ],
+  // The agents' browser (modules/browser). `remote: true` is what Cloudflare
+  // recommends for Browser Run: the local simulation downloads and runs a Chrome
+  // of its own, which needs system libraries a dev box may not have, while
+  // remote mode proxies to a real browser on Cloudflare's network. It does mean
+  // `vite dev` needs `wrangler login` and CLOUDFLARE_ACCOUNT_ID (.env.local).
+  "browser": {
+    "binding": "BROWSER",
+    "remote": true
+  },
   "durable_objects": {
     "bindings": [
       {
@@ -32,9 +43,18 @@
       {
         "name": "AGENT_ROUTER",
         "class_name": "AgentRouter"
+      },
+      // One instance per agent (idFromName(agentId)) holding that agent's
+      // computer: a SQLite-backed filesystem plus its shell.
+      {
+        "name": "AGENT_COMPUTER",
+        "class_name": "AgentComputer"
       }
     ]
   },
+  // The dynamic-worker loader the agent computer's shell backend runs commands
+  // in. Requires the `experimental` compatibility flag above.
+  "worker_loaders": [{ "binding": "LOADER" }],
   "migrations": [
     {
       "tag": "v1",
@@ -43,6 +63,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["AgentRouter"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["AgentComputer"]
     }
   ]
 }

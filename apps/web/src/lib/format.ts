@@ -35,6 +35,34 @@ export const formatDay = (timestamp: number): string =>
     year: "numeric",
   });
 
+const SECOND_MS = 1000;
+const MINUTE_MS = 60 * SECOND_MS;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+const RELATIVE_MAX_DAYS = 7;
+
+/**
+ * "3m ago" reads faster than a clock time in a feed of things that just
+ * happened; past a week it stops being useful and the date takes over.
+ */
+export const formatRelativeTime = (
+  timestamp: number,
+  now = Date.now()
+): string => {
+  const elapsed = now - timestamp;
+  if (elapsed < MINUTE_MS) {
+    return "just now";
+  }
+  if (elapsed < HOUR_MS) {
+    return `${Math.floor(elapsed / MINUTE_MS)}m ago`;
+  }
+  if (elapsed < DAY_MS) {
+    return `${Math.floor(elapsed / HOUR_MS)}h ago`;
+  }
+  const days = Math.floor(elapsed / DAY_MS);
+  return days > RELATIVE_MAX_DAYS ? formatDay(timestamp) : `${days}d ago`;
+};
+
 export const isImage = (mime: string): boolean => mime.startsWith("image/");
 
 const MASK = "••••••••";

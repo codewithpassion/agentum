@@ -2,7 +2,10 @@ import { createClerkClient } from "@clerk/backend";
 import { clerkMiddleware, getAuth } from "@clerk/hono";
 import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
+import { agentActivityRoutes } from "#/modules/activity/routes";
 import { agentsRoutes } from "#/modules/agents/routes";
+import { browserRoutes } from "#/modules/browser/routes";
+import { computerRoutes } from "#/modules/computer/routes";
 import { bridgeRoutes, connectorsRoutes } from "#/modules/connectors/routes";
 import { slackRoutes } from "#/modules/connectors/slack/routes";
 import { mcpRoutes } from "#/modules/mcp/routes";
@@ -14,6 +17,10 @@ import { wikiRoutes } from "#/modules/wiki/routes";
 // Durable Object classes must be re-exported from the Worker entry so the
 // runtime can instantiate them for the CHANNEL_ROOM and AGENT_ROUTER bindings.
 // biome-ignore lint/performance/noBarrelFile: the Workers runtime requires the DO class on the entry module
+export {
+  AgentComputer,
+  WorkspaceServiceProxy,
+} from "#/modules/computer/durable-object";
 export { ChannelRoom } from "#/modules/messaging/channel-room";
 export { AgentRouter } from "#/modules/router/agent-router";
 
@@ -59,6 +66,11 @@ app.get("/api/dev-login", async (c) => {
 // Workspace resources. Each router gates itself with `requireAuth`; the two
 // routes above stay open by design.
 app.route("/api/agents", agentsRoutes);
+// An agent's computer, its browser and its activity log read as part of the
+// agent; Hono falls through to these for the paths `agentsRoutes` does not own.
+app.route("/api/agents", computerRoutes);
+app.route("/api/agents", browserRoutes);
+app.route("/api/agents", agentActivityRoutes);
 app.route("/api/channels", channelsRoutes);
 app.route("/api/messages", messagesRoutes);
 app.route("/api/attachments", attachmentsRoutes);

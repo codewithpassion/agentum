@@ -43,6 +43,8 @@ mcpRoutes.all("/:agentToken", async (c) => {
   }
 
   const transport = new StreamableHTTPTransport({ enableJsonResponse: true });
-  await buildServer({ agent, db, env: c.env }).connect(transport);
+  await buildServer({ agent, db, env: c.env, requestUrl: c.req.url }).connect(
+    transport
+  );
   return await transport.handleRequest(c);
 });

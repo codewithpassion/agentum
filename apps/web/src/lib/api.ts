@@ -1,4 +1,10 @@
+import type { ActivityView as ActivityRow } from "#/modules/activity/service";
 import type { AgentView } from "#/modules/agents/service";
+import type {
+  BrowserStatus as BrowserStatusRow,
+  StoredScreenshot as ScreenshotRow,
+} from "#/modules/browser/types";
+import type { DirEntry as DirEntryRow } from "#/modules/computer/types";
 import type { ChannelBridge as ChannelBridgeRow } from "#/modules/connectors/schema";
 import type { ConnectorStatus as ConnectorStatusRow } from "#/modules/connectors/types";
 import type { Channel as ChannelRow } from "#/modules/messaging/schema";
@@ -15,7 +21,11 @@ import type {
 
 /** The client speaks exactly the server's shapes; these aliases are the contract. */
 export type Agent = AgentView;
+export type ActivityView = ActivityRow;
+export type BrowserStatus = BrowserStatusRow;
 export type Channel = ChannelRow;
+export type DirEntry = DirEntryRow;
+export type Screenshot = ScreenshotRow;
 export type AttachmentView = AttachmentRow;
 export type ChannelMemberView = ChannelMemberRow;
 export type MessageView = MessageRow;
@@ -120,6 +130,76 @@ export const getAgentStatus = (id: string) =>
   request<{ status: AgentStatusView }>(`/agents/${id}/status`).then(
     (data) => data.status
   );
+
+// --- the agent's screen: activity, computer, browser ------------------------
+
+export interface ActivityPage {
+  entries: ActivityView[];
+  nextCursor: string | null;
+}
+
+/** Newest first; `before` is the `nextCursor` of the page before it. */
+export const listAgentActivity = (
+  id: string,
+  options: { before?: string; limit?: number } = {}
+) => {
+  const query = new URLSearchParams();
+  if (options.before) {
+    query.set("before", options.before);
+  }
+  if (options.limit) {
+    query.set("limit", String(options.limit));
+  }
+  const suffix = query.size > 0 ? `?${query}` : "";
+  return request<ActivityPage>(`/agents/${id}/activity${suffix}`);
+};
+
+export const listComputerDir = (id: string, path: string) =>
+  request<{ entries: DirEntry[] }>(
+    `/agents/${id}/computer/ls?path=${encodeURIComponent(path)}`
+  ).then((data) => data.entries);
+
+export interface ComputerFile {
+  content: string;
+  path: string;
+  size: number;
+}
+
+/** The raw endpoint, for the "this file will not preview" download link. */
+export const computerFileUrl = (id: string, path: string): string =>
+  `/api/agents/${id}/computer/file?path=${encodeURIComponent(path)}`;
+
+export const readComputerFile = (id: string, path: string) =>
+  request<ComputerFile>(
+    `/agents/${id}/computer/file?path=${encodeURIComponent(path)}`
+  );
+
+/** The user putting a file onto the agent's computer, from the Files tab. */
+export const uploadComputerFile = async (
+  id: string,
+  file: File,
+  path: string
+): Promise<{ path: string; size: number }> => {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("path", path);
+  const data = await request<{ file: { path: string; size: number } }>(
+    `/agents/${id}/computer/file`,
+    { body: form, method: "POST" }
+  );
+  return data.file;
+};
+
+export interface ScreenshotPage {
+  nextCursor: string | null;
+  screenshots: Screenshot[];
+}
+
+export const listBrowserScreenshots = (id: string, limit: number) =>
+  request<ScreenshotPage>(`/agents/${id}/browser/screenshots?limit=${limit}`);
+
+export const getBrowserStatus = (id: string) =>
+  request<BrowserStatus>(`/agents/${id}/browser/status`);
 
 // --- channels ---------------------------------------------------------------
 

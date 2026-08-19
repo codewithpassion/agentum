@@ -115,9 +115,10 @@ test("creates an agent and a channel, posts a mention with an image, and replies
   ).toBeVisible();
 
   // The agent's MCP URL is issued with it and shown once, masked (docs/plan.md 2b).
-  await expect(
-    page.getByTestId("agent-rail").getByTestId("mcp-url")
-  ).toHaveText(MASKED_MCP_URL);
+  // The rail opens on the agent's screen, so the profile is a click away.
+  const rail = page.getByTestId("agent-rail");
+  await rail.getByRole("tab", { name: "Profile" }).click();
+  await expect(rail.getByTestId("mcp-url")).toHaveText(MASKED_MCP_URL);
 
   // --- create the channel with that agent as a member ----------------------
   await openSidebarMenu(page, "New channel");
@@ -181,6 +182,7 @@ test("shows the agent profile in the right rail", async ({ page }) => {
 
   const rail = page.getByTestId("agent-rail");
   await expect(rail.getByText(AGENT_NAME)).toBeVisible();
+  await rail.getByRole("tab", { name: "Profile" }).click();
   await expect(rail.getByText(AGENT_SOUL)).toBeVisible();
 
   // A reload cannot recover the token - only a rotation issues a new URL.

@@ -142,7 +142,7 @@ would have earned nothing here.
 | `markdown.tsx` | `react-markdown` + `remark-gfm` wrapper |
 | `composer.tsx` | textarea, Enter/Shift+Enter, attach, mention popover |
 | `thread-panel.tsx` | parent + replies + its own composer |
-| `agent-rail.tsx` | profile, status, disabled Screen/Files/Activity tabs |
+| `agent-rail.tsx` | identity header + Screen/Files/Activity/Profile tabs |
 
 `src/lib/`: `api.ts` (typed fetch wrappers over `/api`, aliasing the server's
 `MessageView` / `ChannelMemberView` / `Agent` types via `import type`, so the
