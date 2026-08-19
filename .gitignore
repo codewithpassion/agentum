@@ -4,7 +4,17 @@ node_modules
 # output
 out
 dist
+dist-ssr
+.output
 *.tgz
+
+# TanStack / Vite / Cloudflare tooling
+.tanstack
+.vinxi
+.wrangler
+.nitro
+__unconfig*
+worker-configuration.d.ts
 
 # code coverage
 coverage
