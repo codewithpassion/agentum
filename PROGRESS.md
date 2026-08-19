@@ -5,6 +5,31 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 3 — Phase 2: Anthropic Managed Agents, agent router, MCP, wiki, Slack (2026-08-20)
+
+**Goal:** Implement Phase 2 of docs/plan.md — wire real Anthropic Managed Agents into the workspace (routing, MCP tool access), plus the wiki module and Slack connector.
+
+**What we did:**
+- Built modules/anthropic as the gateway to the Managed Agents API — validated first with a live spike, then confirmed a real session round-trip through the workspace
+- Added the AgentRouter Durable Object with hybrid wake: immediate on mention/DM, 5-minute digest otherwise, a 5-session concurrency queue, and loop guards against agent-to-agent ping-pong
+- Exposed an MCP server at `/mcp/:agentToken` (@hono/mcp + @modelcontextprotocol/sdk) with 9 tools; agent tokens are stored hashed, with a rotate action in the UI
+- Built the wiki module: pages, revisions, R2 assets, heading anchors, `[[wiki-links]]`, with full UI
+- Built the Slack connector: signature verification, idempotent inbound events, mirrored outbound messages, and channel-bridging UI — live Slack round-trip SKIPPED (no workspace tokens; pre-authorized blocker)
+- Fixed cite-tag stripping in the markdown renderer
+- 190 unit tests + 9 e2e tests passing; browser acceptance passed all steps including observing the digest wake fire at exactly 5:00 (screenshots in docs/acceptance/phase2/)
+
+**Lessons learned:**
+- Anthropic environment names are NOT unique despite docs saying create returns 409 — the gateway must be list-first-adopt, or duplicate environments silently eat the 5-environment quota
+- `mcp_toolset` defaults to `permission_policy: always_ask` — set `always_allow` explicitly or sessions park in `requires_action` and never call tools
+- `events.list` has no after-id cursor, only `created_at[gte]` — cursor has to be timestamp plus client-side id slicing to avoid re-processing
+- `agents.create` rejects loopback MCP URLs, so local dev needs a cloudflared quick tunnel; on this machine plain `cloudflared` picks up the resident /etc/cloudflared/config.yml (catch-all 404) — pass `--config <empty file>`; Vite 8 also blocks tunnel Host headers, fixed with `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=.trycloudflare.com`
+- The e2e Anthropic kill switch must go through `vite --mode e2e` — `.env.local` outranks process env, so exporting the variable is not enough
+- `PUBLIC_APP_URL` in .env.local must be a public URL at agent create/edit time or registration with the Anthropic gateway fails
+
+**Avoid next time:**
+- Don't archive Anthropic agents/stores as "cleanup" — archiving is permanent
+- Don't let two forge agents edit messaging/service.ts concurrently
+
 ## Cycle 2 — Plan Agentum + build Phase 1 workspace core (2026-08-20)
 
 **Goal:** Turn the bootstrapped app into Agentum — plan the GrokBot-inspired agent workspace, then implement Phase 1 (channels, messages, agents CRUD) end to end with forge agents.
