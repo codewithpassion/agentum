@@ -482,3 +482,178 @@ a {
     transform: translateY(0);
   }
 }
+
+/* --- workspace ------------------------------------------------------------
+ * The workspace shell is dark-first and near-monochrome (see docs/design.md):
+ * dark is the default palette, light is the override. Both hang off the same
+ * data-theme / prefers-color-scheme mechanism the rest of the app uses, so the
+ * existing ThemeToggle drives them without changes.
+ */
+
+:root {
+  --ws-bg: #0a0a0b;
+  --ws-panel: #111113;
+  --ws-surface: #18181b;
+  --ws-surface-hover: #212125;
+  --ws-line: #26262b;
+  --ws-text: #ededef;
+  --ws-muted: #8f8f98;
+  --ws-accent: #5b8cff;
+  --ws-accent-ink: #ffffff;
+  --ws-danger: #f87171;
+}
+
+:root[data-theme="light"] {
+  --ws-bg: #f7f7f8;
+  --ws-panel: #ffffff;
+  --ws-surface: #f0f0f2;
+  --ws-surface-hover: #e7e7ea;
+  --ws-line: #e2e2e6;
+  --ws-text: #18181b;
+  --ws-muted: #65656d;
+  --ws-accent: #3057d6;
+  --ws-accent-ink: #ffffff;
+  --ws-danger: #b91c1c;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --ws-bg: #f7f7f8;
+    --ws-panel: #ffffff;
+    --ws-surface: #f0f0f2;
+    --ws-surface-hover: #e7e7ea;
+    --ws-line: #e2e2e6;
+    --ws-text: #18181b;
+    --ws-muted: #65656d;
+    --ws-accent: #3057d6;
+    --ws-accent-ink: #ffffff;
+    --ws-danger: #b91c1c;
+  }
+}
+
+/* Covers the marketing gradient painted on <body>. */
+.ws-shell {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  color: var(--ws-text);
+  background: var(--ws-bg);
+}
+
+.ws-shell a {
+  color: var(--ws-accent);
+  text-decoration-color: color-mix(in oklab, var(--ws-accent) 45%, transparent);
+}
+
+.ws-shell code {
+  background: color-mix(in oklab, var(--ws-text) 8%, transparent);
+  border-color: var(--ws-line);
+}
+
+.ws-focus:focus-visible {
+  outline: 2px solid var(--ws-accent);
+  outline-offset: 1px;
+}
+
+/* Markdown inside a 14px message bubble - tighter than a prose document. */
+.md-body {
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.md-body > *:first-child {
+  margin-top: 0;
+}
+
+.md-body > *:last-child {
+  margin-bottom: 0;
+}
+
+.md-body p,
+.md-body ul,
+.md-body ol,
+.md-body pre,
+.md-body blockquote,
+.md-body table {
+  margin-block: 0.5rem;
+}
+
+.md-body ul,
+.md-body ol {
+  padding-left: 1.25rem;
+}
+
+.md-body ul {
+  list-style: disc;
+}
+
+.md-body ol {
+  list-style: decimal;
+}
+
+.md-body h1,
+.md-body h2,
+.md-body h3 {
+  margin-block: 0.75rem 0.35rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.md-body pre {
+  padding: 0.7rem 0.85rem;
+  overflow-x: auto;
+  background: color-mix(in oklab, var(--ws-text) 8%, transparent);
+  border: 1px solid var(--ws-line);
+  border-radius: 0.75rem;
+}
+
+.md-body blockquote {
+  padding-left: 0.75rem;
+  color: var(--ws-muted);
+  border-left: 2px solid var(--ws-line);
+}
+
+.md-body table {
+  border-collapse: collapse;
+}
+
+.md-body th,
+.md-body td {
+  padding: 0.3rem 0.6rem;
+  text-align: left;
+  border: 1px solid var(--ws-line);
+}
+
+.md-body hr {
+  margin-block: 0.75rem;
+  border: 0;
+  border-top: 1px solid var(--ws-line);
+}
+
+/* The user's own bubble is filled with the accent colour, so link and code
+ * styling has to invert against it rather than sit on the panel background. */
+.ws-own a,
+.ws-own .md-body a {
+  color: var(--ws-accent-ink);
+  text-decoration-color: currentcolor;
+}
+
+.ws-own .md-body code,
+.ws-own code {
+  color: var(--ws-accent-ink);
+  background: rgb(255 255 255 / 22%);
+  border-color: rgb(255 255 255 / 30%);
+}
+
+.ws-own .md-body pre,
+.ws-own .md-body blockquote,
+.ws-own .md-body th,
+.ws-own .md-body td,
+.ws-own .md-body hr {
+  border-color: rgb(255 255 255 / 35%);
+}
+
+.ws-own .md-body blockquote {
+  color: rgb(255 255 255 / 80%);
+}

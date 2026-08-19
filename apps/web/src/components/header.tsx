@@ -12,7 +12,7 @@ export default function Header() {
             to="/"
           >
             <span className="h-2 w-2 rounded-full bg-[linear-gradient(90deg,#56c6be,#7ed3bf)]" />
-            TanStack Start
+            Agentum
           </Link>
         </h2>
 
@@ -22,7 +22,7 @@ export default function Header() {
             className="nav-link"
             to="/"
           >
-            Home
+            Workspace
           </Link>
           <Link
             activeProps={{ className: "nav-link is-active" }}

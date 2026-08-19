@@ -4,5 +4,35 @@
   "compatibility_date": "2026-08-19",
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/server.ts",
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // database_id is a placeholder: local dev runs against miniflare's D1, and no
+  // remote database has been provisioned yet.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agentum",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENTS",
+      "bucket_name": "agentum-attachments"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHANNEL_ROOM",
+        "class_name": "ChannelRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ChannelRoom"]
+    }
+  ]
 }

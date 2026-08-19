@@ -1,4 +1,10 @@
-import { useSignIn, useUser } from "@clerk/tanstack-react-start";
+import { useUser } from "@clerk/tanstack-react-start";
+// The signal-based `useSignIn` resolves its methods through `client.signIn`,
+// which clerk-js swaps for a fresh, empty resource the moment a ticket is
+// redeemed - so `finalize()` never sees the session `ticket()` just created.
+// The legacy hook hands back the sign-in attempt itself, so the created session
+// id survives that swap.
+import { useSignIn } from "@clerk/tanstack-react-start/legacy";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
@@ -11,7 +17,7 @@ export const Route = createFileRoute("/dev-login")({
 
 function DevLogin() {
   const { token } = Route.useSearch();
-  const { signIn } = useSignIn();
+  const { isLoaded, setActive, signIn } = useSignIn();
   const { user } = useUser();
   const [error, setError] = useState<string | null>(null);
   const consumed = useRef(false);
@@ -28,6 +34,10 @@ function DevLogin() {
       return;
     }
 
+    if (!isLoaded) {
+      return;
+    }
+
     // biome-ignore lint/suspicious/noUnnecessaryConditions: consumed.current is mutated below to guard against re-consuming a single-use ticket.
     if (consumed.current) {
       return;
@@ -35,22 +45,18 @@ function DevLogin() {
     consumed.current = true;
 
     (async () => {
-      const { error: ticketError } = await signIn.ticket({ ticket: token });
-      if (ticketError) {
-        setError(ticketError.message ?? "Dev login failed.");
-        return;
-      }
-
-      const { error: finalizeError } = await signIn.finalize({
-        navigate: ({ decorateUrl }) => {
-          window.location.href = decorateUrl("/");
-        },
-      });
-      if (finalizeError) {
-        setError(finalizeError.message ?? "Dev login failed.");
+      try {
+        const attempt = await signIn.create({
+          strategy: "ticket",
+          ticket: token,
+        });
+        await setActive({ session: attempt.createdSessionId });
+        window.location.href = "/";
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Dev login failed.");
       }
     })();
-  }, [token, signIn, user]);
+  }, [isLoaded, setActive, signIn, token, user]);
 
   if (error) {
     return (

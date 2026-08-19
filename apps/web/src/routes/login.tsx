@@ -1,5 +1,6 @@
 import { Show, SignIn, useUser } from "@clerk/tanstack-react-start";
 import { createFileRoute } from "@tanstack/react-router";
+import SiteChrome from "../components/site-chrome";
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
@@ -7,49 +8,51 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   return (
-    <main className="demo-page demo-center">
-      <section className="demo-panel w-full max-w-md space-y-6">
-        <Show when="signed-out">
-          <div className="space-y-1.5">
-            <p className="island-kicker mb-2">Clerk</p>
-            <h1 className="demo-title">Sign in to continue</h1>
-            <p className="demo-muted text-sm">
-              Clerk renders the sign-in UI, manages sessions, and handles social
-              providers for you.
-            </p>
-          </div>
-          <div className="flex justify-center pt-2">
-            <SignIn routing="hash" />
-          </div>
-          {import.meta.env.DEV ? (
-            <div className="flex justify-center">
-              <a
-                className="rounded-full border border-[var(--chip-line)] border-dashed px-3 py-1.5 text-[var(--sea-ink-soft)] text-xs no-underline transition hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]"
-                href="/api/dev-login"
-              >
-                Dev login (local only)
-              </a>
+    <SiteChrome>
+      <main className="demo-page demo-center">
+        <section className="demo-panel w-full max-w-md space-y-6">
+          <Show when="signed-out">
+            <div className="space-y-1.5">
+              <p className="island-kicker mb-2">Clerk</p>
+              <h1 className="demo-title">Sign in to continue</h1>
+              <p className="demo-muted text-sm">
+                Clerk renders the sign-in UI, manages sessions, and handles
+                social providers for you.
+              </p>
             </div>
-          ) : null}
-          <p className="demo-muted text-center text-xs">
-            Built with{" "}
-            <a
-              className="font-medium"
-              href="https://clerk.com"
-              rel="noopener noreferrer"
-              target="_blank"
-            >
-              CLERK
-            </a>
-            .
-          </p>
-        </Show>
+            <div className="flex justify-center pt-2">
+              <SignIn routing="hash" />
+            </div>
+            {import.meta.env.DEV ? (
+              <div className="flex justify-center">
+                <a
+                  className="rounded-full border border-[var(--chip-line)] border-dashed px-3 py-1.5 text-[var(--sea-ink-soft)] text-xs no-underline transition hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]"
+                  href="/api/dev-login"
+                >
+                  Dev login (local only)
+                </a>
+              </div>
+            ) : null}
+            <p className="demo-muted text-center text-xs">
+              Built with{" "}
+              <a
+                className="font-medium"
+                href="https://clerk.com"
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                CLERK
+              </a>
+              .
+            </p>
+          </Show>
 
-        <Show when="signed-in">
-          <SignedInGreeting />
-        </Show>
-      </section>
-    </main>
+          <Show when="signed-in">
+            <SignedInGreeting />
+          </Show>
+        </section>
+      </main>
+    </SiteChrome>
   );
 }
 

@@ -2,6 +2,15 @@ import { createClerkClient } from "@clerk/backend";
 import { clerkMiddleware, getAuth } from "@clerk/hono";
 import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
+import { agentsRoutes } from "#/modules/agents/routes";
+import { attachmentsRoutes } from "#/modules/messaging/routes/attachments";
+import { channelsRoutes } from "#/modules/messaging/routes/channels";
+import { messagesRoutes } from "#/modules/messaging/routes/messages";
+
+// The Durable Object class must be re-exported from the Worker entry so the
+// runtime can instantiate it for the CHANNEL_ROOM binding.
+// biome-ignore lint/performance/noBarrelFile: the Workers runtime requires the DO class on the entry module
+export { ChannelRoom } from "#/modules/messaging/channel-room";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -41,6 +50,13 @@ app.get("/api/dev-login", async (c) => {
 
   return c.redirect(`/dev-login?token=${encodeURIComponent(token)}`);
 });
+
+// Workspace resources. Each router gates itself with `requireAuth`; the two
+// routes above stay open by design.
+app.route("/api/agents", agentsRoutes);
+app.route("/api/channels", channelsRoutes);
+app.route("/api/messages", messagesRoutes);
+app.route("/api/attachments", attachmentsRoutes);
 
 // Everything else is handled by TanStack Start (SSR pages, server functions, assets).
 app.all("*", (c) => handler.fetch(c.req.raw));
