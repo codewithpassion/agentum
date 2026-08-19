@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  AgentStatusEvent,
+  ChannelEvent,
+} from "#/modules/messaging/realtime";
 import {
   type Channel,
   type ChannelMemberView,
@@ -10,7 +14,12 @@ import { useChannelSocket } from "./use-channel-socket";
 
 export type ReplyListener = (message: MessageView) => void;
 
+/** The router's live view of the agents woken from this channel. */
+export type AgentStatuses = Record<string, AgentStatusEvent>;
+
 export interface Conversation {
+  /** Keyed by agent id; only agents the router has reported on appear. */
+  agentStatuses: AgentStatuses;
   channel: Channel | null;
   error: string | null;
   loading: boolean;
@@ -23,6 +32,8 @@ export interface Conversation {
   nextCursor: string | null;
   /** Lets an open thread panel receive replies from the channel socket. */
   subscribeToReplies: (listener: ReplyListener) => () => void;
+  /** The channel's loop guard is closed: agents stay quiet until a human posts. */
+  suppressed: boolean;
 }
 
 /**
@@ -37,6 +48,8 @@ export const useConversation = (channelId: string | null): Conversation => {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [agentStatuses, setAgentStatuses] = useState<AgentStatuses>({});
+  const [suppressed, setSuppressed] = useState(false);
   const seenReplyIds = useRef(new Set<string>());
   const replyListeners = useRef(new Set<ReplyListener>());
 
@@ -48,6 +61,9 @@ export const useConversation = (channelId: string | null): Conversation => {
   }, []);
 
   useEffect(() => {
+    setAgentStatuses({});
+    setSuppressed(false);
+
     if (!channelId) {
       setChannel(null);
       setMembers([]);
@@ -102,6 +118,11 @@ export const useConversation = (channelId: string | null): Conversation => {
   }, [channelId, nextCursor]);
 
   const merge = useCallback((message: MessageView) => {
+    if (message.authorType !== "agent") {
+      // A human back in the conversation is exactly what reopens a channel the
+      // router suppressed, so the notice goes with them.
+      setSuppressed(false);
+    }
     if (message.threadParentId) {
       if (seenReplyIds.current.has(message.id)) {
         return;
@@ -132,9 +153,28 @@ export const useConversation = (channelId: string | null): Conversation => {
     });
   }, []);
 
-  useChannelSocket(channelId, merge);
+  const onEvent = useCallback(
+    (event: ChannelEvent) => {
+      if (event.type === "message.created") {
+        merge(event.message);
+        return;
+      }
+      if (event.type === "agent.status") {
+        setAgentStatuses((previous) => ({
+          ...previous,
+          [event.agentId]: event,
+        }));
+        return;
+      }
+      setSuppressed(true);
+    },
+    [merge]
+  );
+
+  useChannelSocket(channelId, onEvent);
 
   return {
+    agentStatuses,
     channel,
     error,
     loading,
@@ -144,5 +184,6 @@ export const useConversation = (channelId: string | null): Conversation => {
     messages,
     nextCursor,
     subscribeToReplies,
+    suppressed,
   };
 };

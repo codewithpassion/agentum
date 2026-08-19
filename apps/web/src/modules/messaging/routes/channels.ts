@@ -13,13 +13,13 @@ import {
 } from "#/api/validation";
 import { createDb } from "#/db/client";
 import { getAgentById } from "#/modules/agents/service";
-import { broadcastChannelEvent, connectToChannelRoom } from "../realtime";
+import { publishMessage } from "../publish";
+import { connectToChannelRoom } from "../realtime";
 import { MEMBER_TYPES } from "../schema";
 import {
   addChannelMember,
   addChannelMembers,
   createChannel,
-  createMessage,
   decodeCursor,
   deleteChannel,
   getChannel,
@@ -147,7 +147,7 @@ channelsRoutes.post("/:id/messages", async (c) => {
   }
 
   const body = await readJsonObject(c.req.raw);
-  const result = await createMessage(db, {
+  const result = await publishMessage(db, c.env, {
     channelId,
     authorType: "user",
     authorId: c.get("userId"),
@@ -159,12 +159,6 @@ channelsRoutes.post("/:id/messages", async (c) => {
   if (!result.ok) {
     throw badRequest(result.reason);
   }
-
-  await broadcastChannelEvent(c.env, {
-    type: "message.created",
-    channelId,
-    message: result.message,
-  });
 
   return c.json({ message: result.message }, 201);
 });

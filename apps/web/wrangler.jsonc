@@ -26,6 +26,12 @@
       {
         "name": "CHANNEL_ROOM",
         "class_name": "ChannelRoom"
+      },
+      // One global instance (idFromName("router")) watches every message and
+      // decides which agents wake.
+      {
+        "name": "AGENT_ROUTER",
+        "class_name": "AgentRouter"
       }
     ]
   },
@@ -33,6 +39,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["ChannelRoom"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["AgentRouter"]
     }
   ]
 }

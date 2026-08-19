@@ -7,7 +7,9 @@ export default defineConfig({
   out: "./drizzle",
   schema: [
     "./src/modules/agents/schema.ts",
+    "./src/modules/anthropic/schema.ts",
     "./src/modules/messaging/schema.ts",
     "./src/modules/connectors/schema.ts",
+    "./src/modules/wiki/schema.ts",
   ],
 });

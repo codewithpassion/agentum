@@ -8,6 +8,41 @@
       "when": 1787145003193,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787150200760,
+      "tag": "0001_wiki",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787151698810,
+      "tag": "0002_drop_agent_mcp_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787151706198,
+      "tag": "0003_add_agent_mcp_token_hash",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787153138919,
+      "tag": "0004_agent_status_and_app_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1787155773875,
+      "tag": "0005_slack_connector",
+      "breakpoints": true
     }
   ]
 }

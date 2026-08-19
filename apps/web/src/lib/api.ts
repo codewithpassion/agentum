@@ -1,17 +1,43 @@
-import type { Agent as AgentRow } from "#/modules/agents/schema";
+import type { AgentView } from "#/modules/agents/service";
+import type { ChannelBridge as ChannelBridgeRow } from "#/modules/connectors/schema";
+import type { ConnectorStatus as ConnectorStatusRow } from "#/modules/connectors/types";
 import type { Channel as ChannelRow } from "#/modules/messaging/schema";
 import type {
   AttachmentView as AttachmentRow,
   ChannelMemberView as ChannelMemberRow,
   MessageView as MessageRow,
 } from "#/modules/messaging/service";
+import type {
+  WikiPageSummary as WikiPageSummaryRow,
+  WikiPageView,
+  WikiRevisionView,
+} from "#/modules/wiki/service";
 
 /** The client speaks exactly the server's shapes; these aliases are the contract. */
-export type Agent = AgentRow;
+export type Agent = AgentView;
 export type Channel = ChannelRow;
 export type AttachmentView = AttachmentRow;
 export type ChannelMemberView = ChannelMemberRow;
 export type MessageView = MessageRow;
+export type WikiPage = WikiPageView;
+export type WikiPageSummary = WikiPageSummaryRow;
+export type WikiRevision = WikiRevisionView;
+
+/** Carries the HTTP status so callers can tell "missing" from "broken". */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+const NOT_FOUND = 404;
+
+export const isNotFound = (error: unknown): boolean =>
+  error instanceof ApiError && error.status === NOT_FOUND;
 
 const request = async <T>(
   path: string,
@@ -33,7 +59,10 @@ const request = async <T>(
       error?: string;
     } | null;
     // Server error bodies are `{ error }`; anything else is a transport failure.
-    throw new Error(body?.error ?? `Request failed (${response.status}).`);
+    throw new ApiError(
+      body?.error ?? `Request failed (${response.status}).`,
+      response.status
+    );
   }
 
   if (response.status === 204) {
@@ -53,10 +82,14 @@ export interface AgentInput {
 export const listAgents = () =>
   request<{ agents: Agent[] }>("/agents").then((data) => data.agents);
 
+/** The MCP URL is returned once, when the token behind it is issued. */
+export interface IssuedAgent {
+  agent: Agent;
+  mcpUrl: string;
+}
+
 export const createAgent = (input: AgentInput) =>
-  request<{ agent: Agent }>("/agents", { json: input, method: "POST" }).then(
-    (data) => data.agent
-  );
+  request<IssuedAgent>("/agents", { json: input, method: "POST" });
 
 export const updateAgent = (id: string, input: AgentInput) =>
   request<{ agent: Agent }>(`/agents/${id}`, {
@@ -64,8 +97,29 @@ export const updateAgent = (id: string, input: AgentInput) =>
     method: "PATCH",
   }).then((data) => data.agent);
 
+/** Invalidates the agent's current MCP URL and returns its replacement. */
+export const rotateAgentMcpToken = (id: string) =>
+  request<IssuedAgent>(`/agents/${id}`, {
+    json: { rotateMcpToken: true },
+    method: "PATCH",
+  });
+
 export const deleteAgent = (id: string) =>
   request<void>(`/agents/${id}`, { method: "DELETE" });
+
+/** What the router and the Anthropic registration currently say about an agent. */
+export interface AgentStatusView {
+  agentId: string;
+  sessionId: string | null;
+  status: Agent["status"];
+  syncError: string | null;
+  syncStatus: Agent["syncStatus"];
+}
+
+export const getAgentStatus = (id: string) =>
+  request<{ status: AgentStatusView }>(`/agents/${id}/status`).then(
+    (data) => data.status
+  );
 
 // --- channels ---------------------------------------------------------------
 
@@ -120,3 +174,93 @@ export const uploadAttachment = async (file: File): Promise<AttachmentView> => {
   });
   return data.attachment;
 };
+
+// --- wiki -------------------------------------------------------------------
+
+export interface WikiAssetView {
+  filename: string;
+  id: string;
+  mime: string;
+  size: number;
+  url: string;
+}
+
+export const listWikiPages = () =>
+  request<{ pages: WikiPageSummary[] }>("/wiki").then((data) => data.pages);
+
+export const getWikiPage = (slug: string) =>
+  request<{ page: WikiPage }>(`/wiki/${encodeURIComponent(slug)}`).then(
+    (data) => data.page
+  );
+
+export const createWikiPage = (input: { body: string; title: string }) =>
+  request<{ page: WikiPage }>("/wiki", { json: input, method: "POST" }).then(
+    (data) => data.page
+  );
+
+export const updateWikiPage = (
+  slug: string,
+  input: { body?: string; title?: string }
+) =>
+  request<{ page: WikiPage }>(`/wiki/${encodeURIComponent(slug)}`, {
+    json: input,
+    method: "PATCH",
+  }).then((data) => data.page);
+
+export const deleteWikiPage = (slug: string) =>
+  request<void>(`/wiki/${encodeURIComponent(slug)}`, { method: "DELETE" });
+
+export const listWikiRevisions = (slug: string) =>
+  request<{ revisions: WikiRevision[] }>(
+    `/wiki/${encodeURIComponent(slug)}/revisions`
+  ).then((data) => data.revisions);
+
+export const getWikiRevision = (slug: string, revisionId: string) =>
+  request<{ revision: WikiRevision }>(
+    `/wiki/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(revisionId)}`
+  ).then((data) => data.revision);
+
+export const uploadWikiAsset = async (
+  file: File,
+  pageId?: string
+): Promise<WikiAssetView> => {
+  const form = new FormData();
+  form.append("file", file);
+  if (pageId) {
+    form.append("pageId", pageId);
+  }
+  const data = await request<{ asset: WikiAssetView }>("/wiki/assets", {
+    body: form,
+    method: "POST",
+  });
+  return data.asset;
+};
+
+// --- connectors -------------------------------------------------------------
+
+export type ChannelBridge = ChannelBridgeRow;
+export type ConnectorStatus = ConnectorStatusRow;
+
+/** Both halves of the bridging UI in one call: the form and the "not configured" state. */
+export const getChannelBridge = (channelId: string) =>
+  request<{ bridge: ChannelBridge | null; connector: ConnectorStatus }>(
+    `/channels/${channelId}/bridge`
+  );
+
+export const saveChannelBridge = (
+  channelId: string,
+  input: { agentId: string | null; externalChannelId: string }
+) =>
+  request<{ bridge: ChannelBridge; channelName: string | null }>(
+    `/channels/${channelId}/bridge`,
+    { json: input, method: "POST" }
+  );
+
+export const deleteChannelBridge = (channelId: string) =>
+  request<void>(`/channels/${channelId}/bridge`, { method: "DELETE" });
+
+/** Which external surfaces can reach an agent - the agent rail's connector card. */
+export const listAgentBridges = (agentId: string) =>
+  request<{ bridges: ChannelBridge[]; connector: ConnectorStatus }>(
+    `/connectors/bridges?agentId=${encodeURIComponent(agentId)}`
+  );

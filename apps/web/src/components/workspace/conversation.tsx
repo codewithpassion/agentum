@@ -9,6 +9,8 @@ import {
 } from "#/lib/api";
 import type { Viewer } from "#/lib/authors";
 import type { Conversation as ConversationState } from "#/lib/use-conversation";
+import { AgentActivity } from "./agent-activity";
+import { ChannelSettings } from "./channel-settings";
 import { Composer } from "./composer";
 import { MessageStream } from "./message-stream";
 
@@ -42,11 +44,13 @@ function MemberAvatar({
 }
 
 function ChannelHeader({
+  agents,
   agentsById,
   conversation,
   onSelectAgent,
   onToggleRail,
 }: {
+  agents: Agent[];
   agentsById: Map<string, Agent>;
   conversation: ConversationState;
   onSelectAgent: (agentId: string) => void;
@@ -76,14 +80,14 @@ function ChannelHeader({
       <span className="text-[var(--ws-muted)] text-xs">
         {members.length} {members.length === 1 ? "member" : "members"}
       </span>
-      <Button
-        className="ml-auto"
-        onClick={onToggleRail}
-        size="sm"
-        variant="ghost"
-      >
-        Agent screen
-      </Button>
+      <div className="ml-auto flex items-center gap-1">
+        {channel ? (
+          <ChannelSettings agents={agents} channelId={channel.id} />
+        ) : null}
+        <Button onClick={onToggleRail} size="sm" variant="ghost">
+          Agent screen
+        </Button>
+      </div>
     </header>
   );
 }
@@ -135,6 +139,7 @@ export function ConversationPane({
       data-testid="conversation"
     >
       <ChannelHeader
+        agents={agents}
         agentsById={agentsById}
         conversation={conversation}
         onSelectAgent={onSelectAgent}
@@ -158,6 +163,10 @@ export function ConversationPane({
         onOpenThread={onOpenThread}
         onSelectAgent={onSelectAgent}
         viewer={viewer}
+      />
+      <AgentActivity
+        statuses={conversation.agentStatuses}
+        suppressed={conversation.suppressed}
       />
       <Composer
         agents={agents}

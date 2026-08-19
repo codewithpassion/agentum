@@ -1,0 +1,91 @@
+import { useEffect, useState } from "react";
+import {
+  type ChannelBridge,
+  type ConnectorStatus,
+  listAgentBridges,
+} from "#/lib/api";
+
+/**
+ * "Which surfaces can reach this agent" - the connector half of the agent's
+ * profile. A bridge whose `agentId` is this agent means a Slack mention of the
+ * bot in that channel wakes it, exactly like an @mention in our UI.
+ */
+export function ConnectorCard({ agentId }: { agentId: string }) {
+  const [bridges, setBridges] = useState<ChannelBridge[] | null>(null);
+  const [connector, setConnector] = useState<ConnectorStatus | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listAgentBridges(agentId)
+      .then((data) => {
+        if (!cancelled) {
+          setBridges(data.bridges);
+          setConnector(data.connector);
+        }
+      })
+      .catch(() => {
+        // The card is informational; a failed read simply shows nothing.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
+
+  return (
+    <section className="space-y-1.5" data-testid="agent-connectors">
+      <h3 className="m-0 font-medium text-[10px] text-[var(--ws-muted)] uppercase tracking-wide">
+        Reachable from
+      </h3>
+      <ConnectorBody bridges={bridges} connector={connector} />
+    </section>
+  );
+}
+
+function ConnectorBody({
+  bridges,
+  connector,
+}: {
+  bridges: ChannelBridge[] | null;
+  connector: ConnectorStatus | null;
+}) {
+  if (!(bridges && connector)) {
+    return <p className="m-0 text-[var(--ws-muted)] text-xs">Loading…</p>;
+  }
+
+  if (!connector.configured) {
+    return (
+      <p className="m-0 text-[var(--ws-muted)] text-xs leading-5">
+        Slack not configured — set {connector.missing.join(" & ")} to bridge a
+        channel to Slack.
+      </p>
+    );
+  }
+
+  if (bridges.length === 0) {
+    return (
+      <p className="m-0 text-[var(--ws-muted)] text-xs leading-5">
+        This workspace only. Bridge a channel to Slack from the channel's
+        Settings to let Slack reach this agent.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="m-0 list-none space-y-1 p-0">
+      {bridges.map((bridge) => (
+        <li
+          className="flex items-center gap-2 rounded-lg bg-[var(--ws-surface)] px-2 py-1.5 text-[var(--ws-muted)] text-xs"
+          key={bridge.id}
+        >
+          <span className="font-medium text-[var(--ws-text)]">
+            {bridge.connector}
+          </span>
+          <code className="truncate text-[11px]">
+            {bridge.externalChannelId}
+          </code>
+          <span className="ml-auto">{bridge.status}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}

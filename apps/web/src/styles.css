@@ -594,10 +594,31 @@ a {
 
 .md-body h1,
 .md-body h2,
-.md-body h3 {
+.md-body h3,
+.md-body h4 {
   margin-block: 0.75rem 0.35rem;
   font-size: 1rem;
   font-weight: 700;
+  scroll-margin-top: 1rem;
+}
+
+/* The heading anchor stays out of the way until the heading is hovered. */
+.md-anchor {
+  margin-left: 0.4rem;
+  color: var(--ws-muted);
+  text-decoration: none;
+  opacity: 0;
+}
+
+.md-body :is(h1, h2, h3, h4):hover .md-anchor,
+.md-anchor:focus-visible {
+  opacity: 1;
+}
+
+/* A wiki-link whose page has not been written yet. */
+.wiki-link-missing {
+  color: var(--ws-danger);
+  text-decoration-style: dashed;
 }
 
 .md-body pre {

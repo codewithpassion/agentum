@@ -6,6 +6,7 @@
     "#/*": "./src/*"
   },
   "scripts": {
+    "anthropic-spike": "bun scripts/anthropic-spike.ts",
     "build": "vite build",
     "cf-typegen": "wrangler types",
     "create-dev-user": "bun scripts/create-dev-user.ts",
@@ -20,9 +21,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.118.0",
     "@clerk/backend": "^3.16.8",
     "@clerk/hono": "^0.1.69",
     "@clerk/tanstack-react-start": "^1.4.21",
+    "@hono/mcp": "^0.3.2",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-router": "latest",
@@ -34,7 +38,8 @@
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.1.18",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.26.0",

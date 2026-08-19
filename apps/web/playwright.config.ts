@@ -34,7 +34,12 @@ const config = defineConfig({
   webServer: {
     // The migration is idempotent and covers a fresh `.wrangler` state dir,
     // without which every `/api` call fails on a missing table.
-    command: `bun run db:migrate:local && bunx vite dev --port ${PORT} --strictPort`,
+    //
+    // `--mode e2e` is what keeps the suite off the real Anthropic API: the key
+    // in `.env.local` reaches the Worker no matter what the environment says,
+    // so the mode is the only switch a single run can flip
+    // (see modules/anthropic/service.ts).
+    command: `bun run db:migrate:local && bunx vite dev --mode e2e --port ${PORT} --strictPort`,
     reuseExistingServer: !process.env.CI,
     timeout: SERVER_START_TIMEOUT_MS,
     url: BASE_URL,

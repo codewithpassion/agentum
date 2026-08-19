@@ -1,6 +1,12 @@
 import { sql } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+/** How the agent's registration with the Anthropic API stands. */
+export const AGENT_SYNC_STATUSES = ["unregistered", "synced", "error"] as const;
+
+/** What the agent is doing right now, as the router sees it. */
+export const AGENT_STATUSES = ["idle", "queued", "working", "error"] as const;
+
 export const agents = sqliteTable("agents", {
   /** Set in phase 2, when the agent is registered with the Anthropic API. */
   anthropicAgentId: text("anthropic_agent_id"),
@@ -11,11 +17,22 @@ export const agents = sqliteTable("agents", {
     .default(sql`(unixepoch() * 1000)`),
   id: text("id").primaryKey(),
   instructions: text("instructions").notNull().default(""),
-  /** Per-agent secret embedded in its MCP server URL. Issued in phase 2. */
-  mcpToken: text("mcp_token"),
+  /**
+   * SHA-256 of the per-agent secret embedded in its MCP server URL. The token
+   * itself is never stored: it is returned once, when issued or rotated.
+   */
+  mcpTokenHash: text("mcp_token_hash").unique(),
   memoryStoreId: text("memory_store_id"),
   name: text("name").notNull().unique(),
+  /** The Anthropic session the router is currently driving, if any. */
+  sessionId: text("session_id"),
   soul: text("soul").notNull().default(""),
+  status: text("status", { enum: AGENT_STATUSES }).notNull().default("idle"),
+  /** Why the last registration attempt failed; null unless `syncStatus` is "error". */
+  syncError: text("sync_error"),
+  syncStatus: text("sync_status", { enum: AGENT_SYNC_STATUSES })
+    .notNull()
+    .default("unregistered"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch() * 1000)`),

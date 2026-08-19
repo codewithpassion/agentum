@@ -36,3 +36,14 @@ export const formatDay = (timestamp: number): string =>
   });
 
 export const isImage = (mime: string): boolean => mime.startsWith("image/");
+
+const MASK = "••••••••";
+
+/**
+ * An agent's MCP URL is a bearer credential, so the token is masked on screen;
+ * the copy button still copies the real one.
+ */
+export const maskMcpUrl = (url: string): string => {
+  const lastSlash = url.lastIndexOf("/");
+  return lastSlash === -1 ? MASK : `${url.slice(0, lastSlash + 1)}${MASK}`;
+};

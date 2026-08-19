@@ -3,14 +3,19 @@ import { clerkMiddleware, getAuth } from "@clerk/hono";
 import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
 import { agentsRoutes } from "#/modules/agents/routes";
+import { bridgeRoutes, connectorsRoutes } from "#/modules/connectors/routes";
+import { slackRoutes } from "#/modules/connectors/slack/routes";
+import { mcpRoutes } from "#/modules/mcp/routes";
 import { attachmentsRoutes } from "#/modules/messaging/routes/attachments";
 import { channelsRoutes } from "#/modules/messaging/routes/channels";
 import { messagesRoutes } from "#/modules/messaging/routes/messages";
+import { wikiRoutes } from "#/modules/wiki/routes";
 
-// The Durable Object class must be re-exported from the Worker entry so the
-// runtime can instantiate it for the CHANNEL_ROOM binding.
+// Durable Object classes must be re-exported from the Worker entry so the
+// runtime can instantiate them for the CHANNEL_ROOM and AGENT_ROUTER bindings.
 // biome-ignore lint/performance/noBarrelFile: the Workers runtime requires the DO class on the entry module
 export { ChannelRoom } from "#/modules/messaging/channel-room";
+export { AgentRouter } from "#/modules/router/agent-router";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -57,6 +62,19 @@ app.route("/api/agents", agentsRoutes);
 app.route("/api/channels", channelsRoutes);
 app.route("/api/messages", messagesRoutes);
 app.route("/api/attachments", attachmentsRoutes);
+app.route("/api/wiki", wikiRoutes);
+// Bridge management lives in the connectors module but reads as part of a
+// channel; Hono falls through to it for the paths `channelsRoutes` does not own.
+app.route("/api/channels", bridgeRoutes);
+app.route("/api/connectors", connectorsRoutes);
+
+// Slack's Events API endpoint. Not behind Clerk: Slack signs its requests, and
+// the signature is checked before anything in the payload is trusted.
+app.route("/api/connectors/slack", slackRoutes);
+
+// The agents' MCP endpoint. Not behind Clerk: the per-agent token in the path
+// is the credential (see modules/mcp/routes).
+app.route("/mcp", mcpRoutes);
 
 // Everything else is handled by TanStack Start (SSR pages, server functions, assets).
 app.all("*", (c) => handler.fetch(c.req.raw));

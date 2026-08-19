@@ -8,8 +8,9 @@ import {
   openAgentDm,
 } from "#/lib/api";
 import type { Viewer } from "#/lib/authors";
-import { useConversation } from "#/lib/use-conversation";
+import { type AgentStatuses, useConversation } from "#/lib/use-conversation";
 import { useWorkspaceData } from "#/lib/use-workspace-data";
+import type { AgentStatusEvent } from "#/modules/messaging/realtime";
 import { AgentDialog } from "./agent-dialog";
 import { AgentRail } from "./agent-rail";
 import { ChannelDialog } from "./channel-dialog";
@@ -28,6 +29,12 @@ interface OpenThread {
   channelId: string;
   messageId: string;
 }
+
+/** The router only reports on agents woken from the channel that is open. */
+const liveStatusFor = (
+  statuses: AgentStatuses,
+  agent: Agent | null
+): AgentStatusEvent | null => (agent ? (statuses[agent.id] ?? null) : null);
 
 function SignedOutLanding() {
   return (
@@ -72,6 +79,9 @@ export function Workspace({
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [deletingAgent, setDeletingAgent] = useState<Agent | null>(null);
+  // MCP tokens are stored hashed, so a freshly issued URL only exists here,
+  // for as long as this page stays loaded.
+  const [mcpUrls, setMcpUrls] = useState<Record<string, string>>({});
 
   const threadParentId =
     thread && thread.channelId === channelId ? thread.messageId : null;
@@ -140,6 +150,10 @@ export function Workspace({
     [reload, selectAgent]
   );
 
+  const onTokenIssued = useCallback((issuedFor: string, issuedUrl: string) => {
+    setMcpUrls((previous) => ({ ...previous, [issuedFor]: issuedUrl }));
+  }, []);
+
   const onChannelCreated = useCallback(
     async (channel: Channel) => {
       await reload();
@@ -201,6 +215,8 @@ export function Workspace({
       {railOpen ? (
         <AgentRail
           agent={selectedAgent}
+          liveStatus={liveStatusFor(conversation.agentStatuses, selectedAgent)}
+          mcpUrl={selectedAgent ? (mcpUrls[selectedAgent.id] ?? null) : null}
           onDelete={setDeletingAgent}
           onEdit={startEditAgent}
         />
@@ -214,8 +230,10 @@ export function Workspace({
 
       <AgentDialog
         agent={editingAgent}
+        mcpUrl={editingAgent ? (mcpUrls[editingAgent.id] ?? null) : null}
         onClose={closeAgentDialog}
         onSaved={onAgentSaved}
+        onTokenIssued={onTokenIssued}
         open={agentDialogOpen}
       />
 

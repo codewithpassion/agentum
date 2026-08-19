@@ -1,0 +1,128 @@
+import type { ChannelBridge } from "../schema";
+import type { InboundMessage } from "../types";
+import { SLACK_CONNECTOR } from "./config";
+import {
+  type SlackEventCallback,
+  type SlackFile,
+  type SlackMessageEvent,
+  slackMessageKey,
+} from "./events";
+import { collectUserMentions, slackTextToBody } from "./text";
+
+/**
+ * Inbound normalisation. Every lookup it needs is a port, so the decision logic
+ * - which events we take, how a Slack thread becomes ours, what the body says -
+ * is exercised in tests without a database or a Slack workspace.
+ */
+
+export interface InboundBridge {
+  /** The agent the bot speaks as, resolved to its `@Name`. */
+  agentName: string | null;
+  bridge: ChannelBridge;
+}
+
+export interface SlackInboundPorts {
+  /** `null` when the Slack channel is not bridged - we ignore it. */
+  findBridge: (externalChannelId: string) => Promise<InboundBridge | null>;
+  /** True when this `channel:ts` was already published. */
+  isDuplicate: (externalId: string) => Promise<boolean>;
+  /** Our message id for a Slack `channel:ts`, when we have seen the parent. */
+  resolveThreadParent: (externalId: string) => Promise<string | null>;
+  /** Slack user id → display name, cached by the caller. */
+  resolveUserNames: (
+    userIds: readonly string[]
+  ) => Promise<Map<string, string>>;
+  /** Attachment id, or `null` when the download failed - files are optional. */
+  storeFile: (file: SlackFile) => Promise<string | null>;
+}
+
+/**
+ * The echo-loop guard's first layer. Anything the bot itself posted comes back
+ * carrying `bot_id`, and every `subtype` (edits, joins, `bot_message`) is a
+ * message we do not republish.
+ */
+export const isPublishableEvent = (event: SlackMessageEvent): boolean => {
+  if (event.type !== "message" && event.type !== "app_mention") {
+    return false;
+  }
+  if (event.bot_id || event.subtype) {
+    return false;
+  }
+  return Boolean(event.user && event.channel && event.ts);
+};
+
+const botUserIdOf = (payload: SlackEventCallback): string | null =>
+  payload.authorizations?.[0]?.user_id ?? null;
+
+const storeFiles = async (
+  files: readonly SlackFile[],
+  ports: SlackInboundPorts
+): Promise<string[]> => {
+  const stored = await Promise.all(files.map((file) => ports.storeFile(file)));
+  return stored.filter((id): id is string => id !== null);
+};
+
+export const normalizeSlackEvent = async (
+  payload: SlackEventCallback,
+  ports: SlackInboundPorts
+): Promise<InboundMessage | null> => {
+  const { event } = payload;
+  if (!isPublishableEvent(event)) {
+    return null;
+  }
+
+  const channel = event.channel ?? "";
+  const ts = event.ts ?? "";
+  const externalId = slackMessageKey(channel, ts);
+
+  const found = await ports.findBridge(channel);
+  if (found?.bridge.status !== "active") {
+    return null;
+  }
+
+  // A channel message that mentions the bot is delivered twice - as `message`
+  // and as `app_mention`, with different event ids - so identity is the message,
+  // not the delivery.
+  if (await ports.isDuplicate(externalId)) {
+    return null;
+  }
+
+  const text = event.text ?? "";
+  // The author is resolved alongside the people they mention, so the display
+  // name cache is warm by the time anyone mentions them back.
+  const userNames = await ports.resolveUserNames([
+    ...new Set([...collectUserMentions(text), event.user ?? ""]),
+  ]);
+  const body = slackTextToBody(text, {
+    agentName: found.agentName,
+    botUserId: botUserIdOf(payload),
+    userNames,
+  });
+
+  const attachmentIds = await storeFiles(event.files ?? [], ports);
+  if (!body && attachmentIds.length === 0) {
+    return null;
+  }
+
+  // A reply whose parent we never saw is posted at the top level rather than
+  // dropped: the conversation stays visible, it just loses the nesting.
+  const threadParentId =
+    event.thread_ts && event.thread_ts !== ts
+      ? await ports.resolveThreadParent(
+          slackMessageKey(channel, event.thread_ts)
+        )
+      : null;
+
+  return {
+    externalId,
+    input: {
+      attachmentIds,
+      authorId: `${SLACK_CONNECTOR}:${event.user ?? ""}`,
+      authorType: "external",
+      body,
+      channelId: found.bridge.channelId,
+      origin: SLACK_CONNECTOR,
+      ...(threadParentId ? { threadParentId } : {}),
+    },
+  };
+};

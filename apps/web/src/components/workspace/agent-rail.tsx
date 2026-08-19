@@ -1,10 +1,128 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
-import type { Agent } from "#/lib/api";
+import { type Agent, type AgentStatusView, getAgentStatus } from "#/lib/api";
+import type { AgentStatusEvent } from "#/modules/messaging/realtime";
+import { ConnectorCard } from "./connector-card";
+import { McpUrlField } from "./mcp-url";
 
 /** Phase 3 fills these with the agent's computer and browser (see docs/plan.md). */
 const PLACEHOLDER_TABS = ["Screen", "Files", "Activity"] as const;
+
+const STATUS_COLORS = {
+  error: "var(--ws-danger)",
+  idle: "var(--ws-muted)",
+  queued: "var(--ws-accent)",
+  working: "var(--ws-accent)",
+} as const;
+
+const STATUS_LABELS = {
+  error: "error",
+  idle: "idle",
+  queued: "queued",
+  working: "working…",
+} as const;
+
+const SYNC_LABELS = {
+  error: "registration failed",
+  synced: "registered with Anthropic",
+  unregistered: "not registered yet",
+} as const;
+
+function StatusLine({
+  sessionId,
+  status,
+}: {
+  sessionId: string | null;
+  status: Agent["status"];
+}) {
+  return (
+    <p
+      className="m-0 flex items-center gap-1.5 text-[var(--ws-muted)] text-xs"
+      data-testid="agent-status"
+    >
+      <span
+        aria-hidden="true"
+        className={`inline-block h-1.5 w-1.5 rounded-full ${status === "working" ? "animate-pulse" : ""}`}
+        style={{ background: STATUS_COLORS[status] }}
+      />
+      <span>{STATUS_LABELS[status]}</span>
+      {sessionId ? (
+        <span className="truncate font-mono text-[10px] opacity-70">
+          {sessionId}
+        </span>
+      ) : null}
+    </p>
+  );
+}
+
+function SyncLine({
+  syncError,
+  syncStatus,
+}: {
+  syncError: string | null;
+  syncStatus: Agent["syncStatus"];
+}) {
+  return (
+    <p
+      className={`m-0 text-xs ${syncStatus === "error" ? "text-[var(--ws-danger)]" : "text-[var(--ws-muted)]"}`}
+      data-testid="agent-sync-status"
+      title={syncError ?? undefined}
+    >
+      {SYNC_LABELS[syncStatus]}
+      {syncStatus === "error" && syncError ? ` — ${syncError}` : ""}
+    </p>
+  );
+}
+
+/**
+ * The row is refreshed on workspace reloads only, and the socket only reports
+ * agents woken from the open channel - so the rail asks for the truth when an
+ * agent is selected, and lets live events overtake it from there.
+ */
+const useAgentStatus = (
+  agent: Agent | null,
+  live: AgentStatusEvent | null
+): AgentStatusView | null => {
+  const [fetched, setFetched] = useState<AgentStatusView | null>(null);
+  const agentId = agent?.id ?? null;
+
+  useEffect(() => {
+    if (!agentId) {
+      setFetched(null);
+      return;
+    }
+    let cancelled = false;
+    getAgentStatus(agentId)
+      .then((status) => {
+        if (!cancelled) {
+          setFetched(status);
+        }
+      })
+      .catch(() => {
+        // The row we already have is a fine fallback.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
+
+  if (!agent) {
+    return null;
+  }
+  const base: AgentStatusView =
+    fetched?.agentId === agent.id
+      ? fetched
+      : {
+          agentId: agent.id,
+          sessionId: agent.sessionId,
+          status: agent.status,
+          syncError: agent.syncError,
+          syncStatus: agent.syncStatus,
+        };
+
+  return live ? { ...base, status: live.status } : base;
+};
 
 function Section({ body, title }: { body: string; title: string }) {
   return (
@@ -45,31 +163,37 @@ function AgentActions({
 
 export function AgentRail({
   agent,
+  liveStatus,
+  mcpUrl,
   onDelete,
   onEdit,
 }: {
   agent: Agent | null;
+  /** The router's latest word, when the open channel is the one that woke it. */
+  liveStatus: AgentStatusEvent | null;
+  /** Known only while this session still holds a freshly issued token. */
+  mcpUrl: string | null;
   onDelete: (agent: Agent) => void;
   onEdit: (agent: Agent) => void;
 }) {
+  const status = useAgentStatus(agent, liveStatus);
+
   return (
     <aside
       className="hidden w-80 shrink-0 flex-col overflow-y-auto border-[var(--ws-line)] border-l bg-[var(--ws-panel)] lg:flex"
       data-testid="agent-rail"
     >
-      {agent ? (
+      {agent && status ? (
         <div className="space-y-5 p-4">
           <div className="flex items-center gap-3">
             <Avatar color={agent.avatar} name={agent.name} size="lg" />
             <div className="min-w-0">
               <p className="m-0 truncate font-semibold text-sm">{agent.name}</p>
-              <p className="m-0 flex items-center gap-1.5 text-[var(--ws-muted)] text-xs">
-                <span
-                  aria-hidden="true"
-                  className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--ws-muted)]"
-                />
-                idle
-              </p>
+              <StatusLine sessionId={status.sessionId} status={status.status} />
+              <SyncLine
+                syncError={status.syncError}
+                syncStatus={status.syncStatus}
+              />
             </div>
           </div>
 
@@ -92,6 +216,10 @@ export function AgentRail({
               The agent's computer and browser land here in phase 3.
             </p>
           </nav>
+
+          <McpUrlField url={mcpUrl} />
+
+          <ConnectorCard agentId={agent.id} />
 
           <Section body={agent.soul} title="Soul" />
           <Section body={agent.instructions} title="Instructions" />

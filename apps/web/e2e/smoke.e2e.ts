@@ -20,6 +20,9 @@ const REPLY_BODY = `threaded reply ${RUN_ID}`;
 const LIVE_BODY = `live update ${RUN_ID}`;
 const IMAGE_FILENAME = `smoke-${RUN_ID}.png`;
 const LIVE_UPDATE_TIMEOUT_MS = 20_000;
+/** `PUBLIC_APP_URL` decides the host, so only the masked tail is asserted. */
+const MASKED_MCP_URL = /\/mcp\/•{8}$/;
+const HIDDEN_MCP_URL = /Hidden/;
 
 /** A 1x1 red PNG - enough for the browser to decode and lay out. */
 const PNG_BASE64 =
@@ -111,6 +114,11 @@ test("creates an agent and a channel, posts a mention with an image, and replies
     sidebar.getByRole("button", { exact: true, name: AGENT_NAME })
   ).toBeVisible();
 
+  // The agent's MCP URL is issued with it and shown once, masked (docs/plan.md 2b).
+  await expect(
+    page.getByTestId("agent-rail").getByTestId("mcp-url")
+  ).toHaveText(MASKED_MCP_URL);
+
   // --- create the channel with that agent as a member ----------------------
   await openSidebarMenu(page, "New channel");
   const channelDialog = page.getByRole("dialog");
@@ -174,6 +182,13 @@ test("shows the agent profile in the right rail", async ({ page }) => {
   const rail = page.getByTestId("agent-rail");
   await expect(rail.getByText(AGENT_NAME)).toBeVisible();
   await expect(rail.getByText(AGENT_SOUL)).toBeVisible();
+
+  // A reload cannot recover the token - only a rotation issues a new URL.
+  await expect(rail.getByTestId("mcp-url")).toHaveText(HIDDEN_MCP_URL);
+  await rail.getByRole("button", { name: "Edit" }).click();
+  const editDialog = page.getByRole("dialog");
+  await editDialog.getByRole("button", { name: "Rotate" }).click();
+  await expect(editDialog.getByTestId("mcp-url")).toHaveText(MASKED_MCP_URL);
 });
 
 test("delivers a new message to a second browser without a reload", async ({

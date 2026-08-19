@@ -123,6 +123,42 @@ export const addChannelMember = (
   member: ChannelMemberInput
 ): Promise<void> => addChannelMembers(db, channelId, [member]);
 
+/** The channels a member can see - an agent's whole world, for the MCP tools. */
+export const listChannelsForMember = (
+  db: Db,
+  member: ChannelMemberInput
+): Promise<Channel[]> =>
+  db
+    .select({ channel: channels })
+    .from(channels)
+    .innerJoin(channelMembers, eq(channelMembers.channelId, channels.id))
+    .where(
+      and(
+        eq(channelMembers.memberType, member.memberType),
+        eq(channelMembers.memberId, member.memberId)
+      )
+    )
+    .orderBy(asc(channels.name))
+    .then((rows) => rows.map((row) => row.channel));
+
+export const isChannelMember = async (
+  db: Db,
+  channelId: string,
+  member: ChannelMemberInput
+): Promise<boolean> => {
+  const [row] = await db
+    .select({ memberId: channelMembers.memberId })
+    .from(channelMembers)
+    .where(
+      and(
+        eq(channelMembers.channelId, channelId),
+        eq(channelMembers.memberType, member.memberType),
+        eq(channelMembers.memberId, member.memberId)
+      )
+    );
+  return row !== undefined;
+};
+
 export const listChannelMembers = async (
   db: Db,
   channelId: string

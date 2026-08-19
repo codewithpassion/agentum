@@ -91,6 +91,20 @@ export const optionalStringArray = (
   return value as string[];
 };
 
+export const optionalBoolean = (
+  body: Record<string, unknown>,
+  field: string
+): boolean => {
+  const value = body[field];
+  if (value === undefined || value === null) {
+    return false;
+  }
+  if (typeof value !== "boolean") {
+    throw badRequest(`"${field}" must be a boolean.`);
+  }
+  return value;
+};
+
 export const requireEnum = <const T extends readonly string[]>(
   body: Record<string, unknown>,
   field: string,

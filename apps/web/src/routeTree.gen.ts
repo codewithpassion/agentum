@@ -13,6 +13,8 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as WikiIndexRouteImport } from './routes/wiki.index'
+import { Route as WikiSlugRouteImport } from './routes/wiki.$slug'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +36,32 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WikiIndexRoute = WikiIndexRouteImport.update({
+  id: '/wiki/',
+  path: '/wiki/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WikiSlugRoute = WikiSlugRouteImport.update({
+  id: '/wiki/$slug',
+  path: '/wiki/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
+  '/wiki/$slug': typeof WikiSlugRoute
+  '/wiki/': typeof WikiIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
+  '/wiki/$slug': typeof WikiSlugRoute
+  '/wiki': typeof WikiIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +69,22 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
+  '/wiki/$slug': typeof WikiSlugRoute
+  '/wiki/': typeof WikiIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/dev-login' | '/login'
+  fullPaths: '/' | '/about' | '/dev-login' | '/login' | '/wiki/$slug' | '/wiki/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/dev-login' | '/login'
-  id: '__root__' | '/' | '/about' | '/dev-login' | '/login'
+  to: '/' | '/about' | '/dev-login' | '/login' | '/wiki/$slug' | '/wiki'
+  id:
+    | '__root__'
+    | '/'
+    | '/about'
+    | '/dev-login'
+    | '/login'
+    | '/wiki/$slug'
+    | '/wiki/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +92,8 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   DevLoginRoute: typeof DevLoginRoute
   LoginRoute: typeof LoginRoute
+  WikiSlugRoute: typeof WikiSlugRoute
+  WikiIndexRoute: typeof WikiIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +126,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/wiki/': {
+      id: '/wiki/'
+      path: '/wiki'
+      fullPath: '/wiki/'
+      preLoaderRoute: typeof WikiIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/wiki/$slug': {
+      id: '/wiki/$slug'
+      path: '/wiki/$slug'
+      fullPath: '/wiki/$slug'
+      preLoaderRoute: typeof WikiSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +148,8 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   DevLoginRoute: DevLoginRoute,
   LoginRoute: LoginRoute,
+  WikiSlugRoute: WikiSlugRoute,
+  WikiIndexRoute: WikiIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

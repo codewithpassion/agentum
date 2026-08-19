@@ -1,4 +1,5 @@
 import { UserButton } from "@clerk/tanstack-react-start";
+import { Link } from "@tanstack/react-router";
 import { useCallback, useId, useState } from "react";
 import ThemeToggle from "#/components/theme-toggle";
 import { Avatar } from "#/components/ui/avatar";
@@ -217,16 +218,14 @@ export function Sidebar({
         ))}
 
         <SectionLabel>Knowledge</SectionLabel>
-        <button
-          className="flex w-full cursor-not-allowed items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-[var(--ws-muted)] opacity-60"
-          disabled
-          title="The wiki ships in phase 2"
-          type="button"
+        <Link
+          className={cx(rowClass(false), "no-underline")}
+          title="Open the wiki"
+          to="/wiki"
         >
           <span aria-hidden="true">📓</span>
           Wiki
-          <span className="ml-auto text-[10px]">soon</span>
-        </button>
+        </Link>
       </div>
 
       <div className="flex items-center gap-2 border-[var(--ws-line)] border-t px-3 py-3">
