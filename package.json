@@ -1,0 +1,20 @@
+{
+  "name": "agentum",
+  "private": true,
+  "type": "module",
+  "module": "index.ts",
+  "scripts": {
+    "check": "ultracite check",
+    "fix": "ultracite fix",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.6",
+    "@types/bun": "latest",
+    "husky": "^9.1.7",
+    "ultracite": "7.10.5"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
