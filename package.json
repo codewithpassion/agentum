@@ -8,11 +8,11 @@
   "scripts": {
     "build": "turbo run build",
     "check": "ultracite check && turbo run typecheck",
-    "deploy": "turbo run deploy",
     "dev": "turbo run dev",
     "fix": "ultracite fix",
     "prepare": "husky && turbo run cf-typegen",
-    "preview": "turbo run preview"
+    "preview": "turbo run preview",
+    "prod:deploy": "turbo run prod:deploy"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.6",
