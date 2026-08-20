@@ -5,6 +5,31 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 5 — Workspace UI polish, categories, hierarchical wiki + connectors/skills plan (2026-08-20)
+
+**Goal:** Post-Phase-3 polish pass — sidebar/workspace UX cleanup, channel membership management, a hierarchical wiki, and a plan for the next capabilities (Connectors & Skills).
+
+**What we did:**
+- Sidebar overhaul (3760c10): collapsible sections persisted in localStorage with search auto-expand; "Direct messages" renamed to "Agents"; Wiki moved to a top-bar icon; footer shows the signed-in user's name
+- New categories module (migration 0008, `/api/categories`): user-created categories that channels and agents sort into via per-row menus
+- Channel settings gained a Members section — view, add agents, remove members (new member DELETE route), header count kept in sync
+- Hierarchical wiki (44cd2c4): slugs may contain `/` (per-segment `slugifyPath`), collapsible folder tree, folder-index view for folders without their own document, `/wiki/$slug` converted to splat route `/wiki/$` so slashed slugs deep-link, `[[Ops/Runbooks]]` links resolve to nested pages; nested-page e2e added
+- Ran four forge agents this session (forge-backend, forge-members, forge-sidebar, forge-wiki) on disjoint scopes; both commits batch-landed at the end
+- Drafted docs/plan-connectors-skills.md (uncommitted): Connectors as user-added remote MCP servers with OAuth via Anthropic Vaults (`vault_ids` at session create, auto-refresh), Skills via the versioned skills API (`skills-2025-10-02` beta), phase-entry API spikes, and a pending naming decision — rename the Slack module to `modules/bridges` so `modules/connectors` can mean MCP connectors
+
+**Lessons learned:**
+- Four forge agents shared one working tree without conflict: backend first (sole owner of the shared `lib/api.ts` contract), then sidebar + members in parallel, then wiki. What made it safe: every prompt pinned the exact API contract, named the files the agent must NOT touch, and scoped formatting to touched files only (no repo-wide `ultracite fix`). This revises Cycle 2's "don't run forge agents concurrently on apps/web" — concurrent is fine with explicit disjoint file ownership
+- A forge agent died at startup on a transient Anthropic API server error; a one-line "continue from the top" resume message recovered the full task with no rework
+- Renaming a TanStack route file (`wiki.$slug.tsx` → `wiki.$.tsx`) leaves `routeTree.gen.ts` stale, so typecheck fails confusingly — run `bun run generate-routes` before diagnosing anything else
+- `%2F`-encoded slashes round-trip through Hono `:slug` params intact (proven end-to-end over workerd), so path slugs needed no regex route params
+- The e2e smoke test flaked once (new agent's sidebar button missing), order/state-dependent with the persistent local D1; it passed in isolation and in both later full runs
+- Anthropic Vaults make an OAuth refresh daemon unnecessary for MCP connectors: credentials attach at session create and Anthropic refreshes `mcp_oauth` tokens itself; but `vault_ids` is session-create-only and invalid credentials surface as `session.error`, not a create failure
+- The module named `connectors` (Slack bridge) is not the product feature "Connectors" — naming collision flagged in the plan before any new code
+
+**Avoid next time:**
+- Don't start Connectors/Skills implementation before the two phase-entry spikes (skill version upload shape; `agents.update` accepting `skills`) — the plan gates on them
+- Don't locate wiki tree links by visible name in e2e — the local D1 persists across runs, so leaf titles collide; key assertions on `href` instead
+
 ## Cycle 4 — Phase 3: agent computer, agent browser, right-rail agent screen (2026-08-20)
 
 **Goal:** Implement Phase 3 of docs/plan.md (final phase) — give each agent a computer and a browser, and surface both in a right-rail agent screen.
