@@ -5,6 +5,26 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 11 — Routines (2026-08-21)
+
+**Goal:** Implement docs/plan-routines.md — scheduled instructions per agent that fire as real channel messages, with a per-workspace scheduler DO and run history.
+
+**What we did:**
+- Backend (c876cca): `modules/routines` — a `Schedule` union (once/daily/weekly/interval/cron) with a pure `nextRun(schedule, timezone, after)` that resolves wall clocks through `Intl`, plus an in-repo five-field cron parser (`cron.ts`); migration 0016, DO migration tag v4, routines in workspace-delete cleanup
+- `RoutineScheduler` DO, one per workspace, holds exactly one alarm — the earliest `next_run_at`; missed fires collapse to a single run rescheduled from now. A fire posts `@Agent <instructions>` into the target channel with `origin: "routine"`, riding the existing mention → router → wake path, so one run is one thread and the history is real messages
+- Runs are written before the post and finalized after, so "never ran" and "ran and failed" are different rows; "Run now" reuses the same path without advancing the schedule
+- UI (0ad7436): `/w/$slug/routines` shaped like skills/connectors — list, per-routine run history, and create/edit as a mode of the route (a schedule picker with live preview doesn't fit a modal); the picker parses drafts through the server's own `parseSchedule` so refusals are worded identically on both sides, and previews the next three firings via the same `nextRun` the DO uses
+- Runs deep-link into the conversation they produced: the chat screen gained a `message` search param that opens the thread panel on a message fetched by id (works even if the channel hasn't paged it in), cleared when the panel closes or the channel changes; the `routine:<id>` author renders as "Routine"
+- 704 unit tests green (up from 632); boot-probe acceptance in docs/acceptance/routines/ — a routine created and edited through the form, a "+2 minutes" once watched through its firing, run history, and the thread link followed. Branch `routines`, cut from main after slack-apps merged; implemented by forge-routines-1 (backend) and forge-routines-2 (UI)
+
+**Lessons learned:**
+- DST makes wall-clock schedules ambiguous: `nextRun` tries both offsets around a transition — an hour that happens twice fires on the first of them, one that never happens fires a step later
+- Server-rendering the browser's timezone and clock into the picker made hydration disagree with the client — those are two things the server cannot know
+
+**Avoid next time:**
+- Don't server-render values only the browser knows (timezone, current time) — fill them in on mount
+- Don't duplicate schedule validation client-side — reuse the server's own parser so a bad schedule is refused in the form, worded identically, instead of as a 400 after save
+
 ## Cycle 10 — Slack apps per agent (2026-08-21)
 
 **Goal:** Implement docs/plan-slack-apps-per-agent.md — replace the single deployment-level Slack bot with one Slack app per agent, set up through a guided wizard in the agent's settings, so each agent is a real identity in Slack.
