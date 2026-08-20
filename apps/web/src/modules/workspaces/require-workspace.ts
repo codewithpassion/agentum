@@ -4,9 +4,14 @@ import { createDb } from "#/db/client";
 import { findMembership, getWorkspaceBySlug } from "./service";
 
 /**
- * The tenant gate for everything under `/api/w/:slug`, mounted after
+ * The tenant gate for everything under `/api/w/:workspaceSlug`, mounted after
  * `requireAuth`. It resolves the slug, checks the caller's membership, and puts
  * both on the context so no handler has to repeat the lookup.
+ *
+ * The mount parameter is `:workspaceSlug`, not `:slug`: the wiki and skills
+ * routers address their own rows by `:slug`, and Hono merges a nested router's
+ * parameters with its mount's - a collision would silently hand those routes
+ * the workspace's slug instead of the page's.
  *
  * It lives here, next to the tables it queries, rather than in `src/api/`: this
  * module owns the workspace row and the rule for reaching one.
@@ -16,7 +21,7 @@ import { findMembership, getWorkspaceBySlug } from "./service";
  * business knowing it does.
  */
 export const requireWorkspace = createMiddleware<ApiEnv>(async (c, next) => {
-  const slug = c.req.param("slug");
+  const slug = c.req.param("workspaceSlug");
   const db = createDb(c.env.DB);
 
   const workspace = slug ? await getWorkspaceBySlug(db, slug) : undefined;

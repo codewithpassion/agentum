@@ -57,6 +57,7 @@ const inboundFor = (): InboundMessage => ({
     body: "hello team",
     channelId: "channel-1",
     origin: "slack",
+    workspace: { id: "ws_default", slug: "default" },
   },
 });
 

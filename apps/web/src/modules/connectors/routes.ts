@@ -14,7 +14,6 @@ import { isUniqueConstraintError } from "#/db/errors";
 import { getAgentById, getAgentsByIds } from "#/modules/agents/service";
 import { resyncPendingAgents } from "#/modules/anthropic/service";
 import { createVaults } from "#/modules/anthropic/vaults";
-import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import {
   addConnector,
   assignConnector,
@@ -68,8 +67,13 @@ const contextFor = (c: Context<ApiEnv>): ConnectorContext => ({
   vaults: createVaults(c.env),
 });
 
-const requireConnector = async (ctx: ConnectorContext, id: string) => {
-  const connector = await getConnector(ctx.db, id);
+/** By bare id, and always within the workspace on the request context. */
+const requireConnector = async (
+  c: Context<ApiEnv>,
+  ctx: ConnectorContext,
+  id: string
+) => {
+  const connector = await getConnector(ctx.db, c.get("workspace").id, id);
   if (!connector) {
     throw notFound("Connector not found.");
   }
@@ -113,10 +117,20 @@ connectorsRoutes.use("*", requireAuth);
 
 connectorsRoutes.get("/", async (c) => {
   const db = createDb(c.env.DB);
+  const workspaceId = c.get("workspace").id;
   const agentId = c.req.query("agentId");
-  const rows = agentId
-    ? await listConnectorsForAgent(db, agentId)
-    : await listConnectors(db);
+  if (!agentId) {
+    return c.json({
+      connectors: (await listConnectors(db, workspaceId)).map(toConnectorView),
+    });
+  }
+
+  // An agent's connectors are its own workspace's by construction; resolving
+  // the agent scoped is what stops another tenant's id being asked about.
+  if (!(await getAgentById(db, workspaceId, agentId))) {
+    throw notFound("Agent not found.");
+  }
+  const rows = await listConnectorsForAgent(db, agentId);
   return c.json({ connectors: rows.map(toConnectorView) });
 });
 
@@ -125,10 +139,9 @@ connectorsRoutes.post("/", async (c) => {
   const ctx = contextFor(c);
 
   try {
-    // TODO(phase-2): replace with requireWorkspace context.
     const { connector, outcome } = await addConnector(
       ctx,
-      DEFAULT_WORKSPACE_ID,
+      c.get("workspace").id,
       {
         name: optionalString(body, "name", { maxLength: NAME_MAX_LENGTH }),
         url: requireString(body, "url", { maxLength: URL_MAX_LENGTH }),
@@ -145,7 +158,7 @@ connectorsRoutes.post("/", async (c) => {
 
 connectorsRoutes.get("/:id", async (c) => {
   const ctx = contextFor(c);
-  const connector = await requireConnector(ctx, c.req.param("id"));
+  const connector = await requireConnector(c, ctx, c.req.param("id"));
   const agentIds = await listAgentIdsForConnector(ctx.db, connector.id);
   const agents = await getAgentsByIds(ctx.db, agentIds);
 
@@ -161,7 +174,7 @@ connectorsRoutes.get("/:id", async (c) => {
 
 connectorsRoutes.patch("/:id", async (c) => {
   const ctx = contextFor(c);
-  const connector = await requireConnector(ctx, c.req.param("id"));
+  const connector = await requireConnector(c, ctx, c.req.param("id"));
   const body = await readJsonObject(c.req.raw);
 
   const name = optionalString(body, "name", { maxLength: NAME_MAX_LENGTH });
@@ -184,7 +197,7 @@ connectorsRoutes.patch("/:id", async (c) => {
 
 connectorsRoutes.delete("/:id", async (c) => {
   const ctx = contextFor(c);
-  const connector = await requireConnector(ctx, c.req.param("id"));
+  const connector = await requireConnector(c, ctx, c.req.param("id"));
   const { vaultError } = await removeConnector(ctx, connector);
   resyncAgents(c, ctx);
   return c.json({ removed: true, vaultError });
@@ -193,7 +206,7 @@ connectorsRoutes.delete("/:id", async (c) => {
 /** Rung 3's manual branch: the server has no dynamic client registration. */
 connectorsRoutes.post("/:id/oauth/client", async (c) => {
   const ctx = contextFor(c);
-  const connector = await requireConnector(ctx, c.req.param("id"));
+  const connector = await requireConnector(c, ctx, c.req.param("id"));
   const body = await readJsonObject(c.req.raw);
 
   try {
@@ -210,7 +223,7 @@ connectorsRoutes.post("/:id/oauth/client", async (c) => {
 
 connectorsRoutes.post("/:id/reauthorize", async (c) => {
   const ctx = contextFor(c);
-  const connector = await requireConnector(ctx, c.req.param("id"));
+  const connector = await requireConnector(c, ctx, c.req.param("id"));
 
   try {
     const outcome = await beginReauthorization(ctx, connector);
@@ -223,7 +236,7 @@ connectorsRoutes.post("/:id/reauthorize", async (c) => {
 
 connectorsRoutes.post("/:id/bearer", async (c) => {
   const ctx = contextFor(c);
-  const connector = await requireConnector(ctx, c.req.param("id"));
+  const connector = await requireConnector(c, ctx, c.req.param("id"));
   const body = await readJsonObject(c.req.raw);
 
   try {
@@ -241,12 +254,13 @@ connectorsRoutes.post("/:id/bearer", async (c) => {
 
 connectorsRoutes.post("/:id/test", async (c) => {
   const ctx = contextFor(c);
-  const connector = await requireConnector(ctx, c.req.param("id"));
+  const connector = await requireConnector(c, ctx, c.req.param("id"));
   const result = await testConnection(ctx, connector);
   resyncAgents(c, ctx);
   return c.json({
     connector: toConnectorView(
-      (await getConnector(ctx.db, connector.id)) ?? connector
+      (await getConnector(ctx.db, connector.workspaceId, connector.id)) ??
+        connector
     ),
     result,
   });
@@ -256,7 +270,7 @@ connectorsRoutes.post("/:id/test", async (c) => {
 
 connectorsRoutes.get("/:id/agents", async (c) => {
   const ctx = contextFor(c);
-  const connector = await requireConnector(ctx, c.req.param("id"));
+  const connector = await requireConnector(c, ctx, c.req.param("id"));
   const agentIds = await listAgentIdsForConnector(ctx.db, connector.id);
   const agents = await getAgentsByIds(ctx.db, agentIds);
   return c.json({
@@ -270,9 +284,9 @@ connectorsRoutes.get("/:id/agents", async (c) => {
 
 connectorsRoutes.post("/:id/agents", async (c) => {
   const ctx = contextFor(c);
-  const connector = await requireConnector(ctx, c.req.param("id"));
+  const connector = await requireConnector(c, ctx, c.req.param("id"));
   const agentId = requireString(await readJsonObject(c.req.raw), "agentId");
-  if (!(await getAgentById(ctx.db, agentId))) {
+  if (!(await getAgentById(ctx.db, c.get("workspace").id, agentId))) {
     throw notFound("Agent not found.");
   }
 
@@ -290,7 +304,7 @@ connectorsRoutes.post("/:id/agents", async (c) => {
 
 connectorsRoutes.delete("/:id/agents/:agentId", async (c) => {
   const ctx = contextFor(c);
-  const connector = await requireConnector(ctx, c.req.param("id"));
+  const connector = await requireConnector(c, ctx, c.req.param("id"));
   const removed = await unassignConnector(
     ctx.db,
     connector.id,

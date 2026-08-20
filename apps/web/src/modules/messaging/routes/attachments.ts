@@ -4,7 +4,11 @@ import type { ApiEnv } from "#/api/types";
 import { badRequest, notFound } from "#/api/validation";
 import { createDb } from "#/db/client";
 import { isInlineMimeType, MAX_ATTACHMENT_BYTES } from "../attachment-rules";
-import { getAttachment, storeAttachment } from "../attachment-service";
+import {
+  getAttachmentInWorkspace,
+  storeAttachment,
+} from "../attachment-service";
+import { attachmentUrl } from "../service";
 
 const PAYLOAD_TOO_LARGE = 413;
 
@@ -43,7 +47,7 @@ attachmentsRoutes.post("/", async (c) => {
         filename: attachment.filename,
         mime: attachment.mime,
         size: attachment.size,
-        url: `/api/attachments/${attachment.id}`,
+        url: attachmentUrl(c.get("workspace").slug, attachment.id),
       },
     },
     201
@@ -51,7 +55,11 @@ attachmentsRoutes.post("/", async (c) => {
 });
 
 attachmentsRoutes.get("/:id", async (c) => {
-  const attachment = await getAttachment(createDb(c.env.DB), c.req.param("id"));
+  const attachment = await getAttachmentInWorkspace(
+    createDb(c.env.DB),
+    c.get("workspace").id,
+    c.req.param("id")
+  );
   if (!attachment) {
     throw notFound("Attachment not found.");
   }

@@ -94,23 +94,73 @@ export const toSkillFileView = (file: SkillFile): SkillFileView => ({
 
 // --- reads ------------------------------------------------------------------
 
-export const listSkills = (db: Db): Promise<Skill[]> =>
-  db.select().from(skills).orderBy(asc(skills.slug));
+export const listSkills = (db: Db, workspaceId: string): Promise<Skill[]> =>
+  db
+    .select()
+    .from(skills)
+    .where(eq(skills.workspaceId, workspaceId))
+    .orderBy(asc(skills.slug));
 
+/** Slugs are unique per workspace now, so the workspace is half the address. */
 export const getSkillBySlug = async (
   db: Db,
+  workspaceId: string,
   slug: string
 ): Promise<Skill | undefined> => {
-  const [skill] = await db.select().from(skills).where(eq(skills.slug, slug));
+  const [skill] = await db
+    .select()
+    .from(skills)
+    .where(and(eq(skills.workspaceId, workspaceId), eq(skills.slug, slug)));
   return skill;
 };
 
 export const getSkillById = async (
   db: Db,
+  workspaceId: string,
   id: string
 ): Promise<Skill | undefined> => {
-  const [skill] = await db.select().from(skills).where(eq(skills.id, id));
+  const [skill] = await db
+    .select()
+    .from(skills)
+    .where(and(eq(skills.workspaceId, workspaceId), eq(skills.id, id)));
   return skill;
+};
+
+/**
+ * Every skill of one workspace, rows only, for the workspace-delete cleanup.
+ * None of these tables has a foreign key, so each level goes by hand. The R2
+ * objects behind `skill_files` are deliberately left: reachable by nobody, and
+ * chasing them would make deleting a workspace a bucket-wide operation.
+ */
+export const deleteSkillsForWorkspace = async (
+  db: Db,
+  workspaceId: string
+): Promise<void> => {
+  const rows = await db
+    .select({ id: skills.id })
+    .from(skills)
+    .where(eq(skills.workspaceId, workspaceId));
+  const skillIds = rows.map((row) => row.id);
+  if (skillIds.length === 0) {
+    return;
+  }
+
+  const versions = await db
+    .select({ id: skillVersions.id })
+    .from(skillVersions)
+    .where(inArray(skillVersions.skillId, skillIds));
+  const versionIds = versions.map((row) => row.id);
+  if (versionIds.length > 0) {
+    await db
+      .delete(skillFiles)
+      .where(inArray(skillFiles.skillVersionId, versionIds));
+  }
+
+  await db
+    .delete(skillVersions)
+    .where(inArray(skillVersions.skillId, skillIds));
+  await db.delete(agentSkills).where(inArray(agentSkills.skillId, skillIds));
+  await db.delete(skills).where(inArray(skills.id, skillIds));
 };
 
 /** Newest first: the history list, and the retry pass reverses it. */

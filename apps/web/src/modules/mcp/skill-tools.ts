@@ -65,7 +65,7 @@ export interface SkillFileArgument {
 export const skillList = async (
   ctx: McpToolContext
 ): Promise<CallToolResult> => {
-  const all = await listSkills(ctx.db);
+  const all = await listSkills(ctx.db, ctx.workspace.id);
   const mine = new Map(
     (await listSkillsForAgent(ctx.db, ctx.agent.id)).map((row) => [
       row.skill.id,
@@ -100,7 +100,7 @@ export const skillRead = async (
   ctx: McpToolContext,
   args: SkillReadArgs
 ): Promise<CallToolResult> => {
-  const skill = await getSkillBySlug(ctx.db, args.slug);
+  const skill = await getSkillBySlug(ctx.db, ctx.workspace.id, args.slug);
   if (!skill) {
     return fail(`No skill with slug ${args.slug}. Use skill_list to see them.`);
   }
@@ -189,16 +189,12 @@ export const skillCreate = async (
 ): Promise<CallToolResult> => {
   let result: Awaited<ReturnType<typeof publishNewSkill>>;
   try {
-    result = await publishNewSkill(
-      publishContextFor(ctx),
-      ctx.agent.workspaceId,
-      {
-        changelog: args.changelog ?? "Created.",
-        createdBy: authorOf(ctx),
-        files: args.files,
-        slug: args.slug,
-      }
-    );
+    result = await publishNewSkill(publishContextFor(ctx), ctx.workspace.id, {
+      changelog: args.changelog ?? "Created.",
+      createdBy: authorOf(ctx),
+      files: args.files,
+      slug: args.slug,
+    });
   } catch (error) {
     if (isDuplicateSlug(error)) {
       return fail(
@@ -230,7 +226,7 @@ export const skillUpdate = async (
   ctx: McpToolContext,
   args: SkillWriteArgs & { changelog: string }
 ): Promise<CallToolResult> => {
-  const skill = await getSkillBySlug(ctx.db, args.slug);
+  const skill = await getSkillBySlug(ctx.db, ctx.workspace.id, args.slug);
   if (!skill) {
     return fail(
       `No skill with slug ${args.slug}. Use skill_create to make a new one.`

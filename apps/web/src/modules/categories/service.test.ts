@@ -63,7 +63,7 @@ describe("categories service", () => {
     await createCategory(db, DEFAULT_WORKSPACE_ID, { name: "Product" });
     await createCategory(db, DEFAULT_WORKSPACE_ID, { name: "Ops" });
 
-    const listed = await listCategories(db);
+    const listed = await listCategories(db, DEFAULT_WORKSPACE_ID);
     expect(listed.map((category) => category.name).sort()).toEqual([
       "Ops",
       "Product",
@@ -76,12 +76,16 @@ describe("categories service", () => {
       name: "Product",
     });
 
-    expect(await renameCategory(db, category.id, "Platform")).toEqual({
+    expect(
+      await renameCategory(db, DEFAULT_WORKSPACE_ID, category.id, "Platform")
+    ).toEqual({
       id: category.id,
       items: [],
       name: "Platform",
     });
-    expect(await renameCategory(db, "missing", "Platform")).toBeUndefined();
+    expect(
+      await renameCategory(db, DEFAULT_WORKSPACE_ID, "missing", "Platform")
+    ).toBeUndefined();
   });
 
   test("moves an item when it is assigned to another category", async () => {
@@ -92,15 +96,19 @@ describe("categories service", () => {
     const item = { itemId: "channel-1", itemType: "channel" as const };
 
     await assignItem(db, product.id, item);
-    expect(await getCategory(db, product.id)).toEqual({
+    expect(await getCategory(db, DEFAULT_WORKSPACE_ID, product.id)).toEqual({
       id: product.id,
       items: [item],
       name: "Product",
     });
 
     await assignItem(db, ops.id, item);
-    expect((await getCategory(db, product.id))?.items).toEqual([]);
-    expect((await getCategory(db, ops.id))?.items).toEqual([item]);
+    expect(
+      (await getCategory(db, DEFAULT_WORKSPACE_ID, product.id))?.items
+    ).toEqual([]);
+    expect(
+      (await getCategory(db, DEFAULT_WORKSPACE_ID, ops.id))?.items
+    ).toEqual([item]);
   });
 
   test("unassigns an item without touching its siblings", async () => {
@@ -112,9 +120,11 @@ describe("categories service", () => {
 
     await assignItem(db, product.id, channel);
     await assignItem(db, product.id, agent);
-    await unassignItem(db, channel);
+    await unassignItem(db, product.id, channel);
 
-    expect((await getCategory(db, product.id))?.items).toEqual([agent]);
+    expect(
+      (await getCategory(db, DEFAULT_WORKSPACE_ID, product.id))?.items
+    ).toEqual([agent]);
   });
 
   test("deleting a category leaves its items uncategorized", async () => {
@@ -126,9 +136,15 @@ describe("categories service", () => {
       itemType: "channel",
     });
 
-    expect(await deleteCategory(db, product.id)).toBe(true);
-    expect(await deleteCategory(db, product.id)).toBe(false);
-    expect(await getCategory(db, product.id)).toBeUndefined();
+    expect(await deleteCategory(db, DEFAULT_WORKSPACE_ID, product.id)).toBe(
+      true
+    );
+    expect(await deleteCategory(db, DEFAULT_WORKSPACE_ID, product.id)).toBe(
+      false
+    );
+    expect(
+      await getCategory(db, DEFAULT_WORKSPACE_ID, product.id)
+    ).toBeUndefined();
     expect(await db.select().from(categoryItems)).toEqual([]);
   });
 });

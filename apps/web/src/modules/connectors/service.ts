@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import { markAgentsForConnectorResync } from "#/modules/agents/service";
 import type { VaultGateway } from "#/modules/anthropic/vaults";
@@ -106,18 +106,48 @@ export const toConnectorView = (connector: Connector): ConnectorView => ({
   url: connector.url,
 });
 
-export const listConnectors = (db: Db): Promise<Connector[]> =>
-  db.select().from(connectors).orderBy(asc(connectors.name));
+export const listConnectors = (
+  db: Db,
+  workspaceId: string
+): Promise<Connector[]> =>
+  db
+    .select()
+    .from(connectors)
+    .where(eq(connectors.workspaceId, workspaceId))
+    .orderBy(asc(connectors.name));
 
 export const getConnector = async (
   db: Db,
+  workspaceId: string,
   id: string
 ): Promise<Connector | undefined> => {
   const [connector] = await db
     .select()
     .from(connectors)
-    .where(eq(connectors.id, id));
+    .where(and(eq(connectors.workspaceId, workspaceId), eq(connectors.id, id)));
   return connector;
+};
+
+/** Every connector of one workspace, for the workspace-delete cleanup. */
+export const deleteConnectorsForWorkspace = async (
+  db: Db,
+  workspaceId: string
+): Promise<void> => {
+  const rows = await db
+    .select({ id: connectors.id })
+    .from(connectors)
+    .where(eq(connectors.workspaceId, workspaceId));
+  const ids = rows.map((row) => row.id);
+  if (ids.length > 0) {
+    // `agent_connectors` has no foreign key, so the assignments go by hand.
+    await db
+      .delete(agentConnectors)
+      .where(inArray(agentConnectors.connectorId, ids));
+  }
+  await db
+    .delete(connectorOauthFlows)
+    .where(eq(connectorOauthFlows.workspaceId, workspaceId));
+  await db.delete(connectors).where(eq(connectors.workspaceId, workspaceId));
 };
 
 // --- agent assignment -------------------------------------------------------
@@ -502,7 +532,9 @@ const handleProbeFailure = async (
   try {
     const outcome = await beginAuthorization(ctx, gated, error.wwwAuthenticate);
     return {
-      connector: (await getConnector(ctx.db, connector.id)) ?? gated,
+      connector:
+        (await getConnector(ctx.db, connector.workspaceId, connector.id)) ??
+        gated,
       outcome,
     };
   } catch (discoveryError) {
@@ -705,7 +737,14 @@ export const completeOAuthCallback = async (
     .delete(connectorOauthFlows)
     .where(eq(connectorOauthFlows.connectorId, flow.connectorId));
 
-  const connector = await getConnector(ctx.db, flow.connectorId);
+  // The flow row is the credential *and* the scope: it names the workspace the
+  // connector belongs to, which is how a callback that carries no session ends
+  // up tenant-scoped anyway.
+  const connector = await getConnector(
+    ctx.db,
+    flow.workspaceId,
+    flow.connectorId
+  );
   if (!connector?.oauthTokenEndpoint) {
     throw new ConnectorFlowError("This connector is no longer configured.");
   }
@@ -746,7 +785,11 @@ export const completeOAuthCallback = async (
   // attached changes nothing about the array, and rotates nothing.
   await markIfUsabilityChanged(ctx.db, connector, connected);
   await refreshToolCache(ctx, connector.id, connector.url, tokens.accessToken);
-  return (await getConnector(ctx.db, connector.id)) ?? connected ?? connector;
+  return (
+    (await getConnector(ctx.db, connector.workspaceId, connector.id)) ??
+    connected ??
+    connector
+  );
 };
 
 // --- rung 6: the bearer escape hatch ----------------------------------------
@@ -897,7 +940,11 @@ export const testConnection = async (
   if (connector.authKind !== "none") {
     const resolved = await managementToken(ctx, connector);
     if (!resolved) {
-      const reloaded = await getConnector(ctx.db, connector.id);
+      const reloaded = await getConnector(
+        ctx.db,
+        connector.workspaceId,
+        connector.id
+      );
       return {
         message:
           reloaded?.mgmtError ??

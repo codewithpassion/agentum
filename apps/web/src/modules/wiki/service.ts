@@ -66,7 +66,10 @@ export const toRevisionView = (revision: WikiRevision): WikiRevisionView => ({
   title: revision.title,
 });
 
-export const listPages = async (db: Db): Promise<WikiPageSummary[]> => {
+export const listPages = async (
+  db: Db,
+  workspaceId: string
+): Promise<WikiPageSummary[]> => {
   const rows = await db
     .select({
       id: wikiPages.id,
@@ -75,18 +78,23 @@ export const listPages = async (db: Db): Promise<WikiPageSummary[]> => {
       updatedAt: wikiPages.updatedAt,
     })
     .from(wikiPages)
+    .where(eq(wikiPages.workspaceId, workspaceId))
     .orderBy(asc(wikiPages.title));
   return rows.map((row) => ({ ...row, updatedAt: row.updatedAt.getTime() }));
 };
 
+/** Slugs are unique per workspace now, so the workspace is half the address. */
 export const getPageBySlug = async (
   db: Db,
+  workspaceId: string,
   slug: string
 ): Promise<WikiPage | undefined> => {
   const [page] = await db
     .select()
     .from(wikiPages)
-    .where(eq(wikiPages.slug, slug));
+    .where(
+      and(eq(wikiPages.workspaceId, workspaceId), eq(wikiPages.slug, slug))
+    );
   return page;
 };
 
@@ -99,6 +107,7 @@ const SEARCH_LIMIT = 20;
  */
 export const searchPages = async (
   db: Db,
+  workspaceId: string,
   query: string
 ): Promise<WikiPageSummary[]> => {
   const pattern = `%${query.replace(LIKE_WILDCARDS, "\\$&")}%`;
@@ -110,7 +119,12 @@ export const searchPages = async (
       updatedAt: wikiPages.updatedAt,
     })
     .from(wikiPages)
-    .where(or(like(wikiPages.title, pattern), like(wikiPages.body, pattern)))
+    .where(
+      and(
+        eq(wikiPages.workspaceId, workspaceId),
+        or(like(wikiPages.title, pattern), like(wikiPages.body, pattern))
+      )
+    )
     .orderBy(desc(wikiPages.updatedAt))
     .limit(SEARCH_LIMIT);
   return rows.map((row) => ({ ...row, updatedAt: row.updatedAt.getTime() }));
@@ -192,6 +206,7 @@ export interface UpdatePageInput {
  */
 export const updatePage = async (
   db: Db,
+  workspaceId: string,
   slug: string,
   input: UpdatePageInput
 ): Promise<WikiPage | undefined> => {
@@ -202,7 +217,9 @@ export const updatePage = async (
       ...(input.title === undefined ? {} : { title: leafTitle(input.title) }),
       updatedAt: new Date(),
     })
-    .where(eq(wikiPages.slug, slug))
+    .where(
+      and(eq(wikiPages.workspaceId, workspaceId), eq(wikiPages.slug, slug))
+    )
     .returning();
   if (!page) {
     return;
@@ -222,7 +239,7 @@ export const writePage = async (
   input: CreatePageInput
 ): Promise<{ created: boolean; page: WikiPage }> => {
   const { slug } = normalizeWrite(input);
-  const existing = await getPageBySlug(db, slug);
+  const existing = await getPageBySlug(db, workspaceId, slug);
   if (!existing) {
     return {
       created: true,
@@ -230,7 +247,7 @@ export const writePage = async (
     };
   }
 
-  const page = await updatePage(db, slug, {
+  const page = await updatePage(db, workspaceId, slug, {
     author: input.author,
     body: input.body,
     title: input.title,
@@ -241,12 +258,29 @@ export const writePage = async (
   return { created: false, page };
 };
 
-export const deletePage = async (db: Db, slug: string): Promise<boolean> => {
+export const deletePage = async (
+  db: Db,
+  workspaceId: string,
+  slug: string
+): Promise<boolean> => {
   const deleted = await db
     .delete(wikiPages)
-    .where(eq(wikiPages.slug, slug))
+    .where(
+      and(eq(wikiPages.workspaceId, workspaceId), eq(wikiPages.slug, slug))
+    )
     .returning({ id: wikiPages.id });
   return deleted.length > 0;
+};
+
+/**
+ * Every page of one workspace, for the workspace-delete cleanup. Revisions and
+ * assets follow by `ON DELETE CASCADE`.
+ */
+export const deletePagesForWorkspace = async (
+  db: Db,
+  workspaceId: string
+): Promise<void> => {
+  await db.delete(wikiPages).where(eq(wikiPages.workspaceId, workspaceId));
 };
 
 export const listRevisions = (
@@ -282,10 +316,12 @@ export type StoreAssetResult =
 
 /**
  * Uploads happen while the page is still being written, so `pageId` is optional
- * and the asset simply stays unattached until a page claims it.
+ * and the asset simply stays unattached until a page claims it. A page that is
+ * named has to be one of this workspace's.
  */
 export const storeAsset = async (
   db: Db,
+  workspaceId: string,
   bucket: R2Bucket,
   file: File,
   pageId?: string
@@ -297,6 +333,10 @@ export const storeAsset = async (
   });
   if (!validation.ok) {
     return validation;
+  }
+
+  if (pageId && !(await pageIsInWorkspace(db, workspaceId, pageId))) {
+    return { ok: false, reason: "Page not found." };
   }
 
   const id = crypto.randomUUID();
@@ -324,13 +364,44 @@ export const storeAsset = async (
   return { asset, ok: true };
 };
 
-export const getAsset = async (
+const pageIsInWorkspace = async (
   db: Db,
+  workspaceId: string,
+  pageId: string
+): Promise<boolean> => {
+  const [page] = await db
+    .select({ id: wikiPages.id })
+    .from(wikiPages)
+    .where(
+      and(eq(wikiPages.workspaceId, workspaceId), eq(wikiPages.id, pageId))
+    );
+  return page !== undefined;
+};
+
+/**
+ * An asset reached by bare id, scoped through its page - `wiki_assets` carries
+ * no workspace column of its own.
+ *
+ * An asset with no page yet is a just-uploaded file the editor is about to
+ * reference: no parent to scope it through, an unguessable UUID for an id, and
+ * refusing it would break the preview of what was uploaded a moment ago.
+ */
+export const getAssetInWorkspace = async (
+  db: Db,
+  workspaceId: string,
   id: string
 ): Promise<WikiAsset | undefined> => {
   const [asset] = await db
     .select()
     .from(wikiAssets)
     .where(eq(wikiAssets.id, id));
-  return asset;
+  if (!asset) {
+    return;
+  }
+  if (!asset.pageId) {
+    return asset;
+  }
+  return (await pageIsInWorkspace(db, workspaceId, asset.pageId))
+    ? asset
+    : undefined;
 };

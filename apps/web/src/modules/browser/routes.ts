@@ -24,15 +24,20 @@ export const browserRoutes = new Hono<ApiEnv>();
 
 browserRoutes.use("*", requireAuth);
 
-const requireAgent = async (env: Env, agentId: string): Promise<void> => {
-  if (!(await getAgentById(createDb(env.DB), agentId))) {
+const requireAgent = async (
+  env: Env,
+  workspaceId: string,
+  agentId: string
+): Promise<void> => {
+  if (!(await getAgentById(createDb(env.DB), workspaceId, agentId))) {
     throw notFound("Agent not found.");
   }
 };
 
 browserRoutes.get("/:id/browser/screenshots", async (c) => {
+  const workspace = c.get("workspace");
   const agentId = c.req.param("id");
-  await requireAgent(c.env, agentId);
+  await requireAgent(c.env, workspace.id, agentId);
 
   const page = await listScreenshots(createDb(c.env.DB), {
     agentId,
@@ -41,12 +46,16 @@ browserRoutes.get("/:id/browser/screenshots", async (c) => {
       fallback: DEFAULT_LIMIT,
       max: MAX_LIMIT,
     }),
+    workspaceSlug: workspace.slug,
   });
   return c.json(page);
 });
 
 browserRoutes.get("/:id/browser/screenshots/:screenshotId", async (c) => {
   const db = createDb(c.env.DB);
+  // The agent is the screenshot's parent and the only thing carrying a
+  // workspace, so it is resolved scoped before the row is read.
+  await requireAgent(c.env, c.get("workspace").id, c.req.param("id"));
   const screenshot = await getScreenshot(db, c.req.param("screenshotId"));
   // Addressed by id rather than by R2 key: the key contains slashes, and an
   // agent id in the path that the row disagrees with must not resolve.
@@ -71,6 +80,6 @@ browserRoutes.get("/:id/browser/screenshots/:screenshotId", async (c) => {
 
 browserRoutes.get("/:id/browser/status", async (c) => {
   const agentId = c.req.param("id");
-  await requireAgent(c.env, agentId);
+  await requireAgent(c.env, c.get("workspace").id, agentId);
   return c.json(await readStatus(createDb(c.env.DB), c.env, agentId));
 });

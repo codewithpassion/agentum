@@ -124,7 +124,7 @@ workspaceScopedRoutes.route("/probe", probeRoutes);
 
 const app = new Hono<ApiEnv>();
 app.route("/api/workspaces", workspacesRoutes);
-app.route("/api/w/:slug", workspaceScopedRoutes);
+app.route("/api/w/:workspaceSlug", workspaceScopedRoutes);
 
 let d1: D1Database;
 let db: Db;

@@ -81,13 +81,16 @@ workspacesRoutes.post("/", async (c) => {
 });
 
 /**
- * Everything that happens *inside* a workspace, mounted at `/api/w/:slug`.
+ * Everything that happens *inside* a workspace, mounted at
+ * `/api/w/:workspaceSlug` - the parameter is named for the workspace because
+ * the wiki and skills routers address their own rows by `:slug`, and Hono
+ * merges a nested router's parameters with its mount's.
  * The two gates are part of this router rather than of the mount, so no caller
  * can mount it without them: `requireWorkspace` answers the same 404 for an
  * unknown slug and for a workspace the caller does not belong to, and leaves
  * the workspace and the caller's membership on the context.
  *
- * Phase 3 hangs the resource routers off this same instance from `server.ts`
+ * The resource routers hang off this same instance, from `server.ts`
  * (`workspaceScopedRoutes.route("/agents", agentsRoutes)`, …), which is what
  * gives every one of them the scope for free.
  */

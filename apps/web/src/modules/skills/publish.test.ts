@@ -225,7 +225,7 @@ describe("publishNewSkill", () => {
     expect(result.skill.syncStatus).toBe("error");
     expect(result.skill.syncError).toBe("anthropic is down");
 
-    const stored = await getSkillBySlug(db, SLUG);
+    const stored = await getSkillBySlug(db, DEFAULT_WORKSPACE_ID, SLUG);
     expect(stored?.anthropicSkillId).toBeNull();
     expect((await listSkillVersions(db, result.skill.id)).length).toBe(1);
   });
@@ -244,7 +244,9 @@ describe("publishNewSkill", () => {
     );
 
     expect(result.ok).toBe(false);
-    expect(await getSkillBySlug(db, SLUG)).toBeUndefined();
+    expect(
+      await getSkillBySlug(db, DEFAULT_WORKSPACE_ID, SLUG)
+    ).toBeUndefined();
     expect(calls.created.length).toBe(0);
     expect(store.puts.length).toBe(0);
   });
@@ -352,7 +354,9 @@ describe("retrySkillSync", () => {
     const synced = await retrySkillSync(contextWith(gateway), first.skill);
 
     expect(synced.syncStatus).toBe("error");
-    expect((await getSkillBySlug(db, SLUG))?.syncStatus).toBe("error");
+    expect(
+      (await getSkillBySlug(db, DEFAULT_WORKSPACE_ID, SLUG))?.syncStatus
+    ).toBe("error");
   });
 });
 
@@ -412,7 +416,9 @@ describe("deletion", () => {
 
     await deleteSkillLocally(db, store.bucket, first.skill);
 
-    expect(await getSkillBySlug(db, SLUG)).toBeUndefined();
+    expect(
+      await getSkillBySlug(db, DEFAULT_WORKSPACE_ID, SLUG)
+    ).toBeUndefined();
     expect(store.objects.size).toBe(0);
     expect((await listSkillVersions(db, first.skill.id)).length).toBe(0);
   });

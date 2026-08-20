@@ -4,6 +4,8 @@ import { Hono } from "hono";
 import { createDb } from "#/db/client";
 import type { Agent } from "#/modules/agents/schema";
 import { findAgentByMcpToken } from "#/modules/agents/service";
+import type { Workspace } from "#/modules/workspaces/schema";
+import { getWorkspaceById } from "#/modules/workspaces/service";
 import { type McpToolContext, registerWorkspaceTools } from "./tools";
 
 /**
@@ -32,7 +34,7 @@ const buildServer = (ctx: McpToolContext): McpServer => {
 
 export const mcpRoutes = new Hono<{
   Bindings: Env;
-  Variables: { agent: Agent };
+  Variables: { agent: Agent; workspace: Workspace };
 }>();
 
 mcpRoutes.all("/:agentToken", async (c) => {
@@ -42,9 +44,20 @@ mcpRoutes.all("/:agentToken", async (c) => {
     return c.json({ error: "Unknown MCP token." }, UNAUTHORIZED);
   }
 
+  // The token identifies the agent; the agent's row is what names the tenant
+  // every tool call below is then scoped to.
+  const workspace = await getWorkspaceById(db, agent.workspaceId);
+  if (!workspace) {
+    return c.json({ error: "Unknown MCP token." }, UNAUTHORIZED);
+  }
+
   const transport = new StreamableHTTPTransport({ enableJsonResponse: true });
-  await buildServer({ agent, db, env: c.env, requestUrl: c.req.url }).connect(
-    transport
-  );
+  await buildServer({
+    agent,
+    db,
+    env: c.env,
+    requestUrl: c.req.url,
+    workspace,
+  }).connect(transport);
   return await transport.handleRequest(c);
 });

@@ -1,4 +1,4 @@
-import { asc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import { generateMcpToken, hashMcpToken, timingSafeEqual } from "./mcp-token";
 import {
@@ -48,10 +48,44 @@ export const toAgentView = (agent: Agent): AgentView => {
   return { ...rest, hasMcpToken: mcpTokenHash !== null };
 };
 
-export const listAgents = (db: Db): Promise<Agent[]> =>
+export const listAgents = (db: Db, workspaceId: string): Promise<Agent[]> =>
+  db
+    .select()
+    .from(agents)
+    .where(eq(agents.workspaceId, workspaceId))
+    .orderBy(asc(agents.name));
+
+/**
+ * Every agent in the deployment. The only legal caller is the `AgentRouter`
+ * Durable Object, which is still a global singleton and drives wake digests for
+ * agents of every workspace.
+ *
+ * TODO(phase-5): a per-workspace router removes this.
+ */
+export const listAllAgents = (db: Db): Promise<Agent[]> =>
   db.select().from(agents).orderBy(asc(agents.name));
 
 export const getAgentById = async (
+  db: Db,
+  workspaceId: string,
+  id: string
+): Promise<Agent | undefined> => {
+  const [agent] = await db
+    .select()
+    .from(agents)
+    .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, id)));
+  return agent;
+};
+
+/**
+ * An agent by bare id, for the server-side plumbing that derives the workspace
+ * from the agent rather than checking it against one: the Anthropic sync, the
+ * router Durable Object and the Slack adapter (which arrives via a bridge row).
+ *
+ * Never call this from a workspace-scoped route - `getAgentById` is the one
+ * that answers "not found" for another tenant's id.
+ */
+export const getAgentByIdUnscoped = async (
   db: Db,
   id: string
 ): Promise<Agent | undefined> => {
@@ -59,6 +93,11 @@ export const getAgentById = async (
   return agent;
 };
 
+/**
+ * Display resolution for ids that already came out of a workspace-scoped row -
+ * channel members, message mentions, connector and skill assignments. The ids
+ * are never attacker-supplied, so this widens nothing.
+ */
 export const getAgentsByIds = async (
   db: Db,
   ids: readonly string[]
@@ -72,11 +111,18 @@ export const getAgentsByIds = async (
     .where(inArray(agents.id, [...ids]));
 };
 
-/** Mention candidates for the messaging module - names plus their agent ids. */
+/**
+ * Mention candidates for the messaging module - names plus their agent ids.
+ * Scoped, so an `@Name` in one workspace can never match another's agent.
+ */
 export const listAgentMentionCandidates = async (
-  db: Db
+  db: Db,
+  workspaceId: string
 ): Promise<{ id: string; name: string }[]> =>
-  await db.select({ id: agents.id, name: agents.name }).from(agents);
+  await db
+    .select({ id: agents.id, name: agents.name })
+    .from(agents)
+    .where(eq(agents.workspaceId, workspaceId));
 
 export interface CreateAgentInput {
   avatar?: string;
@@ -118,18 +164,26 @@ export const createAgent = async (
 /** Invalidates the agent's current MCP URL and returns the replacement token. */
 export const rotateMcpToken = async (
   db: Db,
+  workspaceId: string,
   id: string
 ): Promise<IssuedAgent | undefined> => {
   const mcpToken = generateMcpToken();
   const [agent] = await db
     .update(agents)
     .set({ mcpTokenHash: await hashMcpToken(mcpToken), updatedAt: new Date() })
-    .where(eq(agents.id, id))
+    .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, id)))
     .returning();
   return agent ? { agent, mcpToken } : undefined;
 };
 
-/** Resolves `/mcp/:agentToken` to its agent; undefined means "not an agent". */
+/**
+ * Resolves `/mcp/:agentToken` to its agent; undefined means "not an agent".
+ *
+ * Global by design: the token is a credential, looked up before any workspace
+ * is known, and `mcp_token_hash` is unique across the deployment for exactly
+ * that reason. The agent it yields carries the workspace every tool call is
+ * then scoped to.
+ */
 export const findAgentByMcpToken = async (
   db: Db,
   token: string
@@ -149,13 +203,14 @@ export type UpdateAgentInput = Partial<CreateAgentInput>;
 
 export const updateAgent = async (
   db: Db,
+  workspaceId: string,
   id: string,
   input: UpdateAgentInput
 ): Promise<Agent | undefined> => {
   const [agent] = await db
     .update(agents)
     .set({ ...input, updatedAt: new Date() })
-    .where(eq(agents.id, id))
+    .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, id)))
     .returning();
   return agent;
 };
@@ -243,9 +298,26 @@ export const listAgentsPendingConnectorResync = (db: Db): Promise<Agent[]> =>
     .where(isNotNull(agents.connectorResyncPendingAt))
     .orderBy(asc(agents.name));
 
-export const deleteAgent = async (db: Db, id: string): Promise<boolean> => {
-  const deleted = await db.delete(agents).where(eq(agents.id, id)).returning({
-    id: agents.id,
-  });
+export const deleteAgent = async (
+  db: Db,
+  workspaceId: string,
+  id: string
+): Promise<boolean> => {
+  const deleted = await db
+    .delete(agents)
+    .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, id)))
+    .returning({ id: agents.id });
   return deleted.length > 0;
+};
+
+/** Every agent of one workspace, for the workspace-delete cleanup. */
+export const deleteAgentsForWorkspace = async (
+  db: Db,
+  workspaceId: string
+): Promise<string[]> => {
+  const deleted = await db
+    .delete(agents)
+    .where(eq(agents.workspaceId, workspaceId))
+    .returning({ id: agents.id });
+  return deleted.map((row) => row.id);
 };

@@ -24,20 +24,26 @@ export const MEMBER_TYPES = ["user", "agent"] as const;
 export const AUTHOR_TYPES = ["user", "agent", "external"] as const;
 export const CHANNEL_KINDS = ["channel", "dm"] as const;
 
-export const channels = sqliteTable("channels", {
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`),
-  id: text("id").primaryKey(),
-  kind: text("kind", { enum: CHANNEL_KINDS }).notNull().default("channel"),
-  name: text("name").notNull(),
-  /** Which surface the channel came from - `native` unless a connector made it. */
-  origin: text("origin").notNull().default("native"),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`),
-  workspaceId: text("workspace_id").notNull(),
-});
+export const channels = sqliteTable(
+  "channels",
+  {
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: CHANNEL_KINDS }).notNull().default("channel"),
+    name: text("name").notNull(),
+    /** Which surface the channel came from - `native` unless a connector made it. */
+    origin: text("origin").notNull().default("native"),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    workspaceId: text("workspace_id").notNull(),
+  },
+  // Channel names are not unique, so unlike agents and skills this table has no
+  // composite unique to ride on: the workspace list needs its own index.
+  (table) => [index("channels_workspace_idx").on(table.workspaceId)]
+);
 
 export const channelMembers = sqliteTable(
   "channel_members",

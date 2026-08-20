@@ -1,11 +1,12 @@
 import type { Db } from "#/db/client";
-import { getAgentById } from "#/modules/agents/service";
+import { getAgentByIdUnscoped } from "#/modules/agents/service";
 import { MAX_ATTACHMENT_BYTES } from "#/modules/messaging/attachment-rules";
 import {
   getAttachment,
   storeAttachment,
 } from "#/modules/messaging/attachment-service";
 import type { MessageView } from "#/modules/messaging/service";
+import { getWorkspaceById } from "#/modules/workspaces/service";
 import { findBridgeByExternalChannel } from "../bridges";
 import { findExternalId, findInternalId } from "../refs";
 import type { ChannelBridge } from "../schema";
@@ -30,7 +31,9 @@ const agentName = async (
   if (!agentId) {
     return null;
   }
-  const agent = await getAgentById(db, agentId);
+  // Unscoped on purpose: the bridge row is what set the tenancy here, and the
+  // agent it names was written into it from inside that workspace.
+  const agent = await getAgentByIdUnscoped(db, agentId);
   return agent?.name ?? null;
 };
 
@@ -76,7 +79,12 @@ const inboundPorts = (
     if (!bridge) {
       return null;
     }
-    return { agentName: await agentName(db, bridge.agentId), bridge };
+    const workspace = await getWorkspaceById(db, bridge.workspaceId);
+    return {
+      agentName: await agentName(db, bridge.agentId),
+      bridge,
+      workspace: workspace ? { id: workspace.id, slug: workspace.slug } : null,
+    };
   },
 
   async isDuplicate(externalId) {

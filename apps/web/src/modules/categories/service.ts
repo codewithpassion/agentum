@@ -24,10 +24,25 @@ const listItems = (db: Db, categoryId: string): Promise<CategoryItemRef[]> =>
     .from(categoryItems)
     .where(eq(categoryItems.categoryId, categoryId));
 
-export const listCategories = async (db: Db): Promise<CategoryView[]> => {
+export const listCategories = async (
+  db: Db,
+  workspaceId: string
+): Promise<CategoryView[]> => {
   const [rows, items] = await Promise.all([
-    db.select().from(categories).orderBy(asc(categories.createdAt)),
-    db.select().from(categoryItems),
+    db
+      .select()
+      .from(categories)
+      .where(eq(categories.workspaceId, workspaceId))
+      .orderBy(asc(categories.createdAt)),
+    db
+      .select({
+        categoryId: categoryItems.categoryId,
+        itemId: categoryItems.itemId,
+        itemType: categoryItems.itemType,
+      })
+      .from(categoryItems)
+      .innerJoin(categories, eq(categories.id, categoryItems.categoryId))
+      .where(eq(categories.workspaceId, workspaceId)),
   ]);
 
   const itemsByCategory = new Map<string, CategoryItemRef[]>();
@@ -46,9 +61,13 @@ export const listCategories = async (db: Db): Promise<CategoryView[]> => {
 
 export const getCategory = async (
   db: Db,
+  workspaceId: string,
   id: string
 ): Promise<CategoryView | undefined> => {
-  const [row] = await db.select().from(categories).where(eq(categories.id, id));
+  const [row] = await db
+    .select()
+    .from(categories)
+    .where(and(eq(categories.workspaceId, workspaceId), eq(categories.id, id)));
   if (!row) {
     return;
   }
@@ -72,13 +91,14 @@ export const createCategory = async (
 
 export const renameCategory = async (
   db: Db,
+  workspaceId: string,
   id: string,
   name: string
 ): Promise<CategoryView | undefined> => {
   const [row] = await db
     .update(categories)
     .set({ name })
-    .where(eq(categories.id, id))
+    .where(and(eq(categories.workspaceId, workspaceId), eq(categories.id, id)))
     .returning();
   if (!row) {
     return;
@@ -87,12 +107,24 @@ export const renameCategory = async (
 };
 
 /** The cascade on `category_items` leaves the category's items uncategorized. */
-export const deleteCategory = async (db: Db, id: string): Promise<boolean> => {
+export const deleteCategory = async (
+  db: Db,
+  workspaceId: string,
+  id: string
+): Promise<boolean> => {
   const deleted = await db
     .delete(categories)
-    .where(eq(categories.id, id))
+    .where(and(eq(categories.workspaceId, workspaceId), eq(categories.id, id)))
     .returning({ id: categories.id });
   return deleted.length > 0;
+};
+
+/** Every category of one workspace, for the workspace-delete cleanup. */
+export const deleteCategoriesForWorkspace = async (
+  db: Db,
+  workspaceId: string
+): Promise<void> => {
+  await db.delete(categories).where(eq(categories.workspaceId, workspaceId));
 };
 
 /** An item lives in at most one category, so assigning moves it. */
@@ -110,14 +142,21 @@ export const assignItem = async (
     });
 };
 
+/**
+ * Scoped to the category the caller resolved: `category_items` has no workspace
+ * column, so naming the category is what keeps an item ref from reaching into
+ * another tenant's assignment.
+ */
 export const unassignItem = async (
   db: Db,
+  categoryId: string,
   item: CategoryItemRef
 ): Promise<void> => {
   await db
     .delete(categoryItems)
     .where(
       and(
+        eq(categoryItems.categoryId, categoryId),
         eq(categoryItems.itemType, item.itemType),
         eq(categoryItems.itemId, item.itemId)
       )

@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import { validateAttachment } from "./attachment-rules";
-import { type Attachment, attachments } from "./schema";
+import { type Attachment, attachments, channels, messages } from "./schema";
 
 export type StoreAttachmentResult =
   | { ok: true; attachment: Attachment }
@@ -49,6 +49,10 @@ export const storeAttachment = async (
   return { attachment, ok: true };
 };
 
+/**
+ * By bare id, for the outbound bridge mirror, which resolves its tenancy
+ * through the bridge row instead.
+ */
 export const getAttachment = async (
   db: Db,
   id: string
@@ -58,4 +62,40 @@ export const getAttachment = async (
     .from(attachments)
     .where(eq(attachments.id, id));
   return attachment;
+};
+
+/**
+ * An attachment reached by bare id, scoped through its parent chain -
+ * attachment → message → channel → workspace, since `attachments` carries no
+ * workspace column of its own.
+ *
+ * An attachment with no message yet is a just-uploaded file that no message has
+ * claimed: there is no parent to scope it through, its id is an unguessable
+ * UUID, and refusing it would break the composer's own preview of what it just
+ * uploaded. `createMessage` is what decides who may claim one.
+ */
+export const getAttachmentInWorkspace = async (
+  db: Db,
+  workspaceId: string,
+  id: string
+): Promise<Attachment | undefined> => {
+  const attachment = await getAttachment(db, id);
+  if (!attachment) {
+    return;
+  }
+  if (!attachment.messageId) {
+    return attachment;
+  }
+
+  const [parent] = await db
+    .select({ id: channels.id })
+    .from(messages)
+    .innerJoin(channels, eq(channels.id, messages.channelId))
+    .where(
+      and(
+        eq(messages.id, attachment.messageId),
+        eq(channels.workspaceId, workspaceId)
+      )
+    );
+  return parent ? attachment : undefined;
 };

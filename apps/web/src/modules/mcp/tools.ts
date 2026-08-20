@@ -44,6 +44,11 @@ export interface McpToolContext {
   env: Env;
   /** The URL this tool call arrived on, so tools can hand back absolute links. */
   requestUrl: string;
+  /**
+   * The agent's workspace, resolved from `agent.workspaceId` when the token was
+   * accepted. Every tool query below carries it.
+   */
+  workspace: { id: string; slug: string };
 }
 
 const DEFAULT_MESSAGE_LIMIT = 30;
@@ -54,8 +59,11 @@ const WIKI_TITLE_MAX_LENGTH = 200;
 const COMPUTER_CONTENT_MAX_LENGTH = 500_000;
 const COMPUTER_COMMAND_MAX_LENGTH = 4000;
 
-const agentNamesById = async (db: Db): Promise<Map<string, string>> => {
-  const all = await listAgents(db);
+const agentNamesById = async (
+  db: Db,
+  workspaceId: string
+): Promise<Map<string, string>> => {
+  const all = await listAgents(db, workspaceId);
   return new Map(all.map((agent) => [agent.id, agent.name]));
 };
 
@@ -127,7 +135,7 @@ const registerReadChannel = (server: McpServer, ctx: McpToolContext): void => {
         cursor = { createdAt: before.createdAt.getTime(), id: before.id };
       }
 
-      const page = await listChannelMessages(ctx.db, {
+      const page = await listChannelMessages(ctx.db, ctx.workspace, {
         channelId,
         cursor,
         limit: clampLimit(limit, {
@@ -135,7 +143,7 @@ const registerReadChannel = (server: McpServer, ctx: McpToolContext): void => {
           max: MAX_MESSAGE_LIMIT,
         }),
       });
-      const names = await agentNamesById(ctx.db);
+      const names = await agentNamesById(ctx.db, ctx.workspace.id);
       return json({
         hasMore: page.nextCursor !== null,
         messages: page.messages
@@ -156,7 +164,7 @@ const registerReadThread = (server: McpServer, ctx: McpToolContext): void => {
       title: "Read a thread",
     },
     async ({ messageId }) => {
-      const thread = await getThread(ctx.db, messageId);
+      const thread = await getThread(ctx.db, ctx.workspace, messageId);
       if (!thread) {
         return fail(`No message with id ${messageId}.`);
       }
@@ -170,7 +178,7 @@ const registerReadThread = (server: McpServer, ctx: McpToolContext): void => {
         return fail(NOT_A_MEMBER);
       }
 
-      const names = await agentNamesById(ctx.db);
+      const names = await agentNamesById(ctx.db, ctx.workspace.id);
       return json({
         parent: toMcpMessage(thread.parent, names),
         replies: thread.replies.map((reply) => toMcpMessage(reply, names)),
@@ -206,6 +214,7 @@ const registerPostMessage = (server: McpServer, ctx: McpToolContext): void => {
         body,
         channelId,
         threadParentId,
+        workspace: ctx.workspace,
       });
       if (!result.ok) {
         return fail(result.reason);
@@ -228,7 +237,7 @@ const registerListAgents = (server: McpServer, ctx: McpToolContext): void => {
       title: "List agents",
     },
     async () => {
-      const all = await listAgents(ctx.db);
+      const all = await listAgents(ctx.db, ctx.workspace.id);
       return json({
         agents: all.map((agent) => ({
           id: agent.id,
@@ -253,7 +262,7 @@ const registerWikiTools = (server: McpServer, ctx: McpToolContext): void => {
       inputSchema: {},
       title: "List wiki pages",
     },
-    async () => json({ pages: await listPages(ctx.db) })
+    async () => json({ pages: await listPages(ctx.db, ctx.workspace.id) })
   );
 
   server.registerTool(
@@ -264,7 +273,7 @@ const registerWikiTools = (server: McpServer, ctx: McpToolContext): void => {
       title: "Read a wiki page",
     },
     async ({ slug }) => {
-      const page = await getPageBySlug(ctx.db, slug);
+      const page = await getPageBySlug(ctx.db, ctx.workspace.id, slug);
       if (!page) {
         return fail(`No wiki page with slug ${slug}.`);
       }
@@ -285,7 +294,7 @@ const registerWikiTools = (server: McpServer, ctx: McpToolContext): void => {
       title: "Write a wiki page",
     },
     async ({ body, slug, title }) => {
-      const { created, page } = await writePage(ctx.db, ctx.agent.workspaceId, {
+      const { created, page } = await writePage(ctx.db, ctx.workspace.id, {
         author: { id: ctx.agent.id, type: "agent" },
         body,
         slug,
@@ -303,7 +312,8 @@ const registerWikiTools = (server: McpServer, ctx: McpToolContext): void => {
       inputSchema: { query: z.string() },
       title: "Search the wiki",
     },
-    async ({ query }) => json({ pages: await searchPages(ctx.db, query) })
+    async ({ query }) =>
+      json({ pages: await searchPages(ctx.db, ctx.workspace.id, query) })
   );
 };
 
@@ -433,7 +443,8 @@ const BROWSER_INTRO =
   "Your own browser - one page, kept open between tool calls, so what you navigate to is still there next time.";
 
 const registerBrowserTools = (server: McpServer, ctx: McpToolContext): void => {
-  const browser = () => createBrowserClient(ctx.db, ctx.env, ctx.agent.id);
+  const browser = () =>
+    createBrowserClient(ctx.db, ctx.env, ctx.workspace, ctx.agent.id);
 
   server.registerTool(
     "browser_navigate",

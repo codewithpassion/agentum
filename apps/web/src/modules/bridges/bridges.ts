@@ -13,6 +13,7 @@ export interface CreateBridgeInput {
 
 export const getBridge = async (
   db: Db,
+  workspaceId: string,
   channelId: string,
   connector: string
 ): Promise<ChannelBridge | undefined> => {
@@ -21,6 +22,7 @@ export const getBridge = async (
     .from(channelBridges)
     .where(
       and(
+        eq(channelBridges.workspaceId, workspaceId),
         eq(channelBridges.channelId, channelId),
         eq(channelBridges.connector, connector)
       )
@@ -28,6 +30,10 @@ export const getBridge = async (
   return bridge;
 };
 
+/**
+ * Global by design: an inbound Slack event carries no session, and this lookup
+ * is what maps it to a tenant - `bridge.workspaceId` is the scope from there on.
+ */
 export const findBridgeByExternalChannel = async (
   db: Db,
   connector: string,
@@ -58,9 +64,18 @@ export const listBridgesForChannel = (
 /** Which external surfaces can reach this agent - the agent rail's card. */
 export const listBridgesForAgent = (
   db: Db,
+  workspaceId: string,
   agentId: string
 ): Promise<ChannelBridge[]> =>
-  db.select().from(channelBridges).where(eq(channelBridges.agentId, agentId));
+  db
+    .select()
+    .from(channelBridges)
+    .where(
+      and(
+        eq(channelBridges.workspaceId, workspaceId),
+        eq(channelBridges.agentId, agentId)
+      )
+    );
 
 /** Re-bridging a channel replaces the previous mapping rather than failing. */
 export const upsertBridge = async (
@@ -106,6 +121,7 @@ export const upsertBridge = async (
 
 export const deleteBridge = async (
   db: Db,
+  workspaceId: string,
   channelId: string,
   connector: string
 ): Promise<boolean> => {
@@ -113,10 +129,21 @@ export const deleteBridge = async (
     .delete(channelBridges)
     .where(
       and(
+        eq(channelBridges.workspaceId, workspaceId),
         eq(channelBridges.channelId, channelId),
         eq(channelBridges.connector, connector)
       )
     )
     .returning({ id: channelBridges.id });
   return deleted.length > 0;
+};
+
+/** Every bridge of one workspace, for the workspace-delete cleanup. */
+export const deleteBridgesForWorkspace = async (
+  db: Db,
+  workspaceId: string
+): Promise<void> => {
+  await db
+    .delete(channelBridges)
+    .where(eq(channelBridges.workspaceId, workspaceId));
 };

@@ -11,7 +11,6 @@ import {
 import { createDb, type Db } from "#/db/client";
 import { getAgentById } from "#/modules/agents/service";
 import { getChannel } from "#/modules/messaging/service";
-import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import { CATEGORY_ITEM_TYPES } from "./schema";
 import {
   assignItem,
@@ -34,19 +33,24 @@ categoriesRoutes.use("*", requireAuth);
 const isCategoryItemType = (value: string): value is CategoryItemType =>
   (CATEGORY_ITEM_TYPES as readonly string[]).includes(value);
 
-/** Items are resolved through the owning module's public service, never its tables. */
+/**
+ * Items are resolved through the owning module's public service, never its
+ * tables - and within this workspace, so a category here can never be made to
+ * point at another tenant's agent or channel.
+ */
 const assertItemIsCategorizable = async (
   db: Db,
+  workspaceId: string,
   item: CategoryItemRef
 ): Promise<void> => {
   if (item.itemType === "agent") {
-    if (!(await getAgentById(db, item.itemId))) {
+    if (!(await getAgentById(db, workspaceId, item.itemId))) {
       throw notFound("Agent not found.");
     }
     return;
   }
 
-  const channel = await getChannel(db, item.itemId);
+  const channel = await getChannel(db, workspaceId, item.itemId);
   if (!channel) {
     throw notFound("Channel not found.");
   }
@@ -56,7 +60,10 @@ const assertItemIsCategorizable = async (
 };
 
 categoriesRoutes.get("/", async (c) => {
-  const categories = await listCategories(createDb(c.env.DB));
+  const categories = await listCategories(
+    createDb(c.env.DB),
+    c.get("workspace").id
+  );
   return c.json({ categories });
 });
 
@@ -65,13 +72,10 @@ categoriesRoutes.post("/", async (c) => {
   const name = requireString(body, "name", {
     maxLength: CATEGORY_NAME_MAX_LENGTH,
   });
-  // TODO(phase-2): replace with requireWorkspace context.
   const category = await createCategory(
     createDb(c.env.DB),
-    DEFAULT_WORKSPACE_ID,
-    {
-      name,
-    }
+    c.get("workspace").id,
+    { name }
   );
   return c.json({ category }, 201);
 });
@@ -83,6 +87,7 @@ categoriesRoutes.patch("/:id", async (c) => {
   });
   const category = await renameCategory(
     createDb(c.env.DB),
+    c.get("workspace").id,
     c.req.param("id"),
     name
   );
@@ -93,7 +98,11 @@ categoriesRoutes.patch("/:id", async (c) => {
 });
 
 categoriesRoutes.delete("/:id", async (c) => {
-  const deleted = await deleteCategory(createDb(c.env.DB), c.req.param("id"));
+  const deleted = await deleteCategory(
+    createDb(c.env.DB),
+    c.get("workspace").id,
+    c.req.param("id")
+  );
   if (!deleted) {
     throw notFound("Category not found.");
   }
@@ -102,8 +111,9 @@ categoriesRoutes.delete("/:id", async (c) => {
 
 categoriesRoutes.put("/:id/items", async (c) => {
   const db = createDb(c.env.DB);
+  const workspaceId = c.get("workspace").id;
   const categoryId = c.req.param("id");
-  if (!(await getCategory(db, categoryId))) {
+  if (!(await getCategory(db, workspaceId, categoryId))) {
     throw notFound("Category not found.");
   }
 
@@ -112,7 +122,7 @@ categoriesRoutes.put("/:id/items", async (c) => {
     itemId: requireString(body, "itemId"),
     itemType: requireEnum(body, "itemType", CATEGORY_ITEM_TYPES),
   };
-  await assertItemIsCategorizable(db, item);
+  await assertItemIsCategorizable(db, workspaceId, item);
 
   await assignItem(db, categoryId, item);
   return c.body(null, 204);
@@ -126,7 +136,15 @@ categoriesRoutes.delete("/:id/items/:itemType/:itemId", async (c) => {
     );
   }
 
-  await unassignItem(createDb(c.env.DB), {
+  // `category_items` carries no workspace of its own, so the category named in
+  // the path is resolved first and the unassign runs underneath it.
+  const db = createDb(c.env.DB);
+  const categoryId = c.req.param("id");
+  if (!(await getCategory(db, c.get("workspace").id, categoryId))) {
+    throw notFound("Category not found.");
+  }
+
+  await unassignItem(db, categoryId, {
     itemId: c.req.param("itemId"),
     itemType,
   });

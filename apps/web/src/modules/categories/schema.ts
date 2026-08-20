@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  index,
   integer,
   primaryKey,
   sqliteTable,
@@ -20,14 +21,20 @@ import {
 
 export const CATEGORY_ITEM_TYPES = ["channel", "agent"] as const;
 
-export const categories = sqliteTable("categories", {
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`),
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  workspaceId: text("workspace_id").notNull(),
-});
+export const categories = sqliteTable(
+  "categories",
+  {
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+  },
+  // The sidebar's list is "every category of this workspace"; nothing else here
+  // is unique on `workspace_id`, so it needs an index of its own.
+  (table) => [index("categories_workspace_idx").on(table.workspaceId)]
+);
 
 export const categoryItems = sqliteTable(
   "category_items",

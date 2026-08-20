@@ -1,6 +1,15 @@
 import { and, asc, eq } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import { isUniqueConstraintError } from "#/db/errors";
+import { deleteActivityForAgents } from "#/modules/activity/service";
+import { deleteAgentsForWorkspace } from "#/modules/agents/service";
+import { deleteBridgesForWorkspace } from "#/modules/bridges/bridges";
+import { deleteBrowserDataForAgents } from "#/modules/browser/service";
+import { deleteCategoriesForWorkspace } from "#/modules/categories/service";
+import { deleteConnectorsForWorkspace } from "#/modules/connectors/service";
+import { deleteChannelsForWorkspace } from "#/modules/messaging/service";
+import { deleteSkillsForWorkspace } from "#/modules/skills/service";
+import { deletePagesForWorkspace } from "#/modules/wiki/service";
 import {
   type Workspace,
   type WorkspaceMember,
@@ -14,7 +23,8 @@ import {
  * matches the row migration 0012 inserts, which is what lets a route name a
  * workspace before `requireWorkspace` exists to resolve one from the URL.
  *
- * Phase 3 replaces every use of this with the workspace on the request context.
+ * No route names it any more - they all read `c.get("workspace")`. It survives
+ * for the scripts and tests that need the same literal migration 0012 inserted.
  */
 export const DEFAULT_WORKSPACE_ID = "ws_default";
 
@@ -155,6 +165,22 @@ export const getWorkspaceBySlug = async (
   return workspace;
 };
 
+/**
+ * For the paths that know a workspace id but not its slug - the agents' MCP
+ * endpoint and the Slack bridge, both of which arrive with a row rather than a
+ * URL and still have to address the workspace's own URLs.
+ */
+export const getWorkspaceById = async (
+  db: Db,
+  id: string
+): Promise<Workspace | undefined> => {
+  const [workspace] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, id));
+  return workspace;
+};
+
 /** The membership check behind `requireWorkspace`; undefined means "not a member". */
 export const findMembership = async (
   db: Db,
@@ -188,15 +214,40 @@ export const renameWorkspace = async (
 };
 
 /**
- * Takes the memberships with it (they are the one real foreign key into
- * `workspaces`). The workspace's agents, channels, skills and wiki pages carry
- * a plain-text `workspace_id` by design - see the schema doc-comment - so they
- * survive as rows no workspace can reach.
+ * Deletes the workspace and everything under it.
+ *
+ * `workspace_id` is plain text on every root table - no foreign key, by design,
+ * so no module depends on another's schema - which means nothing cascades from
+ * the `workspaces` row except the memberships. Left alone, a deleted
+ * workspace's rows would survive unreachable, and its agents would keep a live
+ * `/mcp/:token` surface: the credential lookup is global, so an orphaned agent
+ * is still a usable one. Hence: roots first, through each module's own service,
+ * and only then the workspace itself.
+ *
+ * What follows by `ON DELETE CASCADE` from those roots: channel members,
+ * messages, message mentions and attachments (from `channels`), wiki revisions
+ * and assets (from `wiki_pages`), category items (from `categories`). What does
+ * not, and is deleted by hand: agent activity, browser sessions and
+ * screenshots, connector assignments and OAuth flows, skill versions and files.
+ *
+ * R2 objects (attachments, wiki assets, skill files, screenshots) are left
+ * behind - unreachable, and worth less than making this a bucket-wide sweep.
  */
 export const deleteWorkspace = async (
   db: Db,
   workspaceId: string
 ): Promise<boolean> => {
+  const agentIds = await deleteAgentsForWorkspace(db, workspaceId);
+  await deleteActivityForAgents(db, agentIds);
+  await deleteBrowserDataForAgents(db, agentIds);
+
+  await deleteBridgesForWorkspace(db, workspaceId);
+  await deleteChannelsForWorkspace(db, workspaceId);
+  await deleteCategoriesForWorkspace(db, workspaceId);
+  await deleteConnectorsForWorkspace(db, workspaceId);
+  await deleteSkillsForWorkspace(db, workspaceId);
+  await deletePagesForWorkspace(db, workspaceId);
+
   const deleted = await db
     .delete(workspaces)
     .where(eq(workspaces.id, workspaceId))

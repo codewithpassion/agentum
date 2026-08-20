@@ -22,7 +22,7 @@ agentActivityRoutes.use("*", requireAuth);
 agentActivityRoutes.get("/:id/activity", async (c) => {
   const db = createDb(c.env.DB);
   const agentId = c.req.param("id");
-  if (!(await getAgentById(db, agentId))) {
+  if (!(await getAgentById(db, c.get("workspace").id, agentId))) {
     throw notFound("Agent not found.");
   }
 

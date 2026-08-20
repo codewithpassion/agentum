@@ -335,7 +335,7 @@ describe("addConnector", () => {
     expect(authorizeUrl.searchParams.get("code_challenge_method")).toBe("S256");
     expect(authorizeUrl.searchParams.get("resource")).toBe(MCP_URL);
 
-    const stored = await getConnector(db, connector.id);
+    const stored = await getConnector(db, DEFAULT_WORKSPACE_ID, connector.id);
     expect(stored?.status).toBe("authorizing");
     expect(stored?.authKind).toBe("oauth");
     expect(stored?.oauthClientId).toBe("cid_registered");
@@ -362,9 +362,10 @@ describe("addConnector", () => {
       kind: "needs_client",
     });
     // The token endpoint is remembered so the manual path can finish.
-    expect((await getConnector(db, connector.id))?.oauthTokenEndpoint).toBe(
-      "https://auth.example.com/token"
-    );
+    expect(
+      (await getConnector(db, DEFAULT_WORKSPACE_ID, connector.id))
+        ?.oauthTokenEndpoint
+    ).toBe("https://auth.example.com/token");
     expect(await flowFor(connector.id)).toBeUndefined();
   });
 
@@ -383,7 +384,7 @@ describe("addConnector", () => {
     });
 
     expect(outcome.kind).toBe("authorize");
-    const stored = await getConnector(db, connector.id);
+    const stored = await getConnector(db, DEFAULT_WORKSPACE_ID, connector.id);
     expect(stored?.oauthClientId).toBe("cid_manual");
     // A confidential client, and the secret never lands in plaintext.
     expect(stored?.oauthTokenEndpointAuth).toBe("client_secret_basic");
@@ -402,7 +403,7 @@ describe("addConnector", () => {
     );
 
     expect(outcome.kind).toBe("needs_bearer");
-    const stored = await getConnector(db, connector.id);
+    const stored = await getConnector(db, DEFAULT_WORKSPACE_ID, connector.id);
     expect(stored?.status).toBe("unconfigured");
     expect(stored?.lastError).toMatch(NO_OAUTH_METADATA);
   });
@@ -421,7 +422,9 @@ describe("addConnector", () => {
     );
 
     expect(outcome.kind).toBe("needs_bearer");
-    expect((await getConnector(db, connector.id))?.lastError).toContain("502");
+    expect(
+      (await getConnector(db, DEFAULT_WORKSPACE_ID, connector.id))?.lastError
+    ).toContain("502");
   });
 });
 
@@ -584,7 +587,7 @@ describe("completeOAuthCallback", () => {
     expect(completeOAuthCallback(ctx, { code: "c", state })).rejects.toThrow(
       REFUSED_GRANT
     );
-    const stored = await getConnector(db, connectorId);
+    const stored = await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId);
     expect(stored?.status).toBe("auth_error");
     expect(stored?.mgmtAccessTokenEnc).toBeNull();
   });
@@ -600,7 +603,11 @@ describe("completeOAuthCallback", () => {
     const first = await authorized(ctx);
     await completeOAuthCallback(ctx, { code: "c", state: first.state });
 
-    const connector = await getConnector(db, first.connectorId);
+    const connector = await getConnector(
+      db,
+      DEFAULT_WORKSPACE_ID,
+      first.connectorId
+    );
     if (!connector) {
       throw new Error("Expected the connector.");
     }
@@ -651,7 +658,7 @@ describe("completeBearer", () => {
     });
 
     expect(completeBearer(ctx, connector, "wrong")).rejects.toThrow();
-    const stored = await getConnector(db, connector.id);
+    const stored = await getConnector(db, DEFAULT_WORKSPACE_ID, connector.id);
     expect(stored?.mgmtAccessTokenEnc).toBeNull();
     expect(stored?.authKind).not.toBe("bearer");
     expect(vaults.calls.bearerCredentials).toHaveLength(0);
@@ -683,7 +690,7 @@ describe("testConnection", () => {
       world([mcpHandler("at_1", ["x", "y"])]),
       { access_token: "at_1", expires_in: 3600, refresh_token: "rt_1" }
     );
-    const connector = await getConnector(db, connectorId);
+    const connector = await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId);
 
     const result = await testConnection(ctx, must(connector, "the connector"));
 
@@ -704,13 +711,13 @@ describe("testConnection", () => {
       // Already expired when it was stored.
       { access_token: "at_1", expires_in: -10, refresh_token: "rt_1" }
     );
-    const connector = await getConnector(db, connectorId);
+    const connector = await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId);
 
     const result = await testConnection(ctx, must(connector, "the connector"));
 
     expect(result.ok).toBe(true);
     expect(result.tools.map((tool) => tool.name)).toEqual(["after-refresh"]);
-    const stored = await getConnector(db, connectorId);
+    const stored = await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId);
     expect(await decryptSecret(KEY, stored?.mgmtAccessTokenEnc ?? "")).toBe(
       "at_2"
     );
@@ -722,12 +729,12 @@ describe("testConnection", () => {
       world([tokenHandler({ error: "invalid_grant" }, 400)]),
       { access_token: "at_1", expires_in: -10, refresh_token: "rt_1" }
     );
-    const connector = await getConnector(db, connectorId);
+    const connector = await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId);
 
     const result = await testConnection(ctx, must(connector, "the connector"));
 
     expect(result.ok).toBe(false);
-    const stored = await getConnector(db, connectorId);
+    const stored = await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId);
     // The vault credential is untouched, so every session keeps working.
     expect(stored?.status).toBe("connected");
     expect(stored?.mgmtError).toMatch(MANAGEMENT_REAUTH);
@@ -739,11 +746,11 @@ describe("testConnection", () => {
       world([mcpHandler("some-other-token")]),
       { access_token: "at_1", expires_in: 3600, refresh_token: "rt_1" }
     );
-    const connector = await getConnector(db, connectorId);
+    const connector = await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId);
 
     await testConnection(ctx, must(connector, "the connector"));
 
-    const stored = await getConnector(db, connectorId);
+    const stored = await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId);
     expect(stored?.status).toBe("connected");
     expect(stored?.mgmtError).toMatch(MANAGEMENT_REAUTH);
   });
@@ -755,7 +762,7 @@ describe("testConnection", () => {
     });
     await completeBearer(setup, connector, "tok");
 
-    const stored = await getConnector(db, connector.id);
+    const stored = await getConnector(db, DEFAULT_WORKSPACE_ID, connector.id);
     const ctx = contextWith(world([mcpHandler("revoked")]));
     const result = await testConnection(
       ctx,
@@ -763,7 +770,7 @@ describe("testConnection", () => {
     );
 
     expect(result.ok).toBe(false);
-    const after = await getConnector(db, connector.id);
+    const after = await getConnector(db, DEFAULT_WORKSPACE_ID, connector.id);
     expect(after?.status).toBe("auth_error");
     expect(after?.lastError).not.toBeNull();
   });
@@ -778,11 +785,11 @@ describe("testConnection", () => {
       .set({ lastError: "old", status: "auth_error" })
       .where(eq(connectors.id, connector.id));
 
-    const stored = await getConnector(db, connector.id);
+    const stored = await getConnector(db, DEFAULT_WORKSPACE_ID, connector.id);
     expect(
       (await testConnection(setup, must(stored, "the stored connector"))).ok
     ).toBe(true);
-    const after = await getConnector(db, connector.id);
+    const after = await getConnector(db, DEFAULT_WORKSPACE_ID, connector.id);
     expect(after?.status).toBe("connected");
     expect(after?.lastError).toBeNull();
   });
@@ -864,7 +871,7 @@ describe("removeConnector", () => {
     await completeOAuthCallback(ctx, { code: "c", state });
     await assignConnector(db, connectorId, "agent_1");
 
-    const connector = await getConnector(db, connectorId);
+    const connector = await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId);
     const { vaultError } = await removeConnector(
       ctx,
       must(connector, "the connector")
@@ -873,7 +880,9 @@ describe("removeConnector", () => {
     expect(vaultError).toBeNull();
     // One call, no archive step - the spike confirmed a live vault deletes.
     expect(vaults.calls.deleted).toEqual(["vault_1"]);
-    expect(await getConnector(db, connectorId)).toBeUndefined();
+    expect(
+      await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId)
+    ).toBeUndefined();
     expect(await listConnectorsForAgent(db, "agent_1")).toEqual([]);
     expect(await flowFor(connectorId)).toBeUndefined();
   });
@@ -889,14 +898,16 @@ describe("removeConnector", () => {
       .where(eq(connectors.id, connector.id));
     vaults.gateway.deleteVault = () => Promise.reject(new Error("vault gone"));
 
-    const stored = await getConnector(db, connector.id);
+    const stored = await getConnector(db, DEFAULT_WORKSPACE_ID, connector.id);
     const { vaultError } = await removeConnector(
       ctx,
       must(stored, "the stored connector")
     );
 
     expect(vaultError).toBe("vault gone");
-    expect(await getConnector(db, connector.id)).toBeUndefined();
+    expect(
+      await getConnector(db, DEFAULT_WORKSPACE_ID, connector.id)
+    ).toBeUndefined();
   });
 
   test("a connector added with the integration off has no vault to delete", async () => {
@@ -933,7 +944,7 @@ describe("marking agents for a connector resync", () => {
   };
 
   const isMarked = async (agentId: string): Promise<boolean> => {
-    const agent = await getAgentById(db, agentId);
+    const agent = await getAgentById(db, DEFAULT_WORKSPACE_ID, agentId);
     return agent?.connectorResyncPendingAt !== null;
   };
 
@@ -1017,12 +1028,18 @@ describe("marking agents for a connector resync", () => {
     const connectorId = await connected();
     const agentId = await holderOf(connectorId);
 
-    const stored = must(await getConnector(db, connectorId), "the connector");
+    const stored = must(
+      await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId),
+      "the connector"
+    );
     await setConnectorDisabled(ctx, stored, true);
     expect(await isMarked(agentId)).toBe(true);
 
     await clearConnectorResyncPending(db, agentId);
-    const off = must(await getConnector(db, connectorId), "the connector");
+    const off = must(
+      await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId),
+      "the connector"
+    );
     await setConnectorDisabled(ctx, off, false);
     expect(await isMarked(agentId)).toBe(true);
   });
@@ -1044,7 +1061,10 @@ describe("marking agents for a connector resync", () => {
     expect(await isMarked(agentId)).toBe(true);
 
     await clearConnectorResyncPending(db, agentId);
-    const again = must(await getConnector(db, connectorId), "the connector");
+    const again = must(
+      await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId),
+      "the connector"
+    );
     await beginReauthorization(ctx, again);
     const flow = must(await flowFor(connectorId), "a second flow");
     await completeOAuthCallback(ctx, { code: "c", state: flow.state });
@@ -1058,7 +1078,10 @@ describe("marking agents for a connector resync", () => {
     const connectorId = await connected();
     const agentId = await holderOf(connectorId);
 
-    const stored = must(await getConnector(db, connectorId), "the connector");
+    const stored = must(
+      await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId),
+      "the connector"
+    );
     const { agentIds } = await removeConnector(ctx, stored);
 
     expect(agentIds).toEqual([agentId]);
@@ -1093,7 +1116,7 @@ describe("recordConnectorAuthFailure", () => {
     ]);
 
     expect(blamed).toEqual([connectorId]);
-    const connector = await getConnector(db, connectorId);
+    const connector = await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId);
     expect(connector?.status).toBe("auth_error");
     expect(connector?.lastError).toContain("401");
   });
@@ -1107,7 +1130,9 @@ describe("recordConnectorAuthFailure", () => {
     ]);
 
     expect(blamed).toEqual([]);
-    expect((await getConnector(db, connectorId))?.status).toBe("connected");
+    expect(
+      (await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId))?.status
+    ).toBe("connected");
   });
 
   test("a connector another agent holds is not blamed", async () => {
@@ -1123,6 +1148,8 @@ describe("recordConnectorAuthFailure", () => {
     ]);
 
     expect(blamed).toEqual([]);
-    expect((await getConnector(db, connectorId))?.status).toBe("connected");
+    expect(
+      (await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId))?.status
+    ).toBe("connected");
   });
 });

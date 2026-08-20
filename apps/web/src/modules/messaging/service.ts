@@ -21,6 +21,18 @@ export type AuthorType = (typeof AUTHOR_TYPES)[number];
 export type MemberType = (typeof MEMBER_TYPES)[number];
 export type ChannelKind = (typeof CHANNEL_KINDS)[number];
 
+/**
+ * The tenant a messaging call runs in. Both halves are needed and neither
+ * substitutes for the other: the id is what goes into every WHERE, and the slug
+ * is what attachment URLs are addressed by (`/api/w/:slug/attachments/:id`).
+ * A `Workspace` row satisfies it, so routes pass `c.get("workspace")` straight
+ * through.
+ */
+export interface WorkspaceRef {
+  id: string;
+  slug: string;
+}
+
 export interface AttachmentView {
   filename: string;
   id: string;
@@ -56,14 +68,38 @@ export interface ChannelMemberView {
   name: string | null;
 }
 
-export const attachmentUrl = (id: string): string => `/api/attachments/${id}`;
+export const attachmentUrl = (workspaceSlug: string, id: string): string =>
+  `/api/w/${workspaceSlug}/attachments/${id}`;
 
 // --- channels ---------------------------------------------------------------
 
-export const listChannels = (db: Db): Promise<Channel[]> =>
-  db.select().from(channels).orderBy(asc(channels.name));
+export const listChannels = (db: Db, workspaceId: string): Promise<Channel[]> =>
+  db
+    .select()
+    .from(channels)
+    .where(eq(channels.workspaceId, workspaceId))
+    .orderBy(asc(channels.name));
 
 export const getChannel = async (
+  db: Db,
+  workspaceId: string,
+  id: string
+): Promise<Channel | undefined> => {
+  const [channel] = await db
+    .select()
+    .from(channels)
+    .where(and(eq(channels.workspaceId, workspaceId), eq(channels.id, id)));
+  return channel;
+};
+
+/**
+ * A channel by bare id, for the plumbing that derives the workspace *from* the
+ * channel: the router's notification builder and the outbound bridge mirror,
+ * both of which start from a message that has already been stored.
+ *
+ * Never call this from a workspace-scoped route.
+ */
+export const getChannelUnscoped = async (
   db: Db,
   id: string
 ): Promise<Channel | undefined> => {
@@ -92,12 +128,27 @@ export const createChannel = async (
   return channel;
 };
 
-export const deleteChannel = async (db: Db, id: string): Promise<boolean> => {
+export const deleteChannel = async (
+  db: Db,
+  workspaceId: string,
+  id: string
+): Promise<boolean> => {
   const deleted = await db
     .delete(channels)
-    .where(eq(channels.id, id))
+    .where(and(eq(channels.workspaceId, workspaceId), eq(channels.id, id)))
     .returning({ id: channels.id });
   return deleted.length > 0;
+};
+
+/**
+ * Every channel of one workspace, for the workspace-delete cleanup. Messages,
+ * members, attachments and mentions follow by `ON DELETE CASCADE`.
+ */
+export const deleteChannelsForWorkspace = async (
+  db: Db,
+  workspaceId: string
+): Promise<void> => {
+  await db.delete(channels).where(eq(channels.workspaceId, workspaceId));
 };
 
 export interface ChannelMemberInput {
@@ -221,6 +272,7 @@ export const getOrCreateAgentDm = async (
     .innerJoin(channelMembers, eq(channelMembers.channelId, channels.id))
     .where(
       and(
+        eq(channels.workspaceId, agent.workspaceId),
         eq(channels.kind, "dm"),
         eq(channelMembers.memberType, "agent"),
         eq(channelMembers.memberId, agent.id)
@@ -276,6 +328,7 @@ type MessageRow = typeof messages.$inferSelect;
 
 const hydrateMessages = async (
   db: Db,
+  workspaceSlug: string,
   rows: MessageRow[]
 ): Promise<MessageView[]> => {
   if (rows.length === 0) {
@@ -318,7 +371,7 @@ const hydrateMessages = async (
       id: row.id,
       mime: row.mime,
       size: row.size,
-      url: attachmentUrl(row.id),
+      url: attachmentUrl(workspaceSlug, row.id),
     });
     attachmentsByMessage.set(row.messageId, list);
   }
@@ -356,9 +409,14 @@ const hydrateMessages = async (
   }));
 };
 
-/** Newest-first page of top-level messages; thread replies are excluded. */
+/**
+ * Newest-first page of top-level messages; thread replies are excluded. The
+ * channel is the tenancy boundary here: the caller has already resolved it
+ * within the workspace, which is what scopes every message under it.
+ */
 export const listChannelMessages = async (
   db: Db,
+  workspace: WorkspaceRef,
   options: { channelId: string; limit: number; cursor?: MessageCursor }
 ): Promise<{ messages: MessageView[]; nextCursor: string | null }> => {
   const { channelId, limit, cursor } = options;
@@ -388,11 +446,15 @@ export const listChannelMessages = async (
   const page = rows.slice(0, limit);
   const last = page.at(-1);
   return {
-    messages: await hydrateMessages(db, page),
+    messages: await hydrateMessages(db, workspace.slug, page),
     nextCursor: rows.length > limit && last ? encodeCursor(last) : null,
   };
 };
 
+/**
+ * A message by bare id, within a channel the caller has already resolved. Used
+ * for cursors and thread parents, where the channel is the proven scope.
+ */
 export const getMessage = async (
   db: Db,
   id: string
@@ -401,11 +463,30 @@ export const getMessage = async (
   return message;
 };
 
+/**
+ * A message reached by bare id, with its channel proved to sit in the
+ * workspace. `messages` carries no `workspace_id` of its own - this join is
+ * what makes `/messages/:id/…` answer 404 for another tenant's message.
+ */
+export const getMessageInWorkspace = async (
+  db: Db,
+  workspaceId: string,
+  id: string
+): Promise<MessageRow | undefined> => {
+  const [row] = await db
+    .select({ message: messages })
+    .from(messages)
+    .innerJoin(channels, eq(channels.id, messages.channelId))
+    .where(and(eq(messages.id, id), eq(channels.workspaceId, workspaceId)));
+  return row?.message;
+};
+
 export const getThread = async (
   db: Db,
+  workspace: WorkspaceRef,
   parentId: string
 ): Promise<{ parent: MessageView; replies: MessageView[] } | undefined> => {
-  const parentRow = await getMessage(db, parentId);
+  const parentRow = await getMessageInWorkspace(db, workspace.id, parentId);
   if (!parentRow) {
     return;
   }
@@ -415,11 +496,14 @@ export const getThread = async (
     .where(eq(messages.threadParentId, parentId))
     .orderBy(asc(messages.createdAt), asc(messages.id));
 
-  const [parent] = await hydrateMessages(db, [parentRow]);
+  const [parent] = await hydrateMessages(db, workspace.slug, [parentRow]);
   if (!parent) {
     return;
   }
-  return { parent, replies: await hydrateMessages(db, replyRows) };
+  return {
+    parent,
+    replies: await hydrateMessages(db, workspace.slug, replyRows),
+  };
 };
 
 export interface CreateMessageInput {
@@ -430,6 +514,8 @@ export interface CreateMessageInput {
   channelId: string;
   origin?: string;
   threadParentId?: string;
+  /** The channel's workspace, resolved by the caller before it got here. */
+  workspace: WorkspaceRef;
 }
 
 export type CreateMessageResult =
@@ -469,7 +555,9 @@ export const createMessage = async (
     }
   }
 
-  const candidates = await listAgentMentionCandidates(db);
+  // Scoped: an `@Name` here must never match - or wake - a same-named agent in
+  // another workspace.
+  const candidates = await listAgentMentionCandidates(db, input.workspace.id);
   const mentions = parseMentions(input.body, candidates);
 
   const id = crypto.randomUUID();
@@ -510,7 +598,7 @@ export const createMessage = async (
   if (!row) {
     throw new Error("Failed to create the message.");
   }
-  const [message] = await hydrateMessages(db, [row]);
+  const [message] = await hydrateMessages(db, input.workspace.slug, [row]);
   if (!message) {
     throw new Error("Failed to load the created message.");
   }

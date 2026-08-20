@@ -1,7 +1,7 @@
 import type { Db } from "#/db/client";
 import { getAgentsByIds } from "#/modules/agents/service";
 import {
-  getChannel,
+  getChannelUnscoped,
   listChannelMembers,
   type MessageView,
 } from "#/modules/messaging/service";
@@ -22,7 +22,9 @@ export const buildNotification = async (
   db: Db,
   message: MessageView
 ): Promise<MessageNotification | null> => {
-  const channel = await getChannel(db, message.channelId);
+  // Unscoped: the message has already been written, and its channel is what
+  // names the workspace rather than something to be checked against one.
+  const channel = await getChannelUnscoped(db, message.channelId);
   if (!channel) {
     return null;
   }

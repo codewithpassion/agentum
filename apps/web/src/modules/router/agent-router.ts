@@ -3,8 +3,8 @@ import { createDb, type Db } from "#/db/client";
 import type { Agent } from "#/modules/agents/schema";
 import {
   type AgentStatus,
-  getAgentById,
-  listAgents,
+  getAgentByIdUnscoped,
+  listAllAgents,
   setAgentRuntimeStatus,
 } from "#/modules/agents/service";
 import {
@@ -221,7 +221,7 @@ export class AgentRouter extends DurableObject<Env> {
     session: StoredSession | null
   ): Promise<void> {
     const gateway = this.gateway();
-    const agent = await getAgentById(this.db, agentId);
+    const agent = await getAgentByIdUnscoped(this.db, agentId);
     const [first] = entries;
     const channelId = first?.channelId ?? session?.channelId ?? "";
 
@@ -304,7 +304,7 @@ export class AgentRouter extends DurableObject<Env> {
         // Recorded on the agent's sync status.
       }
     );
-    return (await getAgentById(this.db, agent.id)) ?? agent;
+    return (await getAgentByIdUnscoped(this.db, agent.id)) ?? agent;
   }
 
   private async startSession(
@@ -368,7 +368,9 @@ export class AgentRouter extends DurableObject<Env> {
     await this.ctx.storage.delete(NEXT_DIGEST_KEY);
 
     const now = Date.now();
-    for (const agent of await listAgents(this.db)) {
+    // Every workspace's agents: the router is still one global Durable Object.
+    // TODO(phase-5): one router per workspace, and this becomes `listAgents`.
+    for (const agent of await listAllAgents(this.db)) {
       // biome-ignore lint/performance/noAwaitInLoops: session slots are taken one wake at a time
       const entries = await this.read<WakeEntry[]>(DIGEST_KEY(agent.id));
       if (!entries || entries.length === 0) {
@@ -589,7 +591,7 @@ export class AgentRouter extends DurableObject<Env> {
     sessionId: string | null
   ): Promise<void> {
     await setAgentRuntimeStatus(this.db, agentId, status, sessionId);
-    const agent = await getAgentById(this.db, agentId);
+    const agent = await getAgentByIdUnscoped(this.db, agentId);
 
     if (agent && sessionId === null && agent.connectorResyncPendingAt) {
       // The gate just opened: no session means the MCP token can be rotated

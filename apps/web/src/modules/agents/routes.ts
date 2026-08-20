@@ -14,7 +14,6 @@ import {
   resyncRostersWithAnthropic,
   syncAgentWithAnthropic,
 } from "#/modules/anthropic/service";
-import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import { mcpUrlForToken } from "./mcp-token";
 import {
   createAgent,
@@ -51,12 +50,17 @@ const inBackground = (context: Context<ApiEnv>, work: Promise<unknown>) => {
   }
 };
 
+/**
+ * Mounted under `/api/w/:slug`, so `requireWorkspace` has already resolved the
+ * workspace and proved the caller belongs to it. Every query below carries
+ * `c.get("workspace").id`, including the ones addressed by a bare `:id`.
+ */
 export const agentsRoutes = new Hono<ApiEnv>();
 
 agentsRoutes.use("*", requireAuth);
 
 agentsRoutes.get("/", async (c) => {
-  const agents = await listAgents(createDb(c.env.DB));
+  const agents = await listAgents(createDb(c.env.DB), c.get("workspace").id);
   return c.json({ agents: agents.map(toAgentView) });
 });
 
@@ -74,10 +78,9 @@ agentsRoutes.post("/", async (c) => {
   const db = createDb(c.env.DB);
 
   try {
-    // TODO(phase-2): replace with requireWorkspace context.
     const { agent, mcpToken } = await createAgent(
       db,
-      DEFAULT_WORKSPACE_ID,
+      c.get("workspace").id,
       input
     );
     // The only time the plaintext token exists: the client shows it once, and
@@ -98,7 +101,11 @@ agentsRoutes.post("/", async (c) => {
 });
 
 agentsRoutes.get("/:id", async (c) => {
-  const agent = await getAgentById(createDb(c.env.DB), c.req.param("id"));
+  const agent = await getAgentById(
+    createDb(c.env.DB),
+    c.get("workspace").id,
+    c.req.param("id")
+  );
   if (!agent) {
     throw notFound("Agent not found.");
   }
@@ -118,9 +125,10 @@ agentsRoutes.patch("/:id", async (c) => {
 
   const db = createDb(c.env.DB);
   const id = c.req.param("id");
+  const workspaceId = c.get("workspace").id;
 
   try {
-    const agent = await updateAgent(db, id, input);
+    const agent = await updateAgent(db, workspaceId, id, input);
     if (!agent) {
       throw notFound("Agent not found.");
     }
@@ -131,7 +139,7 @@ agentsRoutes.patch("/:id", async (c) => {
       return c.json({ agent: toAgentView(agent) });
     }
 
-    const rotated = await rotateMcpToken(db, id);
+    const rotated = await rotateMcpToken(db, workspaceId, id);
     if (!rotated) {
       throw notFound("Agent not found.");
     }
@@ -156,19 +164,26 @@ agentsRoutes.patch("/:id", async (c) => {
 
 agentsRoutes.delete("/:id", async (c) => {
   const db = createDb(c.env.DB);
-  const deleted = await deleteAgent(db, c.req.param("id"));
+  const workspaceId = c.get("workspace").id;
+  const deleted = await deleteAgent(db, workspaceId, c.req.param("id"));
   if (!deleted) {
     throw notFound("Agent not found.");
   }
-  // The agent that left is still named in every other agent's roster. Its own
-  // Anthropic agent is left alone: archiving is permanent and buys us nothing.
-  inBackground(c, resyncRostersWithAnthropic(db, c.env));
+  // The agent that left is still named in every other agent's roster - every
+  // other agent *of this workspace*, which is the only roster it was ever in.
+  // Its own Anthropic agent is left alone: archiving is permanent and buys us
+  // nothing.
+  inBackground(c, resyncRostersWithAnthropic(db, c.env, workspaceId));
   return c.body(null, 204);
 });
 
 /** What the agent rail polls when it has no socket for the agent's channel. */
 agentsRoutes.get("/:id/status", async (c) => {
-  const agent = await getAgentById(createDb(c.env.DB), c.req.param("id"));
+  const agent = await getAgentById(
+    createDb(c.env.DB),
+    c.get("workspace").id,
+    c.req.param("id")
+  );
   if (!agent) {
     throw notFound("Agent not found.");
   }

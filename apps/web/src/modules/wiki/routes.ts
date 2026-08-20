@@ -10,13 +10,12 @@ import {
 } from "#/api/validation";
 import { createDb } from "#/db/client";
 import { isUniqueConstraintError } from "#/db/errors";
-import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import { isInlineWikiAsset, MAX_WIKI_ASSET_BYTES } from "./asset-rules";
 import type { WikiAuthor } from "./schema";
 import {
   createPage,
   deletePage,
-  getAsset,
+  getAssetInWorkspace,
   getPageBySlug,
   getRevision,
   listPages,
@@ -41,17 +40,15 @@ wikiRoutes.use("*", requireAuth);
 /** Every write from this router is the signed-in human. */
 const authorOf = (userId: string): WikiAuthor => ({ id: userId, type: "user" });
 
-const assetView = (asset: {
-  filename: string;
-  id: string;
-  mime: string;
-  size: number;
-}) => ({
+const assetView = (
+  workspaceSlug: string,
+  asset: { filename: string; id: string; mime: string; size: number }
+) => ({
   filename: asset.filename,
   id: asset.id,
   mime: asset.mime,
   size: asset.size,
-  url: `/api/wiki/assets/${asset.id}`,
+  url: `/api/w/${workspaceSlug}/wiki/assets/${asset.id}`,
 });
 
 // --- assets -----------------------------------------------------------------
@@ -74,6 +71,7 @@ wikiRoutes.post("/assets", async (c) => {
 
   const result = await storeAsset(
     createDb(c.env.DB),
+    c.get("workspace").id,
     c.env.ATTACHMENTS,
     file,
     typeof pageId === "string" && pageId.length > 0 ? pageId : undefined
@@ -81,11 +79,18 @@ wikiRoutes.post("/assets", async (c) => {
   if (!result.ok) {
     return c.json({ error: result.reason }, 400);
   }
-  return c.json({ asset: assetView(result.asset) }, 201);
+  return c.json(
+    { asset: assetView(c.get("workspace").slug, result.asset) },
+    201
+  );
 });
 
 wikiRoutes.get("/assets/:id", async (c) => {
-  const asset = await getAsset(createDb(c.env.DB), c.req.param("id"));
+  const asset = await getAssetInWorkspace(
+    createDb(c.env.DB),
+    c.get("workspace").id,
+    c.req.param("id")
+  );
   if (!asset) {
     throw notFound("Asset not found.");
   }
@@ -109,7 +114,7 @@ wikiRoutes.get("/assets/:id", async (c) => {
 // --- pages ------------------------------------------------------------------
 
 wikiRoutes.get("/", async (c) => {
-  const pages = await listPages(createDb(c.env.DB));
+  const pages = await listPages(createDb(c.env.DB), c.get("workspace").id);
   return c.json({ pages });
 });
 
@@ -122,10 +127,9 @@ wikiRoutes.post("/", async (c) => {
   };
 
   try {
-    // TODO(phase-2): replace with requireWorkspace context.
     const page = await createPage(
       createDb(c.env.DB),
-      DEFAULT_WORKSPACE_ID,
+      c.get("workspace").id,
       input
     );
     return c.json({ page: toPageView(page) }, 201);
@@ -141,7 +145,11 @@ wikiRoutes.post("/", async (c) => {
 });
 
 wikiRoutes.get("/:slug", async (c) => {
-  const page = await getPageBySlug(createDb(c.env.DB), c.req.param("slug"));
+  const page = await getPageBySlug(
+    createDb(c.env.DB),
+    c.get("workspace").id,
+    c.req.param("slug")
+  );
   if (!page) {
     throw notFound("Page not found.");
   }
@@ -150,11 +158,16 @@ wikiRoutes.get("/:slug", async (c) => {
 
 wikiRoutes.patch("/:slug", async (c) => {
   const body = await readJsonObject(c.req.raw);
-  const page = await updatePage(createDb(c.env.DB), c.req.param("slug"), {
-    author: authorOf(c.get("userId")),
-    body: optionalString(body, "body", { maxLength: BODY_MAX_LENGTH }),
-    title: optionalString(body, "title", { maxLength: TITLE_MAX_LENGTH }),
-  });
+  const page = await updatePage(
+    createDb(c.env.DB),
+    c.get("workspace").id,
+    c.req.param("slug"),
+    {
+      author: authorOf(c.get("userId")),
+      body: optionalString(body, "body", { maxLength: BODY_MAX_LENGTH }),
+      title: optionalString(body, "title", { maxLength: TITLE_MAX_LENGTH }),
+    }
+  );
   if (!page) {
     throw notFound("Page not found.");
   }
@@ -162,7 +175,11 @@ wikiRoutes.patch("/:slug", async (c) => {
 });
 
 wikiRoutes.delete("/:slug", async (c) => {
-  const deleted = await deletePage(createDb(c.env.DB), c.req.param("slug"));
+  const deleted = await deletePage(
+    createDb(c.env.DB),
+    c.get("workspace").id,
+    c.req.param("slug")
+  );
   if (!deleted) {
     throw notFound("Page not found.");
   }
@@ -173,7 +190,11 @@ wikiRoutes.delete("/:slug", async (c) => {
 
 wikiRoutes.get("/:slug/revisions", async (c) => {
   const db = createDb(c.env.DB);
-  const page = await getPageBySlug(db, c.req.param("slug"));
+  const page = await getPageBySlug(
+    db,
+    c.get("workspace").id,
+    c.req.param("slug")
+  );
   if (!page) {
     throw notFound("Page not found.");
   }
@@ -183,7 +204,11 @@ wikiRoutes.get("/:slug/revisions", async (c) => {
 
 wikiRoutes.get("/:slug/revisions/:revisionId", async (c) => {
   const db = createDb(c.env.DB);
-  const page = await getPageBySlug(db, c.req.param("slug"));
+  const page = await getPageBySlug(
+    db,
+    c.get("workspace").id,
+    c.req.param("slug")
+  );
   if (!page) {
     throw notFound("Page not found.");
   }

@@ -1,3 +1,4 @@
+import type { WorkspaceRef } from "#/modules/messaging/service";
 import type { ChannelBridge } from "../schema";
 import type { InboundMessage } from "../types";
 import { SLACK_CONNECTOR } from "./config";
@@ -19,6 +20,12 @@ export interface InboundBridge {
   /** The agent the bot speaks as, resolved to its `@Name`. */
   agentName: string | null;
   bridge: ChannelBridge;
+  /**
+   * The bridge row's workspace. An inbound event carries no session, so this is
+   * the only thing that says which tenant the message belongs to; null when the
+   * workspace has since been deleted, in which case the event is dropped.
+   */
+  workspace: WorkspaceRef | null;
 }
 
 export interface SlackInboundPorts {
@@ -76,7 +83,7 @@ export const normalizeSlackEvent = async (
   const externalId = slackMessageKey(channel, ts);
 
   const found = await ports.findBridge(channel);
-  if (found?.bridge.status !== "active") {
+  if (found?.bridge.status !== "active" || !found.workspace) {
     return null;
   }
 
@@ -122,6 +129,7 @@ export const normalizeSlackEvent = async (
       body,
       channelId: found.bridge.channelId,
       origin: SLACK_CONNECTOR,
+      workspace: found.workspace,
       ...(threadParentId ? { threadParentId } : {}),
     },
   };

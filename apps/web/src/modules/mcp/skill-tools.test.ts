@@ -114,6 +114,7 @@ beforeEach(async () => {
     // No ANTHROPIC_API_KEY: the mirror is off, and the tools must still work.
     env: { ATTACHMENTS: fakeBucket() } as unknown as Env,
     requestUrl: "https://app.example.com/mcp/tok",
+    workspace: { id: DEFAULT_WORKSPACE_ID, slug: "default" },
   };
 });
 
@@ -134,7 +135,7 @@ describe("skill_create", () => {
     // Unsynced is not a failure - the skill is stored and readable.
     expect(payload.synced).toBe(false);
 
-    const skill = await getSkillBySlug(db, SLUG);
+    const skill = await getSkillBySlug(db, DEFAULT_WORKSPACE_ID, SLUG);
     expect(skill?.createdBy).toBe(`agent:${agent.id}`);
     const pin = await getAgentSkill(db, skill?.id ?? "", agent.id);
     // Tracking latest is what makes a later fix propagate.
@@ -143,7 +144,7 @@ describe("skill_create", () => {
 
   test("attributes the version to the calling agent", async () => {
     await createDefault();
-    const skill = await getSkillBySlug(db, SLUG);
+    const skill = await getSkillBySlug(db, DEFAULT_WORKSPACE_ID, SLUG);
     const [version] = await listSkillVersions(db, skill?.id ?? "");
 
     expect(version?.createdBy).toBe(`agent:${agent.id}`);
@@ -158,7 +159,9 @@ describe("skill_create", () => {
 
     expect(result.isError).toBe(true);
     expect(textOf(result)).toMatch(FRONTMATTER);
-    expect(await getSkillBySlug(db, SLUG)).toBeUndefined();
+    expect(
+      await getSkillBySlug(db, DEFAULT_WORKSPACE_ID, SLUG)
+    ).toBeUndefined();
   });
 
   test("points at skill_update when the slug is taken", async () => {
@@ -183,14 +186,14 @@ describe("skill_create", () => {
     expect(payload.version).toBe(1);
     expect(payload.assignedToYou).toBe(false);
     expect(String(payload.note)).toMatch(NOT_ASSIGNED);
-    expect(await getSkillBySlug(db, SLUG)).toBeDefined();
+    expect(await getSkillBySlug(db, DEFAULT_WORKSPACE_ID, SLUG)).toBeDefined();
   });
 });
 
 describe("skill_update", () => {
   test("publishes a new version without touching the old one", async () => {
     await createDefault();
-    const skill = await getSkillBySlug(db, SLUG);
+    const skill = await getSkillBySlug(db, DEFAULT_WORKSPACE_ID, SLUG);
     const before = await listSkillVersions(db, skill?.id ?? "");
 
     const payload = payloadOf(
@@ -229,7 +232,9 @@ describe("skill_update", () => {
     });
 
     expect(result.isError).toBe(true);
-    expect((await getSkillBySlug(db, SLUG))?.latestVersion).toBe(1);
+    expect(
+      (await getSkillBySlug(db, DEFAULT_WORKSPACE_ID, SLUG))?.latestVersion
+    ).toBe(1);
   });
 });
 

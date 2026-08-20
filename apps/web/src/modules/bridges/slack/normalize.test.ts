@@ -54,7 +54,11 @@ const delivery = (
 interface PortOverrides {
   duplicates?: string[];
   files?: Record<string, string | null>;
-  found?: { agentName: string | null; bridge: ChannelBridge } | null;
+  found?: {
+    agentName: string | null;
+    bridge: ChannelBridge;
+    workspace?: { id: string; slug: string } | null;
+  } | null;
   threadParents?: Record<string, string>;
   userNames?: Record<string, string>;
 }
@@ -72,7 +76,17 @@ const ports = (
       if (found && found.bridge.externalChannelId !== externalChannelId) {
         return Promise.resolve(null);
       }
-      return Promise.resolve(found);
+      return Promise.resolve(
+        found === null
+          ? null
+          : {
+              ...found,
+              workspace:
+                found.workspace === undefined
+                  ? { id: DEFAULT_WORKSPACE_ID, slug: "default" }
+                  : found.workspace,
+            }
+      );
     },
     isDuplicate: (externalId) =>
       Promise.resolve((overrides.duplicates ?? []).includes(externalId)),
@@ -136,6 +150,7 @@ describe("normalizeSlackEvent", () => {
         body: "hello team",
         channelId: "channel-1",
         origin: "slack",
+        workspace: { id: DEFAULT_WORKSPACE_ID, slug: "default" },
       },
     });
   });

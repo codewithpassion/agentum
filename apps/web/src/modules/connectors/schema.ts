@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  unique,
+} from "drizzle-orm/sqlite-core";
 
 /**
  * A user-added remote MCP server. Two credential stores hang off one row, and
@@ -120,25 +126,33 @@ export const agentConnectors = sqliteTable(
  * overwrites the old, and consuming it deletes the row so a `state` is
  * single-use.
  */
-export const connectorOauthFlows = sqliteTable("connector_oauth_flows", {
-  connectorId: text("connector_id").primaryKey(),
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`),
-  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
-  /** Must match at the callback, byte for byte, before any code is exchanged. */
-  redirectUri: text("redirect_uri").notNull(),
-  scope: text("scope"),
-  /** Globally unique: it is a one-shot credential, redeemed before any
-   * workspace is known. */
-  state: text("state").notNull().unique(),
-  /**
-   * The PKCE verifier. Not encrypted: it is single-use, expires in minutes, and
-   * is worthless without the matching `state` this table also holds.
-   */
-  verifier: text("verifier").notNull(),
-  workspaceId: text("workspace_id").notNull(),
-});
+export const connectorOauthFlows = sqliteTable(
+  "connector_oauth_flows",
+  {
+    connectorId: text("connector_id").primaryKey(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    /** Must match at the callback, byte for byte, before any code is exchanged. */
+    redirectUri: text("redirect_uri").notNull(),
+    scope: text("scope"),
+    /** Globally unique: it is a one-shot credential, redeemed before any
+     * workspace is known. */
+    state: text("state").notNull().unique(),
+    /**
+     * The PKCE verifier. Not encrypted: it is single-use, expires in minutes, and
+     * is worthless without the matching `state` this table also holds.
+     */
+    verifier: text("verifier").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+  },
+  // The delete cleanup sweeps a workspace's flows; the primary key leads with
+  // the connector, so that read has nothing to use without this.
+  (table) => [
+    index("connector_oauth_flows_workspace_idx").on(table.workspaceId),
+  ]
+);
 
 export interface CachedTool {
   description: string | null;

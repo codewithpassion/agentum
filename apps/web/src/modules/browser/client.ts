@@ -58,6 +58,7 @@ const describe = (error: unknown): string => {
 export const createBrowserClient = (
   db: Db,
   env: Env,
+  workspace: { slug: string },
   agentId: string
 ): AgentBrowserClient => {
   /** The session id to try to resume, or null to start a new browser. */
@@ -203,6 +204,7 @@ export const createBrowserClient = (
         bytes: outcome.bytes,
         pageUrl: snapshot.url,
         title: snapshot.title,
+        workspaceSlug: workspace.slug,
       });
       await logActivity(db, {
         agentId,

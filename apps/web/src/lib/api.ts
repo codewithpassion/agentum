@@ -64,6 +64,19 @@ export class ApiError extends Error {
 
 const NOT_FOUND = 404;
 
+/**
+ * Every resource endpoint now lives under `/api/w/:slug`. The slug is fixed to
+ * the workspace migration 0012 created, which is the one the dev user owns and
+ * the only one the UI can reach today.
+ *
+ * TODO(phase-6): active-workspace routing - the fetchers take the slug from the
+ * route (`/w/$slug/…`) and this constant goes away with the workspace switcher.
+ */
+const DEFAULT_WORKSPACE_SLUG = "default";
+
+/** The prefix every path below is relative to. */
+export const apiBase = `/api/w/${DEFAULT_WORKSPACE_SLUG}`;
+
 export const isNotFound = (error: unknown): boolean =>
   error instanceof ApiError && error.status === NOT_FOUND;
 
@@ -83,7 +96,7 @@ const request = async <T>(
   init?: RequestInit & { json?: unknown }
 ): Promise<T> => {
   const { json, ...rest } = init ?? {};
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${apiBase}${path}`, {
     ...rest,
     ...(json === undefined
       ? {}
@@ -105,7 +118,7 @@ const request = async <T>(
 
 /** For the endpoints that answer with a file's bytes rather than JSON. */
 const requestText = async (path: string): Promise<string> => {
-  const response = await fetch(`/api${path}`);
+  const response = await fetch(`${apiBase}${path}`);
   if (!response.ok) {
     throw await failureOf(response);
   }
@@ -198,7 +211,7 @@ export interface ComputerFile {
 
 /** The raw endpoint, for the "this file will not preview" download link. */
 export const computerFileUrl = (id: string, path: string): string =>
-  `/api/agents/${id}/computer/file?path=${encodeURIComponent(path)}`;
+  `${apiBase}/agents/${id}/computer/file?path=${encodeURIComponent(path)}`;
 
 export const readComputerFile = (id: string, path: string) =>
   request<ComputerFile>(
@@ -568,7 +581,7 @@ export const skillFileUrl = (
   version: number,
   path: string
 ): string =>
-  `/api/skills/${encodeURIComponent(slug)}/versions/${version}/file?path=${encodeURIComponent(path)}`;
+  `${apiBase}/skills/${encodeURIComponent(slug)}/versions/${version}/file?path=${encodeURIComponent(path)}`;
 
 export const readSkillFile = (slug: string, version: number, path: string) =>
   requestText(

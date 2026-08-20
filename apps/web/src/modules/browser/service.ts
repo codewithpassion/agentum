@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import { encodeActivityCursor } from "#/modules/activity/service";
 import { isSessionStale, screenshotKey } from "./rules";
@@ -64,8 +64,31 @@ export const saveSession = async (
     });
 };
 
-export const screenshotUrl = (agentId: string, screenshotId: string): string =>
-  `/api/agents/${agentId}/browser/screenshots/${screenshotId}`;
+/**
+ * Neither browser table has a foreign key to `agents`, so the workspace-delete
+ * cleanup removes them by hand. The screenshot objects in R2 are left behind,
+ * for the same reason skill files are.
+ */
+export const deleteBrowserDataForAgents = async (
+  db: Db,
+  agentIds: readonly string[]
+): Promise<void> => {
+  if (agentIds.length === 0) {
+    return;
+  }
+  const ids = [...agentIds];
+  await db
+    .delete(browserScreenshots)
+    .where(inArray(browserScreenshots.agentId, ids));
+  await db.delete(browserSessions).where(inArray(browserSessions.agentId, ids));
+};
+
+export const screenshotUrl = (
+  workspaceSlug: string,
+  agentId: string,
+  screenshotId: string
+): string =>
+  `/api/w/${workspaceSlug}/agents/${agentId}/browser/screenshots/${screenshotId}`;
 
 const TRAILING_SLASHES = /\/+$/;
 
@@ -84,13 +107,16 @@ export const absoluteUrl = (
   return `${base.replace(TRAILING_SLASHES, "")}${path}`;
 };
 
-export const toScreenshotView = (row: BrowserScreenshot): StoredScreenshot => ({
+export const toScreenshotView = (
+  workspaceSlug: string,
+  row: BrowserScreenshot
+): StoredScreenshot => ({
   createdAt: row.createdAt.getTime(),
   id: row.id,
   pageUrl: row.pageUrl,
   size: row.size,
   title: row.title,
-  url: screenshotUrl(row.agentId, row.id),
+  url: screenshotUrl(workspaceSlug, row.agentId, row.id),
 });
 
 /** R2 first, then the row that indexes it. */
@@ -102,6 +128,8 @@ export const storeScreenshot = async (
     bytes: Uint8Array;
     pageUrl: string;
     title: string;
+    /** The agent's workspace, for the URL the screenshot is addressed by. */
+    workspaceSlug: string;
   }
 ): Promise<StoredScreenshot> => {
   const createdAt = new Date();
@@ -120,7 +148,7 @@ export const storeScreenshot = async (
     title: input.title,
   };
   await db.insert(browserScreenshots).values(row);
-  return toScreenshotView(row);
+  return toScreenshotView(input.workspaceSlug, row);
 };
 
 export const getScreenshot = async (
@@ -142,6 +170,7 @@ export const listScreenshots = async (
     agentId: string;
     cursor?: { createdAt: number; id: string };
     limit: number;
+    workspaceSlug: string;
   }
 ): Promise<{ nextCursor: string | null; screenshots: StoredScreenshot[] }> => {
   const { agentId, cursor, limit } = options;
@@ -166,7 +195,9 @@ export const listScreenshots = async (
   const last = page.at(-1);
   return {
     nextCursor: rows.length > limit && last ? encodeActivityCursor(last) : null,
-    screenshots: page.map(toScreenshotView),
+    screenshots: page.map((row) =>
+      toScreenshotView(options.workspaceSlug, row)
+    ),
   };
 };
 

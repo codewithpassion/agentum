@@ -33,9 +33,10 @@ bridgeRoutes.use("*", requireAuth);
 
 const requireChannel = async (
   db: ReturnType<typeof createDb>,
+  workspaceId: string,
   channelId: string
 ) => {
-  const channel = await getChannel(db, channelId);
+  const channel = await getChannel(db, workspaceId, channelId);
   if (!channel) {
     throw notFound("Channel not found.");
   }
@@ -44,11 +45,13 @@ const requireChannel = async (
 
 bridgeRoutes.get("/:id/bridge", async (c) => {
   const db = createDb(c.env.DB);
+  const workspaceId = c.get("workspace").id;
   const channelId = c.req.param("id");
-  await requireChannel(db, channelId);
+  await requireChannel(db, workspaceId, channelId);
 
   return c.json({
-    bridge: (await getBridge(db, channelId, SLACK_CONNECTOR)) ?? null,
+    bridge:
+      (await getBridge(db, workspaceId, channelId, SLACK_CONNECTOR)) ?? null,
     connector: slackSurfaceStatus(c.env),
   });
 });
@@ -58,7 +61,7 @@ bridgeRoutes.post("/:id/bridge", async (c) => {
   const channelId = c.req.param("id");
   // A bridge belongs to the workspace of the channel it delivers into: that is
   // what maps an inbound Slack event, which carries no session, to a tenant.
-  const channel = await requireChannel(db, channelId);
+  const channel = await requireChannel(db, c.get("workspace").id, channelId);
 
   const body = await readJsonObject(c.req.raw);
   const externalChannelId = requireString(body, "externalChannelId");
@@ -69,7 +72,7 @@ bridgeRoutes.post("/:id/bridge", async (c) => {
   }
 
   const agentId = optionalString(body, "agentId") || null;
-  if (agentId && !(await getAgentById(db, agentId))) {
+  if (agentId && !(await getAgentById(db, channel.workspaceId, agentId))) {
     throw notFound("Agent not found.");
   }
 
@@ -103,7 +106,18 @@ bridgeRoutes.post("/:id/bridge", async (c) => {
 
 bridgeRoutes.delete("/:id/bridge", async (c) => {
   const db = createDb(c.env.DB);
-  const deleted = await deleteBridge(db, c.req.param("id"), SLACK_CONNECTOR);
+  const workspaceId = c.get("workspace").id;
+  const channelId = c.req.param("id");
+  // The channel is resolved first for the same reason the other two do it: a
+  // bare channel id in the path must not reach another tenant's bridge.
+  await requireChannel(db, workspaceId, channelId);
+
+  const deleted = await deleteBridge(
+    db,
+    workspaceId,
+    channelId,
+    SLACK_CONNECTOR
+  );
   if (!deleted) {
     throw notFound("This channel is not bridged.");
   }
@@ -125,6 +139,13 @@ bridgesRoutes.get("/bridges", async (c) => {
   if (!agentId) {
     throw badRequest('"agentId" is required.');
   }
-  const bridges = await listBridgesForAgent(createDb(c.env.DB), agentId);
+
+  const db = createDb(c.env.DB);
+  const workspaceId = c.get("workspace").id;
+  if (!(await getAgentById(db, workspaceId, agentId))) {
+    throw notFound("Agent not found.");
+  }
+
+  const bridges = await listBridgesForAgent(db, workspaceId, agentId);
   return c.json({ bridges, connector: slackSurfaceStatus(c.env) });
 });

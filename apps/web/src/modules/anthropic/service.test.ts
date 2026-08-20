@@ -173,9 +173,10 @@ describe("resyncAgentConnectors", () => {
 
     await resyncAgentConnectors(depsWith(fakeGateway().gateway), agentId);
 
-    expect((await getAgentById(db, agentId))?.connectorResyncPendingAt).toBe(
-      null
-    );
+    expect(
+      (await getAgentById(db, DEFAULT_WORKSPACE_ID, agentId))
+        ?.connectorResyncPendingAt
+    ).toBe(null);
   });
 
   test("defers while the agent has a session, touching nothing", async () => {
@@ -196,7 +197,8 @@ describe("resyncAgentConnectors", () => {
     expect(await tokenHashOf(agentId)).toBe(before);
     expect(calls.synced).toEqual([]);
     expect(
-      (await getAgentById(db, agentId))?.connectorResyncPendingAt
+      (await getAgentById(db, DEFAULT_WORKSPACE_ID, agentId))
+        ?.connectorResyncPendingAt
     ).not.toBe(null);
   });
 
@@ -211,7 +213,7 @@ describe("resyncAgentConnectors", () => {
       "failed"
     );
 
-    const agent = await getAgentById(db, agentId);
+    const agent = await getAgentById(db, DEFAULT_WORKSPACE_ID, agentId);
     expect(agent?.connectorResyncPendingAt).not.toBe(null);
     expect(agent?.syncStatus).toBe("error");
   });
@@ -246,7 +248,7 @@ describe("resyncAgentConnectors", () => {
     await resyncAgentConnectors(depsWith(gateway), agentId);
 
     expect(calls.synced.at(0)?.connectors).toHaveLength(MAX_AGENT_CONNECTORS);
-    const agent = await getAgentById(db, agentId);
+    const agent = await getAgentById(db, DEFAULT_WORKSPACE_ID, agentId);
     expect(agent?.syncStatus).toBe("error");
     expect(agent?.syncError).toContain("1 connector could not be attached");
   });
@@ -319,7 +321,9 @@ describe("syncAgentSkillsToAnthropic", () => {
         skills: [{ skillId: "skill_weekly-report", version: "latest" }],
       },
     ]);
-    expect((await getAgentById(db, agentId))?.syncStatus).toBe("synced");
+    expect(
+      (await getAgentById(db, DEFAULT_WORKSPACE_ID, agentId))?.syncStatus
+    ).toBe("synced");
   });
 
   test("sends the pinned version's own mirror id", async () => {
@@ -346,7 +350,7 @@ describe("syncAgentSkillsToAnthropic", () => {
     await syncAgentSkillsToAnthropic(db, gateway, agentId);
 
     expect(calls.skillsOnly.at(0)?.skills).toEqual([]);
-    const agent = await getAgentById(db, agentId);
+    const agent = await getAgentById(db, DEFAULT_WORKSPACE_ID, agentId);
     expect(agent?.syncStatus).toBe("error");
     expect(agent?.syncError).toContain('"draft"');
   });

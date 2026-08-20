@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import {
   type ActivityDetail,
@@ -36,6 +36,22 @@ export const toActivityView = (row: AgentActivity): ActivityView => ({
   kind: row.kind,
   summary: row.summary,
 });
+
+/**
+ * `agent_activity` has no foreign key to `agents`, so the workspace-delete
+ * cleanup removes it by hand once the agents are known.
+ */
+export const deleteActivityForAgents = async (
+  db: Db,
+  agentIds: readonly string[]
+): Promise<void> => {
+  if (agentIds.length === 0) {
+    return;
+  }
+  await db
+    .delete(agentActivity)
+    .where(inArray(agentActivity.agentId, [...agentIds]));
+};
 
 export const logActivity = async (
   db: Db,

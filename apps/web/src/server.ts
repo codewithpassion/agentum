@@ -77,36 +77,38 @@ app.get("/api/dev-login", async (c) => {
 // workspace, so they gate on `requireAuth` alone.
 app.route("/api/workspaces", workspacesRoutes);
 
-// Everything that happens *inside* a workspace: the router carries its own
-// `requireAuth` + `requireWorkspace` gates, and Phase 3 hangs the resource
-// routers below off the same instance - `workspaceScopedRoutes.route(
-// "/agents", agentsRoutes)` - before this mount, which is what scopes them.
-app.route("/api/w/:slug", workspaceScopedRoutes);
-
-// Workspace resources. Each router gates itself with `requireAuth`; the two
-// routes above stay open by design.
-app.route("/api/agents", agentsRoutes);
+// Every resource router, hung off `workspaceScopedRoutes` - which carries the
+// `requireAuth` + `requireWorkspace` gates - so each one inherits both and
+// reads its tenant from `c.get("workspace")`. This has to happen *before* the
+// mount below: Hono copies a sub-router's routes at mount time, so anything
+// added afterwards would never be reachable.
+workspaceScopedRoutes.route("/agents", agentsRoutes);
 // An agent's computer, its browser and its activity log read as part of the
 // agent; Hono falls through to these for the paths `agentsRoutes` does not own.
-app.route("/api/agents", computerRoutes);
-app.route("/api/agents", browserRoutes);
-app.route("/api/agents", agentActivityRoutes);
-app.route("/api/channels", channelsRoutes);
-app.route("/api/categories", categoriesRoutes);
-app.route("/api/messages", messagesRoutes);
-app.route("/api/attachments", attachmentsRoutes);
-app.route("/api/wiki", wikiRoutes);
-// Connectors (remote MCP servers). The OAuth callback is mounted first and
-// stays outside `requireAuth`: an authorization server redirects a browser to
-// it, and the one-shot `state` it carries is the credential.
-app.route("/api/connectors", connectorOauthRoutes);
-app.route("/api/connectors", connectorsRoutes);
+workspaceScopedRoutes.route("/agents", computerRoutes);
+workspaceScopedRoutes.route("/agents", browserRoutes);
+workspaceScopedRoutes.route("/agents", agentActivityRoutes);
+workspaceScopedRoutes.route("/channels", channelsRoutes);
+workspaceScopedRoutes.route("/categories", categoriesRoutes);
+workspaceScopedRoutes.route("/messages", messagesRoutes);
+workspaceScopedRoutes.route("/attachments", attachmentsRoutes);
+workspaceScopedRoutes.route("/wiki", wikiRoutes);
+workspaceScopedRoutes.route("/connectors", connectorsRoutes);
 // Skills (versioned SKILL.md bundles, mirrored to Anthropic).
-app.route("/api/skills", skillsRoutes);
+workspaceScopedRoutes.route("/skills", skillsRoutes);
 // Bridge management lives in the bridges module but reads as part of a
 // channel; Hono falls through to it for the paths `channelsRoutes` does not own.
-app.route("/api/channels", bridgeRoutes);
-app.route("/api/bridges", bridgesRoutes);
+workspaceScopedRoutes.route("/channels", bridgeRoutes);
+workspaceScopedRoutes.route("/bridges", bridgesRoutes);
+
+// Everything that happens *inside* a workspace, resource routers included.
+app.route("/api/w/:workspaceSlug", workspaceScopedRoutes);
+
+// The connector OAuth callback. Outside the workspace prefix and outside
+// `requireAuth`: an authorization server redirects a browser to it, and the
+// one-shot `state` it carries is the credential - which is also what names the
+// workspace, since the flow row it matches carries one.
+app.route("/api/connectors", connectorOauthRoutes);
 
 // Slack's Events API endpoint. Not behind Clerk: Slack signs its requests, and
 // the signature is checked before anything in the payload is trusted.

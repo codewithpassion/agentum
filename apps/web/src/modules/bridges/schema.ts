@@ -83,6 +83,9 @@ export const channelBridges = sqliteTable(
       table.connector,
       table.externalChannelId
     ),
+    // Neither unique above leads with the workspace, so the "this workspace's
+    // bridges" reads - the agent rail's card, and the delete cleanup - need one.
+    index("channel_bridges_workspace_idx").on(table.workspaceId),
   ]
 );
 

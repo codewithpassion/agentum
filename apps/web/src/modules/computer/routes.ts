@@ -20,10 +20,11 @@ const UPLOAD_DIRECTORY = "/uploads";
 
 const clientFor = async (
   env: Env,
+  workspaceId: string,
   agentId: string
 ): Promise<AgentComputerClient> => {
   const db = createDb(env.DB);
-  if (!(await getAgentById(db, agentId))) {
+  if (!(await getAgentById(db, workspaceId, agentId))) {
     throw notFound("Agent not found.");
   }
   return createComputerClient(db, env, agentId);
@@ -34,7 +35,11 @@ export const computerRoutes = new Hono<ApiEnv>();
 computerRoutes.use("*", requireAuth);
 
 computerRoutes.get("/:id/computer/ls", async (c) => {
-  const computer = await clientFor(c.env, c.req.param("id"));
+  const computer = await clientFor(
+    c.env,
+    c.get("workspace").id,
+    c.req.param("id")
+  );
   const result = await computer.listDir(c.req.query("path") ?? "/");
   if (!result.ok) {
     throw badRequest(result.reason);
@@ -48,7 +53,11 @@ computerRoutes.get("/:id/computer/file", async (c) => {
     throw badRequest('A "path" query parameter is required.');
   }
 
-  const computer = await clientFor(c.env, c.req.param("id"));
+  const computer = await clientFor(
+    c.env,
+    c.get("workspace").id,
+    c.req.param("id")
+  );
   const result = await computer.readFile(path, MAX_READ_BYTES);
   if (!result.ok) {
     throw badRequest(result.reason);
@@ -84,7 +93,7 @@ computerRoutes.post("/:id/computer/file", async (c) => {
 
   const agentId = c.req.param("id");
   const db = createDb(c.env.DB);
-  if (!(await getAgentById(db, agentId))) {
+  if (!(await getAgentById(db, c.get("workspace").id, agentId))) {
     throw notFound("Agent not found.");
   }
 

@@ -13,7 +13,6 @@ import {
 } from "#/api/validation";
 import { createDb } from "#/db/client";
 import { getAgentById } from "#/modules/agents/service";
-import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import { publishMessage } from "../publish";
 import { connectToChannelRoom } from "../realtime";
 import { MEMBER_TYPES } from "../schema";
@@ -37,6 +36,12 @@ const MESSAGE_BODY_MAX_LENGTH = 50_000;
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
 
+/**
+ * Mounted under `/api/w/:slug`. `channels` is the only table here that carries
+ * a workspace of its own: members, messages, attachments and mentions inherit
+ * it, so every route below resolves the channel *within the workspace* first
+ * and works underneath it from there.
+ */
 export const channelsRoutes = new Hono<ApiEnv>();
 
 channelsRoutes.use("*", requireAuth);
@@ -45,18 +50,22 @@ const isMemberType = (value: string): value is MemberType =>
   (MEMBER_TYPES as readonly string[]).includes(value);
 
 channelsRoutes.get("/", async (c) => {
-  const channels = await listChannels(createDb(c.env.DB));
+  const channels = await listChannels(
+    createDb(c.env.DB),
+    c.get("workspace").id
+  );
   return c.json({ channels });
 });
 
 channelsRoutes.post("/", async (c) => {
   const db = createDb(c.env.DB);
+  const workspace = c.get("workspace");
   const body = await readJsonObject(c.req.raw);
   const kind = optionalString(body, "kind") ?? "channel";
 
   if (kind === "dm") {
     const agentId = requireString(body, "agentId");
-    const agent = await getAgentById(db, agentId);
+    const agent = await getAgentById(db, workspace.id, agentId);
     if (!agent) {
       throw notFound("Agent not found.");
     }
@@ -72,8 +81,16 @@ channelsRoutes.post("/", async (c) => {
     maxLength: CHANNEL_NAME_MAX_LENGTH,
   });
   const agentIds = optionalStringArray(body, "agentIds") ?? [];
-  // TODO(phase-2): replace with requireWorkspace context.
-  const channel = await createChannel(db, DEFAULT_WORKSPACE_ID, { name });
+  // Agents named at creation have to be this workspace's, or the channel would
+  // be seeded with a member nobody in it can see.
+  for (const agentId of agentIds) {
+    // biome-ignore lint/performance/noAwaitInLoops: a handful of ids, and each is a point lookup
+    if (!(await getAgentById(db, workspace.id, agentId))) {
+      throw notFound("Agent not found.");
+    }
+  }
+
+  const channel = await createChannel(db, workspace.id, { name });
 
   await addChannelMembers(db, channel.id, [
     { memberType: "user", memberId: c.get("userId") },
@@ -89,7 +106,7 @@ channelsRoutes.post("/", async (c) => {
 channelsRoutes.get("/:id", async (c) => {
   const db = createDb(c.env.DB);
   const channelId = c.req.param("id");
-  const channel = await getChannel(db, channelId);
+  const channel = await getChannel(db, c.get("workspace").id, channelId);
   if (!channel) {
     throw notFound("Channel not found.");
   }
@@ -100,7 +117,11 @@ channelsRoutes.get("/:id", async (c) => {
 });
 
 channelsRoutes.delete("/:id", async (c) => {
-  const deleted = await deleteChannel(createDb(c.env.DB), c.req.param("id"));
+  const deleted = await deleteChannel(
+    createDb(c.env.DB),
+    c.get("workspace").id,
+    c.req.param("id")
+  );
   if (!deleted) {
     throw notFound("Channel not found.");
   }
@@ -109,8 +130,9 @@ channelsRoutes.delete("/:id", async (c) => {
 
 channelsRoutes.post("/:id/members", async (c) => {
   const db = createDb(c.env.DB);
+  const workspaceId = c.get("workspace").id;
   const channelId = c.req.param("id");
-  if (!(await getChannel(db, channelId))) {
+  if (!(await getChannel(db, workspaceId, channelId))) {
     throw notFound("Channel not found.");
   }
 
@@ -118,7 +140,10 @@ channelsRoutes.post("/:id/members", async (c) => {
   const memberType = requireEnum(body, "memberType", MEMBER_TYPES);
   const memberId = requireString(body, "memberId");
 
-  if (memberType === "agent" && !(await getAgentById(db, memberId))) {
+  if (
+    memberType === "agent" &&
+    !(await getAgentById(db, workspaceId, memberId))
+  ) {
     throw notFound("Agent not found.");
   }
 
@@ -129,7 +154,7 @@ channelsRoutes.post("/:id/members", async (c) => {
 channelsRoutes.delete("/:id/members/:memberType/:memberId", async (c) => {
   const db = createDb(c.env.DB);
   const channelId = c.req.param("id");
-  if (!(await getChannel(db, channelId))) {
+  if (!(await getChannel(db, c.get("workspace").id, channelId))) {
     throw notFound("Channel not found.");
   }
 
@@ -153,8 +178,9 @@ channelsRoutes.delete("/:id/members/:memberType/:memberId", async (c) => {
 
 channelsRoutes.get("/:id/messages", async (c) => {
   const db = createDb(c.env.DB);
+  const workspace = c.get("workspace");
   const channelId = c.req.param("id");
-  if (!(await getChannel(db, channelId))) {
+  if (!(await getChannel(db, workspace.id, channelId))) {
     throw notFound("Channel not found.");
   }
 
@@ -168,13 +194,16 @@ channelsRoutes.get("/:id/messages", async (c) => {
     throw badRequest('"cursor" is malformed.');
   }
 
-  return c.json(await listChannelMessages(db, { channelId, limit, cursor }));
+  return c.json(
+    await listChannelMessages(db, workspace, { channelId, limit, cursor })
+  );
 });
 
 channelsRoutes.post("/:id/messages", async (c) => {
   const db = createDb(c.env.DB);
+  const workspace = c.get("workspace");
   const channelId = c.req.param("id");
-  if (!(await getChannel(db, channelId))) {
+  if (!(await getChannel(db, workspace.id, channelId))) {
     throw notFound("Channel not found.");
   }
 
@@ -186,6 +215,7 @@ channelsRoutes.post("/:id/messages", async (c) => {
     body: requireString(body, "body", { maxLength: MESSAGE_BODY_MAX_LENGTH }),
     threadParentId: optionalString(body, "threadParentId"),
     attachmentIds: optionalStringArray(body, "attachmentIds"),
+    workspace,
   });
 
   if (!result.ok) {
@@ -195,9 +225,16 @@ channelsRoutes.post("/:id/messages", async (c) => {
   return c.json({ message: result.message }, 201);
 });
 
+/**
+ * The socket. `ChannelRoom` is keyed by channel id, which is globally unique,
+ * so the room needs no rekeying - but the channel still has to be proved to be
+ * this workspace's before a connection to it is handed out.
+ */
 channelsRoutes.get("/:id/ws", async (c) => {
   const channelId = c.req.param("id");
-  if (!(await getChannel(createDb(c.env.DB), channelId))) {
+  if (
+    !(await getChannel(createDb(c.env.DB), c.get("workspace").id, channelId))
+  ) {
     throw notFound("Channel not found.");
   }
   return await connectToChannelRoom(c.env, channelId, c.req.raw);

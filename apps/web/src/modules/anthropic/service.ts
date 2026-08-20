@@ -5,7 +5,7 @@ import { mcpUrlForToken } from "#/modules/agents/mcp-token";
 import type { Agent } from "#/modules/agents/schema";
 import {
   clearConnectorResyncPending,
-  getAgentById,
+  getAgentByIdUnscoped,
   listAgents,
   listAgentsPendingConnectorResync,
   rotateMcpToken,
@@ -105,9 +105,10 @@ const systemPromptFor = (agent: Agent, all: readonly Agent[]): string =>
 const resyncRosters = async (
   db: Db,
   gateway: AnthropicGateway,
+  workspaceId: string,
   skipId: string | null
 ): Promise<void> => {
-  const all = await listAgents(db);
+  const all = await listAgents(db, workspaceId);
   for (const agent of all) {
     if (agent.id === skipId || !agent.anthropicAgentId) {
       continue;
@@ -160,11 +161,14 @@ export const syncAgentToAnthropic = async (
   agentId: string,
   options: SyncAgentOptions = {}
 ): Promise<boolean> => {
-  const all = await listAgents(db);
-  const agent = all.find((candidate) => candidate.id === agentId);
-  if (!agent) {
+  // The roster in the system prompt is the workspace's own, and no wider: an
+  // agent must never be told about a teammate it cannot reach.
+  const found = await getAgentByIdUnscoped(db, agentId);
+  if (!found) {
     return false;
   }
+  const all = await listAgents(db, found.workspaceId);
+  const agent = all.find((candidate) => candidate.id === agentId) ?? found;
 
   const composed = options.mcpUrl
     ? composeAgentConnectors(await listConnectorsForAgent(db, agentId))
@@ -244,12 +248,13 @@ export const syncAgentWithAnthropic = async (
   if (!gateway) {
     return;
   }
-  if (!(await getAgentById(db, agentId))) {
+  const agent = await getAgentByIdUnscoped(db, agentId);
+  if (!agent) {
     return;
   }
 
   await syncAgentToAnthropic(db, gateway, agentId, options);
-  await resyncRosters(db, gateway, agentId);
+  await resyncRosters(db, gateway, agent.workspaceId, agentId);
 };
 
 // --- skills -----------------------------------------------------------------
@@ -275,7 +280,7 @@ export const syncAgentSkillsToAnthropic = async (
   gateway: AnthropicGateway,
   agentId: string
 ): Promise<boolean> => {
-  const agent = await getAgentById(db, agentId);
+  const agent = await getAgentByIdUnscoped(db, agentId);
   if (!agent?.anthropicAgentId) {
     // Nothing registered yet: the assignment reaches Anthropic when the agent
     // is first registered, which sends the composed skills with it.
@@ -364,7 +369,7 @@ export const resyncAgentConnectors = async (
   deps: ConnectorResyncDeps,
   agentId: string
 ): Promise<ConnectorResyncOutcome> => {
-  const agent = await getAgentById(deps.db, agentId);
+  const agent = await getAgentByIdUnscoped(deps.db, agentId);
   if (!agent) {
     return "skipped";
   }
@@ -376,7 +381,7 @@ export const resyncAgentConnectors = async (
     return "skipped";
   }
 
-  const rotated = await rotateMcpToken(deps.db, agentId);
+  const rotated = await rotateMcpToken(deps.db, agent.workspaceId, agentId);
   if (!rotated) {
     return "skipped";
   }
@@ -460,14 +465,18 @@ export const sessionVaultIdsFor = async (
 ): Promise<string[]> =>
   composeAgentConnectors(await listConnectorsForAgent(db, agentId)).vaultIds;
 
-/** After a delete, the survivors' rosters still name the agent that left. */
+/**
+ * After a delete, the survivors' rosters still name the agent that left. Only
+ * the deleted agent's own workspace is touched - no other roster ever named it.
+ */
 export const resyncRostersWithAnthropic = async (
   db: Db,
-  env: Env
+  env: Env,
+  workspaceId: string
 ): Promise<void> => {
   const gateway = createGateway(db, env);
   if (!gateway) {
     return;
   }
-  await resyncRosters(db, gateway, null);
+  await resyncRosters(db, gateway, workspaceId, null);
 };
