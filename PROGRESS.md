@@ -5,6 +5,34 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 8 — Multi-tenancy: workspaces (2026-08-20)
+
+**Goal:** Implement docs/plan-multi-tenancy.md — everything scoped to workspaces with member-based identity, so multiple tenants share one deployment without seeing each other.
+
+**What we did:**
+- Six phases as sequential forge agents (forge-phase1..6) plus forge-db-cleanup: schema + backfill (bf79a99), workspace API + `requireWorkspace` middleware (439bcb1), scoping every resource router/service under `/api/w/:slug` (a4e0612), member identity — no Clerk ids in any view, `resolveMemberAuthors` with "Former member" fallback (570043c), per-workspace AgentRouter DO + agent-facing identity/oracle fixes (a866657), and `/w/$workspaceSlug/` UI routing with switcher, members settings and create flow (35be38e)
+- `workspace_id` on the eight root tables only; children inherit tenancy through their parent and are reached by resolving the parent within the workspace first (`getMessageInWorkspace`-style accessors), so the unsafe unscoped call is no longer expressible
+- Deliberately global lookups are few and doc-commented: MCP token, OAuth `state`, Slack event dedup/bridge mapping — each resolves a tenant from a credential or row that carries it
+- The AgentRouter went from one global DO to `idFromName(workspaceId)`; the old singleton retires itself, and migration 0014 resets `agents.session_id`/`status` (its state mirrored into D1) so agents don't claim "working" against dead sessions
+- Frontend: `lib/api.ts` became a `createApi(slug)` factory handed down via `useApi()`; provider keyed by slug so no state (including the channel socket) survives a workspace switch; `/` is a doorway to your last/first workspace
+- Rebuilt migration 0012 (ddabf6f) to drop the permanent `DEFAULT 'ws_default'` on `workspace_id`, wiping and rebuilding local `.wrangler/state` (no remote D1 exists); `scripts/rewrite-legacy-urls.ts` fixed pre-Phase-3 absolute `/api/…` URLs baked into stored markdown
+- 566 unit tests green at Phase 3; browser acceptance verified two workspaces see only their own data and 15 API payloads scanned clean of `user_…` ids outside imageUrl (documented residual: Clerk-hosted avatar URLs embed the user id in their token; proxying avatars is future work); screenshots in docs/acceptance/multi-tenancy/
+
+**Lessons learned:**
+- SQLite `ADD COLUMN … NOT NULL` demands a constant default, and a default, once added, is part of the table for good — raw SQL that forgot `workspace_id` landed silently in the default workspace instead of failing; that's why 0012 was rebuilt
+- `DROP TABLE` on a cascade parent performs an implicit DELETE that fires the children's `ON DELETE CASCADE`; `PRAGMA defer_foreign_keys` defers violations, not actions — copy-then-swap table rebuilds cannot survive cascade parents like `channels`/`categories`/`wiki_pages`
+- Hono merges a nested router's params with its mount's — `/wiki/:slug` under `/api/w/:slug` got the workspace's slug; the IDOR test caught it, hence the `:workspaceSlug` mount param
+- A Durable Object cannot read back the name it was addressed with — the workspace travels on `MessageNotification` and is persisted in DO storage from the first one
+- A module-level "current workspace" would be a cross-tenant hazard in a server-rendering Worker (mutable global shared across concurrent requests) — per-slug API client factory instead
+- Unscoped by-id reads are existence oracles: `read_channel`'s `beforeId` let an agent probe message ids across all tenants until it resolved through `getMessageInWorkspace`
+- Two "check" items came back nothing-to-build after a live spike: Anthropic accepts duplicate agent names (no `{slug}/{name}` prefix needed), and vaults were already per-connector, finer than per-workspace
+
+**Avoid next time:**
+- Don't use a NOT NULL column default as a tenancy backfill vehicle — it outlives the migration
+- Don't assume `defer_foreign_keys` protects data during table rebuilds; it doesn't stop cascade actions
+- Don't keep unscoped by-id accessors around "for later" — put the workspace right after `db` in the signature so the unsafe call can't be written
+- Don't drop a stateful DO topology without resetting its D1-mirrored state (the reason 0014 exists)
+
 ## Cycle 7 — Phase 5: Skills (versioned, agent-authored) (2026-08-20)
 
 **Goal:** Implement Phase 5 of docs/plan-connectors-skills.md — workspace skills published to the Anthropic Skills API, versioned and pinnable per agent, authorable by agents themselves via MCP tools.
