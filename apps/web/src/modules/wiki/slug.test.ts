@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { createHeadingSlugger, EMPTY_SLUG_FALLBACK, slugify } from "./slug";
+import {
+  createHeadingSlugger,
+  EMPTY_SLUG_FALLBACK,
+  leafTitle,
+  slugify,
+  slugifyPath,
+} from "./slug";
 
 describe("slugify", () => {
   test("lowercases and dashes a title", () => {
@@ -24,6 +30,46 @@ describe("slugify", () => {
 
   test("falls back when a title has no slug characters", () => {
     expect(slugify("!!!")).toBe(EMPTY_SLUG_FALLBACK);
+  });
+});
+
+describe("slugifyPath", () => {
+  test("slugs each segment and keeps the separators", () => {
+    expect(slugifyPath("Ops/Runbooks/Deploy the App")).toBe(
+      "ops/runbooks/deploy-the-app"
+    );
+  });
+
+  test("matches slugify when there is no path", () => {
+    expect(slugifyPath("Getting Started")).toBe("getting-started");
+  });
+
+  test("drops empty segments", () => {
+    expect(slugifyPath("a//b")).toBe("a/b");
+    expect(slugifyPath("/ops/runbooks/")).toBe("ops/runbooks");
+    expect(slugifyPath("ops/   /deploy")).toBe("ops/deploy");
+  });
+
+  test("falls back per segment for punctuation-only names", () => {
+    expect(slugifyPath("!!!/Notes")).toBe(`${EMPTY_SLUG_FALLBACK}/notes`);
+  });
+
+  test("falls back when nothing is left", () => {
+    expect(slugifyPath("///")).toBe(EMPTY_SLUG_FALLBACK);
+  });
+});
+
+describe("leafTitle", () => {
+  test("keeps a title without a path", () => {
+    expect(leafTitle("Getting Started")).toBe("Getting Started");
+  });
+
+  test("takes the last segment of a path title", () => {
+    expect(leafTitle("Ops/Runbooks/Deploy")).toBe("Deploy");
+  });
+
+  test("trims the segment and ignores trailing separators", () => {
+    expect(leafTitle("Ops / Runbooks /")).toBe("Runbooks");
   });
 });
 

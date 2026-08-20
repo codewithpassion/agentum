@@ -39,7 +39,7 @@ export function NewPageDialog({
     <Dialog onClose={onClose} open={open} title="New page">
       <form className="space-y-3" onSubmit={submit}>
         <TextField
-          hint="The address is made from the title and never changes afterwards."
+          hint="The address is made from the title and never changes afterwards. Use / to nest: Ops/Runbooks."
           label="Title"
           onChange={onTitleChange}
           placeholder="Getting started"

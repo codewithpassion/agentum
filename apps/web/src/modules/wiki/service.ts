@@ -10,7 +10,7 @@ import {
   wikiPages,
   wikiRevisions,
 } from "./schema";
-import { slugify } from "./slug";
+import { leafTitle, slugifyPath } from "./slug";
 
 /**
  * The wiki is written by the human through `/api/wiki` and, from the MCP layer,
@@ -124,6 +124,19 @@ export interface CreatePageInput {
   title: string;
 }
 
+/**
+ * A `/` in a title nests the page: `Ops/Runbooks` lives at `ops/runbooks` and is
+ * called "Runbooks" there. Every writer goes through here - the HTTP routes and
+ * the agents' `wiki_write` alike - so an address is derived in exactly one way.
+ */
+export const normalizeWrite = (input: {
+  slug?: string;
+  title: string;
+}): { slug: string; title: string } => ({
+  slug: slugifyPath(input.slug ?? input.title),
+  title: leafTitle(input.title),
+});
+
 const recordRevision = async (
   db: Db,
   page: WikiPage,
@@ -147,13 +160,14 @@ export const createPage = async (
   db: Db,
   input: CreatePageInput
 ): Promise<WikiPage> => {
+  const { slug, title } = normalizeWrite(input);
   const [page] = await db
     .insert(wikiPages)
     .values({
       body: input.body,
       id: crypto.randomUUID(),
-      slug: input.slug ?? slugify(input.title),
-      title: input.title,
+      slug,
+      title,
     })
     .returning();
   if (!page) {
@@ -171,7 +185,8 @@ export interface UpdatePageInput {
 
 /**
  * The slug is not derived again on rename: it is the page's address, and
- * wiki-links and heading deep links already point at it.
+ * wiki-links and heading deep links already point at it. A path title is still
+ * reduced to its leaf, so a rename cannot store "Ops/Runbooks" as the name.
  */
 export const updatePage = async (
   db: Db,
@@ -182,7 +197,7 @@ export const updatePage = async (
     .update(wikiPages)
     .set({
       ...(input.body === undefined ? {} : { body: input.body }),
-      ...(input.title === undefined ? {} : { title: input.title }),
+      ...(input.title === undefined ? {} : { title: leafTitle(input.title) }),
       updatedAt: new Date(),
     })
     .where(eq(wikiPages.slug, slug))
@@ -203,7 +218,7 @@ export const writePage = async (
   db: Db,
   input: CreatePageInput
 ): Promise<{ created: boolean; page: WikiPage }> => {
-  const slug = input.slug ?? slugify(input.title);
+  const { slug } = normalizeWrite(input);
   const existing = await getPageBySlug(db, slug);
   if (!existing) {
     return { created: true, page: await createPage(db, { ...input, slug }) };

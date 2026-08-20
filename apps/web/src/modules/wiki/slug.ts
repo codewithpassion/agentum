@@ -23,6 +23,28 @@ export const slugify = (text: string): string => {
 };
 
 /**
+ * Page addresses are paths: `Ops/Runbooks/Deploy` becomes `ops/runbooks/deploy`
+ * and the wiki reads the slashes as a hierarchy. Each segment is slugged on its
+ * own, and empty segments are dropped so `a//b`, `/a/b` and `a/b/` all mean the
+ * same address.
+ */
+export const slugifyPath = (text: string): string => {
+  const segments = text
+    .split("/")
+    .filter((segment) => segment.trim().length > 0)
+    .map(slugify);
+  return segments.length > 0 ? segments.join("/") : EMPTY_SLUG_FALLBACK;
+};
+
+/** The last segment of a path title - what the page is called inside its folder. */
+export const leafTitle = (title: string): string => {
+  const segments = title
+    .split("/")
+    .filter((segment) => segment.trim().length > 0);
+  return (segments.at(-1) ?? title).trim();
+};
+
+/**
  * Heading anchors have to be unique within one document, so repeated headings
  * get `-1`, `-2`, ... exactly like GitHub. The counter is per document: create a
  * slugger per render pass, never share one.

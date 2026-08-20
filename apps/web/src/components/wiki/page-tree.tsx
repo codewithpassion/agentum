@@ -1,11 +1,82 @@
 import { Link } from "@tanstack/react-router";
+import { useCallback, useMemo, useState } from "react";
 import { Button } from "#/components/ui/button";
 import type { WikiPageSummary } from "#/lib/api";
 import { cx } from "#/lib/cx";
+import { buildWikiTree, type WikiTreeNode, wikiNodeLabel } from "./wiki-tree";
+
+/** Each level steps in by this much, so depth reads at a glance. */
+const INDENT_PX = 12;
 
 /**
- * The wiki is flat for now, so the "tree" is one level: every page, by title.
- * Nesting can come from title prefixes later without changing the route shape.
+ * One row of the tree. A node with children carries its own chevron; every node
+ * is a link, because a folder that has no page of its own opens the index of
+ * what is inside it.
+ */
+function TreeRow({
+  activeSlug,
+  depth,
+  node,
+}: {
+  activeSlug: string | null;
+  depth: number;
+  node: WikiTreeNode;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const toggle = useCallback(() => setExpanded((open) => !open), []);
+  const label = wikiNodeLabel(node);
+  const hasChildren = node.children.length > 0;
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-0.5"
+        style={{ paddingLeft: depth * INDENT_PX }}
+      >
+        {hasChildren ? (
+          <button
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${label}`}
+            className="ws-focus rounded px-1 text-[10px] text-[var(--ws-muted)] hover:text-[var(--ws-text)]"
+            onClick={toggle}
+            type="button"
+          >
+            <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
+          </button>
+        ) : (
+          <span aria-hidden="true" className="w-4 shrink-0" />
+        )}
+        <Link
+          className={cx(
+            "ws-focus block min-w-0 flex-1 truncate rounded-lg px-2 py-1.5 text-[13px] no-underline",
+            node.path === activeSlug
+              ? "bg-[var(--ws-surface-hover)] text-[var(--ws-text)]"
+              : "text-[var(--ws-muted)] hover:bg-[var(--ws-surface)] hover:text-[var(--ws-text)]"
+          )}
+          params={{ _splat: node.path }}
+          to="/wiki/$"
+        >
+          {label}
+        </Link>
+      </div>
+
+      {expanded
+        ? node.children.map((child) => (
+            <TreeRow
+              activeSlug={activeSlug}
+              depth={depth + 1}
+              key={child.path}
+              node={child}
+            />
+          ))
+        : null}
+    </div>
+  );
+}
+
+/**
+ * The wiki's tree, built from the page slugs: `ops/runbooks/deploy` nests itself
+ * under folders that exist only as long as something is inside them.
  */
 export function PageTree({
   activeSlug,
@@ -16,6 +87,8 @@ export function PageTree({
   onNewPage: () => void;
   pages: WikiPageSummary[];
 }) {
+  const tree = useMemo(() => buildWikiTree(pages), [pages]);
+
   return (
     <nav
       aria-label="Wiki pages"
@@ -38,25 +111,18 @@ export function PageTree({
       </p>
 
       <div className="flex-1 overflow-y-auto px-2 pb-3">
-        {pages.length === 0 ? (
+        {tree.length === 0 ? (
           <p className="m-0 px-2 py-1 text-[var(--ws-muted)] text-xs">
             No pages yet.
           </p>
         ) : null}
-        {pages.map((page) => (
-          <Link
-            className={cx(
-              "ws-focus block truncate rounded-lg px-2 py-1.5 text-[13px] no-underline",
-              page.slug === activeSlug
-                ? "bg-[var(--ws-surface-hover)] text-[var(--ws-text)]"
-                : "text-[var(--ws-muted)] hover:bg-[var(--ws-surface)] hover:text-[var(--ws-text)]"
-            )}
-            key={page.id}
-            params={{ slug: page.slug }}
-            to="/wiki/$slug"
-          >
-            {page.title}
-          </Link>
+        {tree.map((node) => (
+          <TreeRow
+            activeSlug={activeSlug}
+            depth={0}
+            key={node.path}
+            node={node}
+          />
         ))}
       </div>
     </nav>

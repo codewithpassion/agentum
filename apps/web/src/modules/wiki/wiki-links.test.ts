@@ -29,6 +29,14 @@ describe("parseWikiLinks", () => {
     expect(parseWikiLinks("[[ ]] and [[unclosed")).toEqual([]);
   });
 
+  test("reads a slash in the title as nesting", () => {
+    expect(parseWikiLinks("[[Ops/Runbooks]]")[0]).toEqual({
+      index: 0,
+      slug: "ops/runbooks",
+      title: "Ops/Runbooks",
+    });
+  });
+
   test("ignores ordinary markdown links", () => {
     expect(parseWikiLinks("[Getting Started](/wiki/getting-started)")).toEqual(
       []
@@ -49,6 +57,12 @@ describe("replaceWikiLinks", () => {
     );
   });
 
+  test("keeps the nesting of a path link", () => {
+    expect(replaceWikiLinks("see [[Ops/Runbooks]]")).toBe(
+      "see [Ops/Runbooks](/wiki/ops/runbooks)"
+    );
+  });
+
   test("leaves other text untouched", () => {
     const body = "# Title\n\n[a](https://example.com) and [[ ]]";
     expect(replaceWikiLinks(body)).toBe(body);
@@ -62,6 +76,12 @@ describe("wikiSlugFromHref", () => {
 
   test("ignores a query string and a hash", () => {
     expect(wikiSlugFromHref("/wiki/setup?title=Setup#step-1")).toBe("setup");
+  });
+
+  test("keeps a nested path whole", () => {
+    expect(wikiSlugFromHref("/wiki/ops/runbooks/deploy#step-1")).toBe(
+      "ops/runbooks/deploy"
+    );
   });
 
   test("returns null for anything else", () => {

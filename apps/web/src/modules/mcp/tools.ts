@@ -258,7 +258,7 @@ const registerWikiTools = (server: McpServer, ctx: McpToolContext): void => {
     "wiki_list",
     {
       description:
-        "List every wiki page (slug and title). The wiki is the workspace's shared long-term memory: put anything worth keeping there instead of repeating it in chat.",
+        "List every wiki page (slug and title). The wiki is the workspace's shared long-term memory: put anything worth keeping there instead of repeating it in chat. Slugs are paths, so a slug like ops/runbooks/deploy is a page nested under Ops > Runbooks.",
       inputSchema: {},
       title: "List wiki pages",
     },
@@ -285,7 +285,7 @@ const registerWikiTools = (server: McpServer, ctx: McpToolContext): void => {
     "wiki_write",
     {
       description:
-        "Create or replace a wiki page. Omit slug to address the page by its title (the slug is derived from it); pass slug to edit an existing page whose title you are also changing. The body is markdown and replaces the page wholesale, so read the page first when editing. The revision is recorded under your name.",
+        'Create or replace a wiki page. Omit slug to address the page by its title (the slug is derived from it); pass slug to edit an existing page whose title you are also changing. A "/" in the title nests the page: "Ops/Runbooks/Deploy" lives under Ops > Runbooks and is called "Deploy" there. The body is markdown and replaces the page wholesale, so read the page first when editing. The revision is recorded under your name.',
       inputSchema: {
         body: z.string().max(WIKI_BODY_MAX_LENGTH),
         slug: z.string().optional(),

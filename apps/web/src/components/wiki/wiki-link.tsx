@@ -20,10 +20,10 @@ export const createWikiLinkRenderer = (knownSlugs: ReadonlySet<string>) =>
       return (
         <Link
           className={exists ? undefined : "wiki-link-missing"}
-          params={{ slug }}
+          params={{ _splat: slug }}
           search={exists ? {} : { title: nodeText(children) }}
           title={exists ? undefined : "This page does not exist yet"}
-          to="/wiki/$slug"
+          to="/wiki/$"
         >
           {children}
         </Link>

@@ -8,7 +8,8 @@ export interface WikiPageSearch {
   title?: string;
 }
 
-export const Route = createFileRoute("/wiki/$slug")({
+/** A splat, not `$slug`: a page's address is a path, so it can contain "/". */
+export const Route = createFileRoute("/wiki/$")({
   component: WikiPageRoute,
   validateSearch: (search: Record<string, unknown>): WikiPageSearch => ({
     edit: search.edit === true || search.edit === "true" ? true : undefined,
@@ -17,8 +18,10 @@ export const Route = createFileRoute("/wiki/$slug")({
 });
 
 function WikiPageRoute() {
-  const { slug } = Route.useParams();
+  const { _splat } = Route.useParams();
   const { edit, title } = Route.useSearch();
 
-  return <WikiApp edit={edit === true} prefillTitle={title} slug={slug} />;
+  return (
+    <WikiApp edit={edit === true} prefillTitle={title} slug={_splat ?? null} />
+  );
 }

@@ -1,9 +1,11 @@
-import { slugify } from "./slug";
+import { slugifyPath } from "./slug";
 
 /**
  * `[[Page Title]]` is the wiki-link syntax agents and the user write in page
  * bodies. It is resolved at render time rather than stored as a link, so a page
  * created later turns every existing reference to it live without a rewrite.
+ * A slash nests, exactly as in a title: `[[Ops/Runbooks]]` points at
+ * `ops/runbooks`.
  */
 
 export const WIKI_PATH_PREFIX = "/wiki/";
@@ -36,7 +38,7 @@ export const parseWikiLinks = (body: string): WikiLink[] => {
     if (title.length === 0) {
       continue;
     }
-    links.push({ index: match.index, slug: slugify(title), title });
+    links.push({ index: match.index, slug: slugifyPath(title), title });
   }
   return links;
 };
@@ -52,5 +54,5 @@ export const replaceWikiLinks = (body: string): string =>
     if (title.length === 0) {
       return match;
     }
-    return `[${title}](${wikiHref(slugify(title))})`;
+    return `[${title}](${wikiHref(slugifyPath(title))})`;
   });

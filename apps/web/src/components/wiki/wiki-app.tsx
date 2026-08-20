@@ -1,5 +1,5 @@
 import { useUser } from "@clerk/tanstack-react-start";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   type ReactNode,
   useCallback,
@@ -24,6 +24,11 @@ import { PageTree } from "./page-tree";
 import { PageView } from "./page-view";
 import { RevisionsPanel } from "./revisions-panel";
 import { createWikiLinkRenderer } from "./wiki-link";
+import {
+  type WikiTreeNode,
+  wikiFolderChildren,
+  wikiNodeLabel,
+} from "./wiki-tree";
 
 function SignedOutNotice() {
   return (
@@ -79,6 +84,50 @@ function MissingPage({
           Create this page
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A path that has pages under it but none of its own: rather than offering to
+ * write it, the wiki shows what is inside - while still letting the folder get a
+ * page of its own.
+ */
+function FolderIndex({
+  entries,
+  onCreate,
+  path,
+}: {
+  entries: WikiTreeNode[];
+  onCreate: () => void;
+  path: string;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="wiki-folder">
+      <header className="flex items-start justify-between gap-3 border-[var(--ws-line)] border-b px-6 py-4">
+        <div className="min-w-0">
+          <h1 className="m-0 truncate font-semibold text-xl">
+            {path.split("/").at(-1)}
+          </h1>
+          <p className="m-0 text-[var(--ws-muted)] text-xs">
+            {entries.length} inside · no page of its own yet
+          </p>
+        </div>
+        <Button onClick={onCreate} size="sm" variant="primary">
+          Create this page
+        </Button>
+      </header>
+
+      <ul className="m-0 min-h-0 flex-1 list-none overflow-y-auto px-6 py-4">
+        {entries.map((child) => (
+          <li className="py-1" key={child.path}>
+            <Link params={{ _splat: child.path }} to="/wiki/$">
+              {wikiNodeLabel(child)}
+              {child.page ? "" : "/"}
+            </Link>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -143,6 +192,11 @@ export function WikiApp({
     () => createWikiLinkRenderer(knownSlugs),
     [knownSlugs]
   );
+  /** Non-empty when the open address is a folder: pages live under it. */
+  const folderChildren = useMemo(
+    () => (slug ? wikiFolderChildren(pages, slug) : []),
+    [pages, slug]
+  );
 
   // Agents author revisions through the MCP tools; their names come from the
   // agents API rather than from the wiki module.
@@ -173,9 +227,9 @@ export function WikiApp({
   const openPage = useCallback(
     (nextSlug: string, editing: boolean) =>
       navigate({
-        params: { slug: nextSlug },
+        params: { _splat: nextSlug },
         search: editing ? { edit: true } : {},
-        to: "/wiki/$slug",
+        to: "/wiki/$",
       }),
     [navigate]
   );
@@ -290,6 +344,14 @@ export function WikiApp({
     );
   } else if (!slug) {
     content = <NoPageSelected onNewPage={openNewPage} />;
+  } else if (missing && folderChildren.length > 0) {
+    content = (
+      <FolderIndex
+        entries={folderChildren}
+        onCreate={startMissingPageDraft}
+        path={slug}
+      />
+    );
   } else if (missing) {
     content = (
       <MissingPage

@@ -18,6 +18,15 @@ const SECTION_TEXT = `Anchored content ${RUN_ID}.`;
 const EDIT_TEXT = `Edited by the smoke suite ${RUN_ID}.`;
 const LINKED_TITLE = `Unwritten ${RUN_ID}`;
 
+/** The hierarchy is in the slug: this page is written as "<folder>/Setup". */
+const FOLDER_SLUG = `guides-${RUN_ID}`;
+const FOLDER_TITLE = `Guides ${RUN_ID}`;
+const NESTED_TITLE = "Setup";
+const NESTED_SLUG = `${FOLDER_SLUG}/setup`;
+const NESTED_BODY = `Nested setup notes (${RUN_ID}).`;
+const NESTED_EDIT = `Edited the nested page ${RUN_ID}.`;
+const NESTED_URL = new RegExp(`/wiki/${NESTED_SLUG}$`);
+
 /** Long enough that the anchored section starts below the fold. */
 const FILLER = Array.from(
   { length: 40 },
@@ -172,6 +181,70 @@ test("edits the page and lists both revisions in its history", async ({
   await page.getByRole("button", { name: "Restore" }).click();
   await expect(article.getByText(EDIT_TEXT)).toHaveCount(0);
   await expect(history.getByRole("listitem")).toHaveCount(3);
+});
+
+test("nests a page written with a / in its title", async ({ page }) => {
+  await openWikiFromSidebar(page);
+
+  await wikiNav(page).getByRole("button", { name: "New page" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Title").fill(`${FOLDER_TITLE}/${NESTED_TITLE}`);
+  await dialog.getByRole("button", { name: "Write page" }).click();
+
+  const body = page.getByLabel("Body");
+  await expect(body).toBeVisible();
+  await body.fill(NESTED_BODY);
+  await page.getByRole("button", { name: "Save" }).click();
+
+  // Only the leaf is the page's name; the rest of the title became its address.
+  const article = page.getByTestId("wiki-page");
+  await expect(
+    article.getByRole("heading", { name: NESTED_TITLE })
+  ).toBeVisible();
+  await expect(page).toHaveURL(NESTED_URL);
+
+  // The tree grew a folder, with the page inside it.
+  const nav = wikiNav(page);
+  await expect(
+    nav.getByRole("link", { exact: true, name: FOLDER_SLUG })
+  ).toHaveAttribute("href", new RegExp(`/wiki/${FOLDER_SLUG}$`));
+  // Addressed by path, not by name: "Setup" is only unique inside its folder.
+  await expect(nav.locator(`a[href="/wiki/${NESTED_SLUG}"]`)).toHaveText(
+    NESTED_TITLE
+  );
+});
+
+test("shows what is inside a folder that has no page of its own", async ({
+  page,
+}) => {
+  await openWikiFromSidebar(page);
+  await wikiNav(page)
+    .getByRole("link", { exact: true, name: FOLDER_SLUG })
+    .click();
+
+  // A folder is not an unwritten page: it lists what is under it.
+  const folder = page.getByTestId("wiki-folder");
+  await expect(
+    folder.getByRole("heading", { name: FOLDER_SLUG })
+  ).toBeVisible();
+  await expect(page.getByTestId("wiki-missing")).toHaveCount(0);
+
+  await folder.getByRole("link", { name: NESTED_TITLE }).click();
+  const article = page.getByTestId("wiki-page");
+  await expect(article.getByText(NESTED_BODY)).toBeVisible();
+
+  // Editing round-trips the nested address through PATCH and the revisions API.
+  await page.getByRole("button", { name: "Edit" }).click();
+  const body = page.getByLabel("Body");
+  await body.fill(`${NESTED_BODY}\n\n${NESTED_EDIT}`);
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(article.getByText(NESTED_EDIT)).toBeVisible();
+  await expect(page).toHaveURL(NESTED_URL);
+
+  await page.getByRole("button", { name: "History" }).click();
+  await expect(
+    page.getByTestId("wiki-revisions").getByRole("listitem")
+  ).toHaveCount(2);
 });
 
 test("follows a wiki-link to an unwritten page and writes it with an asset", async ({
