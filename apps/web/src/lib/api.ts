@@ -28,6 +28,7 @@ import type {
   WikiPageView,
   WikiRevisionView,
 } from "#/modules/wiki/service";
+import type { WorkspaceRole } from "#/modules/workspaces/schema";
 
 /** The client speaks exactly the server's shapes; these aliases are the contract. */
 export type Agent = AgentView;
@@ -124,6 +125,21 @@ const requestText = async (path: string): Promise<string> => {
   }
   return await response.text();
 };
+
+// --- workspace --------------------------------------------------------------
+
+/**
+ * The caller's own membership in the active workspace. `memberId` is the only
+ * identity the client has for itself - `authors.ts` compares message authors
+ * against it, since a Clerk id never reaches the browser.
+ */
+export interface Membership {
+  memberId: string;
+  role: WorkspaceRole;
+}
+
+export const getMembership = () =>
+  request<{ membership: Membership }>("").then((data) => data.membership);
 
 // --- agents -----------------------------------------------------------------
 

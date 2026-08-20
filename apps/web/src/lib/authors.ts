@@ -10,10 +10,16 @@ export interface AuthorInfo {
 }
 
 const UNKNOWN_COLOR = "#52525b";
+const FORMER_MEMBER_NAME = "Former member";
 
+/**
+ * The signed-in human, as this client knows itself: `memberId` is the caller's
+ * `workspace_members` row (from `GET /api/w/:slug`), which is the only identity
+ * a message carries for a person - there is no Clerk id to compare against.
+ */
 export interface Viewer {
-  id: string | null;
   imageUrl: string | null;
+  memberId: string | null;
   name: string;
 }
 
@@ -33,13 +39,36 @@ export const authorOf = (
     };
   }
 
+  // Somebody on a bridged surface: their handle there is all we have of them.
+  if (message.authorType === "external") {
+    return {
+      agentId: null,
+      color: UNKNOWN_COLOR,
+      imageUrl: null,
+      isSelf: false,
+      name: message.authorId,
+    };
+  }
+
+  const { author } = message;
+  if (!author) {
+    // A user message with no resolved author is a view that skipped hydration.
+    return {
+      agentId: null,
+      color: UNKNOWN_COLOR,
+      imageUrl: null,
+      isSelf: false,
+      name: FORMER_MEMBER_NAME,
+    };
+  }
+
   const isSelf =
-    message.authorType === "user" && message.authorId === viewer.id;
+    author.memberId !== null && author.memberId === viewer.memberId;
   return {
     agentId: null,
     color: UNKNOWN_COLOR,
-    imageUrl: isSelf ? viewer.imageUrl : null,
+    imageUrl: isSelf ? viewer.imageUrl : author.imageUrl,
     isSelf,
-    name: isSelf ? viewer.name : message.authorId,
+    name: isSelf ? viewer.name : author.name,
   };
 };

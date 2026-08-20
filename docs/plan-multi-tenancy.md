@@ -310,6 +310,28 @@ views, `authors.ts` rewrite, `isSelf` via memberId, health-route cleanup.
 `member_type: 'user'` rows carry Clerk ids as `memberId` today; two-browser
 test: user B sees user A's messages with A's name/email, not an id.
 
+**Shipped**, with three decisions worth recording:
+
+- **`imageUrl` is an accepted residual.** A Clerk-hosted avatar is
+  `https://img.clerk.com/<base64url>`, and the token decodes to
+  `{"type":"default","iid":"ins_…","rid":"user_…"}` — the Clerk id is *inside
+  the URL*, encoded. Every API and UI **field** is free of the id, which is
+  what the rule asks for; making the URL free of it too means proxying avatars
+  through our own origin, which is future work and not worth a phase. The leak
+  scanner (`modules/workspaces/clerk-id-leaks.ts`) matches the literal id, so
+  the encoded form passes without an exemption — the reasoning is in its
+  header comment so nobody "fixes" it by accident.
+- **`MessageView.authorId` changed meaning** rather than growing a sibling: it
+  is the agent id for an agent, the external handle for a bridged surface, and
+  the *workspace member* id for a person — `""` when that membership is gone.
+  The display fields live in a new `author: { memberId, name, email, imageUrl }`,
+  set only for `authorType: "user"`. `WikiRevisionView` follows the same shape.
+- **Channel member lists drop user rows whose membership is gone.** A message
+  author is history and still resolves ("Former member"); a member list is who
+  is in the channel *now*, and a row with no member id is one the client can
+  neither name nor remove. The orphaned `channel_members` row survives in the
+  database, unreachable — cleaning those up on member-remove is future work.
+
 ### Phase 5 — Router DO, MCP tools, Anthropic glue
 
 Per-workspace AgentRouter, scoped MCP tools, per-workspace vaults (after the

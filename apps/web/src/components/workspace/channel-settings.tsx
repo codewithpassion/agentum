@@ -164,7 +164,8 @@ function MemberRow({
   member: ChannelMemberView;
   onRemove: (member: ChannelMemberView) => void;
 }) {
-  const name = member.name ?? "You";
+  // People now arrive named; a nameless row is an agent whose row is gone.
+  const name = member.name ?? "Deleted agent";
   const remove = useCallback(() => onRemove(member), [member, onRemove]);
 
   return (

@@ -90,9 +90,9 @@ const registerListChannels = (server: McpServer, ctx: McpToolContext): void => {
         channels.map(async (channel) => ({
           id: channel.id,
           kind: channel.kind,
-          members: (await listChannelMembers(ctx.db, channel.id)).map(
-            (member) => member.name ?? "User"
-          ),
+          members: (
+            await listChannelMembers(ctx.db, ctx.agent.workspaceId, channel.id)
+          ).map((member) => member.name ?? "User"),
           name: channel.name,
         }))
       );

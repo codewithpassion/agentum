@@ -7,10 +7,12 @@ import { formatDay, formatTime } from "#/lib/format";
 const authorLabel = (
   revision: WikiRevision,
   agentNames: ReadonlyMap<string, string>
-): string =>
-  revision.authorType === "agent"
-    ? (agentNames.get(revision.authorId) ?? "Agent")
-    : "You";
+): string => {
+  if (revision.authorType === "agent") {
+    return agentNames.get(revision.authorId) ?? "Agent";
+  }
+  return revision.author ? revision.author.name : "Former member";
+};
 
 function RevisionRow({
   active,

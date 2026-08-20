@@ -29,7 +29,11 @@ export const buildNotification = async (
     return null;
   }
 
-  const members = await listChannelMembers(db, message.channelId);
+  const members = await listChannelMembers(
+    db,
+    channel.workspaceId,
+    message.channelId
+  );
   const memberAgentIds = members
     .filter((member) => member.memberType === "agent")
     .map((member) => member.memberId);

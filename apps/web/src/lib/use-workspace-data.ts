@@ -3,9 +3,11 @@ import {
   type Agent,
   type CategoryView,
   type Channel,
+  getMembership,
   listAgents,
   listCategories,
   listChannels,
+  type Membership,
 } from "./api";
 
 export interface WorkspaceData {
@@ -13,6 +15,8 @@ export interface WorkspaceData {
   categories: CategoryView[];
   channels: Channel[];
   error: string | null;
+  /** The caller's own membership - who "me" is, for `isSelf`. */
+  membership: Membership | null;
   reload: () => Promise<void>;
 }
 
@@ -21,18 +25,22 @@ export const useWorkspaceData = (enabled: boolean): WorkspaceData => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [categories, setCategories] = useState<CategoryView[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [membership, setMembership] = useState<Membership | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      const [nextAgents, nextChannels, nextCategories] = await Promise.all([
-        listAgents(),
-        listChannels(),
-        listCategories(),
-      ]);
+      const [nextAgents, nextChannels, nextCategories, nextMembership] =
+        await Promise.all([
+          listAgents(),
+          listChannels(),
+          listCategories(),
+          getMembership(),
+        ]);
       setAgents(nextAgents);
       setChannels(nextChannels);
       setCategories(nextCategories);
+      setMembership(nextMembership);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to load.");
@@ -45,5 +53,5 @@ export const useWorkspaceData = (enabled: boolean): WorkspaceData => {
     }
   }, [enabled, reload]);
 
-  return { agents, categories, channels, error, reload };
+  return { agents, categories, channels, error, membership, reload };
 };

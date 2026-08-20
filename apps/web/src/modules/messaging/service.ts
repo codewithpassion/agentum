@@ -4,6 +4,10 @@ import {
   getAgentsByIds,
   listAgentMentionCandidates,
 } from "#/modules/agents/service";
+import {
+  type MemberAuthorView,
+  resolveMemberAuthors,
+} from "#/modules/workspaces/authors";
 import { parseMentions } from "./mentions";
 import {
   type AUTHOR_TYPES,
@@ -48,6 +52,19 @@ export interface MentionView {
 
 export interface MessageView {
   attachments: AttachmentView[];
+  /**
+   * Who wrote it, resolved through `workspace_members` - set for
+   * `authorType: "user"` and null for everything else. A human's Clerk id is
+   * stored but never serialized, so this is the only identity a client gets
+   * for a person.
+   */
+  author: MemberAuthorView | null;
+  /**
+   * The id a client may address this author by: the agent id for an agent, the
+   * external id for a bridged surface, and the *workspace member* id for a
+   * human - deliberately `""` when that membership is gone, since a former
+   * member has no id the client could do anything with.
+   */
   authorId: string;
   authorType: AuthorType;
   body: string;
@@ -61,10 +78,15 @@ export interface MessageView {
 }
 
 export interface ChannelMemberView {
+  /** The agent's colour; null for a person. */
   avatar: string | null;
+  /** Present for user members; null for agents. */
+  email: string | null;
+  /** Present for user members; null for agents. */
+  imageUrl: string | null;
+  /** The agent id, or the workspace member id - never a Clerk id. */
   memberId: string;
   memberType: MemberType;
-  /** Present for agent members; null for the user. */
   name: string | null;
 }
 
@@ -230,8 +252,18 @@ export const isChannelMember = async (
   return row !== undefined;
 };
 
+/**
+ * The channel's members, with every user row translated out of its Clerk id
+ * and into the workspace membership behind it.
+ *
+ * A user row whose membership is gone is left out rather than shown as a
+ * "former member": this list is who is in the channel *now*, and a row with no
+ * member id is one the client could neither address nor remove. (Message
+ * authors are the opposite case - history, so they still resolve.)
+ */
 export const listChannelMembers = async (
   db: Db,
+  workspaceId: string,
   channelId: string
 ): Promise<ChannelMemberView[]> => {
   const rows = await db
@@ -243,17 +275,45 @@ export const listChannelMembers = async (
   const agentIds = rows
     .filter((row) => row.memberType === "agent")
     .map((row) => row.memberId);
-  const agents = await getAgentsByIds(db, agentIds);
+  const [agents, authors] = await Promise.all([
+    getAgentsByIds(db, agentIds),
+    resolveMemberAuthors(
+      db,
+      workspaceId,
+      rows.filter((row) => row.memberType === "user").map((row) => row.memberId)
+    ),
+  ]);
   const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
 
-  return rows.map((row) => {
-    const agent = agentsById.get(row.memberId);
-    return {
-      avatar: row.memberType === "agent" ? (agent?.avatar ?? null) : null,
-      memberId: row.memberId,
-      memberType: row.memberType,
-      name: row.memberType === "agent" ? (agent?.name ?? null) : null,
-    };
+  return rows.flatMap((row): ChannelMemberView[] => {
+    if (row.memberType === "agent") {
+      const agent = agentsById.get(row.memberId);
+      return [
+        {
+          avatar: agent?.avatar ?? null,
+          email: null,
+          imageUrl: null,
+          memberId: row.memberId,
+          memberType: row.memberType,
+          name: agent?.name ?? null,
+        },
+      ];
+    }
+
+    const author = authors.get(row.memberId);
+    if (!author?.memberId) {
+      return [];
+    }
+    return [
+      {
+        avatar: null,
+        email: author.email,
+        imageUrl: author.imageUrl,
+        memberId: author.memberId,
+        memberType: row.memberType,
+        name: author.name,
+      },
+    ];
   });
 };
 
@@ -326,9 +386,15 @@ export const decodeCursor = (raw: string): MessageCursor | undefined => {
 
 type MessageRow = typeof messages.$inferSelect;
 
+/**
+ * Rows to views: attachments, mentions, reply counts - and the one translation
+ * that matters for privacy, `authorId` for a human becoming the workspace
+ * member behind it. Every message that reaches a client comes through here,
+ * the websocket broadcast included, so the rule holds in one place.
+ */
 const hydrateMessages = async (
   db: Db,
-  workspaceSlug: string,
+  workspace: WorkspaceRef,
   rows: MessageRow[]
 ): Promise<MessageView[]> => {
   if (rows.length === 0) {
@@ -352,10 +418,17 @@ const hydrateMessages = async (
       .groupBy(messages.threadParentId),
   ]);
 
-  const mentionedAgents = await getAgentsByIds(
-    db,
-    mentionRows.map((row) => row.agentId)
-  );
+  const [mentionedAgents, authors] = await Promise.all([
+    getAgentsByIds(
+      db,
+      mentionRows.map((row) => row.agentId)
+    ),
+    resolveMemberAuthors(
+      db,
+      workspace.id,
+      rows.filter((row) => row.authorType === "user").map((row) => row.authorId)
+    ),
+  ]);
   const agentNamesById = new Map(
     mentionedAgents.map((agent) => [agent.id, agent.name])
   );
@@ -371,7 +444,7 @@ const hydrateMessages = async (
       id: row.id,
       mime: row.mime,
       size: row.size,
-      url: attachmentUrl(workspaceSlug, row.id),
+      url: attachmentUrl(workspace.slug, row.id),
     });
     attachmentsByMessage.set(row.messageId, list);
   }
@@ -394,19 +467,23 @@ const hydrateMessages = async (
     )
   );
 
-  return rows.map((row) => ({
-    attachments: attachmentsByMessage.get(row.id) ?? [],
-    authorId: row.authorId,
-    authorType: row.authorType,
-    body: row.body,
-    channelId: row.channelId,
-    createdAt: row.createdAt.getTime(),
-    id: row.id,
-    mentions: mentionsByMessage.get(row.id) ?? [],
-    origin: row.origin,
-    replyCount: replyCounts.get(row.id) ?? 0,
-    threadParentId: row.threadParentId,
-  }));
+  return rows.map((row) => {
+    const author = row.authorType === "user" ? authors.get(row.authorId) : null;
+    return {
+      attachments: attachmentsByMessage.get(row.id) ?? [],
+      author: author ?? null,
+      authorId: author ? (author.memberId ?? "") : row.authorId,
+      authorType: row.authorType,
+      body: row.body,
+      channelId: row.channelId,
+      createdAt: row.createdAt.getTime(),
+      id: row.id,
+      mentions: mentionsByMessage.get(row.id) ?? [],
+      origin: row.origin,
+      replyCount: replyCounts.get(row.id) ?? 0,
+      threadParentId: row.threadParentId,
+    };
+  });
 };
 
 /**
@@ -446,7 +523,7 @@ export const listChannelMessages = async (
   const page = rows.slice(0, limit);
   const last = page.at(-1);
   return {
-    messages: await hydrateMessages(db, workspace.slug, page),
+    messages: await hydrateMessages(db, workspace, page),
     nextCursor: rows.length > limit && last ? encodeCursor(last) : null,
   };
 };
@@ -496,13 +573,13 @@ export const getThread = async (
     .where(eq(messages.threadParentId, parentId))
     .orderBy(asc(messages.createdAt), asc(messages.id));
 
-  const [parent] = await hydrateMessages(db, workspace.slug, [parentRow]);
+  const [parent] = await hydrateMessages(db, workspace, [parentRow]);
   if (!parent) {
     return;
   }
   return {
     parent,
-    replies: await hydrateMessages(db, workspace.slug, replyRows),
+    replies: await hydrateMessages(db, workspace, replyRows),
   };
 };
 
@@ -598,7 +675,7 @@ export const createMessage = async (
   if (!row) {
     throw new Error("Failed to create the message.");
   }
-  const [message] = await hydrateMessages(db, input.workspace.slug, [row]);
+  const [message] = await hydrateMessages(db, input.workspace, [row]);
   if (!message) {
     throw new Error("Failed to load the created message.");
   }

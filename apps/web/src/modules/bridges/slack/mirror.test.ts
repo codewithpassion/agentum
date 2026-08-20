@@ -25,6 +25,7 @@ const bridge = (overrides: Partial<ChannelBridge> = {}): ChannelBridge => ({
 
 const message = (overrides: Partial<MessageView> = {}): MessageView => ({
   attachments: [],
+  author: null,
   authorId: "agent-1",
   authorType: "agent",
   body: "on it",

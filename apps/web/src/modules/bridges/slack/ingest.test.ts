@@ -24,6 +24,7 @@ const delivery = (eventId: string): SlackEventCallback => ({
 
 const publishedMessage = (input: CreateMessageInput): MessageView => ({
   attachments: [],
+  author: null,
   authorId: input.authorId,
   authorType: input.authorType,
   body: input.body,

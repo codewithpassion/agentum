@@ -22,7 +22,7 @@ import {
   listRevisions,
   storeAsset,
   toPageView,
-  toRevisionView,
+  toRevisionViews,
   updatePage,
 } from "./service";
 
@@ -199,7 +199,9 @@ wikiRoutes.get("/:slug/revisions", async (c) => {
     throw notFound("Page not found.");
   }
   const revisions = await listRevisions(db, page.id);
-  return c.json({ revisions: revisions.map(toRevisionView) });
+  return c.json({
+    revisions: await toRevisionViews(db, c.get("workspace").id, revisions),
+  });
 });
 
 wikiRoutes.get("/:slug/revisions/:revisionId", async (c) => {
@@ -216,5 +218,6 @@ wikiRoutes.get("/:slug/revisions/:revisionId", async (c) => {
   if (!revision) {
     throw notFound("Revision not found.");
   }
-  return c.json({ revision: toRevisionView(revision) });
+  const [view] = await toRevisionViews(db, c.get("workspace").id, [revision]);
+  return c.json({ revision: view });
 });

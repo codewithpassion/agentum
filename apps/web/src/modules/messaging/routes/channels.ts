@@ -11,8 +11,9 @@ import {
   requireEnum,
   requireString,
 } from "#/api/validation";
-import { createDb } from "#/db/client";
+import { createDb, type Db } from "#/db/client";
 import { getAgentById } from "#/modules/agents/service";
+import { getMemberById } from "#/modules/workspaces/service";
 import { publishMessage } from "../publish";
 import { connectToChannelRoom } from "../realtime";
 import { MEMBER_TYPES } from "../schema";
@@ -48,6 +49,24 @@ channelsRoutes.use("*", requireAuth);
 
 const isMemberType = (value: string): value is MemberType =>
   (MEMBER_TYPES as readonly string[]).includes(value);
+
+/**
+ * A user member is addressed from outside by their *workspace member* id - the
+ * only identity for a person that ever leaves the server - and stored by the
+ * Clerk id behind it, which is what survives a member being removed and added
+ * back. This is where the two meet, in both directions of a member write.
+ */
+const clerkIdOfMember = async (
+  db: Db,
+  workspaceId: string,
+  memberId: string
+): Promise<string> => {
+  const member = await getMemberById(db, workspaceId, memberId);
+  if (!member) {
+    throw notFound("Member not found.");
+  }
+  return member.clerkUserId;
+};
 
 channelsRoutes.get("/", async (c) => {
   const channels = await listChannels(
@@ -112,7 +131,7 @@ channelsRoutes.get("/:id", async (c) => {
   }
   return c.json({
     channel,
-    members: await listChannelMembers(db, channelId),
+    members: await listChannelMembers(db, c.get("workspace").id, channelId),
   });
 });
 
@@ -147,14 +166,24 @@ channelsRoutes.post("/:id/members", async (c) => {
     throw notFound("Agent not found.");
   }
 
-  await addChannelMember(db, channelId, { memberType, memberId });
-  return c.json({ members: await listChannelMembers(db, channelId) }, 201);
+  await addChannelMember(db, channelId, {
+    memberId:
+      memberType === "user"
+        ? await clerkIdOfMember(db, workspaceId, memberId)
+        : memberId,
+    memberType,
+  });
+  return c.json(
+    { members: await listChannelMembers(db, workspaceId, channelId) },
+    201
+  );
 });
 
 channelsRoutes.delete("/:id/members/:memberType/:memberId", async (c) => {
   const db = createDb(c.env.DB);
+  const workspaceId = c.get("workspace").id;
   const channelId = c.req.param("id");
-  if (!(await getChannel(db, c.get("workspace").id, channelId))) {
+  if (!(await getChannel(db, workspaceId, channelId))) {
     throw notFound("Channel not found.");
   }
 
@@ -165,15 +194,21 @@ channelsRoutes.delete("/:id/members/:memberType/:memberId", async (c) => {
     );
   }
 
+  const memberId = c.req.param("memberId");
   const removed = await removeChannelMember(db, channelId, {
-    memberId: c.req.param("memberId"),
+    memberId:
+      memberType === "user"
+        ? await clerkIdOfMember(db, workspaceId, memberId)
+        : memberId,
     memberType,
   });
   if (!removed) {
     throw notFound("Member not found.");
   }
 
-  return c.json({ members: await listChannelMembers(db, channelId) });
+  return c.json({
+    members: await listChannelMembers(db, workspaceId, channelId),
+  });
 });
 
 channelsRoutes.get("/:id/messages", async (c) => {

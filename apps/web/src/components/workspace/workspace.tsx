@@ -65,7 +65,7 @@ export function Workspace({
 }) {
   const { isSignedIn, user } = useUser();
   const signedIn = isSignedIn === true;
-  const { agents, categories, channels, error, reload } =
+  const { agents, categories, channels, error, membership, reload } =
     useWorkspaceData(signedIn);
 
   // Every `/api` route is behind auth, so nothing may be fetched - and no
@@ -97,9 +97,11 @@ export function Workspace({
   );
   const selectedAgent = agentId ? (agentsById.get(agentId) ?? null) : null;
 
+  // Name and picture come from Clerk's session; who "me" is in a message comes
+  // from the workspace membership, never from the Clerk id.
   const viewer: Viewer = {
-    id: user?.id ?? null,
     imageUrl: user?.imageUrl ?? null,
+    memberId: membership ? membership.memberId : null,
     name: user?.fullName ?? user?.primaryEmailAddress?.emailAddress ?? "You",
   };
 

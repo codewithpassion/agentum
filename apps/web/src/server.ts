@@ -38,9 +38,11 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use("*", clerkMiddleware());
 
+// Whether the caller has a session, never who they are: the Clerk id does not
+// leave the server, and "is my session live?" is all this route is asked.
 app.get("/api/health", (c) => {
   const auth = getAuth(c);
-  return c.json({ status: "ok", userId: auth?.userId ?? null });
+  return c.json({ authenticated: Boolean(auth?.userId), status: "ok" });
 });
 
 // One-click dev login: mints a one-time Clerk sign-in token for the dev user

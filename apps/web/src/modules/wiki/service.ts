@@ -1,5 +1,9 @@
 import { and, asc, desc, eq, like, or } from "drizzle-orm";
 import type { Db } from "#/db/client";
+import {
+  type MemberAuthorView,
+  resolveMemberAuthors,
+} from "#/modules/workspaces/authors";
 import { validateWikiAsset } from "./asset-rules";
 import {
   type WikiAsset,
@@ -38,6 +42,12 @@ export interface WikiPageView extends WikiPageSummary {
 }
 
 export interface WikiRevisionView {
+  /**
+   * Who wrote it, resolved through `workspace_members` - set for
+   * `authorType: "user"`, null for an agent. The Clerk id stays stored.
+   */
+  author: MemberAuthorView | null;
+  /** The agent id, or the workspace member id (`""` for a former member). */
   authorId: string;
   authorType: WikiAuthor["type"];
   body: string;
@@ -56,15 +66,41 @@ export const toPageView = (page: WikiPage): WikiPageView => ({
   updatedAt: page.updatedAt.getTime(),
 });
 
-export const toRevisionView = (revision: WikiRevision): WikiRevisionView => ({
-  authorId: revision.authorId,
-  authorType: revision.authorType,
-  body: revision.body,
-  createdAt: revision.createdAt.getTime(),
-  id: revision.id,
-  pageId: revision.pageId,
-  title: revision.title,
-});
+/**
+ * Revisions to views, with human authors resolved through the workspace's
+ * members in one batched lookup. Both revision routes go through here, so a
+ * Clerk id has no way out of the wiki.
+ */
+export const toRevisionViews = async (
+  db: Db,
+  workspaceId: string,
+  revisions: readonly WikiRevision[]
+): Promise<WikiRevisionView[]> => {
+  const authors = await resolveMemberAuthors(
+    db,
+    workspaceId,
+    revisions
+      .filter((revision) => revision.authorType === "user")
+      .map((revision) => revision.authorId)
+  );
+
+  return revisions.map((revision) => {
+    const author =
+      revision.authorType === "user"
+        ? (authors.get(revision.authorId) ?? null)
+        : null;
+    return {
+      author,
+      authorId: author ? (author.memberId ?? "") : revision.authorId,
+      authorType: revision.authorType,
+      body: revision.body,
+      createdAt: revision.createdAt.getTime(),
+      id: revision.id,
+      pageId: revision.pageId,
+      title: revision.title,
+    };
+  });
+};
 
 export const listPages = async (
   db: Db,

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Hono } from "hono";
 import type { ApiEnv } from "#/api/types";
 import { createDb, type Db } from "#/db/client";
+import { findClerkIdLeaksInBody } from "./clerk-id-leaks";
 
 /**
  * The workspace API end to end: the same two mounts `server.ts` makes, over the
@@ -557,10 +558,8 @@ describe("serialization", () => {
     );
 
     expect(bodies.every((body) => body.length > 0)).toBe(true);
-    for (const body of bodies) {
-      expect(body).not.toInclude("clerkUserId");
-      expect(body).not.toInclude("clerk_user_id");
-      expect(body).not.toInclude("user_");
-    }
+    // The same sweep the resource routers get in `identity.test.ts`: one
+    // assertion, and a failure names the field that leaked.
+    expect(bodies.flatMap(findClerkIdLeaksInBody)).toEqual([]);
   });
 });

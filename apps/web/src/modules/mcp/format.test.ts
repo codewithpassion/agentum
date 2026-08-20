@@ -6,6 +6,7 @@ const NAMES = new Map([["agent-1", "Researcher"]]);
 
 const message = (overrides: Partial<MessageView> = {}): MessageView => ({
   attachments: [],
+  author: null,
   authorId: "agent-1",
   authorType: "agent",
   body: "hello",
