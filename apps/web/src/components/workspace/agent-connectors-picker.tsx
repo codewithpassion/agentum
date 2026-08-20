@@ -3,8 +3,8 @@ import { Link } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { NEXT_SESSION_NOTE } from "#/components/connectors/connector-detail";
 import { ConnectorStatusDot } from "#/components/connectors/connector-status";
-import { assignConnectorToAgent, unassignConnectorFromAgent } from "#/lib/api";
 import { useAgentConnectors, useConnectors } from "#/lib/use-connectors";
+import { useApi, useWorkspaceSlug } from "#/lib/workspace-context";
 // Straight from the server's rule, so the cap indicator cannot drift from it.
 import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
 
@@ -15,6 +15,9 @@ import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
  */
 
 export function AgentConnectorsPicker({ agentId }: { agentId: string }) {
+  const api = useApi();
+  const workspaceSlug = useWorkspaceSlug();
+
   const { isSignedIn } = useUser();
   const signedIn = isSignedIn === true;
   const { connectors, error: listError } = useConnectors(signedIn);
@@ -39,9 +42,9 @@ export function AgentConnectorsPicker({ agentId }: { agentId: string }) {
       (async () => {
         try {
           if (next) {
-            await assignConnectorToAgent(connectorId, agentId);
+            await api.assignConnectorToAgent(connectorId, agentId);
           } else {
-            await unassignConnectorFromAgent(connectorId, agentId);
+            await api.unassignConnectorFromAgent(connectorId, agentId);
           }
           await reload();
         } catch (cause) {
@@ -53,7 +56,7 @@ export function AgentConnectorsPicker({ agentId }: { agentId: string }) {
         }
       })();
     },
-    [agentId, reload]
+    [agentId, api, reload]
   );
 
   const onChange = useCallback(
@@ -74,7 +77,11 @@ export function AgentConnectorsPicker({ agentId }: { agentId: string }) {
       {connectors.length === 0 ? (
         <p className="m-0 text-[var(--ws-muted)] text-xs">
           No connectors yet.{" "}
-          <Link className="text-[var(--ws-accent)]" to="/connectors">
+          <Link
+            className="text-[var(--ws-accent)]"
+            params={{ workspaceSlug }}
+            to="/w/$workspaceSlug/connectors"
+          >
             Add one
           </Link>
           .

@@ -1,32 +1,96 @@
+import { useUser } from "@clerk/tanstack-react-start";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback } from "react";
-import {
-  Workspace,
-  type WorkspaceSelection,
-} from "../components/workspace/workspace";
+import { useCallback, useEffect } from "react";
+import { CreateWorkspaceForm } from "#/components/tenant/create-workspace-form";
+import { useWorkspaces } from "#/lib/use-workspaces";
+import { lastVisitedWorkspace } from "#/lib/workspace-context";
 
 /**
- * The workspace is the app. Selection lives in the search params so a refresh
- * keeps you where you were - the params are only ever written by clicking.
+ * `/` names no workspace, so it is a doorway rather than a screen: it sends you
+ * to the one you were last in, or to your first, or - if you belong to none -
+ * offers to make one. The resolution is client-side because the "last one" is
+ * in localStorage, which no server render can read.
  */
-export const Route = createFileRoute("/")({
-  component: WorkspaceRoute,
-  validateSearch: (search: Record<string, unknown>): WorkspaceSelection => ({
-    agent: typeof search.agent === "string" ? search.agent : undefined,
-    channel: typeof search.channel === "string" ? search.channel : undefined,
-  }),
-});
+export const Route = createFileRoute("/")({ component: WorkspaceEntry });
 
-function WorkspaceRoute() {
-  const selection = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="ws-shell items-center justify-center">
+      <div className="w-full max-w-sm space-y-4 px-6">{children}</div>
+    </div>
+  );
+}
 
-  const onSelect = useCallback(
-    (next: WorkspaceSelection) => {
-      navigate({ replace: true, search: next });
+function WorkspaceEntry() {
+  const { isSignedIn } = useUser();
+  const signedIn = isSignedIn === true;
+  const navigate = useNavigate();
+  const { loading, workspaces } = useWorkspaces(signedIn);
+
+  const goTo = useCallback(
+    (slug: string) => {
+      navigate({
+        params: { workspaceSlug: slug },
+        replace: true,
+        search: {},
+        to: "/w/$workspaceSlug",
+      });
     },
     [navigate]
   );
 
-  return <Workspace onSelect={onSelect} selection={selection} />;
+  useEffect(() => {
+    const [first] = workspaces;
+    if (!first) {
+      return;
+    }
+    const remembered = lastVisitedWorkspace();
+    const match = workspaces.find(
+      (entry) => entry.workspace.slug === remembered
+    );
+    goTo((match ?? first).workspace.slug);
+  }, [goTo, workspaces]);
+
+  if (isSignedIn === false) {
+    return (
+      <Shell>
+        <div className="space-y-3 text-center">
+          <h1 className="m-0 font-semibold text-xl">Agentum</h1>
+          <p className="m-0 text-[var(--ws-muted)] text-sm">
+            A workspace where you and your agents talk in channels, threads and
+            DMs.
+          </p>
+          <a
+            className="inline-block rounded-lg bg-[var(--ws-accent)] px-4 py-2 font-medium text-[var(--ws-accent-ink)] text-sm no-underline"
+            href="/login"
+          >
+            Sign in
+          </a>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (loading || workspaces.length > 0) {
+    return (
+      <Shell>
+        <p className="m-0 text-center text-[var(--ws-muted)] text-sm">
+          Opening your workspace…
+        </p>
+      </Shell>
+    );
+  }
+
+  return (
+    <Shell>
+      <div className="space-y-1.5 text-center">
+        <h1 className="m-0 font-semibold text-lg">Create a workspace</h1>
+        <p className="m-0 text-[var(--ws-muted)] text-sm">
+          A workspace holds your channels, agents and everything they make. You
+          can invite people to it once it exists.
+        </p>
+      </div>
+      <CreateWorkspaceForm autoFocus onCreated={goTo} />
+    </Shell>
+  );
 }

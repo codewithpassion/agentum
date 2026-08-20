@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
-import { type Agent, type AgentStatusView, getAgentStatus } from "#/lib/api";
+import type { Agent, AgentStatusView } from "#/lib/api";
 import { pollIntervalFor } from "#/lib/use-agent-screen";
+import { useApi } from "#/lib/workspace-context";
 import type { AgentStatusEvent } from "#/modules/messaging/realtime";
 import { AgentActivityTab } from "./agent-activity-tab";
 import { AgentConnectorChips } from "./agent-connector-chips";
@@ -92,6 +93,8 @@ const useAgentStatus = (
   agent: Agent | null,
   live: AgentStatusEvent | null
 ): AgentStatusView | null => {
+  const api = useApi();
+
   const [fetched, setFetched] = useState<AgentStatusView | null>(null);
   const agentId = agent?.id ?? null;
 
@@ -101,7 +104,8 @@ const useAgentStatus = (
       return;
     }
     let cancelled = false;
-    getAgentStatus(agentId)
+    api
+      .getAgentStatus(agentId)
       .then((status) => {
         if (!cancelled) {
           setFetched(status);
@@ -113,7 +117,7 @@ const useAgentStatus = (
     return () => {
       cancelled = true;
     };
-  }, [agentId]);
+  }, [agentId, api]);
 
   if (!agent) {
     return null;

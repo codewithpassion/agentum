@@ -1,14 +1,10 @@
 import { useCallback } from "react";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
-import {
-  type Agent,
-  type ChannelMemberView,
-  type MessageView,
-  postMessage,
-} from "#/lib/api";
+import type { Agent, ChannelMemberView, MessageView } from "#/lib/api";
 import type { Viewer } from "#/lib/authors";
 import type { Conversation as ConversationState } from "#/lib/use-conversation";
+import { useApi } from "#/lib/workspace-context";
 import { AgentActivity } from "./agent-activity";
 import { ChannelSettings } from "./channel-settings";
 import { Composer } from "./composer";
@@ -114,6 +110,8 @@ export function ConversationPane({
   onToggleRail: () => void;
   viewer: Viewer;
 }) {
+  const api = useApi();
+
   const { channel, mergeMessage } = conversation;
   const channelId = channel?.id ?? null;
 
@@ -122,9 +120,9 @@ export function ConversationPane({
       if (!channelId) {
         return;
       }
-      mergeMessage(await postMessage(channelId, input));
+      mergeMessage(await api.postMessage(channelId, input));
     },
-    [channelId, mergeMessage]
+    [api, channelId, mergeMessage]
   );
 
   if (!channel) {

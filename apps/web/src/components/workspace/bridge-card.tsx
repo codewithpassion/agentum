@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
-import {
-  type ChannelBridge,
-  listAgentBridges,
-  type SurfaceStatus,
-} from "#/lib/api";
+import type { ChannelBridge, SurfaceStatus } from "#/lib/api";
+import { useApi } from "#/lib/workspace-context";
 
 /**
  * "Which surfaces can reach this agent" - the bridge half of the agent's
@@ -11,12 +8,15 @@ import {
  * bot in that channel wakes it, exactly like an @mention in our UI.
  */
 export function BridgeCard({ agentId }: { agentId: string }) {
+  const api = useApi();
+
   const [bridges, setBridges] = useState<ChannelBridge[] | null>(null);
   const [connector, setConnector] = useState<SurfaceStatus | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    listAgentBridges(agentId)
+    api
+      .listAgentBridges(agentId)
       .then((data) => {
         if (!cancelled) {
           setBridges(data.bridges);
@@ -29,7 +29,7 @@ export function BridgeCard({ agentId }: { agentId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [agentId]);
+  }, [agentId, api]);
 
   return (
     <section className="space-y-1.5" data-testid="agent-bridges">

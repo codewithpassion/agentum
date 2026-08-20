@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { MarkdownLinkProps } from "#/components/workspace/markdown";
+import { useWorkspaceSlug } from "#/lib/workspace-context";
 import { nodeText } from "#/modules/wiki/slug";
 import { wikiSlugFromHref } from "#/modules/wiki/wiki-links";
 
@@ -13,6 +14,7 @@ import { wikiSlugFromHref } from "#/modules/wiki/wiki-links";
  */
 export const createWikiLinkRenderer = (knownSlugs: ReadonlySet<string>) =>
   function WikiLink({ children, href }: MarkdownLinkProps) {
+    const workspaceSlug = useWorkspaceSlug();
     const slug = href ? wikiSlugFromHref(href) : null;
 
     if (slug) {
@@ -20,10 +22,10 @@ export const createWikiLinkRenderer = (knownSlugs: ReadonlySet<string>) =>
       return (
         <Link
           className={exists ? undefined : "wiki-link-missing"}
-          params={{ _splat: slug }}
+          params={{ _splat: slug, workspaceSlug }}
           search={exists ? {} : { title: nodeText(children) }}
           title={exists ? undefined : "This page does not exist yet"}
-          to="/wiki/$"
+          to="/w/$workspaceSlug/wiki/$"
         >
           {children}
         </Link>

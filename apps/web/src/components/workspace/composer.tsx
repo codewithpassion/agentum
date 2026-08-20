@@ -2,7 +2,7 @@ import { useCallback, useId, useRef, useState } from "react";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Popover } from "#/components/ui/popover";
-import { type Agent, type AttachmentView, uploadAttachment } from "#/lib/api";
+import type { Agent, AttachmentView } from "#/lib/api";
 import { formatBytes } from "#/lib/format";
 import {
   applyMention,
@@ -10,6 +10,7 @@ import {
   matchMentionCandidates,
   mentionQueryAt,
 } from "#/lib/mention-input";
+import { useApi } from "#/lib/workspace-context";
 
 const MAX_SUGGESTIONS = 6;
 
@@ -71,6 +72,8 @@ export function Composer({
   onSend: (input: { attachmentIds: string[]; body: string }) => Promise<void>;
   placeholder: string;
 }) {
+  const api = useApi();
+
   const inputId = useId();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -173,18 +176,23 @@ export function Composer({
     setPending((previous) => previous.filter((entry) => entry.id !== id));
   }, []);
 
-  const attachFiles = useCallback(async (files: FileList) => {
-    setBusy(true);
-    try {
-      const uploaded = await Promise.all([...files].map(uploadAttachment));
-      setPending((previous) => [...previous, ...uploaded]);
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Upload failed.");
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  const attachFiles = useCallback(
+    async (files: FileList) => {
+      setBusy(true);
+      try {
+        const uploaded = await Promise.all(
+          [...files].map((file) => api.uploadAttachment(file))
+        );
+        setPending((previous) => [...previous, ...uploaded]);
+        setError(null);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Upload failed.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [api]
+  );
 
   const onFilesPicked = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {

@@ -1,13 +1,9 @@
 import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Popover } from "#/components/ui/popover";
-import {
-  assignCategoryItem,
-  type CategoryItemRef,
-  type CategoryView,
-  unassignCategoryItem,
-} from "#/lib/api";
+import type { CategoryItemRef, CategoryView } from "#/lib/api";
 import { cx } from "#/lib/cx";
+import { useApi } from "#/lib/workspace-context";
 
 export const MENU_ITEM_CLASS =
   "ws-focus block w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-[var(--ws-surface-hover)]";
@@ -49,6 +45,8 @@ export function ItemCategoryMenu({
   itemType: CategoryItemRef["itemType"];
   onChanged: () => Promise<void>;
 }) {
+  const api = useApi();
+
   const [open, setOpen] = useState(false);
   const toggle = useCallback(() => setOpen((previous) => !previous), []);
   const close = useCallback(() => setOpen(false), []);
@@ -57,12 +55,12 @@ export function ItemCategoryMenu({
     (targetId: string) => {
       (async () => {
         // An item lives in at most one category, so assigning moves it.
-        await assignCategoryItem(targetId, { itemId, itemType });
+        await api.assignCategoryItem(targetId, { itemId, itemType });
         setOpen(false);
         await onChanged();
       })();
     },
-    [itemId, itemType, onChanged]
+    [api, itemId, itemType, onChanged]
   );
 
   const remove = useCallback(() => {
@@ -70,11 +68,11 @@ export function ItemCategoryMenu({
       return;
     }
     (async () => {
-      await unassignCategoryItem(categoryId, { itemId, itemType });
+      await api.unassignCategoryItem(categoryId, { itemId, itemType });
       setOpen(false);
       await onChanged();
     })();
-  }, [categoryId, itemId, itemType, onChanged]);
+  }, [api, categoryId, itemId, itemType, onChanged]);
 
   const targets = categories.filter((category) => category.id !== categoryId);
   if (targets.length === 0 && !categoryId) {

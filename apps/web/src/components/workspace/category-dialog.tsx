@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
-import { type CategoryView, createCategory, renameCategory } from "#/lib/api";
+import type { CategoryView } from "#/lib/api";
+import { useApi } from "#/lib/workspace-context";
 
 /** Creates a category, or renames `category` when one is given. */
 export function CategoryDialog({
@@ -16,6 +17,8 @@ export function CategoryDialog({
   onSaved: () => Promise<void>;
   open: boolean;
 }) {
+  const api = useApi();
+
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,9 +41,9 @@ export function CategoryDialog({
       setBusy(true);
       try {
         if (category) {
-          await renameCategory(category.id, name);
+          await api.renameCategory(category.id, name);
         } else {
-          await createCategory(name);
+          await api.createCategory(name);
         }
         await onSaved();
         onClose();
@@ -50,7 +53,7 @@ export function CategoryDialog({
         setBusy(false);
       }
     },
-    [category, name, onClose, onSaved]
+    [api, category, name, onClose, onSaved]
   );
 
   return (

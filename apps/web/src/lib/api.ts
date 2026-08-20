@@ -29,6 +29,10 @@ import type {
   WikiRevisionView,
 } from "#/modules/wiki/service";
 import type { WorkspaceRole } from "#/modules/workspaces/schema";
+import type {
+  MemberView as MemberRow,
+  WorkspaceView as WorkspaceRow,
+} from "#/modules/workspaces/service";
 
 /** The client speaks exactly the server's shapes; these aliases are the contract. */
 export type Agent = AgentView;
@@ -40,6 +44,7 @@ export type ConnectorStatus = Connector["status"];
 /** What the add-connector dialog must do next; see the ladder in plan 4b. */
 export type StartOutcome = StartOutcomeRow;
 export type DirEntry = DirEntryRow;
+export type MemberView = MemberRow;
 export type Screenshot = ScreenshotRow;
 export type AttachmentView = AttachmentRow;
 export type ChannelMemberView = ChannelMemberRow;
@@ -51,6 +56,7 @@ export type SkillFile = SkillFileRow;
 export type WikiPage = WikiPageView;
 export type WikiPageSummary = WikiPageSummaryRow;
 export type WikiRevision = WikiRevisionView;
+export type WorkspaceView = WorkspaceRow;
 
 /** Carries the HTTP status so callers can tell "missing" from "broken". */
 export class ApiError extends Error {
@@ -64,19 +70,6 @@ export class ApiError extends Error {
 }
 
 const NOT_FOUND = 404;
-
-/**
- * Every resource endpoint now lives under `/api/w/:slug`. The slug is fixed to
- * the workspace migration 0012 created, which is the one the dev user owns and
- * the only one the UI can reach today.
- *
- * TODO(phase-6): active-workspace routing - the fetchers take the slug from the
- * route (`/w/$slug/…`) and this constant goes away with the workspace switcher.
- */
-const DEFAULT_WORKSPACE_SLUG = "default";
-
-/** The prefix every path below is relative to. */
-export const apiBase = `/api/w/${DEFAULT_WORKSPACE_SLUG}`;
 
 export const isNotFound = (error: unknown): boolean =>
   error instanceof ApiError && error.status === NOT_FOUND;
@@ -92,12 +85,12 @@ const failureOf = async (response: Response): Promise<ApiError> => {
   );
 };
 
-const request = async <T>(
-  path: string,
+const fetchJson = async <T>(
+  url: string,
   init?: RequestInit & { json?: unknown }
 ): Promise<T> => {
   const { json, ...rest } = init ?? {};
-  const response = await fetch(`${apiBase}${path}`, {
+  const response = await fetch(url, {
     ...rest,
     ...(json === undefined
       ? {}
@@ -117,31 +110,45 @@ const request = async <T>(
   return (await response.json()) as T;
 };
 
-/** For the endpoints that answer with a file's bytes rather than JSON. */
-const requestText = async (path: string): Promise<string> => {
-  const response = await fetch(`${apiBase}${path}`);
-  if (!response.ok) {
-    throw await failureOf(response);
-  }
-  return await response.text();
-};
-
-// --- workspace --------------------------------------------------------------
+// --- workspaces (not scoped to one) -----------------------------------------
 
 /**
- * The caller's own membership in the active workspace. `memberId` is the only
- * identity the client has for itself - `authors.ts` compares message authors
- * against it, since a Clerk id never reaches the browser.
+ * The caller's own membership in a workspace. `memberId` is the only identity
+ * the client has for itself - `authors.ts` compares message authors against it,
+ * since a Clerk id never reaches the browser.
  */
 export interface Membership {
   memberId: string;
   role: WorkspaceRole;
 }
 
-export const getMembership = () =>
-  request<{ membership: Membership }>("").then((data) => data.membership);
+/** A workspace as the caller sees it: the row plus how they belong to it. */
+export interface WorkspaceMembership {
+  membership: Membership;
+  workspace: WorkspaceView;
+}
 
-// --- agents -----------------------------------------------------------------
+/** Every workspace the caller belongs to - the switcher's source. */
+export const listWorkspaces = () =>
+  fetchJson<{ workspaces: WorkspaceMembership[] }>("/api/workspaces").then(
+    (data) => data.workspaces
+  );
+
+/** 502 here means Clerk could not be read; its message is worth showing. */
+export const createWorkspace = (name: string) =>
+  fetchJson<WorkspaceMembership>("/api/workspaces", {
+    json: { name },
+    method: "POST",
+  });
+
+// --- everything inside one workspace ----------------------------------------
+
+/** Just enough of an agent to render a chip or a checkbox row. */
+export interface ConnectorAgentRef {
+  avatar: string;
+  id: string;
+  name: string;
+}
 
 export interface AgentInput {
   instructions: string;
@@ -149,33 +156,11 @@ export interface AgentInput {
   soul: string;
 }
 
-export const listAgents = () =>
-  request<{ agents: Agent[] }>("/agents").then((data) => data.agents);
-
 /** The MCP URL is returned once, when the token behind it is issued. */
 export interface IssuedAgent {
   agent: Agent;
   mcpUrl: string;
 }
-
-export const createAgent = (input: AgentInput) =>
-  request<IssuedAgent>("/agents", { json: input, method: "POST" });
-
-export const updateAgent = (id: string, input: AgentInput) =>
-  request<{ agent: Agent }>(`/agents/${id}`, {
-    json: input,
-    method: "PATCH",
-  }).then((data) => data.agent);
-
-/** Invalidates the agent's current MCP URL and returns its replacement. */
-export const rotateAgentMcpToken = (id: string) =>
-  request<IssuedAgent>(`/agents/${id}`, {
-    json: { rotateMcpToken: true },
-    method: "PATCH",
-  });
-
-export const deleteAgent = (id: string) =>
-  request<void>(`/agents/${id}`, { method: "DELETE" });
 
 /** What the router and the Anthropic registration currently say about an agent. */
 export interface AgentStatusView {
@@ -186,38 +171,10 @@ export interface AgentStatusView {
   syncStatus: Agent["syncStatus"];
 }
 
-export const getAgentStatus = (id: string) =>
-  request<{ status: AgentStatusView }>(`/agents/${id}/status`).then(
-    (data) => data.status
-  );
-
-// --- the agent's screen: activity, computer, browser ------------------------
-
 export interface ActivityPage {
   entries: ActivityView[];
   nextCursor: string | null;
 }
-
-/** Newest first; `before` is the `nextCursor` of the page before it. */
-export const listAgentActivity = (
-  id: string,
-  options: { before?: string; limit?: number } = {}
-) => {
-  const query = new URLSearchParams();
-  if (options.before) {
-    query.set("before", options.before);
-  }
-  if (options.limit) {
-    query.set("limit", String(options.limit));
-  }
-  const suffix = query.size > 0 ? `?${query}` : "";
-  return request<ActivityPage>(`/agents/${id}/activity${suffix}`);
-};
-
-export const listComputerDir = (id: string, path: string) =>
-  request<{ entries: DirEntry[] }>(
-    `/agents/${id}/computer/ls?path=${encodeURIComponent(path)}`
-  ).then((data) => data.entries);
 
 export interface ComputerFile {
   content: string;
@@ -225,99 +182,10 @@ export interface ComputerFile {
   size: number;
 }
 
-/** The raw endpoint, for the "this file will not preview" download link. */
-export const computerFileUrl = (id: string, path: string): string =>
-  `${apiBase}/agents/${id}/computer/file?path=${encodeURIComponent(path)}`;
-
-export const readComputerFile = (id: string, path: string) =>
-  request<ComputerFile>(
-    `/agents/${id}/computer/file?path=${encodeURIComponent(path)}`
-  );
-
-/** The user putting a file onto the agent's computer, from the Files tab. */
-export const uploadComputerFile = async (
-  id: string,
-  file: File,
-  path: string
-): Promise<{ path: string; size: number }> => {
-  const form = new FormData();
-  form.append("file", file);
-  form.append("path", path);
-  const data = await request<{ file: { path: string; size: number } }>(
-    `/agents/${id}/computer/file`,
-    { body: form, method: "POST" }
-  );
-  return data.file;
-};
-
 export interface ScreenshotPage {
   nextCursor: string | null;
   screenshots: Screenshot[];
 }
-
-export const listBrowserScreenshots = (id: string, limit: number) =>
-  request<ScreenshotPage>(`/agents/${id}/browser/screenshots?limit=${limit}`);
-
-export const getBrowserStatus = (id: string) =>
-  request<BrowserStatus>(`/agents/${id}/browser/status`);
-
-// --- channels ---------------------------------------------------------------
-
-export const listChannels = () =>
-  request<{ channels: Channel[] }>("/channels").then((data) => data.channels);
-
-export const createChannel = (input: { agentIds: string[]; name: string }) =>
-  request<{ channel: Channel }>("/channels", {
-    json: input,
-    method: "POST",
-  }).then((data) => data.channel);
-
-/** DMs are one-per-agent; the server reuses the existing channel if there is one. */
-export const openAgentDm = (agentId: string) =>
-  request<{ channel: Channel }>("/channels", {
-    json: { agentId, kind: "dm" },
-    method: "POST",
-  }).then((data) => data.channel);
-
-export const getChannel = (id: string) =>
-  request<{ channel: Channel; members: ChannelMemberView[] }>(
-    `/channels/${id}`
-  );
-
-export const listMessages = (id: string, cursor?: string) =>
-  request<{ messages: MessageView[]; nextCursor: string | null }>(
-    `/channels/${id}/messages${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`
-  );
-
-export const postMessage = (
-  channelId: string,
-  input: { attachmentIds?: string[]; body: string; threadParentId?: string }
-) =>
-  request<{ message: MessageView }>(`/channels/${channelId}/messages`, {
-    json: input,
-    method: "POST",
-  }).then((data) => data.message);
-
-export const addChannelMember = (
-  channelId: string,
-  member: { memberId: string; memberType: "agent" | "user" }
-) =>
-  request<{ members: ChannelMemberView[] }>(`/channels/${channelId}/members`, {
-    json: member,
-    method: "POST",
-  }).then((data) => data.members);
-
-export const removeChannelMember = (
-  channelId: string,
-  memberType: "agent" | "user",
-  memberId: string
-) =>
-  request<{ members: ChannelMemberView[] }>(
-    `/channels/${channelId}/members/${memberType}/${encodeURIComponent(memberId)}`,
-    { method: "DELETE" }
-  ).then((data) => data.members);
-
-// --- categories -------------------------------------------------------------
 
 export interface CategoryItemRef {
   itemId: string;
@@ -330,61 +198,6 @@ export interface CategoryView {
   name: string;
 }
 
-export const listCategories = () =>
-  request<{ categories: CategoryView[] }>("/categories").then(
-    (data) => data.categories
-  );
-
-export const createCategory = (name: string) =>
-  request<{ category: CategoryView }>("/categories", {
-    json: { name },
-    method: "POST",
-  }).then((data) => data.category);
-
-export const renameCategory = (id: string, name: string) =>
-  request<{ category: CategoryView }>(`/categories/${id}`, {
-    json: { name },
-    method: "PATCH",
-  }).then((data) => data.category);
-
-export const deleteCategory = (id: string) =>
-  request<void>(`/categories/${id}`, { method: "DELETE" });
-
-/** An item lives in at most one category, so assigning moves it. */
-export const assignCategoryItem = (categoryId: string, item: CategoryItemRef) =>
-  request<void>(`/categories/${categoryId}/items`, {
-    json: item,
-    method: "PUT",
-  });
-
-export const unassignCategoryItem = (
-  categoryId: string,
-  item: CategoryItemRef
-) =>
-  request<void>(
-    `/categories/${categoryId}/items/${item.itemType}/${encodeURIComponent(item.itemId)}`,
-    { method: "DELETE" }
-  );
-
-// --- threads & attachments --------------------------------------------------
-
-export const getThread = (messageId: string) =>
-  request<{ parent: MessageView; replies: MessageView[] }>(
-    `/messages/${messageId}/thread`
-  );
-
-export const uploadAttachment = async (file: File): Promise<AttachmentView> => {
-  const form = new FormData();
-  form.append("file", file);
-  const data = await request<{ attachment: AttachmentView }>("/attachments", {
-    body: form,
-    method: "POST",
-  });
-  return data.attachment;
-};
-
-// --- wiki -------------------------------------------------------------------
-
 export interface WikiAssetView {
   filename: string;
   id: string;
@@ -393,165 +206,11 @@ export interface WikiAssetView {
   url: string;
 }
 
-export const listWikiPages = () =>
-  request<{ pages: WikiPageSummary[] }>("/wiki").then((data) => data.pages);
-
-export const getWikiPage = (slug: string) =>
-  request<{ page: WikiPage }>(`/wiki/${encodeURIComponent(slug)}`).then(
-    (data) => data.page
-  );
-
-export const createWikiPage = (input: { body: string; title: string }) =>
-  request<{ page: WikiPage }>("/wiki", { json: input, method: "POST" }).then(
-    (data) => data.page
-  );
-
-export const updateWikiPage = (
-  slug: string,
-  input: { body?: string; title?: string }
-) =>
-  request<{ page: WikiPage }>(`/wiki/${encodeURIComponent(slug)}`, {
-    json: input,
-    method: "PATCH",
-  }).then((data) => data.page);
-
-export const deleteWikiPage = (slug: string) =>
-  request<void>(`/wiki/${encodeURIComponent(slug)}`, { method: "DELETE" });
-
-export const listWikiRevisions = (slug: string) =>
-  request<{ revisions: WikiRevision[] }>(
-    `/wiki/${encodeURIComponent(slug)}/revisions`
-  ).then((data) => data.revisions);
-
-export const getWikiRevision = (slug: string, revisionId: string) =>
-  request<{ revision: WikiRevision }>(
-    `/wiki/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(revisionId)}`
-  ).then((data) => data.revision);
-
-export const uploadWikiAsset = async (
-  file: File,
-  pageId?: string
-): Promise<WikiAssetView> => {
-  const form = new FormData();
-  form.append("file", file);
-  if (pageId) {
-    form.append("pageId", pageId);
-  }
-  const data = await request<{ asset: WikiAssetView }>("/wiki/assets", {
-    body: form,
-    method: "POST",
-  });
-  return data.asset;
-};
-
-// --- connectors -------------------------------------------------------------
-
-/** Just enough of an agent to render a chip or a checkbox row. */
-export interface ConnectorAgentRef {
-  avatar: string;
-  id: string;
-  name: string;
-}
-
-export const listConnectors = () =>
-  request<{ connectors: Connector[] }>("/connectors").then(
-    (data) => data.connectors
-  );
-
-/** The agent rail's chips and the settings picker's ticked boxes. */
-export const listAgentConnectors = (agentId: string) =>
-  request<{ connectors: Connector[] }>(
-    `/connectors?agentId=${encodeURIComponent(agentId)}`
-  ).then((data) => data.connectors);
-
-export const getConnector = (id: string) =>
-  request<{ agents: ConnectorAgentRef[]; connector: Connector }>(
-    `/connectors/${id}`
-  );
-
-/**
- * The pasted URL is probed server-side, so the outcome - not the connector -
- * is what the dialog acts on. The row exists either way, which is what makes an
- * abandoned OAuth attempt resumable from the connector's detail view.
- */
-export const addConnector = (input: { name?: string; url: string }) =>
-  request<{ connector: Connector; outcome: StartOutcome }>("/connectors", {
-    json: input,
-    method: "POST",
-  });
-
-export const renameConnector = (id: string, name: string) =>
-  request<{ connector: Connector }>(`/connectors/${id}`, {
-    json: { name },
-    method: "PATCH",
-  }).then((data) => data.connector);
-
-export const setConnectorDisabled = (id: string, disabled: boolean) =>
-  request<{ connector: Connector }>(`/connectors/${id}`, {
-    json: { disabled },
-    method: "PATCH",
-  }).then((data) => data.connector);
-
-/** Archives the vault credential too; `vaultError` reports a partial failure. */
-export const removeConnector = (id: string) =>
-  request<{ removed: boolean; vaultError: string | null }>(
-    `/connectors/${id}`,
-    { method: "DELETE" }
-  );
-
-/** Rung 3's manual branch: the server has no dynamic client registration. */
-export const setConnectorOauthClient = (
-  id: string,
-  input: { clientId: string; clientSecret?: string | null }
-) =>
-  request<{ outcome: StartOutcome }>(`/connectors/${id}/oauth/client`, {
-    json: input,
-    method: "POST",
-  }).then((data) => data.outcome);
-
-export const reauthorizeConnector = (id: string) =>
-  request<{ outcome: StartOutcome }>(`/connectors/${id}/reauthorize`, {
-    method: "POST",
-  }).then((data) => data.outcome);
-
-/** Rung 6: no usable OAuth, so a pasted token becomes a static credential. */
-export const setConnectorBearer = (id: string, token: string) =>
-  request<{ connector: Connector }>(`/connectors/${id}/bearer`, {
-    json: { token },
-    method: "POST",
-  }).then((data) => data.connector);
-
 export interface ConnectorTestResult {
   message: string | null;
   ok: boolean;
   tools: { description: string | null; name: string }[];
 }
-
-/** Re-probes the server now and refreshes the cached tool list with it. */
-export const testConnector = (id: string) =>
-  request<{ connector: Connector; result: ConnectorTestResult }>(
-    `/connectors/${id}/test`,
-    { method: "POST" }
-  );
-
-export const listConnectorAgents = (id: string) =>
-  request<{ agents: ConnectorAgentRef[] }>(`/connectors/${id}/agents`).then(
-    (data) => data.agents
-  );
-
-/** Takes effect on the agent's *next* session - `vault_ids` is create-only. */
-export const assignConnectorToAgent = (id: string, agentId: string) =>
-  request<{ appliesToNextSession: boolean; assigned: boolean }>(
-    `/connectors/${id}/agents`,
-    { json: { agentId }, method: "POST" }
-  );
-
-export const unassignConnectorFromAgent = (id: string, agentId: string) =>
-  request<void>(`/connectors/${id}/agents/${encodeURIComponent(agentId)}`, {
-    method: "DELETE",
-  });
-
-// --- skills -----------------------------------------------------------------
 
 /** A skill the agent holds, plus how it tracks it: a version, or latest. */
 export interface AssignedSkill extends Skill {
@@ -577,114 +236,615 @@ export interface SkillDetail {
   versions: SkillVersion[];
 }
 
-export const listSkills = () =>
-  request<{ skills: Skill[] }>("/skills").then((data) => data.skills);
-
-/** The rail's chips and the settings picker's ticked boxes. */
-export const listAgentSkills = (agentId: string) =>
-  request<{ skills: AssignedSkill[] }>(
-    `/skills?agentId=${encodeURIComponent(agentId)}`
-  ).then((data) => data.skills);
-
-export const getSkill = (slug: string, version?: number) =>
-  request<SkillDetail>(
-    `/skills/${encodeURIComponent(slug)}${version === undefined ? "" : `?version=${version}`}`
-  );
-
-/** The raw endpoint, for a file's download link. */
-export const skillFileUrl = (
-  slug: string,
-  version: number,
-  path: string
-): string =>
-  `${apiBase}/skills/${encodeURIComponent(slug)}/versions/${version}/file?path=${encodeURIComponent(path)}`;
-
-export const readSkillFile = (slug: string, version: number, path: string) =>
-  requestText(
-    `/skills/${encodeURIComponent(slug)}/versions/${version}/file?path=${encodeURIComponent(path)}`
-  );
-
 export interface PublishedSkill {
   skill: Skill;
   version: SkillVersion;
 }
 
-export const createSkill = (input: {
-  changelog?: string;
-  files: SkillFileInput[];
-  slug: string;
-}) => request<PublishedSkill>("/skills", { json: input, method: "POST" });
-
-/** A full file set plus the "why" - never a patch of the version before it. */
-export const createSkillVersion = (
-  slug: string,
-  input: { changelog: string; files: SkillFileInput[] }
-) =>
-  request<PublishedSkill>(`/skills/${encodeURIComponent(slug)}/versions`, {
-    json: input,
-    method: "POST",
-  });
-
-/** Pushes the local versions at Anthropic again after a failed publish. */
-export const retrySkillSync = (slug: string) =>
-  request<{ skill: Skill }>(`/skills/${encodeURIComponent(slug)}/retry-sync`, {
-    method: "POST",
-  }).then((data) => data.skill);
-
-/** Unassigns it from every agent, then deletes both mirrors. */
-export const deleteSkill = (slug: string) =>
-  request<{ anthropicError: string | null; removed: boolean }>(
-    `/skills/${encodeURIComponent(slug)}`,
-    { method: "DELETE" }
-  );
-
-export const listSkillAgents = (slug: string) =>
-  request<{ agents: SkillAgentRef[] }>(
-    `/skills/${encodeURIComponent(slug)}/agents`
-  ).then((data) => data.agents);
-
-/** `pinnedVersion` null tracks latest, which is how a fix propagates (plan 5d). */
-export const assignSkillToAgent = (
-  slug: string,
-  agentId: string,
-  pinnedVersion: number | null
-) =>
-  request<{ assigned: boolean; outcome: string }>(
-    `/skills/${encodeURIComponent(slug)}/agents`,
-    { json: { agentId, pinnedVersion }, method: "POST" }
-  );
-
-export const unassignSkillFromAgent = (slug: string, agentId: string) =>
-  request<void>(
-    `/skills/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agentId)}`,
-    { method: "DELETE" }
-  );
-
-// --- bridges ----------------------------------------------------------------
-
 export type ChannelBridge = ChannelBridgeRow;
 export type SurfaceStatus = SurfaceStatusRow;
 
-/** Both halves of the bridging UI in one call: the form and the "not configured" state. */
-export const getChannelBridge = (channelId: string) =>
-  request<{ bridge: ChannelBridge | null; connector: SurfaceStatus }>(
-    `/channels/${channelId}/bridge`
-  );
+/** Who an email belongs to, before adding them as a member. */
+export interface MemberSearchResult {
+  email: string;
+  exists: boolean;
+  imageUrl: string | null;
+  name: string | null;
+}
 
-export const saveChannelBridge = (
-  channelId: string,
-  input: { agentId: string | null; externalChannelId: string }
-) =>
-  request<{ bridge: ChannelBridge; channelName: string | null }>(
-    `/channels/${channelId}/bridge`,
-    { json: input, method: "POST" }
-  );
+/**
+ * Every resource endpoint lives under `/api/w/:slug`, so the client is bound to
+ * one workspace rather than reading an ambient "current" one: a module-level
+ * slug would be shared across concurrent server renders, and the whole point of
+ * this layer is that a request cannot address the wrong tenant.
+ *
+ * `useApi()` (lib/workspace-context) hands components the instance for the
+ * workspace in the route.
+ */
+export const createApi = (workspaceSlug: string) => {
+  const apiBase = `/api/w/${encodeURIComponent(workspaceSlug)}`;
 
-export const deleteChannelBridge = (channelId: string) =>
-  request<void>(`/channels/${channelId}/bridge`, { method: "DELETE" });
+  const request = <T>(path: string, init?: RequestInit & { json?: unknown }) =>
+    fetchJson<T>(`${apiBase}${path}`, init);
 
-/** Which external surfaces can reach an agent - the agent rail's bridge card. */
-export const listAgentBridges = (agentId: string) =>
-  request<{ bridges: ChannelBridge[]; connector: SurfaceStatus }>(
-    `/bridges/bridges?agentId=${encodeURIComponent(agentId)}`
-  );
+  /** For the endpoints that answer with a file's bytes rather than JSON. */
+  const requestText = async (path: string): Promise<string> => {
+    const response = await fetch(`${apiBase}${path}`);
+    if (!response.ok) {
+      throw await failureOf(response);
+    }
+    return await response.text();
+  };
+
+  // --- the workspace itself -------------------------------------------------
+
+  const getWorkspace = () =>
+    request<{ membership: Membership; workspace: WorkspaceView }>("");
+
+  const renameWorkspace = (name: string) =>
+    request<{ membership: Membership; workspace: WorkspaceView }>("", {
+      json: { name },
+      method: "PATCH",
+    }).then((data) => data.workspace);
+
+  const deleteWorkspace = () => request<void>("", { method: "DELETE" });
+
+  const listMembers = () =>
+    request<{ members: MemberView[] }>("/members").then((data) => data.members);
+
+  /** Owner-only: the Clerk lookup behind "add by email". */
+  const searchMember = (email: string) =>
+    request<MemberSearchResult>(
+      `/members/search?email=${encodeURIComponent(email)}`
+    );
+
+  const addMember = (email: string, role: WorkspaceRole = "member") =>
+    request<{ member: MemberView }>("/members", {
+      json: { email, role },
+      method: "POST",
+    }).then((data) => data.member);
+
+  const setMemberRole = (memberId: string, role: WorkspaceRole) =>
+    request<{ member: MemberView }>(
+      `/members/${encodeURIComponent(memberId)}`,
+      { json: { role }, method: "PATCH" }
+    ).then((data) => data.member);
+
+  const removeMember = (memberId: string) =>
+    request<void>(`/members/${encodeURIComponent(memberId)}`, {
+      method: "DELETE",
+    });
+
+  // --- agents ---------------------------------------------------------------
+
+  const listAgents = () =>
+    request<{ agents: Agent[] }>("/agents").then((data) => data.agents);
+
+  const createAgent = (input: AgentInput) =>
+    request<IssuedAgent>("/agents", { json: input, method: "POST" });
+
+  const updateAgent = (id: string, input: AgentInput) =>
+    request<{ agent: Agent }>(`/agents/${id}`, {
+      json: input,
+      method: "PATCH",
+    }).then((data) => data.agent);
+
+  /** Invalidates the agent's current MCP URL and returns its replacement. */
+  const rotateAgentMcpToken = (id: string) =>
+    request<IssuedAgent>(`/agents/${id}`, {
+      json: { rotateMcpToken: true },
+      method: "PATCH",
+    });
+
+  const deleteAgent = (id: string) =>
+    request<void>(`/agents/${id}`, { method: "DELETE" });
+
+  const getAgentStatus = (id: string) =>
+    request<{ status: AgentStatusView }>(`/agents/${id}/status`).then(
+      (data) => data.status
+    );
+
+  // --- the agent's screen: activity, computer, browser ----------------------
+
+  /** Newest first; `before` is the `nextCursor` of the page before it. */
+  const listAgentActivity = (
+    id: string,
+    options: { before?: string; limit?: number } = {}
+  ) => {
+    const query = new URLSearchParams();
+    if (options.before) {
+      query.set("before", options.before);
+    }
+    if (options.limit) {
+      query.set("limit", String(options.limit));
+    }
+    const suffix = query.size > 0 ? `?${query}` : "";
+    return request<ActivityPage>(`/agents/${id}/activity${suffix}`);
+  };
+
+  const listComputerDir = (id: string, path: string) =>
+    request<{ entries: DirEntry[] }>(
+      `/agents/${id}/computer/ls?path=${encodeURIComponent(path)}`
+    ).then((data) => data.entries);
+
+  /** The raw endpoint, for the "this file will not preview" download link. */
+  const computerFileUrl = (id: string, path: string): string =>
+    `${apiBase}/agents/${id}/computer/file?path=${encodeURIComponent(path)}`;
+
+  const readComputerFile = (id: string, path: string) =>
+    request<ComputerFile>(
+      `/agents/${id}/computer/file?path=${encodeURIComponent(path)}`
+    );
+
+  /** The user putting a file onto the agent's computer, from the Files tab. */
+  const uploadComputerFile = async (
+    id: string,
+    file: File,
+    path: string
+  ): Promise<{ path: string; size: number }> => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("path", path);
+    const data = await request<{ file: { path: string; size: number } }>(
+      `/agents/${id}/computer/file`,
+      { body: form, method: "POST" }
+    );
+    return data.file;
+  };
+
+  const listBrowserScreenshots = (id: string, limit: number) =>
+    request<ScreenshotPage>(`/agents/${id}/browser/screenshots?limit=${limit}`);
+
+  const getBrowserStatus = (id: string) =>
+    request<BrowserStatus>(`/agents/${id}/browser/status`);
+
+  // --- channels -------------------------------------------------------------
+
+  const listChannels = () =>
+    request<{ channels: Channel[] }>("/channels").then((data) => data.channels);
+
+  const createChannel = (input: { agentIds: string[]; name: string }) =>
+    request<{ channel: Channel }>("/channels", {
+      json: input,
+      method: "POST",
+    }).then((data) => data.channel);
+
+  /** DMs are one-per-agent; the server reuses the existing channel if there is one. */
+  const openAgentDm = (agentId: string) =>
+    request<{ channel: Channel }>("/channels", {
+      json: { agentId, kind: "dm" },
+      method: "POST",
+    }).then((data) => data.channel);
+
+  const getChannel = (id: string) =>
+    request<{ channel: Channel; members: ChannelMemberView[] }>(
+      `/channels/${id}`
+    );
+
+  const listMessages = (id: string, cursor?: string) =>
+    request<{ messages: MessageView[]; nextCursor: string | null }>(
+      `/channels/${id}/messages${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`
+    );
+
+  const postMessage = (
+    channelId: string,
+    input: { attachmentIds?: string[]; body: string; threadParentId?: string }
+  ) =>
+    request<{ message: MessageView }>(`/channels/${channelId}/messages`, {
+      json: input,
+      method: "POST",
+    }).then((data) => data.message);
+
+  const addChannelMember = (
+    channelId: string,
+    member: { memberId: string; memberType: "agent" | "user" }
+  ) =>
+    request<{ members: ChannelMemberView[] }>(
+      `/channels/${channelId}/members`,
+      {
+        json: member,
+        method: "POST",
+      }
+    ).then((data) => data.members);
+
+  const removeChannelMember = (
+    channelId: string,
+    memberType: "agent" | "user",
+    memberId: string
+  ) =>
+    request<{ members: ChannelMemberView[] }>(
+      `/channels/${channelId}/members/${memberType}/${encodeURIComponent(memberId)}`,
+      { method: "DELETE" }
+    ).then((data) => data.members);
+
+  /** The socket the open channel listens on; the session cookie rides the upgrade. */
+  const channelSocketUrl = (channelId: string): string => {
+    const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+    return `${scheme}://${window.location.host}${apiBase}/channels/${channelId}/ws`;
+  };
+
+  // --- categories -----------------------------------------------------------
+
+  const listCategories = () =>
+    request<{ categories: CategoryView[] }>("/categories").then(
+      (data) => data.categories
+    );
+
+  const createCategory = (name: string) =>
+    request<{ category: CategoryView }>("/categories", {
+      json: { name },
+      method: "POST",
+    }).then((data) => data.category);
+
+  const renameCategory = (id: string, name: string) =>
+    request<{ category: CategoryView }>(`/categories/${id}`, {
+      json: { name },
+      method: "PATCH",
+    }).then((data) => data.category);
+
+  const deleteCategory = (id: string) =>
+    request<void>(`/categories/${id}`, { method: "DELETE" });
+
+  /** An item lives in at most one category, so assigning moves it. */
+  const assignCategoryItem = (categoryId: string, item: CategoryItemRef) =>
+    request<void>(`/categories/${categoryId}/items`, {
+      json: item,
+      method: "PUT",
+    });
+
+  const unassignCategoryItem = (categoryId: string, item: CategoryItemRef) =>
+    request<void>(
+      `/categories/${categoryId}/items/${item.itemType}/${encodeURIComponent(item.itemId)}`,
+      { method: "DELETE" }
+    );
+
+  // --- threads & attachments ------------------------------------------------
+
+  const getThread = (messageId: string) =>
+    request<{ parent: MessageView; replies: MessageView[] }>(
+      `/messages/${messageId}/thread`
+    );
+
+  const uploadAttachment = async (file: File): Promise<AttachmentView> => {
+    const form = new FormData();
+    form.append("file", file);
+    const data = await request<{ attachment: AttachmentView }>("/attachments", {
+      body: form,
+      method: "POST",
+    });
+    return data.attachment;
+  };
+
+  // --- wiki -----------------------------------------------------------------
+
+  const listWikiPages = () =>
+    request<{ pages: WikiPageSummary[] }>("/wiki").then((data) => data.pages);
+
+  const getWikiPage = (slug: string) =>
+    request<{ page: WikiPage }>(`/wiki/${encodeURIComponent(slug)}`).then(
+      (data) => data.page
+    );
+
+  const createWikiPage = (input: { body: string; title: string }) =>
+    request<{ page: WikiPage }>("/wiki", { json: input, method: "POST" }).then(
+      (data) => data.page
+    );
+
+  const updateWikiPage = (
+    slug: string,
+    input: { body?: string; title?: string }
+  ) =>
+    request<{ page: WikiPage }>(`/wiki/${encodeURIComponent(slug)}`, {
+      json: input,
+      method: "PATCH",
+    }).then((data) => data.page);
+
+  const deleteWikiPage = (slug: string) =>
+    request<void>(`/wiki/${encodeURIComponent(slug)}`, { method: "DELETE" });
+
+  const listWikiRevisions = (slug: string) =>
+    request<{ revisions: WikiRevision[] }>(
+      `/wiki/${encodeURIComponent(slug)}/revisions`
+    ).then((data) => data.revisions);
+
+  const getWikiRevision = (slug: string, revisionId: string) =>
+    request<{ revision: WikiRevision }>(
+      `/wiki/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(revisionId)}`
+    ).then((data) => data.revision);
+
+  const uploadWikiAsset = async (
+    file: File,
+    pageId?: string
+  ): Promise<WikiAssetView> => {
+    const form = new FormData();
+    form.append("file", file);
+    if (pageId) {
+      form.append("pageId", pageId);
+    }
+    const data = await request<{ asset: WikiAssetView }>("/wiki/assets", {
+      body: form,
+      method: "POST",
+    });
+    return data.asset;
+  };
+
+  // --- connectors -----------------------------------------------------------
+
+  const listConnectors = () =>
+    request<{ connectors: Connector[] }>("/connectors").then(
+      (data) => data.connectors
+    );
+
+  /** The agent rail's chips and the settings picker's ticked boxes. */
+  const listAgentConnectors = (agentId: string) =>
+    request<{ connectors: Connector[] }>(
+      `/connectors?agentId=${encodeURIComponent(agentId)}`
+    ).then((data) => data.connectors);
+
+  const getConnector = (id: string) =>
+    request<{ agents: ConnectorAgentRef[]; connector: Connector }>(
+      `/connectors/${id}`
+    );
+
+  /**
+   * The pasted URL is probed server-side, so the outcome - not the connector -
+   * is what the dialog acts on. The row exists either way, which is what makes
+   * an abandoned OAuth attempt resumable from the connector's detail view.
+   */
+  const addConnector = (input: { name?: string; url: string }) =>
+    request<{ connector: Connector; outcome: StartOutcome }>("/connectors", {
+      json: input,
+      method: "POST",
+    });
+
+  const renameConnector = (id: string, name: string) =>
+    request<{ connector: Connector }>(`/connectors/${id}`, {
+      json: { name },
+      method: "PATCH",
+    }).then((data) => data.connector);
+
+  const setConnectorDisabled = (id: string, disabled: boolean) =>
+    request<{ connector: Connector }>(`/connectors/${id}`, {
+      json: { disabled },
+      method: "PATCH",
+    }).then((data) => data.connector);
+
+  /** Archives the vault credential too; `vaultError` reports a partial failure. */
+  const removeConnector = (id: string) =>
+    request<{ removed: boolean; vaultError: string | null }>(
+      `/connectors/${id}`,
+      { method: "DELETE" }
+    );
+
+  /** Rung 3's manual branch: the server has no dynamic client registration. */
+  const setConnectorOauthClient = (
+    id: string,
+    input: { clientId: string; clientSecret?: string | null }
+  ) =>
+    request<{ outcome: StartOutcome }>(`/connectors/${id}/oauth/client`, {
+      json: input,
+      method: "POST",
+    }).then((data) => data.outcome);
+
+  const reauthorizeConnector = (id: string) =>
+    request<{ outcome: StartOutcome }>(`/connectors/${id}/reauthorize`, {
+      method: "POST",
+    }).then((data) => data.outcome);
+
+  /** Rung 6: no usable OAuth, so a pasted token becomes a static credential. */
+  const setConnectorBearer = (id: string, token: string) =>
+    request<{ connector: Connector }>(`/connectors/${id}/bearer`, {
+      json: { token },
+      method: "POST",
+    }).then((data) => data.connector);
+
+  /** Re-probes the server now and refreshes the cached tool list with it. */
+  const testConnector = (id: string) =>
+    request<{ connector: Connector; result: ConnectorTestResult }>(
+      `/connectors/${id}/test`,
+      { method: "POST" }
+    );
+
+  const listConnectorAgents = (id: string) =>
+    request<{ agents: ConnectorAgentRef[] }>(`/connectors/${id}/agents`).then(
+      (data) => data.agents
+    );
+
+  /** Takes effect on the agent's *next* session - `vault_ids` is create-only. */
+  const assignConnectorToAgent = (id: string, agentId: string) =>
+    request<{ appliesToNextSession: boolean; assigned: boolean }>(
+      `/connectors/${id}/agents`,
+      { json: { agentId }, method: "POST" }
+    );
+
+  const unassignConnectorFromAgent = (id: string, agentId: string) =>
+    request<void>(`/connectors/${id}/agents/${encodeURIComponent(agentId)}`, {
+      method: "DELETE",
+    });
+
+  // --- skills ---------------------------------------------------------------
+
+  const listSkills = () =>
+    request<{ skills: Skill[] }>("/skills").then((data) => data.skills);
+
+  /** The rail's chips and the settings picker's ticked boxes. */
+  const listAgentSkills = (agentId: string) =>
+    request<{ skills: AssignedSkill[] }>(
+      `/skills?agentId=${encodeURIComponent(agentId)}`
+    ).then((data) => data.skills);
+
+  const getSkill = (slug: string, version?: number) =>
+    request<SkillDetail>(
+      `/skills/${encodeURIComponent(slug)}${version === undefined ? "" : `?version=${version}`}`
+    );
+
+  /** The raw endpoint, for a file's download link. */
+  const skillFileUrl = (slug: string, version: number, path: string): string =>
+    `${apiBase}/skills/${encodeURIComponent(slug)}/versions/${version}/file?path=${encodeURIComponent(path)}`;
+
+  const readSkillFile = (slug: string, version: number, path: string) =>
+    requestText(
+      `/skills/${encodeURIComponent(slug)}/versions/${version}/file?path=${encodeURIComponent(path)}`
+    );
+
+  const createSkill = (input: {
+    changelog?: string;
+    files: SkillFileInput[];
+    slug: string;
+  }) => request<PublishedSkill>("/skills", { json: input, method: "POST" });
+
+  /** A full file set plus the "why" - never a patch of the version before it. */
+  const createSkillVersion = (
+    slug: string,
+    input: { changelog: string; files: SkillFileInput[] }
+  ) =>
+    request<PublishedSkill>(`/skills/${encodeURIComponent(slug)}/versions`, {
+      json: input,
+      method: "POST",
+    });
+
+  /** Pushes the local versions at Anthropic again after a failed publish. */
+  const retrySkillSync = (slug: string) =>
+    request<{ skill: Skill }>(
+      `/skills/${encodeURIComponent(slug)}/retry-sync`,
+      { method: "POST" }
+    ).then((data) => data.skill);
+
+  /** Unassigns it from every agent, then deletes both mirrors. */
+  const deleteSkill = (slug: string) =>
+    request<{ anthropicError: string | null; removed: boolean }>(
+      `/skills/${encodeURIComponent(slug)}`,
+      { method: "DELETE" }
+    );
+
+  const listSkillAgents = (slug: string) =>
+    request<{ agents: SkillAgentRef[] }>(
+      `/skills/${encodeURIComponent(slug)}/agents`
+    ).then((data) => data.agents);
+
+  /** `pinnedVersion` null tracks latest, which is how a fix propagates (plan 5d). */
+  const assignSkillToAgent = (
+    slug: string,
+    agentId: string,
+    pinnedVersion: number | null
+  ) =>
+    request<{ assigned: boolean; outcome: string }>(
+      `/skills/${encodeURIComponent(slug)}/agents`,
+      { json: { agentId, pinnedVersion }, method: "POST" }
+    );
+
+  const unassignSkillFromAgent = (slug: string, agentId: string) =>
+    request<void>(
+      `/skills/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agentId)}`,
+      { method: "DELETE" }
+    );
+
+  // --- bridges --------------------------------------------------------------
+
+  /** Both halves of the bridging UI in one call: the form and the "not configured" state. */
+  const getChannelBridge = (channelId: string) =>
+    request<{ bridge: ChannelBridge | null; connector: SurfaceStatus }>(
+      `/channels/${channelId}/bridge`
+    );
+
+  const saveChannelBridge = (
+    channelId: string,
+    input: { agentId: string | null; externalChannelId: string }
+  ) =>
+    request<{ bridge: ChannelBridge; channelName: string | null }>(
+      `/channels/${channelId}/bridge`,
+      { json: input, method: "POST" }
+    );
+
+  const deleteChannelBridge = (channelId: string) =>
+    request<void>(`/channels/${channelId}/bridge`, { method: "DELETE" });
+
+  /** Which external surfaces can reach an agent - the agent rail's bridge card. */
+  const listAgentBridges = (agentId: string) =>
+    request<{ bridges: ChannelBridge[]; connector: SurfaceStatus }>(
+      `/bridges/bridges?agentId=${encodeURIComponent(agentId)}`
+    );
+
+  return {
+    addChannelMember,
+    addConnector,
+    addMember,
+    assignCategoryItem,
+    assignConnectorToAgent,
+    assignSkillToAgent,
+    channelSocketUrl,
+    computerFileUrl,
+    createAgent,
+    createCategory,
+    createChannel,
+    createSkill,
+    createSkillVersion,
+    createWikiPage,
+    deleteAgent,
+    deleteCategory,
+    deleteChannelBridge,
+    deleteSkill,
+    deleteWikiPage,
+    deleteWorkspace,
+    getAgentStatus,
+    getBrowserStatus,
+    getChannel,
+    getChannelBridge,
+    getConnector,
+    getSkill,
+    getThread,
+    getWikiPage,
+    getWikiRevision,
+    getWorkspace,
+    listAgentActivity,
+    listAgentBridges,
+    listAgentConnectors,
+    listAgentSkills,
+    listAgents,
+    listBrowserScreenshots,
+    listCategories,
+    listChannels,
+    listComputerDir,
+    listConnectorAgents,
+    listConnectors,
+    listMembers,
+    listMessages,
+    listSkillAgents,
+    listSkills,
+    listWikiPages,
+    listWikiRevisions,
+    openAgentDm,
+    postMessage,
+    readComputerFile,
+    readSkillFile,
+    reauthorizeConnector,
+    removeChannelMember,
+    removeConnector,
+    removeMember,
+    renameCategory,
+    renameConnector,
+    renameWorkspace,
+    retrySkillSync,
+    rotateAgentMcpToken,
+    saveChannelBridge,
+    searchMember,
+    setConnectorBearer,
+    setConnectorDisabled,
+    setConnectorOauthClient,
+    setMemberRole,
+    skillFileUrl,
+    testConnector,
+    unassignCategoryItem,
+    unassignConnectorFromAgent,
+    unassignSkillFromAgent,
+    updateAgent,
+    updateWikiPage,
+    uploadAttachment,
+    uploadComputerFile,
+    uploadWikiAsset,
+    workspaceSlug,
+  };
+};
+
+/** Everything a component can ask of the workspace it is looking at. */
+export type Api = ReturnType<typeof createApi>;

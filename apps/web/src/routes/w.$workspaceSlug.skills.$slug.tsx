@@ -9,7 +9,7 @@ export interface SkillPageSearch {
 }
 
 /** A slug is lowercase kebab with no slashes, so a plain param is enough. */
-export const Route = createFileRoute("/skills/$slug")({
+export const Route = createFileRoute("/w/$workspaceSlug/skills/$slug")({
   component: SkillPageRoute,
   validateSearch: (search: Record<string, unknown>): SkillPageSearch => ({
     edit: search.edit === true || search.edit === "true" ? true : undefined,

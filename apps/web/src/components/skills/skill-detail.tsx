@@ -3,18 +3,15 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
 import { Markdown } from "#/components/workspace/markdown";
-import {
-  deleteSkill,
-  readSkillFile,
-  retrySkillSync,
-  type SkillAgentRef,
-  type SkillDetail as SkillDetailView,
-  type SkillFile,
-  type SkillVersion,
-  skillFileUrl,
+import type {
+  SkillAgentRef,
+  SkillDetail as SkillDetailView,
+  SkillFile,
+  SkillVersion,
 } from "#/lib/api";
 import { cx } from "#/lib/cx";
 import { formatBytes, formatDay, formatTime } from "#/lib/format";
+import { useApi } from "#/lib/workspace-context";
 import { SKILL_MD_PATH } from "#/modules/skills/validate";
 import { authorLabel, SkillSyncLine } from "./skill-status";
 import { withoutFrontmatter } from "./skill-template";
@@ -66,12 +63,15 @@ function Notice({
 
 /** SKILL.md, rendered the way the wiki renders a page. */
 function SkillDocument({ slug, version }: { slug: string; version: number }) {
+  const api = useApi();
+
   const [body, setBody] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
-    readSkillFile(slug, version, SKILL_MD_PATH)
+    api
+      .readSkillFile(slug, version, SKILL_MD_PATH)
       .then((content) => {
         if (live) {
           setBody(content);
@@ -86,7 +86,7 @@ function SkillDocument({ slug, version }: { slug: string; version: number }) {
     return () => {
       live = false;
     };
-  }, [slug, version]);
+  }, [api, slug, version]);
 
   if (error) {
     return <Notice tone="danger">{error}</Notice>;
@@ -115,6 +115,8 @@ function FileRow({
   version: number;
   viewing: boolean;
 }) {
+  const api = useApi();
+
   const view = useCallback(() => onView(file.path), [file.path, onView]);
 
   return (
@@ -131,7 +133,7 @@ function FileRow({
       <a
         className="ws-focus inline-flex h-7 shrink-0 items-center rounded-lg border border-[var(--ws-line)] bg-[var(--ws-surface)] px-2.5 font-medium text-[var(--ws-text)] text-xs no-underline hover:bg-[var(--ws-surface-hover)]"
         download={file.path}
-        href={skillFileUrl(slug, version, file.path)}
+        href={api.skillFileUrl(slug, version, file.path)}
       >
         Download
       </a>
@@ -231,6 +233,8 @@ export function SkillDetail({
   onRemoved: (anthropicError: string | null) => Promise<void>;
   onSelectVersion: (version: number | null) => void;
 }) {
+  const api = useApi();
+
   const { files, skill, version, versions } = detail;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -248,19 +252,21 @@ export function SkillDetail({
         return;
       }
       setError(null);
-      readSkillFile(skill.slug, version.version, path)
+      api
+        .readSkillFile(skill.slug, version.version, path)
         .then((content) => setViewing({ content, path }))
         .catch((cause: unknown) =>
           setError(messageOf(cause, "Failed to read that file."))
         );
     },
-    [skill.slug, version.version, viewing]
+    [api, skill.slug, version.version, viewing]
   );
 
   const retry = useCallback(() => {
     setBusy(true);
     setError(null);
-    retrySkillSync(skill.slug)
+    api
+      .retrySkillSync(skill.slug)
       .then(async (synced) => {
         setNotice(
           synced.syncStatus === "synced"
@@ -273,17 +279,17 @@ export function SkillDetail({
         setError(messageOf(cause, "The retry did not work."))
       )
       .finally(() => setBusy(false));
-  }, [onChanged, skill.slug]);
+  }, [api, onChanged, skill.slug]);
 
   const askRemove = useCallback(() => setRemoveOpen(true), []);
   const cancelRemove = useCallback(() => setRemoveOpen(false), []);
   const confirmRemove = useCallback(async () => {
     // The local delete stands even when Anthropic refused to drop its copy, so
     // that failure travels with the navigation rather than being swallowed.
-    const removed = await deleteSkill(skill.slug);
+    const removed = await api.deleteSkill(skill.slug);
     setRemoveOpen(false);
     await onRemoved(removed.anthropicError);
-  }, [onRemoved, skill.slug]);
+  }, [api, onRemoved, skill.slug]);
 
   const viewingLatest = version.version === skill.latestVersion;
   const backToLatest = useCallback(

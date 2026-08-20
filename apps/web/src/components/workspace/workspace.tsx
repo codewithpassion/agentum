@@ -1,15 +1,10 @@
 import { useUser } from "@clerk/tanstack-react-start";
 import { useCallback, useMemo, useState } from "react";
-import {
-  type Agent,
-  type Channel,
-  deleteAgent,
-  type MessageView,
-  openAgentDm,
-} from "#/lib/api";
+import type { Agent, Channel, MessageView } from "#/lib/api";
 import type { Viewer } from "#/lib/authors";
 import { type AgentStatuses, useConversation } from "#/lib/use-conversation";
 import { useWorkspaceData } from "#/lib/use-workspace-data";
+import { useActiveWorkspace } from "#/lib/workspace-context";
 import type { AgentStatusEvent } from "#/modules/messaging/realtime";
 import { AgentDialog } from "./agent-dialog";
 import { AgentRail } from "./agent-rail";
@@ -63,9 +58,11 @@ export function Workspace({
   onSelect: (next: WorkspaceSelection) => void;
   selection: WorkspaceSelection;
 }) {
+  const { api, membership } = useActiveWorkspace();
+
   const { isSignedIn, user } = useUser();
   const signedIn = isSignedIn === true;
-  const { agents, categories, channels, error, membership, reload } =
+  const { agents, categories, channels, error, reload } =
     useWorkspaceData(signedIn);
 
   // Every `/api` route is behind auth, so nothing may be fetched - and no
@@ -121,12 +118,12 @@ export function Workspace({
   const openDm = useCallback(
     (agent: Agent) => {
       (async () => {
-        const channel = await openAgentDm(agent.id);
+        const channel = await api.openAgentDm(agent.id);
         await reload();
         onSelect({ agent: agent.id, channel: channel.id });
       })();
     },
-    [onSelect, reload]
+    [api, onSelect, reload]
   );
 
   const openThread = useCallback((message: MessageView) => {
@@ -176,11 +173,11 @@ export function Workspace({
     if (!deletingAgent) {
       return;
     }
-    await deleteAgent(deletingAgent.id);
+    await api.deleteAgent(deletingAgent.id);
     setDeletingAgent(null);
     onSelect({ channel: selection.channel });
     await reload();
-  }, [deletingAgent, onSelect, reload, selection.channel]);
+  }, [api, deletingAgent, onSelect, reload, selection.channel]);
 
   if (isSignedIn === false) {
     return <SignedOutLanding />;

@@ -9,15 +9,9 @@ import {
 } from "react";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
-import {
-  createWikiPage,
-  deleteWikiPage,
-  listAgents,
-  listWikiRevisions,
-  updateWikiPage,
-  type WikiRevision,
-} from "#/lib/api";
+import type { WikiRevision } from "#/lib/api";
 import { useWikiPage, useWikiPages } from "#/lib/use-wiki";
+import { useApi, useWorkspaceSlug } from "#/lib/workspace-context";
 import { NewPageDialog } from "./new-page-dialog";
 import { PageEditor } from "./page-editor";
 import { PageTree } from "./page-tree";
@@ -102,6 +96,8 @@ function FolderIndex({
   onCreate: () => void;
   path: string;
 }) {
+  const workspaceSlug = useWorkspaceSlug();
+
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="wiki-folder">
       <header className="flex items-start justify-between gap-3 border-[var(--ws-line)] border-b px-6 py-4">
@@ -121,7 +117,10 @@ function FolderIndex({
       <ul className="m-0 min-h-0 flex-1 list-none overflow-y-auto px-6 py-4">
         {entries.map((child) => (
           <li className="py-1" key={child.path}>
-            <Link params={{ _splat: child.path }} to="/wiki/$">
+            <Link
+              params={{ _splat: child.path, workspaceSlug }}
+              to="/w/$workspaceSlug/wiki/$"
+            >
               {wikiNodeLabel(child)}
               {child.page ? "" : "/"}
             </Link>
@@ -150,6 +149,9 @@ export function WikiApp({
   prefillTitle?: string;
   slug: string | null;
 }) {
+  const api = useApi();
+  const workspaceSlug = useWorkspaceSlug();
+
   const { isSignedIn } = useUser();
   const signedIn = isSignedIn === true;
   const navigate = useNavigate();
@@ -204,19 +206,20 @@ export function WikiApp({
     if (!signedIn) {
       return;
     }
-    listAgents()
+    api
+      .listAgents()
       .then((agents) =>
         setAgentNames(new Map(agents.map((agent) => [agent.id, agent.name])))
       )
       .catch(() => setAgentNames(new Map()));
-  }, [signedIn]);
+  }, [api, signedIn]);
 
   const refreshRevisions = useCallback(async () => {
     if (!slug) {
       return;
     }
-    setRevisions(await listWikiRevisions(slug));
-  }, [slug]);
+    setRevisions(await api.listWikiRevisions(slug));
+  }, [api, slug]);
 
   useEffect(() => {
     if (historyOpen) {
@@ -227,11 +230,11 @@ export function WikiApp({
   const openPage = useCallback(
     (nextSlug: string, editing: boolean) =>
       navigate({
-        params: { _splat: nextSlug },
+        params: { _splat: nextSlug, workspaceSlug },
         search: editing ? { edit: true } : {},
-        to: "/wiki/$",
+        to: "/w/$workspaceSlug/wiki/$",
       }),
-    [navigate]
+    [navigate, workspaceSlug]
   );
 
   const openNewPage = useCallback(() => setNewPageOpen(true), []);
@@ -261,22 +264,30 @@ export function WikiApp({
   const startDraft = useCallback(
     (title: string) => {
       setNewPageOpen(false);
-      navigate({ search: { new: title }, to: "/wiki" });
+      navigate({
+        params: { workspaceSlug },
+        search: { new: title },
+        to: "/w/$workspaceSlug/wiki",
+      });
     },
-    [navigate]
+    [navigate, workspaceSlug]
   );
 
   const cancelDraft = useCallback(() => {
-    navigate({ search: {}, to: "/wiki" });
-  }, [navigate]);
+    navigate({
+      params: { workspaceSlug },
+      search: {},
+      to: "/w/$workspaceSlug/wiki",
+    });
+  }, [navigate, workspaceSlug]);
 
   const createPage = useCallback(
     async (input: { body: string; title: string }) => {
-      const created = await createWikiPage(input);
+      const created = await api.createWikiPage(input);
       await reloadPages();
       await openPage(created.slug, false);
     },
-    [openPage, reloadPages]
+    [api, openPage, reloadPages]
   );
 
   const startMissingPageDraft = useCallback(() => {
@@ -288,14 +299,14 @@ export function WikiApp({
       if (!slug) {
         return;
       }
-      setPage(await updateWikiPage(slug, input));
+      setPage(await api.updateWikiPage(slug, input));
       await reloadPages();
       if (historyOpen) {
         await refreshRevisions();
       }
       await openPage(slug, false);
     },
-    [historyOpen, openPage, refreshRevisions, reloadPages, setPage, slug]
+    [api, historyOpen, openPage, refreshRevisions, reloadPages, setPage, slug]
   );
 
   const restoreRevision = useCallback(async () => {
@@ -303,7 +314,7 @@ export function WikiApp({
       return;
     }
     setPage(
-      await updateWikiPage(slug, {
+      await api.updateWikiPage(slug, {
         body: viewingRevision.body,
         title: viewingRevision.title,
       })
@@ -311,17 +322,21 @@ export function WikiApp({
     setViewingRevision(null);
     await reloadPages();
     await refreshRevisions();
-  }, [refreshRevisions, reloadPages, setPage, slug, viewingRevision]);
+  }, [api, refreshRevisions, reloadPages, setPage, slug, viewingRevision]);
 
   const confirmDelete = useCallback(async () => {
     if (!slug) {
       return;
     }
-    await deleteWikiPage(slug);
+    await api.deleteWikiPage(slug);
     setDeleteOpen(false);
     await reloadPages();
-    await navigate({ to: "/wiki" });
-  }, [navigate, reloadPages, slug]);
+    await navigate({
+      params: { workspaceSlug },
+      search: {},
+      to: "/w/$workspaceSlug/wiki",
+    });
+  }, [api, navigate, reloadPages, slug, workspaceSlug]);
 
   if (isSignedIn === false) {
     return <SignedOutNotice />;

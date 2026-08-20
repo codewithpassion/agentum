@@ -2,6 +2,7 @@ import { useUser } from "@clerk/tanstack-react-start";
 import { Link } from "@tanstack/react-router";
 import { SkillSyncDot } from "#/components/skills/skill-status";
 import { useSkills } from "#/lib/use-skills";
+import { useWorkspaceSlug } from "#/lib/workspace-context";
 import { SectionHint, SidebarSection } from "./sidebar-section";
 
 /**
@@ -22,6 +23,8 @@ export function SkillsSection({
   expanded: boolean;
   onToggle: (sectionKey: string) => void;
 }) {
+  const workspaceSlug = useWorkspaceSlug();
+
   const { isSignedIn } = useUser();
   const { skills } = useSkills(isSignedIn === true);
 
@@ -31,9 +34,10 @@ export function SkillsSection({
         <Link
           aria-label="New skill"
           className="ws-focus inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--ws-muted)] no-underline hover:bg-[var(--ws-surface-hover)] hover:text-[var(--ws-text)]"
+          params={{ workspaceSlug }}
           search={{ new: true }}
           title="New skill"
-          to="/skills"
+          to="/w/$workspaceSlug/skills"
         >
           <span aria-hidden="true">＋</span>
         </Link>
@@ -51,9 +55,9 @@ export function SkillsSection({
             className={rowClass}
             data-testid="sidebar-skill"
             key={skill.id}
-            params={{ slug: skill.slug }}
+            params={{ slug: skill.slug, workspaceSlug }}
             title={`${skill.name} - ${skill.description}`}
-            to="/skills/$slug"
+            to="/w/$workspaceSlug/skills/$slug"
           >
             <SkillSyncDot status={skill.syncStatus} />
             <span className="truncate">{skill.name}</span>

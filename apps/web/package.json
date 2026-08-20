@@ -19,6 +19,7 @@
     "dev": "vite dev --port 3000",
     "generate-routes": "tsr generate",
     "preview": "vite preview",
+    "rewrite-legacy-urls": "bun scripts/rewrite-legacy-urls.ts",
     "test": "bun test",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"

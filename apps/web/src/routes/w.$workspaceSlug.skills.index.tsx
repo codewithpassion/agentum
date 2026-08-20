@@ -6,7 +6,7 @@ export interface SkillsIndexSearch {
   new?: boolean;
 }
 
-export const Route = createFileRoute("/skills/")({
+export const Route = createFileRoute("/w/$workspaceSlug/skills/")({
   component: SkillsIndexRoute,
   validateSearch: (search: Record<string, unknown>): SkillsIndexSearch => ({
     new: search.new === true || search.new === "true" ? true : undefined,

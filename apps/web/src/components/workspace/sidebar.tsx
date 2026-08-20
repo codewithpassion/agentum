@@ -1,17 +1,14 @@
 import { UserButton } from "@clerk/tanstack-react-start";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { WorkspaceSwitcher } from "#/components/tenant/workspace-switcher";
 import ThemeToggle from "#/components/theme-toggle";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Popover } from "#/components/ui/popover";
-import {
-  type Agent,
-  type CategoryView,
-  type Channel,
-  deleteCategory,
-} from "#/lib/api";
+import type { Agent, CategoryView, Channel } from "#/lib/api";
 import { cx } from "#/lib/cx";
+import { useApi, useWorkspaceSlug } from "#/lib/workspace-context";
 import { CategoryDialog } from "./category-dialog";
 import { CONNECTORS_SECTION, ConnectorsSection } from "./connectors-section";
 import { ItemCategoryMenu, MENU_ITEM_CLASS } from "./sidebar-menu";
@@ -231,6 +228,8 @@ function CategorySection({
   onRename: (category: CategoryView) => void;
   onToggle: (sectionKey: string) => void;
 }) {
+  const api = useApi();
+
   const [menuOpen, setMenuOpen] = useState(false);
   const toggleMenu = useCallback(() => setMenuOpen((open) => !open), []);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
@@ -245,10 +244,10 @@ function CategorySection({
   const remove = useCallback(() => {
     setMenuOpen(false);
     (async () => {
-      await deleteCategory(category.id);
+      await api.deleteCategory(category.id);
       await onReload();
     })();
-  }, [category.id, onReload]);
+  }, [api, category.id, onReload]);
 
   return (
     <SidebarSection
@@ -362,6 +361,8 @@ export function Sidebar({
   onSelectAgent: (agentId: string) => void;
   viewerName: string;
 }) {
+  const workspaceSlug = useWorkspaceSlug();
+
   const searchId = useId();
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -433,29 +434,32 @@ export function Sidebar({
       className="flex w-70 shrink-0 flex-col border-[var(--ws-line)] border-r bg-[var(--ws-panel)]"
     >
       <div className="flex items-center justify-between gap-2 px-3 py-3">
-        <span className="font-semibold text-sm">Agentum</span>
+        <WorkspaceSwitcher />
         <div className="flex items-center gap-1">
           <Link
             aria-label="Wiki"
             className={ICON_LINK_CLASS}
+            params={{ workspaceSlug }}
             title="Wiki"
-            to="/wiki"
+            to="/w/$workspaceSlug/wiki"
           >
             <span aria-hidden="true">📓</span>
           </Link>
           <Link
             aria-label="Connectors"
             className={ICON_LINK_CLASS}
+            params={{ workspaceSlug }}
             title="Connectors"
-            to="/connectors"
+            to="/w/$workspaceSlug/connectors"
           >
             <span aria-hidden="true">🔌</span>
           </Link>
           <Link
             aria-label="Skills"
             className={ICON_LINK_CLASS}
+            params={{ workspaceSlug }}
             title="Skills"
-            to="/skills"
+            to="/w/$workspaceSlug/skills"
           >
             <span aria-hidden="true">🧠</span>
           </Link>

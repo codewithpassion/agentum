@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  type AssignedSkill,
-  getSkill,
-  listAgentSkills,
-  listSkillAgents,
-  listSkills,
-  type Skill,
-  type SkillAgentRef,
-  type SkillDetail,
-} from "./api";
+import type { AssignedSkill, Skill, SkillAgentRef, SkillDetail } from "./api";
+import { useApi } from "./workspace-context";
 
 const messageOf = (cause: unknown, fallback: string): string =>
   cause instanceof Error ? cause.message : fallback;
@@ -21,6 +13,7 @@ export interface SkillsState {
 
 /** The directory is small and is refetched after any mutation, like connectors. */
 export const useSkills = (enabled: boolean): SkillsState => {
+  const api = useApi();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,12 +22,12 @@ export const useSkills = (enabled: boolean): SkillsState => {
       return;
     }
     try {
-      setSkills(await listSkills());
+      setSkills(await api.listSkills());
       setError(null);
     } catch (cause) {
       setError(messageOf(cause, "Failed to load skills."));
     }
-  }, [enabled]);
+  }, [api, enabled]);
 
   useEffect(() => {
     reload();
@@ -60,6 +53,7 @@ export const useSkillDetail = (
   version: number | null,
   enabled: boolean
 ): SkillDetailState => {
+  const api = useApi();
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [agents, setAgents] = useState<SkillAgentRef[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -71,8 +65,8 @@ export const useSkillDetail = (
     }
     setLoading(true);
     try {
-      setDetail(await getSkill(slug, version ?? undefined));
-      setAgents(await listSkillAgents(slug));
+      setDetail(await api.getSkill(slug, version ?? undefined));
+      setAgents(await api.listSkillAgents(slug));
       setError(null);
     } catch (cause) {
       setDetail(null);
@@ -80,7 +74,7 @@ export const useSkillDetail = (
     } finally {
       setLoading(false);
     }
-  }, [enabled, slug, version]);
+  }, [api, enabled, slug, version]);
 
   // Switching skills must not leave the previous one's files on screen while
   // the next request is in flight.
@@ -104,6 +98,7 @@ export const useAgentSkills = (
   agentId: string | null,
   enabled: boolean
 ): AgentSkillsState => {
+  const api = useApi();
   const [skills, setSkills] = useState<AssignedSkill[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -113,12 +108,12 @@ export const useAgentSkills = (
       return;
     }
     try {
-      setSkills(await listAgentSkills(agentId));
+      setSkills(await api.listAgentSkills(agentId));
       setError(null);
     } catch (cause) {
       setError(messageOf(cause, "Failed to load this agent's skills."));
     }
-  }, [agentId, enabled]);
+  }, [agentId, api, enabled]);
 
   useEffect(() => {
     reload();

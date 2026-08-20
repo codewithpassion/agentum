@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Button } from "#/components/ui/button";
 import type { WikiPageSummary } from "#/lib/api";
 import { cx } from "#/lib/cx";
+import { useWorkspaceSlug } from "#/lib/workspace-context";
 import { buildWikiTree, type WikiTreeNode, wikiNodeLabel } from "./wiki-tree";
 
 /** Each level steps in by this much, so depth reads at a glance. */
@@ -23,6 +24,8 @@ function TreeRow({
   node: WikiTreeNode;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const workspaceSlug = useWorkspaceSlug();
+
   const toggle = useCallback(() => setExpanded((open) => !open), []);
   const label = wikiNodeLabel(node);
   const hasChildren = node.children.length > 0;
@@ -53,8 +56,8 @@ function TreeRow({
               ? "bg-[var(--ws-surface-hover)] text-[var(--ws-text)]"
               : "text-[var(--ws-muted)] hover:bg-[var(--ws-surface)] hover:text-[var(--ws-text)]"
           )}
-          params={{ _splat: node.path }}
-          to="/wiki/$"
+          params={{ _splat: node.path, workspaceSlug }}
+          to="/w/$workspaceSlug/wiki/$"
         >
           {label}
         </Link>
@@ -87,6 +90,8 @@ export function PageTree({
   onNewPage: () => void;
   pages: WikiPageSummary[];
 }) {
+  const workspaceSlug = useWorkspaceSlug();
+
   const tree = useMemo(() => buildWikiTree(pages), [pages]);
 
   return (
@@ -97,7 +102,8 @@ export function PageTree({
       <div className="flex items-center justify-between gap-2 px-3 py-3">
         <Link
           className="ws-focus rounded-lg px-1 py-0.5 text-[13px] text-[var(--ws-muted)] no-underline hover:text-[var(--ws-text)]"
-          to="/"
+          params={{ workspaceSlug }}
+          to="/w/$workspaceSlug"
         >
           ‹ Workspace
         </Link>

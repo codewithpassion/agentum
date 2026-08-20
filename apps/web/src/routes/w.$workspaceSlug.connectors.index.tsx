@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ConnectorsApp } from "#/components/connectors/connectors-app";
 
-export const Route = createFileRoute("/connectors/")({
+export const Route = createFileRoute("/w/$workspaceSlug/connectors/")({
   component: ConnectorsIndexRoute,
 });
 

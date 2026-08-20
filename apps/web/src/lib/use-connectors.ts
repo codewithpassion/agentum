@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  type Connector,
-  type ConnectorAgentRef,
-  getConnector,
-  listAgentConnectors,
-  listConnectors,
-} from "./api";
+import type { Connector, ConnectorAgentRef } from "./api";
+import { useApi } from "./workspace-context";
 
 const messageOf = (cause: unknown, fallback: string): string =>
   cause instanceof Error ? cause.message : fallback;
@@ -18,17 +13,18 @@ export interface ConnectorsState {
 
 /** The directory is small and is refetched after any mutation, like the wiki. */
 export const useConnectors = (enabled: boolean): ConnectorsState => {
+  const api = useApi();
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      setConnectors(await listConnectors());
+      setConnectors(await api.listConnectors());
       setError(null);
     } catch (cause) {
       setError(messageOf(cause, "Failed to load connectors."));
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     if (enabled) {
@@ -53,6 +49,7 @@ export const useConnectorDetail = (
   id: string | null,
   enabled: boolean
 ): ConnectorDetailState => {
+  const api = useApi();
   const [connector, setConnector] = useState<Connector | null>(null);
   const [agents, setAgents] = useState<ConnectorAgentRef[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +61,7 @@ export const useConnectorDetail = (
     }
     setLoading(true);
     try {
-      const detail = await getConnector(id);
+      const detail = await api.getConnector(id);
       setConnector(detail.connector);
       setAgents(detail.agents);
       setError(null);
@@ -74,7 +71,7 @@ export const useConnectorDetail = (
     } finally {
       setLoading(false);
     }
-  }, [enabled, id]);
+  }, [api, enabled, id]);
 
   // Switching connectors must not leave the previous one's agents on screen
   // while the next request is in flight.
@@ -92,6 +89,7 @@ export const useAgentConnectors = (
   agentId: string | null,
   enabled: boolean
 ): ConnectorsState => {
+  const api = useApi();
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -101,12 +99,12 @@ export const useAgentConnectors = (
       return;
     }
     try {
-      setConnectors(await listAgentConnectors(agentId));
+      setConnectors(await api.listAgentConnectors(agentId));
       setError(null);
     } catch (cause) {
       setError(messageOf(cause, "Failed to load this agent's connectors."));
     }
-  }, [agentId, enabled]);
+  }, [agentId, api, enabled]);
 
   useEffect(() => {
     reload();

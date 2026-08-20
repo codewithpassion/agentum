@@ -2,13 +2,8 @@ import { useCallback, useState } from "react";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
-import {
-  type Connector,
-  type ConnectorAgentRef,
-  removeConnector,
-  setConnectorDisabled,
-  testConnector,
-} from "#/lib/api";
+import type { Connector, ConnectorAgentRef } from "#/lib/api";
+import { useApi } from "#/lib/workspace-context";
 import { ConnectorStatusLine } from "./connector-status";
 
 /**
@@ -129,6 +124,8 @@ export function ConnectorDetail({
   onReauthorize: (connector: Connector) => void;
   onRemoved: () => Promise<void>;
 }) {
+  const api = useApi();
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testMessage, setTestMessage] = useState<string | null>(null);
@@ -149,7 +146,7 @@ export function ConnectorDetail({
   const test = useCallback(() => {
     setTestMessage(null);
     run(async () => {
-      const { result } = await testConnector(connector.id);
+      const { result } = await api.testConnector(connector.id);
       setTestMessage(
         result.ok
           ? `Reached the server: ${result.tools.length} tool${result.tools.length === 1 ? "" : "s"}.`
@@ -157,14 +154,17 @@ export function ConnectorDetail({
       );
       await onChanged();
     });
-  }, [connector.id, onChanged, run]);
+  }, [api, connector.id, onChanged, run]);
 
   const toggleDisabled = useCallback(() => {
     run(async () => {
-      await setConnectorDisabled(connector.id, connector.status !== "disabled");
+      await api.setConnectorDisabled(
+        connector.id,
+        connector.status !== "disabled"
+      );
       await onChanged();
     });
-  }, [connector.id, connector.status, onChanged, run]);
+  }, [api, connector.id, connector.status, onChanged, run]);
 
   const reauthorize = useCallback(
     () => onReauthorize(connector),
@@ -174,10 +174,10 @@ export function ConnectorDetail({
   const askRemove = useCallback(() => setRemoveOpen(true), []);
   const cancelRemove = useCallback(() => setRemoveOpen(false), []);
   const confirmRemove = useCallback(async () => {
-    await removeConnector(connector.id);
+    await api.removeConnector(connector.id);
     setRemoveOpen(false);
     await onRemoved();
-  }, [connector.id, onRemoved]);
+  }, [api, connector.id, onRemoved]);
 
   const disabled = connector.status === "disabled";
 

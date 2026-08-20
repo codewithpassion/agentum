@@ -1,4 +1,4 @@
-import { type Connector, getConnector } from "#/lib/api";
+import type { Api, Connector } from "#/lib/api";
 
 /**
  * The popup half of the authorization-code flow.
@@ -50,6 +50,7 @@ const settleOrTick = (signal?: AbortSignal): Promise<void> =>
  * "the callback ran and the exchange failed" is a real outcome with a message.
  */
 export const waitForAuthorization = async (
+  api: Api,
   connectorId: string,
   signal?: AbortSignal
 ): Promise<Connector> => {
@@ -62,7 +63,7 @@ export const waitForAuthorization = async (
     if (signal?.aborted) {
       throw new Error("Authorization was cancelled.");
     }
-    const { connector } = await getConnector(connectorId);
+    const { connector } = await api.getConnector(connectorId);
     if (connector.status !== "authorizing") {
       return connector;
     }

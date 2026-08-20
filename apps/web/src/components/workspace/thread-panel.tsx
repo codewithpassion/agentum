@@ -1,13 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
-import {
-  type Agent,
-  getThread,
-  type MessageView,
-  postMessage,
-} from "#/lib/api";
+import type { Agent, MessageView } from "#/lib/api";
 import { authorOf, type Viewer } from "#/lib/authors";
 import type { Conversation } from "#/lib/use-conversation";
+import { useApi } from "#/lib/workspace-context";
 import { Composer } from "./composer";
 import { MessageItem } from "./message-item";
 
@@ -28,6 +24,8 @@ export function ThreadPanel({
   parentId: string;
   viewer: Viewer;
 }) {
+  const api = useApi();
+
   const [parent, setParent] = useState<MessageView | null>(null);
   const [replies, setReplies] = useState<MessageView[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +36,7 @@ export function ThreadPanel({
     let cancelled = false;
     (async () => {
       try {
-        const thread = await getThread(parentId);
+        const thread = await api.getThread(parentId);
         if (!cancelled) {
           setParent(thread.parent);
           setReplies(thread.replies);
@@ -55,7 +53,7 @@ export function ThreadPanel({
     return () => {
       cancelled = true;
     };
-  }, [parentId]);
+  }, [api, parentId]);
 
   // Replies arrive on the channel socket, which the conversation owns.
   useEffect(
@@ -79,10 +77,10 @@ export function ThreadPanel({
         return;
       }
       mergeMessage(
-        await postMessage(channelId, { ...input, threadParentId: parentId })
+        await api.postMessage(channelId, { ...input, threadParentId: parentId })
       );
     },
-    [channelId, mergeMessage, parentId]
+    [api, channelId, mergeMessage, parentId]
   );
 
   return (

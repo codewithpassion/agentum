@@ -5,6 +5,7 @@ import { Button } from "#/components/ui/button";
 import type { Connector } from "#/lib/api";
 import { cx } from "#/lib/cx";
 import { useConnectorDetail, useConnectors } from "#/lib/use-connectors";
+import { useWorkspaceSlug } from "#/lib/workspace-context";
 import { ConnectorDetail } from "./connector-detail";
 import { ConnectorSetupDialog } from "./connector-setup-dialog";
 import { ConnectorStatusDot } from "./connector-status";
@@ -50,6 +51,8 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
 }
 
 export function ConnectorsApp({ connectorId }: { connectorId: string | null }) {
+  const workspaceSlug = useWorkspaceSlug();
+
   const { isSignedIn } = useUser();
   const signedIn = isSignedIn === true;
   const navigate = useNavigate();
@@ -83,17 +86,20 @@ export function ConnectorsApp({ connectorId }: { connectorId: string | null }) {
     async (row: Connector) => {
       await reload();
       await navigate({
-        params: { connectorId: row.id },
-        to: "/connectors/$connectorId",
+        params: { connectorId: row.id, workspaceSlug },
+        to: "/w/$workspaceSlug/connectors/$connectorId",
       });
     },
-    [navigate, reload]
+    [navigate, reload, workspaceSlug]
   );
 
   const onRemoved = useCallback(async () => {
     await reload();
-    await navigate({ to: "/connectors" });
-  }, [navigate, reload]);
+    await navigate({
+      params: { workspaceSlug },
+      to: "/w/$workspaceSlug/connectors",
+    });
+  }, [navigate, reload, workspaceSlug]);
 
   if (isSignedIn === false) {
     return <SignedOutNotice />;
@@ -108,7 +114,11 @@ export function ConnectorsApp({ connectorId }: { connectorId: string | null }) {
         className="flex w-70 shrink-0 flex-col border-[var(--ws-line)] border-r bg-[var(--ws-panel)]"
       >
         <div className="flex items-center justify-between gap-2 px-3 py-3">
-          <Link className="font-semibold text-sm no-underline" to="/">
+          <Link
+            className="font-semibold text-sm no-underline"
+            params={{ workspaceSlug }}
+            to="/w/$workspaceSlug"
+          >
             ← Agentum
           </Link>
           <Button
@@ -135,8 +145,8 @@ export function ConnectorsApp({ connectorId }: { connectorId: string | null }) {
             <Link
               className={rowClass(row.id === connectorId)}
               key={row.id}
-              params={{ connectorId: row.id }}
-              to="/connectors/$connectorId"
+              params={{ connectorId: row.id, workspaceSlug }}
+              to="/w/$workspaceSlug/connectors/$connectorId"
             >
               <ConnectorStatusDot status={row.status} />
               <span className="truncate">{row.name}</span>

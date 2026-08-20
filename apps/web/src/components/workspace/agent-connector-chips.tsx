@@ -4,6 +4,7 @@ import {
   ConnectorStatusDot,
 } from "#/components/connectors/connector-status";
 import { useAgentConnectors } from "#/lib/use-connectors";
+import { useWorkspaceSlug } from "#/lib/workspace-context";
 
 /**
  * Connector health where the agent is (plan 4d, last row): one chip per
@@ -11,6 +12,8 @@ import { useAgentConnectors } from "#/lib/use-connectors";
  * fixing if its dot has gone red.
  */
 export function AgentConnectorChips({ agentId }: { agentId: string }) {
+  const workspaceSlug = useWorkspaceSlug();
+
   const { connectors } = useAgentConnectors(agentId, true);
 
   return (
@@ -31,9 +34,9 @@ export function AgentConnectorChips({ agentId }: { agentId: string }) {
             <li key={connector.id}>
               <Link
                 className="ws-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--ws-line)] px-2 py-1 text-[var(--ws-muted)] text-xs no-underline hover:bg-[var(--ws-surface)] hover:text-[var(--ws-text)]"
-                params={{ connectorId: connector.id }}
+                params={{ connectorId: connector.id, workspaceSlug }}
                 title={`${connector.name} - ${CONNECTOR_STATUS_LABELS[connector.status]}`}
-                to="/connectors/$connectorId"
+                to="/w/$workspaceSlug/connectors/$connectorId"
               >
                 <ConnectorStatusDot status={connector.status} />
                 <span className="truncate">{connector.name}</span>

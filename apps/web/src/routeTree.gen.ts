@@ -13,12 +13,15 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as ConnectorsIndexRouteImport } from './routes/connectors.index'
-import { Route as ConnectorsConnectorIdRouteImport } from './routes/connectors.$connectorId'
-import { Route as SkillsIndexRouteImport } from './routes/skills.index'
-import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
-import { Route as WikiIndexRouteImport } from './routes/wiki.index'
-import { Route as WikiSplatRouteImport } from './routes/wiki.$'
+import { Route as WWorkspaceSlugRouteImport } from './routes/w.$workspaceSlug'
+import { Route as WWorkspaceSlugIndexRouteImport } from './routes/w.$workspaceSlug.index'
+import { Route as WWorkspaceSlugConnectorsIndexRouteImport } from './routes/w.$workspaceSlug.connectors.index'
+import { Route as WWorkspaceSlugConnectorsConnectorIdRouteImport } from './routes/w.$workspaceSlug.connectors.$connectorId'
+import { Route as WWorkspaceSlugSettingsMembersRouteImport } from './routes/w.$workspaceSlug.settings.members'
+import { Route as WWorkspaceSlugSkillsIndexRouteImport } from './routes/w.$workspaceSlug.skills.index'
+import { Route as WWorkspaceSlugSkillsSlugRouteImport } from './routes/w.$workspaceSlug.skills.$slug'
+import { Route as WWorkspaceSlugWikiIndexRouteImport } from './routes/w.$workspaceSlug.wiki.index'
+import { Route as WWorkspaceSlugWikiSplatRouteImport } from './routes/w.$workspaceSlug.wiki.$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,35 +43,55 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ConnectorsIndexRoute = ConnectorsIndexRouteImport.update({
-  id: '/connectors/',
-  path: '/connectors/',
+const WWorkspaceSlugRoute = WWorkspaceSlugRouteImport.update({
+  id: '/w/$workspaceSlug',
+  path: '/w/$workspaceSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ConnectorsConnectorIdRoute = ConnectorsConnectorIdRouteImport.update({
-  id: '/connectors/$connectorId',
-  path: '/connectors/$connectorId',
-  getParentRoute: () => rootRouteImport,
+const WWorkspaceSlugIndexRoute = WWorkspaceSlugIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WWorkspaceSlugRoute,
 } as any)
-const SkillsIndexRoute = SkillsIndexRouteImport.update({
-  id: '/skills/',
-  path: '/skills/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SkillsSlugRoute = SkillsSlugRouteImport.update({
-  id: '/skills/$slug',
-  path: '/skills/$slug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WikiIndexRoute = WikiIndexRouteImport.update({
+const WWorkspaceSlugConnectorsIndexRoute =
+  WWorkspaceSlugConnectorsIndexRouteImport.update({
+    id: '/connectors/',
+    path: '/connectors/',
+    getParentRoute: () => WWorkspaceSlugRoute,
+  } as any)
+const WWorkspaceSlugConnectorsConnectorIdRoute =
+  WWorkspaceSlugConnectorsConnectorIdRouteImport.update({
+    id: '/connectors/$connectorId',
+    path: '/connectors/$connectorId',
+    getParentRoute: () => WWorkspaceSlugRoute,
+  } as any)
+const WWorkspaceSlugSettingsMembersRoute =
+  WWorkspaceSlugSettingsMembersRouteImport.update({
+    id: '/settings/members',
+    path: '/settings/members',
+    getParentRoute: () => WWorkspaceSlugRoute,
+  } as any)
+const WWorkspaceSlugSkillsIndexRoute =
+  WWorkspaceSlugSkillsIndexRouteImport.update({
+    id: '/skills/',
+    path: '/skills/',
+    getParentRoute: () => WWorkspaceSlugRoute,
+  } as any)
+const WWorkspaceSlugSkillsSlugRoute =
+  WWorkspaceSlugSkillsSlugRouteImport.update({
+    id: '/skills/$slug',
+    path: '/skills/$slug',
+    getParentRoute: () => WWorkspaceSlugRoute,
+  } as any)
+const WWorkspaceSlugWikiIndexRoute = WWorkspaceSlugWikiIndexRouteImport.update({
   id: '/wiki/',
   path: '/wiki/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => WWorkspaceSlugRoute,
 } as any)
-const WikiSplatRoute = WikiSplatRouteImport.update({
+const WWorkspaceSlugWikiSplatRoute = WWorkspaceSlugWikiSplatRouteImport.update({
   id: '/wiki/$',
   path: '/wiki/$',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => WWorkspaceSlugRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -76,24 +99,29 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
-  '/connectors/$connectorId': typeof ConnectorsConnectorIdRoute
-  '/skills/$slug': typeof SkillsSlugRoute
-  '/wiki/$': typeof WikiSplatRoute
-  '/connectors/': typeof ConnectorsIndexRoute
-  '/skills/': typeof SkillsIndexRoute
-  '/wiki/': typeof WikiIndexRoute
+  '/w/$workspaceSlug': typeof WWorkspaceSlugRouteWithChildren
+  '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
+  '/w/$workspaceSlug/connectors/$connectorId': typeof WWorkspaceSlugConnectorsConnectorIdRoute
+  '/w/$workspaceSlug/settings/members': typeof WWorkspaceSlugSettingsMembersRoute
+  '/w/$workspaceSlug/skills/$slug': typeof WWorkspaceSlugSkillsSlugRoute
+  '/w/$workspaceSlug/wiki/$': typeof WWorkspaceSlugWikiSplatRoute
+  '/w/$workspaceSlug/connectors/': typeof WWorkspaceSlugConnectorsIndexRoute
+  '/w/$workspaceSlug/skills/': typeof WWorkspaceSlugSkillsIndexRoute
+  '/w/$workspaceSlug/wiki/': typeof WWorkspaceSlugWikiIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
-  '/connectors/$connectorId': typeof ConnectorsConnectorIdRoute
-  '/skills/$slug': typeof SkillsSlugRoute
-  '/wiki/$': typeof WikiSplatRoute
-  '/connectors': typeof ConnectorsIndexRoute
-  '/skills': typeof SkillsIndexRoute
-  '/wiki': typeof WikiIndexRoute
+  '/w/$workspaceSlug': typeof WWorkspaceSlugIndexRoute
+  '/w/$workspaceSlug/connectors/$connectorId': typeof WWorkspaceSlugConnectorsConnectorIdRoute
+  '/w/$workspaceSlug/settings/members': typeof WWorkspaceSlugSettingsMembersRoute
+  '/w/$workspaceSlug/skills/$slug': typeof WWorkspaceSlugSkillsSlugRoute
+  '/w/$workspaceSlug/wiki/$': typeof WWorkspaceSlugWikiSplatRoute
+  '/w/$workspaceSlug/connectors': typeof WWorkspaceSlugConnectorsIndexRoute
+  '/w/$workspaceSlug/skills': typeof WWorkspaceSlugSkillsIndexRoute
+  '/w/$workspaceSlug/wiki': typeof WWorkspaceSlugWikiIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -101,12 +129,15 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
-  '/connectors/$connectorId': typeof ConnectorsConnectorIdRoute
-  '/skills/$slug': typeof SkillsSlugRoute
-  '/wiki/$': typeof WikiSplatRoute
-  '/connectors/': typeof ConnectorsIndexRoute
-  '/skills/': typeof SkillsIndexRoute
-  '/wiki/': typeof WikiIndexRoute
+  '/w/$workspaceSlug': typeof WWorkspaceSlugRouteWithChildren
+  '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
+  '/w/$workspaceSlug/connectors/$connectorId': typeof WWorkspaceSlugConnectorsConnectorIdRoute
+  '/w/$workspaceSlug/settings/members': typeof WWorkspaceSlugSettingsMembersRoute
+  '/w/$workspaceSlug/skills/$slug': typeof WWorkspaceSlugSkillsSlugRoute
+  '/w/$workspaceSlug/wiki/$': typeof WWorkspaceSlugWikiSplatRoute
+  '/w/$workspaceSlug/connectors/': typeof WWorkspaceSlugConnectorsIndexRoute
+  '/w/$workspaceSlug/skills/': typeof WWorkspaceSlugSkillsIndexRoute
+  '/w/$workspaceSlug/wiki/': typeof WWorkspaceSlugWikiIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -115,36 +146,44 @@ export interface FileRouteTypes {
     | '/about'
     | '/dev-login'
     | '/login'
-    | '/connectors/$connectorId'
-    | '/skills/$slug'
-    | '/wiki/$'
-    | '/connectors/'
-    | '/skills/'
-    | '/wiki/'
+    | '/w/$workspaceSlug'
+    | '/w/$workspaceSlug/'
+    | '/w/$workspaceSlug/connectors/$connectorId'
+    | '/w/$workspaceSlug/settings/members'
+    | '/w/$workspaceSlug/skills/$slug'
+    | '/w/$workspaceSlug/wiki/$'
+    | '/w/$workspaceSlug/connectors/'
+    | '/w/$workspaceSlug/skills/'
+    | '/w/$workspaceSlug/wiki/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/about'
     | '/dev-login'
     | '/login'
-    | '/connectors/$connectorId'
-    | '/skills/$slug'
-    | '/wiki/$'
-    | '/connectors'
-    | '/skills'
-    | '/wiki'
+    | '/w/$workspaceSlug'
+    | '/w/$workspaceSlug/connectors/$connectorId'
+    | '/w/$workspaceSlug/settings/members'
+    | '/w/$workspaceSlug/skills/$slug'
+    | '/w/$workspaceSlug/wiki/$'
+    | '/w/$workspaceSlug/connectors'
+    | '/w/$workspaceSlug/skills'
+    | '/w/$workspaceSlug/wiki'
   id:
     | '__root__'
     | '/'
     | '/about'
     | '/dev-login'
     | '/login'
-    | '/connectors/$connectorId'
-    | '/skills/$slug'
-    | '/wiki/$'
-    | '/connectors/'
-    | '/skills/'
-    | '/wiki/'
+    | '/w/$workspaceSlug'
+    | '/w/$workspaceSlug/'
+    | '/w/$workspaceSlug/connectors/$connectorId'
+    | '/w/$workspaceSlug/settings/members'
+    | '/w/$workspaceSlug/skills/$slug'
+    | '/w/$workspaceSlug/wiki/$'
+    | '/w/$workspaceSlug/connectors/'
+    | '/w/$workspaceSlug/skills/'
+    | '/w/$workspaceSlug/wiki/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -152,12 +191,7 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   DevLoginRoute: typeof DevLoginRoute
   LoginRoute: typeof LoginRoute
-  ConnectorsConnectorIdRoute: typeof ConnectorsConnectorIdRoute
-  SkillsSlugRoute: typeof SkillsSlugRoute
-  WikiSplatRoute: typeof WikiSplatRoute
-  ConnectorsIndexRoute: typeof ConnectorsIndexRoute
-  SkillsIndexRoute: typeof SkillsIndexRoute
-  WikiIndexRoute: typeof WikiIndexRoute
+  WWorkspaceSlugRoute: typeof WWorkspaceSlugRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -190,62 +224,105 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/connectors/': {
-      id: '/connectors/'
+    '/w/$workspaceSlug': {
+      id: '/w/$workspaceSlug'
+      path: '/w/$workspaceSlug'
+      fullPath: '/w/$workspaceSlug'
+      preLoaderRoute: typeof WWorkspaceSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/w/$workspaceSlug/': {
+      id: '/w/$workspaceSlug/'
+      path: '/'
+      fullPath: '/w/$workspaceSlug/'
+      preLoaderRoute: typeof WWorkspaceSlugIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/connectors/': {
+      id: '/w/$workspaceSlug/connectors/'
       path: '/connectors'
-      fullPath: '/connectors/'
-      preLoaderRoute: typeof ConnectorsIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      fullPath: '/w/$workspaceSlug/connectors/'
+      preLoaderRoute: typeof WWorkspaceSlugConnectorsIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
     }
-    '/connectors/$connectorId': {
-      id: '/connectors/$connectorId'
+    '/w/$workspaceSlug/connectors/$connectorId': {
+      id: '/w/$workspaceSlug/connectors/$connectorId'
       path: '/connectors/$connectorId'
-      fullPath: '/connectors/$connectorId'
-      preLoaderRoute: typeof ConnectorsConnectorIdRouteImport
-      parentRoute: typeof rootRouteImport
+      fullPath: '/w/$workspaceSlug/connectors/$connectorId'
+      preLoaderRoute: typeof WWorkspaceSlugConnectorsConnectorIdRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
     }
-    '/skills/': {
-      id: '/skills/'
+    '/w/$workspaceSlug/settings/members': {
+      id: '/w/$workspaceSlug/settings/members'
+      path: '/settings/members'
+      fullPath: '/w/$workspaceSlug/settings/members'
+      preLoaderRoute: typeof WWorkspaceSlugSettingsMembersRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/skills/': {
+      id: '/w/$workspaceSlug/skills/'
       path: '/skills'
-      fullPath: '/skills/'
-      preLoaderRoute: typeof SkillsIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      fullPath: '/w/$workspaceSlug/skills/'
+      preLoaderRoute: typeof WWorkspaceSlugSkillsIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
     }
-    '/skills/$slug': {
-      id: '/skills/$slug'
+    '/w/$workspaceSlug/skills/$slug': {
+      id: '/w/$workspaceSlug/skills/$slug'
       path: '/skills/$slug'
-      fullPath: '/skills/$slug'
-      preLoaderRoute: typeof SkillsSlugRouteImport
-      parentRoute: typeof rootRouteImport
+      fullPath: '/w/$workspaceSlug/skills/$slug'
+      preLoaderRoute: typeof WWorkspaceSlugSkillsSlugRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
     }
-    '/wiki/': {
-      id: '/wiki/'
+    '/w/$workspaceSlug/wiki/': {
+      id: '/w/$workspaceSlug/wiki/'
       path: '/wiki'
-      fullPath: '/wiki/'
-      preLoaderRoute: typeof WikiIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      fullPath: '/w/$workspaceSlug/wiki/'
+      preLoaderRoute: typeof WWorkspaceSlugWikiIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
     }
-    '/wiki/$': {
-      id: '/wiki/$'
+    '/w/$workspaceSlug/wiki/$': {
+      id: '/w/$workspaceSlug/wiki/$'
       path: '/wiki/$'
-      fullPath: '/wiki/$'
-      preLoaderRoute: typeof WikiSplatRouteImport
-      parentRoute: typeof rootRouteImport
+      fullPath: '/w/$workspaceSlug/wiki/$'
+      preLoaderRoute: typeof WWorkspaceSlugWikiSplatRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
     }
   }
 }
+
+interface WWorkspaceSlugRouteChildren {
+  WWorkspaceSlugIndexRoute: typeof WWorkspaceSlugIndexRoute
+  WWorkspaceSlugConnectorsConnectorIdRoute: typeof WWorkspaceSlugConnectorsConnectorIdRoute
+  WWorkspaceSlugSettingsMembersRoute: typeof WWorkspaceSlugSettingsMembersRoute
+  WWorkspaceSlugSkillsSlugRoute: typeof WWorkspaceSlugSkillsSlugRoute
+  WWorkspaceSlugWikiSplatRoute: typeof WWorkspaceSlugWikiSplatRoute
+  WWorkspaceSlugConnectorsIndexRoute: typeof WWorkspaceSlugConnectorsIndexRoute
+  WWorkspaceSlugSkillsIndexRoute: typeof WWorkspaceSlugSkillsIndexRoute
+  WWorkspaceSlugWikiIndexRoute: typeof WWorkspaceSlugWikiIndexRoute
+}
+
+const WWorkspaceSlugRouteChildren: WWorkspaceSlugRouteChildren = {
+  WWorkspaceSlugIndexRoute: WWorkspaceSlugIndexRoute,
+  WWorkspaceSlugConnectorsConnectorIdRoute:
+    WWorkspaceSlugConnectorsConnectorIdRoute,
+  WWorkspaceSlugSettingsMembersRoute: WWorkspaceSlugSettingsMembersRoute,
+  WWorkspaceSlugSkillsSlugRoute: WWorkspaceSlugSkillsSlugRoute,
+  WWorkspaceSlugWikiSplatRoute: WWorkspaceSlugWikiSplatRoute,
+  WWorkspaceSlugConnectorsIndexRoute: WWorkspaceSlugConnectorsIndexRoute,
+  WWorkspaceSlugSkillsIndexRoute: WWorkspaceSlugSkillsIndexRoute,
+  WWorkspaceSlugWikiIndexRoute: WWorkspaceSlugWikiIndexRoute,
+}
+
+const WWorkspaceSlugRouteWithChildren = WWorkspaceSlugRoute._addFileChildren(
+  WWorkspaceSlugRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   DevLoginRoute: DevLoginRoute,
   LoginRoute: LoginRoute,
-  ConnectorsConnectorIdRoute: ConnectorsConnectorIdRoute,
-  SkillsSlugRoute: SkillsSlugRoute,
-  WikiSplatRoute: WikiSplatRoute,
-  ConnectorsIndexRoute: ConnectorsIndexRoute,
-  SkillsIndexRoute: SkillsIndexRoute,
-  WikiIndexRoute: WikiIndexRoute,
+  WWorkspaceSlugRoute: WWorkspaceSlugRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

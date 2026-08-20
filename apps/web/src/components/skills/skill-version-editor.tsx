@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
-import {
-  createSkillVersion,
-  readSkillFile,
-  type SkillFile,
-  type SkillFileInput,
-  type SkillVersion,
-} from "#/lib/api";
+import type { SkillFile, SkillFileInput, SkillVersion } from "#/lib/api";
+import { useApi } from "#/lib/workspace-context";
 import { SkillFilesEditor } from "./skill-files-editor";
 
 /**
@@ -33,6 +28,8 @@ export function SkillVersionEditor({
   onSaved: (version: SkillVersion) => Promise<void>;
   slug: string;
 }) {
+  const api = useApi();
+
   const [files, setFiles] = useState<SkillFileInput[] | null>(null);
   const [changelog, setChangelog] = useState("");
   const [busy, setBusy] = useState(false);
@@ -42,7 +39,7 @@ export function SkillVersionEditor({
     let live = true;
     Promise.all(
       baseFiles.map(async (file) => ({
-        content: await readSkillFile(slug, baseVersion, file.path),
+        content: await api.readSkillFile(slug, baseVersion, file.path),
         path: file.path,
       }))
     )
@@ -59,7 +56,7 @@ export function SkillVersionEditor({
     return () => {
       live = false;
     };
-  }, [baseFiles, baseVersion, slug]);
+  }, [api, baseFiles, baseVersion, slug]);
 
   const onChangelogChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) =>
@@ -76,7 +73,7 @@ export function SkillVersionEditor({
       setBusy(true);
       setError(null);
       try {
-        const published = await createSkillVersion(slug, {
+        const published = await api.createSkillVersion(slug, {
           changelog: changelog.trim(),
           files,
         });
@@ -87,7 +84,7 @@ export function SkillVersionEditor({
         setBusy(false);
       }
     },
-    [changelog, files, onSaved, slug]
+    [api, changelog, files, onSaved, slug]
   );
 
   return (

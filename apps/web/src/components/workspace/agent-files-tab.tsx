@@ -8,14 +8,9 @@ import {
   parentPath,
   ROOT_PATH,
 } from "#/lib/agent-screen";
-import {
-  computerFileUrl,
-  type DirEntry,
-  listComputerDir,
-  readComputerFile,
-  uploadComputerFile,
-} from "#/lib/api";
+import type { DirEntry } from "#/lib/api";
 import { formatBytes } from "#/lib/format";
+import { useApi } from "#/lib/workspace-context";
 
 /**
  * The right rail's Files tab: the agent's computer, browsable by clicking.
@@ -86,6 +81,8 @@ function PreviewPanel({
   onClose: () => void;
   preview: Preview;
 }) {
+  const api = useApi();
+
   return (
     <section
       className="space-y-1.5 rounded-lg border border-[var(--ws-line)] bg-[var(--ws-bg)] p-2"
@@ -123,7 +120,7 @@ function PreviewPanel({
           <a
             className="inline-block rounded-lg border border-[var(--ws-line)] bg-[var(--ws-surface)] px-2 py-1 text-[var(--ws-text)] text-xs no-underline"
             download
-            href={computerFileUrl(agentId, preview.path)}
+            href={api.computerFileUrl(agentId, preview.path)}
           >
             Download
           </a>
@@ -134,6 +131,8 @@ function PreviewPanel({
 }
 
 export function AgentFilesTab({ agentId }: { agentId: string }) {
+  const api = useApi();
+
   const [path, setPath] = useState<string>(ROOT_PATH);
   const [entries, setEntries] = useState<DirEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -143,13 +142,13 @@ export function AgentFilesTab({ agentId }: { agentId: string }) {
 
   const load = useCallback(async () => {
     try {
-      setEntries(await listComputerDir(agentId, path));
+      setEntries(await api.listComputerDir(agentId, path));
       setError(null);
     } catch (cause) {
       setEntries(null);
       setError(errorMessage(cause, "Could not read that directory."));
     }
-  }, [agentId, path]);
+  }, [agentId, api, path]);
 
   useEffect(() => {
     load();
@@ -172,7 +171,7 @@ export function AgentFilesTab({ agentId }: { agentId: string }) {
 
       setPreview({ path: target, status: "loading" });
       try {
-        const file = await readComputerFile(agentId, target);
+        const file = await api.readComputerFile(agentId, target);
         setPreview(
           looksBinary(file.content)
             ? {
@@ -195,7 +194,7 @@ export function AgentFilesTab({ agentId }: { agentId: string }) {
         });
       }
     },
-    [agentId, openPath, path]
+    [agentId, api, openPath, path]
   );
 
   const closePreview = useCallback(() => setPreview(null), []);
@@ -209,14 +208,15 @@ export function AgentFilesTab({ agentId }: { agentId: string }) {
         return;
       }
       setBusy(true);
-      uploadComputerFile(agentId, file, joinPath(path, file.name))
+      api
+        .uploadComputerFile(agentId, file, joinPath(path, file.name))
         .then(load)
         .catch((cause: unknown) => {
           setError(errorMessage(cause, "The upload failed."));
         })
         .finally(() => setBusy(false));
     },
-    [agentId, load, path]
+    [agentId, api, load, path]
   );
 
   const crumbs = breadcrumbsFor(path);

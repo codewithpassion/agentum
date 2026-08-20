@@ -4,18 +4,15 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { Popover } from "#/components/ui/popover";
-import {
-  type Agent,
-  addChannelMember,
-  type Channel,
-  type ChannelBridge,
-  type ChannelMemberView,
-  deleteChannelBridge,
-  getChannelBridge,
-  removeChannelMember,
-  type SurfaceStatus,
-  saveChannelBridge,
+import type {
+  Agent,
+  Channel,
+  ChannelBridge,
+  ChannelMemberView,
+  SurfaceStatus,
 } from "#/lib/api";
+import { memberLabel } from "#/lib/authors";
+import { useApi } from "#/lib/workspace-context";
 
 /**
  * The channel's settings pane, reachable from the channel header - who is in
@@ -164,8 +161,12 @@ function MemberRow({
   member: ChannelMemberView;
   onRemove: (member: ChannelMemberView) => void;
 }) {
-  // People now arrive named; a nameless row is an agent whose row is gone.
-  const name = member.name ?? "Deleted agent";
+  // People are named from their membership snapshot, which can be empty; a
+  // nameless row that is not a person is an agent whose row is gone.
+  const name =
+    member.memberType === "user"
+      ? memberLabel({ email: member.email ?? "", name: member.name })
+      : (member.name ?? "Deleted agent");
   const remove = useCallback(() => onRemove(member), [member, onRemove]);
 
   return (
@@ -274,6 +275,8 @@ export function ChannelSettings({
   members: ChannelMemberView[];
   onMembersChange: (members: ChannelMemberView[]) => void;
 }) {
+  const api = useApi();
+
   const channelId = channel.id;
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<BridgeState>({ status: "loading" });
@@ -283,12 +286,12 @@ export function ChannelSettings({
   const load = useCallback(async () => {
     setState({ status: "loading" });
     try {
-      const data = await getChannelBridge(channelId);
+      const data = await api.getChannelBridge(channelId);
       setState({ ...data, status: "ready" });
     } catch (error) {
       setState({ message: errorMessage(error), status: "error" });
     }
-  }, [channelId]);
+  }, [api, channelId]);
 
   useEffect(() => {
     if (open) {
@@ -306,7 +309,7 @@ export function ChannelSettings({
         setBusy(true);
         setActionError(null);
         try {
-          await saveChannelBridge(channelId, input);
+          await api.saveChannelBridge(channelId, input);
           await load();
         } catch (error) {
           setActionError(errorMessage(error));
@@ -315,7 +318,7 @@ export function ChannelSettings({
         }
       })();
     },
-    [channelId, load]
+    [api, channelId, load]
   );
 
   const disconnect = useCallback(() => {
@@ -323,7 +326,7 @@ export function ChannelSettings({
       setBusy(true);
       setActionError(null);
       try {
-        await deleteChannelBridge(channelId);
+        await api.deleteChannelBridge(channelId);
         await load();
       } catch (error) {
         setActionError(errorMessage(error));
@@ -331,7 +334,7 @@ export function ChannelSettings({
         setBusy(false);
       }
     })();
-  }, [channelId, load]);
+  }, [api, channelId, load]);
 
   const addMember = useCallback(
     (agentId: string) => {
@@ -340,7 +343,7 @@ export function ChannelSettings({
         setActionError(null);
         try {
           onMembersChange(
-            await addChannelMember(channelId, {
+            await api.addChannelMember(channelId, {
               memberId: agentId,
               memberType: "agent",
             })
@@ -352,7 +355,7 @@ export function ChannelSettings({
         }
       })();
     },
-    [channelId, onMembersChange]
+    [api, channelId, onMembersChange]
   );
 
   const removeMember = useCallback(
@@ -362,7 +365,7 @@ export function ChannelSettings({
         setActionError(null);
         try {
           onMembersChange(
-            await removeChannelMember(
+            await api.removeChannelMember(
               channelId,
               member.memberType,
               member.memberId
@@ -375,7 +378,7 @@ export function ChannelSettings({
         }
       })();
     },
-    [channelId, onMembersChange]
+    [api, channelId, onMembersChange]
   );
 
   return (

@@ -2,13 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextAreaField, TextField } from "#/components/ui/field";
-import {
-  type Agent,
-  type AgentInput,
-  createAgent,
-  rotateAgentMcpToken,
-  updateAgent,
-} from "#/lib/api";
+import type { Agent, AgentInput } from "#/lib/api";
+import { useApi } from "#/lib/workspace-context";
 import { AgentConnectorsPicker } from "./agent-connectors-picker";
 import { AgentSkillsPicker } from "./agent-skills-picker";
 import { McpUrlField } from "./mcp-url";
@@ -68,6 +63,8 @@ export function AgentDialog({
   onTokenIssued: (agentId: string, mcpUrl: string) => void;
   open: boolean;
 }) {
+  const api = useApi();
+
   const [draft, setDraft] = useState<AgentInput>(EMPTY);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -116,7 +113,7 @@ export function AgentDialog({
     }
     setRotating(true);
     try {
-      const issued = await rotateAgentMcpToken(agent.id);
+      const issued = await api.rotateAgentMcpToken(agent.id);
       onTokenIssued(agent.id, issued.mcpUrl);
     } catch (cause) {
       setError(
@@ -125,7 +122,7 @@ export function AgentDialog({
     } finally {
       setRotating(false);
     }
-  }, [agent, onTokenIssued]);
+  }, [agent, api, onTokenIssued]);
 
   const submit = useCallback(
     async (event: React.FormEvent) => {
@@ -134,9 +131,9 @@ export function AgentDialog({
       try {
         let saved: Agent;
         if (agent) {
-          saved = await updateAgent(agent.id, draft);
+          saved = await api.updateAgent(agent.id, draft);
         } else {
-          const issued = await createAgent(draft);
+          const issued = await api.createAgent(draft);
           saved = issued.agent;
           onTokenIssued(saved.id, issued.mcpUrl);
         }
@@ -148,7 +145,7 @@ export function AgentDialog({
         setBusy(false);
       }
     },
-    [agent, draft, onClose, onSaved, onTokenIssued]
+    [agent, api, draft, onClose, onSaved, onTokenIssued]
   );
 
   return (

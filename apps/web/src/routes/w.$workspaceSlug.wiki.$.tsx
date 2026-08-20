@@ -9,7 +9,7 @@ export interface WikiPageSearch {
 }
 
 /** A splat, not `$slug`: a page's address is a path, so it can contain "/". */
-export const Route = createFileRoute("/wiki/$")({
+export const Route = createFileRoute("/w/$workspaceSlug/wiki/$")({
   component: WikiPageRoute,
   validateSearch: (search: Record<string, unknown>): WikiPageSearch => ({
     edit: search.edit === true || search.edit === "true" ? true : undefined,

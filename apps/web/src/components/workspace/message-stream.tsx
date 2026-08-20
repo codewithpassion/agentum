@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { Button } from "#/components/ui/button";
 import type { Agent, MessageView } from "#/lib/api";
-import { authorOf, type Viewer } from "#/lib/authors";
+import { authorOf, groupKeyOf, type Viewer } from "#/lib/authors";
 import { MessageItem } from "./message-item";
 
 /** Consecutive messages from one author within this window share a header. */
@@ -12,8 +12,7 @@ const startsGroup = (
   previous: MessageView | undefined
 ): boolean =>
   !previous ||
-  previous.authorId !== message.authorId ||
-  previous.authorType !== message.authorType ||
+  groupKeyOf(previous) !== groupKeyOf(message) ||
   message.createdAt - previous.createdAt > GROUPING_WINDOW_MS;
 
 export function MessageStream({

@@ -3,7 +3,8 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
-import { type Agent, type Channel, createChannel } from "#/lib/api";
+import type { Agent, Channel } from "#/lib/api";
+import { useApi } from "#/lib/workspace-context";
 
 function MemberOption({
   agent,
@@ -35,6 +36,8 @@ export function ChannelDialog({
   onCreated: (channel: Channel) => Promise<void>;
   open: boolean;
 }) {
+  const api = useApi();
+
   const [name, setName] = useState("");
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +69,7 @@ export function ChannelDialog({
       event.preventDefault();
       setBusy(true);
       try {
-        await onCreated(await createChannel({ agentIds: memberIds, name }));
+        await onCreated(await api.createChannel({ agentIds: memberIds, name }));
         onClose();
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "Failed to create.");
@@ -74,7 +77,7 @@ export function ChannelDialog({
         setBusy(false);
       }
     },
-    [memberIds, name, onClose, onCreated]
+    [api, memberIds, name, onClose, onCreated]
   );
 
   return (

@@ -4,6 +4,7 @@ import {
   SkillSyncDot,
 } from "#/components/skills/skill-status";
 import { useAgentSkills } from "#/lib/use-skills";
+import { useWorkspaceSlug } from "#/lib/workspace-context";
 
 /**
  * The skills the agent holds, where the agent is (plan 5e, last row): one chip
@@ -11,6 +12,8 @@ import { useAgentSkills } from "#/lib/use-skills";
  * latest, each linking to the skill itself.
  */
 export function AgentSkillChips({ agentId }: { agentId: string }) {
+  const workspaceSlug = useWorkspaceSlug();
+
   const { skills } = useAgentSkills(agentId, true);
 
   return (
@@ -31,9 +34,9 @@ export function AgentSkillChips({ agentId }: { agentId: string }) {
             <li key={skill.id}>
               <Link
                 className="ws-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--ws-line)] px-2 py-1 text-[var(--ws-muted)] text-xs no-underline hover:bg-[var(--ws-surface)] hover:text-[var(--ws-text)]"
-                params={{ slug: skill.slug }}
+                params={{ slug: skill.slug, workspaceSlug }}
                 title={`${skill.name} - ${SKILL_SYNC_LABELS[skill.syncStatus]}`}
-                to="/skills/$slug"
+                to="/w/$workspaceSlug/skills/$slug"
               >
                 <SkillSyncDot status={skill.syncStatus} />
                 <span className="truncate">{skill.name}</span>

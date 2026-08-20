@@ -11,6 +11,32 @@ export interface AuthorInfo {
 
 const UNKNOWN_COLOR = "#52525b";
 const FORMER_MEMBER_NAME = "Former member";
+const UNNAMED_MEMBER = "Member";
+
+/**
+ * What to call a workspace member on screen. A membership created by the
+ * backfill carries an empty email snapshot until somebody asks Clerk for it, so
+ * neither field can be trusted to be there - and an empty string is never a
+ * name.
+ */
+export const memberLabel = (member: {
+  email: string;
+  name: string | null;
+}): string => member.name?.trim() || member.email.trim() || UNNAMED_MEMBER;
+
+/**
+ * Consecutive messages from the same person share one header. People are
+ * grouped by their *member* id, not by `authorId` - which for a user whose
+ * membership is gone is `""`, and would otherwise collapse every former member
+ * in a channel into one speaker. Those messages each stand alone instead.
+ */
+export const groupKeyOf = (message: MessageView): string => {
+  if (message.authorType !== "user") {
+    return `${message.authorType}:${message.authorId}`;
+  }
+  const memberId = message.author?.memberId ?? "";
+  return memberId === "" ? `former:${message.id}` : `user:${memberId}`;
+};
 
 /**
  * The signed-in human, as this client knows itself: `memberId` is the caller's

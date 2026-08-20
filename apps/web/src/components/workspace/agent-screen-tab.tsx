@@ -2,15 +2,10 @@ import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { type ExecView, latestExec } from "#/lib/agent-screen";
-import {
-  type BrowserStatus,
-  getBrowserStatus,
-  listAgentActivity,
-  listBrowserScreenshots,
-  type Screenshot,
-} from "#/lib/api";
+import type { BrowserStatus, Screenshot } from "#/lib/api";
 import { formatRelativeTime } from "#/lib/format";
 import { usePolling } from "#/lib/use-agent-screen";
+import { useApi } from "#/lib/workspace-context";
 
 /**
  * The right rail's Screen tab: what the agent is looking at (its browser's last
@@ -183,14 +178,16 @@ export function AgentScreenTab({
   agentId: string;
   pollMs: number;
 }) {
+  const api = useApi();
+
   const [state, setState] = useState<ScreenState | null>(null);
   const [zoomed, setZoomed] = useState(false);
 
   const load = useCallback(() => {
     Promise.all([
-      listBrowserScreenshots(agentId, 1),
-      getBrowserStatus(agentId),
-      listAgentActivity(agentId, { limit: EXEC_SCAN_LIMIT }),
+      api.listBrowserScreenshots(agentId, 1),
+      api.getBrowserStatus(agentId),
+      api.listAgentActivity(agentId, { limit: EXEC_SCAN_LIMIT }),
     ])
       .then(([shots, browser, activity]) => {
         setState({
@@ -209,7 +206,7 @@ export function AgentScreenTab({
           status: "error",
         });
       });
-  }, [agentId]);
+  }, [agentId, api]);
 
   usePolling(load, pollMs);
 

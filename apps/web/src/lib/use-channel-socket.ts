@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { ChannelEvent } from "#/modules/messaging/realtime";
-import { apiBase } from "./api";
+import { useApi } from "./workspace-context";
 
 const KNOWN_TYPES = new Set<ChannelEvent["type"]>([
   "agent.status",
@@ -29,15 +29,14 @@ export const useChannelSocket = (
   channelId: string | null,
   onEvent: (event: ChannelEvent) => void
 ): void => {
+  const api = useApi();
+
   useEffect(() => {
     if (!channelId) {
       return;
     }
 
-    const scheme = window.location.protocol === "https:" ? "wss" : "ws";
-    const socket = new WebSocket(
-      `${scheme}://${window.location.host}${apiBase}/channels/${channelId}/ws`
-    );
+    const socket = new WebSocket(api.channelSocketUrl(channelId));
 
     socket.addEventListener("message", (event) => {
       if (typeof event.data !== "string") {
@@ -52,5 +51,5 @@ export const useChannelSocket = (
     return () => {
       socket.close();
     };
-  }, [channelId, onEvent]);
+  }, [api, channelId, onEvent]);
 };

@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  getWikiPage,
-  isNotFound,
-  listWikiPages,
-  type WikiPage,
-  type WikiPageSummary,
-} from "./api";
+import { isNotFound, type WikiPage, type WikiPageSummary } from "./api";
+import { useApi } from "./workspace-context";
 
 const messageOf = (cause: unknown, fallback: string): string =>
   cause instanceof Error ? cause.message : fallback;
@@ -18,17 +13,18 @@ export interface WikiPagesState {
 
 /** The page list is small and is refetched after any mutation. */
 export const useWikiPages = (enabled: boolean): WikiPagesState => {
+  const api = useApi();
   const [pages, setPages] = useState<WikiPageSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      setPages(await listWikiPages());
+      setPages(await api.listWikiPages());
       setError(null);
     } catch (cause) {
       setError(messageOf(cause, "Failed to load the wiki."));
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     if (enabled) {
@@ -52,6 +48,7 @@ export const useWikiPage = (
   slug: string | null,
   enabled: boolean
 ): WikiPageState => {
+  const api = useApi();
   const [page, setPage] = useState<WikiPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
@@ -66,7 +63,8 @@ export const useWikiPage = (
 
     let cancelled = false;
     setLoading(true);
-    getWikiPage(slug)
+    api
+      .getWikiPage(slug)
       .then((loaded) => {
         if (cancelled) {
           return;
@@ -94,7 +92,7 @@ export const useWikiPage = (
     return () => {
       cancelled = true;
     };
-  }, [enabled, slug]);
+  }, [api, enabled, slug]);
 
   return { error, loading, missing, page, setPage };
 };

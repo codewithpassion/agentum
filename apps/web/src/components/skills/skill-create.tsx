@@ -1,7 +1,8 @@
 import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
-import { createSkill, type Skill, type SkillFileInput } from "#/lib/api";
+import type { Skill, SkillFileInput } from "#/lib/api";
+import { useApi } from "#/lib/workspace-context";
 import { SKILL_MD_PATH } from "#/modules/skills/validate";
 import { SkillFilesEditor } from "./skill-files-editor";
 import { skillTemplate, withFrontmatterField } from "./skill-template";
@@ -27,6 +28,8 @@ export function SkillCreateForm({
   onCancel: () => void;
   onCreated: (skill: Skill) => Promise<void>;
 }) {
+  const api = useApi();
+
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState(START_DESCRIPTION);
   const [files, setFiles] = useState<SkillFileInput[]>([
@@ -71,7 +74,7 @@ export function SkillCreateForm({
       setBusy(true);
       setError(null);
       try {
-        const created = await createSkill({ files, slug: slug.trim() });
+        const created = await api.createSkill({ files, slug: slug.trim() });
         await onCreated(created.skill);
       } catch (cause) {
         setError(messageOf(cause));
@@ -79,7 +82,7 @@ export function SkillCreateForm({
         setBusy(false);
       }
     },
-    [files, onCreated, slug]
+    [api, files, onCreated, slug]
   );
 
   return (

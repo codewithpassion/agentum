@@ -1,9 +1,10 @@
 import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { mergeActivity } from "#/lib/agent-screen";
-import { type ActivityView, listAgentActivity } from "#/lib/api";
+import type { ActivityView } from "#/lib/api";
 import { formatRelativeTime } from "#/lib/format";
 import { usePolling } from "#/lib/use-agent-screen";
+import { useApi } from "#/lib/workspace-context";
 
 /**
  * The right rail's Activity tab: everything the agent has done, newest first,
@@ -50,6 +51,8 @@ export function AgentActivityTab({
   agentId: string;
   pollMs: number;
 }) {
+  const api = useApi();
+
   const [entries, setEntries] = useState<ActivityView[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +63,8 @@ export function AgentActivityTab({
   const [paginated, setPaginated] = useState(false);
 
   const refresh = useCallback(() => {
-    listAgentActivity(agentId, { limit: PAGE_SIZE })
+    api
+      .listAgentActivity(agentId, { limit: PAGE_SIZE })
       .then((page) => {
         setEntries((previous) => mergeActivity(previous, page.entries));
         if (!paginated) {
@@ -76,7 +80,7 @@ export function AgentActivityTab({
         );
       })
       .finally(() => setLoaded(true));
-  }, [agentId, paginated]);
+  }, [agentId, api, paginated]);
 
   usePolling(refresh, pollMs);
 
@@ -86,7 +90,8 @@ export function AgentActivityTab({
     }
     setBusy(true);
     setPaginated(true);
-    listAgentActivity(agentId, { before: cursor, limit: PAGE_SIZE })
+    api
+      .listAgentActivity(agentId, { before: cursor, limit: PAGE_SIZE })
       .then((page) => {
         setEntries((previous) => mergeActivity(previous, page.entries));
         setCursor(page.nextCursor);
@@ -100,7 +105,7 @@ export function AgentActivityTab({
         );
       })
       .finally(() => setBusy(false));
-  }, [agentId, cursor]);
+  }, [agentId, api, cursor]);
 
   return (
     <div className="space-y-2" data-testid="agent-activity-feed">

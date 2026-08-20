@@ -2,9 +2,10 @@ import { useUser } from "@clerk/tanstack-react-start";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
-import { listAgents, type Skill, type SkillVersion } from "#/lib/api";
+import type { Skill, SkillVersion } from "#/lib/api";
 import { cx } from "#/lib/cx";
 import { useSkillDetail, useSkills } from "#/lib/use-skills";
+import { useApi, useWorkspaceSlug } from "#/lib/workspace-context";
 import { SkillCreateForm } from "./skill-create";
 import { SkillDetail } from "./skill-detail";
 import { SkillDirectory } from "./skill-directory";
@@ -51,6 +52,9 @@ export function SkillsApp({
   slug: string | null;
   version: number | null;
 }) {
+  const api = useApi();
+  const workspaceSlug = useWorkspaceSlug();
+
   const { isSignedIn } = useUser();
   const signedIn = isSignedIn === true;
   const navigate = useNavigate();
@@ -74,67 +78,87 @@ export function SkillsApp({
     if (!signedIn) {
       return;
     }
-    listAgents()
+    api
+      .listAgents()
       .then((rows) =>
         setAgentNames(new Map(rows.map((agent) => [agent.id, agent.name])))
       )
       .catch(() => setAgentNames(new Map()));
-  }, [signedIn]);
+  }, [api, signedIn]);
 
   const startNew = useCallback(() => {
-    navigate({ search: { new: true }, to: "/skills" });
-  }, [navigate]);
+    navigate({
+      params: { workspaceSlug },
+      search: { new: true },
+      to: "/w/$workspaceSlug/skills",
+    });
+  }, [navigate, workspaceSlug]);
 
   const cancelNew = useCallback(() => {
-    navigate({ search: {}, to: "/skills" });
-  }, [navigate]);
+    navigate({
+      params: { workspaceSlug },
+      search: {},
+      to: "/w/$workspaceSlug/skills",
+    });
+  }, [navigate, workspaceSlug]);
 
   const onCreated = useCallback(
     async (created: Skill) => {
       await reload();
-      await navigate({ params: { slug: created.slug }, to: "/skills/$slug" });
+      await navigate({
+        params: { slug: created.slug, workspaceSlug },
+        to: "/w/$workspaceSlug/skills/$slug",
+      });
     },
-    [navigate, reload]
+    [navigate, reload, workspaceSlug]
   );
 
   const startEdit = useCallback(() => {
     if (slug) {
       navigate({
-        params: { slug },
+        params: { slug, workspaceSlug },
         search: { edit: true },
-        to: "/skills/$slug",
+        to: "/w/$workspaceSlug/skills/$slug",
       });
     }
-  }, [navigate, slug]);
+  }, [navigate, slug, workspaceSlug]);
 
   const stopEdit = useCallback(() => {
     if (slug) {
-      navigate({ params: { slug }, search: {}, to: "/skills/$slug" });
+      navigate({
+        params: { slug, workspaceSlug },
+        search: {},
+        to: "/w/$workspaceSlug/skills/$slug",
+      });
     }
-  }, [navigate, slug]);
+  }, [navigate, slug, workspaceSlug]);
 
   const onVersionSaved = useCallback(
     async (_version: SkillVersion) => {
       await reload();
       if (slug) {
-        await navigate({ params: { slug }, search: {}, to: "/skills/$slug" });
+        await navigate({
+          params: { slug, workspaceSlug },
+          search: {},
+          to: "/w/$workspaceSlug/skills/$slug",
+        });
       }
       await reloadDetail();
     },
-    [navigate, reload, reloadDetail, slug]
+    [navigate, reload, reloadDetail, slug, workspaceSlug]
   );
 
   const selectVersion = useCallback(
     (next: number | null) => {
       if (slug) {
         navigate({
-          params: { slug },
+          params: { slug, workspaceSlug },
           search: next === null ? {} : { version: next },
-          to: "/skills/$slug",
+          to: "/w/$workspaceSlug/skills/$slug",
         });
       }
     },
-    [navigate, slug]
+    [navigate, slug, workspaceSlug]
   );
 
   const onRemoved = useCallback(
@@ -145,9 +169,13 @@ export function SkillsApp({
           : `Deleted here, but Anthropic kept its copy: ${anthropicError}`
       );
       await reload();
-      await navigate({ search: {}, to: "/skills" });
+      await navigate({
+        params: { workspaceSlug },
+        search: {},
+        to: "/w/$workspaceSlug/skills",
+      });
     },
-    [navigate, reload]
+    [navigate, reload, workspaceSlug]
   );
 
   const refreshAll = useCallback(async () => {
@@ -168,7 +196,11 @@ export function SkillsApp({
         className="flex w-70 shrink-0 flex-col border-[var(--ws-line)] border-r bg-[var(--ws-panel)]"
       >
         <div className="flex items-center justify-between gap-2 px-3 py-3">
-          <Link className="font-semibold text-sm no-underline" to="/">
+          <Link
+            className="font-semibold text-sm no-underline"
+            params={{ workspaceSlug }}
+            to="/w/$workspaceSlug"
+          >
             ← Agentum
           </Link>
           <Button
@@ -195,8 +227,8 @@ export function SkillsApp({
             <Link
               className={rowClass(row.slug === slug)}
               key={row.id}
-              params={{ slug: row.slug }}
-              to="/skills/$slug"
+              params={{ slug: row.slug, workspaceSlug }}
+              to="/w/$workspaceSlug/skills/$slug"
             >
               <SkillSyncDot status={row.syncStatus} />
               <span className="truncate">{row.name}</span>

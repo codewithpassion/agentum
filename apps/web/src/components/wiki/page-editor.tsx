@@ -5,7 +5,8 @@ import {
   Markdown,
   type MarkdownLinkProps,
 } from "#/components/workspace/markdown";
-import { uploadWikiAsset, type WikiAssetView } from "#/lib/api";
+import type { WikiAssetView } from "#/lib/api";
+import { useApi } from "#/lib/workspace-context";
 import { replaceWikiLinks } from "#/modules/wiki/wiki-links";
 
 const assetMarkdown = (asset: WikiAssetView): string =>
@@ -39,6 +40,8 @@ export function PageEditor({
 }) {
   const titleId = useId();
   const bodyId = useId();
+  const api = useApi();
+
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [title, setTitle] = useState(initialTitle);
@@ -70,7 +73,7 @@ export function PageEditor({
       (async () => {
         setBusy(true);
         try {
-          const asset = await uploadWikiAsset(file, pageId);
+          const asset = await api.uploadWikiAsset(file, pageId);
           const caret = bodyRef.current?.selectionStart ?? body.length;
           setBody((current) =>
             insertAt(
@@ -87,7 +90,7 @@ export function PageEditor({
         }
       })();
     },
-    [body.length, pageId]
+    [api, body.length, pageId]
   );
 
   const submit = useCallback(

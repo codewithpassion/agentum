@@ -399,6 +399,52 @@ the other dev user by email, confirm each workspace shows only its own
 agents/channels; confirm no Clerk id visible anywhere in the UI or in the
 network tab payloads.
 
+**Shipped.** Four decisions are worth recording:
+
+- **The API client is a factory, not an ambient slug.** `createApi(slug)`
+  returns every fetcher closed over `/api/w/:slug`, and `WorkspaceProvider`
+  (`lib/workspace-context.tsx`) hands components the instance for the workspace
+  in the route through `useApi()`. The obvious cheaper move - a module-level
+  "current workspace" set by the layout - was rejected: this app server-renders
+  in a Worker, so a mutable module global is shared across concurrent requests,
+  and a cross-tenant leak is exactly what this plan exists to prevent. The
+  factory also buys the refetch for free: `api` is memoized per slug, so it is a
+  hook dependency, and every list reloads when the slug changes.
+- **The provider is keyed by slug.** TanStack Router keeps a route component
+  mounted when only a parameter changes, so without `key={workspaceSlug}` the
+  previous workspace's agents and channels would stay on screen until the new
+  fetch landed - and the open channel socket with them. Keying the provider
+  resets all of it at the moment of the switch.
+- **The switcher lives in the chat sidebar, not `components/header.tsx`.** That
+  header renders only on `/about` and `/login`; the app screens own the whole
+  viewport and start with the sidebar's title row, which is where the switcher
+  replaces the static "Agentum". Switching drops the search params: a `channel`
+  or `agent` id from one workspace names nothing in the next.
+- **Legacy `/api/…` URLs in stored markdown are rewritten once, in the data.**
+  Wiki asset images and pasted screenshot links written before Phase 3 point at
+  the pre-workspace routes and 404 now. `scripts/rewrite-legacy-urls.ts`
+  (`bun run rewrite-legacy-urls`) rewrites them to `/api/w/default/…` in
+  `messages`, `wiki_pages` and `wiki_revisions`, and is idempotent - a URL
+  already under `/api/w/` is left alone. A render-time patch in the markdown
+  renderer was the alternative; it was rejected because those URLs are data that
+  went stale, the rule would have to live forever, and the database would go on
+  holding links that lead nowhere.
+
+*Acceptance* (dev login, local dev server; screenshots in
+`docs/acceptance/multi-tenancy/`): landed on `/w/default` with its channels and
+message history (01, 02); created a second workspace from the switcher and found
+it empty - no agents, channels, skills or connectors from the default one (03,
+04, 05); created an agent and a channel in it and switched back and forth, each
+workspace showing only its own (06, 07, 08, 09); every request went to
+`/api/w/<slug>/…` for the workspace on screen, including the channel socket;
+members settings listed the dev user by name, email and role, and an unknown
+email answered "No account with that email" (10, 11); an unknown slug gave the
+"workspace not found" screen with the switcher rather than a crash (12); a wiki
+page's rewritten asset URL loaded (13); skills were present in the default
+workspace and absent in the new one (14, 15). A scan of fifteen API payloads
+across both workspaces for `user_[A-Za-z0-9]{4,}` outside `imageUrl` found zero
+matches.
+
 ## Explicitly deferred (YAGNI until asked)
 
 - Pending invites for emails without a Clerk account.

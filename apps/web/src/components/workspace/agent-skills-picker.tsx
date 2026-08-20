@@ -2,12 +2,9 @@ import { useUser } from "@clerk/tanstack-react-start";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { SkillSyncDot, UNSYNCED_NOTE } from "#/components/skills/skill-status";
-import {
-  assignSkillToAgent,
-  type Skill,
-  unassignSkillFromAgent,
-} from "#/lib/api";
+import type { Skill } from "#/lib/api";
 import { useAgentSkills, useSkills } from "#/lib/use-skills";
+import { useApi, useWorkspaceSlug } from "#/lib/workspace-context";
 // Straight from the server's rule, so the cap indicator cannot drift from it.
 import { MAX_AGENT_SKILLS } from "#/modules/skills/validate";
 
@@ -98,6 +95,9 @@ function SkillRow({
 }
 
 export function AgentSkillsPicker({ agentId }: { agentId: string }) {
+  const api = useApi();
+  const workspaceSlug = useWorkspaceSlug();
+
   const { isSignedIn } = useUser();
   const signedIn = isSignedIn === true;
   const { error: listError, skills } = useSkills(signedIn);
@@ -142,16 +142,16 @@ export function AgentSkillsPicker({ agentId }: { agentId: string }) {
     (slug: string, next: boolean) =>
       run(slug, () =>
         next
-          ? assignSkillToAgent(slug, agentId, null)
-          : unassignSkillFromAgent(slug, agentId)
+          ? api.assignSkillToAgent(slug, agentId, null)
+          : api.unassignSkillFromAgent(slug, agentId)
       ),
-    [agentId, run]
+    [agentId, api, run]
   );
 
   const pin = useCallback(
     (slug: string, pinnedVersion: number | null) =>
-      run(slug, () => assignSkillToAgent(slug, agentId, pinnedVersion)),
-    [agentId, run]
+      run(slug, () => api.assignSkillToAgent(slug, agentId, pinnedVersion)),
+    [agentId, api, run]
   );
 
   const shown = listError ?? assignedError ?? error;
@@ -168,7 +168,11 @@ export function AgentSkillsPicker({ agentId }: { agentId: string }) {
       {skills.length === 0 ? (
         <p className="m-0 text-[var(--ws-muted)] text-xs">
           No skills yet.{" "}
-          <Link className="text-[var(--ws-accent)]" to="/skills">
+          <Link
+            className="text-[var(--ws-accent)]"
+            params={{ workspaceSlug }}
+            to="/w/$workspaceSlug/skills"
+          >
             Write one
           </Link>
           .

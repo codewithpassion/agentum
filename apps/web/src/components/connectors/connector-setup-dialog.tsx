@@ -2,14 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
-import {
-  addConnector,
-  type Connector,
-  reauthorizeConnector,
-  type StartOutcome,
-  setConnectorBearer,
-  setConnectorOauthClient,
-} from "#/lib/api";
+import type { Connector, StartOutcome } from "#/lib/api";
+import { useApi } from "#/lib/workspace-context";
 import { openBlankPopup, waitForAuthorization } from "./oauth-popup";
 
 /**
@@ -61,6 +55,8 @@ export function ConnectorSetupDialog({
   onDone: (connector: Connector) => Promise<void>;
   open: boolean;
 }) {
+  const api = useApi();
+
   const [step, setStep] = useState<Step>({ kind: "url" });
   const [url, setUrl] = useState("");
   const [name, setName] = useState("");
@@ -95,7 +91,7 @@ export function ConnectorSetupDialog({
     async (row: Connector, authorizeUrl: string, popup: Window | null) => {
       popup?.location.replace(authorizeUrl);
       setStep({ authorizeUrl, connector: row, kind: "waiting" });
-      const settled = await waitForAuthorization(row.id);
+      const settled = await waitForAuthorization(api, row.id);
       if (settled.status === "connected") {
         await finish(settled);
         return;
@@ -104,7 +100,7 @@ export function ConnectorSetupDialog({
         settled.lastError ?? "The authorization did not complete. Try again."
       );
     },
-    [finish]
+    [api, finish]
   );
 
   const handleOutcome = useCallback(
@@ -155,14 +151,14 @@ export function ConnectorSetupDialog({
     (event: React.FormEvent) => {
       event.preventDefault();
       run(async (popup) => {
-        const added = await addConnector({
+        const added = await api.addConnector({
           ...(name.trim() ? { name: name.trim() } : {}),
           url: url.trim(),
         });
         await handleOutcome(added.connector, added.outcome, popup);
       }, true);
     },
-    [handleOutcome, name, run, url]
+    [api, handleOutcome, name, run, url]
   );
 
   const submitClient = useCallback(
@@ -173,14 +169,14 @@ export function ConnectorSetupDialog({
       }
       const row = step.connector;
       run(async (popup) => {
-        const outcome = await setConnectorOauthClient(row.id, {
+        const outcome = await api.setConnectorOauthClient(row.id, {
           clientId: clientId.trim(),
           clientSecret: clientSecret.trim() || null,
         });
         await handleOutcome(row, outcome, popup);
       }, true);
     },
-    [clientId, clientSecret, handleOutcome, run, step]
+    [api, clientId, clientSecret, handleOutcome, run, step]
   );
 
   const submitBearer = useCallback(
@@ -191,10 +187,10 @@ export function ConnectorSetupDialog({
       }
       const row = step.connector;
       run(async () => {
-        await finish(await setConnectorBearer(row.id, token.trim()));
+        await finish(await api.setConnectorBearer(row.id, token.trim()));
       }, false);
     },
-    [finish, run, step, token]
+    [api, finish, run, step, token]
   );
 
   const startAuthorize = useCallback(() => {
@@ -203,10 +199,10 @@ export function ConnectorSetupDialog({
     }
     const row = step.connector;
     run(async (popup) => {
-      const outcome = await reauthorizeConnector(row.id);
+      const outcome = await api.reauthorizeConnector(row.id);
       await handleOutcome(row, outcome, popup);
     }, true);
-  }, [handleOutcome, run, step]);
+  }, [api, handleOutcome, run, step]);
 
   const switchToBearer = useCallback(() => {
     if (step.kind === "url") {

@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Button } from "#/components/ui/button";
 import type { Skill } from "#/lib/api";
+import { useWorkspaceSlug } from "#/lib/workspace-context";
 import { authorLabel, SKILL_SYNC_LABELS, SkillSyncDot } from "./skill-status";
 
 /**
@@ -18,6 +19,8 @@ export function SkillDirectory({
   onNew: () => void;
   skills: Skill[];
 }) {
+  const workspaceSlug = useWorkspaceSlug();
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-6">
       <div className="mx-auto max-w-2xl space-y-4">
@@ -47,8 +50,8 @@ export function SkillDirectory({
               <li key={skill.id}>
                 <Link
                   className="ws-focus block rounded-lg border border-[var(--ws-line)] px-3 py-2 no-underline hover:bg-[var(--ws-surface)]"
-                  params={{ slug: skill.slug }}
-                  to="/skills/$slug"
+                  params={{ slug: skill.slug, workspaceSlug }}
+                  to="/w/$workspaceSlug/skills/$slug"
                 >
                   <span className="flex items-center gap-2">
                     <span className="min-w-0 flex-1 truncate font-medium text-[13px] text-[var(--ws-text)]">

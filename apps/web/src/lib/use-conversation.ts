@@ -3,14 +3,9 @@ import type {
   AgentStatusEvent,
   ChannelEvent,
 } from "#/modules/messaging/realtime";
-import {
-  type Channel,
-  type ChannelMemberView,
-  getChannel,
-  listMessages,
-  type MessageView,
-} from "./api";
+import type { Channel, ChannelMemberView, MessageView } from "./api";
 import { useChannelSocket } from "./use-channel-socket";
+import { useApi } from "./workspace-context";
 
 export type ReplyListener = (message: MessageView) => void;
 
@@ -44,6 +39,7 @@ export interface Conversation {
  * so entries are merged by id; thread replies only bump their parent's count.
  */
 export const useConversation = (channelId: string | null): Conversation => {
+  const api = useApi();
   const [channel, setChannel] = useState<Channel | null>(null);
   const [members, setMembers] = useState<ChannelMemberView[]>([]);
   const [messages, setMessages] = useState<MessageView[]>([]);
@@ -81,8 +77,8 @@ export const useConversation = (channelId: string | null): Conversation => {
     (async () => {
       try {
         const [details, page] = await Promise.all([
-          getChannel(channelId),
-          listMessages(channelId),
+          api.getChannel(channelId),
+          api.listMessages(channelId),
         ]);
         if (cancelled) {
           return;
@@ -108,16 +104,16 @@ export const useConversation = (channelId: string | null): Conversation => {
     return () => {
       cancelled = true;
     };
-  }, [channelId]);
+  }, [api, channelId]);
 
   const loadOlder = useCallback(async () => {
     if (!(channelId && nextCursor)) {
       return;
     }
-    const page = await listMessages(channelId, nextCursor);
+    const page = await api.listMessages(channelId, nextCursor);
     setMessages((previous) => [...[...page.messages].reverse(), ...previous]);
     setNextCursor(page.nextCursor);
-  }, [channelId, nextCursor]);
+  }, [api, channelId, nextCursor]);
 
   const merge = useCallback((message: MessageView) => {
     if (message.authorType !== "agent") {

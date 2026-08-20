@@ -7,6 +7,7 @@ import { Button } from "#/components/ui/button";
 import type { Connector } from "#/lib/api";
 import { cx } from "#/lib/cx";
 import { useConnectors } from "#/lib/use-connectors";
+import { useWorkspaceSlug } from "#/lib/workspace-context";
 import { SectionHint, SidebarSection } from "./sidebar-section";
 
 /**
@@ -30,6 +31,8 @@ export function ConnectorsSection({
   const { isSignedIn } = useUser();
   const { connectors, reload } = useConnectors(isSignedIn === true);
   const [addOpen, setAddOpen] = useState(false);
+
+  const workspaceSlug = useWorkspaceSlug();
 
   const openAdd = useCallback(() => setAddOpen(true), []);
   const closeAdd = useCallback(() => setAddOpen(false), []);
@@ -68,9 +71,9 @@ export function ConnectorsSection({
               className={cx(rowClass)}
               data-testid="sidebar-connector"
               key={connector.id}
-              params={{ connectorId: connector.id }}
+              params={{ connectorId: connector.id, workspaceSlug }}
               title={`${connector.name} - ${connector.url}`}
-              to="/connectors/$connectorId"
+              to="/w/$workspaceSlug/connectors/$connectorId"
             >
               <ConnectorStatusDot status={connector.status} />
               <span className="truncate">{connector.name}</span>
