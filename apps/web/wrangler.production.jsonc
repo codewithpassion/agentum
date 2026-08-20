@@ -1,0 +1,66 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Deployed config: `wrangler deploy -c wrangler.production.jsonc` (see the
+  // `deploy` package script). Mirrors wrangler.jsonc MINUS the Worker Loader
+  // binding and its `experimental` compatibility flag, which Cloudflare
+  // rejects in deployed Workers (error 10021). Without the loader the agent
+  // computer has no shell — its filesystem still works and `exec` returns a
+  // clear error (modules/computer/durable-object.ts). Keep bindings in step
+  // with wrangler.jsonc when they change.
+  "name": "agentum",
+  "compatibility_date": "2026-08-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "src/server.ts",
+  "observability": { "enabled": true },
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "agentum.rockyshoreslabs.io", "custom_domain": true }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agentum",
+      "database_id": "960692fe-ba5c-4d5d-a8da-21bd7647e869",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENTS",
+      "bucket_name": "agentum-attachments"
+    }
+  ],
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHANNEL_ROOM",
+        "class_name": "ChannelRoom"
+      },
+      {
+        "name": "AGENT_ROUTER",
+        "class_name": "AgentRouter"
+      },
+      {
+        "name": "AGENT_COMPUTER",
+        "class_name": "AgentComputer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ChannelRoom"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["AgentRouter"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["AgentComputer"]
+    }
+  ]
+}

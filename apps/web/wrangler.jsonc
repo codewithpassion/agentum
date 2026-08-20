@@ -3,17 +3,20 @@
   "name": "agentum",
   "compatibility_date": "2026-08-19",
   // `experimental` is what unlocks the Worker Loader binding below, which the
-  // agent computer's shell backend runs commands in.
+  // agent computer's shell backend runs commands in. Cloudflare rejects the
+  // flag on deployed Workers (error 10021), so this config is dev-only:
+  // deploys use wrangler.production.jsonc, which omits the loader, and the
+  // agent computer degrades to filesystem-only (see
+  // modules/computer/durable-object.ts).
   "compatibility_flags": ["nodejs_compat", "experimental"],
   "main": "src/server.ts",
   "observability": { "enabled": true },
-  // database_id is a placeholder: local dev runs against miniflare's D1, and no
-  // remote database has been provisioned yet.
+  "workers_dev": false,
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "agentum",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "960692fe-ba5c-4d5d-a8da-21bd7647e869",
       "migrations_dir": "drizzle"
     }
   ],
@@ -38,8 +41,8 @@
         "name": "CHANNEL_ROOM",
         "class_name": "ChannelRoom"
       },
-      // One global instance (idFromName("router")) watches every message and
-      // decides which agents wake.
+      // One instance per workspace (idFromName(workspaceId)) watches that
+      // workspace's messages and decides which agents wake.
       {
         "name": "AGENT_ROUTER",
         "class_name": "AgentRouter"
@@ -53,7 +56,8 @@
     ]
   },
   // The dynamic-worker loader the agent computer's shell backend runs commands
-  // in. Requires the `experimental` compatibility flag above.
+  // in. Requires the `experimental` compatibility flag above; dev-only until
+  // Cloudflare allows either in deployed Workers.
   "worker_loaders": [{ "binding": "LOADER" }],
   "migrations": [
     {
