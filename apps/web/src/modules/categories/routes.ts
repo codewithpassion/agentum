@@ -11,6 +11,7 @@ import {
 import { createDb, type Db } from "#/db/client";
 import { getAgentById } from "#/modules/agents/service";
 import { getChannel } from "#/modules/messaging/service";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import { CATEGORY_ITEM_TYPES } from "./schema";
 import {
   assignItem,
@@ -64,7 +65,14 @@ categoriesRoutes.post("/", async (c) => {
   const name = requireString(body, "name", {
     maxLength: CATEGORY_NAME_MAX_LENGTH,
   });
-  const category = await createCategory(createDb(c.env.DB), { name });
+  // TODO(phase-2): replace with requireWorkspace context.
+  const category = await createCategory(
+    createDb(c.env.DB),
+    DEFAULT_WORKSPACE_ID,
+    {
+      name,
+    }
+  );
   return c.json({ category }, 201);
 });
 

@@ -12,6 +12,12 @@ import {
  * to `agents`: the messaging module owns this schema and must not depend on
  * another module's tables. Agent rows are resolved through the agents module's
  * public service at read time, so a dangling id simply resolves to nothing.
+ *
+ * `channels.workspace_id` is the tenant boundary, and follows the same rule -
+ * no foreign key to `workspaces`. It is the *only* workspace column in this
+ * module: `channel_members`, `messages`, `attachments` and `message_mentions`
+ * inherit tenancy through their channel, so reaching one by bare id means
+ * resolving its channel within the workspace first.
  */
 
 export const MEMBER_TYPES = ["user", "agent"] as const;
@@ -30,6 +36,7 @@ export const channels = sqliteTable("channels", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch() * 1000)`),
+  workspaceId: text("workspace_id").notNull(),
 });
 
 export const channelMembers = sqliteTable(

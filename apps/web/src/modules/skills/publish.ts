@@ -136,6 +136,7 @@ const pushVersion = async (
 /** A brand-new skill at version 1. The slug must be free. */
 export const publishNewSkill = async (
   ctx: SkillPublishContext,
+  workspaceId: string,
   input: PublishInput
 ): Promise<PublishResult> => {
   const validation = validateSkill({ files: input.files, slug: input.slug });
@@ -143,7 +144,7 @@ export const publishNewSkill = async (
     return validation;
   }
 
-  const written = await createSkill(ctx.db, ctx.bucket, {
+  const written = await createSkill(ctx.db, ctx.bucket, workspaceId, {
     changelog: input.changelog,
     createdBy: input.createdBy,
     skill: validation.skill,

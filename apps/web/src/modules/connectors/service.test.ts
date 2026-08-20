@@ -10,6 +10,7 @@ import {
   getAgentById,
 } from "#/modules/agents/service";
 import type { VaultGateway } from "#/modules/anthropic/vaults";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import { decryptSecret, generateConnectorKey } from "./crypto";
 import { connectorOauthFlows, connectors } from "./schema";
 import {
@@ -252,7 +253,9 @@ const flowFor = async (connectorId: string) => {
 const authorized = async (
   ctx: ConnectorContext
 ): Promise<{ connectorId: string; state: string }> => {
-  const { connector } = await addConnector(ctx, { url: MCP_URL });
+  const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+    url: MCP_URL,
+  });
   const flow = await flowFor(connector.id);
   if (!flow) {
     throw new Error("Expected a stored OAuth flow.");
@@ -265,10 +268,14 @@ const authorized = async (
 describe("addConnector", () => {
   test("a server that needs no auth is connected with its tools, and no vault", async () => {
     const ctx = contextWith(world([mcpHandler(null, ["a", "b"])]));
-    const { connector, outcome } = await addConnector(ctx, {
-      name: "Docs",
-      url: MCP_URL,
-    });
+    const { connector, outcome } = await addConnector(
+      ctx,
+      DEFAULT_WORKSPACE_ID,
+      {
+        name: "Docs",
+        url: MCP_URL,
+      }
+    );
 
     expect(outcome).toEqual({ kind: "connected" });
     expect(connector.status).toBe("connected");
@@ -282,23 +289,27 @@ describe("addConnector", () => {
 
   test("names the connector after its host when none is given", async () => {
     const ctx = contextWith(world([mcpHandler(null)]));
-    const { connector } = await addConnector(ctx, { url: MCP_URL });
+    const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
     expect(connector.name).toBe("mcp.example.com");
   });
 
   test("stores the canonical URL, so two spellings collide", async () => {
     const ctx = contextWith(world([mcpHandler(null)]));
-    await addConnector(ctx, { url: "https://MCP.example.com/mcp#frag" });
-    expect(addConnector(ctx, { url: MCP_URL })).rejects.toThrow(
-      UNIQUE_CONSTRAINT
-    );
+    await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: "https://MCP.example.com/mcp#frag",
+    });
+    expect(
+      addConnector(ctx, DEFAULT_WORKSPACE_ID, { url: MCP_URL })
+    ).rejects.toThrow(UNIQUE_CONSTRAINT);
   });
 
   test("refuses a private address before probing it", () => {
     const ctx = contextWith(world([]));
-    expect(addConnector(ctx, { url: "https://127.0.0.1/mcp" })).rejects.toThrow(
-      BLOCKED_ADDRESS
-    );
+    expect(
+      addConnector(ctx, DEFAULT_WORKSPACE_ID, { url: "https://127.0.0.1/mcp" })
+    ).rejects.toThrow(BLOCKED_ADDRESS);
   });
 
   // --- rungs 2 and 3 --------------------------------------------------------
@@ -307,7 +318,11 @@ describe("addConnector", () => {
     const ctx = contextWith(
       world([mcpHandler("at_1"), metadataHandler(), registrationHandler()])
     );
-    const { connector, outcome } = await addConnector(ctx, { url: MCP_URL });
+    const { connector, outcome } = await addConnector(
+      ctx,
+      DEFAULT_WORKSPACE_ID,
+      { url: MCP_URL }
+    );
 
     expect(outcome.kind).toBe("authorize");
     const authorizeUrl = new URL(
@@ -336,7 +351,11 @@ describe("addConnector", () => {
     const ctx = contextWith(
       world([mcpHandler("at_1"), metadataHandler(noDcr)])
     );
-    const { connector, outcome } = await addConnector(ctx, { url: MCP_URL });
+    const { connector, outcome } = await addConnector(
+      ctx,
+      DEFAULT_WORKSPACE_ID,
+      { url: MCP_URL }
+    );
 
     expect(outcome).toEqual({
       issuer: "https://auth.example.com",
@@ -354,7 +373,9 @@ describe("addConnector", () => {
     const ctx = contextWith(
       world([mcpHandler("at_1"), metadataHandler(noDcr)])
     );
-    const { connector } = await addConnector(ctx, { url: MCP_URL });
+    const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
 
     const outcome = await beginReauthorization(ctx, connector, {
       clientId: "cid_manual",
@@ -374,7 +395,11 @@ describe("addConnector", () => {
 
   test("offers the bearer fallback when the server publishes no OAuth metadata", async () => {
     const ctx = contextWith(world([mcpHandler("at_1")]));
-    const { connector, outcome } = await addConnector(ctx, { url: MCP_URL });
+    const { connector, outcome } = await addConnector(
+      ctx,
+      DEFAULT_WORKSPACE_ID,
+      { url: MCP_URL }
+    );
 
     expect(outcome.kind).toBe("needs_bearer");
     const stored = await getConnector(db, connector.id);
@@ -389,7 +414,11 @@ describe("addConnector", () => {
           url === MCP_URL ? new Response("nope", { status: 502 }) : null,
       ])
     );
-    const { connector, outcome } = await addConnector(ctx, { url: MCP_URL });
+    const { connector, outcome } = await addConnector(
+      ctx,
+      DEFAULT_WORKSPACE_ID,
+      { url: MCP_URL }
+    );
 
     expect(outcome.kind).toBe("needs_bearer");
     expect((await getConnector(db, connector.id))?.lastError).toContain("502");
@@ -407,6 +436,7 @@ describe("validateFlow", () => {
     scope: null,
     state: "good",
     verifier: "v",
+    workspaceId: DEFAULT_WORKSPACE_ID,
   };
 
   test("accepts a matching, unexpired flow", () => {
@@ -596,7 +626,9 @@ describe("completeBearer", () => {
     const ctx = contextWith(
       world([mcpHandler("tok_paste"), metadataHandler()])
     );
-    const { connector } = await addConnector(ctx, { url: MCP_URL });
+    const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
 
     const updated = await completeBearer(ctx, connector, "tok_paste");
 
@@ -614,7 +646,9 @@ describe("completeBearer", () => {
 
   test("a token the server rejects is never stored", async () => {
     const ctx = contextWith(world([mcpHandler("right"), metadataHandler()]));
-    const { connector } = await addConnector(ctx, { url: MCP_URL });
+    const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
 
     expect(completeBearer(ctx, connector, "wrong")).rejects.toThrow();
     const stored = await getConnector(db, connector.id);
@@ -716,7 +750,9 @@ describe("testConnection", () => {
 
   test("a bearer connector rejected at the server really is broken", async () => {
     const setup = contextWith(world([mcpHandler("tok"), metadataHandler()]));
-    const { connector } = await addConnector(setup, { url: MCP_URL });
+    const { connector } = await addConnector(setup, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
     await completeBearer(setup, connector, "tok");
 
     const stored = await getConnector(db, connector.id);
@@ -734,7 +770,9 @@ describe("testConnection", () => {
 
   test("a good test clears a previous auth_error", async () => {
     const setup = contextWith(world([mcpHandler(null)]));
-    const { connector } = await addConnector(setup, { url: MCP_URL });
+    const { connector } = await addConnector(setup, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
     await db
       .update(connectors)
       .set({ lastError: "old", status: "auth_error" })
@@ -755,7 +793,9 @@ describe("testConnection", () => {
 describe("setConnectorDisabled", () => {
   test("disables, then restores the status the credential implies", async () => {
     const ctx = contextWith(world([mcpHandler(null)]));
-    const { connector } = await addConnector(ctx, { url: MCP_URL });
+    const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
 
     const disabled = await setConnectorDisabled(ctx, connector, true);
     expect(disabled?.status).toBe("disabled");
@@ -770,7 +810,9 @@ describe("setConnectorDisabled", () => {
 
   test("an unauthorized connector comes back unconfigured, not connected", async () => {
     const ctx = contextWith(world([mcpHandler("at_1"), metadataHandler()]));
-    const { connector } = await addConnector(ctx, { url: MCP_URL });
+    const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
 
     const disabled = await setConnectorDisabled(ctx, connector, true);
     const enabled = await setConnectorDisabled(
@@ -785,7 +827,9 @@ describe("setConnectorDisabled", () => {
 describe("agent assignment", () => {
   test("assigns, lists both ways and unassigns", async () => {
     const ctx = contextWith(world([mcpHandler(null)]));
-    const { connector } = await addConnector(ctx, { url: MCP_URL });
+    const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
 
     await assignConnector(db, connector.id, "agent_1");
     // Assigning twice is not an error - the pair is unique.
@@ -836,7 +880,9 @@ describe("removeConnector", () => {
 
   test("removes the rows even when the vault call fails", async () => {
     const ctx = contextWith(world([mcpHandler(null)]));
-    const { connector } = await addConnector(ctx, { url: MCP_URL });
+    const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
     await db
       .update(connectors)
       .set({ vaultId: "vault_orphan" })
@@ -858,7 +904,9 @@ describe("removeConnector", () => {
       ...contextWith(world([mcpHandler(null)])),
       vaults: null,
     };
-    const { connector } = await addConnector(ctx, { url: MCP_URL });
+    const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
 
     expect(connector.status).toBe("connected");
     expect((await removeConnector(ctx, connector)).vaultError).toBeNull();
@@ -876,7 +924,7 @@ describe("removeConnector", () => {
  */
 describe("marking agents for a connector resync", () => {
   const anAgent = async (name = "Ada"): Promise<string> => {
-    const { agent } = await createAgent(db, {
+    const { agent } = await createAgent(db, DEFAULT_WORKSPACE_ID, {
       instructions: "",
       name,
       soul: "",
@@ -899,7 +947,9 @@ describe("marking agents for a connector resync", () => {
 
   const connected = async (): Promise<string> => {
     const ctx = contextWith(world([mcpHandler(null)]));
-    const { connector } = await addConnector(ctx, { url: MCP_URL });
+    const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
     return connector.id;
   };
 
@@ -942,6 +992,7 @@ describe("marking agents for a connector resync", () => {
         name: `c${index}`,
         status: "connected",
         url: `https://c${index}.example.com/mcp`,
+        workspaceId: DEFAULT_WORKSPACE_ID,
       });
       await assignConnector(db, `c${index}`, agentId);
     }
@@ -1021,8 +1072,10 @@ describe("recordConnectorAuthFailure", () => {
     connectorId: string;
   }> => {
     const ctx = contextWith(world([mcpHandler(null)]));
-    const { connector } = await addConnector(ctx, { url: MCP_URL });
-    const { agent } = await createAgent(db, {
+    const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
+    const { agent } = await createAgent(db, DEFAULT_WORKSPACE_ID, {
       instructions: "",
       name: "Ada",
       soul: "",
@@ -1059,7 +1112,7 @@ describe("recordConnectorAuthFailure", () => {
 
   test("a connector another agent holds is not blamed", async () => {
     const { connectorId } = await attachedTo();
-    const { agent } = await createAgent(db, {
+    const { agent } = await createAgent(db, DEFAULT_WORKSPACE_ID, {
       instructions: "",
       name: "Grace",
       soul: "",

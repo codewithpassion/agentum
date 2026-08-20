@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseMentions } from "#/modules/messaging/mentions";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import type { ChannelBridge } from "../schema";
 import type { InboundMessage } from "../types";
 import type { SlackEventCallback, SlackMessageEvent } from "./events";
@@ -26,6 +27,7 @@ const bridge = (overrides: Partial<ChannelBridge> = {}): ChannelBridge => ({
   externalChannelId: SLACK_CHANNEL,
   id: "bridge-1",
   status: "active",
+  workspaceId: DEFAULT_WORKSPACE_ID,
   ...overrides,
 });
 

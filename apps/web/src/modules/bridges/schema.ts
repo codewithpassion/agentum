@@ -50,6 +50,13 @@ export const BRIDGE_STATUSES = ["active", "disabled"] as const;
  * A channel bridged to an external surface. `agent_id` is the agent the bot
  * account speaks as: an inbound `<@BOTID>` mention is rewritten to that agent's
  * `@Name`, which is what makes a Slack mention wake the agent.
+ *
+ * `workspace_id` is the tenant boundary, and carries no foreign key to
+ * `workspaces` - this module must not depend on another module's tables. It
+ * matters more here than anywhere else: an inbound Slack event is not
+ * Clerk-authed, so the bridge row is the only thing that maps it to a
+ * workspace. `external_refs`, `slack_users` and `slack_events_seen` are
+ * bridge-scoped lookups and get no column of their own.
  */
 export const channelBridges = sqliteTable(
   "channel_bridges",
@@ -66,6 +73,7 @@ export const channelBridges = sqliteTable(
     status: text("status", { enum: BRIDGE_STATUSES })
       .notNull()
       .default("active"),
+    workspaceId: text("workspace_id").notNull(),
   },
   (table) => [
     // One bridge per channel per connector, and one connector channel is never

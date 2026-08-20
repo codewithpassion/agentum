@@ -13,6 +13,7 @@ import {
 } from "#/api/validation";
 import { createDb } from "#/db/client";
 import { getAgentById } from "#/modules/agents/service";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import { publishMessage } from "../publish";
 import { connectToChannelRoom } from "../realtime";
 import { MEMBER_TYPES } from "../schema";
@@ -71,7 +72,8 @@ channelsRoutes.post("/", async (c) => {
     maxLength: CHANNEL_NAME_MAX_LENGTH,
   });
   const agentIds = optionalStringArray(body, "agentIds") ?? [];
-  const channel = await createChannel(db, { name });
+  // TODO(phase-2): replace with requireWorkspace context.
+  const channel = await createChannel(db, DEFAULT_WORKSPACE_ID, { name });
 
   await addChannelMembers(db, channel.id, [
     { memberType: "user", memberId: c.get("userId") },

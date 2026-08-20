@@ -56,7 +56,9 @@ bridgeRoutes.get("/:id/bridge", async (c) => {
 bridgeRoutes.post("/:id/bridge", async (c) => {
   const db = createDb(c.env.DB);
   const channelId = c.req.param("id");
-  await requireChannel(db, channelId);
+  // A bridge belongs to the workspace of the channel it delivers into: that is
+  // what maps an inbound Slack event, which carries no session, to a tenant.
+  const channel = await requireChannel(db, channelId);
 
   const body = await readJsonObject(c.req.raw);
   const externalChannelId = requireString(body, "externalChannelId");
@@ -89,7 +91,7 @@ bridgeRoutes.post("/:id/bridge", async (c) => {
     }
   }
 
-  const bridge = await upsertBridge(db, {
+  const bridge = await upsertBridge(db, channel.workspaceId, {
     agentId,
     channelId,
     connector: SLACK_CONNECTOR,

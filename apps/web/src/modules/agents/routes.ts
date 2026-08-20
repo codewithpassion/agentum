@@ -14,6 +14,7 @@ import {
   resyncRostersWithAnthropic,
   syncAgentWithAnthropic,
 } from "#/modules/anthropic/service";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import { mcpUrlForToken } from "./mcp-token";
 import {
   createAgent,
@@ -28,7 +29,10 @@ import {
 const NAME_MAX_LENGTH = 80;
 const PROMPT_MAX_LENGTH = 20_000;
 
-/** Agent names are unique, and that is the only unique column on the table. */
+/**
+ * A unique-constraint failure on this insert can only be the name: the other
+ * unique column, `mcp_token_hash`, holds a freshly generated secret.
+ */
 const isDuplicateName = isUniqueConstraintError;
 
 /**
@@ -70,7 +74,12 @@ agentsRoutes.post("/", async (c) => {
   const db = createDb(c.env.DB);
 
   try {
-    const { agent, mcpToken } = await createAgent(db, input);
+    // TODO(phase-2): replace with requireWorkspace context.
+    const { agent, mcpToken } = await createAgent(
+      db,
+      DEFAULT_WORKSPACE_ID,
+      input
+    );
     // The only time the plaintext token exists: the client shows it once, and
     // it is also the only moment we can hand Anthropic this agent's MCP URL.
     const mcpUrl = mcpUrlForToken(c.env.PUBLIC_APP_URL, c.req.url, mcpToken);

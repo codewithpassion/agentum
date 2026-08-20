@@ -13,6 +13,7 @@ import {
   listSkillVersions,
 } from "#/modules/skills/service";
 import { MAX_AGENT_SKILLS } from "#/modules/skills/validate";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import { skillCreate, skillList, skillRead, skillUpdate } from "./skill-tools";
 import type { McpToolContext } from "./tools";
 
@@ -102,7 +103,7 @@ let agent: Agent;
 
 beforeEach(async () => {
   db = migrate();
-  ({ agent } = await createAgent(db, {
+  ({ agent } = await createAgent(db, DEFAULT_WORKSPACE_ID, {
     instructions: "",
     name: "Ada",
     soul: "",

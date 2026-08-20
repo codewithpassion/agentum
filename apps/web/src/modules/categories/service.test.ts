@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createDb, type Db } from "#/db/client";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import { categoryItems } from "./schema";
 import {
   assignItem,
@@ -59,8 +60,8 @@ describe("categories service", () => {
   });
 
   test("lists the categories it created", async () => {
-    await createCategory(db, { name: "Product" });
-    await createCategory(db, { name: "Ops" });
+    await createCategory(db, DEFAULT_WORKSPACE_ID, { name: "Product" });
+    await createCategory(db, DEFAULT_WORKSPACE_ID, { name: "Ops" });
 
     const listed = await listCategories(db);
     expect(listed.map((category) => category.name).sort()).toEqual([
@@ -71,7 +72,9 @@ describe("categories service", () => {
   });
 
   test("renames a category and reports a missing one", async () => {
-    const category = await createCategory(db, { name: "Product" });
+    const category = await createCategory(db, DEFAULT_WORKSPACE_ID, {
+      name: "Product",
+    });
 
     expect(await renameCategory(db, category.id, "Platform")).toEqual({
       id: category.id,
@@ -82,8 +85,10 @@ describe("categories service", () => {
   });
 
   test("moves an item when it is assigned to another category", async () => {
-    const product = await createCategory(db, { name: "Product" });
-    const ops = await createCategory(db, { name: "Ops" });
+    const product = await createCategory(db, DEFAULT_WORKSPACE_ID, {
+      name: "Product",
+    });
+    const ops = await createCategory(db, DEFAULT_WORKSPACE_ID, { name: "Ops" });
     const item = { itemId: "channel-1", itemType: "channel" as const };
 
     await assignItem(db, product.id, item);
@@ -99,7 +104,9 @@ describe("categories service", () => {
   });
 
   test("unassigns an item without touching its siblings", async () => {
-    const product = await createCategory(db, { name: "Product" });
+    const product = await createCategory(db, DEFAULT_WORKSPACE_ID, {
+      name: "Product",
+    });
     const channel = { itemId: "channel-1", itemType: "channel" as const };
     const agent = { itemId: "agent-1", itemType: "agent" as const };
 
@@ -111,7 +118,9 @@ describe("categories service", () => {
   });
 
   test("deleting a category leaves its items uncategorized", async () => {
-    const product = await createCategory(db, { name: "Product" });
+    const product = await createCategory(db, DEFAULT_WORKSPACE_ID, {
+      name: "Product",
+    });
     await assignItem(db, product.id, {
       itemId: "channel-1",
       itemType: "channel",

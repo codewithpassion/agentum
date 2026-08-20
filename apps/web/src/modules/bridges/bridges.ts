@@ -65,6 +65,7 @@ export const listBridgesForAgent = (
 /** Re-bridging a channel replaces the previous mapping rather than failing. */
 export const upsertBridge = async (
   db: Db,
+  workspaceId: string,
   input: CreateBridgeInput
 ): Promise<ChannelBridge> => {
   await db
@@ -85,6 +86,7 @@ export const upsertBridge = async (
       externalChannelId: input.externalChannelId,
       id: crypto.randomUUID(),
       status: "active",
+      workspaceId,
     })
     .onConflictDoUpdate({
       set: {

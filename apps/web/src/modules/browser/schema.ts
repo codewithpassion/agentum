@@ -5,6 +5,10 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
  * Two tables, both keyed by `agent_id` with no foreign key - the browser module
  * must not depend on the agents module's tables, the same rule the activity log
  * follows.
+ *
+ * Neither carries a `workspace_id`: both are children of an agent and inherit
+ * their tenancy from `agents.workspace_id`. Reaching one by bare id means
+ * resolving its agent within the workspace first.
  */
 
 /**

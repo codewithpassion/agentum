@@ -93,6 +93,7 @@ export interface IssuedAgent {
 
 export const createAgent = async (
   db: Db,
+  workspaceId: string,
   input: CreateAgentInput
 ): Promise<IssuedAgent> => {
   const mcpToken = generateMcpToken();
@@ -105,6 +106,7 @@ export const createAgent = async (
       mcpTokenHash: await hashMcpToken(mcpToken),
       name: input.name,
       soul: input.soul,
+      workspaceId,
     })
     .returning();
   if (!agent) {

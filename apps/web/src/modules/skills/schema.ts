@@ -8,6 +8,12 @@ import { integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
  * Local is the source of truth and the mirror is one-directional. A skill whose
  * push failed is still a usable local skill - it simply reaches no agent until
  * the retry succeeds, because `anthropicSkillId` is what an assignment needs.
+ *
+ * `skills.workspace_id` is the tenant boundary, and carries no foreign key to
+ * `workspaces` - this module must not depend on another module's tables. It is
+ * the only workspace column here: `skill_versions` and `skill_files` inherit
+ * tenancy through their skill, and `agent_skills` joins two rows that already
+ * carry it.
  */
 
 /** Where a skill or a version came from: the human, or `agent:<id>`. */
@@ -16,36 +22,44 @@ export const SKILL_AUTHOR_USER = "user";
 /** How the local skill stands against its Anthropic mirror. */
 export const SKILL_SYNC_STATUSES = ["unsynced", "synced", "error"] as const;
 
-export const skills = sqliteTable("skills", {
-  /**
-   * Null until the first successful push. Anthropic keeps no name or
-   * description at the skill level - both live on the version - so everything
-   * the UI reads is mirrored here from the latest SKILL.md frontmatter.
-   */
-  anthropicSkillId: text("anthropic_skill_id"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`),
-  createdBy: text("created_by").notNull().default(SKILL_AUTHOR_USER),
-  description: text("description").notNull(),
-  id: text("id").primaryKey(),
-  /** The highest `skill_versions.version`, denormalized for listing. */
-  latestVersion: integer("latest_version").notNull().default(1),
-  name: text("name").notNull(),
-  /**
-   * The one identity a skill has: the URL address, the R2 prefix, the top-level
-   * directory Anthropic requires, and the SKILL.md frontmatter `name` are all
-   * this string - the API rejects an upload where the last two disagree.
-   */
-  slug: text("slug").notNull().unique(),
-  syncError: text("sync_error"),
-  syncStatus: text("sync_status", { enum: SKILL_SYNC_STATUSES })
-    .notNull()
-    .default("unsynced"),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`),
-});
+export const skills = sqliteTable(
+  "skills",
+  {
+    /**
+     * Null until the first successful push. Anthropic keeps no name or
+     * description at the skill level - both live on the version - so everything
+     * the UI reads is mirrored here from the latest SKILL.md frontmatter.
+     */
+    anthropicSkillId: text("anthropic_skill_id"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    createdBy: text("created_by").notNull().default(SKILL_AUTHOR_USER),
+    description: text("description").notNull(),
+    id: text("id").primaryKey(),
+    /** The highest `skill_versions.version`, denormalized for listing. */
+    latestVersion: integer("latest_version").notNull().default(1),
+    name: text("name").notNull(),
+    /**
+     * The one identity a skill has: the URL address, the R2 prefix, the top-level
+     * directory Anthropic requires, and the SKILL.md frontmatter `name` are all
+     * this string - the API rejects an upload where the last two disagree.
+     * Unique within the workspace, which is as far as those addresses reach.
+     */
+    slug: text("slug").notNull(),
+    syncError: text("sync_error"),
+    syncStatus: text("sync_status", { enum: SKILL_SYNC_STATUSES })
+      .notNull()
+      .default("unsynced"),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    workspaceId: text("workspace_id").notNull(),
+  },
+  (table) => [
+    unique("skills_workspace_slug_idx").on(table.workspaceId, table.slug),
+  ]
+);
 
 /**
  * Immutable once written. A new version is a full copy-on-write of the file

@@ -1,29 +1,49 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  unique,
+} from "drizzle-orm/sqlite-core";
 
 /**
  * `author_id` carries no foreign key: a revision is written either by the human
  * (a Clerk user id) or by an agent (an id owned by the agents module), and the
  * wiki module must not depend on another module's tables. The id is resolved
  * for display at read time, so a dangling one simply renders as unknown.
+ *
+ * `wiki_pages.workspace_id` is the tenant boundary and follows the same rule.
+ * It is the only workspace column in this module: `wiki_revisions` and
+ * `wiki_assets` inherit tenancy through their page.
  */
 
 export const WIKI_AUTHOR_TYPES = ["user", "agent"] as const;
 
-export const wikiPages = sqliteTable("wiki_pages", {
-  /** Markdown. */
-  body: text("body").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`),
-  id: text("id").primaryKey(),
-  /** Stable for the life of the page: renaming must not break links or anchors. */
-  slug: text("slug").notNull().unique(),
-  title: text("title").notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`),
-});
+export const wikiPages = sqliteTable(
+  "wiki_pages",
+  {
+    /** Markdown. */
+    body: text("body").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    id: text("id").primaryKey(),
+    /**
+     * Stable for the life of the page: renaming must not break links or
+     * anchors. Unique within the workspace, which is as far as a link reaches.
+     */
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    workspaceId: text("workspace_id").notNull(),
+  },
+  (table) => [
+    unique("wiki_pages_workspace_slug_idx").on(table.workspaceId, table.slug),
+  ]
+);
 
 export const wikiRevisions = sqliteTable(
   "wiki_revisions",

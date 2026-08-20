@@ -8,6 +8,7 @@ import type {
   SkillsGateway,
   SkillUpload,
 } from "#/modules/anthropic/skills-gateway";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import {
   deleteSkillMirror,
   publishNewSkill,
@@ -166,7 +167,7 @@ const contextWith = (gateway: SkillsGateway | null): SkillPublishContext => ({
 });
 
 const createV1 = (ctx: SkillPublishContext, createdBy = "user") =>
-  publishNewSkill(ctx, {
+  publishNewSkill(ctx, DEFAULT_WORKSPACE_ID, {
     changelog: "Created.",
     createdBy,
     files: filesFor("v1 body", "run v1\n"),
@@ -231,12 +232,16 @@ describe("publishNewSkill", () => {
 
   test("rejects an invalid skill before anything is written", async () => {
     const { calls, gateway } = fakeGateway();
-    const result = await publishNewSkill(contextWith(gateway), {
-      changelog: "",
-      createdBy: "user",
-      files: [{ content: "# no frontmatter\n", path: "SKILL.md" }],
-      slug: SLUG,
-    });
+    const result = await publishNewSkill(
+      contextWith(gateway),
+      DEFAULT_WORKSPACE_ID,
+      {
+        changelog: "",
+        createdBy: "user",
+        files: [{ content: "# no frontmatter\n", path: "SKILL.md" }],
+        slug: SLUG,
+      }
+    );
 
     expect(result.ok).toBe(false);
     expect(await getSkillBySlug(db, SLUG)).toBeUndefined();

@@ -10,6 +10,7 @@ import {
 } from "#/api/validation";
 import { createDb } from "#/db/client";
 import { isUniqueConstraintError } from "#/db/errors";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import { isInlineWikiAsset, MAX_WIKI_ASSET_BYTES } from "./asset-rules";
 import type { WikiAuthor } from "./schema";
 import {
@@ -121,7 +122,12 @@ wikiRoutes.post("/", async (c) => {
   };
 
   try {
-    const page = await createPage(createDb(c.env.DB), input);
+    // TODO(phase-2): replace with requireWorkspace context.
+    const page = await createPage(
+      createDb(c.env.DB),
+      DEFAULT_WORKSPACE_ID,
+      input
+    );
     return c.json({ page: toPageView(page) }, 201);
   } catch (error) {
     if (isDuplicateSlug(error)) {

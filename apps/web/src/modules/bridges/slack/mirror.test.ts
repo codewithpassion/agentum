@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MessageView } from "#/modules/messaging/service";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import type { ChannelBridge } from "../schema";
 import type {
   SlackClient,
@@ -18,6 +19,7 @@ const bridge = (overrides: Partial<ChannelBridge> = {}): ChannelBridge => ({
   externalChannelId: SLACK_CHANNEL,
   id: "bridge-1",
   status: "active",
+  workspaceId: DEFAULT_WORKSPACE_ID,
   ...overrides,
 });
 

@@ -16,5 +16,6 @@ export default defineConfig({
     "./src/modules/messaging/schema.ts",
     "./src/modules/skills/schema.ts",
     "./src/modules/wiki/schema.ts",
+    "./src/modules/workspaces/schema.ts",
   ],
 });

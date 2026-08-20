@@ -158,6 +158,7 @@ const recordRevision = async (
  */
 export const createPage = async (
   db: Db,
+  workspaceId: string,
   input: CreatePageInput
 ): Promise<WikiPage> => {
   const { slug, title } = normalizeWrite(input);
@@ -168,6 +169,7 @@ export const createPage = async (
       id: crypto.randomUUID(),
       slug,
       title,
+      workspaceId,
     })
     .returning();
   if (!page) {
@@ -216,12 +218,16 @@ export const updatePage = async (
  */
 export const writePage = async (
   db: Db,
+  workspaceId: string,
   input: CreatePageInput
 ): Promise<{ created: boolean; page: WikiPage }> => {
   const { slug } = normalizeWrite(input);
   const existing = await getPageBySlug(db, slug);
   if (!existing) {
-    return { created: true, page: await createPage(db, { ...input, slug }) };
+    return {
+      created: true,
+      page: await createPage(db, workspaceId, { ...input, slug }),
+    };
   }
 
   const page = await updatePage(db, slug, {

@@ -285,7 +285,7 @@ const registerWikiTools = (server: McpServer, ctx: McpToolContext): void => {
       title: "Write a wiki page",
     },
     async ({ body, slug, title }) => {
-      const { created, page } = await writePage(ctx.db, {
+      const { created, page } = await writePage(ctx.db, ctx.agent.workspaceId, {
         author: { id: ctx.agent.id, type: "agent" },
         body,
         slug,

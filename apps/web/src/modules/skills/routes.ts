@@ -13,6 +13,7 @@ import { isUniqueConstraintError } from "#/db/errors";
 import { getAgentById, getAgentsByIds } from "#/modules/agents/service";
 import { syncAgentSkillsWithAnthropic } from "#/modules/anthropic/service";
 import { createSkills } from "#/modules/anthropic/skills-gateway";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import {
   deleteSkillMirror,
   publishNewSkill,
@@ -147,7 +148,8 @@ skillsRoutes.post("/", async (c) => {
 
   let result: Awaited<ReturnType<typeof publishNewSkill>>;
   try {
-    result = await publishNewSkill(ctx, {
+    // TODO(phase-2): replace with requireWorkspace context.
+    result = await publishNewSkill(ctx, DEFAULT_WORKSPACE_ID, {
       changelog:
         optionalString(body, "changelog", {
           maxLength: CHANGELOG_MAX_LENGTH,

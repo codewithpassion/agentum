@@ -288,6 +288,7 @@ const startFlow = async (
       scope: input.scope,
       state,
       verifier,
+      workspaceId: connector.workspaceId,
     })
     // One active flow per connector: starting another replaces the first, so a
     // half-finished attempt can never be resumed behind the human's back.
@@ -442,6 +443,7 @@ export interface StartedConnector {
  */
 export const addConnector = async (
   ctx: ConnectorContext,
+  workspaceId: string,
   input: { name?: string; url: string }
 ): Promise<StartedConnector> => {
   const url = canonicalizeConnectorUrl(input.url);
@@ -452,6 +454,7 @@ export const addConnector = async (
       name: input.name?.trim() || new URL(url).hostname,
       status: "unconfigured",
       url,
+      workspaceId,
     })
     .returning();
   if (!created) {

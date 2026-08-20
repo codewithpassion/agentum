@@ -9,6 +9,9 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
  *
  * `kind` is deliberately open at the schema level (plain text) but closed in
  * TypeScript, so a new capability adds a member here without a migration.
+ *
+ * There is no `workspace_id` either: an activity row is a child of an agent and
+ * inherits its tenancy from `agents.workspace_id`.
  */
 
 export const ACTIVITY_KINDS = [

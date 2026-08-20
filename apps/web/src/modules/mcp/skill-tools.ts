@@ -189,12 +189,16 @@ export const skillCreate = async (
 ): Promise<CallToolResult> => {
   let result: Awaited<ReturnType<typeof publishNewSkill>>;
   try {
-    result = await publishNewSkill(publishContextFor(ctx), {
-      changelog: args.changelog ?? "Created.",
-      createdBy: authorOf(ctx),
-      files: args.files,
-      slug: args.slug,
-    });
+    result = await publishNewSkill(
+      publishContextFor(ctx),
+      ctx.agent.workspaceId,
+      {
+        changelog: args.changelog ?? "Created.",
+        createdBy: authorOf(ctx),
+        files: args.files,
+        slug: args.slug,
+      }
+    );
   } catch (error) {
     if (isDuplicateSlug(error)) {
       return fail(

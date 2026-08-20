@@ -7,6 +7,7 @@
   },
   "scripts": {
     "anthropic-spike": "bun scripts/anthropic-spike.ts",
+    "backfill-workspace-members": "bun scripts/backfill-workspace-members.ts",
     "browser-spike": "bun scripts/browser-spike.ts",
     "build": "vite build",
     "cf-typegen": "wrangler types",

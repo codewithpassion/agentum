@@ -16,6 +16,7 @@ import { assignConnector } from "#/modules/connectors/service";
 import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
 import { skills, skillVersions } from "#/modules/skills/schema";
 import { assignSkill } from "#/modules/skills/service";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import type {
   AnthropicGateway,
   SyncAgentInput,
@@ -100,7 +101,7 @@ beforeEach(() => {
 
 /** A registered agent, which is what a connector resync has to update. */
 const registeredAgent = async (): Promise<string> => {
-  const { agent } = await createAgent(db, {
+  const { agent } = await createAgent(db, DEFAULT_WORKSPACE_ID, {
     instructions: "",
     name: "Ada",
     soul: "",
@@ -124,6 +125,7 @@ const addConnectorRow = async (
     url: `https://${id}.example.com/mcp`,
     vaultCredentialId: `cred_${id}`,
     vaultId: `vault_${id}`,
+    workspaceId: DEFAULT_WORKSPACE_ID,
     ...overrides,
   });
   return id;
@@ -287,6 +289,7 @@ describe("syncAgentSkillsToAnthropic", () => {
       name: slug,
       slug,
       syncStatus: "synced",
+      workspaceId: DEFAULT_WORKSPACE_ID,
     });
     await db.insert(skillVersions).values({
       anthropicVersion: overrides.anthropicVersion ?? null,
@@ -349,7 +352,7 @@ describe("syncAgentSkillsToAnthropic", () => {
   });
 
   test("does nothing for an agent that is not registered yet", async () => {
-    const { agent } = await createAgent(db, {
+    const { agent } = await createAgent(db, DEFAULT_WORKSPACE_ID, {
       instructions: "",
       name: "Grace",
       soul: "",

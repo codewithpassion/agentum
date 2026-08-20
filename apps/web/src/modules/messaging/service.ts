@@ -73,6 +73,7 @@ export const getChannel = async (
 
 export const createChannel = async (
   db: Db,
+  workspaceId: string,
   input: { name: string; kind?: ChannelKind; origin?: string }
 ): Promise<Channel> => {
   const [channel] = await db
@@ -82,6 +83,7 @@ export const createChannel = async (
       kind: input.kind ?? "channel",
       name: input.name,
       origin: input.origin ?? "native",
+      workspaceId,
     })
     .returning();
   if (!channel) {
@@ -210,7 +212,7 @@ export const listChannelMembers = async (
  */
 export const getOrCreateAgentDm = async (
   db: Db,
-  agent: { id: string; name: string },
+  agent: { id: string; name: string; workspaceId: string },
   userId: string
 ): Promise<Channel> => {
   const [existing] = await db
@@ -232,7 +234,10 @@ export const getOrCreateAgentDm = async (
     return existing.channel;
   }
 
-  const channel = await createChannel(db, { kind: "dm", name: agent.name });
+  const channel = await createChannel(db, agent.workspaceId, {
+    kind: "dm",
+    name: agent.name,
+  });
   await addChannelMembers(db, channel.id, [
     { memberId: userId, memberType: "user" },
     { memberId: agent.id, memberType: "agent" },

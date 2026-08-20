@@ -14,6 +14,7 @@ import { isUniqueConstraintError } from "#/db/errors";
 import { getAgentById, getAgentsByIds } from "#/modules/agents/service";
 import { resyncPendingAgents } from "#/modules/anthropic/service";
 import { createVaults } from "#/modules/anthropic/vaults";
+import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import {
   addConnector,
   assignConnector,
@@ -124,10 +125,15 @@ connectorsRoutes.post("/", async (c) => {
   const ctx = contextFor(c);
 
   try {
-    const { connector, outcome } = await addConnector(ctx, {
-      name: optionalString(body, "name", { maxLength: NAME_MAX_LENGTH }),
-      url: requireString(body, "url", { maxLength: URL_MAX_LENGTH }),
-    });
+    // TODO(phase-2): replace with requireWorkspace context.
+    const { connector, outcome } = await addConnector(
+      ctx,
+      DEFAULT_WORKSPACE_ID,
+      {
+        name: optionalString(body, "name", { maxLength: NAME_MAX_LENGTH }),
+        url: requireString(body, "url", { maxLength: URL_MAX_LENGTH }),
+      }
+    );
     return c.json({ connector: toConnectorView(connector), outcome }, 201);
   } catch (error) {
     if (isUniqueConstraintError(error)) {

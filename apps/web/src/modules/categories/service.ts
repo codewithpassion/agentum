@@ -57,11 +57,12 @@ export const getCategory = async (
 
 export const createCategory = async (
   db: Db,
+  workspaceId: string,
   input: { name: string }
 ): Promise<CategoryView> => {
   const [row] = await db
     .insert(categories)
-    .values({ id: crypto.randomUUID(), name: input.name })
+    .values({ id: crypto.randomUUID(), name: input.name, workspaceId })
     .returning();
   if (!row) {
     throw new Error("Failed to create the category.");

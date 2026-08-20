@@ -231,6 +231,7 @@ const writeFiles = async (
 export const createSkill = async (
   db: Db,
   bucket: R2Bucket,
+  workspaceId: string,
   input: WriteSkillInput
 ): Promise<WrittenVersion> => {
   const skillId = crypto.randomUUID();
@@ -243,6 +244,7 @@ export const createSkill = async (
       latestVersion: 1,
       name: input.skill.name,
       slug: input.slug,
+      workspaceId,
     })
     .returning();
   if (!skill) {
