@@ -5,6 +5,43 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 10 — Slack apps per agent (2026-08-21)
+
+**Goal:** Implement docs/plan-slack-apps-per-agent.md — replace the single deployment-level Slack bot with one Slack app per agent, set up through a guided wizard in the agent's settings, so each agent is a real identity in Slack.
+
+**What we did:**
+- Backend (dee3ea5): `slack_apps` table (migration 0015), one row per agent; bot token + signing secret AES-GCM encrypted with CONNECTOR_KEY — the envelope crypto moved from modules/connectors to `src/crypto.ts` (byte-format unchanged) so both modules use it without importing each other
+- Wizard API on the agent: POST creates a draft and returns the generated manifest + events URL, GET re-hands both for a re-copy, PUT verifies pasted tokens via `auth.test` (recording team/bot user, or Slack's error string), DELETE disconnects and takes the app's bridges with it; no response ever returns a token
+- Inbound moved to per-app `/api/bridges/slack/:slackAppId`: a draft answers Slack's `url_verification` handshake unauthenticated and nothing else; every other event is verified against that row's own signing secret, and an event is only acted on by the app that owns the channel's bridge — two bots in one channel can't double-ingest. Outbound posts through the bridge's own app token, with no `Name:` prefix for the app's own agent
+- Clean break from env credentials: `SLACK_BOT_TOKEN`/`SLACK_SIGNING_SECRET`, `readSlackConfig`, `slackSurfaceStatus` and the old single `/api/bridges/slack` events route are gone (leftover prod secrets to delete at deploy); channel settings now says "connect an agent first" and the bridge picker offers only agents with an active app
+- Wizard UI (8cff383): a fourth agent-settings section is the whole wizard; the step is derived from the `slack_apps` row (`lib/slack-wizard.ts`, unit-tested), so closing the dialog halfway and coming back resumes — manifest copy block with the api.slack.com click-path, guided token entry with Slack's rejection ("invalid_auth", …) inline and fields kept for retry, done-step with the `/invite` line and an inline-confirmed disconnect
+- Also committed plan docs for the next features (9153d0d): routines (per-workspace `RoutineScheduler` DO alarm, runs are real channel messages) and ask-user — decisions taken with the user on 2026-08-21
+- 632 unit tests green; e2e spec that asserted the removed env-status copy now asserts the new empty state; browser acceptance walked the wizard end to end including a live `invalid_auth` rejection, a resumed error state, and a real connected app — 11 screenshots in docs/acceptance/slack-apps/. Live message mirroring through a per-agent app was not part of the captured run. Work sits on branch `slack-apps`, not yet merged to main; implemented by forge-slack-a (backend) and forge-slack-b (UI)
+
+**Lessons learned:**
+- The draft's events URL must answer Slack's `url_verification` handshake before any secret exists — the manifest names the URL first — so that one response is unauthenticated and everything else on a draft is refused
+- Two bots in one channel is now a real topology: events must be claimed by bridge ownership, not processed by whichever app received them, or every message ingests twice
+- React reports a nested `<dialog>`'s close event on the outer dialog too — the disconnect confirmation became inline because a nested dialog shut the whole settings dialog
+
+**Avoid next time:**
+- Don't return stored tokens in any wizard response — verify server-side and report only status
+- Don't keep wizard progress in component state — derive the step from the persisted row so abandoning mid-flow resumes instead of restarting
+
+## Cycle 9 — Production deploy (2026-08-20)
+
+**Goal:** First real deployment — agentum.rockyshoreslabs.io on remote D1/R2 with a production wrangler configuration.
+
+**What we did:**
+- d943c7e: deployed with remote D1/R2; the Worker Loader's `experimental` compatibility flag is rejected in deployed Workers (error 10021), so production ships without the loader — the agent computer keeps its filesystem and exec degrades to a clear error
+- c40c407: folded the separate wrangler.production.jsonc back into one wrangler.jsonc via `env.production`, which clears `worker_loaders` and the experimental flag explicitly; the vite plugin resolves the environment via `CLOUDFLARE_ENV=production` at build, and `wrangler deploy` follows the emitted `dist/server/wrangler.json` through `.wrangler/deploy/config.json`
+- ddaa26d: deploy script renamed to `prod:deploy`
+
+**Lessons learned:**
+- Experimental wrangler keys inherit into an env unless explicitly overridden — the first `env.production` attempt failed because omitting `worker_loaders` wasn't enough; it had to be cleared in the env block
+
+**Avoid next time:**
+- Don't assume a wrangler env starts clean — override experimental flags and loader bindings explicitly in `env.production`
+
 ## Cycle 8 — Multi-tenancy: workspaces (2026-08-20)
 
 **Goal:** Implement docs/plan-multi-tenancy.md — everything scoped to workspaces with member-based identity, so multiple tenants share one deployment without seeing each other.
