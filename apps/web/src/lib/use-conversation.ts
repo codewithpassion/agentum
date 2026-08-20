@@ -30,6 +30,8 @@ export interface Conversation {
   /** Oldest first, ready to render top to bottom. */
   messages: MessageView[];
   nextCursor: string | null;
+  /** Takes the fresh list channel settings gets back from an add/remove. */
+  setMembers: (members: ChannelMemberView[]) => void;
   /** Lets an open thread panel receive replies from the channel socket. */
   subscribeToReplies: (listener: ReplyListener) => () => void;
   /** The channel's loop guard is closed: agents stay quiet until a human posts. */
@@ -183,6 +185,7 @@ export const useConversation = (channelId: string | null): Conversation => {
     mergeMessage: merge,
     messages,
     nextCursor,
+    setMembers,
     subscribeToReplies,
     suppressed,
   };

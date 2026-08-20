@@ -1,21 +1,28 @@
 import type { ChangeEvent } from "react";
 import { useCallback, useEffect, useId, useState } from "react";
+import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { Popover } from "#/components/ui/popover";
 import {
   type Agent,
+  addChannelMember,
+  type Channel,
   type ChannelBridge,
+  type ChannelMemberView,
   type ConnectorStatus,
   deleteChannelBridge,
   getChannelBridge,
+  removeChannelMember,
   saveChannelBridge,
 } from "#/lib/api";
 
 /**
- * The channel's settings pane, reachable from the channel header - bridging a
- * channel to Slack is done here and nowhere else, no deep link required.
+ * The channel's settings pane, reachable from the channel header - who is in
+ * the channel and whether it is bridged to Slack are both edited here.
  */
+
+const FALLBACK_COLOR = "#52525b";
 
 type BridgeState =
   | { status: "error"; message: string }
@@ -148,13 +155,125 @@ function BridgeForm({
   );
 }
 
-export function ChannelSettings({
+function MemberRow({
+  busy,
+  member,
+  onRemove,
+}: {
+  busy: boolean;
+  member: ChannelMemberView;
+  onRemove: (member: ChannelMemberView) => void;
+}) {
+  const name = member.name ?? "You";
+  const remove = useCallback(() => onRemove(member), [member, onRemove]);
+
+  return (
+    <li className="flex items-center gap-2" data-testid="channel-member">
+      <Avatar color={member.avatar ?? FALLBACK_COLOR} name={name} size="sm" />
+      <span className="min-w-0 flex-1 truncate text-[13px]">{name}</span>
+      <Button
+        aria-label={`Remove ${name}`}
+        disabled={busy}
+        onClick={remove}
+        size="sm"
+        variant="ghost"
+      >
+        Remove
+      </Button>
+    </li>
+  );
+}
+
+function MembersSection({
   agents,
-  channelId,
+  busy,
+  members,
+  onAdd,
+  onRemove,
 }: {
   agents: Agent[];
-  channelId: string;
+  busy: boolean;
+  members: ChannelMemberView[];
+  onAdd: (agentId: string) => void;
+  onRemove: (member: ChannelMemberView) => void;
 }) {
+  const agentSelectId = useId();
+  const [agentId, setAgentId] = useState("");
+  const memberIds = new Set(members.map((member) => member.memberId));
+  const addable = agents.filter((agent) => !memberIds.has(agent.id));
+
+  const changeAgent = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => setAgentId(event.target.value),
+    []
+  );
+
+  const add = useCallback(() => {
+    onAdd(agentId);
+    setAgentId("");
+  }, [agentId, onAdd]);
+
+  return (
+    <section className="space-y-3" data-testid="channel-members">
+      <h2 className="m-0 font-semibold text-[13px]">Members</h2>
+      <ul className="m-0 list-none space-y-1 p-0">
+        {members.map((member) => (
+          <MemberRow
+            busy={busy}
+            key={`${member.memberType}:${member.memberId}`}
+            member={member}
+            onRemove={onRemove}
+          />
+        ))}
+      </ul>
+      <div className="space-y-1.5">
+        <label
+          className="block font-medium text-[var(--ws-muted)] text-xs"
+          htmlFor={agentSelectId}
+        >
+          Add agent
+        </label>
+        <div className="flex items-center gap-2">
+          <select
+            className="ws-focus min-w-0 flex-1 rounded-lg border border-[var(--ws-line)] bg-[var(--ws-surface)] px-3 py-2 text-[var(--ws-text)] text-sm"
+            data-testid="channel-member-agent"
+            id={agentSelectId}
+            onChange={changeAgent}
+            value={agentId}
+          >
+            <option value="">Pick an agent…</option>
+            {addable.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
+              </option>
+            ))}
+          </select>
+          <Button
+            data-testid="channel-member-add"
+            disabled={busy || agentId === ""}
+            onClick={add}
+            size="sm"
+            variant="primary"
+          >
+            Add
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function ChannelSettings({
+  agents,
+  channel,
+  members,
+  onMembersChange,
+}: {
+  agents: Agent[];
+  channel: Channel;
+  members: ChannelMemberView[];
+  onMembersChange: (members: ChannelMemberView[]) => void;
+}) {
+  const channelId = channel.id;
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<BridgeState>({ status: "loading" });
   const [busy, setBusy] = useState(false);
@@ -213,6 +332,51 @@ export function ChannelSettings({
     })();
   }, [channelId, load]);
 
+  const addMember = useCallback(
+    (agentId: string) => {
+      (async () => {
+        setBusy(true);
+        setActionError(null);
+        try {
+          onMembersChange(
+            await addChannelMember(channelId, {
+              memberId: agentId,
+              memberType: "agent",
+            })
+          );
+        } catch (error) {
+          setActionError(errorMessage(error));
+        } finally {
+          setBusy(false);
+        }
+      })();
+    },
+    [channelId, onMembersChange]
+  );
+
+  const removeMember = useCallback(
+    (member: ChannelMemberView) => {
+      (async () => {
+        setBusy(true);
+        setActionError(null);
+        try {
+          onMembersChange(
+            await removeChannelMember(
+              channelId,
+              member.memberType,
+              member.memberId
+            )
+          );
+        } catch (error) {
+          setActionError(errorMessage(error));
+        } finally {
+          setBusy(false);
+        }
+      })();
+    },
+    [channelId, onMembersChange]
+  );
+
   return (
     <div className="relative">
       <Button
@@ -225,15 +389,26 @@ export function ChannelSettings({
         Settings
       </Button>
       <Popover align="right" className="w-80 p-4" onClose={close} open={open}>
-        <section className="space-y-3" data-testid="channel-settings">
-          <h2 className="m-0 font-semibold text-[13px]">Connect to Slack</h2>
-          <SlackSection
-            agents={agents}
-            busy={busy}
-            onConnect={connect}
-            onDisconnect={disconnect}
-            state={state}
-          />
+        <section className="space-y-4" data-testid="channel-settings">
+          {channel.kind === "dm" ? null : (
+            <MembersSection
+              agents={agents}
+              busy={busy}
+              members={members}
+              onAdd={addMember}
+              onRemove={removeMember}
+            />
+          )}
+          <section className="space-y-3">
+            <h2 className="m-0 font-semibold text-[13px]">Connect to Slack</h2>
+            <SlackSection
+              agents={agents}
+              busy={busy}
+              onConnect={connect}
+              onDisconnect={disconnect}
+              state={state}
+            />
+          </section>
           {actionError ? (
             <p
               className="m-0 text-[var(--ws-danger)] text-xs"

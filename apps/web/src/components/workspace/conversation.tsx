@@ -82,7 +82,12 @@ function ChannelHeader({
       </span>
       <div className="ml-auto flex items-center gap-1">
         {channel ? (
-          <ChannelSettings agents={agents} channelId={channel.id} />
+          <ChannelSettings
+            agents={agents}
+            channel={channel}
+            members={members}
+            onMembersChange={conversation.setMembers}
+          />
         ) : null}
         <Button onClick={onToggleRail} size="sm" variant="ghost">
           Agent screen

@@ -123,6 +123,24 @@ export const addChannelMember = (
   member: ChannelMemberInput
 ): Promise<void> => addChannelMembers(db, channelId, [member]);
 
+export const removeChannelMember = async (
+  db: Db,
+  channelId: string,
+  member: ChannelMemberInput
+): Promise<boolean> => {
+  const deleted = await db
+    .delete(channelMembers)
+    .where(
+      and(
+        eq(channelMembers.channelId, channelId),
+        eq(channelMembers.memberType, member.memberType),
+        eq(channelMembers.memberId, member.memberId)
+      )
+    )
+    .returning({ memberId: channelMembers.memberId });
+  return deleted.length > 0;
+};
+
 /** The channels a member can see - an agent's whole world, for the MCP tools. */
 export const listChannelsForMember = (
   db: Db,

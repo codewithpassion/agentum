@@ -10,6 +10,7 @@ export default defineConfig({
     "./src/modules/agents/schema.ts",
     "./src/modules/anthropic/schema.ts",
     "./src/modules/browser/schema.ts",
+    "./src/modules/categories/schema.ts",
     "./src/modules/messaging/schema.ts",
     "./src/modules/connectors/schema.ts",
     "./src/modules/wiki/schema.ts",

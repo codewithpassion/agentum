@@ -65,7 +65,8 @@ export function Workspace({
 }) {
   const { isSignedIn, user } = useUser();
   const signedIn = isSignedIn === true;
-  const { agents, channels, error, reload } = useWorkspaceData(signedIn);
+  const { agents, categories, channels, error, reload } =
+    useWorkspaceData(signedIn);
 
   // Every `/api` route is behind auth, so nothing may be fetched - and no
   // socket opened - until Clerk confirms a session.
@@ -182,12 +183,15 @@ export function Workspace({
         activeAgentId={agentId}
         activeChannelId={channelId}
         agents={agents}
+        categories={categories}
         channels={channels}
         onNewAgent={startNewAgent}
         onNewChannel={openChannelDialog}
         onOpenChannel={openChannel}
         onOpenDm={openDm}
+        onReload={reload}
         onSelectAgent={selectAgent}
+        viewerName={viewer.name}
       />
 
       <ConversationPane

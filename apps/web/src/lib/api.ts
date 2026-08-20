@@ -238,6 +238,74 @@ export const postMessage = (
     method: "POST",
   }).then((data) => data.message);
 
+export const addChannelMember = (
+  channelId: string,
+  member: { memberId: string; memberType: "agent" | "user" }
+) =>
+  request<{ members: ChannelMemberView[] }>(`/channels/${channelId}/members`, {
+    json: member,
+    method: "POST",
+  }).then((data) => data.members);
+
+export const removeChannelMember = (
+  channelId: string,
+  memberType: "agent" | "user",
+  memberId: string
+) =>
+  request<{ members: ChannelMemberView[] }>(
+    `/channels/${channelId}/members/${memberType}/${encodeURIComponent(memberId)}`,
+    { method: "DELETE" }
+  ).then((data) => data.members);
+
+// --- categories -------------------------------------------------------------
+
+export interface CategoryItemRef {
+  itemId: string;
+  itemType: "agent" | "channel";
+}
+
+export interface CategoryView {
+  id: string;
+  items: CategoryItemRef[];
+  name: string;
+}
+
+export const listCategories = () =>
+  request<{ categories: CategoryView[] }>("/categories").then(
+    (data) => data.categories
+  );
+
+export const createCategory = (name: string) =>
+  request<{ category: CategoryView }>("/categories", {
+    json: { name },
+    method: "POST",
+  }).then((data) => data.category);
+
+export const renameCategory = (id: string, name: string) =>
+  request<{ category: CategoryView }>(`/categories/${id}`, {
+    json: { name },
+    method: "PATCH",
+  }).then((data) => data.category);
+
+export const deleteCategory = (id: string) =>
+  request<void>(`/categories/${id}`, { method: "DELETE" });
+
+/** An item lives in at most one category, so assigning moves it. */
+export const assignCategoryItem = (categoryId: string, item: CategoryItemRef) =>
+  request<void>(`/categories/${categoryId}/items`, {
+    json: item,
+    method: "PUT",
+  });
+
+export const unassignCategoryItem = (
+  categoryId: string,
+  item: CategoryItemRef
+) =>
+  request<void>(
+    `/categories/${categoryId}/items/${item.itemType}/${encodeURIComponent(item.itemId)}`,
+    { method: "DELETE" }
+  );
+
 // --- threads & attachments --------------------------------------------------
 
 export const getThread = (messageId: string) =>

@@ -27,6 +27,8 @@ import {
   listChannelMembers,
   listChannelMessages,
   listChannels,
+  type MemberType,
+  removeChannelMember,
 } from "../service";
 
 const CHANNEL_NAME_MAX_LENGTH = 80;
@@ -37,6 +39,9 @@ const MAX_PAGE_SIZE = 100;
 export const channelsRoutes = new Hono<ApiEnv>();
 
 channelsRoutes.use("*", requireAuth);
+
+const isMemberType = (value: string): value is MemberType =>
+  (MEMBER_TYPES as readonly string[]).includes(value);
 
 channelsRoutes.get("/", async (c) => {
   const channels = await listChannels(createDb(c.env.DB));
@@ -117,6 +122,31 @@ channelsRoutes.post("/:id/members", async (c) => {
 
   await addChannelMember(db, channelId, { memberType, memberId });
   return c.json({ members: await listChannelMembers(db, channelId) }, 201);
+});
+
+channelsRoutes.delete("/:id/members/:memberType/:memberId", async (c) => {
+  const db = createDb(c.env.DB);
+  const channelId = c.req.param("id");
+  if (!(await getChannel(db, channelId))) {
+    throw notFound("Channel not found.");
+  }
+
+  const memberType = c.req.param("memberType");
+  if (!isMemberType(memberType)) {
+    throw badRequest(
+      `"memberType" must be one of: ${MEMBER_TYPES.join(", ")}.`
+    );
+  }
+
+  const removed = await removeChannelMember(db, channelId, {
+    memberId: c.req.param("memberId"),
+    memberType,
+  });
+  if (!removed) {
+    throw notFound("Member not found.");
+  }
+
+  return c.json({ members: await listChannelMembers(db, channelId) });
 });
 
 channelsRoutes.get("/:id/messages", async (c) => {

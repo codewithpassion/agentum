@@ -57,6 +57,13 @@
       "when": 1787161445250,
       "tag": "0007_browser",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787184421959,
+      "tag": "0008_pale_exiles",
+      "breakpoints": true
     }
   ]
 }
