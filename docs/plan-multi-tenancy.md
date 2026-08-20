@@ -115,6 +115,18 @@ constraints (`agents.name`, `skills.slug`, `wiki_pages.slug`,
 5. Extend `create-dev-user` to also guarantee the dev user a membership in
    the default workspace, so dev login keeps working.
 
+**As shipped, steps 3–4 differ.** 0012 first took the `ADD COLUMN ... NOT NULL
+DEFAULT 'ws_default'` route to avoid a rebuild, which left that default on the
+tables for good — raw SQL that forgot `workspace_id` landed silently in the
+default workspace. It has since been rewritten to drop and recreate the eight
+root tables with no default, which is **destructive and assumes no pre-0012
+data** (see the migration's header). The copy-then-swap rebuild the plan
+imagined is not available: `DROP TABLE` on a cascade parent fires its
+children's `ON DELETE CASCADE`, and `PRAGMA defer_foreign_keys` defers
+violations, not actions. The step-4 membership backfill went with it — the
+tables it read from are cascade children of the ones being dropped, so it could
+only ever have seen an empty result.
+
 ## Authorization
 
 One new middleware, mounted after `requireAuth` on everything under
