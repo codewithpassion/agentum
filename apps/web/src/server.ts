@@ -19,6 +19,10 @@ import { channelsRoutes } from "#/modules/messaging/routes/channels";
 import { messagesRoutes } from "#/modules/messaging/routes/messages";
 import { skillsRoutes } from "#/modules/skills/routes";
 import { wikiRoutes } from "#/modules/wiki/routes";
+import {
+  workspaceScopedRoutes,
+  workspacesRoutes,
+} from "#/modules/workspaces/routes";
 
 // Durable Object classes must be re-exported from the Worker entry so the
 // runtime can instantiate them for the CHANNEL_ROOM and AGENT_ROUTER bindings.
@@ -68,6 +72,16 @@ app.get("/api/dev-login", async (c) => {
 
   return c.redirect(`/dev-login?token=${encodeURIComponent(token)}`);
 });
+
+// "My workspaces", and creating one: the only workspace routes that name no
+// workspace, so they gate on `requireAuth` alone.
+app.route("/api/workspaces", workspacesRoutes);
+
+// Everything that happens *inside* a workspace: the router carries its own
+// `requireAuth` + `requireWorkspace` gates, and Phase 3 hangs the resource
+// routers below off the same instance - `workspaceScopedRoutes.route(
+// "/agents", agentsRoutes)` - before this mount, which is what scopes them.
+app.route("/api/w/:slug", workspaceScopedRoutes);
 
 // Workspace resources. Each router gates itself with `requireAuth`; the two
 // routes above stay open by design.
