@@ -21,6 +21,12 @@ export interface MessageNotification {
   mentionedAgentIds: string[];
   messageId: string;
   threadParentId: string | null;
+  /**
+   * The channel's workspace. It travels with the notification because that is
+   * the only way the router Durable Object can learn which tenant it is: it is
+   * addressed by `idFromName(workspaceId)` and cannot read that name back.
+   */
+  workspaceId: string;
 }
 
 export type WakeKind = "immediate" | "digest";

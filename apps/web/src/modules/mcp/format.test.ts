@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MessageView } from "#/modules/messaging/service";
+import type { MemberAuthorView } from "#/modules/workspaces/authors";
 import { authorNameOf, clampLimit, toMcpMessage } from "./format";
 
 const NAMES = new Map([["agent-1", "Researcher"]]);
@@ -20,18 +21,44 @@ const message = (overrides: Partial<MessageView> = {}): MessageView => ({
   ...overrides,
 });
 
+const human = (name: string): MemberAuthorView => ({
+  email: "ada@example.com",
+  imageUrl: null,
+  memberId: "member-1",
+  name,
+});
+
 describe("authorNameOf", () => {
-  test("names agents and collapses humans", () => {
+  test("names agents from the roster and humans from their membership", () => {
     expect(authorNameOf(message(), NAMES)).toBe("Researcher");
     expect(
-      authorNameOf(message({ authorId: "user_123", authorType: "user" }), NAMES)
-    ).toBe("User");
+      authorNameOf(
+        message({
+          author: human("Ada Lovelace"),
+          authorId: "member-1",
+          authorType: "user",
+        }),
+        NAMES
+      )
+    ).toBe("Ada Lovelace");
   });
 
   test("survives a deleted agent", () => {
     expect(authorNameOf(message({ authorId: "gone" }), NAMES)).toBe(
       "Deleted agent"
     );
+  });
+
+  test("falls back for a human with no membership left", () => {
+    expect(
+      authorNameOf(message({ authorId: "", authorType: "user" }), NAMES)
+    ).toBe("A former member");
+  });
+
+  test("does not try to name a bridged author", () => {
+    expect(
+      authorNameOf(message({ authorId: "U123", authorType: "external" }), NAMES)
+    ).toBe("Someone outside the workspace");
   });
 });
 

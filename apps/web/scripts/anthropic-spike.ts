@@ -705,8 +705,91 @@ const runSkillsSpike = async (client: Anthropic): Promise<void> => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Agent-name uniqueness spike (Phase 5, multi-tenancy). Agent names are only
+// unique per *workspace* now, and every workspace's agents are registered into
+// the one shared Anthropic organisation - so the question is whether
+// `agents.create` refuses a name that is already taken. Creates two agents with
+// one name plus a third to rename, and archives all of them.
+// ---------------------------------------------------------------------------
+
+const NAME_SPIKE_SYSTEM = "You are a throwaway spike agent. Do nothing.";
+
+const createNamedAgent = (client: Anthropic, name: string) =>
+  client.beta.agents.create({
+    description: "Throwaway agent from the Agentum name-uniqueness spike.",
+    model: AGENT_MODEL,
+    name,
+    system: NAME_SPIKE_SYSTEM,
+    tools: [
+      {
+        default_config: spikePermissive,
+        type: AGENT_TOOLSET as "agent_toolset_20260401",
+      },
+    ],
+  });
+
+const runNamesSpike = async (client: Anthropic): Promise<void> => {
+  const name = `agentum-spike-dup-${Date.now().toString(36)}`;
+  const created: string[] = [];
+
+  try {
+    const first = await createNamedAgent(client, name);
+    created.push(first.id);
+    dump("agents.create #1", { id: first.id, name: first.name });
+
+    // The whole question: same name, same organisation, no environment in
+    // sight (agents are org-level - the environment only enters at session
+    // create).
+    try {
+      const second = await createNamedAgent(client, name);
+      created.push(second.id);
+      dump("agents.create #2 with the SAME name [DUPLICATES ALLOWED]", {
+        id: second.id,
+        name: second.name,
+        sameIdAsFirst: second.id === first.id,
+      });
+    } catch (error) {
+      dumpError("agents.create #2 with the SAME name [REJECTED]", error);
+    }
+
+    // The rename path `syncAgent` takes on every roster resync.
+    const third = await createNamedAgent(client, `${name}-other`);
+    created.push(third.id);
+    try {
+      const renamed = await client.beta.agents.update(third.id, { name });
+      dump("agents.update renaming INTO the taken name [ALLOWED]", {
+        id: renamed.id,
+        name: renamed.name,
+      });
+    } catch (error) {
+      dumpError("agents.update renaming INTO the taken name [REJECTED]", error);
+    }
+
+    // How a caller would find "the agent called X" if names were unique.
+    const listed: { id: string; name: string }[] = [];
+    for await (const agent of client.beta.agents.list()) {
+      if (agent.name === name) {
+        listed.push({ id: agent.id, name: agent.name });
+      }
+    }
+    dump(`agents.list entries named "${name}"`, listed);
+  } finally {
+    for (const id of created) {
+      // Archive is the terminal state; agents have no delete.
+      // biome-ignore lint/performance/noAwaitInLoops: a handful of cleanups, in order
+      await client.beta.agents.archive(id).catch((error: unknown) => {
+        dumpError(`archive ${id}`, error);
+      });
+    }
+    process.stdout.write(`cleaned up: archived ${created.length} agent(s)\n`);
+  }
+};
+
 const [, , mode] = process.argv;
-if (mode === "vaults") {
+if (mode === "names") {
+  await runNamesSpike(new Anthropic({ apiKey: requireApiKey() }));
+} else if (mode === "vaults") {
   await runVaultSpike(new Anthropic({ apiKey: requireApiKey() }));
 } else if (mode === "skills") {
   await runSkillsSpike(new Anthropic({ apiKey: requireApiKey() }));

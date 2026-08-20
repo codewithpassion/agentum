@@ -14,9 +14,13 @@ import type { MessageNotification } from "./wake-decision";
  * connectors all reach the router by the same path.
  */
 
-/** Humans have no directory yet, matching how the MCP tools name them. */
-const HUMAN_NAME = "User";
 const EXTERNAL_NAME = "Someone outside the workspace";
+/**
+ * A human with no surviving membership. `MessageView.author` already resolves
+ * to "Former member" in that case, so this is only the belt-and-braces branch
+ * for a view built without one.
+ */
+const UNKNOWN_HUMAN_NAME = "A former member";
 
 export const buildNotification = async (
   db: Db,
@@ -41,7 +45,10 @@ export const buildNotification = async (
     return null;
   }
 
-  let authorName = HUMAN_NAME;
+  // The teammate an agent is about to be woken by, named: the person's own
+  // name (resolved through `workspace_members` when the view was built), not
+  // the generic "User" agents used to be told about.
+  let authorName = message.author ? message.author.name : UNKNOWN_HUMAN_NAME;
   if (message.authorType === "agent") {
     const [author] = await getAgentsByIds(db, [message.authorId]);
     authorName = author?.name ?? "A deleted agent";
@@ -62,6 +69,7 @@ export const buildNotification = async (
     mentionedAgentIds: message.mentions.map((mention) => mention.agentId),
     messageId: message.id,
     threadParentId: message.threadParentId,
+    workspaceId: channel.workspaceId,
   };
 };
 
@@ -80,7 +88,9 @@ export const notifyRouter = async (
     if (!notification) {
       return;
     }
-    await routerStub(env).notifyMessage(notification);
+    // One router per workspace: a message in A can never reach B's instance,
+    // whatever it says.
+    await routerStub(env, notification.workspaceId).notifyMessage(notification);
   } catch {
     // The message is already stored and broadcast; waking is best-effort.
   }

@@ -1,0 +1,11 @@
+-- Multi-tenancy, phase 5: the global `AgentRouter` singleton is gone, replaced
+-- by one Durable Object per workspace (`idFromName(workspaceId)`).
+--
+-- The singleton's storage - live sessions, digests, rate windows - is not
+-- migrated: the new instances start empty and agents restart idle, which is
+-- what the plan calls for. `agents.session_id` and `agents.status` are the
+-- singleton's view of that state mirrored into D1, so without this they would
+-- claim "working" against sessions no router can reach any more, and the
+-- connector-resync gate (which waits for `session_id` to be null) would stay
+-- shut until the agent happened to run a whole session under its new router.
+UPDATE `agents` SET `session_id` = NULL, `status` = 'idle';

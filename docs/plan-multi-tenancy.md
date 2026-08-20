@@ -211,7 +211,7 @@ Fix at the serialization boundary, not with a data rewrite:
   `idFromName(workspaceId)`; every `routerStub(env)` call site gains a
   workspace argument, and any `listAgents` the router makes is scoped. The
   old singleton's in-DO state is allowed to die in the migration — agents
-  simply restart `idle`.
+  simply restart `idle`. (Shipped; see Phase 5.)
 - **ChannelRoom** (`idFromName(channelId)`) and **AgentComputer**
   (`idFromName(agentId)`) are keyed by globally-unique ids and need **no
   change**. Noted here so nobody "fixes" them.
@@ -235,18 +235,13 @@ Fix at the serialization boundary, not with a data rewrite:
   - **Router notify** (`router/notify.ts`): covered by the per-workspace
     router, but its agent lookups take the scope explicitly too.
 - **Agent names are only unique per workspace now**, and `syncAgent` sends
-  `agent.name` verbatim. **Check item (spike):** whether the Managed Agents
-  API requires unique names within an environment. If it does, register as
-  `"{workspace.slug}/{agent.name}"`. Same question for skill display names
-  (skill *ids* are Anthropic-issued, so slugs colliding across workspaces is
-  likely fine).
+  `agent.name` verbatim. **Check item (spike): settled — names stay verbatim.**
+  See Phase 5 below for the evidence.
 - **Vault trap** (from the connectors plan): vault credentials are keyed by
-  normalized `mcp_server_url`. Two workspaces adding the *same* connector URL
-  with *different* OAuth accounts would collide in a shared vault. **One
-  vault per workspace**, created lazily on first credential, id stored on the
-  `workspaces` row (`anthropicVaultId`), attached via `vault_ids` at session
-  create. This is the one item worth a live-API spike
-  (`scripts/anthropic-spike.ts`, same convention as the earlier plans).
+  normalized `mcp_server_url`, so two workspaces adding the *same* connector
+  URL with *different* OAuth accounts would collide in a shared vault.
+  **Settled by Phase 4 already, at a finer grain than this plan proposed** —
+  see Phase 5 below. No `workspaces.anthropicVaultId`.
 
 ## Frontend
 
@@ -342,6 +337,57 @@ independently; agent MCP `list_channels` in workspace A never returns a
 workspace-B channel; a workspace-A agent's registered roster/teammate list
 names only workspace-A agents; an `@Name` mention in workspace A never wakes
 the same-named workspace-B agent.
+
+**Shipped.** Phase 3 had already scoped the roster resync, `@Name` resolution
+and every MCP tool query, so what was left was the router, two identity leaks
+in the agent-facing views, and the two check items — both of which came back
+"nothing to build":
+
+- **Agent names go to Anthropic verbatim.** `scripts/anthropic-spike.ts names`
+  (run 2026-08-20 against the live API) created two agents with an identical
+  name, then renamed a third *into* that name: all three were accepted and all
+  three came back from `agents.list`. Duplicates are not refused. Nor is the
+  environment the right frame for the question — `beta.agents.create` takes no
+  environment; agents live in the organisation and the environment only enters
+  at session create, so the cap in the Decisions section is unrelated. Nothing
+  round-trips a name back from Anthropic (registration is by id), so a
+  `"{slug}/{name}"` prefix would have bought only noise in the console and a
+  second name to keep in step. The same reasoning covers skill display names.
+- **Vaults were already per *connector*, which is finer than per workspace.**
+  The connectors plan decided one vault per connector (20 credentials/vault,
+  `mcp_server_url` unique *within* a vault — docs/plan-connectors-skills.md),
+  and `connectors` is unique on `(workspace_id, url)`. So two workspaces adding
+  the same URL get two connector rows, two vaults and two credentials; session
+  create passes exactly the vaults of the agent's own assigned connectors.
+  There is no shared vault to split and no deployment-level vault id anywhere
+  (`app_config` holds only the environment id), so the proposed
+  `workspaces.anthropicVaultId` would have been a coarser scheme bolted over a
+  correct one. Kept as tests instead of a migration.
+
+Two identity fixes went in alongside:
+
+- **`read_channel`'s `beforeId` was a cross-workspace existence oracle.** An
+  unscoped `getMessage` answered "No message with id X" for an id that does not
+  exist and handed back a working cursor for one that exists in *another*
+  workspace — so any agent could probe for message ids across the whole
+  deployment. It resolves through `getMessageInWorkspace` now, the same scope
+  `read_thread` already used, and the two cases are indistinguishable.
+- **Agents are told people's real names.** `mcp/format.ts` rendered every human
+  as `"User"` and the router's wake text as the same; both now read
+  `MessageView.author`, which Phase 4 already resolves through
+  `workspace_members` (with the "Former member" fallback). Names only — an
+  agent needs to address someone in a channel, and an email address is not how.
+
+**Router Durable Object migration.** `idFromName("router")` became
+`idFromName(workspaceId)`, and the workspace travels on `MessageNotification`
+because a Durable Object cannot read back the name it was addressed with. The
+old singleton's storage is *not* migrated: its sessions belonged to a router
+nothing can reach any more. It retires itself instead — its last scheduled
+alarm finds no workspace in storage, clears the alarm and drops everything.
+Migration 0014 resets `agents.session_id`/`status`, which are that singleton's
+state mirrored into D1: without it agents would claim "working" against dead
+sessions, and the connector-resync gate (which waits for `session_id` to be
+null) would stay shut for a whole extra session.
 
 ### Phase 6 — Frontend
 

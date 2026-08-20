@@ -3,8 +3,8 @@ import { createDb, type Db } from "#/db/client";
 import type { Agent } from "#/modules/agents/schema";
 import {
   type AgentStatus,
-  getAgentByIdUnscoped,
-  listAllAgents,
+  getAgentById,
+  listAgents,
   setAgentRuntimeStatus,
 } from "#/modules/agents/service";
 import {
@@ -46,6 +46,7 @@ import {
   SESSION_KEY,
   SESSION_KEY_PREFIX,
   type StoredSession,
+  WORKSPACE_KEY,
 } from "./state";
 import { decideWakes, type MessageNotification } from "./wake-decision";
 import {
@@ -55,19 +56,23 @@ import {
 } from "./wake-text";
 
 /**
- * The single global router (`idFromName("router")`). Every message published
- * anywhere in the workspace is announced to it; it decides who wakes, owns the
+ * One router per workspace (`idFromName(workspaceId)`). Every message published
+ * in that workspace is announced to it; it decides who wakes, owns the
  * Anthropic sessions, and pumps their events back out as agent status.
  *
  * `notifyMessage` does only the cheap, ordered part - loop guard and wake
  * decision - and hands the rest to an alarm, so posting a message never waits
  * on the Anthropic API.
+ *
+ * The instance cannot read back the name it was addressed with, so the
+ * workspace arrives on the first notification and is kept in storage from
+ * there. That is also how the pre-multi-tenancy singleton (`idFromName
+ * ("router")`) retires itself: it holds no workspace, so the next alarm it
+ * fires wipes its state instead of acting on it.
  */
 
-const ROUTER_NAME = "router";
-
-export const routerStub = (env: Env) =>
-  env.AGENT_ROUTER.get(env.AGENT_ROUTER.idFromName(ROUTER_NAME));
+export const routerStub = (env: Env, workspaceId: string) =>
+  env.AGENT_ROUTER.get(env.AGENT_ROUTER.idFromName(workspaceId));
 
 const toWakeEntry = (notification: MessageNotification): WakeEntry => ({
   authorName: notification.authorName,
@@ -82,6 +87,8 @@ const toWakeEntry = (notification: MessageNotification): WakeEntry => ({
 
 export class AgentRouter extends DurableObject<Env> {
   private database: Db | null = null;
+  /** Memoised `WORKSPACE_KEY`; storage stays the source of truth. */
+  private scope: string | null = null;
 
   private get db(): Db {
     this.database ??= createDb(this.env.DB);
@@ -100,6 +107,28 @@ export class AgentRouter extends DurableObject<Env> {
     return this.ctx.storage.put(key, value);
   }
 
+  /**
+   * The tenant every query below is scoped to. Null only before the first
+   * notification lands - and, permanently, in the retired global singleton.
+   */
+  private async workspaceId(): Promise<string | null> {
+    this.scope ??= (await this.read<string>(WORKSPACE_KEY)) ?? null;
+    return this.scope;
+  }
+
+  /**
+   * An agent of *this* workspace. A null workspace or an id from another one
+   * both come back undefined, which every caller already treats as "nothing to
+   * wake".
+   */
+  private async agentOf(agentId: string): Promise<Agent | undefined> {
+    const workspaceId = await this.workspaceId();
+    if (!workspaceId) {
+      return;
+    }
+    return await getAgentById(this.db, workspaceId, agentId);
+  }
+
   // --- inbound ---------------------------------------------------------------
 
   /**
@@ -107,6 +136,13 @@ export class AgentRouter extends DurableObject<Env> {
    * the decision is recorded; the alarm does the talking to Anthropic.
    */
   async notifyMessage(notification: MessageNotification): Promise<void> {
+    // Before anything else, including the enabled check: every alarm this
+    // instance ever schedules has to find a workspace waiting for it.
+    if (this.scope !== notification.workspaceId) {
+      this.scope = notification.workspaceId;
+      await this.write(WORKSPACE_KEY, notification.workspaceId);
+    }
+
     if (!isAnthropicEnabled(this.env)) {
       return;
     }
@@ -138,6 +174,16 @@ export class AgentRouter extends DurableObject<Env> {
   // --- alarm -----------------------------------------------------------------
 
   override async alarm(): Promise<void> {
+    if (!(await this.workspaceId())) {
+      // The pre-multi-tenancy singleton, whose last scheduled alarm has just
+      // fired. It routed for every workspace and now routes for none, so it
+      // lets go of its state rather than acting on it: its agents' sessions
+      // are unreachable anyway, and they restart idle under their own router.
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.deleteAll();
+      return;
+    }
+
     await this.dispatchPending();
     await this.pumpSessions();
     await this.flushDigests();
@@ -221,7 +267,7 @@ export class AgentRouter extends DurableObject<Env> {
     session: StoredSession | null
   ): Promise<void> {
     const gateway = this.gateway();
-    const agent = await getAgentByIdUnscoped(this.db, agentId);
+    const agent = await this.agentOf(agentId);
     const [first] = entries;
     const channelId = first?.channelId ?? session?.channelId ?? "";
 
@@ -304,7 +350,7 @@ export class AgentRouter extends DurableObject<Env> {
         // Recorded on the agent's sync status.
       }
     );
-    return (await getAgentByIdUnscoped(this.db, agent.id)) ?? agent;
+    return (await getAgentById(this.db, agent.workspaceId, agent.id)) ?? agent;
   }
 
   private async startSession(
@@ -368,9 +414,11 @@ export class AgentRouter extends DurableObject<Env> {
     await this.ctx.storage.delete(NEXT_DIGEST_KEY);
 
     const now = Date.now();
-    // Every workspace's agents: the router is still one global Durable Object.
-    // TODO(phase-5): one router per workspace, and this becomes `listAgents`.
-    for (const agent of await listAllAgents(this.db)) {
+    const workspaceId = await this.workspaceId();
+    if (!workspaceId) {
+      return;
+    }
+    for (const agent of await listAgents(this.db, workspaceId)) {
       // biome-ignore lint/performance/noAwaitInLoops: session slots are taken one wake at a time
       const entries = await this.read<WakeEntry[]>(DIGEST_KEY(agent.id));
       if (!entries || entries.length === 0) {
@@ -590,8 +638,18 @@ export class AgentRouter extends DurableObject<Env> {
     channelId: string,
     sessionId: string | null
   ): Promise<void> {
-    await setAgentRuntimeStatus(this.db, agentId, status, sessionId);
-    const agent = await getAgentByIdUnscoped(this.db, agentId);
+    const workspaceId = await this.workspaceId();
+    if (!workspaceId) {
+      return;
+    }
+    await setAgentRuntimeStatus(
+      this.db,
+      workspaceId,
+      agentId,
+      status,
+      sessionId
+    );
+    const agent = await this.agentOf(agentId);
 
     if (agent && sessionId === null && agent.connectorResyncPendingAt) {
       // The gate just opened: no session means the MCP token can be rotated

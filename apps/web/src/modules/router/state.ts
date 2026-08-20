@@ -35,3 +35,9 @@ export const GUARD_KEY = (channelId: string) => `guard:${channelId}`;
 export const PENDING_KEY = "pending";
 export const QUEUE_KEY = "queue";
 export const NEXT_DIGEST_KEY = "nextDigestAt";
+/**
+ * The workspace this instance routes for, learned from the first notification
+ * it is handed. A Durable Object cannot read back the name it was addressed
+ * with, so the tenant has to arrive with the traffic - see `AgentRouter`.
+ */
+export const WORKSPACE_KEY = "workspaceId";

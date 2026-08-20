@@ -16,7 +16,10 @@ import { assignConnector } from "#/modules/connectors/service";
 import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
 import { skills, skillVersions } from "#/modules/skills/schema";
 import { assignSkill } from "#/modules/skills/service";
-import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
+import {
+  createWorkspace,
+  DEFAULT_WORKSPACE_ID,
+} from "#/modules/workspaces/service";
 import type {
   AnthropicGateway,
   SyncAgentInput,
@@ -391,5 +394,104 @@ describe("sessionVaultIdsFor", () => {
 
   test("is empty for an agent with no connectors", async () => {
     expect(await sessionVaultIdsFor(db, await registeredAgent())).toEqual([]);
+  });
+});
+
+// --- tenancy ----------------------------------------------------------------
+
+/**
+ * Two workspaces, an agent called "Researcher" in each. `agents.name` is only
+ * unique per workspace now, and both registrations land in the one shared
+ * Anthropic organisation - so the questions are whether that is allowed, and
+ * whether either agent is ever told about the other.
+ *
+ * The name goes over verbatim: `scripts/anthropic-spike.ts names` created two
+ * agents with one name against the live API and both were accepted (2026-08-20,
+ * recorded in docs/plan-multi-tenancy.md). What must not cross is the roster.
+ */
+describe("two workspaces, one agent name", () => {
+  const seedWorkspace = async (
+    name: string,
+    clerkUserId: string
+  ): Promise<{ researcher: string; teammate: string; workspaceId: string }> => {
+    const { workspace } = await createWorkspace(db, {
+      name,
+      owner: {
+        clerkUserId,
+        email: `${clerkUserId}@example.com`,
+        imageUrl: null,
+        name: "Owner",
+      },
+    });
+    const { agent: researcher } = await createAgent(db, workspace.id, {
+      instructions: "",
+      name: "Researcher",
+      soul: "",
+    });
+    const { agent: teammate } = await createAgent(db, workspace.id, {
+      instructions: "",
+      // Distinct per workspace, so a roster that crossed over would name it.
+      name: `${name} Teammate`,
+      soul: `the ${name} specialist`,
+    });
+    await setAgentRegistration(db, researcher.id, {
+      anthropicAgentId: `agt_${name}_researcher`,
+      memoryStoreId: null,
+    });
+    await setAgentRegistration(db, teammate.id, {
+      anthropicAgentId: `agt_${name}_teammate`,
+      memoryStoreId: null,
+    });
+    return {
+      researcher: researcher.id,
+      teammate: teammate.id,
+      workspaceId: workspace.id,
+    };
+  };
+
+  test("both register under the same name, and each roster stops at its own workspace", async () => {
+    const alpha = await seedWorkspace("Alpha", "user_2aAdaAAAAAAAAAAAAAAAAAAA");
+    const beta = await seedWorkspace("Beta", "user_2bBobBBBBBBBBBBBBBBBBBBB");
+    const { calls, gateway } = fakeGateway();
+
+    await syncAgentToAnthropic(db, gateway, alpha.researcher);
+    await syncAgentToAnthropic(db, gateway, beta.researcher);
+
+    const [first, second] = calls.synced;
+    expect(first?.name).toBe("Researcher");
+    expect(second?.name).toBe("Researcher");
+    // Each is a distinct Anthropic-side agent; only the display name collides.
+    expect(first?.anthropicAgentId).not.toBe(second?.anthropicAgentId);
+
+    // The roster is the leak that no response body would show: it reaches the
+    // agent through its system prompt.
+    expect(first?.system).toContain("@Alpha Teammate");
+    expect(first?.system).not.toContain("@Beta Teammate");
+    expect(second?.system).toContain("@Beta Teammate");
+    expect(second?.system).not.toContain("@Alpha Teammate");
+  });
+
+  test("a session gets the vaults of its own agent's connectors and no others", async () => {
+    const alpha = await seedWorkspace("Alpha", "user_2aAdaAAAAAAAAAAAAAAAAAAA");
+    const beta = await seedWorkspace("Beta", "user_2bBobBBBBBBBBBBBBBBBBBBB");
+    // The same connector URL in both workspaces - the case the plan called the
+    // "vault trap". One vault per connector row is what keeps them apart.
+    await addConnectorRow("shared-alpha", {
+      url: "https://mcp.example.com/mcp",
+      workspaceId: alpha.workspaceId,
+    });
+    await addConnectorRow("shared-beta", {
+      url: "https://mcp.example.com/mcp",
+      workspaceId: beta.workspaceId,
+    });
+    await assignConnector(db, "shared-alpha", alpha.researcher);
+    await assignConnector(db, "shared-beta", beta.researcher);
+
+    expect(await sessionVaultIdsFor(db, alpha.researcher)).toEqual([
+      "vault_shared-alpha",
+    ]);
+    expect(await sessionVaultIdsFor(db, beta.researcher)).toEqual([
+      "vault_shared-beta",
+    ]);
   });
 });

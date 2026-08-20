@@ -16,6 +16,7 @@ const notification = (
   mentionedAgentIds: [],
   messageId: "message_1",
   threadParentId: null,
+  workspaceId: "workspace_1",
   ...overrides,
 });
 

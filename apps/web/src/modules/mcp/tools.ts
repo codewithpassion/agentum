@@ -14,7 +14,7 @@ import {
 } from "#/modules/computer/output";
 import { publishMessage } from "#/modules/messaging/publish";
 import {
-  getMessage,
+  getMessageInWorkspace,
   getThread,
   isChannelMember,
   listChannelMembers,
@@ -128,7 +128,16 @@ const registerReadChannel = (server: McpServer, ctx: McpToolContext): void => {
 
       let cursor: MessageCursor | undefined;
       if (beforeId) {
-        const before = await getMessage(ctx.db, beforeId);
+        // Scoped, and not merely for correctness: an unscoped lookup answers
+        // "no such message" for an id that does not exist and hands back a
+        // working cursor for one that exists in another workspace, which makes
+        // this parameter an existence oracle for every message in the
+        // deployment. Out of the workspace and never-existed read the same.
+        const before = await getMessageInWorkspace(
+          ctx.db,
+          ctx.workspace.id,
+          beforeId
+        );
         if (!before) {
           return fail(`No message with id ${beforeId}.`);
         }

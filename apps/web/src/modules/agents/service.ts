@@ -55,16 +55,6 @@ export const listAgents = (db: Db, workspaceId: string): Promise<Agent[]> =>
     .where(eq(agents.workspaceId, workspaceId))
     .orderBy(asc(agents.name));
 
-/**
- * Every agent in the deployment. The only legal caller is the `AgentRouter`
- * Durable Object, which is still a global singleton and drives wake digests for
- * agents of every workspace.
- *
- * TODO(phase-5): a per-workspace router removes this.
- */
-export const listAllAgents = (db: Db): Promise<Agent[]> =>
-  db.select().from(agents).orderBy(asc(agents.name));
-
 export const getAgentById = async (
   db: Db,
   workspaceId: string,
@@ -79,8 +69,10 @@ export const getAgentById = async (
 
 /**
  * An agent by bare id, for the server-side plumbing that derives the workspace
- * from the agent rather than checking it against one: the Anthropic sync, the
- * router Durable Object and the Slack adapter (which arrives via a bridge row).
+ * from the agent rather than checking it against one: the Anthropic sync and
+ * the Slack adapter (which arrives via a bridge row). The router Durable
+ * Object used to be on that list; since phase 5 it knows its own workspace and
+ * uses `getAgentById`.
  *
  * Never call this from a workspace-scoped route - `getAgentById` is the one
  * that answers "not found" for another tenant's id.
@@ -252,14 +244,21 @@ export const setAgentSyncStatus = async (
  * The router's view of the agent, mirrored into D1 so a page load shows the
  * same thing the live socket would have. `updatedAt` deliberately stays put:
  * this is activity, not an edit.
+ *
+ * Scoped like every other write: the router is per workspace, and an agent id
+ * it was handed that belongs to another one must move nothing.
  */
 export const setAgentRuntimeStatus = async (
   db: Db,
+  workspaceId: string,
   id: string,
   status: AgentStatus,
   sessionId: string | null
 ): Promise<void> => {
-  await db.update(agents).set({ sessionId, status }).where(eq(agents.id, id));
+  await db
+    .update(agents)
+    .set({ sessionId, status })
+    .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, id)));
 };
 
 /**

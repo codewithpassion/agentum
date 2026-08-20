@@ -10,7 +10,10 @@ import {
   getAgentById,
 } from "#/modules/agents/service";
 import type { VaultGateway } from "#/modules/anthropic/vaults";
-import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
+import {
+  createWorkspace,
+  DEFAULT_WORKSPACE_ID,
+} from "#/modules/workspaces/service";
 import { decryptSecret, generateConnectorKey } from "./crypto";
 import { connectorOauthFlows, connectors } from "./schema";
 import {
@@ -1151,5 +1154,97 @@ describe("recordConnectorAuthFailure", () => {
     expect(
       (await getConnector(db, DEFAULT_WORKSPACE_ID, connectorId))?.status
     ).toBe("connected");
+  });
+});
+
+// --- tenancy ----------------------------------------------------------------
+
+/**
+ * The multi-tenancy question the plan raised as the "vault trap": two
+ * workspaces adding the *same* connector URL with *different* OAuth accounts.
+ *
+ * It is answered by the topology this module already has - one vault per
+ * connector row, and `(workspace_id, url)` unique rather than `url` - so the
+ * two never share a vault and no session can be handed the other's. These
+ * tests are what keeps that true.
+ */
+describe("vaults across workspaces", () => {
+  const otherWorkspace = async (): Promise<string> => {
+    const { workspace } = await createWorkspace(db, {
+      name: "Beta",
+      owner: {
+        clerkUserId: "user_2bBobBBBBBBBBBBBBBBBBBBB",
+        email: "bob@example.com",
+        imageUrl: null,
+        name: "Bob",
+      },
+    });
+    return workspace.id;
+  };
+
+  test("the same URL in two workspaces gets a vault each, never a shared one", async () => {
+    const beta = await otherWorkspace();
+    const ctx = contextWith(world([mcpHandler("tok_a"), metadataHandler()]));
+    const ctxB = contextWith(world([mcpHandler("tok_b"), metadataHandler()]));
+
+    const { connector: mine } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
+    const { connector: theirs } = await addConnector(ctxB, beta, {
+      url: MCP_URL,
+    });
+
+    const connectedA = await completeBearer(ctx, mine, "tok_a");
+    const connectedB = await completeBearer(ctxB, theirs, "tok_b");
+
+    expect(connectedA.vaultId).not.toBe(connectedB.vaultId);
+    // Each token went into its own workspace's vault - the credentials are
+    // keyed by `mcp_server_url`, so a shared vault is where they would collide.
+    expect(vaults.calls.bearerCredentials).toEqual([
+      { token: "tok_a", vaultId: connectedA.vaultId ?? "" },
+      { token: "tok_b", vaultId: connectedB.vaultId ?? "" },
+    ]);
+    expect(vaults.calls.vaults).toEqual([mine.id, theirs.id]);
+  });
+
+  test("the vault is created once, on the first credential, and reused after", async () => {
+    const ctx = contextWith(world([mcpHandler("tok_a"), metadataHandler()]));
+    const { connector } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
+
+    // A connector that needs no credential has no vault at all.
+    expect(vaults.calls.vaults).toEqual([]);
+
+    const connected = await completeBearer(ctx, connector, "tok_a");
+    expect(vaults.calls.vaults).toEqual([connector.id]);
+
+    // A second pass finds the credential already there and creates nothing.
+    await completeBearer(ctx, connected, "tok_a");
+    expect(vaults.calls.vaults).toEqual([connector.id]);
+    expect(vaults.calls.bearerCredentials).toHaveLength(1);
+  });
+
+  test("removing one workspace's connector leaves the other's vault alone", async () => {
+    const beta = await otherWorkspace();
+    const ctx = contextWith(world([mcpHandler("tok_a"), metadataHandler()]));
+    const ctxB = contextWith(world([mcpHandler("tok_b"), metadataHandler()]));
+
+    const { connector: mine } = await addConnector(ctx, DEFAULT_WORKSPACE_ID, {
+      url: MCP_URL,
+    });
+    const { connector: theirs } = await addConnector(ctxB, beta, {
+      url: MCP_URL,
+    });
+    const connectedA = await completeBearer(ctx, mine, "tok_a");
+    const connectedB = await completeBearer(ctxB, theirs, "tok_b");
+
+    await removeConnector(ctx, connectedA);
+
+    expect(vaults.calls.deleted).toEqual([connectedA.vaultId ?? ""]);
+    expect((await getConnector(db, beta, theirs.id))?.vaultCredentialId).toBe(
+      "cred_bearer"
+    );
+    expect(connectedB.vaultId).not.toBe(connectedA.vaultId);
   });
 });

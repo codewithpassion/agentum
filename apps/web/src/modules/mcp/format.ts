@@ -34,18 +34,35 @@ export const fail = (message: string): CallToolResult => ({
   isError: true,
 });
 
-/** Humans have no directory here yet, so they are all just "User". */
-const HUMAN_NAME = "User";
 const DELETED_AGENT_NAME = "Deleted agent";
+/** A bridged surface - a Slack user, say - has no membership to resolve. */
+const EXTERNAL_NAME = "Someone outside the workspace";
+/**
+ * Only for a human view built without an author. `hydrateMessages` resolves
+ * every `authorType: "user"` row through `workspace_members` and that lookup
+ * answers for every id - "Former member" when the membership is gone - so this
+ * is the branch for a view assembled some other way.
+ */
+const UNKNOWN_HUMAN_NAME = "A former member";
 
+/**
+ * Agents get the names their teammates actually go by: an agent's from the
+ * roster map, a person's from the workspace membership the view already
+ * resolved. No email - a name is what an agent needs to address someone in a
+ * channel, and an address is not.
+ */
 export const authorNameOf = (
-  message: Pick<MessageView, "authorId" | "authorType">,
+  message: Pick<MessageView, "author" | "authorId" | "authorType">,
   agentNamesById: ReadonlyMap<string, string>
 ): string => {
-  if (message.authorType !== "agent") {
-    return HUMAN_NAME;
+  if (message.authorType === "agent") {
+    return agentNamesById.get(message.authorId) ?? DELETED_AGENT_NAME;
   }
-  return agentNamesById.get(message.authorId) ?? DELETED_AGENT_NAME;
+  if (message.authorType === "external") {
+    return EXTERNAL_NAME;
+  }
+  const { author } = message;
+  return author ? author.name : UNKNOWN_HUMAN_NAME;
 };
 
 export const toMcpMessage = (
