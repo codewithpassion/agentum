@@ -116,6 +116,141 @@ describe("ensureEnvironment", () => {
   });
 });
 
+describe("syncAgent", () => {
+  const updates: Record<string, unknown>[] = [];
+  const gateway = createAnthropicGateway(
+    client({
+      agents: {
+        update: (_id: string, body: Record<string, unknown>) => {
+          updates.push(body);
+          return Promise.resolve({});
+        },
+      },
+    }),
+    { cache: memoryCache(), environmentName: "agentum" }
+  );
+
+  const lastUpdate = () => updates.at(-1) ?? {};
+
+  test("declares the workspace server first, then every connector", async () => {
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      connectors: [
+        { name: "connector_aaaa", url: "https://a.example.com/mcp" },
+      ],
+      mcpUrl: "https://app.example.com/mcp/tok",
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    expect(lastUpdate().mcp_servers).toEqual([
+      { name: "agentum", type: "url", url: "https://app.example.com/mcp/tok" },
+      {
+        name: "connector_aaaa",
+        type: "url",
+        url: "https://a.example.com/mcp",
+      },
+    ]);
+  });
+
+  test("gives every declared server a matching always-allow toolset", async () => {
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      connectors: [
+        { name: "connector_aaaa", url: "https://a.example.com/mcp" },
+      ],
+      mcpUrl: "https://app.example.com/mcp/tok",
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    // The API requires a toolset per server, and a bare `mcp_toolset` comes
+    // back as `always_ask` - which would park the session waiting for a human.
+    expect(lastUpdate().tools).toEqual([
+      {
+        default_config: {
+          enabled: true,
+          permission_policy: { type: "always_allow" },
+        },
+        type: "agent_toolset_20260401",
+      },
+      {
+        default_config: {
+          enabled: true,
+          permission_policy: { type: "always_allow" },
+        },
+        mcp_server_name: "agentum",
+        type: "mcp_toolset",
+      },
+      {
+        default_config: {
+          enabled: true,
+          permission_policy: { type: "always_allow" },
+        },
+        mcp_server_name: "connector_aaaa",
+        type: "mcp_toolset",
+      },
+    ]);
+  });
+
+  test("leaves the whole array alone when there is no MCP URL to send", async () => {
+    // The registered URL carries a token we cannot reconstruct, so a rename
+    // must not touch `mcp_servers` - connectors and all.
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      connectors: [
+        { name: "connector_aaaa", url: "https://a.example.com/mcp" },
+      ],
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    expect(lastUpdate()).not.toHaveProperty("mcp_servers");
+    expect(lastUpdate()).not.toHaveProperty("tools");
+  });
+});
+
+describe("createSession", () => {
+  const created: Record<string, unknown>[] = [];
+  const gateway = createAnthropicGateway(
+    client({
+      environments: {
+        list: () =>
+          iterate([{ archived_at: null, id: "env_1", name: "agentum" }]),
+      },
+      sessions: {
+        create: (body: Record<string, unknown>) => {
+          created.push(body);
+          return Promise.resolve({ id: "sesn_1", status: "running" });
+        },
+      },
+    }),
+    { cache: memoryCache(), environmentName: "agentum" }
+  );
+
+  const session = {
+    anthropicAgentId: "agt_1",
+    memoryStoreId: null,
+    text: "hello",
+    title: "Ada in ch_1",
+  };
+
+  test("attaches the connector vaults", async () => {
+    await gateway.createSession({
+      ...session,
+      vaultIds: ["vault_a", "vault_b"],
+    });
+
+    expect(created.at(-1)?.vault_ids).toEqual(["vault_a", "vault_b"]);
+  });
+
+  test("omits the field when the agent has no connectors", async () => {
+    await gateway.createSession({ ...session, vaultIds: [] });
+
+    expect(created.at(-1)).not.toHaveProperty("vault_ids");
+  });
+});
+
 describe("pollEvents", () => {
   const eventsClient = (pages: Record<string, unknown[]>, seen: string[]) => ({
     sessions: {

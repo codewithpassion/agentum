@@ -12,6 +12,15 @@ export const agents = sqliteTable("agents", {
   anthropicAgentId: text("anthropic_agent_id"),
   /** Avatar seed - a hex colour picked deterministically from the name. */
   avatar: text("avatar").notNull(),
+  /**
+   * When a connector change asked for a token rotation and a full `mcp_servers`
+   * resync; null when nothing is owed. The rotation waits until the agent has
+   * no session (see `sessionId`), because it invalidates the workspace MCP URL
+   * a running session is holding.
+   */
+  connectorResyncPendingAt: integer("connector_resync_pending_at", {
+    mode: "timestamp_ms",
+  }),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch() * 1000)`),

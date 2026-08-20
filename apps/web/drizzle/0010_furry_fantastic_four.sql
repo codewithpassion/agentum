@@ -1,0 +1,1 @@
+ALTER TABLE `agents` ADD `connector_resync_pending_at` integer;

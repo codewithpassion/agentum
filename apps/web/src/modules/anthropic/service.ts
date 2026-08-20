@@ -1,12 +1,20 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { eq } from "drizzle-orm";
 import type { Db } from "#/db/client";
+import { mcpUrlForToken } from "#/modules/agents/mcp-token";
 import type { Agent } from "#/modules/agents/schema";
 import {
+  clearConnectorResyncPending,
+  getAgentById,
   listAgents,
+  listAgentsPendingConnectorResync,
+  rotateMcpToken,
   setAgentRegistration,
   setAgentSyncStatus,
 } from "#/modules/agents/service";
+import { listConnectorsForAgent } from "#/modules/connectors/service";
+import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
+import { composeAgentConnectors } from "./agent-connectors";
 import { ENVIRONMENT_NAME } from "./config";
 import {
   type AnthropicGateway,
@@ -126,40 +134,53 @@ export interface SyncAgentOptions {
   mcpUrl?: string;
 }
 
+const cappedMessage = (dropped: number): string =>
+  `${dropped} connector${dropped === 1 ? "" : "s"} could not be attached: an agent may declare ${MAX_AGENT_CONNECTORS} connectors plus the workspace server. Unassign the extras.`;
+
 /**
- * Registers (or updates) one agent with Anthropic, then refreshes everyone
- * else's roster. Never throws: failures land in the agent's `syncStatus`, which
- * the agent rail shows.
+ * The single place an agent's configuration is pushed, with the gateway handed
+ * in so the whole path is testable. `mcpUrl` decides which of two updates this
+ * is:
+ *
+ * - **with** it - creation, a manual token rotation, a connector resync - the
+ *   entire `mcp_servers` array is replaced, so the agent's connectors are
+ *   loaded and sent alongside it. Leaving them out would wipe them.
+ * - **without** it - a rename, a roster refresh, and skills in phase 5 - only
+ *   the name and system prompt move, and the registered MCP URL (whose
+ *   plaintext token cannot be reconstructed) is preserved untouched.
+ *
+ * Returns whether the push landed; failures are recorded on the agent row
+ * rather than thrown, because registration is best-effort everywhere.
  */
-export const syncAgentWithAnthropic = async (
+export const syncAgentToAnthropic = async (
   db: Db,
-  env: Env,
+  gateway: AnthropicGateway,
   agentId: string,
   options: SyncAgentOptions = {}
-): Promise<void> => {
-  const gateway = createGateway(db, env);
-  if (!gateway) {
-    return;
-  }
-
+): Promise<boolean> => {
   const all = await listAgents(db);
   const agent = all.find((candidate) => candidate.id === agentId);
   if (!agent) {
-    return;
+    return false;
   }
+
+  const composed = options.mcpUrl
+    ? composeAgentConnectors(await listConnectorsForAgent(db, agentId))
+    : null;
 
   try {
     const system = systemPromptFor(agent, all);
     if (agent.anthropicAgentId) {
       await gateway.syncAgent({
         anthropicAgentId: agent.anthropicAgentId,
+        connectors: composed?.servers,
         mcpUrl: options.mcpUrl,
         name: agent.name,
         system,
       });
-      await setAgentSyncStatus(db, agent.id, "synced");
     } else if (options.mcpUrl) {
       const registration = await gateway.registerAgent({
+        connectors: composed?.servers,
         instructions: agent.instructions,
         mcpUrl: options.mcpUrl,
         name: agent.name,
@@ -175,14 +196,186 @@ export const syncAgentWithAnthropic = async (
         "error",
         "No MCP URL available. Rotate this agent's MCP token to register it with Anthropic."
       );
-      return;
+      return false;
     }
   } catch (error) {
     await setAgentSyncStatus(db, agent.id, "error", messageOf(error));
+    return false;
   }
 
-  await resyncRosters(db, gateway, agent.id);
+  if (options.mcpUrl) {
+    // Any successful full push pays off whatever a connector change owed: the
+    // array that just landed is the current one, however the rotation arose.
+    await clearConnectorResyncPending(db, agent.id);
+  }
+
+  if (composed && composed.dropped.length > 0) {
+    await setAgentSyncStatus(
+      db,
+      agent.id,
+      "error",
+      cappedMessage(composed.dropped.length)
+    );
+    return true;
+  }
+  await setAgentSyncStatus(db, agent.id, "synced");
+  return true;
 };
+
+/**
+ * Registers (or updates) one agent with Anthropic, then refreshes everyone
+ * else's roster. Never throws: failures land in the agent's `syncStatus`, which
+ * the agent rail shows.
+ */
+export const syncAgentWithAnthropic = async (
+  db: Db,
+  env: Env,
+  agentId: string,
+  options: SyncAgentOptions = {}
+): Promise<void> => {
+  const gateway = createGateway(db, env);
+  if (!gateway) {
+    return;
+  }
+  if (!(await getAgentById(db, agentId))) {
+    return;
+  }
+
+  await syncAgentToAnthropic(db, gateway, agentId, options);
+  await resyncRosters(db, gateway, agentId);
+};
+
+// --- connector resync -------------------------------------------------------
+
+export interface ConnectorResyncDeps {
+  /**
+   * Where our MCP endpoint lives. Null when neither `PUBLIC_APP_URL` nor a
+   * request says, in which case no URL can be minted and the debt waits.
+   */
+  appBaseUrl: string | null;
+  db: Db;
+  gateway: AnthropicGateway;
+}
+
+export type ConnectorResyncOutcome =
+  | "deferred"
+  | "failed"
+  | "skipped"
+  | "synced";
+
+/** The base is already resolved here; the request URL is only its fallback. */
+const mcpUrlFor = (appBaseUrl: string, token: string): string =>
+  mcpUrlForToken(appBaseUrl, appBaseUrl, token);
+
+/**
+ * Pushes an agent's connectors after an assignment (or a connector) changed.
+ *
+ * An update replaces the whole `mcp_servers` array, and the workspace entry
+ * carries a token that only exists at issuance - so the only way to rewrite the
+ * array is to rotate the token and send the URL it yields. That invalidates the
+ * agent's current MCP endpoint, which is why it waits until the agent has no
+ * session: `sessionId` is the gate, and the caller's `connectorResyncPendingAt`
+ * flag is what makes the debt survive the wait (and a failed attempt).
+ */
+export const resyncAgentConnectors = async (
+  deps: ConnectorResyncDeps,
+  agentId: string
+): Promise<ConnectorResyncOutcome> => {
+  const agent = await getAgentById(deps.db, agentId);
+  if (!agent) {
+    return "skipped";
+  }
+  if (agent.sessionId) {
+    // Rotating now would cut a running session off from the workspace MCP.
+    return "deferred";
+  }
+  if (!deps.appBaseUrl) {
+    return "skipped";
+  }
+
+  const rotated = await rotateMcpToken(deps.db, agentId);
+  if (!rotated) {
+    return "skipped";
+  }
+
+  // The old URL is dead from here, whatever the API says next. On failure the
+  // flag stays set and the retry - at the latest just before the agent's next
+  // session - rotates again.
+  // A successful push clears the flag itself - it is the debt being paid.
+  const pushed = await syncAgentToAnthropic(deps.db, deps.gateway, agentId, {
+    mcpUrl: mcpUrlFor(deps.appBaseUrl, rotated.mcpToken),
+  });
+  return pushed ? "synced" : "failed";
+};
+
+const appBaseUrlFor = (env: Env, requestUrl?: string): string | null => {
+  if (env.PUBLIC_APP_URL) {
+    return env.PUBLIC_APP_URL;
+  }
+  if (!requestUrl) {
+    return null;
+  }
+  try {
+    return new URL(requestUrl).origin;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Everything a connector change left stale, resynced as far as it can be right
+ * now. Agents with a live session stay marked and are picked up by the router
+ * when theirs ends.
+ */
+export const resyncPendingAgents = async (
+  db: Db,
+  env: Env,
+  requestUrl?: string
+): Promise<void> => {
+  const gateway = createGateway(db, env);
+  if (!gateway) {
+    return;
+  }
+  const deps: ConnectorResyncDeps = {
+    appBaseUrl: appBaseUrlFor(env, requestUrl),
+    db,
+    gateway,
+  };
+  for (const agent of await listAgentsPendingConnectorResync(db)) {
+    // Sequential for the same reason as the roster pass: agent updates are
+    // rate-limited, and one failure must not take the others down.
+    // biome-ignore lint/performance/noAwaitInLoops: paced to stay inside the API's rate limits
+    await resyncAgentConnectors(deps, agent.id).catch(() => {
+      // Recorded on the agent row; the flag keeps the debt for the next try.
+    });
+  }
+};
+
+/** The router's hook: one agent, at the moment it stops having a session. */
+export const resyncAgentConnectorsWithAnthropic = async (
+  db: Db,
+  env: Env,
+  agentId: string
+): Promise<void> => {
+  const gateway = createGateway(db, env);
+  if (!gateway) {
+    return;
+  }
+  await resyncAgentConnectors(
+    { appBaseUrl: appBaseUrlFor(env), db, gateway },
+    agentId
+  );
+};
+
+/**
+ * The vaults the agent's next session may use. Create-only on Anthropic's side,
+ * so this is read once, when the session is made.
+ */
+export const sessionVaultIdsFor = async (
+  db: Db,
+  agentId: string
+): Promise<string[]> =>
+  composeAgentConnectors(await listConnectorsForAgent(db, agentId)).vaultIds;
 
 /** After a delete, the survivors' rosters still name the agent that left. */
 export const resyncRostersWithAnthropic = async (

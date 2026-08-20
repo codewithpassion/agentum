@@ -64,6 +64,20 @@
       "when": 1787184421959,
       "tag": "0008_pale_exiles",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787188864120,
+      "tag": "0009_black_taskmaster",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1787191269071,
+      "tag": "0010_furry_fantastic_four",
+      "breakpoints": true
     }
   ]
 }

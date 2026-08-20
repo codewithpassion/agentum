@@ -81,7 +81,7 @@ describe("reduceEvents", () => {
 
     expect(outcome.status).toBe("idle");
     expect(outcome.agentText).toEqual(["working on it"]);
-    expect(outcome.error).toBeNull();
+    expect(outcome.errors).toEqual([]);
   });
 
   test("keeps the previous status when the page carries none", () => {
@@ -96,7 +96,23 @@ describe("reduceEvents", () => {
       "running"
     );
 
-    expect(outcome.error).toBe("the model was overloaded");
+    expect(outcome.errors).toEqual(["the model was overloaded"]);
+  });
+
+  test("keeps every error in the page, not just the last", () => {
+    // One page can carry a failure per connector, each naming a different one.
+    const outcome = reduceEvents(
+      [
+        event("a", "session.error", "connector_one: 401"),
+        event("b", "session.error", "connector_two: 401"),
+      ],
+      "running"
+    );
+
+    expect(outcome.errors).toEqual([
+      "connector_one: 401",
+      "connector_two: 401",
+    ]);
   });
 
   test("reports a terminated session", () => {

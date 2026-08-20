@@ -22,7 +22,15 @@ import {
  * it changes, this file changes and the router does not.
  */
 
+/** One user-added connector, already reduced to what the API declares. */
+export interface ConnectorServer {
+  name: string;
+  url: string;
+}
+
 export interface RegisterAgentInput {
+  /** Assigned connectors, on top of the workspace server. */
+  connectors?: readonly ConnectorServer[];
   instructions: string;
   /** Our MCP endpoint for this agent, resolved at call time from env. */
   mcpUrl: string;
@@ -38,6 +46,11 @@ export interface RegisteredAgent {
 
 export interface SyncAgentInput {
   anthropicAgentId: string;
+  /**
+   * Assigned connectors. Only read when `mcpUrl` is given, because that is the
+   * only time the whole `mcp_servers` array is replaced.
+   */
+  connectors?: readonly ConnectorServer[];
   /** Omit to leave the registered MCP URL untouched (the usual roster resync). */
   mcpUrl?: string;
   name: string;
@@ -49,6 +62,11 @@ export interface CreateSessionInput {
   memoryStoreId: string | null;
   text: string;
   title: string;
+  /**
+   * Vaults holding the connectors' credentials. Create-only: a running session
+   * cannot be given more, which is why an assignment lands on the next one.
+   */
+  vaultIds?: readonly string[];
 }
 
 export interface CreatedSession {
@@ -102,25 +120,47 @@ const permissive = {
   permission_policy: { type: "always_allow" as const },
 };
 
-const toolsFor = (mcpUrl: string | undefined) => [
+const mcpToolset = (name: string) => ({
+  default_config: permissive,
+  mcp_server_name: name,
+  type: "mcp_toolset" as const,
+});
+
+/**
+ * Every declared server must be referenced by an `mcp_toolset`, so the two
+ * arrays are built from the same list. Connectors are only present when the
+ * workspace server is - `mcp_servers` is a full replacement, and sending the
+ * connectors alone would drop the agent's own MCP endpoint.
+ */
+const toolsFor = (
+  mcpUrl: string | undefined,
+  connectors: readonly ConnectorServer[]
+) => [
   {
     default_config: permissive,
     type: AGENT_TOOLSET as "agent_toolset_20260401",
   },
   ...(mcpUrl
     ? [
-        {
-          default_config: permissive,
-          mcp_server_name: MCP_SERVER_NAME,
-          type: "mcp_toolset" as const,
-        },
+        mcpToolset(MCP_SERVER_NAME),
+        ...connectors.map((connector) => mcpToolset(connector.name)),
       ]
     : []),
 ];
 
-const mcpServersFor = (mcpUrl: string | undefined) =>
+const mcpServersFor = (
+  mcpUrl: string | undefined,
+  connectors: readonly ConnectorServer[]
+) =>
   mcpUrl
-    ? [{ name: MCP_SERVER_NAME, type: "url" as const, url: mcpUrl }]
+    ? [
+        { name: MCP_SERVER_NAME, type: "url" as const, url: mcpUrl },
+        ...connectors.map((connector) => ({
+          name: connector.name,
+          type: "url" as const,
+          url: connector.url,
+        })),
+      ]
     : undefined;
 
 const statusOf = (status: string): SessionStatus => {
@@ -244,6 +284,9 @@ export const createAnthropicGateway = (
             type: "user.message",
           },
         ],
+        ...(input.vaultIds && input.vaultIds.length > 0
+          ? { vault_ids: [...input.vaultIds] }
+          : {}),
         ...(input.memoryStoreId
           ? {
               resources: [
@@ -297,11 +340,11 @@ export const createAnthropicGateway = (
       const agent = await client.beta.agents.create({
         description:
           input.instructions.slice(0, DESCRIPTION_MAX_LENGTH) || undefined,
-        mcp_servers: mcpServersFor(input.mcpUrl),
+        mcp_servers: mcpServersFor(input.mcpUrl, input.connectors ?? []),
         model: AGENT_MODEL,
         name: input.name,
         system: input.system,
-        tools: toolsFor(input.mcpUrl),
+        tools: toolsFor(input.mcpUrl, input.connectors ?? []),
       });
 
       const store = await client.beta.memoryStores
@@ -332,8 +375,8 @@ export const createAnthropicGateway = (
         system: input.system,
         ...(input.mcpUrl
           ? {
-              mcp_servers: mcpServersFor(input.mcpUrl),
-              tools: toolsFor(input.mcpUrl),
+              mcp_servers: mcpServersFor(input.mcpUrl, input.connectors ?? []),
+              tools: toolsFor(input.mcpUrl, input.connectors ?? []),
             }
           : {}),
       });

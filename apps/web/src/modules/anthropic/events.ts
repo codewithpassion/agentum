@@ -61,7 +61,11 @@ export const advanceCursor = (
 export interface PumpOutcome {
   /** Text the agent produced. We do not post it - the agent posts via MCP. */
   agentText: string[];
-  error: string | null;
+  /**
+   * Every error the page reported, in order. All of them, not just the last:
+   * one page can carry a failure per connector, and each names a different one.
+   */
+  errors: string[];
   status: SessionStatus;
 }
 
@@ -82,7 +86,7 @@ export const reduceEvents = (
   previous: SessionStatus
 ): PumpOutcome => {
   let status = previous;
-  let error: string | null = null;
+  const errors: string[] = [];
   const agentText: string[] = [];
 
   for (const event of events) {
@@ -91,14 +95,14 @@ export const reduceEvents = (
       status = next;
     }
     if (event.type === "session.error") {
-      error = event.text ?? "The session reported an error.";
+      errors.push(event.text ?? "The session reported an error.");
     }
     if (event.type === "agent.message" && event.text) {
       agentText.push(event.text);
     }
   }
 
-  return { agentText, error, status };
+  return { agentText, errors, status };
 };
 
 /** A session we can still send into: not finished, not wedged. */

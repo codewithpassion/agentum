@@ -5,6 +5,36 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 6 — Phase 4: Connectors — remote MCP servers with OAuth (2026-08-20)
+
+**Goal:** Implement Phase 4 of docs/plan-connectors-skills.md — user-added remote MCP connectors with a "no preset list" OAuth ladder, credentials held in Anthropic Vaults, and per-agent connector assignment.
+
+**What we did:**
+- Renamed modules/connectors (Slack bridge) to modules/bridges (4c82bc2), freeing the name; routes moved `/api/connectors` → `/api/bridges` — the Slack Events Request URL is now `/api/bridges/slack/events` and must be updated in the Slack app config
+- Ran the Phase 4 entry spike against the live API (`bun scripts/anthropic-spike.ts vaults`): vault CRUD, `static_bearer` + `mcp_oauth` (with `refresh` block) credentials, secret updates, `mcp_server_url` immutability, archive/delete — honoring Cycle 5's spike-first gate
+- Built modules/connectors (4a/4b): migrations 0009/0010 (`connectors`, `connector_oauth_flows`, `agent_connectors`, `agents.connector_resync_pending_at`), OAuth ladder RFC 9728 → 8414 → 7591 → 7636 PKCE + RFC 8707 `resource`, token encryption, health checks, usability cap with dropped-connector reporting
+- Agent wiring (4c): `vaults.ts` VaultGateway keeps the SDK confined to modules/anthropic (same pattern as gateway.ts); `agent-connectors.ts` composes `mcp_servers` + deduped `vault_ids`; the router settles deferred connector resyncs at the only safe moment — just before session create, when the agent provably has no session
+- UI (4d): /connectors list + detail routes, setup dialog with OAuth popup, agent-settings Connectors tab with picker, connector chips on the profile, sidebar Connectors section
+- e2e (4e): connectors.e2e.ts drives the acceptance script against stub MCP servers stood up in-run (open, OAuth-secured with its own tiny auth server, bearer-only); 462 unit tests + 19 Playwright tests (6 new) all green
+- Browser acceptance (verify-phase4, Sonnet agent) PASSED all 8 steps against the live app + real APIs — added the public Cloudflare Docs MCP server (`https://docs.mcp.cloudflare.com/mcp`, no-auth), verified detail/tools/Test connection, tabbed agent settings with picker + cap indicator, rail chips, assign/unassign persistence, disable/enable; 14 screenshots in docs/acceptance/phase4/. Real-OAuth acceptance against a third-party server (e.g. Linear) SKIPPED — pre-authorized blocker, no third-party credentials in this environment
+- Session ran four sequential forge agents (rename, vault-spike, connectors-module + connectors-ui as one resumed pair, agent-wiring) plus verify-phase4; Phase 4 lands as one commit right after this entry
+
+**Lessons learned:**
+- Credential `mcp_server_url` is immutable at Anthropic — changing a connector's URL means a new credential, not an update (proven in the vault spike)
+- `mcp_oauth` credentials only auto-refresh when a `refresh` block is granted; a grant without one simply works until expiry
+- A session fixes both `mcp_servers` and `vault_ids` at create — connector assignment changes can only reach an agent's NEXT session, so resync is deferred and settled in the router right before startSession
+- The router's sessionId gate can lag by one alarm (a retired session is nulled when the pump reaches it), so a resync landing in that window defers again — matching what the UI promises anyway
+- Playwright specs execute in Node workers, so the e2e stub MCP server had to use `node:http`, not `Bun.serve`, in this otherwise Bun-first repo
+- The vaults API needs `?beta=true` on every path in addition to the `managed-agents-2026-04-01` header (SDK 0.118 `client.beta.vaults.*` handles both); vault/credential delete is real deletion (unlike agents' permanent archive), and deleting a vault with live credentials succeeds — so "Remove connector" is a single `vaults.delete`
+- `mcp_server_url` is unique per vault, not per workspace — this is what makes the one-vault-per-connector topology work
+- The SDK's MCP transport swallows the 401's `WWW-Authenticate` header (the OAuth ladder's trigger), so the probe is hand-rolled Streamable HTTP
+- In dev without a tunnel, every connector-assignment resync fails at Anthropic ("MCP server URL host localhost resolves to loopback") — visible only as the agent-profile error banner; the Connectors picker itself shows no failure signal (UX gap worth revisiting)
+
+**Avoid next time:**
+- After deploying the bridges rename, update the Slack app's Events Request URL to `/api/bridges/slack/events` — the old path is gone
+- Don't expect connector changes to affect a live session — they attach at session create only
+- Don't leave drizzle.config.ts pointing at a renamed schema path — it silently emits DROPs for the moved tables on the next `db:generate` (caught before damage this cycle)
+
 ## Cycle 5 — Workspace UI polish, categories, hierarchical wiki + connectors/skills plan (2026-08-20)
 
 **Goal:** Post-Phase-3 polish pass — sidebar/workspace UX cleanup, channel membership management, a hierarchical wiki, and a plan for the next capabilities (Connectors & Skills).

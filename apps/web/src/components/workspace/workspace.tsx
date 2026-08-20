@@ -79,6 +79,10 @@ export function Workspace({
   const [channelDialogOpen, setChannelDialogOpen] = useState(false);
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+  // Bumped when the settings dialog closes, so the rail's connector chips pick
+  // up an assignment made in it. The picker writes through immediately, so
+  // closing the dialog is the moment the rail can be stale.
+  const [connectorRevision, setConnectorRevision] = useState(0);
   const [deletingAgent, setDeletingAgent] = useState<Agent | null>(null);
   // MCP tokens are stored hashed, so a freshly issued URL only exists here,
   // for as long as this page stays loaded.
@@ -138,7 +142,10 @@ export function Workspace({
     setEditingAgent(agent);
     setAgentDialogOpen(true);
   }, []);
-  const closeAgentDialog = useCallback(() => setAgentDialogOpen(false), []);
+  const closeAgentDialog = useCallback(() => {
+    setAgentDialogOpen(false);
+    setConnectorRevision((revision) => revision + 1);
+  }, []);
   const openChannelDialog = useCallback(() => setChannelDialogOpen(true), []);
   const closeChannelDialog = useCallback(() => setChannelDialogOpen(false), []);
   const cancelDelete = useCallback(() => setDeletingAgent(null), []);
@@ -219,6 +226,7 @@ export function Workspace({
       {railOpen ? (
         <AgentRail
           agent={selectedAgent}
+          connectorRevision={connectorRevision}
           liveStatus={liveStatusFor(conversation.agentStatuses, selectedAgent)}
           mcpUrl={selectedAgent ? (mcpUrls[selectedAgent.id] ?? null) : null}
           onDelete={setDeletingAgent}

@@ -9,9 +9,46 @@ import {
   rotateAgentMcpToken,
   updateAgent,
 } from "#/lib/api";
+import { AgentConnectorsPicker } from "./agent-connectors-picker";
 import { McpUrlField } from "./mcp-url";
 
 const EMPTY: AgentInput = { instructions: "", name: "", soul: "" };
+
+/**
+ * The agent's settings, in sections (plan 5e): the dialog was already crowded
+ * with the profile alone, and Phase 5 adds Skills next to Connectors. Adding a
+ * section is appending to this array and a branch in the panel below.
+ *
+ * Only an agent that exists has sections - a new one has no id to assign
+ * anything to yet, so creating stays the single profile form it always was.
+ */
+const SECTIONS = ["Profile", "Connectors"] as const;
+
+type Section = (typeof SECTIONS)[number];
+
+function SectionTab({
+  active,
+  onSelect,
+  section,
+}: {
+  active: boolean;
+  onSelect: (section: Section) => void;
+  section: Section;
+}) {
+  const select = useCallback(() => onSelect(section), [onSelect, section]);
+
+  return (
+    <button
+      aria-selected={active}
+      className={`ws-focus w-full rounded-md px-2 py-1 text-xs ${active ? "bg-[var(--ws-panel)] text-[var(--ws-text)]" : "text-[var(--ws-muted)] hover:text-[var(--ws-text)]"}`}
+      onClick={select}
+      role="tab"
+      type="button"
+    >
+      {section}
+    </button>
+  );
+}
 
 export function AgentDialog({
   agent,
@@ -34,11 +71,13 @@ export function AgentDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [rotating, setRotating] = useState(false);
+  const [section, setSection] = useState<Section>("Profile");
 
   useEffect(() => {
     if (!open) {
       return;
     }
+    setSection("Profile");
     setDraft(
       agent
         ? {
@@ -115,9 +154,36 @@ export function AgentDialog({
     <Dialog
       onClose={onClose}
       open={open}
-      title={agent ? `Edit ${agent.name}` : "New agent"}
+      title={agent ? `${agent.name} settings` : "New agent"}
     >
-      <form className="space-y-4" onSubmit={submit}>
+      {agent ? (
+        <div
+          aria-label="Agent settings"
+          className="mb-4 flex gap-1 rounded-lg bg-[var(--ws-surface)] p-1"
+          role="tablist"
+        >
+          {SECTIONS.map((name) => (
+            <div className="flex-1" key={name}>
+              <SectionTab
+                active={section === name}
+                onSelect={setSection}
+                section={name}
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {agent && section === "Connectors" ? (
+        <div role="tabpanel">
+          <AgentConnectorsPicker agentId={agent.id} />
+        </div>
+      ) : null}
+
+      <form
+        className={section === "Profile" ? "space-y-4" : "hidden"}
+        onSubmit={submit}
+      >
         <TextField
           label="Name"
           maxLength={80}

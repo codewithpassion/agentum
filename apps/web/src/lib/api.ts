@@ -7,6 +7,11 @@ import type {
   StoredScreenshot as ScreenshotRow,
 } from "#/modules/browser/types";
 import type { DirEntry as DirEntryRow } from "#/modules/computer/types";
+import type {
+  ConnectorView as ConnectorRow,
+  StartOutcome as StartOutcomeRow,
+} from "#/modules/connectors/service";
+
 import type { Channel as ChannelRow } from "#/modules/messaging/schema";
 import type {
   AttachmentView as AttachmentRow,
@@ -24,6 +29,10 @@ export type Agent = AgentView;
 export type ActivityView = ActivityRow;
 export type BrowserStatus = BrowserStatusRow;
 export type Channel = ChannelRow;
+export type Connector = ConnectorRow;
+export type ConnectorStatus = Connector["status"];
+/** What the add-connector dialog must do next; see the ladder in plan 4b. */
+export type StartOutcome = StartOutcomeRow;
 export type DirEntry = DirEntryRow;
 export type Screenshot = ScreenshotRow;
 export type AttachmentView = AttachmentRow;
@@ -383,6 +392,113 @@ export const uploadWikiAsset = async (
   });
   return data.asset;
 };
+
+// --- connectors -------------------------------------------------------------
+
+/** Just enough of an agent to render a chip or a checkbox row. */
+export interface ConnectorAgentRef {
+  avatar: string;
+  id: string;
+  name: string;
+}
+
+export const listConnectors = () =>
+  request<{ connectors: Connector[] }>("/connectors").then(
+    (data) => data.connectors
+  );
+
+/** The agent rail's chips and the settings picker's ticked boxes. */
+export const listAgentConnectors = (agentId: string) =>
+  request<{ connectors: Connector[] }>(
+    `/connectors?agentId=${encodeURIComponent(agentId)}`
+  ).then((data) => data.connectors);
+
+export const getConnector = (id: string) =>
+  request<{ agents: ConnectorAgentRef[]; connector: Connector }>(
+    `/connectors/${id}`
+  );
+
+/**
+ * The pasted URL is probed server-side, so the outcome - not the connector -
+ * is what the dialog acts on. The row exists either way, which is what makes an
+ * abandoned OAuth attempt resumable from the connector's detail view.
+ */
+export const addConnector = (input: { name?: string; url: string }) =>
+  request<{ connector: Connector; outcome: StartOutcome }>("/connectors", {
+    json: input,
+    method: "POST",
+  });
+
+export const renameConnector = (id: string, name: string) =>
+  request<{ connector: Connector }>(`/connectors/${id}`, {
+    json: { name },
+    method: "PATCH",
+  }).then((data) => data.connector);
+
+export const setConnectorDisabled = (id: string, disabled: boolean) =>
+  request<{ connector: Connector }>(`/connectors/${id}`, {
+    json: { disabled },
+    method: "PATCH",
+  }).then((data) => data.connector);
+
+/** Archives the vault credential too; `vaultError` reports a partial failure. */
+export const removeConnector = (id: string) =>
+  request<{ removed: boolean; vaultError: string | null }>(
+    `/connectors/${id}`,
+    { method: "DELETE" }
+  );
+
+/** Rung 3's manual branch: the server has no dynamic client registration. */
+export const setConnectorOauthClient = (
+  id: string,
+  input: { clientId: string; clientSecret?: string | null }
+) =>
+  request<{ outcome: StartOutcome }>(`/connectors/${id}/oauth/client`, {
+    json: input,
+    method: "POST",
+  }).then((data) => data.outcome);
+
+export const reauthorizeConnector = (id: string) =>
+  request<{ outcome: StartOutcome }>(`/connectors/${id}/reauthorize`, {
+    method: "POST",
+  }).then((data) => data.outcome);
+
+/** Rung 6: no usable OAuth, so a pasted token becomes a static credential. */
+export const setConnectorBearer = (id: string, token: string) =>
+  request<{ connector: Connector }>(`/connectors/${id}/bearer`, {
+    json: { token },
+    method: "POST",
+  }).then((data) => data.connector);
+
+export interface ConnectorTestResult {
+  message: string | null;
+  ok: boolean;
+  tools: { description: string | null; name: string }[];
+}
+
+/** Re-probes the server now and refreshes the cached tool list with it. */
+export const testConnector = (id: string) =>
+  request<{ connector: Connector; result: ConnectorTestResult }>(
+    `/connectors/${id}/test`,
+    { method: "POST" }
+  );
+
+export const listConnectorAgents = (id: string) =>
+  request<{ agents: ConnectorAgentRef[] }>(`/connectors/${id}/agents`).then(
+    (data) => data.agents
+  );
+
+/** Takes effect on the agent's *next* session - `vault_ids` is create-only. */
+export const assignConnectorToAgent = (id: string, agentId: string) =>
+  request<{ appliesToNextSession: boolean; assigned: boolean }>(
+    `/connectors/${id}/agents`,
+    { json: { agentId }, method: "POST" }
+  );
+
+export const unassignConnectorFromAgent = (id: string, agentId: string) =>
+  request<void>(`/connectors/${id}/agents/${encodeURIComponent(agentId)}`, {
+    method: "DELETE",
+  });
 
 // --- bridges ----------------------------------------------------------------
 

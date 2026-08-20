@@ -13,6 +13,7 @@ import {
 } from "#/lib/api";
 import { cx } from "#/lib/cx";
 import { CategoryDialog } from "./category-dialog";
+import { CONNECTORS_SECTION, ConnectorsSection } from "./connectors-section";
 import { ItemCategoryMenu, MENU_ITEM_CLASS } from "./sidebar-menu";
 import { SectionHint, SidebarSection } from "./sidebar-section";
 
@@ -441,6 +442,14 @@ export function Sidebar({
           >
             <span aria-hidden="true">📓</span>
           </Link>
+          <Link
+            aria-label="Connectors"
+            className={ICON_LINK_CLASS}
+            title="Connectors"
+            to="/connectors"
+          >
+            <span aria-hidden="true">🔌</span>
+          </Link>
           <div className="relative">
             <Button
               aria-label="Create"
@@ -522,6 +531,11 @@ export function Sidebar({
             emptyHint="No agents yet."
           />
         </SidebarSection>
+
+        <ConnectorsSection
+          expanded={isExpanded(CONNECTORS_SECTION)}
+          onToggle={toggle}
+        />
 
         {model.grouped.map((group) => (
           <CategorySection

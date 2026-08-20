@@ -13,7 +13,13 @@ import {
   type SessionStatus,
 } from "#/modules/anthropic/events";
 import type { AnthropicGateway } from "#/modules/anthropic/gateway";
-import { createGateway, isAnthropicEnabled } from "#/modules/anthropic/service";
+import {
+  createGateway,
+  isAnthropicEnabled,
+  resyncAgentConnectorsWithAnthropic,
+  sessionVaultIdsFor,
+} from "#/modules/anthropic/service";
+import { recordConnectorAuthFailure } from "#/modules/connectors/service";
 import { broadcastChannelEvent } from "#/modules/messaging/realtime";
 import {
   DIGEST_INTERVAL_MS,
@@ -236,7 +242,14 @@ export class AgentRouter extends DurableObject<Env> {
         await this.sendIntoSession(agent, session, text, channelId);
         return;
       }
-      await this.startSession(agent, text, channelId);
+      // The last moment a connector change can still reach this agent: the
+      // vaults and the `mcp_servers` array are both fixed once the session
+      // exists. It is also the retry for a resync that failed while idle.
+      await this.startSession(
+        await this.settleConnectors(agent),
+        text,
+        channelId
+      );
     } catch (error) {
       await this.ctx.storage.delete(SESSION_KEY(agentId));
       await this.setStatus(agentId, "error", channelId, null);
@@ -272,6 +285,28 @@ export class AgentRouter extends DurableObject<Env> {
     await this.setStatus(agent.id, "working", channelId, session.sessionId);
   }
 
+  /**
+   * Pays off a deferred connector resync while the agent provably has no
+   * session. Best effort: if it fails the flag stays and the session starts on
+   * the configuration the agent already has.
+   *
+   * The row's `sessionId` is the gate, and it can lag by one alarm - a session
+   * retired by `liveSession` is only nulled out when the pump reaches it - so a
+   * wake in that window defers again and lands on the next session instead.
+   * That is the behaviour the UI promises for assignments anyway.
+   */
+  private async settleConnectors(agent: Agent): Promise<Agent> {
+    if (!agent.connectorResyncPendingAt) {
+      return agent;
+    }
+    await resyncAgentConnectorsWithAnthropic(this.db, this.env, agent.id).catch(
+      () => {
+        // Recorded on the agent's sync status.
+      }
+    );
+    return (await getAgentById(this.db, agent.id)) ?? agent;
+  }
+
   private async startSession(
     agent: Agent,
     text: string,
@@ -286,6 +321,9 @@ export class AgentRouter extends DurableObject<Env> {
       memoryStoreId: agent.memoryStoreId,
       text,
       title: `${agent.name} in ${channelId}`,
+      // Create-only on Anthropic's side: this is the one moment the agent's
+      // connector credentials can be attached to the session.
+      vaultIds: await sessionVaultIdsFor(this.db, agent.id),
     });
     await this.write(SESSION_KEY(agent.id), {
       channelId,
@@ -445,7 +483,7 @@ export class AgentRouter extends DurableObject<Env> {
     now: number
   ): Promise<void> {
     let status: SessionStatus;
-    let error: string | null;
+    let errors: string[];
 
     try {
       const page = await gateway.pollEvents(
@@ -454,7 +492,7 @@ export class AgentRouter extends DurableObject<Env> {
           ? { lastEventId: session.cursorId, lastProcessedAt: session.cursorAt }
           : undefined
       );
-      ({ error, status } = reduceEvents(page.events, session.status));
+      ({ errors, status } = reduceEvents(page.events, session.status));
       const { cursor } = page;
       await this.write(key, {
         ...session,
@@ -469,7 +507,13 @@ export class AgentRouter extends DurableObject<Env> {
       return;
     }
 
-    if (error) {
+    if (errors.length > 0) {
+      // A session error that names one of the agent's connectors and blames
+      // its credentials is the connector's problem, not the session's: it
+      // flips that connector to `auth_error` so the UI can offer a re-auth.
+      await recordConnectorAuthFailure(this.db, agentId, errors).catch(() => {
+        // Health reporting must never cost us the status write below.
+      });
       await this.setStatus(
         agentId,
         "error",
@@ -546,6 +590,13 @@ export class AgentRouter extends DurableObject<Env> {
   ): Promise<void> {
     await setAgentRuntimeStatus(this.db, agentId, status, sessionId);
     const agent = await getAgentById(this.db, agentId);
+
+    if (agent && sessionId === null && agent.connectorResyncPendingAt) {
+      // The gate just opened: no session means the MCP token can be rotated
+      // without cutting one off, which is what a connector resync needs.
+      await this.settleConnectors(agent);
+    }
+
     if (!(agent && channelId)) {
       return;
     }

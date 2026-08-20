@@ -9,6 +9,10 @@ import { slackRoutes } from "#/modules/bridges/slack/routes";
 import { browserRoutes } from "#/modules/browser/routes";
 import { categoriesRoutes } from "#/modules/categories/routes";
 import { computerRoutes } from "#/modules/computer/routes";
+import {
+  connectorOauthRoutes,
+  connectorsRoutes,
+} from "#/modules/connectors/routes";
 import { mcpRoutes } from "#/modules/mcp/routes";
 import { attachmentsRoutes } from "#/modules/messaging/routes/attachments";
 import { channelsRoutes } from "#/modules/messaging/routes/channels";
@@ -77,6 +81,11 @@ app.route("/api/categories", categoriesRoutes);
 app.route("/api/messages", messagesRoutes);
 app.route("/api/attachments", attachmentsRoutes);
 app.route("/api/wiki", wikiRoutes);
+// Connectors (remote MCP servers). The OAuth callback is mounted first and
+// stays outside `requireAuth`: an authorization server redirects a browser to
+// it, and the one-shot `state` it carries is the credential.
+app.route("/api/connectors", connectorOauthRoutes);
+app.route("/api/connectors", connectorsRoutes);
 // Bridge management lives in the bridges module but reads as part of a
 // channel; Hono falls through to it for the paths `channelsRoutes` does not own.
 app.route("/api/channels", bridgeRoutes);

@@ -5,6 +5,7 @@ import { type Agent, type AgentStatusView, getAgentStatus } from "#/lib/api";
 import { pollIntervalFor } from "#/lib/use-agent-screen";
 import type { AgentStatusEvent } from "#/modules/messaging/realtime";
 import { AgentActivityTab } from "./agent-activity-tab";
+import { AgentConnectorChips } from "./agent-connector-chips";
 import { AgentFilesTab } from "./agent-files-tab";
 import { AgentScreenTab } from "./agent-screen-tab";
 import { BridgeCard } from "./bridge-card";
@@ -193,11 +194,13 @@ function TabButton({
 
 function ProfilePanel({
   agent,
+  connectorRevision,
   mcpUrl,
   onDelete,
   onEdit,
 }: {
   agent: Agent;
+  connectorRevision: number;
   mcpUrl: string | null;
   onDelete: (agent: Agent) => void;
   onEdit: (agent: Agent) => void;
@@ -206,6 +209,10 @@ function ProfilePanel({
     <div className="space-y-5">
       <McpUrlField url={mcpUrl} />
       <BridgeCard agentId={agent.id} />
+      <AgentConnectorChips
+        agentId={agent.id}
+        key={`${agent.id}:${connectorRevision}`}
+      />
       <Section body={agent.soul} title="Soul" />
       <Section body={agent.instructions} title="Instructions" />
       <AgentActions agent={agent} onDelete={onDelete} onEdit={onEdit} />
@@ -215,12 +222,15 @@ function ProfilePanel({
 
 export function AgentRail({
   agent,
+  connectorRevision,
   liveStatus,
   mcpUrl,
   onDelete,
   onEdit,
 }: {
   agent: Agent | null;
+  /** Changes when a connector assignment may have; remounts the chips. */
+  connectorRevision: number;
   /** The router's latest word, when the open channel is the one that woke it. */
   liveStatus: AgentStatusEvent | null;
   /** Known only while this session still holds a freshly issued token. */
@@ -286,6 +296,7 @@ export function AgentRail({
             {tab === "Profile" ? (
               <ProfilePanel
                 agent={agent}
+                connectorRevision={connectorRevision}
                 mcpUrl={mcpUrl}
                 onDelete={onDelete}
                 onEdit={onEdit}

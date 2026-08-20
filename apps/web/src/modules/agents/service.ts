@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import { generateMcpToken, hashMcpToken, timingSafeEqual } from "./mcp-token";
 import {
@@ -204,6 +204,42 @@ export const setAgentRuntimeStatus = async (
 ): Promise<void> => {
   await db.update(agents).set({ sessionId, status }).where(eq(agents.id, id));
 };
+
+/**
+ * Records that a connector change left this agent's `mcp_servers` stale. The
+ * flag is durable because the resync itself is not: it has to wait for the
+ * agent to have no session, and it has to survive a failed attempt.
+ */
+export const markAgentsForConnectorResync = async (
+  db: Db,
+  ids: readonly string[]
+): Promise<void> => {
+  if (ids.length === 0) {
+    return;
+  }
+  // `updatedAt` stays put: this is bookkeeping, not an edit to the agent.
+  await db
+    .update(agents)
+    .set({ connectorResyncPendingAt: new Date() })
+    .where(inArray(agents.id, [...ids]));
+};
+
+export const clearConnectorResyncPending = async (
+  db: Db,
+  id: string
+): Promise<void> => {
+  await db
+    .update(agents)
+    .set({ connectorResyncPendingAt: null })
+    .where(eq(agents.id, id));
+};
+
+export const listAgentsPendingConnectorResync = (db: Db): Promise<Agent[]> =>
+  db
+    .select()
+    .from(agents)
+    .where(isNotNull(agents.connectorResyncPendingAt))
+    .orderBy(asc(agents.name));
 
 export const deleteAgent = async (db: Db, id: string): Promise<boolean> => {
   const deleted = await db.delete(agents).where(eq(agents.id, id)).returning({
