@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { decryptSecret, generateConnectorKey } from "#/crypto";
 import type { Db } from "#/db/client";
 import {
   clearConnectorResyncPending,
@@ -14,7 +15,6 @@ import {
   createWorkspace,
   DEFAULT_WORKSPACE_ID,
 } from "#/modules/workspaces/service";
-import { decryptSecret, generateConnectorKey } from "./crypto";
 import { connectorOauthFlows, connectors } from "./schema";
 import {
   addConnector,

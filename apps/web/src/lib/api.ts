@@ -1,7 +1,7 @@
 import type { ActivityView as ActivityRow } from "#/modules/activity/service";
 import type { AgentView } from "#/modules/agents/service";
 import type { ChannelBridge as ChannelBridgeRow } from "#/modules/bridges/schema";
-import type { SurfaceStatus as SurfaceStatusRow } from "#/modules/bridges/types";
+import type { SlackAppView as SlackAppRow } from "#/modules/bridges/slack/apps";
 import type {
   BrowserStatus as BrowserStatusRow,
   StoredScreenshot as ScreenshotRow,
@@ -242,7 +242,7 @@ export interface PublishedSkill {
 }
 
 export type ChannelBridge = ChannelBridgeRow;
-export type SurfaceStatus = SurfaceStatusRow;
+export type SlackApp = SlackAppRow;
 
 /** Who an email belongs to, before adding them as a member. */
 export interface MemberSearchResult {
@@ -741,15 +741,18 @@ export const createApi = (workspaceSlug: string) => {
 
   // --- bridges --------------------------------------------------------------
 
-  /** Both halves of the bridging UI in one call: the form and the "not configured" state. */
+  /**
+   * Both halves of the bridging UI in one call: the form, and the connected
+   * agents it offers - a channel is bridged through one agent's Slack app.
+   */
   const getChannelBridge = (channelId: string) =>
-    request<{ bridge: ChannelBridge | null; connector: SurfaceStatus }>(
+    request<{ bridge: ChannelBridge | null; slackApps: SlackApp[] }>(
       `/channels/${channelId}/bridge`
     );
 
   const saveChannelBridge = (
     channelId: string,
-    input: { agentId: string | null; externalChannelId: string }
+    input: { externalChannelId: string; slackAppId: string }
   ) =>
     request<{ bridge: ChannelBridge; channelName: string | null }>(
       `/channels/${channelId}/bridge`,
@@ -761,7 +764,7 @@ export const createApi = (workspaceSlug: string) => {
 
   /** Which external surfaces can reach an agent - the agent rail's bridge card. */
   const listAgentBridges = (agentId: string) =>
-    request<{ bridges: ChannelBridge[]; connector: SurfaceStatus }>(
+    request<{ bridges: ChannelBridge[]; slackApp: SlackApp | null }>(
       `/bridges/bridges?agentId=${encodeURIComponent(agentId)}`
     );
 

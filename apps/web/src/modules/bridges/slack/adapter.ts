@@ -9,10 +9,11 @@ import type { MessageView } from "#/modules/messaging/service";
 import { getWorkspaceById } from "#/modules/workspaces/service";
 import { findBridgeByExternalChannel } from "../bridges";
 import { findExternalId, findInternalId } from "../refs";
-import type { ChannelBridge } from "../schema";
+import type { ChannelBridge, SlackApp } from "../schema";
 import type { BridgeAdapter, ExternalRefInput, InboundMessage } from "../types";
+import { slackAppCredentials } from "./apps";
 import { createSlackClient, type SlackClient } from "./client";
-import { readSlackConfig, SLACK_CONNECTOR, SLACK_LABEL } from "./config";
+import { SLACK_CONNECTOR, SLACK_LABEL } from "./config";
 import type { SlackEventCallback, SlackFile } from "./events";
 import { mirrorSlackMessage, type SlackOutboundPorts } from "./mirror";
 import { normalizeSlackEvent, type SlackInboundPorts } from "./normalize";
@@ -68,7 +69,8 @@ const downloadSlackFile = async (
 const inboundPorts = (
   db: Db,
   env: Env,
-  client: SlackClient | null
+  app: SlackApp,
+  client: SlackClient
 ): SlackInboundPorts => ({
   async findBridge(externalChannelId) {
     const bridge = await findBridgeByExternalChannel(
@@ -76,7 +78,10 @@ const inboundPorts = (
       SLACK_CONNECTOR,
       externalChannelId
     );
-    if (!bridge) {
+    // The ownership filter. Two connected bots in the same Slack channel both
+    // receive its `message` events; only the app the bridge belongs to may act
+    // on one, which is what keeps a message from being ingested twice.
+    if (!bridge || bridge.slackAppId !== app.id) {
       return null;
     }
     const workspace = await getWorkspaceById(db, bridge.workspaceId);
@@ -114,11 +119,19 @@ const inboundPorts = (
   storeFile: (file) => downloadSlackFile(db, env, client, file),
 });
 
-const outboundPorts = (db: Db, env: Env): SlackOutboundPorts => ({
-  authorName: (message: MessageView) =>
-    message.authorType === "agent"
-      ? agentName(db, message.authorId)
-      : Promise.resolve(null),
+const outboundPorts = (
+  db: Db,
+  env: Env,
+  app: SlackApp
+): SlackOutboundPorts => ({
+  // The app's own agent posts as the bot itself, so prefixing its name would
+  // say it twice. Every other agent still needs one: they share this bot.
+  authorName: (message: MessageView) => {
+    if (message.authorType !== "agent" || message.authorId === app.agentId) {
+      return Promise.resolve(null);
+    }
+    return agentName(db, message.authorId);
+  },
 
   async readAttachment(attachmentId) {
     const attachment = await getAttachment(db, attachmentId);
@@ -143,32 +156,40 @@ const outboundPorts = (db: Db, env: Env): SlackOutboundPorts => ({
   },
 });
 
+/**
+ * Everything the adapter does now happens as one particular Slack app: the
+ * client speaks with that app's bot token, inbound events are filtered to the
+ * bridges it owns, and outbound posts know which agent the bot *is*.
+ */
 export const createSlackAdapter = (
   db: Db,
-  env: Env
-): BridgeAdapter<SlackEventCallback> => {
-  const config = readSlackConfig(env);
-  const client = config ? createSlackClient(config.botToken) : null;
+  env: Env,
+  app: SlackApp,
+  client: SlackClient
+): BridgeAdapter<SlackEventCallback> => ({
+  connector: SLACK_CONNECTOR,
+  label: SLACK_LABEL,
 
-  return {
-    connector: SLACK_CONNECTOR,
-    label: SLACK_LABEL,
+  mirrorOutbound: (
+    message: MessageView,
+    bridge: ChannelBridge
+  ): Promise<ExternalRefInput | null> =>
+    mirrorSlackMessage(message, bridge, client, outboundPorts(db, env, app)),
 
-    mirrorOutbound: (
-      message: MessageView,
-      bridge: ChannelBridge
-    ): Promise<ExternalRefInput | null> =>
-      client
-        ? mirrorSlackMessage(message, bridge, client, outboundPorts(db, env))
-        : Promise.resolve(null),
+  normalizeInbound: (event): Promise<InboundMessage | null> =>
+    normalizeSlackEvent(event, inboundPorts(db, env, app, client)),
+});
 
-    normalizeInbound: (event): Promise<InboundMessage | null> =>
-      normalizeSlackEvent(event, inboundPorts(db, env, client)),
-  };
-};
-
-/** The Slack client for the management API (`conversations.info`/`join`). */
-export const slackClientFor = (env: Env): SlackClient | null => {
-  const config = readSlackConfig(env);
-  return config ? createSlackClient(config.botToken) : null;
+/**
+ * The Slack client that speaks as this app - for the events route, the mirror,
+ * and the management calls (`conversations.info`/`join`). `null` while the app
+ * is a draft, or when `CONNECTOR_KEY` is missing: either way it has no usable
+ * token, so nothing may be sent in its name.
+ */
+export const slackClientForApp = async (
+  env: Env,
+  app: SlackApp
+): Promise<SlackClient | null> => {
+  const credentials = await slackAppCredentials(env.CONNECTOR_KEY || null, app);
+  return credentials ? createSlackClient(credentials.botToken) : null;
 };

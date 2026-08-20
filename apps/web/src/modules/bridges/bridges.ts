@@ -9,6 +9,8 @@ export interface CreateBridgeInput {
   channelId: string;
   connector: string;
   externalChannelId: string;
+  /** The Slack app this bridge speaks through, and whose events it accepts. */
+  slackAppId: string;
 }
 
 export const getBridge = async (
@@ -100,6 +102,7 @@ export const upsertBridge = async (
       connector: input.connector,
       externalChannelId: input.externalChannelId,
       id: crypto.randomUUID(),
+      slackAppId: input.slackAppId,
       status: "active",
       workspaceId,
     })
@@ -107,6 +110,7 @@ export const upsertBridge = async (
       set: {
         agentId: input.agentId,
         externalChannelId: input.externalChannelId,
+        slackAppId: input.slackAppId,
         status: "active",
       },
       target: [channelBridges.channelId, channelBridges.connector],

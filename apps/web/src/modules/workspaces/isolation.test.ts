@@ -54,7 +54,7 @@ mock.module("@clerk/backend", () => ({
 
 const { agentActivityRoutes } = await import("#/modules/activity/routes");
 const { agentsRoutes } = await import("#/modules/agents/routes");
-const { bridgeRoutes, bridgesRoutes } = await import(
+const { agentSlackAppRoutes, bridgeRoutes, bridgesRoutes } = await import(
   "#/modules/bridges/routes"
 );
 const { browserRoutes } = await import("#/modules/browser/routes");
@@ -74,6 +74,7 @@ const { createAgent, findAgentByMcpToken } = await import(
   "#/modules/agents/service"
 );
 const { upsertBridge } = await import("#/modules/bridges/bridges");
+const { createDraftSlackApp } = await import("#/modules/bridges/slack/apps");
 const { createCategory } = await import("#/modules/categories/service");
 const { addConnector } = await import("#/modules/connectors/service");
 const { storeAttachment } = await import(
@@ -156,6 +157,7 @@ workspaceScopedRoutes.route("/agents", agentsRoutes);
 workspaceScopedRoutes.route("/agents", computerRoutes);
 workspaceScopedRoutes.route("/agents", browserRoutes);
 workspaceScopedRoutes.route("/agents", agentActivityRoutes);
+workspaceScopedRoutes.route("/agents", agentSlackAppRoutes);
 workspaceScopedRoutes.route("/channels", channelsRoutes);
 workspaceScopedRoutes.route("/categories", categoriesRoutes);
 workspaceScopedRoutes.route("/messages", messagesRoutes);
@@ -179,6 +181,7 @@ interface Seeded {
   mcpToken: string;
   messageId: string;
   skillSlug: string;
+  slackAppId: string;
   wikiAssetId: string;
   wikiSlug: string;
   workspaceId: string;
@@ -249,11 +252,13 @@ const seedWorkspace = async (
 
   const channel = await createChannel(db, workspaceId, { name: "general" });
   const bridged = await createChannel(db, workspaceId, { name: "bridged" });
+  const slackApp = await createDraftSlackApp(db, workspaceId, agent.id);
   await upsertBridge(db, workspaceId, {
     agentId: agent.id,
     channelId: bridged.id,
     connector: "slack",
     externalChannelId: `C${slug.toUpperCase()}0000`,
+    slackAppId: slackApp.id,
   });
 
   const stored = await storeAttachment(
@@ -336,6 +341,7 @@ const seedWorkspace = async (
     mcpToken,
     messageId: posted.message.id,
     skillSlug: "shared-slug",
+    slackAppId: slackApp.id,
     wikiAssetId: asset.asset.id,
     wikiSlug: "runbook",
     workspaceId,
@@ -657,6 +663,43 @@ describe("workspace B's ids through workspace A's path", () => {
     ];
     expect(await sweep(attempts)).toEqual(allRefused(attempts));
   });
+
+  test("slack apps: create, read, tokens, disconnect", async () => {
+    const attempts = [
+      {
+        method: "POST",
+        path: `/api/w/alpha/agents/${beta.agentId}/slack-app`,
+      },
+      { path: `/api/w/alpha/agents/${beta.agentId}/slack-app` },
+      {
+        body: { botToken: "xoxb-stolen", signingSecret: "s" },
+        method: "PUT",
+        path: `/api/w/alpha/agents/${beta.agentId}/slack-app/tokens`,
+      },
+      {
+        method: "DELETE",
+        path: `/api/w/alpha/agents/${beta.agentId}/slack-app`,
+      },
+      // And the app's own id, offered as the app to bridge a channel through.
+      {
+        body: {
+          externalChannelId: "C0123ABCDEF",
+          slackAppId: beta.slackAppId,
+        },
+        method: "POST",
+        path: `/api/w/alpha/channels/${alpha.bridgeChannelId}/bridge`,
+      },
+    ];
+    expect(await sweep(attempts)).toEqual(allRefused(attempts));
+
+    // Beta's app is still there: none of the above deleted it.
+    const own = (await (
+      await request(`/api/w/beta/agents/${beta.agentId}/slack-app`, {
+        as: BOB_ID,
+      })
+    ).json()) as { slackApp: { id: string } | null };
+    expect(own.slackApp?.id).toBe(beta.slackAppId);
+  });
 });
 
 describe("deleting a workspace", () => {
@@ -691,6 +734,7 @@ describe("deleting a workspace", () => {
       "skills",
       "wiki_pages",
       "channel_bridges",
+      "slack_apps",
     ];
     const gone = await Promise.all(
       tables.map((table) => counts(table, beta.workspaceId))

@@ -18,6 +18,7 @@ const bridge = (overrides: Partial<ChannelBridge> = {}): ChannelBridge => ({
   createdAt: new Date(0),
   externalChannelId: SLACK_CHANNEL,
   id: "bridge-1",
+  slackAppId: "slack-app-1",
   status: "active",
   workspaceId: DEFAULT_WORKSPACE_ID,
   ...overrides,

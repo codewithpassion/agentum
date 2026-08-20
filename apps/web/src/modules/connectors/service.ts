@@ -1,8 +1,8 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { decryptSecret, encryptSecret } from "#/crypto";
 import type { Db } from "#/db/client";
 import { markAgentsForConnectorResync } from "#/modules/agents/service";
 import type { VaultGateway } from "#/modules/anthropic/vaults";
-import { decryptSecret, encryptSecret } from "./crypto";
 import { connectorsFailingAuth } from "./health";
 import {
   McpError,

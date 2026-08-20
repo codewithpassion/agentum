@@ -1,12 +1,13 @@
 /**
- * Envelope encryption for the connector tokens kept in D1. One `CONNECTOR_KEY`
- * Worker secret (base64, 32 bytes) keys AES-GCM through WebCrypto; the random
- * 96-bit IV is prepended to the ciphertext, so a stored value is entirely
- * self-describing and no second column is needed to decrypt it.
+ * Envelope encryption for the secrets kept in D1 - connector tokens, and a
+ * Slack app's bot token and signing secret. One `CONNECTOR_KEY` Worker secret
+ * (base64, 32 bytes) keys AES-GCM through WebCrypto; the random 96-bit IV is
+ * prepended to the ciphertext, so a stored value is entirely self-describing
+ * and no second column is needed to decrypt it.
  *
- * These are the *management* copies of the tokens. The vault credential is what
- * sessions use, and Anthropic never hands it back - losing the key here costs
- * "Test connection" and the tool list, not the connector.
+ * It lives at the top level rather than in a module because two modules use it
+ * and neither may import the other's internals. The stored format is fixed:
+ * values written before this file moved must still decrypt.
  */
 
 const KEY_BYTES = 32;

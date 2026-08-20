@@ -4,6 +4,7 @@ import { isUniqueConstraintError } from "#/db/errors";
 import { deleteActivityForAgents } from "#/modules/activity/service";
 import { deleteAgentsForWorkspace } from "#/modules/agents/service";
 import { deleteBridgesForWorkspace } from "#/modules/bridges/bridges";
+import { deleteSlackAppsForWorkspace } from "#/modules/bridges/slack/apps";
 import { deleteBrowserDataForAgents } from "#/modules/browser/service";
 import { deleteCategoriesForWorkspace } from "#/modules/categories/service";
 import { deleteConnectorsForWorkspace } from "#/modules/connectors/service";
@@ -242,6 +243,7 @@ export const deleteWorkspace = async (
   await deleteBrowserDataForAgents(db, agentIds);
 
   await deleteBridgesForWorkspace(db, workspaceId);
+  await deleteSlackAppsForWorkspace(db, workspaceId);
   await deleteChannelsForWorkspace(db, workspaceId);
   await deleteCategoriesForWorkspace(db, workspaceId);
   await deleteConnectorsForWorkspace(db, workspaceId);

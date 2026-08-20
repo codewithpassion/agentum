@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ChannelBridge, SurfaceStatus } from "#/lib/api";
+import type { ChannelBridge, SlackApp } from "#/lib/api";
 import { useApi } from "#/lib/workspace-context";
 
 /**
@@ -11,7 +11,7 @@ export function BridgeCard({ agentId }: { agentId: string }) {
   const api = useApi();
 
   const [bridges, setBridges] = useState<ChannelBridge[] | null>(null);
-  const [connector, setConnector] = useState<SurfaceStatus | null>(null);
+  const [slackApp, setSlackApp] = useState<SlackApp | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -20,7 +20,7 @@ export function BridgeCard({ agentId }: { agentId: string }) {
       .then((data) => {
         if (!cancelled) {
           setBridges(data.bridges);
-          setConnector(data.connector);
+          setSlackApp(data.slackApp);
         }
       })
       .catch(() => {
@@ -36,27 +36,27 @@ export function BridgeCard({ agentId }: { agentId: string }) {
       <h3 className="m-0 font-medium text-[10px] text-[var(--ws-muted)] uppercase tracking-wide">
         Reachable from
       </h3>
-      <BridgeBody bridges={bridges} connector={connector} />
+      <BridgeBody bridges={bridges} slackApp={slackApp} />
     </section>
   );
 }
 
 function BridgeBody({
   bridges,
-  connector,
+  slackApp,
 }: {
   bridges: ChannelBridge[] | null;
-  connector: SurfaceStatus | null;
+  slackApp: SlackApp | null;
 }) {
-  if (!(bridges && connector)) {
+  if (!bridges) {
     return <p className="m-0 text-[var(--ws-muted)] text-xs">Loading…</p>;
   }
 
-  if (!connector.configured) {
+  if (slackApp?.status !== "active") {
     return (
       <p className="m-0 text-[var(--ws-muted)] text-xs leading-5">
-        Slack not configured — set {connector.missing.join(" & ")} to bridge a
-        channel to Slack.
+        Not connected to Slack. Connect this agent to its own Slack app from its
+        settings to bridge a channel.
       </p>
     );
   }

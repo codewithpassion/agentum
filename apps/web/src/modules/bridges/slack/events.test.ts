@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { slackSurfaceStatus } from "./config";
 import {
   isSlackChannelId,
   parseSlackEnvelope,
@@ -50,26 +49,5 @@ describe("slackMessageKey", () => {
 
     expect(key).toBe("C0OPSCHAN:1787200000.000100");
     expect(slackMessageTs(key)).toBe("1787200000.000100");
-  });
-});
-
-describe("slackSurfaceStatus", () => {
-  test("names the variables that are missing", () => {
-    expect(slackSurfaceStatus({} as Env)).toEqual({
-      configured: false,
-      connector: "slack",
-      label: "Slack",
-      missing: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
-    });
-  });
-
-  test("is configured only when both are set", () => {
-    const status = slackSurfaceStatus({
-      SLACK_BOT_TOKEN: "xoxb-test",
-      SLACK_SIGNING_SECRET: "secret",
-    } as Env);
-
-    expect(status.configured).toBe(true);
-    expect(status.missing).toEqual([]);
   });
 });

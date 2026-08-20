@@ -3,15 +3,22 @@ import { createDb } from "#/db/client";
 import { publishMessage } from "#/modules/messaging/publish";
 import { claimSlackEvent } from "../events-seen";
 import { recordExternalRef } from "../refs";
-import { createSlackAdapter } from "./adapter";
-import { readSlackConfig, SLACK_CONNECTOR } from "./config";
+import { createSlackAdapter, slackClientForApp } from "./adapter";
+import { findSlackAppById, slackAppSigningSecret } from "./apps";
+import { SLACK_CONNECTOR } from "./config";
 import { parseSlackEnvelope } from "./events";
 import { ingestSlackEvent } from "./ingest";
 import { readSignatureHeaders, verifySlackSignature } from "./signature";
 
 /**
- * `POST /api/bridges/slack/events` - deliberately outside `requireAuth`:
- * Slack has no Clerk session, its signature is the credential.
+ * `POST /api/bridges/slack/:slackAppId` - one events URL per connected agent,
+ * deliberately outside `requireAuth`: Slack has no Clerk session, and the
+ * signature made with *that app's* signing secret is the credential.
+ *
+ * The id in the path is not a credential either - it is a random row id, and
+ * the only thing an unknown one reveals is that no app has it. It is answered
+ * with 404 rather than a silent 200 so a mistyped or stale events URL fails
+ * loudly in Slack's own UI instead of looking like it works.
  *
  * Slack gives us three seconds. We verify, claim and ack, then do the real work
  * in `waitUntil`. At this volume that is enough; if inbound ever outgrows one
@@ -20,26 +27,55 @@ import { readSignatureHeaders, verifySlackSignature } from "./signature";
  */
 
 const UNAUTHORIZED = 401;
-const SERVICE_UNAVAILABLE = 503;
+const NOT_FOUND = 404;
+
+/** `undefined` for a body that is not JSON at all. */
+const safeJson = (rawBody: string): unknown => {
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    // Not JSON at all, which every caller reads as "nothing to act on".
+  }
+};
 
 export const slackRoutes = new Hono<{ Bindings: Env }>();
 
-slackRoutes.post("/events", async (c) => {
-  const config = readSlackConfig(c.env);
-  if (!config) {
+slackRoutes.post("/:slackAppId", async (c) => {
+  const db = createDb(c.env.DB);
+  const app = await findSlackAppById(db, c.req.param("slackAppId"));
+  if (!app) {
+    return c.json({ error: "Unknown Slack app." }, NOT_FOUND);
+  }
+
+  const rawBody = await c.req.text();
+  const signingSecret = await slackAppSigningSecret(
+    c.env.CONNECTOR_KEY || null,
+    app
+  );
+
+  // A row that holds no signing secret is one the wizard has not finished:
+  // the manifest names this URL, and Slack verifies it the moment the app is
+  // created - before anyone could have pasted us a secret. So an unsigned
+  // `url_verification` is answered here, and nothing else is. Echoing Slack's
+  // own challenge back to Slack leaks nothing: it says only that this URL
+  // exists, which the 404 above already says.
+  if (!signingSecret) {
+    const unverified = parseSlackEnvelope(safeJson(rawBody));
+    if (unverified?.type === "url_verification") {
+      return c.json({ challenge: unverified.challenge });
+    }
     return c.json(
-      { error: "Slack is not configured on this deployment." },
-      SERVICE_UNAVAILABLE
+      { error: "This Slack app has no credentials yet." },
+      UNAUTHORIZED
     );
   }
 
   // Signed over the raw body, and checked before the payload is trusted for
-  // anything at all - including the `url_verification` handshake.
-  const rawBody = await c.req.text();
+  // anything at all - including a re-run of the handshake.
   const verification = await verifySlackSignature({
     headers: readSignatureHeaders(c.req.raw.headers),
     rawBody,
-    signingSecret: config.signingSecret,
+    signingSecret,
   });
   if (!verification.valid) {
     return c.json(
@@ -48,10 +84,8 @@ slackRoutes.post("/events", async (c) => {
     );
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawBody);
-  } catch {
+  const parsed = safeJson(rawBody);
+  if (parsed === undefined) {
     return c.json({ error: "Expected a JSON body." }, 400);
   }
 
@@ -65,8 +99,16 @@ slackRoutes.post("/events", async (c) => {
     return c.json({ challenge: envelope.challenge });
   }
 
-  const db = createDb(c.env.DB);
-  const adapter = createSlackAdapter(db, c.env);
+  const client = await slackClientForApp(c.env, app);
+  if (!client) {
+    // Only reachable if the bot token is gone while the signing secret is not.
+    return c.json({ ok: true });
+  }
+
+  // The adapter carries the app: it drops any event whose channel is bridged to
+  // a *different* app (two bots in one channel both hear it), and posts as this
+  // app's bot.
+  const adapter = createSlackAdapter(db, c.env, app, client);
   c.executionCtx.waitUntil(
     ingestSlackEvent(envelope, adapter, {
       claimEvent: (eventId) => claimSlackEvent(db, eventId),

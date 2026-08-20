@@ -44,6 +44,55 @@ export const externalRefs = sqliteTable(
   ]
 );
 
+export const SLACK_APP_STATUSES = ["draft", "active", "error"] as const;
+
+/**
+ * One Slack app per agent: the agent's own bot user, its tokens, and the id
+ * that appears in its events URL (`/api/bridges/slack/<id>`).
+ *
+ * The row is created `draft` - the manifest needs the events URL and the URL
+ * needs the row id, so the id exists before any credential does. Tokens arrive
+ * later, through the wizard's second step, and are AES-GCM encrypted with
+ * `CONNECTOR_KEY` (see `#/crypto`); they are write-only, and no API response
+ * ever returns them.
+ *
+ * `workspace_id` is the tenant boundary and carries no foreign key, for the
+ * same reason `channel_bridges` has none: this module must not depend on
+ * another module's tables.
+ */
+export const slackApps = sqliteTable(
+  "slack_apps",
+  {
+    /** The agent this app speaks as - it *is* that agent inside Slack. */
+    agentId: text("agent_id").notNull(),
+    botTokenEnc: text("bot_token_enc"),
+    /** `auth.test`'s `user_id`: the bot's own user id, for display. */
+    botUserId: text("bot_user_id"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    /** Appears in the events URL; unguessable, but not the credential. */
+    id: text("id").primaryKey(),
+    /** Why the last token verification failed, in Slack's own words. */
+    lastError: text("last_error"),
+    signingSecretEnc: text("signing_secret_enc"),
+    status: text("status", { enum: SLACK_APP_STATUSES })
+      .notNull()
+      .default("draft"),
+    teamId: text("team_id"),
+    teamName: text("team_name"),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    workspaceId: text("workspace_id").notNull(),
+  },
+  (table) => [
+    // One app per agent: that one-to-one is the whole point of the feature.
+    unique("slack_apps_agent_idx").on(table.agentId),
+    index("slack_apps_workspace_idx").on(table.workspaceId),
+  ]
+);
+
 export const BRIDGE_STATUSES = ["active", "disabled"] as const;
 
 /**
@@ -70,6 +119,12 @@ export const channelBridges = sqliteTable(
       .default(sql`(unixepoch() * 1000)`),
     externalChannelId: text("external_channel_id").notNull(),
     id: text("id").primaryKey(),
+    /**
+     * The Slack app this bridge belongs to. An inbound event is only processed
+     * when it arrived for *this* app - two connected bots sitting in the same
+     * Slack channel both receive it, and only its owner may act on it.
+     */
+    slackAppId: text("slack_app_id").notNull(),
     status: text("status", { enum: BRIDGE_STATUSES })
       .notNull()
       .default("active"),
@@ -116,3 +171,5 @@ export const slackUsers = sqliteTable("slack_users", {
 export type ExternalRef = typeof externalRefs.$inferSelect;
 export type ChannelBridge = typeof channelBridges.$inferSelect;
 export type BridgeStatus = (typeof BRIDGE_STATUSES)[number];
+export type SlackApp = typeof slackApps.$inferSelect;
+export type SlackAppStatus = (typeof SLACK_APP_STATUSES)[number];

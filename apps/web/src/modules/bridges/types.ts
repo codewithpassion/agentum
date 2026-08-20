@@ -43,12 +43,3 @@ export interface BridgeAdapter<TEvent> {
    */
   normalizeInbound: (event: TEvent) => Promise<InboundMessage | null>;
 }
-
-/** What the UI needs to know about a surface before it can offer a bridge. */
-export interface SurfaceStatus {
-  configured: boolean;
-  connector: string;
-  label: string;
-  /** Why it is unusable, for the "not configured" UI state. */
-  missing: string[];
-}

@@ -9,7 +9,7 @@ import type {
   Channel,
   ChannelBridge,
   ChannelMemberView,
-  SurfaceStatus,
+  SlackApp,
 } from "#/lib/api";
 import { memberLabel } from "#/lib/authors";
 import { useApi } from "#/lib/workspace-context";
@@ -26,22 +26,21 @@ type BridgeState =
   | { status: "loading" }
   | {
       bridge: ChannelBridge | null;
-      connector: SurfaceStatus;
+      slackApps: SlackApp[];
       status: "ready";
     };
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Something went wrong.";
 
-function NotConfigured({ missing }: { missing: string[] }) {
+function NotConfigured() {
   return (
     <p
       className="m-0 text-[var(--ws-muted)] text-xs leading-5"
       data-testid="slack-not-configured"
     >
-      Slack not configured — set {missing.join(" & ")} in{" "}
-      <code className="text-[11px]">apps/web/.env.local</code> and restart the
-      dev server.
+      No agent is connected to Slack yet. Connect one from its agent settings,
+      then bridge this channel to it.
     </p>
   );
 }
@@ -81,21 +80,20 @@ function BridgeForm({
   agents,
   busy,
   onConnect,
+  slackApps,
 }: {
   agents: Agent[];
   busy: boolean;
-  onConnect: (input: {
-    agentId: string | null;
-    externalChannelId: string;
-  }) => void;
+  onConnect: (input: { externalChannelId: string; slackAppId: string }) => void;
+  slackApps: SlackApp[];
 }) {
   const agentSelectId = useId();
   const [externalChannelId, setExternalChannelId] = useState("");
-  const [agentId, setAgentId] = useState("");
+  const [slackAppId, setSlackAppId] = useState(slackApps.at(0)?.id ?? "");
 
   const submit = useCallback(() => {
-    onConnect({ agentId: agentId || null, externalChannelId });
-  }, [agentId, externalChannelId, onConnect]);
+    onConnect({ externalChannelId, slackAppId });
+  }, [externalChannelId, onConnect, slackAppId]);
 
   const changeChannelId = useCallback(
     (event: ChangeEvent<HTMLInputElement>) =>
@@ -104,7 +102,8 @@ function BridgeForm({
   );
 
   const changeAgent = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) => setAgentId(event.target.value),
+    (event: ChangeEvent<HTMLSelectElement>) =>
+      setSlackAppId(event.target.value),
     []
   );
 
@@ -123,25 +122,25 @@ function BridgeForm({
           className="block font-medium text-[var(--ws-muted)] text-xs"
           htmlFor={agentSelectId}
         >
-          The bot speaks as
+          Bridge through
         </label>
         <select
           className="ws-focus w-full rounded-lg border border-[var(--ws-line)] bg-[var(--ws-surface)] px-3 py-2 text-[var(--ws-text)] text-sm"
           data-testid="slack-bridge-agent"
           id={agentSelectId}
           onChange={changeAgent}
-          value={agentId}
+          value={slackAppId}
         >
-          <option value="">Nobody — mirror messages only</option>
-          {agents.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
+          {slackApps.map((app) => (
+            <option key={app.id} value={app.id}>
+              {agents.find((agent) => agent.id === app.agentId)?.name ??
+                "Deleted agent"}
             </option>
           ))}
         </select>
       </div>
       <Button
-        disabled={busy || externalChannelId.trim().length === 0}
+        disabled={busy || externalChannelId.trim().length === 0 || !slackAppId}
         onClick={submit}
         size="sm"
         variant="primary"
@@ -304,7 +303,7 @@ export function ChannelSettings({
   const close = useCallback(() => setOpen(false), []);
 
   const connect = useCallback(
-    (input: { agentId: string | null; externalChannelId: string }) => {
+    (input: { externalChannelId: string; slackAppId: string }) => {
       (async () => {
         setBusy(true);
         setActionError(null);
@@ -436,10 +435,7 @@ function SlackSection({
 }: {
   agents: Agent[];
   busy: boolean;
-  onConnect: (input: {
-    agentId: string | null;
-    externalChannelId: string;
-  }) => void;
+  onConnect: (input: { externalChannelId: string; slackAppId: string }) => void;
   onDisconnect: () => void;
   state: BridgeState;
 }) {
@@ -451,8 +447,9 @@ function SlackSection({
       <p className="m-0 text-[var(--ws-danger)] text-xs">{state.message}</p>
     );
   }
-  if (!state.connector.configured) {
-    return <NotConfigured missing={state.connector.missing} />;
+  const connected = state.slackApps.filter((app) => app.status === "active");
+  if (connected.length === 0 && !state.bridge) {
+    return <NotConfigured />;
   }
   if (state.bridge) {
     return (
@@ -464,5 +461,12 @@ function SlackSection({
       />
     );
   }
-  return <BridgeForm agents={agents} busy={busy} onConnect={onConnect} />;
+  return (
+    <BridgeForm
+      agents={agents}
+      busy={busy}
+      onConnect={onConnect}
+      slackApps={connected}
+    />
+  );
 }

@@ -46,6 +46,55 @@ interface SlackApiResponse {
   ok: boolean;
 }
 
+export type SlackAuthTest =
+  | { botUserId: string | null; ok: true; teamId: string; teamName: string }
+  | { error: string; ok: false };
+
+/**
+ * `auth.test` is the only call made with a token we do not trust yet, so it is
+ * a plain function rather than a client method: the client's helpers turn every
+ * failure into `null`, and here Slack's own error string is the answer the
+ * wizard shows.
+ *
+ * The response identifies the installation: `team_id`/`team` name the Slack
+ * workspace, and `user_id` is the bot's *user* id - the `<@U…>` a mention of it
+ * carries.
+ */
+export const slackAuthTest = async (
+  token: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<SlackAuthTest> => {
+  let payload: {
+    error?: string;
+    ok?: boolean;
+    team?: string;
+    team_id?: string;
+    user_id?: string;
+  };
+  try {
+    const response = await fetchImpl(`${SLACK_API_BASE}/auth.test`, {
+      headers: { authorization: `Bearer ${token}` },
+      method: "POST",
+    });
+    payload = (await response.json()) as typeof payload;
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Slack is unreachable.",
+      ok: false,
+    };
+  }
+
+  if (!payload.ok) {
+    return { error: payload.error || "invalid_auth", ok: false };
+  }
+  return {
+    botUserId: payload.user_id ?? null,
+    ok: true,
+    teamId: payload.team_id ?? "",
+    teamName: payload.team ?? "",
+  };
+};
+
 export interface SlackClientOptions {
   fetchImpl?: typeof fetch;
   /** Injected so the 429 retry is instant in tests. */

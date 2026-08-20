@@ -4,7 +4,11 @@ import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
 import { agentActivityRoutes } from "#/modules/activity/routes";
 import { agentsRoutes } from "#/modules/agents/routes";
-import { bridgeRoutes, bridgesRoutes } from "#/modules/bridges/routes";
+import {
+  agentSlackAppRoutes,
+  bridgeRoutes,
+  bridgesRoutes,
+} from "#/modules/bridges/routes";
 import { slackRoutes } from "#/modules/bridges/slack/routes";
 import { browserRoutes } from "#/modules/browser/routes";
 import { categoriesRoutes } from "#/modules/categories/routes";
@@ -90,6 +94,8 @@ workspaceScopedRoutes.route("/agents", agentsRoutes);
 workspaceScopedRoutes.route("/agents", computerRoutes);
 workspaceScopedRoutes.route("/agents", browserRoutes);
 workspaceScopedRoutes.route("/agents", agentActivityRoutes);
+// The agent's Slack connection wizard, on the same fall-through principle.
+workspaceScopedRoutes.route("/agents", agentSlackAppRoutes);
 workspaceScopedRoutes.route("/channels", channelsRoutes);
 workspaceScopedRoutes.route("/categories", categoriesRoutes);
 workspaceScopedRoutes.route("/messages", messagesRoutes);
@@ -112,8 +118,10 @@ app.route("/api/w/:workspaceSlug", workspaceScopedRoutes);
 // workspace, since the flow row it matches carries one.
 app.route("/api/connectors", connectorOauthRoutes);
 
-// Slack's Events API endpoint. Not behind Clerk: Slack signs its requests, and
-// the signature is checked before anything in the payload is trusted.
+// The Slack Events API endpoints - one per connected agent, addressed by its
+// `slack_apps` row id. Not behind Clerk: Slack signs its requests with that
+// app's signing secret, and the signature is checked before anything in the
+// payload is trusted.
 app.route("/api/bridges/slack", slackRoutes);
 
 // The agents' MCP endpoint. Not behind Clerk: the per-agent token in the path
