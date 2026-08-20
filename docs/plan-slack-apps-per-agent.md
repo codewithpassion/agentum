@@ -161,6 +161,26 @@ bridging UI updated to pick a connected agent. Unit tests for any new pure
 logic; boot-probe acceptance via dev login (create draft for an agent, see
 manifest, paste dummy tokens → see the verification error surface properly).
 
+**Done.** The wizard is a fourth section in the agent settings dialog
+(`components/workspace/agent-slack-panel.tsx`), with the step derived from the
+row's status in `lib/slack-wizard.ts` (unit-tested), so closing the dialog mid
+setup resumes rather than restarts. Disconnect confirms inline, not in a
+`ConfirmDialog`: React reports a nested `<dialog>`'s close on the outer one too,
+which shut the whole settings dialog as soon as the confirmation was answered.
+
+Boot-probe acceptance (dev login, local dev server, screenshots in
+`docs/acceptance/slack-apps/`):
+
+- `01` step 1 → `02` draft created: manifest, click-path and Copy button
+- `03` fake tokens → Slack's own `invalid_auth` inline under the form, both
+  fields kept for the retry (real `auth.test` call; no workspace was touched)
+- `04` reopened: manifest folded, `lastError` shown, "tokens keep working"
+- `05` channel settings with nothing connected: "Connect an agent to Slack first"
+- `06`–`08` connected app (row forced to `active` locally, since a real token
+  needs a real Slack workspace): rail line, done card, bridge picker offering
+  the connected agent
+- `09`–`10` disconnect confirm → back to step 1, row gone from D1
+
 ### Phase C — ship
 
 Progress entry (cycle 9), commits per phase, `bun run prod:deploy`, delete

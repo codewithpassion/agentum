@@ -6,6 +6,7 @@ import type { Agent, AgentInput } from "#/lib/api";
 import { useApi } from "#/lib/workspace-context";
 import { AgentConnectorsPicker } from "./agent-connectors-picker";
 import { AgentSkillsPicker } from "./agent-skills-picker";
+import { AgentSlackPanel } from "./agent-slack-panel";
 import { McpUrlField } from "./mcp-url";
 
 const EMPTY: AgentInput = { instructions: "", name: "", soul: "" };
@@ -18,7 +19,7 @@ const EMPTY: AgentInput = { instructions: "", name: "", soul: "" };
  * Only an agent that exists has sections - a new one has no id to assign
  * anything to yet, so creating stays the single profile form it always was.
  */
-const SECTIONS = ["Profile", "Connectors", "Skills"] as const;
+const SECTIONS = ["Profile", "Connectors", "Skills", "Slack"] as const;
 
 type Section = (typeof SECTIONS)[number];
 
@@ -181,6 +182,12 @@ export function AgentDialog({
       {agent && section === "Skills" ? (
         <div role="tabpanel">
           <AgentSkillsPicker agentId={agent.id} />
+        </div>
+      ) : null}
+
+      {agent && section === "Slack" ? (
+        <div role="tabpanel">
+          <AgentSlackPanel agentId={agent.id} />
         </div>
       ) : null}
 

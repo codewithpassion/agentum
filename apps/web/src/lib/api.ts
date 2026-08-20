@@ -244,6 +244,17 @@ export interface PublishedSkill {
 export type ChannelBridge = ChannelBridgeRow;
 export type SlackApp = SlackAppRow;
 
+/**
+ * What the wizard needs to show an agent's connection: the row, plus the
+ * manifest to paste into Slack and the events URL it names. The manifest comes
+ * back with every read, not just the create, so the wizard is resumable.
+ */
+export interface SlackAppSetup {
+  manifest: string;
+  requestUrl: string;
+  slackApp: SlackApp;
+}
+
 /** Who an email belongs to, before adding them as a member. */
 export interface MemberSearchResult {
   email: string;
@@ -768,6 +779,36 @@ export const createApi = (workspaceSlug: string) => {
       `/bridges/bridges?agentId=${encodeURIComponent(agentId)}`
     );
 
+  // --- the Slack connection wizard ------------------------------------------
+
+  /** `slackApp: null` is the wizard's first step: this agent has no app yet. */
+  const getAgentSlackApp = (id: string) =>
+    request<SlackAppSetup | { slackApp: null }>(`/agents/${id}/slack-app`);
+
+  /**
+   * Step one. The draft row exists before any credential does, because the
+   * manifest has to name the events URL, and that URL carries the row's id.
+   */
+  const createAgentSlackApp = (id: string) =>
+    request<SlackAppSetup>(`/agents/${id}/slack-app`, { method: "POST" });
+
+  /**
+   * Step two. The tokens only ever travel this way - nothing reads them back.
+   * A token Slack rejects throws with Slack's own error string as the message.
+   */
+  const saveAgentSlackTokens = (
+    id: string,
+    input: { botToken: string; signingSecret: string }
+  ) =>
+    request<{ slackApp: SlackApp }>(`/agents/${id}/slack-app/tokens`, {
+      json: input,
+      method: "PUT",
+    }).then((data) => data.slackApp);
+
+  /** Disconnecting takes the app's channel bridges with it. */
+  const deleteAgentSlackApp = (id: string) =>
+    request<void>(`/agents/${id}/slack-app`, { method: "DELETE" });
+
   return {
     addChannelMember,
     addConnector,
@@ -778,17 +819,20 @@ export const createApi = (workspaceSlug: string) => {
     channelSocketUrl,
     computerFileUrl,
     createAgent,
+    createAgentSlackApp,
     createCategory,
     createChannel,
     createSkill,
     createSkillVersion,
     createWikiPage,
     deleteAgent,
+    deleteAgentSlackApp,
     deleteCategory,
     deleteChannelBridge,
     deleteSkill,
     deleteWikiPage,
     deleteWorkspace,
+    getAgentSlackApp,
     getAgentStatus,
     getBrowserStatus,
     getChannel,
@@ -829,6 +873,7 @@ export const createApi = (workspaceSlug: string) => {
     renameWorkspace,
     retrySkillSync,
     rotateAgentMcpToken,
+    saveAgentSlackTokens,
     saveChannelBridge,
     searchMember,
     setConnectorBearer,

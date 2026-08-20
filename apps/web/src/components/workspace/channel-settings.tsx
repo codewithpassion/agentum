@@ -39,8 +39,8 @@ function NotConfigured() {
       className="m-0 text-[var(--ws-muted)] text-xs leading-5"
       data-testid="slack-not-configured"
     >
-      No agent is connected to Slack yet. Connect one from its agent settings,
-      then bridge this channel to it.
+      Connect an agent to Slack first — select the agent, then Profile → Edit →
+      Slack. A channel is bridged through one connected agent's own Slack app.
     </p>
   );
 }

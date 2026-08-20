@@ -55,8 +55,8 @@ function BridgeBody({
   if (slackApp?.status !== "active") {
     return (
       <p className="m-0 text-[var(--ws-muted)] text-xs leading-5">
-        Not connected to Slack. Connect this agent to its own Slack app from its
-        settings to bridge a channel.
+        Not connected to Slack. Give this agent its own Slack app from Edit →
+        Slack, then bridge a channel to it.
       </p>
     );
   }
