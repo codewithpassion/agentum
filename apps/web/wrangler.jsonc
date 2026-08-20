@@ -4,9 +4,9 @@
   "compatibility_date": "2026-08-19",
   // `experimental` is what unlocks the Worker Loader binding below, which the
   // agent computer's shell backend runs commands in. Cloudflare rejects the
-  // flag on deployed Workers (error 10021), so this config is dev-only:
-  // deploys use wrangler.production.jsonc, which omits the loader, and the
-  // agent computer degrades to filesystem-only (see
+  // flag on deployed Workers (error 10021), so it is dev-only: the
+  // `production` environment below overrides the flags and clears the loader,
+  // and the agent computer degrades to filesystem-only (see
   // modules/computer/durable-object.ts).
   "compatibility_flags": ["nodejs_compat", "experimental"],
   "main": "src/server.ts",
@@ -72,5 +72,57 @@
       "tag": "v3",
       "new_sqlite_classes": ["AgentComputer"]
     }
-  ]
+  ],
+  "env": {
+    // Deployed to agentum.rockyshoreslabs.io. Build + deploy:
+    //   CLOUDFLARE_ENV=production bun run deploy
+    // Bindings do not inherit, so they are redeclared here; the Worker Loader
+    // is explicitly cleared and `experimental` dropped from the flags, since
+    // Cloudflare rejects both in deployed Workers. Without the loader the
+    // agent computer has no shell — its filesystem still works and `exec`
+    // returns a clear error.
+    "production": {
+      "name": "agentum",
+      "compatibility_flags": ["nodejs_compat"],
+      "observability": { "enabled": true },
+      "workers_dev": false,
+      "worker_loaders": [],
+      "routes": [
+        { "pattern": "agentum.rockyshoreslabs.io", "custom_domain": true }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "agentum",
+          "database_id": "960692fe-ba5c-4d5d-a8da-21bd7647e869",
+          "migrations_dir": "drizzle"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "ATTACHMENTS",
+          "bucket_name": "agentum-attachments"
+        }
+      ],
+      "browser": {
+        "binding": "BROWSER"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "CHANNEL_ROOM",
+            "class_name": "ChannelRoom"
+          },
+          {
+            "name": "AGENT_ROUTER",
+            "class_name": "AgentRouter"
+          },
+          {
+            "name": "AGENT_COMPUTER",
+            "class_name": "AgentComputer"
+          }
+        ]
+      }
+    }
+  }
 }

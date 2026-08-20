@@ -15,7 +15,7 @@
     "create-dev-user": "bun scripts/create-dev-user.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "deploy": "bun run build && wrangler deploy -c dist/server/wrangler.json",
+    "deploy": "CLOUDFLARE_ENV=production bun run build && wrangler deploy --env production",
     "dev": "vite dev --port 3720",
     "generate-routes": "tsr generate",
     "preview": "vite preview",
