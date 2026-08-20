@@ -18,6 +18,11 @@ import type {
   ChannelMemberView as ChannelMemberRow,
   MessageView as MessageRow,
 } from "#/modules/messaging/service";
+import type { Schedule as ScheduleShape } from "#/modules/routines/schedule";
+import type {
+  RoutineView as RoutineRow,
+  RoutineRunView as RoutineRunRow,
+} from "#/modules/routines/service";
 import type {
   SkillFileView as SkillFileRow,
   SkillView as SkillRow,
@@ -49,6 +54,11 @@ export type Screenshot = ScreenshotRow;
 export type AttachmentView = AttachmentRow;
 export type ChannelMemberView = ChannelMemberRow;
 export type MessageView = MessageRow;
+export type Routine = RoutineRow;
+export type RoutineRun = RoutineRunRow;
+export type RoutineRunStatus = RoutineRun["status"];
+/** The structured schedule, as both the picker and the scheduler read it. */
+export type Schedule = ScheduleShape;
 export type Skill = SkillRow;
 export type SkillSyncStatus = Skill["syncStatus"];
 export type SkillVersion = SkillVersionRow;
@@ -239,6 +249,28 @@ export interface SkillDetail {
 export interface PublishedSkill {
   skill: Skill;
   version: SkillVersion;
+}
+
+/** Everything a routine needs to exist; the API takes the same shape partially. */
+export interface RoutineInput {
+  agentId: string;
+  channelId: string;
+  instructions: string;
+  name: string;
+  schedule: Schedule;
+  timezone: string;
+}
+
+/** A routine plus the newest page of its history. */
+export interface RoutineDetail {
+  routine: Routine;
+  runs: RoutineRun[];
+}
+
+/** `nextBefore` is the next page's `before`, or null at the end of history. */
+export interface RoutineRunPage {
+  nextBefore: number | null;
+  runs: RoutineRun[];
 }
 
 export type ChannelBridge = ChannelBridgeRow;
@@ -750,6 +782,55 @@ export const createApi = (workspaceSlug: string) => {
       { method: "DELETE" }
     );
 
+  // --- routines -------------------------------------------------------------
+
+  const listRoutines = () =>
+    request<{ routines: Routine[] }>("/routines").then((data) => data.routines);
+
+  /** The routine and the 20 newest runs, which is what the detail view opens on. */
+  const getRoutine = (id: string) => request<RoutineDetail>(`/routines/${id}`);
+
+  const createRoutine = (input: RoutineInput) =>
+    request<{ routine: Routine }>("/routines", {
+      json: input,
+      method: "POST",
+    }).then((data) => data.routine);
+
+  /** Partial: the enabled toggle and a full edit are the same endpoint. */
+  const updateRoutine = (
+    id: string,
+    input: Partial<RoutineInput> & { enabled?: boolean }
+  ) =>
+    request<{ routine: Routine }>(`/routines/${id}`, {
+      json: input,
+      method: "PATCH",
+    }).then((data) => data.routine);
+
+  const deleteRoutine = (id: string) =>
+    request<void>(`/routines/${id}`, { method: "DELETE" });
+
+  /** Newest first; `before` is the `nextBefore` of the page before it. */
+  const listRoutineRuns = (
+    id: string,
+    options: { before?: number; limit?: number } = {}
+  ) => {
+    const query = new URLSearchParams();
+    if (options.before !== undefined) {
+      query.set("before", String(options.before));
+    }
+    if (options.limit) {
+      query.set("limit", String(options.limit));
+    }
+    const suffix = query.size > 0 ? `?${query}` : "";
+    return request<RoutineRunPage>(`/routines/${id}/runs${suffix}`);
+  };
+
+  /** "Run now": fires the routine without touching its next scheduled slot. */
+  const runRoutine = (id: string) =>
+    request<{ run: RoutineRun }>(`/routines/${id}/run`, {
+      method: "POST",
+    }).then((data) => data.run);
+
   // --- bridges --------------------------------------------------------------
 
   /**
@@ -822,6 +903,7 @@ export const createApi = (workspaceSlug: string) => {
     createAgentSlackApp,
     createCategory,
     createChannel,
+    createRoutine,
     createSkill,
     createSkillVersion,
     createWikiPage,
@@ -829,6 +911,7 @@ export const createApi = (workspaceSlug: string) => {
     deleteAgentSlackApp,
     deleteCategory,
     deleteChannelBridge,
+    deleteRoutine,
     deleteSkill,
     deleteWikiPage,
     deleteWorkspace,
@@ -838,6 +921,7 @@ export const createApi = (workspaceSlug: string) => {
     getChannel,
     getChannelBridge,
     getConnector,
+    getRoutine,
     getSkill,
     getThread,
     getWikiPage,
@@ -856,6 +940,8 @@ export const createApi = (workspaceSlug: string) => {
     listConnectors,
     listMembers,
     listMessages,
+    listRoutineRuns,
+    listRoutines,
     listSkillAgents,
     listSkills,
     listWikiPages,
@@ -873,6 +959,7 @@ export const createApi = (workspaceSlug: string) => {
     renameWorkspace,
     retrySkillSync,
     rotateAgentMcpToken,
+    runRoutine,
     saveAgentSlackTokens,
     saveChannelBridge,
     searchMember,
@@ -886,6 +973,7 @@ export const createApi = (workspaceSlug: string) => {
     unassignConnectorFromAgent,
     unassignSkillFromAgent,
     updateAgent,
+    updateRoutine,
     updateWikiPage,
     uploadAttachment,
     uploadComputerFile,

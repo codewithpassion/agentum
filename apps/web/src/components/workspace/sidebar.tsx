@@ -463,6 +463,15 @@ export function Sidebar({
           >
             <span aria-hidden="true">🧠</span>
           </Link>
+          <Link
+            aria-label="Routines"
+            className={ICON_LINK_CLASS}
+            params={{ workspaceSlug }}
+            title="Routines"
+            to="/w/$workspaceSlug/routines"
+          >
+            <span aria-hidden="true">⏰</span>
+          </Link>
           <div className="relative">
             <Button
               aria-label="Create"

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MessageView } from "./api";
-import { groupKeyOf, memberLabel } from "./authors";
+import { authorOf, groupKeyOf, memberLabel } from "./authors";
 
 const message = (over: Partial<MessageView>): MessageView => ({
   attachments: [],
@@ -62,6 +62,20 @@ describe("groupKeyOf", () => {
     expect(
       groupKeyOf(message({ authorId: "x", authorType: "agent" }))
     ).not.toBe(groupKeyOf(person("x", "msg_9")));
+  });
+});
+
+describe("authorOf, for an external author", () => {
+  const viewer = { imageUrl: null, memberId: "mem_1", name: "You" };
+  const external = (authorId: string) =>
+    authorOf(message({ authorId, authorType: "external" }), new Map(), viewer);
+
+  test("names a routine's firing rather than showing its row id", () => {
+    expect(external("routine:rt_123").name).toBe("Routine");
+  });
+
+  test("leaves a bridged handle alone", () => {
+    expect(external("slack:U123").name).toBe("slack:U123");
   });
 });
 

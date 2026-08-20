@@ -152,5 +152,28 @@ preview, run history with thread links, sidebar entry. Boot-probe
 acceptance: create a "once, +2 minutes" routine via dev login, watch it fire,
 see the run row link to the thread.
 
+*Done.* Screenshots in `docs/acceptance/routines/`, taken against a local dev
+server with the dev login:
+
+- `00-routines-empty.png` — the empty state, inviting the first routine.
+- `01-new-routine-form-preview.png` — the form: agent, channel, instructions,
+  the schedule picker, and the live "next 3 runs" preview.
+- `02-routines-list.png` — the list: schedule, next run, last-run dot, and the
+  row's pause / run now / edit / delete.
+- `03-preview-refuses-cron.png`, `04-preview-no-future-run.png` — the preview
+  showing the parser's own refusal instead of runs, in the API's words, so the
+  400 is never reached.
+- `05-run-history.png` — the "+2 minutes" routine after the scheduler DO's
+  alarm fired it: one posted run, and the once auto-disabled itself.
+- `06-resume-spent-once-refused.png` — re-enabling a spent once, refused
+  inline with "This schedule has no future run."
+- `07-run-thread-deep-link.png` — "View thread" on a run, landing in the
+  channel with the thread panel open on the message that run posted.
+
+A run's thread link is `/w/$slug?channel=…&message=…`: the chat screen gained a
+`message` search param that opens the thread panel for that message (it fetches
+by id, so it works for a message the channel has not paged in). Closing the
+panel clears the param.
+
 **Phase R3 — ship**: progress entry, commit, deploy (remember: new DO class
 needs the migration tag in the deploy), live smoke: a once-routine on prod.

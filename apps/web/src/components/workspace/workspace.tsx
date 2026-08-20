@@ -1,5 +1,5 @@
 import { useUser } from "@clerk/tanstack-react-start";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Agent, Channel, MessageView } from "#/lib/api";
 import type { Viewer } from "#/lib/authors";
 import { type AgentStatuses, useConversation } from "#/lib/use-conversation";
@@ -17,6 +17,8 @@ import { ThreadPanel } from "./thread-panel";
 export interface WorkspaceSelection {
   agent?: string;
   channel?: string;
+  /** A message to open the thread of - how a routine run links to what it posted. */
+  message?: string;
 }
 
 /** A thread belongs to one channel, so leaving the channel closes it. */
@@ -24,6 +26,24 @@ interface OpenThread {
   channelId: string;
   messageId: string;
 }
+
+/**
+ * A run in the routines history links into the channel with the message it
+ * posted, and the thread under that message *is* the run: opening it is what
+ * "view thread" means. The panel fetches the message by id, so this works even
+ * for a message far enough back that the channel has not paged it in.
+ */
+const useLinkedThread = (
+  channelId: string | null,
+  messageId: string | undefined,
+  open: (thread: OpenThread) => void
+) => {
+  useEffect(() => {
+    if (messageId && channelId) {
+      open({ channelId, messageId });
+    }
+  }, [channelId, messageId, open]);
+};
 
 /** The router only reports on agents woken from the channel that is open. */
 const liveStatusFor = (
@@ -110,8 +130,10 @@ export function Workspace({
     [onSelect, selection]
   );
 
+  // Leaving the channel drops the linked message with it: a thread belongs to
+  // one channel, and carrying the param across would open it under another.
   const openChannel = useCallback(
-    (id: string) => onSelect({ ...selection, channel: id }),
+    (id: string) => onSelect({ ...selection, channel: id, message: undefined }),
     [onSelect, selection]
   );
 
@@ -130,7 +152,13 @@ export function Workspace({
     setThread({ channelId: message.channelId, messageId: message.id });
   }, []);
 
-  const closeThread = useCallback(() => setThread(null), []);
+  useLinkedThread(channelId, selection.message, setThread);
+
+  // Closing takes the link with it, or a refresh would reopen what was closed.
+  const closeThread = useCallback(() => {
+    setThread(null);
+    onSelect({ ...selection, message: undefined });
+  }, [onSelect, selection]);
   const toggleRail = useCallback(() => setRailOpen((open) => !open), []);
 
   const startNewAgent = useCallback(() => {

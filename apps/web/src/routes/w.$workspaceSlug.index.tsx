@@ -14,6 +14,7 @@ export const Route = createFileRoute("/w/$workspaceSlug/")({
   validateSearch: (search: Record<string, unknown>): WorkspaceSelection => ({
     agent: typeof search.agent === "string" ? search.agent : undefined,
     channel: typeof search.channel === "string" ? search.channel : undefined,
+    message: typeof search.message === "string" ? search.message : undefined,
   }),
 });
 

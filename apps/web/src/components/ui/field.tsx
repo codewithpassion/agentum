@@ -1,4 +1,8 @@
-import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
+import type {
+  InputHTMLAttributes,
+  SelectHTMLAttributes,
+  TextareaHTMLAttributes,
+} from "react";
 import { useId } from "react";
 import { cx } from "#/lib/cx";
 
@@ -21,6 +25,33 @@ export function TextField({
         {label}
       </label>
       <input className={cx(CONTROL_CLASS, className)} id={id} {...props} />
+      {hint ? <p className="text-[var(--ws-muted)] text-xs">{hint}</p> : null}
+    </div>
+  );
+}
+
+export function SelectField({
+  children,
+  className,
+  hint,
+  label,
+  ...props
+}: {
+  hint?: string;
+  label: string;
+} & SelectHTMLAttributes<HTMLSelectElement>) {
+  const id = useId();
+  return (
+    <div className="space-y-1.5">
+      <label
+        className="block font-medium text-[var(--ws-muted)] text-xs"
+        htmlFor={id}
+      >
+        {label}
+      </label>
+      <select className={cx(CONTROL_CLASS, className)} id={id} {...props}>
+        {children}
+      </select>
       {hint ? <p className="text-[var(--ws-muted)] text-xs">{hint}</p> : null}
     </div>
   );
