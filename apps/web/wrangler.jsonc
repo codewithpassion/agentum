@@ -52,6 +52,12 @@
       {
         "name": "AGENT_COMPUTER",
         "class_name": "AgentComputer"
+      },
+      // One instance per workspace holding a single alarm: the earliest
+      // next_run_at across that workspace's enabled routines.
+      {
+        "name": "ROUTINE_SCHEDULER",
+        "class_name": "RoutineScheduler"
       }
     ]
   },
@@ -71,6 +77,10 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["AgentComputer"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["RoutineScheduler"]
     }
   ],
   "env": {
@@ -120,6 +130,10 @@
           {
             "name": "AGENT_COMPUTER",
             "class_name": "AgentComputer"
+          },
+          {
+            "name": "ROUTINE_SCHEDULER",
+            "class_name": "RoutineScheduler"
           }
         ]
       }

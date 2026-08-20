@@ -21,6 +21,7 @@ import { mcpRoutes } from "#/modules/mcp/routes";
 import { attachmentsRoutes } from "#/modules/messaging/routes/attachments";
 import { channelsRoutes } from "#/modules/messaging/routes/channels";
 import { messagesRoutes } from "#/modules/messaging/routes/messages";
+import { routinesRoutes } from "#/modules/routines/routes";
 import { skillsRoutes } from "#/modules/skills/routes";
 import { wikiRoutes } from "#/modules/wiki/routes";
 import {
@@ -37,6 +38,7 @@ export {
 } from "#/modules/computer/durable-object";
 export { ChannelRoom } from "#/modules/messaging/channel-room";
 export { AgentRouter } from "#/modules/router/agent-router";
+export { RoutineScheduler } from "#/modules/routines/scheduler";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -104,6 +106,9 @@ workspaceScopedRoutes.route("/wiki", wikiRoutes);
 workspaceScopedRoutes.route("/connectors", connectorsRoutes);
 // Skills (versioned SKILL.md bundles, mirrored to Anthropic).
 workspaceScopedRoutes.route("/skills", skillsRoutes);
+// Routines: scheduled instructions, fired into a channel by the per-workspace
+// RoutineScheduler Durable Object exported above.
+workspaceScopedRoutes.route("/routines", routinesRoutes);
 // Bridge management lives in the bridges module but reads as part of a
 // channel; Hono falls through to it for the paths `channelsRoutes` does not own.
 workspaceScopedRoutes.route("/channels", bridgeRoutes);

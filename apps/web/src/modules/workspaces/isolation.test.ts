@@ -66,6 +66,7 @@ const { attachmentsRoutes } = await import(
 );
 const { channelsRoutes } = await import("#/modules/messaging/routes/channels");
 const { messagesRoutes } = await import("#/modules/messaging/routes/messages");
+const { routinesRoutes } = await import("#/modules/routines/routes");
 const { skillsRoutes } = await import("#/modules/skills/routes");
 const { wikiRoutes } = await import("#/modules/wiki/routes");
 const { workspaceScopedRoutes } = await import("./routes");
@@ -83,6 +84,7 @@ const { storeAttachment } = await import(
 const { createChannel, createMessage } = await import(
   "#/modules/messaging/service"
 );
+const { createRoutine } = await import("#/modules/routines/service");
 const { createSkill } = await import("#/modules/skills/service");
 const { validateSkill } = await import("#/modules/skills/validate");
 const { createPage, storeAsset } = await import("#/modules/wiki/service");
@@ -165,6 +167,7 @@ workspaceScopedRoutes.route("/attachments", attachmentsRoutes);
 workspaceScopedRoutes.route("/wiki", wikiRoutes);
 workspaceScopedRoutes.route("/connectors", connectorsRoutes);
 workspaceScopedRoutes.route("/skills", skillsRoutes);
+workspaceScopedRoutes.route("/routines", routinesRoutes);
 workspaceScopedRoutes.route("/channels", bridgeRoutes);
 workspaceScopedRoutes.route("/bridges", bridgesRoutes);
 
@@ -180,6 +183,7 @@ interface Seeded {
   connectorId: string;
   mcpToken: string;
   messageId: string;
+  routineId: string;
   skillSlug: string;
   slackAppId: string;
   wikiAssetId: string;
@@ -298,6 +302,16 @@ const seedWorkspace = async (
     slug: "shared-slug",
   });
 
+  const routine = await createRoutine(db, workspaceId, {
+    agentId: agent.id,
+    channelId: channel.id,
+    instructions: "summarize yesterday's activity",
+    name: "Morning summary",
+    nextRunAt: new Date(Date.now() + 3_600_000),
+    schedule: { time: "09:00", type: "daily" },
+    timezone: "UTC",
+  });
+
   const page = await createPage(db, workspaceId, {
     author: { id: clerkUserId, type: "user" },
     body: "Notes.",
@@ -340,6 +354,7 @@ const seedWorkspace = async (
     connectorId: connector.id,
     mcpToken,
     messageId: posted.message.id,
+    routineId: routine.id,
     skillSlug: "shared-slug",
     slackAppId: slackApp.id,
     wikiAssetId: asset.asset.id,
@@ -418,6 +433,13 @@ describe("list endpoints return only their own workspace's rows", () => {
     expect(connectors.connectors.map((row) => row.id)).toEqual([
       alpha.connectorId,
     ]);
+
+    const routines = (await (
+      await request("/api/w/alpha/routines")
+    ).json()) as {
+      routines: { id: string }[];
+    };
+    expect(routines.routines.map((row) => row.id)).toEqual([alpha.routineId]);
   });
 
   test("a shared slug resolves to the caller's own row, never the other's", async () => {
@@ -647,6 +669,64 @@ describe("workspace B's ids through workspace A's path", () => {
     expect(await sweep(attempts)).toEqual(allRefused(attempts));
   });
 
+  test("routines: read, patch, delete, run history and running one", async () => {
+    const attempts = [
+      { path: `/api/w/alpha/routines/${beta.routineId}` },
+      {
+        body: { name: "Stolen" },
+        method: "PATCH",
+        path: `/api/w/alpha/routines/${beta.routineId}`,
+      },
+      { method: "DELETE", path: `/api/w/alpha/routines/${beta.routineId}` },
+      { path: `/api/w/alpha/routines/${beta.routineId}/runs` },
+      { method: "POST", path: `/api/w/alpha/routines/${beta.routineId}/run` },
+      // Nor may one be created against another workspace's agent or channel.
+      {
+        body: {
+          agentId: beta.agentId,
+          channelId: alpha.channelId,
+          instructions: "trespassing",
+          name: "Stolen",
+          schedule: { time: "09:00", type: "daily" },
+          timezone: "UTC",
+        },
+        method: "POST",
+        path: "/api/w/alpha/routines",
+      },
+      {
+        body: {
+          agentId: alpha.agentId,
+          channelId: beta.channelId,
+          instructions: "trespassing",
+          name: "Stolen",
+          schedule: { time: "09:00", type: "daily" },
+          timezone: "UTC",
+        },
+        method: "POST",
+        path: "/api/w/alpha/routines",
+      },
+      // And an existing routine may not be repointed at either.
+      {
+        body: { agentId: beta.agentId },
+        method: "PATCH",
+        path: `/api/w/alpha/routines/${alpha.routineId}`,
+      },
+      {
+        body: { channelId: beta.channelId },
+        method: "PATCH",
+        path: `/api/w/alpha/routines/${alpha.routineId}`,
+      },
+    ];
+    expect(await sweep(attempts)).toEqual(allRefused(attempts));
+
+    // Beta's routine is still there, and still enabled: none of the above
+    // reached it.
+    const own = (await (
+      await request(`/api/w/beta/routines/${beta.routineId}`, { as: BOB_ID })
+    ).json()) as { routine: { enabled: boolean; id: string } };
+    expect(own.routine).toMatchObject({ enabled: true, id: beta.routineId });
+  });
+
   test("bridges: read, create, delete, and the agent's surfaces", async () => {
     const attempts = [
       { path: `/api/w/alpha/channels/${beta.bridgeChannelId}/bridge` },
@@ -716,6 +796,20 @@ describe("deleting a workspace", () => {
   });
 
   test("leaves no root rows behind, and none of the other workspace's", async () => {
+    // A run for each workspace's routine: `routine_runs` carries no workspace
+    // of its own, so it is only reachable - and only deletable - through the
+    // routine above it.
+    await Promise.all(
+      [alpha, beta].map((seeded) =>
+        d1
+          .prepare(
+            "INSERT INTO routine_runs (id, routine_id, scheduled_for, fired_at, status) VALUES (?, ?, ?, ?, 'posted')"
+          )
+          .bind(`run-${seeded.routineId}`, seeded.routineId, 1, 1)
+          .run()
+      )
+    );
+
     await deleteWorkspace(db, beta.workspaceId);
 
     const counts = async (table: string, workspaceId: string) => {
@@ -735,6 +829,7 @@ describe("deleting a workspace", () => {
       "wiki_pages",
       "channel_bridges",
       "slack_apps",
+      "routines",
     ];
     const gone = await Promise.all(
       tables.map((table) => counts(table, beta.workspaceId))
@@ -766,6 +861,13 @@ describe("deleting a workspace", () => {
       .bind()
       .all();
     expect(skillVersions.results).toHaveLength(1);
+    const runs = await d1
+      .prepare("SELECT routine_id FROM routine_runs")
+      .bind()
+      .all();
+    expect(
+      runs.results.map((row) => (row as { routine_id: string }).routine_id)
+    ).toEqual([alpha.routineId]);
   });
 
   test("a member of the deleted workspace can no longer reach it", async () => {
