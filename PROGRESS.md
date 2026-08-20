@@ -17,13 +17,15 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 - UI: /skills directory + detail (rendered SKILL.md, file tree, version history, retry-sync, delete), create + new-version editors, agent-settings Skills tab with pin dropdown + 20-skill cap, rail chips on the agent profile
 - 525 unit tests + 24/24 Playwright green; implemented via sequential forge agents (skills-spike, skills-backend, skills-ui) plus a Sonnet browser verifier (verify-phase5)
 - Browser acceptance PASSED all 9 steps against the live Anthropic API: skill published for real → "synced", v1 immutability after publishing v2, pin/unpin, and delete cleaned up the Anthropic side
-- SKIPPED (pre-authorized blockers): in-session acceptance — an agent using a skill, an agent authoring a skill, and the self-heal round-trip — requires a cloudflared tunnel + live sessions; same loopback limitation as Phase 4 (agent resync fails in dev with "localhost resolves to loopback", surfaced as a non-blocking outcome string while local state stays correct)
+- In-session acceptance (initially deferred behind the tunnel requirement) COMPLETED in a follow-up run (verify-sessions, Sonnet agent) via the cycle-2 cloudflared quick-tunnel recipe — all five steps passed against live sessions: agent re-registered at the tunnel URL; Phase 4's connector tool used in chat (Cloudflare docs search, cited reply in-channel); assigned `pirate-summary` skill applied correctly; agent AUTHORED `word-count` via `skill_create` (auto-assigned, `agent:Analyst` as author); and the SELF-HEAL contract worked end-to-end — a deliberately broken v2 script was diagnosed in-session, fixed via `skill_update` (v3, agent-authored changelog), and the task completed. Screenshots in docs/acceptance/phase45-sessions/. Still skipped: real third-party OAuth (no credentials, unchanged)
 
 **Lessons learned:**
 - The Skills API download endpoint is unusable with workspace keys + the `skills-2025-10-02` header — R2 must stay the source of truth for skill files
 - The markdown renderer turns YAML frontmatter into a setext h2, so the UI strips frontmatter before rendering SKILL.md
 - `MAX_AGENT_SKILLS` had to live in a pure module (validate.ts) to stay browser-importable
 - e2e stub servers run under Node (`node:http`), not Bun — same constraint as Phase 4's stub MCP servers
+- The in-session acceptance run found a leftover second dev server (VS Code terminal, auto-incremented to port 3001) that would have double-processed mentions and doubled token spend — check for strays before live-session testing
+- Pressing Enter in the mention autocomplete can send the message instead of confirming the mention — minor composer UX trap that cost one stray mention during acceptance
 
 **Avoid next time:**
 - Don't resync agents on new skill versions — `"latest"` is stored literally at Anthropic, so publish alone is enough
