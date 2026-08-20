@@ -2,7 +2,7 @@ import type {
   CreateMessageInput,
   CreateMessageResult,
 } from "#/modules/messaging/service";
-import type { ConnectorAdapter, ExternalRefInput } from "../types";
+import type { BridgeAdapter, ExternalRefInput } from "../types";
 import type { SlackEventCallback } from "./events";
 
 /**
@@ -25,7 +25,7 @@ export interface SlackIngestPorts {
 
 export const ingestSlackEvent = async (
   payload: SlackEventCallback,
-  adapter: ConnectorAdapter<SlackEventCallback>,
+  adapter: BridgeAdapter<SlackEventCallback>,
   ports: SlackIngestPorts
 ): Promise<IngestOutcome> => {
   if (!(await ports.claimEvent(payload.event_id))) {

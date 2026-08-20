@@ -10,7 +10,7 @@ import { ingestSlackEvent } from "./ingest";
 import { readSignatureHeaders, verifySlackSignature } from "./signature";
 
 /**
- * `POST /api/connectors/slack/events` - deliberately outside `requireAuth`:
+ * `POST /api/bridges/slack/events` - deliberately outside `requireAuth`:
  * Slack has no Clerk session, its signature is the credential.
  *
  * Slack gives us three seconds. We verify, claim and ack, then do the real work

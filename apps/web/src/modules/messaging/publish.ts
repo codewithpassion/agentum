@@ -1,5 +1,5 @@
 import type { Db } from "#/db/client";
-import { mirrorMessageToConnectors } from "#/modules/connectors/mirror";
+import { mirrorMessageToBridges } from "#/modules/bridges/mirror";
 import { notifyRouter } from "#/modules/router/notify";
 import { broadcastChannelEvent } from "./realtime";
 import {
@@ -34,7 +34,7 @@ export const publishMessage = async (
 
   // Mirrored last and never fatally: a bridged surface sees the message after
   // the workspace does, and a connector failure cannot undo a published post.
-  await mirrorMessageToConnectors(db, env, result.message);
+  await mirrorMessageToBridges(db, env, result.message);
 
   return result;
 };

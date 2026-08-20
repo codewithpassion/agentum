@@ -1,12 +1,12 @@
 import type { ActivityView as ActivityRow } from "#/modules/activity/service";
 import type { AgentView } from "#/modules/agents/service";
+import type { ChannelBridge as ChannelBridgeRow } from "#/modules/bridges/schema";
+import type { SurfaceStatus as SurfaceStatusRow } from "#/modules/bridges/types";
 import type {
   BrowserStatus as BrowserStatusRow,
   StoredScreenshot as ScreenshotRow,
 } from "#/modules/browser/types";
 import type { DirEntry as DirEntryRow } from "#/modules/computer/types";
-import type { ChannelBridge as ChannelBridgeRow } from "#/modules/connectors/schema";
-import type { ConnectorStatus as ConnectorStatusRow } from "#/modules/connectors/types";
 import type { Channel as ChannelRow } from "#/modules/messaging/schema";
 import type {
   AttachmentView as AttachmentRow,
@@ -384,14 +384,14 @@ export const uploadWikiAsset = async (
   return data.asset;
 };
 
-// --- connectors -------------------------------------------------------------
+// --- bridges ----------------------------------------------------------------
 
 export type ChannelBridge = ChannelBridgeRow;
-export type ConnectorStatus = ConnectorStatusRow;
+export type SurfaceStatus = SurfaceStatusRow;
 
 /** Both halves of the bridging UI in one call: the form and the "not configured" state. */
 export const getChannelBridge = (channelId: string) =>
-  request<{ bridge: ChannelBridge | null; connector: ConnectorStatus }>(
+  request<{ bridge: ChannelBridge | null; connector: SurfaceStatus }>(
     `/channels/${channelId}/bridge`
   );
 
@@ -407,8 +407,8 @@ export const saveChannelBridge = (
 export const deleteChannelBridge = (channelId: string) =>
   request<void>(`/channels/${channelId}/bridge`, { method: "DELETE" });
 
-/** Which external surfaces can reach an agent - the agent rail's connector card. */
+/** Which external surfaces can reach an agent - the agent rail's bridge card. */
 export const listAgentBridges = (agentId: string) =>
-  request<{ bridges: ChannelBridge[]; connector: ConnectorStatus }>(
-    `/connectors/bridges?agentId=${encodeURIComponent(agentId)}`
+  request<{ bridges: ChannelBridge[]; connector: SurfaceStatus }>(
+    `/bridges/bridges?agentId=${encodeURIComponent(agentId)}`
   );

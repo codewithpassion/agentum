@@ -18,7 +18,7 @@ import {
   upsertBridge,
 } from "./bridges";
 import { slackClientFor } from "./slack/adapter";
-import { SLACK_CONNECTOR, slackConnectorStatus } from "./slack/config";
+import { SLACK_CONNECTOR, slackSurfaceStatus } from "./slack/config";
 import { isSlackChannelId } from "./slack/events";
 
 /**
@@ -49,7 +49,7 @@ bridgeRoutes.get("/:id/bridge", async (c) => {
 
   return c.json({
     bridge: (await getBridge(db, channelId, SLACK_CONNECTOR)) ?? null,
-    connector: slackConnectorStatus(c.env),
+    connector: slackSurfaceStatus(c.env),
   });
 });
 
@@ -108,21 +108,21 @@ bridgeRoutes.delete("/:id/bridge", async (c) => {
   return c.body(null, 204);
 });
 
-/** Connector-level reads: status, and "which surfaces reach this agent". */
-export const connectorsRoutes = new Hono<ApiEnv>();
+/** Surface-level reads: status, and "which surfaces reach this agent". */
+export const bridgesRoutes = new Hono<ApiEnv>();
 
-connectorsRoutes.use("/bridges", requireAuth);
-connectorsRoutes.use("/status", requireAuth);
+bridgesRoutes.use("/bridges", requireAuth);
+bridgesRoutes.use("/status", requireAuth);
 
-connectorsRoutes.get("/status", (c) =>
-  c.json({ connectors: [slackConnectorStatus(c.env)] })
+bridgesRoutes.get("/status", (c) =>
+  c.json({ connectors: [slackSurfaceStatus(c.env)] })
 );
 
-connectorsRoutes.get("/bridges", async (c) => {
+bridgesRoutes.get("/bridges", async (c) => {
   const agentId = c.req.query("agentId");
   if (!agentId) {
     throw badRequest('"agentId" is required.');
   }
   const bridges = await listBridgesForAgent(createDb(c.env.DB), agentId);
-  return c.json({ bridges, connector: slackConnectorStatus(c.env) });
+  return c.json({ bridges, connector: slackSurfaceStatus(c.env) });
 });

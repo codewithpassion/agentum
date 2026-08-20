@@ -4,11 +4,11 @@ import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
 import { agentActivityRoutes } from "#/modules/activity/routes";
 import { agentsRoutes } from "#/modules/agents/routes";
+import { bridgeRoutes, bridgesRoutes } from "#/modules/bridges/routes";
+import { slackRoutes } from "#/modules/bridges/slack/routes";
 import { browserRoutes } from "#/modules/browser/routes";
 import { categoriesRoutes } from "#/modules/categories/routes";
 import { computerRoutes } from "#/modules/computer/routes";
-import { bridgeRoutes, connectorsRoutes } from "#/modules/connectors/routes";
-import { slackRoutes } from "#/modules/connectors/slack/routes";
 import { mcpRoutes } from "#/modules/mcp/routes";
 import { attachmentsRoutes } from "#/modules/messaging/routes/attachments";
 import { channelsRoutes } from "#/modules/messaging/routes/channels";
@@ -77,14 +77,14 @@ app.route("/api/categories", categoriesRoutes);
 app.route("/api/messages", messagesRoutes);
 app.route("/api/attachments", attachmentsRoutes);
 app.route("/api/wiki", wikiRoutes);
-// Bridge management lives in the connectors module but reads as part of a
+// Bridge management lives in the bridges module but reads as part of a
 // channel; Hono falls through to it for the paths `channelsRoutes` does not own.
 app.route("/api/channels", bridgeRoutes);
-app.route("/api/connectors", connectorsRoutes);
+app.route("/api/bridges", bridgesRoutes);
 
 // Slack's Events API endpoint. Not behind Clerk: Slack signs its requests, and
 // the signature is checked before anything in the payload is trusted.
-app.route("/api/connectors/slack", slackRoutes);
+app.route("/api/bridges/slack", slackRoutes);
 
 // The agents' MCP endpoint. Not behind Clerk: the per-agent token in the path
 // is the credential (see modules/mcp/routes).

@@ -8,7 +8,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 /**
- * The connector layer's mapping table: ties an external surface's identifier to
+ * The bridge layer's mapping table: ties an external surface's identifier to
  * an internal channel/message/author. Slack is the first user - a Slack channel
  * id resolves to our channel, and a Slack `ts` to our message so replies thread
  * in both directions.

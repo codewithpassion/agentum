@@ -10,10 +10,10 @@ import {
   type Channel,
   type ChannelBridge,
   type ChannelMemberView,
-  type ConnectorStatus,
   deleteChannelBridge,
   getChannelBridge,
   removeChannelMember,
+  type SurfaceStatus,
   saveChannelBridge,
 } from "#/lib/api";
 
@@ -29,7 +29,7 @@ type BridgeState =
   | { status: "loading" }
   | {
       bridge: ChannelBridge | null;
-      connector: ConnectorStatus;
+      connector: SurfaceStatus;
       status: "ready";
     };
 

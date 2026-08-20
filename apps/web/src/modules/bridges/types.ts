@@ -5,13 +5,13 @@ import type {
 import type { ChannelBridge } from "./schema";
 
 /**
- * The contract every connector implements. It is deliberately two functions:
+ * The contract every bridge adapter implements. It is deliberately two functions:
  * one turns an external event into a message we can publish, the other turns a
  * published message into an external post. Everything else about a surface -
  * transport, auth, payload shapes - stays inside its own adapter.
  */
 
-/** What a connector hands to `publishMessage`, plus the id to remember it by. */
+/** What a bridge adapter hands to `publishMessage`, plus the id to remember it by. */
 export interface InboundMessage {
   /** Stable external identity of the source message, e.g. `C123:1700.0002`. */
   externalId: string;
@@ -25,7 +25,7 @@ export interface ExternalRefInput {
   internalType: "author" | "channel" | "message";
 }
 
-export interface ConnectorAdapter<TEvent> {
+export interface BridgeAdapter<TEvent> {
   /** Stable key stored in `origin`, `external_refs.connector` and bridge rows. */
   readonly connector: string;
   /** Human-readable, for the UI. */
@@ -44,8 +44,8 @@ export interface ConnectorAdapter<TEvent> {
   normalizeInbound: (event: TEvent) => Promise<InboundMessage | null>;
 }
 
-/** What the UI needs to know about a connector before it can offer a bridge. */
-export interface ConnectorStatus {
+/** What the UI needs to know about a surface before it can offer a bridge. */
+export interface SurfaceStatus {
   configured: boolean;
   connector: string;
   label: string;

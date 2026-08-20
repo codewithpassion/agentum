@@ -3,11 +3,7 @@ import type {
   CreateMessageInput,
   MessageView,
 } from "#/modules/messaging/service";
-import type {
-  ConnectorAdapter,
-  ExternalRefInput,
-  InboundMessage,
-} from "../types";
+import type { BridgeAdapter, ExternalRefInput, InboundMessage } from "../types";
 import type { SlackEventCallback } from "./events";
 import { ingestSlackEvent, type SlackIngestPorts } from "./ingest";
 
@@ -43,7 +39,7 @@ const publishedMessage = (input: CreateMessageInput): MessageView => ({
 const adapter = (
   inbound: InboundMessage | null,
   normalized: SlackEventCallback[]
-): ConnectorAdapter<SlackEventCallback> => ({
+): BridgeAdapter<SlackEventCallback> => ({
   connector: "slack",
   label: "Slack",
   mirrorOutbound: () => Promise.resolve(null),

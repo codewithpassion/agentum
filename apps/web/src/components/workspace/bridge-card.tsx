@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import {
   type ChannelBridge,
-  type ConnectorStatus,
   listAgentBridges,
+  type SurfaceStatus,
 } from "#/lib/api";
 
 /**
- * "Which surfaces can reach this agent" - the connector half of the agent's
+ * "Which surfaces can reach this agent" - the bridge half of the agent's
  * profile. A bridge whose `agentId` is this agent means a Slack mention of the
  * bot in that channel wakes it, exactly like an @mention in our UI.
  */
-export function ConnectorCard({ agentId }: { agentId: string }) {
+export function BridgeCard({ agentId }: { agentId: string }) {
   const [bridges, setBridges] = useState<ChannelBridge[] | null>(null);
-  const [connector, setConnector] = useState<ConnectorStatus | null>(null);
+  const [connector, setConnector] = useState<SurfaceStatus | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,21 +32,21 @@ export function ConnectorCard({ agentId }: { agentId: string }) {
   }, [agentId]);
 
   return (
-    <section className="space-y-1.5" data-testid="agent-connectors">
+    <section className="space-y-1.5" data-testid="agent-bridges">
       <h3 className="m-0 font-medium text-[10px] text-[var(--ws-muted)] uppercase tracking-wide">
         Reachable from
       </h3>
-      <ConnectorBody bridges={bridges} connector={connector} />
+      <BridgeBody bridges={bridges} connector={connector} />
     </section>
   );
 }
 
-function ConnectorBody({
+function BridgeBody({
   bridges,
   connector,
 }: {
   bridges: ChannelBridge[] | null;
-  connector: ConnectorStatus | null;
+  connector: SurfaceStatus | null;
 }) {
   if (!(bridges && connector)) {
     return <p className="m-0 text-[var(--ws-muted)] text-xs">Loading…</p>;

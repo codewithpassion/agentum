@@ -1,4 +1,4 @@
-import type { ConnectorStatus } from "../types";
+import type { SurfaceStatus } from "../types";
 
 /**
  * Credentials live in `.env*` (Wrangler convention) and their absence is the
@@ -20,7 +20,7 @@ export const readSlackConfig = (env: Env): SlackConfig | null => {
   return botToken && signingSecret ? { botToken, signingSecret } : null;
 };
 
-export const slackConnectorStatus = (env: Env): ConnectorStatus => {
+export const slackSurfaceStatus = (env: Env): SurfaceStatus => {
   const missing = [
     ...(env.SLACK_BOT_TOKEN ? [] : ["SLACK_BOT_TOKEN"]),
     ...(env.SLACK_SIGNING_SECRET ? [] : ["SLACK_SIGNING_SECRET"]),

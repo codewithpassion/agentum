@@ -7,7 +7,7 @@ import type { AgentStatusEvent } from "#/modules/messaging/realtime";
 import { AgentActivityTab } from "./agent-activity-tab";
 import { AgentFilesTab } from "./agent-files-tab";
 import { AgentScreenTab } from "./agent-screen-tab";
-import { ConnectorCard } from "./connector-card";
+import { BridgeCard } from "./bridge-card";
 import { McpUrlField } from "./mcp-url";
 
 /** The agent's screen (docs/plan.md 3c); Profile is the phase 1 rail, tabbed. */
@@ -205,7 +205,7 @@ function ProfilePanel({
   return (
     <div className="space-y-5">
       <McpUrlField url={mcpUrl} />
-      <ConnectorCard agentId={agent.id} />
+      <BridgeCard agentId={agent.id} />
       <Section body={agent.soul} title="Soul" />
       <Section body={agent.instructions} title="Instructions" />
       <AgentActions agent={agent} onDelete={onDelete} onEdit={onEdit} />

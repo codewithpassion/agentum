@@ -9,11 +9,7 @@ import type { MessageView } from "#/modules/messaging/service";
 import { findBridgeByExternalChannel } from "../bridges";
 import { findExternalId, findInternalId } from "../refs";
 import type { ChannelBridge } from "../schema";
-import type {
-  ConnectorAdapter,
-  ExternalRefInput,
-  InboundMessage,
-} from "../types";
+import type { BridgeAdapter, ExternalRefInput, InboundMessage } from "../types";
 import { createSlackClient, type SlackClient } from "./client";
 import { readSlackConfig, SLACK_CONNECTOR, SLACK_LABEL } from "./config";
 import type { SlackEventCallback, SlackFile } from "./events";
@@ -142,7 +138,7 @@ const outboundPorts = (db: Db, env: Env): SlackOutboundPorts => ({
 export const createSlackAdapter = (
   db: Db,
   env: Env
-): ConnectorAdapter<SlackEventCallback> => {
+): BridgeAdapter<SlackEventCallback> => {
   const config = readSlackConfig(env);
   const client = config ? createSlackClient(config.botToken) : null;
 

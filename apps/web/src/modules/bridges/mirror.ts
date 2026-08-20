@@ -6,7 +6,7 @@ import { createSlackAdapter } from "./slack/adapter";
 import { SLACK_CONNECTOR } from "./slack/config";
 
 /**
- * The outbound half of the connector layer, called from `publishMessage` right
+ * The outbound half of the bridge layer, called from `publishMessage` right
  * after the message is stored and broadcast. Two rules hold it together:
  *
  * - a message is only mirrored to surfaces other than the one it came from,
@@ -14,7 +14,7 @@ import { SLACK_CONNECTOR } from "./slack/config";
  * - mirroring never fails a message. Slack being down, rate-limited or
  *   misconfigured is invisible to the poster.
  */
-export const mirrorMessageToConnectors = async (
+export const mirrorMessageToBridges = async (
   db: Db,
   env: Env,
   message: MessageView

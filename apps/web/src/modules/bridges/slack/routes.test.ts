@@ -55,7 +55,7 @@ const post = async (
   );
 };
 
-describe("POST /api/connectors/slack/events", () => {
+describe("POST /api/bridges/slack/events", () => {
   test("answers the url_verification handshake", async () => {
     const response = await post({
       challenge: "3eZbrw1aB",
