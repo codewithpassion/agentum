@@ -1,5 +1,4 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Db } from "#/db/client";
 import type { Agent } from "#/modules/agents/schema";
@@ -30,7 +29,8 @@ import {
   toPageView,
   writePage,
 } from "#/modules/wiki/service";
-import { clampLimit, toMcpMessage } from "./format";
+import { clampLimit, fail, json, toMcpMessage } from "./format";
+import { registerSkillTools } from "./skill-tools";
 
 /**
  * The agent-facing half of the workspace. Every tool runs as the agent whose
@@ -53,15 +53,6 @@ const WIKI_BODY_MAX_LENGTH = 200_000;
 const WIKI_TITLE_MAX_LENGTH = 200;
 const COMPUTER_CONTENT_MAX_LENGTH = 500_000;
 const COMPUTER_COMMAND_MAX_LENGTH = 4000;
-
-const json = (payload: unknown): CallToolResult => ({
-  content: [{ text: JSON.stringify(payload), type: "text" }],
-});
-
-const fail = (message: string): CallToolResult => ({
-  content: [{ text: message, type: "text" }],
-  isError: true,
-});
 
 const agentNamesById = async (db: Db): Promise<Map<string, string>> => {
   const all = await listAgents(db);
@@ -554,6 +545,7 @@ export const registerWorkspaceTools = (
   registerPostMessage(server, ctx);
   registerListAgents(server, ctx);
   registerWikiTools(server, ctx);
+  registerSkillTools(server, ctx);
   registerComputerFileTools(server, ctx);
   registerComputerExec(server, ctx);
   registerBrowserTools(server, ctx);

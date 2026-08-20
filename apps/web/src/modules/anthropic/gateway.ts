@@ -28,6 +28,16 @@ export interface ConnectorServer {
   url: string;
 }
 
+/**
+ * One assigned skill. `version` is either the literal `"latest"` - stored as
+ * that string and resolved when a session is created - or a concrete Anthropic
+ * version id (epoch microseconds) for a pinned assignment.
+ */
+export interface AgentSkillRef {
+  skillId: string;
+  version: string;
+}
+
 export interface RegisterAgentInput {
   /** Assigned connectors, on top of the workspace server. */
   connectors?: readonly ConnectorServer[];
@@ -35,6 +45,8 @@ export interface RegisterAgentInput {
   /** Our MCP endpoint for this agent, resolved at call time from env. */
   mcpUrl: string;
   name: string;
+  /** Assigned skills. Only non-empty when a prior registration attempt failed. */
+  skills?: readonly AgentSkillRef[];
   system: string;
 }
 
@@ -79,6 +91,17 @@ export interface PolledEvents {
   events: SessionEvent[];
 }
 
+/**
+ * A skills-only update. Its own method rather than a flag on `syncAgent`,
+ * because what it must *not* carry is the point: `mcp_servers` (and the
+ * one-time token in the workspace URL) stays exactly as registered, so an
+ * agent that creates a skill mid-session does not sever its own MCP connection.
+ */
+export interface SyncAgentSkillsInput {
+  anthropicAgentId: string;
+  skills: readonly AgentSkillRef[];
+}
+
 export interface AnthropicGateway {
   createSession: (input: CreateSessionInput) => Promise<CreatedSession>;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -92,6 +115,7 @@ export interface AnthropicGateway {
   registerAgent: (input: RegisterAgentInput) => Promise<RegisteredAgent>;
   sendMessage: (sessionId: string, text: string) => Promise<void>;
   syncAgent: (input: SyncAgentInput) => Promise<void>;
+  syncAgentSkills: (input: SyncAgentSkillsInput) => Promise<void>;
 }
 
 /** Where the environment id is remembered between requests. */
@@ -162,6 +186,13 @@ const mcpServersFor = (
         })),
       ]
     : undefined;
+
+const skillsFor = (skills: readonly AgentSkillRef[]) =>
+  skills.map((skill) => ({
+    skill_id: skill.skillId,
+    type: "custom" as const,
+    version: skill.version,
+  }));
 
 const statusOf = (status: string): SessionStatus => {
   if (
@@ -343,6 +374,9 @@ export const createAnthropicGateway = (
         mcp_servers: mcpServersFor(input.mcpUrl, input.connectors ?? []),
         model: AGENT_MODEL,
         name: input.name,
+        ...(input.skills && input.skills.length > 0
+          ? { skills: skillsFor(input.skills) }
+          : {}),
         system: input.system,
         tools: toolsFor(input.mcpUrl, input.connectors ?? []),
       });
@@ -379,6 +413,15 @@ export const createAnthropicGateway = (
               tools: toolsFor(input.mcpUrl, input.connectors ?? []),
             }
           : {}),
+      });
+    },
+
+    async syncAgentSkills(input) {
+      // Deliberately the whole payload: skills and nothing else. Omitted fields
+      // are preserved (verified by the spike, both directions), so this leaves
+      // `mcp_servers`, `tools` and the system prompt exactly as they are.
+      await client.beta.agents.update(input.anthropicAgentId, {
+        skills: skillsFor(input.skills),
       });
     },
   };

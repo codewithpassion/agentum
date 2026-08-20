@@ -17,6 +17,7 @@ import { mcpRoutes } from "#/modules/mcp/routes";
 import { attachmentsRoutes } from "#/modules/messaging/routes/attachments";
 import { channelsRoutes } from "#/modules/messaging/routes/channels";
 import { messagesRoutes } from "#/modules/messaging/routes/messages";
+import { skillsRoutes } from "#/modules/skills/routes";
 import { wikiRoutes } from "#/modules/wiki/routes";
 
 // Durable Object classes must be re-exported from the Worker entry so the
@@ -86,6 +87,8 @@ app.route("/api/wiki", wikiRoutes);
 // it, and the one-shot `state` it carries is the credential.
 app.route("/api/connectors", connectorOauthRoutes);
 app.route("/api/connectors", connectorsRoutes);
+// Skills (versioned SKILL.md bundles, mirrored to Anthropic).
+app.route("/api/skills", skillsRoutes);
 // Bridge management lives in the bridges module but reads as part of a
 // channel; Hono falls through to it for the paths `channelsRoutes` does not own.
 app.route("/api/channels", bridgeRoutes);

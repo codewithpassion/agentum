@@ -35,6 +35,18 @@ describe("composeSystemPrompt", () => {
     expect(prompt).toContain("concise");
   });
 
+  test("names the skill tools and the self-heal contract", () => {
+    const prompt = composeSystemPrompt(input());
+
+    // The instructions *are* the auto-heal mechanism in v1: detection is
+    // in-session, and this paragraph is what turns a failure into a fix.
+    expect(prompt).toContain("# Skills");
+    expect(prompt).toContain("skill_create");
+    expect(prompt).toContain("skill_update");
+    expect(prompt).toContain("When a skill fails, fix the skill");
+    expect(prompt).toContain("changelog");
+  });
+
   test("lists the other agents with their souls so delegation is possible", () => {
     const prompt = composeSystemPrompt(input());
 

@@ -15,6 +15,8 @@ import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ConnectorsIndexRouteImport } from './routes/connectors.index'
 import { Route as ConnectorsConnectorIdRouteImport } from './routes/connectors.$connectorId'
+import { Route as SkillsIndexRouteImport } from './routes/skills.index'
+import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
 import { Route as WikiIndexRouteImport } from './routes/wiki.index'
 import { Route as WikiSplatRouteImport } from './routes/wiki.$'
 
@@ -48,6 +50,16 @@ const ConnectorsConnectorIdRoute = ConnectorsConnectorIdRouteImport.update({
   path: '/connectors/$connectorId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SkillsIndexRoute = SkillsIndexRouteImport.update({
+  id: '/skills/',
+  path: '/skills/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SkillsSlugRoute = SkillsSlugRouteImport.update({
+  id: '/skills/$slug',
+  path: '/skills/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WikiIndexRoute = WikiIndexRouteImport.update({
   id: '/wiki/',
   path: '/wiki/',
@@ -65,8 +77,10 @@ export interface FileRoutesByFullPath {
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
   '/connectors/$connectorId': typeof ConnectorsConnectorIdRoute
+  '/skills/$slug': typeof SkillsSlugRoute
   '/wiki/$': typeof WikiSplatRoute
   '/connectors/': typeof ConnectorsIndexRoute
+  '/skills/': typeof SkillsIndexRoute
   '/wiki/': typeof WikiIndexRoute
 }
 export interface FileRoutesByTo {
@@ -75,8 +89,10 @@ export interface FileRoutesByTo {
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
   '/connectors/$connectorId': typeof ConnectorsConnectorIdRoute
+  '/skills/$slug': typeof SkillsSlugRoute
   '/wiki/$': typeof WikiSplatRoute
   '/connectors': typeof ConnectorsIndexRoute
+  '/skills': typeof SkillsIndexRoute
   '/wiki': typeof WikiIndexRoute
 }
 export interface FileRoutesById {
@@ -86,8 +102,10 @@ export interface FileRoutesById {
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
   '/connectors/$connectorId': typeof ConnectorsConnectorIdRoute
+  '/skills/$slug': typeof SkillsSlugRoute
   '/wiki/$': typeof WikiSplatRoute
   '/connectors/': typeof ConnectorsIndexRoute
+  '/skills/': typeof SkillsIndexRoute
   '/wiki/': typeof WikiIndexRoute
 }
 export interface FileRouteTypes {
@@ -98,8 +116,10 @@ export interface FileRouteTypes {
     | '/dev-login'
     | '/login'
     | '/connectors/$connectorId'
+    | '/skills/$slug'
     | '/wiki/$'
     | '/connectors/'
+    | '/skills/'
     | '/wiki/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -108,8 +128,10 @@ export interface FileRouteTypes {
     | '/dev-login'
     | '/login'
     | '/connectors/$connectorId'
+    | '/skills/$slug'
     | '/wiki/$'
     | '/connectors'
+    | '/skills'
     | '/wiki'
   id:
     | '__root__'
@@ -118,8 +140,10 @@ export interface FileRouteTypes {
     | '/dev-login'
     | '/login'
     | '/connectors/$connectorId'
+    | '/skills/$slug'
     | '/wiki/$'
     | '/connectors/'
+    | '/skills/'
     | '/wiki/'
   fileRoutesById: FileRoutesById
 }
@@ -129,8 +153,10 @@ export interface RootRouteChildren {
   DevLoginRoute: typeof DevLoginRoute
   LoginRoute: typeof LoginRoute
   ConnectorsConnectorIdRoute: typeof ConnectorsConnectorIdRoute
+  SkillsSlugRoute: typeof SkillsSlugRoute
   WikiSplatRoute: typeof WikiSplatRoute
   ConnectorsIndexRoute: typeof ConnectorsIndexRoute
+  SkillsIndexRoute: typeof SkillsIndexRoute
   WikiIndexRoute: typeof WikiIndexRoute
 }
 
@@ -178,6 +204,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ConnectorsConnectorIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/skills/': {
+      id: '/skills/'
+      path: '/skills'
+      fullPath: '/skills/'
+      preLoaderRoute: typeof SkillsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/skills/$slug': {
+      id: '/skills/$slug'
+      path: '/skills/$slug'
+      fullPath: '/skills/$slug'
+      preLoaderRoute: typeof SkillsSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/wiki/': {
       id: '/wiki/'
       path: '/wiki'
@@ -201,8 +241,10 @@ const rootRouteChildren: RootRouteChildren = {
   DevLoginRoute: DevLoginRoute,
   LoginRoute: LoginRoute,
   ConnectorsConnectorIdRoute: ConnectorsConnectorIdRoute,
+  SkillsSlugRoute: SkillsSlugRoute,
   WikiSplatRoute: WikiSplatRoute,
   ConnectorsIndexRoute: ConnectorsIndexRoute,
+  SkillsIndexRoute: SkillsIndexRoute,
   WikiIndexRoute: WikiIndexRoute,
 }
 export const routeTree = rootRouteImport

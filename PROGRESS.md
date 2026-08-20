@@ -5,6 +5,31 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 7 — Phase 5: Skills (versioned, agent-authored) (2026-08-20)
+
+**Goal:** Implement Phase 5 of docs/plan-connectors-skills.md — workspace skills published to the Anthropic Skills API, versioned and pinnable per agent, authorable by agents themselves via MCP tools.
+
+**What we did:**
+- Ran both entry spikes green against the live API first (honoring the spike-first gate): multipart upload with the path encoded in the filename, version ids are epoch-microsecond strings, `"latest"` is stored literally so publishing a new version needs no agent resync, partial `agents.update` preserves omitted fields in both directions, and skill delete has no in-use protection — versions must be deleted before the skill
+- Built modules/skills: migration 0011, skill files in R2, publish pipeline with local-first `sync_status` (R2 stays source of truth, Anthropic sync can lag or fail without losing data)
+- Agent wiring: skills-gateway + `composeAgentSkills` do a skills-only partial `agents.update` with NO token rotation (asserted in tests); system prompt gained a skills section with the self-heal contract
+- 4 MCP tools — `skill_list` / `skill_read` / `skill_create` / `skill_update` — with agent attribution; `skill_create` auto-assigns the new skill to the authoring agent
+- UI: /skills directory + detail (rendered SKILL.md, file tree, version history, retry-sync, delete), create + new-version editors, agent-settings Skills tab with pin dropdown + 20-skill cap, rail chips on the agent profile
+- 525 unit tests + 24/24 Playwright green; implemented via sequential forge agents (skills-spike, skills-backend, skills-ui) plus a Sonnet browser verifier (verify-phase5)
+- Browser acceptance PASSED all 9 steps against the live Anthropic API: skill published for real → "synced", v1 immutability after publishing v2, pin/unpin, and delete cleaned up the Anthropic side
+- SKIPPED (pre-authorized blockers): in-session acceptance — an agent using a skill, an agent authoring a skill, and the self-heal round-trip — requires a cloudflared tunnel + live sessions; same loopback limitation as Phase 4 (agent resync fails in dev with "localhost resolves to loopback", surfaced as a non-blocking outcome string while local state stays correct)
+
+**Lessons learned:**
+- The Skills API download endpoint is unusable with workspace keys + the `skills-2025-10-02` header — R2 must stay the source of truth for skill files
+- The markdown renderer turns YAML frontmatter into a setext h2, so the UI strips frontmatter before rendering SKILL.md
+- `MAX_AGENT_SKILLS` had to live in a pure module (validate.ts) to stay browser-importable
+- e2e stub servers run under Node (`node:http`), not Bun — same constraint as Phase 4's stub MCP servers
+
+**Avoid next time:**
+- Don't resync agents on new skill versions — `"latest"` is stored literally at Anthropic, so publish alone is enough
+- Don't delete a skill without deleting its versions first; there is no in-use protection on the Anthropic side
+- Don't fetch skill files back from the Skills API — serve them from R2
+
 ## Cycle 6 — Phase 4: Connectors — remote MCP servers with OAuth (2026-08-20)
 
 **Goal:** Implement Phase 4 of docs/plan-connectors-skills.md — user-added remote MCP connectors with a "no preset list" OAuth ladder, credentials held in Anthropic Vaults, and per-agent connector assignment.

@@ -10,6 +10,7 @@ import {
   updateAgent,
 } from "#/lib/api";
 import { AgentConnectorsPicker } from "./agent-connectors-picker";
+import { AgentSkillsPicker } from "./agent-skills-picker";
 import { McpUrlField } from "./mcp-url";
 
 const EMPTY: AgentInput = { instructions: "", name: "", soul: "" };
@@ -22,7 +23,7 @@ const EMPTY: AgentInput = { instructions: "", name: "", soul: "" };
  * Only an agent that exists has sections - a new one has no id to assign
  * anything to yet, so creating stays the single profile form it always was.
  */
-const SECTIONS = ["Profile", "Connectors"] as const;
+const SECTIONS = ["Profile", "Connectors", "Skills"] as const;
 
 type Section = (typeof SECTIONS)[number];
 
@@ -177,6 +178,12 @@ export function AgentDialog({
       {agent && section === "Connectors" ? (
         <div role="tabpanel">
           <AgentConnectorsPicker agentId={agent.id} />
+        </div>
+      ) : null}
+
+      {agent && section === "Skills" ? (
+        <div role="tabpanel">
+          <AgentSkillsPicker agentId={agent.id} />
         </div>
       ) : null}
 

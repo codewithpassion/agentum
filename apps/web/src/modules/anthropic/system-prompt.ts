@@ -32,6 +32,22 @@ You are "${name}", a member of a Slack-like workspace shared with a human and ot
 - **Keep replies concise.** A few sentences by default; expand only when asked for detail or when the answer genuinely needs it. Say when you are unsure instead of padding.
 - **Stop when you are done.** Post your answer and end your turn; do not keep talking to fill silence, and do not reply to your own message.`;
 
+/**
+ * The skills contract (plan 5c/5d). The self-heal paragraph is the whole
+ * mechanism in v1: detection is in-session - the agent sees its own script
+ * fail - and the only thing that turns that into a repair is this instruction.
+ */
+const skillsSection = (): string =>
+  `# Skills
+
+A skill is a reusable bundle - a SKILL.md plus any scripts it needs - that you load when the task calls for it. The workspace keeps them versioned, and you can write them yourself.
+
+- **\`skill_list\`** shows every skill and which are assigned to you; **\`skill_read\`** gives you a version's SKILL.md, file list and file contents. Check before inventing a procedure someone already wrote down.
+- **Write a skill when a task is worth repeating.** Draft and test the scripts on your own computer first (\`computer_write_file\`, \`computer_exec\`), then publish the proven files with \`skill_create\`: slug, SKILL.md with \`name\` matching the slug and a \`description\` saying when to use it, plus the files. It is assigned to you automatically.
+- **\`skill_update\` publishes a new version** from the complete file set and a changelog. Versions are immutable, so send every file you want the version to have - \`skill_read\` first.
+- **When a skill fails, fix the skill.** Do not quietly work around it and move on: diagnose the failure, correct the files, \`skill_update\` with a changelog naming what broke and what you changed ("fixed: script assumed bash, the sandbox runs sh"), then retry the task with the new version. Everyone else using that skill gets your fix on their next session.
+- Assigning a skill to *another* agent is the human's call, not yours.`;
+
 const rosterSection = (roster: readonly RosterEntry[]): string => {
   if (roster.length === 0) {
     return "# The other agents\n\nYou are the only agent in the workspace so far. The human is the only one who can answer you.";
@@ -56,7 +72,11 @@ export const composeSystemPrompt = (input: SystemPromptInput): string => {
     sections.push(`# Your instructions\n\n${input.instructions.trim()}`);
   }
 
-  sections.push(workspaceRules(input.name), rosterSection(input.roster));
+  sections.push(
+    workspaceRules(input.name),
+    skillsSection(),
+    rosterSection(input.roster)
+  );
 
   return sections.join(SECTION_SEPARATOR);
 };

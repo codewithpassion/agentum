@@ -16,6 +16,7 @@ import { CategoryDialog } from "./category-dialog";
 import { CONNECTORS_SECTION, ConnectorsSection } from "./connectors-section";
 import { ItemCategoryMenu, MENU_ITEM_CLASS } from "./sidebar-menu";
 import { SectionHint, SidebarSection } from "./sidebar-section";
+import { SKILLS_SECTION, SkillsSection } from "./skills-section";
 
 const COLLAPSED_KEY = "ws-sidebar-collapsed";
 const CHANNELS_SECTION = "channels";
@@ -450,6 +451,14 @@ export function Sidebar({
           >
             <span aria-hidden="true">🔌</span>
           </Link>
+          <Link
+            aria-label="Skills"
+            className={ICON_LINK_CLASS}
+            title="Skills"
+            to="/skills"
+          >
+            <span aria-hidden="true">🧠</span>
+          </Link>
           <div className="relative">
             <Button
               aria-label="Create"
@@ -534,6 +543,11 @@ export function Sidebar({
 
         <ConnectorsSection
           expanded={isExpanded(CONNECTORS_SECTION)}
+          onToggle={toggle}
+        />
+
+        <SkillsSection
+          expanded={isExpanded(SKILLS_SECTION)}
           onToggle={toggle}
         />
 

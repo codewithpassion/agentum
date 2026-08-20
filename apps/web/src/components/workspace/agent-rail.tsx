@@ -8,6 +8,7 @@ import { AgentActivityTab } from "./agent-activity-tab";
 import { AgentConnectorChips } from "./agent-connector-chips";
 import { AgentFilesTab } from "./agent-files-tab";
 import { AgentScreenTab } from "./agent-screen-tab";
+import { AgentSkillChips } from "./agent-skill-chips";
 import { BridgeCard } from "./bridge-card";
 import { McpUrlField } from "./mcp-url";
 
@@ -212,6 +213,10 @@ function ProfilePanel({
       <AgentConnectorChips
         agentId={agent.id}
         key={`${agent.id}:${connectorRevision}`}
+      />
+      <AgentSkillChips
+        agentId={agent.id}
+        key={`skills:${agent.id}:${connectorRevision}`}
       />
       <Section body={agent.soul} title="Soul" />
       <Section body={agent.instructions} title="Instructions" />

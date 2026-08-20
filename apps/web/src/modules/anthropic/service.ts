@@ -14,7 +14,9 @@ import {
 } from "#/modules/agents/service";
 import { listConnectorsForAgent } from "#/modules/connectors/service";
 import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
+import { listAgentSkillAssignments } from "#/modules/skills/service";
 import { composeAgentConnectors } from "./agent-connectors";
+import { composeAgentSkills } from "./agent-skills";
 import { ENVIRONMENT_NAME } from "./config";
 import {
   type AnthropicGateway,
@@ -184,6 +186,11 @@ export const syncAgentToAnthropic = async (
         instructions: agent.instructions,
         mcpUrl: options.mcpUrl,
         name: agent.name,
+        // A first registration is normally an agent with no assignments at all;
+        // it carries skills only for one that was assigned some while an
+        // earlier registration attempt was failing.
+        skills: composeAgentSkills(await listAgentSkillAssignments(db, agentId))
+          .skills,
         system,
       });
       await setAgentRegistration(db, agent.id, registration);
@@ -243,6 +250,82 @@ export const syncAgentWithAnthropic = async (
 
   await syncAgentToAnthropic(db, gateway, agentId, options);
   await resyncRosters(db, gateway, agentId);
+};
+
+// --- skills -----------------------------------------------------------------
+
+const droppedSkillsMessage = (
+  dropped: readonly { reason: string; slug: string }[]
+): string =>
+  `${dropped.length} skill${dropped.length === 1 ? "" : "s"} could not be attached: ${dropped
+    .map((entry) => `"${entry.slug}" (${entry.reason})`)
+    .join(", ")}.`;
+
+/**
+ * Pushes an agent's skills, and only its skills.
+ *
+ * Unlike a connector change this needs no token rotation and no session-idle
+ * wait: the update carries `skills` alone, so the agent's registered MCP URL -
+ * whose plaintext token exists only at issuance - is untouched. That is what
+ * makes it safe to run the moment an assignment changes, including from an
+ * agent's own `skill_create` mid-session.
+ */
+export const syncAgentSkillsToAnthropic = async (
+  db: Db,
+  gateway: AnthropicGateway,
+  agentId: string
+): Promise<boolean> => {
+  const agent = await getAgentById(db, agentId);
+  if (!agent?.anthropicAgentId) {
+    // Nothing registered yet: the assignment reaches Anthropic when the agent
+    // is first registered, which sends the composed skills with it.
+    return false;
+  }
+
+  const composed = composeAgentSkills(
+    await listAgentSkillAssignments(db, agentId)
+  );
+  try {
+    await gateway.syncAgentSkills({
+      anthropicAgentId: agent.anthropicAgentId,
+      skills: composed.skills,
+    });
+  } catch (error) {
+    await setAgentSyncStatus(db, agent.id, "error", messageOf(error));
+    return false;
+  }
+
+  if (composed.dropped.length > 0) {
+    await setAgentSyncStatus(
+      db,
+      agent.id,
+      "error",
+      droppedSkillsMessage(composed.dropped)
+    );
+    return true;
+  }
+  await setAgentSyncStatus(db, agent.id, "synced");
+  return true;
+};
+
+/** The transport-facing wrapper: a no-op when the integration is off. */
+export const syncAgentSkillsWithAnthropic = async (
+  db: Db,
+  env: Env,
+  agentIds: readonly string[]
+): Promise<void> => {
+  const gateway = createGateway(db, env);
+  if (!gateway) {
+    return;
+  }
+  for (const agentId of agentIds) {
+    // Sequential for the same reason as the roster pass: agent updates are
+    // rate-limited, and one failure must not take the others down.
+    // biome-ignore lint/performance/noAwaitInLoops: paced to stay inside the API's rate limits
+    await syncAgentSkillsToAnthropic(db, gateway, agentId).catch(() => {
+      // Recorded on the agent row; nothing here is worth failing a request for.
+    });
+  }
 };
 
 // --- connector resync -------------------------------------------------------

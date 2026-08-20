@@ -3,6 +3,7 @@
  *
  *   bun run anthropic-spike           (from apps/web) - session spike
  *   bun scripts/anthropic-spike.ts vaults              - vault CRUD spike
+ *   bun scripts/anthropic-spike.ts skills              - skills + agent wiring
  *
  * The session spike proves the four things the router depends on - a reusable
  * environment, an agent plus memory store, a session seeded with
@@ -14,12 +15,24 @@
  * vault create/list, `static_bearer` and `mcp_oauth` (with a `refresh` block)
  * credentials, secret-field updates, `mcp_server_url` immutability, and the
  * archive/delete cleanup path. It touches only the vault it creates.
+ *
+ * The skills spike (Phase 5 entry) proves the two things the skills module
+ * depends on: the upload shape of `POST /v1/skills` and `POST
+ * /v1/skills/{id}/versions` (multipart, path-preserving filenames) with its
+ * validation errors, and that `agents.update` takes `skills` with the same
+ * partial-update-preserves-omitted semantics `syncAgent` already relies on for
+ * `mcp_servers`. It creates one throwaway skill and one throwaway agent, both
+ * stamped with the run's timestamp, and touches nothing else.
  */
 
 import process from "node:process";
 import Anthropic from "@anthropic-ai/sdk";
 import type { BetaManagedAgentsMCPOAuthUpdateParams } from "@anthropic-ai/sdk/resources/beta/vaults/credentials";
-import { ENVIRONMENT_NAME } from "#/modules/anthropic/config";
+import {
+  AGENT_MODEL,
+  AGENT_TOOLSET,
+  ENVIRONMENT_NAME,
+} from "#/modules/anthropic/config";
 import type { EventCursor } from "#/modules/anthropic/events";
 import { isSessionReusable } from "#/modules/anthropic/events";
 import { createAnthropicGateway } from "#/modules/anthropic/gateway";
@@ -355,8 +368,348 @@ const runVaultSpike = async (client: Anthropic): Promise<void> => {
   }
 };
 
-if (process.argv[2] === "vaults") {
+// ---------------------------------------------------------------------------
+// Skills spike (Phase 5 entry). One throwaway skill and one throwaway agent,
+// both created here and cleaned up here. No pre-existing agent, environment,
+// vault or memory store is read, updated or archived.
+// ---------------------------------------------------------------------------
+
+const SKILL_MCP_NAME = "spike";
+/** Public-looking dummy: `agents.create` rejects loopback MCP URLs. */
+const SKILL_MCP_URL = "https://mcp.spike-skills.example.com/mcp";
+const SPIKE_SYSTEM = "You are a throwaway spike agent. Do nothing.";
+
+/** The same shape `gateway.ts` builds, inlined so the spike stays standalone. */
+const spikePermissive = {
+  enabled: true,
+  permission_policy: { type: "always_allow" as const },
+};
+
+const spikeAgentTools = [
+  {
+    default_config: spikePermissive,
+    type: AGENT_TOOLSET as "agent_toolset_20260401",
+  },
+  {
+    default_config: spikePermissive,
+    mcp_server_name: SKILL_MCP_NAME,
+    type: "mcp_toolset" as const,
+  },
+];
+
+/**
+ * The SDK sends `files` as repeated `files[]` multipart parts and (uniquely for
+ * skills) does *not* strip the path from the filename, so the directory layout
+ * of the skill travels in `File.name`.
+ *
+ * The whole multipart request is capped at 30 MB ("The Skills API accepts
+ * requests up to 30MBs", probed separately; a 10 MB bundle uploads fine). No
+ * per-file or file-count cap surfaced.
+ */
+const skillFile = (path: string, content: string): File =>
+  new File([content], path, { type: "text/plain" });
+
+const skillMd = (name: string, body: string): string =>
+  `---
+name: ${name}
+description: Throwaway skill uploaded by the Agentum Phase 5 entry spike.
+---
+
+# ${name}
+
+${body}
+`;
+
+const helloScript = (message: string): string =>
+  `export const hello = (): string => "${message}";\n`;
+
+/** Probes the SKILL.md rules without leaving anything behind: all must fail. */
+const probeSkillValidation = async (
+  client: Anthropic,
+  dir: string
+): Promise<void> => {
+  await expectFailure("skills.create with no SKILL.md at the root", () =>
+    client.beta.skills.create({
+      files: [skillFile(`${dir}-nomd/scripts/hello.ts`, helloScript("hi"))],
+    })
+  );
+
+  await expectFailure("skills.create with SKILL.md but no frontmatter", () =>
+    client.beta.skills.create({
+      files: [
+        skillFile(
+          `${dir}-nofm/SKILL.md`,
+          "# no frontmatter here\n\njust prose\n"
+        ),
+      ],
+    })
+  );
+
+  await expectFailure(
+    "skills.create with frontmatter missing `description`",
+    () =>
+      client.beta.skills.create({
+        files: [
+          skillFile(
+            `${dir}-nodesc/SKILL.md`,
+            `---\nname: ${dir}-nodesc\n---\n\n# body\n`
+          ),
+        ],
+      })
+  );
+
+  await expectFailure(
+    "skills.create with frontmatter `name` != directory name",
+    () =>
+      client.beta.skills.create({
+        files: [
+          skillFile(
+            `${dir}-mismatch/SKILL.md`,
+            skillMd("totally-different-name", "Name does not match the dir.")
+          ),
+        ],
+      })
+  );
+
+  await expectFailure("skills.create with two top-level directories", () =>
+    client.beta.skills.create({
+      files: [
+        skillFile(`${dir}-two/SKILL.md`, skillMd(`${dir}-two`, "First dir.")),
+        skillFile(
+          `${dir}-other/SKILL.md`,
+          skillMd(`${dir}-other`, "Second dir.")
+        ),
+      ],
+    })
+  );
+};
+
+interface SkillRefs {
+  skillId: string;
+  versionOne: string;
+  versionTwo: string;
+}
+
+/**
+ * Spike 2. Every probe here answers one plan assumption:
+ * - does a skills-only update preserve `mcp_servers`/`tools`/`system`?
+ * - does an update without `skills` preserve the skills?
+ * - is the literal `"latest"` accepted, and does a tracked skill *move* when a
+ *   new version is published, or is it resolved once at update time?
+ *
+ * Returns whether the skill was deleted by the in-use delete probe.
+ */
+const probeAgentSkills = async (
+  client: Anthropic,
+  refs: SkillRefs
+): Promise<boolean> => {
+  const agent = await client.beta.agents.create({
+    description: "Throwaway agent for the Agentum Phase 5 skills spike.",
+    mcp_servers: [{ name: SKILL_MCP_NAME, type: "url", url: SKILL_MCP_URL }],
+    model: AGENT_MODEL,
+    name: `agentum-spike-skills-${Date.now().toString(36)}`,
+    system: SPIKE_SYSTEM,
+    tools: spikeAgentTools,
+  });
+  dump("agents.create (throwaway spike agent)", agent);
+
+  try {
+    dump(
+      "agents.update skills only, version omitted (track latest)",
+      await client.beta.agents.update(agent.id, {
+        skills: [{ skill_id: refs.skillId, type: "custom" }],
+      })
+    );
+    dump(
+      "agents.retrieve after skills-only update (mcp_servers/tools/system survive?)",
+      await client.beta.agents.retrieve(agent.id)
+    );
+
+    await expectFailure('agents.update with the literal version "latest"', () =>
+      client.beta.agents.update(agent.id, {
+        skills: [{ skill_id: refs.skillId, type: "custom", version: "latest" }],
+      })
+    );
+
+    dump(
+      "agents.update with a pinned concrete version (v1)",
+      await client.beta.agents.update(agent.id, {
+        skills: [
+          { skill_id: refs.skillId, type: "custom", version: refs.versionOne },
+        ],
+      })
+    );
+
+    // Back to tracking latest, then ask the question 5d rests on: does the
+    // stored version follow a newly published version, or was it frozen when
+    // the update ran? (v2 already exists at this point.)
+    dump(
+      "agents.update back to tracking latest",
+      await client.beta.agents.update(agent.id, {
+        skills: [{ skill_id: refs.skillId, type: "custom" }],
+      })
+    );
+    dump(
+      `PROPAGATION: does skills[].version equal v2 (${refs.versionTwo}) or v1 (${refs.versionOne})?`,
+      (await client.beta.agents.retrieve(agent.id)).skills
+    );
+
+    dump(
+      "agents.update without `skills` (system only)",
+      await client.beta.agents.update(agent.id, {
+        system: `${SPIKE_SYSTEM} Edited.`,
+      })
+    );
+    dump(
+      "PRESERVED: agents.retrieve after a skills-less update",
+      (await client.beta.agents.retrieve(agent.id)).skills
+    );
+
+    // The "skill still has versions" check fires before any in-use check, so
+    // the versions have to go first for the in-use question to be answerable.
+    await expectFailure("skills.versions.delete (v1, not the latest)", () =>
+      client.beta.skills.versions.delete(refs.versionOne, {
+        skill_id: refs.skillId,
+      })
+    );
+    await expectFailure(
+      "skills.versions.delete (v2, the latest, while an agent tracks latest)",
+      () =>
+        client.beta.skills.versions.delete(refs.versionTwo, {
+          skill_id: refs.skillId,
+        })
+    );
+    const inUseDelete = await expectFailure(
+      "skills.delete (no versions left) while an agent still references it",
+      () => client.beta.skills.delete(refs.skillId)
+    );
+
+    dump(
+      "agents.update skills: [] (unassign)",
+      await client.beta.agents.update(agent.id, { skills: [] })
+    );
+
+    return inUseDelete !== null;
+  } finally {
+    // Archive is permanent, so it may only ever name the id this run created.
+    const archived = await client.beta.agents
+      .archive(agent.id)
+      .catch((error: unknown) => {
+        dumpError(`archive spike agent ${agent.id}`, error);
+        return null;
+      });
+    dump("agents.archive (throwaway spike agent)", archived);
+  }
+};
+
+/** `skills.delete` 400s while any version exists, so versions go first. */
+const deleteSkillWithVersions = async (
+  client: Anthropic,
+  skillId: string,
+  label: string
+): Promise<void> => {
+  const remaining = await client.beta.skills.versions
+    .list(skillId)
+    .catch((error: unknown) => {
+      dumpError(`cleanup list versions ${skillId}`, error);
+      return null;
+    });
+  for (const version of remaining?.data ?? []) {
+    // Sequential on purpose: one failure must not skip the rest.
+    // biome-ignore lint/performance/noAwaitInLoops: sequential best-effort cleanup
+    await client.beta.skills.versions
+      .delete(version.version, { skill_id: skillId })
+      .catch((error: unknown) =>
+        dumpError(`cleanup version ${version.version}`, error)
+      );
+  }
+  const gone = await client.beta.skills
+    .delete(skillId)
+    .catch((error: unknown) => {
+      dumpError(`cleanup skill ${skillId} (${label})`, error);
+      return null;
+    });
+  dump("skills.delete (cleanup, after deleting every version)", gone);
+};
+
+const runSkillsSpike = async (client: Anthropic): Promise<void> => {
+  const dir = `spike-skill-${Date.now().toString(36)}`;
+
+  const skill = await client.beta.skills.create({
+    display_title: `Agentum spike ${dir}`,
+    files: [
+      skillFile(
+        `${dir}/SKILL.md`,
+        skillMd(dir, "Run scripts/hello.ts and report what it returns.")
+      ),
+      skillFile(`${dir}/scripts/hello.ts`, helloScript("hello from v1")),
+    ],
+  });
+  dump("skills.create (v1)", skill);
+
+  let deleted = false;
+  try {
+    const versionOne = skill.latest_version ?? "";
+    const second = await client.beta.skills.versions.create(skill.id, {
+      files: [
+        skillFile(
+          `${dir}/SKILL.md`,
+          skillMd(dir, "Run scripts/hello.ts and scripts/bye.ts.")
+        ),
+        skillFile(`${dir}/scripts/hello.ts`, helloScript("hello from v2")),
+        skillFile(`${dir}/scripts/bye.ts`, helloScript("bye from v2")),
+      ],
+    });
+    dump("skills.versions.create (v2)", second);
+
+    dump("skills.retrieve", await client.beta.skills.retrieve(skill.id));
+    const versions = await client.beta.skills.versions.list(skill.id);
+    dump("skills.versions.list", versions.data);
+    dump(
+      "skills.versions.retrieve (v1)",
+      await client.beta.skills.versions.retrieve(versionOne, {
+        skill_id: skill.id,
+      })
+    );
+    const listed = await client.beta.skills.list({ source: "custom" });
+    dump("skills.list (source=custom, first page)", {
+      count: listed.data.length,
+      first: listed.data[0],
+      includes_created: listed.data.some((entry) => entry.id === skill.id),
+    });
+
+    await expectFailure("skills.versions.download (v1)", async () => {
+      const archive = await client.beta.skills.versions.download(versionOne, {
+        skill_id: skill.id,
+      });
+      return {
+        bytes: (await archive.arrayBuffer()).byteLength,
+        content_type: archive.headers.get("content-type"),
+        status: archive.status,
+      };
+    });
+
+    await probeSkillValidation(client, dir);
+
+    deleted = await probeAgentSkills(client, {
+      skillId: skill.id,
+      versionOne,
+      versionTwo: second.version,
+    });
+  } finally {
+    if (deleted) {
+      process.stdout.write(`skill ${skill.id} already deleted in-probe\n`);
+    } else {
+      await deleteSkillWithVersions(client, skill.id, dir);
+    }
+  }
+};
+
+const [, , mode] = process.argv;
+if (mode === "vaults") {
   await runVaultSpike(new Anthropic({ apiKey: requireApiKey() }));
+} else if (mode === "skills") {
+  await runSkillsSpike(new Anthropic({ apiKey: requireApiKey() }));
 } else {
   await main();
 }

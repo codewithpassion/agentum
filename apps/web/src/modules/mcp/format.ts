@@ -1,3 +1,4 @@
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { AuthorType, MessageView } from "#/modules/messaging/service";
 
 /**
@@ -22,6 +23,16 @@ export interface McpMessage {
   replyCount: number;
   threadParentId: string | null;
 }
+
+/** Every tool answers in JSON, or fails with a sentence the agent can act on. */
+export const json = (payload: unknown): CallToolResult => ({
+  content: [{ text: JSON.stringify(payload), type: "text" }],
+});
+
+export const fail = (message: string): CallToolResult => ({
+  content: [{ text: message, type: "text" }],
+  isError: true,
+});
 
 /** Humans have no directory here yet, so they are all just "User". */
 const HUMAN_NAME = "User";

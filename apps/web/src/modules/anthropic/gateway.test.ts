@@ -210,6 +210,51 @@ describe("syncAgent", () => {
   });
 });
 
+describe("syncAgentSkills", () => {
+  const updates: Record<string, unknown>[] = [];
+  const gateway = createAnthropicGateway(
+    client({
+      agents: {
+        update: (_id: string, body: Record<string, unknown>) => {
+          updates.push(body);
+          return Promise.resolve({});
+        },
+      },
+    }),
+    { cache: memoryCache(), environmentName: "agentum" }
+  );
+
+  test("sends skills and nothing else", async () => {
+    await gateway.syncAgentSkills({
+      anthropicAgentId: "agt_1",
+      skills: [
+        { skillId: "skill_01", version: "latest" },
+        { skillId: "skill_02", version: "1787195643170342" },
+      ],
+    });
+
+    // The whole point: `mcp_servers` is untouched, so the one-time token in the
+    // workspace MCP URL survives - an agent creating a skill mid-session must
+    // not sever its own connection.
+    expect(updates.at(-1)).toEqual({
+      skills: [
+        { skill_id: "skill_01", type: "custom", version: "latest" },
+        {
+          skill_id: "skill_02",
+          type: "custom",
+          version: "1787195643170342",
+        },
+      ],
+    });
+  });
+
+  test("clears the array when the last assignment goes", async () => {
+    await gateway.syncAgentSkills({ anthropicAgentId: "agt_1", skills: [] });
+
+    expect(updates.at(-1)).toEqual({ skills: [] });
+  });
+});
+
 describe("createSession", () => {
   const created: Record<string, unknown>[] = [];
   const gateway = createAnthropicGateway(

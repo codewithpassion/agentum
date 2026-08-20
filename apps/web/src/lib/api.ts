@@ -19,6 +19,11 @@ import type {
   MessageView as MessageRow,
 } from "#/modules/messaging/service";
 import type {
+  SkillFileView as SkillFileRow,
+  SkillView as SkillRow,
+  SkillVersionView as SkillVersionRow,
+} from "#/modules/skills/service";
+import type {
   WikiPageSummary as WikiPageSummaryRow,
   WikiPageView,
   WikiRevisionView,
@@ -38,6 +43,10 @@ export type Screenshot = ScreenshotRow;
 export type AttachmentView = AttachmentRow;
 export type ChannelMemberView = ChannelMemberRow;
 export type MessageView = MessageRow;
+export type Skill = SkillRow;
+export type SkillSyncStatus = Skill["syncStatus"];
+export type SkillVersion = SkillVersionRow;
+export type SkillFile = SkillFileRow;
 export type WikiPage = WikiPageView;
 export type WikiPageSummary = WikiPageSummaryRow;
 export type WikiRevision = WikiRevisionView;
@@ -58,6 +67,17 @@ const NOT_FOUND = 404;
 export const isNotFound = (error: unknown): boolean =>
   error instanceof ApiError && error.status === NOT_FOUND;
 
+/** Server error bodies are `{ error }`; anything else is a transport failure. */
+const failureOf = async (response: Response): Promise<ApiError> => {
+  const body = (await response.json().catch(() => null)) as {
+    error?: string;
+  } | null;
+  return new ApiError(
+    body?.error ?? `Request failed (${response.status}).`,
+    response.status
+  );
+};
+
 const request = async <T>(
   path: string,
   init?: RequestInit & { json?: unknown }
@@ -74,20 +94,22 @@ const request = async <T>(
   });
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    // Server error bodies are `{ error }`; anything else is a transport failure.
-    throw new ApiError(
-      body?.error ?? `Request failed (${response.status}).`,
-      response.status
-    );
+    throw await failureOf(response);
   }
 
   if (response.status === 204) {
     return undefined as T;
   }
   return (await response.json()) as T;
+};
+
+/** For the endpoints that answer with a file's bytes rather than JSON. */
+const requestText = async (path: string): Promise<string> => {
+  const response = await fetch(`/api${path}`);
+  if (!response.ok) {
+    throw await failureOf(response);
+  }
+  return await response.text();
 };
 
 // --- agents -----------------------------------------------------------------
@@ -499,6 +521,115 @@ export const unassignConnectorFromAgent = (id: string, agentId: string) =>
   request<void>(`/connectors/${id}/agents/${encodeURIComponent(agentId)}`, {
     method: "DELETE",
   });
+
+// --- skills -----------------------------------------------------------------
+
+/** A skill the agent holds, plus how it tracks it: a version, or latest. */
+export interface AssignedSkill extends Skill {
+  pinnedVersion: number | null;
+}
+
+/** An agent that holds a skill, for the detail view's list. */
+export interface SkillAgentRef extends ConnectorAgentRef {
+  pinnedVersion: number | null;
+}
+
+/** One version's whole file set, as the editor and the API both speak it. */
+export interface SkillFileInput {
+  content: string;
+  path: string;
+}
+
+export interface SkillDetail {
+  files: SkillFile[];
+  skill: Skill;
+  /** The version being viewed - the latest unless one was asked for. */
+  version: SkillVersion;
+  versions: SkillVersion[];
+}
+
+export const listSkills = () =>
+  request<{ skills: Skill[] }>("/skills").then((data) => data.skills);
+
+/** The rail's chips and the settings picker's ticked boxes. */
+export const listAgentSkills = (agentId: string) =>
+  request<{ skills: AssignedSkill[] }>(
+    `/skills?agentId=${encodeURIComponent(agentId)}`
+  ).then((data) => data.skills);
+
+export const getSkill = (slug: string, version?: number) =>
+  request<SkillDetail>(
+    `/skills/${encodeURIComponent(slug)}${version === undefined ? "" : `?version=${version}`}`
+  );
+
+/** The raw endpoint, for a file's download link. */
+export const skillFileUrl = (
+  slug: string,
+  version: number,
+  path: string
+): string =>
+  `/api/skills/${encodeURIComponent(slug)}/versions/${version}/file?path=${encodeURIComponent(path)}`;
+
+export const readSkillFile = (slug: string, version: number, path: string) =>
+  requestText(
+    `/skills/${encodeURIComponent(slug)}/versions/${version}/file?path=${encodeURIComponent(path)}`
+  );
+
+export interface PublishedSkill {
+  skill: Skill;
+  version: SkillVersion;
+}
+
+export const createSkill = (input: {
+  changelog?: string;
+  files: SkillFileInput[];
+  slug: string;
+}) => request<PublishedSkill>("/skills", { json: input, method: "POST" });
+
+/** A full file set plus the "why" - never a patch of the version before it. */
+export const createSkillVersion = (
+  slug: string,
+  input: { changelog: string; files: SkillFileInput[] }
+) =>
+  request<PublishedSkill>(`/skills/${encodeURIComponent(slug)}/versions`, {
+    json: input,
+    method: "POST",
+  });
+
+/** Pushes the local versions at Anthropic again after a failed publish. */
+export const retrySkillSync = (slug: string) =>
+  request<{ skill: Skill }>(`/skills/${encodeURIComponent(slug)}/retry-sync`, {
+    method: "POST",
+  }).then((data) => data.skill);
+
+/** Unassigns it from every agent, then deletes both mirrors. */
+export const deleteSkill = (slug: string) =>
+  request<{ anthropicError: string | null; removed: boolean }>(
+    `/skills/${encodeURIComponent(slug)}`,
+    { method: "DELETE" }
+  );
+
+export const listSkillAgents = (slug: string) =>
+  request<{ agents: SkillAgentRef[] }>(
+    `/skills/${encodeURIComponent(slug)}/agents`
+  ).then((data) => data.agents);
+
+/** `pinnedVersion` null tracks latest, which is how a fix propagates (plan 5d). */
+export const assignSkillToAgent = (
+  slug: string,
+  agentId: string,
+  pinnedVersion: number | null
+) =>
+  request<{ assigned: boolean; outcome: string }>(
+    `/skills/${encodeURIComponent(slug)}/agents`,
+    { json: { agentId, pinnedVersion }, method: "POST" }
+  );
+
+export const unassignSkillFromAgent = (slug: string, agentId: string) =>
+  request<void>(
+    `/skills/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agentId)}`,
+    { method: "DELETE" }
+  );
 
 // --- bridges ----------------------------------------------------------------
 

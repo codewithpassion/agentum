@@ -14,11 +14,18 @@ import {
 import { agentConnectors, connectors } from "#/modules/connectors/schema";
 import { assignConnector } from "#/modules/connectors/service";
 import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
-import type { AnthropicGateway, SyncAgentInput } from "./gateway";
+import { skills, skillVersions } from "#/modules/skills/schema";
+import { assignSkill } from "#/modules/skills/service";
+import type {
+  AnthropicGateway,
+  SyncAgentInput,
+  SyncAgentSkillsInput,
+} from "./gateway";
 import {
   type ConnectorResyncDeps,
   resyncAgentConnectors,
   sessionVaultIdsFor,
+  syncAgentSkillsToAnthropic,
   syncAgentToAnthropic,
 } from "./service";
 
@@ -49,13 +56,14 @@ const migrate = (): Db => {
 
 interface GatewayCalls {
   registered: string[];
+  skillsOnly: SyncAgentSkillsInput[];
   synced: SyncAgentInput[];
 }
 
 const fakeGateway = (
   onSync?: () => void
 ): { calls: GatewayCalls; gateway: AnthropicGateway } => {
-  const calls: GatewayCalls = { registered: [], synced: [] };
+  const calls: GatewayCalls = { registered: [], skillsOnly: [], synced: [] };
   const gateway: AnthropicGateway = {
     createSession: () =>
       Promise.resolve({ sessionId: "sesn_1", status: "running" as const }),
@@ -74,6 +82,10 @@ const fakeGateway = (
     syncAgent: (input) => {
       onSync?.();
       calls.synced.push(input);
+      return Promise.resolve();
+    },
+    syncAgentSkills: (input) => {
+      calls.skillsOnly.push(input);
       return Promise.resolve();
     },
   };
@@ -253,6 +265,99 @@ describe("syncAgentToAnthropic", () => {
     expect(await tokenHashOf(agentId)).toBe(before);
     expect(calls.synced.at(0)?.mcpUrl).toBeUndefined();
     expect(calls.synced.at(0)?.connectors).toBeUndefined();
+  });
+});
+
+describe("syncAgentSkillsToAnthropic", () => {
+  const addSkillRow = async (
+    slug: string,
+    overrides: {
+      anthropicSkillId?: string | null;
+      anthropicVersion?: string;
+    } = {}
+  ): Promise<string> => {
+    const id = `skill-${slug}`;
+    await db.insert(skills).values({
+      anthropicSkillId:
+        overrides.anthropicSkillId === undefined
+          ? `skill_${slug}`
+          : overrides.anthropicSkillId,
+      description: "does a thing",
+      id,
+      name: slug,
+      slug,
+      syncStatus: "synced",
+    });
+    await db.insert(skillVersions).values({
+      anthropicVersion: overrides.anthropicVersion ?? null,
+      id: `version-${slug}`,
+      skillId: id,
+      version: 1,
+    });
+    return id;
+  };
+
+  test("pushes the assignments without rotating the MCP token", async () => {
+    const agentId = await registeredAgent();
+    const skillId = await addSkillRow("weekly-report");
+    await assignSkill(db, { agentId, skillId });
+    const before = await tokenHashOf(agentId);
+    const { calls, gateway } = fakeGateway();
+
+    expect(await syncAgentSkillsToAnthropic(db, gateway, agentId)).toBe(true);
+
+    // The guarantee 5b rests on: no rotation, and no full update either - so
+    // the registered `mcp_servers` (and the token inside it) is untouched.
+    expect(await tokenHashOf(agentId)).toBe(before);
+    expect(calls.synced).toEqual([]);
+    expect(calls.skillsOnly).toEqual([
+      {
+        anthropicAgentId: "agt_1",
+        skills: [{ skillId: "skill_weekly-report", version: "latest" }],
+      },
+    ]);
+    expect((await getAgentById(db, agentId))?.syncStatus).toBe("synced");
+  });
+
+  test("sends the pinned version's own mirror id", async () => {
+    const agentId = await registeredAgent();
+    const skillId = await addSkillRow("pinned", {
+      anthropicVersion: "1787195643170342",
+    });
+    await assignSkill(db, { agentId, pinnedVersion: 1, skillId });
+    const { calls, gateway } = fakeGateway();
+
+    await syncAgentSkillsToAnthropic(db, gateway, agentId);
+
+    expect(calls.skillsOnly.at(0)?.skills).toEqual([
+      { skillId: "skill_pinned", version: "1787195643170342" },
+    ]);
+  });
+
+  test("skips an unmirrored skill and says so on the agent", async () => {
+    const agentId = await registeredAgent();
+    const skillId = await addSkillRow("draft", { anthropicSkillId: null });
+    await assignSkill(db, { agentId, skillId });
+    const { calls, gateway } = fakeGateway();
+
+    await syncAgentSkillsToAnthropic(db, gateway, agentId);
+
+    expect(calls.skillsOnly.at(0)?.skills).toEqual([]);
+    const agent = await getAgentById(db, agentId);
+    expect(agent?.syncStatus).toBe("error");
+    expect(agent?.syncError).toContain('"draft"');
+  });
+
+  test("does nothing for an agent that is not registered yet", async () => {
+    const { agent } = await createAgent(db, {
+      instructions: "",
+      name: "Grace",
+      soul: "",
+    });
+    const { calls, gateway } = fakeGateway();
+
+    expect(await syncAgentSkillsToAnthropic(db, gateway, agent.id)).toBe(false);
+    expect(calls.skillsOnly).toEqual([]);
   });
 });
 
