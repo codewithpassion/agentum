@@ -43,6 +43,20 @@ describe("composeImmediateWake", () => {
     expect(text).toContain("msg_parent");
   });
 
+  test("a top-level channel mention starts a thread under itself", () => {
+    const text = composeImmediateWake(entry());
+
+    expect(text).toContain('threadParentId "msg_1"');
+  });
+
+  test("a DM reply stays top-level", () => {
+    const text = composeImmediateWake(
+      entry({ channelKind: "dm", channelName: "Chief of Staff" })
+    );
+
+    expect(text).not.toContain("threadParentId");
+  });
+
   test("truncates a body long enough to swamp the wake", () => {
     const text = composeImmediateWake(entry({ body: "x".repeat(9000) }));
 

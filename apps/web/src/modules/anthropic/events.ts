@@ -20,6 +20,8 @@ export interface SessionEvent {
   id: string;
   /** ISO 8601, null while the event is still queued. */
   processedAt: string | null;
+  /** Why the session stopped, on a `session.status_idle` that says so. */
+  stopReason?: string;
   /** Agent text output, when the event carries any. */
   text?: string;
   type: string;
@@ -67,6 +69,8 @@ export interface PumpOutcome {
    */
   errors: string[];
   status: SessionStatus;
+  /** The last stop reason a status event in the page carried, if any. */
+  stopReason: string | null;
 }
 
 const STATUS_EVENTS: Record<string, SessionStatus> = {
@@ -86,6 +90,7 @@ export const reduceEvents = (
   previous: SessionStatus
 ): PumpOutcome => {
   let status = previous;
+  let stopReason: string | null = null;
   const errors: string[] = [];
   const agentText: string[] = [];
 
@@ -93,6 +98,7 @@ export const reduceEvents = (
     const next = STATUS_EVENTS[event.type];
     if (next) {
       status = next;
+      stopReason = event.stopReason ?? null;
     }
     if (event.type === "session.error") {
       errors.push(event.text ?? "The session reported an error.");
@@ -102,9 +108,17 @@ export const reduceEvents = (
     }
   }
 
-  return { agentText, errors, status };
+  return { agentText, errors, status, stopReason };
 };
 
 /** A session we can still send into: not finished, not wedged. */
 export const isSessionReusable = (status: SessionStatus): boolean =>
   status === "idle" || status === "running";
+
+/**
+ * A stop the agent did not choose: the platform cut the session off mid-task
+ * (`budget_reached` is the one we have seen), so whatever it was doing died
+ * without a word. `end_turn` is the agent finishing on its own terms.
+ */
+export const isAbnormalStop = (stopReason: string | null): boolean =>
+  stopReason !== null && stopReason !== "end_turn";

@@ -46,8 +46,8 @@ export const FAST_MODEL = "claude-haiku-4-5";
 /** The single reusable environment. Names are unique per workspace. */
 export const ENVIRONMENT_NAME = "agentum";
 
-/** Session spend ceiling, in minor units: "100" is $1.00. */
-export const SESSION_BUDGET_CENTS = "100";
+/** Session spend ceiling, in minor units: "1000" is $10.00. */
+export const SESSION_BUDGET_CENTS = "1000";
 export const SESSION_BUDGET_CURRENCY = "USD";
 
 /** The toolset version our agents are built against. */

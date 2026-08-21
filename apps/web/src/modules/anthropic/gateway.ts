@@ -225,11 +225,28 @@ const textOf = (event: BetaManagedAgentsSessionEvent): string | undefined => {
   }
 };
 
+/**
+ * Only the session-level idle event: `session.thread_status_idle` carries the
+ * same field, and reading both would report every stop twice.
+ */
+const stopReasonOf = (
+  event: BetaManagedAgentsSessionEvent
+): string | undefined => {
+  if (event.type !== "session.status_idle") {
+    return;
+  }
+  // The SDK declares `stop_reason` required, but the wire is a beta's: treat
+  // it as optional so an event without one stays a plain idle, not a crash.
+  const reason: { type?: string } | undefined = event.stop_reason;
+  return reason?.type;
+};
+
 const toSessionEvent = (
   event: BetaManagedAgentsSessionEvent
 ): SessionEvent => ({
   id: event.id,
   processedAt: "processed_at" in event ? (event.processed_at ?? null) : null,
+  stopReason: stopReasonOf(event),
   text: textOf(event),
   type: event.type,
 });

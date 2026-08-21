@@ -118,6 +118,45 @@ export const useConversation = (channelId: string | null): Conversation => {
     seenQuestionIds.current = new Set();
     setLoading(true);
 
+    /**
+     * The socket only reports status transitions, so a tab opened after an
+     * agent started working would show no activity until the next one. Asking
+     * once for each agent member's current status closes that gap; live
+     * events overwrite the snapshot, never the other way around.
+     */
+    const seedAgentStatuses = (channelMembers: ChannelMemberView[]) => {
+      const agents = channelMembers.filter(
+        (member) => member.memberType === "agent" && member.name
+      );
+      Promise.all(
+        agents.map(async (member) => {
+          const status = await api
+            .getAgentStatus(member.memberId)
+            .catch(() => null);
+          return status
+            ? ({
+                agentId: member.memberId,
+                agentName: member.name ?? "",
+                channelId,
+                status: status.status,
+                type: "agent.status",
+              } satisfies AgentStatusEvent)
+            : null;
+        })
+      ).then((snapshot) => {
+        if (cancelled) {
+          return;
+        }
+        const seeded: AgentStatuses = {};
+        for (const entry of snapshot) {
+          if (entry) {
+            seeded[entry.agentId] = entry;
+          }
+        }
+        setAgentStatuses((previous) => ({ ...seeded, ...previous }));
+      });
+    };
+
     (async () => {
       try {
         const [details, page] = await Promise.all([
@@ -132,6 +171,7 @@ export const useConversation = (channelId: string | null): Conversation => {
         setMessages([...page.messages].reverse());
         setNextCursor(page.nextCursor);
         setError(null);
+        seedAgentStatuses(details.members);
       } catch (cause) {
         if (!cancelled) {
           setError(

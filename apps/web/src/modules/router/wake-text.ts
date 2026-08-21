@@ -63,6 +63,22 @@ const replyInstruction = (entries: readonly WakeEntry[]): string => {
   return `Reply by calling post_message with the channelId shown above the messages you are answering.${threadHint} If nothing here needs a reply from you, do not post - just stop.`;
 };
 
+/**
+ * Where the reply to a mention belongs. A thread reply stays in its thread; a
+ * top-level channel mention starts one, under the message that asked - that
+ * keeps the channel readable and puts the answer where the asker is watching.
+ * A DM is already one conversation, so replies stay top-level there.
+ */
+const immediateThreadHint = (entry: WakeEntry): string => {
+  if (entry.threadParentId) {
+    return ` The message is a thread reply, so answer in that thread by passing threadParentId "${entry.threadParentId}".`;
+  }
+  if (entry.channelKind === "channel") {
+    return ` Answer in a thread under it by passing threadParentId "${entry.messageId}".`;
+  }
+  return "";
+};
+
 /** A single message that named this agent: a mention, or anything in a DM. */
 export const composeImmediateWake = (entry: WakeEntry): string =>
   [
@@ -72,7 +88,7 @@ export const composeImmediateWake = (entry: WakeEntry): string =>
     "",
     blockFor([entry]),
     "",
-    replyInstruction([entry]),
+    `Reply by calling post_message with the channelId shown above the message you are answering.${immediateThreadHint(entry)} If nothing here needs a reply from you, do not post - just stop.`,
   ].join("\n");
 
 /** Everything an agent missed since the last digest, in one wake. */

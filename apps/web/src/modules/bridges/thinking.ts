@@ -132,6 +132,13 @@ export interface ThinkingInput {
   /** The message being answered, which is what the line is written from. */
   body: string;
   channelId: string;
+  /**
+   * The reply was asked to start this thread; it does not exist yet. The
+   * `setStatus` line only shows inside an open thread view, so for a thread
+   * nobody can open yet the placeholder is the whole point - posting it is
+   * what creates the thread.
+   */
+  startsThread?: boolean;
   threadParentId: string;
 }
 
@@ -163,15 +170,17 @@ export const showThinking = async (
     }
 
     const line = await thinkingLine(env, input.body);
-    const shown = await thread.client.assistantSetStatus({
-      channel: thread.bridge.externalChannelId,
-      status: line,
-      threadTs: thread.threadTs,
-    });
-    if (shown) {
-      // Slack owns this one: it clears the status when the app next posts in
-      // the thread, so there is nothing of ours to take back.
-      return;
+    if (!input.startsThread) {
+      const shown = await thread.client.assistantSetStatus({
+        channel: thread.bridge.externalChannelId,
+        status: line,
+        threadTs: thread.threadTs,
+      });
+      if (shown) {
+        // Slack owns this one: it clears the status when the app next posts in
+        // the thread, so there is nothing of ours to take back.
+        return;
+      }
     }
 
     const posted = await thread.client.postMessage({

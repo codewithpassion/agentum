@@ -11,6 +11,7 @@ import {
 } from "#/modules/agents/service";
 import { AGENT_MODEL, isAvailableModel } from "#/modules/anthropic/config";
 import {
+  isAbnormalStop,
   isSessionReusable,
   reduceEvents,
   type SessionStatus,
@@ -23,10 +24,15 @@ import {
   resyncAgentConnectorsWithAnthropic,
   sessionVaultIdsFor,
 } from "#/modules/anthropic/service";
+import { mirrorMessageToBridges } from "#/modules/bridges/mirror";
 import { clearThinking, showThinking } from "#/modules/bridges/thinking";
 import { recordConnectorAuthFailure } from "#/modules/connectors/service";
 import { broadcastChannelEvent } from "#/modules/messaging/realtime";
-import { getThread, type MessageView } from "#/modules/messaging/service";
+import {
+  createMessage,
+  getThread,
+  type MessageView,
+} from "#/modules/messaging/service";
 import { getWorkspaceById } from "#/modules/workspaces/service";
 import {
   ADDRESSING_SYSTEM,
@@ -61,6 +67,7 @@ import {
   type StoredSession,
   THINKING_KEY,
   THINKING_KEY_PREFIX,
+  type WakeDispatchKind,
   WORKSPACE_KEY,
 } from "./state";
 import {
@@ -299,16 +306,19 @@ export class AgentRouter extends DurableObject<Env> {
       }
       const entries = [...(await this.takeDigest(agentId)), item.entry];
       if (action === "queue") {
-        await this.enqueue(agentId, entries, now);
+        await this.enqueue(agentId, entries, now, "immediate");
         continue;
       }
       await this.spendWake(agentId, rates.get(agentId) ?? [], now);
-      await this.wake(agentId, entries, sessions.get(agentId) ?? null).catch(
-        () => {
-          // The failure is already on the agent's status; retrying here would
-          // just burn the same call again.
-        }
-      );
+      await this.wake(
+        agentId,
+        entries,
+        sessions.get(agentId) ?? null,
+        "immediate"
+      ).catch(() => {
+        // The failure is already on the agent's status; retrying here would
+        // just burn the same call again.
+      });
     }
   }
 
@@ -455,7 +465,8 @@ export class AgentRouter extends DurableObject<Env> {
   private async wake(
     agentId: string,
     entries: readonly WakeEntry[],
-    session: StoredSession | null
+    session: StoredSession | null,
+    kind: WakeDispatchKind
   ): Promise<void> {
     const gateway = this.gateway();
     const agent = await this.agentOf(agentId);
@@ -469,6 +480,16 @@ export class AgentRouter extends DurableObject<Env> {
       return;
     }
 
+    // A lone top-level channel mention: the ask that starts a thread. The
+    // reply is instructed into a thread under it, and the task gets a session
+    // of its own below rather than the tail of an earlier task's budget.
+    const startsThread =
+      kind === "immediate" &&
+      entries.length === 1 &&
+      first !== undefined &&
+      first.threadParentId === null &&
+      first.channelKind === "channel";
+
     const model = await this.effectiveModel(agent, entries);
     // A session runs on the model it was created with, so a changed one - the
     // agent re-modelled in the UI, an override set for this thread - can only
@@ -478,9 +499,17 @@ export class AgentRouter extends DurableObject<Env> {
       await this.ctx.storage.delete(SESSION_KEY(agentId));
       reusable = null;
     }
+    // A new top-level ask is a new task: it starts on a fresh session with a
+    // full budget instead of whatever an earlier task left of one. Only an
+    // idle session is retired for it - interrupting a running one would orphan
+    // work the pump is still tracking.
+    if (reusable && startsThread && reusable.status === "idle") {
+      await this.ctx.storage.delete(SESSION_KEY(agentId));
+      reusable = null;
+    }
 
     const text =
-      entries.length === 1 && first
+      kind === "immediate" && entries.length === 1 && first
         ? composeImmediateWake(first)
         : composeDigestWake(entries);
 
@@ -505,8 +534,11 @@ export class AgentRouter extends DurableObject<Env> {
     }
 
     // After the session is running, never before: an indicator for a wake that
-    // failed to start would have to be taken straight back down.
-    const threadParentId = first?.threadParentId ?? null;
+    // failed to start would have to be taken straight back down. The indicator
+    // lives in the thread the wake came from - or, for a mention that starts
+    // one, the thread the reply was just asked to open.
+    const threadParentId =
+      first?.threadParentId ?? (startsThread && first ? first.messageId : null);
     if (!threadParentId) {
       return;
     }
@@ -518,6 +550,7 @@ export class AgentRouter extends DurableObject<Env> {
       agentId,
       body: first?.body ?? "",
       channelId,
+      startsThread,
       threadParentId,
     });
   }
@@ -540,6 +573,74 @@ export class AgentRouter extends DurableObject<Env> {
       // biome-ignore lint/performance/noAwaitInLoops: an agent shows at most a couple of these, and each is a Slack call
       await this.ctx.storage.delete(key);
       await clearThinking(this.db, this.env, { agentId, ...entry });
+    }
+  }
+
+  /**
+   * Says out loud that a session died mid-task, in every conversation that was
+   * waiting on it - the threads the agent is showing "Thinking…" in, or the
+   * wake's channel when there are none. Posted as the agent so it reaches both
+   * surfaces: the channel socket sees it like any message, and the Slack
+   * mirror rewrites the pending placeholder into it.
+   *
+   * Deliberately not `publishMessage`: that would notify this very router (a
+   * call from a Durable Object back into itself), and a death notice must not
+   * wake anyone or count against the loop guard anyway.
+   */
+  private async reportSessionDeath(
+    agentId: string,
+    session: StoredSession,
+    stopReason: string
+  ): Promise<void> {
+    try {
+      const workspaceId = await this.workspaceId();
+      const workspace = workspaceId
+        ? await getWorkspaceById(this.db, workspaceId)
+        : undefined;
+      if (!workspace) {
+        return;
+      }
+
+      const cause =
+        stopReason === "budget_reached"
+          ? "this session hit its spending cap"
+          : `the session ended early (${stopReason})`;
+      const body = `I had to stop mid-task - ${cause}. Ask me again and I'll pick it up in a fresh session.`;
+
+      const pending = await this.ctx.storage.list<{
+        channelId: string;
+        threadParentId: string;
+      }>({ prefix: THINKING_KEY_PREFIX(agentId) });
+      const targets: { channelId: string; threadParentId?: string }[] = [
+        ...pending.values(),
+      ];
+      if (targets.length === 0 && session.channelId) {
+        targets.push({ channelId: session.channelId });
+      }
+
+      for (const target of targets) {
+        // biome-ignore lint/performance/noAwaitInLoops: at most a couple of waiting threads, told in turn
+        const result = await createMessage(this.db, {
+          authorId: agentId,
+          authorType: "agent",
+          body,
+          channelId: target.channelId,
+          threadParentId: target.threadParentId,
+          workspace,
+        });
+        if (!result.ok) {
+          continue;
+        }
+        await broadcastChannelEvent(this.env, {
+          channelId: target.channelId,
+          message: result.message,
+          type: "message.created",
+        });
+        await mirrorMessageToBridges(this.db, this.env, result.message);
+      }
+    } catch {
+      // Best effort: the error status still lands, and the pump must not die
+      // on a courtesy message.
     }
   }
 
@@ -687,11 +788,11 @@ export class AgentRouter extends DurableObject<Env> {
       await this.ctx.storage.delete(DIGEST_KEY(agent.id));
 
       if (!(session || freeSlots(await this.countActiveSessions()) > 0)) {
-        await this.enqueue(agent.id, entries, now);
+        await this.enqueue(agent.id, entries, now, "digest");
         continue;
       }
       await this.spendWake(agent.id, window, now);
-      await this.wake(agent.id, entries, session).catch(() => {
+      await this.wake(agent.id, entries, session, "digest").catch(() => {
         // Surfaced as the agent's error status.
       });
     }
@@ -702,11 +803,18 @@ export class AgentRouter extends DurableObject<Env> {
   private async enqueue(
     agentId: string,
     entries: readonly WakeEntry[],
-    now: number
+    now: number,
+    kind: WakeDispatchKind
   ): Promise<void> {
     const queue = (await this.read<QueuedWake[]>(QUEUE_KEY)) ?? [];
     const channelId = entries.at(-1)?.channelId ?? "";
-    queue.push({ agentId, channelId, enqueuedAt: now, entries: [...entries] });
+    queue.push({
+      agentId,
+      channelId,
+      enqueuedAt: now,
+      entries: [...entries],
+      kind,
+    });
     await this.write(QUEUE_KEY, queue);
     await this.setStatus(agentId, "queued", channelId, null);
   }
@@ -732,7 +840,12 @@ export class AgentRouter extends DurableObject<Env> {
       if (!session) {
         slots -= 1;
       }
-      await this.wake(item.agentId, item.entries, session).catch(() => {
+      await this.wake(
+        item.agentId,
+        item.entries,
+        session,
+        item.kind ?? "digest"
+      ).catch(() => {
         // Dropping a failed wake beats a hot retry loop; status shows the error.
       });
     }
@@ -783,6 +896,7 @@ export class AgentRouter extends DurableObject<Env> {
     now: number
   ): Promise<void> {
     let status: SessionStatus;
+    let stopReason: string | null;
     let errors: string[];
 
     try {
@@ -792,7 +906,10 @@ export class AgentRouter extends DurableObject<Env> {
           ? { lastEventId: session.cursorId, lastProcessedAt: session.cursorAt }
           : undefined
       );
-      ({ errors, status } = reduceEvents(page.events, session.status));
+      ({ errors, status, stopReason } = reduceEvents(
+        page.events,
+        session.status
+      ));
       const { cursor } = page;
       await this.write(key, {
         ...session,
@@ -814,6 +931,21 @@ export class AgentRouter extends DurableObject<Env> {
       await recordConnectorAuthFailure(this.db, agentId, errors).catch(() => {
         // Health reporting must never cost us the status write below.
       });
+    }
+
+    if (isAbnormalStop(stopReason)) {
+      // The platform cut the session off mid-task - out of budget, most
+      // likely. The session is spent, so it must not be reused, and whoever
+      // was waiting deserves to hear it died: the notice goes out before the
+      // status write, because `setStatus` retires the very "Thinking…"
+      // placeholder the notice rewrites into an answer.
+      await this.ctx.storage.delete(key);
+      await this.reportSessionDeath(agentId, session, stopReason ?? "");
+      await this.setStatus(agentId, "error", session.channelId, null);
+      return;
+    }
+
+    if (errors.length > 0) {
       await this.setStatus(
         agentId,
         "error",

@@ -106,7 +106,14 @@ const migrate = (): Db => {
       sqlite.run(statement);
     }
   }
-  return drizzle(sqlite) as unknown as Db;
+  const database = drizzle(sqlite) as unknown as Db;
+  // The bun-sqlite driver has no `batch`, but drizzle statements are
+  // thenables, so running them in turn is a faithful enough stand-in -
+  // `createMessage` (the death notice) is the one write here that uses it.
+  Object.assign(database, {
+    batch: (statements: PromiseLike<unknown>[]) => Promise.all(statements),
+  });
+  return database;
 };
 
 let db: Db;
@@ -411,6 +418,64 @@ describe("the alarm", () => {
     expect(session.model).toBe(OPUS);
   });
 
+  test("a top-level channel mention retires an idle session for a fresh one", async () => {
+    const store = storage();
+    const { calls, gateway } = fakeGateway();
+    const router = routerFor(store, gateway);
+    await register(alpha, null);
+    await store.api.put(SESSION_KEY(alpha.agentId), storedSession());
+
+    await router.notifyMessage(notification(alpha));
+    await router.alarm();
+
+    // A new top-level ask is a new task: it gets a session with a full budget
+    // rather than the tail of whatever the old one had left.
+    expect(calls.sent).toEqual([]);
+    expect(calls.created).toHaveLength(1);
+    expect(
+      (store.values.get(SESSION_KEY(alpha.agentId)) as StoredSession).sessionId
+    ).toBe("sesn_1");
+  });
+
+  test("a session cut off by its budget is retired and says so", async () => {
+    const store = storage();
+    const { gateway } = fakeGateway();
+    gateway.pollEvents = () =>
+      Promise.resolve({
+        cursor: undefined,
+        events: [
+          {
+            id: "evt-idle",
+            processedAt: "2026-08-21T06:00:40Z",
+            stopReason: "budget_reached",
+            type: "session.status_idle",
+          },
+        ],
+      });
+    const router = routerFor(store, gateway);
+    await register(alpha, null);
+    await store.api.put(WORKSPACE_KEY, alpha.workspaceId);
+    await store.api.put(SESSION_KEY(alpha.agentId), {
+      ...storedSession(),
+      status: "running",
+    });
+
+    await router.alarm();
+
+    // The spent session is gone - reusing it would just die again - and the
+    // channel heard why, instead of the silence that used to follow.
+    expect(store.values.get(SESSION_KEY(alpha.agentId))).toBeUndefined();
+    expect(broadcasts).toContainEqual(
+      expect.objectContaining({
+        channelId: alpha.channelId,
+        type: "message.created",
+      })
+    );
+    expect(broadcasts).toContainEqual(
+      expect.objectContaining({ status: "error", type: "agent.status" })
+    );
+  });
+
   test("a session stored before this feature counts as the default", async () => {
     const store = storage();
     const { calls, gateway } = fakeGateway();
@@ -419,7 +484,11 @@ describe("the alarm", () => {
     const { model, ...withoutModel } = storedSession();
     await store.api.put(SESSION_KEY(alpha.agentId), withoutModel);
 
-    await router.notifyMessage(notification(alpha));
+    // A thread reply, because that is the wake that still reuses a session -
+    // a top-level mention starts a fresh one by design.
+    await router.notifyMessage(
+      notification(alpha, { threadParentId: "msg-parent" })
+    );
     await router.alarm();
 
     // The agent is on the default too, so there is nothing to churn.

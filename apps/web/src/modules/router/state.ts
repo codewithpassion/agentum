@@ -25,12 +25,21 @@ export interface StoredSession {
   threadParentId?: string | null;
 }
 
+/**
+ * How a wake was planned, after `consider` has been settled: a mention or DM
+ * reaching the agent now, or the periodic digest. The distinction survives to
+ * `wake` because an immediate mention is what starts a reply thread.
+ */
+export type WakeDispatchKind = "digest" | "immediate";
+
 export interface QueuedWake {
   agentId: string;
   /** The channel to attribute the wake to, for status broadcasts. */
   channelId: string;
   enqueuedAt: number;
   entries: WakeEntry[];
+  /** Absent on rows queued before the field existed; read as `digest`. */
+  kind?: WakeDispatchKind;
 }
 
 export interface PendingNotification {

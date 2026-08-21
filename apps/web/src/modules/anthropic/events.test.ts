@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   advanceCursor,
   eventsAfter,
+  isAbnormalStop,
   isSessionReusable,
   reduceEvents,
   type SessionEvent,
@@ -119,6 +120,42 @@ describe("reduceEvents", () => {
     expect(
       reduceEvents([event("a", "session.status_terminated")], "running").status
     ).toBe("terminated");
+  });
+
+  test("carries the stop reason of the last status event", () => {
+    const outcome = reduceEvents(
+      [
+        event("a", "session.status_running"),
+        { ...event("b", "session.status_idle"), stopReason: "budget_reached" },
+      ],
+      "running"
+    );
+
+    expect(outcome.status).toBe("idle");
+    expect(outcome.stopReason).toBe("budget_reached");
+  });
+
+  test("a status event without a stop reason clears an earlier one", () => {
+    const outcome = reduceEvents(
+      [
+        { ...event("a", "session.status_idle"), stopReason: "end_turn" },
+        event("b", "session.status_running"),
+      ],
+      "running"
+    );
+
+    expect(outcome.stopReason).toBeNull();
+  });
+});
+
+describe("isAbnormalStop", () => {
+  test("the agent finishing on its own terms is not abnormal", () => {
+    expect(isAbnormalStop(null)).toBe(false);
+    expect(isAbnormalStop("end_turn")).toBe(false);
+  });
+
+  test("a platform cut-off is", () => {
+    expect(isAbnormalStop("budget_reached")).toBe(true);
   });
 });
 
