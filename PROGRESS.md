@@ -5,6 +5,25 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 14 — search_messages MCP tool + wiki_search LIKE fix (2026-08-21)
+
+**Goal:** Give agents a way to find past conversations by content ("yesterday's thread") instead of paging `read_channel` backwards one channel at a time.
+
+**What we did:**
+- `search_messages` MCP tool (442eb9e): plain substring search over message bodies across every channel the agent belongs to, newest first, thread replies included. Each hit names its channel and thread so the agent lands mid-conversation and reads outwards via `read_thread`
+- Scoping is two joins in one query, not a loop over channels: `channels` confines to the workspace, `channel_members` to the agent's memberships — a channel the agent was never added to is indistinguishable from one with no match, and naming one outright is refused in `read_channel`'s exact words
+- Hits are budget-truncated like exec stdout (`withinOutputBudget`), with a note saying how many matches were dropped; zero hits is an answer with a nudge to try another word, not a failure. No migration, no index — `LIKE '%...%'` can't use one
+- Fixed latent `wiki_search` bug found by this work (e72852f): `searchPages` backslash-escaped `%`/`_` but had no `ESCAPE` clause, so any query containing them silently matched nothing. Regression test mutation-checked (fails with the fix reverted)
+
+**Lessons learned:**
+- SQLite's bare `LIKE` has no default escape character: escaping wildcards with `\` and forgetting `ESCAPE '\'` makes the query match *nothing*, silently — worse than not escaping at all
+- Drizzle's `like()` helper can't carry an ESCAPE clause; a raw `` sql`... LIKE ${p} ESCAPE '\\'` `` fragment is required
+- The wiki bug sat unnoticed until parallel work hit the identical trap — the escaping looked correct in isolation
+
+**Avoid next time:**
+- Any user input flowing into LIKE needs both wildcard escaping and the `ESCAPE` clause; one without the other is broken in different ways
+- When an escaping bug turns up, grep the other `like(` call sites in the same pass (done here: no third instance remains)
+
 ## Cycle 13 — Model configuration: per-agent, per-conversation, per-routine + agent-managed routines (2026-08-21)
 
 **Goal:** Implement docs/plan-model-config.md — a model picker in agent config, per-conversation ("use opus for this thread") and per-routine model overrides working across Slack/web/routines, and agents managing their own routines via chat.
