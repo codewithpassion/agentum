@@ -5,6 +5,27 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 12 — Ask-user (2026-08-21)
+
+**Goal:** Implement docs/plan-ask-user.md — agents can ask their humans a question (clarification or a yes/no permission gate), go idle, and be woken by the answer, on both the web and Slack surfaces.
+
+**What we did:**
+- Backend (2b5e574): `modules/questions` — a question is a message with `origin: "question"` plus an `agent_questions` row (migration 0017) carrying kind/options/status/who-answered, hung off the message view so web and Slack render one question from two renderers
+- First answer wins, decided by the database: a conditional `UPDATE ... WHERE status = 'pending'` — the loser gets a 409 naming the winner and posts no reply. Answering posts `@Agent Answer: <text>` in the question's thread, riding the same mention → router → wake path routines use
+- Expiry resolves lazily on any access and via the existing per-workspace `RoutineScheduler` alarm for questions nobody looks at — no new DO class; the dependency runs one way, scheduler → questions. MCP tools `ask_user`/`check_answer` are scoped to the asking agent — another agent's question id reads exactly like one that never existed
+- Slack (c481ab6): question cards with real Block Kit buttons on a per-app `/interactive` endpoint, signed against that app's own secret with the same bridge-ownership filter as events; the answer runs in `waitUntil` and reports through `response_url`, since waking an agent is more than Slack's three seconds are for. Resolution flows both ways — a web answer or expiry rewrites the Slack card. Manifest gains `settings.interactivity`; existing apps must re-apply it (the wizard's done card now says so)
+- Web UI (4d09eab): the question message renders as a card (buttons, or free-text input) in both the stream and thread panel; one writer for card state (`useConversation.applyQuestion`) so socket broadcasts, local answers and 409s land identically. Pending badges on the sidebar/rail/Agents section off the server's `pendingQuestions` count, deep-linking to the oldest pending question via the same `?channel=&message=` link routines use
+- 791 unit tests green (up from 704); boot-probe acceptance in docs/acceptance/ask-user/ — two browser clients, questions asked through the agent's own MCP endpoint, Approve waking the agent in-thread, and the second client redrawing from the broadcast. Branch `ask-user`, not yet merged; implemented by forge-askuser-1 (backend), forge-askuser-2 (Slack), forge-askuser-3 (web UI)
+
+**Lessons learned:**
+- Slack's 3-second ack window can't contain waking an agent — the interactive handler acks immediately and does the real work in `waitUntil`, reporting back through `response_url`
+- Losing the answer race is an ordinary outcome, not an exception: the 409 body carries the winner's question view, which a thrown `ApiError` would have discarded — `answerQuestion` returns a union instead
+- Adding a capability to a Slack app manifest (interactivity) means every already-connected app needs the manifest re-applied — that has to be surfaced in-product, not just in docs
+
+**Avoid next time:**
+- Don't model an expected race outcome as a thrown error — the loser needs the winner's data to redraw
+- When a Slack manifest gains a capability, plan the re-apply story for existing installs up front
+
 ## Cycle 11 — Routines (2026-08-21)
 
 **Goal:** Implement docs/plan-routines.md — scheduled instructions per agent that fire as real channel messages, with a per-workspace scheduler DO and run history.
