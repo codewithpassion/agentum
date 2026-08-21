@@ -51,7 +51,10 @@ const PAGE_BODY = [
 const PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPU+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 const ASSET_FILENAME = `wiki-asset-${RUN_ID}.png`;
-const ASSET_MARKDOWN = new RegExp(`!\\[${ASSET_FILENAME}]\\(/api/wiki/assets/`);
+/** Assets are served from the workspace's own API (`/api/w/:slug/wiki/...`). */
+const ASSET_MARKDOWN = new RegExp(
+  `!\\[${ASSET_FILENAME}]\\(/api/w/[^/]+/wiki/assets/`
+);
 
 const MISSING_LINK_CLASS = /wiki-link-missing/;
 const SECTION_HASH = /#deep-section$/;
@@ -66,9 +69,11 @@ const wikiNav = (page: Page): Locator =>
  * the final tree is mounted, so the sidebar can be clicked safely.
  */
 const openWikiFromSidebar = async (page: Page): Promise<void> => {
+  // Channels are workspace-scoped (`/api/w/:slug/channels`), and which slug the
+  // landing page picks is not this test's business.
   const channelsLoaded = page.waitForResponse(
     (response) =>
-      new URL(response.url()).pathname === "/api/channels" &&
+      new URL(response.url()).pathname.endsWith("/channels") &&
       response.request().method() === "GET"
   );
   await page.goto("/");
@@ -209,7 +214,7 @@ test("nests a page written with a / in its title", async ({ page }) => {
     nav.getByRole("link", { exact: true, name: FOLDER_SLUG })
   ).toHaveAttribute("href", new RegExp(`/wiki/${FOLDER_SLUG}$`));
   // Addressed by path, not by name: "Setup" is only unique inside its folder.
-  await expect(nav.locator(`a[href="/wiki/${NESTED_SLUG}"]`)).toHaveText(
+  await expect(nav.locator(`a[href$="/wiki/${NESTED_SLUG}"]`)).toHaveText(
     NESTED_TITLE
   );
 });

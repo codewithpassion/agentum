@@ -34,6 +34,7 @@ const NEXT_SESSION = /take effect on the agent's next session/;
 const NO_CONNECTORS_ASSIGNED = /0 of 19 connectors/;
 const ONE_CONNECTOR_ASSIGNED = /1 of 19 connectors/;
 const VAULT_WARNING = /archived in the Anthropic vault/;
+const CONNECTORS_API = /^\/api\/w\/[^/]+\/connectors$/;
 
 let stubs: StubHandle;
 
@@ -59,9 +60,12 @@ const railOf = (page: Page): Locator => page.getByTestId("agent-rail");
  * user, so that response is the signal that the final tree is mounted.
  */
 const gotoWorkspace = async (page: Page): Promise<void> => {
+  // Connectors are workspace-scoped, and which slug the landing page picks is
+  // not this test's business. The API, not the `/w/:slug/connectors` page of
+  // it: the page answers before it has hydrated, which is what this waits for.
   const connectorsLoaded = page.waitForResponse(
     (response) =>
-      new URL(response.url()).pathname === "/api/connectors" &&
+      CONNECTORS_API.test(new URL(response.url()).pathname) &&
       response.request().method() === "GET"
   );
   await page.goto("/");

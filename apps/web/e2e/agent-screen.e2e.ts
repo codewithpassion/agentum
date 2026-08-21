@@ -23,9 +23,11 @@ const railOf = (page: Page): Locator => page.getByTestId("agent-rail");
  * the final tree is mounted, so the sidebar can be clicked safely.
  */
 const gotoWorkspace = async (page: Page): Promise<void> => {
+  // Channels are workspace-scoped (`/api/w/:slug/channels`), and which slug the
+  // landing page picks is not this test's business.
   const channelsLoaded = page.waitForResponse(
     (response) =>
-      new URL(response.url()).pathname === "/api/channels" &&
+      new URL(response.url()).pathname.endsWith("/channels") &&
       response.request().method() === "GET"
   );
   await page.goto("/");

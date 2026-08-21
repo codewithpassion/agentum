@@ -46,19 +46,53 @@ const skillsNavOf = (page: Page): Locator =>
 
 const railOf = (page: Page): Locator => page.getByTestId("agent-rail");
 
+const WORKSPACE_PATH = /^\/w\/[^/]+/;
+/** The workspace's own skills API - not the `/w/:slug/skills` page of it. */
+const SKILLS_API = /^\/api\/w\/[^/]+\/skills$/;
+
 /**
- * Clerk remounts the tree once it resolves the session, wiping state a click
- * set up before that; the skills list is only requested for a signed-in user,
- * so that response is the signal that the final tree is mounted.
+ * Clerk remounts the tree once it resolves the session, wiping whatever was
+ * typed into the tree it replaces. The skills list answering is what says the
+ * screen is up, but the remount lands about a second later - so the wait ends
+ * on the quiet after Clerk's own round trips, not on the first list.
  */
 const gotoAndSettle = async (page: Page, path: string): Promise<void> => {
   const skillsLoaded = page.waitForResponse(
     (response) =>
-      new URL(response.url()).pathname === "/api/skills" &&
+      SKILLS_API.test(new URL(response.url()).pathname) &&
       response.request().method() === "GET"
   );
   await page.goto(path);
   await skillsLoaded;
+  await page.waitForLoadState("networkidle");
+};
+
+/** The workspace `/` resolved to, kept for the deep links that follow. */
+let workspacePath: string | null = null;
+
+/**
+ * Skills are addressed under a workspace now (`/w/:slug/skills`). Which one `/`
+ * lands in is the browser's business - the last one visited, or the first the
+ * signed-in user belongs to - so the suite reads the slug back off the URL
+ * instead of naming a workspace of its own.
+ */
+const openWorkspace = async (page: Page): Promise<string> => {
+  if (workspacePath) {
+    return workspacePath;
+  }
+  await gotoAndSettle(page, "/");
+  const landed = new URL(page.url()).pathname.match(WORKSPACE_PATH)?.[0];
+  if (!landed) {
+    throw new Error(`Expected / to open a workspace, landed on ${page.url()}`);
+  }
+  workspacePath = landed;
+  return landed;
+};
+
+/** Opens one of the skills screens of the workspace `/` resolves to. */
+const gotoInWorkspace = async (page: Page, path: string): Promise<void> => {
+  const workspace = await openWorkspace(page);
+  await gotoAndSettle(page, `${workspace}${path}`);
 };
 
 test.describe.configure({ mode: "serial" });
@@ -66,7 +100,7 @@ test.describe.configure({ mode: "serial" });
 test("refuses an invalid slug in the words the server used", async ({
   page,
 }) => {
-  await gotoAndSettle(page, "/skills?new=true");
+  await gotoInWorkspace(page, "/skills?new=true");
 
   // Nothing is validated in the browser, so what the author reads is the rule
   // that actually refused the write - and no skill is left behind by it.
@@ -79,7 +113,7 @@ test("refuses an invalid slug in the words the server used", async ({
 test("writes a skill with a script and lists it in the directory", async ({
   page,
 }) => {
-  await gotoAndSettle(page, "/");
+  await gotoInWorkspace(page, "");
 
   await sidebarOf(page).getByRole("link", { name: "New skill" }).click();
 
@@ -124,7 +158,7 @@ test("writes a skill with a script and lists it in the directory", async ({
   await expect(page.getByTestId("skill-file-content")).toHaveText(FIRST_SCRIPT);
 
   // And the directory lists it with everything the plan asks for.
-  await gotoAndSettle(page, "/skills");
+  await gotoInWorkspace(page, "/skills");
   const row = page
     .getByTestId("skill-directory")
     .getByRole("link", { name: SLUG });
@@ -139,7 +173,7 @@ test("writes a skill with a script and lists it in the directory", async ({
 test("publishes a second version and keeps both in the history", async ({
   page,
 }) => {
-  await gotoAndSettle(page, `/skills/${SLUG}`);
+  await gotoInWorkspace(page, `/skills/${SLUG}`);
 
   await page.getByRole("button", { name: "Edit" }).click();
   await page.getByLabel("Changelog", { exact: true }).fill(CHANGELOG);
@@ -180,7 +214,7 @@ test("publishes a second version and keeps both in the history", async ({
 test("assigns the skill to an agent, pins a version, then unassigns", async ({
   page,
 }) => {
-  await gotoAndSettle(page, "/");
+  await gotoInWorkspace(page, "");
 
   await page.getByRole("button", { exact: true, name: "Create" }).click();
   await page.getByRole("button", { exact: true, name: "New agent" }).click();
@@ -241,7 +275,7 @@ test("assigns the skill to an agent, pins a version, then unassigns", async ({
 });
 
 test("deletes the skill after saying what deleting means", async ({ page }) => {
-  await gotoAndSettle(page, `/skills/${SLUG}`);
+  await gotoInWorkspace(page, `/skills/${SLUG}`);
 
   await page.getByRole("button", { name: "Delete" }).click();
   const confirm = page.getByRole("dialog");
@@ -251,7 +285,7 @@ test("deletes the skill after saying what deleting means", async ({ page }) => {
   await expect(skillsNavOf(page).getByRole("link", { name: SLUG })).toHaveCount(
     0
   );
-  await gotoAndSettle(page, "/");
+  await gotoInWorkspace(page, "");
   await expect(sidebarOf(page).getByRole("link", { name: SLUG })).toHaveCount(
     0
   );
