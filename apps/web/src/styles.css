@@ -549,6 +549,12 @@ a {
   text-decoration-color: color-mix(in oklab, var(--ws-accent) 45%, transparent);
 }
 
+/* Anchors styled as accent buttons: the link rule above would paint their
+ * text accent-on-accent (invisible), so they opt into the button ink. */
+.ws-shell a.ws-accent-button {
+  color: var(--ws-accent-ink);
+}
+
 .ws-shell code {
   background: color-mix(in oklab, var(--ws-text) 8%, transparent);
   border-color: var(--ws-line);

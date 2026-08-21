@@ -62,7 +62,7 @@ function SignedOutLanding() {
           DMs.
         </p>
         <a
-          className="inline-block rounded-lg bg-[var(--ws-accent)] px-4 py-2 font-medium text-[var(--ws-accent-ink)] text-sm no-underline"
+          className="ws-accent-button inline-block rounded-lg bg-[var(--ws-accent)] px-4 py-2 font-medium text-sm no-underline"
           href="/login"
         >
           Sign in
