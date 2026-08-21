@@ -5,8 +5,15 @@ import {
   getAttachment,
   storeAttachment,
 } from "#/modules/messaging/attachment-service";
+import {
+  linkExternalAuthor,
+  rememberExternalAuthor,
+} from "#/modules/messaging/external-authors";
 import type { MessageView } from "#/modules/messaging/service";
-import { getWorkspaceById } from "#/modules/workspaces/service";
+import {
+  findMemberByEmail,
+  getWorkspaceById,
+} from "#/modules/workspaces/service";
 import { findBridgeByExternalChannel } from "../bridges";
 import { findExternalId, findInternalId } from "../refs";
 import type { ChannelBridge, SlackApp } from "../schema";
@@ -67,6 +74,48 @@ const downloadSlackFile = async (
   return result.ok ? result.attachment.id : null;
 };
 
+/**
+ * Filing who wrote a bridged message, and - the first time we ever see them -
+ * having one go at working out which workspace member that is.
+ *
+ * The match is on the Slack profile email, which needs `users:read.email`; an
+ * app installed before that scope was asked for gets no email, no link, and the
+ * person is named but unlinked until somebody says who they are. Attempted once
+ * per person rather than per message, and `auto` never overwrites a correction
+ * somebody made by hand.
+ */
+const rememberSlackAuthor = async (
+  db: Db,
+  client: SlackClient,
+  workspaceId: string,
+  author: { authorId: string; displayName: string }
+): Promise<void> => {
+  const { firstSighting } = await rememberExternalAuthor(
+    db,
+    workspaceId,
+    author
+  );
+  if (!firstSighting) {
+    return;
+  }
+
+  const slackUserId = author.authorId.slice(SLACK_CONNECTOR.length + 1);
+  const profile = await client.usersInfo(slackUserId);
+  if (!profile?.email) {
+    return;
+  }
+
+  const member = await findMemberByEmail(db, workspaceId, profile.email);
+  if (!member) {
+    return;
+  }
+  await linkExternalAuthor(db, workspaceId, {
+    authorId: author.authorId,
+    linkSource: "auto",
+    memberId: member.id,
+  });
+};
+
 const inboundPorts = (
   db: Db,
   env: Env,
@@ -102,6 +151,9 @@ const inboundPorts = (
     );
     return existing !== undefined;
   },
+
+  rememberAuthor: (workspaceId, author) =>
+    rememberSlackAuthor(db, client, workspaceId, author),
 
   async resolveThreadParent(externalId) {
     const parent = await findInternalId(

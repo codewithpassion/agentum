@@ -1,10 +1,20 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useId, useState } from "react";
+import {
+  type ChangeEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useState,
+} from "react";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
-import type { MemberSearchResult, MemberView } from "#/lib/api";
+import type {
+  ExternalAuthorView,
+  MemberSearchResult,
+  MemberView,
+} from "#/lib/api";
 import { memberLabel } from "#/lib/authors";
 import { useActiveWorkspace } from "#/lib/workspace-context";
 import {
@@ -298,6 +308,68 @@ function RenameWorkspace() {
   );
 }
 
+/** The label under a linked name, saying how the link was decided. */
+const linkNote = (author: ExternalAuthorView): string => {
+  if (!author.memberId) {
+    return "Not linked to anyone yet";
+  }
+  return author.linkSource === "manual" ? "Linked by hand" : "Matched by email";
+};
+
+function ExternalAuthorRow({
+  author,
+  busy,
+  canManage,
+  members,
+  onLink,
+}: {
+  author: ExternalAuthorView;
+  busy: boolean;
+  canManage: boolean;
+  members: MemberView[];
+  onLink: (author: ExternalAuthorView, memberId: string | null) => void;
+}) {
+  const selectId = useId();
+  const change = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) =>
+      onLink(author, event.target.value || null),
+    [author, onLink]
+  );
+
+  return (
+    <li className="flex items-center gap-3 border-[var(--ws-line)] border-b py-2 last:border-b-0">
+      <Avatar color={AVATAR_COLOR} name={author.displayName} size="md" />
+      <div className="min-w-0 flex-1">
+        <p className="m-0 truncate text-sm">{author.displayName}</p>
+        <p className="m-0 truncate text-[var(--ws-muted)] text-xs">
+          {linkNote(author)}
+        </p>
+      </div>
+      {canManage ? (
+        <>
+          <label className="sr-only" htmlFor={selectId}>
+            {`Who ${author.displayName} is`}
+          </label>
+          <select
+            className="ws-focus rounded-lg border border-[var(--ws-line)] bg-[var(--ws-surface)] px-2 py-1.5 text-[var(--ws-text)] text-xs"
+            disabled={busy}
+            id={selectId}
+            onChange={change}
+            value={author.memberId ?? ""}
+          >
+            <option value="">Nobody</option>
+            {members.map((member) => (
+              <option key={member.id} value={member.id}>
+                {memberLabel(member)}
+              </option>
+            ))}
+          </select>
+        </>
+      ) : null}
+    </li>
+  );
+}
+
 /**
  * Workspace settings: who is in it, what it is called, and how to end it. Only
  * an owner sees the controls; a member sees the same list, read-only.
@@ -307,6 +379,7 @@ export function MembersSettings() {
   const navigate = useNavigate();
 
   const [members, setMembers] = useState<MemberView[]>([]);
+  const [externals, setExternals] = useState<ExternalAuthorView[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -316,7 +389,12 @@ export function MembersSettings() {
 
   const reload = useCallback(async () => {
     try {
-      setMembers(await api.listMembers());
+      const [loadedMembers, loadedExternals] = await Promise.all([
+        api.listMembers(),
+        api.listExternalAuthors(),
+      ]);
+      setMembers(loadedMembers);
+      setExternals(loadedExternals);
       setError(null);
     } catch (cause) {
       setError(messageOf(cause, "Failed to load members."));
@@ -356,6 +434,13 @@ export function MembersSettings() {
   const removeMember = useCallback(
     (member: MemberView) => {
       run(() => api.removeMember(member.id));
+    },
+    [api, run]
+  );
+
+  const linkAuthor = useCallback(
+    (author: ExternalAuthorView, memberId: string | null) => {
+      run(() => api.linkExternalAuthor(author.authorId, memberId));
     },
     [api, run]
   );
@@ -415,6 +500,30 @@ export function MembersSettings() {
             <p className="m-0 text-[var(--ws-danger)] text-xs">{error}</p>
           ) : null}
         </Section>
+
+        {externals.length > 0 ? (
+          <Section
+            description={
+              isOwner
+                ? "People who write in from Slack. Saying who somebody is renames every message they have ever sent here, not just the next one."
+                : "People who write in from Slack. Only an owner can change who they are."
+            }
+            title="From Slack"
+          >
+            <ul className="m-0 list-none p-0">
+              {externals.map((author) => (
+                <ExternalAuthorRow
+                  author={author}
+                  busy={busy}
+                  canManage={isOwner === true}
+                  key={author.authorId}
+                  members={members}
+                  onLink={linkAuthor}
+                />
+              ))}
+            </ul>
+          </Section>
+        ) : null}
 
         {isOwner ? (
           <Section title="Name">

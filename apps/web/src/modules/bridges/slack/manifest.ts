@@ -31,10 +31,19 @@ export const SLACK_BOT_SCOPES = [
   "files:read",
   "files:write",
   "users:read",
+  // The Slack profile email, matched against workspace members so a bridged
+  // message reads as the person who wrote it. Adding a scope is the one
+  // manifest change that also needs the app reinstalled.
+  "users:read.email",
 ] as const;
 
 export const SLACK_BOT_EVENTS = [
   "app_mention",
+  // Inviting the bot to a Slack channel is what connects that channel: this is
+  // the event `provision.ts` acts on. It needs `channels:read`/`groups:read`,
+  // which are already above, so an app created before this shipped only has to
+  // re-apply the manifest - no new scope, and so no reinstall.
+  "member_joined_channel",
   "message.channels",
   "message.groups",
 ] as const;

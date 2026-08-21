@@ -59,6 +59,17 @@ export type ConnectorStatus = Connector["status"];
 export type StartOutcome = StartOutcomeRow;
 export type DirEntry = DirEntryRow;
 export type MemberView = MemberRow;
+/**
+ * Somebody who writes from a bridged surface. `memberId` is who they are here,
+ * once that has been worked out - by the email match (`linkSource: "auto"`) or
+ * by somebody saying so (`"manual"`).
+ */
+export interface ExternalAuthorView {
+  authorId: string;
+  displayName: string;
+  linkSource: "auto" | "manual" | null;
+  memberId: string | null;
+}
 export type Screenshot = ScreenshotRow;
 export type AttachmentView = AttachmentRow;
 export type ChannelMemberView = ChannelMemberRow;
@@ -363,6 +374,19 @@ export const createApi = (workspaceSlug: string) => {
       json: { email, role },
       method: "POST",
     }).then((data) => data.member);
+
+  /** Everyone a bridged surface has seen post, and who they are. */
+  const listExternalAuthors = () =>
+    request<{ authors: ExternalAuthorView[] }>("/external-authors").then(
+      (data) => data.authors
+    );
+
+  /** Owner-only. `memberId: null` takes the answer back. */
+  const linkExternalAuthor = (authorId: string, memberId: string | null) =>
+    request<void>(`/external-authors/${encodeURIComponent(authorId)}`, {
+      json: { memberId },
+      method: "PATCH",
+    });
 
   const setMemberRole = (memberId: string, role: WorkspaceRole) =>
     request<{ member: MemberView }>(
@@ -1003,6 +1027,7 @@ export const createApi = (workspaceSlug: string) => {
     getWikiPage,
     getWikiRevision,
     getWorkspace,
+    linkExternalAuthor,
     listAgentActivity,
     listAgentBridges,
     listAgentConnectors,
@@ -1015,6 +1040,7 @@ export const createApi = (workspaceSlug: string) => {
     listComputerDir,
     listConnectorAgents,
     listConnectors,
+    listExternalAuthors,
     listMembers,
     listMessages,
     listPendingQuestions,

@@ -185,6 +185,23 @@ describe("conversationsInfo", () => {
 });
 
 describe("usersInfo", () => {
+  test("carries the profile email when the scope allows one", async () => {
+    const { client } = recorder([
+      jsonResponse({
+        ok: true,
+        user: {
+          name: "dominik",
+          profile: { display_name: "Dominik", email: "dominik@example.com" },
+        },
+      }),
+    ]);
+
+    expect(await client.usersInfo("U0DOM")).toEqual({
+      displayName: "Dominik",
+      email: "dominik@example.com",
+    });
+  });
+
   test("prefers the display name, then the real name, then the handle", async () => {
     const { calls, client } = recorder([
       jsonResponse({
@@ -198,6 +215,7 @@ describe("usersInfo", () => {
 
     expect(await client.usersInfo("U1ALICE")).toEqual({
       displayName: "Alice A",
+      email: null,
     });
     expect(callAt(calls, 0).url).toBe(
       "https://slack.com/api/users.info?user=U1ALICE"

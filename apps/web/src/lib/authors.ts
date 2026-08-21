@@ -76,16 +76,31 @@ export const authorOf = (
     };
   }
 
-  // Somebody on a bridged surface: their handle there is all we have of them -
-  // except when the "somebody" is this app itself, firing a routine or closing
-  // an unanswered question, in which case the row id means nothing on screen.
+  // Somebody on a bridged surface. `author` is set once a connector has seen
+  // them post - their display name there, or the workspace member they were
+  // linked to, in which case they read exactly like a native author and their
+  // own messages sit on their own side of the thread.
   if (message.authorType === "external") {
+    const external = message.author;
+    if (!external) {
+      // The app signing its own post - a routine firing, a question expiring -
+      // or somebody nobody has a name for yet.
+      return {
+        agentId: null,
+        color: UNKNOWN_COLOR,
+        imageUrl: null,
+        isSelf: false,
+        name: externalLabel(message.authorId),
+      };
+    }
+    const isSelf =
+      external.memberId !== null && external.memberId === viewer.memberId;
     return {
       agentId: null,
       color: UNKNOWN_COLOR,
-      imageUrl: null,
-      isSelf: false,
-      name: externalLabel(message.authorId),
+      imageUrl: isSelf ? viewer.imageUrl : external.imageUrl,
+      isSelf,
+      name: external.name,
     };
   }
 

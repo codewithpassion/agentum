@@ -51,7 +51,9 @@ export interface SlackClient {
   downloadFile: (urlPrivate: string) => Promise<ArrayBuffer | null>;
   postMessage: (input: SlackPostMessageInput) => Promise<{ ts: string } | null>;
   uploadFile: (input: SlackUploadInput) => Promise<boolean>;
-  usersInfo: (userId: string) => Promise<{ displayName: string } | null>;
+  usersInfo: (
+    userId: string
+  ) => Promise<{ displayName: string; email: string | null } | null>;
 }
 
 interface SlackApiResponse {
@@ -322,7 +324,11 @@ export const createSlackClient = (
         SlackApiResponse & {
           user?: {
             name?: string;
-            profile?: { display_name?: string; real_name?: string };
+            profile?: {
+              display_name?: string;
+              email?: string;
+              real_name?: string;
+            };
           };
         }
       >("users.info", { user: userId });
@@ -332,7 +338,12 @@ export const createSlackClient = (
       }
       const displayName =
         user.profile?.display_name || user.profile?.real_name || user.name;
-      return displayName ? { displayName } : null;
+      // Only present with `users:read.email`; an app installed before that
+      // scope was asked for simply has no email to match on, and its people
+      // are linked by hand instead.
+      return displayName
+        ? { displayName, email: user.profile?.email ?? null }
+        : null;
     },
   };
 };

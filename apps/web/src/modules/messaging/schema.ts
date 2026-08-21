@@ -45,6 +45,54 @@ export const channels = sqliteTable(
   (table) => [index("channels_workspace_idx").on(table.workspaceId)]
 );
 
+export const EXTERNAL_LINK_SOURCES = ["auto", "manual"] as const;
+
+/**
+ * Who an `authorType: "external"` author actually is. Two things a bridged
+ * surface knows about a person that a bare `slack:U…` does not say: what to
+ * call them, and which workspace member they are.
+ *
+ * Keyed by exactly the string in `messages.author_id`, so resolving a message
+ * batch is one `IN` and no parsing. Rows only exist for people a connector has
+ * seen - the app's own `routine:` and `question:` authors have none, and keep
+ * the labels the client gives them.
+ *
+ * Resolved at *read* time rather than denormalised onto the message: a link
+ * that is corrected later has to fix the history it already wrote, not just
+ * what comes next.
+ *
+ * `workspace_id` is the tenant boundary. It is not redundant with the author
+ * id: one Slack user can be a person in two workspaces, and `member_id` means
+ * nothing outside the one it was resolved in.
+ */
+export const externalAuthors = sqliteTable(
+  "external_authors",
+  {
+    /** Exactly `messages.author_id`, e.g. `slack:U0AHBBYVAN5`. */
+    authorId: text("author_id").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    /** What the surface calls them - the fallback when nobody is linked. */
+    displayName: text("display_name").notNull(),
+    /**
+     * How `member_id` was decided. A `manual` link is a person's own correction
+     * and is never overwritten by the automatic match.
+     */
+    linkSource: text("link_source", { enum: EXTERNAL_LINK_SOURCES }),
+    /** The `workspace_members` row this person is, once known. */
+    memberId: text("member_id"),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    workspaceId: text("workspace_id").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.authorId] }),
+    index("external_authors_member_idx").on(table.workspaceId, table.memberId),
+  ]
+);
+
 export const channelMembers = sqliteTable(
   "channel_members",
   {
@@ -124,3 +172,4 @@ export type Channel = typeof channels.$inferSelect;
 export type ChannelMember = typeof channelMembers.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type Attachment = typeof attachments.$inferSelect;
+export type ExternalAuthor = typeof externalAuthors.$inferSelect;

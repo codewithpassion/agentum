@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import { isUniqueConstraintError } from "#/db/errors";
 import { deleteActivityForAgents } from "#/modules/activity/service";
@@ -313,6 +313,33 @@ export interface AddMemberInput extends WorkspaceOwnerSnapshot {
  * the caller turns that into a 409, which is also the check against a
  * double-submitted invite.
  */
+/**
+ * The member with this email, for the connectors that know a person only by the
+ * address they use on another surface. Compared case-insensitively: a Slack
+ * profile and a Clerk account rarely agree on capitalisation, and an address
+ * that differs only by case is the same person.
+ */
+export const findMemberByEmail = async (
+  db: Db,
+  workspaceId: string,
+  email: string
+): Promise<WorkspaceMember | undefined> => {
+  const wanted = email.trim().toLowerCase();
+  if (!wanted) {
+    return;
+  }
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(sql`lower(${workspaceMembers.email})`, wanted)
+      )
+    );
+  return member;
+};
+
 export const addMember = async (
   db: Db,
   workspaceId: string,

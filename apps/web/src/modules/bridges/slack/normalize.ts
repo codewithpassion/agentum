@@ -33,6 +33,14 @@ export interface SlackInboundPorts {
   findBridge: (externalChannelId: string) => Promise<InboundBridge | null>;
   /** True when this `channel:ts` was already published. */
   isDuplicate: (externalId: string) => Promise<boolean>;
+  /**
+   * Files the author's Slack display name against the id the message stores
+   * them under, so a reader sees a person rather than `slack:U0A…`.
+   */
+  rememberAuthor: (
+    workspaceId: string,
+    author: { authorId: string; displayName: string }
+  ) => Promise<void>;
   /** Our message id for a Slack `channel:ts`, when we have seen the parent. */
   resolveThreadParent: (externalId: string) => Promise<string | null>;
   /** Slack user id → display name, cached by the caller. */
@@ -58,7 +66,7 @@ export const isPublishableEvent = (event: SlackMessageEvent): boolean => {
   return Boolean(event.user && event.channel && event.ts);
 };
 
-const botUserIdOf = (payload: SlackEventCallback): string | null =>
+export const botUserIdOf = (payload: SlackEventCallback): string | null =>
   payload.authorizations?.[0]?.user_id ?? null;
 
 const storeFiles = async (
@@ -111,6 +119,15 @@ export const normalizeSlackEvent = async (
     return null;
   }
 
+  const authorId = `${SLACK_CONNECTOR}:${event.user ?? ""}`;
+  // Recorded on every message, not just the first: a Slack display name is
+  // theirs to change, and the newest one a message arrived under is the one
+  // worth keeping.
+  const displayName = userNames.get(event.user ?? "");
+  if (displayName) {
+    await ports.rememberAuthor(found.workspace.id, { authorId, displayName });
+  }
+
   // A reply whose parent we never saw is posted at the top level rather than
   // dropped: the conversation stays visible, it just loses the nesting.
   const threadParentId =
@@ -124,7 +141,7 @@ export const normalizeSlackEvent = async (
     externalId,
     input: {
       attachmentIds,
-      authorId: `${SLACK_CONNECTOR}:${event.user ?? ""}`,
+      authorId,
       authorType: "external",
       body,
       channelId: found.bridge.channelId,

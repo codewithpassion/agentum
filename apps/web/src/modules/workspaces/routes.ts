@@ -4,12 +4,17 @@ import type { ApiEnv } from "#/api/types";
 import {
   badRequest,
   notFound,
+  optionalString,
   readJsonObject,
   requireEnum,
   requireString,
 } from "#/api/validation";
 import { createDb, type Db } from "#/db/client";
 import { isUniqueConstraintError } from "#/db/errors";
+import {
+  linkExternalAuthor,
+  listExternalAuthors,
+} from "#/modules/messaging/external-authors";
 import { type ClerkDirectory, clerkDirectoryFromEnv } from "./clerk-directory";
 import { requireOwner, requireWorkspace } from "./require-workspace";
 import {
@@ -253,6 +258,57 @@ workspaceScopedRoutes.patch("/members/:memberId", requireOwner, async (c) => {
   }
   return c.json({ member: toMemberView(updated) });
 });
+
+/**
+ * The people a bridged surface has seen post here, and who they are.
+ *
+ * Readable by any member - a Slack display name is not a secret, and the list
+ * is how anybody makes sense of a message signed `slack:U0A…`. Changing a link
+ * is an owner's call: it decides whose face a past message wears.
+ */
+workspaceScopedRoutes.get("/external-authors", async (c) => {
+  const db = createDb(c.env.DB);
+  const authors = await listExternalAuthors(db, c.get("workspace").id);
+  return c.json({
+    authors: authors.map((author) => ({
+      authorId: author.authorId,
+      displayName: author.displayName,
+      linkSource: author.linkSource,
+      memberId: author.memberId,
+    })),
+  });
+});
+
+/**
+ * Says who somebody on a bridged surface is, or takes the answer back with a
+ * null `memberId`. Always recorded as `manual`, which is what stops the email
+ * match having another go at it on the next message.
+ *
+ * Resolution happens when a message is read, so this fixes the history too -
+ * every message that person has ever sent, not just the ones still to come.
+ */
+workspaceScopedRoutes.patch(
+  "/external-authors/:authorId",
+  requireOwner,
+  async (c) => {
+    const body = await readJsonObject(c.req.raw);
+    const memberId = optionalString(body, "memberId") ?? null;
+
+    const db = createDb(c.env.DB);
+    const workspaceId = c.get("workspace").id;
+
+    if (memberId && !(await getMemberById(db, workspaceId, memberId))) {
+      throw notFound("Member not found.");
+    }
+
+    await linkExternalAuthor(db, workspaceId, {
+      authorId: c.req.param("authorId"),
+      linkSource: "manual",
+      memberId,
+    });
+    return c.body(null, 204);
+  }
+);
 
 workspaceScopedRoutes.delete("/members/:memberId", requireOwner, async (c) => {
   const db = createDb(c.env.DB);

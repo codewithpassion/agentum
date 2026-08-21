@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { createDb } from "#/db/client";
 import { publishMessage } from "#/modules/messaging/publish";
-import { claimSlackEvent } from "../events-seen";
+import { addChannelMember, createChannel } from "#/modules/messaging/service";
+import { findBridgeByExternalChannel, upsertBridge } from "../bridges";
+import { claimSlackKey } from "../events-seen";
 import { recordExternalRef } from "../refs";
 import { createSlackAdapter, slackClientForApp } from "./adapter";
 import { findSlackAppById, slackAppSigningSecret } from "./apps";
@@ -12,6 +14,8 @@ import {
   handleQuestionInteraction,
   parseSlackInteraction,
 } from "./interactive";
+import { botUserIdOf } from "./normalize";
+import { provisionSlackChannel, SLACK_JOINED_EVENT } from "./provision";
 import { readSignatureHeaders, verifySlackSignature } from "./signature";
 
 /**
@@ -167,13 +171,52 @@ slackRoutes.post("/:slackAppId", async (c) => {
     return c.json({ ok: true });
   }
 
+  // Being invited to a channel is a setup event, not a message: it makes the
+  // channel this app will deliver into, where every other event needs one to
+  // already exist.
+  if (envelope.event.type === SLACK_JOINED_EVENT) {
+    c.executionCtx.waitUntil(
+      provisionSlackChannel(envelope, app.botUserId ?? botUserIdOf(envelope), {
+        addAgentMember: (channelId) =>
+          addChannelMember(db, channelId, {
+            memberId: app.agentId,
+            memberType: "agent",
+          }),
+        claim: (key) => claimSlackKey(db, key),
+        createBridge: async (input) => {
+          await upsertBridge(db, app.workspaceId, {
+            agentId: app.agentId,
+            channelId: input.channelId,
+            connector: SLACK_CONNECTOR,
+            externalChannelId: input.externalChannelId,
+            slackAppId: app.id,
+          });
+        },
+        createChannel: (name) =>
+          createChannel(db, app.workspaceId, {
+            name,
+            origin: SLACK_CONNECTOR,
+          }),
+        isBridged: async (externalChannelId) =>
+          (await findBridgeByExternalChannel(
+            db,
+            SLACK_CONNECTOR,
+            externalChannelId
+          )) !== undefined,
+        readChannel: (externalChannelId) =>
+          client.conversationsInfo(externalChannelId),
+      })
+    );
+    return c.json({ ok: true });
+  }
+
   // The adapter carries the app: it drops any event whose channel is bridged to
   // a *different* app (two bots in one channel both hear it), and posts as this
   // app's bot.
   const adapter = createSlackAdapter(db, c.env, app, client);
   c.executionCtx.waitUntil(
     ingestSlackEvent(envelope, adapter, {
-      claimEvent: (eventId) => claimSlackEvent(db, eventId),
+      claim: (key) => claimSlackKey(db, key),
       publish: (input) => publishMessage(db, c.env, input),
       recordMessageRef: (ref) => recordExternalRef(db, SLACK_CONNECTOR, ref),
     })

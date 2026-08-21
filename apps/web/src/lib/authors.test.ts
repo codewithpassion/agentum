@@ -79,8 +79,44 @@ describe("authorOf, for an external author", () => {
     expect(external("question:qst_123").name).toBe("Agentum");
   });
 
-  test("leaves a bridged handle alone", () => {
+  test("falls back to the bridged handle when nobody has named them", () => {
     expect(external("slack:U123").name).toBe("slack:U123");
+  });
+
+  const bridged = (author: {
+    imageUrl?: string | null;
+    memberId: string | null;
+    name: string;
+  }) =>
+    authorOf(
+      {
+        ...message({ authorId: "slack:U123", authorType: "external" }),
+        author: {
+          email: null,
+          imageUrl: author.imageUrl ?? null,
+          memberId: author.memberId,
+          name: author.name,
+        },
+      },
+      new Map(),
+      viewer
+    );
+
+  test("shows the surface's display name for somebody unlinked", () => {
+    const author = bridged({ memberId: null, name: "Dominik" });
+    expect(author.name).toBe("Dominik");
+    expect(author.isSelf).toBe(false);
+  });
+
+  test("reads as the member once linked, and as the reader when it is them", () => {
+    const author = bridged({ memberId: "mem_1", name: "Dominik Fretz" });
+    expect(author.name).toBe("Dominik Fretz");
+    // Their own Slack message belongs on their own side of the thread.
+    expect(author.isSelf).toBe(true);
+  });
+
+  test("a link to somebody else is not the reader", () => {
+    expect(bridged({ memberId: "mem_2", name: "Ada" }).isSelf).toBe(false);
   });
 });
 

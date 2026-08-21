@@ -66,7 +66,11 @@ interface PortOverrides {
 
 const ports = (
   overrides: PortOverrides = {}
-): SlackInboundPorts & { storedFiles: string[] } => {
+): SlackInboundPorts & {
+  remembered: { authorId: string; displayName: string }[];
+  storedFiles: string[];
+} => {
+  const remembered: { authorId: string; displayName: string }[] = [];
   const storedFiles: string[] = [];
   return {
     findBridge: (externalChannelId) => {
@@ -91,6 +95,11 @@ const ports = (
     },
     isDuplicate: (externalId) =>
       Promise.resolve((overrides.duplicates ?? []).includes(externalId)),
+    rememberAuthor: (_workspaceId, author) => {
+      remembered.push(author);
+      return Promise.resolve();
+    },
+    remembered,
     resolveThreadParent: (externalId) =>
       Promise.resolve(overrides.threadParents?.[externalId] ?? null),
     resolveUserNames: (userIds) =>

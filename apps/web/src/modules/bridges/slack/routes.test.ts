@@ -22,9 +22,8 @@ const { generateConnectorKey } = await import("#/crypto");
 const { createDb } = await import("#/db/client");
 const { createAgent } = await import("#/modules/agents/service");
 const { publishMessage } = await import("#/modules/messaging/publish");
-const { createChannel, listChannelMessages } = await import(
-  "#/modules/messaging/service"
-);
+const { createChannel, listChannelMembers, listChannelMessages, listChannels } =
+  await import("#/modules/messaging/service");
 const {
   answerQuestion,
   ask,
@@ -32,7 +31,10 @@ const {
   getQuestion: readQuestion,
 } = await import("#/modules/questions/service");
 const { createWorkspace } = await import("#/modules/workspaces/service");
-const { upsertBridge } = await import("../bridges");
+const { findBridgeByExternalChannel, upsertBridge } = await import(
+  "../bridges"
+);
+const { claimSlackKey } = await import("../events-seen");
 const { findExternalId } = await import("../refs");
 const { slackUsers } = await import("../schema");
 const { createDraftSlackApp, storeSlackAppTokens } = await import("./apps");
@@ -47,6 +49,8 @@ const ADA_TOKEN = "xoxb-ada-token";
 const ADA_SECRET = "8f742231b10e8888abcd99yyyzzz85a5";
 const BOB_TOKEN = "xoxb-bob-token";
 const BOB_SECRET = "0000000000000000000000000000bbbb";
+/** A Slack channel nothing is bridged to - what an invite arrives from. */
+const NEW_CHANNEL = "C0NEWCHAN";
 
 const migrationsDir = new URL("../../../../drizzle/", import.meta.url);
 
@@ -131,6 +135,10 @@ const fakeSlackFetch = ((
     // A distinct `ts` per post, as Slack gives: the question card's own `ts` is
     // what a later `chat.update` has to find.
     "chat.postMessage": { ok: true, ts: `1787200000.0009${postedTs}` },
+    "conversations.info": {
+      channel: { id: NEW_CHANNEL, is_member: true, name: "ops-standup" },
+      ok: true,
+    },
     "users.info": {
       ok: true,
       user: { profile: { display_name: "Ada Lovelace" } },
@@ -392,6 +400,136 @@ beforeEach(async () => {
     slackAppId: adaAppId,
   });
   slackCalls = [];
+});
+
+const joinEvent = (channel: string, user: string, eventId = "Ev0JOIN") => ({
+  authorizations: [{ user_id: "U0BOT" }],
+  event: { channel, channel_type: "C", type: "member_joined_channel", user },
+  event_id: eventId,
+  team_id: "T0RSL",
+  type: "event_callback",
+});
+
+/** The Slack mention of a message, which arrives beside its `message` twin. */
+const mentionEvent = (channel: string, ts: string) => ({
+  ...messageEvent(channel, ts, "<@U0BOT> hello there"),
+  event: {
+    channel,
+    text: "<@U0BOT> hello there",
+    ts,
+    type: "app_mention",
+    user: "U1HUMAN",
+  },
+  event_id: `Ev${ts}mention`,
+});
+
+describe("being invited to a Slack channel", () => {
+  const bridgeFor = async (externalChannelId: string) =>
+    await findBridgeByExternalChannel(db, "slack", externalChannelId);
+
+  test("makes the channel, the membership and the bridge", async () => {
+    const response = await post(adaAppId, joinEvent(NEW_CHANNEL, "U0BOT"));
+    await settle();
+
+    expect(response.status).toBe(200);
+    const bridge = await bridgeFor(NEW_CHANNEL);
+    expect(bridge?.agentId).toBe(adaId);
+
+    const channels = await listChannels(db, workspace.id);
+    const made = channels.find((row) => row.name === "ops-standup");
+    expect(made?.origin).toBe("slack");
+    expect(bridge?.channelId).toBe(made?.id);
+
+    // Without the agent in it a mention would be ingested and wake nobody -
+    // the failure this whole path exists to stop.
+    const members = await listChannelMembers(db, workspace.id, made?.id ?? "");
+    expect(
+      members.some(
+        (member) => member.memberType === "agent" && member.memberId === adaId
+      )
+    ).toBe(true);
+  });
+
+  test("a message in the new channel now reaches the workspace", async () => {
+    await post(adaAppId, joinEvent(NEW_CHANNEL, "U0BOT"));
+    await settle();
+
+    await post(adaAppId, messageEvent(NEW_CHANNEL, "1787200000.000700"));
+    await settle();
+
+    const bridge = await bridgeFor(NEW_CHANNEL);
+    const { messages } = await listChannelMessages(db, workspace, {
+      channelId: bridge?.channelId ?? "",
+      limit: 50,
+    });
+    expect(messages.map((message) => message.body)).toEqual(["hello there"]);
+  });
+
+  test("somebody else joining is not an invitation", async () => {
+    await post(adaAppId, joinEvent(NEW_CHANNEL, "U1HUMAN"));
+    await settle();
+
+    expect(await bridgeFor(NEW_CHANNEL)).toBeUndefined();
+  });
+
+  test("a re-invite leaves the channel it already made alone", async () => {
+    await post(adaAppId, joinEvent(NEW_CHANNEL, "U0BOT", "Ev0JOIN1"));
+    await settle();
+    const first = await bridgeFor(NEW_CHANNEL);
+
+    await post(adaAppId, joinEvent(NEW_CHANNEL, "U0BOT", "Ev0JOIN2"));
+    await settle();
+
+    // A second channel here would strand the conversation in the first one.
+    expect((await bridgeFor(NEW_CHANNEL))?.channelId).toBe(
+      first?.channelId ?? ""
+    );
+    expect(
+      (await listChannels(db, workspace.id)).filter(
+        (row) => row.name === "ops-standup"
+      )
+    ).toHaveLength(1);
+  });
+});
+
+describe("a mention, delivered twice", () => {
+  test("is published once", async () => {
+    const ts = "1787200000.000600";
+
+    // Slack sends both, under different delivery ids, and in production they
+    // land in two Worker invocations that cannot see each other.
+    await post(adaAppId, messageEvent(ADA_CHANNEL, ts, "<@U0BOT> hello there"));
+    await post(adaAppId, mentionEvent(ADA_CHANNEL, ts));
+    await settle();
+
+    expect(await channelMessages()).toHaveLength(1);
+  });
+
+  test("leaves no message without a Slack ts to thread back to", async () => {
+    const ts = "1787200000.000601";
+
+    await post(adaAppId, messageEvent(ADA_CHANNEL, ts, "<@U0BOT> hello there"));
+    await post(adaAppId, mentionEvent(ADA_CHANNEL, ts));
+    await settle();
+
+    const [message] = await channelMessages();
+    expect(
+      await findExternalId(db, "slack", "message", message?.id ?? "")
+    ).toBe(`${ADA_CHANNEL}:${ts}`);
+  });
+
+  test("claims the message itself, not just the two deliveries", async () => {
+    const ts = "1787200000.000602";
+
+    await post(adaAppId, messageEvent(ADA_CHANNEL, ts, "<@U0BOT> hello there"));
+    await settle();
+
+    // The claim, not the `external_refs` read, is what settles the race in
+    // production: the two deliveries arrive in Worker invocations that cannot
+    // see each other, and only an atomic insert separates them. Asserted
+    // directly because a sequential test would pass on the fallback alone.
+    expect(await claimSlackKey(db, `${ADA_CHANNEL}:${ts}`)).toBe(false);
+  });
 });
 
 describe("the app the URL names", () => {

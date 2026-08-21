@@ -14,6 +14,7 @@ import {
   resolveMemberAuthors,
 } from "#/modules/workspaces/authors";
 import { deleteObjects } from "#/r2";
+import { resolveExternalAuthors } from "./external-authors";
 import { parseMentions } from "./mentions";
 import {
   type AUTHOR_TYPES,
@@ -59,10 +60,13 @@ export interface MentionView {
 export interface MessageView {
   attachments: AttachmentView[];
   /**
-   * Who wrote it, resolved through `workspace_members` - set for
-   * `authorType: "user"` and null for everything else. A human's Clerk id is
-   * stored but never serialized, so this is the only identity a client gets
-   * for a person.
+   * Who wrote it, as a person. Resolved through `workspace_members` for
+   * `authorType: "user"`, and through `external_authors` for somebody on a
+   * bridged surface - who carries a `memberId` only once they have been linked
+   * to a member, and their Slack display name until then. Null for an agent,
+   * and for the app's own `routine:`/`question:` posts. A human's Clerk id is
+   * stored but never serialized, so this is the only identity a client gets for
+   * a person.
    */
   author: MemberAuthorView | null;
   /**
@@ -407,6 +411,18 @@ export const getOrCreateAgentDm = async (
 
 // --- messages ---------------------------------------------------------------
 
+/**
+ * The app signs some of its own posts as `external` too - a routine firing, a
+ * question expiring. Those have no person behind them and no row to find, so a
+ * miss here is not a failure to resolve; the client labels them itself.
+ */
+const externalAuthorOf = (
+  authorType: AuthorType,
+  authorId: string,
+  externals: Map<string, MemberAuthorView>
+): MemberAuthorView | undefined =>
+  authorType === "external" ? externals.get(authorId) : undefined;
+
 export interface MessageCursor {
   createdAt: number;
   id: string;
@@ -466,7 +482,7 @@ const hydrateMessages = async (
       .groupBy(messages.threadParentId),
   ]);
 
-  const [mentionedAgents, authors] = await Promise.all([
+  const [mentionedAgents, authors, externals] = await Promise.all([
     getAgentsByIds(
       db,
       mentionRows.map((row) => row.agentId)
@@ -475,6 +491,15 @@ const hydrateMessages = async (
       db,
       workspace.id,
       rows.filter((row) => row.authorType === "user").map((row) => row.authorId)
+    ),
+    // Somebody who wrote from a bridged surface. Missing for the app's own
+    // `routine:`/`question:` posts, which is why this map is allowed to miss.
+    resolveExternalAuthors(
+      db,
+      workspace.id,
+      rows
+        .filter((row) => row.authorType === "external")
+        .map((row) => row.authorId)
     ),
   ]);
   const agentNamesById = new Map(
@@ -527,11 +552,18 @@ const hydrateMessages = async (
   );
 
   return rows.map((row) => {
-    const author = row.authorType === "user" ? authors.get(row.authorId) : null;
+    const author =
+      row.authorType === "user"
+        ? authors.get(row.authorId)
+        : externalAuthorOf(row.authorType, row.authorId, externals);
     return {
       attachments: attachmentsByMessage.get(row.id) ?? [],
       author: author ?? null,
-      authorId: author ? (author.memberId ?? "") : row.authorId,
+      // Only a human's id collapses to their membership. An external author
+      // keeps the surface's own id: it is the provenance, and it is what a
+      // later correction to the link is keyed by.
+      authorId:
+        row.authorType === "user" ? (author?.memberId ?? "") : row.authorId,
       authorType: row.authorType,
       body: row.body,
       channelId: row.channelId,

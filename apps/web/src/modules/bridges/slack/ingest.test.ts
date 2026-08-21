@@ -9,13 +9,13 @@ import { ingestSlackEvent, type SlackIngestPorts } from "./ingest";
 
 const SLACK_CHANNEL = "C0OPSCHAN";
 
-const delivery = (eventId: string): SlackEventCallback => ({
+const delivery = (eventId: string, type = "message"): SlackEventCallback => ({
   authorizations: [{ user_id: "U0BOTAGENT" }],
   event: {
     channel: SLACK_CHANNEL,
     text: "hello team",
     ts: "1787200000.000100",
-    type: "message",
+    type,
     user: "U1ALICE",
   },
   event_id: eventId,
@@ -77,11 +77,11 @@ const ports = (
   return {
     // The real implementation is an INSERT … ON CONFLICT DO NOTHING; a Set has
     // the same "first caller wins" contract.
-    claimEvent: (eventId) => {
-      if (claimed.has(eventId)) {
+    claim: (key) => {
+      if (claimed.has(key)) {
         return Promise.resolve(false);
       }
-      claimed.add(eventId);
+      claimed.add(key);
       return Promise.resolve(true);
     },
     claimed,
@@ -148,6 +148,41 @@ describe("ingestSlackEvent", () => {
     expect([first, second]).toEqual(["published", "duplicate"]);
     expect(normalized).toHaveLength(1);
     expect(slackPorts.published).toHaveLength(1);
+  });
+
+  test("publishes once when a mention arrives as message and app_mention", async () => {
+    const normalized: SlackEventCallback[] = [];
+    const slackPorts = ports();
+    const connector = adapter(inboundFor(), normalized);
+
+    // Two deliveries of one Slack message, under two delivery ids. Reading
+    // `external_refs` cannot separate them - the second is already in flight
+    // before the first has published - so the message identity is claimed.
+    const first = await ingestSlackEvent(
+      delivery("Ev0001"),
+      connector,
+      slackPorts
+    );
+    const second = await ingestSlackEvent(
+      delivery("Ev0002", "app_mention"),
+      connector,
+      slackPorts
+    );
+
+    expect([first, second]).toEqual(["published", "duplicate"]);
+    expect(slackPorts.published).toHaveLength(1);
+    expect(normalized).toHaveLength(1);
+  });
+
+  test("claims no message identity for an event it would never publish", async () => {
+    const slackPorts = ports();
+    const joined = delivery("Ev0004", "member_joined_channel");
+
+    await ingestSlackEvent(joined, adapter(null, []), slackPorts);
+
+    // Only the delivery id. Claiming `channel:ts` here would block the real
+    // message that happens to share the ts.
+    expect([...slackPorts.claimed]).toEqual(["Ev0004"]);
   });
 
   test("stops after normalisation when there is nothing to publish", async () => {

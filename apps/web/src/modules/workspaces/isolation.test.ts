@@ -81,7 +81,7 @@ const { upsertBridge } = await import("#/modules/bridges/bridges");
 const { findInternalId, recordExternalRef } = await import(
   "#/modules/bridges/refs"
 );
-const { claimSlackEvent } = await import("#/modules/bridges/events-seen");
+const { claimSlackKey } = await import("#/modules/bridges/events-seen");
 const { storeScreenshot } = await import("#/modules/browser/service");
 const { createDraftSlackApp } = await import("#/modules/bridges/slack/apps");
 const { createCategory } = await import("#/modules/categories/service");
@@ -977,7 +977,7 @@ describe("deleting a workspace", () => {
   test("takes the bridge refs naming its messages, and leaves the global Slack caches", async () => {
     // Neither of these belongs to a tenant: the dedupe is keyed by Slack's own
     // event id, and one Slack user posts through more than one workspace.
-    await claimSlackEvent(db, "Ev0DEDUPE");
+    await claimSlackKey(db, "Ev0DEDUPE");
     await d1
       .prepare(
         "INSERT INTO slack_users (user_id, display_name) VALUES ('U0SHARED', 'Grace')"
