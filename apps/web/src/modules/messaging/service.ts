@@ -4,6 +4,11 @@ import {
   getAgentsByIds,
   listAgentMentionCandidates,
 } from "#/modules/agents/service";
+import { QUESTION_ORIGIN } from "#/modules/questions/schema";
+import {
+  type QuestionView,
+  questionsForMessages,
+} from "#/modules/questions/view";
 import {
   type MemberAuthorView,
   resolveMemberAuthors,
@@ -73,6 +78,12 @@ export interface MessageView {
   id: string;
   mentions: MentionView[];
   origin: string;
+  /**
+   * Set only for `origin: "question"` messages: the agent's question, with its
+   * options and current status, so a renderer draws the card from the message
+   * it already has. Null for every other message.
+   */
+  question: QuestionView | null;
   replyCount: number;
   threadParentId: string | null;
 }
@@ -467,6 +478,17 @@ const hydrateMessages = async (
     )
   );
 
+  // Only when the batch actually holds a question card: every other read - the
+  // whole channel history, every broadcast - pays nothing for this.
+  const questionMessageIds = rows
+    .filter((row) => row.origin === QUESTION_ORIGIN)
+    .map((row) => row.id);
+  const questions = await questionsForMessages(
+    db,
+    workspace.id,
+    questionMessageIds
+  );
+
   return rows.map((row) => {
     const author = row.authorType === "user" ? authors.get(row.authorId) : null;
     return {
@@ -480,6 +502,7 @@ const hydrateMessages = async (
       id: row.id,
       mentions: mentionsByMessage.get(row.id) ?? [],
       origin: row.origin,
+      question: questions.get(row.id) ?? null,
       replyCount: replyCounts.get(row.id) ?? 0,
       threadParentId: row.threadParentId,
     };
@@ -556,6 +579,25 @@ export const getMessageInWorkspace = async (
     .innerJoin(channels, eq(channels.id, messages.channelId))
     .where(and(eq(messages.id, id), eq(channels.workspaceId, workspaceId)));
   return row?.message;
+};
+
+/**
+ * One message as a client sees it, re-read after something that changes how it
+ * renders. The questions module uses it: the question row is written *after*
+ * the message that carries it, and the view broadcast to open clients has to
+ * already know it is a question card.
+ */
+export const getMessageView = async (
+  db: Db,
+  workspace: WorkspaceRef,
+  id: string
+): Promise<MessageView | undefined> => {
+  const row = await getMessage(db, id);
+  if (!row) {
+    return;
+  }
+  const [view] = await hydrateMessages(db, workspace, [row]);
+  return view;
 };
 
 export const getThread = async (

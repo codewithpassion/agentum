@@ -127,6 +127,7 @@ const useAgentStatus = (
       ? fetched
       : {
           agentId: agent.id,
+          pendingQuestions: agent.pendingQuestions ?? 0,
           sessionId: agent.sessionId,
           status: agent.status,
           syncError: agent.syncError,

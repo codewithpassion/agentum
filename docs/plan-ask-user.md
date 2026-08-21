@@ -56,6 +56,32 @@ Decisions taken with the user (2026-08-21):
    woken with the expiry so it can proceed with its default. No default
    expiry — most questions should simply wait.
 
+   **How it resolves (settled in Q1).** Two mechanisms, one code path
+   (`expireQuestion`: the same conditional `UPDATE … WHERE status='pending'`
+   the answer uses, so an expiry racing an answer cannot steal it):
+   - *Lazy, on any path that acts on a question* — answering, `check_answer`,
+     the question lists. A question whose deadline has passed is closed before
+     anything can be done to it, so an answer never lands on a dead one.
+   - *On a timer*, for the questions nobody looks at — which is the case
+     expiry exists for (an overnight permission request nobody sees). The
+     sweep rides the **existing per-workspace `RoutineScheduler` alarm**: that
+     object already holds one alarm per workspace, and a workspace's second
+     timer is the same timer. `arm()` now sets it to whichever comes first,
+     the next routine firing or the next question expiry, and `alarm()` sweeps
+     expiries before it fires routines. `questions/service.ts` knows nothing
+     about it — the dependency runs one way, scheduler → questions.
+
+   Rejected: a check inside `AgentRouter`, which reads as the natural home but
+   closes an import cycle (router → questions → `publishMessage` → router
+   notify → router). Rejected: lazy only, which turns "woken at the deadline"
+   into "woken when somebody next looks" and fails exactly the unattended case
+   the feature is for. Rejected: a dedicated Durable Object — a class costs a
+   deploy migration for a timer that already exists.
+
+   Badge counts stay read-only: `countPendingQuestionsByAgent` filters
+   `expiresAt IS NULL OR expiresAt > now` in SQL rather than resolving rows, so
+   a status poll never posts a message.
+
 ## Schema
 
 ```
@@ -114,6 +140,33 @@ GET  /questions?status=pending      -> pending across workspace (badge/inbox)
 GET  /agents/:id/questions          -> per-agent list (recent, both states)
 POST /questions/:id/answer          -> { answer } ; 409 when already answered
 ```
+
+## What Q1 shipped, for the renderers to build on
+
+- **`MessageView.question`** — the question hangs off its own message, so a
+  renderer draws the card from the message it already has. Null for every
+  message except the `origin: "question"` card. Shape (`questions/view.ts`,
+  re-exported to the client as `Question` in `lib/api.ts`):
+  `{ id, agentId, channelId, messageId, kind: "question"|"permission",
+  prompt, options: string[]|null, status: "pending"|"answered"|"expired",
+  answer: string|null, answeredBy: { id, name }|null,
+  answeredVia: "web"|"slack"|null, answeredAt: number|null,
+  expiresAt: number|null, createdAt: number }`. `answeredBy.id` is a workspace
+  member id or `slack:U…` — never a Clerk id.
+- **`question.updated` channel event** — `{ type, channelId, messageId,
+  question }`, broadcast on every answer and every expiry, carrying the whole
+  replacement view so the card redraws from one shape whatever resolved it.
+  The `message.created` event already carries the question on the first
+  broadcast (the row is written before the fan-out).
+- **Badge** — `pendingQuestions` on `GET /agents` rows and on
+  `GET /agents/:id/status`, which is the poll the rail already makes.
+- **The answer message** — `origin: "answer"`, `threadParentId` = the question
+  card, body `@Agent Answer: <text>`; authored by the answering *user* for a
+  web answer, and `external` (`question:<id>`) for an expiry notice, which is
+  what makes the mention wake the agent rather than being its own post.
+- **Tool parameter naming**: `ask_user(channelId, question, options?, kind?,
+  expires_in?)` — `channelId` rather than the `channel` written above, to match
+  `post_message` and `read_channel`.
 
 ## UI
 

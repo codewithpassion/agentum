@@ -14,6 +14,10 @@ import {
   resyncRostersWithAnthropic,
   syncAgentWithAnthropic,
 } from "#/modules/anthropic/service";
+import {
+  countPendingQuestionsByAgent,
+  countPendingQuestionsForAgent,
+} from "#/modules/questions/service";
 import { mcpUrlForToken } from "./mcp-token";
 import {
   createAgent,
@@ -60,8 +64,19 @@ export const agentsRoutes = new Hono<ApiEnv>();
 agentsRoutes.use("*", requireAuth);
 
 agentsRoutes.get("/", async (c) => {
-  const agents = await listAgents(createDb(c.env.DB), c.get("workspace").id);
-  return c.json({ agents: agents.map(toAgentView) });
+  const db = createDb(c.env.DB);
+  const workspaceId = c.get("workspace").id;
+  const [agents, pending] = await Promise.all([
+    listAgents(db, workspaceId),
+    // One grouped count for the whole rail, however many agents it shows.
+    countPendingQuestionsByAgent(db, workspaceId),
+  ]);
+  return c.json({
+    agents: agents.map((agent) => ({
+      ...toAgentView(agent),
+      pendingQuestions: pending.get(agent.id) ?? 0,
+    })),
+  });
 });
 
 agentsRoutes.post("/", async (c) => {
@@ -179,17 +194,22 @@ agentsRoutes.delete("/:id", async (c) => {
 
 /** What the agent rail polls when it has no socket for the agent's channel. */
 agentsRoutes.get("/:id/status", async (c) => {
-  const agent = await getAgentById(
-    createDb(c.env.DB),
-    c.get("workspace").id,
-    c.req.param("id")
-  );
+  const db = createDb(c.env.DB);
+  const workspaceId = c.get("workspace").id;
+  const agent = await getAgentById(db, workspaceId, c.req.param("id"));
   if (!agent) {
     throw notFound("Agent not found.");
   }
   return c.json({
     status: {
       agentId: agent.id,
+      // How many questions this agent is waiting on - the rail's badge rides
+      // the poll it already makes.
+      pendingQuestions: await countPendingQuestionsForAgent(
+        db,
+        workspaceId,
+        agent.id
+      ),
       sessionId: agent.sessionId,
       status: agent.status,
       syncError: agent.syncError,

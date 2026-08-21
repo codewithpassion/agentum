@@ -90,3 +90,40 @@ export const resolveMemberAuthors = async (
   }
   return resolved;
 };
+
+/**
+ * The same resolution for ids that are already *membership* ids rather than
+ * Clerk ids - `agent_questions.answered_by`, where storing the Clerk id was
+ * never an option because the column is read straight into a view.
+ *
+ * Scoped like its sibling: a membership id from another workspace resolves to
+ * the "Former member" placeholder, not to a name.
+ */
+export const resolveMembersByIds = async (
+  db: Db,
+  workspaceId: string,
+  memberIds: readonly string[]
+): Promise<Map<string, MemberAuthorView>> => {
+  const wanted = [...new Set(memberIds)];
+  const resolved = new Map<string, MemberAuthorView>();
+  if (wanted.length === 0) {
+    return resolved;
+  }
+
+  const rows = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        inArray(workspaceMembers.id, wanted)
+      )
+    );
+
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  for (const memberId of wanted) {
+    const member = byId.get(memberId);
+    resolved.set(memberId, member ? toAuthorView(member) : formerMember());
+  }
+  return resolved;
+};

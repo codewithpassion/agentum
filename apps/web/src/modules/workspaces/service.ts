@@ -9,6 +9,7 @@ import { deleteBrowserDataForAgents } from "#/modules/browser/service";
 import { deleteCategoriesForWorkspace } from "#/modules/categories/service";
 import { deleteConnectorsForWorkspace } from "#/modules/connectors/service";
 import { deleteChannelsForWorkspace } from "#/modules/messaging/service";
+import { deleteQuestionsForWorkspace } from "#/modules/questions/service";
 import { deleteRoutinesForWorkspace } from "#/modules/routines/service";
 import { deleteSkillsForWorkspace } from "#/modules/skills/service";
 import { deletePagesForWorkspace } from "#/modules/wiki/service";
@@ -231,7 +232,7 @@ export const renameWorkspace = async (
  * and assets (from `wiki_pages`), category items (from `categories`). What does
  * not, and is deleted by hand: agent activity, browser sessions and
  * screenshots, connector assignments and OAuth flows, skill versions and files,
- * routine runs.
+ * routine runs, agent questions.
  *
  * R2 objects (attachments, wiki assets, skill files, screenshots) are left
  * behind - unreachable, and worth less than making this a bucket-wide sweep.
@@ -251,6 +252,7 @@ export const deleteWorkspace = async (
   await deleteConnectorsForWorkspace(db, workspaceId);
   await deleteSkillsForWorkspace(db, workspaceId);
   await deleteRoutinesForWorkspace(db, workspaceId);
+  await deleteQuestionsForWorkspace(db, workspaceId);
   await deletePagesForWorkspace(db, workspaceId);
 
   const deleted = await db

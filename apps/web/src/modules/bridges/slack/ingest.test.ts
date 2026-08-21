@@ -33,6 +33,7 @@ const publishedMessage = (input: CreateMessageInput): MessageView => ({
   id: "message-1",
   mentions: [],
   origin: input.origin ?? "native",
+  question: null,
   replyCount: 0,
   threadParentId: input.threadParentId ?? null,
 });

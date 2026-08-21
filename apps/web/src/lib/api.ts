@@ -18,6 +18,10 @@ import type {
   ChannelMemberView as ChannelMemberRow,
   MessageView as MessageRow,
 } from "#/modules/messaging/service";
+import type {
+  QuestionAnswererView,
+  QuestionView,
+} from "#/modules/questions/view";
 import type { Schedule as ScheduleShape } from "#/modules/routines/schedule";
 import type {
   RoutineView as RoutineRow,
@@ -40,7 +44,12 @@ import type {
 } from "#/modules/workspaces/service";
 
 /** The client speaks exactly the server's shapes; these aliases are the contract. */
-export type Agent = AgentView;
+/**
+ * `pendingQuestions` is optional because only the list carries it: the single
+ * agent responses (create, edit, read) are about the agent, not about what it
+ * happens to be waiting on. The rail's status poll carries it too.
+ */
+export type Agent = AgentView & { pendingQuestions?: number };
 export type ActivityView = ActivityRow;
 export type BrowserStatus = BrowserStatusRow;
 export type Channel = ChannelRow;
@@ -54,6 +63,11 @@ export type Screenshot = ScreenshotRow;
 export type AttachmentView = AttachmentRow;
 export type ChannelMemberView = ChannelMemberRow;
 export type MessageView = MessageRow;
+/** An agent's question, as the card in the message stream renders it. */
+export type Question = QuestionView;
+export type QuestionStatus = Question["status"];
+export type QuestionKind = Question["kind"];
+export type QuestionAnswerer = QuestionAnswererView;
 export type Routine = RoutineRow;
 export type RoutineRun = RoutineRunRow;
 export type RoutineRunStatus = RoutineRun["status"];
@@ -175,6 +189,8 @@ export interface IssuedAgent {
 /** What the router and the Anthropic registration currently say about an agent. */
 export interface AgentStatusView {
   agentId: string;
+  /** Questions this agent is waiting on - the rail's badge. */
+  pendingQuestions: number;
   sessionId: string | null;
   status: Agent["status"];
   syncError: string | null;

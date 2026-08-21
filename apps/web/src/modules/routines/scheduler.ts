@@ -1,5 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import { createDb, type Db } from "#/db/client";
+import {
+  earliestQuestionExpiry,
+  sweepExpiredQuestions,
+} from "#/modules/questions/service";
 import { getWorkspaceById } from "#/modules/workspaces/service";
 import {
   advanceRoutine,
@@ -10,10 +14,17 @@ import {
 
 /**
  * One scheduler per workspace (`idFromName(workspaceId)`), holding exactly one
- * alarm: the earliest `next_run_at` across that workspace's enabled routines.
- * The routines service re-arms it after every create, update, delete and
- * toggle; the alarm re-arms itself after every firing. No cron triggers (they
- * cannot be per-row) and no polling.
+ * alarm: the earliest moment this workspace has something to do on a clock -
+ * the next routine firing, or the next question expiry. The routines service
+ * re-arms it after every create, update, delete and toggle; the questions
+ * module re-arms it whenever an agent asks with an expiry; the alarm re-arms
+ * itself after every firing. No cron triggers (they cannot be per-row) and no
+ * polling.
+ *
+ * Questions ride along rather than getting their own Durable Object: a class
+ * costs a deploy migration, and a workspace's second timer is the same timer.
+ * The dependency only runs one way - this file reaches into the questions
+ * module's service, and nothing there knows the scheduler exists.
  *
  * Like `AgentRouter`, the instance cannot read back the name it was addressed
  * with, so the workspace arrives with the traffic - `reschedule(workspaceId)`
@@ -46,6 +57,16 @@ export const rescheduleRoutines = async (
     // The next firing, or the next mutation, arms it again.
   }
 };
+
+/**
+ * The same alarm, armed for a question that will run out of time. Named for its
+ * caller so the questions module never has to say "routines" to schedule an
+ * expiry.
+ */
+export const rescheduleQuestionExpiry = (
+  env: Env,
+  workspaceId: string
+): Promise<void> => rescheduleRoutines(env, workspaceId);
 
 export class RoutineScheduler extends DurableObject<Env> {
   private database: Db | null = null;
@@ -91,6 +112,15 @@ export class RoutineScheduler extends DurableObject<Env> {
     }
 
     const now = new Date();
+    const ref = { id: workspace.id, slug: workspace.slug };
+
+    // Questions first: an expiry that has come due is an agent waiting on a
+    // wake, where a routine firing a second later has nobody waiting.
+    await sweepExpiredQuestions(this.db, this.env, ref, now).catch(() => {
+      // Each expiry already guards itself; a throw past them must not cost the
+      // routines below their turn.
+    });
+
     const due = await listDueRoutines(this.db, workspaceId, now);
     for (const routine of due) {
       // In turn: each firing publishes a message, and the order routines were
@@ -99,7 +129,7 @@ export class RoutineScheduler extends DurableObject<Env> {
       await fireRoutine(
         this.db,
         this.env,
-        { id: workspace.id, slug: workspace.slug },
+        ref,
         routine,
         routine.nextRunAt ?? now
       ).catch(() => {
@@ -117,17 +147,29 @@ export class RoutineScheduler extends DurableObject<Env> {
     await this.arm();
   }
 
-  /** The one alarm: the earliest pending firing, or none at all. */
+  /**
+   * The one alarm: whichever comes first, the next routine firing or the next
+   * question expiry - or none at all when the workspace has neither.
+   */
   private async arm(): Promise<void> {
     const workspaceId = await this.workspaceId();
     if (!workspaceId) {
       return;
     }
-    const next = await earliestNextRunAt(this.db, workspaceId);
-    if (next === null) {
+    const [nextRun, nextExpiry] = await Promise.all([
+      earliestNextRunAt(this.db, workspaceId),
+      earliestQuestionExpiry(this.db, workspaceId),
+    ]);
+    const candidates = [nextRun, nextExpiry].filter(
+      (candidate): candidate is Date => candidate !== null
+    );
+    if (candidates.length === 0) {
       await this.ctx.storage.deleteAlarm();
       return;
     }
+    const next = candidates.reduce((earliest, candidate) =>
+      candidate < earliest ? candidate : earliest
+    );
     // A slot already in the past (a routine created while the scheduler was
     // asleep) fires on the next tick rather than waiting for its successor.
     await this.ctx.storage.setAlarm(Math.max(next.getTime(), Date.now()));

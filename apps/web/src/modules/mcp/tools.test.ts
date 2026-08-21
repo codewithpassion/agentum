@@ -24,12 +24,31 @@ mock.module("cloudflare:workers", () => ({
 }));
 
 const { createAgent } = await import("#/modules/agents/service");
-const { addChannelMembers, createChannel, createMessage } = await import(
-  "#/modules/messaging/service"
+const { addChannelMembers, createChannel, createMessage, getThread } =
+  await import("#/modules/messaging/service");
+const { answerQuestion, getQuestion } = await import(
+  "#/modules/questions/service"
 );
 const { createWorkspace } = await import("#/modules/workspaces/service");
 const { registerWorkspaceTools } = await import("./tools");
 type McpToolContext = import("./tools").McpToolContext;
+
+/**
+ * The tools that publish reach the channel room and the router; both are
+ * stubbed rather than skipped, so the message a tool posts really goes through
+ * `publishMessage`.
+ */
+const fakeEnv = (): Env =>
+  ({
+    AGENT_ROUTER: {
+      get: () => ({ notifyMessage: () => Promise.resolve() }),
+      idFromName: (name: string) => name,
+    },
+    CHANNEL_ROOM: {
+      get: () => ({ broadcast: () => Promise.resolve() }),
+      idFromName: (name: string) => name,
+    },
+  }) as unknown as Env;
 
 const ADA_ID = "user_2aAdaAAAAAAAAAAAAAAAAAAA";
 const BOB_ID = "user_2bBobBBBBBBBBBBBBBBBBBBB";
@@ -107,8 +126,10 @@ interface Tenant {
   agent: Agent;
   channelId: string;
   clerkUserId: string;
+  memberId: string;
   messageId: string;
   tools: Map<string, ToolHandler>;
+  workspace: { id: string; slug: string };
 }
 
 let db: Db;
@@ -121,7 +142,7 @@ let beta: Tenant;
  * forgot its scope would find the *other* one rather than nothing.
  */
 const seed = async (name: string, clerkUserId: string): Promise<Tenant> => {
-  const { workspace } = await createWorkspace(db, {
+  const { member, workspace } = await createWorkspace(db, {
     name,
     owner: {
       clerkUserId,
@@ -158,14 +179,16 @@ const seed = async (name: string, clerkUserId: string): Promise<Tenant> => {
     agent,
     channelId: channel.id,
     clerkUserId,
+    memberId: member.id,
     messageId: posted.message.id,
     tools: toolsOf({
       agent,
       db,
-      env: {} as unknown as Env,
+      env: fakeEnv(),
       requestUrl: "https://app.example.com/mcp/tok",
       workspace: ref,
     }),
+    workspace: ref,
   };
 };
 
@@ -262,5 +285,158 @@ describe("read_thread", () => {
     });
     expect(theirs.isError).toBe(true);
     expect(textOf(theirs)).toBe(`No message with id ${alpha.messageId}.`);
+  });
+});
+
+describe("ask_user", () => {
+  const askIn = async (tenant: Tenant, input: Record<string, unknown> = {}) =>
+    payloadOf(
+      await call(tenant, "ask_user", {
+        channelId: tenant.channelId,
+        question: "Ship it on Friday or Monday?",
+        ...input,
+      })
+    );
+
+  test("returns a pending question and posts the card in the channel", async () => {
+    const payload = await askIn(alpha, { options: ["Friday", "Monday"] });
+    expect(payload.status).toBe("pending");
+    expect(payload.expiresAt).toBeNull();
+
+    const stored = await getQuestion(
+      db,
+      alpha.workspace.id,
+      payload.questionId as string
+    );
+    expect(stored).toMatchObject({
+      agentId: alpha.agent.id,
+      channelId: alpha.channelId,
+      status: "pending",
+    });
+
+    // The card is a message the agent authored, and reading the channel back
+    // shows it as one.
+    const channel = payloadOf(
+      await call(alpha, "read_channel", { channelId: alpha.channelId })
+    );
+    const messages = channel.messages as { body: string; id: string }[];
+    const card = messages.find((row) => row.id === payload.messageId);
+    expect(card?.body).toBe("Ship it on Friday or Monday?");
+  });
+
+  test("refuses a channel the agent is not in, and a nonsense expiry", async () => {
+    const theirs = await call(alpha, "ask_user", {
+      channelId: beta.channelId,
+      question: "trespassing",
+    });
+    expect(theirs.isError).toBe(true);
+    expect(textOf(theirs)).toContain("not a member of that channel");
+
+    const badExpiry = await call(alpha, "ask_user", {
+      channelId: alpha.channelId,
+      expires_in: "10s",
+      question: "too soon",
+    });
+    expect(badExpiry.isError).toBe(true);
+  });
+
+  test("an expiry is stored as a deadline, not as a promise to wait", async () => {
+    const payload = await askIn(alpha, { expires_in: "30m" });
+    const stored = await getQuestion(
+      db,
+      alpha.workspace.id,
+      payload.questionId as string
+    );
+    const expiresAt = stored?.expiresAt?.getTime() ?? 0;
+    expect(expiresAt).toBeGreaterThan(Date.now() + 29 * 60_000);
+    expect(expiresAt).toBeLessThan(Date.now() + 31 * 60_000);
+  });
+});
+
+describe("check_answer", () => {
+  test("pending before, answered after - with the answerer's name", async () => {
+    const asked = payloadOf(
+      await call(alpha, "ask_user", {
+        channelId: alpha.channelId,
+        options: ["Friday", "Monday"],
+        question: "Ship it on Friday or Monday?",
+      })
+    );
+    const questionId = asked.questionId as string;
+
+    const before = payloadOf(await call(alpha, "check_answer", { questionId }));
+    expect(before).toMatchObject({
+      answer: null,
+      answeredBy: null,
+      options: ["Friday", "Monday"],
+      status: "pending",
+    });
+
+    const question = await getQuestion(db, alpha.workspace.id, questionId);
+    if (!question) {
+      throw new Error("Expected the question row.");
+    }
+    await answerQuestion(db, fakeEnv(), alpha.workspace, question, {
+      answer: "Monday",
+      by: {
+        authorId: alpha.clerkUserId,
+        authorType: "user",
+        id: alpha.memberId,
+        via: "web",
+      },
+    });
+
+    const after = payloadOf(await call(alpha, "check_answer", { questionId }));
+    expect(after).toMatchObject({
+      answer: "Monday",
+      answeredBy: "Ada Lovelace",
+      status: "answered",
+    });
+    // A name, and never the Clerk id behind it.
+    expect(JSON.stringify(after)).not.toContain(ADA_ID);
+
+    // The answer reached the agent the way a mention does.
+    const thread = await getThread(db, alpha.workspace, question.messageId);
+    expect(thread?.replies[0]?.body).toBe("@Researcher Answer: Monday");
+  });
+
+  test("another agent's question reads exactly like one that never existed", async () => {
+    const asked = payloadOf(
+      await call(alpha, "ask_user", {
+        channelId: alpha.channelId,
+        question: "mine",
+      })
+    );
+    const questionId = asked.questionId as string;
+
+    // Another workspace's agent, and an id nobody has: same refusal, same
+    // wording bar the id.
+    const theirs = await call(beta, "check_answer", { questionId });
+    const missing = await call(beta, "check_answer", {
+      questionId: "00000000-0000-4000-8000-000000000000",
+    });
+    expect(theirs.isError).toBe(true);
+    expect(theirs.isError).toBe(missing.isError);
+    expect(textOf(theirs)).toBe(`No question with id ${questionId}.`);
+    expect(textOf(missing)).toBe(
+      "No question with id 00000000-0000-4000-8000-000000000000."
+    );
+
+    // And a second agent inside the *same* workspace is refused too.
+    const sibling = await createAgent(db, alpha.workspace.id, {
+      instructions: "",
+      name: "Analyst",
+      soul: "",
+    });
+    const siblingTools = toolsOf({
+      agent: sibling.agent,
+      db,
+      env: fakeEnv(),
+      requestUrl: "https://app.example.com/mcp/tok",
+      workspace: alpha.workspace,
+    });
+    const nosy = await siblingTools.get("check_answer")?.({ questionId });
+    expect(nosy?.isError).toBe(true);
+    expect(nosy && textOf(nosy)).toBe(`No question with id ${questionId}.`);
   });
 });

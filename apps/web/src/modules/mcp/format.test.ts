@@ -16,6 +16,7 @@ const message = (overrides: Partial<MessageView> = {}): MessageView => ({
   id: "message-1",
   mentions: [],
   origin: "native",
+  question: null,
   replyCount: 0,
   threadParentId: null,
   ...overrides,

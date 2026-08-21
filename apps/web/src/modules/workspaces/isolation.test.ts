@@ -66,6 +66,9 @@ const { attachmentsRoutes } = await import(
 );
 const { channelsRoutes } = await import("#/modules/messaging/routes/channels");
 const { messagesRoutes } = await import("#/modules/messaging/routes/messages");
+const { agentQuestionsRoutes, questionsRoutes } = await import(
+  "#/modules/questions/routes"
+);
 const { routinesRoutes } = await import("#/modules/routines/routes");
 const { skillsRoutes } = await import("#/modules/skills/routes");
 const { wikiRoutes } = await import("#/modules/wiki/routes");
@@ -84,6 +87,7 @@ const { storeAttachment } = await import(
 const { createChannel, createMessage } = await import(
   "#/modules/messaging/service"
 );
+const { ask } = await import("#/modules/questions/service");
 const { createRoutine } = await import("#/modules/routines/service");
 const { createSkill } = await import("#/modules/skills/service");
 const { validateSkill } = await import("#/modules/skills/validate");
@@ -160,6 +164,7 @@ workspaceScopedRoutes.route("/agents", computerRoutes);
 workspaceScopedRoutes.route("/agents", browserRoutes);
 workspaceScopedRoutes.route("/agents", agentActivityRoutes);
 workspaceScopedRoutes.route("/agents", agentSlackAppRoutes);
+workspaceScopedRoutes.route("/agents", agentQuestionsRoutes);
 workspaceScopedRoutes.route("/channels", channelsRoutes);
 workspaceScopedRoutes.route("/categories", categoriesRoutes);
 workspaceScopedRoutes.route("/messages", messagesRoutes);
@@ -168,6 +173,7 @@ workspaceScopedRoutes.route("/wiki", wikiRoutes);
 workspaceScopedRoutes.route("/connectors", connectorsRoutes);
 workspaceScopedRoutes.route("/skills", skillsRoutes);
 workspaceScopedRoutes.route("/routines", routinesRoutes);
+workspaceScopedRoutes.route("/questions", questionsRoutes);
 workspaceScopedRoutes.route("/channels", bridgeRoutes);
 workspaceScopedRoutes.route("/bridges", bridgesRoutes);
 
@@ -183,6 +189,7 @@ interface Seeded {
   connectorId: string;
   mcpToken: string;
   messageId: string;
+  questionId: string;
   routineId: string;
   skillSlug: string;
   slackAppId: string;
@@ -312,6 +319,15 @@ const seedWorkspace = async (
     timezone: "UTC",
   });
 
+  const asked = await ask(db, env, ref, agent, {
+    channelId: channel.id,
+    options: ["Approve", "Deny"],
+    prompt: "May I delete the 14 stale rows?",
+  });
+  if (!asked.ok) {
+    throw new Error("Could not seed the question.");
+  }
+
   const page = await createPage(db, workspaceId, {
     author: { id: clerkUserId, type: "user" },
     body: "Notes.",
@@ -354,6 +370,7 @@ const seedWorkspace = async (
     connectorId: connector.id,
     mcpToken,
     messageId: posted.message.id,
+    questionId: asked.question.id,
     routineId: routine.id,
     skillSlug: "shared-slug",
     slackAppId: slackApp.id,
@@ -368,7 +385,17 @@ beforeEach(async () => {
   db = createDb(d1);
   bucket = fakeBucket();
   env = {
+    // Asking a question publishes a message, which fans out to the channel
+    // room and the router; both are stubbed so the seed takes the real path.
+    AGENT_ROUTER: {
+      get: () => ({ notifyMessage: () => Promise.resolve() }),
+      idFromName: (name: string) => name,
+    },
     ATTACHMENTS: bucket,
+    CHANNEL_ROOM: {
+      get: () => ({ broadcast: () => Promise.resolve() }),
+      idFromName: (name: string) => name,
+    },
     CLERK_SECRET_KEY: "sk_test_fake",
     DB: d1,
   } as unknown as Env;
@@ -727,6 +754,32 @@ describe("workspace B's ids through workspace A's path", () => {
     expect(own.routine).toMatchObject({ enabled: true, id: beta.routineId });
   });
 
+  test("questions: another workspace's question cannot be read or answered", async () => {
+    const attempts = [
+      {
+        body: { answer: "Approve" },
+        method: "POST",
+        path: `/api/w/alpha/questions/${beta.questionId}/answer`,
+      },
+      { path: `/api/w/alpha/agents/${beta.agentId}/questions` },
+    ];
+    expect(await sweep(attempts)).toEqual(allRefused(attempts));
+
+    // Beta's question is untouched: still pending, still unanswered.
+    const own = (await (
+      await request("/api/w/beta/questions?status=pending", { as: BOB_ID })
+    ).json()) as { questions: { id: string; status: string }[] };
+    expect(own.questions).toEqual([
+      expect.objectContaining({ id: beta.questionId, status: "pending" }),
+    ]);
+
+    // And Alpha's own list never shows it.
+    const mine = (await (await request("/api/w/alpha/questions")).json()) as {
+      questions: { id: string }[];
+    };
+    expect(mine.questions.map((row) => row.id)).toEqual([alpha.questionId]);
+  });
+
   test("bridges: read, create, delete, and the agent's surfaces", async () => {
     const attempts = [
       { path: `/api/w/alpha/channels/${beta.bridgeChannelId}/bridge` },
@@ -830,6 +883,7 @@ describe("deleting a workspace", () => {
       "channel_bridges",
       "slack_apps",
       "routines",
+      "agent_questions",
     ];
     const gone = await Promise.all(
       tables.map((table) => counts(table, beta.workspaceId))

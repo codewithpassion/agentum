@@ -14,6 +14,7 @@ export default defineConfig({
     "./src/modules/categories/schema.ts",
     "./src/modules/connectors/schema.ts",
     "./src/modules/messaging/schema.ts",
+    "./src/modules/questions/schema.ts",
     "./src/modules/routines/schema.ts",
     "./src/modules/skills/schema.ts",
     "./src/modules/wiki/schema.ts",

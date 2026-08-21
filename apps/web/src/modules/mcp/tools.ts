@@ -22,6 +22,16 @@ import {
   listChannelsForMember,
   type MessageCursor,
 } from "#/modules/messaging/service";
+import { parseExpiresIn } from "#/modules/questions/duration";
+import { QUESTION_KINDS } from "#/modules/questions/schema";
+import {
+  ask,
+  getQuestionForAgent,
+  PROMPT_MAX_LENGTH,
+  resolveIfExpired,
+} from "#/modules/questions/service";
+import { optionsOf, toQuestionViews } from "#/modules/questions/view";
+import { rescheduleQuestionExpiry } from "#/modules/routines/scheduler";
 import {
   getPageBySlug,
   listPages,
@@ -255,6 +265,127 @@ const registerListAgents = (server: McpServer, ctx: McpToolContext): void => {
           name: agent.name,
           soul: agent.soul,
         })),
+      });
+    }
+  );
+};
+
+// --- questions ---------------------------------------------------------------
+
+const NO_SUCH_QUESTION = (questionId: string) =>
+  `No question with id ${questionId}.`;
+
+const registerAskUser = (server: McpServer, ctx: McpToolContext): void => {
+  server.registerTool(
+    "ask_user",
+    {
+      description:
+        'Ask the humans a question in a channel and stop. Use it when you genuinely need a decision only they can make - a missing detail, a choice between paths, or permission before anything destructive or irreversible (deleting data, spending money, posting somewhere public): set kind to "permission" for those and do not perform the action until an approving answer arrives. Ask in the channel where the work is happening, so whoever answers has the context. This returns immediately with a questionId and does not wait: end your turn after asking. The answer arrives as a reply in the question\'s thread that wakes you like a mention, and you carry on from there.',
+      inputSchema: {
+        channelId: z
+          .string()
+          .describe("The channel to ask in - where the work is happening."),
+        expires_in: z
+          .string()
+          .optional()
+          .describe(
+            'Optional deadline, e.g. "30m", "2h", "1d". When it passes you are woken with an expiry notice instead of an answer, so you can proceed with your default. Leave it out to wait indefinitely, which is usually right.'
+          ),
+        kind: z
+          .enum(QUESTION_KINDS)
+          .optional()
+          .describe(
+            '"question" for a decision you need, "permission" to ask before doing something risky (defaults to Approve/Deny).'
+          ),
+        options: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "The choices to offer as buttons. Leave it out for a free-text answer."
+          ),
+        question: z
+          .string()
+          .max(PROMPT_MAX_LENGTH)
+          .describe("What you are asking, in plain words. Markdown."),
+      },
+      title: "Ask the humans",
+    },
+    async ({ channelId, expires_in, kind, options, question }) => {
+      if (!(await isChannelMember(ctx.db, channelId, memberOf(ctx.agent)))) {
+        return fail(NOT_A_MEMBER);
+      }
+      const expiry = parseExpiresIn(expires_in);
+      if (!expiry.ok) {
+        return fail(expiry.reason);
+      }
+
+      const result = await ask(ctx.db, ctx.env, ctx.workspace, ctx.agent, {
+        channelId,
+        expiresIn: expiry.seconds,
+        kind,
+        options,
+        prompt: question,
+      });
+      if (!result.ok) {
+        return fail(result.reason);
+      }
+      if (result.question.expiresAt) {
+        // The workspace's timer is what closes an expiry nobody is watching.
+        await rescheduleQuestionExpiry(ctx.env, ctx.workspace.id);
+      }
+
+      return json({
+        expiresAt: result.question.expiresAt?.toISOString() ?? null,
+        messageId: result.message.id,
+        questionId: result.question.id,
+        status: result.question.status,
+      });
+    }
+  );
+};
+
+const registerCheckAnswer = (server: McpServer, ctx: McpToolContext): void => {
+  server.registerTool(
+    "check_answer",
+    {
+      description:
+        'Look up a question you asked with ask_user. Only for a session that chose to keep working after asking - you do not need to poll, because an answer wakes you by itself. Returns status "pending" while it waits, "answered" with the answer and who gave it, or "expired" when its deadline passed without one.',
+      inputSchema: {
+        questionId: z.string().describe("The id ask_user gave you."),
+      },
+      title: "Check a question's answer",
+    },
+    async ({ questionId }) => {
+      // Scoped to this agent's own questions: another agent's id in the same
+      // workspace reads exactly like an id that never existed.
+      const found = await getQuestionForAgent(
+        ctx.db,
+        ctx.workspace.id,
+        ctx.agent.id,
+        questionId
+      );
+      if (!found) {
+        return fail(NO_SUCH_QUESTION(questionId));
+      }
+      const question = await resolveIfExpired(
+        ctx.db,
+        ctx.env,
+        ctx.workspace,
+        found
+      );
+
+      const [view] = await toQuestionViews(ctx.db, ctx.workspace.id, [
+        question,
+      ]);
+      const answerer = view ? view.answeredBy : null;
+      return json({
+        answer: question.answer,
+        // A name, never an id: who answered is context for the agent, not
+        // something for it to address.
+        answeredBy: answerer ? answerer.name : null,
+        options: optionsOf(question),
+        question: question.prompt,
+        status: question.status,
       });
     }
   );
@@ -564,6 +695,8 @@ export const registerWorkspaceTools = (
   registerReadThread(server, ctx);
   registerPostMessage(server, ctx);
   registerListAgents(server, ctx);
+  registerAskUser(server, ctx);
+  registerCheckAnswer(server, ctx);
   registerWikiTools(server, ctx);
   registerSkillTools(server, ctx);
   registerComputerFileTools(server, ctx);

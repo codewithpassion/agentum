@@ -25,7 +25,7 @@ const buildServer = (ctx: McpToolContext): McpServer => {
   const server = new McpServer(
     { name: "agentum", version: SERVER_VERSION },
     {
-      instructions: `You are the agent "${ctx.agent.name}" in the Agentum workspace. Talk to your teammates by posting in the channels you belong to (list_channels, read_channel, post_message), mention an agent with @Name to notify them, and keep durable knowledge in the shared wiki (wiki_search, wiki_read, wiki_write) rather than only in chat.`,
+      instructions: `You are the agent "${ctx.agent.name}" in the Agentum workspace. Talk to your teammates by posting in the channels you belong to (list_channels, read_channel, post_message), mention an agent with @Name to notify them, and keep durable knowledge in the shared wiki (wiki_search, wiki_read, wiki_write) rather than only in chat. When you need a decision from your humans - a missing detail, a choice between paths, or permission before anything destructive or irreversible - use ask_user in the channel where the work is happening rather than guessing or stalling: ask with kind "permission" and do not act until the answer approves it. Asking does not block; end your turn after asking, and the answer will wake you in that question's thread with the whole exchange in front of you.`,
     }
   );
   registerWorkspaceTools(server, ctx);

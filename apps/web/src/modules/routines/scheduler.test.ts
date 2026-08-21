@@ -361,3 +361,90 @@ describe("the alarm", () => {
     expect(store.alarms()).toBeNull();
   });
 });
+
+/**
+ * Questions ride the same alarm (docs/plan-ask-user.md): the workspace has one
+ * timer, and whichever comes first - a routine's slot or a question's deadline -
+ * is what it is set for.
+ */
+describe("question expiry", () => {
+  const askWithExpiry = async (tenant: Tenant, expiresAt: Date) => {
+    const { ask } = await import("#/modules/questions/service");
+    const result = await ask(
+      db,
+      fakeEnv(),
+      { id: tenant.workspaceId, slug: "alpha" },
+      { id: tenant.agentId, name: "Ada" },
+      {
+        channelId: tenant.channelId,
+        expiresIn: 60,
+        options: ["Approve", "Deny"],
+        prompt: "May I delete the 14 stale rows?",
+      }
+    );
+    if (!result.ok) {
+      throw new Error(result.reason);
+    }
+    // Moved by hand rather than by faking the clock, exactly as the overdue
+    // routines above are.
+    await d1
+      .prepare("UPDATE agent_questions SET expires_at = ? WHERE id = ?")
+      .bind(expiresAt.getTime(), result.question.id)
+      .run();
+    return result.question;
+  };
+
+  test("the alarm closes a question whose time ran out, and wakes the agent", async () => {
+    const store = storage();
+    const question = await askWithExpiry(alpha, new Date(Date.now() - 1000));
+    const scheduler = schedulerFor(store);
+    await scheduler.reschedule(alpha.workspaceId);
+
+    await scheduler.alarm();
+
+    const { getQuestion } = await import("#/modules/questions/service");
+    expect(
+      (await getQuestion(db, alpha.workspaceId, question.id))?.status
+    ).toBe("expired");
+
+    const { getThread } = await import("#/modules/messaging/service");
+    const thread = await getThread(
+      db,
+      { id: alpha.workspaceId, slug: "alpha" },
+      question.messageId
+    );
+    expect(thread?.replies[0]?.body).toStartWith("@Ada Answer: (expired");
+    expect(thread?.replies[0]?.mentions.map((m) => m.agentId)).toEqual([
+      alpha.agentId,
+    ]);
+
+    // Nothing left on a clock: the alarm is released.
+    expect(store.alarms()).toBeNull();
+  });
+
+  test("the one alarm points at whichever comes first", async () => {
+    const store = storage();
+    const soon = new Date(Date.now() + 60_000);
+    const later = new Date(Date.now() + 3_600_000);
+    await routineFor(alpha, { nextRunAt: later });
+    await askWithExpiry(alpha, soon);
+
+    await schedulerFor(store).reschedule(alpha.workspaceId);
+
+    expect(store.alarms()).toBe(soon.getTime());
+  });
+
+  test("another workspace's expiry is none of its business", async () => {
+    const store = storage();
+    const theirs = await askWithExpiry(beta, new Date(Date.now() - 1000));
+    const scheduler = schedulerFor(store);
+    await scheduler.reschedule(alpha.workspaceId);
+
+    await scheduler.alarm();
+
+    const { getQuestion } = await import("#/modules/questions/service");
+    expect((await getQuestion(db, beta.workspaceId, theirs.id))?.status).toBe(
+      "pending"
+    );
+  });
+});

@@ -21,6 +21,10 @@ import { mcpRoutes } from "#/modules/mcp/routes";
 import { attachmentsRoutes } from "#/modules/messaging/routes/attachments";
 import { channelsRoutes } from "#/modules/messaging/routes/channels";
 import { messagesRoutes } from "#/modules/messaging/routes/messages";
+import {
+  agentQuestionsRoutes,
+  questionsRoutes,
+} from "#/modules/questions/routes";
 import { routinesRoutes } from "#/modules/routines/routes";
 import { skillsRoutes } from "#/modules/skills/routes";
 import { wikiRoutes } from "#/modules/wiki/routes";
@@ -98,6 +102,8 @@ workspaceScopedRoutes.route("/agents", browserRoutes);
 workspaceScopedRoutes.route("/agents", agentActivityRoutes);
 // The agent's Slack connection wizard, on the same fall-through principle.
 workspaceScopedRoutes.route("/agents", agentSlackAppRoutes);
+// And the questions it is waiting on, which read as part of the agent too.
+workspaceScopedRoutes.route("/agents", agentQuestionsRoutes);
 workspaceScopedRoutes.route("/channels", channelsRoutes);
 workspaceScopedRoutes.route("/categories", categoriesRoutes);
 workspaceScopedRoutes.route("/messages", messagesRoutes);
@@ -109,6 +115,8 @@ workspaceScopedRoutes.route("/skills", skillsRoutes);
 // Routines: scheduled instructions, fired into a channel by the per-workspace
 // RoutineScheduler Durable Object exported above.
 workspaceScopedRoutes.route("/routines", routinesRoutes);
+// Questions agents asked their humans, and the answers that wake them.
+workspaceScopedRoutes.route("/questions", questionsRoutes);
 // Bridge management lives in the bridges module but reads as part of a
 // channel; Hono falls through to it for the paths `channelsRoutes` does not own.
 workspaceScopedRoutes.route("/channels", bridgeRoutes);

@@ -13,6 +13,7 @@ const message = (over: Partial<MessageView>): MessageView => ({
   id: "msg_1",
   mentions: [],
   origin: "web",
+  question: null,
   replyCount: 0,
   threadParentId: null,
   ...over,

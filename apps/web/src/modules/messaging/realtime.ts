@@ -1,3 +1,4 @@
+import type { QuestionView } from "#/modules/questions/view";
 import type { MessageView } from "./service";
 
 /**
@@ -27,9 +28,24 @@ export interface RouterSuppressedEvent {
   type: "router.suppressed";
 }
 
+/**
+ * A question was answered or expired. The card is drawn from the question that
+ * came with its message, so this event carries the whole replacement rather
+ * than a status: whoever answered - a web card, a Slack button, the expiry
+ * sweep - every open client redraws from the same shape.
+ */
+export interface QuestionUpdatedEvent {
+  channelId: string;
+  /** The question card message, which is what a client keys the card by. */
+  messageId: string;
+  question: QuestionView;
+  type: "question.updated";
+}
+
 export type ChannelEvent =
   | AgentStatusEvent
   | MessageCreatedEvent
+  | QuestionUpdatedEvent
   | RouterSuppressedEvent;
 
 const roomFor = (env: Env, channelId: string) =>
