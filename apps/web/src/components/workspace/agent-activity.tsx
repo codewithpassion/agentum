@@ -9,7 +9,7 @@ import type { AgentStatuses } from "#/lib/use-conversation";
 const BUSY_LABELS = {
   error: "ran into a problem",
   queued: "is queued, waiting for a free session",
-  working: "is working…",
+  working: "is typing…",
 } as const;
 
 type BusyStatus = keyof typeof BUSY_LABELS;

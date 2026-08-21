@@ -24,6 +24,15 @@ export interface SlackOutboundPorts {
   /** Our thread parent's Slack `channel:ts`, when it has one. */
   resolveParentKey: (internalMessageId: string) => Promise<string | null>;
   /**
+   * The "Thinking…" message this agent left in this thread, claimed so it can
+   * be rewritten into the reply. `null` when there is none - the ordinary case
+   * for every message that is not an agent answering in a bridged thread.
+   */
+  takeThinkingPlaceholder: (
+    agentId: string,
+    threadParentId: string
+  ) => Promise<string | null>;
+  /**
    * Deep link to a question card in the web app, for the one thing Slack cannot
    * do in a message: type a free-text answer. Resolved lazily - only a question
    * without options ever asks for it.
@@ -72,6 +81,26 @@ const uploadAttachments = async (
 };
 
 /**
+ * Rewrites the "Thinking…" message into the reply. `chat.update` cannot carry
+ * files, so a reply with attachments gives the placeholder up and posts fresh -
+ * the attachments matter more than saving one message.
+ */
+const replacePlaceholder = async (
+  client: SlackClient,
+  bridge: ChannelBridge,
+  placeholderKey: string,
+  content: Pick<SlackPostMessageInput, "blocks" | "text">
+): Promise<{ ts: string } | null> => {
+  const ts = slackMessageTs(placeholderKey);
+  const updated = await client.chatUpdate({
+    channel: bridge.externalChannelId,
+    ts,
+    ...content,
+  });
+  return updated ? { ts } : null;
+};
+
+/**
  * The echo-loop guard: a message that came from Slack is never sent back to
  * Slack. Everything else in a bridged channel - the user's posts from our UI
  * and the agents' posts through MCP - is mirrored.
@@ -95,11 +124,23 @@ export const mirrorSlackMessage = async (
     ? await questionPayload(message.question, ports)
     : { text: mirroredText(message.body, await ports.authorName(message)) };
 
-  const posted = await client.postMessage({
-    channel: bridge.externalChannelId,
-    ...content,
-    ...(threadTs ? { threadTs } : {}),
-  });
+  // A reply into a thread we said we were thinking about replaces what we said
+  // there, rather than leaving "Thinking…" sitting above the answer to it.
+  const placeholder =
+    threadTs && message.authorType === "agent"
+      ? await ports.takeThinkingPlaceholder(
+          message.authorId,
+          message.threadParentId ?? ""
+        )
+      : null;
+
+  const posted = placeholder
+    ? await replacePlaceholder(client, bridge, placeholder, content)
+    : await client.postMessage({
+        channel: bridge.externalChannelId,
+        ...content,
+        ...(threadTs ? { threadTs } : {}),
+      });
   if (!posted) {
     return null;
   }

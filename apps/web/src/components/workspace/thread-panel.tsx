@@ -4,6 +4,7 @@ import type { Agent, MessageView } from "#/lib/api";
 import { authorOf, type Viewer } from "#/lib/authors";
 import type { Conversation } from "#/lib/use-conversation";
 import { useApi } from "#/lib/workspace-context";
+import { AgentActivity } from "./agent-activity";
 import { Composer } from "./composer";
 import { MessageItem } from "./message-item";
 
@@ -147,6 +148,13 @@ export function ThreadPanel({
         </div>
       </div>
 
+      {/* The same channel-scoped statuses the main pane shows: a reply being
+          written in a thread is the moment somebody is most obviously waiting
+          for one. */}
+      <AgentActivity
+        statuses={conversation.agentStatuses}
+        suppressed={conversation.suppressed}
+      />
       <Composer agents={agents} onSend={send} placeholder="Reply in thread" />
     </aside>
   );

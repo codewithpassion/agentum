@@ -7,6 +7,17 @@
 /** One model for every agent until per-agent model choice earns its keep. */
 export const AGENT_MODEL = "claude-sonnet-5";
 
+/**
+ * The cheap, quick model behind the decisions that sit *in front of* an agent
+ * rather than being its work: is this thread message meant for you, and what
+ * should the "thinking" line say while you answer. Both run on the path a human
+ * is waiting on, and neither is worth a frontier model.
+ *
+ * Haiku 4.5 predates `output_config.effort` and adaptive thinking - it takes
+ * neither - so the calls in `fast.ts` pass only a model, a cap and messages.
+ */
+export const FAST_MODEL = "claude-haiku-4-5";
+
 /** The single reusable environment. Names are unique per workspace. */
 export const ENVIRONMENT_NAME = "agentum";
 

@@ -52,7 +52,11 @@ export const buildNotification = async (
   if (message.authorType === "agent") {
     const [author] = await getAgentsByIds(db, [message.authorId]);
     authorName = author?.name ?? "A deleted agent";
-  } else if (message.authorType === "external") {
+  } else if (message.authorType === "external" && !message.author) {
+    // Only when nobody has a name for them. A Slack author the bridge has seen
+    // resolves through `external_authors` like any other person, and calling
+    // them "someone outside the workspace" in the same breath as naming them
+    // in the thread transcript is what confuses the addressing decision.
     authorName = EXTERNAL_NAME;
   }
 
@@ -68,6 +72,7 @@ export const buildNotification = async (
     memberAgentIds,
     mentionedAgentIds: message.mentions.map((mention) => mention.agentId),
     messageId: message.id,
+    origin: message.origin,
     threadParentId: message.threadParentId,
     workspaceId: channel.workspaceId,
   };

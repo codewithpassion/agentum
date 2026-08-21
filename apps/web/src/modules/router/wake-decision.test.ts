@@ -15,6 +15,7 @@ const notification = (
   memberAgentIds: ["cos", "researcher"],
   mentionedAgentIds: [],
   messageId: "message_1",
+  origin: "native",
   threadParentId: null,
   workspaceId: "workspace_1",
   ...overrides,
@@ -91,5 +92,49 @@ describe("decideWakes", () => {
     );
 
     expect(kindOf(targets, "cos")).toBe("immediate");
+  });
+});
+
+describe("implicit thread addressing", () => {
+  const threadReply = (overrides: Partial<MessageNotification> = {}) =>
+    notification({
+      origin: "slack",
+      threadParentId: "message_0",
+      ...overrides,
+    });
+
+  test("asks about an unmentioned reply in a bridged thread", () => {
+    const targets = decideWakes(threadReply());
+    expect(kindOf(targets, "cos")).toBe("consider");
+    expect(kindOf(targets, "researcher")).toBe("consider");
+  });
+
+  test("a mention still settles it without asking", () => {
+    const targets = decideWakes(threadReply({ mentionedAgentIds: ["cos"] }));
+    expect(kindOf(targets, "cos")).toBe("immediate");
+    // The others are still only maybes - being named is not exclusive.
+    expect(kindOf(targets, "researcher")).toBe("consider");
+  });
+
+  test("a message at the top of a channel is never implicit", () => {
+    // Out here an agent is addressed by name; guessing would wake it on
+    // everything anyone says in a channel it happens to be in.
+    expect(kindOf(decideWakes(notification({ origin: "slack" })), "cos")).toBe(
+      "digest"
+    );
+  });
+
+  test("a native thread reply is not implicit", () => {
+    expect(kindOf(decideWakes(threadReply({ origin: "native" })), "cos")).toBe(
+      "digest"
+    );
+  });
+
+  test("an agent's own thread reply does not wake the others implicitly", () => {
+    // Otherwise two agents in one thread talk each other awake.
+    const targets = decideWakes(
+      threadReply({ authorId: "cos", authorType: "agent" })
+    );
+    expect(kindOf(targets, "researcher")).toBe("digest");
   });
 });

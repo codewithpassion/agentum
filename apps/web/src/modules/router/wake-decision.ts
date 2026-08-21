@@ -20,6 +20,13 @@ export interface MessageNotification {
   /** Agent ids the message @mentions, as resolved when it was stored. */
   mentionedAgentIds: string[];
   messageId: string;
+  /**
+   * Where the message came from - `slack` for a bridged one, `native`
+   * otherwise. Implicit thread addressing is scoped to bridged surfaces: in
+   * the web UI a thread reply is one click from a mention, and a Slack one is
+   * not.
+   */
+  origin: string;
   threadParentId: string | null;
   /**
    * The channel's workspace. It travels with the notification because that is
@@ -29,7 +36,10 @@ export interface MessageNotification {
   workspaceId: string;
 }
 
-export type WakeKind = "immediate" | "digest";
+export type WakeKind = "consider" | "digest" | "immediate";
+
+/** Where implicit thread addressing applies; see `addressing.ts`. */
+const IMPLICIT_ORIGIN = "slack";
 
 export interface WakeTarget {
   agentId: string;
@@ -52,14 +62,25 @@ export const decideWakes = (
     notification.mentionedAgentIds.filter((id) => members.has(id))
   );
 
+  // A thread reply on a bridged surface is the one case where not being
+  // mentioned does not settle it. `consider` is not a third outcome - it is a
+  // question the router asks before landing on immediate or digest.
+  const implicit =
+    notification.origin === IMPLICIT_ORIGIN &&
+    notification.threadParentId !== null &&
+    notification.channelKind !== "dm" &&
+    notification.authorType !== "agent";
+
   const targets: WakeTarget[] = [];
   for (const agentId of notification.memberAgentIds) {
     if (authoredByAgent && agentId === notification.authorId) {
       continue;
     }
-    const immediate =
-      mentioned.has(agentId) || notification.channelKind === "dm";
-    targets.push({ agentId, kind: immediate ? "immediate" : "digest" });
+    if (mentioned.has(agentId) || notification.channelKind === "dm") {
+      targets.push({ agentId, kind: "immediate" });
+      continue;
+    }
+    targets.push({ agentId, kind: implicit ? "consider" : "digest" });
   }
 
   return targets;

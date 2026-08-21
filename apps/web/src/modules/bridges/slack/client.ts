@@ -41,6 +41,18 @@ export interface SlackChannelInfo {
 }
 
 export interface SlackClient {
+  /**
+   * Slack's own "is thinking…" line under a thread. Only an app with the
+   * Agents & AI Apps feature may set one - for anything else Slack refuses and
+   * this is false, which is the signal to fall back to a placeholder message.
+   */
+  assistantSetStatus: (input: {
+    channel: string;
+    status: string;
+    threadTs: string;
+  }) => Promise<boolean>;
+  /** Removes a message we posted - how an unreplaceable placeholder is cleared. */
+  chatDelete: (input: { channel: string; ts: string }) => Promise<boolean>;
   /** Rewrites a message we posted - how a resolved question loses its buttons. */
   chatUpdate: (input: SlackUpdateMessageInput) => Promise<boolean>;
   /** `null` when Slack refused the call - never throws for an API-level error. */
@@ -234,6 +246,26 @@ export const createSlackClient = (
   };
 
   return {
+    async assistantSetStatus(input) {
+      const payload = await post<SlackApiResponse>(
+        "assistant.threads.setStatus",
+        {
+          channel_id: input.channel,
+          status: input.status,
+          thread_ts: input.threadTs,
+        }
+      );
+      return payload !== null;
+    },
+
+    async chatDelete(input) {
+      const payload = await post<SlackApiResponse>("chat.delete", {
+        channel: input.channel,
+        ts: input.ts,
+      });
+      return payload !== null;
+    },
+
     async chatUpdate(input) {
       const payload = await post<SlackApiResponse>("chat.update", {
         channel: input.channel,

@@ -59,6 +59,8 @@ const client = (
   recorded: Recorded,
   postResult: { ts: string } | null = { ts: "1787200000.000900" }
 ): SlackClient => ({
+  assistantSetStatus: () => Promise.resolve(false),
+  chatDelete: () => Promise.resolve(true),
   chatUpdate: (input) => {
     recorded.updates.push(input);
     return Promise.resolve(true);
@@ -79,7 +81,8 @@ const client = (
 
 const ports = (
   parentKeys: Record<string, string> = {},
-  link: string | null = "https://agentum.example.com/w/alpha?channel=channel-1"
+  link: string | null = "https://agentum.example.com/w/alpha?channel=channel-1",
+  placeholder: string | null = null
 ): SlackOutboundPorts => ({
   authorName: (subject) =>
     Promise.resolve(subject.authorType === "agent" ? "Researcher" : null),
@@ -90,6 +93,7 @@ const ports = (
     }),
   resolveParentKey: (internalMessageId) =>
     Promise.resolve(parentKeys[internalMessageId] ?? null),
+  takeThinkingPlaceholder: () => Promise.resolve(placeholder),
   webLink: () => Promise.resolve(link),
 });
 
@@ -181,6 +185,42 @@ describe("mirrorSlackMessage", () => {
     );
 
     expect(recorded.posts[0]?.threadTs).toBeUndefined();
+  });
+
+  test('rewrites the "Thinking…" message instead of posting beside it', async () => {
+    const recorded = recorder();
+
+    const ref = await mirrorSlackMessage(
+      message({ id: "message-2", threadParentId: "message-1" }),
+      bridge(),
+      client(recorded),
+      ports(
+        { "message-1": `${SLACK_CHANNEL}:1787200000.000100` },
+        null,
+        `${SLACK_CHANNEL}:1787200000.000500`
+      )
+    );
+
+    expect(recorded.posts).toEqual([]);
+    expect(recorded.updates[0]?.ts).toBe("1787200000.000500");
+    expect(recorded.updates[0]?.text).toContain("on it");
+    // The reply *is* that message now, so the ref has to point at it - a
+    // thread reply to the answer must land under the answer.
+    expect(ref?.externalId).toBe(`${SLACK_CHANNEL}:1787200000.000500`);
+  });
+
+  test("posts normally when there is no placeholder to rewrite", async () => {
+    const recorded = recorder();
+
+    await mirrorSlackMessage(
+      message({ id: "message-2", threadParentId: "message-1" }),
+      bridge(),
+      client(recorded),
+      ports({ "message-1": `${SLACK_CHANNEL}:1787200000.000100` })
+    );
+
+    expect(recorded.updates).toEqual([]);
+    expect(recorded.posts).toHaveLength(1);
   });
 
   test("re-uploads attachments into the same thread", async () => {

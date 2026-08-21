@@ -183,6 +183,7 @@ const notification = (
   memberAgentIds: [tenant.agentId],
   mentionedAgentIds: [tenant.agentId],
   messageId: crypto.randomUUID(),
+  origin: "native",
   threadParentId: null,
   workspaceId: tenant.workspaceId,
   ...overrides,

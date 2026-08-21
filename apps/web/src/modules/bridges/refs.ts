@@ -25,6 +25,24 @@ export const recordExternalRef = async (
     .onConflictDoNothing();
 };
 
+/** Drops one mapping, which is how a claimed placeholder stops being pending. */
+export const deleteExternalRef = async (
+  db: Db,
+  connector: string,
+  internalType: ExternalRefInput["internalType"],
+  internalId: string
+): Promise<void> => {
+  await db
+    .delete(externalRefs)
+    .where(
+      and(
+        eq(externalRefs.connector, connector),
+        eq(externalRefs.internalType, internalType),
+        eq(externalRefs.internalId, internalId)
+      )
+    );
+};
+
 /**
  * The refs pointing at messages that are being deleted. `external_refs` has no
  * workspace of its own - it is a bridge-scoped lookup - so the workspace-delete

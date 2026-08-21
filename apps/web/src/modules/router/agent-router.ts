@@ -4,6 +4,7 @@ import type { Agent } from "#/modules/agents/schema";
 import {
   type AgentStatus,
   getAgentById,
+  getAgentsByIds,
   listAgents,
   setAgentRuntimeStatus,
 } from "#/modules/agents/service";
@@ -12,6 +13,7 @@ import {
   reduceEvents,
   type SessionStatus,
 } from "#/modules/anthropic/events";
+import { askFast } from "#/modules/anthropic/fast";
 import type { AnthropicGateway } from "#/modules/anthropic/gateway";
 import {
   createGateway,
@@ -19,8 +21,17 @@ import {
   resyncAgentConnectorsWithAnthropic,
   sessionVaultIdsFor,
 } from "#/modules/anthropic/service";
+import { clearThinking, showThinking } from "#/modules/bridges/thinking";
 import { recordConnectorAuthFailure } from "#/modules/connectors/service";
 import { broadcastChannelEvent } from "#/modules/messaging/realtime";
+import { getThread, type MessageView } from "#/modules/messaging/service";
+import { getWorkspaceById } from "#/modules/workspaces/service";
+import {
+  ADDRESSING_SYSTEM,
+  type AddressingCandidate,
+  buildAddressingPrompt,
+  parseAddressingAnswer,
+} from "./addressing";
 import {
   DIGEST_INTERVAL_MS,
   DIGEST_MAX_ENTRIES,
@@ -46,9 +57,15 @@ import {
   SESSION_KEY,
   SESSION_KEY_PREFIX,
   type StoredSession,
+  THINKING_KEY,
+  THINKING_KEY_PREFIX,
   WORKSPACE_KEY,
 } from "./state";
-import { decideWakes, type MessageNotification } from "./wake-decision";
+import {
+  decideWakes,
+  type MessageNotification,
+  type WakeTarget,
+} from "./wake-decision";
 import {
   composeDigestWake,
   composeImmediateWake,
@@ -84,6 +101,22 @@ const toWakeEntry = (notification: MessageNotification): WakeEntry => ({
   messageId: notification.messageId,
   threadParentId: notification.threadParentId,
 });
+
+/**
+ * What to call a turn's author in the addressing prompt. `MessageView.author`
+ * resolves people (including, now, the ones writing in from Slack) but never
+ * agents, and the whole question is which agent was being spoken to - so agent
+ * turns are named from a map the caller resolves.
+ */
+const nameOfTurn = (
+  turn: MessageView,
+  agentNames: Map<string, string>
+): string => {
+  if (turn.authorType === "agent") {
+    return agentNames.get(turn.authorId) ?? "An assistant";
+  }
+  return turn.author ? turn.author.name : "Someone";
+};
 
 export class AgentRouter extends DurableObject<Env> {
   private database: Db | null = null;
@@ -166,7 +199,19 @@ export class AgentRouter extends DurableObject<Env> {
     }
 
     const pending = (await this.read<PendingNotification[]>(PENDING_KEY)) ?? [];
-    pending.push({ entry: toWakeEntry(notification), targets });
+    pending.push({
+      entry: toWakeEntry(notification),
+      targets,
+      // Only a `consider` target needs it, and only until the alarm resolves it.
+      ...(targets.some((target) => target.kind === "consider")
+        ? {
+            threadMessage: {
+              authorName: notification.authorName,
+              body: notification.body,
+            },
+          }
+        : {}),
+    });
     await this.write(PENDING_KEY, pending);
     await this.ctx.storage.setAlarm(Date.now());
   }
@@ -212,9 +257,14 @@ export class AgentRouter extends DurableObject<Env> {
       (await this.read<ChannelGuard>(GUARD_KEY(item.entry.channelId))) ??
       emptyChannelGuard();
 
+    // Settled before planning, so everything downstream still sees only
+    // "immediate" and "digest" - the rate limit, the queue and the loop guard
+    // apply to an implicitly addressed wake exactly as to a mentioned one.
+    const targets = await this.settleConsidered(item);
+
     const sessions = new Map<string, StoredSession | null>();
     const rates = new Map<string, number[]>();
-    for (const target of item.targets) {
+    for (const target of targets) {
       // Durable Object storage reads are local; a handful in sequence is
       // cheaper than the bookkeeping to parallelise them.
       // biome-ignore lint/performance/noAwaitInLoops: local Durable Object storage reads
@@ -231,7 +281,7 @@ export class AgentRouter extends DurableObject<Env> {
       isWithinRate: (agentId) =>
         checkWakeRate(rates.get(agentId) ?? [], now).allowed,
       suppressed: guard.suppressed,
-      targets: item.targets,
+      targets,
     });
 
     for (const { action, agentId } of planned) {
@@ -260,6 +310,107 @@ export class AgentRouter extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Turns every `consider` target into an `immediate` or a `digest`.
+   *
+   * Two gates, cheapest first. The thread has to be one the agent has already
+   * spoken in - a plain read, and the one that keeps this off almost every
+   * message. Only then is the model asked, once for the whole thread rather
+   * than once per agent.
+   *
+   * Any failure - no workspace, a deleted thread, a model that did not answer -
+   * lands on `digest`, which is what an unmentioned thread reply did before
+   * this existed.
+   */
+  private async settleConsidered(
+    item: PendingNotification
+  ): Promise<WakeTarget[]> {
+    const considered = item.targets.filter(
+      (target) => target.kind === "consider"
+    );
+    if (considered.length === 0) {
+      return item.targets;
+    }
+
+    const addressed = await this.whoIsAddressed(item, considered);
+    return item.targets.map((target) =>
+      target.kind === "consider"
+        ? {
+            agentId: target.agentId,
+            kind: target.agentId === addressed ? "immediate" : "digest",
+          }
+        : target
+    );
+  }
+
+  /** The agent this thread reply was meant for, or null for none of them. */
+  private async whoIsAddressed(
+    item: PendingNotification,
+    considered: readonly WakeTarget[]
+  ): Promise<string | null> {
+    const workspaceId = await this.workspaceId();
+    const parentId = item.entry.threadParentId;
+    if (!(workspaceId && parentId && item.threadMessage)) {
+      return null;
+    }
+
+    const workspace = await getWorkspaceById(this.db, workspaceId);
+    const thread = workspace
+      ? await getThread(this.db, workspace, parentId)
+      : undefined;
+    if (!thread) {
+      return null;
+    }
+
+    const turns = [thread.parent, ...thread.replies];
+    // The participation gate. An agent that has never spoken here is not in
+    // this conversation, and a thread nobody answered is not a follow-up.
+    const spoke = new Set(
+      turns
+        .filter((turn) => turn.authorType === "agent")
+        .map((turn) => turn.authorId)
+    );
+    const candidates: AddressingCandidate[] = (
+      await getAgentsByIds(
+        this.db,
+        considered
+          .filter((target) => spoke.has(target.agentId))
+          .map((target) => target.agentId)
+      )
+    ).map((agent) => ({ agentId: agent.id, name: agent.name }));
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    // Every agent that speaks in the thread, not just the candidates: a turn
+    // from an agent nobody is considering still has to read as that agent, or
+    // the transcript blurs two speakers into one.
+    const agentNames = new Map(
+      (
+        await getAgentsByIds(
+          this.db,
+          turns
+            .filter((turn) => turn.authorType === "agent")
+            .map((turn) => turn.authorId)
+        )
+      ).map((agent) => [agent.id, agent.name])
+    );
+
+    const answer = await askFast(this.env, {
+      prompt: buildAddressingPrompt({
+        candidates,
+        message: item.threadMessage,
+        thread: turns.map((turn) => ({
+          authorName: nameOfTurn(turn, agentNames),
+          body: turn.body,
+        })),
+      }),
+      system: ADDRESSING_SYSTEM,
+    });
+    const addressed = parseAddressingAnswer(answer, candidates);
+    return addressed ? addressed.agentId : null;
+  }
+
   /** Sends into a live session, or starts one. Either way the agent is working. */
   private async wake(
     agentId: string,
@@ -286,20 +437,59 @@ export class AgentRouter extends DurableObject<Env> {
     try {
       if (session) {
         await this.sendIntoSession(agent, session, text, channelId);
-        return;
+      } else {
+        // The last moment a connector change can still reach this agent: the
+        // vaults and the `mcp_servers` array are both fixed once the session
+        // exists. It is also the retry for a resync that failed while idle.
+        await this.startSession(
+          await this.settleConnectors(agent),
+          text,
+          channelId
+        );
       }
-      // The last moment a connector change can still reach this agent: the
-      // vaults and the `mcp_servers` array are both fixed once the session
-      // exists. It is also the retry for a resync that failed while idle.
-      await this.startSession(
-        await this.settleConnectors(agent),
-        text,
-        channelId
-      );
     } catch (error) {
       await this.ctx.storage.delete(SESSION_KEY(agentId));
       await this.setStatus(agentId, "error", channelId, null);
       throw error;
+    }
+
+    // After the session is running, never before: an indicator for a wake that
+    // failed to start would have to be taken straight back down.
+    const threadParentId = first?.threadParentId ?? null;
+    if (!threadParentId) {
+      return;
+    }
+    await this.write(THINKING_KEY(agentId, threadParentId), {
+      channelId,
+      threadParentId,
+    });
+    await showThinking(this.db, this.env, {
+      agentId,
+      body: first?.body ?? "",
+      channelId,
+      threadParentId,
+    });
+  }
+
+  /**
+   * Takes down a thread indicator the agent left behind. A reply already
+   * replaced it - the mirror claims the placeholder as it posts - so this only
+   * ever finds one when the session ended without answering in that thread.
+   */
+  private async retireThinking(agentId: string): Promise<void> {
+    // Every thread this agent is showing one in, not just the last: a session
+    // woken for two threads leaves two, and the one it did not answer in is
+    // exactly the one nothing else will ever clear.
+    const pending = await this.ctx.storage.list<{
+      channelId: string;
+      threadParentId: string;
+    }>({ prefix: THINKING_KEY_PREFIX(agentId) });
+
+    for (const [key, entry] of pending) {
+      // biome-ignore lint/performance/noAwaitInLoops: an agent shows at most a couple of these, and each is a Slack call
+      await this.ctx.storage.delete(key);
+      // biome-ignore lint/performance/noAwaitInLoops: paced against Slack on purpose
+      await clearThinking(this.db, this.env, { agentId, ...entry });
     }
   }
 
@@ -641,6 +831,11 @@ export class AgentRouter extends DurableObject<Env> {
     const workspaceId = await this.workspaceId();
     if (!workspaceId) {
       return;
+    }
+    if (status === "idle" || status === "error") {
+      // The agent has stopped, one way or another. Whatever it said it was
+      // thinking about, it is not any more.
+      await this.retireThinking(agentId);
     }
     await setAgentRuntimeStatus(
       this.db,

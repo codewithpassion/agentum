@@ -22,7 +22,13 @@ export interface InboundMessage {
 export interface ExternalRefInput {
   externalId: string;
   internalId: string;
-  internalType: "author" | "channel" | "message";
+  /**
+   * `thinking` is the odd one out: not a mirrored thing, but a placeholder
+   * message waiting to be rewritten into the agent's reply. It rides here
+   * because the mapping it needs - ours to Slack's `channel:ts` - is exactly
+   * what this table is.
+   */
+  internalType: "author" | "channel" | "message" | "thinking";
 }
 
 export interface BridgeAdapter<TEvent> {

@@ -17,6 +17,7 @@ import {
 import { findBridgeByExternalChannel } from "../bridges";
 import { findExternalId, findInternalId } from "../refs";
 import type { ChannelBridge, SlackApp } from "../schema";
+import { takeThinkingPlaceholder } from "../thinking";
 import type { BridgeAdapter, ExternalRefInput, InboundMessage } from "../types";
 import { slackAppCredentials } from "./apps";
 import { questionWebLink } from "./blocks";
@@ -207,6 +208,9 @@ const outboundPorts = (
     );
     return key ?? null;
   },
+
+  takeThinkingPlaceholder: (agentId, threadParentId) =>
+    takeThinkingPlaceholder(db, agentId, threadParentId),
 
   // Only a free-text question asks for this, so the workspace lookup it costs
   // is not paid by the ordinary mirrored message.
