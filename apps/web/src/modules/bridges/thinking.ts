@@ -120,7 +120,9 @@ export const cleanThinkingLine = (line: string | null): string => {
 
 const thinkingLine = async (env: Env, body: string): Promise<string> =>
   cleanThinkingLine(
-    await askFast(env, {
+    // The deployment's key: this runs off a Slack event, which carries no
+    // workspace of ours to resolve one against.
+    await askFast(env.ANTHROPIC_API_KEY, {
       maxTokens: 32,
       prompt: `Message: ${body}`,
       system: THINKING_SYSTEM,

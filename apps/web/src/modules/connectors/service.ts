@@ -150,6 +150,25 @@ export const deleteConnectorsForWorkspace = async (
   await db.delete(connectors).where(eq(connectors.workspaceId, workspaceId));
 };
 
+/**
+ * Forgets the vault a workspace's connectors are mirrored into, so the existing
+ * authorization paths create fresh ones.
+ *
+ * Called when the workspace's Anthropic API key changes: a vault and its
+ * credential belong to the key that created them. The rows keep their own
+ * encrypted management copies, so re-authorizing is not required - only the
+ * mirror has to be rebuilt.
+ */
+export const clearVaultRefsForWorkspace = async (
+  db: Db,
+  workspaceId: string
+): Promise<void> => {
+  await db
+    .update(connectors)
+    .set({ vaultCredentialId: null, vaultId: null })
+    .where(eq(connectors.workspaceId, workspaceId));
+};
+
 // --- agent assignment -------------------------------------------------------
 
 export const listAgentIdsForConnector = async (
@@ -720,6 +739,25 @@ const refreshToolCache = async (
   if (probe) {
     await patch(ctx.db, connectorId, { toolCache: cacheOf(probe) });
   }
+};
+
+/**
+ * The workspace a pending OAuth flow belongs to, read from the `state` alone.
+ *
+ * The callback carries no session, and the vault gateway it needs is keyed on
+ * the workspace - so the transport has to learn it before it can build the
+ * context `completeOAuthCallback` runs on. Read-only, and no substitute for the
+ * checks there: `validateFlow` still matches, expires and consumes the row.
+ */
+export const findWorkspaceForOauthState = async (
+  db: Db,
+  state: string
+): Promise<string | null> => {
+  const [flow] = await db
+    .select({ workspaceId: connectorOauthFlows.workspaceId })
+    .from(connectorOauthFlows)
+    .where(eq(connectorOauthFlows.state, state));
+  return flow?.workspaceId ?? null;
 };
 
 export const completeOAuthCallback = async (

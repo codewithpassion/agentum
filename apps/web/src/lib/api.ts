@@ -319,6 +319,17 @@ export interface SlackAppSetup {
   slackApp: SlackApp;
 }
 
+/**
+ * What is known about a workspace's own Anthropic key without ever reading it
+ * back: whether one is set, its last four characters, and when it was written.
+ * `setAt` is an ISO date string, and moves on a rotate.
+ */
+export interface AnthropicKeyStatus {
+  configured: boolean;
+  hint: string | null;
+  setAt: string | null;
+}
+
 /** Who an email belongs to, before adding them as a member. */
 export interface MemberSearchResult {
   email: string;
@@ -363,6 +374,23 @@ export const createApi = (workspaceSlug: string) => {
     }).then((data) => data.workspace);
 
   const deleteWorkspace = () => request<void>("", { method: "DELETE" });
+
+  // --- the workspace's own Anthropic key ------------------------------------
+  // Owner-only, and write-only: the key goes up and never comes back down.
+  // All three answer with the same status, so a caller never has to re-read.
+
+  const getAnthropicKey = () => request<AnthropicKeyStatus>("/anthropic-key");
+
+  /** Sets or rotates it. Rejected keys are never stored, and never echoed. */
+  const setAnthropicKey = (apiKey: string) =>
+    request<AnthropicKeyStatus>("/anthropic-key", {
+      json: { apiKey },
+      method: "PUT",
+    });
+
+  /** Falls the workspace back to the platform key. Idempotent. */
+  const removeAnthropicKey = () =>
+    request<AnthropicKeyStatus>("/anthropic-key", { method: "DELETE" });
 
   const listMembers = () =>
     request<{ members: MemberView[] }>("/members").then((data) => data.members);
@@ -1021,6 +1049,7 @@ export const createApi = (workspaceSlug: string) => {
     deleteWorkspace,
     getAgentSlackApp,
     getAgentStatus,
+    getAnthropicKey,
     getBrowserStatus,
     getChannel,
     getChannelBridge,
@@ -1059,6 +1088,7 @@ export const createApi = (workspaceSlug: string) => {
     readComputerFile,
     readSkillFile,
     reauthorizeConnector,
+    removeAnthropicKey,
     removeChannelMember,
     removeConnector,
     removeMember,
@@ -1071,6 +1101,7 @@ export const createApi = (workspaceSlug: string) => {
     saveAgentSlackTokens,
     saveChannelBridge,
     searchMember,
+    setAnthropicKey,
     setConnectorBearer,
     setConnectorDisabled,
     setConnectorOauthClient,

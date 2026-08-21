@@ -4,6 +4,7 @@ import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
 import { agentActivityRoutes } from "#/modules/activity/routes";
 import { agentsRoutes } from "#/modules/agents/routes";
+import { anthropicKeyRoutes } from "#/modules/anthropic/routes";
 import {
   agentSlackAppRoutes,
   bridgeRoutes,
@@ -110,6 +111,9 @@ workspaceScopedRoutes.route("/messages", messagesRoutes);
 workspaceScopedRoutes.route("/attachments", attachmentsRoutes);
 workspaceScopedRoutes.route("/wiki", wikiRoutes);
 workspaceScopedRoutes.route("/connectors", connectorsRoutes);
+// The workspace's own Anthropic API key - owner-only, and write-only: the
+// router hands back a hint, never the key.
+workspaceScopedRoutes.route("/anthropic-key", anthropicKeyRoutes);
 // Skills (versioned SKILL.md bundles, mirrored to Anthropic).
 workspaceScopedRoutes.route("/skills", skillsRoutes);
 // Routines: scheduled instructions, fired into a channel by the per-workspace

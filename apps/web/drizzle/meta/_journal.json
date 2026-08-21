@@ -141,6 +141,13 @@
       "when": 1787286051529,
       "tag": "0019_agent_model",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1787297732990,
+      "tag": "0020_workspace_anthropic_keys",
+      "breakpoints": true
     }
   ]
 }

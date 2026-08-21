@@ -30,17 +30,22 @@ export interface FastAskInput {
  * `null` when the integration is off, the call failed, or it took longer than
  * the answer is worth. Never throws: every call site has a fallback, and none
  * of them should have to hold a try/catch to reach it.
+ *
+ * The key arrives already resolved rather than being read from `env`: a caller
+ * inside a workspace owes that workspace's key, and a caller that has no
+ * workspace to speak of - the Slack bridge's thinking line - passes the
+ * deployment's.
  */
 export const askFast = async (
-  env: Env,
+  apiKey: string | null | undefined,
   input: FastAskInput
 ): Promise<string | null> => {
-  if (!env.ANTHROPIC_API_KEY) {
+  if (!apiKey) {
     return null;
   }
 
   try {
-    const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+    const client = new Anthropic({ apiKey });
     const response = await client.messages.create(
       {
         max_tokens: input.maxTokens ?? MAX_TOKENS,

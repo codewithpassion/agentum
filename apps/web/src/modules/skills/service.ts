@@ -406,6 +406,38 @@ export const setSkillSyncState = async (
     .where(eq(skills.id, skillId));
 };
 
+/**
+ * Forgets every Anthropic-side id this workspace's skills hold, so the existing
+ * publish path mirrors them again.
+ *
+ * Called when the workspace's API key changes: a skill and its versions belong
+ * to the key they were uploaded under. Local content is untouched - a skill
+ * whose mirror is gone is still a usable local skill, it simply reaches no
+ * agent until the re-push succeeds.
+ */
+export const resetAnthropicMirrorForWorkspace = async (
+  db: Db,
+  workspaceId: string
+): Promise<void> => {
+  const rows = await db
+    .select({ id: skills.id })
+    .from(skills)
+    .where(eq(skills.workspaceId, workspaceId));
+  const skillIds = rows.map((row) => row.id);
+  if (skillIds.length === 0) {
+    return;
+  }
+
+  await db
+    .update(skillVersions)
+    .set({ anthropicVersion: null })
+    .where(inArray(skillVersions.skillId, skillIds));
+  await db
+    .update(skills)
+    .set({ anthropicSkillId: null, syncError: null, syncStatus: "unsynced" })
+    .where(inArray(skills.id, skillIds));
+};
+
 /** The one field on a version that is written after creation: its mirror id. */
 export const setVersionAnthropicVersion = async (
   db: Db,

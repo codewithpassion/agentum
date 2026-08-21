@@ -53,11 +53,14 @@ const CONFLICT = 409;
 const CHANGELOG_MAX_LENGTH = 1000;
 const FILE_CONTENT_MAX_LENGTH = 5_000_000;
 
-const contextFor = (c: Context<ApiEnv>): SkillPublishContext => ({
-  bucket: c.env.ATTACHMENTS,
-  db: createDb(c.env.DB),
-  gateway: createSkills(c.env),
-});
+const contextFor = async (c: Context<ApiEnv>): Promise<SkillPublishContext> => {
+  const db = createDb(c.env.DB);
+  return {
+    bucket: c.env.ATTACHMENTS,
+    db,
+    gateway: await createSkills(db, c.env, c.get("workspace").id),
+  };
+};
 
 /** Slugs are unique per workspace, so the lookup names both halves. */
 const requireSkill = async (
@@ -111,7 +114,12 @@ const syncAgents = (
   if (agentIds.length === 0) {
     return;
   }
-  const work = syncAgentSkillsWithAnthropic(db, c.env, agentIds).catch(() => {
+  const work = syncAgentSkillsWithAnthropic(
+    db,
+    c.env,
+    c.get("workspace").id,
+    agentIds
+  ).catch(() => {
     // Every failure path records itself on the agent row.
   });
   try {
@@ -149,7 +157,7 @@ skillsRoutes.get("/", async (c) => {
 });
 
 skillsRoutes.post("/", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c);
   const body = await readJsonObject(c.req.raw);
   const slug = requireString(body, "slug", {
     maxLength: MAX_SKILL_SLUG_LENGTH,
@@ -189,7 +197,7 @@ skillsRoutes.post("/", async (c) => {
 });
 
 skillsRoutes.get("/:slug", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c);
   const skill = await requireSkill(c, ctx, c.req.param("slug"));
   const requested = c.req.query("version");
   const versions = await listSkillVersions(ctx.db, skill.id);
@@ -210,7 +218,7 @@ skillsRoutes.get("/:slug", async (c) => {
 
 /** One file's bytes, addressed by path within a version. */
 skillsRoutes.get("/:slug/versions/:version/file", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c);
   const skill = await requireSkill(c, ctx, c.req.param("slug"));
   const version = await getSkillVersion(
     ctx.db,
@@ -243,7 +251,7 @@ skillsRoutes.get("/:slug/versions/:version/file", async (c) => {
 });
 
 skillsRoutes.post("/:slug/versions", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c);
   const skill = await requireSkill(c, ctx, c.req.param("slug"));
   const body = await readJsonObject(c.req.raw);
 
@@ -271,7 +279,7 @@ skillsRoutes.post("/:slug/versions", async (c) => {
 });
 
 skillsRoutes.post("/:slug/retry-sync", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c);
   const skill = await requireSkill(c, ctx, c.req.param("slug"));
   const synced = await retrySkillSync(ctx, skill);
   syncAgents(c, ctx.db, await listAgentIdsForSkill(ctx.db, skill.id));
@@ -279,13 +287,18 @@ skillsRoutes.post("/:slug/retry-sync", async (c) => {
 });
 
 skillsRoutes.delete("/:slug", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c);
   const skill = await requireSkill(c, ctx, c.req.param("slug"));
 
   // Agents first: they must stop referencing the skill before its mirror goes
   // away, and the API enforces no such ordering itself.
   const agentIds = await unassignSkillEverywhere(ctx.db, skill.id);
-  await syncAgentSkillsWithAnthropic(ctx.db, c.env, agentIds);
+  await syncAgentSkillsWithAnthropic(
+    ctx.db,
+    c.env,
+    c.get("workspace").id,
+    agentIds
+  );
 
   const anthropicError = await deleteSkillMirror(ctx, skill);
   await deleteSkillLocally(ctx.db, ctx.bucket, skill);
@@ -295,7 +308,7 @@ skillsRoutes.delete("/:slug", async (c) => {
 // --- assignment -------------------------------------------------------------
 
 skillsRoutes.get("/:slug/agents", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c);
   const skill = await requireSkill(c, ctx, c.req.param("slug"));
   const agentIds = await listAgentIdsForSkill(ctx.db, skill.id);
   const agents = await getAgentsByIds(ctx.db, agentIds);
@@ -314,7 +327,7 @@ skillsRoutes.get("/:slug/agents", async (c) => {
 });
 
 skillsRoutes.post("/:slug/agents", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c);
   const skill = await requireSkill(c, ctx, c.req.param("slug"));
   const body = await readJsonObject(c.req.raw);
   const agentId = requireString(body, "agentId");
@@ -354,7 +367,7 @@ skillsRoutes.post("/:slug/agents", async (c) => {
 });
 
 skillsRoutes.delete("/:slug/agents/:agentId", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c);
   const skill = await requireSkill(c, ctx, c.req.param("slug"));
   const agentId = c.req.param("agentId");
   if (!(await unassignSkill(ctx.db, skill.id, agentId))) {

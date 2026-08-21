@@ -23,8 +23,13 @@ import {
   createAnthropicGateway,
   type EnvironmentCache,
 } from "./gateway";
-import { appConfig, ENVIRONMENT_ID_KEY } from "./schema";
+import { appConfig, ENVIRONMENT_ID_KEY, environmentIdKeyFor } from "./schema";
 import { composeSystemPrompt, rosterFor } from "./system-prompt";
+import {
+  MissingConnectorKeyError,
+  type ResolvedAnthropicKey,
+  resolveAnthropicKey,
+} from "./workspace-keys";
 
 /**
  * The Worker-facing half of the Anthropic integration: it owns the client, the
@@ -36,34 +41,76 @@ import { composeSystemPrompt, rosterFor } from "./system-prompt";
 const DISABLED = "1";
 const E2E_MODE = "e2e";
 
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 /**
- * The key alone is not enough to enable the integration: the end-to-end suite
- * drives a dev server that loads the same `.env.local`, and it must never
- * create real agents or sessions.
+ * The two guards that override everything, a workspace's own key included: the
+ * deployment kill switch, and the end-to-end suite, which drives a dev server
+ * that loads the same `.env.local` and must never create real agents or
+ * sessions.
  *
- * The mode check is what makes that possible. A Worker variable cannot do it:
- * `.env.local` outranks both the process environment and `CLOUDFLARE_ENV`
+ * Whether a key exists at all is deliberately no longer asked here. A workspace
+ * with its own key has to work on a deployment that has no global one, and only
+ * the resolver knows that - so this stays sync, and the call sites that are
+ * merely asking "is the integration switched on" stay sync with it.
+ *
+ * The mode check is what makes the e2e guard possible. A Worker variable cannot
+ * do it: `.env.local` outranks both the process environment and `CLOUDFLARE_ENV`
  * (verified 2026-08-20), so there is no way to unset the key for one run. Vite's
  * mode does reach the Worker bundle, and `playwright.config.ts` starts the
  * server with `--mode e2e`.
  */
 export const isAnthropicEnabled = (env: Env): boolean =>
-  Boolean(env.ANTHROPIC_API_KEY) &&
-  env.ANTHROPIC_DISABLED !== DISABLED &&
-  import.meta.env.MODE !== E2E_MODE;
+  env.ANTHROPIC_DISABLED !== DISABLED && import.meta.env.MODE !== E2E_MODE;
 
-const environmentCache = (db: Db): EnvironmentCache => ({
+/**
+ * The key a workspace's Anthropic calls run on, or null when there is none and
+ * nothing should be attempted. The one place the three factories - gateway,
+ * vaults, skills - agree on what "enabled for this workspace" means.
+ *
+ * Never throws. The single failure the resolver raises - a workspace key stored
+ * against a `CONNECTOR_KEY` that has since gone missing - is a deployment fault
+ * rather than an agent's, but the agent rail is the only screen this
+ * integration's failures reach, so that is where it is recorded. Every caller
+ * then reads the null exactly as it already reads "no key configured".
+ */
+export const anthropicKeyFor = async (
+  db: Db,
+  env: Env,
+  workspaceId: string
+): Promise<ResolvedAnthropicKey | null> => {
+  if (!isAnthropicEnabled(env)) {
+    return null;
+  }
+  try {
+    return await resolveAnthropicKey(db, env, workspaceId);
+  } catch (error) {
+    if (!(error instanceof MissingConnectorKeyError)) {
+      throw error;
+    }
+    const message = messageOf(error);
+    await Promise.all(
+      (await listAgents(db, workspaceId)).map((agent) =>
+        setAgentSyncStatus(db, agent.id, "error", message)
+      )
+    );
+    return null;
+  }
+};
+
+const environmentCache = (db: Db, key: string): EnvironmentCache => ({
   async read() {
     const [row] = await db
       .select()
       .from(appConfig)
-      .where(eq(appConfig.key, ENVIRONMENT_ID_KEY));
+      .where(eq(appConfig.key, key));
     return row?.value ?? null;
   },
   async write(environmentId) {
     await db
       .insert(appConfig)
-      .values({ key: ENVIRONMENT_ID_KEY, value: environmentId })
+      .values({ key, value: environmentId })
       .onConflictDoUpdate({
         set: { updatedAt: new Date(), value: environmentId },
         target: appConfig.key,
@@ -71,22 +118,34 @@ const environmentCache = (db: Db): EnvironmentCache => ({
   },
 });
 
-/** Null when the integration is off, which every caller must handle. */
-export const createGateway = (db: Db, env: Env): AnthropicGateway | null => {
-  if (!isAnthropicEnabled(env)) {
+/**
+ * Null when the integration is off for this workspace, which every caller must
+ * handle.
+ *
+ * A workspace on its own key gets its own environment cache entry - an
+ * environment belongs to the key that created it - while a workspace on the
+ * global key keeps the deployment-wide entry. That is what makes deleting a
+ * workspace key fall back cleanly rather than onto a stale per-workspace id.
+ */
+export const createGateway = async (
+  db: Db,
+  env: Env,
+  workspaceId: string
+): Promise<AnthropicGateway | null> => {
+  const resolved = await anthropicKeyFor(db, env, workspaceId);
+  if (!resolved) {
     return null;
   }
-  return createAnthropicGateway(
-    new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }),
-    {
-      cache: environmentCache(db),
-      environmentName: ENVIRONMENT_NAME,
-    }
-  );
+  return createAnthropicGateway(new Anthropic({ apiKey: resolved.apiKey }), {
+    cache: environmentCache(
+      db,
+      resolved.source === "workspace"
+        ? environmentIdKeyFor(workspaceId)
+        : ENVIRONMENT_ID_KEY
+    ),
+    environmentName: ENVIRONMENT_NAME,
+  });
 };
-
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 const systemPromptFor = (agent: Agent, all: readonly Agent[]): string =>
   composeSystemPrompt({
@@ -247,12 +306,13 @@ export const syncAgentWithAnthropic = async (
   agentId: string,
   options: SyncAgentOptions = {}
 ): Promise<void> => {
-  const gateway = createGateway(db, env);
-  if (!gateway) {
-    return;
-  }
   const agent = await getAgentByIdUnscoped(db, agentId);
   if (!agent) {
+    return;
+  }
+  // The agent first: which key this pushes on is the workspace's business now.
+  const gateway = await createGateway(db, env, agent.workspaceId);
+  if (!gateway) {
     return;
   }
 
@@ -316,13 +376,18 @@ export const syncAgentSkillsToAnthropic = async (
   return true;
 };
 
-/** The transport-facing wrapper: a no-op when the integration is off. */
+/**
+ * The transport-facing wrapper: a no-op when the integration is off. The
+ * workspace is named rather than derived from the agents, because it is what
+ * decides the key - and every caller is inside one already.
+ */
 export const syncAgentSkillsWithAnthropic = async (
   db: Db,
   env: Env,
+  workspaceId: string,
   agentIds: readonly string[]
 ): Promise<void> => {
-  const gateway = createGateway(db, env);
+  const gateway = await createGateway(db, env, workspaceId);
   if (!gateway) {
     return;
   }
@@ -423,7 +488,72 @@ export const resyncPendingAgents = async (
   env: Env,
   requestUrl?: string
 ): Promise<void> => {
-  const gateway = createGateway(db, env);
+  const appBaseUrl = appBaseUrlFor(env, requestUrl);
+  const pending = await listAgentsPendingConnectorResync(db);
+  // The debt is deployment-wide but the key is not, so there is one gateway per
+  // workspace rather than one for the sweep. Resolved up front, nulls included:
+  // a workspace whose key will not resolve must be asked once, not once per
+  // agent it owns.
+  const gateways = new Map(
+    await Promise.all(
+      [...new Set(pending.map((agent) => agent.workspaceId))].map(
+        async (workspaceId) =>
+          [workspaceId, await createGateway(db, env, workspaceId)] as const
+      )
+    )
+  );
+
+  for (const agent of pending) {
+    const gateway = gateways.get(agent.workspaceId);
+    if (!gateway) {
+      continue;
+    }
+    // Sequential for the same reason as the roster pass: agent updates are
+    // rate-limited, and one failure must not take the others down.
+    // biome-ignore lint/performance/noAwaitInLoops: paced to stay inside the API's rate limits
+    await resyncAgentConnectors({ appBaseUrl, db, gateway }, agent.id).catch(
+      () => {
+        // Recorded on the agent row; the flag keeps the debt for the next try.
+      }
+    );
+  }
+};
+
+/**
+ * Re-registers a workspace's agents after its own API key was set, rotated or
+ * removed.
+ *
+ * Every Anthropic id the workspace held was forgotten by the reset, and a fresh
+ * registration needs an MCP URL - whose plaintext token exists only at issuance
+ * - so the way back is the connector-resync path: rotate the token, push the
+ * whole configuration, and let `registerAgent` mint a new agent under the new
+ * key. The reset also records that push as owed, which is what makes this a
+ * retry rather than the only attempt: a failure here leaves the debt for the
+ * next connector change (`resyncPendingAgents`) or for an edit that rotates the
+ * agent's MCP token. A plain edit will not do - with no id and no URL it can
+ * only tell the human to rotate - which is why this runs at the key change.
+ *
+ * Skills are deliberately not swept. Their mirrors come back through the
+ * existing per-skill retry, and rebuilding every version's upload from R2 is
+ * far too much work to hang off a settings save. An agent registered before
+ * that retry runs simply carries no skills yet - they are pushed when it does.
+ */
+export const resyncWorkspaceAfterKeyChange = async (
+  db: Db,
+  env: Env,
+  workspaceId: string,
+  requestUrl?: string
+): Promise<void> => {
+  const owing = (await listAgents(db, workspaceId)).filter(
+    (agent) => agent.connectorResyncPendingAt
+  );
+  // Before the gateway, so a workspace with nothing to re-register costs
+  // nothing at all - not even resolving the key it just set.
+  if (owing.length === 0) {
+    return;
+  }
+
+  const gateway = await createGateway(db, env, workspaceId);
   if (!gateway) {
     return;
   }
@@ -432,9 +562,7 @@ export const resyncPendingAgents = async (
     db,
     gateway,
   };
-  for (const agent of await listAgentsPendingConnectorResync(db)) {
-    // Sequential for the same reason as the roster pass: agent updates are
-    // rate-limited, and one failure must not take the others down.
+  for (const agent of owing) {
     // biome-ignore lint/performance/noAwaitInLoops: paced to stay inside the API's rate limits
     await resyncAgentConnectors(deps, agent.id).catch(() => {
       // Recorded on the agent row; the flag keeps the debt for the next try.
@@ -448,7 +576,11 @@ export const resyncAgentConnectorsWithAnthropic = async (
   env: Env,
   agentId: string
 ): Promise<void> => {
-  const gateway = createGateway(db, env);
+  const agent = await getAgentByIdUnscoped(db, agentId);
+  if (!agent) {
+    return;
+  }
+  const gateway = await createGateway(db, env, agent.workspaceId);
   if (!gateway) {
     return;
   }
@@ -477,7 +609,7 @@ export const resyncRostersWithAnthropic = async (
   env: Env,
   workspaceId: string
 ): Promise<void> => {
-  const gateway = createGateway(db, env);
+  const gateway = await createGateway(db, env, workspaceId);
   if (!gateway) {
     return;
   }

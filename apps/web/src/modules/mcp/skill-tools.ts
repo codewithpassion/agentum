@@ -46,10 +46,12 @@ const MAX_REQUESTED_FILES = 20;
 /** How a version this agent authored is recorded. */
 const authorOf = (ctx: McpToolContext): string => `agent:${ctx.agent.id}`;
 
-const publishContextFor = (ctx: McpToolContext): SkillPublishContext => ({
+const publishContextFor = async (
+  ctx: McpToolContext
+): Promise<SkillPublishContext> => ({
   bucket: ctx.env.ATTACHMENTS,
   db: ctx.db,
-  gateway: createSkills(ctx.env),
+  gateway: await createSkills(ctx.db, ctx.env, ctx.workspace.id),
 });
 
 /** The slug is the only unique column on `skills`. */
@@ -170,7 +172,9 @@ const assignAuthor = async (
       pinnedVersion: null,
       skillId,
     });
-    await syncAgentSkillsWithAnthropic(ctx.db, ctx.env, [ctx.agent.id]);
+    await syncAgentSkillsWithAnthropic(ctx.db, ctx.env, ctx.workspace.id, [
+      ctx.agent.id,
+    ]);
     return { assigned: true };
   } catch (error) {
     if (error instanceof SkillCapError) {
@@ -189,12 +193,16 @@ export const skillCreate = async (
 ): Promise<CallToolResult> => {
   let result: Awaited<ReturnType<typeof publishNewSkill>>;
   try {
-    result = await publishNewSkill(publishContextFor(ctx), ctx.workspace.id, {
-      changelog: args.changelog ?? "Created.",
-      createdBy: authorOf(ctx),
-      files: args.files,
-      slug: args.slug,
-    });
+    result = await publishNewSkill(
+      await publishContextFor(ctx),
+      ctx.workspace.id,
+      {
+        changelog: args.changelog ?? "Created.",
+        createdBy: authorOf(ctx),
+        files: args.files,
+        slug: args.slug,
+      }
+    );
   } catch (error) {
     if (isDuplicateSlug(error)) {
       return fail(
@@ -233,11 +241,15 @@ export const skillUpdate = async (
     );
   }
 
-  const result = await publishSkillVersion(publishContextFor(ctx), skill, {
-    changelog: args.changelog,
-    createdBy: authorOf(ctx),
-    files: args.files,
-  });
+  const result = await publishSkillVersion(
+    await publishContextFor(ctx),
+    skill,
+    {
+      changelog: args.changelog,
+      createdBy: authorOf(ctx),
+      files: args.files,
+    }
+  );
   if (!result.ok) {
     return fail(result.reason);
   }
@@ -248,6 +260,7 @@ export const skillUpdate = async (
   await syncAgentSkillsWithAnthropic(
     ctx.db,
     ctx.env,
+    ctx.workspace.id,
     await listAgentIdsForSkill(ctx.db, skill.id)
   );
   const pin = await getAgentSkill(ctx.db, skill.id, ctx.agent.id);

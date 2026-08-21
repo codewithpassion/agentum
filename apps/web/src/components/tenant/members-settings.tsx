@@ -11,11 +11,13 @@ import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
 import type {
+  AnthropicKeyStatus,
   ExternalAuthorView,
   MemberSearchResult,
   MemberView,
 } from "#/lib/api";
 import { memberLabel } from "#/lib/authors";
+import { formatDay } from "#/lib/format";
 import { useActiveWorkspace } from "#/lib/workspace-context";
 import {
   WORKSPACE_ROLES,
@@ -308,6 +310,159 @@ function RenameWorkspace() {
   );
 }
 
+/**
+ * The one sentence that has to be in front of an owner before they touch the
+ * key: every Anthropic-side resource is scoped to the key that made it, so
+ * changing the key throws all of them away.
+ */
+const RESET_WARNING =
+  "This resets the workspace's agents, connector credentials and skills on Anthropic's side. They re-register on the next sync.";
+
+/** ", set 3 Mar 2026" - dropped entirely if the server sent nothing usable. */
+const setOnNote = (setAt: string | null): string => {
+  if (!setAt) {
+    return "";
+  }
+  const at = Date.parse(setAt);
+  return Number.isNaN(at) ? "" : `, set ${formatDay(at)}`;
+};
+
+/** Which key this workspace is spending, in one line. */
+function AnthropicKeyState({ status }: { status: AnthropicKeyStatus | null }) {
+  if (status === null) {
+    return <p className="m-0 text-[var(--ws-muted)] text-xs">Checking…</p>;
+  }
+  if (!status.configured) {
+    return (
+      <p className="m-0 text-[var(--ws-muted)] text-xs">
+        Not configured — using the platform default key.
+      </p>
+    );
+  }
+  return (
+    <p className="m-0 text-[var(--ws-muted)] text-xs">
+      {`Using this workspace's own key …${status.hint ?? ""}${setOnNote(status.setAt)}`}
+    </p>
+  );
+}
+
+/**
+ * Owner-only: the workspace's own Anthropic key. Write-only by design - the
+ * server answers with the last four characters and never the key itself, so
+ * nothing here holds the secret past the request that carries it away.
+ */
+function AnthropicKey() {
+  const { api } = useActiveWorkspace();
+  const [status, setStatus] = useState<AnthropicKeyStatus | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [action, setAction] = useState<"remove" | "save">("save");
+
+  const load = useCallback(async () => {
+    try {
+      setStatus(await api.getAnthropicKey());
+      setError(null);
+    } catch (cause) {
+      setError(messageOf(cause, "Could not read the key's status."));
+    }
+  }, [api]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const onKeyChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      setApiKey(event.target.value);
+    },
+    []
+  );
+
+  const askSave = useCallback(
+    (event: React.FormEvent) => {
+      event.preventDefault();
+      if (apiKey.trim() !== "") {
+        setAction("save");
+        setConfirming(true);
+      }
+    },
+    [apiKey]
+  );
+
+  const askRemove = useCallback(() => {
+    setAction("remove");
+    setConfirming(true);
+  }, []);
+
+  const cancel = useCallback(() => setConfirming(false), []);
+
+  const removing = action === "remove";
+
+  // Whatever the server answers with is the new truth, so neither call needs a
+  // re-read. A throw stays inside the dialog, which is where the owner is.
+  const confirm = useCallback(async () => {
+    setStatus(
+      removing
+        ? await api.removeAnthropicKey()
+        : await api.setAnthropicKey(apiKey.trim())
+    );
+    setApiKey("");
+    setError(null);
+    setConfirming(false);
+  }, [api, apiKey, removing]);
+
+  return (
+    <div className="space-y-3">
+      <AnthropicKeyState status={status} />
+
+      <form className="flex items-end gap-2" onSubmit={askSave}>
+        <div className="flex-1">
+          <TextField
+            autoComplete="off"
+            label={status?.configured ? "Replace with" : "Anthropic API key"}
+            onChange={onKeyChange}
+            placeholder="sk-ant-…"
+            type="password"
+            value={apiKey}
+          />
+        </div>
+        <Button disabled={apiKey.trim() === ""} type="submit" variant="primary">
+          Save
+        </Button>
+        {status?.configured ? (
+          <Button onClick={askRemove} variant="danger">
+            Remove
+          </Button>
+        ) : null}
+      </form>
+
+      {error ? (
+        <p className="m-0 text-[var(--ws-danger)] text-xs">{error}</p>
+      ) : null}
+
+      {/*
+        Keyed by the action, which only ever changes while the dialog is shut:
+        a rejected key's message must not still be on screen when the next
+        thing you open is the Remove confirmation.
+      */}
+      <ConfirmDialog
+        confirmLabel={removing ? "Remove key" : "Save key"}
+        key={action}
+        message={
+          removing
+            ? `Fall back to the platform default key? ${RESET_WARNING}`
+            : `Use this key for every Anthropic call this workspace makes? ${RESET_WARNING}`
+        }
+        onCancel={cancel}
+        onConfirm={confirm}
+        open={confirming}
+        title={removing ? "Remove Anthropic key" : "Set Anthropic key"}
+      />
+    </div>
+  );
+}
+
 /** The label under a linked name, saying how the link was decided. */
 const linkNote = (author: ExternalAuthorView): string => {
   if (!author.memberId) {
@@ -528,6 +683,15 @@ export function MembersSettings() {
         {isOwner ? (
           <Section title="Name">
             <RenameWorkspace />
+          </Section>
+        ) : null}
+
+        {isOwner ? (
+          <Section
+            description="Optional. Without one, this workspace runs on the platform's default key. Setting, rotating or removing a key resets this workspace's agents, connector credentials and skills on Anthropic's side; they re-register on the next sync."
+            title="Anthropic API key"
+          >
+            <AnthropicKey />
           </Section>
         ) : null}
 

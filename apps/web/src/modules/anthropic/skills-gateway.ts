@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { isAnthropicEnabled } from "./service";
+import type { Db } from "#/db/client";
+import { anthropicKeyFor } from "./service";
 
 /**
  * The Skills half of the Managed Agents surface, behind one interface for the
@@ -101,15 +102,18 @@ export const createSkillsGatewayFor = (client: Anthropic): SkillsGateway => ({
 });
 
 /**
- * Null when the Anthropic integration is off - the same contract as
- * `createGateway`. A skill created with no key is a perfectly good local skill:
- * it stays `unsynced` and reaches agents once a key exists and the retry runs.
+ * Null when the Anthropic integration is off for this workspace - the same
+ * contract as `createGateway`, and on the same key. A skill created with no key
+ * is a perfectly good local skill: it stays `unsynced` and reaches agents once
+ * a key exists and the retry runs.
  */
-export const createSkills = (env: Env): SkillsGateway | null => {
-  if (!isAnthropicEnabled(env)) {
-    return null;
-  }
-  return createSkillsGatewayFor(
-    new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
-  );
+export const createSkills = async (
+  db: Db,
+  env: Env,
+  workspaceId: string
+): Promise<SkillsGateway | null> => {
+  const resolved = await anthropicKeyFor(db, env, workspaceId);
+  return resolved
+    ? createSkillsGatewayFor(new Anthropic({ apiKey: resolved.apiKey }))
+    : null;
 };

@@ -19,6 +19,7 @@ import {
 import { askFast } from "#/modules/anthropic/fast";
 import type { AnthropicGateway } from "#/modules/anthropic/gateway";
 import {
+  anthropicKeyFor,
   createGateway,
   isAnthropicEnabled,
   resyncAgentConnectorsWithAnthropic,
@@ -137,8 +138,16 @@ export class AgentRouter extends DurableObject<Env> {
     return this.database;
   }
 
-  private gateway(): AnthropicGateway | null {
-    return createGateway(this.db, this.env);
+  /**
+   * Null before the first notification names this instance's workspace, and
+   * null whenever the integration is off for that workspace - which the
+   * callers already treat as "nothing to do".
+   */
+  private async gateway(): Promise<AnthropicGateway | null> {
+    const workspaceId = await this.workspaceId();
+    return workspaceId
+      ? await createGateway(this.db, this.env, workspaceId)
+      : null;
   }
 
   private read<T>(key: string): Promise<T | undefined> {
@@ -408,7 +417,10 @@ export class AgentRouter extends DurableObject<Env> {
       ).map((agent) => [agent.id, agent.name])
     );
 
-    const answer = await askFast(this.env, {
+    // On the workspace's own key when it has one: this is a real completion,
+    // billed like any other, and it is asked on that workspace's behalf.
+    const resolved = await anthropicKeyFor(this.db, this.env, workspaceId);
+    const answer = await askFast(resolved?.apiKey, {
       prompt: buildAddressingPrompt({
         candidates,
         message: item.threadMessage,
@@ -468,7 +480,7 @@ export class AgentRouter extends DurableObject<Env> {
     session: StoredSession | null,
     kind: WakeDispatchKind
   ): Promise<void> {
-    const gateway = this.gateway();
+    const gateway = await this.gateway();
     const agent = await this.agentOf(agentId);
     const [first] = entries;
     const channelId = first?.channelId ?? session?.channelId ?? "";
@@ -476,6 +488,12 @@ export class AgentRouter extends DurableObject<Env> {
     if (!(gateway && agent?.anthropicAgentId)) {
       // Nothing to wake - the agent was never registered, or the integration is
       // off. Clearing the status matters: it may have been queued to get here.
+      //
+      // An agent whose workspace just changed its API key is in exactly this
+      // state, and re-registering it needs a fresh MCP URL, which needs a token
+      // rotation - too much to do inside a wake. It is handled where the key
+      // changed instead (`resyncWorkspaceAfterKeyChange`), with the pending
+      // connector-resync flag carrying the debt if that first attempt failed.
       await this.setStatus(agentId, "idle", channelId, null);
       return;
     }
@@ -651,7 +669,7 @@ export class AgentRouter extends DurableObject<Env> {
     channelId: string,
     model: string
   ): Promise<void> {
-    const gateway = this.gateway();
+    const gateway = await this.gateway();
     if (!gateway) {
       return;
     }
@@ -705,7 +723,7 @@ export class AgentRouter extends DurableObject<Env> {
     channelId: string,
     model: string
   ): Promise<void> {
-    const gateway = this.gateway();
+    const gateway = await this.gateway();
     if (!(gateway && agent.anthropicAgentId)) {
       return;
     }
@@ -856,7 +874,7 @@ export class AgentRouter extends DurableObject<Env> {
   // --- event pump ------------------------------------------------------------
 
   private async pumpSessions(): Promise<void> {
-    const gateway = this.gateway();
+    const gateway = await this.gateway();
     if (!gateway) {
       return;
     }

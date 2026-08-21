@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { generateConnectorKey } from "#/crypto";
 import type { Db } from "#/db/client";
 import { agents } from "#/modules/agents/schema";
 import {
@@ -25,13 +26,20 @@ import type {
   SyncAgentInput,
   SyncAgentSkillsInput,
 } from "./gateway";
+import { appConfig, ENVIRONMENT_ID_KEY, environmentIdKeyFor } from "./schema";
 import {
+  anthropicKeyFor,
   type ConnectorResyncDeps,
+  createGateway,
   resyncAgentConnectors,
   sessionVaultIdsFor,
   syncAgentSkillsToAnthropic,
   syncAgentToAnthropic,
 } from "./service";
+import {
+  deleteWorkspaceAnthropicKey,
+  setWorkspaceAnthropicKey,
+} from "./workspace-keys";
 
 /**
  * The rotation half of task 4c, against the shipped migrations in an in-memory
@@ -493,5 +501,169 @@ describe("two workspaces, one agent name", () => {
     expect(await sessionVaultIdsFor(db, beta.researcher)).toEqual([
       "vault_shared-beta",
     ]);
+  });
+});
+
+// --- the workspace's own key ------------------------------------------------
+
+/**
+ * Which key a workspace's calls run on, and which environment cache entry the
+ * resources that key created are remembered in.
+ *
+ * No Anthropic client is ever *called*: the environment id is seeded, so
+ * `ensureEnvironment` answers from the cache and never reaches the API. That
+ * read is also what proves the cache key, since both halves of the cache close
+ * over the same one.
+ */
+describe("the workspace's own key", () => {
+  const GLOBAL_KEY = "sk-ant-api03-deployment-wide-key";
+  const WORKSPACE_KEY = "sk-ant-api03-workspace-secret-cD3f";
+  const OWNER_ID = "user_2aOwnerAAAAAAAAAAAAAAAAAA";
+
+  let env: Env;
+
+  beforeEach(() => {
+    env = {
+      ANTHROPIC_API_KEY: GLOBAL_KEY,
+      CONNECTOR_KEY: generateConnectorKey(),
+    } as unknown as Env;
+  });
+
+  const store = (apiKey = WORKSPACE_KEY) =>
+    setWorkspaceAnthropicKey(db, env, {
+      apiKey,
+      clerkUserId: OWNER_ID,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+    });
+
+  const seedEnvironments = async () => {
+    await db
+      .insert(appConfig)
+      .values({ key: ENVIRONMENT_ID_KEY, value: "env_global" });
+    await db.insert(appConfig).values({
+      key: environmentIdKeyFor(DEFAULT_WORKSPACE_ID),
+      value: "env_mine",
+    });
+  };
+
+  test("runs on the deployment's key until the workspace has one of its own", async () => {
+    expect(await anthropicKeyFor(db, env, DEFAULT_WORKSPACE_ID)).toEqual({
+      apiKey: GLOBAL_KEY,
+      source: "global",
+    });
+
+    await store();
+
+    expect(await anthropicKeyFor(db, env, DEFAULT_WORKSPACE_ID)).toEqual({
+      apiKey: WORKSPACE_KEY,
+      source: "workspace",
+    });
+  });
+
+  test("a workspace key is enough on a deployment that has none", async () => {
+    // The reason `isAnthropicEnabled` no longer asks whether a key exists: a
+    // self-hosted deployment may have no platform key at all.
+    const keyless = { ...env, ANTHROPIC_API_KEY: "" } as unknown as Env;
+    expect(await anthropicKeyFor(db, keyless, DEFAULT_WORKSPACE_ID)).toBe(null);
+
+    await store();
+
+    expect(
+      (await anthropicKeyFor(db, keyless, DEFAULT_WORKSPACE_ID))?.apiKey
+    ).toBe(WORKSPACE_KEY);
+    expect(await createGateway(db, keyless, DEFAULT_WORKSPACE_ID)).not.toBe(
+      null
+    );
+  });
+
+  test("the kill switch overrides a workspace key too", async () => {
+    await store();
+
+    const off = { ...env, ANTHROPIC_DISABLED: "1" } as unknown as Env;
+    expect(await anthropicKeyFor(db, off, DEFAULT_WORKSPACE_ID)).toBe(null);
+    expect(await createGateway(db, off, DEFAULT_WORKSPACE_ID)).toBe(null);
+  });
+
+  test("a key it cannot decrypt is an agent sync error, not a crash", async () => {
+    const agentId = await registeredAgent();
+    await store();
+    const broken = { ...env, CONNECTOR_KEY: "" } as unknown as Env;
+
+    // Null, never the deployment's key: falling back would bill the platform
+    // for a workspace that configured its way off it.
+    expect(await anthropicKeyFor(db, broken, DEFAULT_WORKSPACE_ID)).toBe(null);
+    expect(await createGateway(db, broken, DEFAULT_WORKSPACE_ID)).toBe(null);
+
+    const agent = await getAgentById(db, DEFAULT_WORKSPACE_ID, agentId);
+    expect(agent?.syncStatus).toBe("error");
+    expect(agent?.syncError).toContain("CONNECTOR_KEY");
+  });
+
+  test("a workspace on its own key reads its own environment entry", async () => {
+    await store();
+    // After the set, not before: the reset drops the entry the old key made,
+    // and this is the one the new key would go on to cache.
+    await seedEnvironments();
+
+    const gateway = await createGateway(db, env, DEFAULT_WORKSPACE_ID);
+
+    expect(await gateway?.ensureEnvironment()).toBe("env_mine");
+  });
+
+  test("a workspace on the deployment's key reads the deployment's entry", async () => {
+    await seedEnvironments();
+
+    const gateway = await createGateway(db, env, DEFAULT_WORKSPACE_ID);
+
+    // The per-workspace entry is sitting right there and must be ignored: it
+    // belongs to a key this workspace is not using.
+    expect(await gateway?.ensureEnvironment()).toBe("env_global");
+  });
+
+  test("removing the key falls back to the global entry, never a stale one", async () => {
+    await store();
+    // What the workspace's own key would have cached while it was in use.
+    await seedEnvironments();
+
+    await deleteWorkspaceAnthropicKey(db, DEFAULT_WORKSPACE_ID);
+
+    const gateway = await createGateway(db, env, DEFAULT_WORKSPACE_ID);
+    expect(await gateway?.ensureEnvironment()).toBe("env_global");
+    expect(
+      await db
+        .select()
+        .from(appConfig)
+        .where(eq(appConfig.key, environmentIdKeyFor(DEFAULT_WORKSPACE_ID)))
+    ).toHaveLength(0);
+  });
+
+  test("leaves every agent owing a full re-registration", async () => {
+    const agentId = await registeredAgent();
+
+    await store();
+
+    const agent = await getAgentById(db, DEFAULT_WORKSPACE_ID, agentId);
+    expect(agent?.anthropicAgentId).toBe(null);
+    expect(agent?.syncStatus).toBe("unregistered");
+    // The debt the resync pays off, and the reason a failed one is retried.
+    expect(agent?.connectorResyncPendingAt).not.toBe(null);
+  });
+
+  test("that debt registers a fresh agent rather than reusing the old id", async () => {
+    const agentId = await registeredAgent();
+    await store();
+    const { calls, gateway } = fakeGateway();
+
+    expect(await resyncAgentConnectors(depsWith(gateway), agentId)).toBe(
+      "synced"
+    );
+
+    // A create, not an update: `agt_1` was the old key's, and addresses
+    // nothing under the new one.
+    expect(calls.registered).toEqual(["Ada"]);
+    expect(calls.synced).toEqual([]);
+    expect(
+      (await getAgentById(db, DEFAULT_WORKSPACE_ID, agentId))?.anthropicAgentId
+    ).toBe("agt_new");
   });
 });

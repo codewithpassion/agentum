@@ -23,6 +23,7 @@ import {
   ConnectorFlowError,
   completeBearer,
   completeOAuthCallback,
+  findWorkspaceForOauthState,
   getConnector,
   listAgentIdsForConnector,
   listConnectors,
@@ -60,12 +61,24 @@ export const callbackUrlFor = (
   return `${base.replace(TRAILING_SLASHES, "")}${CALLBACK_PATH}`;
 };
 
-const contextFor = (c: Context<ApiEnv>): ConnectorContext => ({
-  db: createDb(c.env.DB),
-  key: c.env.CONNECTOR_KEY || null,
-  redirectUri: callbackUrlFor(c.env.PUBLIC_APP_URL, c.req.url),
-  vaults: createVaults(c.env),
-});
+/**
+ * The workspace is a parameter rather than a read of `c.get("workspace")`
+ * because the vault gateway is keyed on it now, and the OAuth callback below -
+ * an unauthenticated redirect - has no workspace on its context. It resolves
+ * one from the flow it is answering and passes it in.
+ */
+const contextFor = async (
+  c: Context<ApiEnv>,
+  workspaceId: string
+): Promise<ConnectorContext> => {
+  const db = createDb(c.env.DB);
+  return {
+    db,
+    key: c.env.CONNECTOR_KEY || null,
+    redirectUri: callbackUrlFor(c.env.PUBLIC_APP_URL, c.req.url),
+    vaults: await createVaults(db, c.env, workspaceId),
+  };
+};
 
 /** By bare id, and always within the workspace on the request context. */
 const requireConnector = async (
@@ -136,7 +149,7 @@ connectorsRoutes.get("/", async (c) => {
 
 connectorsRoutes.post("/", async (c) => {
   const body = await readJsonObject(c.req.raw);
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c, c.get("workspace").id);
 
   try {
     const { connector, outcome } = await addConnector(
@@ -157,7 +170,7 @@ connectorsRoutes.post("/", async (c) => {
 });
 
 connectorsRoutes.get("/:id", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c, c.get("workspace").id);
   const connector = await requireConnector(c, ctx, c.req.param("id"));
   const agentIds = await listAgentIdsForConnector(ctx.db, connector.id);
   const agents = await getAgentsByIds(ctx.db, agentIds);
@@ -173,7 +186,7 @@ connectorsRoutes.get("/:id", async (c) => {
 });
 
 connectorsRoutes.patch("/:id", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c, c.get("workspace").id);
   const connector = await requireConnector(c, ctx, c.req.param("id"));
   const body = await readJsonObject(c.req.raw);
 
@@ -196,7 +209,7 @@ connectorsRoutes.patch("/:id", async (c) => {
 });
 
 connectorsRoutes.delete("/:id", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c, c.get("workspace").id);
   const connector = await requireConnector(c, ctx, c.req.param("id"));
   const { vaultError } = await removeConnector(ctx, connector);
   resyncAgents(c, ctx);
@@ -205,7 +218,7 @@ connectorsRoutes.delete("/:id", async (c) => {
 
 /** Rung 3's manual branch: the server has no dynamic client registration. */
 connectorsRoutes.post("/:id/oauth/client", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c, c.get("workspace").id);
   const connector = await requireConnector(c, ctx, c.req.param("id"));
   const body = await readJsonObject(c.req.raw);
 
@@ -222,7 +235,7 @@ connectorsRoutes.post("/:id/oauth/client", async (c) => {
 });
 
 connectorsRoutes.post("/:id/reauthorize", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c, c.get("workspace").id);
   const connector = await requireConnector(c, ctx, c.req.param("id"));
 
   try {
@@ -235,7 +248,7 @@ connectorsRoutes.post("/:id/reauthorize", async (c) => {
 });
 
 connectorsRoutes.post("/:id/bearer", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c, c.get("workspace").id);
   const connector = await requireConnector(c, ctx, c.req.param("id"));
   const body = await readJsonObject(c.req.raw);
 
@@ -253,7 +266,7 @@ connectorsRoutes.post("/:id/bearer", async (c) => {
 });
 
 connectorsRoutes.post("/:id/test", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c, c.get("workspace").id);
   const connector = await requireConnector(c, ctx, c.req.param("id"));
   const result = await testConnection(ctx, connector);
   resyncAgents(c, ctx);
@@ -269,7 +282,7 @@ connectorsRoutes.post("/:id/test", async (c) => {
 // --- assignment -------------------------------------------------------------
 
 connectorsRoutes.get("/:id/agents", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c, c.get("workspace").id);
   const connector = await requireConnector(c, ctx, c.req.param("id"));
   const agentIds = await listAgentIdsForConnector(ctx.db, connector.id);
   const agents = await getAgentsByIds(ctx.db, agentIds);
@@ -283,7 +296,7 @@ connectorsRoutes.get("/:id/agents", async (c) => {
 });
 
 connectorsRoutes.post("/:id/agents", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c, c.get("workspace").id);
   const connector = await requireConnector(c, ctx, c.req.param("id"));
   const agentId = requireString(await readJsonObject(c.req.raw), "agentId");
   if (!(await getAgentById(ctx.db, c.get("workspace").id, agentId))) {
@@ -303,7 +316,7 @@ connectorsRoutes.post("/:id/agents", async (c) => {
 });
 
 connectorsRoutes.delete("/:id/agents/:agentId", async (c) => {
-  const ctx = contextFor(c);
+  const ctx = await contextFor(c, c.get("workspace").id);
   const connector = await requireConnector(c, ctx, c.req.param("id"));
   const removed = await unassignConnector(
     ctx.db,
@@ -363,8 +376,18 @@ connectorOauthRoutes.get("/oauth/callback", async (c) => {
     return callbackPage(false);
   }
 
+  // The flow row names the workspace, which is the only way an unauthenticated
+  // redirect can be given the right key to mirror the credential into.
+  const workspaceId = await findWorkspaceForOauthState(
+    createDb(c.env.DB),
+    state
+  );
+  if (!workspaceId) {
+    return callbackPage(false);
+  }
+
   try {
-    const ctx = contextFor(c);
+    const ctx = await contextFor(c, workspaceId);
     await completeOAuthCallback(ctx, { code, state });
     // A first authorization makes the connector attachable, so the agents
     // holding it need their servers pushed.

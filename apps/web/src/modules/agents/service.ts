@@ -293,6 +293,34 @@ export const clearConnectorResyncPending = async (
     .where(eq(agents.id, id));
 };
 
+/**
+ * Forgets every Anthropic-side id this workspace's agents hold, so the existing
+ * registration path builds them again from scratch.
+ *
+ * Called when the workspace's API key changes: an agent, its memory store and
+ * its session all belong to the key they were created under, and under a new
+ * one those ids address nothing. Nothing is deleted on Anthropic's side - the
+ * old key may already be revoked - so this only drops our references.
+ *
+ * `updatedAt` stays put: the agent itself did not change, only what we know
+ * about its mirror.
+ */
+export const resetAnthropicRegistrationForWorkspace = async (
+  db: Db,
+  workspaceId: string
+): Promise<void> => {
+  await db
+    .update(agents)
+    .set({
+      anthropicAgentId: null,
+      memoryStoreId: null,
+      sessionId: null,
+      syncError: null,
+      syncStatus: "unregistered",
+    })
+    .where(eq(agents.workspaceId, workspaceId));
+};
+
 export const listAgentsPendingConnectorResync = (db: Db): Promise<Agent[]> =>
   db
     .select()

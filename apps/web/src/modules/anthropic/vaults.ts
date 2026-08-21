@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { isAnthropicEnabled } from "./service";
+import type { Db } from "#/db/client";
+import { anthropicKeyFor } from "./service";
 
 /**
  * The Vaults half of the Managed Agents surface, behind one interface for the
@@ -148,14 +149,18 @@ export const createVaultGateway = (client: Anthropic): VaultGateway => ({
 });
 
 /**
- * Null when the Anthropic integration is off - the same contract as
- * `createGateway`. A connector added with no key is still recorded and still
- * lists its tools; it just has no vault yet, exactly as an agent added with no
- * key stays `unregistered`.
+ * Null when the Anthropic integration is off for this workspace - the same
+ * contract as `createGateway`, and on the same key. A connector added with no
+ * key is still recorded and still lists its tools; it just has no vault yet,
+ * exactly as an agent added with no key stays `unregistered`.
  */
-export const createVaults = (env: Env): VaultGateway | null => {
-  if (!isAnthropicEnabled(env)) {
-    return null;
-  }
-  return createVaultGateway(new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }));
+export const createVaults = async (
+  db: Db,
+  env: Env,
+  workspaceId: string
+): Promise<VaultGateway | null> => {
+  const resolved = await anthropicKeyFor(db, env, workspaceId);
+  return resolved
+    ? createVaultGateway(new Anthropic({ apiKey: resolved.apiKey }))
+    : null;
 };
