@@ -195,7 +195,12 @@ const seed = async () => {
 beforeEach(async () => {
   d1 = createTestD1();
   db = createDb(d1);
-  env = { CLERK_SECRET_KEY: "sk_test_fake", DB: d1 } as unknown as Env;
+  env = {
+    // Nothing here stores a blob, but deleting a workspace sweeps R2.
+    ATTACHMENTS: { delete: () => Promise.resolve() },
+    CLERK_SECRET_KEY: "sk_test_fake",
+    DB: d1,
+  } as unknown as Env;
   await seed();
 });
 

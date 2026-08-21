@@ -1,9 +1,10 @@
-import { and, asc, desc, eq, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, or } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import {
   type MemberAuthorView,
   resolveMemberAuthors,
 } from "#/modules/workspaces/authors";
+import { deleteObjects } from "#/r2";
 import { validateWikiAsset } from "./asset-rules";
 import {
   type WikiAsset,
@@ -309,14 +310,35 @@ export const deletePage = async (
 };
 
 /**
- * Every page of one workspace, for the workspace-delete cleanup. Revisions and
- * assets follow by `ON DELETE CASCADE`.
+ * Every page of one workspace, for the workspace-delete cleanup. Revisions
+ * follow by `ON DELETE CASCADE`; assets do not - their `page_id` is set null
+ * instead, so deleting the pages first would strip the only thing that says
+ * which workspace an asset belonged to. They are read, then removed by hand,
+ * then their objects are dropped from R2.
+ *
+ * An asset uploaded from an editor draft that was never saved is attached to no
+ * page, and so to no workspace: those stay, as they already did.
  */
 export const deletePagesForWorkspace = async (
   db: Db,
+  bucket: R2Bucket,
   workspaceId: string
 ): Promise<void> => {
+  const pageIds = db
+    .select({ id: wikiPages.id })
+    .from(wikiPages)
+    .where(eq(wikiPages.workspaceId, workspaceId));
+  const stored = await db
+    .select({ r2Key: wikiAssets.r2Key })
+    .from(wikiAssets)
+    .where(inArray(wikiAssets.pageId, pageIds));
+
+  await db.delete(wikiAssets).where(inArray(wikiAssets.pageId, pageIds));
   await db.delete(wikiPages).where(eq(wikiPages.workspaceId, workspaceId));
+  await deleteObjects(
+    bucket,
+    stored.map((row) => row.r2Key)
+  );
 };
 
 export const listRevisions = (

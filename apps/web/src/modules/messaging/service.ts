@@ -13,6 +13,7 @@ import {
   type MemberAuthorView,
   resolveMemberAuthors,
 } from "#/modules/workspaces/authors";
+import { deleteObjects } from "#/r2";
 import { parseMentions } from "./mentions";
 import {
   type AUTHOR_TYPES,
@@ -177,11 +178,47 @@ export const deleteChannel = async (
  * Every channel of one workspace, for the workspace-delete cleanup. Messages,
  * members, attachments and mentions follow by `ON DELETE CASCADE`.
  */
-export const deleteChannelsForWorkspace = async (
+/**
+ * Every message of one workspace, for the cleanups that key off message ids -
+ * the bridges module's `external_refs`, which has no workspace of its own.
+ */
+export const listMessageIdsForWorkspace = async (
   db: Db,
   workspaceId: string
+): Promise<string[]> => {
+  const rows = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .innerJoin(channels, eq(messages.channelId, channels.id))
+    .where(eq(channels.workspaceId, workspaceId));
+  return rows.map((row) => row.id);
+};
+
+/**
+ * The channels of one workspace and everything under them, R2 included.
+ *
+ * The keys are read before the rows are: attachments follow their message by
+ * `ON DELETE CASCADE`, and a key nobody wrote down is an object nobody can
+ * name again. An upload that was never posted has no message, and so no
+ * workspace either - those stay, as they already did.
+ */
+export const deleteChannelsForWorkspace = async (
+  db: Db,
+  bucket: R2Bucket,
+  workspaceId: string
 ): Promise<void> => {
+  const stored = await db
+    .select({ r2Key: attachments.r2Key })
+    .from(attachments)
+    .innerJoin(messages, eq(attachments.messageId, messages.id))
+    .innerJoin(channels, eq(messages.channelId, channels.id))
+    .where(eq(channels.workspaceId, workspaceId));
+
   await db.delete(channels).where(eq(channels.workspaceId, workspaceId));
+  await deleteObjects(
+    bucket,
+    stored.map((row) => row.r2Key)
+  );
 };
 
 export interface ChannelMemberInput {

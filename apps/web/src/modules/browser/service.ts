@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import { encodeActivityCursor } from "#/modules/activity/service";
+import { deleteObjects } from "#/r2";
 import { isSessionStale, screenshotKey } from "./rules";
 import {
   type BrowserScreenshot,
@@ -66,21 +67,30 @@ export const saveSession = async (
 
 /**
  * Neither browser table has a foreign key to `agents`, so the workspace-delete
- * cleanup removes them by hand. The screenshot objects in R2 are left behind,
- * for the same reason skill files are.
+ * cleanup removes them by hand - the screenshots' R2 keys first, since the rows
+ * that name them are about to go.
  */
 export const deleteBrowserDataForAgents = async (
   db: Db,
+  bucket: R2Bucket,
   agentIds: readonly string[]
 ): Promise<void> => {
   if (agentIds.length === 0) {
     return;
   }
   const ids = [...agentIds];
+  const stored = await db
+    .select({ r2Key: browserScreenshots.r2Key })
+    .from(browserScreenshots)
+    .where(inArray(browserScreenshots.agentId, ids));
   await db
     .delete(browserScreenshots)
     .where(inArray(browserScreenshots.agentId, ids));
   await db.delete(browserSessions).where(inArray(browserSessions.agentId, ids));
+  await deleteObjects(
+    bucket,
+    stored.map((row) => row.r2Key)
+  );
 };
 
 export const screenshotUrl = (

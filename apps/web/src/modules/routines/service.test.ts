@@ -50,6 +50,10 @@ const { nextRun } = await import("./schedule");
 type Schedule = import("./schedule").Schedule;
 
 const migrationsDir = new URL("../../../drizzle/", import.meta.url);
+/** Nothing here stores a blob; the workspace-delete cleanup still needs one. */
+const bucket = {
+  delete: () => Promise.resolve(),
+} as unknown as R2Bucket;
 
 const createTestD1 = (): D1Database => {
   const journal = JSON.parse(
@@ -236,7 +240,7 @@ describe("CRUD", () => {
     const routine = await routineFor(beta);
     await fireRoutine(db, env, workspaceRef(beta), routine, new Date());
 
-    await deleteWorkspace(db, beta.workspaceId);
+    await deleteWorkspace(db, bucket, beta.workspaceId);
 
     expect(await listRoutines(db, beta.workspaceId)).toEqual([]);
     expect(await listRuns(db, routine.id)).toEqual([]);

@@ -119,7 +119,11 @@ workspaceScopedRoutes.patch("/", requireOwner, async (c) => {
 });
 
 workspaceScopedRoutes.delete("/", requireOwner, async (c) => {
-  await deleteWorkspace(createDb(c.env.DB), c.get("workspace").id);
+  await deleteWorkspace(
+    createDb(c.env.DB),
+    c.env.ATTACHMENTS,
+    c.get("workspace").id
+  );
   return c.body(null, 204);
 });
 

@@ -78,6 +78,11 @@ const { createAgent, findAgentByMcpToken } = await import(
   "#/modules/agents/service"
 );
 const { upsertBridge } = await import("#/modules/bridges/bridges");
+const { findInternalId, recordExternalRef } = await import(
+  "#/modules/bridges/refs"
+);
+const { claimSlackEvent } = await import("#/modules/bridges/events-seen");
+const { storeScreenshot } = await import("#/modules/browser/service");
 const { createDraftSlackApp } = await import("#/modules/bridges/slack/apps");
 const { createCategory } = await import("#/modules/categories/service");
 const { addConnector } = await import("#/modules/connectors/service");
@@ -128,11 +133,14 @@ const createTestD1 = (): D1Database => {
   } as unknown as D1Database;
 };
 
-const fakeBucket = (): R2Bucket => {
-  const objects = new Map<string, string>();
-  return {
-    delete(key: string) {
-      objects.delete(key);
+/** Writes into the caller's map, so a test can see what is still stored. */
+const fakeBucket = (objects: Map<string, string>): R2Bucket =>
+  ({
+    // R2 takes one key or a batch, and the cleanups send batches.
+    delete(key: string | string[]) {
+      for (const one of typeof key === "string" ? [key] : key) {
+        objects.delete(one);
+      }
       return Promise.resolve();
     },
     get(key: string) {
@@ -151,8 +159,7 @@ const fakeBucket = (): R2Bucket => {
       objects.set(key, String(value));
       return Promise.resolve({});
     },
-  } as unknown as R2Bucket;
-};
+  }) as unknown as R2Bucket;
 
 /**
  * The mounts `server.ts` makes, in the order it makes them: onto
@@ -187,9 +194,13 @@ interface Seeded {
   categoryId: string;
   channelId: string;
   connectorId: string;
+  /** The Slack message id its bridge recorded a ref for. */
+  externalMessageId: string;
   mcpToken: string;
   messageId: string;
   questionId: string;
+  /** Every object this workspace's seed put in R2. */
+  r2Keys: string[];
   routineId: string;
   skillSlug: string;
   slackAppId: string;
@@ -202,6 +213,7 @@ let d1: D1Database;
 let db: Db;
 let env: Env;
 let bucket: R2Bucket;
+let r2Objects: Map<string, string>;
 let alpha: Seeded;
 let beta: Seeded;
 
@@ -254,6 +266,7 @@ const seedWorkspace = async (
   });
   const workspaceId = workspace.id;
   const ref = { id: workspaceId, slug: workspace.slug };
+  const bucketBefore = new Set(r2Objects.keys());
 
   const { agent, mcpToken } = await createAgent(db, workspaceId, {
     instructions: "",
@@ -346,6 +359,23 @@ const seedWorkspace = async (
     throw new Error("Could not seed the wiki asset.");
   }
 
+  await storeScreenshot(db, bucket, {
+    agentId: agent.id,
+    bytes: new Uint8Array([1, 2, 3]),
+    pageUrl: "https://example.com",
+    title: "Example",
+    workspaceSlug: workspace.slug,
+  });
+
+  // What the bridge writes down for a message it mirrored: the row carries no
+  // workspace, only the message it points at.
+  const externalMessageId = `${slug}-1700000000.000100`;
+  await recordExternalRef(db, "slack", {
+    externalId: externalMessageId,
+    internalId: posted.message.id,
+    internalType: "message",
+  });
+
   // No network: the probe fails, the row lands `unconfigured`, which is all
   // this test needs from it.
   const { connector } = await addConnector(
@@ -368,9 +398,11 @@ const seedWorkspace = async (
     categoryId: category.id,
     channelId: channel.id,
     connectorId: connector.id,
+    externalMessageId,
     mcpToken,
     messageId: posted.message.id,
     questionId: asked.question.id,
+    r2Keys: [...r2Objects.keys()].filter((key) => !bucketBefore.has(key)),
     routineId: routine.id,
     skillSlug: "shared-slug",
     slackAppId: slackApp.id,
@@ -383,7 +415,8 @@ const seedWorkspace = async (
 beforeEach(async () => {
   d1 = createTestD1();
   db = createDb(d1);
-  bucket = fakeBucket();
+  r2Objects = new Map();
+  bucket = fakeBucket(r2Objects);
   env = {
     // Asking a question publishes a message, which fans out to the channel
     // room and the router; both are stubbed so the seed takes the real path.
@@ -841,7 +874,7 @@ describe("deleting a workspace", () => {
     // any workspace is known - so an orphaned agent row would stay reachable.
     expect(await findAgentByMcpToken(db, beta.mcpToken)).toBeDefined();
 
-    await deleteWorkspace(db, beta.workspaceId);
+    await deleteWorkspace(db, bucket, beta.workspaceId);
 
     expect(await findAgentByMcpToken(db, beta.mcpToken)).toBeUndefined();
     // And the other workspace is untouched.
@@ -863,7 +896,7 @@ describe("deleting a workspace", () => {
       )
     );
 
-    await deleteWorkspace(db, beta.workspaceId);
+    await deleteWorkspace(db, bucket, beta.workspaceId);
 
     const counts = async (table: string, workspaceId: string) => {
       const rows = await d1
@@ -924,8 +957,57 @@ describe("deleting a workspace", () => {
     ).toEqual([alpha.routineId]);
   });
 
+  test("takes its R2 objects with it, and none of the other workspace's", async () => {
+    // Attachment, wiki asset, skill file and browser screenshot: every kind of
+    // object a workspace stores, and each keyed by nothing that names the
+    // workspace - so the keys have to be read off the rows before they go.
+    expect(beta.r2Keys.length).toBeGreaterThan(3);
+
+    await deleteWorkspace(db, bucket, beta.workspaceId);
+
+    const remaining = [...r2Objects.keys()];
+    for (const key of beta.r2Keys) {
+      expect(remaining).not.toContain(key);
+    }
+    for (const key of alpha.r2Keys) {
+      expect(remaining).toContain(key);
+    }
+  });
+
+  test("takes the bridge refs naming its messages, and leaves the global Slack caches", async () => {
+    // Neither of these belongs to a tenant: the dedupe is keyed by Slack's own
+    // event id, and one Slack user posts through more than one workspace.
+    await claimSlackEvent(db, "Ev0DEDUPE");
+    await d1
+      .prepare(
+        "INSERT INTO slack_users (user_id, display_name) VALUES ('U0SHARED', 'Grace')"
+      )
+      .bind()
+      .run();
+
+    await deleteWorkspace(db, bucket, beta.workspaceId);
+
+    expect(
+      await findInternalId(db, "slack", "message", beta.externalMessageId)
+    ).toBeUndefined();
+    expect(
+      await findInternalId(db, "slack", "message", alpha.externalMessageId)
+    ).toBe(alpha.messageId);
+
+    const seen = await d1
+      .prepare("SELECT event_id FROM slack_events_seen")
+      .bind()
+      .all();
+    expect(seen.results).toHaveLength(1);
+    const users = await d1
+      .prepare("SELECT user_id FROM slack_users")
+      .bind()
+      .all();
+    expect(users.results).toHaveLength(1);
+  });
+
   test("a member of the deleted workspace can no longer reach it", async () => {
-    await deleteWorkspace(db, beta.workspaceId);
+    await deleteWorkspace(db, bucket, beta.workspaceId);
     const response = await request("/api/w/beta/agents", { as: BOB_ID });
     expect(response.status).toBe(404);
   });

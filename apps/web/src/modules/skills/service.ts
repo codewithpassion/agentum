@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "#/db/client";
+import { deleteObjects } from "#/r2";
 import {
   type AgentSkill,
   agentSkills,
@@ -127,13 +128,13 @@ export const getSkillById = async (
 };
 
 /**
- * Every skill of one workspace, rows only, for the workspace-delete cleanup.
- * None of these tables has a foreign key, so each level goes by hand. The R2
- * objects behind `skill_files` are deliberately left: reachable by nobody, and
- * chasing them would make deleting a workspace a bucket-wide operation.
+ * Every skill of one workspace, for the workspace-delete cleanup. None of these
+ * tables has a foreign key, so each level goes by hand - and the files' R2 keys
+ * are read off the rows before those rows are gone.
  */
 export const deleteSkillsForWorkspace = async (
   db: Db,
+  bucket: R2Bucket,
   workspaceId: string
 ): Promise<void> => {
   const rows = await db
@@ -150,7 +151,13 @@ export const deleteSkillsForWorkspace = async (
     .from(skillVersions)
     .where(inArray(skillVersions.skillId, skillIds));
   const versionIds = versions.map((row) => row.id);
+  let storedKeys: string[] = [];
   if (versionIds.length > 0) {
+    const stored = await db
+      .select({ r2Key: skillFiles.r2Key })
+      .from(skillFiles)
+      .where(inArray(skillFiles.skillVersionId, versionIds));
+    storedKeys = stored.map((row) => row.r2Key);
     await db
       .delete(skillFiles)
       .where(inArray(skillFiles.skillVersionId, versionIds));
@@ -161,6 +168,7 @@ export const deleteSkillsForWorkspace = async (
     .where(inArray(skillVersions.skillId, skillIds));
   await db.delete(agentSkills).where(inArray(agentSkills.skillId, skillIds));
   await db.delete(skills).where(inArray(skills.id, skillIds));
+  await deleteObjects(bucket, storedKeys);
 };
 
 /** Newest first: the history list, and the retry pass reverses it. */

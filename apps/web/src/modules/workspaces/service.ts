@@ -4,11 +4,15 @@ import { isUniqueConstraintError } from "#/db/errors";
 import { deleteActivityForAgents } from "#/modules/activity/service";
 import { deleteAgentsForWorkspace } from "#/modules/agents/service";
 import { deleteBridgesForWorkspace } from "#/modules/bridges/bridges";
+import { deleteExternalRefsForMessages } from "#/modules/bridges/refs";
 import { deleteSlackAppsForWorkspace } from "#/modules/bridges/slack/apps";
 import { deleteBrowserDataForAgents } from "#/modules/browser/service";
 import { deleteCategoriesForWorkspace } from "#/modules/categories/service";
 import { deleteConnectorsForWorkspace } from "#/modules/connectors/service";
-import { deleteChannelsForWorkspace } from "#/modules/messaging/service";
+import {
+  deleteChannelsForWorkspace,
+  listMessageIdsForWorkspace,
+} from "#/modules/messaging/service";
 import { deleteQuestionsForWorkspace } from "#/modules/questions/service";
 import { deleteRoutinesForWorkspace } from "#/modules/routines/service";
 import { deleteSkillsForWorkspace } from "#/modules/skills/service";
@@ -229,31 +233,42 @@ export const renameWorkspace = async (
  *
  * What follows by `ON DELETE CASCADE` from those roots: channel members,
  * messages, message mentions and attachments (from `channels`), wiki revisions
- * and assets (from `wiki_pages`), category items (from `categories`). What does
- * not, and is deleted by hand: agent activity, browser sessions and
- * screenshots, connector assignments and OAuth flows, skill versions and files,
- * routine runs, agent questions.
+ * (from `wiki_pages`), category items (from `categories`). What does not, and
+ * is deleted by hand: agent activity, browser sessions and screenshots,
+ * connector assignments and OAuth flows, skill versions and files, routine
+ * runs, agent questions, wiki assets - and the R2 objects behind all of those,
+ * which each module drops as it deletes the rows naming them.
  *
- * R2 objects (attachments, wiki assets, skill files, screenshots) are left
- * behind - unreachable, and worth less than making this a bucket-wide sweep.
+ * Two lookups are left alone on purpose. `slack_events_seen` is Slack's global
+ * retry dedupe, keyed by event id and belonging to no tenant; `slack_users` is
+ * a global display-name cache for `slack:U…` authors, who post through more
+ * than one workspace. `external_refs` is bridge-scoped too, but its message
+ * rows can be named through the workspace's channels, so those do go.
  */
 export const deleteWorkspace = async (
   db: Db,
+  bucket: R2Bucket,
   workspaceId: string
 ): Promise<boolean> => {
   const agentIds = await deleteAgentsForWorkspace(db, workspaceId);
   await deleteActivityForAgents(db, agentIds);
-  await deleteBrowserDataForAgents(db, agentIds);
+  await deleteBrowserDataForAgents(db, bucket, agentIds);
 
   await deleteBridgesForWorkspace(db, workspaceId);
   await deleteSlackAppsForWorkspace(db, workspaceId);
-  await deleteChannelsForWorkspace(db, workspaceId);
+  // The refs name messages, so they are read before the channels take those
+  // messages with them.
+  await deleteExternalRefsForMessages(
+    db,
+    await listMessageIdsForWorkspace(db, workspaceId)
+  );
+  await deleteChannelsForWorkspace(db, bucket, workspaceId);
   await deleteCategoriesForWorkspace(db, workspaceId);
   await deleteConnectorsForWorkspace(db, workspaceId);
-  await deleteSkillsForWorkspace(db, workspaceId);
+  await deleteSkillsForWorkspace(db, bucket, workspaceId);
   await deleteRoutinesForWorkspace(db, workspaceId);
   await deleteQuestionsForWorkspace(db, workspaceId);
-  await deletePagesForWorkspace(db, workspaceId);
+  await deletePagesForWorkspace(db, bucket, workspaceId);
 
   const deleted = await db
     .delete(workspaces)
