@@ -77,6 +77,7 @@ const main = async (): Promise<void> => {
   const registered = await gateway.registerAgent({
     instructions: "Answer with a single word.",
     mcpUrl: "",
+    model: AGENT_MODEL,
     name: `agentum-spike-${Date.now().toString(36)}`,
     system: "You are a terse test agent. Answer in exactly one word.",
   });
@@ -86,6 +87,7 @@ const main = async (): Promise<void> => {
   const session = await gateway.createSession({
     anthropicAgentId: registered.anthropicAgentId,
     memoryStoreId: registered.memoryStoreId,
+    model: AGENT_MODEL,
     text: PROMPT,
     title: "Agentum spike",
   });

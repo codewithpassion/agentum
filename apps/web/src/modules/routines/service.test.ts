@@ -21,7 +21,12 @@ mock.module("cloudflare:workers", () => ({
 }));
 
 const { createDb } = await import("#/db/client");
+const { resolveModel } = await import("#/modules/agents/model-overrides");
+const { agentModelOverrides } = await import("#/modules/agents/schema");
+const { AGENT_MODEL } = await import("#/modules/anthropic/config");
 const { createAgent, deleteAgent } = await import("#/modules/agents/service");
+
+const OPUS = "claude-opus-5";
 const {
   addChannelMember,
   createChannel,
@@ -92,17 +97,30 @@ let db: Db;
 let env: Env;
 let broadcasts: { channelId: string; type: string }[];
 let woken: { mentionedAgentIds: string[]; messageId: string }[];
+/**
+ * The override rows as they stood *at the moment the router was told*. A model
+ * written after the wake would be a model the run's first turn never saw, so
+ * this reads the table from inside the fan-out rather than after it.
+ */
+let overridesAtWake: { model: string; threadParentId: string }[][];
 
 const fakeEnv = (d1: D1Database): Env =>
   ({
     AGENT_ROUTER: {
       get: () => ({
-        notifyMessage: (notification: {
+        notifyMessage: async (notification: {
           mentionedAgentIds: string[];
           messageId: string;
         }) => {
           woken.push(notification);
-          return Promise.resolve();
+          overridesAtWake.push(
+            await db
+              .select({
+                model: agentModelOverrides.model,
+                threadParentId: agentModelOverrides.threadParentId,
+              })
+              .from(agentModelOverrides)
+          );
         },
       }),
       idFromName: (name: string) => name,
@@ -157,6 +175,7 @@ const DAILY: Schedule = { time: "09:00", type: "daily" };
 const routineFor = (
   tenant: Tenant,
   overrides: {
+    model?: string | null;
     nextRunAt?: Date | null;
     schedule?: Schedule;
     timezone?: string;
@@ -166,6 +185,7 @@ const routineFor = (
     agentId: tenant.agentId,
     channelId: tenant.channelId,
     instructions: "summarize yesterday's activity",
+    model: overrides.model ?? null,
     name: "Morning summary",
     nextRunAt:
       overrides.nextRunAt === undefined
@@ -189,6 +209,7 @@ beforeEach(async () => {
   env = fakeEnv(d1);
   broadcasts = [];
   woken = [];
+  overridesAtWake = [];
   alpha = await seed("Alpha", "user_2aAdaAAAAAAAAAAAAAAAAAAA");
   beta = await seed("Beta", "user_2bBobBBBBBBBBBBBBBBBBBBB");
 });
@@ -428,6 +449,100 @@ describe("fireRoutine", () => {
 
     expect(run.status).toBe("error");
     expect(run.error).toContain("channel");
+  });
+
+  test("a routine with a model of its own overrides the thread before waking anyone", async () => {
+    const routine = await routineFor(alpha, { model: OPUS });
+
+    const run = await fireRoutine(
+      db,
+      env,
+      workspaceRef(alpha),
+      routine,
+      new Date()
+    );
+
+    expect(run.status).toBe("posted");
+    // The row was already there when the router was told - a run inherits its
+    // model on its first turn, not its second.
+    expect(overridesAtWake).toEqual([
+      [{ model: OPUS, threadParentId: run.messageId ?? "" }],
+    ]);
+    expect(
+      await resolveModel(db, {
+        agentId: alpha.agentId,
+        channelId: alpha.channelId,
+        threadParentId: run.messageId,
+      })
+    ).toBe(OPUS);
+    // Everything else about the firing is unchanged.
+    expect(woken).toHaveLength(1);
+    expect(broadcasts.map((event) => event.type)).toEqual(["message.created"]);
+  });
+
+  test("a routine on the agent's own model writes no override at all", async () => {
+    const routine = await routineFor(alpha);
+
+    const run = await fireRoutine(
+      db,
+      env,
+      workspaceRef(alpha),
+      routine,
+      new Date()
+    );
+
+    expect(overridesAtWake).toEqual([[]]);
+    expect(
+      await resolveModel(db, {
+        agentId: alpha.agentId,
+        channelId: alpha.channelId,
+        threadParentId: run.messageId,
+      })
+    ).toBe(AGENT_MODEL);
+  });
+
+  test("a fan-out that blows up mid-sequence is an error run, not a throw", async () => {
+    // The model branch splits the publish in two, so it is the one path where
+    // a failure lands between the write and the wake. An alarm firing a list of
+    // routines has to reach the next one either way.
+    const routine = await routineFor(alpha, { model: OPUS });
+    const exploding = {
+      ...fakeEnv(env.DB),
+      CHANNEL_ROOM: {
+        get: () => ({
+          broadcast: () => Promise.reject(new Error("the room is gone")),
+        }),
+        idFromName: (name: string) => name,
+      },
+    } as unknown as Env;
+
+    const run = await fireRoutine(
+      db,
+      exploding,
+      workspaceRef(alpha),
+      routine,
+      new Date()
+    );
+
+    expect(run.status).toBe("error");
+    expect(run.error).toBe("the room is gone");
+    expect(await getRoutine(db, alpha.workspaceId, routine.id)).toBeDefined();
+  });
+
+  test("a model on a routine whose channel is gone still only leaves an error run", async () => {
+    const routine = await routineFor(alpha, { model: OPUS });
+    await deleteChannel(db, alpha.workspaceId, alpha.channelId);
+
+    const run = await fireRoutine(
+      db,
+      env,
+      workspaceRef(alpha),
+      routine,
+      new Date()
+    );
+
+    expect(run.status).toBe("error");
+    expect(overridesAtWake).toEqual([]);
   });
 
   test("running now writes history without touching the schedule", async () => {

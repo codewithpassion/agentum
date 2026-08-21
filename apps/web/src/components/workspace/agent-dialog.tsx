@@ -3,13 +3,20 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextAreaField, TextField } from "#/components/ui/field";
 import type { Agent, AgentInput } from "#/lib/api";
+import { WORKSPACE_DEFAULT_MODEL_LABEL } from "#/lib/model-format";
 import { useApi } from "#/lib/workspace-context";
 import { AgentConnectorsPicker } from "./agent-connectors-picker";
 import { AgentSkillsPicker } from "./agent-skills-picker";
 import { AgentSlackPanel } from "./agent-slack-panel";
 import { McpUrlField } from "./mcp-url";
+import { ModelSelect } from "./model-select";
 
-const EMPTY: AgentInput = { instructions: "", name: "", soul: "" };
+const EMPTY: AgentInput = {
+  instructions: "",
+  model: null,
+  name: "",
+  soul: "",
+};
 
 /**
  * The agent's settings, in sections (plan 5e): the dialog was already crowded
@@ -81,6 +88,7 @@ export function AgentDialog({
       agent
         ? {
             instructions: agent.instructions,
+            model: agent.model ?? null,
             name: agent.name,
             soul: agent.soul,
           }
@@ -105,6 +113,10 @@ export function AgentDialog({
         ...previous,
         instructions: event.target.value,
       })),
+    []
+  );
+  const onModelChange = useCallback(
+    (model: string | null) => setDraft((previous) => ({ ...previous, model })),
     []
   );
 
@@ -218,6 +230,13 @@ export function AgentDialog({
           placeholder="Triage requests, delegate to specialists, report back in-thread."
           rows={5}
           value={draft.instructions}
+        />
+        <ModelSelect
+          defaultLabel={WORKSPACE_DEFAULT_MODEL_LABEL}
+          hint="Which model this agent thinks with."
+          onChange={onModelChange}
+          testId="agent-model"
+          value={draft.model ?? null}
         />
 
         {agent ? (

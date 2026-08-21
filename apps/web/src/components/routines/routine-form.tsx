@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { SelectField, TextAreaField, TextField } from "#/components/ui/field";
+import { ModelSelect } from "#/components/workspace/model-select";
 import type { Agent, Channel, Routine } from "#/lib/api";
+import { AGENT_DEFAULT_MODEL_LABEL } from "#/lib/model-format";
 import { useApi } from "#/lib/workspace-context";
 import {
   browserTimeZone,
@@ -84,6 +86,9 @@ export function RoutineForm({
   const [instructions, setInstructions] = useState(
     routine ? routine.instructions : ""
   );
+  const [model, setModel] = useState<string | null>(
+    routine ? routine.model : null
+  );
   const [schedule, setSchedule] = useState<ScheduleState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -151,6 +156,7 @@ export function RoutineForm({
           agentId: chosenAgentId,
           channelId: chosenChannelId,
           instructions,
+          model,
           name: name.trim(),
           schedule: parsed.schedule,
           timezone: schedule.timezone,
@@ -170,6 +176,7 @@ export function RoutineForm({
       chosenAgentId,
       chosenChannelId,
       instructions,
+      model,
       name,
       onSaved,
       routine,
@@ -228,6 +235,14 @@ export function RoutineForm({
             />
           </SelectField>
         </div>
+
+        <ModelSelect
+          defaultLabel={AGENT_DEFAULT_MODEL_LABEL}
+          hint="Which model this routine's runs think with."
+          onChange={setModel}
+          testId="routine-model"
+          value={model}
+        />
 
         <TextAreaField
           data-testid="routine-instructions"

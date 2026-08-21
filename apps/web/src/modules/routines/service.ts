@@ -1,9 +1,12 @@
 import { and, asc, desc, eq, inArray, isNotNull, lt, lte } from "drizzle-orm";
 import type { Db } from "#/db/client";
+import { upsertOverride } from "#/modules/agents/model-overrides";
 import { getAgentById } from "#/modules/agents/service";
-import { publishMessage } from "#/modules/messaging/publish";
+import { fanOutMessage, publishMessage } from "#/modules/messaging/publish";
 import {
   addChannelMember,
+  type CreateMessageResult,
+  createMessage,
   getChannel,
   type WorkspaceRef,
 } from "#/modules/messaging/service";
@@ -57,6 +60,8 @@ export interface RoutineView {
   id: string;
   instructions: string;
   lastRun: RoutineRunView | null;
+  /** A catalog model id, or null for whatever the agent itself runs on. */
+  model: string | null;
   name: string;
   nextRunAt: number | null;
   /** Null only for a row whose stored schedule no longer parses. */
@@ -69,6 +74,8 @@ export interface CreateRoutineInput {
   agentId: string;
   channelId: string;
   instructions: string;
+  /** A catalog model id, or null/omitted for the agent's own model. */
+  model?: string | null;
   name: string;
   nextRunAt: Date | null;
   schedule: Schedule;
@@ -80,6 +87,8 @@ export interface UpdateRoutineInput {
   channelId?: string;
   enabled?: boolean;
   instructions?: string;
+  /** Absent leaves it alone; null puts the routine back on the agent's model. */
+  model?: string | null;
   name?: string;
   /** Recomputed by the caller whenever the schedule, zone or toggle changes. */
   nextRunAt?: Date | null;
@@ -130,6 +139,7 @@ export const toRoutineView = (
   id: routine.id,
   instructions: routine.instructions,
   lastRun: extras.lastRun ? toRunView(extras.lastRun, routine.channelId) : null,
+  model: routine.model,
   name: routine.name,
   nextRunAt: routine.nextRunAt?.getTime() ?? null,
   schedule: scheduleOf(routine),
@@ -170,6 +180,7 @@ export const createRoutine = async (
       channelId: input.channelId,
       id: crypto.randomUUID(),
       instructions: input.instructions,
+      model: input.model ?? null,
       name: input.name,
       nextRunAt: input.nextRunAt,
       schedule: JSON.stringify(input.schedule),
@@ -198,6 +209,7 @@ export const updateRoutine = async (
       ...(input.instructions === undefined
         ? {}
         : { instructions: input.instructions }),
+      ...(input.model === undefined ? {} : { model: input.model }),
       ...(input.name === undefined ? {} : { name: input.name }),
       ...(input.nextRunAt === undefined ? {} : { nextRunAt: input.nextRunAt }),
       ...(input.schedule === undefined
@@ -409,6 +421,11 @@ const finishRun = async (
  * The agent is added to the channel first. Membership is what the router reads
  * to decide who may be woken, and it is idempotent, so a routine keeps working
  * after somebody removes the agent from the channel by hand.
+ *
+ * A routine with a model of its own splits the publish in two - persist, write
+ * the thread override, then fan out - because fanning out is what wakes the
+ * router. Committing the override first is the whole reason the split exists:
+ * the run inherits the model from its first turn rather than its second.
  */
 export const fireRoutine = async (
   db: Db,
@@ -443,14 +460,35 @@ export const fireRoutine = async (
       memberId: agent.id,
       memberType: "agent",
     });
-    const result = await publishMessage(db, env, {
+    const post = {
       authorId: `${ROUTINE_ORIGIN}:${routine.id}`,
       authorType: "external",
       body: `@${agent.name} ${routine.instructions}`,
       channelId: channel.id,
       origin: ROUTINE_ORIGIN,
       workspace,
-    });
+    } as const;
+
+    let result: CreateMessageResult;
+    if (routine.model === null) {
+      result = await publishMessage(db, env, post);
+    } else {
+      result = await createMessage(db, post);
+      if (result.ok) {
+        // One run is one thread, so a thread override covers the whole run and
+        // every reply under it - and it is written before the router hears
+        // about the message at all.
+        await upsertOverride(db, {
+          agentId: routine.agentId,
+          channelId: channel.id,
+          createdBy: `${ROUTINE_ORIGIN}:${routine.id}`,
+          model: routine.model,
+          threadParentId: result.message.id,
+          workspaceId: routine.workspaceId,
+        });
+        await fanOutMessage(db, env, result.message);
+      }
+    }
     if (!result.ok) {
       return await finishRun(db, run.id, {
         error: result.reason,

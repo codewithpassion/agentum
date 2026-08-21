@@ -11,12 +11,7 @@ import {
 import { createDb, type Db } from "#/db/client";
 import { getAgentById, getAgentsByIds } from "#/modules/agents/service";
 import { getChannel, listChannels } from "#/modules/messaging/service";
-import {
-  isValidTimeZone,
-  nextRun,
-  parseSchedule,
-  type Schedule,
-} from "./schedule";
+import type { Schedule } from "./schedule";
 import { rescheduleRoutines } from "./scheduler";
 import type { Routine } from "./schema";
 import {
@@ -28,26 +23,41 @@ import {
   listRoutines,
   listRuns,
   type RoutineView,
-  scheduleOf,
   toRoutineView,
   toRunView,
   updateRoutine,
 } from "./service";
+import {
+  type Checked,
+  checkModel,
+  checkSchedule,
+  checkTimezone,
+  firstRunAt,
+  nextRunAfterChange,
+} from "./validate";
 
 /**
  * The routines API, workspace-scoped like every other resource router.
  *
- * Validation lives here rather than in the service: the agent and the channel
- * have to resolve *within this workspace* (which is what makes another tenant's
- * id a 404 rather than a working routine), and a schedule with no future run is
- * refused before a row exists rather than saved as a routine that never fires.
+ * Scoping lives here: the agent and the channel have to resolve *within this
+ * workspace*, which is what makes another tenant's id a 404 rather than a
+ * working routine. What makes a routine well-formed lives in `validate.ts`,
+ * because the agents' MCP tools accept the same routine from the other
+ * direction and must refuse exactly what this does; the adapter below is the
+ * only difference - a reason becomes a 400 here and tool text there.
  */
 
 const NAME_MAX_LENGTH = 120;
 const INSTRUCTIONS_MAX_LENGTH = 10_000;
 const RUNS_PAGE_DEFAULT = 20;
 const RUNS_PAGE_MAX = 100;
-const NO_FUTURE_RUN = "This schedule has no future run.";
+
+const orBadRequest = <T>(checked: Checked<T>): T => {
+  if (!checked.ok) {
+    throw badRequest(checked.reason);
+  }
+  return checked.value;
+};
 
 const views = async (
   db: Db,
@@ -123,21 +133,20 @@ const requireTargets = async (
   }
 };
 
-const requireSchedule = (body: Record<string, unknown>): Schedule => {
-  const parsed = parseSchedule(body.schedule);
-  if (!parsed.ok) {
-    throw badRequest(parsed.reason);
-  }
-  return parsed.schedule;
-};
+const requireSchedule = (body: Record<string, unknown>): Schedule =>
+  orBadRequest(checkSchedule(body.schedule));
 
-const requireTimezone = (body: Record<string, unknown>): string => {
-  const timezone = requireString(body, "timezone", { maxLength: 64 });
-  if (!isValidTimeZone(timezone)) {
-    throw badRequest(`"${timezone}" is not a known time zone.`);
-  }
-  return timezone;
-};
+const requireTimezone = (body: Record<string, unknown>): string =>
+  orBadRequest(checkTimezone(body.timezone));
+
+/**
+ * Absent leaves the model as it is, `null` puts the routine back on its agent's
+ * model, and a string has to be one the deployment offers.
+ */
+const optionalModel = (
+  body: Record<string, unknown>
+): string | null | undefined =>
+  body.model === undefined ? undefined : orBadRequest(checkModel(body.model));
 
 const readEnabled = (body: Record<string, unknown>): boolean | undefined => {
   if (body.enabled === undefined) {
@@ -172,10 +181,7 @@ routinesRoutes.post("/", async (c) => {
 
   const schedule = requireSchedule(body);
   const timezone = requireTimezone(body);
-  const nextRunAt = nextRun(schedule, timezone, new Date());
-  if (!nextRunAt) {
-    throw badRequest(NO_FUTURE_RUN);
-  }
+  const nextRunAt = orBadRequest(firstRunAt(schedule, timezone));
 
   const routine = await createRoutine(db, workspace.id, {
     agentId,
@@ -183,6 +189,7 @@ routinesRoutes.post("/", async (c) => {
     instructions: requireString(body, "instructions", {
       maxLength: INSTRUCTIONS_MAX_LENGTH,
     }),
+    model: optionalModel(body) ?? null,
     name: requireString(body, "name", { maxLength: NAME_MAX_LENGTH }),
     nextRunAt,
     schedule,
@@ -222,22 +229,9 @@ routinesRoutes.patch("/:id", async (c) => {
   const timezone =
     body.timezone === undefined ? undefined : requireTimezone(body);
   const enabled = readEnabled(body);
-
-  // Any of the three can move the next firing, and an enabled routine must
-  // have one - re-enabling a "once" that has been and gone is refused here
-  // rather than saved as a routine that will never fire again.
-  const willBeEnabled = enabled ?? routine.enabled;
-  let { nextRunAt } = routine;
-  if (schedule || timezone || enabled !== undefined) {
-    const effective = schedule ?? scheduleOf(routine);
-    nextRunAt =
-      willBeEnabled && effective
-        ? nextRun(effective, timezone ?? routine.timezone, new Date())
-        : null;
-    if (willBeEnabled && !nextRunAt) {
-      throw badRequest(NO_FUTURE_RUN);
-    }
-  }
+  const nextRunAt = orBadRequest(
+    nextRunAfterChange(routine, { enabled, schedule, timezone })
+  );
 
   const updated = await updateRoutine(db, workspace.id, routine.id, {
     agentId,
@@ -249,6 +243,7 @@ routinesRoutes.patch("/:id", async (c) => {
         : requireString(body, "instructions", {
             maxLength: INSTRUCTIONS_MAX_LENGTH,
           }),
+    model: optionalModel(body),
     name:
       body.name === undefined
         ? undefined

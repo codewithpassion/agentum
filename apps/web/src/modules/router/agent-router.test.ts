@@ -76,11 +76,22 @@ mock.module("cloudflare:workers", () => ({
   env: {},
 }));
 
-const { createAgent, getAgentById } = await import("#/modules/agents/service");
+const { createAgent, getAgentById, setAgentRegistration } = await import(
+  "#/modules/agents/service"
+);
+const { upsertOverride } = await import("#/modules/agents/model-overrides");
+const { AGENT_MODEL } = await import("#/modules/anthropic/config");
 const { createWorkspace } = await import("#/modules/workspaces/service");
 const { AgentRouter, routerStub } = await import("./agent-router");
-const { DIGEST_KEY, WORKSPACE_KEY } = await import("./state");
+const { DIGEST_KEY, SESSION_KEY, WORKSPACE_KEY } = await import("./state");
+type AnthropicGateway = import("#/modules/anthropic/gateway").AnthropicGateway;
+type CreateSessionInput =
+  import("#/modules/anthropic/gateway").CreateSessionInput;
 type MessageNotification = import("./wake-decision").MessageNotification;
+type StoredSession = import("./state").StoredSession;
+
+const OPUS = "claude-opus-5";
+const HAIKU = "claude-haiku-4-5-20251001";
 
 const migrate = (): Db => {
   const dir = new URL("../../../drizzle/", import.meta.url);
@@ -123,7 +134,7 @@ const channelRooms = () => ({
  * `notifyMessage` does its work - the gateway itself is never reached, because
  * neither agent here is registered.
  */
-const routerFor = (store: Storage) => {
+const routerFor = (store: Storage, gateway?: AnthropicGateway) => {
   const ctx = { storage: store.api } as unknown as DurableObjectState;
   const env = {
     ANTHROPIC_API_KEY: "sk-test",
@@ -131,6 +142,11 @@ const routerFor = (store: Storage) => {
     DB: {},
   } as unknown as Env;
   const instance = new AgentRouter(ctx, env);
+  if (gateway) {
+    // An own property shadows the prototype method, which is how a fake reaches
+    // a Durable Object that builds its own gateway from `env`.
+    Object.assign(instance, { gateway: () => gateway });
+  }
   // `DurableObject` is module-mocked, and the whole suite shares one registry -
   // so whose stand-in wins the race is not this file's to decide. Both fields
   // are set here rather than relying on a base constructor to have done it.
@@ -138,6 +154,36 @@ const routerFor = (store: Storage) => {
   // and the fixtures wrote to this one.
   Object.assign(instance, { ctx, database: db, env });
   return instance;
+};
+
+/** Records what the router asked Anthropic for; makes no calls of its own. */
+const fakeGateway = () => {
+  const calls = {
+    created: [] as CreateSessionInput[],
+    sent: [] as { sessionId: string; text: string }[],
+  };
+  const gateway: AnthropicGateway = {
+    createSession: (input) => {
+      calls.created.push(input);
+      return Promise.resolve({
+        sessionId: `sesn_${calls.created.length}`,
+        status: "running" as const,
+      });
+    },
+    deleteSession: () => Promise.resolve(),
+    ensureEnvironment: () => Promise.resolve("env_1"),
+    getSession: () => Promise.resolve("idle" as const),
+    pollEvents: () => Promise.resolve({ cursor: undefined, events: [] }),
+    registerAgent: () =>
+      Promise.resolve({ anthropicAgentId: "agt_1", memoryStoreId: null }),
+    sendMessage: (sessionId, text) => {
+      calls.sent.push({ sessionId, text });
+      return Promise.resolve();
+    },
+    syncAgent: () => Promise.resolve(),
+    syncAgentSkills: () => Promise.resolve(),
+  };
+  return { calls, gateway };
 };
 
 interface Tenant {
@@ -187,6 +233,46 @@ const notification = (
   threadParentId: null,
   workspaceId: tenant.workspaceId,
   ...overrides,
+});
+
+/** Registered, so a wake has something to talk to, and on `model`. */
+const register = async (tenant: Tenant, model: string | null) => {
+  await setAgentRegistration(db, tenant.agentId, {
+    anthropicAgentId: "agt_1",
+    memoryStoreId: null,
+  });
+  await db.update(agents).set({ model }).where(eq(agents.id, tenant.agentId));
+};
+
+const override = (tenant: Tenant, channelId: string, model: string) =>
+  upsertOverride(db, {
+    agentId: tenant.agentId,
+    channelId,
+    createdBy: `agent:${tenant.agentId}`,
+    model,
+    workspaceId: tenant.workspaceId,
+  });
+
+/** A live session on the workspace default, waiting to be reused. */
+const storedSession = (): StoredSession => ({
+  channelId: alpha.channelId,
+  cursorAt: null,
+  cursorId: null,
+  lastActivityAt: Date.now(),
+  model: AGENT_MODEL,
+  sessionId: "sesn_old",
+  status: "idle",
+});
+
+const digestEntry = (channelId: string) => ({
+  authorName: "Ada Lovelace",
+  body: "have a look",
+  channelId,
+  channelKind: "channel" as const,
+  channelName: "general",
+  createdAt: Date.now(),
+  messageId: crypto.randomUUID(),
+  threadParentId: null,
 });
 
 let alpha: Tenant;
@@ -302,6 +388,79 @@ describe("the alarm", () => {
     // A's digest was taken; B's is still sitting there untouched.
     expect(store.values.get(DIGEST_KEY(alpha.agentId))).toBeUndefined();
     expect(store.values.get(DIGEST_KEY(beta.agentId))).toBeDefined();
+  });
+
+  test("a stored session on another model is dropped for a fresh one", async () => {
+    const store = storage();
+    const { calls, gateway } = fakeGateway();
+    const router = routerFor(store, gateway);
+    await register(alpha, OPUS);
+    await store.api.put(SESSION_KEY(alpha.agentId), storedSession());
+
+    await router.notifyMessage(notification(alpha));
+    await router.alarm();
+
+    // The session it was holding runs on Sonnet and cannot be re-modelled, so
+    // the wake starts a new one instead of sending into it.
+    expect(calls.sent).toEqual([]);
+    expect(calls.created.map((input) => input.model)).toEqual([OPUS]);
+    const session = store.values.get(
+      SESSION_KEY(alpha.agentId)
+    ) as StoredSession;
+    expect(session.sessionId).toBe("sesn_1");
+    expect(session.model).toBe(OPUS);
+  });
+
+  test("a session stored before this feature counts as the default", async () => {
+    const store = storage();
+    const { calls, gateway } = fakeGateway();
+    const router = routerFor(store, gateway);
+    await register(alpha, null);
+    const { model, ...withoutModel } = storedSession();
+    await store.api.put(SESSION_KEY(alpha.agentId), withoutModel);
+
+    await router.notifyMessage(notification(alpha));
+    await router.alarm();
+
+    // The agent is on the default too, so there is nothing to churn.
+    expect(calls.created).toEqual([]);
+    expect(calls.sent.map((call) => call.sessionId)).toEqual(["sesn_old"]);
+    expect(
+      (store.values.get(SESSION_KEY(alpha.agentId)) as StoredSession).model
+    ).toBe(AGENT_MODEL);
+  });
+
+  test("an override carries when the whole batch is in one conversation", async () => {
+    const store = storage();
+    const { calls, gateway } = fakeGateway();
+    const router = routerFor(store, gateway);
+    await register(alpha, null);
+    await override(alpha, alpha.channelId, OPUS);
+
+    await router.notifyMessage(notification(alpha));
+    await router.alarm();
+
+    expect(calls.created.map((input) => input.model)).toEqual([OPUS]);
+  });
+
+  test("a batch spanning conversations falls back to the agent's own model", async () => {
+    const store = storage();
+    const { calls, gateway } = fakeGateway();
+    const router = routerFor(store, gateway);
+    await register(alpha, HAIKU);
+    // One of the two channels the digest spans has an override; the other does
+    // not, and one session cannot run on two models.
+    await override(alpha, alpha.channelId, OPUS);
+    await store.api.put(DIGEST_KEY(alpha.agentId), [
+      digestEntry(alpha.channelId),
+      digestEntry("channel-elsewhere"),
+    ]);
+    await store.api.put(WORKSPACE_KEY, alpha.workspaceId);
+
+    await store.api.put("nextDigestAt", Date.now() - 1);
+    await router.alarm();
+
+    expect(calls.created.map((input) => input.model)).toEqual([HAIKU]);
   });
 
   test("the retired global singleton drops its state instead of acting on it", async () => {

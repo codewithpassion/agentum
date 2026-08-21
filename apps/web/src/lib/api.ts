@@ -188,6 +188,8 @@ export interface ConnectorAgentRef {
 
 export interface AgentInput {
   instructions: string;
+  /** A catalog model id, or null for the workspace default. */
+  model?: string | null;
   name: string;
   soul: string;
 }
@@ -284,6 +286,8 @@ export interface RoutineInput {
   agentId: string;
   channelId: string;
   instructions: string;
+  /** A catalog model id, or null for whatever the agent itself runs on. */
+  model?: string | null;
   name: string;
   schedule: Schedule;
   timezone: string;

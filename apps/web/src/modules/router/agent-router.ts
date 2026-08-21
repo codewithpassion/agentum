@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { createDb, type Db } from "#/db/client";
+import { resolveModel } from "#/modules/agents/model-overrides";
 import type { Agent } from "#/modules/agents/schema";
 import {
   type AgentStatus,
@@ -8,6 +9,7 @@ import {
   listAgents,
   setAgentRuntimeStatus,
 } from "#/modules/agents/service";
+import { AGENT_MODEL, isAvailableModel } from "#/modules/anthropic/config";
 import {
   isSessionReusable,
   reduceEvents,
@@ -411,6 +413,44 @@ export class AgentRouter extends DurableObject<Env> {
     return addressed ? addressed.agentId : null;
   }
 
+  /**
+   * The model this wake should run on.
+   *
+   * A batch can span conversations - a digest does by design - and one session
+   * runs on one model, so an override only carries when every entry in the
+   * batch resolves to the same one. Otherwise the agent's own model stands,
+   * which is predictable if occasionally not what a single entry asked for.
+   */
+  private async effectiveModel(
+    agent: Agent,
+    entries: readonly WakeEntry[]
+  ): Promise<string> {
+    // Deduplicated first: a digest holds up to fifty entries, and they are
+    // usually a handful of conversations repeated.
+    const scopes = new Map<string, WakeEntry>();
+    for (const entry of entries) {
+      scopes.set(`${entry.channelId}:${entry.threadParentId ?? ""}`, entry);
+    }
+
+    const resolved = new Set<string>();
+    for (const entry of scopes.values()) {
+      resolved.add(
+        // biome-ignore lint/performance/noAwaitInLoops: a handful of conversations per wake, resolved in turn
+        await resolveModel(this.db, {
+          agentId: agent.id,
+          channelId: entry.channelId,
+          threadParentId: entry.threadParentId,
+        })
+      );
+    }
+
+    const [only] = [...resolved];
+    if (resolved.size === 1 && only) {
+      return only;
+    }
+    return isAvailableModel(agent.model) ? agent.model : AGENT_MODEL;
+  }
+
   /** Sends into a live session, or starts one. Either way the agent is working. */
   private async wake(
     agentId: string,
@@ -429,14 +469,24 @@ export class AgentRouter extends DurableObject<Env> {
       return;
     }
 
+    const model = await this.effectiveModel(agent, entries);
+    // A session runs on the model it was created with, so a changed one - the
+    // agent re-modelled in the UI, an override set for this thread - can only
+    // take effect on a fresh session. One check for both branches below.
+    let reusable = session;
+    if (reusable && (reusable.model ?? AGENT_MODEL) !== model) {
+      await this.ctx.storage.delete(SESSION_KEY(agentId));
+      reusable = null;
+    }
+
     const text =
       entries.length === 1 && first
         ? composeImmediateWake(first)
         : composeDigestWake(entries);
 
     try {
-      if (session) {
-        await this.sendIntoSession(agent, session, text, channelId);
+      if (reusable) {
+        await this.sendIntoSession(agent, reusable, text, channelId, model);
       } else {
         // The last moment a connector change can still reach this agent: the
         // vaults and the `mcp_servers` array are both fixed once the session
@@ -444,7 +494,8 @@ export class AgentRouter extends DurableObject<Env> {
         await this.startSession(
           await this.settleConnectors(agent),
           text,
-          channelId
+          channelId,
+          model
         );
       }
     } catch (error) {
@@ -488,7 +539,6 @@ export class AgentRouter extends DurableObject<Env> {
     for (const [key, entry] of pending) {
       // biome-ignore lint/performance/noAwaitInLoops: an agent shows at most a couple of these, and each is a Slack call
       await this.ctx.storage.delete(key);
-      // biome-ignore lint/performance/noAwaitInLoops: paced against Slack on purpose
       await clearThinking(this.db, this.env, { agentId, ...entry });
     }
   }
@@ -497,7 +547,8 @@ export class AgentRouter extends DurableObject<Env> {
     agent: Agent,
     session: StoredSession,
     text: string,
-    channelId: string
+    channelId: string,
+    model: string
   ): Promise<void> {
     const gateway = this.gateway();
     if (!gateway) {
@@ -509,13 +560,17 @@ export class AgentRouter extends DurableObject<Env> {
       // A live session can still refuse new work - it hit its budget cap, or it
       // terminated between our last poll and now. A fresh session always works.
       await this.ctx.storage.delete(SESSION_KEY(agent.id));
-      await this.startSession(agent, text, channelId);
+      await this.startSession(agent, text, channelId, model);
       return;
     }
     await this.write(SESSION_KEY(agent.id), {
       ...session,
       channelId,
       lastActivityAt: Date.now(),
+      // Written out rather than inherited: a session stored before this feature
+      // carries no model, and it is the caller's check that just proved this
+      // one is running on the model asked for.
+      model,
       status: "running",
     } satisfies StoredSession);
     await this.setStatus(agent.id, "working", channelId, session.sessionId);
@@ -546,7 +601,8 @@ export class AgentRouter extends DurableObject<Env> {
   private async startSession(
     agent: Agent,
     text: string,
-    channelId: string
+    channelId: string,
+    model: string
   ): Promise<void> {
     const gateway = this.gateway();
     if (!(gateway && agent.anthropicAgentId)) {
@@ -555,6 +611,9 @@ export class AgentRouter extends DurableObject<Env> {
     const created = await gateway.createSession({
       anthropicAgentId: agent.anthropicAgentId,
       memoryStoreId: agent.memoryStoreId,
+      // The load-bearing application point: a session override needs no
+      // registration sync to have landed.
+      model,
       text,
       title: `${agent.name} in ${channelId}`,
       // Create-only on Anthropic's side: this is the one moment the agent's
@@ -566,6 +625,7 @@ export class AgentRouter extends DurableObject<Env> {
       cursorAt: null,
       cursorId: null,
       lastActivityAt: Date.now(),
+      model,
       sessionId: created.sessionId,
       status: created.status,
     } satisfies StoredSession);

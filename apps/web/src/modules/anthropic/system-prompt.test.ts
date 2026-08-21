@@ -47,6 +47,16 @@ describe("composeSystemPrompt", () => {
     expect(prompt).toContain("changelog");
   });
 
+  test("tells the agent it looks after its own routines and model", () => {
+    const prompt = composeSystemPrompt(input());
+
+    expect(prompt).toContain("routine_create");
+    expect(prompt).toContain("routine_list");
+    expect(prompt).toContain("set_model");
+    // Effect-on-next-wake is the part a person will otherwise be surprised by.
+    expect(prompt).toContain("next wake");
+  });
+
   test("lists the other agents with their souls so delegation is possible", () => {
     const prompt = composeSystemPrompt(input());
 

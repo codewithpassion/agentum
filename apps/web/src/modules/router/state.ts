@@ -10,6 +10,12 @@ export interface StoredSession {
   cursorAt: string | null;
   cursorId: string | null;
   lastActivityAt: number;
+  /**
+   * The model this session was created with. Absent on a session stored before
+   * models were configurable, which counts as the workspace default - the wake
+   * path compares against it and starts a fresh session when they differ.
+   */
+  model?: string;
   sessionId: string;
   status: SessionStatus;
   /**

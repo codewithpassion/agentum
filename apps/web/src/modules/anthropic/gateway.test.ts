@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type Anthropic from "@anthropic-ai/sdk";
+import { AGENT_MODEL } from "./config";
 import { createAnthropicGateway, type EnvironmentCache } from "./gateway";
 
 /**
@@ -139,6 +140,7 @@ describe("syncAgent", () => {
         { name: "connector_aaaa", url: "https://a.example.com/mcp" },
       ],
       mcpUrl: "https://app.example.com/mcp/tok",
+      model: AGENT_MODEL,
       name: "Ada",
       system: "be helpful",
     });
@@ -160,6 +162,7 @@ describe("syncAgent", () => {
         { name: "connector_aaaa", url: "https://a.example.com/mcp" },
       ],
       mcpUrl: "https://app.example.com/mcp/tok",
+      model: AGENT_MODEL,
       name: "Ada",
       system: "be helpful",
     });
@@ -193,6 +196,19 @@ describe("syncAgent", () => {
     ]);
   });
 
+  test("sends the model it was handed, not the workspace default", async () => {
+    // Every update carries the model, so a roster resync that used the constant
+    // would quietly put a re-modelled agent back on Sonnet.
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      model: "claude-opus-5",
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    expect(lastUpdate().model).toBe("claude-opus-5");
+  });
+
   test("leaves the whole array alone when there is no MCP URL to send", async () => {
     // The registered URL carries a token we cannot reconstruct, so a rename
     // must not touch `mcp_servers` - connectors and all.
@@ -201,12 +217,41 @@ describe("syncAgent", () => {
       connectors: [
         { name: "connector_aaaa", url: "https://a.example.com/mcp" },
       ],
+      model: AGENT_MODEL,
       name: "Ada",
       system: "be helpful",
     });
 
     expect(lastUpdate()).not.toHaveProperty("mcp_servers");
     expect(lastUpdate()).not.toHaveProperty("tools");
+  });
+});
+
+describe("registerAgent", () => {
+  test("registers the agent on the model it was handed", async () => {
+    const created: Record<string, unknown>[] = [];
+    const gateway = createAnthropicGateway(
+      client({
+        agents: {
+          create: (body: Record<string, unknown>) => {
+            created.push(body);
+            return Promise.resolve({ id: "agt_1" });
+          },
+        },
+        memoryStores: { create: () => Promise.resolve({ id: "mem_1" }) },
+      }),
+      { cache: memoryCache(), environmentName: "agentum" }
+    );
+
+    await gateway.registerAgent({
+      instructions: "be helpful",
+      mcpUrl: "https://app.example.com/mcp/tok",
+      model: "claude-haiku-4-5-20251001",
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    expect(created.at(-1)?.model).toBe("claude-haiku-4-5-20251001");
   });
 });
 
@@ -276,6 +321,7 @@ describe("createSession", () => {
   const session = {
     anthropicAgentId: "agt_1",
     memoryStoreId: null,
+    model: AGENT_MODEL,
     text: "hello",
     title: "Ada in ch_1",
   };
@@ -293,6 +339,18 @@ describe("createSession", () => {
     await gateway.createSession({ ...session, vaultIds: [] });
 
     expect(created.at(-1)).not.toHaveProperty("vault_ids");
+  });
+
+  test("runs the session on the model it was handed", async () => {
+    // The per-session override is the load-bearing application point: it needs
+    // no registration sync to have landed, and omitted fields are preserved.
+    await gateway.createSession({ ...session, model: "claude-opus-5" });
+
+    expect(created.at(-1)?.agent).toEqual({
+      id: "agt_1",
+      model: "claude-opus-5",
+      type: "agent_with_overrides",
+    });
   });
 });
 

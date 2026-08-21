@@ -2,6 +2,7 @@ import { type Context, Hono } from "hono";
 import { requireAuth } from "#/api/require-auth";
 import type { ApiEnv } from "#/api/types";
 import {
+  badRequest,
   notFound,
   optionalBoolean,
   optionalString,
@@ -10,6 +11,7 @@ import {
 } from "#/api/validation";
 import { createDb } from "#/db/client";
 import { isUniqueConstraintError } from "#/db/errors";
+import { AVAILABLE_MODELS, isAvailableModel } from "#/modules/anthropic/config";
 import {
   resyncRostersWithAnthropic,
   syncAgentWithAnthropic,
@@ -38,6 +40,29 @@ const PROMPT_MAX_LENGTH = 20_000;
  * unique column, `mcp_token_hash`, holds a freshly generated secret.
  */
 const isDuplicateName = isUniqueConstraintError;
+
+/**
+ * The agent's model, validated against the catalog. Three answers, all of them
+ * meaningful: absent leaves it as it is, `null` puts the agent back on the
+ * workspace default, and a string has to be one we actually offer.
+ */
+const optionalModel = (
+  body: Record<string, unknown>
+): string | null | undefined => {
+  const value = body.model;
+  if (value === undefined) {
+    return;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (!isAvailableModel(value)) {
+    throw badRequest(
+      `"model" must be one of: ${AVAILABLE_MODELS.map((model) => model.id).join(", ")}.`
+    );
+  }
+  return value;
+};
 
 /**
  * Registration with Anthropic is best-effort and must never hold up a response
@@ -87,6 +112,7 @@ agentsRoutes.post("/", async (c) => {
     instructions:
       optionalString(body, "instructions", { maxLength: PROMPT_MAX_LENGTH }) ??
       "",
+    model: optionalModel(body),
     name: requireString(body, "name", { maxLength: NAME_MAX_LENGTH }),
     soul: optionalString(body, "soul", { maxLength: PROMPT_MAX_LENGTH }) ?? "",
   };
@@ -135,6 +161,7 @@ agentsRoutes.patch("/:id", async (c) => {
     instructions: optionalString(body, "instructions", {
       maxLength: PROMPT_MAX_LENGTH,
     }),
+    model: optionalModel(body),
     name: optionalString(body, "name", { maxLength: NAME_MAX_LENGTH }),
     soul: optionalString(body, "soul", { maxLength: PROMPT_MAX_LENGTH }),
   };

@@ -119,6 +119,8 @@ export const listAgentMentionCandidates = async (
 export interface CreateAgentInput {
   avatar?: string;
   instructions: string;
+  /** A catalog model id, or null for the workspace default. */
+  model?: string | null;
   name: string;
   soul: string;
 }
@@ -142,6 +144,7 @@ export const createAgent = async (
       id: crypto.randomUUID(),
       instructions: input.instructions,
       mcpTokenHash: await hashMcpToken(mcpToken),
+      model: input.model ?? null,
       name: input.name,
       soul: input.soul,
       workspaceId,

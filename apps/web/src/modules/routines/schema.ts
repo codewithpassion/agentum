@@ -38,6 +38,8 @@ export const routines = sqliteTable(
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     id: text("id").primaryKey(),
     instructions: text("instructions").notNull(),
+    /** A catalog model id; null means whatever the agent itself runs on. */
+    model: text("model"),
     name: text("name").notNull(),
     /** Null whenever the routine is disabled or has no future run left. */
     nextRunAt: integer("next_run_at", { mode: "timestamp_ms" }),

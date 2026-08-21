@@ -4,8 +4,33 @@
  * environment name) is pinned here rather than inlined at the call sites.
  */
 
-/** One model for every agent until per-agent model choice earns its keep. */
+/** The workspace default: what an agent runs on until somebody picks otherwise. */
 export const AGENT_MODEL = "claude-sonnet-5";
+
+/**
+ * Every model an agent may be set to, in the order a picker should offer them.
+ * Plain model strings only - `model_config` extras (effort, inference geo, fast
+ * premium) are deliberately out of scope.
+ *
+ * This list is the validation boundary: every place a model enters from outside
+ * (HTTP API, MCP tools) checks against it, and anything stored that is no longer
+ * on it falls back to the default rather than being sent to the API.
+ */
+export const AVAILABLE_MODELS = [
+  { id: "claude-opus-5", label: "Opus 5" },
+  { id: AGENT_MODEL, label: "Sonnet 5" },
+  { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
+] as const;
+
+export type AvailableModelId = (typeof AVAILABLE_MODELS)[number]["id"];
+
+export const isAvailableModel = (id: unknown): id is AvailableModelId =>
+  typeof id === "string" && AVAILABLE_MODELS.some((model) => model.id === id);
+
+/** The catalog ids, for the message a rejected model gets back. */
+export const AVAILABLE_MODEL_IDS: string = AVAILABLE_MODELS.map(
+  (model) => model.id
+).join(", ");
 
 /**
  * The cheap, quick model behind the decisions that sit *in front of* an agent

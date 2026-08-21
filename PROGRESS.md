@@ -5,6 +5,29 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 13 — Model configuration: per-agent, per-conversation, per-routine + agent-managed routines (2026-08-21)
+
+**Goal:** Implement docs/plan-model-config.md — a model picker in agent config, per-conversation ("use opus for this thread") and per-routine model overrides working across Slack/web/routines, and agents managing their own routines via chat.
+
+**What we did:**
+- Model catalog (`AVAILABLE_MODELS`: Opus 5, Sonnet 5 default, Haiku 4.5) in anthropic/config; nullable `agents.model` and `routines.model` plus new `agent_model_overrides` table, all in one migration (0019); precedence lives in one place: `resolveModel` — thread override > channel override > agent.model > `AGENT_MODEL`
+- The load-bearing application point is session creation, not registration: `createSession` always sends `agent: { id, type: "agent_with_overrides", model }` (verified in the SDK types before planning — omitted fields preserve the registration), so a model change can never be lost to the best-effort background sync. The router compares effective model against `StoredSession.model` on both the reuse and create branches; mismatch retires the session and starts fresh. Mixed digest batches fall back to `agent.model ?? default`
+- Per-conversation overrides are set by the agent itself via new MCP tools `set_model`/`get_model` (self-scoped, catalog-validated, effect-from-next-wake stated in the description) — one mechanism covers Slack, web and routines because all three converge on the same mention → router → session path. `set_model` normalizes a reply id to its thread parent, since agents naturally pass the message that woke them
+- Routine models materialize as a thread override at fire time: `fireRoutine` splits `publishMessage` into `createMessage` → `upsertOverride` → `fanOutMessage`, so the override is committed before the router can wake
+- Agent-managed routines: MCP tools `routine_list/create/update/delete`, strictly self-scoped, sharing validation with the HTTP routes via new `routines/validate.ts` (matching the skills/validate.ts precedent) — bad schedules/timezones/models come back as tool text the agent can relay; every mutation re-arms the RoutineScheduler. System prompt gained a line advertising both capabilities
+- Frontend: shared `ModelSelect` (workspace default / agent default + catalog; stale ids keep their own option so a pinned retired model isn't silently re-pointed), wired into agent dialog and routine form; model shown in routine facts only when set
+- 929 unit tests (up from 853), 27/27 e2e incl. new model round-trip specs, typecheck/ultracite clean; migration applied to remote D1 and deployed to agentum.rockyshoreslabs.io. Implemented on main by forge-m1 (backend plumbing), forge-m2m3 (overrides + routine tools), forge-m4 (frontend), run sequentially
+
+**Lessons learned:**
+- `sessions.create` accepts `agent_with_overrides` with a per-session `model` — checking the installed SDK `.d.ts` before planning turned "maybe re-register per thread" into a one-parameter design
+- Model on `RegisterAgentInput`/`SyncAgentInput` had to be required, not defaulted: `resyncRosters` syncs every other agent on any roster change, and an optional-with-default would silently reset re-modelled agents to Sonnet on each refresh
+- SQLite UNIQUE treats NULLs as distinct — the overrides table stores `''` (not NULL) for channel-level rows so the (agent, channel, thread) unique index actually dedupes
+- A model-mismatch session drop can transiently exceed MAX_ACTIVE_SESSIONS by one (the dropped session was counted as a reuse); accepted, the old session idles out
+
+**Avoid next time:**
+- Don't let an agent-facing tool key thread state on the id the agent hands it without normalizing replies to their thread parent — the router resolves by parent, and the un-normalized override would never be read
+- The flat $1 session budget is now model-blind: Opus sessions do less before the ceiling — revisit budgets if Opus agents start parking mid-task
+
 ## Cycle 12 — Ask-user (2026-08-21)
 
 **Goal:** Implement docs/plan-ask-user.md — agents can ask their humans a question (clarification or a yes/no permission gate), go idle, and be woken by the answer, on both the web and Slack surfaces.

@@ -1,7 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { BetaManagedAgentsSessionEvent } from "@anthropic-ai/sdk/resources/beta/sessions/events";
 import {
-  AGENT_MODEL,
   AGENT_TOOLSET,
   MCP_SERVER_NAME,
   MEMORY_STORE_INSTRUCTIONS,
@@ -44,6 +43,8 @@ export interface RegisterAgentInput {
   instructions: string;
   /** Our MCP endpoint for this agent, resolved at call time from env. */
   mcpUrl: string;
+  /** The model to register the agent with; the caller resolves the default. */
+  model: string;
   name: string;
   /** Assigned skills. Only non-empty when a prior registration attempt failed. */
   skills?: readonly AgentSkillRef[];
@@ -65,6 +66,11 @@ export interface SyncAgentInput {
   connectors?: readonly ConnectorServer[];
   /** Omit to leave the registered MCP URL untouched (the usual roster resync). */
   mcpUrl?: string;
+  /**
+   * Required, not optional: every update sends it, and a roster resync that
+   * omitted it would quietly put a re-modelled agent back on the default.
+   */
+  model: string;
   name: string;
   system: string;
 }
@@ -72,6 +78,8 @@ export interface SyncAgentInput {
 export interface CreateSessionInput {
   anthropicAgentId: string;
   memoryStoreId: string | null;
+  /** The model this session runs on, whatever the agent is registered with. */
+  model: string;
   text: string;
   title: string;
   /**
@@ -300,7 +308,14 @@ export const createAnthropicGateway = (
     async createSession(input) {
       const environmentId = await ensureEnvironment();
       const session = await client.beta.sessions.create({
-        agent: input.anthropicAgentId,
+        // Always sent, even when it matches the registration: omitted fields
+        // are preserved, so this is the one application point that does not
+        // depend on a best-effort sync having landed.
+        agent: {
+          id: input.anthropicAgentId,
+          model: input.model,
+          type: "agent_with_overrides",
+        },
         budget: {
           max_list_cost: {
             amount: SESSION_BUDGET_CENTS,
@@ -372,7 +387,7 @@ export const createAnthropicGateway = (
         description:
           input.instructions.slice(0, DESCRIPTION_MAX_LENGTH) || undefined,
         mcp_servers: mcpServersFor(input.mcpUrl, input.connectors ?? []),
-        model: AGENT_MODEL,
+        model: input.model,
         name: input.name,
         ...(input.skills && input.skills.length > 0
           ? { skills: skillsFor(input.skills) }
@@ -404,7 +419,7 @@ export const createAnthropicGateway = (
       // MCP registration alone - which matters, because the plaintext token that
       // URL carries only exists when it is issued.
       await client.beta.agents.update(input.anthropicAgentId, {
-        model: AGENT_MODEL,
+        model: input.model,
         name: input.name,
         system: input.system,
         ...(input.mcpUrl

@@ -1,8 +1,18 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Db } from "#/db/client";
+import {
+  clearOverride,
+  resolveModelWithSource,
+  upsertOverride,
+} from "#/modules/agents/model-overrides";
 import type { Agent } from "#/modules/agents/schema";
 import { listAgents } from "#/modules/agents/service";
+import {
+  AVAILABLE_MODEL_IDS,
+  AVAILABLE_MODELS,
+  isAvailableModel,
+} from "#/modules/anthropic/config";
 import { createBrowserClient } from "#/modules/browser/client";
 import { absoluteUrl } from "#/modules/browser/service";
 import { summarizeSnapshot } from "#/modules/browser/snapshot";
@@ -40,6 +50,7 @@ import {
   writePage,
 } from "#/modules/wiki/service";
 import { clampLimit, fail, json, toMcpMessage } from "./format";
+import { registerRoutineTools } from "./routine-tools";
 import { registerSkillTools } from "./skill-tools";
 
 /**
@@ -686,6 +697,162 @@ const registerBrowserTools = (server: McpServer, ctx: McpToolContext): void => {
   );
 };
 
+// --- model --------------------------------------------------------------------
+
+/** What `set_model` takes to mean "go back to inheriting". */
+const CLEAR_MODEL = "default";
+
+const MODEL_LABELS = new Map(
+  AVAILABLE_MODELS.map((model) => [model.id as string, model.label as string])
+);
+
+type ModelScope =
+  | { channelId: string; ok: true; threadParentId: string | null }
+  | { ok: false; reason: string };
+
+/**
+ * The conversation a model setting is about.
+ *
+ * The thread id is normalized: an agent naturally passes the id of the message
+ * that woke it, which inside a thread is a *reply*. An override keyed on a
+ * reply would never be found again - the router resolves by thread parent - so
+ * a reply is folded onto the thread it belongs to before anything is written.
+ */
+const modelScopeOf = async (
+  ctx: McpToolContext,
+  channelId: string,
+  threadParentId: string | undefined
+): Promise<ModelScope> => {
+  if (!(await isChannelMember(ctx.db, channelId, memberOf(ctx.agent)))) {
+    return { ok: false, reason: NOT_A_MEMBER };
+  }
+  if (threadParentId === undefined) {
+    return { channelId, ok: true, threadParentId: null };
+  }
+
+  // Workspace-scoped, then checked against the channel: another tenant's
+  // message id reads exactly like one that never existed.
+  const message = await getMessageInWorkspace(
+    ctx.db,
+    ctx.workspace.id,
+    threadParentId
+  );
+  if (!message || message.channelId !== channelId) {
+    return {
+      ok: false,
+      reason: `No message with id ${threadParentId} in that channel.`,
+    };
+  }
+  return {
+    channelId,
+    ok: true,
+    threadParentId: message.threadParentId ?? message.id,
+  };
+};
+
+const MODEL_EFFECT =
+  "The change takes effect from your next wake - the turn you are in now finishes on the model it started on, so say so when you confirm it.";
+
+const registerModelTools = (server: McpServer, ctx: McpToolContext): void => {
+  server.registerTool(
+    "set_model",
+    {
+      description: `Choose which model you run on in one conversation. When someone says "use opus for this thread", call this with the channelId and threadParentId of the conversation you were woken in; leave threadParentId out to set the model for the whole channel. ${MODEL_EFFECT} Pass "${CLEAR_MODEL}" as the model to clear the override and go back to your configured model. This only ever changes your own model: it says nothing about the other agents in the channel.`,
+      inputSchema: {
+        channelId: z.string(),
+        model: z
+          .string()
+          .describe(
+            `One of: ${AVAILABLE_MODEL_IDS} - or "${CLEAR_MODEL}" to clear the override.`
+          ),
+        threadParentId: z
+          .string()
+          .optional()
+          .describe(
+            "The thread this applies to. Omit to set the model for the whole channel."
+          ),
+      },
+      title: "Set your model for a conversation",
+    },
+    async ({ channelId, model, threadParentId }) => {
+      if (model !== CLEAR_MODEL && !isAvailableModel(model)) {
+        return fail(
+          `"${model}" is not a model I can run. Use one of: ${AVAILABLE_MODEL_IDS} - or "${CLEAR_MODEL}" to clear the override.`
+        );
+      }
+      const scope = await modelScopeOf(ctx, channelId, threadParentId);
+      if (!scope.ok) {
+        return fail(scope.reason);
+      }
+
+      const target = {
+        agentId: ctx.agent.id,
+        channelId: scope.channelId,
+        threadParentId: scope.threadParentId,
+      };
+      if (model === CLEAR_MODEL) {
+        const cleared = await clearOverride(ctx.db, target);
+        const effective = await resolveModelWithSource(ctx.db, target);
+        return json({
+          appliesFrom: "your next wake",
+          cleared,
+          model: effective.model,
+          scope: scope.threadParentId === null ? "channel" : "thread",
+          source: effective.source,
+        });
+      }
+
+      await upsertOverride(ctx.db, {
+        ...target,
+        createdBy: `agent:${ctx.agent.id}`,
+        model,
+        workspaceId: ctx.workspace.id,
+      });
+      return json({
+        appliesFrom: "your next wake",
+        label: MODEL_LABELS.get(model) ?? model,
+        model,
+        scope: scope.threadParentId === null ? "channel" : "thread",
+        threadParentId: scope.threadParentId,
+      });
+    }
+  );
+
+  server.registerTool(
+    "get_model",
+    {
+      description:
+        "Which model you are running on in a conversation, and where that came from: a thread override, a channel override, your own configuration, or the workspace default. Pass threadParentId to ask about a thread rather than the channel.",
+      inputSchema: {
+        channelId: z.string(),
+        threadParentId: z
+          .string()
+          .optional()
+          .describe("The thread to ask about. Omit to ask about the channel."),
+      },
+      title: "Check your model for a conversation",
+    },
+    async ({ channelId, threadParentId }) => {
+      const scope = await modelScopeOf(ctx, channelId, threadParentId);
+      if (!scope.ok) {
+        return fail(scope.reason);
+      }
+
+      const effective = await resolveModelWithSource(ctx.db, {
+        agentId: ctx.agent.id,
+        channelId: scope.channelId,
+        threadParentId: scope.threadParentId,
+      });
+      return json({
+        label: MODEL_LABELS.get(effective.model) ?? effective.model,
+        model: effective.model,
+        scope: scope.threadParentId === null ? "channel" : "thread",
+        source: effective.source,
+      });
+    }
+  );
+};
+
 export const registerWorkspaceTools = (
   server: McpServer,
   ctx: McpToolContext
@@ -697,7 +864,9 @@ export const registerWorkspaceTools = (
   registerListAgents(server, ctx);
   registerAskUser(server, ctx);
   registerCheckAnswer(server, ctx);
+  registerModelTools(server, ctx);
   registerWikiTools(server, ctx);
+  registerRoutineTools(server, ctx);
   registerSkillTools(server, ctx);
   registerComputerFileTools(server, ctx);
   registerComputerExec(server, ctx);

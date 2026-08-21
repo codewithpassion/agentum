@@ -17,7 +17,7 @@ import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
 import { listAgentSkillAssignments } from "#/modules/skills/service";
 import { composeAgentConnectors } from "./agent-connectors";
 import { composeAgentSkills } from "./agent-skills";
-import { ENVIRONMENT_NAME } from "./config";
+import { AGENT_MODEL, ENVIRONMENT_NAME } from "./config";
 import {
   type AnthropicGateway,
   createAnthropicGateway,
@@ -119,6 +119,7 @@ const resyncRosters = async (
       // biome-ignore lint/performance/noAwaitInLoops: paced to stay inside the API's rate limits
       await gateway.syncAgent({
         anthropicAgentId: agent.anthropicAgentId,
+        model: agent.model ?? AGENT_MODEL,
         name: agent.name,
         system: systemPromptFor(agent, all),
       });
@@ -181,6 +182,7 @@ export const syncAgentToAnthropic = async (
         anthropicAgentId: agent.anthropicAgentId,
         connectors: composed?.servers,
         mcpUrl: options.mcpUrl,
+        model: agent.model ?? AGENT_MODEL,
         name: agent.name,
         system,
       });
@@ -189,6 +191,7 @@ export const syncAgentToAnthropic = async (
         connectors: composed?.servers,
         instructions: agent.instructions,
         mcpUrl: options.mcpUrl,
+        model: agent.model ?? AGENT_MODEL,
         name: agent.name,
         // A first registration is normally an agent with no assignments at all;
         // it carries skills only for one that was assigned some while an

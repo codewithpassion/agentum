@@ -1,4 +1,5 @@
 import type { Routine } from "#/lib/api";
+import { modelLabel } from "#/lib/model-format";
 import { formatInZone, formatUntil } from "#/lib/schedule-format";
 
 /**
@@ -27,6 +28,13 @@ export function TargetLine({ routine }: { routine: Routine }) {
         `# ${routine.channelName}`
       ) : (
         <Missing what="channel" />
+      )}
+      {/* Only a routine that overrides its agent's model says which one. */}
+      {routine.model === null ? null : (
+        <span data-testid="routine-model-fact">
+          {" "}
+          · {modelLabel(routine.model)}
+        </span>
       )}
     </p>
   );
