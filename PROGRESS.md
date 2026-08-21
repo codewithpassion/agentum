@@ -5,6 +5,28 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 15 — Surface session deaths, thread replies to mentions, $10 budget (2026-08-21)
+
+**Goal:** Kill the silent failure mode: a Slack mention ("@BruceAgentum go to theguardian.com/au…") produced browser activity but no reply, no error, no log.
+
+**What we did:**
+- Diagnosed from production: queried remote D1 for the message/mention/activity trail, then read the Anthropic Managed Agents session transcript directly (`client.beta.sessions.events.list`) — the session died with `stop_reason: budget_reached` at 105¢ of a 100¢ cap, having carried 66¢ from an earlier task into the reused session (b0a54cf)
+- Carried `stop_reason` through the gateway into `reduceEvents`; an abnormal stop now deletes the spent session and posts a death notice, as the agent, into every thread showing "Thinking…" (posted *before* `setStatus("error")`, which would retire the very placeholder the notice rewrites) — via `createMessage` + broadcast + mirror directly, not `publishMessage`, since that would RPC the router DO back into itself
+- Raised `SESSION_BUDGET_CENTS` to 1000 ($10); a top-level channel mention now retires an idle session and starts fresh, so a new task gets a full budget — thread replies still reuse (the conversation continuing). Wake dispatch kind (`immediate`/`digest`) now travels to `wake()` and through the queue
+- Channel mentions are instructed to reply in a thread under the mentioning message; the "Thinking…" placeholder posts straight into that thread (skipping `assistant.threads.setStatus`, invisible for a thread that does not exist yet), so the thread + activity line appear the moment work starts
+- Web UI: `use-conversation` seeds agent statuses from `getAgentStatus` on mount — the socket only carries transitions, so a tab opened mid-task used to show nothing
+
+**Lessons learned:**
+- `session.status_idle` is not "finished": its `stop_reason` distinguishes `end_turn` from `budget_reached`, and dropping it turns a platform kill into indistinguishable silence
+- Session budgets are per-session, so session *reuse* quietly shrinks the budget of every later task; per-task sessions are the fix, not just a bigger cap
+- A Slack `assistant.threads.setStatus` on a message with no thread yet shows nobody anything — the placeholder message is what creates the thread
+- Drizzle's bun-sqlite driver has no `batch()`; test harnesses that reach `createMessage` need a shim (statements are thenables, `Promise.all` suffices)
+
+**Avoid next time:**
+- Don't call `publishMessage` from inside the AgentRouter DO — `notifyRouter` would RPC the object back into itself; use `createMessage` + `broadcastChannelEvent` + `mirrorMessageToBridges` directly
+- Sessions created before a budget change keep their old cap until replaced — expect one more stale-session death after deploy, now announced
+- `session.status_terminated` still ends silently (delete + idle); only abnormal idle stops post the notice
+
 ## Cycle 14 — search_messages MCP tool + wiki_search LIKE fix (2026-08-21)
 
 **Goal:** Give agents a way to find past conversations by content ("yesterday's thread") instead of paging `read_channel` backwards one channel at a time.
