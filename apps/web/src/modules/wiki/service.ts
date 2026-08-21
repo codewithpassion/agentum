@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import {
   type MemberAuthorView,
@@ -159,7 +159,13 @@ export const searchPages = async (
     .where(
       and(
         eq(wikiPages.workspaceId, workspaceId),
-        or(like(wikiPages.title, pattern), like(wikiPages.body, pattern))
+        // Raw, because drizzle's `like` cannot carry the ESCAPE clause that
+        // makes the wildcard escaping above mean anything (SQLite has no
+        // default escape character).
+        or(
+          sql`${wikiPages.title} LIKE ${pattern} ESCAPE '\\'`,
+          sql`${wikiPages.body} LIKE ${pattern} ESCAPE '\\'`
+        )
       )
     )
     .orderBy(desc(wikiPages.updatedAt))

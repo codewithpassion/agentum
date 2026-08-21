@@ -607,3 +607,59 @@ describe("check_answer", () => {
     expect(nosy && textOf(nosy)).toBe(`No question with id ${questionId}.`);
   });
 });
+
+/**
+ * Regression for the wiki's own LIKE escaping: `searchPages` escaped `%` and
+ * `_` with backslashes, but its LIKE carried no ESCAPE clause - SQLite has no
+ * default escape character, so any query containing those characters silently
+ * matched nothing. Lives here beside the search_messages escaping test, which
+ * is where the trap was found; the harness this file builds is the DB seam.
+ */
+describe("wiki searchPages", () => {
+  test("% and _ in a query are matched literally", async () => {
+    const wikiDb = migrate();
+    const { workspace } = await createWorkspace(wikiDb, {
+      name: "Wiki Escaping",
+      owner: {
+        clerkUserId: "user_2wWikiWWWWWWWWWWWWWWWWWW",
+        email: "wiki@example.com",
+        imageUrl: null,
+        name: "Wiki Owner",
+      },
+    });
+    const { writePage, searchPages } = await import("#/modules/wiki/service");
+    const author = {
+      id: "user_2wWikiWWWWWWWWWWWWWWWWWW",
+      type: "user",
+    } as const;
+    await writePage(wikiDb, workspace.id, {
+      author,
+      body: "Rollout is 100% done.",
+      title: "Percent",
+    });
+    await writePage(wikiDb, workspace.id, {
+      author,
+      body: "Rollout is 1000 done.",
+      title: "Decoy Percent",
+    });
+    await writePage(wikiDb, workspace.id, {
+      author,
+      body: "The a_b flag is on.",
+      title: "Underscore",
+    });
+    await writePage(wikiDb, workspace.id, {
+      author,
+      body: "The axb flag is on.",
+      title: "Decoy Underscore",
+    });
+
+    expect(
+      (await searchPages(wikiDb, workspace.id, "100%")).map(
+        (page) => page.title
+      )
+    ).toEqual(["Percent"]);
+    expect(
+      (await searchPages(wikiDb, workspace.id, "a_b")).map((page) => page.title)
+    ).toEqual(["Underscore"]);
+  });
+});
