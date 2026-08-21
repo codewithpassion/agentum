@@ -11,9 +11,20 @@ const MAX_RETRY_AFTER_SECONDS = 30;
 const MILLISECONDS = 1000;
 
 export interface SlackPostMessageInput {
+  /** Block Kit, for the surfaces that are more than text (question cards). */
+  blocks?: readonly unknown[];
   channel: string;
+  /** Always sent: Slack's notification and screen-reader fallback for blocks. */
   text: string;
   threadTs?: string;
+}
+
+export interface SlackUpdateMessageInput {
+  blocks?: readonly unknown[];
+  channel: string;
+  text: string;
+  /** The message to replace, as returned when it was posted. */
+  ts: string;
 }
 
 export interface SlackUploadInput {
@@ -30,6 +41,8 @@ export interface SlackChannelInfo {
 }
 
 export interface SlackClient {
+  /** Rewrites a message we posted - how a resolved question loses its buttons. */
+  chatUpdate: (input: SlackUpdateMessageInput) => Promise<boolean>;
   /** `null` when Slack refused the call - never throws for an API-level error. */
   conversationsInfo: (channel: string) => Promise<SlackChannelInfo | null>;
   /** Best effort: the bot may already be a member, or the channel private. */
@@ -93,6 +106,48 @@ export const slackAuthTest = async (
     teamId: payload.team_id ?? "",
     teamName: payload.team ?? "",
   };
+};
+
+export interface SlackResponseInput {
+  blocks?: readonly unknown[];
+  /** `true` rewrites the message the button sat in; `false` posts beside it. */
+  replaceOriginal: boolean;
+  /** `ephemeral` is seen only by the person who clicked. */
+  responseType?: "ephemeral" | "in_channel";
+  text: string;
+}
+
+/**
+ * The reply to an interaction, sent to the one-shot `response_url` Slack hands
+ * us with the payload. Deliberately not a client method: it carries no token
+ * (the URL is the credential), and it is the only call that may rewrite a
+ * message posted by an app we might not be - which is exactly why Slack gives
+ * it to us instead of asking for `chat.update`.
+ *
+ * Failure is swallowed like every other outbound Slack call: the answer is
+ * already recorded, and a card that keeps its buttons is a worse outcome than
+ * an exception nobody can act on.
+ */
+export const postSlackResponse = async (
+  responseUrl: string,
+  input: SlackResponseInput,
+  fetchImpl: typeof fetch = fetch
+): Promise<boolean> => {
+  try {
+    const response = await fetchImpl(responseUrl, {
+      body: JSON.stringify({
+        replace_original: input.replaceOriginal,
+        text: input.text,
+        ...(input.blocks ? { blocks: input.blocks } : {}),
+        ...(input.responseType ? { response_type: input.responseType } : {}),
+      }),
+      headers: { "content-type": "application/json; charset=utf-8" },
+      method: "POST",
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 };
 
 export interface SlackClientOptions {
@@ -177,6 +232,16 @@ export const createSlackClient = (
   };
 
   return {
+    async chatUpdate(input) {
+      const payload = await post<SlackApiResponse>("chat.update", {
+        channel: input.channel,
+        text: input.text,
+        ts: input.ts,
+        ...(input.blocks ? { blocks: input.blocks } : {}),
+      });
+      return payload !== null;
+    },
+
     async conversationsInfo(channel) {
       const payload = await get<
         SlackApiResponse & {
@@ -216,6 +281,7 @@ export const createSlackClient = (
         {
           channel: input.channel,
           text: input.text,
+          ...(input.blocks ? { blocks: input.blocks } : {}),
           ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
         }
       );

@@ -6,6 +6,10 @@
  * subscribed events cannot drift from what the bridge actually needs: the URL
  * carries the app's row id, the scopes are exactly the calls `client.ts` makes,
  * and the events are exactly the ones `normalize.ts` publishes.
+ *
+ * An app created before interactivity shipped has no `request_url` for button
+ * clicks: re-applying this manifest in api.slack.com → App Manifest is what
+ * turns its question cards from decoration into buttons.
  */
 
 const TRAILING_SLASHES = /\/+$/;
@@ -36,6 +40,13 @@ export const SLACK_BOT_EVENTS = [
 ] as const;
 
 export const SLACK_EVENTS_PATH = "/api/bridges/slack";
+
+/**
+ * Button clicks arrive beside the events, on the same per-app URL: Slack signs
+ * an interaction exactly as it signs an event, so one row's signing secret
+ * verifies both.
+ */
+export const SLACK_INTERACTIVE_PATH = "/interactive";
 
 /**
  * Where Slack posts this app's events. Built like the connectors' callback
@@ -98,6 +109,9 @@ settings:
     request_url: ${scalar(requestUrl)}
     bot_events:
 ${list(SLACK_BOT_EVENTS, "      ")}
+  interactivity:
+    is_enabled: true
+    request_url: ${scalar(`${requestUrl}${SLACK_INTERACTIVE_PATH}`)}
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false

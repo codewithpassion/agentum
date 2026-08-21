@@ -8,6 +8,10 @@ import { findSlackAppById, slackAppSigningSecret } from "./apps";
 import { SLACK_CONNECTOR } from "./config";
 import { parseSlackEnvelope } from "./events";
 import { ingestSlackEvent } from "./ingest";
+import {
+  handleQuestionInteraction,
+  parseSlackInteraction,
+} from "./interactive";
 import { readSignatureHeaders, verifySlackSignature } from "./signature";
 
 /**
@@ -39,6 +43,64 @@ const safeJson = (rawBody: string): unknown => {
 };
 
 export const slackRoutes = new Hono<{ Bindings: Env }>();
+
+/**
+ * `POST /api/bridges/slack/:slackAppId/interactive` - the button clicks on this
+ * app's question cards, named by `settings.interactivity.request_url` in the
+ * manifest.
+ *
+ * Signed exactly like an event (v0 HMAC over the raw body), so the same secret
+ * verifies both. What differs: there is no `url_verification` handshake for
+ * interactivity, so a draft row - which holds no secret - is refused outright
+ * rather than answered.
+ *
+ * Answering wakes an agent and mirrors a reply, which is more work than Slack's
+ * three seconds are meant for; verification and parsing are synchronous, the
+ * answer itself rides `waitUntil` and reports back through `response_url`, which
+ * stays valid for half an hour.
+ */
+slackRoutes.post("/:slackAppId/interactive", async (c) => {
+  const db = createDb(c.env.DB);
+  const app = await findSlackAppById(db, c.req.param("slackAppId"));
+  if (!app) {
+    return c.json({ error: "Unknown Slack app." }, NOT_FOUND);
+  }
+
+  const rawBody = await c.req.text();
+  const signingSecret = await slackAppSigningSecret(
+    c.env.CONNECTOR_KEY || null,
+    app
+  );
+  if (!signingSecret) {
+    return c.json(
+      { error: "This Slack app has no credentials yet." },
+      UNAUTHORIZED
+    );
+  }
+
+  const verification = await verifySlackSignature({
+    headers: readSignatureHeaders(c.req.raw.headers),
+    rawBody,
+    signingSecret,
+  });
+  if (!verification.valid) {
+    return c.json(
+      { error: `Invalid signature (${verification.reason}).` },
+      UNAUTHORIZED
+    );
+  }
+
+  const interaction = parseSlackInteraction(rawBody);
+  // Slack sends shortcuts, view submissions and menu selections down this same
+  // URL; anything that is not a button press on a card is acked and ignored.
+  if (interaction?.type === "block_actions") {
+    c.executionCtx.waitUntil(
+      handleQuestionInteraction(db, c.env, app, interaction)
+    );
+  }
+
+  return c.json({ ok: true });
+});
 
 slackRoutes.post("/:slackAppId", async (c) => {
   const db = createDb(c.env.DB);

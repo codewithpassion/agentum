@@ -25,9 +25,18 @@ const { publishMessage } = await import("#/modules/messaging/publish");
 const { createChannel, listChannelMessages } = await import(
   "#/modules/messaging/service"
 );
+const {
+  answerQuestion,
+  ask,
+  expireQuestion,
+  getQuestion: readQuestion,
+} = await import("#/modules/questions/service");
 const { createWorkspace } = await import("#/modules/workspaces/service");
 const { upsertBridge } = await import("../bridges");
+const { findExternalId } = await import("../refs");
+const { slackUsers } = await import("../schema");
 const { createDraftSlackApp, storeSlackAppTokens } = await import("./apps");
+const { encodeQuestionAction } = await import("./blocks");
 const { slackRoutes } = await import("./routes");
 const { signSlackRequest } = await import("./signature");
 
@@ -78,14 +87,20 @@ interface SlackCall {
   method: string;
   payload: Record<string, unknown>;
   token: string;
+  url: string;
 }
 
 let slackCalls: SlackCall[];
+let postedTs: number;
+
+/** Where a button click's `response_url` points in these tests. */
+const RESPONSE_URL = "https://hooks.slack.example/actions/T0RSL/1/abc";
 
 /**
  * Slack's Web API, narrowed to what these paths touch. The bearer token is
  * recorded with every call: "which bot posted this" is the whole question the
- * mirror cases ask.
+ * mirror cases ask. `response_url` posts land here too - they are an ordinary
+ * fetch to a URL Slack handed us, with no token at all.
  */
 const fakeSlackFetch = ((
   input: string | URL | Request,
@@ -102,8 +117,10 @@ const fakeSlackFetch = ((
     method,
     payload: body,
     token: (headers.get("authorization") ?? "").replace("Bearer ", ""),
+    url,
   });
 
+  postedTs += 1;
   const answers: Record<string, unknown> = {
     "auth.test": {
       ok: true,
@@ -111,7 +128,9 @@ const fakeSlackFetch = ((
       team_id: "T0RSL",
       user_id: "U0BOT",
     },
-    "chat.postMessage": { ok: true, ts: "1787200000.000900" },
+    // A distinct `ts` per post, as Slack gives: the question card's own `ts` is
+    // what a later `chat.update` has to find.
+    "chat.postMessage": { ok: true, ts: `1787200000.0009${postedTs}` },
     "users.info": {
       ok: true,
       user: { profile: { display_name: "Ada Lovelace" } },
@@ -120,11 +139,28 @@ const fakeSlackFetch = ((
   return Promise.resolve(Response.json(answers[method] ?? { ok: true }));
 }) as unknown as typeof fetch;
 
+const callsTo = (method: string): SlackCall[] =>
+  slackCalls.filter((call) => call.method === method);
+
+const responseCalls = (): SlackCall[] =>
+  slackCalls.filter((call) => call.url === RESPONSE_URL);
+
+/** The first call of a kind, or `undefined` when there was none. */
+const callTo = (method: string): SlackCall | undefined => callsTo(method)[0];
+
+/** Its body, or an empty one - so an assertion reads as a missing field. */
+const payloadOf = (call: SlackCall | undefined): Record<string, unknown> =>
+  call ? call.payload : {};
+
+const responseCall = (): SlackCall | undefined => responseCalls()[0];
+
 let d1: D1Database;
 let db: Db;
 let env: Env;
 let pending: Promise<unknown>[];
+let woken: { body: string }[];
 let workspace: { id: string; slug: string };
+let memberId: string;
 let adaId: string;
 let bobId: string;
 let adaAppId: string;
@@ -146,22 +182,27 @@ const settle = async () => {
   pending = [];
 };
 
-const post = async (
-  appId: string,
-  body: unknown,
-  options: { signWith?: string | null; timestamp?: string } = {}
+interface PostOptions {
+  signWith?: string | null;
+  timestamp?: string;
+}
+
+const send = async (
+  path: string,
+  rawBody: string,
+  contentType: string,
+  options: PostOptions
 ): Promise<Response> => {
-  const rawBody = JSON.stringify(body);
   const timestamp =
     options.timestamp ?? String(Math.floor(Date.now() / MILLISECONDS));
   const secret = options.signWith === undefined ? ADA_SECRET : options.signWith;
 
   return await slackRoutes.request(
-    `/${appId}`,
+    path,
     {
       body: rawBody,
       headers: {
-        "content-type": "application/json",
+        "content-type": contentType,
         ...(secret
           ? {
               "x-slack-request-timestamp": timestamp,
@@ -179,6 +220,43 @@ const post = async (
     executionCtx
   );
 };
+
+const post = (
+  appId: string,
+  body: unknown,
+  options: PostOptions = {}
+): Promise<Response> =>
+  send(`/${appId}`, JSON.stringify(body), "application/json", options);
+
+/** An interaction is form-encoded with the JSON in a single `payload` field. */
+const postInteractive = (
+  appId: string,
+  payload: unknown,
+  options: PostOptions = {}
+): Promise<Response> =>
+  send(
+    `/${appId}/interactive`,
+    new URLSearchParams({ payload: JSON.stringify(payload) }).toString(),
+    "application/x-www-form-urlencoded",
+    options
+  );
+
+const blockActions = (action: Record<string, unknown>, user = "U1HUMAN") => ({
+  actions: [action],
+  channel: { id: ADA_CHANNEL },
+  response_url: RESPONSE_URL,
+  type: "block_actions",
+  user: { id: user },
+});
+
+const optionClick = (questionId: string, option: string, user = "U1HUMAN") =>
+  blockActions(
+    {
+      action_id: `question:${questionId}:0`,
+      value: encodeQuestionAction({ option, questionId }),
+    },
+    user
+  );
 
 const messageEvent = (channel: string, ts: string, text = "hello there") => ({
   authorizations: [{ user_id: "U0BOT" }],
@@ -212,20 +290,62 @@ const connect = async (
   return result.app.id;
 };
 
+/** The question card the Slack cases press buttons on. */
+const askInChannel = async (
+  options: string[] | null = ["Friday", "Monday"]
+) => {
+  const result = await ask(
+    db,
+    env,
+    workspace,
+    { id: adaId, name: "Ada" },
+    { channelId, options, prompt: "Ship it on Friday or Monday?" }
+  );
+  if (!result.ok) {
+    throw new Error(result.reason);
+  }
+  return result.question;
+};
+
+const broadcasts: { question?: { status: string }; type: string }[] = [];
+
 beforeEach(async () => {
   slackCalls = [];
   pending = [];
+  postedTs = 0;
+  woken = [];
+  broadcasts.length = 0;
   globalThis.fetch = fakeSlackFetch;
 
   d1 = createTestD1();
   db = createDb(d1);
   env = {
+    AGENT_ROUTER: {
+      get: () => ({
+        notifyMessage: (notification: { body: string }) => {
+          woken.push(notification);
+          return Promise.resolve();
+        },
+      }),
+      idFromName: (name: string) => name,
+    },
     CHANNEL_ROOM: {
-      get: () => ({ broadcast: () => Promise.resolve() }),
+      get: () => ({
+        broadcast: (payload: string) => {
+          broadcasts.push(
+            JSON.parse(payload) as {
+              question?: { status: string };
+              type: string;
+            }
+          );
+          return Promise.resolve();
+        },
+      }),
       idFromName: (name: string) => name,
     },
     CONNECTOR_KEY: KEY,
     DB: d1,
+    PUBLIC_APP_URL: "https://agentum.example.com",
   } as unknown as Env;
 
   const created = await createWorkspace(db, {
@@ -238,6 +358,7 @@ beforeEach(async () => {
     },
   });
   workspace = { id: created.workspace.id, slug: created.workspace.slug };
+  memberId = created.member.id;
 
   const ada = await createAgent(db, workspace.id, {
     instructions: "",
@@ -402,8 +523,235 @@ describe("a verified event, end to end", () => {
     await post(adaAppId, messageEvent(ADA_CHANNEL, "1.9"));
     await settle();
 
+    expect(callsTo("chat.postMessage")).toHaveLength(0);
+  });
+});
+
+describe("a question card in Slack", () => {
+  test("is mirrored as blocks, with a button per option", async () => {
+    await askInChannel();
+
+    expect(callTo("chat.postMessage")?.token).toBe(ADA_TOKEN);
+    expect(payloadOf(callTo("chat.postMessage")).text).toBe(
+      "Ship it on Friday or Monday?"
+    );
+    const blocks = payloadOf(callTo("chat.postMessage")).blocks as {
+      type: string;
+    }[];
+    expect(blocks.map((block) => block.type)).toEqual(["section", "actions"]);
+  });
+});
+
+describe("the interactive endpoint", () => {
+  test("refuses an unsigned click, and one signed with another app's secret", async () => {
+    const question = await askInChannel();
+
+    const unsigned = await postInteractive(
+      adaAppId,
+      optionClick(question.id, "Friday"),
+      { signWith: null }
+    );
+    const wrongSecret = await postInteractive(
+      adaAppId,
+      optionClick(question.id, "Friday"),
+      { signWith: BOB_SECRET }
+    );
+    await settle();
+
+    expect([unsigned.status, wrongSecret.status]).toEqual([401, 401]);
+    expect((await readQuestion(db, workspace.id, question.id))?.status).toBe(
+      "pending"
+    );
+  });
+
+  test("refuses a draft app, which has no handshake to hide behind", async () => {
+    const question = await askInChannel();
+
+    const response = await postInteractive(
+      draftAppId,
+      optionClick(question.id, "Friday"),
+      { signWith: null }
+    );
+
+    expect(response.status).toBe(401);
+    expect((await readQuestion(db, workspace.id, question.id))?.status).toBe(
+      "pending"
+    );
+  });
+
+  test("drops a click that arrives for an app which does not own the bridge", async () => {
+    // Bob's bot sits in the same Slack channel and sees the same card. The
+    // question belongs to the bridge Ada's app owns, so Bob's click does nothing
+    // - and is still acked, because Slack retries anything else.
+    const question = await askInChannel();
+    slackCalls = [];
+
+    const response = await postInteractive(
+      bobAppId,
+      optionClick(question.id, "Friday"),
+      { signWith: BOB_SECRET }
+    );
+    await settle();
+
+    expect(response.status).toBe(200);
+    expect((await readQuestion(db, workspace.id, question.id))?.status).toBe(
+      "pending"
+    );
+    expect(responseCalls()).toHaveLength(0);
+  });
+
+  test("answers the question, attributed to the Slack user who clicked", async () => {
+    const question = await askInChannel();
+    slackCalls = [];
+    broadcasts.length = 0;
+
+    const response = await postInteractive(
+      adaAppId,
+      optionClick(question.id, "Friday")
+    );
+    await settle();
+
+    expect(response.status).toBe(200);
+    const answered = await readQuestion(db, workspace.id, question.id);
+    expect(answered).toMatchObject({
+      answer: "Friday",
+      answeredBy: "slack:U1HUMAN",
+      answeredVia: "slack",
+      status: "answered",
+    });
+
+    // The name behind `U1HUMAN` is cached on the way past, so every later view
+    // of this answer reads "Ada Lovelace" without a Slack round trip.
+    const [cached] = await db.select().from(slackUsers);
+    expect(cached?.displayName).toBe("Ada Lovelace");
+
+    // The web card redraws from the same broadcast a web answer emits.
     expect(
-      slackCalls.filter((call) => call.method === "chat.postMessage")
-    ).toHaveLength(0);
+      broadcasts.filter(
+        (event) =>
+          event.type === "question.updated" &&
+          event.question?.status === "answered"
+      )
+    ).toHaveLength(1);
+
+    // And the agent is woken by the answer reply, exactly as a mention wakes it.
+    expect(woken.some((wake) => wake.body.includes("Answer: Friday"))).toBe(
+      true
+    );
+
+    // The card the button sat in is replaced through `response_url`.
+
+    expect(payloadOf(responseCall()).replace_original).toBe(true);
+    expect(JSON.stringify(payloadOf(responseCall()).blocks)).toContain(
+      "Answered by Ada Lovelace"
+    );
+    // No `chat.update` chasing it: the card has already been rewritten.
+    expect(callsTo("chat.update")).toHaveLength(0);
+  });
+
+  test("shows the web answerer when a click loses the race", async () => {
+    const question = await askInChannel();
+    await answerQuestion(db, env, workspace, question, {
+      answer: "Monday",
+      by: {
+        authorId: "user_ada",
+        authorType: "user",
+        id: memberId,
+        via: "web",
+      },
+    });
+    slackCalls = [];
+
+    const response = await postInteractive(
+      adaAppId,
+      optionClick(question.id, "Friday")
+    );
+    await settle();
+
+    expect(response.status).toBe(200);
+    // First answer wins: the row still says what the web card said.
+    expect(await readQuestion(db, workspace.id, question.id)).toMatchObject({
+      answer: "Monday",
+      answeredVia: "web",
+    });
+
+    expect(payloadOf(responseCall()).replace_original).toBe(true);
+    expect(JSON.stringify(payloadOf(responseCall()).blocks)).toContain(
+      "Answered by Ada"
+    );
+    expect(JSON.stringify(payloadOf(responseCall()).blocks)).toContain(
+      "Monday"
+    );
+  });
+
+  test("acks a click that carries no answer, such as the link button", async () => {
+    // A URL button reports its click too. There is nothing to answer with, and
+    // nothing to say back.
+    await askInChannel();
+    slackCalls = [];
+
+    const response = await postInteractive(
+      adaAppId,
+      blockActions({ action_id: "question:open", url: "https://example.com" })
+    );
+    await settle();
+
+    expect(response.status).toBe(200);
+    expect(responseCalls()).toHaveLength(0);
+  });
+
+  test("acks an interaction type it does not handle", async () => {
+    const response = await postInteractive(adaAppId, {
+      type: "view_submission",
+    });
+    await settle();
+
+    expect(response.status).toBe(200);
+    expect(responseCalls()).toHaveLength(0);
+  });
+});
+
+describe("a resolution that happened elsewhere", () => {
+  test("rewrites the mirrored card when the web answers", async () => {
+    const question = await askInChannel();
+    // The card's own `channel:ts`, recorded when it was mirrored.
+    const cardKey = await findExternalId(
+      db,
+      "slack",
+      "message",
+      question.messageId
+    );
+    slackCalls = [];
+
+    await answerQuestion(db, env, workspace, question, {
+      answer: "Monday",
+      by: {
+        authorId: "user_ada",
+        authorType: "user",
+        id: memberId,
+        via: "web",
+      },
+    });
+
+    expect(callTo("chat.update")?.token).toBe(ADA_TOKEN);
+    expect(payloadOf(callTo("chat.update")).channel).toBe(ADA_CHANNEL);
+    // The card the question was posted as, not the answer reply beneath it.
+    expect(`${ADA_CHANNEL}:${payloadOf(callTo("chat.update")).ts}`).toBe(
+      cardKey ?? ""
+    );
+    expect(JSON.stringify(payloadOf(callTo("chat.update")).blocks)).toContain(
+      "Answered by Ada"
+    );
+  });
+
+  test("rewrites the mirrored card when the question expires", async () => {
+    const question = await askInChannel();
+    slackCalls = [];
+
+    await expireQuestion(db, env, workspace, question);
+
+    expect(JSON.stringify(payloadOf(callTo("chat.update")).blocks)).toContain(
+      "Expired"
+    );
   });
 });

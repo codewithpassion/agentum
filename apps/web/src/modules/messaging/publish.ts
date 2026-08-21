@@ -1,5 +1,9 @@
 import type { Db } from "#/db/client";
-import { mirrorMessageToBridges } from "#/modules/bridges/mirror";
+import {
+  mirrorMessageToBridges,
+  mirrorQuestionToBridges,
+} from "#/modules/bridges/mirror";
+import type { QuestionView } from "#/modules/questions/view";
 import { notifyRouter } from "#/modules/router/notify";
 import { broadcastChannelEvent } from "./realtime";
 import {
@@ -34,6 +38,30 @@ export const fanOutMessage = async (
   // Mirrored last and never fatally: a bridged surface sees the message after
   // the workspace does, and a connector failure cannot undo a published post.
   await mirrorMessageToBridges(db, env, message);
+};
+
+/**
+ * A question that has been answered or has expired, reaching every surface its
+ * card was drawn on: open clients redraw from the broadcast, and any bridge the
+ * channel has rewrites its own copy.
+ *
+ * It lives beside `fanOutMessage` for the same reason: `questions/service.ts`
+ * resolves the row, and where that resolution has to *go* is this layer's
+ * business - which keeps the questions module unaware that Slack exists.
+ */
+export const fanOutQuestionUpdate = async (
+  db: Db,
+  env: Env,
+  update: { messageId: string; question: QuestionView }
+): Promise<void> => {
+  await broadcastChannelEvent(env, {
+    channelId: update.question.channelId,
+    messageId: update.messageId,
+    question: update.question,
+    type: "question.updated",
+  });
+
+  await mirrorQuestionToBridges(db, env, update);
 };
 
 /**

@@ -12,6 +12,7 @@ import { findExternalId, findInternalId } from "../refs";
 import type { ChannelBridge, SlackApp } from "../schema";
 import type { BridgeAdapter, ExternalRefInput, InboundMessage } from "../types";
 import { slackAppCredentials } from "./apps";
+import { questionWebLink } from "./blocks";
 import { createSlackClient, type SlackClient } from "./client";
 import { SLACK_CONNECTOR, SLACK_LABEL } from "./config";
 import type { SlackEventCallback, SlackFile } from "./events";
@@ -153,6 +154,15 @@ const outboundPorts = (
       internalMessageId
     );
     return key ?? null;
+  },
+
+  // Only a free-text question asks for this, so the workspace lookup it costs
+  // is not paid by the ordinary mirrored message.
+  async webLink(question) {
+    const workspace = await getWorkspaceById(db, app.workspaceId);
+    return workspace
+      ? questionWebLink(env.PUBLIC_APP_URL, workspace.slug, question)
+      : null;
   },
 });
 

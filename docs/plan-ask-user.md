@@ -133,6 +133,17 @@ an updated card via `response_url` (buttons replaced by "Answered by NAME").
 The web card updates through the same broadcast; the mirrored Slack card of
 a web answer updates via `chat.update` on the stored ts.
 
+**Free text has no Slack answer.** A question with options is buttons; a
+question *without* them cannot be answered from a Slack message at all - a
+reply is indistinguishable from any other reply, and a modal needs a live
+interaction to open. So a free-text card in Slack shows the prompt and a link
+button ("Answer in Agentum") deep-linking to the card
+(`/w/<slug>?channel=…&message=…`), and the answer is typed in the app. When no
+`PUBLIC_APP_URL` is configured the button is replaced by a note. Slack still
+delivers a `block_actions` payload when a *link* button is pressed, so the
+interactive endpoint acks and ignores any action whose value is not one of our
+option payloads.
+
 ## API (workspace-scoped)
 
 ```
@@ -200,6 +211,44 @@ interactive endpoint (signature, payload parse, attribution), Block Kit
 rendering in the mirror for question messages, `chat.update` on resolution
 both directions. Tests: signed/unsigned interaction, cross-app payload
 rejection, already-answered click.
+
+## What Q2 shipped, and where it deviated
+
+- **Block Kit in the mirror** (`bridges/slack/blocks.ts`): a message carrying a
+  question posts as a section (permission requests headed `⚠️ Permission
+  request`) plus one button per option - `primary`/`danger` on Approve/Deny.
+  Everything else still posts as text. Three of Slack's caps are handled where
+  they bite: a 4000-character prompt truncated into a 3000-character section, a
+  120-character option truncated into a 75-character *label* (the full option
+  travels in `value`, which is what the answer is validated against), and the
+  25-element actions block, which `MAX_OPTIONS = 10` can never reach.
+- **Action payload**: `value` is `{"option","questionId"}` as JSON, `action_id`
+  is `question:<id>:<index>` (unique per element, as Slack requires). The
+  question travels in the payload rather than in the message `ts`, so a card can
+  be re-posted or threaded without losing what it answers.
+- **`/api/bridges/slack/:slackAppId/interactive`**, beside the events route and
+  outside Clerk. Form-encoded, verified with the same v0 HMAC over the raw body
+  against *that row's* secret; a draft (no secret) is 401 - interactivity has no
+  `url_verification` handshake to answer. Ownership mirrors the events route:
+  the question's channel must be bridged through this app, else it is acked and
+  dropped.
+- **Deviation - the answer runs in `waitUntil`.** Answering wakes an agent and
+  mirrors a reply; that is more than Slack's three seconds are for. Verification
+  and parsing stay synchronous, the answer is deferred and reports back through
+  `response_url` (valid for 30 minutes), exactly as the events route defers
+  ingestion. A losing click gets the winner's card the same way.
+- **Resolution sync, and the module direction.** `questions/service.ts` calls
+  `fanOutQuestionUpdate` (messaging) instead of broadcasting directly; that
+  fan-out broadcasts *and* calls `mirrorQuestionToBridges` (bridges), which
+  `chat.update`s the card on the stored `ts`. So questions → messaging →
+  bridges, the edge `publishMessage` already has, and the questions module still
+  knows nothing about Slack. A Slack-sourced answer is skipped there, since the
+  click already replaced its own card through `response_url`; an expiry (which
+  leaves `answeredVia` null) flows through and shows `⌛ Expired`.
+- **Existing apps need the manifest re-applied** to gain
+  `settings.interactivity` - without it Slack never delivers a click. The
+  wizard's re-copyable manifest already carries it; **Q3 owes the hint in the
+  app view** (decision 6) telling a connected agent's owner to re-apply it.
 
 **Phase Q3 — frontend + ship**: question card component, badge, answer UX,
 boot-probe acceptance (fake agent asks via MCP → card renders → answer →

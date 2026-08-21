@@ -1,7 +1,13 @@
 import type { MessageView } from "#/modules/messaging/service";
+import type { QuestionView } from "#/modules/questions/view";
 import type { ChannelBridge } from "../schema";
 import type { ExternalRefInput } from "../types";
-import type { SlackClient } from "./client";
+import {
+  questionBlocks,
+  questionFallbackText,
+  resolvedQuestionBlocks,
+} from "./blocks";
+import type { SlackClient, SlackPostMessageInput } from "./client";
 import { SLACK_CONNECTOR } from "./config";
 import { slackMessageKey, slackMessageTs } from "./events";
 import { mirroredText } from "./text";
@@ -17,7 +23,29 @@ export interface SlackOutboundPorts {
   ) => Promise<{ data: ArrayBuffer; filename: string } | null>;
   /** Our thread parent's Slack `channel:ts`, when it has one. */
   resolveParentKey: (internalMessageId: string) => Promise<string | null>;
+  /**
+   * Deep link to a question card in the web app, for the one thing Slack cannot
+   * do in a message: type a free-text answer. Resolved lazily - only a question
+   * without options ever asks for it.
+   */
+  webLink: (question: QuestionView) => Promise<string | null>;
 }
+
+/**
+ * A question is mirrored as a card rather than as its text: Block Kit buttons
+ * are the whole point of asking in Slack. Every other message is text, exactly
+ * as before.
+ */
+const questionPayload = async (
+  question: QuestionView,
+  ports: SlackOutboundPorts
+): Promise<Pick<SlackPostMessageInput, "blocks" | "text">> => {
+  const link = question.options ? null : await ports.webLink(question);
+  return {
+    blocks: questionBlocks(question, { link }),
+    text: questionFallbackText(question),
+  };
+};
 
 const uploadAttachments = async (
   message: MessageView,
@@ -63,9 +91,13 @@ export const mirrorSlackMessage = async (
     : null;
   const threadTs = parentKey ? slackMessageTs(parentKey) : undefined;
 
+  const content = message.question
+    ? await questionPayload(message.question, ports)
+    : { text: mirroredText(message.body, await ports.authorName(message)) };
+
   const posted = await client.postMessage({
     channel: bridge.externalChannelId,
-    text: mirroredText(message.body, await ports.authorName(message)),
+    ...content,
     ...(threadTs ? { threadTs } : {}),
   });
   if (!posted) {
@@ -89,4 +121,30 @@ export const mirrorSlackMessage = async (
     internalId: message.id,
     internalType: "message",
   };
+};
+
+/**
+ * The other half of the two-way card: a question resolved anywhere - a web
+ * click, the expiry sweep - rewrites the mirrored Slack card so its buttons
+ * cannot be pressed for an answer that is already in.
+ *
+ * `messageKey` is the question card's `channel:ts` from `external_refs`, which
+ * exists because the card was mirrored like any other message. Without one the
+ * question was never in Slack and there is nothing to update.
+ */
+export const mirrorQuestionResolution = async (
+  question: QuestionView,
+  bridge: ChannelBridge,
+  client: SlackClient,
+  messageKey: string
+): Promise<boolean> => {
+  if (bridge.status !== "active") {
+    return false;
+  }
+  return await client.chatUpdate({
+    blocks: resolvedQuestionBlocks(question),
+    channel: bridge.externalChannelId,
+    text: questionFallbackText(question),
+    ts: slackMessageTs(messageKey),
+  });
 };

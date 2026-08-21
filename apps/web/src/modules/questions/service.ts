@@ -1,8 +1,11 @@
 import { and, asc, desc, eq, isNotNull, lte, sql } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import { getAgentById } from "#/modules/agents/service";
-import { fanOutMessage, publishMessage } from "#/modules/messaging/publish";
-import { broadcastChannelEvent } from "#/modules/messaging/realtime";
+import {
+  fanOutMessage,
+  fanOutQuestionUpdate,
+  publishMessage,
+} from "#/modules/messaging/publish";
 import {
   addChannelMember,
   createMessage,
@@ -352,6 +355,12 @@ export type AnswerResult =
   | { ok: false; question: AgentQuestion; reason: "already-resolved" }
   | { ok: false; reason: "invalid-option" };
 
+/**
+ * The one place a resolution leaves this module, whichever resolved it: the
+ * answer route, a Slack button, the expiry sweep. It hands the replacement view
+ * to the fan-out, which is what puts it in front of open clients *and* rewrites
+ * the card on any bridged surface - so the two renderers cannot drift apart.
+ */
 const broadcastQuestion = async (
   db: Db,
   env: Env,
@@ -362,11 +371,9 @@ const broadcastQuestion = async (
   if (!view) {
     return;
   }
-  await broadcastChannelEvent(env, {
-    channelId: question.channelId,
+  await fanOutQuestionUpdate(db, env, {
     messageId: question.messageId,
     question: view satisfies QuestionView,
-    type: "question.updated",
   });
 };
 

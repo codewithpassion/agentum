@@ -52,6 +52,15 @@ describe("buildSlackManifest", () => {
     expect(manifest).toContain('display_name: "Ada"');
   });
 
+  test("enables interactivity, beside the events URL it is signed like", () => {
+    const manifest = buildSlackManifest({ name: "Ada" }, REQUEST_URL);
+
+    // Without this block Slack never delivers a button press, and a question
+    // card is a picture of buttons.
+    expect(manifest).toContain("interactivity:\n    is_enabled: true");
+    expect(manifest).toContain(`request_url: "${REQUEST_URL}/interactive"`);
+  });
+
   test("escapes a name that would otherwise break the YAML", () => {
     const manifest = buildSlackManifest(
       { name: 'Ops: "the second"' },
