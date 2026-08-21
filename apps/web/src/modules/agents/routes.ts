@@ -14,6 +14,7 @@ import {
   resyncRostersWithAnthropic,
   syncAgentWithAnthropic,
 } from "#/modules/anthropic/service";
+import { deleteSlackAppForAgent } from "#/modules/bridges/slack/apps";
 import {
   countPendingQuestionsByAgent,
   countPendingQuestionsForAgent,
@@ -180,10 +181,15 @@ agentsRoutes.patch("/:id", async (c) => {
 agentsRoutes.delete("/:id", async (c) => {
   const db = createDb(c.env.DB);
   const workspaceId = c.get("workspace").id;
-  const deleted = await deleteAgent(db, workspaceId, c.req.param("id"));
+  const id = c.req.param("id");
+  const deleted = await deleteAgent(db, workspaceId, id);
   if (!deleted) {
     throw notFound("Agent not found.");
   }
+  // An agent's Slack app belongs to it, and takes its bridges along: left
+  // behind, it would be an events URL Slack keeps posting to for an agent that
+  // no longer exists, with no screen anywhere that could disconnect it.
+  await deleteSlackAppForAgent(db, workspaceId, id);
   // The agent that left is still named in every other agent's roster - every
   // other agent *of this workspace*, which is the only roster it was ever in.
   // Its own Anthropic agent is left alone: archiving is permanent and buys us

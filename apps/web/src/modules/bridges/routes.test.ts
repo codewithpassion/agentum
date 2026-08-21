@@ -27,14 +27,19 @@ const { createAgent } = await import("#/modules/agents/service");
 const { createChannel } = await import("#/modules/messaging/service");
 const { createWorkspace } = await import("#/modules/workspaces/service");
 const { workspaceScopedRoutes } = await import("#/modules/workspaces/routes");
+const { agentsRoutes } = await import("#/modules/agents/routes");
 const { agentSlackAppRoutes, bridgeRoutes } = await import("./routes");
 const { getSlackAppForAgent } = await import("./slack/apps");
+const { slackRoutes } = await import("./slack/routes");
 
 const KEY = generateConnectorKey();
 const BOT_TOKEN = "xoxb-4321-fake-bot-token";
 const SIGNING_SECRET = "8f742231b10e8888abcd99yyyzzz85a5";
 const PUBLIC_APP_URL = "https://agentum.example.com";
 const SLACK_CHANNEL = "C0OPSCHAN";
+/** A second Slack channel: one connector channel is never bridged twice. */
+const SLACK_CHANNEL_TWO = "C0GRACECHAN";
+const NOT_FOUND = 404;
 
 const migrationsDir = new URL("../../../drizzle/", import.meta.url);
 
@@ -101,9 +106,12 @@ const fakeSlackFetch = ((input: string | URL | Request) => {
 }) as unknown as typeof fetch;
 
 workspaceScopedRoutes.route("/agents", agentSlackAppRoutes);
+workspaceScopedRoutes.route("/agents", agentsRoutes);
 workspaceScopedRoutes.route("/channels", bridgeRoutes);
 const app = new Hono<ApiEnv>();
 app.route("/api/w/:workspaceSlug", workspaceScopedRoutes);
+// Slack's own surface, which carries no session and no workspace in its path.
+app.route("/api/bridges/slack", slackRoutes);
 
 /** Every body every route in this file returned, for the sweep at the end. */
 let seen: string[] = [];
@@ -164,6 +172,50 @@ const pasteTokens = (botToken = BOT_TOKEN) =>
     body: { botToken, signingSecret: SIGNING_SECRET },
     method: "PUT",
   });
+
+/** The whole wizard for one agent, which any agent here may need. */
+const connectSlackApp = async (id: string): Promise<string> => {
+  const draft = json<SlackAppBody>(
+    (await request(`/agents/${id}/slack-app`, { method: "POST" })).body
+  );
+  await request(`/agents/${id}/slack-app/tokens`, {
+    body: { botToken: BOT_TOKEN, signingSecret: SIGNING_SECRET },
+    method: "PUT",
+  });
+  return draft.slackApp?.id ?? "";
+};
+
+const bridgeChannel = (
+  channel: string,
+  slackAppId: string,
+  externalChannelId = SLACK_CHANNEL
+) =>
+  request(`/channels/${channel}/bridge`, {
+    body: { externalChannelId, slackAppId },
+    method: "POST",
+  });
+
+const bridgeOf = async (channel: string): Promise<unknown> =>
+  json<{ bridge: unknown }>((await request(`/channels/${channel}/bridge`)).body)
+    .bridge;
+
+/**
+ * The URL Slack posts to, which knows no workspace and carries no session: an
+ * app that is gone answers 404 there, whoever asks.
+ */
+const postToEventsUrl = async (slackAppId: string): Promise<number> => {
+  const response = await app.request(
+    `/api/bridges/slack/${slackAppId}`,
+    {
+      body: JSON.stringify({ type: "event_callback" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+    env
+  );
+  seen.push(await response.text());
+  return response.status;
+};
 
 beforeEach(async () => {
   seen = [];
@@ -320,6 +372,42 @@ describe("DELETE /agents/:id/slack-app", () => {
       (await request(`/channels/${channelId}/bridge`)).body
     );
     expect(bridge.bridge).toBeNull();
+  });
+});
+
+describe("DELETE /agents/:id", () => {
+  test("takes the agent's Slack app, its bridges and its events URL with it", async () => {
+    const slackAppId = await connectSlackApp(agentId);
+    await bridgeChannel(channelId, slackAppId);
+
+    const other = await createAgent(db, workspaceId, {
+      instructions: "",
+      name: "Grace",
+      soul: "",
+    });
+    const otherAppId = await connectSlackApp(other.agent.id);
+    const otherChannelId = (
+      await createChannel(db, workspaceId, { name: "grace" })
+    ).id;
+    await bridgeChannel(otherChannelId, otherAppId, SLACK_CHANNEL_TWO);
+
+    // The events URL answers while the app exists: unsigned, so Slack's own
+    // check refuses it - but as this app's URL, not as an unknown one.
+    expect(await postToEventsUrl(slackAppId)).not.toBe(NOT_FOUND);
+
+    const removed = await request(`/agents/${agentId}`, { method: "DELETE" });
+    expect(removed.status).toBe(204);
+
+    expect(await getSlackAppForAgent(db, workspaceId, agentId)).toBeUndefined();
+    expect(await postToEventsUrl(slackAppId)).toBe(NOT_FOUND);
+    expect(await bridgeOf(channelId)).toBeNull();
+
+    // The agent that stayed keeps everything it had.
+    expect(
+      await getSlackAppForAgent(db, workspaceId, other.agent.id)
+    ).toBeDefined();
+    expect(await postToEventsUrl(otherAppId)).not.toBe(NOT_FOUND);
+    expect(await bridgeOf(otherChannelId)).not.toBeNull();
   });
 });
 

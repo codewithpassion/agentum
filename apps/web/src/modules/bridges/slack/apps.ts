@@ -195,6 +195,22 @@ export const deleteSlackApp = async (db: Db, app: SlackApp): Promise<void> => {
   await db.delete(slackApps).where(eq(slackApps.id, app.id));
 };
 
+/**
+ * For the agent-delete cleanup. An app outlives its agent as an events URL
+ * Slack can still reach and nothing in the app can any longer show: the wizard
+ * only ever reaches an app through the agent that owns it.
+ */
+export const deleteSlackAppForAgent = async (
+  db: Db,
+  workspaceId: string,
+  agentId: string
+): Promise<void> => {
+  const app = await getSlackAppForAgent(db, workspaceId, agentId);
+  if (app) {
+    await deleteSlackApp(db, app);
+  }
+};
+
 /** For the workspace-delete cleanup; the bridges are removed alongside. */
 export const deleteSlackAppsForWorkspace = async (
   db: Db,
