@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { MessageView } from "#/modules/messaging/service";
 import type { MemberAuthorView } from "#/modules/workspaces/authors";
-import { authorNameOf, clampLimit, toMcpMessage } from "./format";
+import { authorNameOf, clampLimit, snippetOf, toMcpMessage } from "./format";
 
 const NAMES = new Map([["agent-1", "Researcher"]]);
 
@@ -93,6 +93,72 @@ describe("toMcpMessage", () => {
       replyCount: 2,
       threadParentId: "message-0",
     });
+  });
+});
+
+describe("snippetOf", () => {
+  const body = (
+    filler: string,
+    needle: string,
+    where: "start" | "middle" | "end"
+  ) => {
+    const pad = filler.repeat(50);
+    if (where === "start") {
+      return `${needle} ${pad}`;
+    }
+    if (where === "end") {
+      return `${pad} ${needle}`;
+    }
+    return `${pad} ${needle} ${pad}`;
+  };
+
+  test("returns a short body whole, with no ellipsis", () => {
+    expect(snippetOf("deploy went fine", "deploy")).toBe("deploy went fine");
+  });
+
+  test("keeps the head when the match is at the start", () => {
+    const text = body("ab", "deploy", "start");
+    const result = snippetOf(text, "deploy", 20);
+
+    expect(result.startsWith("deploy")).toBe(true);
+    expect(result.endsWith("…")).toBe(true);
+    expect(result).toContain("deploy");
+  });
+
+  test("centres the window on a match in the middle", () => {
+    const text = body("ab", "deploy", "middle");
+    const result = snippetOf(text, "deploy", 20);
+
+    expect(result).toContain("deploy");
+    expect(result.startsWith("…")).toBe(true);
+    expect(result.endsWith("…")).toBe(true);
+  });
+
+  test("keeps the tail when the match is at the end", () => {
+    const text = body("ab", "deploy", "end");
+    const result = snippetOf(text, "deploy", 20);
+
+    expect(result).toContain("deploy");
+    expect(result.startsWith("…")).toBe(true);
+    expect(result.endsWith("…")).toBe(false);
+  });
+
+  test("never exceeds the window bar the ellipses it adds", () => {
+    const text = body("ab", "deploy", "middle");
+    expect(snippetOf(text, "deploy", 20).replaceAll("…", "").length).toBe(20);
+  });
+
+  test("folds case, because the search that found the hit did", () => {
+    const text = body("ab", "DEPLOY", "middle");
+    expect(snippetOf(text, "deploy", 20)).toContain("DEPLOY");
+  });
+
+  test("falls back to the head when the match cannot be located", () => {
+    const text = body("ab", "deploy", "end");
+    const result = snippetOf(text, "nowhere in this body", 20);
+
+    expect(result.startsWith("ab")).toBe(true);
+    expect(result.startsWith("…")).toBe(false);
   });
 });
 

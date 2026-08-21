@@ -31,6 +31,7 @@ import {
   listChannelMessages,
   listChannelsForMember,
   type MessageCursor,
+  searchMessages,
 } from "#/modules/messaging/service";
 import { parseExpiresIn } from "#/modules/questions/duration";
 import { QUESTION_KINDS } from "#/modules/questions/schema";
@@ -49,7 +50,14 @@ import {
   toPageView,
   writePage,
 } from "#/modules/wiki/service";
-import { clampLimit, fail, json, toMcpMessage } from "./format";
+import {
+  authorNameOf,
+  clampLimit,
+  fail,
+  json,
+  snippetOf,
+  toMcpMessage,
+} from "./format";
 import { registerRoutineTools } from "./routine-tools";
 import { registerSkillTools } from "./skill-tools";
 
@@ -253,6 +261,127 @@ const registerPostMessage = (server: McpServer, ctx: McpToolContext): void => {
         mentioned: result.message.mentions.map((mention) => mention.name),
         messageId: result.message.id,
       });
+    }
+  );
+};
+
+const DEFAULT_SEARCH_LIMIT = 20;
+const MAX_SEARCH_LIMIT = 50;
+const SEARCH_QUERY_MIN_LENGTH = 2;
+const SEARCH_QUERY_MAX_LENGTH = 200;
+
+interface SearchHit {
+  author: string;
+  authorType: string;
+  channelId: string;
+  channelName: string;
+  createdAt: string;
+  id: string;
+  replyCount: number;
+  snippet: string;
+  threadParentId: string | null;
+}
+
+/**
+ * Hits spend the same output budget an exec's stdout does. A full page of long
+ * snippets can outgrow it, and a payload the model has to discard whole is
+ * worse than one that stops early and says how much it left behind.
+ */
+const withinOutputBudget = (
+  hits: SearchHit[]
+): { dropped: number; kept: SearchHit[] } => {
+  const kept: SearchHit[] = [];
+  let bytes = 0;
+  for (const hit of hits) {
+    bytes += new TextEncoder().encode(JSON.stringify(hit)).length;
+    if (bytes > TOOL_OUTPUT_MAX_BYTES) {
+      break;
+    }
+    kept.push(hit);
+  }
+  return { dropped: hits.length - kept.length, kept };
+};
+
+const registerSearchMessages = (
+  server: McpServer,
+  ctx: McpToolContext
+): void => {
+  server.registerTool(
+    "search_messages",
+    {
+      description:
+        'Search the messages in your channels for a piece of text, newest first. This is how you find a conversation somebody refers to - "yesterday\'s thread", "the doc we discussed" - instead of paging read_channel until you hit it. Plain substring matching, not semantic, so search for a word that would actually have been typed. Each hit names its channel and its thread: call read_thread with the hit\'s threadParentId to read the conversation around it, or with the hit\'s own id when threadParentId is null and replyCount is above zero.',
+      inputSchema: {
+        channelId: z
+          .string()
+          .optional()
+          .describe(
+            "Search this channel only. Omit to search every channel you are in."
+          ),
+        limit: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            `Hits to return (default ${DEFAULT_SEARCH_LIMIT}, max ${MAX_SEARCH_LIMIT}).`
+          ),
+        query: z
+          .string()
+          .min(SEARCH_QUERY_MIN_LENGTH)
+          .max(SEARCH_QUERY_MAX_LENGTH)
+          .describe(
+            "The text to look for in message bodies. Case-insensitive, and % and _ are matched literally."
+          ),
+      },
+      title: "Search your messages",
+    },
+    async ({ channelId, limit, query }) => {
+      if (
+        channelId &&
+        !(await isChannelMember(ctx.db, channelId, memberOf(ctx.agent)))
+      ) {
+        return fail(NOT_A_MEMBER);
+      }
+
+      const hits = await searchMessages(ctx.db, ctx.workspace, {
+        channelId,
+        limit: clampLimit(limit, {
+          fallback: DEFAULT_SEARCH_LIMIT,
+          max: MAX_SEARCH_LIMIT,
+        }),
+        member: memberOf(ctx.agent),
+        query,
+      });
+      if (hits.length === 0) {
+        // Nothing matched is an answer, not a failure: the agent should try
+        // another word, not conclude the tool is broken.
+        return json({
+          hits: [],
+          note: `No messages in your channels contain "${query}".`,
+        });
+      }
+
+      const names = await agentNamesById(ctx.db, ctx.workspace.id);
+      const { dropped, kept } = withinOutputBudget(
+        hits.map(({ channelName, message }) => ({
+          author: authorNameOf(message, names),
+          authorType: message.authorType,
+          channelId: message.channelId,
+          channelName,
+          createdAt: new Date(message.createdAt).toISOString(),
+          id: message.id,
+          replyCount: message.replyCount,
+          snippet: snippetOf(message.body, query),
+          threadParentId: message.threadParentId,
+        }))
+      );
+      if (dropped > 0) {
+        return json({
+          hits: kept,
+          note: `${dropped} more matches were left out to keep this readable. Narrow the query, or pass a channelId.`,
+        });
+      }
+      return json({ hits: kept });
     }
   );
 };
@@ -860,6 +989,7 @@ export const registerWorkspaceTools = (
   registerListChannels(server, ctx);
   registerReadChannel(server, ctx);
   registerReadThread(server, ctx);
+  registerSearchMessages(server, ctx);
   registerPostMessage(server, ctx);
   registerListAgents(server, ctx);
   registerAskUser(server, ctx);

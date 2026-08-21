@@ -288,6 +288,173 @@ describe("read_thread", () => {
   });
 });
 
+describe("search_messages", () => {
+  interface Hit {
+    author: string;
+    channelId: string;
+    channelName: string;
+    id: string;
+    replyCount: number;
+    snippet: string;
+    threadParentId: string | null;
+  }
+
+  const post = async (
+    tenant: Tenant,
+    body: string,
+    options: { channelId?: string; threadParentId?: string } = {}
+  ): Promise<string> => {
+    const result = await createMessage(db, {
+      authorId: tenant.clerkUserId,
+      authorType: "user",
+      body,
+      channelId: options.channelId ?? tenant.channelId,
+      threadParentId: options.threadParentId,
+      workspace: tenant.workspace,
+    });
+    if (!result.ok) {
+      throw new Error(result.reason);
+    }
+    return result.message.id;
+  };
+
+  /** A channel in the tenant's own workspace that the agent is not in. */
+  const channelWithoutTheAgent = async (tenant: Tenant): Promise<string> => {
+    const channel = await createChannel(db, tenant.workspace.id, {
+      name: "leadership",
+    });
+    await addChannelMembers(db, channel.id, [
+      { memberId: tenant.clerkUserId, memberType: "user" },
+    ]);
+    return channel.id;
+  };
+
+  const search = (tenant: Tenant, input: Record<string, unknown>) =>
+    call(tenant, "search_messages", input);
+
+  const hitsOf = async (
+    tenant: Tenant,
+    input: Record<string, unknown>
+  ): Promise<Hit[]> => payloadOf(await search(tenant, input)).hits as Hit[];
+
+  test("finds a match in the agent's own channels and names the channel", async () => {
+    const id = await post(alpha, "The deploy runbook lives in the wiki.");
+
+    const hits = await hitsOf(alpha, { query: "runbook" });
+
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({
+      author: "Ada Lovelace",
+      channelId: alpha.channelId,
+      channelName: "general",
+      id,
+      threadParentId: null,
+    });
+    expect(hits[0]?.snippet).toContain("runbook");
+    // The workspace member id at most, never the Clerk id behind it.
+    expect(JSON.stringify(hits)).not.toContain(ADA_ID);
+  });
+
+  test("a channel in the same workspace the agent is not in stays invisible", async () => {
+    const channelId = await channelWithoutTheAgent(alpha);
+    await post(alpha, "The runbook nobody showed the agent.", { channelId });
+    await post(alpha, "The runbook the agent can see.");
+
+    const hits = await hitsOf(alpha, { query: "runbook" });
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.channelId).toBe(alpha.channelId);
+
+    // And naming it outright is refused in read_channel's exact words, so the
+    // filter is a boundary rather than a quirk of the query.
+    const denied = await search(alpha, { channelId, query: "runbook" });
+    expect(denied.isError).toBe(true);
+    expect(textOf(denied)).toBe(
+      textOf(await call(alpha, "read_channel", { channelId }))
+    );
+  });
+
+  test("another workspace's identical message never surfaces", async () => {
+    // Both tenants were seeded with the same "hello" from their own human.
+    const hits = await hitsOf(alpha, { query: "hello" });
+
+    expect(hits.map((hit) => hit.id)).toEqual([alpha.messageId]);
+    expect(hits.map((hit) => hit.id)).not.toContain(beta.messageId);
+    expect(JSON.stringify(hits)).not.toContain(BOB_ID);
+
+    // Reaching for the other tenant's channel by id reads like any other
+    // channel the agent is not in.
+    const denied = await search(alpha, {
+      channelId: beta.channelId,
+      query: "hello",
+    });
+    expect(denied.isError).toBe(true);
+    expect(textOf(denied)).toContain("not a member of that channel");
+  });
+
+  test("% and _ in a query are matched literally", async () => {
+    const percent = await post(alpha, "Rollout is 100% done.");
+    await post(alpha, "Rollout is 1000 done.");
+    const underscore = await post(alpha, "The a_b flag is on.");
+    await post(alpha, "The axb flag is on.");
+
+    expect(
+      (await hitsOf(alpha, { query: "100%" })).map((hit) => hit.id)
+    ).toEqual([percent]);
+    expect(
+      (await hitsOf(alpha, { query: "a_b" })).map((hit) => hit.id)
+    ).toEqual([underscore]);
+  });
+
+  test("limit caps the page and a nonsense limit falls back", async () => {
+    await post(alpha, "runbook number one");
+    await post(alpha, "runbook number two");
+    await post(alpha, "runbook number three");
+
+    expect(await hitsOf(alpha, { limit: 1, query: "runbook" })).toHaveLength(1);
+    expect(await hitsOf(alpha, { limit: 2, query: "runbook" })).toHaveLength(2);
+    expect(await hitsOf(alpha, { limit: 0, query: "runbook" })).toHaveLength(3);
+    expect(await hitsOf(alpha, { limit: 5000, query: "runbook" })).toHaveLength(
+      3
+    );
+  });
+
+  test("a hit inside a thread carries the thread to read_thread with", async () => {
+    const parent = await post(alpha, "Planning the deployment.");
+    const reply = await post(alpha, "The deploy window is at noon.", {
+      threadParentId: parent,
+    });
+
+    const [hit] = await hitsOf(alpha, { query: "noon" });
+    expect(hit).toMatchObject({ id: reply, threadParentId: parent });
+
+    // The jump the description promises actually lands.
+    const thread = payloadOf(
+      await call(alpha, "read_thread", { messageId: hit?.threadParentId })
+    );
+    expect((thread.parent as { id: string }).id).toBe(parent);
+    expect((thread.replies as { id: string }[]).map((row) => row.id)).toEqual([
+      reply,
+    ]);
+
+    // And the parent's own hit points at itself, by way of its reply count.
+    const [parentHit] = await hitsOf(alpha, { query: "Planning" });
+    expect(parentHit).toMatchObject({
+      id: parent,
+      replyCount: 1,
+      threadParentId: null,
+    });
+  });
+
+  test("no match is an answer rather than an error", async () => {
+    const result = await search(alpha, { query: "nothing here says this" });
+
+    expect(result.isError).toBeUndefined();
+    const payload = payloadOf(result);
+    expect(payload.hits).toEqual([]);
+    expect(payload.note).toContain("No messages in your channels contain");
+  });
+});
+
 describe("ask_user", () => {
   const askIn = async (tenant: Tenant, input: Record<string, unknown> = {}) =>
     payloadOf(

@@ -86,6 +86,41 @@ export const toMcpMessage = (
   threadParentId: message.threadParentId,
 });
 
+const SNIPPET_MAX_LENGTH = 200;
+const ELLIPSIS = "…";
+
+/**
+ * A window of a message body centred on the first match, so a search hit shows
+ * why it matched without carrying the whole message into the agent's context.
+ *
+ * The lookup folds case because the search that produced the hit did: a body
+ * that matched on `Deploy` for a query of `deploy` still has to be centred.
+ * When the match cannot be found here at all - JavaScript and SQLite disagree
+ * on some non-ASCII folding - the head of the body is a better answer than an
+ * empty one.
+ */
+export const snippetOf = (
+  body: string,
+  query: string,
+  maxLength: number = SNIPPET_MAX_LENGTH
+): string => {
+  if (body.length <= maxLength) {
+    return body;
+  }
+  const match = body.toLowerCase().indexOf(query.toLowerCase());
+  const centre = match === -1 ? 0 : match + query.length / 2;
+  const start = Math.max(
+    0,
+    Math.min(Math.round(centre - maxLength / 2), body.length - maxLength)
+  );
+  const end = start + maxLength;
+  return [
+    start > 0 ? ELLIPSIS : "",
+    body.slice(start, end),
+    end < body.length ? ELLIPSIS : "",
+  ].join("");
+};
+
 /** Keeps a runaway `limit` from pulling a whole channel into the context. */
 export const clampLimit = (
   limit: number | undefined,

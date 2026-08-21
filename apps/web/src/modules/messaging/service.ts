@@ -620,6 +620,87 @@ export const listChannelMessages = async (
   };
 };
 
+/** The `%` and `_` a LIKE pattern reads as wildcards, plus the escape itself. */
+const LIKE_WILDCARDS = /[%_\\]/g;
+
+/**
+ * A user's search term as a literal LIKE pattern fragment.
+ *
+ * Only meaningful next to an `ESCAPE '\'` clause: SQLite has no default escape
+ * character, so a backslash in a bare `LIKE` is just a backslash and an escaped
+ * pattern matches nothing at all rather than matching literally.
+ */
+export const escapeLikeQuery = (query: string): string =>
+  query.replace(LIKE_WILDCARDS, "\\$&");
+
+export interface MessageSearchHit {
+  /** The channel the hit sits in, named so the agent need not look it up. */
+  channelName: string;
+  message: MessageView;
+}
+
+/**
+ * The messages of one member's channels whose body contains `query`, newest
+ * first.
+ *
+ * Two conditions carry the scoping and neither is optional: the join to
+ * `channels` is what confines the search to the workspace, and the join to
+ * `channel_members` is what confines it to the channels this member is in.
+ * Together they let one call span every channel the caller belongs to without
+ * the caller enumerating them - and leave a channel they were never added to
+ * indistinguishable from one that holds no match.
+ *
+ * Thread replies are included, unlike `listChannelMessages`: the point of a
+ * search is to land in the middle of a past conversation and read outwards
+ * from there.
+ */
+export const searchMessages = async (
+  db: Db,
+  workspace: WorkspaceRef,
+  options: {
+    /** Restrict to one channel. The caller proves membership separately. */
+    channelId?: string;
+    limit: number;
+    member: ChannelMemberInput;
+    query: string;
+  }
+): Promise<MessageSearchHit[]> => {
+  const pattern = `%${escapeLikeQuery(options.query)}%`;
+  const rows = await db
+    .select({ channelName: channels.name, message: messages })
+    .from(messages)
+    .innerJoin(channels, eq(channels.id, messages.channelId))
+    .innerJoin(channelMembers, eq(channelMembers.channelId, messages.channelId))
+    .where(
+      and(
+        eq(channels.workspaceId, workspace.id),
+        eq(channelMembers.memberType, options.member.memberType),
+        eq(channelMembers.memberId, options.member.memberId),
+        options.channelId
+          ? eq(messages.channelId, options.channelId)
+          : undefined,
+        // Raw, because drizzle's `like` cannot carry the ESCAPE clause that
+        // makes the escaping above mean anything.
+        sql`${messages.body} LIKE ${pattern} ESCAPE '\\'`
+      )
+    )
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(options.limit);
+
+  // Through the same hydration every other read uses, so a human author
+  // resolves to their workspace membership rather than the Clerk id stored.
+  const views = await hydrateMessages(
+    db,
+    workspace,
+    rows.map((row) => row.message)
+  );
+  const viewsById = new Map(views.map((view) => [view.id, view]));
+  return rows.flatMap((row) => {
+    const message = viewsById.get(row.message.id);
+    return message ? [{ channelName: row.channelName, message }] : [];
+  });
+};
+
 /**
  * A message by bare id, within a channel the caller has already resolved. Used
  * for cursors and thread parents, where the channel is the proven scope.
