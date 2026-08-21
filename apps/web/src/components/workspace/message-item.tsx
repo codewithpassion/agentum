@@ -1,11 +1,12 @@
 import { useCallback } from "react";
 import { Avatar } from "#/components/ui/avatar";
-import type { MessageView } from "#/lib/api";
+import type { MessageView, Question } from "#/lib/api";
 import type { AuthorInfo } from "#/lib/authors";
 import { cx } from "#/lib/cx";
 import { formatTime } from "#/lib/format";
 import { AttachmentList } from "./attachments";
 import { Markdown } from "./markdown";
+import { QuestionCard } from "./question-card";
 
 function AuthorChip({
   author,
@@ -68,12 +69,15 @@ function AuthorChip({
 export function MessageItem({
   author,
   message,
+  onAnswerQuestion,
   onOpenThread,
   onSelectAgent,
   showAuthor,
 }: {
   author: AuthorInfo;
   message: MessageView;
+  /** Where a question card's answer goes; the conversation owns the question. */
+  onAnswerQuestion?: (question: Question) => void;
   /** Omitted inside the thread panel, where replies have no thread of their own. */
   onOpenThread?: (message: MessageView) => void;
   onSelectAgent: (agentId: string) => void;
@@ -103,17 +107,26 @@ export function MessageItem({
         />
       ) : null}
 
-      <div
-        className={cx(
-          "max-w-[min(680px,80%)] rounded-2xl px-3.5 py-2.5",
-          author.isSelf
-            ? "ws-own bg-[var(--ws-accent)] text-[var(--ws-accent-ink)]"
-            : "bg-[var(--ws-surface)] text-[var(--ws-text)]"
-        )}
-      >
-        <Markdown body={message.body} />
-        <AttachmentList attachments={message.attachments} />
-      </div>
+      {message.question && onAnswerQuestion ? (
+        <div className="w-[min(680px,80%)]">
+          <QuestionCard
+            onAnswered={onAnswerQuestion}
+            question={message.question}
+          />
+        </div>
+      ) : (
+        <div
+          className={cx(
+            "max-w-[min(680px,80%)] rounded-2xl px-3.5 py-2.5",
+            author.isSelf
+              ? "ws-own bg-[var(--ws-accent)] text-[var(--ws-accent-ink)]"
+              : "bg-[var(--ws-surface)] text-[var(--ws-text)]"
+          )}
+        >
+          <Markdown body={message.body} />
+          <AttachmentList attachments={message.attachments} />
+        </div>
+      )}
 
       {onOpenThread ? (
         <button

@@ -2,6 +2,7 @@ import { useUser } from "@clerk/tanstack-react-start";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Agent, Channel, MessageView } from "#/lib/api";
 import type { Viewer } from "#/lib/authors";
+import { oldestPending } from "#/lib/question-card";
 import { type AgentStatuses, useConversation } from "#/lib/use-conversation";
 import { useWorkspaceData } from "#/lib/use-workspace-data";
 import { useActiveWorkspace } from "#/lib/workspace-context";
@@ -154,6 +155,42 @@ export function Workspace({
 
   useLinkedThread(channelId, selection.message, setThread);
 
+  // Badges are counted server-side, so asking and answering are both just
+  // "the agents list is stale now". Questions are rare enough that a refetch
+  // is cheaper than a second count living in the client.
+  const { subscribeToQuestions } = conversation;
+  useEffect(
+    () =>
+      subscribeToQuestions(() => {
+        reload();
+      }),
+    [reload, subscribeToQuestions]
+  );
+
+  /**
+   * A badge click goes to the oldest question still waiting - for one agent, or
+   * for the workspace when no agent is named. The `message` param is what opens
+   * the card's thread, the same link a routine run uses.
+   */
+  const openQuestion = useCallback(
+    (forAgentId: string | null) => {
+      (async () => {
+        const questions = forAgentId
+          ? await api.listAgentQuestions(forAgentId)
+          : await api.listPendingQuestions();
+        const question = oldestPending(questions);
+        if (question) {
+          onSelect({
+            agent: question.agentId,
+            channel: question.channelId,
+            message: question.messageId,
+          });
+        }
+      })();
+    },
+    [api, onSelect]
+  );
+
   // Closing takes the link with it, or a refresh would reopen what was closed.
   const closeThread = useCallback(() => {
     setThread(null);
@@ -223,6 +260,7 @@ export function Workspace({
         onNewChannel={openChannelDialog}
         onOpenChannel={openChannel}
         onOpenDm={openDm}
+        onOpenQuestion={openQuestion}
         onReload={reload}
         onSelectAgent={selectAgent}
         viewerName={viewer.name}

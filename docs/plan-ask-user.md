@@ -253,3 +253,95 @@ rejection, already-answered click.
 **Phase Q3 — frontend + ship**: question card component, badge, answer UX,
 boot-probe acceptance (fake agent asks via MCP → card renders → answer →
 agent woken), progress entry, commit, deploy.
+
+## What Q3 shipped
+
+- **The card replaces the bubble.** A message whose `question` is set renders
+  `components/workspace/question-card.tsx` *instead of* its markdown body - the
+  body already is the prompt, so a bubble and a card would say it twice. The
+  card is drawn by `MessageItem`, which means the stream and the thread panel
+  get it from the same place; that matters, because the free-text deep link
+  (`?channel=…&message=…`) opens the thread, and the thread is where that
+  answer is typed.
+- **One state, one writer.** `useConversation` grew `applyQuestion`, and it is
+  the only thing that changes a card: the socket's `question.updated`, the
+  answer this tab posted, and the 409 that named the winner all go through it.
+  The card itself holds nothing but `busy` and an error string, so a Slack
+  click and a local click land identically. `subscribeToQuestions` mirrors the
+  existing `subscribeToReplies` for the surfaces holding their own copy - the
+  thread panel's fetched parent, and the badges.
+- **`answerQuestion` returns a union rather than throwing.** First answer wins,
+  so a 409 is an ordinary outcome of pressing a button somebody else pressed
+  first - and its body carries the winner's question view, which an `ApiError`
+  would throw away. The card shows the server's sentence ("Already answered by
+  NAME.", or the expired one) and redraws from the question that came with it.
+  A 400 still throws: an option that is not on offer is a bug, not a race.
+- **Card-state rules live in `lib/question-card.ts`**, unit-tested: the mode,
+  what disables the buttons, the countdown (`expires in 12m`, off
+  `formatUntil`), who answered ("Answered by Ada (via Slack) · 3m ago", and
+  "someone on Slack" when the name cache was cold and the name is a bare `U…`
+  id), and which option buttons get loaded colours - only a *permission*
+  request reads Approve as primary and Deny as danger, since a plain question's
+  options are choices, not verdicts. Nothing there decides that a deadline has
+  passed: the server closes a question, because closing it is also what wakes
+  the agent, and a card that expired itself would disagree with the thread
+  under it.
+- **Badges in three places, one number.** The sidebar row per agent, the rail
+  for the selected one, and a summed indicator on the sidebar's Agents section.
+  All read `pendingQuestions`, which the server counts; asking or answering
+  just means "the agents list is stale now", so the workspace reload the app
+  already has is what refreshes them. Clicking a badge fetches the agent's (or
+  the workspace's) questions and navigates to the oldest one still pending -
+  the longest-held-up agent - through the same `?channel=&message=` link a
+  routine run uses.
+- **`authors.ts`**: an expiry notice is authored `external` as
+  `question:<id>`, which would have rendered as that row id. It reads
+  "Agentum" now, the same way `routine:<id>` reads "Routine".
+- **Theme**: `--ws-warn` added beside `--ws-danger` - a permission request is a
+  warning, not an error, and there was no colour for that.
+
+### Known: Slack apps created before Q2 need the manifest re-applied
+
+Slack only delivers a button click to an app whose manifest has
+`settings.interactivity` - which the manifest gained in Q2. **An agent whose
+Slack app was created before that will show question cards in Slack whose
+buttons do nothing.** The fix is to re-apply the manifest: open the agent's
+Slack panel, copy the manifest from step 2, and paste it into the app's
+*App Manifest* page in Slack, then reinstall. No tokens change and nothing is
+re-authorised. The wizard's done card says this too.
+
+### Acceptance (boot probe, dev server + dev login)
+
+`docs/acceptance/ask-user/`, driven against a local dev server with two browser
+clients on the same channel, questions created through the agent's own MCP
+endpoint (`tools/call` → `ask_user`):
+
+- `00-cards-pending.png` — a permission request (warning accent, Approve
+  primary / Deny, `· expires in 44m`) and a free-text question with its input,
+  above an earlier answered card and an expired one; badge `2` on the agent
+  row, the rail and the Agents section.
+- `01-second-tab-before.png` — the second client, same channel, both pending.
+- `02-permission-approved.png` — after Approve in the first client: `✓ Approve`
+  marked, Deny greyed, "Answered by Dev User · just now", countdown gone,
+  badges `2 → 1`.
+- `03-second-tab-live-update.png` — the second client, untouched and *not*
+  reloaded, showing the same resolution and the same decremented badges: the
+  `question.updated` broadcast.
+- `04-answer-reply-in-thread.png` — the thread under the card: the resolved
+  question as parent, and `@Ops Answer: Approve` posted as the reply that wakes
+  the agent.
+- `05-badge-opens-oldest-pending.png` — clicking the agent's badge navigates to
+  `?channel=…&message=…` and opens the oldest pending question's thread.
+- `06-free-text-answered.png` — answered from that panel's input; the card in
+  both surfaces shows the text and who gave it, `@Ops Answer: Call it
+  staging-emerald` in the thread, badges at zero.
+- `07-all-states-resolved.png` — plain (non-permission) questions answered:
+  neutral buttons, the chosen one marked.
+
+The losing click was verified at the contract level rather than on screen: a
+second answer to the same question returns 409 with
+`{ error: "Already answered by Dev User.", question: {…answered view} }`, and a
+third with an option that is not on offer returns 400 with
+`"answer" must be one of: A, B.` - which is exactly what the card renders. The
+harness could not hold one client stale (its network interception does not
+reach WebSockets), so the two clients always agreed.

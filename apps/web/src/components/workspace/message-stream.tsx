@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { Button } from "#/components/ui/button";
-import type { Agent, MessageView } from "#/lib/api";
+import type { Agent, MessageView, Question } from "#/lib/api";
 import { authorOf, groupKeyOf, type Viewer } from "#/lib/authors";
 import { MessageItem } from "./message-item";
 
@@ -19,6 +19,7 @@ export function MessageStream({
   agentsById,
   messages,
   nextCursor,
+  onAnswerQuestion,
   onLoadOlder,
   onOpenThread,
   onSelectAgent,
@@ -27,6 +28,7 @@ export function MessageStream({
   agentsById: Map<string, Agent>;
   messages: MessageView[];
   nextCursor: string | null;
+  onAnswerQuestion: (question: Question) => void;
   onLoadOlder: () => Promise<void>;
   onOpenThread: (message: MessageView) => void;
   onSelectAgent: (agentId: string) => void;
@@ -66,6 +68,7 @@ export function MessageStream({
             author={authorOf(message, agentsById, viewer)}
             key={message.id}
             message={message}
+            onAnswerQuestion={onAnswerQuestion}
             onOpenThread={onOpenThread}
             onSelectAgent={onSelectAgent}
             showAuthor={startsGroup(message, messages[index - 1])}

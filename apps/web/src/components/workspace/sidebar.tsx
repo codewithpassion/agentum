@@ -11,6 +11,7 @@ import { cx } from "#/lib/cx";
 import { useApi, useWorkspaceSlug } from "#/lib/workspace-context";
 import { CategoryDialog } from "./category-dialog";
 import { CONNECTORS_SECTION, ConnectorsSection } from "./connectors-section";
+import { PendingBadge, pendingLabel } from "./pending-badge";
 import { ItemCategoryMenu, MENU_ITEM_CLASS } from "./sidebar-menu";
 import { SectionHint, SidebarSection } from "./sidebar-section";
 import { SKILLS_SECTION, SkillsSection } from "./skills-section";
@@ -81,6 +82,8 @@ interface RowContext {
   categories: CategoryView[];
   onOpenChannel: (channelId: string) => void;
   onOpenDm: (agent: Agent) => void;
+  /** Opens the oldest question still waiting; null means "any agent's". */
+  onOpenQuestion: (agentId: string | null) => void;
   onReload: () => Promise<void>;
   onSelectAgent: (agentId: string) => void;
 }
@@ -133,12 +136,17 @@ function AgentRow({
   categoryId: string | null;
   context: RowContext;
 }) {
-  const { onOpenDm, onSelectAgent } = context;
+  const { onOpenDm, onOpenQuestion, onSelectAgent } = context;
   const openDm = useCallback(() => onOpenDm(agent), [agent, onOpenDm]);
   const selectAgent = useCallback(
     () => onSelectAgent(agent.id),
     [agent.id, onSelectAgent]
   );
+  const openQuestion = useCallback(
+    () => onOpenQuestion(agent.id),
+    [agent.id, onOpenQuestion]
+  );
+  const pending = agent.pendingQuestions ?? 0;
 
   return (
     <div className="group flex items-center gap-1">
@@ -151,6 +159,11 @@ function AgentRow({
         <Avatar color={agent.avatar} name={agent.name} size="sm" />
         <span className="truncate">{agent.name}</span>
       </button>
+      <PendingBadge
+        count={pending}
+        label={pendingLabel(pending, `${agent.name} is`)}
+        onClick={openQuestion}
+      />
       <ItemCategoryMenu
         categories={context.categories}
         categoryId={categoryId}
@@ -344,6 +357,7 @@ export function Sidebar({
   onNewChannel,
   onOpenChannel,
   onOpenDm,
+  onOpenQuestion,
   onReload,
   onSelectAgent,
   viewerName,
@@ -357,6 +371,7 @@ export function Sidebar({
   onNewChannel: () => void;
   onOpenChannel: (channelId: string) => void;
   onOpenDm: (agent: Agent) => void;
+  onOpenQuestion: (agentId: string | null) => void;
   onReload: () => Promise<void>;
   onSelectAgent: (agentId: string) => void;
   viewerName: string;
@@ -383,6 +398,7 @@ export function Sidebar({
       categories,
       onOpenChannel,
       onOpenDm,
+      onOpenQuestion,
       onReload,
       onSelectAgent,
     }),
@@ -392,9 +408,21 @@ export function Sidebar({
       categories,
       onOpenChannel,
       onOpenDm,
+      onOpenQuestion,
       onReload,
       onSelectAgent,
     ]
+  );
+
+  // The workspace-level indicator: one number for "somebody is waiting on you",
+  // over every agent rather than the ones this search happens to show.
+  const pendingTotal = agents.reduce(
+    (total, agent) => total + (agent.pendingQuestions ?? 0),
+    0
+  );
+  const openOldestQuestion = useCallback(
+    () => onOpenQuestion(null),
+    [onOpenQuestion]
   );
 
   // A collapsed section would hide its matches, so searching expands everything.
@@ -540,6 +568,13 @@ export function Sidebar({
         </SidebarSection>
 
         <SidebarSection
+          actions={
+            <PendingBadge
+              count={pendingTotal}
+              label={pendingLabel(pendingTotal, "Your agents are")}
+              onClick={openOldestQuestion}
+            />
+          }
           expanded={isExpanded(AGENTS_SECTION)}
           label="Agents"
           onToggle={toggle}

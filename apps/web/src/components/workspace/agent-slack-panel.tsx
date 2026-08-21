@@ -289,6 +289,10 @@ function DoneStep({
         in each Slack channel you want it in, then bridge those channels from
         their own Settings here.
       </p>
+      <p className="m-0 text-[var(--ws-muted)] text-xs leading-5">
+        Created this app before question buttons shipped? Re-apply the manifest
+        from step 2 in Slack — without it Slack never delivers a button click.
+      </p>
       {confirming ? (
         <DisconnectConfirm
           busy={busy}

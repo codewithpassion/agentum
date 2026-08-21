@@ -3,11 +3,12 @@ import type {
   AgentStatusEvent,
   ChannelEvent,
 } from "#/modules/messaging/realtime";
-import type { Channel, ChannelMemberView, MessageView } from "./api";
+import type { Channel, ChannelMemberView, MessageView, Question } from "./api";
 import { useChannelSocket } from "./use-channel-socket";
 import { useApi } from "./workspace-context";
 
 export type ReplyListener = (message: MessageView) => void;
+export type QuestionListener = (question: Question) => void;
 
 /** The router's live view of the agents woken from this channel. */
 export type AgentStatuses = Record<string, AgentStatusEvent>;
@@ -15,6 +16,11 @@ export type AgentStatuses = Record<string, AgentStatusEvent>;
 export interface Conversation {
   /** Keyed by agent id; only agents the router has reported on appear. */
   agentStatuses: AgentStatuses;
+  /**
+   * The one way a question card changes state, whoever decided it: the socket
+   * event, the answer this tab posted, or the 409 that named the winner.
+   */
+  applyQuestion: QuestionListener;
   channel: Channel | null;
   error: string | null;
   loading: boolean;
@@ -27,6 +33,11 @@ export interface Conversation {
   nextCursor: string | null;
   /** Takes the fresh list channel settings gets back from an add/remove. */
   setMembers: (members: ChannelMemberView[]) => void;
+  /**
+   * Question state as it lands, for the surfaces that hold their own copy of a
+   * message: the thread panel's parent, and the badges outside this channel.
+   */
+  subscribeToQuestions: (listener: QuestionListener) => () => void;
   /** Lets an open thread panel receive replies from the channel socket. */
   subscribeToReplies: (listener: ReplyListener) => () => void;
   /** The channel's loop guard is closed: agents stay quiet until a human posts. */
@@ -49,7 +60,9 @@ export const useConversation = (channelId: string | null): Conversation => {
   const [agentStatuses, setAgentStatuses] = useState<AgentStatuses>({});
   const [suppressed, setSuppressed] = useState(false);
   const seenReplyIds = useRef(new Set<string>());
+  const seenQuestionIds = useRef(new Set<string>());
   const replyListeners = useRef(new Set<ReplyListener>());
+  const questionListeners = useRef(new Set<QuestionListener>());
 
   const subscribeToReplies = useCallback((listener: ReplyListener) => {
     replyListeners.current.add(listener);
@@ -57,6 +70,36 @@ export const useConversation = (channelId: string | null): Conversation => {
       replyListeners.current.delete(listener);
     };
   }, []);
+
+  const subscribeToQuestions = useCallback((listener: QuestionListener) => {
+    questionListeners.current.add(listener);
+    return () => {
+      questionListeners.current.delete(listener);
+    };
+  }, []);
+
+  const notifyQuestion = useCallback((question: Question) => {
+    for (const listener of questionListeners.current) {
+      listener(question);
+    }
+  }, []);
+
+  /**
+   * A question replaces the one hanging off its card message. The message is
+   * left alone when it is not loaded here - a question answered in a channel
+   * this tab is not looking at reaches the badges through the listeners.
+   */
+  const applyQuestion = useCallback(
+    (question: Question) => {
+      setMessages((previous) =>
+        previous.map((entry) =>
+          entry.id === question.messageId ? { ...entry, question } : entry
+        )
+      );
+      notifyQuestion(question);
+    },
+    [notifyQuestion]
+  );
 
   useEffect(() => {
     setAgentStatuses({});
@@ -72,6 +115,7 @@ export const useConversation = (channelId: string | null): Conversation => {
 
     let cancelled = false;
     seenReplyIds.current = new Set();
+    seenQuestionIds.current = new Set();
     setLoading(true);
 
     (async () => {
@@ -115,46 +159,60 @@ export const useConversation = (channelId: string | null): Conversation => {
     setNextCursor(page.nextCursor);
   }, [api, channelId, nextCursor]);
 
-  const merge = useCallback((message: MessageView) => {
-    if (message.authorType !== "agent") {
-      // A human back in the conversation is exactly what reopens a channel the
-      // router suppressed, so the notice goes with them.
-      setSuppressed(false);
-    }
-    if (message.threadParentId) {
-      if (seenReplyIds.current.has(message.id)) {
+  const merge = useCallback(
+    (message: MessageView) => {
+      if (message.authorType !== "agent") {
+        // A human back in the conversation is exactly what reopens a channel
+        // the router suppressed, so the notice goes with them.
+        setSuppressed(false);
+      }
+      // A card arrives twice - the POST response and the broadcast - so the
+      // "an agent is now waiting" notice is sent once, on first sight.
+      const asked = message.question;
+      if (asked && !seenQuestionIds.current.has(asked.id)) {
+        seenQuestionIds.current.add(asked.id);
+        notifyQuestion(asked);
+      }
+      if (message.threadParentId) {
+        if (seenReplyIds.current.has(message.id)) {
+          return;
+        }
+        seenReplyIds.current.add(message.id);
+        const parentId = message.threadParentId;
+        setMessages((previous) =>
+          previous.map((entry) =>
+            entry.id === parentId
+              ? { ...entry, replyCount: entry.replyCount + 1 }
+              : entry
+          )
+        );
+        for (const listener of replyListeners.current) {
+          listener(message);
+        }
         return;
       }
-      seenReplyIds.current.add(message.id);
-      const parentId = message.threadParentId;
-      setMessages((previous) =>
-        previous.map((entry) =>
-          entry.id === parentId
-            ? { ...entry, replyCount: entry.replyCount + 1 }
-            : entry
-        )
-      );
-      for (const listener of replyListeners.current) {
-        listener(message);
-      }
-      return;
-    }
 
-    setMessages((previous) => {
-      const index = previous.findIndex((entry) => entry.id === message.id);
-      if (index === -1) {
-        return [...previous, message];
-      }
-      const next = [...previous];
-      next[index] = message;
-      return next;
-    });
-  }, []);
+      setMessages((previous) => {
+        const index = previous.findIndex((entry) => entry.id === message.id);
+        if (index === -1) {
+          return [...previous, message];
+        }
+        const next = [...previous];
+        next[index] = message;
+        return next;
+      });
+    },
+    [notifyQuestion]
+  );
 
   const onEvent = useCallback(
     (event: ChannelEvent) => {
       if (event.type === "message.created") {
         merge(event.message);
+        return;
+      }
+      if (event.type === "question.updated") {
+        applyQuestion(event.question);
         return;
       }
       if (event.type === "agent.status") {
@@ -166,13 +224,14 @@ export const useConversation = (channelId: string | null): Conversation => {
       }
       setSuppressed(true);
     },
-    [merge]
+    [applyQuestion, merge]
   );
 
   useChannelSocket(channelId, onEvent);
 
   return {
     agentStatuses,
+    applyQuestion,
     channel,
     error,
     loading,
@@ -182,6 +241,7 @@ export const useConversation = (channelId: string | null): Conversation => {
     messages,
     nextCursor,
     setMembers,
+    subscribeToQuestions,
     subscribeToReplies,
     suppressed,
   };

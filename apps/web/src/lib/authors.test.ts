@@ -75,6 +75,10 @@ describe("authorOf, for an external author", () => {
     expect(external("routine:rt_123").name).toBe("Routine");
   });
 
+  test("signs an expiry notice as the app, not as the question's row id", () => {
+    expect(external("question:qst_123").name).toBe("Agentum");
+  });
+
   test("leaves a bridged handle alone", () => {
     expect(external("slack:U123").name).toBe("slack:U123");
   });

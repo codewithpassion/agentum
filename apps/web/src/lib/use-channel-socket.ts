@@ -5,6 +5,7 @@ import { useApi } from "./workspace-context";
 const KNOWN_TYPES = new Set<ChannelEvent["type"]>([
   "agent.status",
   "message.created",
+  "question.updated",
   "router.suppressed",
 ]);
 

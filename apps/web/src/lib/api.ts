@@ -94,6 +94,7 @@ export class ApiError extends Error {
 }
 
 const NOT_FOUND = 404;
+const CONFLICT = 409;
 
 export const isNotFound = (error: unknown): boolean =>
   error instanceof ApiError && error.status === NOT_FOUND;
@@ -847,6 +848,64 @@ export const createApi = (workspaceSlug: string) => {
       method: "POST",
     }).then((data) => data.run);
 
+  // --- questions ------------------------------------------------------------
+
+  /** Everything still waiting on a human, for the workspace-wide badge. */
+  const listPendingQuestions = () =>
+    request<{ questions: Question[] }>("/questions?status=pending").then(
+      (data) => data.questions
+    );
+
+  /** One agent's questions, newest first - answered and expired ones included. */
+  const listAgentQuestions = (agentId: string) =>
+    request<{ questions: Question[] }>(
+      `/agents/${encodeURIComponent(agentId)}/questions`
+    ).then((data) => data.questions);
+
+  /**
+   * Answering, with losing the race as a *result* rather than an exception.
+   *
+   * First answer wins (plan decision 3), so a 409 is an ordinary outcome of
+   * pressing a button somebody else pressed first - and its body carries the
+   * winner's question view, which is exactly what the card must now show. An
+   * `ApiError` would throw that away, so this one endpoint answers in a union.
+   * A 400 (an option that is not on offer) still throws: that is a bug, not a
+   * race.
+   */
+  const answerQuestion = async (
+    id: string,
+    answer: string
+  ): Promise<
+    | { ok: false; error: string; question: Question | null }
+    | { ok: true; question: Question }
+  > => {
+    const response = await fetch(
+      `${apiBase}/questions/${encodeURIComponent(id)}/answer`,
+      {
+        body: JSON.stringify({ answer }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }
+    );
+
+    if (response.status === CONFLICT) {
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        question?: Question | null;
+      } | null;
+      return {
+        error: body?.error ?? "This question was already resolved.",
+        ok: false,
+        question: body?.question ?? null,
+      };
+    }
+    if (!response.ok) {
+      throw await failureOf(response);
+    }
+    const { question } = (await response.json()) as { question: Question };
+    return { ok: true, question };
+  };
+
   // --- bridges --------------------------------------------------------------
 
   /**
@@ -910,6 +969,7 @@ export const createApi = (workspaceSlug: string) => {
     addChannelMember,
     addConnector,
     addMember,
+    answerQuestion,
     assignCategoryItem,
     assignConnectorToAgent,
     assignSkillToAgent,
@@ -946,6 +1006,7 @@ export const createApi = (workspaceSlug: string) => {
     listAgentActivity,
     listAgentBridges,
     listAgentConnectors,
+    listAgentQuestions,
     listAgentSkills,
     listAgents,
     listBrowserScreenshots,
@@ -956,6 +1017,7 @@ export const createApi = (workspaceSlug: string) => {
     listConnectors,
     listMembers,
     listMessages,
+    listPendingQuestions,
     listRoutineRuns,
     listRoutines,
     listSkillAgents,

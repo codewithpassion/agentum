@@ -12,6 +12,7 @@ import { AgentScreenTab } from "./agent-screen-tab";
 import { AgentSkillChips } from "./agent-skill-chips";
 import { BridgeCard } from "./bridge-card";
 import { McpUrlField } from "./mcp-url";
+import { PendingBadge, pendingLabel } from "./pending-badge";
 
 /** The agent's screen (docs/plan.md 3c); Profile is the phase 1 rail, tabbed. */
 const TABS = ["Screen", "Files", "Activity", "Profile"] as const;
@@ -134,7 +135,14 @@ const useAgentStatus = (
           syncStatus: agent.syncStatus,
         };
 
-  return live ? { ...base, status: live.status } : base;
+  return {
+    ...(live ? { ...base, status: live.status } : base),
+    // The status fetch happens once per selection, but the agents list is
+    // reloaded every time a question is asked or answered - so its count is
+    // the fresher of the two, and the badge would otherwise sit at the number
+    // it had when the agent was clicked.
+    pendingQuestions: agent.pendingQuestions ?? base.pendingQuestions,
+  };
 };
 
 function Section({ body, title }: { body: string; title: string }) {
@@ -264,7 +272,16 @@ export function AgentRail({
           <div className="flex items-center gap-3">
             <Avatar color={agent.avatar} name={agent.name} size="lg" />
             <div className="min-w-0">
-              <p className="m-0 truncate font-semibold text-sm">{agent.name}</p>
+              <p className="m-0 flex items-center gap-1.5 truncate font-semibold text-sm">
+                <span className="truncate">{agent.name}</span>
+                <PendingBadge
+                  count={status.pendingQuestions}
+                  label={pendingLabel(
+                    status.pendingQuestions,
+                    `${agent.name} is`
+                  )}
+                />
+              </p>
               <StatusLine sessionId={status.sessionId} status={status.status} />
               <SyncLine
                 syncError={status.syncError}

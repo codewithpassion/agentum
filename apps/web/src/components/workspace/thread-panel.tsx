@@ -29,7 +29,9 @@ export function ThreadPanel({
   const [parent, setParent] = useState<MessageView | null>(null);
   const [replies, setReplies] = useState<MessageView[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const { channel, mergeMessage, subscribeToReplies } = conversation;
+  const { applyQuestion, channel, mergeMessage, subscribeToReplies } =
+    conversation;
+  const { subscribeToQuestions } = conversation;
   const channelId = channel?.id ?? null;
 
   useEffect(() => {
@@ -71,6 +73,20 @@ export function ThreadPanel({
     [parentId, subscribeToReplies]
   );
 
+  // The panel fetched its own copy of the parent, so a question resolved
+  // anywhere - here, in the stream, on Slack - has to be replaced in it too.
+  useEffect(
+    () =>
+      subscribeToQuestions((question) => {
+        setParent((previous) =>
+          previous && previous.id === question.messageId
+            ? { ...previous, question }
+            : previous
+        );
+      }),
+    [subscribeToQuestions]
+  );
+
   const send = useCallback(
     async (input: { attachmentIds: string[]; body: string }) => {
       if (!channelId) {
@@ -109,6 +125,7 @@ export function ThreadPanel({
             <MessageItem
               author={authorOf(parent, agentsById, viewer)}
               message={{ ...parent, replyCount: 0 }}
+              onAnswerQuestion={applyQuestion}
               onSelectAgent={onSelectAgent}
               showAuthor
             />

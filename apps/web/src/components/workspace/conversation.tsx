@@ -162,6 +162,7 @@ export function ConversationPane({
         agentsById={agentsById}
         messages={conversation.messages}
         nextCursor={conversation.nextCursor}
+        onAnswerQuestion={conversation.applyQuestion}
         onLoadOlder={conversation.loadOlder}
         onOpenThread={onOpenThread}
         onSelectAgent={onSelectAgent}

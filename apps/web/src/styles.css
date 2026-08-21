@@ -501,6 +501,7 @@ a {
   --ws-accent: #5b8cff;
   --ws-accent-ink: #ffffff;
   --ws-danger: #f87171;
+  --ws-warn: #fbbf24;
 }
 
 :root[data-theme="light"] {
@@ -514,6 +515,7 @@ a {
   --ws-accent: #3057d6;
   --ws-accent-ink: #ffffff;
   --ws-danger: #b91c1c;
+  --ws-warn: #b45309;
 }
 
 @media (prefers-color-scheme: light) {
@@ -528,6 +530,7 @@ a {
     --ws-accent: #3057d6;
     --ws-accent-ink: #ffffff;
     --ws-danger: #b91c1c;
+    --ws-warn: #b45309;
   }
 }
 

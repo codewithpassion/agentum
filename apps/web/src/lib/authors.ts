@@ -14,6 +14,15 @@ const FORMER_MEMBER_NAME = "Former member";
 const UNNAMED_MEMBER = "Member";
 /** How the scheduler signs the instruction message it posts for a routine. */
 const ROUTINE_AUTHOR_PREFIX = "routine:";
+/** How the expiry sweep signs the notice that wakes an unanswered agent. */
+const QUESTION_AUTHOR_PREFIX = "question:";
+
+const externalLabel = (authorId: string): string => {
+  if (authorId.startsWith(ROUTINE_AUTHOR_PREFIX)) {
+    return "Routine";
+  }
+  return authorId.startsWith(QUESTION_AUTHOR_PREFIX) ? "Agentum" : authorId;
+};
 
 /**
  * What to call a workspace member on screen. A membership created by the
@@ -68,17 +77,15 @@ export const authorOf = (
   }
 
   // Somebody on a bridged surface: their handle there is all we have of them -
-  // except when the "somebody" is this app's own scheduler firing a routine, in
-  // which case the row id behind it means nothing on screen.
+  // except when the "somebody" is this app itself, firing a routine or closing
+  // an unanswered question, in which case the row id means nothing on screen.
   if (message.authorType === "external") {
     return {
       agentId: null,
       color: UNKNOWN_COLOR,
       imageUrl: null,
       isSelf: false,
-      name: message.authorId.startsWith(ROUTINE_AUTHOR_PREFIX)
-        ? "Routine"
-        : message.authorId,
+      name: externalLabel(message.authorId),
     };
   }
 
