@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import type { Agent, AgentStatusView } from "#/lib/api";
+import { computerSummary } from "#/lib/computer-hosts";
 import { pollIntervalFor } from "#/lib/use-agent-screen";
+import { useComputerHosts } from "#/lib/use-computer-hosts";
 import { useApi } from "#/lib/workspace-context";
 import type { AgentStatusEvent } from "#/modules/messaging/realtime";
 import { AgentActivityTab } from "./agent-activity-tab";
@@ -90,6 +92,28 @@ function SyncLine({
     >
       {label}
       {syncStatus === "error" && syncError ? ` — ${syncError}` : ""}
+    </p>
+  );
+}
+
+/**
+ * Where this agent's computer runs. Fixed at creation, so it is a fact rather
+ * than a status: nothing here polls, and a host that is offline says so on its
+ * own page.
+ */
+function ComputerLine({
+  computer,
+  hostName,
+}: {
+  computer: Agent["computer"];
+  hostName: string | null;
+}) {
+  return (
+    <p
+      className="m-0 text-[var(--ws-muted)] text-xs"
+      data-testid="agent-computer-line"
+    >
+      Computer: {computerSummary(computer, hostName)}
     </p>
   );
 }
@@ -267,6 +291,12 @@ export function AgentRail({
 }) {
   const status = useAgentStatus(agent, liveStatus);
   const [tab, setTab] = useState<Tab>("Screen");
+  // Only a remote computer has a host to name; a Cloudflare agent needs no list.
+  const { hosts } = useComputerHosts(
+    agent !== null && agent.computer !== "cloudflare"
+  );
+  const hostName =
+    hosts.find((host) => host.id === agent?.computerHostId)?.name ?? null;
   // A working agent is worth watching closely; an idle one is not worth the
   // requests (see lib/use-agent-screen).
   const pollMs = pollIntervalFor(status?.status === "working");
@@ -297,6 +327,7 @@ export function AgentRail({
                 syncError={status.syncError}
                 syncStatus={status.syncStatus}
               />
+              <ComputerLine computer={agent.computer} hostName={hostName} />
             </div>
           </div>
 

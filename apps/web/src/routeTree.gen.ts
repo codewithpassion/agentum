@@ -15,6 +15,8 @@ import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as WWorkspaceSlugRouteImport } from './routes/w.$workspaceSlug'
 import { Route as WWorkspaceSlugIndexRouteImport } from './routes/w.$workspaceSlug.index'
+import { Route as WWorkspaceSlugComputersIndexRouteImport } from './routes/w.$workspaceSlug.computers.index'
+import { Route as WWorkspaceSlugComputersHostIdRouteImport } from './routes/w.$workspaceSlug.computers.$hostId'
 import { Route as WWorkspaceSlugConnectorsIndexRouteImport } from './routes/w.$workspaceSlug.connectors.index'
 import { Route as WWorkspaceSlugConnectorsConnectorIdRouteImport } from './routes/w.$workspaceSlug.connectors.$connectorId'
 import { Route as WWorkspaceSlugRoutinesIndexRouteImport } from './routes/w.$workspaceSlug.routines.index'
@@ -55,6 +57,18 @@ const WWorkspaceSlugIndexRoute = WWorkspaceSlugIndexRouteImport.update({
   path: '/',
   getParentRoute: () => WWorkspaceSlugRoute,
 } as any)
+const WWorkspaceSlugComputersIndexRoute =
+  WWorkspaceSlugComputersIndexRouteImport.update({
+    id: '/computers/',
+    path: '/computers/',
+    getParentRoute: () => WWorkspaceSlugRoute,
+  } as any)
+const WWorkspaceSlugComputersHostIdRoute =
+  WWorkspaceSlugComputersHostIdRouteImport.update({
+    id: '/computers/$hostId',
+    path: '/computers/$hostId',
+    getParentRoute: () => WWorkspaceSlugRoute,
+  } as any)
 const WWorkspaceSlugConnectorsIndexRoute =
   WWorkspaceSlugConnectorsIndexRouteImport.update({
     id: '/connectors/',
@@ -115,11 +129,13 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugRouteWithChildren
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
+  '/w/$workspaceSlug/computers/$hostId': typeof WWorkspaceSlugComputersHostIdRoute
   '/w/$workspaceSlug/connectors/$connectorId': typeof WWorkspaceSlugConnectorsConnectorIdRoute
   '/w/$workspaceSlug/routines/$routineId': typeof WWorkspaceSlugRoutinesRoutineIdRoute
   '/w/$workspaceSlug/settings/members': typeof WWorkspaceSlugSettingsMembersRoute
   '/w/$workspaceSlug/skills/$slug': typeof WWorkspaceSlugSkillsSlugRoute
   '/w/$workspaceSlug/wiki/$': typeof WWorkspaceSlugWikiSplatRoute
+  '/w/$workspaceSlug/computers/': typeof WWorkspaceSlugComputersIndexRoute
   '/w/$workspaceSlug/connectors/': typeof WWorkspaceSlugConnectorsIndexRoute
   '/w/$workspaceSlug/routines/': typeof WWorkspaceSlugRoutinesIndexRoute
   '/w/$workspaceSlug/skills/': typeof WWorkspaceSlugSkillsIndexRoute
@@ -131,11 +147,13 @@ export interface FileRoutesByTo {
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugIndexRoute
+  '/w/$workspaceSlug/computers/$hostId': typeof WWorkspaceSlugComputersHostIdRoute
   '/w/$workspaceSlug/connectors/$connectorId': typeof WWorkspaceSlugConnectorsConnectorIdRoute
   '/w/$workspaceSlug/routines/$routineId': typeof WWorkspaceSlugRoutinesRoutineIdRoute
   '/w/$workspaceSlug/settings/members': typeof WWorkspaceSlugSettingsMembersRoute
   '/w/$workspaceSlug/skills/$slug': typeof WWorkspaceSlugSkillsSlugRoute
   '/w/$workspaceSlug/wiki/$': typeof WWorkspaceSlugWikiSplatRoute
+  '/w/$workspaceSlug/computers': typeof WWorkspaceSlugComputersIndexRoute
   '/w/$workspaceSlug/connectors': typeof WWorkspaceSlugConnectorsIndexRoute
   '/w/$workspaceSlug/routines': typeof WWorkspaceSlugRoutinesIndexRoute
   '/w/$workspaceSlug/skills': typeof WWorkspaceSlugSkillsIndexRoute
@@ -149,11 +167,13 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugRouteWithChildren
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
+  '/w/$workspaceSlug/computers/$hostId': typeof WWorkspaceSlugComputersHostIdRoute
   '/w/$workspaceSlug/connectors/$connectorId': typeof WWorkspaceSlugConnectorsConnectorIdRoute
   '/w/$workspaceSlug/routines/$routineId': typeof WWorkspaceSlugRoutinesRoutineIdRoute
   '/w/$workspaceSlug/settings/members': typeof WWorkspaceSlugSettingsMembersRoute
   '/w/$workspaceSlug/skills/$slug': typeof WWorkspaceSlugSkillsSlugRoute
   '/w/$workspaceSlug/wiki/$': typeof WWorkspaceSlugWikiSplatRoute
+  '/w/$workspaceSlug/computers/': typeof WWorkspaceSlugComputersIndexRoute
   '/w/$workspaceSlug/connectors/': typeof WWorkspaceSlugConnectorsIndexRoute
   '/w/$workspaceSlug/routines/': typeof WWorkspaceSlugRoutinesIndexRoute
   '/w/$workspaceSlug/skills/': typeof WWorkspaceSlugSkillsIndexRoute
@@ -168,11 +188,13 @@ export interface FileRouteTypes {
     | '/login'
     | '/w/$workspaceSlug'
     | '/w/$workspaceSlug/'
+    | '/w/$workspaceSlug/computers/$hostId'
     | '/w/$workspaceSlug/connectors/$connectorId'
     | '/w/$workspaceSlug/routines/$routineId'
     | '/w/$workspaceSlug/settings/members'
     | '/w/$workspaceSlug/skills/$slug'
     | '/w/$workspaceSlug/wiki/$'
+    | '/w/$workspaceSlug/computers/'
     | '/w/$workspaceSlug/connectors/'
     | '/w/$workspaceSlug/routines/'
     | '/w/$workspaceSlug/skills/'
@@ -184,11 +206,13 @@ export interface FileRouteTypes {
     | '/dev-login'
     | '/login'
     | '/w/$workspaceSlug'
+    | '/w/$workspaceSlug/computers/$hostId'
     | '/w/$workspaceSlug/connectors/$connectorId'
     | '/w/$workspaceSlug/routines/$routineId'
     | '/w/$workspaceSlug/settings/members'
     | '/w/$workspaceSlug/skills/$slug'
     | '/w/$workspaceSlug/wiki/$'
+    | '/w/$workspaceSlug/computers'
     | '/w/$workspaceSlug/connectors'
     | '/w/$workspaceSlug/routines'
     | '/w/$workspaceSlug/skills'
@@ -201,11 +225,13 @@ export interface FileRouteTypes {
     | '/login'
     | '/w/$workspaceSlug'
     | '/w/$workspaceSlug/'
+    | '/w/$workspaceSlug/computers/$hostId'
     | '/w/$workspaceSlug/connectors/$connectorId'
     | '/w/$workspaceSlug/routines/$routineId'
     | '/w/$workspaceSlug/settings/members'
     | '/w/$workspaceSlug/skills/$slug'
     | '/w/$workspaceSlug/wiki/$'
+    | '/w/$workspaceSlug/computers/'
     | '/w/$workspaceSlug/connectors/'
     | '/w/$workspaceSlug/routines/'
     | '/w/$workspaceSlug/skills/'
@@ -262,6 +288,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/w/$workspaceSlug/'
       preLoaderRoute: typeof WWorkspaceSlugIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/computers/': {
+      id: '/w/$workspaceSlug/computers/'
+      path: '/computers'
+      fullPath: '/w/$workspaceSlug/computers/'
+      preLoaderRoute: typeof WWorkspaceSlugComputersIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/computers/$hostId': {
+      id: '/w/$workspaceSlug/computers/$hostId'
+      path: '/computers/$hostId'
+      fullPath: '/w/$workspaceSlug/computers/$hostId'
+      preLoaderRoute: typeof WWorkspaceSlugComputersHostIdRouteImport
       parentRoute: typeof WWorkspaceSlugRoute
     }
     '/w/$workspaceSlug/connectors/': {
@@ -332,11 +372,13 @@ declare module '@tanstack/react-router' {
 
 interface WWorkspaceSlugRouteChildren {
   WWorkspaceSlugIndexRoute: typeof WWorkspaceSlugIndexRoute
+  WWorkspaceSlugComputersHostIdRoute: typeof WWorkspaceSlugComputersHostIdRoute
   WWorkspaceSlugConnectorsConnectorIdRoute: typeof WWorkspaceSlugConnectorsConnectorIdRoute
   WWorkspaceSlugRoutinesRoutineIdRoute: typeof WWorkspaceSlugRoutinesRoutineIdRoute
   WWorkspaceSlugSettingsMembersRoute: typeof WWorkspaceSlugSettingsMembersRoute
   WWorkspaceSlugSkillsSlugRoute: typeof WWorkspaceSlugSkillsSlugRoute
   WWorkspaceSlugWikiSplatRoute: typeof WWorkspaceSlugWikiSplatRoute
+  WWorkspaceSlugComputersIndexRoute: typeof WWorkspaceSlugComputersIndexRoute
   WWorkspaceSlugConnectorsIndexRoute: typeof WWorkspaceSlugConnectorsIndexRoute
   WWorkspaceSlugRoutinesIndexRoute: typeof WWorkspaceSlugRoutinesIndexRoute
   WWorkspaceSlugSkillsIndexRoute: typeof WWorkspaceSlugSkillsIndexRoute
@@ -345,12 +387,14 @@ interface WWorkspaceSlugRouteChildren {
 
 const WWorkspaceSlugRouteChildren: WWorkspaceSlugRouteChildren = {
   WWorkspaceSlugIndexRoute: WWorkspaceSlugIndexRoute,
+  WWorkspaceSlugComputersHostIdRoute: WWorkspaceSlugComputersHostIdRoute,
   WWorkspaceSlugConnectorsConnectorIdRoute:
     WWorkspaceSlugConnectorsConnectorIdRoute,
   WWorkspaceSlugRoutinesRoutineIdRoute: WWorkspaceSlugRoutinesRoutineIdRoute,
   WWorkspaceSlugSettingsMembersRoute: WWorkspaceSlugSettingsMembersRoute,
   WWorkspaceSlugSkillsSlugRoute: WWorkspaceSlugSkillsSlugRoute,
   WWorkspaceSlugWikiSplatRoute: WWorkspaceSlugWikiSplatRoute,
+  WWorkspaceSlugComputersIndexRoute: WWorkspaceSlugComputersIndexRoute,
   WWorkspaceSlugConnectorsIndexRoute: WWorkspaceSlugConnectorsIndexRoute,
   WWorkspaceSlugRoutinesIndexRoute: WWorkspaceSlugRoutinesIndexRoute,
   WWorkspaceSlugSkillsIndexRoute: WWorkspaceSlugSkillsIndexRoute,
@@ -371,13 +415,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

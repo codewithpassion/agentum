@@ -2,10 +2,17 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { SelectField, TextAreaField, TextField } from "#/components/ui/field";
-import type { Agent, AgentInput } from "#/lib/api";
+import type { Agent, AgentInput, ComputerHost } from "#/lib/api";
+import { computerSummary, hostChoicesFor } from "#/lib/computer-hosts";
 import { WORKSPACE_DEFAULT_MODEL_LABEL } from "#/lib/model-format";
+import { useComputerHosts } from "#/lib/use-computer-hosts";
 import { useApi } from "#/lib/workspace-context";
-import { type AgentRuntime, isAgentRuntime } from "#/modules/agents/schema";
+import {
+  type AgentComputer,
+  type AgentRuntime,
+  isAgentComputer,
+  isAgentRuntime,
+} from "#/modules/agents/schema";
 import { AgentConnectorsPicker } from "./agent-connectors-picker";
 import { AgentSkillsPicker } from "./agent-skills-picker";
 import { AgentSlackPanel } from "./agent-slack-panel";
@@ -14,6 +21,8 @@ import { McpUrlField } from "./mcp-url";
 import { ModelSelect } from "./model-select";
 
 const EMPTY: AgentInput = {
+  computer: "cloudflare",
+  computerHostId: null,
   instructions: "",
   model: null,
   name: "",
@@ -41,6 +50,115 @@ const RUNTIME_OPTIONS: { hint: string; label: string; value: AgentRuntime }[] =
 
 const runtimeHint = (runtime: AgentRuntime): string =>
   RUNTIME_OPTIONS.find((option) => option.value === runtime)?.hint ?? "";
+
+/**
+ * Where the agent's *computer* runs - the files and the shell behind the
+ * `computer_*` tools, which is a separate choice from where its loop runs, and
+ * fixed at creation for the same reason: the files live in the backend, so
+ * moving them would be a migration rather than a toggle.
+ */
+const COMPUTER_OPTIONS: {
+  hint: string;
+  label: string;
+  value: AgentComputer;
+}[] = [
+  {
+    hint: "The Durable Object the agent already lives in. Its files work everywhere, but the shell only runs in development - the Worker Loader behind it is not available in production.",
+    label: "Cloudflare (default; files only in production)",
+    value: "cloudflare",
+  },
+  {
+    hint: "A Fly Machine of its own, with its own volume, in one of your Fly apps: a real Linux shell in production. Fly starts the machine on the first command and stops it when the agent goes idle.",
+    label: "Fly.io host…",
+    value: "fly",
+  },
+  {
+    hint: "A container you run on your own hardware: a real Linux shell in production. The container runs whatever the agent decides to run, with the network access the container has - which machine and which network that is, is yours to choose.",
+    label: "Self-hosted host…",
+    value: "self_hosted",
+  },
+];
+
+const computerHint = (computer: AgentComputer): string =>
+  COMPUTER_OPTIONS.find((option) => option.value === computer)?.hint ?? "";
+
+/**
+ * The computer, and the host it sits on. Read-only once the agent exists, like
+ * the runtime; while creating, picking a remote backend asks which host, and a
+ * self-hosted host that already has an agent cannot take a second (plan §3).
+ */
+function ComputerFields({
+  agent,
+  computer,
+  hostId,
+  hosts,
+  onComputerChange,
+  onHostChange,
+}: {
+  agent: Agent | null;
+  computer: AgentComputer;
+  hostId: string | null;
+  hosts: ComputerHost[];
+  onComputerChange: (event: React.ChangeEvent<HTMLSelectElement>) => void;
+  onHostChange: (event: React.ChangeEvent<HTMLSelectElement>) => void;
+}) {
+  if (agent) {
+    const host = hosts.find((row) => row.id === agent.computerHostId) ?? null;
+    return (
+      <p className="m-0 text-[var(--ws-muted)] text-xs">
+        Computer: {computerSummary(agent.computer, host?.name ?? null)}
+      </p>
+    );
+  }
+
+  const choices =
+    computer === "cloudflare" ? [] : hostChoicesFor(hosts, computer);
+
+  return (
+    <>
+      <SelectField
+        data-testid="agent-computer"
+        hint={computerHint(computer)}
+        label="Computer"
+        onChange={onComputerChange}
+        value={computer}
+      >
+        {COMPUTER_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </SelectField>
+      {computer === "cloudflare" ? null : (
+        <SelectField
+          data-testid="agent-computer-host"
+          disabled={choices.length === 0}
+          hint={
+            choices.length === 0
+              ? "No host of this kind yet. Add one under Computers first."
+              : "Where this agent's files and shell live. It cannot be changed later."
+          }
+          label="Host"
+          onChange={onHostChange}
+          required
+          value={hostId ?? ""}
+        >
+          <option value="">Choose a host…</option>
+          {choices.map((choice) => (
+            <option
+              disabled={choice.disabledReason !== null}
+              key={choice.host.id}
+              value={choice.host.id}
+            >
+              {choice.host.name}
+              {choice.disabledReason ? ` (${choice.disabledReason})` : ""}
+            </option>
+          ))}
+        </SelectField>
+      )}
+    </>
+  );
+}
 
 /**
  * The agent's settings, in sections (plan 5e): the dialog was already crowded
@@ -111,6 +229,8 @@ export function AgentDialog({
     setDraft(
       agent
         ? {
+            computer: agent.computer,
+            computerHostId: agent.computerHostId,
             instructions: agent.instructions,
             model: agent.model ?? null,
             name: agent.name,
@@ -144,6 +264,29 @@ export function AgentDialog({
     (model: string | null) => setDraft((previous) => ({ ...previous, model })),
     []
   );
+  const onComputerChange = useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      const { value } = event.target;
+      if (!isAgentComputer(value)) {
+        return;
+      }
+      // A host belongs to one kind of computer, so switching clears it.
+      setDraft((previous) => ({
+        ...previous,
+        computer: value,
+        computerHostId: null,
+      }));
+    },
+    []
+  );
+  const onComputerHostChange = useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) =>
+      setDraft((previous) => ({
+        ...previous,
+        computerHostId: event.target.value || null,
+      })),
+    []
+  );
   const onRuntimeChange = useCallback(
     (event: React.ChangeEvent<HTMLSelectElement>) => {
       const { value } = event.target;
@@ -157,6 +300,11 @@ export function AgentDialog({
   );
 
   const runtime: AgentRuntime = agent?.runtime ?? draft.runtime ?? "managed";
+  const computer: AgentComputer = draft.computer ?? "cloudflare";
+  // Named even for an agent that already exists: the read-only line names its
+  // host, and a member may open this dialog without ever seeing the Computers
+  // screen.
+  const { hosts } = useComputerHosts(open);
   // Connectors are attached to Managed Agents sessions; the Cloudflare runtime
   // has nowhere to attach them, so the tab would only mislead.
   const sections = SECTIONS.filter(
@@ -294,6 +442,14 @@ export function AgentDialog({
             ))}
           </SelectField>
         )}
+        <ComputerFields
+          agent={agent}
+          computer={computer}
+          hostId={draft.computerHostId ?? null}
+          hosts={hosts}
+          onComputerChange={onComputerChange}
+          onHostChange={onComputerHostChange}
+        />
         {runtime === "cloudflare" ? (
           <CloudflareModelField
             onChange={onModelChange}

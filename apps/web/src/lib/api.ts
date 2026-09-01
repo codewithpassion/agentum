@@ -6,6 +6,7 @@ import type {
   BrowserStatus as BrowserStatusRow,
   StoredScreenshot as ScreenshotRow,
 } from "#/modules/browser/types";
+import type { HostView as ComputerHostRow } from "#/modules/computer/hosts";
 import type { DirEntry as DirEntryRow } from "#/modules/computer/types";
 import type {
   ConnectorView as ConnectorRow,
@@ -58,6 +59,18 @@ export type ConnectorStatus = Connector["status"];
 /** What the add-connector dialog must do next; see the ladder in plan 4b. */
 export type StartOutcome = StartOutcomeRow;
 export type DirEntry = DirEntryRow;
+/**
+ * Where an agent's computer may run. The server types the two timestamps as
+ * `Date`; they cross the wire as ISO strings, and these are the first screens
+ * that actually format one, so the client says what really arrives.
+ */
+export type ComputerHost = Omit<ComputerHostRow, "createdAt" | "lastSeenAt"> & {
+  createdAt: string;
+  lastSeenAt: string | null;
+};
+export type ComputerHostKind = ComputerHost["kind"];
+export type ComputerHostStatus = ComputerHost["status"];
+export type ComputerHostConfig = ComputerHost["config"];
 export type MemberView = MemberRow;
 /**
  * Somebody who writes from a bridged surface. `memberId` is who they are here,
@@ -187,6 +200,10 @@ export interface ConnectorAgentRef {
 }
 
 export interface AgentInput {
+  /** Where its computer runs. Create-only, like the runtime. */
+  computer?: Agent["computer"];
+  /** The host that computer runs on; null on Cloudflare. Create-only. */
+  computerHostId?: string | null;
   instructions: string;
   /** A model id for the agent's runtime, or null for the runtime's default. */
   model?: string | null;
@@ -246,6 +263,40 @@ export interface WikiAssetView {
   mime: string;
   size: number;
   url: string;
+}
+
+/** Everything a new host needs; `config` is Fly's, and empty for a container. */
+export interface ComputerHostInput {
+  config?: ComputerHostConfig;
+  flyApiToken?: string;
+  kind: ComputerHostKind;
+  name: string;
+}
+
+/** What a host edit may change; `rotateToken` issues a fresh daemon token. */
+export interface ComputerHostEdit {
+  config?: ComputerHostConfig;
+  flyApiToken?: string;
+  name?: string;
+  rotateToken?: true;
+}
+
+/**
+ * A host plus the daemon token, which exists in plaintext in this one response
+ * and nowhere else. It is null for a Fly host - there Agentum is the side that
+ * presents the token, so the user never sees it.
+ */
+export interface IssuedComputerHost {
+  host: ComputerHost;
+  token: string | null;
+}
+
+/** A `ping` through the host's real transport. */
+export interface ComputerHostTestResult {
+  hostname?: string;
+  ok: boolean;
+  reason?: string;
+  version?: string;
 }
 
 export interface ConnectorTestResult {
@@ -686,6 +737,37 @@ export const createApi = (workspaceSlug: string) => {
     return data.asset;
   };
 
+  // --- computer hosts -------------------------------------------------------
+  // Members may list; everything else is owner-gated on the server.
+
+  const listComputerHosts = () =>
+    request<{ hosts: ComputerHost[] }>("/computer-hosts").then(
+      (data) => data.hosts
+    );
+
+  /** A self-hosted host answers with its one-time token; a Fly host with null. */
+  const createComputerHost = (input: ComputerHostInput) =>
+    request<IssuedComputerHost>("/computer-hosts", {
+      json: input,
+      method: "POST",
+    });
+
+  /** `rotateToken: true` returns the replacement once, like the MCP token. */
+  const updateComputerHost = (id: string, input: ComputerHostEdit) =>
+    request<IssuedComputerHost>(`/computer-hosts/${id}`, {
+      json: input,
+      method: "PATCH",
+    });
+
+  /** Refused with 409 while any agent still runs on it. */
+  const deleteComputerHost = (id: string) =>
+    request<void>(`/computer-hosts/${id}`, { method: "DELETE" });
+
+  const testComputerHost = (id: string) =>
+    request<ComputerHostTestResult>(`/computer-hosts/${id}/test`, {
+      method: "POST",
+    });
+
   // --- connectors -----------------------------------------------------------
 
   const listConnectors = () =>
@@ -1037,6 +1119,7 @@ export const createApi = (workspaceSlug: string) => {
     createAgentSlackApp,
     createCategory,
     createChannel,
+    createComputerHost,
     createRoutine,
     createSkill,
     createSkillVersion,
@@ -1045,6 +1128,7 @@ export const createApi = (workspaceSlug: string) => {
     deleteAgentSlackApp,
     deleteCategory,
     deleteChannelBridge,
+    deleteComputerHost,
     deleteRoutine,
     deleteSkill,
     deleteWikiPage,
@@ -1073,6 +1157,7 @@ export const createApi = (workspaceSlug: string) => {
     listCategories,
     listChannels,
     listComputerDir,
+    listComputerHosts,
     listConnectorAgents,
     listConnectors,
     listExternalAuthors,
@@ -1109,11 +1194,13 @@ export const createApi = (workspaceSlug: string) => {
     setConnectorOauthClient,
     setMemberRole,
     skillFileUrl,
+    testComputerHost,
     testConnector,
     unassignCategoryItem,
     unassignConnectorFromAgent,
     unassignSkillFromAgent,
     updateAgent,
+    updateComputerHost,
     updateRoutine,
     updateWikiPage,
     uploadAttachment,

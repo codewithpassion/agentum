@@ -10,6 +10,7 @@ import type { Agent, CategoryView, Channel } from "#/lib/api";
 import { cx } from "#/lib/cx";
 import { useApi, useWorkspaceSlug } from "#/lib/workspace-context";
 import { CategoryDialog } from "./category-dialog";
+import { COMPUTERS_SECTION, ComputersSection } from "./computers-section";
 import { CONNECTORS_SECTION, ConnectorsSection } from "./connectors-section";
 import { PendingBadge, pendingLabel } from "./pending-badge";
 import { ItemCategoryMenu, MENU_ITEM_CLASS } from "./sidebar-menu";
@@ -492,6 +493,15 @@ export function Sidebar({
             <span aria-hidden="true">🧠</span>
           </Link>
           <Link
+            aria-label="Computers"
+            className={ICON_LINK_CLASS}
+            params={{ workspaceSlug }}
+            title="Computers"
+            to="/w/$workspaceSlug/computers"
+          >
+            <span aria-hidden="true">🖥️</span>
+          </Link>
+          <Link
             aria-label="Routines"
             className={ICON_LINK_CLASS}
             params={{ workspaceSlug }}
@@ -596,6 +606,11 @@ export function Sidebar({
 
         <SkillsSection
           expanded={isExpanded(SKILLS_SECTION)}
+          onToggle={toggle}
+        />
+
+        <ComputersSection
+          expanded={isExpanded(COMPUTERS_SECTION)}
           onToggle={toggle}
         />
 
