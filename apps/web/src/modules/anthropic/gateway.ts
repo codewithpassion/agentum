@@ -6,6 +6,10 @@ import {
   MEMORY_STORE_INSTRUCTIONS,
   SESSION_BUDGET_CENTS,
   SESSION_BUDGET_CURRENCY,
+  WORKER_AGENT_DESCRIPTION,
+  WORKER_AGENT_MODEL,
+  WORKER_AGENT_NAME,
+  WORKER_AGENT_SYSTEM,
 } from "./config";
 import {
   advanceCursor,
@@ -126,15 +130,17 @@ export interface AnthropicGateway {
   syncAgentSkills: (input: SyncAgentSkillsInput) => Promise<void>;
 }
 
-/** Where the environment id is remembered between requests. */
-export interface EnvironmentCache {
+/** Where an Anthropic-side id is remembered between requests. */
+export interface IdCache {
   read: () => Promise<string | null>;
-  write: (environmentId: string) => Promise<void>;
+  write: (id: string) => Promise<void>;
 }
 
 export interface GatewayOptions {
-  cache: EnvironmentCache;
+  cache: IdCache;
   environmentName: string;
+  /** Where the shared subagent worker's agent id is remembered. */
+  workerCache: IdCache;
 }
 
 const CONFLICT = 409;
@@ -194,6 +200,21 @@ const mcpServersFor = (
         })),
       ]
     : undefined;
+
+/**
+ * Every agent is a coordinator: it can spawn copies of itself and, when one
+ * exists, the shared cheap worker. Roster names must be unique and the `self`
+ * entry is listed under the coordinator's own name, so an agent that happens
+ * to share the worker's name goes without the worker rather than failing
+ * validation.
+ */
+const multiagentFor = (name: string, workerAgentId: string | null) => ({
+  agents: [
+    { type: "self" as const },
+    ...(workerAgentId && name !== WORKER_AGENT_NAME ? [workerAgentId] : []),
+  ],
+  type: "coordinator" as const,
+});
 
 const skillsFor = (skills: readonly AgentSkillRef[]) =>
   skills.map((skill) => ({
@@ -321,6 +342,33 @@ export const createAnthropicGateway = (
     return environmentId;
   };
 
+  /**
+   * The shared worker's agent id, created on first use. No look-before-create:
+   * unlike environments, agents burn no concurrent slot, so a race merely
+   * leaves an orphan the cache never points at again. Null when creation
+   * fails - the caller rosters the agent without a worker rather than not at
+   * all.
+   */
+  const ensureWorkerAgent = async (): Promise<string | null> => {
+    const cached = await options.workerCache.read();
+    if (cached) {
+      return cached;
+    }
+    try {
+      const worker = await client.beta.agents.create({
+        description: WORKER_AGENT_DESCRIPTION,
+        model: WORKER_AGENT_MODEL,
+        name: WORKER_AGENT_NAME,
+        system: WORKER_AGENT_SYSTEM,
+        tools: toolsFor(undefined, []),
+      });
+      await options.workerCache.write(worker.id);
+      return worker.id;
+    } catch {
+      return null;
+    }
+  };
+
   return {
     async createSession(input) {
       const environmentId = await ensureEnvironment();
@@ -405,6 +453,7 @@ export const createAnthropicGateway = (
           input.instructions.slice(0, DESCRIPTION_MAX_LENGTH) || undefined,
         mcp_servers: mcpServersFor(input.mcpUrl, input.connectors ?? []),
         model: input.model,
+        multiagent: multiagentFor(input.name, await ensureWorkerAgent()),
         name: input.name,
         ...(input.skills && input.skills.length > 0
           ? { skills: skillsFor(input.skills) }
@@ -437,6 +486,9 @@ export const createAnthropicGateway = (
       // URL carries only exists when it is issued.
       await client.beta.agents.update(input.anthropicAgentId, {
         model: input.model,
+        // Sent on every update, like the model: an agent registered before
+        // subagents existed picks up its roster on the next resync.
+        multiagent: multiagentFor(input.name, await ensureWorkerAgent()),
         name: input.name,
         system: input.system,
         ...(input.mcpUrl

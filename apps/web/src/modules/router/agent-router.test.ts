@@ -83,6 +83,7 @@ const { upsertOverride } = await import("#/modules/agents/model-overrides");
 const { AGENT_MODEL } = await import("#/modules/anthropic/config");
 const { createWorkspace } = await import("#/modules/workspaces/service");
 const { AgentRouter, routerStub } = await import("./agent-router");
+const { SESSION_IDLE_TTL_MS } = await import("./config");
 const { DIGEST_KEY, SESSION_KEY, WORKSPACE_KEY } = await import("./state");
 type AnthropicGateway = import("#/modules/anthropic/gateway").AnthropicGateway;
 type CreateSessionInput =
@@ -474,6 +475,76 @@ describe("the alarm", () => {
     expect(broadcasts).toContainEqual(
       expect.objectContaining({ status: "error", type: "agent.status" })
     );
+  });
+
+  test("a quiet running session is kept while the API says it still runs", async () => {
+    const store = storage();
+    const { gateway } = fakeGateway();
+    gateway.getSession = () => Promise.resolve("running" as const);
+    const router = routerFor(store, gateway);
+    await register(alpha, null);
+    await store.api.put(WORKSPACE_KEY, alpha.workspaceId);
+    await store.api.put(SESSION_KEY(alpha.agentId), {
+      ...storedSession(),
+      lastActivityAt: Date.now() - SESSION_IDLE_TTL_MS - 1,
+      status: "running",
+    });
+
+    await router.alarm();
+
+    // A coordinator waiting on a subagent thread can be silent for the whole
+    // TTL - the session stream carries child threads only in outline - and
+    // retiring it live would rotate the MCP token out from under its report.
+    const session = store.values.get(
+      SESSION_KEY(alpha.agentId)
+    ) as StoredSession;
+    expect(session.sessionId).toBe("sesn_old");
+    expect(session.lastActivityAt).toBeGreaterThan(
+      Date.now() - SESSION_IDLE_TTL_MS
+    );
+  });
+
+  test("a quiet session the API says is done is retired", async () => {
+    const store = storage();
+    const { gateway } = fakeGateway();
+    // The fake's `getSession` answers "idle": stored as running, but the work
+    // is over - the quiet stretch really was the session ending unobserved.
+    const router = routerFor(store, gateway);
+    await register(alpha, null);
+    await store.api.put(WORKSPACE_KEY, alpha.workspaceId);
+    await store.api.put(SESSION_KEY(alpha.agentId), {
+      ...storedSession(),
+      lastActivityAt: Date.now() - SESSION_IDLE_TTL_MS - 1,
+      status: "running",
+    });
+
+    await router.alarm();
+
+    expect(store.values.get(SESSION_KEY(alpha.agentId))).toBeUndefined();
+  });
+
+  test("a quiet idle session is retired without asking the API", async () => {
+    const store = storage();
+    const { gateway } = fakeGateway();
+    let asked = 0;
+    gateway.getSession = () => {
+      asked += 1;
+      return Promise.resolve("running" as const);
+    };
+    const router = routerFor(store, gateway);
+    await register(alpha, null);
+    await store.api.put(WORKSPACE_KEY, alpha.workspaceId);
+    await store.api.put(SESSION_KEY(alpha.agentId), {
+      ...storedSession(),
+      lastActivityAt: Date.now() - SESSION_IDLE_TTL_MS - 1,
+    });
+
+    await router.alarm();
+
+    // An idle session this old is just not worth resuming; only a *running*
+    // one earns the status check.
+    expect(asked).toBe(0);
+    expect(store.values.get(SESSION_KEY(alpha.agentId))).toBeUndefined();
   });
 
   test("a session stored before this feature counts as the default", async () => {

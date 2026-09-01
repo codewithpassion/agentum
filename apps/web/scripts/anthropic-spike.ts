@@ -65,6 +65,10 @@ const main = async (): Promise<void> => {
       write: () => Promise.resolve(),
     },
     environmentName: ENVIRONMENT_NAME,
+    workerCache: {
+      read: () => Promise.resolve(null),
+      write: () => Promise.resolve(),
+    },
   });
 
   const first = await gateway.ensureEnvironment();

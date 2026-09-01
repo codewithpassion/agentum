@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type Anthropic from "@anthropic-ai/sdk";
-import { AGENT_MODEL } from "./config";
-import { createAnthropicGateway, type EnvironmentCache } from "./gateway";
+import { AGENT_MODEL, WORKER_AGENT_MODEL, WORKER_AGENT_NAME } from "./config";
+import { createAnthropicGateway, type IdCache } from "./gateway";
 
 /**
  * The SDK is faked down to the handful of calls the gateway makes. Casting the
@@ -23,16 +23,21 @@ const iterate = async function* <T>(items: readonly T[]) {
 const client = (parts: Record<string, unknown>): Anthropic =>
   ({ beta: parts }) as unknown as Anthropic;
 
-const memoryCache = (): EnvironmentCache & { value: string | null } => ({
+const memoryCache = (
+  value: string | null = null
+): IdCache & { value: string | null } => ({
   read() {
     return Promise.resolve(this.value);
   },
-  value: null,
-  write(environmentId: string) {
-    this.value = environmentId;
+  value,
+  write(id: string) {
+    this.value = id;
     return Promise.resolve();
   },
 });
+
+/** A worker already known, so no test trips over the lazy worker creation. */
+const workerCache = () => memoryCache("agt_worker");
 
 describe("ensureEnvironment", () => {
   const environments = (
@@ -57,7 +62,11 @@ describe("ensureEnvironment", () => {
           created
         )
       ),
-      { cache: memoryCache(), environmentName: "agentum" }
+      {
+        cache: memoryCache(),
+        environmentName: "agentum",
+        workerCache: workerCache(),
+      }
     );
 
     expect(await gateway.ensureEnvironment()).toBe("env_existing");
@@ -81,7 +90,11 @@ describe("ensureEnvironment", () => {
           created
         )
       ),
-      { cache: memoryCache(), environmentName: "agentum" }
+      {
+        cache: memoryCache(),
+        environmentName: "agentum",
+        workerCache: workerCache(),
+      }
     );
 
     expect(await gateway.ensureEnvironment()).toBe("env_new");
@@ -105,7 +118,7 @@ describe("ensureEnvironment", () => {
           },
         },
       }),
-      { cache, environmentName: "agentum" }
+      { cache, environmentName: "agentum", workerCache: workerCache() }
     );
 
     await gateway.ensureEnvironment();
@@ -128,7 +141,11 @@ describe("syncAgent", () => {
         },
       },
     }),
-    { cache: memoryCache(), environmentName: "agentum" }
+    {
+      cache: memoryCache(),
+      environmentName: "agentum",
+      workerCache: workerCache(),
+    }
   );
 
   const lastUpdate = () => updates.at(-1) ?? {};
@@ -225,6 +242,118 @@ describe("syncAgent", () => {
     expect(lastUpdate()).not.toHaveProperty("mcp_servers");
     expect(lastUpdate()).not.toHaveProperty("tools");
   });
+
+  test("rosters a self copy and the shared worker on every update", async () => {
+    // Sent like the model: an agent registered before subagents existed picks
+    // up its roster on the next resync.
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      model: AGENT_MODEL,
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    expect(lastUpdate().multiagent).toEqual({
+      agents: [{ type: "self" }, "agt_worker"],
+      type: "coordinator",
+    });
+  });
+
+  test("leaves the worker off an agent that shares its name", async () => {
+    // Roster names must be unique, and the self entry is listed under the
+    // coordinator's own name - a collision would fail validation outright.
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      model: AGENT_MODEL,
+      name: WORKER_AGENT_NAME,
+      system: "be helpful",
+    });
+
+    expect(lastUpdate().multiagent).toEqual({
+      agents: [{ type: "self" }],
+      type: "coordinator",
+    });
+  });
+
+  test("rosters the agent alone when the worker cannot be created", async () => {
+    // The fake client has no `agents.create`, so the lazy worker creation
+    // fails - which must cost the agent its worker, not its registration.
+    const bareUpdates: Record<string, unknown>[] = [];
+    const bare = createAnthropicGateway(
+      client({
+        agents: {
+          update: (_id: string, body: Record<string, unknown>) => {
+            bareUpdates.push(body);
+            return Promise.resolve({});
+          },
+        },
+      }),
+      {
+        cache: memoryCache(),
+        environmentName: "agentum",
+        workerCache: memoryCache(),
+      }
+    );
+
+    await bare.syncAgent({
+      anthropicAgentId: "agt_1",
+      model: AGENT_MODEL,
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    expect(bareUpdates.at(-1)?.multiagent).toEqual({
+      agents: [{ type: "self" }],
+      type: "coordinator",
+    });
+  });
+});
+
+describe("worker agent", () => {
+  test("is created once on the cheap model, cached, and rostered", async () => {
+    const created: Record<string, unknown>[] = [];
+    const cache = memoryCache();
+    const gateway = createAnthropicGateway(
+      client({
+        agents: {
+          create: (body: Record<string, unknown>) => {
+            created.push(body);
+            return Promise.resolve({
+              id: body.name === WORKER_AGENT_NAME ? "agt_worker_new" : "agt_1",
+            });
+          },
+          update: () => Promise.resolve({}),
+        },
+        memoryStores: { create: () => Promise.resolve({ id: "mem_1" }) },
+      }),
+      { cache: memoryCache(), environmentName: "agentum", workerCache: cache }
+    );
+
+    await gateway.registerAgent({
+      instructions: "be helpful",
+      mcpUrl: "https://app.example.com/mcp/tok",
+      model: AGENT_MODEL,
+      name: "Ada",
+      system: "be helpful",
+    });
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      model: AGENT_MODEL,
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    const workers = created.filter((body) => body.name === WORKER_AGENT_NAME);
+    expect(workers).toHaveLength(1);
+    expect(workers[0]?.model).toBe(WORKER_AGENT_MODEL);
+    // No MCP servers: the worker cannot post to the workspace, by design.
+    expect(workers[0]).not.toHaveProperty("mcp_servers");
+    expect(cache.value).toBe("agt_worker_new");
+    expect(created.at(-1)?.multiagent).toEqual({
+      agents: [{ type: "self" }, "agt_worker_new"],
+      type: "coordinator",
+    });
+  });
 });
 
 describe("registerAgent", () => {
@@ -240,7 +369,11 @@ describe("registerAgent", () => {
         },
         memoryStores: { create: () => Promise.resolve({ id: "mem_1" }) },
       }),
-      { cache: memoryCache(), environmentName: "agentum" }
+      {
+        cache: memoryCache(),
+        environmentName: "agentum",
+        workerCache: workerCache(),
+      }
     );
 
     await gateway.registerAgent({
@@ -266,7 +399,11 @@ describe("syncAgentSkills", () => {
         },
       },
     }),
-    { cache: memoryCache(), environmentName: "agentum" }
+    {
+      cache: memoryCache(),
+      environmentName: "agentum",
+      workerCache: workerCache(),
+    }
   );
 
   test("sends skills and nothing else", async () => {
@@ -315,7 +452,11 @@ describe("createSession", () => {
         },
       },
     }),
-    { cache: memoryCache(), environmentName: "agentum" }
+    {
+      cache: memoryCache(),
+      environmentName: "agentum",
+      workerCache: workerCache(),
+    }
   );
 
   const session = {
@@ -371,6 +512,7 @@ describe("pollEvents", () => {
     createAnthropicGateway(client(eventsClient(pages, seen)), {
       cache: memoryCache(),
       environmentName: "agentum",
+      workerCache: workerCache(),
     });
 
   test("flattens agent text and returns a cursor at the last event", async () => {

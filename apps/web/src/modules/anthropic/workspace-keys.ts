@@ -12,6 +12,7 @@ import { resetAnthropicMirrorForWorkspace } from "#/modules/skills/service";
 import {
   appConfig,
   environmentIdKeyFor,
+  workerAgentIdKeyFor,
   workspaceAnthropicKeys,
 } from "./schema";
 
@@ -124,6 +125,9 @@ export const resetWorkspaceAnthropicResources = async (
   await db
     .delete(appConfig)
     .where(eq(appConfig.key, environmentIdKeyFor(workspaceId)));
+  await db
+    .delete(appConfig)
+    .where(eq(appConfig.key, workerAgentIdKeyFor(workspaceId)));
   await markAgentsForConnectorResync(
     db,
     (await listAgents(db, workspaceId)).map((agent) => agent.id)

@@ -27,6 +27,17 @@ export const environmentIdKeyFor = (workspaceId: string): string =>
   `${ENVIRONMENT_ID_KEY}:${workspaceId}`;
 
 /**
+ * The shared subagent worker's Anthropic agent id, cached with the same key
+ * scoping as the environment: the worker belongs to the API key that created
+ * it, so a workspace on its own key holds its own entry, and deleting that key
+ * falls back to the deployment-wide one.
+ */
+export const WORKER_AGENT_ID_KEY = "anthropic.worker_agent_id";
+
+export const workerAgentIdKeyFor = (workspaceId: string): string =>
+  `${WORKER_AGENT_ID_KEY}:${workspaceId}`;
+
+/**
  * A workspace's own Anthropic API key, encrypted with `CONNECTOR_KEY` the same
  * way connector secrets are. It lives here rather than on the `workspaces` row
  * for two reasons: the resolver that reads it is this module's, and a table of

@@ -57,6 +57,30 @@ describe("composeSystemPrompt", () => {
     expect(prompt).toContain("next wake");
   });
 
+  test("demands progress updates on long-running work", () => {
+    const prompt = composeSystemPrompt(input());
+
+    // The rule exists because of a real silence: 21 minutes of downloads with
+    // the first message posted at the end, and a human asking "where are we
+    // at?" in the middle.
+    expect(prompt).toContain("Never go quiet");
+    expect(prompt).toContain("progress update");
+  });
+
+  test("teaches subagent delegation and who does the talking", () => {
+    const prompt = composeSystemPrompt(input());
+
+    expect(prompt).toContain("# Subagents");
+    expect(prompt).toContain("send_to_agent");
+    // The cheap worker is named outright - discovering it via the delegation
+    // toolset's own list tool would collide with the workspace `list_agents`.
+    expect(prompt).toContain('"Worker"');
+    // Subagents see none of the conversation and cannot post; the coordinator
+    // briefs them fully and relays their results itself.
+    expect(prompt).toContain("self-contained");
+    expect(prompt).toContain("You do the talking");
+  });
+
   test("lists the other agents with their souls so delegation is possible", () => {
     const prompt = composeSystemPrompt(input());
 

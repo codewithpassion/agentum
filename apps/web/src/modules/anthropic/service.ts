@@ -21,9 +21,15 @@ import { AGENT_MODEL, ENVIRONMENT_NAME } from "./config";
 import {
   type AnthropicGateway,
   createAnthropicGateway,
-  type EnvironmentCache,
+  type IdCache,
 } from "./gateway";
-import { appConfig, ENVIRONMENT_ID_KEY, environmentIdKeyFor } from "./schema";
+import {
+  appConfig,
+  ENVIRONMENT_ID_KEY,
+  environmentIdKeyFor,
+  WORKER_AGENT_ID_KEY,
+  workerAgentIdKeyFor,
+} from "./schema";
 import { composeSystemPrompt, rosterFor } from "./system-prompt";
 import {
   MissingConnectorKeyError,
@@ -99,7 +105,7 @@ export const anthropicKeyFor = async (
   }
 };
 
-const environmentCache = (db: Db, key: string): EnvironmentCache => ({
+const idCache = (db: Db, key: string): IdCache => ({
   async read() {
     const [row] = await db
       .select()
@@ -136,14 +142,17 @@ export const createGateway = async (
   if (!resolved) {
     return null;
   }
+  const scoped = resolved.source === "workspace";
   return createAnthropicGateway(new Anthropic({ apiKey: resolved.apiKey }), {
-    cache: environmentCache(
+    cache: idCache(
       db,
-      resolved.source === "workspace"
-        ? environmentIdKeyFor(workspaceId)
-        : ENVIRONMENT_ID_KEY
+      scoped ? environmentIdKeyFor(workspaceId) : ENVIRONMENT_ID_KEY
     ),
     environmentName: ENVIRONMENT_NAME,
+    workerCache: idCache(
+      db,
+      scoped ? workerAgentIdKeyFor(workspaceId) : WORKER_AGENT_ID_KEY
+    ),
   });
 };
 

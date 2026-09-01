@@ -884,16 +884,36 @@ export class AgentRouter extends DurableObject<Env> {
     });
     const now = Date.now();
 
-    for (const [key, session] of sessions) {
+    for (const [key, stored] of sessions) {
       const agentId = key.slice(SESSION_KEY_PREFIX.length);
+      let session = stored;
 
       if (now - session.lastActivityAt > SESSION_IDLE_TTL_MS) {
-        // At most five sessions exist, and polling them in turn keeps the
-        // status writes in a predictable order.
-        // biome-ignore lint/performance/noAwaitInLoops: at most five sessions, polled in turn
-        await this.ctx.storage.delete(key);
-        await this.setStatus(agentId, "idle", session.channelId, null);
-        continue;
+        // A quiet stretch only proves an *idle* session stale. A running one
+        // can go silent for a long time while a subagent thread does the work
+        // - the session stream carries child threads only in outline - so it
+        // is asked about, not assumed dead: retiring it live would null the
+        // agent's `sessionId` and let a pending connector resync rotate the
+        // MCP token out from under it.
+        let alive = false;
+        if (session.status !== "idle") {
+          // At most five sessions exist, and polling them in turn keeps the
+          // status writes in a predictable order.
+          // biome-ignore lint/performance/noAwaitInLoops: at most five sessions, polled in turn
+          const polled = await gateway
+            .getSession(session.sessionId)
+            .catch(() => null);
+          alive = polled === "running";
+        }
+        if (!alive) {
+          await this.ctx.storage.delete(key);
+          await this.setStatus(agentId, "idle", session.channelId, null);
+          continue;
+        }
+        // Alive after all: a fresh window, so the check runs once per TTL
+        // rather than on every pump tick.
+        session = { ...session, lastActivityAt: now };
+        await this.write(key, session);
       }
 
       if (session.status === "idle") {

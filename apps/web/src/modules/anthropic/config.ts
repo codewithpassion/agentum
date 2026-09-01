@@ -46,6 +46,19 @@ export const FAST_MODEL = "claude-haiku-4-5";
 /** The single reusable environment. Names are unique per workspace. */
 export const ENVIRONMENT_NAME = "agentum";
 
+/**
+ * The shared subagent worker: one per API key, rostered on every agent so long
+ * mechanical work runs on a cheap model in a background thread instead of
+ * inside the agent's own turn. It has the sandbox toolset and nothing else -
+ * no MCP servers - so it cannot post to the workspace; the coordinator relays.
+ */
+export const WORKER_AGENT_NAME = "Worker";
+export const WORKER_AGENT_MODEL = "claude-haiku-4-5";
+export const WORKER_AGENT_DESCRIPTION =
+  "Fast, low-cost subagent for mechanical, well-specified work: downloads, conversions, bulk file processing, running scripts, scraping. Give it one self-contained task with the exact inputs, file paths and the report format you want back.";
+export const WORKER_AGENT_SYSTEM =
+  "You are a worker subagent. Do exactly the task you are given, nothing more. Work with the tools you have, verify your results (file sizes, exit codes, spot checks) and report back concisely: what you did, the exact paths of any outputs, and anything that failed. You cannot post to the workspace - your report to the agent that spawned you is your only output.";
+
 /** Session spend ceiling, in minor units: "1000" is $10.00. */
 export const SESSION_BUDGET_CENTS = "1000";
 export const SESSION_BUDGET_CURRENCY = "USD";
