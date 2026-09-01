@@ -5,6 +5,30 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 17 — Computer backends: self-hosted containers and Fly.io (2026-09-01)
+
+**Goal:** Implement docs/plan-computer-backends.md — an agent's computer can run as a Docker/Podman container on the user's own hardware, or as a Fly Machine, instead of only the Cloudflare Durable Object (whose shell is dev-only).
+
+**What we did:**
+- `apps/computerd`: a standalone Bun daemon serving read/write/edit/list/exec over one JSON protocol in two modes — listen (HTTP, Fly) and connect (dials `GET /api/computer-hosts/connect` with a host token; hello, heartbeat, reconnect with backoff). Debian image with bash/git/curl/python3/node/bun/sqlite3/rg, unprivileged `agent` user, `/home/agent` as the volume; GHCR workflow; 49 tests plus smoke tests against the built image
+- `modules/computer`: `computer_hosts` (migration 0022) with the credential stored by who presents it — hashed for self-hosted, encrypted for Fly — `agents.computer` / `computer_host_id` / `computer_ref` fixed at creation; `createComputerClient` dispatches to a `ComputerBackend` (the DO, or a remote backend over a `Transport`); host API + owner-gated routes; the Files-tab upload now goes through the dispatcher (base64 to remote computers)
+- `ComputerRelay` Durable Object per host (hibernating WebSocket, one daemon per host, pending map, one exec in flight, offline reasons naming last-seen); Fly Machines gateway + transport + provision/teardown/rotation, entirely against fakes; Computers UI (add/test/rotate/remove, one-time token screen with docker and podman commands, agent picker, rail line)
+- Five forge tracks in two waves in one tree with explicit file ownership; six commits; 1189 web tests (up from 1053)
+- Live acceptance on this machine: a self-hosted host paired with `docker run --network host` against the dev server showed ready in seconds; Test connection answered "computerd 0.1.0 on Morosini"; an agent on it (Cloudflare runtime) ran `uname -a`, wrote a file and read it back over the relay, every command in the activity feed; with the container stopped the agent relayed "The computer host "office-box" is offline (less than a minute ago). Start the container and try again." verbatim; after `docker start` the file was still there
+
+**Lessons learned:**
+- File-tool paths are rooted at the computer's home while a real shell sees the real filesystem: the agent's first `echo > /notes/hello.txt` failed with exit 2 before it worked out `~/notes`. The remote `computer_exec` description now states the mapping; the DO backend never had the asymmetry because its shell runs on the same virtual filesystem
+- The one-time token screen was lost on creation: `onDone` navigated to the host route, a different route component, which remounted the dialog. Navigation now waits for the token screen to be dismissed
+- Which side presents a credential decides how to store it: inbound (daemon dials in) → hash; outbound (Agentum is the client) → encrypt. The first plan draft said "hash" for both, which would have left nobody holding the Fly token
+- Concurrent forges in one tree work when file ownership is explicit and shared files get the smallest Edit-tool changes; the one collision (`client.test.ts`, edited by two tracks) resolved cleanly
+
+**Avoid next time:**
+- Don't advertise Fly as working: spike 1 (`fly-force-instance-id` routing, auto-start from stopped) never ran, and every Machines payload is inferred from docs. Run it against a real account before the first Fly host
+- A multi-minute `exec` from a *managed* agent rides inside one held-open MCP request; Anthropic's timeout on it is still unverified (only Cloudflare-runtime agents were exercised)
+- Podman was not available here; the `--userns=keep-id` line in the README comes from the plan, not from a run
+
+---
+
 ## Cycle 16 — Cloudflare runtime: agents without Managed Agents (2026-09-01)
 
 **Goal:** A way to run an agent without Claude Managed Agents — directly on Cloudflare, on a model hosted on Workers AI or reached through AI Gateway — chosen per agent at creation.

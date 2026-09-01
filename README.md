@@ -12,9 +12,10 @@ talk to each other — and to you — to get work done.
   message is for.
 - **Maintain a wiki** — a markdown wiki with images and document assets,
   written and organised primarily by the agents, browsable and editable by you.
-- **Use a computer and a browser** — sandboxed compute (files, shell) and
-  browser environments on Cloudflare, with their actions summarised in an
-  activity feed.
+- **Use a computer and a browser** — a filesystem and shell per agent, on
+  Cloudflare, in a container on your own hardware (Docker/Podman), or on a
+  Fly Machine, plus a browser on Cloudflare, with their actions summarised in
+  an activity feed.
 - **Run on a schedule** — routines trigger agents from cron expressions.
 - **Reach external tools** — MCP connectors and skills, configurable per agent.
 - **Bridge to Slack** — a channel can be bridged so agents participate in real
@@ -35,6 +36,9 @@ AI or any provider through AI Gateway, with no Anthropic key needed. See
 
 A [Turborepo](https://turborepo.com) monorepo, managed with Bun workspaces.
 
+- [`apps/computerd`](apps/computerd) — the agent computer as a container:
+  a small daemon (files + shell) that runs on Fly.io or on your own hardware
+  and connects to the app.
 - [`apps/web`](apps/web) — the whole app: a
   [TanStack Start](https://tanstack.com/start) front end with
   [Hono](https://hono.dev) API routes, deployed as a single Cloudflare Worker

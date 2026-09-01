@@ -61,6 +61,40 @@ unaddressed thread reply was meant for, and Slack's "thinking" line - are
 asked of Anthropic Haiku when a key exists and of a small Workers AI model
 otherwise (`FAST_WORKERS_AI_MODEL`), so a key-less deployment keeps both.
 
+## Computer backends
+
+An agent's computer (the files and shell behind the `computer_*` tools and
+the Files tab) runs on one of three backends, chosen when the agent is
+created and fixed from then on (`agents.computer`):
+
+- **Cloudflare** (default) — the `AgentComputer` Durable Object: a SQLite
+  filesystem that works everywhere, and a shell only under `bun run dev`
+  (the Worker Loader is refused in deployed Workers).
+- **Self-hosted** — a container on your own hardware running
+  [`apps/computerd`](../computerd), which dials out to
+  `GET /api/computer-hosts/connect` with a host token; no inbound port or
+  tunnel. The `ComputerRelay` Durable Object (`COMPUTER_RELAY`, one per host)
+  keeps that socket with the hibernation API and forwards requests over it.
+  One container is one agent's computer. The Computers page issues the token
+  once, inside a ready-to-paste `docker run` / `podman run` command. The
+  container runs whatever the agent decides to run; the container boundary
+  is the safety.
+- **Fly.io** — a Fly Machine plus volume per agent in an app you own,
+  provisioned through the Machines API with an app-scoped deploy token and
+  reached at `https://<app>.fly.dev/op` with `fly-force-instance-id`. Built
+  against the API docs and fakes only so far: nobody has run it against a
+  real Fly account, and the plan's spike 1 (routing, auto-start) is still
+  owed before trusting it.
+
+All three sit behind `AgentComputerClient` in `modules/computer/client.ts`,
+which dispatches to a `ComputerBackend`; the remote ones speak computerd's
+JSON protocol through a `Transport` (`remote-client.ts`). `computer_hosts`
+rows hold the host and its credential: hashed for self-hosted (the daemon
+presents it inbound), encrypted for Fly (Agentum presents it). Remote shells
+honour `timeout_ms` up to ten minutes. File-tool paths are rooted at the
+computer's home (`/notes/x` is `/home/agent/notes/x` in a remote shell).
+See `docs/plan-computer-backends.md`.
+
 Set `AI_GATEWAY_ID` to route Workers AI calls through a named AI Gateway
 (logging, caching, rate limits); third-party models always go through a
 gateway and use `default` when none is named. Provider credentials live on
