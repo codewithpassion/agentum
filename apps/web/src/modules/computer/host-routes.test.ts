@@ -78,6 +78,8 @@ let flyProbeAnswer = true;
 let probedWith: { app: string; token: string }[] = [];
 let pingReply: unknown = { hostname: "office-box", ok: true, version: "1.0.0" };
 let pingThrows: Error | null = null;
+/** Which hosts had the rotation's other half - the machines' env - run for them. */
+let rotatedHosts: string[] = [];
 
 workspaceScopedRoutes.route(
   "/computer-hosts",
@@ -85,6 +87,10 @@ workspaceScopedRoutes.route(
     flyProbe: (input) => {
       probedWith.push(input);
       return Promise.resolve(flyProbeAnswer);
+    },
+    onTokenRotated: (_db, _env, host) => {
+      rotatedHosts.push(host.id);
+      return Promise.resolve();
     },
     transportFor: () =>
       Promise.resolve({
@@ -162,6 +168,7 @@ beforeEach(async () => {
   env = { CONNECTOR_KEY: generateConnectorKey(), DB: d1 } as unknown as Env;
   flyProbeAnswer = true;
   probedWith = [];
+  rotatedHosts = [];
   pingReply = { hostname: "office-box", ok: true, version: "1.0.0" };
   pingThrows = null;
 
@@ -375,6 +382,31 @@ describe("PATCH /computer-hosts/:id", () => {
     const after = await getHostByIdUnscoped(db, created.body.host.id);
     expect(after?.tokenEnc).toBeTruthy();
     expect(after?.tokenEnc).not.toBe(before?.tokenEnc);
+    // The machines hold the token's hash, so a rotation that stopped at the
+    // database would leave every computer on this host refusing us.
+    expect(rotatedHosts).toEqual([created.body.host.id]);
+  });
+
+  test("a self-hosted rotation has no machines to update", async () => {
+    const created = await newSelfHostedHost();
+
+    await request(`/api/w/alpha/computer-hosts/${created.body.host.id}`, {
+      body: { rotateToken: true },
+      method: "PATCH",
+    });
+
+    expect(rotatedHosts).toEqual([]);
+  });
+
+  test("an edit that is not a rotation leaves the machines alone", async () => {
+    const created = await newFlyHost();
+
+    await request(`/api/w/alpha/computer-hosts/${created.body.host.id}`, {
+      body: { name: "fly-renamed" },
+      method: "PATCH",
+    });
+
+    expect(rotatedHosts).toEqual([]);
   });
 
   test("the kind is fixed once the host exists", async () => {

@@ -6,6 +6,7 @@ import {
   type AGENT_SYNC_STATUSES,
   type Agent,
   type AgentComputer,
+  type AgentComputerRef,
   type AgentRuntime,
   agents,
 } from "./schema";
@@ -383,6 +384,23 @@ export const resetAnthropicRegistrationForWorkspace = async (
     .where(
       and(eq(agents.workspaceId, workspaceId), eq(agents.runtime, "managed"))
     );
+};
+
+/**
+ * What a remote computer backend created for this agent - the Fly machine and
+ * volume ids. Written by `modules/computer/lifecycle`, in two steps: the volume
+ * lands first, so a provision that dies between the two calls still leaves the
+ * handle its teardown needs.
+ *
+ * `updatedAt` stays put: this is the backend catching up with the agent, not an
+ * edit anyone made to it.
+ */
+export const setAgentComputerRef = async (
+  db: Db,
+  id: string,
+  computerRef: AgentComputerRef
+): Promise<void> => {
+  await db.update(agents).set({ computerRef }).where(eq(agents.id, id));
 };
 
 export const listAgentsPendingConnectorResync = (db: Db): Promise<Agent[]> =>

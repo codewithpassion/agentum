@@ -11,7 +11,12 @@ import {
 import { createFlyTransport } from "./fly-transport";
 import { getHostByIdUnscoped, resolveHostToken } from "./hosts";
 import { ACTIVITY_STREAM_MAX_BYTES, truncateText } from "./output";
-import { MAX_READ_BYTES, validateContent, validatePath } from "./paths";
+import {
+  MAX_FILE_BYTES,
+  MAX_READ_BYTES,
+  validateContent,
+  validatePath,
+} from "./paths";
 import { createRelayTransport } from "./relay-transport";
 import {
   createRemoteBackend,
@@ -37,6 +42,12 @@ export interface AgentComputerClient {
   listDir: (path: string) => Promise<ListResult>;
   readFile: (path: string, maxBytes?: number) => Promise<ReadResult>;
   writeFile: (path: string, content: string) => Promise<WriteResult>;
+  /**
+   * The Files tab's upload: bytes rather than text, and attributed to the user,
+   * so the caller writes the activity row. Everything else - the path rules,
+   * the size cap, the backend - is the same as `writeFile`.
+   */
+  writeFileBytes: (path: string, bytes: Uint8Array) => Promise<WriteResult>;
 }
 
 /**
@@ -58,6 +69,14 @@ export interface ComputerBackend {
   listDir: (path: string) => Promise<ListResult>;
   readFile: (path: string, maxBytes: number) => Promise<ReadResult>;
   writeFile: (path: string, content: string) => Promise<WriteResult>;
+  /**
+   * Bytes, for an upload. Separate from `writeFile` because the wire formats
+   * differ: the Durable Object takes a `Uint8Array`, and the protocol the
+   * remote backends speak carries base64 - a `Uint8Array` through
+   * `JSON.stringify` would become `{"0":1,...}` and land as a text file of
+   * digits.
+   */
+  writeFileBytes: (path: string, bytes: Uint8Array) => Promise<WriteResult>;
 }
 
 const MAX_COMMAND_LENGTH = 4000;
@@ -75,6 +94,8 @@ const durableObjectBackend = (env: Env, agentId: string): ComputerBackend => {
     listDir: (path) => stub.listDir(path),
     readFile: (path, maxBytes) => stub.readFile(path, maxBytes),
     writeFile: (path, content) => stub.writeFile(path, content),
+    // The DO's `writeFile` has always taken either, so bytes go straight to it.
+    writeFileBytes: (path, bytes) => stub.writeFile(path, bytes),
   };
 };
 
@@ -90,6 +111,7 @@ const failingBackend = (reason: string): ComputerBackend => ({
   listDir: () => Promise.resolve({ ok: false, reason }),
   readFile: () => Promise.resolve({ ok: false, reason }),
   writeFile: () => Promise.resolve({ ok: false, reason }),
+  writeFileBytes: () => Promise.resolve({ ok: false, reason }),
 });
 
 /**
@@ -304,6 +326,22 @@ export const createComputerClient = async (
         });
       }
       return result;
+    },
+
+    async writeFileBytes(path, bytes) {
+      const target = validatePath(path);
+      if (!target.ok) {
+        return target;
+      }
+      if (bytes.byteLength > MAX_FILE_BYTES) {
+        return {
+          ok: false,
+          reason: `Files must be at most ${MAX_FILE_BYTES} bytes.`,
+        };
+      }
+      // No activity row here: an upload is the user's action, not the agent's,
+      // and the route that has the user records it as such.
+      return await backend.writeFileBytes(target.path, bytes);
     },
   };
 };

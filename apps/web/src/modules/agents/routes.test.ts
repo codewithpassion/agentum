@@ -21,6 +21,33 @@ mock.module("@clerk/hono", () => ({
   getAuth: () => (signedInAs ? { userId: signedInAs } : null),
 }));
 
+/**
+ * The computer lifecycle hooks, recorded instead of run: creating an agent on a
+ * Fly host would otherwise call the Machines API from a test, and there is no
+ * Fly account behind any of this. What they do is `computer/lifecycle.test.ts`.
+ */
+const provisionedFor: string[] = [];
+const tornDownFor: string[] = [];
+mock.module("#/modules/computer/lifecycle", () => ({
+  onAgentComputerCreated: (
+    _db: unknown,
+    _env: unknown,
+    agent: { id: string }
+  ) => {
+    provisionedFor.push(agent.id);
+    return Promise.resolve();
+  },
+  onAgentComputerDeleted: (
+    _db: unknown,
+    _env: unknown,
+    agent: { id: string }
+  ) => {
+    tornDownFor.push(agent.id);
+    return Promise.resolve();
+  },
+  onFlyHostTokenRotated: () => Promise.resolve(),
+}));
+
 const ADA_ID = "user_2aAdaAAAAAAAAAAAAAAAAAAA";
 const OPUS = "claude-opus-5";
 
@@ -434,6 +461,9 @@ describe("the computer", () => {
     expect(created.response.status).toBe(201);
     expect(body.agent.computer).toBe("fly");
     expect(body.agent.computerHostId).toBe(host.id);
+    // The machine and its volume are created in the background of this
+    // request, the way the Anthropic registration is.
+    expect(provisionedFor).toContain(body.agent.id);
   });
 
   test("neither half can be changed after creation", async () => {

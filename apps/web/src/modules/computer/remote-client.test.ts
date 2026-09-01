@@ -66,6 +66,34 @@ describe("the protocol", () => {
     expect(lastSent().content).toBe("abc");
   });
 
+  test("an upload's bytes travel as base64, not as JSON digits", async () => {
+    const backend = createRemoteBackend(
+      replying({ created: true, ok: true, size: 4 })
+    );
+
+    const result = await backend.writeFileBytes(
+      "/uploads/logo.png",
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+    );
+
+    expect(result).toEqual({ created: true, ok: true, size: 4 });
+    expect(lastSent().op).toBe("write");
+    expect(lastSent().encoding).toBe("base64");
+    expect(lastSent().content).toBe("iVBORw==");
+  });
+
+  test("a file bigger than one base64 chunk still encodes whole", async () => {
+    const backend = createRemoteBackend(
+      replying({ created: true, ok: true, size: 20_000 })
+    );
+    const bytes = new Uint8Array(20_000).fill(0x41);
+
+    await backend.writeFileBytes("/uploads/big.bin", bytes);
+
+    const content = lastSent().content as string;
+    expect(atob(content).length).toBe(20_000);
+  });
+
   test("edit sends both strings", async () => {
     const backend = createRemoteBackend(
       replying({ created: false, ok: true, size: 9 })

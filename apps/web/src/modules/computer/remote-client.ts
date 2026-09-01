@@ -147,6 +147,23 @@ const asExecResult = (result: Record<string, unknown>): ExecResult => {
   };
 };
 
+/**
+ * `btoa` wants a binary string, and spreading a megabyte-long array into
+ * `String.fromCharCode` overflows the call stack - hence the chunking. The
+ * daemon takes `encoding: "base64"` for exactly this (apps/computerd/README.md).
+ */
+const BASE64_CHUNK_BYTES = 8192;
+
+const toBase64 = (bytes: Uint8Array): string => {
+  let binary = "";
+  for (let at = 0; at < bytes.length; at += BASE64_CHUNK_BYTES) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(at, at + BASE64_CHUNK_BYTES)
+    );
+  }
+  return btoa(binary);
+};
+
 type CallOutcome =
   | { failed: true; reason: string }
   | { failed: false; result: Record<string, unknown> };
@@ -224,6 +241,17 @@ export const createRemoteBackend = (transport: Transport): ComputerBackend => ({
 
   async writeFile(path, content) {
     const result = await call(transport, "write", { content, path });
+    return result.failed
+      ? { ok: false, reason: result.reason }
+      : asWriteResult(result.result);
+  },
+
+  async writeFileBytes(path, bytes) {
+    const result = await call(transport, "write", {
+      content: toBase64(bytes),
+      encoding: "base64",
+      path,
+    });
     return result.failed
       ? { ok: false, reason: result.reason }
       : asWriteResult(result.result);

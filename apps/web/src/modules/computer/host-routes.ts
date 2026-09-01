@@ -15,6 +15,7 @@ import { isUniqueConstraintError } from "#/db/errors";
 import { listAgentIdsForComputerHost } from "#/modules/agents/service";
 import { requireOwner } from "#/modules/workspaces/require-workspace";
 import { transportForHost } from "./client";
+import { createFlyGateway } from "./fly-gateway";
 import {
   ComputerHostInUseError,
   createHost,
@@ -28,6 +29,7 @@ import {
   touchHostSeen,
   updateHost,
 } from "./hosts";
+import { onFlyHostTokenRotated } from "./lifecycle";
 import { type PingResult, ping } from "./remote-client";
 import {
   COMPUTER_HOST_KINDS,
@@ -68,19 +70,14 @@ export type FlyProbe = (input: {
   token: string;
 }) => Promise<boolean>;
 
-const FLY_API_BASE = "https://api.machines.dev/v1";
-
 /**
  * Fail closed, and say nothing about why: an error body from Fly can quote the
  * request it was made with, and that request carries the token.
  */
 const liveFlyProbe: FlyProbe = async ({ app, token }) => {
   try {
-    const response = await fetch(
-      `${FLY_API_BASE}/apps/${encodeURIComponent(app)}`,
-      { headers: { authorization: `Bearer ${token}` } }
-    );
-    return response.ok;
+    await createFlyGateway(token).getApp(app);
+    return true;
   } catch {
     return false;
   }
@@ -88,6 +85,8 @@ const liveFlyProbe: FlyProbe = async ({ app, token }) => {
 
 export interface HostRouteDeps {
   flyProbe: FlyProbe;
+  /** The rotation's other half: the new hash, pushed to the host's machines. */
+  onTokenRotated: typeof onFlyHostTokenRotated;
   transportFor: typeof transportForHost;
 }
 
@@ -256,6 +255,7 @@ export const createComputerHostRoutes = (
   deps: Partial<HostRouteDeps> = {}
 ): Hono<ApiEnv> => {
   const flyProbe = deps.flyProbe ?? liveFlyProbe;
+  const onTokenRotated = deps.onTokenRotated ?? onFlyHostTokenRotated;
   const transportFor = deps.transportFor ?? transportForHost;
 
   const routes = new Hono<ApiEnv>();
@@ -348,6 +348,13 @@ export const createComputerHostRoutes = (
       );
       if (!updated) {
         throw notFound("Computer host not found.");
+      }
+      if (input.rotateToken && updated.host.kind === "fly") {
+        // Fly's machines hold the *hash* of the token this server presents, so
+        // a rotation is only finished once every machine has the new one.
+        // Awaited, not backgrounded: until it lands the host's computers refuse
+        // every request, and the owner is standing right here.
+        await onTokenRotated(createDb(c.env.DB), c.env, updated.host);
       }
       // A rotation shows the new self-hosted token once, exactly as creation
       // did; every other edit answers with `token: null`.

@@ -18,7 +18,10 @@ import {
 } from "#/modules/anthropic/service";
 import { deleteSlackAppForAgent } from "#/modules/bridges/slack/apps";
 import { getHost } from "#/modules/computer/hosts";
-import { onAgentComputerDeleted } from "#/modules/computer/lifecycle";
+import {
+  onAgentComputerCreated,
+  onAgentComputerDeleted,
+} from "#/modules/computer/lifecycle";
 import {
   countPendingQuestionsByAgent,
   countPendingQuestionsForAgent,
@@ -237,6 +240,11 @@ agentsRoutes.post("/", async (c) => {
     // it is also the only moment we can hand Anthropic this agent's MCP URL.
     const mcpUrl = mcpUrlForToken(c.env.PUBLIC_APP_URL, c.req.url, mcpToken);
     inBackground(c, syncAgentWithAnthropic(db, c.env, agent.id, { mcpUrl }));
+    // A remote computer has to be created before the agent can use it - a Fly
+    // machine and its volume. Backgrounded for the same reason the Anthropic
+    // registration is: it is seconds of somebody else's API, and its failures
+    // land on the host rather than on this response.
+    inBackground(c, onAgentComputerCreated(db, c.env, agent));
 
     return c.json({ agent: toAgentView(agent), mcpUrl }, 201);
   } catch (error) {

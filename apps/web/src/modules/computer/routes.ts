@@ -97,14 +97,13 @@ computerRoutes.post("/:id/computer/file", async (c) => {
     throw notFound("Agent not found.");
   }
 
-  // Straight to the Durable Object: an upload is bytes, not the text the
-  // client's `writeFile` validates, and it is attributed to the user rather
-  // than to the agent.
-  const stub = c.env.AGENT_COMPUTER.get(
-    c.env.AGENT_COMPUTER.idFromName(agentId)
-  );
+  // Through the dispatcher like every other operation: an upload is bytes
+  // rather than the text `writeFile` validates, but it still has to reach
+  // whichever backend the agent's computer actually runs on. Only the activity
+  // row differs - it is attributed to the user, so it is written here.
+  const computer = await createComputerClient(db, c.env, agentId);
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const result = await stub.writeFile(target.path, bytes);
+  const result = await computer.writeFileBytes(target.path, bytes);
   if (!result.ok) {
     throw badRequest(result.reason);
   }
