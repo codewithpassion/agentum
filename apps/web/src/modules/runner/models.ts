@@ -13,6 +13,7 @@ export const CLOUDFLARE_DEFAULT_MODEL = "@cf/moonshotai/kimi-k2.5";
 
 export const CLOUDFLARE_MODELS = [
   { id: CLOUDFLARE_DEFAULT_MODEL, label: "Kimi K2.5 (Workers AI)" },
+  { id: "@cf/zai-org/glm-5.3-flash", label: "GLM 5.3 Flash (Workers AI)" },
   { id: "@cf/zai-org/glm-4.7-flash", label: "GLM 4.7 Flash (Workers AI)" },
   { id: "@cf/openai/gpt-oss-120b", label: "GPT-OSS 120B (Workers AI)" },
   {
