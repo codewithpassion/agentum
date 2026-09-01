@@ -72,6 +72,12 @@
       {
         "name": "AGENT_RUNNER",
         "class_name": "AgentRunner"
+      },
+      // One instance per self-hosted computer host (idFromName(hostId)) holding
+      // that host's daemon WebSocket, which the container dials in to open.
+      {
+        "name": "COMPUTER_RELAY",
+        "class_name": "ComputerRelay"
       }
     ]
   },
@@ -99,6 +105,10 @@
     {
       "tag": "v5",
       "new_sqlite_classes": ["AgentRunner"]
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["ComputerRelay"]
     }
   ],
   "env": {
@@ -159,6 +169,10 @@
           {
             "name": "AGENT_RUNNER",
             "class_name": "AgentRunner"
+          },
+          {
+            "name": "COMPUTER_RELAY",
+            "class_name": "ComputerRelay"
           }
         ]
       }

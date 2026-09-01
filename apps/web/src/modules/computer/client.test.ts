@@ -5,9 +5,8 @@ import type { Db } from "#/db/client";
 
 /**
  * The dispatcher: which backend an agent's computer resolves to, decided by
- * `agent.computer` alone. The two remote transports are stubs until tracks 3
- * and 4 land, so what proves the choice here is *which* refusal comes back -
- * and, for the default, that the Durable Object was the thing called.
+ * `agent.computer` alone. What proves the choice is which of the three fakes
+ * below was called - the Durable Object, the relay, or the Fly transport.
  */
 
 mock.module("cloudflare:workers", () => ({ DurableObject: class {} }));
@@ -56,15 +55,23 @@ const createTestD1 = (): D1Database => {
 
 const NO_SUCH_AGENT = /No agent/;
 
+/** What the relay says when the host's container is not connected. */
+const RELAY_OFFLINE =
+  'The computer host "office-box" is offline (never connected). Start the container and try again.';
+
 let db: Db;
 let env: Env;
 let workspaceId: string;
 let execCalls: string[];
+let writeCalls: { content: string | Uint8Array; path: string }[];
+let relayCalls: Record<string, unknown>[];
 
 beforeEach(async () => {
   const d1 = createTestD1();
   db = createDb(d1);
   execCalls = [];
+  writeCalls = [];
+  relayCalls = [];
   env = {
     AGENT_COMPUTER: {
       get: () => ({
@@ -76,6 +83,21 @@ beforeEach(async () => {
             stderr: "",
             stdout: "from the durable object",
           });
+        },
+        writeFile: (path: string, content: string | Uint8Array) => {
+          writeCalls.push({ content, path });
+          return Promise.resolve({ created: true, ok: true, size: 4 });
+        },
+      }),
+      idFromName: (name: string) => name,
+    },
+    // The relay Durable Object, which a self-hosted agent's every operation
+    // goes through; here it answers the way it does for a stopped container.
+    COMPUTER_RELAY: {
+      get: () => ({
+        request: (message: Record<string, unknown>) => {
+          relayCalls.push(message);
+          return Promise.reject(new Error(RELAY_OFFLINE));
         },
       }),
       idFromName: (name: string) => name,
@@ -141,8 +163,11 @@ describe("createComputerClient", () => {
     );
 
     expect(execCalls).toEqual([]);
+    // The relay was asked, and its reason - the one a person can act on -
+    // reached the agent verbatim rather than being replaced with a generic one.
+    expect(relayCalls.map((message) => message.op)).toEqual(["exec"]);
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.reason).toContain("track 4");
+    expect(result.ok === false && result.reason).toBe(RELAY_OFFLINE);
   });
 
   test("a fly agent with a machine goes to the fly transport", async () => {
@@ -157,13 +182,37 @@ describe("createComputerClient", () => {
       `update agents set computer_ref = '{"machineId":"m-1"}' where id = '${agent.id}'`
     );
 
-    const result = await (await createComputerClient(db, env, agent.id)).exec(
-      "ls"
-    );
+    // The transport's `fetch` is the global one when nothing injects it, so it
+    // is replaced here: nothing in this suite may reach a network.
+    const realFetch = globalThis.fetch;
+    const calledWith: string[] = [];
+    globalThis.fetch = ((url: string, init: RequestInit) => {
+      calledWith.push(String(url));
+      const message = JSON.parse(String(init.body)) as { id: string };
+      return Promise.resolve(
+        Response.json({
+          id: message.id,
+          result: { exitCode: 0, ok: true, stderr: "", stdout: "from fly" },
+        })
+      );
+    }) as unknown as typeof fetch;
 
-    expect(execCalls).toEqual([]);
-    expect(result.ok).toBe(false);
-    expect(result.ok === false && result.reason).toContain("track 3");
+    try {
+      const result = await (await createComputerClient(db, env, agent.id)).exec(
+        "ls"
+      );
+
+      expect(execCalls).toEqual([]);
+      expect(calledWith).toEqual(["https://agentum-computers.fly.dev/op"]);
+      expect(result).toEqual({
+        exitCode: 0,
+        ok: true,
+        stderr: "",
+        stdout: "from fly",
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 
   test("a fly agent with no machine yet says so, rather than failing obscurely", async () => {
@@ -200,6 +249,29 @@ describe("createComputerClient", () => {
     expect(result.ok === false && result.reason).toContain(
       "computer host no longer exists"
     );
+  });
+
+  test("an upload to a cloudflare agent reaches the Durable Object as bytes", async () => {
+    const agent = await newAgent();
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+
+    const result = await (
+      await createComputerClient(db, env, agent.id)
+    ).writeFileBytes("/uploads/logo.png", bytes);
+
+    expect(result.ok).toBe(true);
+    expect(writeCalls).toEqual([{ content: bytes, path: "/uploads/logo.png" }]);
+  });
+
+  test("an upload outside the computer's root is refused before any backend", async () => {
+    const agent = await newAgent();
+
+    const result = await (
+      await createComputerClient(db, env, agent.id)
+    ).writeFileBytes("../escape.png", new Uint8Array([1]));
+
+    expect(result.ok).toBe(false);
+    expect(writeCalls).toEqual([]);
   });
 
   test("an agent id that resolves to nothing throws", async () => {

@@ -5,30 +5,27 @@ import { ComputerTransportError, type Transport } from "./remote-client";
  * (`idFromName(hostId)`), which writes the message to the daemon's WebSocket
  * and resolves with the matching reply (docs/plan-computer-backends.md §6).
  *
- * **A stub.** Track 4 (the relay) fills `send` in and adds the DO class, its
- * `COMPUTER_RELAY` binding and the connect route; nothing else in this module
- * has to change, because the dispatcher in `client.ts` already builds this for
- * `computer: "self_hosted"` agents and `remote-client.ts` already owns the
- * protocol and the reply checking.
- *
- * Notes track 4 should not have to rediscover:
- * - the host is addressed by id alone - `findHostByToken` in `hosts.ts` is what
- *   turns the daemon's presented token into that id at connect time;
- * - a request that finds no socket must fail immediately with the offline
- *   reason rather than waiting, and `ComputerTransportError`'s message reaches
- *   the agent verbatim - that is where "start the container and try again"
- *   belongs, with `lastSeenAt` from the host row;
- * - `setHostStatus` and `touchHostSeen` in `hosts.ts` are the writes for
- *   connect, heartbeat and the missed-heartbeat window.
+ * There is nothing here but the hop, because the relay already owns everything
+ * that could go wrong on it: the offline reason for a host with no socket, the
+ * per-request timeout, and one `exec` in flight at a time. What this does own
+ * is the error type - the relay throws plain `Error`s, since that is all that
+ * survives an RPC boundary, and `remote-client.ts` shows a
+ * `ComputerTransportError`'s message to the agent verbatim while turning
+ * anything else into a generic "could not be reached".
  */
 
-// `_env` is unused only until track 4 lands: the signature is the one the
-// dispatcher already calls with, so filling `send` in touches nothing else.
-export const createRelayTransport = (_env: Env, hostId: string): Transport => ({
-  send: () =>
-    Promise.reject(
-      new ComputerTransportError(
-        `Self-hosted computers are not available in this deployment yet (host ${hostId}). Not implemented yet: track 4.`
-      )
-    ),
+export const createRelayTransport = (env: Env, hostId: string): Transport => ({
+  send: async (message) => {
+    const stub = env.COMPUTER_RELAY.get(env.COMPUTER_RELAY.idFromName(hostId));
+    try {
+      return await stub.request(message);
+    } catch (error) {
+      throw new ComputerTransportError(
+        error instanceof Error
+          ? error.message
+          : "The computer host could not be reached.",
+        { cause: error }
+      );
+    }
+  },
 });

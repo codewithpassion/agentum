@@ -13,6 +13,7 @@ import {
 import { slackRoutes } from "#/modules/bridges/slack/routes";
 import { browserRoutes } from "#/modules/browser/routes";
 import { categoriesRoutes } from "#/modules/categories/routes";
+import { computerConnectRoutes } from "#/modules/computer/connect-route";
 import { computerHostRoutes } from "#/modules/computer/host-routes";
 import { computerRoutes } from "#/modules/computer/routes";
 import {
@@ -42,6 +43,7 @@ export {
   AgentComputer,
   WorkspaceServiceProxy,
 } from "#/modules/computer/durable-object";
+export { ComputerRelay } from "#/modules/computer/relay";
 export { ChannelRoom } from "#/modules/messaging/channel-room";
 export { AgentRouter } from "#/modules/router/agent-router";
 export { RoutineScheduler } from "#/modules/routines/scheduler";
@@ -149,6 +151,11 @@ app.route("/api/bridges/slack", slackRoutes);
 // The agents' MCP endpoint. Not behind Clerk: the per-agent token in the path
 // is the credential (see modules/mcp/routes).
 app.route("/mcp", mcpRoutes);
+
+// Where a self-hosted computerd container dials in. Not behind Clerk either:
+// the host token in the Authorization header is the credential, and it names
+// the host whose relay the socket is handed to (see modules/computer/connect-route).
+app.route("/api/computer-hosts", computerConnectRoutes);
 
 // Everything else is handled by TanStack Start (SSR pages, server functions, assets).
 app.all("*", (c) => handler.fetch(c.req.raw));
