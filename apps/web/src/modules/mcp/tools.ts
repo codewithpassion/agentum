@@ -697,7 +697,7 @@ const registerComputerFileTools = (
 const execDescriptionFor = (computer: AgentComputer): string =>
   computer === "cloudflare"
     ? `${COMPUTER_INTRO} Run a shell command against those files and get back its stdout, stderr and exit code. The working directory is "/" and the shell is a small POSIX one - expect coreutils-style commands, not a package manager. Long output is truncated with a note saying so.`
-    : `${COMPUTER_INTRO} Run a shell command against those files and get back its stdout, stderr and exit code. This is a real Linux shell (Debian) with bash, git, curl, python3, node and package managers; commands may run up to 10 minutes; files under /home/agent persist. Long output is truncated with a note saying so.`;
+    : `${COMPUTER_INTRO} Run a shell command against those files and get back its stdout, stderr and exit code. This is a real Linux shell (Debian) with bash, git, curl, python3, node and package managers; commands may run up to 10 minutes. The working directory is your home, /home/agent, which is where your files persist - and the file tools address paths from that home: "/notes/plan.md" in computer_read_file is /home/agent/notes/plan.md (or ~/notes/plan.md) in the shell. Long output is truncated with a note saying so.`;
 
 const registerComputerExec = (server: McpServer, ctx: McpToolContext): void => {
   server.registerTool(

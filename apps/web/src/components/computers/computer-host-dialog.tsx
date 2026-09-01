@@ -217,12 +217,13 @@ export function ComputerHostDialog({
             : {}),
         });
         // A self-hosted host's token exists in this response and nowhere else,
-        // so the dialog stays open on it - but the caller is told either way,
-        // because dismissing this screen must not lose the host that now
-        // exists. A Fly host has no token to show and closes straight away.
+        // so the dialog stays open on it. The caller is told only when that
+        // screen is dismissed (`finish`): it navigates to the host's page,
+        // which is a different route, and a route change remounts this dialog
+        // - telling it now would drop the token before anyone could copy it.
+        // A Fly host has no token to show and closes straight away.
         if (created.token) {
           setIssued({ host: created.host, token: created.token });
-          await onDone(created.host);
           return;
         }
         await onDone(created.host);
@@ -236,9 +237,19 @@ export function ComputerHostDialog({
     [api, fly, kind, name, onClose, onDone]
   );
 
+  // Leaving the token screen by any route - the Done button, Escape, the
+  // close button - hands the host to the caller: it exists whether or not
+  // the token was copied, and the list and navigation must say so.
+  const finish = useCallback(async () => {
+    if (issued) {
+      await onDone(issued.host);
+    }
+    onClose();
+  }, [issued, onClose, onDone]);
+
   return (
     <Dialog
-      onClose={onClose}
+      onClose={issued ? finish : onClose}
       open={open}
       title={issued ? `Start ${issued.host.name}` : "Add computer host"}
     >
@@ -246,7 +257,7 @@ export function ComputerHostDialog({
         <div className="space-y-4">
           <ComputerTokenPanel token={issued.token} />
           <div className="flex justify-end">
-            <Button onClick={onClose} variant="primary">
+            <Button onClick={finish} variant="primary">
               Done
             </Button>
           </div>
