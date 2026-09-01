@@ -43,6 +43,13 @@ export const AVAILABLE_MODEL_IDS: string = AVAILABLE_MODELS.map(
  */
 export const FAST_MODEL = "claude-haiku-4-5";
 
+/**
+ * The same job on Workers AI, for a deployment or workspace with no Anthropic
+ * key: a small instruct model, picked for latency over judgement, since the
+ * questions are one-liners with a fallback either way.
+ */
+export const FAST_WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";
+
 /** The single reusable environment. Names are unique per workspace. */
 export const ENVIRONMENT_NAME = "agentum";
 

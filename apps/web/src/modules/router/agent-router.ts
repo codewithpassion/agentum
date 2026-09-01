@@ -442,19 +442,24 @@ export class AgentRouter extends DurableObject<Env> {
     );
 
     // On the workspace's own key when it has one: this is a real completion,
-    // billed like any other, and it is asked on that workspace's behalf.
+    // billed like any other, and it is asked on that workspace's behalf. With
+    // no key anywhere - a workspace whose agents all run on Cloudflare - the
+    // question goes to Workers AI instead.
     const resolved = await anthropicKeyFor(this.db, this.env, workspaceId);
-    const answer = await askFast(resolved?.apiKey, {
-      prompt: buildAddressingPrompt({
-        candidates,
-        message: item.threadMessage,
-        thread: turns.map((turn) => ({
-          authorName: nameOfTurn(turn, agentNames),
-          body: turn.body,
-        })),
-      }),
-      system: ADDRESSING_SYSTEM,
-    });
+    const answer = await askFast(
+      { ai: this.env.AI, apiKey: resolved?.apiKey },
+      {
+        prompt: buildAddressingPrompt({
+          candidates,
+          message: item.threadMessage,
+          thread: turns.map((turn) => ({
+            authorName: nameOfTurn(turn, agentNames),
+            body: turn.body,
+          })),
+        }),
+        system: ADDRESSING_SYSTEM,
+      }
+    );
     const addressed = parseAddressingAnswer(answer, candidates);
     return addressed ? addressed.agentId : null;
   }

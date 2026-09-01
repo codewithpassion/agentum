@@ -27,7 +27,7 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 **Avoid next time:**
 - Don't route every Workers AI call through an auto-created gateway: that silently moves logging and billing. Only when `AI_GATEWAY_ID` is set, or when the model leaves no choice
 - Don't offer a tool the runtime cannot honour (`set_model` here): filter at listing time *and* refuse the call
-- `askFast` (thread addressing, Slack thinking line) still uses Anthropic Haiku and degrades to null without a key — a Workers AI fallback there is the obvious follow-up
+- `askFast` (thread addressing, Slack thinking line) now falls back to Workers AI (`@cf/meta/llama-3.1-8b-instruct-fp8`) when there is no Anthropic key, so a key-less deployment keeps both; with a key, Haiku is still preferred
 
 ---
 

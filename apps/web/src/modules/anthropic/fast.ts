@@ -1,15 +1,19 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { FAST_MODEL } from "./config";
+import { parseCompletion } from "#/modules/runner/chat";
+import { FAST_MODEL, FAST_WORKERS_AI_MODEL } from "./config";
 
 /**
  * One-shot completions, for the small decisions taken while somebody waits.
  *
  * Deliberately not the gateway: that surface is Managed Agents - persisted
  * agents, sessions, environments - and none of that applies to a single
- * question with a one-line answer. This is the plain Messages API.
+ * question with a one-line answer. This is the plain Messages API, or - when
+ * the deployment runs without an Anthropic key at all - a small model on
+ * Workers AI through the `AI` binding, so a workspace whose agents are all on
+ * the Cloudflare runtime keeps thread addressing and the Slack thinking line.
  *
  * Every caller here is on a latency path and none of them is load-bearing, so
- * the contract is "an answer or nothing": a failure, a timeout or a missing key
+ * the contract is "an answer or nothing": a failure, a timeout or no backend
  * returns `null` and the caller falls back to what it would have done anyway.
  */
 
@@ -27,41 +31,86 @@ export interface FastAskInput {
 }
 
 /**
- * `null` when the integration is off, the call failed, or it took longer than
+ * What the question may be asked of, in order of preference: an Anthropic key
+ * when there is one, the `AI` binding otherwise. Both optional, because a
+ * caller inside a workspace owes that workspace's key and may have none, and
+ * a test env may carry no binding.
+ */
+export interface FastBackend {
+  ai?: Ai | null;
+  apiKey?: string | null;
+}
+
+const withTimeout = <T>(work: Promise<T>): Promise<T> =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("The fast model did not answer in time.")),
+      TIMEOUT_MS
+    );
+    work.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+
+const askAnthropic = async (
+  apiKey: string,
+  input: FastAskInput
+): Promise<string> => {
+  const client = new Anthropic({ apiKey });
+  const response = await client.messages.create(
+    {
+      max_tokens: input.maxTokens ?? MAX_TOKENS,
+      messages: [{ content: input.prompt, role: "user" }],
+      model: FAST_MODEL,
+      system: input.system,
+    },
+    { timeout: TIMEOUT_MS }
+  );
+  return response.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("");
+};
+
+/** The binding's loosest overload: plain objects both ways. */
+type AnyModelRun = (
+  model: string,
+  inputs: Record<string, unknown>
+) => Promise<unknown>;
+
+const askWorkersAi = async (ai: Ai, input: FastAskInput): Promise<string> => {
+  const run = ai.run.bind(ai) as AnyModelRun;
+  // Raced against the clock rather than cancelled: the binding takes no
+  // signal, and a late answer to a question nobody is waiting on is harmless.
+  const raw = await withTimeout(
+    run(FAST_WORKERS_AI_MODEL, {
+      max_tokens: input.maxTokens ?? MAX_TOKENS,
+      messages: [
+        { content: input.system, role: "system" },
+        { content: input.prompt, role: "user" },
+      ],
+    })
+  );
+  return parseCompletion(raw).text;
+};
+
+/**
+ * `null` when there is no backend, the call failed, or it took longer than
  * the answer is worth. Never throws: every call site has a fallback, and none
  * of them should have to hold a try/catch to reach it.
- *
- * The key arrives already resolved rather than being read from `env`: a caller
- * inside a workspace owes that workspace's key, and a caller that has no
- * workspace to speak of - the Slack bridge's thinking line - passes the
- * deployment's.
  */
 export const askFast = async (
-  apiKey: string | null | undefined,
+  backend: FastBackend,
   input: FastAskInput
 ): Promise<string | null> => {
-  if (!apiKey) {
-    return null;
-  }
-
   try {
-    const client = new Anthropic({ apiKey });
-    const response = await client.messages.create(
-      {
-        max_tokens: input.maxTokens ?? MAX_TOKENS,
-        messages: [{ content: input.prompt, role: "user" }],
-        model: FAST_MODEL,
-        system: input.system,
-      },
-      { timeout: TIMEOUT_MS }
-    );
-
-    const text = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("")
-      .trim();
-    return text || null;
+    let text: string;
+    if (backend.apiKey) {
+      text = await askAnthropic(backend.apiKey, input);
+    } else if (backend.ai) {
+      text = await askWorkersAi(backend.ai, input);
+    } else {
+      return null;
+    }
+    return text.trim() || null;
   } catch {
     // Rate limits, timeouts, a bad key: all of them mean "no answer", and the
     // caller's fallback is always the behaviour we had before this existed.

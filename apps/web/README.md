@@ -56,6 +56,11 @@ may spend at most `MAX_MODEL_CALLS_PER_WAKE` model calls (`modules/runner/config
 before the session is stopped and the thread told — the equivalent of the
 managed runtime's dollar budget.
 
+The two small side decisions that sit in front of an agent - which agent an
+unaddressed thread reply was meant for, and Slack's "thinking" line - are
+asked of Anthropic Haiku when a key exists and of a small Workers AI model
+otherwise (`FAST_WORKERS_AI_MODEL`), so a key-less deployment keeps both.
+
 Set `AI_GATEWAY_ID` to route Workers AI calls through a named AI Gateway
 (logging, caching, rate limits); third-party models always go through a
 gateway and use `default` when none is named. Provider credentials live on
