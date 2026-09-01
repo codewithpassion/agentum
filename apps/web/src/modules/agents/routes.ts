@@ -9,7 +9,7 @@ import {
   readJsonObject,
   requireString,
 } from "#/api/validation";
-import { createDb } from "#/db/client";
+import { createDb, type Db } from "#/db/client";
 import { isUniqueConstraintError } from "#/db/errors";
 import { AVAILABLE_MODELS, isAvailableModel } from "#/modules/anthropic/config";
 import {
@@ -17,17 +17,27 @@ import {
   syncAgentWithAnthropic,
 } from "#/modules/anthropic/service";
 import { deleteSlackAppForAgent } from "#/modules/bridges/slack/apps";
+import { getHost } from "#/modules/computer/hosts";
+import { onAgentComputerDeleted } from "#/modules/computer/lifecycle";
 import {
   countPendingQuestionsByAgent,
   countPendingQuestionsForAgent,
 } from "#/modules/questions/service";
 import { isCloudflareModelShaped } from "#/modules/runner/models";
 import { mcpUrlForToken } from "./mcp-token";
-import { AGENT_RUNTIMES, type AgentRuntime, isAgentRuntime } from "./schema";
+import {
+  AGENT_COMPUTERS,
+  AGENT_RUNTIMES,
+  type AgentComputer,
+  type AgentRuntime,
+  isAgentComputer,
+  isAgentRuntime,
+} from "./schema";
 import {
   createAgent,
   deleteAgent,
   getAgentById,
+  listAgentIdsForComputerHost,
   listAgents,
   rotateMcpToken,
   toAgentView,
@@ -88,6 +98,71 @@ const optionalRuntime = (body: Record<string, unknown>): AgentRuntime => {
   return value;
 };
 
+/** Where the agent's computer runs; fixed at creation, like the runtime. */
+const optionalComputer = (body: Record<string, unknown>): AgentComputer => {
+  const value = body.computer;
+  if (value === undefined || value === null) {
+    return "cloudflare";
+  }
+  if (!isAgentComputer(value)) {
+    throw badRequest(
+      `"computer" must be one of: ${AGENT_COMPUTERS.join(", ")}.`
+    );
+  }
+  return value;
+};
+
+/**
+ * The host the agent's computer runs on, checked against the computer it was
+ * asked for. Everything here is a 400 rather than a 404: the client chose both
+ * halves of an invalid pair, and which half is wrong is worth saying.
+ *
+ * A self-hosted host takes one agent (the plan, §3): the daemon serves one
+ * filesystem, so a second agent on it would share the first one's files.
+ */
+const resolveComputerHost = async (
+  db: Db,
+  workspaceId: string,
+  body: Record<string, unknown>,
+  computer: AgentComputer
+): Promise<string | null> => {
+  const hostId = optionalString(body, "computerHostId");
+  if (computer === "cloudflare") {
+    if (hostId) {
+      throw badRequest(
+        '"computerHostId" applies to the fly and self_hosted computers only.'
+      );
+    }
+    return null;
+  }
+  if (!hostId) {
+    throw badRequest(
+      `"computerHostId" is required when "computer" is ${computer}.`
+    );
+  }
+
+  const host = await getHost(db, workspaceId, hostId);
+  if (!host) {
+    throw badRequest(
+      '"computerHostId" must be a computer host in this workspace.'
+    );
+  }
+  if (host.kind !== computer) {
+    throw badRequest(
+      `"${host.name}" is a ${host.kind} host, but "computer" is ${computer}.`
+    );
+  }
+  if (
+    host.kind === "self_hosted" &&
+    (await listAgentIdsForComputerHost(db, host.id)).length > 0
+  ) {
+    throw badRequest(
+      `"${host.name}" already runs an agent. A self-hosted host runs one agent; start a second container for another.`
+    );
+  }
+  return host.id;
+};
+
 /**
  * Registration with Anthropic is best-effort and must never hold up a response
  * or fail an edit: an unreachable API leaves the agent with `syncStatus:
@@ -132,8 +207,17 @@ agentsRoutes.get("/", async (c) => {
 agentsRoutes.post("/", async (c) => {
   const body = await readJsonObject(c.req.raw);
   const runtime = optionalRuntime(body);
+  const computer = optionalComputer(body);
+  const db = createDb(c.env.DB);
   const input = {
     avatar: optionalString(body, "avatar", { maxLength: NAME_MAX_LENGTH }),
+    computer,
+    computerHostId: await resolveComputerHost(
+      db,
+      c.get("workspace").id,
+      body,
+      computer
+    ),
     instructions:
       optionalString(body, "instructions", { maxLength: PROMPT_MAX_LENGTH }) ??
       "",
@@ -142,8 +226,6 @@ agentsRoutes.post("/", async (c) => {
     runtime,
     soul: optionalString(body, "soul", { maxLength: PROMPT_MAX_LENGTH }) ?? "",
   };
-
-  const db = createDb(c.env.DB);
 
   try {
     const { agent, mcpToken } = await createAgent(
@@ -197,6 +279,21 @@ agentsRoutes.patch("/:id", async (c) => {
       '"runtime" is fixed when an agent is created. Create a new agent to run it elsewhere.'
     );
   }
+  // Same rule, different reason: the computer's files live in the backend it
+  // was created on, so moving it would be a migration rather than an edit.
+  if (body.computer !== undefined && body.computer !== existing.computer) {
+    throw badRequest(
+      '"computer" is fixed when an agent is created. Create a new agent to run its computer elsewhere.'
+    );
+  }
+  if (
+    body.computerHostId !== undefined &&
+    body.computerHostId !== existing.computerHostId
+  ) {
+    throw badRequest(
+      '"computerHostId" is fixed when an agent is created. Create a new agent to move its computer.'
+    );
+  }
 
   const input = {
     avatar: optionalString(body, "avatar", { maxLength: NAME_MAX_LENGTH }),
@@ -247,10 +344,16 @@ agentsRoutes.delete("/:id", async (c) => {
   const db = createDb(c.env.DB);
   const workspaceId = c.get("workspace").id;
   const id = c.req.param("id");
-  const deleted = await deleteAgent(db, workspaceId, id);
-  if (!deleted) {
+  // Read before deleting: the computer teardown needs the row's `computer`,
+  // `computerHostId` and `computerRef`, and after the delete they are gone.
+  const agent = await getAgentById(db, workspaceId, id);
+  const deleted = agent ? await deleteAgent(db, workspaceId, id) : false;
+  if (!(agent && deleted)) {
     throw notFound("Agent not found.");
   }
+  // Whatever the agent's computer backend created for it - a Fly machine and
+  // its volume - goes with it. A no-op on the other two backends.
+  await onAgentComputerDeleted(db, c.env, agent);
   // An agent's Slack app belongs to it, and takes its bridges along: left
   // behind, it would be an events URL Slack keeps posting to for an agent that
   // no longer exists, with no screen anywhere that could disconnect it.

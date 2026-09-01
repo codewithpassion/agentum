@@ -6,7 +6,7 @@ import {
   resolveModelWithSource,
   upsertOverride,
 } from "#/modules/agents/model-overrides";
-import type { Agent } from "#/modules/agents/schema";
+import type { Agent, AgentComputer } from "#/modules/agents/schema";
 import { listAgents } from "#/modules/agents/service";
 import {
   AVAILABLE_MODEL_IDS,
@@ -22,6 +22,7 @@ import {
   truncateText,
   withTruncationNote,
 } from "#/modules/computer/output";
+import { REMOTE_EXEC_MAX_TIMEOUT_MS } from "#/modules/computer/remote-client";
 import { publishMessage } from "#/modules/messaging/publish";
 import {
   getMessageInWorkspace,
@@ -618,7 +619,7 @@ const registerComputerFileTools = (
       title: "Read a file on your computer",
     },
     async ({ path }) => {
-      const result = await computer().readFile(path);
+      const result = await (await computer()).readFile(path);
       return result.ok
         ? json({ content: result.content, path, size: result.size })
         : fail(result.reason);
@@ -636,7 +637,7 @@ const registerComputerFileTools = (
       title: "Write a file on your computer",
     },
     async ({ content, path }) => {
-      const result = await computer().writeFile(path, content);
+      const result = await (await computer()).writeFile(path, content);
       return result.ok
         ? json({ created: result.created, path, size: result.size })
         : fail(result.reason);
@@ -657,7 +658,11 @@ const registerComputerFileTools = (
       title: "Edit a file on your computer",
     },
     async ({ new_string, old_string, path }) => {
-      const result = await computer().editFile(path, old_string, new_string);
+      const result = await (await computer()).editFile(
+        path,
+        old_string,
+        new_string
+      );
       return result.ok
         ? json({ path, size: result.size })
         : fail(result.reason);
@@ -674,7 +679,7 @@ const registerComputerFileTools = (
       title: "List a directory on your computer",
     },
     async ({ path }) => {
-      const result = await computer().listDir(path);
+      const result = await (await computer()).listDir(path);
       return result.ok
         ? json({ entries: result.entries, path })
         : fail(result.reason);
@@ -682,25 +687,47 @@ const registerComputerFileTools = (
   );
 };
 
+/**
+ * What the shell actually is depends on where the agent's computer runs, and
+ * the difference is large enough that the agent has to be told: the Durable
+ * Object backend has a small POSIX shell and no package manager, while both
+ * remote backends are a real Debian container (see the plan, §8). Read from
+ * `ctx.agent` at registration, the way every other per-agent tool detail is.
+ */
+const execDescriptionFor = (computer: AgentComputer): string =>
+  computer === "cloudflare"
+    ? `${COMPUTER_INTRO} Run a shell command against those files and get back its stdout, stderr and exit code. The working directory is "/" and the shell is a small POSIX one - expect coreutils-style commands, not a package manager. Long output is truncated with a note saying so.`
+    : `${COMPUTER_INTRO} Run a shell command against those files and get back its stdout, stderr and exit code. This is a real Linux shell (Debian) with bash, git, curl, python3, node and package managers; commands may run up to 10 minutes; files under /home/agent persist. Long output is truncated with a note saying so.`;
+
 const registerComputerExec = (server: McpServer, ctx: McpToolContext): void => {
   server.registerTool(
     "computer_exec",
     {
-      description: `${COMPUTER_INTRO} Run a shell command against those files and get back its stdout, stderr and exit code. The working directory is "/" and the shell is a small POSIX one - expect coreutils-style commands, not a package manager. Long output is truncated with a note saying so.`,
+      description: execDescriptionFor(ctx.agent.computer),
       inputSchema: {
         command: z
           .string()
           .max(COMPUTER_COMMAND_MAX_LENGTH)
           .describe('A shell command, e.g. "wc -l /notes/plan.md".'),
+        timeout_ms: z
+          .number()
+          .int()
+          .positive()
+          .max(REMOTE_EXEC_MAX_TIMEOUT_MS)
+          .optional()
+          .describe(
+            "How long the command may run, in milliseconds. Defaults to 30000; only a computer with a real shell honours a longer one."
+          ),
       },
       title: "Run a command on your computer",
     },
-    async ({ command }) => {
-      const result = await createComputerClient(
+    async ({ command, timeout_ms }) => {
+      const computer = await createComputerClient(
         ctx.db,
         ctx.env,
         ctx.agent.id
-      ).exec(command);
+      );
+      const result = await computer.exec(command, timeout_ms);
       if (!result.ok) {
         return fail(result.reason);
       }

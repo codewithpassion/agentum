@@ -27,7 +27,7 @@ const clientFor = async (
   if (!(await getAgentById(db, workspaceId, agentId))) {
     throw notFound("Agent not found.");
   }
-  return createComputerClient(db, env, agentId);
+  return await createComputerClient(db, env, agentId);
 };
 
 export const computerRoutes = new Hono<ApiEnv>();

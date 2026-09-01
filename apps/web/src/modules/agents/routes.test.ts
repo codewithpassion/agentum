@@ -25,6 +25,8 @@ const ADA_ID = "user_2aAdaAAAAAAAAAAAAAAAAAAA";
 const OPUS = "claude-opus-5";
 
 const { createDb } = await import("#/db/client");
+const { generateConnectorKey } = await import("#/crypto");
+const { createHost } = await import("#/modules/computer/hosts");
 const { createWorkspace } = await import("#/modules/workspaces/service");
 const { workspaceScopedRoutes } = await import("#/modules/workspaces/routes");
 const { agentsRoutes } = await import("./routes");
@@ -71,6 +73,7 @@ app.route("/api/w/:workspaceSlug", workspaceScopedRoutes);
 
 let db: Db;
 let env: Env;
+let alphaId: string;
 
 const request = (
   path: string,
@@ -112,10 +115,11 @@ beforeEach(async () => {
       get: () => ({ broadcast: () => Promise.resolve() }),
       idFromName: (name: string) => name,
     },
+    CONNECTOR_KEY: generateConnectorKey(),
     DB: d1,
   } as unknown as Env;
 
-  await createWorkspace(db, {
+  const alpha = await createWorkspace(db, {
     name: "Alpha",
     owner: {
       clerkUserId: ADA_ID,
@@ -124,6 +128,7 @@ beforeEach(async () => {
       name: "Ada Lovelace",
     },
   });
+  alphaId = alpha.workspace.id;
 });
 
 describe("POST /agents", () => {
@@ -297,5 +302,163 @@ describe("the runtime", () => {
     expect(((await after.json()) as unknown as RuntimeBody).agent.runtime).toBe(
       "cloudflare"
     );
+  });
+});
+
+describe("the computer", () => {
+  interface ComputerBody {
+    agent: { computer: string; computerHostId: string | null; id: string };
+  }
+
+  const newHost = async (
+    input: {
+      kind?: "fly" | "self_hosted";
+      name?: string;
+      workspaceId?: string;
+    } = {}
+  ) => {
+    const { host } = await createHost(
+      db,
+      env,
+      input.workspaceId ?? alphaId,
+      input.kind === "fly"
+        ? {
+            config: { app: "agentum-computers" },
+            flyApiToken: "fly_token",
+            kind: "fly",
+            name: input.name ?? "fly-eu",
+          }
+        : { config: {}, kind: "self_hosted", name: input.name ?? "office-box" }
+    );
+    return host;
+  };
+
+  test("defaults to cloudflare, on no host", async () => {
+    const created = await postAgent({});
+    const body = created.body as unknown as ComputerBody;
+
+    expect(body.agent.computer).toBe("cloudflare");
+    expect(body.agent.computerHostId).toBeNull();
+  });
+
+  test("rejects a computer nobody offers", async () => {
+    const response = await request("/api/w/alpha/agents", {
+      body: { computer: "my-laptop", name: "Ada" },
+      method: "POST",
+    });
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toBe(
+      '"computer" must be one of: cloudflare, fly, self_hosted.'
+    );
+  });
+
+  test("a remote computer needs a host, and a cloudflare one may not have any", async () => {
+    const host = await newHost();
+
+    const missing = await request("/api/w/alpha/agents", {
+      body: { computer: "self_hosted", name: "Ada" },
+      method: "POST",
+    });
+    const uninvited = await request("/api/w/alpha/agents", {
+      body: { computerHostId: host.id, name: "Ada" },
+      method: "POST",
+    });
+
+    expect(missing.status).toBe(400);
+    expect(uninvited.status).toBe(400);
+  });
+
+  test("the host must match the computer that was asked for", async () => {
+    const host = await newHost({ kind: "fly" });
+
+    const response = await request("/api/w/alpha/agents", {
+      body: { computer: "self_hosted", computerHostId: host.id, name: "Ada" },
+      method: "POST",
+    });
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toContain(
+      "is a fly host"
+    );
+  });
+
+  test("another workspace's host is not a host this agent may use", async () => {
+    const beta = await createWorkspace(db, {
+      name: "Beta",
+      owner: {
+        clerkUserId: ADA_ID,
+        email: "ada@example.com",
+        imageUrl: null,
+        name: "Ada Lovelace",
+      },
+    });
+    const host = await newHost({ workspaceId: beta.workspace.id });
+
+    const response = await request("/api/w/alpha/agents", {
+      body: { computer: "self_hosted", computerHostId: host.id, name: "Ada" },
+      method: "POST",
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  test("a self-hosted host takes one agent", async () => {
+    const host = await newHost();
+    const first = await postAgent({
+      computer: "self_hosted",
+      computerHostId: host.id,
+    });
+    expect(first.response.status).toBe(201);
+
+    const second = await request("/api/w/alpha/agents", {
+      body: { computer: "self_hosted", computerHostId: host.id, name: "Bob" },
+      method: "POST",
+    });
+
+    expect(second.status).toBe(400);
+    expect(((await second.json()) as { error: string }).error).toContain(
+      "already runs an agent"
+    );
+  });
+
+  test("a valid pair is stored and shown", async () => {
+    const host = await newHost({ kind: "fly" });
+
+    const created = await postAgent({
+      computer: "fly",
+      computerHostId: host.id,
+    });
+    const body = created.body as unknown as ComputerBody;
+
+    expect(created.response.status).toBe(201);
+    expect(body.agent.computer).toBe("fly");
+    expect(body.agent.computerHostId).toBe(host.id);
+  });
+
+  test("neither half can be changed after creation", async () => {
+    const host = await newHost();
+    const created = await postAgent({
+      computer: "self_hosted",
+      computerHostId: host.id,
+    });
+    const path = `/api/w/alpha/agents/${created.body.agent.id}`;
+
+    const movedComputer = await request(path, {
+      body: { computer: "cloudflare" },
+      method: "PATCH",
+    });
+    const movedHost = await request(path, {
+      body: { computerHostId: crypto.randomUUID() },
+      method: "PATCH",
+    });
+
+    expect(movedComputer.status).toBe(400);
+    expect(movedHost.status).toBe(400);
+    const after = (await (
+      await request(path)
+    ).json()) as unknown as ComputerBody;
+    expect(after.agent.computer).toBe("self_hosted");
+    expect(after.agent.computerHostId).toBe(host.id);
   });
 });

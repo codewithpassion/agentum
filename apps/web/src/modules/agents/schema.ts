@@ -36,6 +36,28 @@ export const isAgentRuntime = (value: unknown): value is AgentRuntime =>
   typeof value === "string" &&
   (AGENT_RUNTIMES as readonly string[]).includes(value);
 
+/**
+ * Where the agent's *computer* runs - the files and shell behind the
+ * `computer_*` tools, which is a separate choice from where its loop runs.
+ * `cloudflare` is the Durable Object it lives in (no shell in production);
+ * `fly` is a Fly Machine, `self_hosted` a container the user runs. Fixed at
+ * creation like the runtime: the files live in the backend, so moving them is
+ * a migration rather than a toggle.
+ */
+export const AGENT_COMPUTERS = ["cloudflare", "fly", "self_hosted"] as const;
+
+export type AgentComputer = (typeof AGENT_COMPUTERS)[number];
+
+export const isAgentComputer = (value: unknown): value is AgentComputer =>
+  typeof value === "string" &&
+  (AGENT_COMPUTERS as readonly string[]).includes(value);
+
+/** Where a remote backend put this agent's computer. Fly only; null otherwise. */
+export interface AgentComputerRef {
+  machineId?: string;
+  volumeId?: string;
+}
+
 export const agents = sqliteTable(
   "agents",
   {
@@ -49,6 +71,19 @@ export const agents = sqliteTable(
      * no session (see `sessionId`), because it invalidates the workspace MCP URL
      * a running session is holding.
      */
+    computer: text("computer", { enum: AGENT_COMPUTERS })
+      .notNull()
+      .default("cloudflare"),
+    /** The `computer_hosts` row this agent sits on; null on `cloudflare`. */
+    computerHostId: text("computer_host_id"),
+    /**
+     * What the remote backend created for this agent - `{ machineId, volumeId }`
+     * on Fly, null on the other two. It is the handle the teardown needs, so it
+     * lives on the agent rather than on the host, which many agents share.
+     */
+    computerRef: text("computer_ref", {
+      mode: "json",
+    }).$type<AgentComputerRef>(),
     connectorResyncPendingAt: integer("connector_resync_pending_at", {
       mode: "timestamp_ms",
     }),

@@ -13,6 +13,7 @@ import {
 import { slackRoutes } from "#/modules/bridges/slack/routes";
 import { browserRoutes } from "#/modules/browser/routes";
 import { categoriesRoutes } from "#/modules/categories/routes";
+import { computerHostRoutes } from "#/modules/computer/host-routes";
 import { computerRoutes } from "#/modules/computer/routes";
 import {
   connectorOauthRoutes,
@@ -112,6 +113,9 @@ workspaceScopedRoutes.route("/messages", messagesRoutes);
 workspaceScopedRoutes.route("/attachments", attachmentsRoutes);
 workspaceScopedRoutes.route("/wiki", wikiRoutes);
 workspaceScopedRoutes.route("/connectors", connectorsRoutes);
+// Where an agent's computer may run - Fly apps and self-hosted containers.
+// Members may list them; only owners may add, change or remove one.
+workspaceScopedRoutes.route("/computer-hosts", computerHostRoutes);
 // The workspace's own Anthropic API key - owner-only, and write-only: the
 // router hands back a hint, never the key.
 workspaceScopedRoutes.route("/anthropic-key", anthropicKeyRoutes);

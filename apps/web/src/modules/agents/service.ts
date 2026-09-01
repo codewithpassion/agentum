@@ -5,6 +5,7 @@ import {
   type AGENT_STATUSES,
   type AGENT_SYNC_STATUSES,
   type Agent,
+  type AgentComputer,
   type AgentRuntime,
   agents,
 } from "./schema";
@@ -117,8 +118,50 @@ export const listAgentMentionCandidates = async (
     .from(agents)
     .where(eq(agents.workspaceId, workspaceId));
 
+/**
+ * Which agents sit on a computer host. The host lives in another module, but
+ * the column that answers this is on `agents`, so the query does too - the
+ * hosts service and the create-agent validation both read it.
+ */
+export const listAgentIdsForComputerHost = async (
+  db: Db,
+  hostId: string
+): Promise<string[]> => {
+  const rows = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(eq(agents.computerHostId, hostId));
+  return rows.map((row) => row.id);
+};
+
+/** The same, for every host of one workspace, in a single read. */
+export const listAgentIdsByComputerHost = async (
+  db: Db,
+  workspaceId: string
+): Promise<Map<string, string[]>> => {
+  const rows = await db
+    .select({ hostId: agents.computerHostId, id: agents.id })
+    .from(agents)
+    .where(
+      and(eq(agents.workspaceId, workspaceId), isNotNull(agents.computerHostId))
+    );
+
+  const byHost = new Map<string, string[]>();
+  for (const row of rows) {
+    if (!row.hostId) {
+      continue;
+    }
+    byHost.set(row.hostId, [...(byHost.get(row.hostId) ?? []), row.id]);
+  }
+  return byHost;
+};
+
 export interface CreateAgentInput {
   avatar?: string;
+  /** Where its computer runs; fixed at creation, defaults to cloudflare. */
+  computer?: AgentComputer;
+  /** The host its computer runs on; null on `cloudflare`. */
+  computerHostId?: string | null;
   instructions: string;
   /** A model id for the runtime, or null for its default. */
   model?: string | null;
@@ -145,6 +188,8 @@ export const createAgent = async (
     .insert(agents)
     .values({
       avatar: input.avatar ?? avatarForName(input.name),
+      computer: input.computer ?? "cloudflare",
+      computerHostId: input.computerHostId ?? null,
       id: crypto.randomUUID(),
       instructions: input.instructions,
       mcpTokenHash: await hashMcpToken(mcpToken),
@@ -202,8 +247,14 @@ export const findAgentByMcpToken = async (
   return agent;
 };
 
-/** Everything but the runtime, which is fixed at creation. */
-export type UpdateAgentInput = Partial<Omit<CreateAgentInput, "runtime">>;
+/**
+ * Everything but the runtime and the computer, which are fixed at creation:
+ * the runtimes keep incompatible session state, and a computer's files live in
+ * the backend it was created on.
+ */
+export type UpdateAgentInput = Partial<
+  Omit<CreateAgentInput, "computer" | "computerHostId" | "runtime">
+>;
 
 export const updateAgent = async (
   db: Db,

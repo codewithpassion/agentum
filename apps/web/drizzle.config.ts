@@ -12,6 +12,7 @@ export default defineConfig({
     "./src/modules/bridges/schema.ts",
     "./src/modules/browser/schema.ts",
     "./src/modules/categories/schema.ts",
+    "./src/modules/computer/schema.ts",
     "./src/modules/connectors/schema.ts",
     "./src/modules/messaging/schema.ts",
     "./src/modules/questions/schema.ts",
