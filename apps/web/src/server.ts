@@ -44,6 +44,7 @@ export {
 export { ChannelRoom } from "#/modules/messaging/channel-room";
 export { AgentRouter } from "#/modules/router/agent-router";
 export { RoutineScheduler } from "#/modules/routines/scheduler";
+export { AgentRunner } from "#/modules/runner/durable-object";
 
 const app = new Hono<{ Bindings: Env }>();
 

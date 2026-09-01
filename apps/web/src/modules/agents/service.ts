@@ -5,6 +5,7 @@ import {
   type AGENT_STATUSES,
   type AGENT_SYNC_STATUSES,
   type Agent,
+  type AgentRuntime,
   agents,
 } from "./schema";
 
@@ -119,9 +120,11 @@ export const listAgentMentionCandidates = async (
 export interface CreateAgentInput {
   avatar?: string;
   instructions: string;
-  /** A catalog model id, or null for the workspace default. */
+  /** A model id for the runtime, or null for its default. */
   model?: string | null;
   name: string;
+  /** Fixed at creation; defaults to managed. */
+  runtime?: AgentRuntime;
   soul: string;
 }
 
@@ -137,6 +140,7 @@ export const createAgent = async (
   input: CreateAgentInput
 ): Promise<IssuedAgent> => {
   const mcpToken = generateMcpToken();
+  const runtime = input.runtime ?? "managed";
   const [agent] = await db
     .insert(agents)
     .values({
@@ -146,7 +150,11 @@ export const createAgent = async (
       mcpTokenHash: await hashMcpToken(mcpToken),
       model: input.model ?? null,
       name: input.name,
+      runtime,
       soul: input.soul,
+      // A Cloudflare-runtime agent has nothing to register anywhere: it is
+      // ready the moment its row exists, and the rail should say so.
+      syncStatus: runtime === "cloudflare" ? "synced" : "unregistered",
       workspaceId,
     })
     .returning();
@@ -194,7 +202,8 @@ export const findAgentByMcpToken = async (
   return agent;
 };
 
-export type UpdateAgentInput = Partial<CreateAgentInput>;
+/** Everything but the runtime, which is fixed at creation. */
+export type UpdateAgentInput = Partial<Omit<CreateAgentInput, "runtime">>;
 
 export const updateAgent = async (
   db: Db,
@@ -318,7 +327,11 @@ export const resetAnthropicRegistrationForWorkspace = async (
       syncError: null,
       syncStatus: "unregistered",
     })
-    .where(eq(agents.workspaceId, workspaceId));
+    // Managed agents only: a Cloudflare-runtime agent holds no Anthropic ids
+    // and its session does not belong to any key.
+    .where(
+      and(eq(agents.workspaceId, workspaceId), eq(agents.runtime, "managed"))
+    );
 };
 
 export const listAgentsPendingConnectorResync = (db: Db): Promise<Agent[]> =>

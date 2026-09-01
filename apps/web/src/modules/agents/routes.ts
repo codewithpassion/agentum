@@ -21,7 +21,9 @@ import {
   countPendingQuestionsByAgent,
   countPendingQuestionsForAgent,
 } from "#/modules/questions/service";
+import { isCloudflareModelShaped } from "#/modules/runner/models";
 import { mcpUrlForToken } from "./mcp-token";
+import { AGENT_RUNTIMES, type AgentRuntime, isAgentRuntime } from "./schema";
 import {
   createAgent,
   deleteAgent,
@@ -42,12 +44,14 @@ const PROMPT_MAX_LENGTH = 20_000;
 const isDuplicateName = isUniqueConstraintError;
 
 /**
- * The agent's model, validated against the catalog. Three answers, all of them
+ * The agent's model, validated for its runtime. Three answers, all of them
  * meaningful: absent leaves it as it is, `null` puts the agent back on the
- * workspace default, and a string has to be one we actually offer.
+ * runtime's default, and a string has to be one the runtime can run - a
+ * catalog id for Managed Agents, a Workers AI or AI Gateway id for Cloudflare.
  */
 const optionalModel = (
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  runtime: AgentRuntime
 ): string | null | undefined => {
   const value = body.model;
   if (value === undefined) {
@@ -56,10 +60,30 @@ const optionalModel = (
   if (value === null) {
     return null;
   }
+  if (runtime === "cloudflare") {
+    if (!isCloudflareModelShaped(value)) {
+      throw badRequest(
+        '"model" must be a Workers AI model id (@cf/...) or an AI Gateway {provider}/{model} reference.'
+      );
+    }
+    return value;
+  }
   if (!isAvailableModel(value)) {
     throw badRequest(
       `"model" must be one of: ${AVAILABLE_MODELS.map((model) => model.id).join(", ")}.`
     );
+  }
+  return value;
+};
+
+/** Where the agent runs; fixed at creation, so only the create route asks. */
+const optionalRuntime = (body: Record<string, unknown>): AgentRuntime => {
+  const value = body.runtime;
+  if (value === undefined || value === null) {
+    return "managed";
+  }
+  if (!isAgentRuntime(value)) {
+    throw badRequest(`"runtime" must be one of: ${AGENT_RUNTIMES.join(", ")}.`);
   }
   return value;
 };
@@ -107,13 +131,15 @@ agentsRoutes.get("/", async (c) => {
 
 agentsRoutes.post("/", async (c) => {
   const body = await readJsonObject(c.req.raw);
+  const runtime = optionalRuntime(body);
   const input = {
     avatar: optionalString(body, "avatar", { maxLength: NAME_MAX_LENGTH }),
     instructions:
       optionalString(body, "instructions", { maxLength: PROMPT_MAX_LENGTH }) ??
       "",
-    model: optionalModel(body),
+    model: optionalModel(body, runtime),
     name: requireString(body, "name", { maxLength: NAME_MAX_LENGTH }),
+    runtime,
     soul: optionalString(body, "soul", { maxLength: PROMPT_MAX_LENGTH }) ?? "",
   };
 
@@ -156,19 +182,31 @@ agentsRoutes.get("/:id", async (c) => {
 
 agentsRoutes.patch("/:id", async (c) => {
   const body = await readJsonObject(c.req.raw);
+  const db = createDb(c.env.DB);
+  const id = c.req.param("id");
+  const workspaceId = c.get("workspace").id;
+
+  // The runtime decides what a valid model is, and it cannot change: the two
+  // runtimes keep incompatible session state, so a switch would strand one.
+  const existing = await getAgentById(db, workspaceId, id);
+  if (!existing) {
+    throw notFound("Agent not found.");
+  }
+  if (body.runtime !== undefined && body.runtime !== existing.runtime) {
+    throw badRequest(
+      '"runtime" is fixed when an agent is created. Create a new agent to run it elsewhere.'
+    );
+  }
+
   const input = {
     avatar: optionalString(body, "avatar", { maxLength: NAME_MAX_LENGTH }),
     instructions: optionalString(body, "instructions", {
       maxLength: PROMPT_MAX_LENGTH,
     }),
-    model: optionalModel(body),
+    model: optionalModel(body, existing.runtime),
     name: optionalString(body, "name", { maxLength: NAME_MAX_LENGTH }),
     soul: optionalString(body, "soul", { maxLength: PROMPT_MAX_LENGTH }),
   };
-
-  const db = createDb(c.env.DB);
-  const id = c.req.param("id");
-  const workspaceId = c.get("workspace").id;
 
   try {
     const agent = await updateAgent(db, workspaceId, id, input);

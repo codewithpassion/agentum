@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "#/modules/agents/schema";
 import type { SessionStatus } from "#/modules/anthropic/events";
 import type { WakeTarget } from "./wake-decision";
 import type { WakeEntry } from "./wake-text";
@@ -16,6 +17,11 @@ export interface StoredSession {
    * path compares against it and starts a fresh session when they differ.
    */
   model?: string;
+  /**
+   * Which gateway this session belongs to. Absent on a session stored before
+   * the Cloudflare runtime existed, which counts as managed.
+   */
+  runtime?: AgentRuntime;
   sessionId: string;
   status: SessionStatus;
   /**

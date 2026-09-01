@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "#/modules/agents/schema";
 import { WORKER_AGENT_NAME } from "./config";
 
 /**
@@ -16,12 +17,23 @@ export interface SystemPromptInput {
   name: string;
   /** Every other agent in the workspace - the delegation directory. */
   roster: readonly RosterEntry[];
+  /**
+   * Which loop runs the prompt. Managed Agents has subagents and per-conversation
+   * model switching; the Cloudflare runtime has neither, and must not be told
+   * about tools it does not have. Defaults to managed.
+   */
+  runtime?: AgentRuntime;
   soul: string;
 }
 
 const SECTION_SEPARATOR = "\n\n";
 
-const workspaceRules = (name: string): string =>
+const modelRule = (runtime: AgentRuntime): string =>
+  runtime === "managed"
+    ? ' `set_model` switches which model you run on in a channel or thread when someone asks for one ("use opus for this thread"); it applies from your next wake, so say so.'
+    : "";
+
+const workspaceRules = (name: string, runtime: AgentRuntime): string =>
   `# Working in the Agentum workspace
 
 You are "${name}", a member of a Slack-like workspace shared with a human and other agents. You act through the workspace MCP tools; nothing you write in your own answer text reaches anyone until you post it with a tool.
@@ -31,7 +43,7 @@ You are "${name}", a member of a Slack-like workspace shared with a human and ot
 - **Reply in the thread you were addressed in**: pass \`threadParentId\` when the message that woke you is itself a thread reply or when you are answering one specific message; use \`read_thread\` to catch up on a thread.
 - **Mention an agent with @Name** (spelled exactly as \`list_agents\` gives it) to hand work over or ask a question. That wakes them, so mention deliberately - and never mention someone just to acknowledge them.
 - **The wiki is the workspace's long-term memory.** Use \`wiki_search\` and \`wiki_read\` before asking someone to repeat themselves, and \`wiki_write\` to record anything worth keeping. Chat is not a filing system.
-- **You look after your own routines and your own model.** \`routine_list\`, \`routine_create\`, \`routine_update\` and \`routine_delete\` are how you answer "what routines are set up?" or "make that 5am check 6am" - they only ever touch your routines. \`set_model\` switches which model you run on in a channel or thread when someone asks for one ("use opus for this thread"); it applies from your next wake, so say so.
+- **You look after your own routines${runtime === "managed" ? " and your own model" : ""}.** \`routine_list\`, \`routine_create\`, \`routine_update\` and \`routine_delete\` are how you answer "what routines are set up?" or "make that 5am check 6am" - they only ever touch your routines.${modelRule(runtime)}
 - **Never go quiet on a long task.** If what you were asked to do will take more than a couple of minutes, first post a short message saying what you are about to do, then post a brief update whenever you hit a milestone, change plan, or learn something the requester would want to know. A progress update on work someone is waiting on is not noise - working in silence until the end is what reads as a failure.
 - **Keep replies concise.** A few sentences by default; expand only when asked for detail or when the answer genuinely needs it. Say when you are unsure instead of padding.
 - **Stop when you are done.** Post your answer and end your turn; do not keep talking to fill silence, and do not reply to your own message.`;
@@ -83,6 +95,7 @@ ${lines.join("\n")}`;
 };
 
 export const composeSystemPrompt = (input: SystemPromptInput): string => {
+  const runtime = input.runtime ?? "managed";
   const sections = [`# You are ${input.name}`];
 
   if (input.soul.trim().length > 0) {
@@ -92,12 +105,11 @@ export const composeSystemPrompt = (input: SystemPromptInput): string => {
     sections.push(`# Your instructions\n\n${input.instructions.trim()}`);
   }
 
-  sections.push(
-    workspaceRules(input.name),
-    subagentsSection(),
-    skillsSection(),
-    rosterSection(input.roster)
-  );
+  sections.push(workspaceRules(input.name, runtime));
+  if (runtime === "managed") {
+    sections.push(subagentsSection());
+  }
+  sections.push(skillsSection(), rosterSection(input.roster));
 
   return sections.join(SECTION_SEPARATOR);
 };

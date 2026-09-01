@@ -21,6 +21,21 @@ export const AGENT_SYNC_STATUSES = ["unregistered", "synced", "error"] as const;
 /** What the agent is doing right now, as the router sees it. */
 export const AGENT_STATUSES = ["idle", "queued", "working", "error"] as const;
 
+/**
+ * Where the agent's loop runs. `managed` is Anthropic's Managed Agents (a
+ * registered agent, cloud sessions, the sandbox toolset); `cloudflare` is our
+ * own loop in a Durable Object, talking to a model on Workers AI or through AI
+ * Gateway, with the same workspace tools called in-process. Fixed at creation:
+ * the two keep incompatible session state.
+ */
+export const AGENT_RUNTIMES = ["managed", "cloudflare"] as const;
+
+export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
+
+export const isAgentRuntime = (value: unknown): value is AgentRuntime =>
+  typeof value === "string" &&
+  (AGENT_RUNTIMES as readonly string[]).includes(value);
+
 export const agents = sqliteTable(
   "agents",
   {
@@ -51,10 +66,17 @@ export const agents = sqliteTable(
      */
     mcpTokenHash: text("mcp_token_hash").unique(),
     memoryStoreId: text("memory_store_id"),
-    /** A catalog model id; null means the workspace default (`AGENT_MODEL`). */
+    /**
+     * A model id; null means the runtime's default. For `managed` it is a
+     * catalog id (`AVAILABLE_MODELS`); for `cloudflare` a Workers AI model
+     * (`@cf/...`) or an AI Gateway `{provider}/{model}` reference.
+     */
     model: text("model"),
     /** Unique within the workspace only - see the index below. */
     name: text("name").notNull(),
+    runtime: text("runtime", { enum: AGENT_RUNTIMES })
+      .notNull()
+      .default("managed"),
     /** The Anthropic session the router is currently driving, if any. */
     sessionId: text("session_id"),
     soul: text("soul").notNull().default(""),

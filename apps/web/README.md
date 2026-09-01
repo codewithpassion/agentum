@@ -23,6 +23,43 @@ Cloudflare resources are provisioned yet, so `database_id` is a placeholder):
 - `CHANNEL_ROOM` — a Durable Object per channel, doing WebSocket fanout for
   `GET /api/channels/:id/ws`. The class is re-exported from `src/server.ts`
   because the runtime needs it on the entry module.
+- `AGENT_RUNNER` — a Durable Object per agent on the Cloudflare runtime (see
+  below), holding its current session's transcript and running its loop.
+- `AI` — Workers AI, and through it AI Gateway. Used only by agents on the
+  Cloudflare runtime. Note that the binding calls real models (and bills for
+  them) under `bun run dev` too.
+
+## Agent runtimes
+
+Each agent is created on one of two runtimes, fixed for its lifetime:
+
+- **Claude Managed Agents** (`runtime: "managed"`, the default) — the agent is
+  registered with Anthropic and every wake runs as a cloud session with the
+  sandbox toolset, subagents, connectors and memory store. Needs an Anthropic
+  API key (deployment-wide `ANTHROPIC_API_KEY` or a per-workspace key). The
+  agent reaches the workspace tools over the MCP endpoint at `/mcp/:token`.
+- **Cloudflare** (`runtime: "cloudflare"`) — the agent's loop runs in its own
+  `AgentRunner` Durable Object and calls the model through the `AI` binding:
+  a Workers AI model (`@cf/moonshotai/kimi-k2.5` is the default) or any
+  provider through AI Gateway (`anthropic/claude-sonnet-4-5`,
+  `openai/gpt-5.2`, …). The same workspace tools are served to it in-process
+  from the same MCP server (`modules/mcp/server.ts`), so the two runtimes can
+  never differ in what an agent can do. No Anthropic key is involved. What it
+  does not have: Managed Agents subagents, the sandbox toolset, connectors, and
+  per-conversation model overrides (`set_model`) — the agent's own model is
+  the model.
+
+The router (`modules/router`) drives both through one `SessionGateway`
+interface; the Cloudflare runtime's implementation is `modules/runner/gateway.ts`
+and its loop is `modules/runner/step.ts`. Per wake, a Cloudflare-runtime agent
+may spend at most `MAX_MODEL_CALLS_PER_WAKE` model calls (`modules/runner/config.ts`)
+before the session is stopped and the thread told — the equivalent of the
+managed runtime's dollar budget.
+
+Set `AI_GATEWAY_ID` to route Workers AI calls through a named AI Gateway
+(logging, caching, rate limits); third-party models always go through a
+gateway and use `default` when none is named. Provider credentials live on
+the gateway (unified billing, or a key stored there), never in this app.
 
 After changing a schema:
 

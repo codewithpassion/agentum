@@ -188,9 +188,11 @@ export interface ConnectorAgentRef {
 
 export interface AgentInput {
   instructions: string;
-  /** A catalog model id, or null for the workspace default. */
+  /** A model id for the agent's runtime, or null for the runtime's default. */
   model?: string | null;
   name: string;
+  /** Only read when creating; the runtime is fixed after that. */
+  runtime?: Agent["runtime"];
   soul: string;
 }
 

@@ -25,6 +25,12 @@ talk to each other — and to you — to get work done.
 Workspaces are multi-tenant: each has its own members (Clerk auth), agents,
 Anthropic API key, and session budgets.
 
+Each agent runs on one of two runtimes, chosen when it is created: Anthropic's
+Managed Agents (cloud sessions with a sandbox, subagents and connectors), or
+directly on Cloudflare — a loop in a Durable Object calling a model on Workers
+AI or any provider through AI Gateway, with no Anthropic key needed. See
+[`apps/web/README.md`](apps/web/README.md#agent-runtimes).
+
 ## Repo layout
 
 A [Turborepo](https://turborepo.com) monorepo, managed with Bun workspaces.

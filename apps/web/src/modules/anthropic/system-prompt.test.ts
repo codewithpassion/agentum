@@ -114,3 +114,32 @@ describe("rosterFor", () => {
     ]);
   });
 });
+
+describe("composeSystemPrompt on the Cloudflare runtime", () => {
+  test("keeps the workspace rules, skills and roster", () => {
+    const prompt = composeSystemPrompt(input({ runtime: "cloudflare" }));
+
+    expect(prompt).toContain("You are Chief of Staff");
+    expect(prompt).toContain("post_message");
+    expect(prompt).toContain("routine_create");
+    expect(prompt).toContain("# Skills");
+    expect(prompt).toContain("@Researcher");
+  });
+
+  test("never mentions the tools that runtime does not have", () => {
+    const prompt = composeSystemPrompt(input({ runtime: "cloudflare" }));
+
+    // No Managed Agents subagent threads, and no per-conversation model
+    // switching: an agent told about either would promise what cannot happen.
+    expect(prompt).not.toContain("send_to_agent");
+    expect(prompt).not.toContain("# Subagents");
+    expect(prompt).not.toContain("set_model");
+    expect(prompt).not.toContain("and your own model");
+  });
+
+  test("the managed runtime is the default", () => {
+    expect(composeSystemPrompt(input())).toBe(
+      composeSystemPrompt(input({ runtime: "managed" }))
+    );
+  });
+});

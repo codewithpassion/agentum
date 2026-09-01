@@ -66,20 +66,29 @@ function StatusLine({
   );
 }
 
+/** An agent on the Cloudflare runtime registers nowhere; "synced" means ready. */
+const CLOUDFLARE_READY_LABEL = "runs on Cloudflare";
+
 function SyncLine({
+  runtime,
   syncError,
   syncStatus,
 }: {
+  runtime: Agent["runtime"];
   syncError: string | null;
   syncStatus: Agent["syncStatus"];
 }) {
+  const label =
+    runtime === "cloudflare" && syncStatus === "synced"
+      ? CLOUDFLARE_READY_LABEL
+      : SYNC_LABELS[syncStatus];
   return (
     <p
       className={`m-0 text-xs ${syncStatus === "error" ? "text-[var(--ws-danger)]" : "text-[var(--ws-muted)]"}`}
       data-testid="agent-sync-status"
       title={syncError ?? undefined}
     >
-      {SYNC_LABELS[syncStatus]}
+      {label}
       {syncStatus === "error" && syncError ? ` — ${syncError}` : ""}
     </p>
   );
@@ -284,6 +293,7 @@ export function AgentRail({
               </p>
               <StatusLine sessionId={status.sessionId} status={status.status} />
               <SyncLine
+                runtime={agent.runtime}
                 syncError={status.syncError}
                 syncStatus={status.syncStatus}
               />

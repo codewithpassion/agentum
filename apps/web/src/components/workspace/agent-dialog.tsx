@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
-import { TextAreaField, TextField } from "#/components/ui/field";
+import { SelectField, TextAreaField, TextField } from "#/components/ui/field";
 import type { Agent, AgentInput } from "#/lib/api";
 import { WORKSPACE_DEFAULT_MODEL_LABEL } from "#/lib/model-format";
 import { useApi } from "#/lib/workspace-context";
+import { type AgentRuntime, isAgentRuntime } from "#/modules/agents/schema";
 import { AgentConnectorsPicker } from "./agent-connectors-picker";
 import { AgentSkillsPicker } from "./agent-skills-picker";
 import { AgentSlackPanel } from "./agent-slack-panel";
+import { CloudflareModelField } from "./cloudflare-model-field";
 import { McpUrlField } from "./mcp-url";
 import { ModelSelect } from "./model-select";
 
@@ -15,8 +17,30 @@ const EMPTY: AgentInput = {
   instructions: "",
   model: null,
   name: "",
+  runtime: "managed",
   soul: "",
 };
+
+/**
+ * Where the agent's loop runs. Chosen once, when the agent is created: the
+ * two runtimes keep incompatible session state, so the API refuses a change.
+ */
+const RUNTIME_OPTIONS: { hint: string; label: string; value: AgentRuntime }[] =
+  [
+    {
+      hint: "Anthropic's Managed Agents: cloud sessions with a sandbox, subagents and connectors. Needs an Anthropic API key.",
+      label: "Claude Managed Agents",
+      value: "managed",
+    },
+    {
+      hint: "The loop runs in a Durable Object on Cloudflare and calls a model on Workers AI, or any provider through AI Gateway. No Anthropic key needed; no subagents, sandbox or connectors.",
+      label: "Cloudflare (Workers AI / AI Gateway)",
+      value: "cloudflare",
+    },
+  ];
+
+const runtimeHint = (runtime: AgentRuntime): string =>
+  RUNTIME_OPTIONS.find((option) => option.value === runtime)?.hint ?? "";
 
 /**
  * The agent's settings, in sections (plan 5e): the dialog was already crowded
@@ -90,6 +114,7 @@ export function AgentDialog({
             instructions: agent.instructions,
             model: agent.model ?? null,
             name: agent.name,
+            runtime: agent.runtime,
             soul: agent.soul,
           }
         : EMPTY
@@ -118,6 +143,24 @@ export function AgentDialog({
   const onModelChange = useCallback(
     (model: string | null) => setDraft((previous) => ({ ...previous, model })),
     []
+  );
+  const onRuntimeChange = useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      const { value } = event.target;
+      if (!isAgentRuntime(value)) {
+        return;
+      }
+      // A model belongs to one runtime's catalog, so switching clears it.
+      setDraft((previous) => ({ ...previous, model: null, runtime: value }));
+    },
+    []
+  );
+
+  const runtime: AgentRuntime = agent?.runtime ?? draft.runtime ?? "managed";
+  // Connectors are attached to Managed Agents sessions; the Cloudflare runtime
+  // has nowhere to attach them, so the tab would only mislead.
+  const sections = SECTIONS.filter(
+    (name) => name !== "Connectors" || runtime === "managed"
   );
 
   const rotate = useCallback(async () => {
@@ -173,7 +216,7 @@ export function AgentDialog({
           className="mb-4 flex gap-1 rounded-lg bg-[var(--ws-surface)] p-1"
           role="tablist"
         >
-          {SECTIONS.map((name) => (
+          {sections.map((name) => (
             <div className="flex-1" key={name}>
               <SectionTab
                 active={section === name}
@@ -231,15 +274,42 @@ export function AgentDialog({
           rows={5}
           value={draft.instructions}
         />
-        <ModelSelect
-          defaultLabel={WORKSPACE_DEFAULT_MODEL_LABEL}
-          hint="Which model this agent thinks with."
-          onChange={onModelChange}
-          testId="agent-model"
-          value={draft.model ?? null}
-        />
-
         {agent ? (
+          <p className="m-0 text-[var(--ws-muted)] text-xs">
+            Runtime:{" "}
+            {RUNTIME_OPTIONS.find((option) => option.value === runtime)?.label}
+          </p>
+        ) : (
+          <SelectField
+            data-testid="agent-runtime"
+            hint={runtimeHint(runtime)}
+            label="Runtime"
+            onChange={onRuntimeChange}
+            value={runtime}
+          >
+            {RUNTIME_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </SelectField>
+        )}
+        {runtime === "cloudflare" ? (
+          <CloudflareModelField
+            onChange={onModelChange}
+            value={draft.model ?? null}
+          />
+        ) : (
+          <ModelSelect
+            defaultLabel={WORKSPACE_DEFAULT_MODEL_LABEL}
+            hint="Which model this agent thinks with."
+            onChange={onModelChange}
+            testId="agent-model"
+            value={draft.model ?? null}
+          />
+        )}
+
+        {agent && runtime === "managed" ? (
           <McpUrlField onRotate={rotate} rotating={rotating} url={mcpUrl} />
         ) : null}
 

@@ -236,6 +236,12 @@ export const syncAgentToAnthropic = async (
   if (!found) {
     return false;
   }
+  if (found.runtime === "cloudflare") {
+    // Nothing to register: the agent runs in its own Durable Object and calls
+    // the workspace tools in-process. "Synced" here means ready.
+    await setAgentSyncStatus(db, found.id, "synced");
+    return true;
+  }
   const all = await listAgents(db, found.workspaceId);
   const agent = all.find((candidate) => candidate.id === agentId) ?? found;
 
@@ -448,6 +454,12 @@ export const resyncAgentConnectors = async (
 ): Promise<ConnectorResyncOutcome> => {
   const agent = await getAgentByIdUnscoped(deps.db, agentId);
   if (!agent) {
+    return "skipped";
+  }
+  if (agent.runtime === "cloudflare") {
+    // Connectors are attached to Managed Agents sessions; this runtime has no
+    // registration to push them to, so the debt is simply forgiven.
+    await clearConnectorResyncPending(deps.db, agent.id);
     return "skipped";
   }
   if (agent.sessionId) {

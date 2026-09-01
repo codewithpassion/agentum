@@ -5,6 +5,32 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 16 — Cloudflare runtime: agents without Managed Agents (2026-09-01)
+
+**Goal:** A way to run an agent without Claude Managed Agents — directly on Cloudflare, on a model hosted on Workers AI or reached through AI Gateway — chosen per agent at creation.
+
+**What we did:**
+- `agents.runtime` (`managed` | `cloudflare`, migration 0021), fixed at creation: the API refuses a change, the dialog offers the choice only for a new agent. A Cloudflare agent is `synced` the moment its row exists (nothing to register), and the rail reads that as "runs on Cloudflare"
+- `modules/runner`: an `AgentRunner` Durable Object per agent holds the session transcript and advances it from `alarm()` — a few steps per invocation, then re-arm, so `send`/`stop` land between steps and a dead host resumes from the transcript (`step.ts` is a pure state machine over the last message: assistant-with-tool-calls → run tools, assistant → idle unless text arrived meanwhile, else ask the model; partial tool results are persisted per call so a resume never re-posts)
+- Models via the `AI` binding: `@cf/...` runs on Workers AI, `{provider}/{model}` goes through AI Gateway (`gatewayFor`: Workers AI only through a gateway when `AI_GATEWAY_ID` names one; third-party always, `default` as the fallback). Requests go out in chat-completions form; `parseCompletion` reads chat-completions, the older Workers AI shape and Anthropic blocks, since which one comes back depends on the model
+- Tool parity for free: the MCP server factory moved to `mcp/server.ts`, and the runner connects an MCP `Client` to it over `InMemoryTransport` — same schemas, same scoping, minus `set_model`/`get_model` (Anthropic-catalog features). Tool results capped at 96KB before they enter the transcript
+- The router drives both runtimes through a `SessionGateway` subset of the Anthropic gateway, chosen per agent (`sessionGateway`); `StoredSession.runtime` lets the pump pick without an agent row. The runner emits the event subset the pump reads (`status_running`/`idle` with stop reason/`terminated`/`error`/`agent.message`), so death notices, thinking indicators and status broadcasts are untouched. `max_model_calls` (40 per wake) is the budget stop
+- Managed-only paths skip Cloudflare agents: registration/roster sync, connector resync (debt forgiven), the key-change reset. System prompt drops the Subagents section and the `set_model` sentence for the runtime
+- 1050 unit tests (up from 1004): parser dialects, the step machine incl. resume and pending merge, the DO end to end against the real tools and a scripted `AI`, routes validation per runtime, router gateway selection with no Anthropic key
+- Live acceptance on the dev server (agent-browser, dev login): created "EdgeBot" on the Cloudflare runtime with the default model, put it in a new channel, mentioned it — it replied in a thread ("12 times 12 is 144.") through the real `post_message` tool on Kimi K2.5 via the `AI` binding, went idle, and a follow-up in the thread was sent into the same runner session and answered ("13 times 13 is 169.") with no second session and no runaway. No Anthropic call was involved in either turn
+
+**Lessons learned:**
+- Writing back a run-meta object read *before* a step rolled back the sequence counters the step had advanced, silently overwriting the assistant message and its event with the next ones. Every meta write now merges onto current storage (`patchRun`); the integration test caught it, the unit tests could not
+- `env.AI.run()` accepts third-party models (`openai/...`, `anthropic/...`) with a `gateway` option — one binding covers "hosted on CF" and "through their gateway", and the app never holds a provider key
+- The response dialect is per model: the generated binding types say newer Workers AI models (kimi, glm, gpt-oss) answer in chat-completions form and older llama ones in `{response, tool_calls}`, so the parser reads both plus Anthropic blocks. Only Kimi K2.5's chat-completions shape was confirmed live (through the binding, in the app); a direct REST probe with the wrangler OAuth token got an authentication error, so the other shapes rest on the types and unit tests
+
+**Avoid next time:**
+- Don't route every Workers AI call through an auto-created gateway: that silently moves logging and billing. Only when `AI_GATEWAY_ID` is set, or when the model leaves no choice
+- Don't offer a tool the runtime cannot honour (`set_model` here): filter at listing time *and* refuse the call
+- `askFast` (thread addressing, Slack thinking line) still uses Anthropic Haiku and degrades to null without a key — a Workers AI fallback there is the obvious follow-up
+
+---
+
 ## Cycle 15 — Surface session deaths, thread replies to mentions, $10 budget (2026-08-21)
 
 **Goal:** Kill the silent failure mode: a Slack mention ("@BruceAgentum go to theguardian.com/au…") produced browser activity but no reply, no error, no log.

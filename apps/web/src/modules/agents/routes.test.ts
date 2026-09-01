@@ -203,3 +203,99 @@ describe("PATCH /agents/:id", () => {
     expect(((await after.json()) as AgentBody).agent.model).toBe(OPUS);
   });
 });
+
+describe("the runtime", () => {
+  const CF_MODEL = "@cf/moonshotai/kimi-k2.5";
+
+  interface RuntimeBody {
+    agent: {
+      id: string;
+      model: string | null;
+      runtime: string;
+      syncStatus: string;
+    };
+  }
+
+  test("defaults to managed", async () => {
+    const created = await postAgent({});
+
+    expect((created.body as unknown as RuntimeBody).agent.runtime).toBe(
+      "managed"
+    );
+  });
+
+  test("a Cloudflare agent is ready the moment it exists", async () => {
+    const created = await postAgent({ model: CF_MODEL, runtime: "cloudflare" });
+    const body = created.body as unknown as RuntimeBody;
+
+    expect(created.response.status).toBe(201);
+    expect(body.agent.runtime).toBe("cloudflare");
+    expect(body.agent.model).toBe(CF_MODEL);
+    // Nothing to register: "synced" is what the rail reads as ready.
+    expect(body.agent.syncStatus).toBe("synced");
+  });
+
+  test("rejects an unknown runtime", async () => {
+    const response = await request("/api/w/alpha/agents", {
+      body: { name: "Ada", runtime: "lambda" },
+      method: "POST",
+    });
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toBe(
+      '"runtime" must be one of: managed, cloudflare.'
+    );
+  });
+
+  test("validates the model against the runtime, not the Anthropic catalog", async () => {
+    // A Cloudflare agent may not run an Anthropic catalog id...
+    const catalog = await request("/api/w/alpha/agents", {
+      body: { model: OPUS, name: "Ada", runtime: "cloudflare" },
+      method: "POST",
+    });
+    expect(catalog.status).toBe(400);
+    // ...and a managed agent may not run a Workers AI id.
+    const workersAi = await request("/api/w/alpha/agents", {
+      body: { model: CF_MODEL, name: "Ada" },
+      method: "POST",
+    });
+    expect(workersAi.status).toBe(400);
+    // AI Gateway references are the other valid shape.
+    const gateway = await postAgent({
+      model: "anthropic/claude-sonnet-4-5",
+      runtime: "cloudflare",
+    });
+    expect(gateway.response.status).toBe(201);
+  });
+
+  test("an edit validates the model against the agent's own runtime", async () => {
+    const created = await postAgent({ runtime: "cloudflare" });
+
+    const rejected = await request(
+      `/api/w/alpha/agents/${created.body.agent.id}`,
+      { body: { model: OPUS }, method: "PATCH" }
+    );
+    expect(rejected.status).toBe(400);
+
+    const accepted = await request(
+      `/api/w/alpha/agents/${created.body.agent.id}`,
+      { body: { model: CF_MODEL }, method: "PATCH" }
+    );
+    expect(((await accepted.json()) as AgentBody).agent.model).toBe(CF_MODEL);
+  });
+
+  test("cannot be changed after creation", async () => {
+    const created = await postAgent({ runtime: "cloudflare" });
+
+    const response = await request(
+      `/api/w/alpha/agents/${created.body.agent.id}`,
+      { body: { runtime: "managed" }, method: "PATCH" }
+    );
+
+    expect(response.status).toBe(400);
+    const after = await request(`/api/w/alpha/agents/${created.body.agent.id}`);
+    expect(((await after.json()) as unknown as RuntimeBody).agent.runtime).toBe(
+      "cloudflare"
+    );
+  });
+});

@@ -80,7 +80,8 @@ export interface SyncAgentInput {
 }
 
 export interface CreateSessionInput {
-  anthropicAgentId: string;
+  /** Null for an agent that has no Anthropic registration - the Cloudflare runtime. */
+  anthropicAgentId: string | null;
   memoryStoreId: string | null;
   /** The model this session runs on, whatever the agent is registered with. */
   model: string;
@@ -114,18 +115,27 @@ export interface SyncAgentSkillsInput {
   skills: readonly AgentSkillRef[];
 }
 
-export interface AnthropicGateway {
+/**
+ * The part of the gateway the router drives: start a session, send into it,
+ * read what it did. Both runtimes implement it - this file for Managed Agents,
+ * `modules/runner/gateway` for the loop on Cloudflare - which is what lets the
+ * router's pump treat the two alike.
+ */
+export interface SessionGateway {
   createSession: (input: CreateSessionInput) => Promise<CreatedSession>;
   deleteSession: (sessionId: string) => Promise<void>;
-  /** The one shared environment, created on first use and cached thereafter. */
-  ensureEnvironment: () => Promise<string>;
   getSession: (sessionId: string) => Promise<SessionStatus>;
   pollEvents: (
     sessionId: string,
     cursor: EventCursor | undefined
   ) => Promise<PolledEvents>;
-  registerAgent: (input: RegisterAgentInput) => Promise<RegisteredAgent>;
   sendMessage: (sessionId: string, text: string) => Promise<void>;
+}
+
+export interface AnthropicGateway extends SessionGateway {
+  /** The one shared environment, created on first use and cached thereafter. */
+  ensureEnvironment: () => Promise<string>;
+  registerAgent: (input: RegisterAgentInput) => Promise<RegisteredAgent>;
   syncAgent: (input: SyncAgentInput) => Promise<void>;
   syncAgentSkills: (input: SyncAgentSkillsInput) => Promise<void>;
 }
@@ -371,6 +381,9 @@ export const createAnthropicGateway = (
 
   return {
     async createSession(input) {
+      if (!input.anthropicAgentId) {
+        throw new Error("The agent is not registered with Anthropic.");
+      }
       const environmentId = await ensureEnvironment();
       const session = await client.beta.sessions.create({
         // Always sent, even when it matches the registration: omitted fields

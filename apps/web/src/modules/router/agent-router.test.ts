@@ -81,6 +81,7 @@ const { createAgent, getAgentById, setAgentRegistration } = await import(
 );
 const { upsertOverride } = await import("#/modules/agents/model-overrides");
 const { AGENT_MODEL } = await import("#/modules/anthropic/config");
+const { CLOUDFLARE_DEFAULT_MODEL } = await import("#/modules/runner/models");
 const { createWorkspace } = await import("#/modules/workspaces/service");
 const { AgentRouter, routerStub } = await import("./agent-router");
 const { SESSION_IDLE_TTL_MS } = await import("./config");
@@ -616,5 +617,126 @@ describe("the alarm", () => {
     expect(store.values.size).toBe(0);
     expect(store.alarms()).toBeNull();
     expect(broadcasts).toEqual([]);
+  });
+});
+
+describe("the Cloudflare runtime", () => {
+  /** A runner namespace that records what the router asked of it. */
+  const fakeRunners = () => {
+    const started: { agentId: string; model: string; text: string }[] = [];
+    const namespace = {
+      get: () => ({
+        events: () => Promise.resolve([]),
+        send: () => Promise.resolve(),
+        start: (input: { agentId: string; model: string; text: string }) => {
+          started.push(input);
+          return Promise.resolve();
+        },
+        status: () => Promise.resolve("running"),
+        stop: () => Promise.resolve(),
+      }),
+      idFromName: (name: string) => name,
+    };
+    return { namespace, started };
+  };
+
+  const seedCloudflareAgent = async (model: string | null) => {
+    const { agent } = await createAgent(db, alpha.workspaceId, {
+      instructions: "",
+      model,
+      name: "Edge",
+      runtime: "cloudflare",
+      soul: "",
+    });
+    return agent.id;
+  };
+
+  test("wakes through its runner with no Anthropic registration or key", async () => {
+    const store = storage();
+    const runners = fakeRunners();
+    const router = routerFor(store);
+    // No Anthropic key at all: the managed gateway would be null, and a
+    // managed agent would settle for an idle status here.
+    Object.assign(router, {
+      env: {
+        ...(router as unknown as { env: Env }).env,
+        AGENT_RUNNER: runners.namespace,
+        ANTHROPIC_API_KEY: undefined,
+      },
+      gateway: () => Promise.resolve(null),
+    });
+    const edgeId = await seedCloudflareAgent(null);
+
+    await router.notifyMessage(
+      notification(alpha, {
+        body: "@Edge take a look",
+        memberAgentIds: [edgeId],
+        mentionedAgentIds: [edgeId],
+      })
+    );
+    await router.alarm();
+
+    expect(runners.started).toHaveLength(1);
+    expect(runners.started[0]?.agentId).toBe(edgeId);
+    expect(runners.started[0]?.model).toBe(CLOUDFLARE_DEFAULT_MODEL);
+    expect(runners.started[0]?.text).toContain("take a look");
+    const agent = await getAgentById(db, alpha.workspaceId, edgeId);
+    expect(agent?.status).toBe("working");
+    expect(agent?.sessionId).not.toBeNull();
+    expect(store.values.get(SESSION_KEY(edgeId))).toMatchObject({
+      runtime: "cloudflare",
+      status: "running",
+    });
+  });
+
+  test("runs on its own model and ignores conversation overrides", async () => {
+    const store = storage();
+    const runners = fakeRunners();
+    const router = routerFor(store);
+    Object.assign(router, {
+      env: {
+        ...(router as unknown as { env: Env }).env,
+        AGENT_RUNNER: runners.namespace,
+      },
+    });
+    const edgeId = await seedCloudflareAgent("@cf/zai-org/glm-4.7-flash");
+    // An override naming an Anthropic model: meaningless to this runtime.
+    await upsertOverride(db, {
+      agentId: edgeId,
+      channelId: alpha.channelId,
+      createdBy: `agent:${edgeId}`,
+      model: OPUS,
+      workspaceId: alpha.workspaceId,
+    });
+
+    await router.notifyMessage(
+      notification(alpha, {
+        memberAgentIds: [edgeId],
+        mentionedAgentIds: [edgeId],
+      })
+    );
+    await router.alarm();
+
+    expect(runners.started[0]?.model).toBe("@cf/zai-org/glm-4.7-flash");
+  });
+
+  test("a managed agent still needs its registration", async () => {
+    const store = storage();
+    const runners = fakeRunners();
+    const router = routerFor(store);
+    Object.assign(router, {
+      env: {
+        ...(router as unknown as { env: Env }).env,
+        AGENT_RUNNER: runners.namespace,
+      },
+    });
+
+    await router.notifyMessage(notification(alpha));
+    await router.alarm();
+
+    expect(runners.started).toEqual([]);
+    expect(
+      (await getAgentById(db, alpha.workspaceId, alpha.agentId))?.status
+    ).toBe("idle");
   });
 });

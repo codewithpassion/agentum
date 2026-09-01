@@ -17,7 +17,10 @@ import {
   type SessionStatus,
 } from "#/modules/anthropic/events";
 import { askFast } from "#/modules/anthropic/fast";
-import type { AnthropicGateway } from "#/modules/anthropic/gateway";
+import type {
+  AnthropicGateway,
+  SessionGateway,
+} from "#/modules/anthropic/gateway";
 import {
   anthropicKeyFor,
   createGateway,
@@ -34,6 +37,11 @@ import {
   getThread,
   type MessageView,
 } from "#/modules/messaging/service";
+import { createRunnerGateway } from "#/modules/runner/gateway";
+import {
+  CLOUDFLARE_DEFAULT_MODEL,
+  isCloudflareModelShaped,
+} from "#/modules/runner/models";
 import { getWorkspaceById } from "#/modules/workspaces/service";
 import {
   ADDRESSING_SYSTEM,
@@ -148,6 +156,22 @@ export class AgentRouter extends DurableObject<Env> {
     return workspaceId
       ? await createGateway(this.db, this.env, workspaceId)
       : null;
+  }
+
+  /**
+   * The gateway that drives one agent's sessions. An agent on the Cloudflare
+   * runtime has its own runner and needs no Anthropic key; a managed one needs
+   * the workspace's gateway, which is null when the integration is off.
+   */
+  private async sessionGateway(
+    agent: Pick<Agent, "id" | "runtime">
+  ): Promise<SessionGateway | null> {
+    if (agent.runtime === "cloudflare") {
+      return this.env.AGENT_RUNNER
+        ? createRunnerGateway(this.env, agent.id)
+        : null;
+    }
+    return await this.gateway();
   }
 
   private read<T>(key: string): Promise<T | undefined> {
@@ -447,6 +471,13 @@ export class AgentRouter extends DurableObject<Env> {
     agent: Agent,
     entries: readonly WakeEntry[]
   ): Promise<string> {
+    if (agent.runtime === "cloudflare") {
+      // Overrides name Anthropic catalog models, which mean nothing here; the
+      // agent's own model stands (its `set_model` tools are not offered).
+      return isCloudflareModelShaped(agent.model)
+        ? agent.model
+        : CLOUDFLARE_DEFAULT_MODEL;
+    }
     // Deduplicated first: a digest holds up to fifty entries, and they are
     // usually a handful of conversations repeated.
     const scopes = new Map<string, WakeEntry>();
@@ -480,12 +511,16 @@ export class AgentRouter extends DurableObject<Env> {
     session: StoredSession | null,
     kind: WakeDispatchKind
   ): Promise<void> {
-    const gateway = await this.gateway();
     const agent = await this.agentOf(agentId);
+    const gateway = agent ? await this.sessionGateway(agent) : null;
     const [first] = entries;
     const channelId = first?.channelId ?? session?.channelId ?? "";
 
-    if (!(gateway && agent?.anthropicAgentId)) {
+    const runnable =
+      agent &&
+      gateway &&
+      (agent.runtime === "cloudflare" || agent.anthropicAgentId);
+    if (!runnable) {
       // Nothing to wake - the agent was never registered, or the integration is
       // off. Clearing the status matters: it may have been queued to get here.
       //
@@ -509,22 +544,12 @@ export class AgentRouter extends DurableObject<Env> {
       first.channelKind === "channel";
 
     const model = await this.effectiveModel(agent, entries);
-    // A session runs on the model it was created with, so a changed one - the
-    // agent re-modelled in the UI, an override set for this thread - can only
-    // take effect on a fresh session. One check for both branches below.
-    let reusable = session;
-    if (reusable && (reusable.model ?? AGENT_MODEL) !== model) {
-      await this.ctx.storage.delete(SESSION_KEY(agentId));
-      reusable = null;
-    }
-    // A new top-level ask is a new task: it starts on a fresh session with a
-    // full budget instead of whatever an earlier task left of one. Only an
-    // idle session is retired for it - interrupting a running one would orphan
-    // work the pump is still tracking.
-    if (reusable && startsThread && reusable.status === "idle") {
-      await this.ctx.storage.delete(SESSION_KEY(agentId));
-      reusable = null;
-    }
+    const reusable = await this.reusableSession(
+      agentId,
+      session,
+      model,
+      startsThread
+    );
 
     const text =
       kind === "immediate" && entries.length === 1 && first
@@ -571,6 +596,33 @@ export class AgentRouter extends DurableObject<Env> {
       startsThread,
       threadParentId,
     });
+  }
+
+  /**
+   * The stored session, if this wake may continue in it - retired otherwise.
+   *
+   * A session runs on the model it was created with, so a changed one - the
+   * agent re-modelled in the UI, an override set for this thread - can only
+   * take effect on a fresh session. And a new top-level ask is a new task: it
+   * starts on a fresh session with a full budget instead of whatever an
+   * earlier task left of one. Only an idle session is retired for that -
+   * interrupting a running one would orphan work the pump is still tracking.
+   */
+  private async reusableSession(
+    agentId: string,
+    session: StoredSession | null,
+    model: string,
+    startsThread: boolean
+  ): Promise<StoredSession | null> {
+    if (!session) {
+      return null;
+    }
+    const modelChanged = (session.model ?? AGENT_MODEL) !== model;
+    if (modelChanged || (startsThread && session.status === "idle")) {
+      await this.ctx.storage.delete(SESSION_KEY(agentId));
+      return null;
+    }
+    return session;
   }
 
   /**
@@ -669,7 +721,7 @@ export class AgentRouter extends DurableObject<Env> {
     channelId: string,
     model: string
   ): Promise<void> {
-    const gateway = await this.gateway();
+    const gateway = await this.sessionGateway(agent);
     if (!gateway) {
       return;
     }
@@ -690,6 +742,7 @@ export class AgentRouter extends DurableObject<Env> {
       // carries no model, and it is the caller's check that just proved this
       // one is running on the model asked for.
       model,
+      runtime: agent.runtime,
       status: "running",
     } satisfies StoredSession);
     await this.setStatus(agent.id, "working", channelId, session.sessionId);
@@ -706,7 +759,7 @@ export class AgentRouter extends DurableObject<Env> {
    * That is the behaviour the UI promises for assignments anyway.
    */
   private async settleConnectors(agent: Agent): Promise<Agent> {
-    if (!agent.connectorResyncPendingAt) {
+    if (!agent.connectorResyncPendingAt || agent.runtime === "cloudflare") {
       return agent;
     }
     await resyncAgentConnectorsWithAnthropic(this.db, this.env, agent.id).catch(
@@ -723,8 +776,8 @@ export class AgentRouter extends DurableObject<Env> {
     channelId: string,
     model: string
   ): Promise<void> {
-    const gateway = await this.gateway();
-    if (!(gateway && agent.anthropicAgentId)) {
+    const gateway = await this.sessionGateway(agent);
+    if (!gateway) {
       return;
     }
     const created = await gateway.createSession({
@@ -745,6 +798,7 @@ export class AgentRouter extends DurableObject<Env> {
       cursorId: null,
       lastActivityAt: Date.now(),
       model,
+      runtime: agent.runtime,
       sessionId: created.sessionId,
       status: created.status,
     } satisfies StoredSession);
@@ -874,11 +928,6 @@ export class AgentRouter extends DurableObject<Env> {
   // --- event pump ------------------------------------------------------------
 
   private async pumpSessions(): Promise<void> {
-    const gateway = await this.gateway();
-    if (!gateway) {
-      return;
-    }
-
     const sessions = await this.ctx.storage.list<StoredSession>({
       prefix: SESSION_KEY_PREFIX,
     });
@@ -887,6 +936,17 @@ export class AgentRouter extends DurableObject<Env> {
     for (const [key, stored] of sessions) {
       const agentId = key.slice(SESSION_KEY_PREFIX.length);
       let session = stored;
+      // The session remembers its runtime, so the pump needs no agent row to
+      // know which gateway to ask. Absent on sessions stored before the
+      // Cloudflare runtime existed, which were all managed.
+      // biome-ignore lint/performance/noAwaitInLoops: at most five sessions, polled in turn
+      const gateway = await this.sessionGateway({
+        id: agentId,
+        runtime: session.runtime ?? "managed",
+      });
+      if (!gateway) {
+        continue;
+      }
 
       if (now - session.lastActivityAt > SESSION_IDLE_TTL_MS) {
         // A quiet stretch only proves an *idle* session stale. A running one
@@ -899,7 +959,6 @@ export class AgentRouter extends DurableObject<Env> {
         if (session.status !== "idle") {
           // At most five sessions exist, and polling them in turn keeps the
           // status writes in a predictable order.
-          // biome-ignore lint/performance/noAwaitInLoops: at most five sessions, polled in turn
           const polled = await gateway
             .getSession(session.sessionId)
             .catch(() => null);
@@ -927,7 +986,7 @@ export class AgentRouter extends DurableObject<Env> {
   }
 
   private async pumpOne(
-    gateway: AnthropicGateway,
+    gateway: SessionGateway,
     key: string,
     agentId: string,
     session: StoredSession,
