@@ -1,0 +1,9 @@
+{
+  "$schema": "../../node_modules/@biomejs/biome/configuration_schema.json",
+  // Extends the repository's root config; the only difference is that this
+  // package runs on Bun rather than in a Worker, so `Bun` is a real global.
+  "extends": "//",
+  "javascript": {
+    "globals": ["Bun"]
+  }
+}

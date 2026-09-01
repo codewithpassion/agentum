@@ -1,0 +1,11 @@
+# The image needs src/ and nothing else: the daemon has no runtime dependencies.
+node_modules
+dist
+.turbo
+**/*.test.ts
+Dockerfile
+.dockerignore
+README.md
+biome.jsonc
+package.json
+tsconfig.json
