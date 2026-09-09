@@ -27,7 +27,10 @@
 
 import process from "node:process";
 import Anthropic from "@anthropic-ai/sdk";
-import type { BetaManagedAgentsMCPOAuthUpdateParams } from "@anthropic-ai/sdk/resources/beta/vaults/credentials";
+import type {
+  BetaManagedAgentsEnvironmentVariableUpdateParams,
+  BetaManagedAgentsMCPOAuthUpdateParams,
+} from "@anthropic-ai/sdk/resources/beta/vaults/credentials";
 import {
   AGENT_MODEL,
   AGENT_TOOLSET,
@@ -792,11 +795,213 @@ const runNamesSpike = async (client: Anthropic): Promise<void> => {
   }
 };
 
+/**
+ * The workspace-secrets entry spike (docs/plan-workspace-secrets.md, §5). It
+ * answers what the vault mirror is designed around and nothing else:
+ *
+ * - the create/update/archive shape of an `environment_variable` credential,
+ *   and what `injection_location` defaults to when it is omitted
+ * - whether `secret_name` is unique per vault or per organization, which is
+ *   what decides whether one vault per workspace can hold `DEEPGRAM_API_KEY`
+ *   for two workspaces sharing the deployment's key
+ * - the per-vault credential cap (the plan assumes 20)
+ * - whether a `networking` update replaces the host list or merges into it
+ *
+ * It creates two throwaway vaults and deletes both, and it never sends a real
+ * secret value.
+ */
+
+const SPIKE_SECRET_NAME = "SPIKE_DEEPGRAM_API_KEY";
+const SPIKE_SECRET_VALUE = "spike-dummy-secret-value";
+const SPIKE_HOSTS = ["api.deepgram.com"];
+const CAP_PROBE_LIMIT = 24;
+
+const createEnvVar = (
+  client: Anthropic,
+  vaultId: string,
+  secretName: string,
+  options: { allowedHosts?: string[]; injectHeader?: boolean } = {}
+) =>
+  client.beta.vaults.credentials.create(vaultId, {
+    auth: {
+      networking: options.allowedHosts
+        ? { allowed_hosts: options.allowedHosts, type: "limited" }
+        : { type: "unrestricted" },
+      secret_name: secretName,
+      secret_value: SPIKE_SECRET_VALUE,
+      type: "environment_variable",
+      ...(options.injectHeader === undefined
+        ? {}
+        : { injection_location: { header: options.injectHeader } }),
+    },
+    display_name: `spike env var ${secretName}`,
+    metadata: { origin: "secrets-spike" },
+  });
+
+/**
+ * The topology question: one secrets vault per workspace only works if the
+ * same `secret_name` may exist in two vaults under one organization.
+ */
+const probeNameScope = async (
+  client: Anthropic,
+  firstVaultId: string
+): Promise<void> => {
+  await expectFailure(
+    `credentials.create duplicate ${SPIKE_SECRET_NAME} in the same vault`,
+    () => createEnvVar(client, firstVaultId, SPIKE_SECRET_NAME)
+  );
+
+  const second = await client.beta.vaults.create({
+    display_name: `agentum-secrets-spike-second-${Date.now().toString(36)}`,
+    metadata: { origin: "secrets-spike" },
+  });
+  dump("vaults.create (second vault)", second);
+  try {
+    dump(
+      `credentials.create ${SPIKE_SECRET_NAME} in a SECOND vault`,
+      await createEnvVar(client, second.id, SPIKE_SECRET_NAME, {
+        allowedHosts: SPIKE_HOSTS,
+      })
+    );
+  } catch (error) {
+    dumpError("same secret_name in a second vault", error);
+  } finally {
+    await client.beta.vaults
+      .delete(second.id)
+      .catch((cleanup: unknown) => dumpError(`cleanup ${second.id}`, cleanup));
+  }
+};
+
+/** How many credentials one vault holds. The plan assumes 20. */
+const probeVaultCap = async (client: Anthropic): Promise<void> => {
+  const vault = await client.beta.vaults.create({
+    display_name: `agentum-secrets-cap-${Date.now().toString(36)}`,
+    metadata: { origin: "secrets-spike" },
+  });
+  let created = 0;
+  try {
+    for (let index = 0; index < CAP_PROBE_LIMIT; index += 1) {
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: the cap is what we are measuring
+        await createEnvVar(client, vault.id, `SPIKE_CAP_${index}`);
+        created += 1;
+      } catch (error) {
+        dumpError(`credentials.create #${index + 1} (cap reached?)`, error);
+        break;
+      }
+    }
+    dump("per-vault credential cap", {
+      created,
+      hit_a_limit: created < CAP_PROBE_LIMIT,
+      probe_limit: CAP_PROBE_LIMIT,
+    });
+  } finally {
+    await client.beta.vaults
+      .delete(vault.id)
+      .catch((cleanup: unknown) => dumpError(`cleanup ${vault.id}`, cleanup));
+  }
+};
+
+const runSecretsSpike = async (client: Anthropic): Promise<void> => {
+  const vault = await client.beta.vaults.create({
+    display_name: `agentum-secrets-spike-${Date.now().toString(36)}`,
+    metadata: { origin: "secrets-spike" },
+  });
+  dump("vaults.create", vault);
+
+  try {
+    const credential = await createEnvVar(client, vault.id, SPIKE_SECRET_NAME, {
+      allowedHosts: SPIKE_HOSTS,
+      injectHeader: true,
+    });
+    dump(
+      "credentials.create environment_variable (header, limited)",
+      credential
+    );
+
+    dump(
+      "credentials.create with injection_location omitted (what is the default?)",
+      await createEnvVar(client, vault.id, "SPIKE_DEFAULTS", {
+        allowedHosts: SPIKE_HOSTS,
+      })
+    );
+
+    await probeNameScope(client, vault.id);
+
+    dump(
+      "credentials.update networking (replacement or merge?)",
+      await client.beta.vaults.credentials.update(credential.id, {
+        auth: {
+          networking: {
+            allowed_hosts: ["api.openai.com"],
+            type: "limited",
+          },
+          type: "environment_variable",
+        },
+        vault_id: vault.id,
+      })
+    );
+
+    dump(
+      "credentials.update secret_value (rotation)",
+      await client.beta.vaults.credentials.update(credential.id, {
+        auth: {
+          secret_value: "spike-rotated-value",
+          type: "environment_variable",
+        },
+        vault_id: vault.id,
+      })
+    );
+
+    await expectFailure("credentials.update secret_name (immutable)", () =>
+      client.beta.vaults.credentials.update(credential.id, {
+        auth: {
+          secret_name: "SPIKE_RENAMED",
+          type: "environment_variable",
+        } as unknown as BetaManagedAgentsEnvironmentVariableUpdateParams,
+        vault_id: vault.id,
+      })
+    );
+
+    dump(
+      "credentials.retrieve after updates",
+      await client.beta.vaults.credentials.retrieve(credential.id, {
+        vault_id: vault.id,
+      })
+    );
+
+    dump(
+      "credentials.archive",
+      await client.beta.vaults.credentials.archive(credential.id, {
+        vault_id: vault.id,
+      })
+    );
+    await listCredentials(client, vault.id, false);
+    await listCredentials(client, vault.id, true);
+
+    await expectFailure(
+      "credentials.create reusing an ARCHIVED secret_name",
+      () =>
+        createEnvVar(client, vault.id, SPIKE_SECRET_NAME, {
+          allowedHosts: SPIKE_HOSTS,
+        })
+    );
+
+    await probeVaultCap(client);
+  } catch (error) {
+    dumpError("secrets spike", error);
+  } finally {
+    dump("vaults.delete (cleanup)", await client.beta.vaults.delete(vault.id));
+  }
+};
+
 const [, , mode] = process.argv;
 if (mode === "names") {
   await runNamesSpike(new Anthropic({ apiKey: requireApiKey() }));
 } else if (mode === "vaults") {
   await runVaultSpike(new Anthropic({ apiKey: requireApiKey() }));
+} else if (mode === "secrets") {
+  await runSecretsSpike(new Anthropic({ apiKey: requireApiKey() }));
 } else if (mode === "skills") {
   await runSkillsSpike(new Anthropic({ apiKey: requireApiKey() }));
 } else {
