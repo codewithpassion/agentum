@@ -60,6 +60,7 @@ import {
   toMcpMessage,
 } from "./format";
 import { registerRoutineTools } from "./routine-tools";
+import { registerSecretTools } from "./secret-tools";
 import { registerSkillTools } from "./skill-tools";
 
 /**
@@ -1025,6 +1026,7 @@ export const registerWorkspaceTools = (
   registerWikiTools(server, ctx);
   registerRoutineTools(server, ctx);
   registerSkillTools(server, ctx);
+  registerSecretTools(server, ctx);
   registerComputerFileTools(server, ctx);
   registerComputerExec(server, ctx);
   registerBrowserTools(server, ctx);

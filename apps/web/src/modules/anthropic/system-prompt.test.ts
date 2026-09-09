@@ -57,6 +57,22 @@ describe("composeSystemPrompt", () => {
     expect(prompt).toContain("next wake");
   });
 
+  test("points at the secret tools and forbids asking a person for a key", () => {
+    const prompt = composeSystemPrompt(input());
+
+    expect(prompt).toContain("list_secrets");
+    expect(prompt).toContain("http_request");
+    expect(prompt).toContain("never see a secret's value");
+    expect(prompt).toContain("must not ask a person for one in chat");
+  });
+
+  test("tells a managed agent its sandbox has the same secrets as env vars", () => {
+    const prompt = composeSystemPrompt(input());
+
+    expect(prompt).toContain("In your sandbox each granted secret");
+    expect(prompt).toContain("only for its allowed hosts");
+  });
+
   test("demands progress updates on long-running work", () => {
     const prompt = composeSystemPrompt(input());
 
@@ -135,6 +151,10 @@ describe("composeSystemPrompt on the Cloudflare runtime", () => {
     expect(prompt).not.toContain("# Subagents");
     expect(prompt).not.toContain("set_model");
     expect(prompt).not.toContain("and your own model");
+    // The tool works on both runtimes; only the vault-mirrored env vars are
+    // managed-only, and there is no sandbox here to hold them.
+    expect(prompt).toContain("list_secrets");
+    expect(prompt).not.toContain("In your sandbox each granted secret");
   });
 
   test("the managed runtime is the default", () => {

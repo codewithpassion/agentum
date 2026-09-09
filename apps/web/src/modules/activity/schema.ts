@@ -23,6 +23,7 @@ export const ACTIVITY_KINDS = [
   "computer.edit",
   "computer.exec",
   "computer.write",
+  "http.request",
   "wiki.edit",
 ] as const;
 
