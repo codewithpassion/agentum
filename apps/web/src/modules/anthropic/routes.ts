@@ -2,6 +2,7 @@ import { type Context, Hono } from "hono";
 import type { ApiEnv } from "#/api/types";
 import { badRequest, readJsonObject, requireString } from "#/api/validation";
 import { createDb, type Db } from "#/db/client";
+import { syncWorkspaceSecretMirrors } from "#/modules/secrets/mirror";
 import { requireOwner } from "#/modules/workspaces/require-workspace";
 import { resyncWorkspaceAfterKeyChange } from "./service";
 import {
@@ -28,19 +29,28 @@ const SERVICE_UNAVAILABLE = 503;
 
 /**
  * Behind the response, like every other push to Anthropic: changing the key
- * forgot every id the workspace held, and its agents have to be registered
- * again under the new one. A failure here is not lost - the reset recorded the
- * push as owed, and the existing pending sweep retries it.
+ * forgot every id the workspace held, so its agents have to be registered again
+ * under the new one and its secrets mirrored into a new vault. A failed
+ * registration is not lost - the reset recorded the push as owed, and the
+ * existing pending sweep retries it.
+ *
+ * The secrets sweep is here rather than inside that retry because nothing else
+ * would ever run it: a secret's credential is pushed when the secret is saved,
+ * so a workspace that rotates its key and saves nothing would keep working
+ * everywhere except its managed sandboxes, silently.
  */
 const reregister = (c: Context<ApiEnv>, db: Db): void => {
-  const work = resyncWorkspaceAfterKeyChange(
-    db,
-    c.env,
-    c.get("workspace").id,
-    c.req.url
-  ).catch(() => {
-    // Every failure path records itself on the agent row.
-  });
+  const workspaceId = c.get("workspace").id;
+  const work = Promise.all([
+    resyncWorkspaceAfterKeyChange(db, c.env, workspaceId, c.req.url).catch(
+      () => {
+        // Every failure path records itself on the agent row.
+      }
+    ),
+    syncWorkspaceSecretMirrors(db, c.env, workspaceId).catch(() => {
+      // Every failure path records itself on the secret row.
+    }),
+  ]);
   try {
     c.executionCtx.waitUntil(work);
   } catch {

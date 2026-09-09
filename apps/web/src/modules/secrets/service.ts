@@ -627,7 +627,7 @@ export const resetSecretMirrorForWorkspace = async (
  * workspace-delete cleanup.
  *
  * The vault is archived separately and behind the response - see
- * `archiveWorkspaceSecretVault`, which is why it may not expect these rows to
+ * `deleteWorkspaceSecretVault`, which is why it may not expect these rows to
  * still exist.
  */
 export const deleteSecretsForWorkspace = async (

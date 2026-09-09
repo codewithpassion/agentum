@@ -14,6 +14,7 @@ import {
 } from "#/modules/agents/service";
 import { listConnectorsForAgent } from "#/modules/connectors/service";
 import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
+import { agentHasSecrets } from "#/modules/secrets/service";
 import { listAgentSkillAssignments } from "#/modules/skills/service";
 import { composeAgentConnectors } from "./agent-connectors";
 import { composeAgentSkills } from "./agent-skills";
@@ -27,10 +28,12 @@ import {
   appConfig,
   ENVIRONMENT_ID_KEY,
   environmentIdKeyFor,
+  secretsVaultIdKeyFor,
   WORKER_AGENT_ID_KEY,
   workerAgentIdKeyFor,
 } from "./schema";
 import { composeSystemPrompt, rosterFor } from "./system-prompt";
+import type { SecretVaultGateway } from "./vaults";
 import {
   MissingConnectorKeyError,
   type ResolvedAnthropicKey,
@@ -611,15 +614,114 @@ export const resyncAgentConnectorsWithAnthropic = async (
   );
 };
 
+// --- the workspace's secrets vault ------------------------------------------
+
+const secretsVaultDisplayName = (workspaceId: string): string =>
+  `agentum-secrets-${workspaceId}`;
+
+/**
+ * The workspace's secrets vault, or null when nothing has been mirrored into one
+ * yet. A read, never a create: the vault comes into existence on the first
+ * mirror push and nowhere else.
+ */
+export const secretsVaultIdFor = (
+  db: Db,
+  workspaceId: string
+): Promise<string | null> =>
+  idCache(db, secretsVaultIdKeyFor(workspaceId)).read();
+
+/**
+ * One vault per workspace, made on demand and remembered in `app_config`.
+ *
+ * One rather than one per secret because vault ids attach at session create, and
+ * a session may carry only a handful - so a workspace with twelve secrets would
+ * otherwise have nothing left for its connectors. `secret_name` is unique per
+ * vault but free to repeat across vaults (spike), so two workspaces sharing the
+ * deployment's key can both hold `DEEPGRAM_API_KEY`.
+ */
+export const ensureSecretsVault = async (
+  db: Db,
+  vaults: SecretVaultGateway,
+  workspaceId: string
+): Promise<string> => {
+  const key = secretsVaultIdKeyFor(workspaceId);
+  const cache = idCache(db, key);
+  const cached = await cache.read();
+  if (cached) {
+    return cached;
+  }
+
+  const vaultId = await vaults.createSecretsVault({
+    displayName: secretsVaultDisplayName(workspaceId),
+    workspaceId,
+  });
+
+  // The read and the write are not one operation, so two pushes racing the first
+  // mirror of a workspace both get here with a vault of their own. The insert is
+  // the arbiter - `onConflictDoNothing` rather than the cache's own upsert, which
+  // would let the second writer replace an id the first has already put on a row
+  // and leave every later update addressing a vault nothing points at.
+  const claimed = await db
+    .insert(appConfig)
+    .values({ key, value: vaultId })
+    .onConflictDoNothing()
+    .returning({ value: appConfig.value });
+  if (claimed.length > 0) {
+    return vaultId;
+  }
+
+  const winner = await cache.read();
+  if (!winner || winner === vaultId) {
+    return vaultId;
+  }
+  // Ours lost, and it is empty: nothing has been written into it yet. A failed
+  // delete leaves an unused vault rather than a broken mirror, so it is not worth
+  // failing the push that is about to use the winner.
+  await vaults.deleteVault(vaultId).catch(() => {
+    // An orphaned empty vault; the credential goes into the winner either way.
+  });
+  return winner;
+};
+
+/** Forgets the vault: the workspace is going, or its API key just changed. */
+export const clearSecretsVaultId = async (
+  db: Db,
+  workspaceId: string
+): Promise<void> => {
+  await db
+    .delete(appConfig)
+    .where(eq(appConfig.key, secretsVaultIdKeyFor(workspaceId)));
+};
+
 /**
  * The vaults the agent's next session may use. Create-only on Anthropic's side,
  * so this is read once, when the session is made.
+ *
+ * The workspace's secrets vault joins the agent's connector vaults when the
+ * agent holds any grant - which is what makes a grant, and only a grant, put the
+ * workspace's secrets in a sandbox as environment variables. Nothing is created
+ * here: a workspace that has never mirrored a secret has no vault, and an empty
+ * one would carry nothing anyway.
  */
 export const sessionVaultIdsFor = async (
   db: Db,
   agentId: string
-): Promise<string[]> =>
-  composeAgentConnectors(await listConnectorsForAgent(db, agentId)).vaultIds;
+): Promise<string[]> => {
+  const connectorVaultIds = composeAgentConnectors(
+    await listConnectorsForAgent(db, agentId)
+  ).vaultIds;
+
+  // Unscoped because the caller is the agent's own Durable Object, which holds
+  // the row rather than a workspace context; the grant query is scoped by it.
+  const agent = await getAgentByIdUnscoped(db, agentId);
+  if (!(agent && (await agentHasSecrets(db, agent.workspaceId, agentId)))) {
+    return connectorVaultIds;
+  }
+  const secretsVaultId = await secretsVaultIdFor(db, agent.workspaceId);
+  return secretsVaultId
+    ? [...new Set([...connectorVaultIds, secretsVaultId])]
+    : connectorVaultIds;
+};
 
 /**
  * After a delete, the survivors' rosters still name the agent that left. Only

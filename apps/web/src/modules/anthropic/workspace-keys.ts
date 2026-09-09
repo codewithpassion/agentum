@@ -8,10 +8,12 @@ import {
   resetAnthropicRegistrationForWorkspace,
 } from "#/modules/agents/service";
 import { clearVaultRefsForWorkspace } from "#/modules/connectors/service";
+import { resetSecretMirrorForWorkspace } from "#/modules/secrets/service";
 import { resetAnthropicMirrorForWorkspace } from "#/modules/skills/service";
 import {
   appConfig,
   environmentIdKeyFor,
+  secretsVaultIdKeyFor,
   workerAgentIdKeyFor,
   workspaceAnthropicKeys,
 } from "./schema";
@@ -122,9 +124,16 @@ export const resetWorkspaceAnthropicResources = async (
   await resetAnthropicRegistrationForWorkspace(db, workspaceId);
   await clearVaultRefsForWorkspace(db, workspaceId);
   await resetAnthropicMirrorForWorkspace(db, workspaceId);
+  await resetSecretMirrorForWorkspace(db, workspaceId);
   await db
     .delete(appConfig)
     .where(eq(appConfig.key, environmentIdKeyFor(workspaceId)));
+  // The secrets vault belonged to the old key, and so did every credential in
+  // it. Dropping the cached id is what makes the next mirror push build a fresh
+  // vault rather than address one this key cannot see.
+  await db
+    .delete(appConfig)
+    .where(eq(appConfig.key, secretsVaultIdKeyFor(workspaceId)));
   await db
     .delete(appConfig)
     .where(eq(appConfig.key, workerAgentIdKeyFor(workspaceId)));

@@ -15,6 +15,7 @@ import {
 import { agentConnectors, connectors } from "#/modules/connectors/schema";
 import { assignConnector } from "#/modules/connectors/service";
 import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
+import { createSecret, grantSecret } from "#/modules/secrets/service";
 import { skills, skillVersions } from "#/modules/skills/schema";
 import { assignSkill } from "#/modules/skills/service";
 import {
@@ -26,7 +27,12 @@ import type {
   SyncAgentInput,
   SyncAgentSkillsInput,
 } from "./gateway";
-import { appConfig, ENVIRONMENT_ID_KEY, environmentIdKeyFor } from "./schema";
+import {
+  appConfig,
+  ENVIRONMENT_ID_KEY,
+  environmentIdKeyFor,
+  secretsVaultIdKeyFor,
+} from "./schema";
 import {
   anthropicKeyFor,
   type ConnectorResyncDeps,
@@ -402,6 +408,58 @@ describe("sessionVaultIdsFor", () => {
 
   test("is empty for an agent with no connectors", async () => {
     expect(await sessionVaultIdsFor(db, await registeredAgent())).toEqual([]);
+  });
+
+  /**
+   * The secrets half: one vault per workspace, attached when the agent holds any
+   * grant. Nothing is created here - the vault exists because the mirror made it
+   * and cached its id, so an uncached workspace has nothing to attach.
+   */
+  const grantASecret = async (agentId: string): Promise<void> => {
+    const secret = await createSecret(
+      db,
+      { CONNECTOR_KEY: generateConnectorKey() } as unknown as Env,
+      DEFAULT_WORKSPACE_ID,
+      {
+        allowedHosts: ["api.deepgram.com"],
+        clerkUserId: "user_2aAdaAAAAAAAAAAAAAAAAAAA",
+        name: "DEEPGRAM_API_KEY",
+        value: "dg-0123456789abcdef",
+      }
+    );
+    await grantSecret(db, secret.id, agentId);
+  };
+
+  const seedSecretsVault = (value = "vault_secrets") =>
+    db
+      .insert(appConfig)
+      .values({ key: secretsVaultIdKeyFor(DEFAULT_WORKSPACE_ID), value });
+
+  test("adds the workspace's secrets vault when the agent holds a grant", async () => {
+    const agentId = await registeredAgent();
+    await addConnectorRow("aaaa");
+    await assignConnector(db, "aaaa", agentId);
+    await grantASecret(agentId);
+    await seedSecretsVault();
+
+    expect(await sessionVaultIdsFor(db, agentId)).toEqual([
+      "vault_aaaa",
+      "vault_secrets",
+    ]);
+  });
+
+  test("leaves it out for an agent that was granted nothing", async () => {
+    const agentId = await registeredAgent();
+    await seedSecretsVault();
+
+    expect(await sessionVaultIdsFor(db, agentId)).toEqual([]);
+  });
+
+  test("leaves it out while the workspace has no vault yet", async () => {
+    const agentId = await registeredAgent();
+    await grantASecret(agentId);
+
+    expect(await sessionVaultIdsFor(db, agentId)).toEqual([]);
   });
 });
 

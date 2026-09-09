@@ -37,6 +37,21 @@ export const WORKER_AGENT_ID_KEY = "anthropic.worker_agent_id";
 export const workerAgentIdKeyFor = (workspaceId: string): string =>
   `${WORKER_AGENT_ID_KEY}:${workspaceId}`;
 
+const SECRETS_VAULT_ID_KEY = "anthropic.secrets_vault_id";
+
+/**
+ * The one vault a workspace's secrets are mirrored into, created lazily on the
+ * first mirror push.
+ *
+ * Always workspace-scoped, unlike the environment and worker ids, which have a
+ * deployment-wide entry to share: a vault holds one workspace's credentials and
+ * can never be shared. There is no separate entry per API key either, because
+ * the key-change reset drops this one - so the id in it always belongs to the
+ * key the workspace is running on now.
+ */
+export const secretsVaultIdKeyFor = (workspaceId: string): string =>
+  `${SECRETS_VAULT_ID_KEY}:${workspaceId}`;
+
 /**
  * A workspace's own Anthropic API key, encrypted with `CONNECTOR_KEY` the same
  * way connector secrets are. It lives here rather than on the `workspaces` row

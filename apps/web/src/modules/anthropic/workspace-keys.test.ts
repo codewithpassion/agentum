@@ -8,11 +8,13 @@ import type { Db } from "#/db/client";
 import { agents } from "#/modules/agents/schema";
 import { createAgent, setAgentRegistration } from "#/modules/agents/service";
 import { connectors } from "#/modules/connectors/schema";
+import { workspaceSecrets } from "#/modules/secrets/schema";
 import { skills, skillVersions } from "#/modules/skills/schema";
 import {
   appConfig,
   ENVIRONMENT_ID_KEY,
   environmentIdKeyFor,
+  secretsVaultIdKeyFor,
   workspaceAnthropicKeys,
 } from "./schema";
 import {
@@ -259,9 +261,27 @@ const seedWorkspaceResources = async (workspaceId: string, tag: string) => {
     version: 1,
   });
 
+  // A secret already mirrored into the workspace's vault: both the row's
+  // Anthropic-side id and the vault the credential lives in belong to the key.
+  await db.insert(workspaceSecrets).values({
+    allowedHosts: ["api.deepgram.com"],
+    hint: "cdef",
+    id: `sec_${tag}`,
+    name: "DEEPGRAM_API_KEY",
+    setByClerkUserId: "user_2aAdaAAAAAAAAAAAAAAAAAAA",
+    syncStatus: "synced",
+    valueEnc: `enc_${tag}`,
+    vaultCredentialId: `cred_secret_${tag}`,
+    workspaceId,
+  });
+
   await db
     .insert(appConfig)
     .values({ key: environmentIdKeyFor(workspaceId), value: `env_${tag}` });
+  await db.insert(appConfig).values({
+    key: secretsVaultIdKeyFor(workspaceId),
+    value: `vault_secrets_${tag}`,
+  });
 
   return agent.id;
 };
@@ -287,6 +307,14 @@ const anthropicStateOf = async (workspaceId: string) => {
     .select()
     .from(appConfig)
     .where(eq(appConfig.key, environmentIdKeyFor(workspaceId)));
+  const [secret] = await db
+    .select()
+    .from(workspaceSecrets)
+    .where(eq(workspaceSecrets.workspaceId, workspaceId));
+  const [secretsVault] = await db
+    .select()
+    .from(appConfig)
+    .where(eq(appConfig.key, secretsVaultIdKeyFor(workspaceId)));
 
   return {
     anthropicAgentId: agent?.anthropicAgentId ?? null,
@@ -294,6 +322,9 @@ const anthropicStateOf = async (workspaceId: string) => {
     anthropicVersion: version?.anthropicVersion ?? null,
     environmentId: environment?.value ?? null,
     memoryStoreId: agent?.memoryStoreId ?? null,
+    secretSyncStatus: secret?.syncStatus ?? null,
+    secretsVaultId: secretsVault?.value ?? null,
+    secretVaultCredentialId: secret?.vaultCredentialId ?? null,
     sessionId: agent?.sessionId ?? null,
     skillSyncStatus: skill?.syncStatus ?? null,
     syncStatus: agent?.syncStatus ?? null,
@@ -313,6 +344,10 @@ describe("resetWorkspaceAnthropicResources", () => {
       anthropicVersion: null,
       environmentId: null,
       memoryStoreId: null,
+      // The value is untouched; only the mirror has to be rebuilt.
+      secretSyncStatus: "unregistered",
+      secretsVaultId: null,
+      secretVaultCredentialId: null,
       sessionId: null,
       skillSyncStatus: "unsynced",
       syncStatus: "unregistered",
@@ -343,6 +378,8 @@ describe("resetWorkspaceAnthropicResources", () => {
     expect(theirs.vaultId).toBe("vault_theirs");
     expect(theirs.anthropicSkillId).toBe("skill_theirs");
     expect(theirs.environmentId).toBe("env_theirs");
+    expect(theirs.secretVaultCredentialId).toBe("cred_secret_theirs");
+    expect(theirs.secretsVaultId).toBe("vault_secrets_theirs");
 
     const [global] = await db
       .select()

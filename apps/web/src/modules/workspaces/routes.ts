@@ -15,7 +15,7 @@ import {
   linkExternalAuthor,
   listExternalAuthors,
 } from "#/modules/messaging/external-authors";
-import { archiveWorkspaceSecretVault } from "#/modules/secrets/mirror";
+import { deleteWorkspaceSecretVault } from "#/modules/secrets/mirror";
 import { type ClerkDirectory, clerkDirectoryFromEnv } from "./clerk-directory";
 import { requireOwner, requireWorkspace } from "./require-workspace";
 import {
@@ -129,17 +129,17 @@ workspaceScopedRoutes.delete("/", requireOwner, async (c) => {
   const workspaceId = c.get("workspace").id;
   await deleteWorkspace(db, c.env.ATTACHMENTS, workspaceId);
 
-  // The rows are gone; the vault they were mirrored into is not. Archiving it
+  // The rows are gone; the vault they were mirrored into is not. Deleting it
   // is a call to Anthropic, so it rides behind the response - a vault we fail
-  // to archive is a bill, while a delete we fail to finish is a live tenant.
+  // to delete is a bill, while a delete we fail to finish is a live tenant.
   // It finds the vault through `app_config` alone, since nothing else is left.
-  const archived = archiveWorkspaceSecretVault(db, c.env, workspaceId).catch(
+  const vaultDeleted = deleteWorkspaceSecretVault(db, c.env, workspaceId).catch(
     () => {
       // Nothing left to record it on: the workspace is already gone.
     }
   );
   try {
-    c.executionCtx.waitUntil(archived);
+    c.executionCtx.waitUntil(vaultDeleted);
   } catch {
     // No execution context (a direct fetch in a test): let it run detached.
   }
