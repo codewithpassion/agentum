@@ -27,6 +27,7 @@ import {
   countPendingQuestionsForAgent,
 } from "#/modules/questions/service";
 import { isCloudflareModelShaped } from "#/modules/runner/models";
+import { deleteSecretGrantsForAgent } from "#/modules/secrets/service";
 import { mcpUrlForToken } from "./mcp-token";
 import {
   AGENT_COMPUTERS,
@@ -366,6 +367,11 @@ agentsRoutes.delete("/:id", async (c) => {
   // behind, it would be an events URL Slack keeps posting to for an agent that
   // no longer exists, with no screen anywhere that could disconnect it.
   await deleteSlackAppForAgent(db, workspaceId, id);
+  // The workspace's secrets stay - they belong to the workspace - but this
+  // agent's grants go with it. `agent_secrets` carries no foreign key, so
+  // nothing else would ever collect them, and a row naming a dead agent is a
+  // grant that would be reinstated by a new agent minted with the same id.
+  await deleteSecretGrantsForAgent(db, id);
   // The agent that left is still named in every other agent's roster - every
   // other agent *of this workspace*, which is the only roster it was ever in.
   // Its own Anthropic agent is left alone: archiving is permanent and buys us

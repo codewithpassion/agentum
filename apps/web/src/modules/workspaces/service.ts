@@ -15,6 +15,7 @@ import {
 } from "#/modules/messaging/service";
 import { deleteQuestionsForWorkspace } from "#/modules/questions/service";
 import { deleteRoutinesForWorkspace } from "#/modules/routines/service";
+import { deleteSecretsForWorkspace } from "#/modules/secrets/service";
 import { deleteSkillsForWorkspace } from "#/modules/skills/service";
 import { deletePagesForWorkspace } from "#/modules/wiki/service";
 import {
@@ -235,9 +236,10 @@ export const renameWorkspace = async (
  * messages, message mentions and attachments (from `channels`), wiki revisions
  * (from `wiki_pages`), category items (from `categories`). What does not, and
  * is deleted by hand: agent activity, browser sessions and screenshots,
- * connector assignments and OAuth flows, skill versions and files, routine
- * runs, agent questions, wiki assets - and the R2 objects behind all of those,
- * which each module drops as it deletes the rows naming them.
+ * connector assignments and OAuth flows, secrets and their grants, skill
+ * versions and files, routine runs, agent questions, wiki assets - and the R2
+ * objects behind all of those, which each module drops as it deletes the rows
+ * naming them.
  *
  * Two lookups are left alone on purpose. `slack_events_seen` is Slack's global
  * retry dedupe, keyed by event id and belonging to no tenant; `slack_users` is
@@ -265,6 +267,11 @@ export const deleteWorkspace = async (
   await deleteChannelsForWorkspace(db, bucket, workspaceId);
   await deleteCategoriesForWorkspace(db, workspaceId);
   await deleteConnectorsForWorkspace(db, workspaceId);
+  // The secrets and every grant naming one. The vault they are mirrored into is
+  // archived separately, behind the response, by the route below: it needs the
+  // Worker env this function is not given, and archiving is a network call that
+  // must not be able to fail a delete.
+  await deleteSecretsForWorkspace(db, workspaceId);
   await deleteSkillsForWorkspace(db, bucket, workspaceId);
   await deleteRoutinesForWorkspace(db, workspaceId);
   await deleteQuestionsForWorkspace(db, workspaceId);

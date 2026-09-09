@@ -162,6 +162,13 @@
       "when": 1788260627863,
       "tag": "0022_computer_hosts",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1788993035209,
+      "tag": "0023_workspace_secrets",
+      "breakpoints": true
     }
   ]
 }

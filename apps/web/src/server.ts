@@ -29,6 +29,7 @@ import {
   questionsRoutes,
 } from "#/modules/questions/routes";
 import { routinesRoutes } from "#/modules/routines/routes";
+import { secretsRoutes } from "#/modules/secrets/routes";
 import { skillsRoutes } from "#/modules/skills/routes";
 import { wikiRoutes } from "#/modules/wiki/routes";
 import {
@@ -121,6 +122,9 @@ workspaceScopedRoutes.route("/computer-hosts", computerHostRoutes);
 // The workspace's own Anthropic API key - owner-only, and write-only: the
 // router hands back a hint, never the key.
 workspaceScopedRoutes.route("/anthropic-key", anthropicKeyRoutes);
+// The workspace's API keys for third-party services - owner-gated for writes,
+// and write-only in the same sense as the Anthropic key above.
+workspaceScopedRoutes.route("/secrets", secretsRoutes);
 // Skills (versioned SKILL.md bundles, mirrored to Anthropic).
 workspaceScopedRoutes.route("/skills", skillsRoutes);
 // Routines: scheduled instructions, fired into a channel by the per-workspace

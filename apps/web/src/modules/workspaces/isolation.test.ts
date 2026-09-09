@@ -70,10 +70,12 @@ const { agentQuestionsRoutes, questionsRoutes } = await import(
   "#/modules/questions/routes"
 );
 const { routinesRoutes } = await import("#/modules/routines/routes");
+const { secretsRoutes } = await import("#/modules/secrets/routes");
 const { skillsRoutes } = await import("#/modules/skills/routes");
 const { wikiRoutes } = await import("#/modules/wiki/routes");
 const { workspaceScopedRoutes } = await import("./routes");
 
+const { generateConnectorKey } = await import("#/crypto");
 const { createAgent, findAgentByMcpToken } = await import(
   "#/modules/agents/service"
 );
@@ -94,6 +96,7 @@ const { createChannel, createMessage } = await import(
 );
 const { ask } = await import("#/modules/questions/service");
 const { createRoutine } = await import("#/modules/routines/service");
+const { createSecret, grantSecret } = await import("#/modules/secrets/service");
 const { createSkill } = await import("#/modules/skills/service");
 const { validateSkill } = await import("#/modules/skills/validate");
 const { createPage, storeAsset } = await import("#/modules/wiki/service");
@@ -178,6 +181,7 @@ workspaceScopedRoutes.route("/messages", messagesRoutes);
 workspaceScopedRoutes.route("/attachments", attachmentsRoutes);
 workspaceScopedRoutes.route("/wiki", wikiRoutes);
 workspaceScopedRoutes.route("/connectors", connectorsRoutes);
+workspaceScopedRoutes.route("/secrets", secretsRoutes);
 workspaceScopedRoutes.route("/skills", skillsRoutes);
 workspaceScopedRoutes.route("/routines", routinesRoutes);
 workspaceScopedRoutes.route("/questions", questionsRoutes);
@@ -202,6 +206,8 @@ interface Seeded {
   /** Every object this workspace's seed put in R2. */
   r2Keys: string[];
   routineId: string;
+  /** A secret whose name collides with the other workspace's, as everything does. */
+  secretId: string;
   skillSlug: string;
   slackAppId: string;
   wikiAssetId: string;
@@ -376,6 +382,18 @@ const seedWorkspace = async (
     internalType: "message",
   });
 
+  // Same name in both workspaces, like every other resource here: a query that
+  // forgot its scope would find the *wrong* secret rather than none.
+  const secret = await createSecret(db, env, workspaceId, {
+    allowedHosts: ["api.deepgram.com"],
+    clerkUserId,
+    name: "DEEPGRAM_API_KEY",
+    value: `dg-${slug}-0123456789`,
+  });
+  // Granted to its own agent, so the workspace delete has a grant to collect:
+  // `agent_secrets` carries no workspace of its own and no foreign key.
+  await grantSecret(db, secret.id, agent.id);
+
   // No network: the probe fails, the row lands `unconfigured`, which is all
   // this test needs from it.
   const { connector } = await addConnector(
@@ -404,6 +422,7 @@ const seedWorkspace = async (
     questionId: asked.question.id,
     r2Keys: [...r2Objects.keys()].filter((key) => !bucketBefore.has(key)),
     routineId: routine.id,
+    secretId: secret.id,
     skillSlug: "shared-slug",
     slackAppId: slackApp.id,
     wikiAssetId: asset.asset.id,
@@ -430,6 +449,8 @@ beforeEach(async () => {
       idFromName: (name: string) => name,
     },
     CLERK_SECRET_KEY: "sk_test_fake",
+    // Secrets are encrypted on the way in, so the seed needs a key.
+    CONNECTOR_KEY: generateConnectorKey(),
     DB: d1,
   } as unknown as Env;
   alpha = await seedWorkspace("Alpha", "alpha", ADA_ID);
@@ -446,6 +467,7 @@ describe("requireWorkspace, from the outside", () => {
       "/api/w/beta/wiki",
       "/api/w/beta/skills",
       "/api/w/beta/connectors",
+      "/api/w/beta/secrets",
     ];
     const statuses = await Promise.all(
       paths.map(async (path) => (await request(path)).status)
@@ -787,6 +809,37 @@ describe("workspace B's ids through workspace A's path", () => {
     expect(own.routine).toMatchObject({ enabled: true, id: beta.routineId });
   });
 
+  test("secrets: read, patch, delete, grant and revoke", async () => {
+    const attempts = [
+      {
+        body: { description: "Stolen" },
+        method: "PATCH",
+        path: `/api/w/alpha/secrets/${beta.secretId}`,
+      },
+      { method: "DELETE", path: `/api/w/alpha/secrets/${beta.secretId}` },
+      {
+        method: "PUT",
+        path: `/api/w/alpha/secrets/${beta.secretId}/agents/${beta.agentId}`,
+      },
+      {
+        method: "DELETE",
+        path: `/api/w/alpha/secrets/${beta.secretId}/agents/${beta.agentId}`,
+      },
+      // Nor may one of A's own secrets be granted to one of B's agents.
+      {
+        method: "PUT",
+        path: `/api/w/alpha/secrets/${alpha.secretId}/agents/${beta.agentId}`,
+      },
+    ];
+    expect(await sweep(attempts)).toEqual(allRefused(attempts));
+
+    // A's list shows only A's secret, and never a value.
+    const mine = await request("/api/w/alpha/secrets");
+    const body = (await mine.clone().json()) as { secrets: { id: string }[] };
+    expect(body.secrets.map((row) => row.id)).toEqual([alpha.secretId]);
+    expect(await mine.text()).not.toContain("dg-alpha-0123456789");
+  });
+
   test("questions: another workspace's question cannot be read or answered", async () => {
     const attempts = [
       {
@@ -917,6 +970,7 @@ describe("deleting a workspace", () => {
       "slack_apps",
       "routines",
       "agent_questions",
+      "workspace_secrets",
     ];
     const gone = await Promise.all(
       tables.map((table) => counts(table, beta.workspaceId))
@@ -948,6 +1002,16 @@ describe("deleting a workspace", () => {
       .bind()
       .all();
     expect(skillVersions.results).toHaveLength(1);
+    // `agent_secrets` is named through the secret above it, and nothing else
+    // would ever collect it.
+    const grants = await d1
+      .prepare("SELECT secret_id FROM agent_secrets")
+      .bind()
+      .all();
+    expect(
+      grants.results.map((row) => (row as { secret_id: string }).secret_id)
+    ).toEqual([alpha.secretId]);
+
     const runs = await d1
       .prepare("SELECT routine_id FROM routine_runs")
       .bind()
