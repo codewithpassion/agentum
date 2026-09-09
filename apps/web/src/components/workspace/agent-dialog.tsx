@@ -14,6 +14,7 @@ import {
   isAgentRuntime,
 } from "#/modules/agents/schema";
 import { AgentConnectorsPicker } from "./agent-connectors-picker";
+import { AgentSecretsPicker } from "./agent-secrets-picker";
 import { AgentSkillsPicker } from "./agent-skills-picker";
 import { AgentSlackPanel } from "./agent-slack-panel";
 import { CloudflareModelField } from "./cloudflare-model-field";
@@ -168,7 +169,13 @@ function ComputerFields({
  * Only an agent that exists has sections - a new one has no id to assign
  * anything to yet, so creating stays the single profile form it always was.
  */
-const SECTIONS = ["Profile", "Connectors", "Skills", "Slack"] as const;
+const SECTIONS = [
+  "Profile",
+  "Connectors",
+  "Skills",
+  "Secrets",
+  "Slack",
+] as const;
 
 type Section = (typeof SECTIONS)[number];
 
@@ -193,6 +200,27 @@ function SectionTab({
     >
       {section}
     </button>
+  );
+}
+
+/**
+ * Everything but Profile, which is the form below and stays in the dialog. One
+ * component per section would have been four more branches in `AgentDialog`;
+ * this keeps adding a section to one line here and one entry in `SECTIONS`.
+ */
+function SectionPanel({ agent, section }: { agent: Agent; section: Section }) {
+  if (section === "Profile") {
+    return null;
+  }
+  return (
+    <div role="tabpanel">
+      {section === "Connectors" ? (
+        <AgentConnectorsPicker agentId={agent.id} />
+      ) : null}
+      {section === "Skills" ? <AgentSkillsPicker agentId={agent.id} /> : null}
+      {section === "Secrets" ? <AgentSecretsPicker agentId={agent.id} /> : null}
+      {section === "Slack" ? <AgentSlackPanel agentId={agent.id} /> : null}
+    </div>
   );
 }
 
@@ -306,7 +334,9 @@ export function AgentDialog({
   // screen.
   const { hosts } = useComputerHosts(open);
   // Connectors are attached to Managed Agents sessions; the Cloudflare runtime
-  // has nowhere to attach them, so the tab would only mislead.
+  // has nowhere to attach them, so the tab would only mislead. Secrets are not
+  // filtered the same way: the `http_request` tool reads a grant on every call,
+  // so a Cloudflare agent can spend one exactly as a managed agent can.
   const sections = SECTIONS.filter(
     (name) => name !== "Connectors" || runtime === "managed"
   );
@@ -376,23 +406,7 @@ export function AgentDialog({
         </div>
       ) : null}
 
-      {agent && section === "Connectors" ? (
-        <div role="tabpanel">
-          <AgentConnectorsPicker agentId={agent.id} />
-        </div>
-      ) : null}
-
-      {agent && section === "Skills" ? (
-        <div role="tabpanel">
-          <AgentSkillsPicker agentId={agent.id} />
-        </div>
-      ) : null}
-
-      {agent && section === "Slack" ? (
-        <div role="tabpanel">
-          <AgentSlackPanel agentId={agent.id} />
-        </div>
-      ) : null}
+      {agent ? <SectionPanel agent={agent} section={section} /> : null}
 
       <form
         className={section === "Profile" ? "space-y-4" : "hidden"}

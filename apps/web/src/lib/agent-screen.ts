@@ -102,6 +102,42 @@ export const toExecView = (entry: ActivityView): ExecView | null => {
   };
 };
 
+export interface HttpRequestView {
+  host: string;
+  method: string;
+  /** Null when the call never got an answer - the tool logs `"failed"`. */
+  status: number | null;
+}
+
+/**
+ * `http.request` rows carry the host, the method and the outcome. The path,
+ * which the row's summary includes, is dropped here on purpose: the feed says
+ * where a secret went and how it went, and nothing about what was sent. There
+ * are no headers and no body in `detail` to drop - the tool never writes them.
+ */
+export const toHttpRequestView = (
+  entry: ActivityView
+): HttpRequestView | null => {
+  if (entry.kind !== "http.request" || !entry.detail) {
+    return null;
+  }
+  const host = readString(entry.detail, "host");
+  const method = readString(entry.detail, "method");
+  if (host === null || method === null) {
+    return null;
+  }
+  const { status } = entry.detail;
+  return {
+    host,
+    method,
+    status: typeof status === "number" ? status : null,
+  };
+};
+
+/** `POST api.deepgram.com → 200`, or `→ failed` when there was no answer. */
+export const httpRequestLine = (view: HttpRequestView): string =>
+  `${view.method} ${view.host} → ${view.status ?? "failed"}`;
+
 /** The newest command in a newest-first page, which is what the Screen tab shows. */
 export const latestExec = (entries: ActivityView[]): ExecView | null => {
   for (const entry of entries) {

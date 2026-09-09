@@ -28,6 +28,7 @@ import type {
   RoutineView as RoutineRow,
   RoutineRunView as RoutineRunRow,
 } from "#/modules/routines/service";
+import type { SecretView as SecretRow } from "#/modules/secrets/service";
 import type {
   SkillFileView as SkillFileRow,
   SkillView as SkillRow,
@@ -72,6 +73,41 @@ export type ComputerHostKind = ComputerHost["kind"];
 export type ComputerHostStatus = ComputerHost["status"];
 export type ComputerHostConfig = ComputerHost["config"];
 export type MemberView = MemberRow;
+/**
+ * One of the workspace's stored credentials. The three timestamps are `Date` on
+ * the server and ISO strings by the time they arrive, exactly as for a computer
+ * host above. There is no `value` field and there never will be: the API cannot
+ * return one, and `hint` - the last four characters, bare - is all a screen ever
+ * gets to show.
+ */
+export type Secret = Omit<
+  SecretRow,
+  "createdAt" | "lastUsedAt" | "updatedAt"
+> & {
+  createdAt: string;
+  lastUsedAt: string | null;
+  updatedAt: string;
+};
+export type SecretSyncStatus = Secret["syncStatus"];
+
+/** What a new secret needs. `value` travels once, on the way in, and never back. */
+export interface SecretInput {
+  allowedHosts: string[];
+  description?: string;
+  header?: string;
+  headerPrefix?: string;
+  name: string;
+  value: string;
+}
+
+/** A rotate is a value on its own; the rest of the fields are edited the same way. */
+export interface SecretPatch {
+  allowedHosts?: string[];
+  description?: string;
+  header?: string;
+  headerPrefix?: string;
+  value?: string;
+}
 /**
  * Somebody who writes from a bridged surface. `memberId` is who they are here,
  * once that has been worked out - by the email match (`linkSource: "auto"`) or
@@ -939,6 +975,51 @@ export const createApi = (workspaceSlug: string) => {
       { method: "DELETE" }
     );
 
+  // --- secrets --------------------------------------------------------------
+
+  /**
+   * Any member may read the list; every write below is owner-gated server-side
+   * and answers 403 for anyone else, so the screens hide the actions and still
+   * surface the refusal if one arrives. A duplicate name is a 409 and a
+   * deployment with no encryption key is a 503 - both carry a readable `error`,
+   * which `failureOf` has already lifted into the thrown message.
+   */
+  const listSecrets = () =>
+    request<{ secrets: Secret[] }>("/secrets").then((data) => data.secrets);
+
+  const createSecret = (input: SecretInput) =>
+    request<{ secret: Secret }>("/secrets", {
+      json: input,
+      method: "POST",
+    }).then((data) => data.secret);
+
+  /** `name` is immutable: renaming is a delete and a create, and the API says so. */
+  const updateSecret = (id: string, patch: SecretPatch) =>
+    request<{ secret: Secret }>(`/secrets/${encodeURIComponent(id)}`, {
+      json: patch,
+      method: "PATCH",
+    }).then((data) => data.secret);
+
+  const deleteSecret = (id: string) =>
+    request<void>(`/secrets/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+  /**
+   * Reaches the agent's own tool calls at once - the tool reads the join on
+   * every call - and its sandbox on the next managed session, because vault ids
+   * are fixed when a session is created.
+   */
+  const grantSecretToAgent = (id: string, agentId: string) =>
+    request<{ appliesToNextSession: boolean; granted: boolean }>(
+      `/secrets/${encodeURIComponent(id)}/agents/${encodeURIComponent(agentId)}`,
+      { method: "PUT" }
+    );
+
+  const revokeSecretFromAgent = (id: string, agentId: string) =>
+    request<void>(
+      `/secrets/${encodeURIComponent(id)}/agents/${encodeURIComponent(agentId)}`,
+      { method: "DELETE" }
+    );
+
   // --- routines -------------------------------------------------------------
 
   const listRoutines = () =>
@@ -1121,6 +1202,7 @@ export const createApi = (workspaceSlug: string) => {
     createChannel,
     createComputerHost,
     createRoutine,
+    createSecret,
     createSkill,
     createSkillVersion,
     createWikiPage,
@@ -1130,6 +1212,7 @@ export const createApi = (workspaceSlug: string) => {
     deleteChannelBridge,
     deleteComputerHost,
     deleteRoutine,
+    deleteSecret,
     deleteSkill,
     deleteWikiPage,
     deleteWorkspace,
@@ -1146,6 +1229,7 @@ export const createApi = (workspaceSlug: string) => {
     getWikiPage,
     getWikiRevision,
     getWorkspace,
+    grantSecretToAgent,
     linkExternalAuthor,
     listAgentActivity,
     listAgentBridges,
@@ -1166,6 +1250,7 @@ export const createApi = (workspaceSlug: string) => {
     listPendingQuestions,
     listRoutineRuns,
     listRoutines,
+    listSecrets,
     listSkillAgents,
     listSkills,
     listWikiPages,
@@ -1183,6 +1268,7 @@ export const createApi = (workspaceSlug: string) => {
     renameConnector,
     renameWorkspace,
     retrySkillSync,
+    revokeSecretFromAgent,
     rotateAgentMcpToken,
     runRoutine,
     saveAgentSlackTokens,
@@ -1202,6 +1288,7 @@ export const createApi = (workspaceSlug: string) => {
     updateAgent,
     updateComputerHost,
     updateRoutine,
+    updateSecret,
     updateWikiPage,
     uploadAttachment,
     uploadComputerFile,

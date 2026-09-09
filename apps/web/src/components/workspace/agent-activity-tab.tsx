@@ -1,6 +1,10 @@
 import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
-import { mergeActivity } from "#/lib/agent-screen";
+import {
+  httpRequestLine,
+  mergeActivity,
+  toHttpRequestView,
+} from "#/lib/agent-screen";
 import type { ActivityView } from "#/lib/api";
 import { formatRelativeTime } from "#/lib/format";
 import { usePolling } from "#/lib/use-agent-screen";
@@ -23,7 +27,19 @@ const ICONS: Record<ActivityView["kind"], string> = {
   "computer.edit": "✏️",
   "computer.exec": "⌗",
   "computer.write": "📄",
+  "http.request": "🔑",
   "wiki.edit": "📓",
+};
+
+/**
+ * An `http.request` row says method, host and outcome and stops there: the
+ * summary's path is left off, and a header or a body was never written to the
+ * row in the first place. A row whose detail is not readable falls back to the
+ * summary the server composed, which carries neither either.
+ */
+const lineFor = (entry: ActivityView): string => {
+  const request = toHttpRequestView(entry);
+  return request ? httpRequestLine(request) : entry.summary;
 };
 
 function ActivityRow({ entry }: { entry: ActivityView }) {
@@ -34,7 +50,7 @@ function ActivityRow({ entry }: { entry: ActivityView }) {
       </span>
       <span className="min-w-0 flex-1">
         <span className="block break-words text-[13px] leading-5">
-          {entry.summary}
+          {lineFor(entry)}
         </span>
         <span className="block text-[10px] text-[var(--ws-muted)]">
           {entry.kind} · {formatRelativeTime(entry.createdAt)}

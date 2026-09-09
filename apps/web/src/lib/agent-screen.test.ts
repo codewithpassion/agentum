@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   breadcrumbsFor,
+  httpRequestLine,
   joinPath,
   latestExec,
   looksBinary,
   mergeActivity,
   parentPath,
   toExecView,
+  toHttpRequestView,
 } from "./agent-screen";
 import type { ActivityView } from "./api";
 
@@ -147,5 +149,59 @@ describe("latestExec", () => {
 
   test("is null when nothing has been run", () => {
     expect(latestExec([entry("a", 100)])).toBeNull();
+  });
+});
+
+describe("toHttpRequestView", () => {
+  const request = (detail: Record<string, unknown>) =>
+    entry("h", 400, {
+      detail,
+      kind: "http.request",
+      summary: "POST api.deepgram.com/v1/listen → 200",
+    });
+
+  test("keeps the method, the host and the status, and drops the path", () => {
+    const view = toHttpRequestView(
+      request({
+        host: "api.deepgram.com",
+        method: "POST",
+        path: "/v1/listen",
+        secret: "DEEPGRAM_API_KEY",
+        status: 200,
+      })
+    );
+    expect(view).toEqual({
+      host: "api.deepgram.com",
+      method: "POST",
+      status: 200,
+    });
+  });
+
+  test("a call that never got an answer has no status", () => {
+    const view = toHttpRequestView(
+      request({ host: "api.deepgram.com", method: "GET", status: "failed" })
+    );
+    expect(view?.status).toBeNull();
+  });
+
+  test("ignores rows of another kind, and rows with no host", () => {
+    expect(
+      toHttpRequestView(entry("a", 1, { detail: { host: "x", method: "GET" } }))
+    ).toBeNull();
+    expect(toHttpRequestView(request({ method: "GET" }))).toBeNull();
+  });
+});
+
+describe("httpRequestLine", () => {
+  test("reads as method, host and outcome", () => {
+    expect(
+      httpRequestLine({ host: "api.deepgram.com", method: "POST", status: 200 })
+    ).toBe("POST api.deepgram.com → 200");
+  });
+
+  test("says so when there was no answer", () => {
+    expect(
+      httpRequestLine({ host: "api.deepgram.com", method: "GET", status: null })
+    ).toBe("GET api.deepgram.com → failed");
   });
 });

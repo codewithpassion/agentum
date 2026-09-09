@@ -13,6 +13,7 @@ import { CategoryDialog } from "./category-dialog";
 import { COMPUTERS_SECTION, ComputersSection } from "./computers-section";
 import { CONNECTORS_SECTION, ConnectorsSection } from "./connectors-section";
 import { PendingBadge, pendingLabel } from "./pending-badge";
+import { SECRETS_SECTION, SecretsSection } from "./secrets-section";
 import { ItemCategoryMenu, MENU_ITEM_CLASS } from "./sidebar-menu";
 import { SectionHint, SidebarSection } from "./sidebar-section";
 import { SKILLS_SECTION, SkillsSection } from "./skills-section";
@@ -606,6 +607,11 @@ export function Sidebar({
 
         <SkillsSection
           expanded={isExpanded(SKILLS_SECTION)}
+          onToggle={toggle}
+        />
+
+        <SecretsSection
+          expanded={isExpanded(SECRETS_SECTION)}
           onToggle={toggle}
         />
 
