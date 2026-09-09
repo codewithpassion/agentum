@@ -5,6 +5,36 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 18 — Workspace secrets: a broker tool and a vault mirror (2026-09-10)
+
+**Goal:** Implement docs/plan-workspace-secrets.md — a workspace owner stores an API key, grants it to agents, and those agents use it without ever holding the value, on both runtimes.
+
+**What we did:**
+- Entry spike first (`bun scripts/anthropic-spike.ts secrets`, 7d65ab6): `injection_location` defaults to `{ body: true, header: true }` when omitted; `secret_name` is unique per vault but repeatable across vaults, which is what makes one vault per workspace viable; a `networking` update replaces rather than merges; `secret_name` is not an update field at all (400, unknown field); the cap is 20 live credentials per vault and the 21st fails with a bare "The request was invalid"
+- `modules/secrets` (migration 0023): rows carry their own allowed hosts, injection header, mirror id and sync status. `crypto.ts` gained an optional AES-GCM `additionalData`; secrets bind `${workspaceId}:${secretId}`, so a ciphertext lifted into another row fails to decrypt. Omitting the parameter stays distinct from passing `""`, which is what keeps every pre-existing value readable. Plaintext exists in exactly two functions
+- `hosts.ts` is the one host module both the routes and the tool use: `*.deepgram.com` does not match the apex, `evil-api.deepgram.com` does not match `api.deepgram.com`, single-label names and `*.<tld>` are refused, list capped at Anthropic's 16
+- `http_request` + `list_secrets` (`modules/mcp/secret-tools.ts`), one implementation for both runtimes. Allowlist checked before any request; one sentence for all three misses so an agent cannot enumerate names; redaction before truncation and over thrown errors; response streamed and abandoned past twice the output cap; `http.request` activity rows carrying method, host and status but never a header or body
+- Vault mirror (`modules/secrets/mirror.ts`): one vault per workspace, created on first push, `{ body: false, header: true }` sent explicitly every time, the 20-cap counted on our side, `sync_error` redacted before storage because an SDK error can quote the request that carried the plaintext, and a sweep on key rotation
+- UI: sidebar section, one dialog in add/edit/rotate modes, a Secrets tab on the agent dialog for both runtimes, `http.request` rows in the activity feed
+- Four forge tracks: one blocking, three parallel with explicit file ownership. 1189 tests to 1415
+- **Live acceptance, both runtimes, against the real Deepgram API.** A Cloudflare-runtime agent transcribed a public audio file through `http_request` — activity row `POST api.deepgram.com/v1/listen → 200`, transcript returned, and the same ask against `api.example.com` refused with "DEEPGRAM_API_KEY may only be sent to api.deepgram.com, not api.example.com. Nothing was requested." and no second activity row. A managed agent then ran the same call as `curl -H "Authorization: Token $DEEPGRAM_API_KEY"` in its sandbox and got a 200. The key appeared in no reply, no activity row and no transcript
+
+**Lessons learned:**
+- **A test can pin the wrong behaviour in place and read as coverage.** `expect(calls[0]?.init.redirect).toBeUndefined()` passed happily while the private-address guard was bypassed on every hop after the first, because it asked whether redirects were held back rather than where they went. It surfaced only from reading `perform()` rather than trusting a green suite. The guard now runs on every hop, five at most, and the agent's own credentials are dropped when the host changes
+- The sandbox environment variable is a placeholder, not the key: 61 characters against the real key's 40. Anthropic substitutes at egress, so a managed agent cannot read the value even from its own shell — worth knowing before designing around what the model can see
+- Bun and workerd disagree about when `fetch` rejects a body on GET (Bun's `Request` accepts it, workerd throws), so a security-relevant refusal has to be an explicit guard rather than a runtime's error
+- A grant is per agent but the vault is per workspace: any grant attaches every secret in the workspace to that agent's sandbox. The tool's own check is what makes a grant bite there, and the agent dialog now says so outright rather than implying isolation we do not provide
+- Which side presents a credential still decides how it is stored, and the same logic extends to error paths: an SDK error quoting its own request will carry the plaintext into a status column unless it is redacted first
+
+**Avoid next time:**
+- Don't state a guarantee in the UI that the implementation does not make. The first draft of the sandbox note said "granted secrets are available to this agent's sandbox", which reads as per-agent isolation; the forge that wrote it checked the claim against the mirror's code and flagged the gap
+- Don't rely on `browser/rules.ts` for a second SSRF guard — `isPrivateIpv4` is not exported and `validateUrl` accepts `http:`. There are now two copies of the reserved-range list; collapse them when that file is next touched
+- Known gap, unchanged: no DNS resolution, so a public hostname whose A record points at a private address passes every host check. A Worker cannot resolve, so the allowlist remains the real control
+- The `reregister` call site for the key-rotation sweep is covered by review only; `anthropic/routes.test.ts`'s SDK mock would need the whole `beta.vaults` surface to assert it
+- Module views now disagree on timestamps: skills use epoch numbers, secrets and computer hosts use `Date` serialised as ISO strings
+
+---
+
 ## Cycle 17 — Computer backends: self-hosted containers and Fly.io (2026-09-01)
 
 **Goal:** Implement docs/plan-computer-backends.md — an agent's computer can run as a Docker/Podman container on the user's own hardware, or as a Fly Machine, instead of only the Cloudflare Durable Object (whose shell is dev-only).
