@@ -214,6 +214,11 @@ beforeEach(async () => {
   beta = await seed("Beta", "user_2bBobBBBBBBBBBBBBBBBBBBB");
 });
 
+/** These routines carry no attachments, so nothing is ever deleted from it. */
+const noBucket = {
+  delete: () => Promise.resolve(),
+} as unknown as R2Bucket;
+
 describe("CRUD", () => {
   test("a routine lists, reads and updates only within its workspace", async () => {
     const routine = await routineFor(alpha);
@@ -437,7 +442,7 @@ describe("fireRoutine", () => {
 
   test("a deleted channel leaves an error run too", async () => {
     const routine = await routineFor(alpha);
-    await deleteChannel(db, alpha.workspaceId, alpha.channelId);
+    await deleteChannel(db, noBucket, alpha.workspaceId, alpha.channelId);
 
     const run = await fireRoutine(
       db,
@@ -531,7 +536,7 @@ describe("fireRoutine", () => {
 
   test("a model on a routine whose channel is gone still only leaves an error run", async () => {
     const routine = await routineFor(alpha, { model: OPUS });
-    await deleteChannel(db, alpha.workspaceId, alpha.channelId);
+    await deleteChannel(db, noBucket, alpha.workspaceId, alpha.channelId);
 
     const run = await fireRoutine(
       db,

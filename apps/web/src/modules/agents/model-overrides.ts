@@ -100,6 +100,27 @@ export const clearOverride = async (
   return deleted.length > 0;
 };
 
+/**
+ * Every override scoped to one channel - the channel-level row and each
+ * thread's - for the channel-delete cleanup. The unique index is per agent,
+ * channel and thread, so a stale row would silently pin a model for whatever
+ * reuses the id, and the absence of a row is what "inherit" means.
+ */
+export const deleteOverridesForChannel = async (
+  db: Db,
+  workspaceId: string,
+  channelId: string
+): Promise<void> => {
+  await db
+    .delete(agentModelOverrides)
+    .where(
+      and(
+        eq(agentModelOverrides.workspaceId, workspaceId),
+        eq(agentModelOverrides.channelId, channelId)
+      )
+    );
+};
+
 /** Which rung of the precedence ladder answered. */
 export type ModelSource =
   | "agent config"

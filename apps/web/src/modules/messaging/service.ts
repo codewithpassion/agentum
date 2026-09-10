@@ -166,16 +166,62 @@ export const createChannel = async (
   return channel;
 };
 
+/**
+ * One channel and everything under it, R2 included.
+ *
+ * Messages, members, attachments and mentions follow by `ON DELETE CASCADE`,
+ * but the objects those attachment rows name do not: the keys are read first,
+ * because a key nobody wrote down is an object nobody can name again. This is
+ * `deleteChannelsForWorkspace` narrowed to one room, and it carries the same
+ * obligation.
+ *
+ * What it deliberately does not touch is anything outside this module. Rows in
+ * other modules that name a channel - a bridge, an agent question, a model
+ * override - are that module's to drop, and the route composes them; routines
+ * are left alone on purpose, since a routine whose room is gone already fails
+ * its run with "the room is gone" rather than disappearing.
+ */
 export const deleteChannel = async (
   db: Db,
+  bucket: R2Bucket,
   workspaceId: string,
   id: string
 ): Promise<boolean> => {
+  const stored = await db
+    .select({ r2Key: attachments.r2Key })
+    .from(attachments)
+    .innerJoin(messages, eq(attachments.messageId, messages.id))
+    .where(eq(messages.channelId, id));
+
   const deleted = await db
     .delete(channels)
     .where(and(eq(channels.workspaceId, workspaceId), eq(channels.id, id)))
     .returning({ id: channels.id });
-  return deleted.length > 0;
+  if (deleted.length === 0) {
+    return false;
+  }
+
+  await deleteObjects(
+    bucket,
+    stored.map((row) => row.r2Key)
+  );
+  return true;
+};
+
+/**
+ * The message ids of one channel, for the cleanups that key off them - the
+ * bridges module's `external_refs`, which has no channel of its own. Read
+ * before the channel goes, or the messages are already gone with it.
+ */
+export const listMessageIdsForChannel = async (
+  db: Db,
+  channelId: string
+): Promise<string[]> => {
+  const rows = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.channelId, channelId));
+  return rows.map((row) => row.id);
 };
 
 /**

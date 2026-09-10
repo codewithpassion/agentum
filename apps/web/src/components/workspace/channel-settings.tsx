@@ -12,7 +12,8 @@ import type {
   SlackApp,
 } from "#/lib/api";
 import { memberLabel } from "#/lib/authors";
-import { useApi } from "#/lib/workspace-context";
+import { useActiveWorkspace } from "#/lib/workspace-context";
+import { ConfirmDialog } from "./confirm-dialog";
 
 /**
  * The channel's settings pane, reachable from the channel header - who is in
@@ -267,14 +268,21 @@ export function ChannelSettings({
   agents,
   channel,
   members,
+  onDeleted,
   onMembersChange,
 }: {
   agents: Agent[];
   channel: Channel;
   members: ChannelMemberView[];
+  onDeleted: () => void;
   onMembersChange: (members: ChannelMemberView[]) => void;
 }) {
-  const api = useApi();
+  const { api, membership } = useActiveWorkspace();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  // Deleting is owner-only, as the API is. A member sees no button rather than
+  // one that answers 403.
+  const canDelete = membership?.role === "owner" && channel.kind !== "dm";
 
   const channelId = channel.id;
   const [open, setOpen] = useState(false);
@@ -380,6 +388,16 @@ export function ChannelSettings({
     [api, channelId, onMembersChange]
   );
 
+  const askDelete = useCallback(() => setConfirmingDelete(true), []);
+  const cancelDelete = useCallback(() => setConfirmingDelete(false), []);
+
+  const confirmDelete = useCallback(async () => {
+    await api.deleteChannel(channelId);
+    setConfirmingDelete(false);
+    setOpen(false);
+    onDeleted();
+  }, [api, channelId, onDeleted]);
+
   return (
     <div className="relative">
       <Button
@@ -412,6 +430,24 @@ export function ChannelSettings({
               state={state}
             />
           </section>
+          {canDelete ? (
+            <section className="space-y-2 border-[var(--ws-line)] border-t pt-3">
+              <h2 className="m-0 font-semibold text-[13px]">Delete channel</h2>
+              <p className="m-0 text-[var(--ws-muted)] text-xs">
+                Every message, thread and attachment in #{channel.name} goes
+                with it, for everyone. This cannot be undone.
+              </p>
+              <Button
+                data-testid="channel-delete"
+                disabled={busy}
+                onClick={askDelete}
+                size="sm"
+                variant="danger"
+              >
+                Delete channel
+              </Button>
+            </section>
+          ) : null}
           {actionError ? (
             <p
               className="m-0 text-[var(--ws-danger)] text-xs"
@@ -422,6 +458,14 @@ export function ChannelSettings({
           ) : null}
         </section>
       </Popover>
+      <ConfirmDialog
+        confirmLabel="Delete channel"
+        message={`Delete #${channel.name} and everything in it? Its messages, threads and attachments go for everyone, and a routine posting into it will start failing. This cannot be undone.`}
+        onCancel={cancelDelete}
+        onConfirm={confirmDelete}
+        open={confirmingDelete}
+        title="Delete channel"
+      />
     </div>
   );
 }

@@ -614,6 +614,13 @@ export const createApi = (workspaceSlug: string) => {
       method: "POST",
     }).then((data) => data.channel);
 
+  /**
+   * Owner-only, and final: the channel's whole history goes with it, along with
+   * its bridges, questions and model overrides.
+   */
+  const deleteChannel = (id: string) =>
+    request<null>(`/channels/${id}`, { method: "DELETE" });
+
   /** DMs are one-per-agent; the server reuses the existing channel if there is one. */
   const openAgentDm = (agentId: string) =>
     request<{ channel: Channel }>("/channels", {
@@ -1209,6 +1216,7 @@ export const createApi = (workspaceSlug: string) => {
     deleteAgent,
     deleteAgentSlackApp,
     deleteCategory,
+    deleteChannel,
     deleteChannelBridge,
     deleteComputerHost,
     deleteRoutine,

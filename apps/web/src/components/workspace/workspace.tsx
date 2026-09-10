@@ -138,6 +138,13 @@ export function Workspace({
     [onSelect, selection]
   );
 
+  // The room is gone, so the selection has to go with it - a channel id that no
+  // longer resolves would leave the pane trying to load a 404.
+  const channelDeleted = useCallback(() => {
+    onSelect({ ...selection, channel: undefined, message: undefined });
+    reload();
+  }, [onSelect, reload, selection]);
+
   const openDm = useCallback(
     (agent: Agent) => {
       (async () => {
@@ -270,6 +277,7 @@ export function Workspace({
         agents={agents}
         agentsById={agentsById}
         conversation={conversation}
+        onChannelDeleted={channelDeleted}
         onOpenThread={openThread}
         onSelectAgent={selectAgent}
         onToggleRail={toggleRail}

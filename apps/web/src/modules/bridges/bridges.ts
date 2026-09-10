@@ -142,6 +142,26 @@ export const deleteBridge = async (
   return deleted.length > 0;
 };
 
+/**
+ * Every bridge of one channel, for the channel-delete cleanup. A bridge is
+ * meaningless without the room it mirrors, and leaving one behind would point
+ * an inbound Slack message at a channel that no longer exists.
+ */
+export const deleteBridgesForChannel = async (
+  db: Db,
+  workspaceId: string,
+  channelId: string
+): Promise<void> => {
+  await db
+    .delete(channelBridges)
+    .where(
+      and(
+        eq(channelBridges.workspaceId, workspaceId),
+        eq(channelBridges.channelId, channelId)
+      )
+    );
+};
+
 /** Every bridge of one workspace, for the workspace-delete cleanup. */
 export const deleteBridgesForWorkspace = async (
   db: Db,

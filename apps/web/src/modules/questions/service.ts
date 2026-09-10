@@ -245,6 +245,26 @@ export const countPendingQuestionsForAgent = async (
 ): Promise<number> =>
   (await countPendingQuestionsByAgent(db, workspaceId, now)).get(agentId) ?? 0;
 
+/**
+ * Every question asked in one channel, for the channel-delete cleanup. A
+ * pending question outlives its room otherwise, and its answer would have
+ * nowhere to be posted.
+ */
+export const deleteQuestionsForChannel = async (
+  db: Db,
+  workspaceId: string,
+  channelId: string
+): Promise<void> => {
+  await db
+    .delete(agentQuestions)
+    .where(
+      and(
+        eq(agentQuestions.workspaceId, workspaceId),
+        eq(agentQuestions.channelId, channelId)
+      )
+    );
+};
+
 /** Every question of one workspace, for the workspace-delete cleanup. */
 export const deleteQuestionsForWorkspace = async (
   db: Db,

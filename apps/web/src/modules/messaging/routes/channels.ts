@@ -12,7 +12,12 @@ import {
   requireString,
 } from "#/api/validation";
 import { createDb, type Db } from "#/db/client";
+import { deleteOverridesForChannel } from "#/modules/agents/model-overrides";
 import { getAgentById } from "#/modules/agents/service";
+import { deleteBridgesForChannel } from "#/modules/bridges/bridges";
+import { deleteExternalRefsForMessages } from "#/modules/bridges/refs";
+import { deleteQuestionsForChannel } from "#/modules/questions/service";
+import { requireOwner } from "#/modules/workspaces/require-workspace";
 import { getMemberById } from "#/modules/workspaces/service";
 import { publishMessage } from "../publish";
 import { connectToChannelRoom } from "../realtime";
@@ -28,6 +33,7 @@ import {
   listChannelMembers,
   listChannelMessages,
   listChannels,
+  listMessageIdsForChannel,
   type MemberType,
   removeChannelMember,
 } from "../service";
@@ -135,11 +141,44 @@ channelsRoutes.get("/:id", async (c) => {
   });
 });
 
-channelsRoutes.delete("/:id", async (c) => {
+/**
+ * Deleting a channel takes its whole history with it - every message, thread,
+ * attachment and the objects behind them - so it is owner-gated, unlike
+ * creating one: adding a room costs nothing to undo, and this cannot be undone
+ * at all.
+ *
+ * The channel is resolved against the workspace *before* anything is deleted.
+ * Every cleanup below keys off a bare channel id, and the modules holding those
+ * rows have no workspace of their own to check against, so skipping this would
+ * let one workspace's id drop another's bridges and questions.
+ *
+ * Routines pointing at the channel are deliberately left: a routine whose room
+ * is gone fails its next run with "the room is gone", which is a visible error
+ * its owner can act on, where a silently vanished routine is not.
+ */
+channelsRoutes.delete("/:id", requireOwner, async (c) => {
+  const db = createDb(c.env.DB);
+  const workspaceId = c.get("workspace").id;
+  const channelId = c.req.param("id");
+  if (!(await getChannel(db, workspaceId, channelId))) {
+    throw notFound("Channel not found.");
+  }
+
+  // The refs name messages, so they are read before the channel takes those
+  // messages with it.
+  await deleteExternalRefsForMessages(
+    db,
+    await listMessageIdsForChannel(db, channelId)
+  );
+  await deleteBridgesForChannel(db, workspaceId, channelId);
+  await deleteQuestionsForChannel(db, workspaceId, channelId);
+  await deleteOverridesForChannel(db, workspaceId, channelId);
+
   const deleted = await deleteChannel(
-    createDb(c.env.DB),
-    c.get("workspace").id,
-    c.req.param("id")
+    db,
+    c.env.ATTACHMENTS,
+    workspaceId,
+    channelId
   );
   if (!deleted) {
     throw notFound("Channel not found.");

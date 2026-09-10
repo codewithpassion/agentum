@@ -43,12 +43,14 @@ function ChannelHeader({
   agents,
   agentsById,
   conversation,
+  onChannelDeleted,
   onSelectAgent,
   onToggleRail,
 }: {
   agents: Agent[];
   agentsById: Map<string, Agent>;
   conversation: ConversationState;
+  onChannelDeleted: () => void;
   onSelectAgent: (agentId: string) => void;
   onToggleRail: () => void;
 }) {
@@ -82,6 +84,7 @@ function ChannelHeader({
             agents={agents}
             channel={channel}
             members={members}
+            onDeleted={onChannelDeleted}
             onMembersChange={conversation.setMembers}
           />
         ) : null}
@@ -97,6 +100,7 @@ export function ConversationPane({
   agents,
   agentsById,
   conversation,
+  onChannelDeleted,
   onOpenThread,
   onSelectAgent,
   onToggleRail,
@@ -105,6 +109,7 @@ export function ConversationPane({
   agents: Agent[];
   agentsById: Map<string, Agent>;
   conversation: ConversationState;
+  onChannelDeleted: () => void;
   onOpenThread: (message: MessageView) => void;
   onSelectAgent: (agentId: string) => void;
   onToggleRail: () => void;
@@ -145,6 +150,7 @@ export function ConversationPane({
         agents={agents}
         agentsById={agentsById}
         conversation={conversation}
+        onChannelDeleted={onChannelDeleted}
         onSelectAgent={onSelectAgent}
         onToggleRail={onToggleRail}
       />
