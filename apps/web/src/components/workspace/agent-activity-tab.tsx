@@ -19,6 +19,7 @@ import { useApi } from "#/lib/workspace-context";
 const PAGE_SIZE = 50;
 
 const ICONS: Record<ActivityView["kind"], string> = {
+  "attachment.link": "🔗",
   "browser.click": "👆",
   "browser.fill": "⌨️",
   "browser.navigate": "🌐",

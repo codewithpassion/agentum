@@ -3,8 +3,8 @@ import type { AuthorType, MessageView } from "#/modules/messaging/service";
 
 /**
  * The shapes agents see. They are deliberately narrower than the UI's views:
- * every field costs the agent context, so ids it cannot use (R2 keys, mime
- * types, origins) stay out.
+ * every field costs the agent context, so ids it cannot use (R2 keys, origins)
+ * stay out.
  */
 
 export interface McpAuthor {
@@ -13,8 +13,21 @@ export interface McpAuthor {
   type: AuthorType;
 }
 
+/**
+ * Four fields, and no URL: the id is what `attachment_link` takes, and the mime
+ * type is what an agent decides on - "is this worth sending to a transcription
+ * API" is answered by `audio/mpeg`, not by guessing at a file extension. `size`
+ * is here so it can skip a call that was never going to fit.
+ */
+export interface McpAttachment {
+  filename: string;
+  id: string;
+  mime: string;
+  size: number;
+}
+
 export interface McpMessage {
-  attachments: { filename: string; id: string }[];
+  attachments: McpAttachment[];
   author: McpAuthor;
   body: string;
   createdAt: string;
@@ -65,14 +78,23 @@ export const authorNameOf = (
   return author ? author.name : UNKNOWN_HUMAN_NAME;
 };
 
+export const toMcpAttachment = (attachment: {
+  filename: string;
+  id: string;
+  mime: string;
+  size: number;
+}): McpAttachment => ({
+  filename: attachment.filename,
+  id: attachment.id,
+  mime: attachment.mime,
+  size: attachment.size,
+});
+
 export const toMcpMessage = (
   message: MessageView,
   agentNamesById: ReadonlyMap<string, string>
 ): McpMessage => ({
-  attachments: message.attachments.map((attachment) => ({
-    filename: attachment.filename,
-    id: attachment.id,
-  })),
+  attachments: message.attachments.map(toMcpAttachment),
   author: {
     id: message.authorId,
     name: authorNameOf(message, agentNamesById),

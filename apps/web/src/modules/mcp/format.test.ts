@@ -84,7 +84,14 @@ describe("toMcpMessage", () => {
         NAMES
       )
     ).toEqual({
-      attachments: [{ filename: "notes.pdf", id: "attachment-1" }],
+      attachments: [
+        {
+          filename: "notes.pdf",
+          id: "attachment-1",
+          mime: "application/pdf",
+          size: 12,
+        },
+      ],
       author: { id: "agent-1", name: "Researcher", type: "agent" },
       body: "hello",
       createdAt: "2026-01-02T03:04:05.000Z",

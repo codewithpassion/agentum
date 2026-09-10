@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isInlineMimeType,
   MAX_ATTACHMENT_BYTES,
+  MAX_BRIDGE_ATTACHMENT_BYTES,
   normalizeMimeType,
   sanitizeFilename,
   validateAttachment,
@@ -35,6 +36,14 @@ describe("validateAttachment", () => {
     });
   });
 
+  test("accepts an mp3 under either spelling", () => {
+    for (const mime of ["audio/mpeg", "audio/mp3"]) {
+      expect(
+        validateAttachment({ ...validCandidate, filename: "call.mp3", mime })
+      ).toEqual({ filename: "call.mp3", mime, ok: true });
+    }
+  });
+
   test("rejects a disallowed mime type", () => {
     const result = validateAttachment({
       ...validCandidate,
@@ -51,13 +60,27 @@ describe("validateAttachment", () => {
     });
     expect(result).toEqual({
       ok: false,
-      reason: "The file is larger than the 20MB limit.",
+      reason: "The file is larger than the 100MB limit.",
     });
   });
 
   test("accepts a file exactly at the size limit", () => {
     expect(
       validateAttachment({ ...validCandidate, size: MAX_ATTACHMENT_BYTES }).ok
+    ).toBe(true);
+  });
+
+  /**
+   * The bridge cap is the buffering callers' own business - `validateAttachment`
+   * knows only the streaming limit, so a file between the two passes here and is
+   * turned away earlier, by the bridge that would have to hold it in memory.
+   */
+  test("accepts a file the bridge cap would have refused", () => {
+    expect(
+      validateAttachment({
+        ...validCandidate,
+        size: MAX_BRIDGE_ATTACHMENT_BYTES + 1,
+      }).ok
     ).toBe(true);
   });
 

@@ -1,6 +1,6 @@
 import type { Db } from "#/db/client";
 import { getAgentByIdUnscoped } from "#/modules/agents/service";
-import { MAX_ATTACHMENT_BYTES } from "#/modules/messaging/attachment-rules";
+import { MAX_BRIDGE_ATTACHMENT_BYTES } from "#/modules/messaging/attachment-rules";
 import {
   getAttachment,
   storeAttachment,
@@ -58,7 +58,9 @@ const downloadSlackFile = async (
   }
   // Checked before the download, not after: `storeAttachment` would reject the
   // file anyway, but only once the whole thing sat in the isolate's memory.
-  if (file.size !== undefined && file.size > MAX_ATTACHMENT_BYTES) {
+  // The bridge cap, not the composer's: this path buffers, so it keeps the
+  // lower limit that a buffering path can actually afford.
+  if (file.size !== undefined && file.size > MAX_BRIDGE_ATTACHMENT_BYTES) {
     return null;
   }
   const data = await client.downloadFile(file.url_private);

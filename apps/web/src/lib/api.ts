@@ -717,11 +717,27 @@ export const createApi = (workspaceSlug: string) => {
       `/messages/${messageId}/thread`
     );
 
+  /**
+   * The file goes up as the raw body, not as a multipart field: the server
+   * streams it into R2, and `formData()` on its side would undo that by
+   * gathering the whole upload into one Worker isolate.
+   *
+   * Content-Length is not set here because it cannot be - it is a forbidden
+   * header - and does not need to be: the body is a `File`, so the browser
+   * knows its length and sends it. The name travels percent-encoded, since a
+   * header value cannot hold every character a filename can.
+   *
+   * A file the browser could not type at all falls back to
+   * `application/octet-stream`, which is what the multipart body used to send in
+   * that case: still refused, but named in the refusal.
+   */
   const uploadAttachment = async (file: File): Promise<AttachmentView> => {
-    const form = new FormData();
-    form.append("file", file);
     const data = await request<{ attachment: AttachmentView }>("/attachments", {
-      body: form,
+      body: file,
+      headers: {
+        "content-type": file.type || "application/octet-stream",
+        "x-attachment-filename": encodeURIComponent(file.name),
+      },
       method: "POST",
     });
     return data.attachment;

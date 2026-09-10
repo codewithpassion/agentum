@@ -1,4 +1,21 @@
-export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+/**
+ * 100MB is exactly Cloudflare's own request body ceiling on this plan, so it is
+ * the largest cap that means anything: past it the edge answers 413 before the
+ * Worker ever runs. The upload route streams the body straight into R2 rather
+ * than buffering it, which is what makes a file this size survive a 128MB
+ * isolate at all.
+ */
+export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+
+/**
+ * The cap for a file arriving through a bridge rather than the composer, which
+ * is still the old 20MB. The Slack mirror in `bridges/slack/adapter.ts` reads
+ * the file with `client.downloadFile()` and hands `storeAttachment` a
+ * `new File([data], ...)`, so the whole thing sits in the isolate's heap at
+ * once - the streaming upload path is what earned the higher limit, and the
+ * bridge does not use it.
+ */
+export const MAX_BRIDGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 /**
  * Deliberately excludes `image/svg+xml`: SVG is script-capable, and these files
@@ -10,6 +27,10 @@ export const ALLOWED_ATTACHMENT_MIME_TYPES = [
   "image/gif",
   "image/webp",
   "image/avif",
+  // Both spellings of an mp3: browsers on some platforms report the
+  // non-standard `audio/mp3` for the same file `audio/mpeg` covers.
+  "audio/mpeg",
+  "audio/mp3",
   "application/pdf",
   "application/json",
   "application/zip",

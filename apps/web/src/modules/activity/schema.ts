@@ -15,6 +15,7 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
  */
 
 export const ACTIVITY_KINDS = [
+  "attachment.link",
   "browser.click",
   "browser.fill",
   "browser.navigate",

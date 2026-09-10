@@ -6,35 +6,77 @@ import { createDb } from "#/db/client";
 import { isInlineMimeType, MAX_ATTACHMENT_BYTES } from "../attachment-rules";
 import {
   getAttachmentInWorkspace,
-  storeAttachment,
+  storeAttachmentStream,
 } from "../attachment-service";
 import { attachmentUrl } from "../service";
 
 const PAYLOAD_TOO_LARGE = 413;
 
+/**
+ * The filename travels in a header rather than the body, so it is
+ * percent-encoded: header values are Latin-1, and plenty of real filenames are
+ * not.
+ */
+const FILENAME_HEADER = "x-attachment-filename";
+
+/** Refuses a header that is missing, or not a percent-encoding at all. */
+const decodeFilename = (raw: string | undefined): string => {
+  if (raw === undefined) {
+    throw badRequest(`Expected an ${FILENAME_HEADER} header.`);
+  }
+  try {
+    return decodeURIComponent(raw);
+  } catch (error) {
+    throw badRequest(
+      `Expected ${FILENAME_HEADER} to be percent-encoded.`,
+      error
+    );
+  }
+};
+
 export const attachmentsRoutes = new Hono<ApiEnv>();
 
 attachmentsRoutes.use("*", requireAuth);
 
+/**
+ * The file is the raw request body: `Content-Type` carries its mime,
+ * `Content-Length` its size, and `X-Attachment-Filename` its name. A multipart
+ * form would mean `formData()`, which gathers the whole upload into the
+ * isolate's heap - fatal at this cap, and pure overhead even below it.
+ *
+ * Content-Length is the client's word, so it decides only whether to accept the
+ * upload at all; `storeAttachmentStream` is what holds the body to it.
+ */
 attachmentsRoutes.post("/", async (c) => {
-  // Cheap rejection before buffering the body; `storeAttachment` re-checks the
-  // real size, since Content-Length is client-supplied.
-  const declaredLength = Number(c.req.header("content-length") ?? 0);
+  const declaredLength = Number(c.req.header("content-length"));
+  // Both answer 413, but not with the same sentence: a body of unknown length
+  // is refused for being unmeasurable, not for being big, and the composer
+  // shows the caller whichever of these it gets.
+  if (!(Number.isSafeInteger(declaredLength) && declaredLength > 0)) {
+    return c.json(
+      { error: "A Content-Length is required." },
+      PAYLOAD_TOO_LARGE
+    );
+  }
   if (declaredLength > MAX_ATTACHMENT_BYTES) {
     return c.json({ error: "The file is too large." }, PAYLOAD_TOO_LARGE);
   }
 
-  const form = await c.req.formData();
-  const file = form.get("file");
-  if (!(file instanceof File)) {
-    throw badRequest('Expected a multipart "file" field.');
+  const filename = decodeFilename(c.req.header(FILENAME_HEADER));
+
+  const { body } = c.req.raw;
+  if (!body) {
+    throw badRequest("Expected the file as the request body.");
   }
 
-  const result = await storeAttachment(
-    createDb(c.env.DB),
-    c.env.ATTACHMENTS,
-    file
-  );
+  const result = await storeAttachmentStream({
+    body,
+    bucket: c.env.ATTACHMENTS,
+    db: createDb(c.env.DB),
+    filename,
+    mime: c.req.header("content-type") ?? "",
+    size: declaredLength,
+  });
   if (!result.ok) {
     return c.json({ error: result.reason }, 400);
   }

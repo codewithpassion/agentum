@@ -7,6 +7,7 @@ import {
   truncateText,
   withTruncationNote,
 } from "#/modules/computer/output";
+import { getAttachmentInWorkspace } from "#/modules/messaging/attachment-service";
 import { hostMatches, isPrivateHost } from "#/modules/secrets/hosts";
 import {
   listSecretsForAgent,
@@ -30,9 +31,23 @@ import type { McpToolContext } from "./tools";
  * Nothing here decides *which* hosts are allowed or *whether* a grant exists;
  * both are forge 1's, and asking them twice in two places is how the two
  * answers drift apart.
+ *
+ * The same shape holds for the bytes an agent sends. A `body` it composes is a
+ * tool-call argument and is capped as one, which puts any real media file out
+ * of reach - an audio recording on its way to a transcription API is the case
+ * this exists for. `attachmentId` is the way past that cap: the file streams
+ * from R2 to the upstream without the agent ever holding it, and whether the
+ * agent may send that file at all is `getAttachmentInWorkspace`'s answer - the
+ * same parent chain the messaging tools resolve, asked once here rather than
+ * reimplemented.
  */
 
-/** A request body an agent composes: generous for JSON, bounded for D1's sake. */
+/**
+ * A request body an agent composes: generous for JSON, bounded for D1's sake,
+ * since it arrives as a tool-call argument and is stored as one. A file too big
+ * for this cap is never composed at all - it is sent by `attachmentId`, which
+ * streams from storage and never becomes an argument.
+ */
 const HTTP_BODY_MAX_LENGTH = 100_000;
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
@@ -188,6 +203,149 @@ const noSuchSecret = (name: string): string =>
 const hostRefusal = (secret: ResolvedSecret, hostname: string): string =>
   `${secret.name} may only be sent to ${secret.allowedHosts.join(", ")}, not ${hostname}. Nothing was requested.`;
 
+type SecretLookup =
+  | { ok: true; secret: ResolvedSecret | null }
+  | { ok: false; reason: string };
+
+/**
+ * The grant and the allowlist, or the sentence that refuses. Naming no secret
+ * is not a miss: it resolves to `null`, which is the unauthenticated path.
+ *
+ * Both checks happen here so that neither can be skipped by a later branch, and
+ * both happen before anything is sent: a refused host must not become a request
+ * that happened to fail.
+ */
+const resolveSecret = async (
+  ctx: McpToolContext,
+  name: string | undefined,
+  hostname: string
+): Promise<SecretLookup> => {
+  if (name === undefined) {
+    return { ok: true, secret: null };
+  }
+  const secret = await resolveSecretForAgent(ctx.db, ctx.env, {
+    agentId: ctx.agent.id,
+    name,
+    workspaceId: ctx.workspace.id,
+  });
+  if (!secret) {
+    return { ok: false, reason: noSuchSecret(name) };
+  }
+  if (!hostMatches(hostname, secret.allowedHosts)) {
+    return { ok: false, reason: hostRefusal(secret, hostname) };
+  }
+  return { ok: true, secret };
+};
+
+// --- the file ----------------------------------------------------------------
+
+/**
+ * A stored attachment, opened and ready to stream. The bytes go from R2 to the
+ * upstream: they are never read into a string here, so nothing about them can
+ * reach the transcript, the tool's answer or the activity feed.
+ *
+ * `id` is carried along for the audit row - which file left the workspace is
+ * the other question that trail is read for - and `size` for the outbound
+ * length.
+ */
+interface AttachmentBody {
+  id: string;
+  mime: string;
+  size: number;
+  stream: ReadableStream<Uint8Array>;
+}
+
+type AttachmentLookup =
+  | { ok: true; file: AttachmentBody | null }
+  | { ok: false; reason: string };
+
+/**
+ * One sentence for an id that never existed and for another workspace's, for
+ * the reason `noSuchSecret` gives: `getAttachmentInWorkspace` answers
+ * `undefined` to both, and a message that told them apart would say whether an
+ * id exists in a workspace the caller cannot see.
+ */
+const noSuchAttachment = (id: string): string =>
+  `No attachment with id ${id} is visible to you. Attachment ids come from the attachments on messages you read.`;
+
+/**
+ * The file, or the sentence that refuses. Naming no attachment is not a miss:
+ * it resolves to `null`, and the body is whatever `body` held.
+ */
+const resolveAttachment = async (
+  ctx: McpToolContext,
+  id: string | undefined
+): Promise<AttachmentLookup> => {
+  if (id === undefined) {
+    return { file: null, ok: true };
+  }
+  const attachment = await getAttachmentInWorkspace(
+    ctx.db,
+    ctx.workspace.id,
+    id
+  );
+  if (!attachment) {
+    return { ok: false, reason: noSuchAttachment(id) };
+  }
+
+  const object = await ctx.env.ATTACHMENTS.get(attachment.r2Key);
+  if (!object) {
+    // The row outlived its object. A refusal rather than an empty body: an
+    // upstream that bills per request should not be paid to transcribe nothing,
+    // and an agent told the file is gone can say so instead of retrying.
+    return {
+      ok: false,
+      reason: `${attachment.filename} is recorded but its stored bytes are gone, so nothing was requested.`,
+    };
+  }
+  return {
+    file: {
+      id: attachment.id,
+      mime: attachment.mime,
+      size: attachment.size,
+      stream: object.body,
+    },
+    ok: true,
+  };
+};
+
+/**
+ * The stream that goes on the wire, with a `Content-Length` promised from the
+ * size the workspace recorded.
+ *
+ * It has to be promised through `FixedLengthStream` and not through a header,
+ * because workerd derives `Content-Length` from the body's data source and
+ * drops whatever a caller wrote into `Headers`. Measured against a local
+ * workerd rather than assumed: a deliberately wrong `Content-Length` header
+ * was overwritten with the real length, and a plain `ReadableStream` went out
+ * as `Transfer-Encoding: chunked` however the header was set. Only a
+ * `FixedLengthStream` or an already-fixed-length value gets a length, which is
+ * what the runtime API docs promise as well.
+ *
+ * R2's own body did carry a length unwrapped under the local runtime, so the
+ * wrap is not what makes this work today. It is still made explicitly: local
+ * R2 is miniflare's and not the real thing, and a length nothing documents is
+ * a length that can stop appearing. An upstream that requires one -
+ * S3-compatible APIs do - would refuse a chunked body outright.
+ *
+ * A stream that then does not deliver exactly `size` bytes tears the connection
+ * down, and the tool reports a failed request. That is the honest outcome: the
+ * D1 row and the R2 object disagreeing is not something to paper over by
+ * sending a different number of bytes than the workspace recorded.
+ *
+ * `FixedLengthStream` is a workerd global and `bun test` has none, so the tests
+ * see the raw stream. That changes the framing on the wire, not the bytes, and
+ * the bytes are what those tests assert.
+ */
+const outboundBody = (file: AttachmentBody): BodyInit => {
+  // biome-ignore lint/correctness/noUndeclaredVariables: FixedLengthStream is a Workers runtime global
+  if (typeof FixedLengthStream === "undefined") {
+    return file.stream;
+  }
+  // biome-ignore lint/correctness/noUndeclaredVariables: FixedLengthStream is a Workers runtime global
+  return file.stream.pipeThrough(new FixedLengthStream(file.size));
+};
+
 // --- the request -------------------------------------------------------------
 
 /**
@@ -196,14 +354,23 @@ const hostRefusal = (secret: ResolvedSecret, hostname: string): string =>
  * secret's `Authorization` rather than joining it - the agent cannot smuggle a
  * header past a check that spelled it differently.
  *
+ * A file's stored mime fills in a `Content-Type` the agent did not set, and
+ * loses to one it did: we recorded that type at upload, but the agent is the
+ * one that knows what this upstream wants. `Headers.has` folds case too, so a
+ * `Content-Type` written any way at all still wins.
+ *
  * Throws on a malformed name or value, which the caller turns into a tool
  * error; header-splitting attempts are refused by `Headers` itself.
  */
 const requestHeaders = (
   supplied: Record<string, string> | undefined,
-  secret: ResolvedSecret | null
+  secret: ResolvedSecret | null,
+  file: AttachmentBody | null
 ): Headers => {
   const headers = new Headers(supplied);
+  if (file && !headers.has("content-type")) {
+    headers.set("content-type", file.mime);
+  }
   if (secret) {
     headers.set(secret.header, `${secret.headerPrefix}${secret.value}`);
   }
@@ -268,7 +435,8 @@ const readCapped = async (response: Response): Promise<CappedBody> => {
 };
 
 interface Attempt {
-  body: string | undefined;
+  /** A string the agent composed, or a stored file's stream. */
+  body: BodyInit | undefined;
   headers: Headers;
   method: string;
   url: URL;
@@ -337,21 +505,25 @@ const fetchOnce = (attempt: Attempt): Promise<Response> =>
   });
 
 /**
- * One request, then - only when no secret is attached - up to
+ * One request, then - only when the chain may be followed at all - up to
  * `MAX_REDIRECTS` hops, each checked before it is made.
  *
  * A secret-carrying request never follows anything: its 3xx goes back to the
- * agent as it is, and the agent decides.
+ * agent as it is, and the agent decides. Nor does a request whose body is a
+ * stored file, for a different reason: a 307 keeps the body, and the R2 stream
+ * the first hop consumed cannot be read a second time. Handing the 3xx back is
+ * an answer the agent can act on; replaying a locked stream is an error about
+ * our own plumbing.
  */
 const send = async (
   start: Attempt,
-  hasSecret: boolean
+  followRedirects: boolean
 ): Promise<ChainResult> => {
   let attempt = start;
   let hops = 0;
   let response = await fetchOnce(attempt);
 
-  while (!hasSecret && REDIRECT_STATUSES.has(response.status)) {
+  while (followRedirects && REDIRECT_STATUSES.has(response.status)) {
     const location = response.headers.get("location");
     if (location === null) {
       break;
@@ -383,7 +555,9 @@ const send = async (
  * `detail` carries no headers and no body - one header is the secret and the
  * body is whatever an upstream chose to send us - and the path is
  * `url.pathname` alone, because a query string is where a key ends up when
- * somebody ignores the header-only rule.
+ * somebody ignores the header-only rule. A file that was sent is named by id
+ * and by nothing else, for the same reason: which file left the workspace is
+ * the second question this trail answers, and its contents are not.
  *
  * A request that was actually made counts as a use even when it failed
  * mid-flight: the value had already been handed to the runtime, and an audit
@@ -395,6 +569,7 @@ const record = async (
   url: URL,
   method: string,
   secret: ResolvedSecret | null,
+  file: AttachmentBody | null,
   outcome: number | "failed",
   hops = 0
 ): Promise<void> => {
@@ -408,8 +583,9 @@ const record = async (
       path: url.pathname,
       secret: secret === null ? null : secret.name,
       status: outcome,
-      // Only when there were any, so an ordinary row stays as it was - and a
-      // chain is exactly what someone reads this trail to find.
+      // Both only when they apply, so an ordinary row stays exactly as it was -
+      // and a chain, or a file, is what someone reads this trail to find.
+      ...(file ? { attachment: file.id } : {}),
       ...(hops > 0 ? { hops } : {}),
     },
     kind: "http.request",
@@ -421,6 +597,7 @@ const record = async (
 };
 
 export interface HttpRequestInput {
+  attachmentId?: string;
   body?: string;
   headers?: Record<string, string>;
   method?: (typeof HTTP_METHODS)[number];
@@ -432,13 +609,14 @@ const perform = async (
   ctx: McpToolContext,
   url: URL,
   input: HttpRequestInput,
-  secret: ResolvedSecret | null
+  secret: ResolvedSecret | null,
+  file: AttachmentBody | null
 ): Promise<CallToolResult> => {
   const method = input.method ?? "GET";
 
   let headers: Headers;
   try {
-    headers = requestHeaders(input.headers, secret);
+    headers = requestHeaders(input.headers, secret, file);
   } catch (error) {
     return fail(
       `Those headers are not valid: ${redactSecret(messageOf(error), secret)}`
@@ -448,11 +626,11 @@ const perform = async (
   let chain: ChainResult;
   try {
     chain = await send(
-      { body: input.body, headers, method, url },
-      secret !== null
+      { body: file ? outboundBody(file) : input.body, headers, method, url },
+      secret === null && file === null
     );
   } catch (error) {
-    await record(ctx, url, method, secret, "failed");
+    await record(ctx, url, method, secret, file, "failed");
     return fail(
       `The request to ${url.hostname} failed: ${redactSecret(messageOf(error), secret)}`
     );
@@ -466,6 +644,7 @@ const perform = async (
       chain.url,
       method,
       secret,
+      file,
       chain.response.status,
       chain.hops
     );
@@ -487,7 +666,7 @@ const perform = async (
       status: chain.response.status,
     };
   } catch (error) {
-    await record(ctx, chain.url, method, secret, "failed", chain.hops);
+    await record(ctx, chain.url, method, secret, file, "failed", chain.hops);
     return fail(
       `The request to ${chain.url.hostname} failed: ${redactSecret(messageOf(error), secret)}`
     );
@@ -498,7 +677,7 @@ const perform = async (
     redactSecret(answer.body, secret),
     TOOL_OUTPUT_MAX_BYTES
   );
-  await record(ctx, chain.url, method, secret, answer.status, chain.hops);
+  await record(ctx, chain.url, method, secret, file, answer.status, chain.hops);
 
   return json({
     // When the read was capped, `truncateText`'s note would name the bytes we
@@ -522,35 +701,41 @@ export const httpRequest = async (
     return fail(target.reason);
   }
 
+  // Two ways to say what the body is, and deliberately no precedence between
+  // them. A silent winner would send the composed string when the agent meant
+  // the recording, or the recording when it meant the string, and the agent
+  // would read a confusing upstream error instead of its own mistake.
+  const suppliedBody = input.body !== undefined;
+  const suppliedFile = input.attachmentId !== undefined;
+  if (suppliedBody && suppliedFile) {
+    return fail(
+      "Pass either `body` or `attachmentId`, not both: `body` sends what you composed, `attachmentId` sends a stored file's bytes."
+    );
+  }
+
   const method = input.method ?? "GET";
   // Alongside the URL rules, and for the same reason: a refusal here writes no
   // activity row and bumps no `last_used_at`, whereas letting `fetch` throw
   // would record a use of a key that never left the process.
-  if (input.body !== undefined && METHODS_WITHOUT_BODY.has(method)) {
+  if ((suppliedBody || suppliedFile) && METHODS_WITHOUT_BODY.has(method)) {
     return fail(
-      `A ${method} request cannot have a body. Drop \`body\`, or use POST, PUT or PATCH.`
+      `A ${method} request cannot have a body. Drop \`${suppliedFile ? "attachmentId" : "body"}\`, or use POST, PUT or PATCH.`
     );
   }
 
-  if (input.secret === undefined) {
-    return await perform(ctx, target.url, input, null);
+  const granted = await resolveSecret(ctx, input.secret, target.url.hostname);
+  if (!granted.ok) {
+    return fail(granted.reason);
   }
 
-  const secret = await resolveSecretForAgent(ctx.db, ctx.env, {
-    agentId: ctx.agent.id,
-    name: input.secret,
-    workspaceId: ctx.workspace.id,
-  });
-  if (!secret) {
-    return fail(noSuchSecret(input.secret));
-  }
-  // Before any request is made: a refused host must not become a request that
-  // happened to fail.
-  if (!hostMatches(target.url.hostname, secret.allowedHosts)) {
-    return fail(hostRefusal(secret, target.url.hostname));
+  // Last of the checks, because it is the only one that opens an R2 object: a
+  // request the allowlist was always going to refuse never touches the file.
+  const found = await resolveAttachment(ctx, input.attachmentId);
+  if (!found.ok) {
+    return fail(found.reason);
   }
 
-  return await perform(ctx, target.url, input, secret);
+  return await perform(ctx, target.url, input, granted.secret, found.file);
 };
 
 // --- registration ------------------------------------------------------------
@@ -582,14 +767,20 @@ export const registerSecretTools = (
   server.registerTool(
     "http_request",
     {
-      description: `${SECRETS_INTRO} Make an https request and get back the status, a few response headers and the body. Name a granted secret in \`secret\` and its key is added as a request header - only for the hosts that secret allows, and only as a header, never in the URL or the body. Without \`secret\` this is a plain https request to any public host. Private and loopback addresses are refused, long bodies are truncated with a note, and redirects are followed only to public https hosts, at most 5 hops - when a secret is attached they are not followed at all but handed back to you.`,
+      description: `${SECRETS_INTRO} Make an https request and get back the status, a few response headers and the body. Name a granted secret in \`secret\` and its key is added as a request header - only for the hosts that secret allows, and only as a header, never in the URL or the body. Without \`secret\` this is a plain https request to any public host. To send a file that already exists - a recording someone attached to a message, say - pass its id as \`attachmentId\` instead of \`body\`: the bytes stream from storage to the upstream, so a file far larger than anything you could compose can be sent, and you never hold it. Private and loopback addresses are refused, long response bodies are truncated with a note, and redirects are followed only to public https hosts, at most 5 hops - when a secret or an attachment is attached they are not followed at all but handed back to you.`,
       inputSchema: {
+        attachmentId: z
+          .string()
+          .optional()
+          .describe(
+            "Send a stored file as the request body, by the id of an attachment in your workspace - for sending a file, not for composing one. Ids come from the attachments on messages you read. Its stored type becomes the content-type unless you set one in `headers`. Cannot be combined with `body`."
+          ),
         body: z
           .string()
           .max(HTTP_BODY_MAX_LENGTH)
           .optional()
           .describe(
-            "The request body, sent as-is. Set its content-type in `headers`."
+            "The request body, sent as-is. Set its content-type in `headers`. For a stored file, use `attachmentId` instead."
           ),
         headers: z
           .record(z.string(), z.string())

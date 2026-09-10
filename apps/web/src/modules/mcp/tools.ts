@@ -51,12 +51,15 @@ import {
   toPageView,
   writePage,
 } from "#/modules/wiki/service";
+import { registerAttachmentTools } from "./attachment-tools";
 import {
   authorNameOf,
   clampLimit,
   fail,
   json,
+  type McpAttachment,
   snippetOf,
+  toMcpAttachment,
   toMcpMessage,
 } from "./format";
 import { registerRoutineTools } from "./routine-tools";
@@ -273,6 +276,12 @@ const SEARCH_QUERY_MIN_LENGTH = 2;
 const SEARCH_QUERY_MAX_LENGTH = 200;
 
 interface SearchHit {
+  /**
+   * Left off entirely when the message carries none, rather than sent as an
+   * empty array on every hit: a page of hits is model context, and this is the
+   * uncommon case.
+   */
+  attachments?: McpAttachment[];
   author: string;
   authorType: string;
   channelId: string;
@@ -366,6 +375,9 @@ const registerSearchMessages = (
       const names = await agentNamesById(ctx.db, ctx.workspace.id);
       const { dropped, kept } = withinOutputBudget(
         hits.map(({ channelName, message }) => ({
+          ...(message.attachments.length > 0
+            ? { attachments: message.attachments.map(toMcpAttachment) }
+            : {}),
           author: authorNameOf(message, names),
           authorType: message.authorType,
           channelId: message.channelId,
@@ -1027,6 +1039,7 @@ export const registerWorkspaceTools = (
   registerRoutineTools(server, ctx);
   registerSkillTools(server, ctx);
   registerSecretTools(server, ctx);
+  registerAttachmentTools(server, ctx);
   registerComputerFileTools(server, ctx);
   registerComputerExec(server, ctx);
   registerBrowserTools(server, ctx);

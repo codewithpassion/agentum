@@ -25,6 +25,12 @@ mock.module("cloudflare:workers", () => ({
 }));
 
 const { createAgent } = await import("#/modules/agents/service");
+const { storeAttachment } = await import(
+  "#/modules/messaging/attachment-service"
+);
+const { createChannel, createMessage } = await import(
+  "#/modules/messaging/service"
+);
 const { createSecret, getSecret, grantSecret } = await import(
   "#/modules/secrets/service"
 );
@@ -40,6 +46,16 @@ const BOB_ID = "user_2bBobBBBBBBBBBBBBBBBBBBB";
 const NAME = "DEEPGRAM_API_KEY";
 const VALUE = "sk-live-ABCDEFGHIJKLMNOP";
 const HOST = "api.deepgram.com";
+
+/**
+ * The stored file the attachment tests send. Text rather than audio only
+ * because `attachment-rules` decides which types may be stored at all and its
+ * list has no audio in it yet; nothing in `secret-tools` reads the bytes, so
+ * the type they carry is the test's convenience.
+ */
+const FILE_NAME = "call.txt";
+const FILE_MIME = "text/plain";
+const FILE_BODY = "the recording, in a form a test can read back";
 
 const migrate = (): { d1: D1Database; db: Db } => {
   const dir = new URL("../../../drizzle/", import.meta.url);
@@ -71,6 +87,45 @@ const migrate = (): { d1: D1Database; db: Db } => {
     },
   } as unknown as D1Database;
   return { d1, db: createDb(d1) };
+};
+
+interface FakeBucket {
+  bucket: R2Bucket;
+  /** Loses an object while its row survives, which is a state R2 can reach. */
+  drop: () => void;
+  /** Every key `http_request` opened, so a refusal can be shown to open none. */
+  reads: string[];
+}
+
+/**
+ * R2 for these tests. `storeAttachment` writes a `File.stream()` and the tool
+ * reads `.body` back, so the fake buffers what it was given and hands out a
+ * fresh stream per read - a stream is consumed once, and more than one test
+ * sends the same file twice.
+ */
+const fakeBucket = (): FakeBucket => {
+  const objects = new Map<string, ArrayBuffer>();
+  const reads: string[] = [];
+  const bucket = {
+    delete: (key: string) => {
+      objects.delete(key);
+      return Promise.resolve();
+    },
+    get: (key: string) => {
+      reads.push(key);
+      const bytes = objects.get(key);
+      return Promise.resolve(
+        bytes === undefined
+          ? null
+          : { body: new Blob([bytes]).stream(), size: bytes.byteLength }
+      );
+    },
+    put: async (key: string, value: ReadableStream<Uint8Array>) => {
+      objects.set(key, await new Response(value).arrayBuffer());
+      return {};
+    },
+  } as unknown as R2Bucket;
+  return { bucket, drop: () => objects.clear(), reads };
 };
 
 type ToolHandler = (input: Record<string, unknown>) => Promise<CallToolResult>;
@@ -132,6 +187,7 @@ interface Tenant {
 
 let db: Db;
 let env: Env;
+let storage: FakeBucket;
 let alpha: Tenant;
 let beta: Tenant;
 
@@ -191,6 +247,46 @@ const secretFor = async (
   return secret;
 };
 
+/**
+ * A stored file belonging to `tenant`, claimed by a message in one of its
+ * channels.
+ *
+ * The claiming is the point, not scenery: `getAttachmentInWorkspace` scopes an
+ * attachment through message → channel → workspace, and an upload no message
+ * has claimed yet has no such parent, so it answers for any caller by design.
+ * A cross-tenant test seeded with an unclaimed upload would pass while proving
+ * nothing.
+ */
+const fileIn = async (tenant: Tenant, body = FILE_BODY): Promise<string> => {
+  const stored = await storeAttachment(
+    db,
+    storage.bucket,
+    new File([body], FILE_NAME, { type: FILE_MIME })
+  );
+  if (!stored.ok) {
+    throw new Error(stored.reason);
+  }
+  const channel = await createChannel(db, tenant.workspace.id, {
+    name: "general",
+  });
+  const message = await createMessage(db, {
+    attachmentIds: [stored.attachment.id],
+    authorId: tenant.agentId,
+    authorType: "agent",
+    body: "Here is the call.",
+    channelId: channel.id,
+    workspace: tenant.workspace,
+  });
+  if (!message.ok) {
+    throw new Error(message.reason);
+  }
+  return stored.attachment.id;
+};
+
+/** What the upstream would have received, whether string or stream. */
+const bodyOnWire = (sent: FetchCall | undefined): Promise<string> =>
+  new Response((sent?.init.body ?? "") as BodyInit).text();
+
 const call = (tenant: Tenant, input: Record<string, unknown>) => {
   const handler = tenant.tools.get("http_request");
   if (!handler) {
@@ -202,7 +298,9 @@ const call = (tenant: Tenant, input: Record<string, unknown>) => {
 beforeEach(async () => {
   const migrated = migrate();
   ({ db } = migrated);
+  storage = fakeBucket();
   env = {
+    ATTACHMENTS: storage.bucket,
     CONNECTOR_KEY: generateConnectorKey(),
     DB: migrated.d1,
   } as unknown as Env;
@@ -622,6 +720,234 @@ describe("http_request and a body the method cannot carry", () => {
     });
 
     expect(calls).toHaveLength(1);
+  });
+});
+
+// --- a stored file as the body -----------------------------------------------
+
+describe("http_request with an attachment", () => {
+  const listen = `https://${HOST}/v1/listen`;
+
+  test("streams the stored bytes with the key on the header", async () => {
+    await secretFor(alpha);
+    const id = await fileIn(alpha);
+    const calls = stubFetch(() => ok('{"transcript":"hello"}'));
+
+    const result = await call(alpha, {
+      attachmentId: id,
+      method: "POST",
+      secret: NAME,
+      url: listen,
+    });
+
+    // The file on the wire, the key on the header, and neither composed by the
+    // agent: this is the whole feature in one assertion block.
+    expect(calls).toHaveLength(1);
+    expect(await bodyOnWire(calls[0])).toBe(FILE_BODY);
+    expect(calls[0]?.headers.get("authorization")).toBe(`Bearer ${VALUE}`);
+    expect(payloadOf(result).status).toBe(200);
+    // The bytes were never an argument and are not in the answer either.
+    expect(textOf(result)).not.toContain(FILE_BODY);
+    expect(textOf(result)).not.toContain(VALUE);
+  });
+
+  test("sets the content-type from the stored mime", async () => {
+    const id = await fileIn(alpha);
+    const calls = stubFetch(() => ok("{}"));
+
+    await call(alpha, {
+      attachmentId: id,
+      method: "POST",
+      url: "https://example.com/upload",
+    });
+
+    expect(calls[0]?.headers.get("content-type")).toBe(FILE_MIME);
+  });
+
+  test("a content-type the caller set wins over the stored one", async () => {
+    const id = await fileIn(alpha);
+    const calls = stubFetch(() => ok("{}"));
+
+    await call(alpha, {
+      attachmentId: id,
+      // Differently cased, so a check on the exact spelling would miss it and
+      // send both.
+      headers: { "Content-Type": "audio/wav" },
+      method: "POST",
+      url: "https://example.com/upload",
+    });
+
+    expect(calls[0]?.headers.get("content-type")).toBe("audio/wav");
+  });
+
+  test("refuses body and attachmentId together instead of choosing", async () => {
+    await secretFor(alpha);
+    const id = await fileIn(alpha);
+    const calls = stubFetch(() => ok("{}"));
+
+    const result = await call(alpha, {
+      attachmentId: id,
+      body: '{"composed":true}',
+      method: "POST",
+      secret: NAME,
+      url: listen,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("Pass either `body` or `attachmentId`");
+    expect(calls).toHaveLength(0);
+    // Refused before anything was opened, let alone sent.
+    expect(storage.reads).toHaveLength(0);
+  });
+
+  test("refuses a GET carrying a file, naming the field it means", async () => {
+    const id = await fileIn(alpha);
+    const calls = stubFetch(() => ok("{}"));
+
+    const result = await call(alpha, { attachmentId: id, url: listen });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("Drop `attachmentId`");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("an id that names nothing", async () => {
+    await secretFor(alpha);
+    const calls = stubFetch(() => ok("{}"));
+
+    const result = await call(alpha, {
+      attachmentId: "6a5f6ad0-0000-4000-8000-000000000000",
+      method: "POST",
+      secret: NAME,
+      url: listen,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("is visible to you");
+    expect(calls).toHaveLength(0);
+    // A refusal is not a use of the key.
+    const feed = await listActivity(db, { agentId: alpha.agentId, limit: 10 });
+    expect(feed.entries).toHaveLength(0);
+  });
+
+  test("another workspace's file reads exactly the same", async () => {
+    await secretFor(alpha);
+    const id = await fileIn(beta);
+    const calls = stubFetch(() => ok("{}"));
+
+    const result = await call(alpha, {
+      attachmentId: id,
+      method: "POST",
+      secret: NAME,
+      url: listen,
+    });
+
+    // The same sentence as an id that never existed: telling them apart would
+    // say whether an id exists in a workspace the caller cannot see.
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("is visible to you");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("the allowlist still refuses a host, and the file is never opened", async () => {
+    const secret = await secretFor(alpha);
+    const id = await fileIn(alpha);
+    const calls = stubFetch(() => ok("{}"));
+
+    const result = await call(alpha, {
+      attachmentId: id,
+      method: "POST",
+      secret: NAME,
+      url: "https://api.example.com/v1/listen",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain(
+      `${NAME} may only be sent to ${HOST}, not api.example.com`
+    );
+    expect(calls).toHaveLength(0);
+    // The cheap refusal runs first, so a request that was never going to be
+    // made does not stream 40MB out of R2 on the way to being refused.
+    expect(storage.reads).toHaveLength(0);
+    const feed = await listActivity(db, { agentId: alpha.agentId, limit: 10 });
+    expect(feed.entries).toHaveLength(0);
+    expect(
+      (await getSecret(db, alpha.workspace.id, secret.id))?.lastUsedAt
+    ).toBe(null);
+  });
+
+  test("a private address is refused on this path too", async () => {
+    const id = await fileIn(alpha);
+    const calls = stubFetch(() => ok("{}"));
+
+    const result = await call(alpha, {
+      attachmentId: id,
+      method: "POST",
+      url: "https://169.254.169.254/latest/meta-data",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("private or loopback");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a redirect is handed back rather than replayed", async () => {
+    const id = await fileIn(alpha);
+    const calls = stubFetch(() =>
+      Response.redirect("https://example.com/elsewhere", 307)
+    );
+
+    const result = await call(alpha, {
+      attachmentId: id,
+      method: "POST",
+      url: "https://example.com/upload",
+    });
+
+    // A 307 keeps the body, and the stream the first hop drank cannot be
+    // poured again - so the 3xx goes back to the agent, as it does with a key.
+    expect(calls).toHaveLength(1);
+    expect(payloadOf(result).status).toBe(307);
+  });
+
+  test("the activity row names the file by id and carries no bytes", async () => {
+    await secretFor(alpha);
+    const id = await fileIn(alpha);
+    stubFetch(() => ok("{}"));
+
+    await call(alpha, {
+      attachmentId: id,
+      method: "POST",
+      secret: NAME,
+      url: listen,
+    });
+
+    const feed = await listActivity(db, { agentId: alpha.agentId, limit: 10 });
+    expect(feed.entries[0]?.detail).toEqual({
+      attachment: id,
+      host: HOST,
+      method: "POST",
+      path: "/v1/listen",
+      secret: NAME,
+      status: 200,
+    });
+    expect(JSON.stringify(feed.entries[0]?.detail)).not.toContain(FILE_BODY);
+  });
+
+  test("a row whose object is gone is refused, not sent empty", async () => {
+    const id = await fileIn(alpha);
+    storage.drop();
+    const calls = stubFetch(() => ok("{}"));
+
+    const result = await call(alpha, {
+      attachmentId: id,
+      method: "POST",
+      url: "https://example.com/upload",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain(FILE_NAME);
+    expect(textOf(result)).toContain("nothing was requested");
+    expect(calls).toHaveLength(0);
   });
 });
 

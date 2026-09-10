@@ -26,6 +26,7 @@ mock.module("cloudflare:workers", () => ({
 const { createAgent } = await import("#/modules/agents/service");
 const { addChannelMembers, createChannel, createMessage, getThread } =
   await import("#/modules/messaging/service");
+const { attachments } = await import("#/modules/messaging/schema");
 const { answerQuestion, getQuestion } = await import(
   "#/modules/questions/service"
 );
@@ -290,6 +291,12 @@ describe("read_thread", () => {
 
 describe("search_messages", () => {
   interface Hit {
+    attachments?: {
+      filename: string;
+      id: string;
+      mime: string;
+      size: number;
+    }[];
     author: string;
     channelId: string;
     channelName: string;
@@ -302,9 +309,14 @@ describe("search_messages", () => {
   const post = async (
     tenant: Tenant,
     body: string,
-    options: { channelId?: string; threadParentId?: string } = {}
+    options: {
+      attachmentIds?: string[];
+      channelId?: string;
+      threadParentId?: string;
+    } = {}
   ): Promise<string> => {
     const result = await createMessage(db, {
+      attachmentIds: options.attachmentIds,
       authorId: tenant.clerkUserId,
       authorType: "user",
       body,
@@ -336,6 +348,40 @@ describe("search_messages", () => {
     tenant: Tenant,
     input: Record<string, unknown>
   ): Promise<Hit[]> => payloadOf(await search(tenant, input)).hits as Hit[];
+
+  test("a hit carries the ids of what is attached to it, and nothing when there is nothing", async () => {
+    // An agent that cannot see an attachment id cannot pass one to
+    // attachment_link, which is the only way a file leaves the workspace.
+    const attachmentId = crypto.randomUUID();
+    await db.insert(attachments).values({
+      filename: "standup.mp3",
+      id: attachmentId,
+      mime: "audio/mpeg",
+      r2Key: `attachments/${attachmentId}`,
+      size: 4096,
+    });
+    await post(alpha, "The recording of the standup.", {
+      attachmentIds: [attachmentId],
+    });
+    await post(alpha, "The standup notes, typed up.");
+
+    const [withFile, withoutFile] = await Promise.all([
+      hitsOf(alpha, { query: "recording" }),
+      hitsOf(alpha, { query: "typed up" }),
+    ]);
+
+    expect(withFile[0]?.attachments).toEqual([
+      {
+        filename: "standup.mp3",
+        id: attachmentId,
+        mime: "audio/mpeg",
+        size: 4096,
+      },
+    ]);
+    // Left off entirely rather than sent as an empty array: a page of hits is
+    // model context, and most messages carry no file.
+    expect(withoutFile[0]).not.toHaveProperty("attachments");
+  });
 
   test("finds a match in the agent's own channels and names the channel", async () => {
     const id = await post(alpha, "The deploy runbook lives in the wiki.");

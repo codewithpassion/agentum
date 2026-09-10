@@ -21,6 +21,7 @@ import {
   connectorsRoutes,
 } from "#/modules/connectors/routes";
 import { mcpRoutes } from "#/modules/mcp/routes";
+import { attachmentLinkRoutes } from "#/modules/messaging/routes/attachment-links";
 import { attachmentsRoutes } from "#/modules/messaging/routes/attachments";
 import { channelsRoutes } from "#/modules/messaging/routes/channels";
 import { messagesRoutes } from "#/modules/messaging/routes/messages";
@@ -155,6 +156,14 @@ app.route("/api/bridges/slack", slackRoutes);
 // The agents' MCP endpoint. Not behind Clerk: the per-agent token in the path
 // is the credential (see modules/mcp/routes).
 app.route("/mcp", mcpRoutes);
+
+// One attachment, by signed expiring URL, so an external service can fetch a
+// file itself - a transcription API given an mp3. Mounted here rather than on
+// `workspaceScopedRoutes` because there is neither a session nor a
+// `:workspaceSlug` on this path: the HMAC over the id and the expiry is the
+// whole credential, and the workspace was checked when the link was minted
+// (see modules/messaging/routes/attachment-links).
+app.route("/api/attachment-links", attachmentLinkRoutes);
 
 // Where a self-hosted computerd container dials in. Not behind Clerk either:
 // the host token in the Authorization header is the credential, and it names
