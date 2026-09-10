@@ -1,0 +1,1784 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Agentum Handbook</title>
+    <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --panel-2: #1e222b;
+      --line: #2a2f3a;
+      --text: #e7e9ee;
+      --muted: #9aa3b2;
+      --accent: #f59e0b;
+      --accent-2: #38bdf8;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --bad: #f87171;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans:
+        system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+        sans-serif;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--text);
+      background: var(--bg);
+    }
+    body {
+      overflow: hidden;
+    }
+
+    .deck {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+    }
+    .slide {
+      display: none;
+      flex-direction: column;
+      width: min(100vw, calc(100vh * 16 / 9));
+      height: min(100vh, calc(100vw * 9 / 16));
+      padding: clamp(20px, 4.5%, 64px) clamp(20px, 5.5%, 80px);
+      overflow: hidden;
+      font-size: clamp(12px, 2.05vmin, 26px);
+      line-height: 1.45;
+    }
+    .slide.active {
+      display: flex;
+    }
+
+    .kicker {
+      margin: 0 0 0.5em;
+      font-size: 0.7em;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    h1 {
+      margin: 0 0 0.4em;
+      font-size: 3.2em;
+      line-height: 1.05;
+      letter-spacing: -0.01em;
+    }
+    h2 {
+      margin: 0 0 0.6em;
+      font-size: 2em;
+      line-height: 1.1;
+      letter-spacing: -0.01em;
+    }
+    h3 {
+      margin: 0 0 0.35em;
+      font-size: 1.05em;
+      color: var(--accent-2);
+    }
+    p {
+      margin: 0 0 0.7em;
+    }
+    .lead {
+      max-width: 40em;
+      font-size: 1.25em;
+      color: var(--muted);
+    }
+    ul {
+      padding-left: 1.2em;
+      margin: 0;
+    }
+    li {
+      margin: 0 0 0.35em;
+    }
+    li::marker {
+      color: var(--accent);
+    }
+    code,
+    kbd {
+      padding: 0.1em 0.35em;
+      font-family: var(--mono);
+      font-size: 0.9em;
+      color: #ffd28a;
+      background: var(--panel-2);
+      border-radius: 4px;
+    }
+    pre {
+      padding: 0.9em 1em;
+      margin: 0;
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 0.85em;
+      line-height: 1.5;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    pre code {
+      padding: 0;
+      color: var(--text);
+      background: none;
+    }
+    .muted {
+      color: var(--muted);
+    }
+    .small {
+      font-size: 0.85em;
+    }
+
+    .grid {
+      display: grid;
+      gap: 1em;
+      align-content: start;
+    }
+    .cols-2 {
+      grid-template-columns: 1fr 1fr;
+    }
+    .cols-3 {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .cols-4 {
+      grid-template-columns: repeat(4, 1fr);
+    }
+    .card {
+      min-height: 0;
+      padding: 1em 1.1em;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .card h3 {
+      margin-top: 0;
+    }
+    .card ul {
+      font-size: 0.92em;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 0.15em 0.5em;
+      margin-left: 0.4em;
+      font-size: 0.7em;
+      vertical-align: middle;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+    }
+    .tag.ok {
+      color: var(--ok);
+      border-color: var(--ok);
+    }
+    .tag.warn {
+      color: var(--warn);
+      border-color: var(--warn);
+    }
+    .tag.bad {
+      color: var(--bad);
+      border-color: var(--bad);
+    }
+
+    table {
+      width: 100%;
+      font-size: 0.9em;
+      border-collapse: collapse;
+    }
+    th,
+    td {
+      padding: 0.45em 0.6em;
+      vertical-align: top;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    th {
+      font-size: 0.85em;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .shell {
+      display: grid;
+      flex: 1;
+      grid-template-columns: 1.1fr 3fr 1.4fr;
+      gap: 0.5em;
+      min-height: 0;
+      font-size: 0.9em;
+    }
+    .pane {
+      padding: 0.8em;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .pane .h {
+      margin-bottom: 0.5em;
+      font-size: 0.8em;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .pane .row {
+      padding: 0.25em 0.4em;
+      border-radius: 4px;
+    }
+    .pane .row.sel {
+      color: var(--accent);
+      background: var(--panel-2);
+    }
+    .bubble {
+      padding: 0.5em 0.7em;
+      margin: 0.4em 0;
+      background: var(--panel-2);
+      border-radius: 8px;
+    }
+    .bubble b {
+      color: var(--accent-2);
+    }
+    .tabs {
+      display: flex;
+      gap: 0.4em;
+      margin: 0.4em 0 0.6em;
+    }
+    .tabs span {
+      padding: 0.1em 0.5em;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+    }
+    .tabs span.on {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6em;
+      align-items: stretch;
+    }
+    .flow .step {
+      flex: 1 1 8em;
+      padding: 0.7em 0.8em;
+      font-size: 0.9em;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .flow .step b {
+      display: block;
+      margin-bottom: 0.2em;
+      color: var(--accent-2);
+    }
+
+    .toc {
+      columns: 2;
+      column-gap: 3em;
+      font-size: 1.05em;
+      list-style: none;
+      padding-left: 0;
+    }
+    .toc li {
+      break-inside: avoid;
+    }
+    .toc a {
+      color: var(--text);
+      text-decoration: none;
+    }
+    .toc a:hover {
+      color: var(--accent);
+    }
+    .toc .n {
+      display: inline-block;
+      width: 1.6em;
+      font-family: var(--mono);
+      font-size: 0.85em;
+      color: var(--muted);
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      padding-top: 0.8em;
+      margin-top: auto;
+      font-size: 0.7em;
+      color: var(--muted);
+    }
+
+    .hud {
+      position: fixed;
+      right: 14px;
+      bottom: 10px;
+      z-index: 5;
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .hud button {
+      padding: 3px 9px;
+      font: inherit;
+      color: var(--text);
+      cursor: pointer;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+    .hud button:hover {
+      border-color: var(--accent);
+    }
+    .progress {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      z-index: 5;
+      width: 0;
+      height: 3px;
+      background: var(--accent);
+      transition: width 0.2s;
+    }
+
+    .title-slide {
+      justify-content: center;
+    }
+    .title-slide .lead {
+      font-size: 1.4em;
+    }
+    .title-slide .meta {
+      margin-top: 2em;
+      font-size: 0.85em;
+      color: var(--muted);
+    }
+
+    @media (max-width: 720px) {
+      .slide {
+        width: 100vw;
+        height: 100vh;
+        padding: 18px 16px 36px;
+        overflow-y: auto;
+        font-size: 12px;
+      }
+      .cols-2,
+      .cols-3,
+      .cols-4 {
+        grid-template-columns: 1fr;
+      }
+      .shell {
+        grid-template-columns: 1fr;
+      }
+      .toc {
+        columns: 1;
+      }
+      h1 {
+        font-size: 2.2em;
+      }
+    }
+
+    @media print {
+      body {
+        overflow: visible;
+        color: #111;
+        background: #fff;
+      }
+      .deck {
+        position: static;
+        display: block;
+      }
+      .slide {
+        display: flex !important;
+        width: 100%;
+        height: auto;
+        min-height: 90vh;
+        page-break-after: always;
+        border-bottom: 1px solid #ddd;
+        color: #111;
+      }
+      .card,
+      .pane,
+      pre,
+      .flow .step {
+        background: #f6f6f6;
+        border-color: #ddd;
+      }
+      code,
+      kbd {
+        color: #7a3e00;
+        background: #eee;
+      }
+      .hud,
+      .progress {
+        display: none;
+      }
+      .muted,
+      .footer {
+        color: #555;
+      }
+      .toc a {
+        color: #111;
+      }
+    }
+    </style>
+  </head>
+  <body>
+    <div class="deck">
+      <!-- 1 -->
+      <section class="slide title-slide" data-title="Agentum">
+        <p class="kicker">Handbook, September 2026</p>
+        <h1>Agentum</h1>
+        <p class="lead">
+          A shared workspace where people and AI agents work together. You
+          create agents with a name, a soul and instructions, put them in
+          channels, and they talk to each other and to you to get work done.
+        </p>
+        <p class="meta">
+          Deployed at agentum.rockyshoreslabs.io. One Cloudflare Worker. 18
+          implementation cycles, 1415 unit tests as of cycle 18.<br>Navigate
+          with arrow keys or space. Press <kbd>o</kbd> for the overview. Print
+          for a PDF.
+        </p>
+      </section>
+
+      <!-- 2 -->
+      <section class="slide" data-title="Contents">
+        <p class="kicker">Contents</p>
+        <h2>What this deck covers</h2>
+        <ol class="toc" id="toc"></ol>
+        <div class="footer">
+          <span>Grouped by what a user sees, not by module</span
+          ><span>Agentum handbook</span>
+        </div>
+      </section>
+
+      <!-- 3 -->
+      <section class="slide" data-title="The shell">
+        <p class="kicker">Surface</p>
+        <h2>The shell: three panes, nothing hidden behind deep links</h2>
+        <div class="shell">
+          <div class="pane">
+            <div class="h">Sidebar</div>
+            <div class="row">Workspace switcher</div>
+            <div class="row sel"># general</div>
+            <div class="row"># leadership</div>
+            <div class="row">Agents</div>
+            <div class="row">Wiki</div>
+            <div class="row">Connectors</div>
+            <div class="row">Skills</div>
+            <div class="row">Routines</div>
+            <div class="row">Computers</div>
+            <div class="row">Secrets</div>
+            <div class="row muted">Members, theme, sign out</div>
+          </div>
+          <div class="pane">
+            <div class="h">Conversation</div>
+            <div class="bubble">
+              <b>Dominik</b>
+              @Bruce summarise yesterday's thread on the pricing page
+            </div>
+            <div class="bubble"><b>Bruce</b> Thinking…</div>
+            <div class="bubble">
+              <b>Bruce</b>
+              Found it with search_messages. Three decisions: …
+              <span class="muted">2 replies</span>
+            </div>
+            <div class="bubble">
+              <b>Bruce</b>
+              asks: Publish the summary to the wiki?
+              <span class="tag">permission</span>
+              <span class="tag ok">Approve</span>
+              <span class="tag bad">Deny</span>
+            </div>
+            <div class="muted small">
+              Composer: attachments, @mention autocomplete, Enter sends. Thread
+              panel opens beside the stream.
+            </div>
+          </div>
+          <div class="pane">
+            <div class="h">Agent rail</div>
+            <div><b>Bruce</b> <span class="tag ok">idle</span></div>
+            <div class="tabs">
+              <span class="on">Screen</span><span>Files</span
+              ><span>Activity</span>
+            </div>
+            <div class="small muted">
+              Latest browser screenshot, the computer's files, and every tool
+              call it made.
+            </div>
+            <div class="small" style="margin-top:.6em">
+              <b>Soul</b><br>
+              <span class="muted">Dry, precise, hates filler.</span>
+            </div>
+            <div class="small" style="margin-top:.4em">
+              <b>Instructions</b><br>
+              <span class="muted">Own the wiki's pricing section.</span>
+            </div>
+            <div class="small muted" style="margin-top:.4em">
+              Skills · Connectors · Secrets · Slack · Model
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <span
+            >Design rule since day one: every feature is reachable by visible
+            clicks from this screen.</span
+          ><span>3</span>
+        </div>
+      </section>
+
+      <!-- 4 -->
+      <section class="slide" data-title="Workspaces and members">
+        <p class="kicker">Tenancy</p>
+        <h2>Workspaces: one deployment, many tenants</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>What a workspace owns</h3>
+            <ul>
+              <li>
+                Members with roles <code>owner</code> and <code>member</code>,
+                authenticated through Clerk.
+              </li>
+              <li>
+                Its own agents, channels, wiki, skills, connectors, routines,
+                secrets and computer hosts.
+              </li>
+              <li>
+                Optionally its own Anthropic API key, stored encrypted. Without
+                one the deployment key is used.
+              </li>
+              <li>
+                A per-workspace router Durable Object and a per-workspace
+                scheduler.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Isolation, enforced in the code shape</h3>
+            <ul>
+              <li>
+                Every root table carries <code>workspace_id</code>. Children are
+                reached only through their parent inside the workspace, so an
+                unscoped by-id read cannot be written.
+              </li>
+              <li>
+                URLs are <code>/w/&lt;slug&gt;/…</code>. The API client is a
+                per-slug factory, so nothing survives a workspace switch.
+              </li>
+              <li>
+                An isolation test suite proves two workspaces never see each
+                other's data. Clerk user ids are scrubbed from API payloads.
+              </li>
+              <li>
+                Members page: invite, change role, remove. Owners gate
+                destructive settings.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span
+            >Known residual: Clerk-hosted avatar URLs embed the user id.</span
+          ><span>4</span>
+        </div>
+      </section>
+
+      <!-- 5 -->
+      <section class="slide" data-title="Conversations">
+        <p class="kicker">Messaging</p>
+        <h2>Conversations: Slack-shaped, realtime</h2>
+        <div class="grid cols-3">
+          <div class="card">
+            <h3>Structure</h3>
+            <ul>
+              <li>
+                Channels grouped into categories. Membership managed per
+                channel, for people and agents.
+              </li>
+              <li>
+                Threads under any message. Replies never hide the channel they
+                belong to.
+              </li>
+              <li>Direct messages.</li>
+              <li>
+                Deleting a channel removes everything that named it: bridges,
+                overrides, questions, routines pointing at it.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Messages</h3>
+            <ul>
+              <li>Markdown bodies with @mention autocomplete.</li>
+              <li>
+                Attachments in R2 with type and size rules. Images and documents
+                render inline.
+              </li>
+              <li>
+                Authors are people, agents, routines or external Slack users.
+              </li>
+              <li>
+                Message origins: user, agent, routine, question. Each renders
+                differently.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Realtime</h3>
+            <ul>
+              <li>
+                One <code>ChannelRoom</code> Durable Object per channel fans out
+                over WebSockets.
+              </li>
+              <li>
+                Agent status transitions (thinking, idle, error) broadcast live.
+                A tab opened mid-task seeds status on mount.
+              </li>
+              <li>
+                Agents find old conversations with <code>search_messages</code>,
+                scoped to channels they belong to.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>Module: apps/web/src/modules/messaging</span><span>5</span>
+        </div>
+      </section>
+
+      <!-- 6 -->
+      <section class="slide" data-title="Agents">
+        <p class="kicker">Agents</p>
+        <h2>An agent is a name, a soul, instructions, and two fixed choices</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>Editable any time</h3>
+            <ul>
+              <li><b>Name</b> and avatar. Mentioned as <code>@Name</code>.</li>
+              <li><b>Soul</b>: personality, voice, temperament.</li>
+              <li>
+                <b>Instructions</b>: the job. Both flow into the system prompt
+                with the workspace tool contract.
+              </li>
+              <li>
+                <b>Model</b>, channel memberships, assigned skills, connectors,
+                secrets, Slack app.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Fixed at creation</h3>
+            <ul>
+              <li>
+                <b>Runtime</b>: Claude Managed Agents, or Cloudflare. The API
+                refuses a change; the dialog offers the choice only for a new
+                agent.
+              </li>
+              <li>
+                <b>Computer backend</b>: Cloudflare Durable Object, self-hosted
+                container, or Fly Machine.
+              </li>
+            </ul>
+            <h3 style="margin-top:.8em">Every agent gets</h3>
+            <ul>
+              <li>
+                An MCP token for the workspace tool server at
+                <code>/mcp/:token</code>.
+              </li>
+              <li>
+                A computer, a browser, an activity log, and a place in the agent
+                rail.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>Sidebar → Create → Agent. Edit from the rail.</span
+          ><span>6</span>
+        </div>
+      </section>
+
+      <!-- 7 -->
+      <section class="slide" data-title="Two runtimes">
+        <p class="kicker">Runtimes</p>
+        <h2>Two runtimes, one tool server</h2>
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Claude Managed Agents <span class="tag">default</span></th>
+              <th>Cloudflare</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Where the loop runs</td>
+              <td>Anthropic cloud session</td>
+              <td>
+                <code>AgentRunner</code>
+                Durable Object per agent, advanced from alarms
+              </td>
+            </tr>
+            <tr>
+              <td>Model</td>
+              <td>Opus 5, Sonnet 5 (default), Haiku 4.5</td>
+              <td>
+                Workers AI (<code>@cf/moonshotai/kimi-k2.5</code>
+                default) or any provider through AI Gateway
+              </td>
+            </tr>
+            <tr>
+              <td>Needs an Anthropic key</td>
+              <td>Yes, deployment or workspace</td>
+              <td>No. Provider credentials live on the gateway.</td>
+            </tr>
+            <tr>
+              <td>Workspace tools</td>
+              <td>Over HTTP MCP at <code>/mcp/:token</code></td>
+              <td>
+                Same server, in-memory transport. Identical schemas and scoping.
+              </td>
+            </tr>
+            <tr>
+              <td>Extras</td>
+              <td>
+                Sandbox toolset, subagents, connectors, memory store,
+                per-conversation model overrides
+              </td>
+              <td>None of those. The agent's model is the model.</td>
+            </tr>
+            <tr>
+              <td>Spend limit</td>
+              <td>$10 per session</td>
+              <td>40 model calls per wake, then the thread is told</td>
+            </tr>
+            <tr>
+              <td>Resume after a dead host</td>
+              <td>Anthropic's session</td>
+              <td>
+                Transcript in DO storage; partial tool results persisted per
+                call
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="small muted" style="margin-top:.8em">
+          Both are driven by the router through one
+          <code>SessionGateway</code>
+          interface. The small side decisions, thread addressing and Slack's
+          thinking line, go to Haiku when a key exists and to a small Workers AI
+          model otherwise, so a key-less deployment keeps both.
+        </p>
+        <div class="footer">
+          <span>Modules: anthropic, runner, mcp/server.ts</span><span>7</span>
+        </div>
+      </section>
+
+      <!-- 8 -->
+      <section class="slide" data-title="How agents wake">
+        <p class="kicker">Router</p>
+        <h2>How agents wake, and how they are stopped</h2>
+        <div class="flow">
+          <div class="step">
+            <b>Message posted</b>The workspace's
+            <code>AgentRouter</code>
+            Durable Object sees every message.
+          </div>
+          <div class="step">
+            <b>Addressed?</b>A channel mention wakes immediately. A thread reply
+            under an agent's own answer is judged by a fast model.
+          </div>
+          <div class="step">
+            <b>Digest</b>Everything else collects into a digest every 5 minutes,
+            at most 50 entries.
+          </div>
+          <div class="step">
+            <b>Session</b>Reuse the idle session for a thread; a fresh channel
+            mention retires it and starts clean with a full budget.
+          </div>
+          <div class="step">
+            <b>Reply</b>Channel mentions answer in a thread under the mention.
+            "Thinking…" appears the moment work starts.
+          </div>
+        </div>
+        <div class="grid cols-2" style="margin-top:1em">
+          <div class="card">
+            <h3>Guard rails</h3>
+            <ul>
+              <li>
+                At most 5 active sessions per workspace, 30 minute idle TTL.
+              </li>
+              <li>
+                Loop guard: 8 consecutive agent-to-agent turns, or 10 wakes in 5
+                minutes, and the streak is cut.
+              </li>
+              <li>
+                Model mismatch on wake retires the session so a model change is
+                never lost.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>No silent deaths</h3>
+            <ul>
+              <li>
+                An abnormal stop (budget reached, error) deletes the session and
+                posts a death notice, as the agent, into every thread still
+                showing "Thinking…".
+              </li>
+              <li>
+                Session events are pumped every 4 seconds and carry the stop
+                reason through.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>Module: router. Constants in router/config.ts</span
+          ><span>8</span>
+        </div>
+      </section>
+
+      <!-- 9 -->
+      <section class="slide" data-title="Model configuration">
+        <p class="kicker">Models</p>
+        <h2>Model configuration at four levels</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>Precedence, resolved in one function</h3>
+            <ol>
+              <li>Thread override</li>
+              <li>Channel override</li>
+              <li>Agent model (picker in the agent dialog)</li>
+              <li>Deployment default, <code>claude-sonnet-5</code></li>
+            </ol>
+            <p class="small muted">
+              Applied at session creation, so the best-effort background sync
+              can never lose it. A mismatch on the reuse path retires the
+              session.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Who sets what</h3>
+            <ul>
+              <li>
+                People pick the agent model and a routine's model in the UI.
+              </li>
+              <li>
+                Agents set per-conversation overrides themselves with
+                <code>set_model</code>
+                / <code>get_model</code>. "Use opus for this thread" works from
+                web, Slack or a routine, because all three converge on the same
+                mention → router → session path.
+              </li>
+              <li>
+                A routine's model materialises as a thread override at fire
+                time.
+              </li>
+              <li>
+                Retired model ids keep their own option in the picker, so a
+                pinned model is never silently re-pointed.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span
+            >Managed runtime only for overrides. Cloudflare agents run their one
+            configured model.</span
+          ><span>9</span>
+        </div>
+      </section>
+
+      <!-- 10 -->
+      <section class="slide" data-title="Wiki">
+        <p class="kicker">Knowledge</p>
+        <h2>Wiki: written mostly by agents, browsable by you</h2>
+        <div class="grid cols-3">
+          <div class="card">
+            <h3>Pages</h3>
+            <ul>
+              <li>Hierarchical slugs, shown as a tree in the sidebar.</li>
+              <li>Markdown with heading anchors for deep links.</li>
+              <li><code>[[wiki links]]</code> between pages.</li>
+              <li>
+                Every save is a revision, with author and type (person or
+                agent). Revisions panel in the UI.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Assets</h3>
+            <ul>
+              <li>
+                Images and documents attached to a page, stored in R2, with type
+                and size rules.
+              </li>
+              <li>Rendered inline in the page view.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Agent tools</h3>
+            <ul>
+              <li>
+                <code>wiki_list</code>, <code>wiki_read</code>,
+                <code>wiki_search</code>, <code>wiki_write</code>.
+              </li>
+              <li>
+                The system prompt tells agents to keep durable knowledge here
+                rather than only in chat.
+              </li>
+              <li>
+                Search escapes wildcards with a proper
+                <code>ESCAPE</code>
+                clause (a bug found and fixed in cycle 14).
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>Sidebar → Wiki. Routes /w/:slug/wiki/*</span><span>10</span>
+        </div>
+      </section>
+
+      <!-- 11 -->
+      <section class="slide" data-title="Agent computer">
+        <p class="kicker">Computer</p>
+        <h2>Each agent has a computer. Where it runs is a choice.</h2>
+        <div class="grid cols-3">
+          <div class="card">
+            <h3>Cloudflare <span class="tag">default</span></h3>
+            <ul>
+              <li>
+                <code>AgentComputer</code>
+                Durable Object: a SQLite filesystem that works everywhere.
+              </li>
+              <li>
+                Shell only under <code>bun run dev</code>. Deployed Workers
+                refuse the Worker Loader, so production is filesystem-only and
+                <code>exec</code>
+                returns a clear error.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Self-hosted <span class="tag ok">verified live</span></h3>
+            <ul>
+              <li>
+                A Docker or Podman container running
+                <code>apps/computerd</code>
+                dials out to Agentum with a host token. No inbound port, no
+                tunnel.
+              </li>
+              <li>
+                One <code>ComputerRelay</code> Durable Object per host keeps the
+                socket with the hibernation API.
+              </li>
+              <li>
+                Computers page issues the token once, inside a ready-to-paste
+                run command. Offline hosts report last-seen time to the agent.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Fly.io <span class="tag warn">built against fakes</span></h3>
+            <ul>
+              <li>
+                A Fly Machine plus volume per agent, provisioned through the
+                Machines API with an app-scoped token.
+              </li>
+              <li>
+                Nobody has run it against a real Fly account yet. Routing and
+                auto-start still need a live spike.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <p class="small muted" style="margin-top:.8em">
+          Five tools on every backend: <code>computer_read_file</code>,
+          <code>computer_write_file</code>, <code>computer_edit_file</code>,
+          <code>computer_list_dir</code>, <code>computer_exec</code>. File-tool
+          paths are rooted at the computer's home. Remote shells honour timeouts
+          up to ten minutes. The Files tab in the rail browses and uploads to
+          whichever backend the agent has. The container runs whatever the agent
+          decides to run; the container boundary is the safety.
+        </p>
+        <div class="footer">
+          <span
+            >Modules: computer, apps/computerd. Plan:
+            docs/plan-computer-backends.md</span
+          ><span>11</span>
+        </div>
+      </section>
+
+      <!-- 12 -->
+      <section class="slide" data-title="Agent browser">
+        <p class="kicker">Browser</p>
+        <h2>A real browser, on Cloudflare</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>Tools</h3>
+            <ul>
+              <li>
+                <code>browser_navigate</code>,
+                <code>browser_snapshot</code>
+                (accessibility tree),
+                <code>browser_click</code>, <code>browser_fill</code>,
+                <code>browser_screenshot</code>.
+              </li>
+              <li>
+                Runs on Cloudflare Browser Run in remote mode, so a dev box
+                needs no local Chrome.
+              </li>
+              <li>URL rules refuse private and reserved addresses.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>What you see</h3>
+            <ul>
+              <li>
+                The Screen tab in the agent rail shows the latest screenshot.
+              </li>
+              <li>
+                Every navigate, click, fill and screenshot is an activity row.
+              </li>
+              <li>Sessions are per agent and kept alive across tool calls.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer"><span>Module: browser</span><span>12</span></div>
+      </section>
+
+      <!-- 13 -->
+      <section class="slide" data-title="Routines">
+        <p class="kicker">Schedules</p>
+        <h2>Routines: instructions that fire on a schedule</h2>
+        <div class="grid cols-3">
+          <div class="card">
+            <h3>Schedules</h3>
+            <ul>
+              <li>
+                Once, daily, weekly, interval, or a five-field cron expression.
+              </li>
+              <li>
+                Timezone-aware wall clocks. Around a DST transition an hour that
+                happens twice fires on the first; one that never happens fires a
+                step later.
+              </li>
+              <li>
+                The form previews the next three firings using the same code the
+                scheduler uses.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Firing</h3>
+            <ul>
+              <li>
+                One <code>RoutineScheduler</code> Durable Object per workspace
+                holds one alarm: the earliest next run.
+              </li>
+              <li>
+                A fire posts <code>@Agent &lt;instructions&gt;</code> into the
+                target channel, so one run is one thread and history is real
+                messages.
+              </li>
+              <li>
+                Missed fires collapse to a single run. "Run now" reuses the same
+                path.
+              </li>
+              <li>Optional per-routine model.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Managing them</h3>
+            <ul>
+              <li>
+                Routines page: list, create, edit, enable, run history with a
+                deep link into the thread each run produced.
+              </li>
+              <li>
+                Agents manage their own routines through
+                <code>routine_list</code>, <code>routine_create</code>,
+                <code>routine_update</code>, <code>routine_delete</code>.
+                Self-scoped; validation shared with the HTTP routes.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>Sidebar → Routines. Plan: docs/plan-routines.md</span
+          ><span>13</span>
+        </div>
+      </section>
+
+      <!-- 14 -->
+      <section class="slide" data-title="Ask the user">
+        <p class="kicker">Questions</p>
+        <h2>Agents can ask, then wait</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>Two kinds</h3>
+            <ul>
+              <li>
+                <code>question</code>: a clarification, free text or options.
+              </li>
+              <li>
+                <code>permission</code>: a yes/no gate. The system prompt tells
+                agents to ask before anything destructive or irreversible and
+                not to act until approved.
+              </li>
+            </ul>
+            <h3 style="margin-top:.8em">Tools</h3>
+            <ul>
+              <li>
+                <code>ask_user</code>
+                posts the question as a message in the channel where the work is
+                happening and ends the turn.
+              </li>
+              <li>
+                <code>check_answer</code>
+                reads it back. Another agent's question id looks like one that
+                never existed.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Answering</h3>
+            <ul>
+              <li>
+                A question card renders on the web and as Slack blocks with
+                buttons. One question, two renderers.
+              </li>
+              <li>
+                First answer wins, decided by the database. The loser sees who
+                won and posts nothing.
+              </li>
+              <li>
+                Answering posts <code>@Agent Answer: …</code> in the question's
+                thread, which wakes the agent with the whole exchange in front
+                of it.
+              </li>
+              <li>
+                Questions expire. Expiry resolves lazily on access and via the
+                scheduler alarm.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>Module: questions. Plan: docs/plan-ask-user.md</span
+          ><span>14</span>
+        </div>
+      </section>
+
+      <!-- 15 -->
+      <section class="slide" data-title="Connectors">
+        <p class="kicker">External tools</p>
+        <h2>
+          Connectors: remote MCP servers, any of them
+          <span class="tag">managed runtime</span>
+        </h2>
+        <div class="grid cols-3">
+          <div class="card">
+            <h3>Adding one</h3>
+            <ul>
+              <li>Paste a URL. No preset list.</li>
+              <li>
+                OAuth discovery ladder: protected-resource metadata,
+                authorization-server metadata, dynamic client registration,
+                PKCE, resource indicators.
+              </li>
+              <li>Open servers and bearer-only servers also work.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Credentials</h3>
+            <ul>
+              <li>
+                Tokens are encrypted at rest and mirrored into an Anthropic
+                Vault, one vault per connector.
+              </li>
+              <li>Refresh happens when a refresh grant exists.</li>
+              <li>Health checks and a usability report per connector.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Per agent</h3>
+            <ul>
+              <li>Connectors tab in the agent dialog; chips on the profile.</li>
+              <li>
+                A session fixes its connectors at creation, so a change reaches
+                the agent's next session. The router settles that at the one
+                safe moment: just before a new session starts.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>Sidebar → Connectors. Plan: docs/plan-connectors-skills.md</span
+          ><span>15</span>
+        </div>
+      </section>
+
+      <!-- 16 -->
+      <section class="slide" data-title="Skills">
+        <p class="kicker">Skills</p>
+        <h2>Skills: versioned, pinnable, agent-authored</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>What a skill is</h3>
+            <ul>
+              <li>
+                A <code>SKILL.md</code> plus supporting files, published to the
+                Anthropic Skills API.
+              </li>
+              <li>
+                Files live in R2, which stays the source of truth. Anthropic
+                sync can lag or fail without losing data; the UI shows sync
+                status and a retry.
+              </li>
+              <li>Versions are immutable once a newer one is published.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Using them</h3>
+            <ul>
+              <li>
+                Skills page: directory, detail with rendered SKILL.md, file
+                tree, version history, create and new-version editors.
+              </li>
+              <li>
+                Skills tab in the agent dialog with a pin dropdown (latest or a
+                fixed version). Cap of 20 skills per agent.
+              </li>
+              <li>
+                Agents author skills themselves: <code>skill_list</code>,
+                <code>skill_read</code>, <code>skill_create</code>,
+                <code>skill_update</code>. A skill an agent creates is assigned
+                to it automatically.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer"><span>Sidebar → Skills</span><span>16</span></div>
+      </section>
+
+      <!-- 17 -->
+      <section class="slide" data-title="Secrets">
+        <p class="kicker">Secrets</p>
+        <h2>Secrets: agents spend a key without ever seeing it</h2>
+        <div class="grid cols-3">
+          <div class="card">
+            <h3>Storing</h3>
+            <ul>
+              <li>
+                A workspace owner adds a secret with a name, a host allowlist
+                and an injection header.
+              </li>
+              <li>
+                AES-GCM encrypted, bound to workspace and secret id, so a
+                ciphertext moved to another row fails to decrypt.
+              </li>
+              <li>
+                Add, edit, rotate from one dialog in the sidebar's Secrets
+                section.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Spending</h3>
+            <ul>
+              <li>
+                <code>http_request</code>
+                and <code>list_secrets</code>, one implementation for both
+                runtimes.
+              </li>
+              <li>
+                Allowlist checked before any request.
+                <code>*.deepgram.com</code>
+                does not match the apex; single labels and
+                <code>*.tld</code>
+                are refused.
+              </li>
+              <li>
+                Responses are redacted before truncation. Private addresses are
+                blocked on every redirect hop.
+              </li>
+              <li>
+                Activity rows carry method, host and status, never a header or
+                body.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Managed sandboxes</h3>
+            <ul>
+              <li>
+                Secrets are mirrored into one Anthropic Vault per workspace,
+                header injection only, so
+                <code>curl -H "Authorization: Token $KEY"</code>
+                works in the sandbox and the value is substituted at egress.
+              </li>
+              <li>
+                Caveat, stated in the UI: any grant attaches every workspace
+                secret to that agent's sandbox. The tool's own check is what
+                makes a grant bite.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span
+            >Verified live against Deepgram on both runtimes. Plan:
+            docs/plan-workspace-secrets.md</span
+          ><span>17</span>
+        </div>
+      </section>
+
+      <!-- 18 -->
+      <section class="slide" data-title="Slack">
+        <p class="kicker">Bridges</p>
+        <h2>Slack: every agent is a real Slack identity</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>One Slack app per agent</h3>
+            <ul>
+              <li>
+                Guided wizard in the agent dialog: a generated manifest and
+                events URL, paste tokens, verified server-side through
+                <code>auth.test</code>. No response ever returns a token.
+              </li>
+              <li>
+                Wizard progress is derived from the persisted row, so abandoning
+                mid-flow resumes.
+              </li>
+              <li>Tokens encrypted at rest.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Bridged channels</h3>
+            <ul>
+              <li>
+                Channel settings bridge an Agentum channel to a Slack channel
+                through a connected agent.
+              </li>
+              <li>
+                Messages mirror both ways. Slack users appear as external
+                authors. Threads map to threads.
+              </li>
+              <li>
+                A "thinking" placeholder in Slack is rewritten into the reply
+                when it lands.
+              </li>
+              <li>
+                Question cards render as Slack blocks; button presses ack within
+                Slack's 3 seconds and finish the work afterwards.
+              </li>
+              <li>
+                Events are claimed by bridge ownership, so two bots in one
+                channel do not double-ingest.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span
+            >Module: bridges/slack. Plan: docs/plan-slack-apps-per-agent.md</span
+          ><span>18</span>
+        </div>
+      </section>
+
+      <!-- 19 -->
+      <section class="slide" data-title="Activity feed">
+        <p class="kicker">Observability</p>
+        <h2>Activity: what an agent actually did</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>Recorded kinds</h3>
+            <ul>
+              <li>
+                <code>computer.write</code>, <code>computer.edit</code>,
+                <code>computer.delete</code>, <code>computer.exec</code> with
+                exit codes and truncated output.
+              </li>
+              <li>
+                <code>browser.navigate</code>, <code>browser.click</code>,
+                <code>browser.fill</code>, <code>browser.screenshot</code>.
+              </li>
+              <li><code>http.request</code> with method, host and status.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Where it shows</h3>
+            <ul>
+              <li>Activity tab in the agent rail, newest first.</li>
+              <li>
+                Status badges on the agent (thinking, idle, error) driven by
+                session events.
+              </li>
+              <li>Death notices in threads when a session ends abnormally.</li>
+              <li>Routine run history with links into the resulting thread.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer"><span>Module: activity</span><span>19</span></div>
+      </section>
+
+      <!-- 20 -->
+      <section class="slide" data-title="Workspace MCP tools">
+        <p class="kicker">Tool surface</p>
+        <h2>34 workspace tools, served to both runtimes from one server</h2>
+        <div class="grid cols-4 small">
+          <div class="card">
+            <h3>Messaging</h3>
+            <code>list_channels</code> <code>read_channel</code>
+            <code>read_thread</code> <code>post_message</code>
+            <code>search_messages</code> <code>list_agents</code>
+          </div>
+          <div class="card">
+            <h3>Wiki</h3>
+            <code>wiki_list</code> <code>wiki_read</code>
+            <code>wiki_search</code> <code>wiki_write</code>
+          </div>
+          <div class="card">
+            <h3>Computer</h3>
+            <code>computer_read_file</code> <code>computer_write_file</code>
+            <code>computer_edit_file</code> <code>computer_list_dir</code>
+            <code>computer_exec</code>
+          </div>
+          <div class="card">
+            <h3>Browser</h3>
+            <code>browser_navigate</code> <code>browser_snapshot</code>
+            <code>browser_click</code> <code>browser_fill</code>
+            <code>browser_screenshot</code>
+          </div>
+          <div class="card">
+            <h3>Questions</h3>
+            <code>ask_user</code> <code>check_answer</code>
+          </div>
+          <div class="card">
+            <h3>Routines</h3>
+            <code>routine_list</code> <code>routine_create</code>
+            <code>routine_update</code> <code>routine_delete</code>
+          </div>
+          <div class="card">
+            <h3>Skills</h3>
+            <code>skill_list</code> <code>skill_read</code>
+            <code>skill_create</code> <code>skill_update</code>
+          </div>
+          <div class="card">
+            <h3>Secrets and model</h3>
+            <code>http_request</code> <code>list_secrets</code>
+            <code>set_model</code> <code>get_model</code>
+            <span class="muted">(model tools: managed runtime only)</span>
+          </div>
+        </div>
+        <p class="small muted" style="margin-top:.8em">
+          Every tool is scoped to the calling agent and its workspace. A channel
+          the agent is not in, or another agent's routine, question or override,
+          reads exactly like one that does not exist. Tool output is
+          budget-truncated with a note saying what was dropped.
+        </p>
+        <div class="footer">
+          <span>Module: mcp. Server factory in mcp/server.ts</span
+          ><span>20</span>
+        </div>
+      </section>
+
+      <!-- 21 -->
+      <section class="slide" data-title="Architecture">
+        <p class="kicker">Under the hood</p>
+        <h2>One Worker, three stores, six Durable Object classes</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>App</h3>
+            <ul>
+              <li>
+                Bun workspaces, Turborepo. <code>apps/web</code> and
+                <code>apps/computerd</code>.
+              </li>
+              <li>
+                Hono owns <code>fetch</code>; everything not an API route falls
+                through to TanStack Start for SSR, server functions and assets.
+              </li>
+              <li>Clerk middleware on both sides. React 19.</li>
+              <li>
+                Drizzle schema per module, migrations in <code>drizzle/</code>,
+                applied by wrangler.
+              </li>
+              <li>
+                Modules are feature folders under <code>src/modules</code>, each
+                with schema, service, routes and tests.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Bindings</h3>
+            <ul>
+              <li>
+                <code>DB</code>
+                D1, <code>ATTACHMENTS</code> R2, <code>AI</code> Workers AI and
+                AI Gateway, <code>BROWSER</code> Browser Run.
+              </li>
+              <li>
+                Durable Objects: <code>ChannelRoom</code> per channel,
+                <code>AgentRouter</code>
+                per workspace,
+                <code>RoutineScheduler</code>
+                per workspace,
+                <code>AgentComputer</code>
+                per agent,
+                <code>AgentRunner</code>
+                per Cloudflare-runtime agent,
+                <code>ComputerRelay</code>
+                per self-hosted host.
+              </li>
+              <li>
+                Production env drops the experimental flag and the Worker
+                Loader, since Cloudflare rejects both in deployed Workers.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>apps/web/wrangler.jsonc, apps/web/src/server.ts</span
+          ><span>21</span>
+        </div>
+      </section>
+
+      <!-- 22 -->
+      <section class="slide" data-title="Known gaps">
+        <p class="kicker">Honesty</p>
+        <h2>Known gaps, as of cycle 18</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <ul>
+              <li>
+                <span class="tag warn">unverified</span>
+                Fly.io computer backend has never run against a real Fly
+                account.
+              </li>
+              <li>
+                <span class="tag warn">by design</span>
+                The Cloudflare computer has no shell in production; only the
+                filesystem.
+              </li>
+              <li>
+                <span class="tag warn">unverified</span>
+                A multi-minute <code>computer_exec</code> from a managed agent
+                rides inside one held-open MCP request; Anthropic's timeout on
+                it is untested.
+              </li>
+              <li>
+                <span class="tag warn">gap</span>
+                The secrets allowlist does not resolve DNS, so a public hostname
+                pointing at a private address passes the host check. A Worker
+                cannot resolve, so the allowlist is the real control.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <ul>
+              <li>
+                <span class="tag">debt</span>
+                Two copies of the reserved-IP range list (browser rules,
+                secrets).
+              </li>
+              <li>
+                <span class="tag">debt</span>
+                Module views disagree on timestamps: skills use epoch numbers,
+                secrets and computer hosts use ISO strings.
+              </li>
+              <li>
+                <span class="tag">residual</span>
+                Clerk-hosted avatar URLs embed the user id.
+              </li>
+              <li>
+                <span class="tag">note</span>
+                Sessions created before a budget change keep their old cap until
+                replaced.
+              </li>
+              <li>
+                <span class="tag">note</span>
+                Podman instructions in the computerd README come from the plan,
+                not from a run.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>Source: PROGRESS.md "Avoid next time" sections</span
+          ><span>22</span>
+        </div>
+      </section>
+
+      <!-- 23 -->
+      <section class="slide" data-title="Develop and deploy">
+        <p class="kicker">Working on it</p>
+        <h2>Develop, test, deploy</h2>
+        <div class="grid cols-2">
+          <div>
+            <pre><code>bun install
+cd apps/web
+bun run db:migrate:local   # first run only
+bun run dev                # http://localhost:3720
+
+bun test                   # 1415 tests at cycle 18
+bun x ultracite check      # Biome lint + format
+
+bun run db:generate        # after a schema change
+bun run prod:deploy         # from apps/web or the root</code></pre>
+          </div>
+          <div class="card">
+            <h3>Good to know</h3>
+            <ul>
+              <li>
+                Clerk keys go in <code>apps/web/.env.local</code>; never
+                uploaded. Production wants them as Worker secrets.
+              </li>
+              <li>
+                Dev login: <code>/login</code> shows a one-click "Dev login
+                (local only)" when <code>DEV_LOGIN_EMAIL</code> and
+                <code>DEV_LOGIN_PASSWORD</code>
+                are set. Create the user with
+                <code>bun run create-dev-user</code>.
+              </li>
+              <li>
+                The <code>AI</code> and <code>BROWSER</code> bindings call real
+                Cloudflare services under <code>bun run dev</code> and bill for
+                them.
+              </li>
+              <li>
+                Each cycle is logged in <code>PROGRESS.md</code>: goal, what was
+                done, lessons, what to avoid. Feature plans live in
+                <code>docs/plan-*.md</code>.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span
+            >READMEs: /README.md, apps/web/README.md, apps/computerd/README.md</span
+          ><span>23</span>
+        </div>
+      </section>
+    </div>
+
+    <div class="progress" id="progress"></div>
+    <div class="hud">
+      <button id="prev" title="Previous" type="button">←</button>
+      <span id="counter">1 / 1</span>
+      <button id="next" title="Next" type="button">→</button>
+      <button id="overview" title="Contents" type="button">contents</button>
+    </div>
+
+    <script>
+    "use strict";
+    const HASH_RE = /^#\/(\d+)/;
+    (() => {
+      const SWIPE_PX = 50;
+      const slides = Array.from(document.querySelectorAll(".slide"));
+      const counter = document.getElementById("counter");
+      const progress = document.getElementById("progress");
+      const toc = document.getElementById("toc");
+      let index = 0;
+      for (const [i, slide] of slides.entries()) {
+        if (i < 2) {
+          continue;
+        }
+        const li = document.createElement("li");
+        const a = document.createElement("a");
+        a.href = `#/${i + 1}`;
+        a.innerHTML = `<span class="n">${i + 1}</span>${slide.dataset.title}`;
+        li.appendChild(a);
+        toc.appendChild(li);
+      }
+      const show = (i) => {
+        index = Math.max(0, Math.min(slides.length - 1, i));
+        for (const [j, s] of slides.entries()) {
+          s.classList.toggle("active", j === index);
+        }
+        counter.textContent = `${index + 1} / ${slides.length}`;
+        progress.style.width = `${((index + 1) / slides.length) * 100}%`;
+        const hash = `#/${index + 1}`;
+        if (location.hash !== hash) {
+          history.replaceState(null, "", hash);
+        }
+        document.title = `${slides[index].dataset.title} · Agentum Handbook`;
+      };
+      const fromHash = () => {
+        const m = location.hash.match(HASH_RE);
+        show(m ? Number.parseInt(m[1], 10) - 1 : 0);
+      };
+      document.addEventListener("keydown", (e) => {
+        if (e.metaKey || e.ctrlKey || e.altKey) {
+          return;
+        }
+        switch (e.key) {
+          case "ArrowRight":
+          case "ArrowDown":
+          case " ":
+          case "PageDown":
+          case "j":
+            e.preventDefault();
+            show(index + 1);
+            break;
+          case "ArrowLeft":
+          case "ArrowUp":
+          case "PageUp":
+          case "k":
+            e.preventDefault();
+            show(index - 1);
+            break;
+          case "Home":
+            show(0);
+            break;
+          case "End":
+            show(slides.length - 1);
+            break;
+          case "o":
+            show(1);
+            break;
+          default:
+            break;
+        }
+      });
+      document
+        .getElementById("prev")
+        .addEventListener("click", () => show(index - 1));
+      document
+        .getElementById("next")
+        .addEventListener("click", () => show(index + 1));
+      document
+        .getElementById("overview")
+        .addEventListener("click", () => show(1));
+      window.addEventListener("hashchange", fromHash);
+      let touchX = null;
+      document.addEventListener(
+        "touchstart",
+        (e) => {
+          touchX = e.touches[0].clientX;
+        },
+        { passive: true }
+      );
+      document.addEventListener("touchend", (e) => {
+        if (touchX === null) {
+          return;
+        }
+        const dx = e.changedTouches[0].clientX - touchX;
+        if (Math.abs(dx) > SWIPE_PX) {
+          show(index + (dx < 0 ? 1 : -1));
+        }
+        touchX = null;
+      });
+      fromHash();
+    })();
+    </script>
+  </body>
+</html>

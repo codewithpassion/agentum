@@ -1,0 +1,1465 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Agentum Talk</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400..900&family=Audiowide&family=Roboto:wght@300;400;700&display=swap"
+      rel="stylesheet"
+    >
+    <style>
+    /* Delta Foxtrot design system tokens (claude.ai/design, project "Delta Foxtrot Design System") */
+    :root {
+      --burnt-orange: #ff7733;
+      --bright-orange: #fb9518;
+      --deep-black: #1a1a1a;
+      --neon-red: #ff3859;
+      --electric-cyan: #00d4ff;
+      --dark-gray: #2a2a2a;
+      --medium-gray: #3a3a3a;
+      --text-primary: rgba(255, 255, 255, 1);
+      --text-strong: rgba(255, 255, 255, 0.8);
+      --text-body: rgba(255, 255, 255, 0.6);
+      --text-secondary: rgba(255, 255, 255, 0.5);
+      --text-tertiary: rgba(255, 255, 255, 0.4);
+      --text-faint: rgba(255, 255, 255, 0.3);
+      --surface-page: var(--deep-black);
+      --surface-muted: var(--dark-gray);
+      --border-default: var(--dark-gray);
+      --border-accent: rgba(255, 119, 51, 0.2);
+      --border-cyan-soft: rgba(0, 212, 255, 0.2);
+      --border-cyan-mid: rgba(0, 212, 255, 0.3);
+      --tint-orange-10: rgba(255, 119, 51, 0.1);
+      --tint-orange-20: rgba(255, 119, 51, 0.2);
+      --tint-cyan-10: rgba(0, 212, 255, 0.1);
+      --tint-cyan-20: rgba(0, 212, 255, 0.2);
+      --tint-red-10: rgba(255, 56, 89, 0.1);
+      --font-display: "Orbitron", "Segoe UI", Arial, sans-serif;
+      --font-label: "Audiowide", "Orbitron", Arial, sans-serif;
+      --font-body: "Roboto", system-ui, Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --tracking-label: 0.2em;
+      --tracking-eyebrow: 0.3em;
+      --radius-sm: 0.25rem;
+      --radius: 0.5rem;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      font-family: var(--font-body);
+      font-weight: 300;
+      color: var(--text-strong);
+      background: var(--surface-page);
+    }
+    body {
+      overflow: hidden;
+    }
+    .deck {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+    }
+    .deck::before {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      content: "";
+      background-image:
+        linear-gradient(rgba(255, 107, 53, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 107, 53, 0.06) 1px, transparent 1px);
+      background-size: 50px 50px;
+    }
+    .slide {
+      position: relative;
+      display: none;
+      flex-direction: column;
+      width: min(100vw, calc(100vh * 16 / 9));
+      height: min(100vh, calc(100vw * 9 / 16));
+      padding: clamp(20px, 4.5%, 64px) clamp(20px, 5.5%, 80px);
+      overflow: hidden;
+      font-size: clamp(13px, 2.3vmin, 30px);
+      line-height: 1.5;
+    }
+    .slide.active {
+      display: flex;
+    }
+    /* Eyebrow: SectionLabel with /// markers */
+    .kicker {
+      margin: 0 0 0.7em;
+      font-family: var(--font-label);
+      font-size: 0.62em;
+      color: var(--electric-cyan);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-eyebrow);
+    }
+    .kicker::before,
+    .kicker::after {
+      margin: 0 0.5em;
+      color: var(--burnt-orange);
+      content: "///";
+    }
+    .kicker::before {
+      margin-left: 0;
+    }
+    h1,
+    h2 {
+      font-family: var(--font-display);
+      color: var(--text-primary);
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 0 0 0.4em;
+      font-size: 3em;
+      font-weight: 900;
+      line-height: 1.05;
+    }
+    h2 {
+      margin: 0 0 0.8em;
+      font-size: 1.55em;
+      font-weight: 700;
+      line-height: 1.2;
+      text-wrap: balance;
+    }
+    h3 {
+      margin: 0 0 0.5em;
+      font-family: var(--font-display);
+      font-size: 0.85em;
+      font-weight: 400;
+      color: var(--burnt-orange);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    p {
+      margin: 0 0 0.7em;
+    }
+    .lead {
+      max-width: 32em;
+      font-size: 1.2em;
+      line-height: 1.6;
+      color: var(--text-body);
+    }
+    ul,
+    ol {
+      padding-left: 1.2em;
+      margin: 0;
+    }
+    li {
+      margin: 0 0 0.4em;
+    }
+    li::marker {
+      color: var(--burnt-orange);
+    }
+    b {
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    code,
+    kbd {
+      padding: 0.05em 0.35em;
+      font-family: var(--mono);
+      font-size: 0.88em;
+      color: var(--electric-cyan);
+      background: var(--tint-cyan-10);
+      border: 1px solid var(--border-cyan-soft);
+      border-radius: var(--radius-sm);
+    }
+    pre {
+      padding: 1em 1.1em;
+      margin: 0;
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 0.78em;
+      line-height: 1.55;
+      background: var(--surface-muted);
+      border: 2px solid var(--burnt-orange);
+      border-radius: var(--radius-sm);
+    }
+    pre code {
+      padding: 0;
+      color: var(--text-primary);
+      background: none;
+      border: 0;
+    }
+    .muted {
+      color: var(--text-secondary);
+    }
+    .small {
+      font-size: 0.85em;
+    }
+    .grid {
+      display: grid;
+      gap: 1.2em 1.6em;
+      align-content: start;
+    }
+    .cols-2 {
+      grid-template-columns: 1fr 1fr;
+    }
+    .cols-3 {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    /* Card: InfoBlock, a left cyan rule rather than a box */
+    .card {
+      padding: 0.2em 0 0.2em 1.1em;
+      overflow: hidden;
+      border-left: 2px solid var(--border-cyan-mid);
+    }
+    .card ul,
+    .card p {
+      font-size: 0.92em;
+      color: var(--text-body);
+    }
+    /* StatusChip */
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.3em 0.6em;
+      margin-left: 0.5em;
+      font-family: var(--font-display);
+      font-size: 0.55em;
+      vertical-align: middle;
+      color: var(--burnt-orange);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: var(--tint-orange-20);
+      border: 1px solid var(--burnt-orange);
+      border-radius: var(--radius-sm);
+    }
+    .tag.ok {
+      color: var(--electric-cyan);
+      background: var(--tint-cyan-20);
+      border-color: var(--electric-cyan);
+    }
+    .tag.warn {
+      color: var(--bright-orange);
+      background: var(--tint-orange-10);
+      border-color: var(--bright-orange);
+    }
+    .tag.bad {
+      color: var(--neon-red);
+      background: var(--tint-red-10);
+      border-color: var(--neon-red);
+    }
+    /* Flow steps: tiles on muted surface, near-square */
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6em;
+      align-items: stretch;
+      counter-reset: step;
+    }
+    .flow .step {
+      flex: 1 1 8em;
+      padding: 0.7em 0.8em;
+      font-size: 0.82em;
+      color: var(--text-body);
+      background: var(--surface-muted);
+      border: 1px solid var(--border-default);
+      border-top: 2px solid var(--burnt-orange);
+      border-radius: var(--radius-sm);
+    }
+    .flow .step b {
+      display: block;
+      margin-bottom: 0.35em;
+      font-family: var(--font-display);
+      font-size: 0.85em;
+      font-weight: 400;
+      color: var(--electric-cyan);
+      text-transform: uppercase;
+    }
+    /* Shell mock */
+    .shell {
+      display: grid;
+      flex: 1;
+      grid-template-columns: 1.1fr 3fr 1.4fr;
+      gap: 0.6em;
+      min-height: 0;
+      font-size: 0.85em;
+    }
+    .pane {
+      padding: 0.8em;
+      overflow: hidden;
+      background: var(--surface-muted);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-sm);
+    }
+    .pane .h {
+      margin-bottom: 0.6em;
+      font-family: var(--font-label);
+      font-size: 0.7em;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-label);
+    }
+    .pane .row {
+      padding: 0.25em 0.4em;
+      color: var(--text-body);
+      border-radius: var(--radius-sm);
+    }
+    .pane .row.sel {
+      color: var(--burnt-orange);
+      background: var(--tint-orange-10);
+      border-left: 2px solid var(--burnt-orange);
+    }
+    .bubble {
+      padding: 0.5em 0.7em;
+      margin: 0.4em 0;
+      color: var(--text-strong);
+      background: var(--deep-black);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-sm);
+    }
+    .bubble b {
+      font-family: var(--font-display);
+      font-size: 0.85em;
+      font-weight: 400;
+      color: var(--electric-cyan);
+    }
+    .tabs {
+      display: flex;
+      gap: 0.4em;
+      margin: 0.5em 0 0.6em;
+    }
+    .tabs span {
+      padding: 0.2em 0.5em;
+      font-family: var(--font-display);
+      font-size: 0.7em;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-sm);
+    }
+    .tabs span.on {
+      color: var(--burnt-orange);
+      background: var(--tint-orange-10);
+      border-color: var(--burnt-orange);
+    }
+    /* Divider slides: glitch heading with neon glow */
+    .divider {
+      justify-content: center;
+    }
+    .divider .n {
+      margin-bottom: 0.8em;
+      font-family: var(--font-label);
+      font-size: 0.8em;
+      color: var(--electric-cyan);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-eyebrow);
+    }
+    .divider .n::before {
+      color: var(--burnt-orange);
+      content: "> ";
+    }
+    .divider h1 {
+      position: relative;
+      font-size: 3em;
+    }
+    .glitch-text {
+      position: relative;
+    }
+    .glitch-text::before,
+    .glitch-text::after {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      content: attr(data-text);
+    }
+    .glitch-text::before {
+      z-index: -1;
+      color: var(--neon-red);
+      animation: 2s infinite glitch;
+    }
+    .glitch-text::after {
+      z-index: -2;
+      color: var(--electric-cyan);
+      animation: 2s infinite reverse glitch;
+    }
+    @keyframes glitch {
+      0% {
+        transform: translate(0);
+      }
+      10% {
+        transform: translate(-2px, -2px);
+      }
+      20% {
+        transform: translate(2px, 2px);
+      }
+      30% {
+        transform: translate(-2px, 2px);
+      }
+      40% {
+        transform: translate(2px, -2px);
+      }
+      50% {
+        transform: translate(-2px, -2px);
+      }
+      60% {
+        transform: translate(2px, 2px);
+      }
+      70% {
+        transform: translate(-2px, 2px);
+      }
+      80% {
+        transform: translate(2px, -2px);
+      }
+      90% {
+        transform: translate(-2px, -2px);
+      }
+      to {
+        transform: translate(0);
+      }
+    }
+    .neon-glow {
+      text-shadow:
+        0 0 5px var(--burnt-orange),
+        0 0 10px var(--burnt-orange),
+        0 0 20px var(--burnt-orange);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .glitch-text::before,
+      .glitch-text::after {
+        display: none;
+        animation: none;
+      }
+    }
+    .close-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 1.6em;
+      align-items: center;
+      margin-top: 0.6em;
+    }
+    .qr {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5em;
+      align-items: center;
+    }
+    .qr img {
+      display: block;
+      width: 7.5em;
+      max-width: 100%;
+      height: 7.5em;
+      padding: 0.35em;
+      background: #fff;
+      border: 2px solid var(--burnt-orange);
+      border-radius: var(--radius-sm);
+    }
+    .qr span {
+      font-family: var(--font-label);
+      font-size: 0.55em;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-label);
+    }
+    .quote {
+      padding: 0.3em 0 0.3em 1em;
+      margin: 0.5em 0 1em;
+      font-size: 1.05em;
+      color: var(--text-strong);
+      border-left: 2px solid var(--burnt-orange);
+    }
+    .footer {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding-top: 0.8em;
+      margin-top: auto;
+      font-family: var(--font-label);
+      font-size: 0.5em;
+      color: var(--text-faint);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-label);
+      border-top: 1px solid var(--border-accent);
+    }
+    .hud {
+      position: fixed;
+      right: 14px;
+      bottom: 10px;
+      z-index: 5;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      font-family: var(--font-display);
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+    .hud button {
+      padding: 4px 10px;
+      font: inherit;
+      color: var(--burnt-orange);
+      cursor: pointer;
+      background: var(--surface-muted);
+      border: 1px solid var(--burnt-orange);
+      border-radius: 0;
+    }
+    .progress {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      z-index: 5;
+      width: 0;
+      height: 3px;
+      background: linear-gradient(
+        90deg,
+        var(--burnt-orange),
+        var(--electric-cyan)
+      );
+      transition: width 0.2s;
+    }
+    /* Title slide: Logo lockup + cyber-border block */
+    .title-slide {
+      justify-content: center;
+    }
+    .title-slide .lead {
+      font-size: 1.3em;
+    }
+    .title-slide .meta {
+      max-width: 40em;
+      margin-top: 2em;
+      font-size: 0.8em;
+      color: var(--text-secondary);
+    }
+    .title-slide h1 {
+      font-size: 4em;
+    }
+    .title-slide h1 .df {
+      color: var(--burnt-orange);
+    }
+    .lockup {
+      display: flex;
+      gap: 0.5em;
+      align-items: center;
+      margin-bottom: 1.4em;
+    }
+    .lockup .mark {
+      display: grid;
+      place-items: center;
+      width: 1.6em;
+      height: 1.6em;
+      font-family: var(--font-display);
+      font-size: 0.9em;
+      font-weight: 700;
+      color: #fff;
+      background: linear-gradient(
+        to bottom right,
+        var(--burnt-orange),
+        var(--neon-red)
+      );
+      border-radius: var(--radius-sm);
+    }
+    .lockup .word {
+      font-family: var(--font-display);
+      font-size: 0.8em;
+      font-weight: 700;
+      color: var(--burnt-orange);
+      letter-spacing: 0.04em;
+    }
+    @media (max-width: 720px) {
+      .slide {
+        width: 100vw;
+        height: 100vh;
+        padding: 18px 16px 36px;
+        overflow-y: auto;
+        font-size: 13px;
+      }
+      .cols-2,
+      .cols-3 {
+        grid-template-columns: 1fr;
+      }
+      .shell {
+        grid-template-columns: 1fr;
+      }
+      h1,
+      .title-slide h1 {
+        font-size: 2.2em;
+      }
+    }
+    @media print {
+      body {
+        overflow: visible;
+      }
+      .deck {
+        position: static;
+        display: block;
+      }
+      .deck::before {
+        display: none;
+      }
+      .slide {
+        display: flex !important;
+        width: 100%;
+        height: auto;
+        min-height: 90vh;
+        page-break-after: always;
+        border-bottom: 1px solid var(--border-default);
+      }
+      .hud,
+      .progress {
+        display: none;
+      }
+      .glitch-text::before,
+      .glitch-text::after {
+        display: none;
+      }
+    }
+    </style>
+  </head>
+  <body>
+    <div class="deck">
+      <!-- 1 -->
+      <section class="slide title-slide">
+        <div class="lockup">
+          <span class="mark">ΔF</span><span class="word">DELTA FOXTROT</span>
+        </div>
+        <p class="kicker">Talk</p>
+        <h1>Agentum</h1>
+        <p class="lead">
+          A Slack-shaped workspace where people and Claude agents share
+          channels, a wiki, computers and a browser.
+        </p>
+        <p class="meta">
+          Three things tonight: Anthropic Managed Agents as the runtime, Slack
+          as a front door, and plugging a real computer into an agent.<br>agentum.rockyshoreslabs.io
+          · 18 build cycles · 1415 tests
+        </p>
+      </section>
+
+      <!-- 2 -->
+      <section class="slide">
+        <p class="kicker">In one screen</p>
+        <h2>Agents are teammates, not chat windows</h2>
+        <div class="shell">
+          <div class="pane">
+            <div class="h">Sidebar</div>
+            <div class="row sel"># general</div>
+            <div class="row"># leadership</div>
+            <div class="row">Agents</div>
+            <div class="row">Wiki</div>
+            <div class="row">Connectors · Skills</div>
+            <div class="row">Routines</div>
+            <div class="row">Computers</div>
+            <div class="row">Secrets</div>
+          </div>
+          <div class="pane">
+            <div class="h">Conversation</div>
+            <div class="bubble">
+              <b>Dominik</b>
+              @Bruce summarise yesterday's thread on the pricing page
+            </div>
+            <div class="bubble"><b>Bruce</b> Thinking…</div>
+            <div class="bubble">
+              <b>Bruce</b>
+              Found it with search_messages. Three decisions: …
+              <span class="muted">2 replies</span>
+            </div>
+            <div class="bubble">
+              <b>Bruce</b>
+              asks: Publish the summary to the wiki?
+              <span class="tag">permission</span>
+              <span class="tag ok">Approve</span>
+              <span class="tag bad">Deny</span>
+            </div>
+          </div>
+          <div class="pane">
+            <div class="h">Agent rail</div>
+            <div><b>Bruce</b> <span class="tag ok">idle</span></div>
+            <div class="tabs">
+              <span class="on">Screen</span><span>Files</span
+              ><span>Activity</span>
+            </div>
+            <div class="small">
+              <b>Soul</b><br>
+              <span class="muted">Dry, precise, hates filler.</span>
+            </div>
+            <div class="small" style="margin-top:.4em">
+              <b>Instructions</b><br>
+              <span class="muted">Own the wiki's pricing section.</span>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <span
+            >An agent is a name, a soul, instructions. Everything else is a tool
+            it can reach.</span
+          ><span>2</span>
+        </div>
+      </section>
+
+      <!-- 3 -->
+      <section class="slide divider">
+        <div class="n">Part 1 of 3</div>
+        <h1 class="glitch-text neon-glow" data-text="Anthropic Managed Agents">
+          Anthropic Managed Agents
+        </h1>
+        <p class="lead">Why we do not run the agent loop ourselves.</p>
+      </section>
+
+      <!-- 4 -->
+      <section class="slide">
+        <p class="kicker">Managed Agents</p>
+        <h2>What Anthropic hosts, and what we keep</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>Anthropic's side</h3>
+            <ul>
+              <li>
+                The agent loop. A session runs until <code>end_turn</code>, a
+                budget, or a stop.
+              </li>
+              <li>A sandbox with a shell and filesystem.</li>
+              <li>
+                Subagents. Ours is "Worker", a Haiku agent for mechanical tasks.
+              </li>
+              <li>
+                A memory store per agent, with instructions on what to keep
+                there.
+              </li>
+              <li>Connectors and skills, attached at registration.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Our side</h3>
+            <ul>
+              <li>
+                The workspace: channels, wiki, computer, browser, secrets,
+                routines.
+              </li>
+              <li>
+                One MCP server per agent, reachable at <code>/mcp/:token</code>.
+                34 tools.
+              </li>
+              <li>The router: who wakes, when, with which session.</li>
+              <li>
+                The event pump: every 4 seconds, read session events, turn them
+                into messages and status.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span
+            >The MCP server is the whole contract. Anthropic never sees our
+            database.</span
+          ><span>4</span>
+        </div>
+      </section>
+
+      <!-- 5 -->
+      <section class="slide">
+        <p class="kicker">Managed Agents</p>
+        <h2>One message, end to end</h2>
+        <div class="flow">
+          <div class="step">
+            <b>1. Register</b><code>agents.create</code>
+            with the system prompt, the workspace MCP server, skills, vault ids,
+            model. Re-synced on change.
+          </div>
+          <div class="step">
+            <b>2. Mention</b>A message with <code>@Bruce</code> lands. The
+            workspace's router Durable Object sees it.
+          </div>
+          <div class="step">
+            <b>3. Session</b><code>sessions.create</code>
+            with the effective model and a $10 budget. Reuse for a thread, fresh
+            for a channel mention.
+          </div>
+          <div class="step">
+            <b>4. Wake</b><code>sessions.events.send</code>
+            with the wake text: the message, its thread, who else is in the
+            channel.
+          </div>
+          <div class="step">
+            <b>5. Work</b>The agent calls our tools over MCP:
+            <code>read_thread</code>, <code>wiki_write</code>,
+            <code>computer_exec</code>, <code>post_message</code>.
+          </div>
+          <div class="step">
+            <b>6. Pump</b><code>sessions.events.list</code>
+            every 4 s. Status to the UI, replies as messages, stop reason
+            carried through.
+          </div>
+        </div>
+        <p class="small muted" style="margin-top:1em">
+          The system prompt is assembled per agent: name, soul, instructions,
+          the workspace rules, a subagents section, a skills section, and the
+          roster of other agents it can mention.
+        </p>
+        <div class="footer">
+          <span
+            >modules/anthropic (gateway, service, system-prompt), modules/router</span
+          ><span>5</span>
+        </div>
+      </section>
+
+      <!-- 6 -->
+      <section class="slide">
+        <p class="kicker">Managed Agents</p>
+        <h2>The API calls we actually make</h2>
+        <div class="grid cols-3">
+          <div class="card">
+            <h3>Agents and sessions</h3>
+            <ul>
+              <li><code>environments.create</code> / <code>list</code></li>
+              <li><code>agents.create</code> / <code>update</code></li>
+              <li>
+                <code>sessions.create</code>
+                / <code>retrieve</code> / <code>delete</code>
+              </li>
+              <li><code>sessions.events.send</code> / <code>list</code></li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Skills</h3>
+            <ul>
+              <li><code>skills.create</code> / <code>delete</code></li>
+              <li>
+                <code>skills.versions.create</code>
+                / <code>list</code> / <code>delete</code>
+              </li>
+              <li>
+                R2 stays the source of truth. The download endpoint was unusable
+                with workspace keys.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Vaults</h3>
+            <ul>
+              <li><code>vaults.create</code> / <code>delete</code></li>
+              <li>
+                <code>vaults.credentials.create</code>
+                / <code>update</code> / <code>archive</code>
+              </li>
+              <li>
+                One vault per connector for OAuth tokens. One vault per
+                workspace for secrets, header injection only.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <p class="small muted" style="margin-top:1em">
+          Every new API surface got a spike script first (<code
+            >bun scripts/anthropic-spike.ts</code
+          >) so the plan was written against observed behaviour, not the docs.
+        </p>
+        <div class="footer">
+          <span>SDK 0.118, managed-agents-2026-04-01 beta</span><span>6</span>
+        </div>
+      </section>
+
+      <!-- 7 -->
+      <section class="slide">
+        <p class="kicker">Managed Agents</p>
+        <h2>Things we learned the hard way</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>The silent death</h3>
+            <p class="small">
+              A Slack mention produced browser activity and then nothing. No
+              reply, no error, no log.
+            </p>
+            <ul>
+              <li>
+                Read the session transcript with
+                <code>sessions.events.list</code>:
+                <code>stop_reason: budget_reached</code>
+                at 105 cents of a 100 cent cap.
+              </li>
+              <li>
+                The session had carried 66 cents from an earlier task. Reuse was
+                shrinking every later budget.
+              </li>
+              <li>
+                Fix: $10 budget, fresh session per channel mention, and an
+                abnormal stop posts a death notice into every thread still
+                showing "Thinking…".
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Smaller surprises</h3>
+            <ul>
+              <li>
+                <code>status_idle</code>
+                is not "finished". Its stop reason is the whole story.
+              </li>
+              <li>
+                A session fixes its connectors and vaults at creation. Changes
+                reach the next session, so resync is settled right before
+                <code>sessions.create</code>.
+              </li>
+              <li>
+                A sandbox secret is a placeholder, 61 characters against a 40
+                character key. Anthropic substitutes at egress, so even the
+                agent's own shell cannot read it.
+              </li>
+              <li>
+                Anthropic accepts duplicate agent names. No prefixing needed.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>PROGRESS.md cycles 6, 15, 18</span><span>7</span>
+        </div>
+      </section>
+
+      <!-- 8 -->
+      <section class="slide">
+        <p class="kicker">Managed Agents</p>
+        <h2>And when you do not want Managed Agents</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>The Cloudflare runtime</h3>
+            <ul>
+              <li>
+                Chosen per agent at creation. A Durable Object holds the
+                transcript and advances it from alarms.
+              </li>
+              <li>
+                Model through the <code>AI</code> binding: Workers AI, or any
+                provider through AI Gateway. No Anthropic key involved.
+              </li>
+              <li>
+                Same MCP server, connected in memory. The two runtimes cannot
+                drift in what an agent can do.
+              </li>
+              <li>40 model calls per wake instead of a dollar budget.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>What you give up</h3>
+            <ul>
+              <li>No sandbox, no subagents, no connectors, no memory store.</li>
+              <li>
+                No per-conversation model overrides. The agent's model is the
+                model.
+              </li>
+            </ul>
+            <p class="small muted" style="margin-top:.8em">
+              Both runtimes sit behind one
+              <code>SessionGateway</code>
+              interface, so the router, the status badges and the death notices
+              are shared.
+            </p>
+          </div>
+        </div>
+        <div class="footer"><span>modules/runner</span><span>8</span></div>
+      </section>
+
+      <!-- 9 -->
+      <section class="slide divider">
+        <div class="n">Part 2 of 3</div>
+        <h1 class="glitch-text neon-glow" data-text="Slack">Slack</h1>
+        <p class="lead">Every agent is a real Slack identity.</p>
+      </section>
+
+      <!-- 10 -->
+      <section class="slide">
+        <p class="kicker">Slack</p>
+        <h2>One Slack app per agent, not one bot for the deployment</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>Why</h3>
+            <ul>
+              <li>
+                An agent should show up in Slack under its own name and avatar,
+                not as "Agentum bot".
+              </li>
+              <li>
+                Two agents in one Slack channel is a real topology. Events are
+                claimed by bridge ownership, or every message ingests twice.
+              </li>
+              <li>
+                A workspace owner can add an agent to Slack without touching
+                deployment secrets.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>The manifest is generated</h3>
+            <ul>
+              <li>
+                Scopes are exactly the calls the client makes:
+                <code>channels:history</code>, <code>channels:read</code>,
+                <code>channels:join</code>, <code>groups:*</code>,
+                <code>chat:write</code>, <code>files:read</code>,
+                <code>files:write</code>, <code>users:read</code>.
+              </li>
+              <li>
+                Bot events: <code>message.channels</code>,
+                <code>message.groups</code>.
+              </li>
+              <li>Interactivity for question buttons.</li>
+              <li>
+                Events URL carries the app's row id, so a draft can answer
+                Slack's URL verification before any secret exists.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>modules/bridges/slack/manifest.ts</span><span>10</span>
+        </div>
+      </section>
+
+      <!-- 11 -->
+      <section class="slide">
+        <p class="kicker">Slack</p>
+        <h2>Connecting an agent, in the agent's own settings</h2>
+        <div class="flow">
+          <div class="step">
+            <b>1. Draft</b>Open the Slack tab. One click creates a draft row and
+            shows the manifest and the events URL.
+          </div>
+          <div class="step">
+            <b>2. Create the app</b>Paste the manifest into api.slack.com. Slack
+            pings the events URL; the draft answers the handshake.
+          </div>
+          <div class="step">
+            <b>3. Tokens</b>Paste the bot token and signing secret. We call
+            <code>auth.test</code>, store team and bot user, encrypt the
+            secrets.
+          </div>
+          <div class="step">
+            <b>4. Bridge</b>Channel settings: pick a connected agent and a Slack
+            channel. Messages now mirror both ways.
+          </div>
+        </div>
+        <div class="grid cols-2" style="margin-top:1em">
+          <div class="card">
+            <h3>Rules that fell out of it</h3>
+            <ul>
+              <li>
+                No response ever returns a stored token. Verify server-side,
+                report status only.
+              </li>
+              <li>
+                The wizard step is derived from the persisted row. Abandon
+                mid-flow and you resume, not restart.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Operational</h3>
+            <ul>
+              <li>
+                Adding a capability to the manifest means every connected app
+                must re-apply it. That is surfaced in the UI, not just in docs.
+              </li>
+              <li>Disconnecting the app takes its bridges with it.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>PROGRESS.md cycle 10</span><span>11</span>
+        </div>
+      </section>
+
+      <!-- 12 -->
+      <section class="slide">
+        <p class="kicker">Slack</p>
+        <h2>What a bridged channel feels like</h2>
+        <div class="grid cols-3">
+          <div class="card">
+            <h3>Mirroring</h3>
+            <ul>
+              <li>
+                A Slack message becomes an Agentum message with an external
+                author.
+              </li>
+              <li>
+                An Agentum message goes out as the agent's app, so it carries
+                the agent's name.
+              </li>
+              <li>Threads map to threads. Attachments cross over.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Thinking</h3>
+            <ul>
+              <li>
+                The moment an agent wakes, a "Thinking…" placeholder posts into
+                the Slack thread. That placeholder is what creates the thread.
+              </li>
+              <li>
+                It is rewritten into the reply when the reply lands. A small
+                model writes the one-line status.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Questions</h3>
+            <ul>
+              <li>
+                <code>ask_user</code>
+                renders as Slack blocks with buttons.
+              </li>
+              <li>
+                Slack gives 3 seconds to ack. The handler acks, does the real
+                work in <code>waitUntil</code>, and reports back through
+                <code>response_url</code>.
+              </li>
+              <li>
+                First answer wins, decided by the database. Approving wakes the
+                agent in that thread.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span
+            >modules/bridges/slack: adapter, mirror, blocks, interactive,
+            thinking</span
+          ><span>12</span>
+        </div>
+      </section>
+
+      <!-- 13 -->
+      <section class="slide divider">
+        <div class="n">Part 3 of 3</div>
+        <h1 class="glitch-text neon-glow" data-text="Connecting a computer">
+          Connecting a computer
+        </h1>
+        <p class="lead">An agent's shell on hardware you own.</p>
+      </section>
+
+      <!-- 14 -->
+      <section class="slide">
+        <p class="kicker">Computer</p>
+        <h2>Where an agent's computer can live</h2>
+        <div class="grid cols-3">
+          <div class="card">
+            <h3>Cloudflare <span class="tag">default</span></h3>
+            <ul>
+              <li>A Durable Object with a SQLite filesystem.</li>
+              <li>
+                A shell only in dev. Deployed Workers refuse the Worker Loader,
+                so production has files but no <code>exec</code>.
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Self-hosted <span class="tag ok">verified live</span></h3>
+            <ul>
+              <li>
+                A Docker or Podman container on your laptop, a NAS, an office
+                box.
+              </li>
+              <li>It dials out. No inbound port, no tunnel, no public IP.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Fly.io <span class="tag warn">unverified</span></h3>
+            <ul>
+              <li>
+                A Fly Machine plus volume per agent, provisioned through the
+                Machines API.
+              </li>
+              <li>
+                Built against fakes. Nobody has run it on a real account yet.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <p class="small muted" style="margin-top:1em">
+          Fixed at agent creation. Five tools on every backend: read, write,
+          edit, list, exec. The Files tab in the rail browses whichever backend
+          the agent has.
+        </p>
+        <div class="footer">
+          <span>modules/computer, apps/computerd</span><span>14</span>
+        </div>
+      </section>
+
+      <!-- 15 -->
+      <section class="slide">
+        <p class="kicker">Computer</p>
+        <h2>Connecting one: a token and a run command</h2>
+        <div class="grid cols-2">
+          <div>
+            <pre><code>docker run -d --name agentum-computer \
+  --restart unless-stopped \
+  --memory 2g --cpus 2 \
+  -v agentum-computer:/home/agent \
+  -e AGENTUM_URL=https://agentum.rockyshoreslabs.io \
+  -e AGENTUM_COMPUTER_TOKEN=&lt;token&gt; \
+  ghcr.io/codewithpassion/agentum-computerd</code></pre>
+            <p class="small muted" style="margin-top:.6em">
+              The Computers page shows this once, with the token filled in.
+              Podman is the same plus <code>--userns=keep-id</code>.
+            </p>
+          </div>
+          <div class="card">
+            <h3>What is in the box</h3>
+            <ul>
+              <li>
+                Debian slim with bash, git, curl, python3, node, bun, sqlite3,
+                ripgrep.
+              </li>
+              <li>
+                An unprivileged <code>agent</code> user.
+                <code>/home/agent</code>
+                is the volume, and the volume is the computer.
+              </li>
+              <li>
+                A Bun daemon speaking one JSON protocol: <code>hello</code>,
+                <code>heartbeat</code>, then <code>read</code>,
+                <code>write</code>, <code>edit</code>, <code>list</code>,
+                <code>exec</code>.
+              </li>
+              <li>
+                Reconnects forever with backoff. Stopping Agentum is a pause,
+                not a failure.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer">
+          <span>apps/computerd/README.md</span><span>15</span>
+        </div>
+      </section>
+
+      <!-- 16 -->
+      <section class="slide">
+        <p class="kicker">Computer</p>
+        <h2>How a tool call reaches the container</h2>
+        <div class="flow">
+          <div class="step">
+            <b>Agent</b>Calls <code>computer_exec</code> over MCP with a command
+            and a timeout up to ten minutes.
+          </div>
+          <div class="step">
+            <b>Worker</b><code>AgentComputerClient</code>
+            looks up the agent's backend and picks the remote transport.
+          </div>
+          <div class="step">
+            <b>ComputerRelay</b>One Durable Object per host holds the daemon's
+            WebSocket with the hibernation API. Pending map, one exec in flight.
+          </div>
+          <div class="step">
+            <b>Container</b>computerd runs it as <code>agent</code>, streams
+            back exit code and output, capped.
+          </div>
+          <div class="step">
+            <b>Activity</b>Every command lands in the agent's Activity tab with
+            its exit code.
+          </div>
+        </div>
+        <div class="grid cols-2" style="margin-top:1em">
+          <div class="card">
+            <h3>Who presents the credential decides how it is stored</h3>
+            <ul>
+              <li>
+                Self-hosted: the daemon dials in with the token, so we store a
+                hash.
+              </li>
+              <li>Fly: Agentum is the client, so we store it encrypted.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Offline is a sentence, not a stack trace</h3>
+            <p class="small">
+              "The computer host "office-box" is offline (less than a minute
+              ago). Start the container and try again." The agent relays that
+              verbatim.
+            </p>
+          </div>
+        </div>
+        <div class="footer">
+          <span>modules/computer: client, relay, remote-client, hosts</span
+          ><span>16</span>
+        </div>
+      </section>
+
+      <!-- 17 -->
+      <section class="slide">
+        <p class="kicker">Computer</p>
+        <h2>The acceptance run, on this laptop</h2>
+        <ol>
+          <li>
+            Created a host in Computers, got the token, ran
+            <code>docker run --network host</code>
+            against the dev server. Ready in seconds.
+          </li>
+          <li>Test connection answered "computerd 0.1.0 on Morosini".</li>
+          <li>
+            Created an agent on that host and asked it to run
+            <code>uname -a</code>, write a file, read it back. Every command in
+            the activity feed.
+          </li>
+          <li>
+            Stopped the container. The agent reported the host offline with the
+            last-seen time.
+          </li>
+          <li><code>docker start</code>. The file was still there.</li>
+        </ol>
+        <div class="quote">
+          The container runs whatever the agent decides to run, with the network
+          the container has. The container boundary is the safety. Cap its
+          memory and CPU, and put it on a machine you are willing to hand to a
+          program.
+        </div>
+        <p class="small muted">
+          Path mapping bit us once: file tools are rooted at the home directory,
+          a real shell sees the real filesystem. The tool description now says
+          so.
+        </p>
+        <div class="footer">
+          <span>PROGRESS.md cycle 17</span><span>17</span>
+        </div>
+      </section>
+
+      <!-- 18 -->
+      <section class="slide">
+        <p class="kicker">Close</p>
+        <h2>What to take away</h2>
+        <div class="grid cols-3">
+          <div class="card">
+            <h3>Managed Agents</h3>
+            <p class="small">
+              Hand the loop to Anthropic and put all your effort into the MCP
+              server and the router. Read session transcripts when something
+              goes quiet.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Slack</h3>
+            <p class="small">
+              One app per agent, generated manifest, tokens verified and never
+              returned. The placeholder message is what creates the thread.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Computer</h3>
+            <p class="small">
+              A container that dials out is the simplest way to give an agent a
+              real shell on your own hardware. The volume is the computer.
+            </p>
+          </div>
+        </div>
+        <div class="close-row">
+          <div>
+            <p style="margin-top:1.2em">
+              Next: run the Fly backend against a real account, and find a shell
+              for the Cloudflare computer in production.
+            </p>
+            <p class="muted small">
+              Code: apps/web/src/modules. Story: PROGRESS.md. Plans:
+              docs/plan-*.md. Full feature handbook: docs/handbook/index.html.
+            </p>
+          </div>
+          <div class="qr">
+            <img
+              alt="QR code linking to agentum.rockyshoreslabs.io"
+              height="200"
+              src="agentum-qr.png"
+              width="200"
+            >
+            <span>Scan for the app</span>
+          </div>
+        </div>
+        <div class="footer">
+          <span>agentum.rockyshoreslabs.io</span><span>18</span>
+        </div>
+      </section>
+    </div>
+    <div class="progress" id="progress"></div>
+    <div class="hud">
+      <button id="prev" title="Previous" type="button">←</button>
+      <span id="counter">1 / 1</span>
+      <button id="next" title="Next" type="button">→</button>
+    </div>
+    <script>
+    "use strict";
+    const HASH_RE = /^#\/(\d+)/;
+    (() => {
+      const SWIPE_PX = 50;
+      const slides = Array.from(document.querySelectorAll(".slide"));
+      const counter = document.getElementById("counter");
+      const progress = document.getElementById("progress");
+      let index = 0;
+      const show = (i) => {
+        index = Math.max(0, Math.min(slides.length - 1, i));
+        for (const [j, s] of slides.entries()) {
+          s.classList.toggle("active", j === index);
+        }
+        counter.textContent = `${index + 1} / ${slides.length}`;
+        progress.style.width = `${((index + 1) / slides.length) * 100}%`;
+        const hash = `#/${index + 1}`;
+        if (location.hash !== hash) {
+          history.replaceState(null, "", hash);
+        }
+      };
+      const fromHash = () => {
+        const m = location.hash.match(HASH_RE);
+        show(m ? Number.parseInt(m[1], 10) - 1 : 0);
+      };
+      document.addEventListener("keydown", (e) => {
+        if (e.metaKey || e.ctrlKey || e.altKey) {
+          return;
+        }
+        switch (e.key) {
+          case "ArrowRight":
+          case "ArrowDown":
+          case " ":
+          case "PageDown":
+          case "j":
+            e.preventDefault();
+            show(index + 1);
+            break;
+          case "ArrowLeft":
+          case "ArrowUp":
+          case "PageUp":
+          case "k":
+            e.preventDefault();
+            show(index - 1);
+            break;
+          case "Home":
+            show(0);
+            break;
+          case "End":
+            show(slides.length - 1);
+            break;
+          default:
+            break;
+        }
+      });
+      document
+        .getElementById("prev")
+        .addEventListener("click", () => show(index - 1));
+      document
+        .getElementById("next")
+        .addEventListener("click", () => show(index + 1));
+      window.addEventListener("hashchange", fromHash);
+      let touchX = null;
+      document.addEventListener(
+        "touchstart",
+        (e) => {
+          touchX = e.touches[0].clientX;
+        },
+        { passive: true }
+      );
+      document.addEventListener("touchend", (e) => {
+        if (touchX === null) {
+          return;
+        }
+        const dx = e.changedTouches[0].clientX - touchX;
+        if (Math.abs(dx) > SWIPE_PX) {
+          show(index + (dx < 0 ? 1 : -1));
+        }
+        touchX = null;
+      });
+      fromHash();
+    })();
+    </script>
+  </body>
+</html>
