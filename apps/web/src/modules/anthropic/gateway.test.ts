@@ -594,3 +594,72 @@ describe("pollEvents", () => {
     expect(page.events[0]?.text).toBe("model overloaded");
   });
 });
+
+describe("sendMessage", () => {
+  const sendClient = (sent: unknown[]) => ({
+    sessions: {
+      events: {
+        send: (sessionId: string, params: unknown) => {
+          sent.push({ params, sessionId });
+          return Promise.resolve({});
+        },
+      },
+    },
+  });
+
+  const gatewayFor = (sent: unknown[]) =>
+    createAnthropicGateway(client(sendClient(sent)), {
+      cache: memoryCache(),
+      environmentName: "agentum",
+      workerCache: workerCache(),
+    });
+
+  test("sends plain text as one text block", async () => {
+    const sent: unknown[] = [];
+    await gatewayFor(sent).sendMessage("sesn_1", "hello");
+
+    expect(sent).toEqual([
+      {
+        params: {
+          events: [
+            {
+              content: [{ text: "hello", type: "text" }],
+              type: "user.message",
+            },
+          ],
+        },
+        sessionId: "sesn_1",
+      },
+    ]);
+  });
+
+  test("appends each image as a url image block after the text", async () => {
+    const sent: unknown[] = [];
+    await gatewayFor(sent).sendMessage("sesn_1", "Screenshot", [
+      { url: "https://app.example.com/api/agent-images?key=k" },
+    ]);
+
+    expect(sent).toEqual([
+      {
+        params: {
+          events: [
+            {
+              content: [
+                { text: "Screenshot", type: "text" },
+                {
+                  source: {
+                    type: "url",
+                    url: "https://app.example.com/api/agent-images?key=k",
+                  },
+                  type: "image",
+                },
+              ],
+              type: "user.message",
+            },
+          ],
+        },
+        sessionId: "sesn_1",
+      },
+    ]);
+  });
+});

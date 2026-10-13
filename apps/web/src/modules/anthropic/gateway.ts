@@ -129,7 +129,17 @@ export interface SessionGateway {
     sessionId: string,
     cursor: EventCursor | undefined
   ) => Promise<PolledEvents>;
-  sendMessage: (sessionId: string, text: string) => Promise<void>;
+  /** Images only reach the Managed Agents runtime; the Cloudflare one ignores them. */
+  sendMessage: (
+    sessionId: string,
+    text: string,
+    images?: readonly MessageImage[]
+  ) => Promise<void>;
+}
+
+/** An image for a `user.message`, fetched by Anthropic from this URL. */
+export interface MessageImage {
+  url: string;
 }
 
 export interface AnthropicGateway extends SessionGateway {
@@ -487,9 +497,20 @@ export const createAnthropicGateway = (
       return { anthropicAgentId: agent.id, memoryStoreId: store?.id ?? null };
     },
 
-    async sendMessage(sessionId, text) {
+    async sendMessage(sessionId, text, images = []) {
       await client.beta.sessions.events.send(sessionId, {
-        events: [{ content: [{ text, type: "text" }], type: "user.message" }],
+        events: [
+          {
+            content: [
+              { text, type: "text" },
+              ...images.map((image) => ({
+                source: { type: "url" as const, url: image.url },
+                type: "image" as const,
+              })),
+            ],
+            type: "user.message",
+          },
+        ],
       });
     },
 

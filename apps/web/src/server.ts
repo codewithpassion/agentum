@@ -3,6 +3,7 @@ import { clerkMiddleware, getAuth } from "@clerk/hono";
 import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
 import { agentActivityRoutes } from "#/modules/activity/routes";
+import { agentImageRoutes } from "#/modules/agent-images/route";
 import { agentsRoutes } from "#/modules/agents/routes";
 import { anthropicKeyRoutes } from "#/modules/anthropic/routes";
 import {
@@ -164,6 +165,10 @@ app.route("/mcp", mcpRoutes);
 // whole credential, and the workspace was checked when the link was minted
 // (see modules/messaging/routes/attachment-links).
 app.route("/api/attachment-links", attachmentLinkRoutes);
+
+// A stored image by signed expiring URL, for the Anthropic API to fetch when an
+// agent is sent a screenshot (see modules/agent-images).
+app.route("/api/agent-images", agentImageRoutes);
 
 // Where a self-hosted computerd container dials in. Not behind Clerk either:
 // the host token in the Authorization header is the credential, and it names

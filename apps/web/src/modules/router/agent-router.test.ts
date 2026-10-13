@@ -169,7 +169,11 @@ const routerFor = (store: Storage, gateway?: AnthropicGateway) => {
 const fakeGateway = () => {
   const calls = {
     created: [] as CreateSessionInput[],
-    sent: [] as { sessionId: string; text: string }[],
+    sent: [] as {
+      images?: readonly { url: string }[];
+      sessionId: string;
+      text: string;
+    }[],
   };
   const gateway: AnthropicGateway = {
     createSession: (input) => {
@@ -185,8 +189,8 @@ const fakeGateway = () => {
     pollEvents: () => Promise.resolve({ cursor: undefined, events: [] }),
     registerAgent: () =>
       Promise.resolve({ anthropicAgentId: "agt_1", memoryStoreId: null }),
-    sendMessage: (sessionId, text) => {
-      calls.sent.push({ sessionId, text });
+    sendMessage: (sessionId, text, images) => {
+      calls.sent.push({ images, sessionId, text });
       return Promise.resolve();
     },
     syncAgent: () => Promise.resolve(),
@@ -738,5 +742,59 @@ describe("the Cloudflare runtime", () => {
     expect(
       (await getAgentById(db, alpha.workspaceId, alpha.agentId))?.status
     ).toBe("idle");
+  });
+
+  describe("deliverImage", () => {
+    const image = {
+      agentId: "",
+      caption: "Screenshot of https://example.com",
+      imageUrl: "https://app.example.com/api/agent-images?key=k",
+    };
+
+    test("sends the caption and image into a running session", async () => {
+      const store = storage();
+      const { calls, gateway } = fakeGateway();
+      const router = routerFor(store, gateway);
+      await store.api.put(WORKSPACE_KEY, alpha.workspaceId);
+      await store.api.put(SESSION_KEY(alpha.agentId), {
+        ...storedSession(),
+        status: "running",
+      });
+
+      const result = await router.deliverImage({
+        ...image,
+        agentId: alpha.agentId,
+      });
+
+      expect(result).toEqual({ sent: true });
+      expect(calls.sent).toEqual([
+        {
+          images: [{ url: image.imageUrl }],
+          sessionId: "sesn_old",
+          text: image.caption,
+        },
+      ]);
+    });
+
+    test("says so when there is no running session", async () => {
+      const store = storage();
+      const { calls, gateway } = fakeGateway();
+      const router = routerFor(store, gateway);
+      await store.api.put(WORKSPACE_KEY, alpha.workspaceId);
+
+      const none = await router.deliverImage({
+        ...image,
+        agentId: alpha.agentId,
+      });
+      await store.api.put(SESSION_KEY(alpha.agentId), storedSession());
+      const idle = await router.deliverImage({
+        ...image,
+        agentId: alpha.agentId,
+      });
+
+      expect(none.sent).toBe(false);
+      expect(idle.sent).toBe(false);
+      expect(calls.sent).toEqual([]);
+    });
   });
 });

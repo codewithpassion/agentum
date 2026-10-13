@@ -258,6 +258,39 @@ export class AgentRouter extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(Date.now());
   }
 
+  /**
+   * Sends an image into the agent's running Managed Agents session, as a
+   * `user.message` with a caption. Called by tools that take pictures
+   * (`modules/agent-images`). It never starts a session and never touches the
+   * stored one: with nothing running there is nobody to show it to, and the
+   * answer says so instead of throwing.
+   */
+  async deliverImage(input: {
+    agentId: string;
+    caption: string;
+    imageUrl: string;
+  }): Promise<{ sent: true } | { reason: string; sent: false }> {
+    const session = await this.read<StoredSession>(SESSION_KEY(input.agentId));
+    if (session?.status !== "running" || session.runtime === "cloudflare") {
+      return { reason: "The agent has no running session.", sent: false };
+    }
+    const gateway = await this.gateway();
+    if (!gateway) {
+      return { reason: "The Anthropic integration is off.", sent: false };
+    }
+    try {
+      await gateway.sendMessage(session.sessionId, input.caption, [
+        { url: input.imageUrl },
+      ]);
+    } catch (error) {
+      return {
+        reason: error instanceof Error ? error.message : String(error),
+        sent: false,
+      };
+    }
+    return { sent: true };
+  }
+
   // --- alarm -----------------------------------------------------------------
 
   override async alarm(): Promise<void> {
