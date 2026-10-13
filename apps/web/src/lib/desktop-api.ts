@@ -1,5 +1,11 @@
 import { ApiError, type Question } from "#/lib/api";
 import type { DesktopAction } from "#/lib/desktop-input";
+import {
+  type DesktopStream,
+  type DesktopStreamHandlers,
+  openDesktopStream,
+  streamUrl,
+} from "#/lib/desktop-stream";
 
 /**
  * The client side of an agent's live desktop. Routes are agent-scoped, so the
@@ -169,6 +175,14 @@ export interface ComputerDesktopServer {
   handBackDesktop: (
     req: DesktopRequest & { note?: string }
   ) => Promise<DesktopStatus>;
+  /**
+   * Opens the live WebSocket stream. Absent where there is no socket to open, and
+   * the view then polls over HTTP; it also polls when the socket cannot be opened.
+   */
+  openDesktopStream?: (
+    req: DesktopRequest,
+    handlers: DesktopStreamHandlers
+  ) => DesktopStream;
   /** Needs control; answers with a fresh frame. */
   sendDesktopInput: (
     req: DesktopRequest & { actions: DesktopAction[] }
@@ -254,6 +268,16 @@ export const createDesktopServer = (
           method: "POST",
         })
       ),
+
+    openDesktopStream: ({ agentId }, handlers) =>
+      openDesktopStream({
+        handlers,
+        url: streamUrl({
+          host: location.host,
+          pathname: at(agentId, "/stream"),
+          protocol: location.protocol,
+        }),
+      }),
 
     sendDesktopInput: async ({ actions, agentId }) =>
       (

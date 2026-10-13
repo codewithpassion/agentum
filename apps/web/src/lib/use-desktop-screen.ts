@@ -5,9 +5,12 @@ import {
   type DesktopFrameProblem,
   type DesktopStatus,
   readDesktopFailure,
+  toDesktopStatus,
   toFrameProblem,
 } from "#/lib/desktop-api";
 import { type DesktopAction, packActions } from "#/lib/desktop-input";
+import { createInputCoalescer } from "#/lib/desktop-input-coalescer";
+import type { DesktopStream } from "#/lib/desktop-stream";
 
 export const FRAME_INTERVAL_MS = 500;
 export const HIDDEN_FRAME_INTERVAL_MS = 2000;
@@ -16,6 +19,15 @@ const HIDDEN_STATUS_INTERVAL_MS = 10_000;
 /** While someone else holds control there is no frame to fetch, so status is watched closer instead. */
 export const OTHER_CONTROL_STATUS_INTERVAL_MS = 2000;
 export const INPUT_BATCH_MS = 100;
+/** With the socket open the server pushes changes, so status is only a backup. */
+export const SOCKET_STATUS_INTERVAL_MS = 10_000;
+const LOST_CONTROL_CODES: ReadonlySet<string> = new Set([
+  "human_in_control",
+  "lease_required",
+]);
+
+/** How the live view is fed: the socket, HTTP polling, or still opening the socket. */
+type StreamMode = "connecting" | "polling" | "socket";
 /** Refresh the lease expiry after input once it is this close, so the warning clears promptly. */
 const EXPIRY_REFRESH_WINDOW_MS = 90_000;
 
@@ -64,7 +76,8 @@ function sameProblem({
 }
 
 /**
- * Polls one desktop's frames and status and sends input while the caller holds control.
+ * Shows one desktop's frames and status and sends input while the caller holds control. Frames
+ * and input ride a WebSocket; if it cannot be opened, frames are polled and input posted over HTTP.
  * Frames live only as the one object URL on screen; each replaces and revokes the last.
  * Input goes out one request at a time; whatever queues meanwhile goes in the next one.
  */
@@ -81,6 +94,11 @@ export function useDesktopScreen({
     null
   );
   const [inputError, setInputError] = useState<string | null>(null);
+  const [streamMode, setStreamMode] = useState<StreamMode>(
+    server.openDesktopStream ? "connecting" : "polling"
+  );
+  const streamRef = useRef<DesktopStream | null>(null);
+  const socketLiveRef = useRef(false);
 
   const scopeRef = useRef({ agentId, computerId, server });
   scopeRef.current = { agentId, computerId, server };
@@ -205,7 +223,10 @@ export function useDesktopScreen({
           return;
         }
         let delayMs = STATUS_INTERVAL_MS;
-        if (isHidden()) {
+        // biome-ignore lint/suspicious/noUnnecessaryConditions: socketLiveRef is written by the socket effect, which the checker cannot see
+        if (socketLiveRef.current) {
+          delayMs = SOCKET_STATUS_INTERVAL_MS;
+        } else if (isHidden()) {
           delayMs = HIDDEN_STATUS_INTERVAL_MS;
         } else if (otherHumanControls(statusRef.current)) {
           delayMs = OTHER_CONTROL_STATUS_INTERVAL_MS;
@@ -224,10 +245,10 @@ export function useDesktopScreen({
     };
   }, [computerId, agentId, paused, setKnownStatus]);
 
-  // Frames: one request at a time, every 500 ms while visible and every 2 s while hidden.
+  // Frames over HTTP, the fallback: one request at a time, every 500 ms while visible and every 2 s while hidden.
   // biome-ignore lint/correctness/useExhaustiveDependencies: computerId and agentId restart this effect for another desktop; the body reads them through scopeRef
   useEffect(() => {
-    if (paused) {
+    if (paused || streamMode !== "polling") {
       return;
     }
     let stopped = false;
@@ -316,7 +337,107 @@ export function useDesktopScreen({
       document.removeEventListener("visibilitychange", onVisibilityChange);
       pollFrameSoonRef.current = () => undefined;
     };
-  }, [computerId, agentId, paused, showFrame, dropFrame, reportProblem]);
+  }, [
+    computerId,
+    agentId,
+    paused,
+    streamMode,
+    showFrame,
+    dropFrame,
+    reportProblem,
+  ]);
+
+  /** Refreshes status when the lease is about to lapse, so the expiry warning clears after input. */
+  const refreshIfExpiring = useCallback(() => {
+    const controller = statusRef.current?.controller;
+    if (
+      controller?.kind === "human" &&
+      Date.parse(controller.expiresAt) - Date.now() < EXPIRY_REFRESH_WINDOW_MS
+    ) {
+      refreshStatusRef.current();
+    }
+  }, []);
+
+  const coalescerRef = useRef<ReturnType<typeof createInputCoalescer> | null>(
+    null
+  );
+  coalescerRef.current ??= createInputCoalescer({
+    send: (batch) => {
+      const sent = streamRef.current?.sendInput(batch) ?? false;
+      if (sent) {
+        refreshIfExpiring();
+      }
+      return sent;
+    },
+  });
+
+  // The socket: frames, status and input errors come in on it; it falls back to polling if it cannot open.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: computerId and agentId restart this effect for another desktop; the body reads them through scopeRef
+  useEffect(() => {
+    if (paused) {
+      return;
+    }
+    const { server: port, ...req } = scopeRef.current;
+    if (!port.openDesktopStream) {
+      setStreamMode("polling");
+      return;
+    }
+    setStreamMode("connecting");
+    const stream = port.openDesktopStream(req, {
+      onFrame: (blob) => {
+        frameSeqRef.current += 1;
+        showFrame(blob, frameSeqRef.current);
+      },
+      onInputError: (code, message) => {
+        setInputError(
+          LOST_CONTROL_CODES.has(code)
+            ? "You no longer control the desktop."
+            : message || "Input was not delivered"
+        );
+        coalescerRef.current?.reset();
+        refreshStatusRef.current();
+      },
+      onInterrupted: () => {
+        socketLiveRef.current = false;
+        setStreamMode("connecting");
+      },
+      onOpen: () => {
+        socketLiveRef.current = true;
+        setStreamMode("socket");
+      },
+      onProblem: (problem) => {
+        reportProblem(problem);
+        if (problem.kind === "human_in_control") {
+          dropFrame();
+        }
+      },
+      onStatus: (wire) => {
+        // The socket does not carry the takeover the agent is waiting on; the slow poll refreshes it.
+        applyStatus({
+          ...toDesktopStatus(wire),
+          pendingTakeover: statusRef.current?.pendingTakeover ?? null,
+        });
+      },
+      onUnavailable: () => {
+        socketLiveRef.current = false;
+        setStreamMode("polling");
+      },
+    });
+    streamRef.current = stream;
+    return () => {
+      stream.close();
+      streamRef.current = null;
+      socketLiveRef.current = false;
+    };
+  }, [
+    computerId,
+    agentId,
+    paused,
+    showFrame,
+    dropFrame,
+    reportProblem,
+    applyStatus,
+  ]);
 
   // Released frames and queued input belong to this desktop only, and so does control of it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: computerId and agentId restart this effect for another desktop; the body reads them through scopeRef
@@ -329,6 +450,7 @@ export function useDesktopScreen({
       }
       flushTimerRef.current = null;
       queueRef.current = [];
+      coalescerRef.current?.reset();
       const waiting = flushWaitersRef.current;
       flushWaitersRef.current = [];
       for (const resolve of waiting) {
@@ -394,15 +516,9 @@ export function useDesktopScreen({
           return;
         }
       }
-      const controller = statusRef.current?.controller;
-      if (
-        controller?.kind === "human" &&
-        Date.parse(controller.expiresAt) - Date.now() < EXPIRY_REFRESH_WINDOW_MS
-      ) {
-        refreshStatusRef.current();
-      }
+      refreshIfExpiring();
     },
-    [showFrame]
+    [showFrame, refreshIfExpiring]
   );
 
   // One input request at a time; moves queued during a slow round trip merge into the next pass.
@@ -455,6 +571,10 @@ export function useDesktopScreen({
    */
   const flushInput = useCallback(
     ({ dropMoves = false }: { dropMoves?: boolean } = {}): Promise<void> => {
+      if (streamRef.current?.isOpen()) {
+        coalescerRef.current?.flush({ dropMoves });
+        return Promise.resolve();
+      }
       if (dropMoves) {
         queueRef.current = queueRef.current.filter(
           (action) => action.type !== "mouse_move"
@@ -473,6 +593,10 @@ export function useDesktopScreen({
   const sendInput = useCallback(
     (actions: DesktopAction[]) => {
       if (actions.length === 0) {
+        return;
+      }
+      if (streamRef.current?.isOpen()) {
+        coalescerRef.current?.push(actions);
         return;
       }
       queueRef.current.push(...actions);
