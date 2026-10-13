@@ -2,6 +2,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { BetaManagedAgentsSessionEvent } from "@anthropic-ai/sdk/resources/beta/sessions/events";
 import {
   AGENT_TOOLSET,
+  DESKTOP_SCREENSHOT_DESCRIPTION,
+  DESKTOP_SCREENSHOT_TOOL,
   MCP_SERVER_NAME,
   MEMORY_STORE_INSTRUCTIONS,
   SESSION_BUDGET_CENTS,
@@ -46,6 +48,8 @@ export interface RegisterAgentInput {
   computerOnly?: boolean;
   /** Assigned connectors, on top of the workspace server. */
   connectors?: readonly ConnectorServer[];
+  /** See `SyncAgentInput.desktop`. */
+  desktop?: boolean;
   instructions: string;
   /** Our MCP endpoint for this agent, resolved at call time from env. */
   mcpUrl: string;
@@ -76,6 +80,12 @@ export interface SyncAgentInput {
    * only time the whole `mcp_servers` array is replaced.
    */
   connectors?: readonly ConnectorServer[];
+  /**
+   * True when the agent's computer has a desktop. Declares the client-run
+   * `desktop_screenshot` custom tool, the one way a picture reaches the model.
+   * Only read together with `computerOnly`.
+   */
+  desktop?: boolean;
   /** Omit to leave the registered MCP URL untouched (the usual roster resync). */
   mcpUrl?: string;
   /**
@@ -100,6 +110,23 @@ export interface CreateSessionInput {
    * cannot be given more, which is why an assignment lands on the next one.
    */
   vaultIds?: readonly string[];
+}
+
+/** What a sync changed that a running session cannot pick up. */
+export interface SyncAgentResult {
+  /** The agent's tool setup differs from the one it had; sessions must restart. */
+  toolsChanged: boolean;
+}
+
+/**
+ * The answer to one `agent.custom_tool_use`: text, and optionally the picture
+ * the model should see.
+ */
+export interface CustomToolResult {
+  image?: { base64: string; mediaType: "image/jpeg" };
+  isError: boolean;
+  text: string;
+  toolUseId: string;
 }
 
 export interface CreatedSession {
@@ -137,6 +164,11 @@ export interface SessionGateway {
     sessionId: string,
     cursor: EventCursor | undefined
   ) => Promise<PolledEvents>;
+  /** Managed Agents only; the Cloudflare runner has no client-run tools. */
+  sendCustomToolResult?: (
+    sessionId: string,
+    result: CustomToolResult
+  ) => Promise<void>;
   sendMessage: (sessionId: string, text: string) => Promise<void>;
 }
 
@@ -144,7 +176,7 @@ export interface AnthropicGateway extends SessionGateway {
   /** The one shared environment, created on first use and cached thereafter. */
   ensureEnvironment: () => Promise<string>;
   registerAgent: (input: RegisterAgentInput) => Promise<RegisteredAgent>;
-  syncAgent: (input: SyncAgentInput) => Promise<void>;
+  syncAgent: (input: SyncAgentInput) => Promise<SyncAgentResult>;
   syncAgentSkills: (input: SyncAgentSkillsInput) => Promise<void>;
 }
 
@@ -205,10 +237,23 @@ const agentToolset = (computerOnly: boolean) => ({
   type: AGENT_TOOLSET as "agent_toolset_20260401",
 });
 
+/**
+ * The model's only way to look at the desktop. A custom tool, because Managed
+ * Agents does not show the model images from an MCP tool result but does show
+ * them in a `user.custom_tool_result`. The router answers the call.
+ */
+const desktopScreenshotTool = {
+  description: DESKTOP_SCREENSHOT_DESCRIPTION,
+  input_schema: { properties: {}, type: "object" as const },
+  name: DESKTOP_SCREENSHOT_TOOL,
+  type: "custom" as const,
+};
+
 const toolsFor = (
   mcpUrl: string | undefined,
   connectors: readonly ConnectorServer[],
-  computerOnly = false
+  computerOnly = false,
+  desktop = false
 ) => [
   agentToolset(computerOnly),
   ...(mcpUrl
@@ -217,7 +262,53 @@ const toolsFor = (
         ...connectors.map((connector) => mcpToolset(connector.name)),
       ]
     : []),
+  ...(computerOnly && desktop ? [desktopScreenshotTool] : []),
 ];
+
+/** The built-ins the agent toolset switches on and off by name. */
+const BUILTIN_TOOLS = [
+  "bash",
+  "edit",
+  "glob",
+  "grep",
+  "read",
+  "web_fetch",
+  "web_search",
+  "write",
+] as const;
+
+interface ToolLike {
+  configs?: { enabled?: boolean; name: string }[] | null;
+  default_config?: { enabled?: boolean } | null;
+  mcp_server_name?: string;
+  name?: string;
+  type: string;
+}
+
+/**
+ * What a tools array lets the model do, as a sorted list of strings. Compares
+ * the effective switches, not the raw objects: the API fills in defaults on
+ * the way back, and a spurious difference would retire a live session.
+ */
+const toolSignature = (tools: readonly ToolLike[] | undefined): string => {
+  const parts: string[] = [];
+  for (const tool of tools ?? []) {
+    if (tool.type === "mcp_toolset") {
+      parts.push(`mcp:${tool.mcp_server_name ?? ""}`);
+    } else if (tool.type === "custom") {
+      parts.push(`custom:${tool.name ?? ""}`);
+    } else {
+      const fallback = tool.default_config?.enabled ?? true;
+      for (const name of BUILTIN_TOOLS) {
+        const enabled =
+          tool.configs?.find((config) => config.name === name)?.enabled ??
+          fallback;
+        parts.push(`builtin:${name}=${String(enabled)}`);
+      }
+    }
+  }
+  return parts.sort().join("|");
+};
 
 const mcpServersFor = (
   mcpUrl: string | undefined,
@@ -295,11 +386,28 @@ const stopReasonOf = (
   return reason?.type;
 };
 
+/** The calls a `requires_action` idle is waiting on. */
+const requiredEventIdsOf = (
+  event: BetaManagedAgentsSessionEvent
+): string[] | undefined => {
+  if (event.type !== "session.status_idle") {
+    return;
+  }
+  const reason: { event_ids?: string[]; type?: string } | undefined =
+    event.stop_reason;
+  return reason?.type === "requires_action"
+    ? (reason.event_ids ?? [])
+    : undefined;
+};
+
 const toSessionEvent = (
   event: BetaManagedAgentsSessionEvent
 ): SessionEvent => ({
+  customToolName:
+    event.type === "agent.custom_tool_use" ? event.name : undefined,
   id: event.id,
   processedAt: "processed_at" in event ? (event.processed_at ?? null) : null,
+  requiredEventIds: requiredEventIdsOf(event),
   stopReason: stopReasonOf(event),
   text: textOf(event),
   type: event.type,
@@ -498,7 +606,8 @@ export const createAnthropicGateway = (
         tools: toolsFor(
           input.mcpUrl,
           input.connectors ?? [],
-          input.computerOnly
+          input.computerOnly,
+          input.desktop
         ),
       });
 
@@ -514,6 +623,33 @@ export const createAnthropicGateway = (
       return { anthropicAgentId: agent.id, memoryStoreId: store?.id ?? null };
     },
 
+    async sendCustomToolResult(sessionId, result) {
+      await client.beta.sessions.events.send(sessionId, {
+        events: [
+          {
+            content: [
+              { text: result.text, type: "text" },
+              ...(result.image
+                ? [
+                    {
+                      source: {
+                        data: result.image.base64,
+                        media_type: result.image.mediaType,
+                        type: "base64" as const,
+                      },
+                      type: "image" as const,
+                    },
+                  ]
+                : []),
+            ],
+            custom_tool_use_id: result.toolUseId,
+            is_error: result.isError,
+            type: "user.custom_tool_result",
+          },
+        ],
+      });
+    },
+
     async sendMessage(sessionId, text) {
       await client.beta.sessions.events.send(sessionId, {
         events: [
@@ -527,11 +663,25 @@ export const createAnthropicGateway = (
 
     async syncAgent(input) {
       // `tools` replaces the whole array, so a sync that does not carry the MCP
-      // URL rebuilds it around the servers already registered.
-      const registered =
-        input.computerOnly && !input.mcpUrl
-          ? await client.beta.agents.retrieve(input.anthropicAgentId)
-          : null;
+      // URL rebuilds it around the servers already registered. Any sync that
+      // sends tools reads the registered ones first, to say whether they moved.
+      const sendsTools = Boolean(input.mcpUrl) || input.computerOnly === true;
+      const registered = sendsTools
+        ? await client.beta.agents.retrieve(input.anthropicAgentId)
+        : null;
+      const desktop = input.desktop === true;
+      const tools = input.mcpUrl
+        ? toolsFor(
+            input.mcpUrl,
+            input.connectors ?? [],
+            input.computerOnly,
+            desktop
+          )
+        : registered && [
+            agentToolset(true),
+            ...registered.mcp_servers.map((server) => mcpToolset(server.name)),
+            ...(desktop ? [desktopScreenshotTool] : []),
+          ];
 
       // Omitted fields are preserved, so a roster-only resync leaves the agent's
       // MCP registration alone - which matters, because the plaintext token that
@@ -544,26 +694,15 @@ export const createAnthropicGateway = (
         name: input.name,
         system: input.system,
         ...(input.mcpUrl
-          ? {
-              mcp_servers: mcpServersFor(input.mcpUrl, input.connectors ?? []),
-              tools: toolsFor(
-                input.mcpUrl,
-                input.connectors ?? [],
-                input.computerOnly
-              ),
-            }
+          ? { mcp_servers: mcpServersFor(input.mcpUrl, input.connectors ?? []) }
           : {}),
-        ...(registered
-          ? {
-              tools: [
-                agentToolset(true),
-                ...registered.mcp_servers.map((server) =>
-                  mcpToolset(server.name)
-                ),
-              ],
-            }
-          : {}),
+        ...(tools ? { tools } : {}),
       });
+      return {
+        toolsChanged:
+          Boolean(tools) &&
+          toolSignature(tools ?? []) !== toolSignature(registered?.tools),
+      };
     },
 
     async syncAgentSkills(input) {

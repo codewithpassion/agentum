@@ -25,8 +25,10 @@ const storage = () => {
   return {
     alarms: () => alarm,
     api: {
-      delete: (key: string) => {
-        values.delete(key);
+      delete: (key: string | string[]) => {
+        for (const one of Array.isArray(key) ? key : [key]) {
+          values.delete(one);
+        }
         return Promise.resolve(true);
       },
       deleteAlarm: () => {
@@ -192,7 +194,7 @@ const fakeGateway = () => {
       calls.sent.push({ sessionId, text });
       return Promise.resolve();
     },
-    syncAgent: () => Promise.resolve(),
+    syncAgent: () => Promise.resolve({ toolsChanged: false }),
     syncAgentSkills: () => Promise.resolve(),
   };
   return { calls, gateway };
@@ -479,6 +481,120 @@ describe("the alarm", () => {
     expect(broadcasts).toContainEqual(
       expect.objectContaining({ status: "error", type: "agent.status" })
     );
+  });
+
+  test("answers a desktop_screenshot call and keeps the session running", async () => {
+    const store = storage();
+    const { gateway } = fakeGateway();
+    const results: unknown[] = [];
+    gateway.sendCustomToolResult = (_sessionId, result) => {
+      results.push(result);
+      return Promise.resolve();
+    };
+    gateway.pollEvents = () =>
+      Promise.resolve({
+        cursor: {
+          lastEventId: "evt-idle",
+          lastProcessedAt: "2026-10-13T10:00:02Z",
+        },
+        events: [
+          {
+            customToolName: "no_such_tool",
+            id: "evt-use",
+            processedAt: "2026-10-13T10:00:01Z",
+            type: "agent.custom_tool_use",
+          },
+          {
+            id: "evt-idle",
+            processedAt: "2026-10-13T10:00:02Z",
+            requiredEventIds: ["evt-use"],
+            stopReason: "requires_action",
+            type: "session.status_idle",
+          },
+        ],
+      });
+    const router = routerFor(store, gateway);
+    await register(alpha, null);
+    await store.api.put(WORKSPACE_KEY, alpha.workspaceId);
+    await store.api.put(SESSION_KEY(alpha.agentId), {
+      ...storedSession(),
+      status: "running",
+    });
+
+    await router.alarm();
+
+    expect(results).toEqual([
+      { isError: true, text: "unknown tool", toolUseId: "evt-use" },
+    ]);
+    const session = store.values.get(
+      SESSION_KEY(alpha.agentId)
+    ) as StoredSession;
+    // Idle with requires_action is not the end: the answer resumes the session.
+    expect(session.status).toBe("running");
+    expect(session.cursorId).toBe("evt-idle");
+    expect(broadcasts).toContainEqual(
+      expect.objectContaining({ status: "working", type: "agent.status" })
+    );
+
+    // The next tick reads the same page again and answers nothing twice.
+    await router.alarm();
+    expect(results).toHaveLength(1);
+  });
+
+  test("a session whose answer cannot be sent is retired", async () => {
+    const store = storage();
+    const { gateway } = fakeGateway();
+    gateway.sendCustomToolResult = () => Promise.reject(new Error("gone"));
+    gateway.pollEvents = () =>
+      Promise.resolve({
+        cursor: undefined,
+        events: [
+          {
+            customToolName: "no_such_tool",
+            id: "evt-use",
+            processedAt: "2026-10-13T10:00:01Z",
+            type: "agent.custom_tool_use",
+          },
+          {
+            id: "evt-idle",
+            processedAt: "2026-10-13T10:00:02Z",
+            requiredEventIds: ["evt-use"],
+            stopReason: "requires_action",
+            type: "session.status_idle",
+          },
+        ],
+      });
+    const router = routerFor(store, gateway);
+    await register(alpha, null);
+    await store.api.put(WORKSPACE_KEY, alpha.workspaceId);
+    await store.api.put(SESSION_KEY(alpha.agentId), {
+      ...storedSession(),
+      status: "running",
+    });
+
+    await router.alarm();
+
+    expect(store.values.get(SESSION_KEY(alpha.agentId))).toBeUndefined();
+  });
+
+  test("retireSession drops the session and its tool records", async () => {
+    const store = storage();
+    const router = routerFor(store, fakeGateway().gateway);
+    await store.api.put(WORKSPACE_KEY, alpha.workspaceId);
+    await store.api.put(SESSION_KEY(alpha.agentId), storedSession());
+    await store.api.put("customtool:sesn_old:evt-1", {
+      answered: true,
+      name: "desktop_screenshot",
+    });
+
+    expect(await router.retireSession(alpha.agentId)).toEqual({
+      retired: true,
+    });
+    expect(store.values.get(SESSION_KEY(alpha.agentId))).toBeUndefined();
+    expect(store.values.has("customtool:sesn_old:evt-1")).toBe(false);
+    expect(await router.retireSession(alpha.agentId)).toEqual({
+      retired: false,
+    });
   });
 
   test("a quiet running session is kept while the API says it still runs", async () => {

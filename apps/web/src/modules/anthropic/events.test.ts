@@ -148,6 +148,35 @@ describe("reduceEvents", () => {
   });
 });
 
+describe("custom tool calls", () => {
+  test("reduceEvents collects the calls and what the session is blocked on", () => {
+    const outcome = reduceEvents(
+      [
+        {
+          ...event("use", "agent.custom_tool_use"),
+          customToolName: "desktop_screenshot",
+        },
+        {
+          ...event("idle", "session.status_idle"),
+          requiredEventIds: ["use"],
+          stopReason: "requires_action",
+        },
+      ],
+      "running"
+    );
+
+    expect(outcome.customToolCalls).toEqual([
+      { id: "use", name: "desktop_screenshot" },
+    ]);
+    expect(outcome.requiredEventIds).toEqual(["use"]);
+    expect(outcome.stopReason).toBe("requires_action");
+  });
+
+  test("waiting on a tool result is not an abnormal stop", () => {
+    expect(isAbnormalStop("requires_action")).toBe(false);
+  });
+});
+
 describe("isAbnormalStop", () => {
   test("the agent finishing on its own terms is not abnormal", () => {
     expect(isAbnormalStop(null)).toBe(false);

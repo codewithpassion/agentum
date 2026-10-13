@@ -1,8 +1,6 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { eq } from "drizzle-orm";
 import { createDb } from "#/db/client";
 
@@ -17,9 +15,7 @@ const { createAgent } = await import("#/modules/agents/service");
 const { browserScreenshots } = await import("#/modules/browser/schema");
 const { computerHosts } = await import("#/modules/computer/schema");
 const { createWorkspace } = await import("#/modules/workspaces/service");
-const { agentHasDesktop, registerDesktopTools } = await import(
-  "./desktop-tools"
-);
+const { captureDesktop } = await import("./desktop-capture");
 
 const migrate = () => {
   const dir = new URL("../../../drizzle/", import.meta.url);
@@ -49,7 +45,6 @@ const migrate = () => {
   } as unknown as D1Database);
 };
 
-type Handler = () => Promise<CallToolResult>;
 interface Outcome {
   code: string | null;
   message: string;
@@ -112,31 +107,9 @@ const setup = async (
   return { agent, db, workspace };
 };
 
-describe("agentHasDesktop", () => {
-  test("offered to a managed agent whose host reports a desktop", async () => {
-    const { agent, db } = await setup("managed", { desktop: true });
-    expect(await agentHasDesktop(db, agent)).toBe(true);
-  });
-
-  test("not offered when the host reports no desktop", async () => {
-    const { agent, db } = await setup("managed", { desktop: false });
-    expect(await agentHasDesktop(db, agent)).toBe(false);
-  });
-
-  test("not offered before the host has said hello", async () => {
-    const { agent, db } = await setup("managed", null);
-    expect(await agentHasDesktop(db, agent)).toBe(false);
-  });
-
-  test("not offered on the cloudflare runtime", async () => {
-    const { agent, db } = await setup("cloudflare", { desktop: true });
-    expect(await agentHasDesktop(db, agent)).toBe(false);
-  });
-});
-
-describe("computer_screenshot", () => {
+describe("captureDesktop", () => {
   const run = async (outcome: Outcome) => {
-    const { agent, db, workspace } = await setup("managed", { desktop: true });
+    const { agent, db } = await setup("managed", { desktop: true });
     const requests: Record<string, unknown>[] = [];
     const puts: { key: string; type: string | undefined }[] = [];
     const env = {
@@ -162,32 +135,12 @@ describe("computer_screenshot", () => {
       PUBLIC_APP_URL: "https://app.example.com",
     } as unknown as Env;
 
-    let handler: Handler | undefined;
-    registerDesktopTools(
-      {
-        registerTool: (name: string, _config: unknown, fn: Handler) => {
-          if (name === "computer_screenshot") {
-            handler = fn;
-          }
-        },
-      } as unknown as McpServer,
-      {
-        agent,
-        db,
-        env,
-        requestUrl: "https://app.example.com/mcp/tok",
-        workspace: { id: workspace.id, slug: workspace.slug },
-      }
-    );
-    const result = await handler?.();
-    const [block] = result?.content ?? [];
-    const text = block?.type === "text" ? block.text : "";
-    return { agent, db, puts, requests, result, text };
+    const result = await captureDesktop(db, env, agent);
+    return { agent, db, puts, requests, result };
   };
 
-  test("stores the JPEG, indexes and logs it, and returns it as an image block", async () => {
-    const { agent, db, puts, requests, result, text } = await run(SHOT);
-    expect(result?.isError).toBeUndefined();
+  test("stores the JPEG, indexes and logs it, and returns it as base64", async () => {
+    const { agent, db, puts, requests, result } = await run(SHOT);
     expect(requests[0]).toMatchObject({
       hostId: "host_1",
       op: "desktop_screenshot",
@@ -206,22 +159,25 @@ describe("computer_screenshot", () => {
       summary: "screenshot 1280x800",
     });
 
-    const image = result?.content.find((block) => block.type === "image");
-    expect(image).toMatchObject({ mimeType: "image/jpeg", type: "image" });
-    expect(JSON.parse(text)).toEqual({ height: 800, width: 1280 });
-    expect(text).not.toContain("end your turn");
+    expect(result).toEqual({
+      base64: btoa("jpeg"),
+      height: 800,
+      mediaType: "image/jpeg",
+      ok: true,
+      width: 1280,
+    });
   });
 
   test("tells the model what to do when the desktop is down", async () => {
-    const { puts, result, text } = await run({
+    const { puts, result } = await run({
       code: "desktop_unavailable",
       message: "Xvfb exited",
       ok: false,
       reason: "client_error",
       result_json: null,
     });
-    expect(result?.isError).toBe(true);
-    expect(text).toContain("use exec instead");
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.text).toContain("use exec instead");
     expect(puts).toHaveLength(0);
   });
 });

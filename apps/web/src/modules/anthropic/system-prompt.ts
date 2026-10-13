@@ -115,7 +115,7 @@ Your computer is "${computer.name}". Use the \`computer_*\` tools (\`computer_ex
   }
   return `${base}
 
-It has a desktop: display :99, with \`DISPLAY\` already set for \`computer_exec\`. Launch graphical apps in the background so the command returns, for example \`chromium https://example.com >/dev/null 2>&1 &\` or \`xterm &\`, give them a moment to open, then call \`computer_screenshot\`. The picture comes back in the tool result.`;
+It has a desktop: display :99, with \`DISPLAY\` already set for \`computer_exec\`. Launch graphical apps in the background so the command returns, for example \`chromium https://example.com >/dev/null 2>&1 &\` or \`xterm &\`, give them a moment to open, then call \`desktop_screenshot\`. The picture comes back in the tool result.`;
 };
 
 const rosterSection = (roster: readonly RosterEntry[]): string => {

@@ -62,6 +62,15 @@ export interface PendingNotification {
 export const SESSION_KEY_PREFIX = "session:";
 export const SESSION_KEY = (agentId: string) =>
   `${SESSION_KEY_PREFIX}${agentId}`;
+/** One client-run tool call a session raised; `answered` is the dedupe. */
+export interface StoredCustomToolCall {
+  answered: boolean;
+  name: string;
+}
+export const CUSTOM_TOOL_KEY_PREFIX = (sessionId: string) =>
+  `customtool:${sessionId}:`;
+export const CUSTOM_TOOL_KEY = (sessionId: string, eventId: string) =>
+  `${CUSTOM_TOOL_KEY_PREFIX(sessionId)}${eventId}`;
 export const DIGEST_KEY = (agentId: string) => `digest:${agentId}`;
 export const RATE_KEY = (agentId: string) => `rate:${agentId}`;
 export const GUARD_KEY = (channelId: string) => `guard:${channelId}`;

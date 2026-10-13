@@ -36,7 +36,7 @@ describe("composeSystemPrompt", () => {
     expect(prompt).toContain("display :99");
     expect(prompt).toContain("DISPLAY");
     expect(prompt).toContain("chromium https://example.com >/dev/null 2>&1 &");
-    expect(prompt).toContain("computer_screenshot");
+    expect(prompt).toContain("desktop_screenshot");
   });
 
   test("carries the agent's own identity, soul and instructions", () => {

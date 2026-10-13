@@ -26,8 +26,10 @@ import {
   countPendingQuestionsByAgent,
   countPendingQuestionsForAgent,
 } from "#/modules/questions/service";
+import { retireAgentSession } from "#/modules/router/retire";
 import { isCloudflareModelShaped } from "#/modules/runner/models";
 import { deleteSecretGrantsForAgent } from "#/modules/secrets/service";
+import { requireOwner } from "#/modules/workspaces/require-workspace";
 import { mcpUrlForToken } from "./mcp-token";
 import {
   AGENT_COMPUTERS,
@@ -347,6 +349,23 @@ agentsRoutes.patch("/:id", async (c) => {
     }
     throw error;
   }
+});
+
+/**
+ * Owner-only: brings the agent's registration up to date, then drops its
+ * session so the next message starts a new one on it. A session keeps the
+ * tools it began with, so this is how a changed tool setup reaches an agent
+ * that is mid-conversation.
+ */
+agentsRoutes.post("/:id/session/reset", requireOwner, async (c) => {
+  const db = createDb(c.env.DB);
+  const workspaceId = c.get("workspace").id;
+  const agent = await getAgentById(db, workspaceId, c.req.param("id"));
+  if (!agent) {
+    throw notFound("Agent not found.");
+  }
+  await syncAgentWithAnthropic(db, c.env, agent.id);
+  return c.json(await retireAgentSession(c.env, workspaceId, agent.id));
 });
 
 agentsRoutes.delete("/:id", async (c) => {

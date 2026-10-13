@@ -11,6 +11,7 @@ import {
 } from "#/modules/agents/service";
 import { AGENT_MODEL, isAvailableModel } from "#/modules/anthropic/config";
 import {
+  type CustomToolCall,
   isAbnormalStop,
   isSessionReusable,
   reduceEvents,
@@ -55,6 +56,7 @@ import {
   PUMP_INTERVAL_MS,
   SESSION_IDLE_TTL_MS,
 } from "./config";
+import { answerCustomTools, runCustomTool } from "./custom-tools";
 import {
   type ChannelGuard,
   checkWakeRate,
@@ -63,6 +65,7 @@ import {
 } from "./loop-guard";
 import { freeSlots, planWakes } from "./plan";
 import {
+  CUSTOM_TOOL_KEY_PREFIX,
   DIGEST_KEY,
   GUARD_KEY,
   NEXT_DIGEST_KEY,
@@ -1000,6 +1003,8 @@ export class AgentRouter extends DurableObject<Env> {
     let status: SessionStatus;
     let stopReason: string | null;
     let errors: string[];
+    let customToolCalls: CustomToolCall[];
+    let requiredEventIds: string[];
 
     try {
       const page = await gateway.pollEvents(
@@ -1008,10 +1013,8 @@ export class AgentRouter extends DurableObject<Env> {
           ? { lastEventId: session.cursorId, lastProcessedAt: session.cursorAt }
           : undefined
       );
-      ({ errors, status, stopReason } = reduceEvents(
-        page.events,
-        session.status
-      ));
+      ({ customToolCalls, errors, requiredEventIds, status, stopReason } =
+        reduceEvents(page.events, session.status));
       const { cursor } = page;
       await this.write(key, {
         ...session,
@@ -1047,6 +1050,21 @@ export class AgentRouter extends DurableObject<Env> {
       return;
     }
 
+    if (
+      (customToolCalls.length > 0 || requiredEventIds.length > 0) &&
+      (await this.answerCustomTools(
+        gateway,
+        key,
+        agentId,
+        session,
+        customToolCalls,
+        requiredEventIds,
+        now
+      ))
+    ) {
+      return;
+    }
+
     if (errors.length > 0) {
       await this.setStatus(
         agentId,
@@ -1074,7 +1092,84 @@ export class AgentRouter extends DurableObject<Env> {
     await this.setStatus(agentId, "idle", session.channelId, session.sessionId);
   }
 
+  /**
+   * Answers the client-run tool calls a session is blocked on, then marks it
+   * running again so the pump keeps polling it. True when it handled the page
+   * (answered something, or retired a session it could not answer).
+   */
+  private async answerCustomTools(
+    gateway: SessionGateway,
+    key: string,
+    agentId: string,
+    session: StoredSession,
+    calls: CustomToolCall[],
+    blockedOn: string[],
+    now: number
+  ): Promise<boolean> {
+    const { sendCustomToolResult } = gateway;
+    if (!sendCustomToolResult) {
+      return false;
+    }
+    let answered: number;
+    try {
+      const agent = await this.agentOf(agentId);
+      answered = await answerCustomTools(
+        {
+          run: (name) => runCustomTool(this.db, this.env, agent, name),
+          send: (result) =>
+            sendCustomToolResult.call(gateway, session.sessionId, result),
+          sessionId: session.sessionId,
+          storage: this.ctx.storage,
+        },
+        calls,
+        blockedOn
+      );
+    } catch {
+      // The session is blocked on a call that cannot be answered, so it would
+      // never resume. A fresh one on the next message does.
+      await this.ctx.storage.delete(key);
+      await this.setStatus(agentId, "error", session.channelId, null);
+      return true;
+    }
+    if (answered === 0) {
+      return false;
+    }
+    // The pump just stored this page's cursor; keep it, change only the status.
+    const current = (await this.read<StoredSession>(key)) ?? session;
+    await this.write(key, {
+      ...current,
+      lastActivityAt: now,
+      status: "running",
+    } satisfies StoredSession);
+    await this.setStatus(
+      agentId,
+      "working",
+      session.channelId,
+      session.sessionId
+    );
+    return true;
+  }
+
   // --- helpers ---------------------------------------------------------------
+
+  /**
+   * Drops an agent's session so its next message starts a new one on the
+   * agent's current configuration (a session keeps the tools it began with).
+   * The same bookkeeping the idle TTL does; nothing is deleted at Anthropic.
+   */
+  async retireSession(agentId: string): Promise<{ retired: boolean }> {
+    const session = await this.read<StoredSession>(SESSION_KEY(agentId));
+    if (!session) {
+      return { retired: false };
+    }
+    await this.ctx.storage.delete(SESSION_KEY(agentId));
+    const calls = await this.ctx.storage.list({
+      prefix: CUSTOM_TOOL_KEY_PREFIX(session.sessionId),
+    });
+    await this.ctx.storage.delete([...calls.keys()]);
+    await this.setStatus(agentId, "idle", session.channelId, null);
+    return { retired: true };
+  }
 
   private async countActiveSessions(): Promise<number> {
     const sessions = await this.ctx.storage.list<StoredSession>({
