@@ -38,6 +38,8 @@ import { type DesktopFrame, useDesktopScreen } from "#/lib/use-desktop-screen";
 
 /** A human lease lasts 5 minutes without input; warn in its last minute. */
 const LEASE_WARNING_MS = 60_000;
+/** The route's answer when the caller no longer holds the lease. */
+const HTTP_LOCKED = 423;
 const NOTE_MAX_CHARS = 2000;
 /** Frames come about every half second; one this old means the view has stopped following. */
 const STALE_FRAME_MS = 5000;
@@ -378,15 +380,32 @@ export function DesktopScreen({
       run(async () => {
         releaseButtons();
         await flushInput({ dropMoves: true });
-        const next = await server.handBackDesktop({
-          agentId,
-          ...(note.trim() === "" ? {} : { note: note.trim() }),
-        });
-        applyStatus(next);
+        try {
+          const next = await server.handBackDesktop({
+            agentId,
+            ...(note.trim() === "" ? {} : { note: note.trim() }),
+          });
+          applyStatus(next);
+        } catch (error: unknown) {
+          // 423 means the lease already ran out, so control is back with the agent: the hand-back is done.
+          if (readDesktopFailure(error)?.statusCode !== HTTP_LOCKED) {
+            throw error;
+          }
+          refreshStatus();
+        }
         setNote("");
         setNotice({ text: "Control handed back.", tone: "success" });
       }),
-    [agentId, applyStatus, flushInput, note, releaseButtons, run, server]
+    [
+      agentId,
+      applyStatus,
+      flushInput,
+      note,
+      refreshStatus,
+      releaseButtons,
+      run,
+      server,
+    ]
   );
 
   // Clipboard writes must start inside the click, so the text is handed over as a pending blob.

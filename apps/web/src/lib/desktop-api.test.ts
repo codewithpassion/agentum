@@ -32,6 +32,9 @@ const recorder = (respond: (url: string, init: RequestInit) => Response) => {
   return { calls, fetcher };
 };
 
+/** The relay sends the lease deadline as epoch milliseconds. */
+const EXPIRES_MS = Date.parse("2026-10-13T10:05:00Z");
+
 const failureOf = async (promise: Promise<unknown>): Promise<unknown> =>
   promise.then(
     () => {
@@ -61,7 +64,7 @@ describe("desktop routes", () => {
       toDesktopStatus({
         ...idle,
         control: {
-          expiresAt: "2026-10-13T10:05:00Z",
+          expiresAt: EXPIRES_MS,
           holder: { kind: "agent" },
         },
       }).controller
@@ -70,13 +73,13 @@ describe("desktop routes", () => {
       toDesktopStatus({
         ...idle,
         control: {
-          expiresAt: "2026-10-13T10:05:00Z",
+          expiresAt: EXPIRES_MS,
           holder: { kind: "human", userId: "u1" },
         },
         youHaveControl: true,
       }).controller
     ).toEqual({
-      expiresAt: "2026-10-13T10:05:00Z",
+      expiresAt: "2026-10-13T10:05:00.000Z",
       isMe: true,
       kind: "human",
     });
@@ -85,7 +88,7 @@ describe("desktop routes", () => {
         ...idle,
         connected: false,
         control: {
-          expiresAt: "2026-10-13T10:05:00Z",
+          expiresAt: EXPIRES_MS,
           holder: { kind: "human", userId: "u2" },
         },
       })
@@ -93,6 +96,26 @@ describe("desktop routes", () => {
       controller: { isMe: false, kind: "human" },
       online: false,
     });
+  });
+
+  it("turns the relay's epoch-millisecond lease deadline into a parseable ISO time", () => {
+    const { controller } = toDesktopStatus({
+      ...idle,
+      control: {
+        expiresAt: EXPIRES_MS,
+        holder: { kind: "human", userId: "u1" },
+      },
+      youHaveControl: true,
+    });
+    expect(controller).toEqual({
+      expiresAt: "2026-10-13T10:05:00.000Z",
+      isMe: true,
+      kind: "human",
+    });
+    if (controller.kind !== "human") {
+      throw new Error("expected a human controller");
+    }
+    expect(Number.isNaN(Date.parse(controller.expiresAt))).toBe(false);
   });
 
   it("reads the status route and maps it", async () => {
@@ -109,7 +132,7 @@ describe("desktop routes", () => {
       json({
         ...idle,
         control: {
-          expiresAt: "2026-10-13T10:05:00Z",
+          expiresAt: EXPIRES_MS,
           holder: { kind: "human", userId: "u1" },
         },
         youHaveControl: true,

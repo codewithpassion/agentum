@@ -26,7 +26,8 @@ export interface WireDesktopStatus {
   connected: boolean;
   control: {
     holder: { kind: "agent" | "human"; userId?: string; agentId?: string };
-    expiresAt: string;
+    /** Epoch milliseconds, as the relay sends it. */
+    expiresAt: number;
   } | null;
   desktop: boolean;
   desktopUnavailableReason: string | null;
@@ -42,7 +43,7 @@ const controllerOf = (wire: WireDesktopStatus): DesktopController => {
     return { kind: "agent" };
   }
   return {
-    expiresAt: control.expiresAt,
+    expiresAt: new Date(control.expiresAt).toISOString(),
     isMe: wire.youHaveControl,
     kind: "human",
   };
