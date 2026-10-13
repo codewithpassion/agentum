@@ -201,11 +201,16 @@ export const createSlackClient = (
       response = await request();
     }
     if (!response.ok) {
+      console.warn(`Slack ${response.url}: HTTP ${response.status}`);
       return null;
     }
 
     const payload = (await response.json()) as T;
-    return payload.ok ? payload : null;
+    if (!payload.ok) {
+      console.warn(`Slack ${response.url}: ${payload.error ?? "not ok"}`);
+      return null;
+    }
+    return payload;
   };
 
   /** Write methods: documented as POST, JSON accepted. */
