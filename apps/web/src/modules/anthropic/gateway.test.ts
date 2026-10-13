@@ -172,6 +172,67 @@ describe("syncAgent", () => {
     ]);
   });
 
+  test("turns the built-in shell and file tools off for a computer agent", async () => {
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      computerOnly: true,
+      mcpUrl: "https://app.example.com/mcp/tok",
+      model: AGENT_MODEL,
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    const allow = { type: "always_allow" };
+    expect((lastUpdate().tools as unknown[])[0]).toEqual({
+      configs: [
+        { enabled: true, name: "web_fetch", permission_policy: allow },
+        { enabled: true, name: "web_search", permission_policy: allow },
+      ],
+      default_config: { enabled: false, permission_policy: allow },
+      type: "agent_toolset_20260401",
+    });
+  });
+
+  test("a computer agent resynced without a url keeps its registered servers", async () => {
+    const retrieving = createAnthropicGateway(
+      client({
+        agents: {
+          retrieve: () =>
+            Promise.resolve({
+              mcp_servers: [
+                { name: "agentum", type: "url", url: "https://x/mcp/tok" },
+                { name: "connector_aaaa", type: "url", url: "https://a/mcp" },
+              ],
+            }),
+          update: (_id: string, body: Record<string, unknown>) => {
+            updates.push(body);
+            return Promise.resolve({});
+          },
+        },
+      }),
+      {
+        cache: memoryCache(),
+        environmentName: "agentum",
+        workerCache: workerCache(),
+      }
+    );
+    await retrieving.syncAgent({
+      anthropicAgentId: "agt_1",
+      computerOnly: true,
+      model: AGENT_MODEL,
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    const tools = lastUpdate().tools as { mcp_server_name?: string }[];
+    expect(tools.map((tool) => tool.mcp_server_name)).toEqual([
+      undefined,
+      "agentum",
+      "connector_aaaa",
+    ]);
+    expect(lastUpdate()).not.toHaveProperty("mcp_servers");
+  });
+
   test("gives every declared server a matching always-allow toolset", async () => {
     await gateway.syncAgent({
       anthropicAgentId: "agt_1",
@@ -624,36 +685,6 @@ describe("sendMessage", () => {
           events: [
             {
               content: [{ text: "hello", type: "text" }],
-              type: "user.message",
-            },
-          ],
-        },
-        sessionId: "sesn_1",
-      },
-    ]);
-  });
-
-  test("appends each image as a url image block after the text", async () => {
-    const sent: unknown[] = [];
-    await gatewayFor(sent).sendMessage("sesn_1", "Screenshot", [
-      { url: "https://app.example.com/api/agent-images?key=k" },
-    ]);
-
-    expect(sent).toEqual([
-      {
-        params: {
-          events: [
-            {
-              content: [
-                { text: "Screenshot", type: "text" },
-                {
-                  source: {
-                    type: "url",
-                    url: "https://app.example.com/api/agent-images?key=k",
-                  },
-                  type: "image",
-                },
-              ],
               type: "user.message",
             },
           ],

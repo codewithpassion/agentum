@@ -42,6 +42,8 @@ export interface AgentSkillRef {
 }
 
 export interface RegisterAgentInput {
+  /** See `SyncAgentInput.computerOnly`. */
+  computerOnly?: boolean;
   /** Assigned connectors, on top of the workspace server. */
   connectors?: readonly ConnectorServer[];
   instructions: string;
@@ -63,6 +65,12 @@ export interface RegisteredAgent {
 
 export interface SyncAgentInput {
   anthropicAgentId: string;
+  /**
+   * True for an agent bound to a remote computer: its built-in shell and file
+   * tools are turned off. Without `mcpUrl` the registered MCP servers are read
+   * back so the tools array can be rebuilt around them.
+   */
+  computerOnly?: boolean;
   /**
    * Assigned connectors. Only read when `mcpUrl` is given, because that is the
    * only time the whole `mcp_servers` array is replaced.
@@ -129,17 +137,7 @@ export interface SessionGateway {
     sessionId: string,
     cursor: EventCursor | undefined
   ) => Promise<PolledEvents>;
-  /** Images only reach the Managed Agents runtime; the Cloudflare one ignores them. */
-  sendMessage: (
-    sessionId: string,
-    text: string,
-    images?: readonly MessageImage[]
-  ) => Promise<void>;
-}
-
-/** An image for a `user.message`, fetched by Anthropic from this URL. */
-export interface MessageImage {
-  url: string;
+  sendMessage: (sessionId: string, text: string) => Promise<void>;
 }
 
 export interface AnthropicGateway extends SessionGateway {
@@ -190,14 +188,29 @@ const mcpToolset = (name: string) => ({
  * workspace server is - `mcp_servers` is a full replacement, and sending the
  * connectors alone would drop the agent's own MCP endpoint.
  */
+const BUILTIN_TOOLS_KEPT = ["web_fetch", "web_search"] as const;
+
+/**
+ * An agent bound to a remote computer works there, through our `computer_*`
+ * tools. Its built-in shell and file tools would act on Anthropic's sandbox
+ * instead, so they are off; only web access stays.
+ */
+const agentToolset = (computerOnly: boolean) => ({
+  ...(computerOnly
+    ? {
+        configs: BUILTIN_TOOLS_KEPT.map((name) => ({ name, ...permissive })),
+        default_config: { ...permissive, enabled: false },
+      }
+    : { default_config: permissive }),
+  type: AGENT_TOOLSET as "agent_toolset_20260401",
+});
+
 const toolsFor = (
   mcpUrl: string | undefined,
-  connectors: readonly ConnectorServer[]
+  connectors: readonly ConnectorServer[],
+  computerOnly = false
 ) => [
-  {
-    default_config: permissive,
-    type: AGENT_TOOLSET as "agent_toolset_20260401",
-  },
+  agentToolset(computerOnly),
   ...(mcpUrl
     ? [
         mcpToolset(MCP_SERVER_NAME),
@@ -482,7 +495,11 @@ export const createAnthropicGateway = (
           ? { skills: skillsFor(input.skills) }
           : {}),
         system: input.system,
-        tools: toolsFor(input.mcpUrl, input.connectors ?? []),
+        tools: toolsFor(
+          input.mcpUrl,
+          input.connectors ?? [],
+          input.computerOnly
+        ),
       });
 
       const store = await client.beta.memoryStores
@@ -497,17 +514,11 @@ export const createAnthropicGateway = (
       return { anthropicAgentId: agent.id, memoryStoreId: store?.id ?? null };
     },
 
-    async sendMessage(sessionId, text, images = []) {
+    async sendMessage(sessionId, text) {
       await client.beta.sessions.events.send(sessionId, {
         events: [
           {
-            content: [
-              { text, type: "text" },
-              ...images.map((image) => ({
-                source: { type: "url" as const, url: image.url },
-                type: "image" as const,
-              })),
-            ],
+            content: [{ text, type: "text" }],
             type: "user.message",
           },
         ],
@@ -515,6 +526,13 @@ export const createAnthropicGateway = (
     },
 
     async syncAgent(input) {
+      // `tools` replaces the whole array, so a sync that does not carry the MCP
+      // URL rebuilds it around the servers already registered.
+      const registered =
+        input.computerOnly && !input.mcpUrl
+          ? await client.beta.agents.retrieve(input.anthropicAgentId)
+          : null;
+
       // Omitted fields are preserved, so a roster-only resync leaves the agent's
       // MCP registration alone - which matters, because the plaintext token that
       // URL carries only exists when it is issued.
@@ -528,7 +546,21 @@ export const createAnthropicGateway = (
         ...(input.mcpUrl
           ? {
               mcp_servers: mcpServersFor(input.mcpUrl, input.connectors ?? []),
-              tools: toolsFor(input.mcpUrl, input.connectors ?? []),
+              tools: toolsFor(
+                input.mcpUrl,
+                input.connectors ?? [],
+                input.computerOnly
+              ),
+            }
+          : {}),
+        ...(registered
+          ? {
+              tools: [
+                agentToolset(true),
+                ...registered.mcp_servers.map((server) =>
+                  mcpToolset(server.name)
+                ),
+              ],
             }
           : {}),
       });

@@ -42,6 +42,35 @@ export const json = (payload: unknown): CallToolResult => ({
   content: [{ text: JSON.stringify(payload), type: "text" }],
 });
 
+const BASE64_CHUNK = 0x80_00;
+
+const toBase64 = (bytes: Uint8Array): string => {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += BASE64_CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + BASE64_CHUNK));
+  }
+  return btoa(binary);
+};
+
+/**
+ * A tool result that carries a picture the model sees directly (an MCP `image`
+ * block), with a text part for everything else. Managed Agents accepts image
+ * blocks in MCP tool results.
+ */
+export const jsonWithImage = (
+  payload: unknown,
+  image: { bytes: Uint8Array; mimeType: string }
+): CallToolResult => ({
+  content: [
+    { text: JSON.stringify(payload), type: "text" },
+    {
+      data: toBase64(image.bytes),
+      mimeType: image.mimeType,
+      type: "image",
+    },
+  ],
+});
+
 export const fail = (message: string): CallToolResult => ({
   content: [{ text: message, type: "text" }],
   isError: true,

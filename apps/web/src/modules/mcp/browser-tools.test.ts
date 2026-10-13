@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { generateConnectorKey } from "#/crypto";
 import { createDb } from "#/db/client";
 
 /**
@@ -88,20 +87,8 @@ const run = async (runtime: "cloudflare" | "managed") => {
     soul: "",
   });
 
-  const delivered: { agentId: string; caption: string; imageUrl: string }[] =
-    [];
   const stored: string[] = [];
   const env = {
-    AGENT_ROUTER: {
-      get: () => ({
-        deliverImage: (call: (typeof delivered)[number]) => {
-          delivered.push(call);
-          return Promise.resolve({ sent: true });
-        },
-      }),
-      idFromName: (name: string) => name,
-    },
-    ATTACHMENT_LINK_KEY: generateConnectorKey(),
     ATTACHMENTS: {
       put: (key: string) => {
         stored.push(key);
@@ -135,7 +122,8 @@ const run = async (runtime: "cloudflare" | "managed") => {
     note?: string;
     url?: string;
   };
-  return { delivered, payload, stored };
+  const image = result?.content.find((part) => part.type === "image");
+  return { image, payload, stored };
 };
 
 describe("browser_screenshot", () => {
@@ -147,21 +135,16 @@ describe("browser_screenshot", () => {
     cloudflare = await run("cloudflare");
   });
 
-  test("a managed agent gets the image as the next message", () => {
-    expect(managed.delivered).toHaveLength(1);
-    expect(managed.delivered[0]?.imageUrl).toContain(
-      "https://app.example.com/api/agent-images?"
-    );
-    expect(managed.delivered[0]?.imageUrl).toContain(
-      encodeURIComponent(managed.stored[0] ?? "")
-    );
-    expect(managed.payload.note).toContain("arrives as the next message");
+  test("a managed agent gets the image in the result", () => {
+    expect(managed.image).toMatchObject({
+      mimeType: "image/png",
+      type: "image",
+    });
     expect(managed.payload.url).toContain("/browser/screenshots/");
   });
 
   test("a Cloudflare-runtime agent keeps the link and nothing else", () => {
-    expect(cloudflare.delivered).toEqual([]);
-    expect(cloudflare.payload.note).toBeUndefined();
+    expect(cloudflare.image).toBeUndefined();
     expect(cloudflare.payload.url).toContain("/browser/screenshots/");
   });
 });

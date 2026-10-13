@@ -16,6 +16,29 @@ const input = (
 });
 
 describe("composeSystemPrompt", () => {
+  test("names the computer and its tools only for an agent bound to one", () => {
+    const bare = composeSystemPrompt(input());
+    const bound = composeSystemPrompt(
+      input({ computer: { desktop: false, name: "Testbox" } })
+    );
+
+    expect(bare).not.toContain("Your computer is");
+    expect(bound).toContain('Your computer is "Testbox"');
+    expect(bound).toContain("computer_exec");
+    expect(bound).not.toContain("display :99");
+  });
+
+  test("explains how to put an app on screen when the host has a desktop", () => {
+    const prompt = composeSystemPrompt(
+      input({ computer: { desktop: true, name: "Testbox" } })
+    );
+
+    expect(prompt).toContain("display :99");
+    expect(prompt).toContain("DISPLAY");
+    expect(prompt).toContain("chromium https://example.com >/dev/null 2>&1 &");
+    expect(prompt).toContain("computer_screenshot");
+  });
+
   test("carries the agent's own identity, soul and instructions", () => {
     const prompt = composeSystemPrompt(input());
 

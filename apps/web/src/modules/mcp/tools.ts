@@ -1,7 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Db } from "#/db/client";
-import { sendImageToAgentSession } from "#/modules/agent-images/send";
 import {
   clearOverride,
   resolveModelWithSource,
@@ -15,7 +14,7 @@ import {
   isAvailableModel,
 } from "#/modules/anthropic/config";
 import { createBrowserClient } from "#/modules/browser/client";
-import { absoluteUrl, getScreenshot } from "#/modules/browser/service";
+import { absoluteUrl } from "#/modules/browser/service";
 import { summarizeSnapshot } from "#/modules/browser/snapshot";
 import { createComputerClient } from "#/modules/computer/client";
 import {
@@ -58,6 +57,7 @@ import {
   clampLimit,
   fail,
   json,
+  jsonWithImage,
   type McpAttachment,
   snippetOf,
   toMcpAttachment,
@@ -844,7 +844,7 @@ const registerBrowserTools = (server: McpServer, ctx: McpToolContext): void => {
   server.registerTool(
     "browser_screenshot",
     {
-      description: `${BROWSER_INTRO} Capture the page as a PNG. It is saved in the workspace and the returned URL renders inline in a message or a wiki page, so link to it when what you saw is worth showing.`,
+      description: `${BROWSER_INTRO} Capture the page as a PNG. The picture comes back in the result. It is also saved in the workspace and the returned URL renders inline in a message or a wiki page, so link to it when what you saw is worth showing.`,
       inputSchema: {},
       title: "Screenshot the open page",
     },
@@ -860,34 +860,16 @@ const registerBrowserTools = (server: McpServer, ctx: McpToolContext): void => {
         screenshot.url
       );
 
-      // A managed agent cannot open the link, so the picture itself is sent
-      // into its session as the next message. The Cloudflare runtime has no
-      // such path and keeps the link alone.
-      let delivered = false;
-      if (ctx.agent.runtime === "managed") {
-        const stored = await getScreenshot(ctx.db, screenshot.id);
-        if (stored) {
-          const delivery = await sendImageToAgentSession(ctx.env, {
-            agentId: ctx.agent.id,
-            caption: `Screenshot of ${screenshot.pageUrl}`,
-            origin: absoluteUrl(ctx.env.PUBLIC_APP_URL, ctx.requestUrl, ""),
-            r2Key: stored.r2Key,
-            workspaceId: ctx.workspace.id,
-          });
-          delivered = delivery.sent;
-        }
-      }
-
-      return json({
+      const payload = {
         markdown: `![Screenshot of ${screenshot.pageUrl}](${url})`,
-        ...(delivered
-          ? {
-              note: "The screenshot arrives as the next message, after this turn. If you need to see it before continuing, end your turn now. The link is for people.",
-            }
-          : {}),
         pageUrl: screenshot.pageUrl,
         url,
-      });
+      };
+      // A managed agent cannot open the link, so it gets the picture itself in
+      // the result. The Cloudflare runtime keeps the link alone.
+      return ctx.agent.runtime === "managed"
+        ? jsonWithImage(payload, { bytes: result.bytes, mimeType: "image/png" })
+        : json(payload);
     }
   );
 };

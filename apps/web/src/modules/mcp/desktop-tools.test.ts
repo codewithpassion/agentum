@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { eq } from "drizzle-orm";
-import { generateConnectorKey } from "#/crypto";
 import { createDb } from "#/db/client";
 
 mock.module("cloudflare:workers", () => ({
@@ -136,23 +135,11 @@ describe("agentHasDesktop", () => {
 });
 
 describe("computer_screenshot", () => {
-  const run = async (outcome: Outcome, deliver = { sent: true } as object) => {
+  const run = async (outcome: Outcome) => {
     const { agent, db, workspace } = await setup("managed", { desktop: true });
     const requests: Record<string, unknown>[] = [];
     const puts: { key: string; type: string | undefined }[] = [];
-    const delivered: { agentId: string; caption: string; imageUrl: string }[] =
-      [];
     const env = {
-      AGENT_ROUTER: {
-        get: () => ({
-          deliverImage: (call: (typeof delivered)[number]) => {
-            delivered.push(call);
-            return Promise.resolve(deliver);
-          },
-        }),
-        idFromName: (name: string) => name,
-      },
-      ATTACHMENT_LINK_KEY: generateConnectorKey(),
       ATTACHMENTS: {
         put: (
           key: string,
@@ -195,12 +182,11 @@ describe("computer_screenshot", () => {
     const result = await handler?.();
     const [block] = result?.content ?? [];
     const text = block?.type === "text" ? block.text : "";
-    return { agent, db, delivered, puts, requests, result, text };
+    return { agent, db, puts, requests, result, text };
   };
 
-  test("stores the JPEG, indexes and logs it, and sends it to the session", async () => {
-    const { agent, db, delivered, puts, requests, result, text } =
-      await run(SHOT);
+  test("stores the JPEG, indexes and logs it, and returns it as an image block", async () => {
+    const { agent, db, puts, requests, result, text } = await run(SHOT);
     expect(result?.isError).toBeUndefined();
     expect(requests[0]).toMatchObject({
       hostId: "host_1",
@@ -220,15 +206,14 @@ describe("computer_screenshot", () => {
       summary: "screenshot 1280x800",
     });
 
-    expect(delivered).toHaveLength(1);
-    expect(delivered[0]?.agentId).toBe(agent.id);
-    expect(delivered[0]?.caption).toContain("1280x800");
-    expect(delivered[0]?.imageUrl).toContain(encodeURIComponent(key));
-    expect(text).toContain("next message");
+    const image = result?.content.find((block) => block.type === "image");
+    expect(image).toMatchObject({ mimeType: "image/jpeg", type: "image" });
+    expect(JSON.parse(text)).toEqual({ height: 800, width: 1280 });
+    expect(text).not.toContain("end your turn");
   });
 
   test("tells the model what to do when the desktop is down", async () => {
-    const { delivered, puts, result, text } = await run({
+    const { puts, result, text } = await run({
       code: "desktop_unavailable",
       message: "Xvfb exited",
       ok: false,
@@ -238,15 +223,5 @@ describe("computer_screenshot", () => {
     expect(result?.isError).toBe(true);
     expect(text).toContain("use exec instead");
     expect(puts).toHaveLength(0);
-    expect(delivered).toHaveLength(0);
-  });
-
-  test("reports a screenshot that could not be sent", async () => {
-    const { result, text } = await run(SHOT, {
-      reason: "no running session",
-      sent: false,
-    });
-    expect(result?.isError).toBe(true);
-    expect(text).toContain("no running session");
   });
 });

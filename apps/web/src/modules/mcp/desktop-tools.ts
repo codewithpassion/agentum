@@ -1,21 +1,19 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Db } from "#/db/client";
 import { logActivity } from "#/modules/activity/service";
-import { sendImageToAgentSession } from "#/modules/agent-images/send";
 import type { Agent } from "#/modules/agents/schema";
 import { browserScreenshots } from "#/modules/browser/schema";
-import { absoluteUrl } from "#/modules/browser/service";
 import {
   type DesktopFailureReason,
   takeDesktopScreenshot,
 } from "#/modules/computer/desktop";
 import { getHostByIdUnscoped } from "#/modules/computer/hosts";
-import { fail, json } from "./format";
+import { fail, jsonWithImage } from "./format";
 import type { McpToolContext } from "./tools";
 
 /**
- * `computer_screenshot`: a picture of the agent's desktop, sent into its
- * managed session as an image message. Only agents on the managed runtime whose
+ * `computer_screenshot`: a picture of the agent's desktop, returned in the
+ * tool result as an image block. Only agents on the managed runtime whose
  * host reported a desktop in its hello are offered it, so `agentHasDesktop`
  * decides before the tool is registered.
  */
@@ -73,9 +71,6 @@ export const desktopFailureText = (
   }
 };
 
-const DELIVERY_NOTE =
-  "The screenshot arrives as the next message, after this turn. If you need to see it before continuing, end your turn now.";
-
 export const registerDesktopTools = (
   server: McpServer,
   ctx: McpToolContext
@@ -84,12 +79,12 @@ export const registerDesktopTools = (
     "computer_screenshot",
     {
       description:
-        "Take a screenshot of your computer's desktop. The picture is sent to you as the next message, after this turn, so end your turn to see it.",
+        "Take a screenshot of your computer's desktop. The picture comes back in the result.",
       inputSchema: {},
       title: "Screenshot the desktop",
     },
     async () => {
-      const { agent, db, env, workspace } = ctx;
+      const { agent, db, env } = ctx;
       if (!agent.computerHostId) {
         return fail("This agent has no computer host.");
       }
@@ -125,23 +120,10 @@ export const registerDesktopTools = (
         summary: `screenshot ${size}`,
       });
 
-      const delivery = await sendImageToAgentSession(env, {
-        agentId: agent.id,
-        caption: `Screenshot of the desktop (${size})`,
-        origin: absoluteUrl(env.PUBLIC_APP_URL, ctx.requestUrl, ""),
-        r2Key,
-        workspaceId: workspace.id,
-      });
-      if (!delivery.sent) {
-        return fail(
-          `The screenshot was taken but could not be sent to you: ${delivery.reason}`
-        );
-      }
-      return json({
-        height: shot.height,
-        note: DELIVERY_NOTE,
-        width: shot.width,
-      });
+      return jsonWithImage(
+        { height: shot.height, width: shot.width },
+        { bytes: shot.data, mimeType: shot.mediaType }
+      );
     }
   );
 };
