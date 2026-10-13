@@ -157,7 +157,7 @@ func TestStepsForEachAction(t *testing.T) {
 		{protocol.DesktopAction{Type: protocol.ActionMouseUp, Button: strp("left")}, []xdotoolStep{{args: []string{"mouseup", "1"}}}},
 		{
 			protocol.DesktopAction{Type: protocol.ActionClick, X: intp(5), Y: intp(6), Button: strp("middle"), Count: intp(2)},
-			[]xdotoolStep{{args: []string{"mousemove", "5", "6"}}, {args: []string{"click", "--repeat", "2", "2"}}},
+			[]xdotoolStep{{args: []string{"mousemove", "5", "6", "click", "--repeat", "2", "--delay", "0", "2"}}},
 		},
 		{
 			protocol.DesktopAction{Type: protocol.ActionScroll, X: intp(5), Y: intp(6), DX: intp(-2), DY: intp(3)},

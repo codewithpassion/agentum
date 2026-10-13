@@ -21,6 +21,10 @@ const typeDelayMS = 2
 // scrollDelayMS spaces wheel clicks; xdotool's 100 ms default makes a long scroll time out.
 const scrollDelayMS = 5
 
+// clickDelayMS spaces the repeats of a click; xdotool's 100 ms default made every click cost
+// 100 ms and a triple click 300 ms. Toolkits count a double click by timestamp, not by gap.
+const clickDelayMS = 0
+
 var buttonNumbers = map[string]string{
 	protocol.ButtonLeft:   "1",
 	protocol.ButtonMiddle: "2",
@@ -169,10 +173,11 @@ func stepsFor(action protocol.DesktopAction) []xdotoolStep {
 	case protocol.ActionMouseUp:
 		return []xdotoolStep{{args: []string{"mouseup", buttonNumbers[*action.Button]}}}
 	case protocol.ActionClick:
-		return []xdotoolStep{
-			moveTo(action),
-			{args: []string{"click", "--repeat", strconv.Itoa(*action.Count), buttonNumbers[*action.Button]}},
-		}
+		// Move and click share one process: both take only numbers, so nothing typed can read as a command.
+		return []xdotoolStep{{args: []string{
+			"mousemove", strconv.Itoa(*action.X), strconv.Itoa(*action.Y),
+			"click", "--repeat", strconv.Itoa(*action.Count), "--delay", strconv.Itoa(clickDelayMS), buttonNumbers[*action.Button],
+		}}}
 	case protocol.ActionScroll:
 		steps := []xdotoolStep{moveTo(action)}
 		// X has no wheel axis, only buttons: 4 up, 5 down, 6 left, 7 right.
