@@ -15,6 +15,7 @@ import { slackRoutes } from "#/modules/bridges/slack/routes";
 import { browserRoutes } from "#/modules/browser/routes";
 import { categoriesRoutes } from "#/modules/categories/routes";
 import { computerConnectRoutes } from "#/modules/computer/connect-route";
+import { desktopRoutes } from "#/modules/computer/desktop-routes";
 import { computerEnrollRoutes } from "#/modules/computer/enroll-route";
 import { computerHostRoutes } from "#/modules/computer/host-routes";
 import { computerRoutes } from "#/modules/computer/routes";
@@ -107,6 +108,7 @@ workspaceScopedRoutes.route("/agents", agentsRoutes);
 // An agent's computer, its browser and its activity log read as part of the
 // agent; Hono falls through to these for the paths `agentsRoutes` does not own.
 workspaceScopedRoutes.route("/agents", computerRoutes);
+workspaceScopedRoutes.route("/agents", desktopRoutes);
 workspaceScopedRoutes.route("/agents", browserRoutes);
 workspaceScopedRoutes.route("/agents", agentActivityRoutes);
 // The agent's Slack connection wizard, on the same fall-through principle.
