@@ -553,6 +553,12 @@ export const createApi = (workspaceSlug: string) => {
       (data) => data.status
     );
 
+  /** Owner-only. Retires the current session; the next message starts a new one. */
+  const resetAgentSession = (id: string) =>
+    request<{ retired: boolean }>(`/agents/${id}/session/reset`, {
+      method: "POST",
+    });
+
   // --- the agent's screen: activity, computer, browser ----------------------
 
   /** Newest first; `before` is the `nextCursor` of the page before it. */
@@ -1295,6 +1301,7 @@ export const createApi = (workspaceSlug: string) => {
     renameCategory,
     renameConnector,
     renameWorkspace,
+    resetAgentSession,
     retrySkillSync,
     revokeSecretFromAgent,
     rotateAgentMcpToken,

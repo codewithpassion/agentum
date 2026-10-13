@@ -15,6 +15,7 @@ import { AgentActivityTab } from "./agent-activity-tab";
 import { AgentConnectorChips } from "./agent-connector-chips";
 import { AgentFilesTab } from "./agent-files-tab";
 import { AgentScreenTab } from "./agent-screen-tab";
+import { NewSessionControl } from "./agent-session-reset";
 import { AgentSkillChips } from "./agent-skill-chips";
 import { BridgeCard } from "./bridge-card";
 import { McpUrlField } from "./mcp-url";
@@ -270,7 +271,10 @@ function ProfilePanel({
       />
       <Section body={agent.soul} title="Soul" />
       <Section body={agent.instructions} title="Instructions" />
-      <AgentActions agent={agent} onDelete={onDelete} onEdit={onEdit} />
+      <div className="space-y-2">
+        <NewSessionControl agentId={agent.id} key={agent.id} />
+        <AgentActions agent={agent} onDelete={onDelete} onEdit={onEdit} />
+      </div>
     </div>
   );
 }

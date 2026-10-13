@@ -1,9 +1,10 @@
 import { useCallback, useState } from "react";
-import { Button } from "#/components/ui/button";
+import { Button, type ButtonProps } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 
 export function ConfirmDialog({
   confirmLabel,
+  confirmVariant = "danger",
   message,
   onCancel,
   onConfirm,
@@ -11,6 +12,7 @@ export function ConfirmDialog({
   title,
 }: {
   confirmLabel: string;
+  confirmVariant?: ButtonProps["variant"];
   message: string;
   onCancel: () => void;
   onConfirm: () => Promise<void>;
@@ -45,7 +47,11 @@ export function ConfirmDialog({
         <Button onClick={onCancel} variant="ghost">
           Cancel
         </Button>
-        <Button disabled={busy} onClick={onConfirmClick} variant="danger">
+        <Button
+          disabled={busy}
+          onClick={onConfirmClick}
+          variant={confirmVariant}
+        >
           {confirmLabel}
         </Button>
       </div>
