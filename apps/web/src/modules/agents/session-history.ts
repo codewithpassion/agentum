@@ -164,3 +164,23 @@ export const backfillFromGateway = async (
     gateway.listSessions(anthropicAgentId)
   ).catch(() => undefined);
 };
+
+/**
+ * Waits for `work`, but no longer than `ms`: a slow Anthropic listing must not
+ * keep an owner staring at a dialog, and the listing is only a convenience.
+ * The work itself is not cancelled; it just stops being waited on.
+ */
+export const settleWithin = async (
+  work: Promise<unknown>,
+  ms: number
+): Promise<void> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  try {
+    await Promise.race([work.then(() => undefined), expiry]);
+  } finally {
+    clearTimeout(timer);
+  }
+};

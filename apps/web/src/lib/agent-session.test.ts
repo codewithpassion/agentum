@@ -4,11 +4,13 @@ import { sessionResetMessage } from "./agent-session";
 describe("sessionResetMessage", () => {
   test("says the next message starts a session when one was retired", () => {
     expect(sessionResetMessage(true)).toBe(
-      "New session starts with the next message."
+      "Session reset. The agent starts a new one with its next message."
     );
   });
 
   test("says nothing was running when no session was retired", () => {
-    expect(sessionResetMessage(false)).toBe("No session was running.");
+    expect(sessionResetMessage(false)).toBe(
+      "The agent had no running session. Its next message starts a new one."
+    );
   });
 });

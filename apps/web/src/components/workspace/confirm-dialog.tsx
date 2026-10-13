@@ -2,6 +2,53 @@ import { useCallback, useState } from "react";
 import { Button, type ButtonProps } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 
+/** The dialog's contents, apart from its state so the busy and error looks can be rendered on their own. */
+export function ConfirmBody({
+  busy,
+  confirmLabel,
+  confirmVariant = "danger",
+  error,
+  message,
+  onCancel,
+  onConfirm,
+}: {
+  busy: boolean;
+  confirmLabel: string;
+  confirmVariant?: ButtonProps["variant"];
+  error: string | null;
+  message: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const label = busy ? "Working…" : confirmLabel;
+  return (
+    <>
+      <p className="m-0 text-sm">{message}</p>
+      {error ? (
+        <p
+          className="mt-3 mb-0 rounded-lg border border-[var(--ws-danger)] px-3 py-2 text-[var(--ws-danger)] text-sm"
+          role="alert"
+        >
+          {error}
+        </p>
+      ) : null}
+      <div className="mt-4 flex justify-end gap-2">
+        <Button disabled={busy} onClick={onCancel} variant="ghost">
+          Cancel
+        </Button>
+        <Button
+          aria-busy={busy}
+          disabled={busy}
+          onClick={onConfirm}
+          variant={confirmVariant}
+        >
+          {label}
+        </Button>
+      </div>
+    </>
+  );
+}
+
 export function ConfirmDialog({
   confirmLabel,
   confirmVariant = "danger",
@@ -24,6 +71,7 @@ export function ConfirmDialog({
 
   const runConfirm = useCallback(async () => {
     setBusy(true);
+    setError(null);
     try {
       await onConfirm();
     } catch (cause) {
@@ -39,22 +87,15 @@ export function ConfirmDialog({
 
   return (
     <Dialog onClose={onCancel} open={open} title={title}>
-      <p className="m-0 text-sm">{message}</p>
-      {error ? (
-        <p className="mt-2 mb-0 text-[var(--ws-danger)] text-xs">{error}</p>
-      ) : null}
-      <div className="mt-4 flex justify-end gap-2">
-        <Button onClick={onCancel} variant="ghost">
-          Cancel
-        </Button>
-        <Button
-          disabled={busy}
-          onClick={onConfirmClick}
-          variant={confirmVariant}
-        >
-          {confirmLabel}
-        </Button>
-      </div>
+      <ConfirmBody
+        busy={busy}
+        confirmLabel={confirmLabel}
+        confirmVariant={confirmVariant}
+        error={error}
+        message={message}
+        onCancel={onCancel}
+        onConfirm={onConfirmClick}
+      />
     </Dialog>
   );
 }

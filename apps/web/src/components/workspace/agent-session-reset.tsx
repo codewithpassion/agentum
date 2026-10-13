@@ -33,6 +33,18 @@ function PastSessionRow({
   );
 }
 
+/** Said plainly, in a box, so that a finished reset cannot be mistaken for nothing happening. */
+export function ResetNotice({ message }: { message: string }) {
+  return (
+    <p
+      className="m-0 w-full rounded-lg border border-[var(--ws-accent)] bg-[color-mix(in_oklab,var(--ws-accent)_14%,transparent)] px-2.5 py-1.5 text-[var(--ws-text)] text-xs"
+      role="status"
+    >
+      {message}
+    </p>
+  );
+}
+
 /**
  * Owner-only: retires the agent's current session, so its next message starts
  * a fresh one, and lists the earlier ones with a way back into each. Members
@@ -95,11 +107,7 @@ export function NewSessionControl({ agentId }: { agentId: string }) {
       <Button onClick={openConfirm} size="sm" variant="subtle">
         New session
       </Button>
-      {notice ? (
-        <p className="m-0 text-[var(--ws-muted)] text-xs" role="status">
-          {notice}
-        </p>
-      ) : null}
+      {notice ? <ResetNotice message={notice} /> : null}
       {past.length > 0 ? (
         <div className="mt-2 flex w-full flex-col gap-1">
           <p className="m-0 font-medium text-xs">Past sessions</p>

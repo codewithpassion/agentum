@@ -1,8 +1,8 @@
 /** What the owner is told after starting a new session for an agent. */
 export const sessionResetMessage = (retired: boolean): string =>
   retired
-    ? "New session starts with the next message."
-    : "No session was running.";
+    ? "Session reset. The agent starts a new one with its next message."
+    : "The agent had no running session. Its next message starts a new one.";
 
 const END_REASON_LABELS: Record<string, string> = {
   error: "ended on an error",

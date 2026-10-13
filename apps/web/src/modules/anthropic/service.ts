@@ -12,7 +12,10 @@ import {
   setAgentRegistration,
   setAgentSyncStatus,
 } from "#/modules/agents/service";
-import { backfillFromGateway } from "#/modules/agents/session-history";
+import {
+  backfillFromGateway,
+  settleWithin,
+} from "#/modules/agents/session-history";
 import { getHostByIdUnscoped } from "#/modules/computer/hosts";
 import { listConnectorsForAgent } from "#/modules/connectors/service";
 import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
@@ -661,9 +664,13 @@ export const resyncWorkspaceAfterKeyChange = async (
   }
 };
 
+/** How long a caller waits on the history import before moving on. */
+const BACKFILL_BUDGET_MS = 5000;
+
 /**
  * Imports the agent's existing Anthropic sessions into its history, the first
- * time anything asks for it. Best effort: history is a convenience.
+ * time anything asks for it. Best effort: history is a convenience, so a slow
+ * import is waited on for `BACKFILL_BUDGET_MS` and then left to the next ask.
  */
 export const backfillSessionHistory = async (
   db: Db,
@@ -673,10 +680,13 @@ export const backfillSessionHistory = async (
   if (agent.runtime !== "managed" || !agent.anthropicAgentId) {
     return;
   }
-  await backfillFromGateway(
-    db,
-    agent,
-    await createGateway(db, env, agent.workspaceId)
+  await settleWithin(
+    backfillFromGateway(
+      db,
+      agent,
+      await createGateway(db, env, agent.workspaceId)
+    ),
+    BACKFILL_BUDGET_MS
   );
 };
 
