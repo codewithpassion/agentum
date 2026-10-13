@@ -25,6 +25,14 @@ import type {
 /** How the bytes travel. The self-hosted relay writes them to a socket. */
 export interface Transport {
   send: (message: Record<string, unknown>) => Promise<unknown>;
+  /** What the relay knows about the connection and what the daemon said in its hello. */
+  status: () => Promise<TransportStatus>;
+}
+
+export interface TransportStatus {
+  connected: boolean;
+  hostname: string | null;
+  version: string | null;
 }
 
 /**
@@ -59,7 +67,7 @@ const MALFORMED =
 export const REMOTE_EXEC_DEFAULT_TIMEOUT_MS = 30_000;
 export const REMOTE_EXEC_MAX_TIMEOUT_MS = 600_000;
 
-const PING_TIMEOUT_MS = 10_000;
+const OFFLINE_REASON = "The computer is offline. Start it and try again.";
 
 const TIMED_OUT_CANCELLED_NOTE =
   "The command did not finish in time and was cancelled on the computer.";
@@ -159,8 +167,6 @@ const concatBytes = (parts: readonly Uint8Array[]): Uint8Array => {
 /** Single-quotes a value for `sh -c`, so no path or name can change the command. */
 const shellQuote = (value: string): string =>
   `'${value.replace(/'/g, "'\\''")}'`;
-
-const parentOf = (path: string): string => path.slice(0, path.lastIndexOf("/"));
 
 const execCommand = async (
   transport: Transport,
@@ -298,6 +304,13 @@ const readBytes = async (
 
 const LISTING_LINE = /^(\S) (\d+) ([\s\S]*)$/;
 
+/**
+ * POSIX sh only: the image ships busybox, whose find has no -printf. Each entry
+ * is `type size name` followed by a NUL, so a name with spaces survives.
+ */
+const listScript = (dir: string): string =>
+  `if [ -d ${shellQuote(dir)} ]; then cd ${shellQuote(dir)} || exit 1; for f in .[!.]* ..?* *; do [ -e "$f" ] || [ -L "$f" ] || continue; if [ -d "$f" ]; then t=d; s=0; else t=f; s=$(wc -c < "$f" 2>/dev/null | tr -d ' '); [ -n "$s" ] || s=0; fi; printf '%s %s %s\\0' "$t" "$s" "$f"; done; fi`;
+
 const parseListing = (stdout: string): DirEntry[] =>
   stdout
     .split("\0")
@@ -345,15 +358,6 @@ export const createRemoteBackend = (
     const created = createdCheck
       ? await isMissing(transport, target.path)
       : false;
-    const made = await execCommand(
-      transport,
-      null,
-      `mkdir -p ${shellQuote(parentOf(target.path))}`,
-      undefined
-    );
-    if (!made.ok) {
-      return { ok: false, reason: made.reason };
-    }
     const put = await putBytes(transport, target.path, bytes);
     return put.ok ? { created, ok: true, size: put.size } : put;
   };
@@ -374,7 +378,8 @@ export const createRemoteBackend = (
           reason: `old_string appears ${occurrences} times in ${path}; include enough surrounding context to make it unique.`,
         };
       }
-      const after = read.content.replace(oldString, newString);
+      // A function, so `$&` and friends in new_string are text, not patterns.
+      const after = read.content.replace(oldString, () => newString);
       return await writeBytes(path, new TextEncoder().encode(after), false);
     },
 
@@ -392,15 +397,20 @@ export const createRemoteBackend = (
         return target;
       }
       // A directory that does not exist yet is empty, not an error.
-      const quoted = shellQuote(target.path);
       const listing = await execCommand(
         transport,
         null,
-        `if [ -d ${quoted} ]; then find ${quoted} -mindepth 1 -maxdepth 1 -printf '%y %s %f\\0'; fi`,
+        listScript(target.path),
         undefined
       );
       if (!listing.ok) {
         return { ok: false, reason: listing.reason };
+      }
+      if (listing.exitCode !== 0) {
+        return {
+          ok: false,
+          reason: listing.stderr.trim() || "The directory could not be listed.",
+        };
       }
       return {
         entries: parseListing(listing.stdout),
@@ -435,7 +445,12 @@ export const createRemoteBackend = (
 };
 
 export type PingResult =
-  | { ok: true; hostname: null; uptimeMs: null; version: null }
+  | {
+      ok: true;
+      hostname: string | null;
+      uptimeMs: null;
+      version: string | null;
+    }
   | { ok: false; reason: string };
 
 /**
@@ -443,8 +458,22 @@ export type PingResult =
  * the host answers and runs commands; it reports nothing else.
  */
 export const ping = async (transport: Transport): Promise<PingResult> => {
-  const outcome = await execCommand(transport, null, "true", PING_TIMEOUT_MS);
-  return outcome.ok
-    ? { hostname: null, ok: true, uptimeMs: null, version: null }
-    : { ok: false, reason: outcome.reason };
+  let status: TransportStatus;
+  try {
+    status = await transport.status();
+  } catch (error) {
+    return {
+      ok: false,
+      reason:
+        error instanceof ComputerTransportError ? error.message : UNREACHABLE,
+    };
+  }
+  return status.connected
+    ? {
+        hostname: status.hostname,
+        ok: true,
+        uptimeMs: null,
+        version: status.version,
+      }
+    : { ok: false, reason: OFFLINE_REASON };
 };

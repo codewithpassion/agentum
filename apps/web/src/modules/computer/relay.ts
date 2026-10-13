@@ -67,7 +67,8 @@ export type RelayFailureReason =
   | "replaced"
   | "revoked"
   | "interrupted"
-  | "client_error";
+  | "client_error"
+  | "duplicate_id";
 
 /**
  * What a request resolves to. Never thrown across RPC. A failure the daemon
@@ -106,6 +107,12 @@ interface Pending {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** The generation a socket was accepted under, if it carries one. */
+function socketGeneration(socket: WebSocket): number | undefined {
+  const attachment: unknown = socket.deserializeAttachment();
+  return isSocketAttachment(attachment) ? attachment.generation : undefined;
+}
 
 function isSocketAttachment(value: unknown): value is SocketAttachment {
   return (
@@ -252,6 +259,11 @@ export class ComputerRelay extends DurableObject<Env> {
       return;
     }
     if (frame.kind === "hello") {
+      await this.load();
+      // Only the connection that owns the current generation may say who it is.
+      if (socketGeneration(socket) !== this.generation) {
+        return;
+      }
       await this.onHello(frame.hello);
       return;
     }
@@ -278,6 +290,7 @@ export class ComputerRelay extends DurableObject<Env> {
 
   /** Presence while connected: the last-seen column moves once a minute, not per heartbeat. */
   override async alarm(): Promise<void> {
+    await this.load();
     if (this.currentSocket() === undefined) {
       return;
     }
@@ -294,6 +307,7 @@ export class ComputerRelay extends DurableObject<Env> {
    * caller wait for a timeout.
    */
   async request(message: Record<string, unknown>): Promise<RelayOutcome> {
+    await this.load();
     if (message.op === "exec") {
       return await this.enqueueExec(() => this.dispatch(message));
     }
@@ -489,6 +503,7 @@ export class ComputerRelay extends DurableObject<Env> {
   private async dispatch(
     message: Record<string, unknown>
   ): Promise<RelayOutcome> {
+    await this.load();
     const socket = this.currentSocket();
     if (!socket) {
       return {
@@ -501,6 +516,15 @@ export class ComputerRelay extends DurableObject<Env> {
     }
     const id =
       typeof message.id === "string" ? message.id : crypto.randomUUID();
+    if (this.pending.has(id)) {
+      return {
+        code: null,
+        message: "A request with this id is already in flight.",
+        ok: false,
+        reason: "duplicate_id",
+        result_json: null,
+      };
+    }
     const outcome = new Promise<RelayOutcome>((resolve) => {
       // Registered before the send, so an answer that arrives at once has somewhere to land.
       const timer = setTimeout(

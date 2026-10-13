@@ -25,6 +25,12 @@ const fakeTransport = (handler: Handler) => {
         sent.push(message);
         return Promise.resolve(handler(message));
       },
+      status: () =>
+        Promise.resolve({
+          connected: true,
+          hostname: "office-box",
+          version: "1.2.3",
+        }),
     },
   };
 };
@@ -259,7 +265,7 @@ describe("file_put", () => {
     });
   });
 
-  test("creates the parent directory on the host first, quoted", async () => {
+  test("writes without a separate mkdir: the daemon creates parents itself", async () => {
     const { sent, transport } = fakeTransport((message) => {
       if (message.op === "file_get") {
         return {
@@ -267,18 +273,13 @@ describe("file_put", () => {
           id: message.id,
         };
       }
-      if (message.op === "exec") {
-        return reply(message, execOk());
-      }
       return reply(message, { bytes_written: 0, sha256: "digest" });
     });
     const backend = createRemoteBackend(transport, root);
 
-    await backend.writeFile("/it's/a.txt", "");
+    await backend.writeFile("/deep/a.txt", "");
 
-    expect(sent.find((message) => message.op === "exec")?.command).toBe(
-      `mkdir -p '${ROOT}/it'\\''s'`
-    );
+    expect(sent.map((message) => message.op)).toEqual(["file_get", "file_put"]);
   });
 });
 
@@ -341,28 +342,80 @@ describe("listDir", () => {
       ],
       ok: true,
     });
-    expect(String(sent[0]?.command)).toContain(`find '${ROOT}/' -mindepth 1`);
+    expect(String(sent[0]?.command)).toContain(`if [ -d '${ROOT}/' ]`);
+  });
+
+  test("a listing that fails in the shell is an error, not an empty directory", async () => {
+    const { transport } = fakeTransport((message) =>
+      reply(message, { ...execOk(), exit_code: 1, stderr: "cd: denied\n" })
+    );
+    const backend = createRemoteBackend(transport, root);
+
+    expect(await backend.listDir("/")).toEqual({
+      ok: false,
+      reason: "cd: denied",
+    });
+  });
+});
+
+describe("editFile replacement text", () => {
+  test("a $& in the new text is written literally", async () => {
+    const stored = new TextEncoder().encode("hello world");
+    const { sent, transport } = fakeTransport((message) => {
+      if (message.op === "file_get") {
+        return reply(message, {
+          data_b64: base64Of(stored),
+          eof: true,
+          sha256: null,
+          size: stored.length,
+        });
+      }
+      return reply(message, { bytes_written: 0, sha256: "digest" });
+    });
+    const backend = createRemoteBackend(transport, root);
+
+    await backend.editFile("/a.txt", "world", "[$&] $1");
+
+    const put = sent.find((message) => message.op === "file_put");
+    expect(atob(String(put?.data_b64))).toBe("hello [$&] $1");
   });
 });
 
 describe("ping", () => {
-  test("a host that runs a no-op command answers", async () => {
-    const { transport } = fakeTransport((message) => reply(message, execOk()));
+  test("a connected host answers with what its hello said", async () => {
+    const { transport } = fakeTransport(() => ({}));
 
     expect(await ping(transport)).toEqual({
-      hostname: null,
+      hostname: "office-box",
       ok: true,
       uptimeMs: null,
-      version: null,
+      version: "1.2.3",
     });
   });
 
-  test("a host that does not answer says why", async () => {
-    const { transport } = fakeTransport(() => {
-      throw new ComputerTransportError("The computer host is offline.");
-    });
+  test("a host with no connection is offline, and no command is sent", async () => {
+    const { sent, transport } = fakeTransport(() => ({}));
+    const offline = {
+      ...transport,
+      status: () =>
+        Promise.resolve({ connected: false, hostname: null, version: null }),
+    };
 
-    expect(await ping(transport)).toEqual({
+    expect(await ping(offline)).toMatchObject({ ok: false });
+    expect(sent).toEqual([]);
+  });
+
+  test("a relay that cannot be reached says why", async () => {
+    const { transport } = fakeTransport(() => ({}));
+    const unreachable = {
+      ...transport,
+      status: () =>
+        Promise.reject(
+          new ComputerTransportError("The computer host is offline.")
+        ),
+    };
+
+    expect(await ping(unreachable)).toEqual({
       ok: false,
       reason: "The computer host is offline.",
     });

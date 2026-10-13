@@ -264,7 +264,17 @@ const relayFor = (hostId: string) => {
       JSON.stringify(message)
     );
 
-  return { background, connect, deliver, disconnect, instance };
+  /**
+   * A fresh instance over the same storage and sockets: what the runtime gives
+   * the object after it was hibernated and woken for a new request.
+   */
+  const wake = (): InstanceType<typeof ComputerRelay> => {
+    const woken = new ComputerRelay(ctx, env);
+    Object.assign(woken, { ctx, database: db, env });
+    return woken;
+  };
+
+  return { background, connect, deliver, disconnect, instance, wake };
 };
 
 const frames = (socket: FakeSocket): Record<string, unknown>[] =>
@@ -575,5 +585,89 @@ describe("ComputerRelay connections", () => {
 
     expect(socket.closed?.code).toBe(4401);
     expect(await outcome).toMatchObject({ ok: false, reason: "revoked" });
+  });
+});
+
+describe("ComputerRelay after hibernation", () => {
+  test("a woken relay still reaches the daemon on the socket it had", async () => {
+    const hostId = await seedHost("office");
+    const relay = relayFor(hostId);
+    const socket = await relay.connect();
+    await relay.deliver(socket, HELLO);
+
+    const woken = relay.wake();
+    const outcome = woken.request({
+      command: "uptime",
+      id: "after-wake",
+      op: "exec",
+      timeout_ms: 1000,
+    });
+    await flush();
+
+    expect(frames(socket).at(-1)).toMatchObject({
+      id: "after-wake",
+      op: "exec",
+    });
+    await woken.webSocketMessage(
+      socket as unknown as WebSocket,
+      JSON.stringify({
+        id: "after-wake",
+        result: {
+          bytes_total: 2,
+          duration_ms: 1,
+          exit_code: 0,
+          stderr: "",
+          stdout: "up",
+          truncated: false,
+        },
+      })
+    );
+    expect(await outcome).toMatchObject({ ok: true });
+  });
+
+  test("a woken relay still sees the host as connected", async () => {
+    const hostId = await seedHost("office");
+    const relay = relayFor(hostId);
+    const socket = await relay.connect();
+    await relay.deliver(socket, HELLO);
+
+    expect((await relay.wake().status()).connected).toBe(true);
+  });
+});
+
+describe("ComputerRelay request ids and hellos", () => {
+  test("a request reusing an id that is still in flight is refused, and the first still answers", async () => {
+    const hostId = await seedHost("office");
+    const relay = relayFor(hostId);
+    const socket = await relay.connect();
+
+    const first = relay.instance.request({
+      id: "same",
+      op: "file_get",
+      path: "/a",
+    });
+    await flush();
+    const second = await relay.instance.request({
+      id: "same",
+      op: "file_get",
+      path: "/b",
+    });
+    await relay.deliver(socket, { id: "same", result: { marker: "first" } });
+
+    expect(second).toMatchObject({ ok: false, reason: "duplicate_id" });
+    expect((await first).result_json).toBe('{"marker":"first"}');
+    expect(frames(socket)).toHaveLength(1);
+  });
+
+  test("a hello from a superseded socket is ignored", async () => {
+    const hostId = await seedHost("office");
+    const relay = relayFor(hostId);
+    const old = await relay.connect();
+    await relay.deliver(old, HELLO);
+    await relay.connect();
+
+    await relay.deliver(old, { ...HELLO, hostname: "impostor" });
+
+    expect((await relay.instance.status()).hostname).toBe("office-box");
   });
 });

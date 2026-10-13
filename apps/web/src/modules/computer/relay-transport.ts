@@ -52,6 +52,20 @@ export const createRelayTransport = (env: Env, hostId: string): Transport => ({
       timedOut: outcome.reason === "timeout",
     });
   },
+  status: async () => {
+    try {
+      const { connected, hostname, version } = await relayStub(
+        env,
+        hostId
+      ).status();
+      return { connected, hostname, version };
+    } catch (error) {
+      throw new ComputerTransportError(
+        error instanceof Error ? error.message : UNREACHABLE,
+        { cause: error }
+      );
+    }
+  },
 });
 
 /**
