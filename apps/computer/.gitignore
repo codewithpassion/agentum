@@ -1,0 +1,2 @@
+# Cross-compiled binaries; releases are built in CI, never committed.
+bin/

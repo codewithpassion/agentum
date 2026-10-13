@@ -1,0 +1,18 @@
+{
+  "comment": "Every error code the client can put in a reply's error.code. The server maps what it recognises and passes the rest through with the client's message.",
+  "codes": [
+    "bad_request",
+    "denied",
+    "desktop_unavailable",
+    "duplicate_id",
+    "frame_too_large",
+    "is_a_directory",
+    "not_a_regular_file",
+    "not_found",
+    "op_failed",
+    "queue_full",
+    "read_only",
+    "too_large",
+    "unknown_op"
+  ]
+}

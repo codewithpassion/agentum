@@ -1,0 +1,56 @@
+# The desktop variant: the same static binary on Debian slim with an X server, a window manager,
+# xterm and Chromium, because the busybox image cannot host a desktop. Bases are pinned by
+# digest for the same reason as the plain image.
+#
+# Chromium keeps its own sandbox, which needs user namespaces the default Docker profiles refuse.
+# Run it with the flags in the README's "Desktop" section; without them the daemon still starts
+# but reports the desktop as unavailable.
+FROM golang:1.23@sha256:60deed95d3888cc5e4d9ff8a10c54e5edc008c6ae3fba6187be6fb592e19e8c0 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+ARG VERSION=0.0.0-docker
+ENV CGO_ENABLED=0 GOFLAGS=-buildvcs=false
+RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/agentum-computer ./cmd/agentum-computer
+
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+
+# tini reaps what exec'd commands background (chromium, xclip's selection owner); the daemon
+# as PID 1 would leave them as zombies.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    chromium \
+    fonts-dejavu-core \
+    fonts-liberation2 \
+    fonts-noto-color-emoji \
+    openbox \
+    procps \
+    tini \
+    xclip \
+    xdotool \
+    xterm \
+    xvfb \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY packaging/desktop/xterm-resources /tmp/xterm-resources
+RUN cat /tmp/xterm-resources >> /etc/X11/app-defaults/XTerm && rm /tmp/xterm-resources \
+  && mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix \
+  && mkdir -p /etc/chromium/policies/managed
+COPY packaging/desktop/chromium-policy.json /etc/chromium/policies/managed/agentum.json
+# /usr/local/bin is ahead of /usr/bin on PATH, so `chromium` is always the pinned wrapper.
+COPY --chmod=0755 packaging/desktop/chromium /usr/local/bin/chromium
+COPY --from=build /out/agentum-computer /usr/local/bin/agentum-computer
+
+RUN useradd --create-home --uid 1000 agentum \
+  && mkdir -p /var/lib/agentum-computer \
+  && chown 1000:1000 /var/lib/agentum-computer
+
+USER 1000:1000
+ENV HOME=/home/agentum \
+    AGENTUM_STATE_DIR=/var/lib/agentum-computer
+VOLUME ["/var/lib/agentum-computer"]
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/agentum-computer", "run", "--desktop"]

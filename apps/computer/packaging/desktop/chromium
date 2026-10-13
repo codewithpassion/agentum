@@ -1,0 +1,44 @@
+#!/bin/sh
+# Chromium as the desktop's agents and humans start it. The profile sits beside the daemon's
+# Xauthority, so logins survive sessions and restarts; exec'd commands get no AGENTUM_STATE_DIR,
+# but they always get XAUTHORITY. The sandbox is never disabled here: if it cannot start, the
+# daemon reports the desktop as unavailable instead.
+set -eu
+
+desktop_dir="/var/lib/agentum-computer/desktop"
+if [ -n "${XAUTHORITY:-}" ]; then
+  desktop_dir="$(dirname "$XAUTHORITY")"
+fi
+profile="$desktop_dir/chromium-profile"
+
+# Chromium's profile lock names the hostname and pid that took it. A container recreated on the
+# same volume gets a new hostname, and Chromium then treats the lock as held by another computer
+# and never opens the profile. With no Chromium running on this profile, any lock is stale.
+if ! pgrep -f -- "--user-data-dir=$profile( |\$)" >/dev/null 2>&1; then
+  rm -f "$profile/SingletonLock" "$profile/SingletonCookie" "$profile/SingletonSocket"
+fi
+
+# Agents often add --no-sandbox out of habit, so the habitual sandbox-disabling flags are stripped.
+# This is a guard against habit, not a security boundary: /usr/bin/chromium and other flags stay reachable.
+ignored=""
+for arg do
+  shift
+  case "$arg" in
+    -no-sandbox | -no-sandbox=* | --no-sandbox | --no-sandbox=* | \
+      -disable-setuid-sandbox | -disable-setuid-sandbox=* | --disable-setuid-sandbox | --disable-setuid-sandbox=*)
+      ignored="$ignored $arg"
+      ;;
+    *) set -- "$@" "$arg" ;;
+  esac
+done
+if [ -n "$ignored" ]; then
+  echo "chromium: ignored$ignored; the sandbox stays on" >&2
+fi
+
+exec /usr/bin/chromium \
+  --user-data-dir="$profile" \
+  --password-store=basic \
+  --window-size=1280,800 \
+  --window-position=0,0 \
+  --disable-dev-shm-usage \
+  "$@"

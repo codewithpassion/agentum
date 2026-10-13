@@ -1,0 +1,11 @@
+{
+  "id": "req-01HQ7",
+  "result": {
+    "exit_code": 124,
+    "stdout": "Linux office-box 6.8.0\n",
+    "stderr": "",
+    "bytes_total": 3000000,
+    "truncated": true,
+    "duration_ms": 4020
+  }
+}

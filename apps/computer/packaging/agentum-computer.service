@@ -1,0 +1,41 @@
+[Unit]
+Description=Agentum remote computer agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# A dedicated unprivileged account. Everything an agent runs here runs as this user, so give
+# it only what you are willing to let an agent reach.
+User=agentum
+Group=agentum
+
+Environment=AGENTUM_STATE_DIR=/var/lib/agentum-computer
+# A 0600 file owned by root holding AGENTUM_URL, and AGENTUM_ENROLL_CODE for the first
+# boot only. Keeping the code out of the unit file keeps it out of ps and out of git.
+EnvironmentFile=-/etc/agentum-computer.env
+ExecStart=/usr/local/bin/agentum-computer run
+
+Restart=always
+RestartSec=5s
+
+# The daemon's commands run in their own process groups inside this unit's cgroup. Killing the
+# cgroup is what stops a restart from leaving them running: a plain SIGTERM to the main process
+# leaves its children reparented to PID 1 with nobody to collect them.
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+# The state directory holds the machine credential at mode 0600; systemd creates it 0700.
+StateDirectory=agentum-computer
+StateDirectoryMode=0700
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ProtectControlGroups=true
+ProtectKernelTunables=true
+
+[Install]
+WantedBy=multi-user.target

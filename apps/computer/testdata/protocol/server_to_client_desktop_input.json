@@ -1,0 +1,41 @@
+{
+  "id": "req-01HR3",
+  "op": "desktop_input",
+  "actions": [
+    {
+      "type": "mouse_move",
+      "x": 0,
+      "y": 799
+    },
+    {
+      "type": "mouse_down",
+      "button": "left"
+    },
+    {
+      "type": "mouse_up",
+      "button": "left"
+    },
+    {
+      "type": "click",
+      "x": 640,
+      "y": 400,
+      "button": "right",
+      "count": 2
+    },
+    {
+      "type": "scroll",
+      "x": 1279,
+      "y": 0,
+      "dx": -3,
+      "dy": 5
+    },
+    {
+      "type": "key",
+      "keys": "ctrl+l"
+    },
+    {
+      "type": "type",
+      "text": "https://example.com"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@agentum/computer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Go daemon that connects a machine you own to Agentum, so an agent's commands run there.",
+  "license": "MIT",
+  "scripts": {
+    "build": "bash scripts/go.sh go build -trimpath -o bin/agentum-computer ./cmd/agentum-computer",
+    "build:release": "bash scripts/build-all.sh",
+    "check": "bun run vet && bun run fmt:check && bun run test",
+    "docker:build": "docker build -t agentum-computer:local .",
+    "docker:build:desktop": "docker build -f Dockerfile.desktop -t agentum-computer-desktop:local .",
+    "fmt": "bash scripts/go.sh gofmt -w .",
+    "fmt:check": "bash scripts/fmt-check.sh",
+    "test": "bash scripts/go.sh go test ./...",
+    "test:desktop-image": "bash scripts/test-desktop-image.sh",
+    "test:race": "bash scripts/test-race.sh",
+    "tidy": "bash scripts/go.sh go mod tidy",
+    "vet": "bash scripts/go.sh go vet ./..."
+  }
+}

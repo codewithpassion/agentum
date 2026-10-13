@@ -12,6 +12,10 @@
         "ultracite": "7.10.5",
       },
     },
+    "apps/computer": {
+      "name": "@agentum/computer",
+      "version": "0.1.0",
+    },
     "apps/computerd": {
       "name": "computerd",
       "version": "0.1.0",
@@ -64,6 +68,8 @@
     },
   },
   "packages": {
+    "@agentum/computer": ["@agentum/computer@workspace:apps/computer"],
+
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.118.0", "", { "dependencies": { "json-schema-to-ts": "^3.1.1", "standardwebhooks": "^1.0.0" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-X7XY3KLn3lQO6mizN9EKxlW1xTjv6n0BWMPf/rIO/DZ1XXPGzIwqsHf/g4DRbpV/0HafNKcomyoXJUXk85NNEQ=="],
 
     "@babel/code-frame": ["@babel/code-frame@7.27.1", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.27.1", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-cjQ7ZlQ0Mv3b47hABuTevyTuYN4i+loJKGeV9flcCgIK37cCXRh+L1bd3iBHlynerhQ7BhCkn2BPbQUL+rGqFg=="],

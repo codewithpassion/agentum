@@ -1,0 +1,7 @@
+{
+  "id": "req-01HQB",
+  "op": "file_get",
+  "path": "/home/agentum/.agentum/sessions/sess-42/.agentum/tool-results/out.json",
+  "offset": 262144,
+  "max_bytes": 262144
+}
