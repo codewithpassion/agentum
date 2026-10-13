@@ -13,6 +13,14 @@ mock.module("cloudflare:workers", () => ({ DurableObject: class {} }));
 const { createRelayTransport } = await import("./relay-transport");
 const { ComputerTransportError } = await import("./remote-client");
 
+const okOutcome = {
+  code: null,
+  message: "",
+  ok: true,
+  reason: null,
+  result_json: '{"ok":true}',
+};
+
 const envFor = (relay: {
   request: (message: Record<string, unknown>) => Promise<unknown>;
 }) => {
@@ -35,7 +43,7 @@ describe("createRelayTransport", () => {
     const { addressed, env } = envFor({
       request: (message) => {
         sent.push(message);
-        return Promise.resolve({ id: "req-1", result: { ok: true } });
+        return Promise.resolve(okOutcome);
       },
     });
 
@@ -47,6 +55,29 @@ describe("createRelayTransport", () => {
     expect(addressed).toEqual(["host-1"]);
     expect(sent).toEqual([{ id: "req-1", op: "ping" }]);
     expect(reply).toEqual({ id: "req-1", result: { ok: true } });
+  });
+
+  test("a daemon error reaches the caller with its code", async () => {
+    const { env } = envFor({
+      request: () =>
+        Promise.resolve({
+          code: "not_found",
+          message: "no such file: /x",
+          ok: false,
+          reason: "client_error",
+          result_json: null,
+        }),
+    });
+
+    expect(
+      await createRelayTransport(env, "host-1").send({
+        id: "r",
+        op: "file_get",
+      })
+    ).toEqual({
+      error: { code: "not_found", message: "no such file: /x" },
+      id: "r",
+    });
   });
 
   test("keeps the relay's reason, as the failure the agent is shown", async () => {

@@ -10,6 +10,7 @@ import {
   listAgentIdsByComputerHost,
   listAgentIdsForComputerHost,
 } from "#/modules/agents/service";
+import type { HelloMessage } from "./protocol";
 import {
   type ComputerHost,
   type ComputerHostConfig,
@@ -449,6 +450,23 @@ export const touchHostSeen = async (db: Db, id: string): Promise<void> => {
   await db
     .update(computerHosts)
     .set({ lastSeenAt: new Date() })
+    .where(eq(computerHosts.id, id));
+};
+
+/** What the daemon said about the machine in its hello. Written once per connection. */
+export const setHostHello = async (
+  db: Db,
+  id: string,
+  hello: HelloMessage
+): Promise<void> => {
+  await db
+    .update(computerHosts)
+    .set({
+      arch: hello.arch,
+      capabilities: hello.capabilities,
+      os: hello.os,
+      protocolVersion: hello.protocol_version,
+    })
     .where(eq(computerHosts.id, id));
 };
 

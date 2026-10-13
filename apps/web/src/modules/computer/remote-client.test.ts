@@ -1,282 +1,383 @@
-import { beforeEach, describe, expect, test } from "bun:test";
-import {
+import { describe, expect, test } from "bun:test";
+
+const {
   ComputerTransportError,
   createRemoteBackend,
   ping,
   REMOTE_EXEC_MAX_TIMEOUT_MS,
-  type Transport,
-} from "./remote-client";
+} = await import("./remote-client");
+const { FILE_CHUNK_BYTES } = await import("./protocol");
+
+type Message = Record<string, unknown>;
+type Handler = (message: Message) => unknown;
 
 /**
- * The remote backend against a fake daemon. Nothing here touches a network:
- * the transport is the seam, and these are the checks that stop a daemon - or
- * anything pretending to be one - from feeding the tools a shape they would
- * pass on as a success.
+ * A transport that answers each message with what `handler` returns for it. A
+ * handler may return an `{ error }` envelope to model a daemon error, or throw
+ * to model the connection failing.
  */
+const fakeTransport = (handler: Handler) => {
+  const sent: Message[] = [];
+  return {
+    sent,
+    transport: {
+      send: (message: Message) => {
+        sent.push(message);
+        return Promise.resolve(handler(message));
+      },
+    },
+  };
+};
 
-const sent: Record<string, unknown>[] = [];
-
-/** Answers every request with `result`, in the `{ id, result }` envelope. */
-const replying = (result: unknown): Transport => ({
-  send: (message) => {
-    sent.push(message);
-    return Promise.resolve({ id: message.id, result });
-  },
+const reply = (message: Message, result: Record<string, unknown>) => ({
+  id: message.id,
+  result,
 });
 
-/** Answers with something that is not the envelope at all. */
-const replyingRaw = (reply: unknown): Transport => ({
-  send: () => Promise.resolve(reply),
+const ROOT = "/var/lib/agentum-computer/sessions/agent-1";
+const root = () => Promise.resolve({ ok: true as const, path: ROOT });
+
+const execOk = (stdout = "") => ({
+  bytes_total: stdout.length,
+  duration_ms: 1,
+  exit_code: 0,
+  stderr: "",
+  stdout,
+  truncated: false,
 });
 
-const throwing = (error: unknown): Transport => ({
-  send: () => Promise.reject(error),
-});
+const digestOf = async (bytes: Uint8Array): Promise<string> => {
+  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
 
-const lastSent = () => sent.at(-1) as Record<string, unknown>;
+const base64Of = (bytes: Uint8Array): string =>
+  btoa(String.fromCharCode(...bytes));
 
-beforeEach(() => {
-  sent.length = 0;
-});
-
-describe("the protocol", () => {
-  test("read sends the op, the path and the byte cap", async () => {
-    const backend = createRemoteBackend(
-      replying({ content: "hello", ok: true, size: 5 })
+describe("exec", () => {
+  test("runs in the agent's directory with the timeout capped", async () => {
+    const { sent, transport } = fakeTransport((message) =>
+      reply(message, execOk("hi\n"))
     );
+    const backend = createRemoteBackend(transport, root);
 
-    const result = await backend.readFile("/notes/plan.md", 1000);
-
-    expect(result).toEqual({ content: "hello", ok: true, size: 5 });
-    expect(lastSent().op).toBe("read");
-    expect(lastSent().path).toBe("/notes/plan.md");
-    expect(lastSent().maxBytes).toBe(1000);
-    expect(typeof lastSent().id).toBe("string");
-  });
-
-  test("write sends the content and reports what was created", async () => {
-    const backend = createRemoteBackend(
-      replying({ created: true, ok: true, size: 3 })
+    const result = await backend.exec(
+      "echo hi",
+      REMOTE_EXEC_MAX_TIMEOUT_MS * 5
     );
-
-    const result = await backend.writeFile("/a.txt", "abc");
-
-    expect(result).toEqual({ created: true, ok: true, size: 3 });
-    expect(lastSent().op).toBe("write");
-    expect(lastSent().content).toBe("abc");
-  });
-
-  test("an upload's bytes travel as base64, not as JSON digits", async () => {
-    const backend = createRemoteBackend(
-      replying({ created: true, ok: true, size: 4 })
-    );
-
-    const result = await backend.writeFileBytes(
-      "/uploads/logo.png",
-      new Uint8Array([0x89, 0x50, 0x4e, 0x47])
-    );
-
-    expect(result).toEqual({ created: true, ok: true, size: 4 });
-    expect(lastSent().op).toBe("write");
-    expect(lastSent().encoding).toBe("base64");
-    expect(lastSent().content).toBe("iVBORw==");
-  });
-
-  test("a file bigger than one base64 chunk still encodes whole", async () => {
-    const backend = createRemoteBackend(
-      replying({ created: true, ok: true, size: 20_000 })
-    );
-    const bytes = new Uint8Array(20_000).fill(0x41);
-
-    await backend.writeFileBytes("/uploads/big.bin", bytes);
-
-    const content = lastSent().content as string;
-    expect(atob(content).length).toBe(20_000);
-  });
-
-  test("edit sends both strings", async () => {
-    const backend = createRemoteBackend(
-      replying({ created: false, ok: true, size: 9 })
-    );
-
-    const result = await backend.editFile("/a.txt", "old", "new");
-
-    expect(result).toEqual({ created: false, ok: true, size: 9 });
-    expect(lastSent().op).toBe("edit");
-    expect(lastSent().oldString).toBe("old");
-    expect(lastSent().newString).toBe("new");
-  });
-
-  test("list returns the entries, defaulting what the daemon left out", async () => {
-    const backend = createRemoteBackend(
-      replying({
-        entries: [
-          { directory: true, name: "notes", size: 0 },
-          { name: "a.txt" },
-        ],
-        ok: true,
-      })
-    );
-
-    const result = await backend.listDir("/");
 
     expect(result).toEqual({
+      exitCode: 0,
+      ok: true,
+      stderr: "",
+      stdout: "hi\n",
+    });
+    expect(sent[0]).toMatchObject({
+      command: "echo hi",
+      cwd: ROOT,
+      env: {},
+      op: "exec",
+      timeout_ms: REMOTE_EXEC_MAX_TIMEOUT_MS,
+    });
+  });
+
+  test("a timed-out command is cancelled by the id it was sent with", async () => {
+    const { sent, transport } = fakeTransport((message) => {
+      if (message.op === "exec") {
+        throw new ComputerTransportError(
+          "The computer did not answer in time.",
+          {
+            timedOut: true,
+          }
+        );
+      }
+      return reply(message, { cancelled: true });
+    });
+    const backend = createRemoteBackend(transport, root);
+
+    const result = await backend.exec("sleep 99", 1000);
+
+    expect(result.ok).toBe(false);
+    expect(sent.map((message) => message.op)).toEqual(["exec", "cancel"]);
+    expect(sent[1]?.target_id).toBe(sent[0]?.id);
+  });
+
+  test("a command that fails for another reason is not cancelled", async () => {
+    const { sent, transport } = fakeTransport(() => {
+      throw new ComputerTransportError("The computer is offline.");
+    });
+    const backend = createRemoteBackend(transport, root);
+
+    const result = await backend.exec("ls");
+
+    expect(result).toEqual({ ok: false, reason: "The computer is offline." });
+    expect(sent.map((message) => message.op)).toEqual(["exec"]);
+  });
+
+  test("a host whose root is unknown runs nothing", async () => {
+    const { sent, transport } = fakeTransport(() => ({}));
+    const backend = createRemoteBackend(transport, () =>
+      Promise.resolve({ ok: false, reason: "No working directory yet." })
+    );
+
+    expect(await backend.exec("ls")).toEqual({
+      ok: false,
+      reason: "No working directory yet.",
+    });
+    expect(sent).toEqual([]);
+  });
+});
+
+describe("file_get", () => {
+  test("reads a file across chunks until eof", async () => {
+    const first = new Uint8Array(FILE_CHUNK_BYTES).fill(97);
+    const second = new TextEncoder().encode("tail");
+    const { sent, transport } = fakeTransport((message) => {
+      const { offset } = message;
+      if (offset === 0) {
+        return reply(message, {
+          data_b64: base64Of(first),
+          eof: false,
+          sha256: null,
+          size: FILE_CHUNK_BYTES + second.length,
+        });
+      }
+      return reply(message, {
+        data_b64: base64Of(second),
+        eof: true,
+        sha256: null,
+        size: FILE_CHUNK_BYTES + second.length,
+      });
+    });
+    const backend = createRemoteBackend(transport, root);
+
+    const result = await backend.readFile("/notes.txt", 1_000_000);
+
+    expect(result).toEqual({
+      content: `${"a".repeat(FILE_CHUNK_BYTES)}tail`,
+      ok: true,
+      size: FILE_CHUNK_BYTES + second.length,
+    });
+    expect(sent.map((message) => message.offset)).toEqual([
+      0,
+      FILE_CHUNK_BYTES,
+    ]);
+    expect(sent[0]).toMatchObject({
+      max_bytes: FILE_CHUNK_BYTES,
+      op: "file_get",
+      path: `${ROOT}/notes.txt`,
+    });
+  });
+
+  test("refuses a file over the limit without reading it", async () => {
+    const { sent, transport } = fakeTransport((message) =>
+      reply(message, { data_b64: "", eof: false, sha256: null, size: 5000 })
+    );
+    const backend = createRemoteBackend(transport, root);
+
+    const result = await backend.readFile("/big.bin", 1000);
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "File is 5000 bytes, over the 1000 byte limit.",
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  test("keeps the daemon's own message for a missing file", async () => {
+    const { transport } = fakeTransport((message) => ({
+      error: {
+        code: "not_found",
+        message: `no such file: ${String(message.path)}`,
+      },
+      id: message.id,
+    }));
+    const backend = createRemoteBackend(transport, root);
+
+    expect(await backend.readFile("/nope", 100)).toEqual({
+      ok: false,
+      reason: `no such file: ${ROOT}/nope`,
+    });
+  });
+});
+
+describe("file_put", () => {
+  test("writes a large file in chunks, with the digest on the final one only", async () => {
+    const bytes = new Uint8Array(FILE_CHUNK_BYTES + 10).fill(66);
+    const { sent, transport } = fakeTransport((message) => {
+      if (message.op === "file_get") {
+        return {
+          error: { code: "not_found", message: "missing" },
+          id: message.id,
+        };
+      }
+      if (message.op === "exec") {
+        return reply(message, execOk());
+      }
+      return reply(message, {
+        bytes_written: bytes.length,
+        sha256: message.final === true ? "digest" : null,
+      });
+    });
+    const backend = createRemoteBackend(transport, root);
+
+    const result = await backend.writeFileBytes("/big.bin", bytes);
+
+    expect(result).toEqual({ created: true, ok: true, size: bytes.length });
+    const puts = sent.filter((message) => message.op === "file_put");
+    expect(puts.map((message) => message.seq)).toEqual([0, 1]);
+    expect(puts.map((message) => message.final)).toEqual([false, true]);
+    expect(puts[0]?.sha256).toBeNull();
+    expect(puts[1]?.sha256).toBe(await digestOf(bytes));
+    expect(new Set(puts.map((message) => message.transfer_id)).size).toBe(1);
+    expect(puts[1]?.path).toBe(`${ROOT}/big.bin`);
+  });
+
+  test("an existing file is not reported as created", async () => {
+    const { transport } = fakeTransport((message) => {
+      if (message.op === "file_get") {
+        return reply(message, {
+          data_b64: "",
+          eof: true,
+          sha256: null,
+          size: 3,
+        });
+      }
+      if (message.op === "exec") {
+        return reply(message, execOk());
+      }
+      return reply(message, { bytes_written: 2, sha256: "digest" });
+    });
+    const backend = createRemoteBackend(transport, root);
+
+    expect(await backend.writeFile("/a.txt", "hi")).toEqual({
+      created: false,
+      ok: true,
+      size: 2,
+    });
+  });
+
+  test("creates the parent directory on the host first, quoted", async () => {
+    const { sent, transport } = fakeTransport((message) => {
+      if (message.op === "file_get") {
+        return {
+          error: { code: "not_found", message: "missing" },
+          id: message.id,
+        };
+      }
+      if (message.op === "exec") {
+        return reply(message, execOk());
+      }
+      return reply(message, { bytes_written: 0, sha256: "digest" });
+    });
+    const backend = createRemoteBackend(transport, root);
+
+    await backend.writeFile("/it's/a.txt", "");
+
+    expect(sent.find((message) => message.op === "exec")?.command).toBe(
+      `mkdir -p '${ROOT}/it'\\''s'`
+    );
+  });
+});
+
+describe("editFile", () => {
+  test("replaces the one occurrence and writes the file back", async () => {
+    const stored = new TextEncoder().encode("hello world");
+    const { transport } = fakeTransport((message) => {
+      if (message.op === "file_get") {
+        return reply(message, {
+          data_b64: base64Of(stored),
+          eof: true,
+          sha256: null,
+          size: stored.length,
+        });
+      }
+      if (message.op === "exec") {
+        return reply(message, execOk());
+      }
+      return reply(message, { bytes_written: 11, sha256: "digest" });
+    });
+    const backend = createRemoteBackend(transport, root);
+
+    const result = await backend.editFile("/a.txt", "world", "there");
+
+    expect(result).toEqual({ created: false, ok: true, size: 11 });
+  });
+
+  test("refuses when the old string appears more than once", async () => {
+    const stored = new TextEncoder().encode("a a");
+    const { transport } = fakeTransport((message) =>
+      reply(message, {
+        data_b64: base64Of(stored),
+        eof: true,
+        sha256: null,
+        size: stored.length,
+      })
+    );
+    const backend = createRemoteBackend(transport, root);
+
+    expect(await backend.editFile("/a.txt", "a", "b")).toEqual({
+      ok: false,
+      reason:
+        "old_string appears 2 times in /a.txt; include enough surrounding context to make it unique.",
+    });
+  });
+});
+
+describe("listDir", () => {
+  test("parses the find listing into entries, names with spaces included", async () => {
+    const stdout = "d 4096 notes dir\0f 12 a.txt\0";
+    const { sent, transport } = fakeTransport((message) =>
+      reply(message, execOk(stdout))
+    );
+    const backend = createRemoteBackend(transport, root);
+
+    expect(await backend.listDir("/")).toEqual({
       entries: [
-        { directory: true, name: "notes", size: 0 },
-        { directory: false, name: "a.txt", size: 0 },
+        { directory: true, name: "notes dir", size: 4096 },
+        { directory: false, name: "a.txt", size: 12 },
       ],
       ok: true,
     });
-    expect(lastSent().op).toBe("list");
+    expect(String(sent[0]?.command)).toContain(`find '${ROOT}/' -mindepth 1`);
   });
+});
 
-  test("exec sends the command and a default timeout", async () => {
-    const backend = createRemoteBackend(
-      replying({ exitCode: 0, ok: true, stderr: "", stdout: "hi" })
-    );
+describe("ping", () => {
+  test("a host that runs a no-op command answers", async () => {
+    const { transport } = fakeTransport((message) => reply(message, execOk()));
 
-    const result = await backend.exec("echo hi");
-
-    expect(result).toEqual({ exitCode: 0, ok: true, stderr: "", stdout: "hi" });
-    expect(lastSent().op).toBe("exec");
-    expect(lastSent().command).toBe("echo hi");
-    expect(lastSent().timeoutMs).toBe(30_000);
-  });
-
-  test("exec caps the timeout at ten minutes", async () => {
-    const backend = createRemoteBackend(
-      replying({ exitCode: 0, ok: true, stderr: "", stdout: "" })
-    );
-
-    await backend.exec("sleep 1", REMOTE_EXEC_MAX_TIMEOUT_MS * 10);
-
-    expect(lastSent().timeoutMs).toBe(REMOTE_EXEC_MAX_TIMEOUT_MS);
-  });
-
-  test("a refusal from the daemon keeps its own reason", async () => {
-    const backend = createRemoteBackend(
-      replying({ ok: false, reason: "No such file: /nope" })
-    );
-
-    expect(await backend.readFile("/nope", 10)).toEqual({
-      ok: false,
-      reason: "No such file: /nope",
-    });
-  });
-
-  test("ping reports the daemon's version and hostname", async () => {
-    const result = await ping(
-      replying({
-        hostname: "office-box",
-        ok: true,
-        uptimeMs: 12,
-        version: "1.2.3",
-      })
-    );
-
-    expect(result).toEqual({
-      hostname: "office-box",
+    expect(await ping(transport)).toEqual({
+      hostname: null,
       ok: true,
-      uptimeMs: 12,
-      version: "1.2.3",
+      uptimeMs: null,
+      version: null,
+    });
+  });
+
+  test("a host that does not answer says why", async () => {
+    const { transport } = fakeTransport(() => {
+      throw new ComputerTransportError("The computer host is offline.");
+    });
+
+    expect(await ping(transport)).toEqual({
+      ok: false,
+      reason: "The computer host is offline.",
     });
   });
 });
 
-/** The refusal reason, or the empty string when the call wrongly succeeded. */
-const reasonOf = (result: { ok: boolean; reason?: string }): string =>
-  result.ok ? "" : (result.reason ?? "");
+describe("replies", () => {
+  test("a reply for another id is refused, not used", async () => {
+    const { transport } = fakeTransport(() => ({
+      id: "someone-else",
+      result: execOk("wrong"),
+    }));
+    const backend = createRemoteBackend(transport, root);
 
-describe("replies that cannot be trusted", () => {
-  test("a success missing its payload is not a success", async () => {
-    const backend = createRemoteBackend(replying({ ok: true }));
-
-    expect(reasonOf(await backend.readFile("/a.txt", 10))).toContain(
-      "could not understand"
-    );
-  });
-
-  test("a result with no ok at all is refused", async () => {
-    const backend = createRemoteBackend(replying({ size: 3 }));
-
-    expect(reasonOf(await backend.writeFile("/a.txt", "abc"))).toContain(
-      "could not understand"
-    );
-  });
-
-  test("an entry without a name poisons the whole listing", async () => {
-    const backend = createRemoteBackend(
-      replying({ entries: [{ name: "a" }, { size: 1 }], ok: true })
-    );
-
-    expect(reasonOf(await backend.listDir("/"))).toContain(
-      "could not understand"
-    );
-  });
-
-  test("an exec with no exit code is refused", async () => {
-    const backend = createRemoteBackend(replying({ ok: true, stdout: "done" }));
-
-    expect(reasonOf(await backend.exec("true"))).toContain(
-      "could not understand"
-    );
-  });
-
-  test("a reply outside the envelope is refused", async () => {
-    const backend = createRemoteBackend(replyingRaw({ ok: true, size: 1 }));
-
-    expect(reasonOf(await backend.writeFile("/a.txt", "a"))).toContain(
-      "could not understand"
-    );
-  });
-
-  test("a reply for another request is discarded, not used", async () => {
-    const backend = createRemoteBackend(
-      replyingRaw({
-        id: "some-other-call",
-        result: { content: "x", ok: true, size: 1 },
-      })
-    );
-
-    expect(reasonOf(await backend.readFile("/a.txt", 10))).toContain(
-      "could not understand"
-    );
-  });
-
-  test("a ping that answers with nonsense is not a healthy host", async () => {
-    expect(reasonOf(await ping(replyingRaw("pong")))).toContain(
-      "could not understand"
-    );
-  });
-});
-
-describe("a transport that fails", () => {
-  test("passes through a reason the transport wrote for a person", async () => {
-    const offline =
-      "The computer host `office-box` is offline (last seen 12 minutes ago). Start the container and try again.";
-    const backend = createRemoteBackend(
-      throwing(new ComputerTransportError(offline))
-    );
-
-    expect(await backend.exec("ls")).toEqual({ ok: false, reason: offline });
-  });
-
-  test("turns anything else into a reason, never a stack trace", async () => {
-    const backend = createRemoteBackend(
-      throwing(new TypeError("fetch failed: ECONNREFUSED 10.0.0.4:443"))
-    );
-
-    const result = await backend.readFile("/a.txt", 10);
-
-    expect(result.ok).toBe(false);
-    expect(result.ok === false && result.reason).toContain(
-      "could not be reached"
-    );
-    expect(result.ok === false && result.reason).not.toContain("ECONNREFUSED");
-  });
-
-  test("reports the failure on ping too, rather than throwing", async () => {
-    const result = await ping(throwing(new Error("boom")));
+    const result = await backend.exec("ls");
 
     expect(result.ok).toBe(false);
   });

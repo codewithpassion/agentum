@@ -17,10 +17,14 @@ import {
   validateContent,
   validatePath,
 } from "./paths";
-import { createRelayTransport } from "./relay-transport";
+import {
+  createRelaySessionRoot,
+  createRelayTransport,
+} from "./relay-transport";
 import {
   createRemoteBackend,
   REMOTE_EXEC_MAX_TIMEOUT_MS,
+  type SessionRoot,
   type Transport,
 } from "./remote-client";
 import type { ComputerHost } from "./schema";
@@ -136,6 +140,24 @@ export const transportForHost = async (
   });
 };
 
+/**
+ * Where an agent's files live on its host. Only a self-hosted host has said
+ * where its working directory is; a Fly host's daemon speaks the retired file
+ * protocol, so its files are refused until Fly moves to the relay.
+ */
+const sessionRootFor = (
+  env: Env,
+  host: ComputerHost,
+  agent: Agent
+): SessionRoot =>
+  host.kind === "self_hosted"
+    ? createRelaySessionRoot(env, host.id, agent.id)
+    : () =>
+        Promise.resolve({
+          ok: false,
+          reason: `${agent.name}'s files on Fly host "${host.name}" are not available yet.`,
+        });
+
 const remoteBackendFor = async (
   db: Db,
   env: Env,
@@ -161,7 +183,8 @@ const remoteBackendFor = async (
 
   try {
     return createRemoteBackend(
-      await transportForHost(db, env, host, machineId)
+      await transportForHost(db, env, host, machineId),
+      sessionRootFor(env, host, agent)
     );
   } catch (error) {
     // A configuration failure - a missing CONNECTOR_KEY, a host with no stored

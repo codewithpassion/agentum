@@ -99,6 +99,14 @@ beforeEach(async () => {
           relayCalls.push(message);
           return Promise.reject(new Error(RELAY_OFFLINE));
         },
+        status: () =>
+          Promise.resolve({
+            capabilities: null,
+            connected: false,
+            hostname: null,
+            version: null,
+            workdir: "/var/lib/agentum-computer/sessions",
+          }),
       }),
       idFromName: (name: string) => name,
     },
@@ -170,7 +178,7 @@ describe("createComputerClient", () => {
     expect(result.ok === false && result.reason).toBe(RELAY_OFFLINE);
   });
 
-  test("a fly agent with a machine goes to the fly transport", async () => {
+  test("a fly agent's files are refused until Fly moves to the relay", async () => {
     const { host } = await createHost(db, env, workspaceId, {
       config: { app: "agentum-computers" },
       flyApiToken: "fly_api_token",
@@ -203,12 +211,10 @@ describe("createComputerClient", () => {
       );
 
       expect(execCalls).toEqual([]);
-      expect(calledWith).toEqual(["https://agentum-computers.fly.dev/op"]);
+      expect(calledWith).toEqual([]);
       expect(result).toEqual({
-        exitCode: 0,
-        ok: true,
-        stderr: "",
-        stdout: "from fly",
+        ok: false,
+        reason: expect.stringContaining("not available yet"),
       });
     } finally {
       globalThis.fetch = realFetch;

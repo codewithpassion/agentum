@@ -77,7 +77,14 @@ const createTestD1 = (): D1Database => {
 /** What the injected Fly probe and transport were told to do, per test. */
 let flyProbeAnswer = true;
 let probedWith: { app: string; token: string }[] = [];
-let pingReply: unknown = { hostname: "office-box", ok: true, version: "1.0.0" };
+let pingReply: unknown = {
+  bytes_total: 0,
+  duration_ms: 1,
+  exit_code: 0,
+  stderr: "",
+  stdout: "",
+  truncated: false,
+};
 let pingThrows: Error | null = null;
 /** Which hosts had the rotation's other half - the machines' env - run for them. */
 let rotatedHosts: string[] = [];
@@ -177,7 +184,14 @@ beforeEach(async () => {
   probedWith = [];
   rotatedHosts = [];
   revokedHosts = [];
-  pingReply = { hostname: "office-box", ok: true, version: "1.0.0" };
+  pingReply = {
+    bytes_total: 0,
+    duration_ms: 1,
+    exit_code: 0,
+    stderr: "",
+    stdout: "",
+    truncated: false,
+  };
   pingThrows = null;
 
   const alpha = await createWorkspace(db, {
@@ -572,13 +586,13 @@ describe("POST /computer-hosts/:id/test", () => {
         `/api/w/alpha/computer-hosts/${created.body.host.id}/test`,
         { method: "POST" }
       )
-    ).json()) as { hostname: string; ok: boolean; version: string };
+    ).json()) as {
+      hostname: string | null;
+      ok: boolean;
+      version: string | null;
+    };
 
-    expect(body).toEqual({
-      hostname: "office-box",
-      ok: true,
-      version: "1.0.0",
-    });
+    expect(body).toEqual({ hostname: null, ok: true, version: null });
     const host = await getHostByIdUnscoped(db, created.body.host.id);
     expect(host?.status).toBe("ready");
     expect(host?.lastSeenAt).toBeInstanceOf(Date);
