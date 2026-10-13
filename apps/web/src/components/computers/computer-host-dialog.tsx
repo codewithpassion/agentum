@@ -255,7 +255,7 @@ export function ComputerHostDialog({
     >
       {issued ? (
         <div className="space-y-4">
-          <ComputerTokenPanel code={issued.code} />
+          <ComputerTokenPanel code={issued.code} host={issued.host} />
           <div className="flex justify-end">
             <Button onClick={finish} variant="primary">
               Done

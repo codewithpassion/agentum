@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
+import type { ComputerHost } from "#/lib/api";
 import {
   type ComputerImageVariant,
   computerRunCommand,
@@ -22,15 +23,17 @@ const VARIANT_LABELS: Record<ComputerImageVariant, string> = {
 
 function CommandBlock({
   code,
+  host,
   url,
   variant,
 }: {
   code: string;
+  host: Pick<ComputerHost, "id" | "name">;
   url: string;
   variant: ComputerImageVariant;
 }) {
   const [copied, setCopied] = useState(false);
-  const command = computerRunCommand(variant, { code, url });
+  const command = computerRunCommand(variant, { code, host, url });
 
   const copy = useCallback(() => {
     navigator.clipboard.writeText(command).then(() => {
@@ -59,7 +62,13 @@ function CommandBlock({
   );
 }
 
-export function ComputerTokenPanel({ code }: { code: string }) {
+export function ComputerTokenPanel({
+  code,
+  host,
+}: {
+  code: string;
+  host: Pick<ComputerHost, "id" | "name">;
+}) {
   const url = window.location.origin;
 
   return (
@@ -69,8 +78,8 @@ export function ComputerTokenPanel({ code }: { code: string }) {
         enrollment code is shown once, works once, and expires in 15 minutes. If
         it lapses or gets lost, re-enroll the host for a new one.
       </p>
-      <CommandBlock code={code} url={url} variant="base" />
-      <CommandBlock code={code} url={url} variant="desktop" />
+      <CommandBlock code={code} host={host} url={url} variant="base" />
+      <CommandBlock code={code} host={host} url={url} variant="desktop" />
       <p className="m-0 text-[var(--ws-muted)] text-xs">
         The desktop image runs Chromium, whose sandbox needs user namespaces
         that Docker's default seccomp profile refuses. Download{" "}
@@ -88,7 +97,9 @@ export function ComputerTokenPanel({ code }: { code: string }) {
       <p className="m-0 text-[var(--ws-muted)] text-xs">
         The named volume holds the machine credential the client receives when
         it enrolls, so a restart or a new image reconnects without a new code.
-        The container dials out to Agentum, so it needs no inbound port.
+        Each host gets its own container and volume, so several can run on one
+        machine. The container dials out to Agentum, so it needs no inbound
+        port.
       </p>
       <p className="m-0 text-[var(--ws-muted)] text-xs">
         The container runs whatever the agent decides to run, with the network

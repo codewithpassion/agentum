@@ -18,6 +18,32 @@ export const SECCOMP_PROFILE_URL =
 
 export type ComputerImageVariant = "base" | "desktop";
 
+const MAX_HOST_SLUG_LENGTH = 40;
+const NON_SLUG_RUNS = /[^a-z0-9]+/g;
+const EDGE_HYPHENS = /^-+|-+$/g;
+
+const toSlug = (text: string): string =>
+  text.toLowerCase().replace(NON_SLUG_RUNS, "-").replace(EDGE_HYPHENS, "");
+
+/**
+ * The host's name as a Docker-safe slug. A name with nothing usable in it falls
+ * back to the start of the host id, so every host still gets its own name.
+ */
+export const computerHostSlug = (
+  host: Pick<ComputerHost, "id" | "name">
+): string =>
+  toSlug(toSlug(host.name).slice(0, MAX_HOST_SLUG_LENGTH)) ||
+  toSlug(host.id.slice(0, 8));
+
+/**
+ * The container, volume and hostname a host's command uses. Each host gets its
+ * own, so several can run on one machine.
+ */
+const computerResourceName = (
+  variant: ComputerImageVariant,
+  host: Pick<ComputerHost, "id" | "name">
+): string => `agentum-${variant}-${computerHostSlug(host)}`;
+
 /**
  * The enrol-and-run command, mirroring `apps/computer/README.md`: the client
  * enrols itself from the environment on first start, and a named volume on its
@@ -28,12 +54,11 @@ export type ComputerImageVariant = "base" | "desktop";
  */
 export const computerRunCommand = (
   variant: ComputerImageVariant,
-  input: { code: string; url: string }
+  input: { code: string; host: Pick<ComputerHost, "id" | "name">; url: string }
 ): string => {
-  const name =
-    variant === "desktop" ? "agentum-computer-desktop" : "agentum-computer";
+  const name = computerResourceName(variant, input.host);
   return [
-    `docker run -d --restart unless-stopped --name ${name}`,
+    `docker run -d --restart unless-stopped --name ${name} --hostname ${name}`,
     ...(variant === "desktop" ? ["--security-opt seccomp=./seccomp.json"] : []),
     `-e AGENTUM_URL=${input.url}`,
     `-e AGENTUM_ENROLL_CODE=${input.code}`,

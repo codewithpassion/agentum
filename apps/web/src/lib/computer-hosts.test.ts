@@ -3,12 +3,16 @@ import type { ComputerHost } from "./api";
 import {
   COMPUTER_DESKTOP_IMAGE,
   COMPUTER_IMAGE,
+  computerHostSlug,
   computerRunCommand,
   computerSummary,
   hostChoicesFor,
   hostRemovalBlock,
   lastSeenLabel,
 } from "./computer-hosts";
+
+const DOCKER_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+const NAME_FLAG = /--name (\S+)/;
 
 const host = (overrides: Partial<ComputerHost> = {}): ComputerHost => ({
   agentIds: [],
@@ -28,15 +32,52 @@ const host = (overrides: Partial<ComputerHost> = {}): ComputerHost => ({
   ...overrides,
 });
 
-describe("computerRunCommand", () => {
-  const input = { code: "code_abc", url: "https://agentum.example.com" };
+describe("computerHostSlug", () => {
+  test("lowercases the name and joins its words with hyphens", () => {
+    expect(computerHostSlug(host({ name: "Office Box #2" }))).toBe(
+      "office-box-2"
+    );
+  });
 
-  test("the base command carries the volume, the URL and the code", () => {
+  test("replaces anything outside a-z0-9 and trims the ends", () => {
+    expect(computerHostSlug(host({ name: "  --Lab_rack.01!! " }))).toBe(
+      "lab-rack-01"
+    );
+  });
+
+  test("caps the slug at 40 characters without a trailing hyphen", () => {
+    const slug = computerHostSlug(host({ name: `${"a".repeat(39)} bcdef` }));
+    expect(slug).toBe("a".repeat(39));
+    expect(slug.length).toBeLessThanOrEqual(40);
+  });
+
+  test("falls back to the first 8 characters of the id when the name is empty", () => {
+    expect(computerHostSlug(host({ id: "cmh_abcdef123", name: "" }))).toBe(
+      "cmh-abcd"
+    );
+    expect(
+      computerHostSlug(host({ id: "cmh_abcdef123", name: "!!! ---" }))
+    ).toBe("cmh-abcd");
+  });
+});
+
+describe("computerRunCommand", () => {
+  const input = {
+    code: "code_abc",
+    host: host(),
+    url: "https://agentum.example.com",
+  };
+
+  test("the base command carries the host's name, the URL and the code", () => {
     const command = computerRunCommand("base", input);
-    expect(command).toStartWith("docker run -d --restart unless-stopped");
+    expect(command).toStartWith(
+      "docker run -d --restart unless-stopped --name agentum-base-office-box --hostname agentum-base-office-box"
+    );
     expect(command).toContain("-e AGENTUM_URL=https://agentum.example.com");
     expect(command).toContain("-e AGENTUM_ENROLL_CODE=code_abc");
-    expect(command).toContain("-v agentum-computer:/var/lib/agentum-computer");
+    expect(command).toContain(
+      "-v agentum-base-office-box:/var/lib/agentum-computer"
+    );
     expect(command).toEndWith(COMPUTER_IMAGE);
     expect(command).not.toContain("seccomp");
   });
@@ -45,9 +86,38 @@ describe("computerRunCommand", () => {
     const command = computerRunCommand("desktop", input);
     expect(command).toContain("--security-opt seccomp=./seccomp.json");
     expect(command).toContain(
-      "-v agentum-computer-desktop:/var/lib/agentum-computer"
+      "-v agentum-desktop-office-box:/var/lib/agentum-computer"
     );
     expect(command).toEndWith(COMPUTER_DESKTOP_IMAGE);
+  });
+
+  test("two hosts on one machine get different containers and volumes", () => {
+    const first = computerRunCommand("base", {
+      ...input,
+      host: host({ id: "cmh_1", name: "Lab A" }),
+    });
+    const second = computerRunCommand("base", {
+      ...input,
+      host: host({ id: "cmh_2", name: "Lab B" }),
+    });
+    expect(first).toContain("--name agentum-base-lab-a");
+    expect(second).toContain("--name agentum-base-lab-b");
+    expect(first).not.toContain("lab-b");
+    expect(second).not.toContain("lab-a");
+  });
+
+  test("every generated name matches the Docker name pattern", () => {
+    const names = [
+      host({ name: "Weird /name: ünïcode & spaces!!" }),
+      host({ id: "cmh_zz", name: "" }),
+      host({ name: "x".repeat(200) }),
+    ].map((h) => {
+      const command = computerRunCommand("desktop", { ...input, host: h });
+      return command.match(NAME_FLAG)?.[1] ?? "";
+    });
+    for (const name of names) {
+      expect(name).toMatch(DOCKER_NAME);
+    }
   });
 });
 

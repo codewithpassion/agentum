@@ -254,7 +254,7 @@ export function ComputerHostDetail({
               <code>docker rm -f agentum-computer</code>,{" "}
               <code>docker volume rm agentum-computer</code>), then run:
             </Notice>
-            <ComputerTokenPanel code={enrollCode} />
+            <ComputerTokenPanel code={enrollCode} host={host} />
           </Section>
         ) : null}
 
