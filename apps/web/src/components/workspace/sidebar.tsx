@@ -463,9 +463,9 @@ export function Sidebar({
       aria-label="Workspace"
       className="flex w-70 shrink-0 flex-col border-[var(--ws-line)] border-r bg-[var(--ws-panel)]"
     >
-      <div className="flex items-center justify-between gap-2 px-3 py-3">
+      <div className="flex flex-col gap-1 px-3 py-3">
         <WorkspaceSwitcher />
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 px-1.5">
           <Link
             aria-label="Wiki"
             className={ICON_LINK_CLASS}
