@@ -84,7 +84,7 @@ export const captureDesktop = async (
   const relay = env.COMPUTER_RELAY.get(
     env.COMPUTER_RELAY.idFromName(agent.computerHostId)
   );
-  const shot = await takeDesktopScreenshot(relay);
+  const shot = await takeDesktopScreenshot(relay, null, agent.id);
   if (!shot.ok) {
     return { ok: false, text: desktopFailureText(shot.reason, shot.message) };
   }
