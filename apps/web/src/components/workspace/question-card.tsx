@@ -1,9 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "#/components/ui/button";
 import type { Question } from "#/lib/api";
 import { cx } from "#/lib/cx";
-import { optionTone, questionCardState } from "#/lib/question-card";
-import { useApi } from "#/lib/workspace-context";
+import { createDesktopServer, readDesktopFailure } from "#/lib/desktop-api";
+import { requestOpenAgentScreen } from "#/lib/open-agent-screen";
+import {
+  optionTone,
+  questionCardState,
+  questionCardTitle,
+} from "#/lib/question-card";
+import { useApi, useWorkspaceSlug } from "#/lib/workspace-context";
 
 /**
  * An agent's question, rendered in place of the message body it was asked as -
@@ -15,6 +21,9 @@ import { useApi } from "#/lib/workspace-context";
  * lets a Slack click, the expiry sweep and this tab's own button all land the
  * same way. Nothing here decides that a deadline has passed; the server closes
  * a question, because closing it is also what wakes the agent.
+ *
+ * A takeover is the same card with other buttons: "Open screen" and "Cancel"
+ * stand in for options, and its answer comes from the desktop, not from here.
  */
 
 /** The countdown is a sentence about the future, so it has to keep being true. */
@@ -108,6 +117,32 @@ function FreeTextAnswer({
 }
 
 /** The chosen answer, kept visible once a free-text question is resolved. */
+/** The takeover's buttons: go to the screen, or decline the request. */
+function TakeoverActions({
+  agentId,
+  busy,
+  onCancel,
+}: {
+  agentId: string;
+  busy: boolean;
+  onCancel: () => void;
+}) {
+  const openScreen = useCallback(
+    () => requestOpenAgentScreen(agentId),
+    [agentId]
+  );
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button onClick={openScreen} size="sm" variant="primary">
+        Open screen
+      </Button>
+      <Button disabled={busy} onClick={onCancel} size="sm" variant="subtle">
+        Cancel
+      </Button>
+    </div>
+  );
+}
+
 function AnswerQuote({ answer }: { answer: string }) {
   return (
     <p className="m-0 rounded-lg bg-[var(--ws-panel)] px-2.5 py-1.5 text-[13px] text-[var(--ws-text)]">
@@ -125,6 +160,8 @@ export function QuestionCard({
   question: Question;
 }) {
   const api = useApi();
+  const slug = useWorkspaceSlug();
+  const desktop = useMemo(() => createDesktopServer(slug), [slug]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -168,6 +205,27 @@ export function QuestionCard({
     [api, onAnswered, question.id]
   );
 
+  const cancelTakeover = useCallback(() => {
+    setBusy(true);
+    setError(null);
+    (async () => {
+      try {
+        onAnswered(await desktop.cancelTakeover({ agentId: question.agentId }));
+      } catch (cause) {
+        const failure = readDesktopFailure(cause);
+        if (failure) {
+          setError(failure.message);
+        } else {
+          setError(
+            cause instanceof Error ? cause.message : "Failed to cancel."
+          );
+        }
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [desktop, onAnswered, question.agentId]);
+
   const showInput = state.freeText && state.mode === "pending";
   const showAnswerQuote = state.freeText && question.answer !== null;
 
@@ -190,7 +248,7 @@ export function QuestionCard({
               : "text-[var(--ws-muted)]"
           }
         >
-          {state.permission ? "⚠ Permission request" : "Question"}
+          {questionCardTitle(state)}
         </span>
         {state.expiryLabel ? (
           <span className="text-[var(--ws-muted)] normal-case tracking-normal">
@@ -203,7 +261,15 @@ export function QuestionCard({
         {question.prompt}
       </p>
 
-      {state.freeText ? null : (
+      {state.takeover && state.mode === "pending" ? (
+        <TakeoverActions
+          agentId={question.agentId}
+          busy={busy}
+          onCancel={cancelTakeover}
+        />
+      ) : null}
+
+      {state.freeText || state.takeover ? null : (
         <div className="flex flex-wrap gap-2">
           {(question.options ?? []).map((option) => (
             <OptionButton

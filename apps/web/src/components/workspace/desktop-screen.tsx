@@ -614,6 +614,15 @@ export function DesktopScreen({
       className={cx("flex min-h-0 flex-col gap-3", className)}
       data-testid="desktop-screen"
     >
+      {status?.pendingTakeover ? (
+        <p
+          className="m-0 rounded-lg bg-[var(--ws-panel)] px-2.5 py-1.5 text-[13px] text-[var(--ws-text)] leading-5"
+          data-testid="desktop-takeover-reason"
+        >
+          The agent asked you to take over: {status.pendingTakeover.reason}
+        </p>
+      ) : null}
+
       <div className="flex flex-col gap-2">
         <p className="m-0 text-[var(--ws-muted)] text-xs">
           <span aria-live="polite">

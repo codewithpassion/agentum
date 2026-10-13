@@ -3,6 +3,10 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import type { Agent, AgentStatusView } from "#/lib/api";
 import { computerSummary } from "#/lib/computer-hosts";
+import {
+  isOpenScreenRequestFor,
+  OPEN_AGENT_SCREEN_EVENT,
+} from "#/lib/open-agent-screen";
 import { pollIntervalFor } from "#/lib/use-agent-screen";
 import { useComputerHosts } from "#/lib/use-computer-hosts";
 import { useApi } from "#/lib/workspace-context";
@@ -291,6 +295,20 @@ export function AgentRail({
 }) {
   const status = useAgentStatus(agent, liveStatus);
   const [tab, setTab] = useState<Tab>("Screen");
+  const agentId = agent?.id ?? null;
+  // A takeover card asks for the screen from the conversation, not from this rail.
+  useEffect(() => {
+    if (agentId === null) {
+      return;
+    }
+    const onRequest = (event: Event) => {
+      if (isOpenScreenRequestFor(event, agentId)) {
+        setTab("Screen");
+      }
+    };
+    window.addEventListener(OPEN_AGENT_SCREEN_EVENT, onRequest);
+    return () => window.removeEventListener(OPEN_AGENT_SCREEN_EVENT, onRequest);
+  }, [agentId]);
   // Only a remote computer has a host to name; a Cloudflare agent needs no list.
   const { hosts } = useComputerHosts(
     agent !== null && agent.computer !== "cloudflare"

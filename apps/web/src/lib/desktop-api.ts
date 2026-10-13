@@ -1,4 +1,4 @@
-import { ApiError } from "#/lib/api";
+import { ApiError, type Question } from "#/lib/api";
 import type { DesktopAction } from "#/lib/desktop-input";
 
 /**
@@ -12,6 +12,13 @@ export type DesktopController =
   | { kind: "agent" }
   | { kind: "human"; isMe: boolean; expiresAt: string };
 
+/** A takeover the agent is waiting on: a person was asked to use the desktop. */
+export interface PendingTakeover {
+  createdAt: number;
+  id: string;
+  reason: string;
+}
+
 export interface DesktopStatus {
   controller: DesktopController;
   /** Whether the computer reports a running desktop. */
@@ -19,6 +26,8 @@ export interface DesktopStatus {
   /** Why the computer has no desktop, when it says why. */
   desktopUnavailableReason: string | null;
   online: boolean;
+  /** The takeover the agent is waiting on, or null. */
+  pendingTakeover: PendingTakeover | null;
 }
 
 /** What the status route sends; `youHaveControl` says whether the caller is the holder. */
@@ -31,6 +40,7 @@ export interface WireDesktopStatus {
   } | null;
   desktop: boolean;
   desktopUnavailableReason: string | null;
+  pendingTakeover?: PendingTakeover | null;
   youHaveControl: boolean;
 }
 
@@ -54,6 +64,7 @@ export const toDesktopStatus = (wire: WireDesktopStatus): DesktopStatus => ({
   desktop: wire.desktop,
   desktopUnavailableReason: wire.desktopUnavailableReason,
   online: wire.connected,
+  pendingTakeover: wire.pendingTakeover ?? null,
 });
 
 export interface DesktopRequestFailure {
@@ -74,6 +85,7 @@ export class DesktopApiError extends ApiError {
 }
 
 const FAILURE_TEXT: Record<string, string> = {
+  already_handled: "This takeover was already handled.",
   clearing:
     "The last person's clipboard is being cleared. Try again in a moment.",
   desktop_failed: "The desktop did not answer. Try again.",
@@ -147,6 +159,8 @@ export interface DesktopRequest {
  * object (the view keys its state by it), but routes only need the agent.
  */
 export interface ComputerDesktopServer {
+  /** Declines a takeover request; answers with the settled question. */
+  cancelTakeover: (req: DesktopRequest) => Promise<Question>;
   getDesktopClipboard: (req: DesktopRequest) => Promise<{ text: string }>;
   getDesktopScreenshot: (
     req: DesktopRequest & { signal?: AbortSignal }
@@ -214,6 +228,14 @@ export const createDesktopServer = (
     toDesktopStatus((await response.json()) as WireDesktopStatus);
 
   return {
+    cancelTakeover: async ({ agentId }) => {
+      const response = await send(fetcher, at(agentId, "/cancel-takeover"), {
+        method: "POST",
+      });
+      const body = (await response.json()) as { question: Question };
+      return body.question;
+    },
+
     getDesktopClipboard: async ({ agentId }) =>
       (await send(fetcher, at(agentId, "/clipboard"))).json() as Promise<{
         text: string;

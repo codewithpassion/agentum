@@ -17,7 +17,8 @@ import { formatUntil } from "./schedule-format";
  * a card that expired itself would disagree with the thread under it.
  */
 
-export type QuestionCardMode = "answered" | "expired" | "pending";
+/** Every status a question can settle to; a takeover settles as handed back or cancelled. */
+export type QuestionCardMode = Question["status"];
 
 export interface QuestionCardState {
   /** True while an answer is in flight, or once the question is resolved. */
@@ -31,6 +32,8 @@ export interface QuestionCardState {
   permission: boolean;
   /** "Answered by Ada (via Slack) · 3m ago", or null while pending. */
   resolutionLabel: string | null;
+  /** A request for a person to use the desktop: no options, and its own buttons. */
+  takeover: boolean;
 }
 
 /** Slack ids as they arrive when the name cache was cold: `U01AB2CD3EF`. */
@@ -73,18 +76,38 @@ const answererLabel = (question: Question): string => {
   return viaSlack ? `${name} (via Slack)` : name;
 };
 
+const whenOf = (question: Question, now: number): string =>
+  question.answeredAt === null
+    ? ""
+    : ` · ${formatRelativeTime(question.answeredAt, now)}`;
+
+const takeoverResolutionLabelOf = (
+  question: Question,
+  now: number
+): string | null => {
+  switch (question.status) {
+    case "expired":
+      return "Expired — nobody took over in time";
+    case "handed_back":
+      return `Handed back by ${answererLabel(question)}${whenOf(question, now)}`;
+    case "cancelled":
+      return `Declined by ${answererLabel(question)}${whenOf(question, now)}`;
+    default:
+      return null;
+  }
+};
+
 const resolutionLabelOf = (question: Question, now: number): string | null => {
+  if (question.kind === "takeover") {
+    return takeoverResolutionLabelOf(question, now);
+  }
   if (question.status === "expired") {
     return "Expired — nobody answered in time";
   }
   if (question.status !== "answered") {
     return null;
   }
-  const when =
-    question.answeredAt === null
-      ? ""
-      : ` · ${formatRelativeTime(question.answeredAt, now)}`;
-  return `Answered by ${answererLabel(question)}${when}`;
+  return `Answered by ${answererLabel(question)}${whenOf(question, now)}`;
 };
 
 const expiryLabelOf = (question: Question, now: number): string | null => {
@@ -99,14 +122,25 @@ export const questionCardState = (
   { busy = false, now = Date.now() }: { busy?: boolean; now?: number } = {}
 ): QuestionCardState => {
   const mode: QuestionCardMode = question.status;
+  const takeover = question.kind === "takeover";
   return {
     disabled: busy || mode !== "pending",
     expiryLabel: expiryLabelOf(question, now),
-    freeText: question.options === null,
+    // A takeover has no options, and it is not typed either: its answer is a hand-back.
+    freeText: question.options === null && !takeover,
     mode,
     permission: question.kind === "permission",
     resolutionLabel: resolutionLabelOf(question, now),
+    takeover,
   };
+};
+
+/** The small label above the prompt: what kind of request this is. */
+export const questionCardTitle = (state: QuestionCardState): string => {
+  if (state.takeover) {
+    return "Takeover request";
+  }
+  return state.permission ? "⚠ Permission request" : "Question";
 };
 
 /**

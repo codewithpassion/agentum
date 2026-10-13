@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { Question } from "./api";
-import { oldestPending, optionTone, questionCardState } from "./question-card";
+import {
+  oldestPending,
+  optionTone,
+  questionCardState,
+  questionCardTitle,
+} from "./question-card";
 
 const NOW = 1_700_000_000_000;
 const MINUTE = 60_000;
@@ -159,5 +164,72 @@ describe("oldestPending", () => {
 
   test("answers with nothing when none are waiting", () => {
     expect(oldestPending([question({ status: "expired" })])).toBeNull();
+  });
+});
+
+describe("takeover variant", () => {
+  const takeover = (over: Partial<Question> = {}): Question =>
+    question({
+      kind: "takeover",
+      options: null,
+      prompt: "Solve the CAPTCHA",
+      ...over,
+    });
+
+  test("a pending takeover has no typed answer and is titled as a takeover", () => {
+    const state = questionCardState(takeover(), { now: NOW });
+    expect(state.takeover).toBe(true);
+    expect(state.freeText).toBe(false);
+    expect(state.mode).toBe("pending");
+    expect(questionCardTitle(state)).toBe("Takeover request");
+  });
+
+  test("a hand-back says who handed the desktop back", () => {
+    const state = questionCardState(
+      takeover({
+        answer: "Handed back.",
+        answeredAt: NOW - 2 * MINUTE,
+        answeredBy: { id: "mem_1", name: "Ada" },
+        answeredVia: "web",
+        status: "handed_back",
+      }),
+      { now: NOW }
+    );
+    expect(state.disabled).toBe(true);
+    expect(state.resolutionLabel).toBe("Handed back by Ada · 2m ago");
+  });
+
+  test("a declined takeover says the person declined", () => {
+    const state = questionCardState(
+      takeover({
+        answeredAt: NOW,
+        answeredBy: { id: "mem_1", name: "Ada" },
+        status: "cancelled",
+      }),
+      { now: NOW }
+    );
+    expect(state.resolutionLabel).toBe("Declined by Ada · just now");
+  });
+
+  test("an expired takeover says nobody took over", () => {
+    const state = questionCardState(takeover({ status: "expired" }), {
+      now: NOW,
+    });
+    expect(state.resolutionLabel).toBe("Expired — nobody took over in time");
+  });
+
+  test("a plain question keeps its own title and typed answer", () => {
+    const state = questionCardState(
+      question({ options: null, prompt: "What name?" }),
+      { now: NOW }
+    );
+    expect(state.takeover).toBe(false);
+    expect(state.freeText).toBe(true);
+    expect(questionCardTitle(state)).toBe("Question");
+    expect(
+      questionCardTitle(
+        questionCardState(question({ kind: "permission" }), { now: NOW })
+      )
+    ).toBe("⚠ Permission request");
   });
 });

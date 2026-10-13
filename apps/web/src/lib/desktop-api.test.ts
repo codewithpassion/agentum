@@ -59,6 +59,7 @@ describe("desktop routes", () => {
       desktop: true,
       desktopUnavailableReason: null,
       online: true,
+      pendingTakeover: null,
     });
     expect(
       toDesktopStatus({
@@ -116,6 +117,27 @@ describe("desktop routes", () => {
       throw new Error("expected a human controller");
     }
     expect(Number.isNaN(Date.parse(controller.expiresAt))).toBe(false);
+  });
+
+  it("carries the pending takeover the status route reports", () => {
+    expect(
+      toDesktopStatus({
+        ...idle,
+        pendingTakeover: { createdAt: 5, id: "q1", reason: "Log in" },
+      }).pendingTakeover
+    ).toEqual({ createdAt: 5, id: "q1", reason: "Log in" });
+  });
+
+  it("cancels a takeover with a POST and returns the settled question", async () => {
+    const { calls, fetcher } = recorder(() =>
+      json({ question: { id: "q1", status: "cancelled" } })
+    );
+    const question = await createDesktopServer("acme", fetcher).cancelTakeover({
+      agentId: "a1",
+    });
+    expect(question).toMatchObject({ id: "q1", status: "cancelled" });
+    expect(calls[0]?.url).toBe("/api/w/acme/agents/a1/desktop/cancel-takeover");
+    expect(calls[0]?.init.method).toBe("POST");
   });
 
   it("reads the status route and maps it", async () => {
