@@ -17,8 +17,8 @@ export const CLOUDFLARE_MODELS = [
   { id: "@cf/zai-org/glm-4.7-flash", label: "GLM 4.7 Flash (Workers AI)" },
   { id: "@cf/openai/gpt-oss-120b", label: "GPT-OSS 120B (Workers AI)" },
   {
-    id: "anthropic/claude-sonnet-4-5",
-    label: "Claude Sonnet 4.5 (via AI Gateway - needs credits or a stored key)",
+    id: "anthropic/claude-sonnet-5-5",
+    label: "Claude Sonnet 5.5 (via AI Gateway - needs credits or a stored key)",
   },
   {
     id: "openai/gpt-5.2",
@@ -26,7 +26,7 @@ export const CLOUDFLARE_MODELS = [
   },
 ] as const;
 
-/** `@cf/meta/llama-3.3-70b-instruct-fp8-fast` or `anthropic/claude-sonnet-4-5`. */
+/** `@cf/meta/llama-3.3-70b-instruct-fp8-fast` or `anthropic/claude-sonnet-5-5`. */
 const MODEL_ID = /^(?:@cf\/)?[\w.-]+\/[\w.@:-]+(?:\/[\w.@:-]+)*$/;
 
 const MODEL_ID_MAX_LENGTH = 200;

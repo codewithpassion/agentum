@@ -138,7 +138,7 @@ const seed = async (workspaceId: string, suffix: string) => {
     messageId
   );
   await run(
-    "insert into agent_model_overrides (id, workspace_id, agent_id, channel_id, thread_parent_id, model, created_by) values (?, ?, 'agent_1', ?, '', 'claude-opus-5', 'agent:agent_1')",
+    "insert into agent_model_overrides (id, workspace_id, agent_id, channel_id, thread_parent_id, model, created_by) values (?, ?, 'agent_1', ?, '', 'claude-opus-5-5', 'agent:agent_1')",
     `ovr_${suffix}`,
     workspaceId,
     channelId

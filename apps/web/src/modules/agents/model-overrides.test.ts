@@ -23,8 +23,8 @@ import { createAgent } from "./service";
 
 /** A bare id: `agents.workspace_id` is a tenant boundary, not a foreign key. */
 const WORKSPACE_ID = "workspace-1";
-const OPUS = "claude-opus-5";
-const HAIKU = "claude-haiku-4-5-20251001";
+const OPUS = "claude-opus-5-5";
+const HAIKU = "claude-haiku-5-5";
 const CHANNEL = "channel-1";
 const THREAD = "message-1";
 

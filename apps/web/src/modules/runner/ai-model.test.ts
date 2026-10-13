@@ -19,7 +19,7 @@ describe("gatewayFor", () => {
   });
 
   test("a third-party model always goes through a gateway", () => {
-    expect(gatewayFor("anthropic/claude-sonnet-4-5", undefined)).toEqual({
+    expect(gatewayFor("anthropic/claude-sonnet-5-5", undefined)).toEqual({
       gateway: { id: "default" },
     });
     expect(gatewayFor("openai/gpt-5.2", "agentum")).toEqual({

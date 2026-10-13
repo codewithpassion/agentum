@@ -218,12 +218,12 @@ describe("syncAgent", () => {
     // would quietly put a re-modelled agent back on Sonnet.
     await gateway.syncAgent({
       anthropicAgentId: "agt_1",
-      model: "claude-opus-5",
+      model: "claude-opus-5-5",
       name: "Ada",
       system: "be helpful",
     });
 
-    expect(lastUpdate().model).toBe("claude-opus-5");
+    expect(lastUpdate().model).toBe("claude-opus-5-5");
   });
 
   test("leaves the whole array alone when there is no MCP URL to send", async () => {
@@ -379,12 +379,12 @@ describe("registerAgent", () => {
     await gateway.registerAgent({
       instructions: "be helpful",
       mcpUrl: "https://app.example.com/mcp/tok",
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-haiku-5-5",
       name: "Ada",
       system: "be helpful",
     });
 
-    expect(created.at(-1)?.model).toBe("claude-haiku-4-5-20251001");
+    expect(created.at(-1)?.model).toBe("claude-haiku-5-5");
   });
 });
 
@@ -485,11 +485,11 @@ describe("createSession", () => {
   test("runs the session on the model it was handed", async () => {
     // The per-session override is the load-bearing application point: it needs
     // no registration sync to have landed, and omitted fields are preserved.
-    await gateway.createSession({ ...session, model: "claude-opus-5" });
+    await gateway.createSession({ ...session, model: "claude-opus-5-5" });
 
     expect(created.at(-1)?.agent).toEqual({
       id: "agt_1",
-      model: "claude-opus-5",
+      model: "claude-opus-5-5",
       type: "agent_with_overrides",
     });
   });

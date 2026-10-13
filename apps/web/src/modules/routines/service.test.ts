@@ -26,7 +26,7 @@ const { agentModelOverrides } = await import("#/modules/agents/schema");
 const { AGENT_MODEL } = await import("#/modules/anthropic/config");
 const { createAgent, deleteAgent } = await import("#/modules/agents/service");
 
-const OPUS = "claude-opus-5";
+const OPUS = "claude-opus-5-5";
 const {
   addChannelMember,
   createChannel,

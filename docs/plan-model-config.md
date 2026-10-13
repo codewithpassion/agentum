@@ -39,8 +39,8 @@ Three asks (2026-08-21):
 ## Decisions
 
 1. **Model catalog** — `AVAILABLE_MODELS` in `modules/anthropic/config.ts`:
-   `{ id, label }[]` = Opus 5 (`claude-opus-5`), Sonnet 5 (`claude-sonnet-5`,
-   default), Haiku 4.5 (`claude-haiku-4-5-20251001`). Plain model strings
+   `{ id, label }[]` = Opus 5.5 (`claude-opus-5-5`), Sonnet 5.5 (`claude-sonnet-5-5`,
+   default), Haiku 5.5 (`claude-haiku-5-5`). Plain model strings
    only; `model_config` extras (effort, inference geo, fast premium) are out
    of scope. Every place a model enters (HTTP API, MCP tools) validates
    against the catalog server-side.

@@ -31,8 +31,8 @@ const { routineCreate, routineDelete, routineList, routineUpdate } =
   await import("./routine-tools");
 type McpToolContext = import("./tools").McpToolContext;
 
-const OPUS = "claude-opus-5";
-const SONNET = "claude-sonnet-5";
+const OPUS = "claude-opus-5-5";
+const SONNET = "claude-sonnet-5-5";
 const ZONE = "Australia/Sydney";
 
 const migrate = (): Db => {

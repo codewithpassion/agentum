@@ -33,9 +33,9 @@ type McpToolContext = import("./tools").McpToolContext;
 
 const ADA_ID = "user_2aAdaAAAAAAAAAAAAAAAAAAA";
 const BOB_ID = "user_2bBobBBBBBBBBBBBBBBBBBBB";
-const OPUS = "claude-opus-5";
-const HAIKU = "claude-haiku-4-5-20251001";
-const SONNET = "claude-sonnet-5";
+const OPUS = "claude-opus-5-5";
+const HAIKU = "claude-haiku-5-5";
+const SONNET = "claude-sonnet-5-5";
 
 const migrate = (): Db => {
   const dir = new URL("../../../drizzle/", import.meta.url);
@@ -303,7 +303,7 @@ describe("set_model", () => {
 
     expect(payloadOf(result)).toMatchObject({
       appliesFrom: "your next wake",
-      label: "Opus 5",
+      label: "Opus 5.5",
       model: OPUS,
       scope: "thread",
     });

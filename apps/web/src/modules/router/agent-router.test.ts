@@ -92,8 +92,8 @@ type CreateSessionInput =
 type MessageNotification = import("./wake-decision").MessageNotification;
 type StoredSession = import("./state").StoredSession;
 
-const OPUS = "claude-opus-5";
-const HAIKU = "claude-haiku-4-5-20251001";
+const OPUS = "claude-opus-5-5";
+const HAIKU = "claude-haiku-5-5";
 
 const migrate = (): Db => {
   const dir = new URL("../../../drizzle/", import.meta.url);

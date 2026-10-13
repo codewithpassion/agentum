@@ -49,7 +49,7 @@ mock.module("#/modules/computer/lifecycle", () => ({
 }));
 
 const ADA_ID = "user_2aAdaAAAAAAAAAAAAAAAAAAA";
-const OPUS = "claude-opus-5";
+const OPUS = "claude-opus-5-5";
 
 const { createDb } = await import("#/db/client");
 const { generateConnectorKey } = await import("#/crypto");
@@ -182,7 +182,7 @@ describe("POST /agents", () => {
     expect(response.status).toBe(400);
     // The message names what is on offer, so a client can correct itself.
     expect(body.error).toBe(
-      '"model" must be one of: claude-opus-5, claude-sonnet-5, claude-haiku-4-5-20251001.'
+      '"model" must be one of: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5.'
     );
   });
 });
@@ -294,7 +294,7 @@ describe("the runtime", () => {
     expect(workersAi.status).toBe(400);
     // AI Gateway references are the other valid shape.
     const gateway = await postAgent({
-      model: "anthropic/claude-sonnet-4-5",
+      model: "anthropic/claude-sonnet-5-5",
       runtime: "cloudflare",
     });
     expect(gateway.response.status).toBe(201);

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { AGENT_MODEL, AVAILABLE_MODELS } from "#/modules/anthropic/config";
+import {
+  AGENT_MODEL,
+  AVAILABLE_MODELS,
+  modelOrDefault,
+} from "#/modules/anthropic/config";
 import { modelLabel, WORKSPACE_DEFAULT_MODEL_LABEL } from "./model-format";
 
 describe("modelLabel", () => {
@@ -18,5 +22,11 @@ test("the workspace default is named after the default model", () => {
   expect(WORKSPACE_DEFAULT_MODEL_LABEL).toBe(
     `Workspace default (${modelLabel(AGENT_MODEL)})`
   );
-  expect(WORKSPACE_DEFAULT_MODEL_LABEL).toContain("Sonnet 5");
+  expect(WORKSPACE_DEFAULT_MODEL_LABEL).toContain("Sonnet 5.5");
+});
+
+test("a stored model the catalog dropped runs on the default", () => {
+  expect(modelOrDefault("claude-opus-5")).toBe(AGENT_MODEL);
+  expect(modelOrDefault(null)).toBe(AGENT_MODEL);
+  expect(modelOrDefault("claude-opus-5-5")).toBe("claude-opus-5-5");
 });

@@ -5,7 +5,7 @@
  */
 
 /** The workspace default: what an agent runs on until somebody picks otherwise. */
-export const AGENT_MODEL = "claude-sonnet-5";
+export const AGENT_MODEL = "claude-sonnet-5-5";
 
 /**
  * Every model an agent may be set to, in the order a picker should offer them.
@@ -17,15 +17,31 @@ export const AGENT_MODEL = "claude-sonnet-5";
  * on it falls back to the default rather than being sent to the API.
  */
 export const AVAILABLE_MODELS = [
-  { id: "claude-opus-5", label: "Opus 5" },
-  { id: AGENT_MODEL, label: "Sonnet 5" },
-  { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
+  {
+    description: "Most capable, for the hardest work",
+    id: "claude-opus-5-5",
+    label: "Opus 5.5",
+  },
+  {
+    description: "Balanced speed and capability",
+    id: AGENT_MODEL,
+    label: "Sonnet 5.5",
+  },
+  {
+    description: "Fastest and cheapest",
+    id: "claude-haiku-5-5",
+    label: "Haiku 5.5",
+  },
 ] as const;
 
 export type AvailableModelId = (typeof AVAILABLE_MODELS)[number]["id"];
 
 export const isAvailableModel = (id: unknown): id is AvailableModelId =>
   typeof id === "string" && AVAILABLE_MODELS.some((model) => model.id === id);
+
+/** A stored model the catalog no longer offers runs on the default instead. */
+export const modelOrDefault = (id: string | null | undefined): string =>
+  isAvailableModel(id) ? id : AGENT_MODEL;
 
 /** The catalog ids, for the message a rejected model gets back. */
 export const AVAILABLE_MODEL_IDS: string = AVAILABLE_MODELS.map(
@@ -38,10 +54,10 @@ export const AVAILABLE_MODEL_IDS: string = AVAILABLE_MODELS.map(
  * should the "thinking" line say while you answer. Both run on the path a human
  * is waiting on, and neither is worth a frontier model.
  *
- * Haiku 4.5 predates `output_config.effort` and adaptive thinking - it takes
- * neither - so the calls in `fast.ts` pass only a model, a cap and messages.
+ * The calls in `fast.ts` pass only a model, a cap and messages, so they need
+ * no `output_config.effort` or thinking support from the model.
  */
-export const FAST_MODEL = "claude-haiku-4-5";
+export const FAST_MODEL = "claude-haiku-5-5";
 
 /**
  * The same job on Workers AI, for a deployment or workspace with no Anthropic
@@ -60,7 +76,7 @@ export const ENVIRONMENT_NAME = "agentum";
  * no MCP servers - so it cannot post to the workspace; the coordinator relays.
  */
 export const WORKER_AGENT_NAME = "Worker";
-export const WORKER_AGENT_MODEL = "claude-haiku-4-5";
+export const WORKER_AGENT_MODEL = "claude-haiku-5-5";
 export const WORKER_AGENT_DESCRIPTION =
   "Fast, low-cost subagent for mechanical, well-specified work: downloads, conversions, bulk file processing, running scripts, scraping. Give it one self-contained task with the exact inputs, file paths and the report format you want back.";
 export const WORKER_AGENT_SYSTEM =

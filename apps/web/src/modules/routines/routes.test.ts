@@ -19,7 +19,7 @@ mock.module("@clerk/hono", () => ({
 }));
 
 const ADA_ID = "user_2aAdaAAAAAAAAAAAAAAAAAAA";
-const OPUS = "claude-opus-5";
+const OPUS = "claude-opus-5-5";
 
 const { createDb } = await import("#/db/client");
 const { createAgent } = await import("#/modules/agents/service");
@@ -167,7 +167,7 @@ describe("POST /routines", () => {
 
     expect(created.response.status).toBe(400);
     expect(created.body.error).toBe(
-      '"model" must be one of: claude-opus-5, claude-sonnet-5, claude-haiku-4-5-20251001.'
+      '"model" must be one of: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5.'
     );
   });
 });
@@ -216,7 +216,7 @@ describe("PATCH /routines/:id", () => {
 
     expect(response.status).toBe(400);
     expect(((await response.json()) as RoutineBody).error).toContain(
-      "claude-opus-5"
+      "claude-opus-5-5"
     );
   });
 });
