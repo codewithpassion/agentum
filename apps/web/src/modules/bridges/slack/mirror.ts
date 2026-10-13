@@ -134,13 +134,24 @@ export const mirrorSlackMessage = async (
         )
       : null;
 
-  const posted = placeholder
+  const replaced = placeholder
     ? await replacePlaceholder(client, bridge, placeholder, content)
-    : await client.postMessage({
-        channel: bridge.externalChannelId,
-        ...content,
-        ...(threadTs ? { threadTs } : {}),
-      });
+    : null;
+  if (placeholder && !replaced) {
+    // Slack refused the rewrite (a reply too long for `chat.update`, say). The
+    // reply still has to land, so drop the placeholder and post it fresh.
+    await client.chatDelete({
+      channel: bridge.externalChannelId,
+      ts: slackMessageTs(placeholder),
+    });
+  }
+  const posted =
+    replaced ??
+    (await client.postMessage({
+      channel: bridge.externalChannelId,
+      ...content,
+      ...(threadTs ? { threadTs } : {}),
+    }));
   if (!posted) {
     return null;
   }

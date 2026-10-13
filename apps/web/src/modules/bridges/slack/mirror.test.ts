@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MessageView } from "#/modules/messaging/service";
 import type { QuestionView } from "#/modules/questions/view";
-import { DEFAULT_WORKSPACE_ID } from "#/modules/workspaces/service";
 import type { ChannelBridge } from "../schema";
 import type {
   SlackClient,
@@ -26,7 +25,7 @@ const bridge = (overrides: Partial<ChannelBridge> = {}): ChannelBridge => ({
   id: "bridge-1",
   slackAppId: "slack-app-1",
   status: "active",
-  workspaceId: DEFAULT_WORKSPACE_ID,
+  workspaceId: "ws_default",
   ...overrides,
 });
 
@@ -48,22 +47,32 @@ const message = (overrides: Partial<MessageView> = {}): MessageView => ({
 });
 
 interface Recorded {
+  deletes: string[];
   posts: SlackPostMessageInput[];
   updates: SlackUpdateMessageInput[];
   uploads: SlackUploadInput[];
 }
 
-const recorder = (): Recorded => ({ posts: [], updates: [], uploads: [] });
+const recorder = (): Recorded => ({
+  deletes: [],
+  posts: [],
+  updates: [],
+  uploads: [],
+});
 
 const client = (
   recorded: Recorded,
-  postResult: { ts: string } | null = { ts: "1787200000.000900" }
+  postResult: { ts: string } | null = { ts: "1787200000.000900" },
+  updateOk = true
 ): SlackClient => ({
   assistantSetStatus: () => Promise.resolve(false),
-  chatDelete: () => Promise.resolve(true),
+  chatDelete: (input) => {
+    recorded.deletes.push(input.ts);
+    return Promise.resolve(true);
+  },
   chatUpdate: (input) => {
     recorded.updates.push(input);
-    return Promise.resolve(true);
+    return Promise.resolve(updateOk);
   },
   conversationsInfo: () => Promise.resolve(null),
   conversationsJoin: () => Promise.resolve(false),
@@ -207,6 +216,26 @@ describe("mirrorSlackMessage", () => {
     // The reply *is* that message now, so the ref has to point at it - a
     // thread reply to the answer must land under the answer.
     expect(ref?.externalId).toBe(`${SLACK_CHANNEL}:1787200000.000500`);
+  });
+
+  test("posts the reply anyway when Slack refuses to rewrite the placeholder", async () => {
+    const recorded = recorder();
+
+    const ref = await mirrorSlackMessage(
+      message({ id: "message-2", threadParentId: "message-1" }),
+      bridge(),
+      client(recorded, { ts: "1787200000.000900" }, false),
+      ports(
+        { "message-1": `${SLACK_CHANNEL}:1787200000.000100` },
+        null,
+        `${SLACK_CHANNEL}:1787200000.000500`
+      )
+    );
+
+    expect(recorded.deletes).toEqual(["1787200000.000500"]);
+    expect(recorded.posts).toHaveLength(1);
+    expect(recorded.posts[0]?.threadTs).toBe("1787200000.000100");
+    expect(ref?.externalId).toBe(`${SLACK_CHANNEL}:1787200000.000900`);
   });
 
   test("posts normally when there is no placeholder to rewrite", async () => {
