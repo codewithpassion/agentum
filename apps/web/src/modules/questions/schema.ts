@@ -23,19 +23,32 @@ export const QUESTION_ORIGIN = "question";
 /** Written to `messages.origin` for the reply that resolves a question. */
 export const ANSWER_ORIGIN = "answer";
 
+/** Written to `messages.origin` for the card that asks a person to take over the desktop. */
+export const TAKEOVER_ORIGIN = "takeover";
+
 /**
  * `permission` is a question with fixed Approve/Deny options and sterner
  * rendering. Enforcement is the agent's own protocol - the MCP tool
  * descriptions tell it to wait - not a server-side gate.
+ *
+ * `takeover` asks a person to use the agent's desktop (a login, a CAPTCHA). It
+ * has no options; it settles as `handed_back` or `cancelled`, or `expired`.
  */
-export const QUESTION_KINDS = ["question", "permission"] as const;
+export const QUESTION_KINDS = ["question", "permission", "takeover"] as const;
 
 /**
- * `pending` is the only state anybody may answer from; `expired` is what the
- * expiry sweep writes, and both are terminal. First answer wins, which is a
- * conditional update off this column rather than a lock.
+ * `pending` is the only state anybody may answer from; the others are terminal.
+ * `expired` is what the expiry sweep writes. `handed_back` and `cancelled` are
+ * how a takeover settles. First answer wins, which is a conditional update off
+ * this column rather than a lock.
  */
-export const QUESTION_STATUSES = ["pending", "answered", "expired"] as const;
+export const QUESTION_STATUSES = [
+  "pending",
+  "answered",
+  "expired",
+  "handed_back",
+  "cancelled",
+] as const;
 
 /** Which surface the answer came from - a web card or a Slack button. */
 export const ANSWER_SURFACES = ["web", "slack"] as const;

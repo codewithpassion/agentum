@@ -2,7 +2,11 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "#/db/client";
 import { resolveSlackUserNames } from "#/modules/bridges/slack/users";
 import { resolveMembersByIds } from "#/modules/workspaces/authors";
-import { type AgentQuestion, agentQuestions } from "./schema";
+import {
+  type AgentQuestion,
+  agentQuestions,
+  type QuestionKind,
+} from "./schema";
 
 /**
  * Questions as a client may see them, and the lookup that hangs one off its
@@ -34,13 +38,13 @@ export interface QuestionView {
   createdAt: number;
   expiresAt: number | null;
   id: string;
-  kind: "permission" | "question";
+  kind: QuestionKind;
   /** The question card message; the answer reply hangs under it as a thread. */
   messageId: string;
   /** The buttons to render; null means the answer is free text. */
   options: string[] | null;
   prompt: string;
-  status: "answered" | "expired" | "pending";
+  status: AgentQuestion["status"];
 }
 
 const SLACK_PREFIX = "slack:";

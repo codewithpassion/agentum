@@ -98,6 +98,11 @@ questionsRoutes.post("/:id/answer", async (c) => {
   });
 
   if (!result.ok) {
+    if (result.reason === "not-answerable") {
+      throw badRequest(
+        "This request is settled by taking over the desktop, not by an answer."
+      );
+    }
     if (result.reason === "invalid-option") {
       const options = optionsOf(question);
       throw badRequest(

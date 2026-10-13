@@ -22,6 +22,7 @@ import {
   QUESTION_KINDS,
   QUESTION_ORIGIN,
   type QuestionKind,
+  TAKEOVER_ORIGIN,
 } from "./schema";
 import { optionsOf, type QuestionView, toQuestionViews } from "./view";
 
@@ -307,7 +308,38 @@ export const ask = async (
     return validated;
   }
   const { expiresIn, kind, options, prompt } = validated.input;
+  const card = await openCard(db, env, workspace, agent, {
+    channelId: input.channelId,
+    expiresIn,
+    kind,
+    options,
+    origin: QUESTION_ORIGIN,
+    prompt,
+  });
+  return card;
+};
 
+interface CardInput {
+  channelId: string;
+  expiresIn: number | null;
+  kind: QuestionKind;
+  options: string[] | null;
+  origin: typeof QUESTION_ORIGIN | typeof TAKEOVER_ORIGIN;
+  prompt: string;
+}
+
+/**
+ * The card as two writes - the message, then the row that points at it - and
+ * the fan-out. Shared by a question and a takeover: the only difference between
+ * them is the origin, the kind, and whether there are options.
+ */
+const openCard = async (
+  db: Db,
+  env: Env,
+  workspace: WorkspaceRef,
+  agent: AskingAgent,
+  input: CardInput
+): Promise<AskResult> => {
   const channel = await getChannel(db, workspace.id, input.channelId);
   if (!channel) {
     return { ok: false, reason: "No such channel in this workspace." };
@@ -321,9 +353,9 @@ export const ask = async (
   const posted = await createMessage(db, {
     authorId: agent.id,
     authorType: "agent",
-    body: prompt,
+    body: input.prompt,
     channelId: channel.id,
-    origin: QUESTION_ORIGIN,
+    origin: input.origin,
     workspace,
   });
   if (!posted.ok) {
@@ -336,12 +368,14 @@ export const ask = async (
       agentId: agent.id,
       channelId: channel.id,
       expiresAt:
-        expiresIn === null ? null : new Date(Date.now() + expiresIn * 1000),
+        input.expiresIn === null
+          ? null
+          : new Date(Date.now() + input.expiresIn * 1000),
       id: crypto.randomUUID(),
-      kind,
+      kind: input.kind,
       messageId: posted.message.id,
-      options: options ? JSON.stringify(options) : null,
-      prompt,
+      options: input.options ? JSON.stringify(input.options) : null,
+      prompt: input.prompt,
       workspaceId: workspace.id,
     })
     .returning();
@@ -356,6 +390,129 @@ export const ask = async (
   await fanOutMessage(db, env, message);
 
   return { message, ok: true, question };
+};
+
+// --- takeover ----------------------------------------------------------------
+
+/** How long a person has to take over before the agent is woken with an expiry notice. */
+export const TAKEOVER_EXPIRES_IN_SECONDS = 60 * 60;
+export const TAKEOVER_REASON_MAX_LENGTH = 500;
+export const PENDING_TAKEOVER_REASON =
+  "A takeover is already pending for this desktop.";
+
+/** The one takeover an agent may have waiting, if any. */
+export const findPendingTakeover = async (
+  db: Db,
+  workspaceId: string,
+  agentId: string
+): Promise<AgentQuestion | undefined> => {
+  const [takeover] = await db
+    .select()
+    .from(agentQuestions)
+    .where(
+      and(
+        eq(agentQuestions.workspaceId, workspaceId),
+        eq(agentQuestions.agentId, agentId),
+        eq(agentQuestions.kind, "takeover"),
+        eq(agentQuestions.status, "pending")
+      )
+    )
+    .limit(1);
+  return takeover;
+};
+
+/**
+ * Asks a person to take over the agent's desktop. The agent's turn ends after
+ * this, the same as a question: the hand-back or cancel is what wakes it.
+ */
+export const requestTakeover = async (
+  db: Db,
+  env: Env,
+  workspace: WorkspaceRef,
+  agent: AskingAgent,
+  input: { channelId: string; reason: string }
+): Promise<AskResult> => {
+  const reason = input.reason.trim();
+  if (reason.length === 0) {
+    return { ok: false, reason: "The reason cannot be empty." };
+  }
+  if (reason.length > TAKEOVER_REASON_MAX_LENGTH) {
+    return {
+      ok: false,
+      reason: `The reason must be at most ${TAKEOVER_REASON_MAX_LENGTH} characters.`,
+    };
+  }
+  if (await findPendingTakeover(db, workspace.id, agent.id)) {
+    return { ok: false, reason: PENDING_TAKEOVER_REASON };
+  }
+  return openCard(db, env, workspace, agent, {
+    channelId: input.channelId,
+    expiresIn: TAKEOVER_EXPIRES_IN_SECONDS,
+    kind: "takeover",
+    options: null,
+    origin: TAKEOVER_ORIGIN,
+    prompt: reason,
+  });
+};
+
+export interface SettleTakeoverInput {
+  /** The person settling it, who is also the author of the reply that wakes the agent. */
+  by: Answerer;
+  /** `handed_back` when the person returned control, `cancelled` when they declined. */
+  status: "cancelled" | "handed_back";
+  /** The reply the agent reads, after "Answer:". */
+  text: string;
+}
+
+export type SettleTakeoverResult =
+  | { ok: true; question: AgentQuestion }
+  | { ok: false; reason: "already-handled" | "none-pending" };
+
+/**
+ * Settles the agent's pending takeover and posts the reply that wakes it. The
+ * same conditional update as an answer: of two people handing back at once,
+ * only the one that changes the row posts. An expiry that is already due wins
+ * the same way, so a takeover that ran out of time cannot be handed back.
+ */
+export const settleTakeover = async (
+  db: Db,
+  env: Env,
+  workspace: WorkspaceRef,
+  agentId: string,
+  input: SettleTakeoverInput
+): Promise<SettleTakeoverResult> => {
+  const pending = await findPendingTakeover(db, workspace.id, agentId);
+  if (!pending) {
+    return { ok: false, reason: "none-pending" };
+  }
+  const current = await resolveIfExpired(db, env, workspace, pending);
+  if (current.status !== "pending") {
+    return { ok: false, reason: "already-handled" };
+  }
+
+  const [updated] = await db
+    .update(agentQuestions)
+    .set({
+      answer: input.text,
+      answeredAt: new Date(),
+      answeredBy: input.by.id,
+      answeredVia: input.by.via,
+      status: input.status,
+    })
+    .where(
+      and(
+        eq(agentQuestions.id, pending.id),
+        eq(agentQuestions.status, "pending")
+      )
+    )
+    .returning();
+  if (!updated) {
+    return { ok: false, reason: "already-handled" };
+  }
+
+  await postResolution(db, env, workspace, updated, input.by, input.text);
+  await broadcastQuestion(db, env, workspace.id, updated);
+  return { ok: true, question: updated };
 };
 
 // --- answering ---------------------------------------------------------------
@@ -373,7 +530,8 @@ export interface Answerer {
 export type AnswerResult =
   | { ok: true; question: AgentQuestion }
   | { ok: false; question: AgentQuestion; reason: "already-resolved" }
-  | { ok: false; reason: "invalid-option" };
+  | { ok: false; reason: "invalid-option" }
+  | { ok: false; reason: "not-answerable" };
 
 /**
  * The one place a resolution leaves this module, whichever resolved it: the
@@ -435,6 +593,10 @@ export const answerQuestion = async (
   question: AgentQuestion,
   input: { answer: string; by: Answerer }
 ): Promise<AnswerResult> => {
+  // A takeover settles by hand-back or cancel, never by an answer.
+  if (question.kind === "takeover") {
+    return { ok: false, reason: "not-answerable" };
+  }
   const answer = input.answer.trim().slice(0, ANSWER_MAX_LENGTH);
   const options = optionsOf(question);
   if (options && !options.includes(answer)) {
@@ -513,7 +675,9 @@ export const expireQuestion = async (
     workspace,
     updated,
     { authorId: `${QUESTION_ORIGIN}:${updated.id}`, authorType: "external" },
-    "(expired - nobody answered in time, so proceed with your best default.)"
+    updated.kind === "takeover"
+      ? "(expired - nobody took over the desktop in time, so carry on without it.)"
+      : "(expired - nobody answered in time, so proceed with your best default.)"
   );
   await broadcastQuestion(db, env, workspace.id, updated);
   return updated;

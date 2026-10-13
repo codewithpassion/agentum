@@ -23,8 +23,12 @@ import type {
   RelayStatus,
 } from "./relay";
 import {
+  type CancelTakeoverHook,
+  onCancelTakeover as defaultOnCancelTakeover,
   onHandBack as defaultOnHandBack,
+  pendingTakeoverOf as defaultPendingTakeoverOf,
   type HandBackHook,
+  type PendingTakeoverOf,
 } from "./takeover-hook";
 
 /**
@@ -52,7 +56,9 @@ export interface DesktopRouteDeps {
     workspaceId: string,
     agentId: string
   ) => Promise<{ id: string } | undefined>;
+  onCancelTakeover: CancelTakeoverHook;
   onHandBack: HandBackHook;
+  pendingTakeoverOf: PendingTakeoverOf;
   /** The relay of one host. Production reads its Durable Object. */
   relayFor: (env: Env, hostId: string) => DesktopRelayPort;
 }
@@ -246,6 +252,8 @@ export const createDesktopRoutes = (
   const findAgentHost = deps.findAgentHost ?? findHostOfAgent;
   const relayFor = deps.relayFor ?? relayOfHost;
   const onHandBack = deps.onHandBack ?? defaultOnHandBack;
+  const onCancelTakeover = deps.onCancelTakeover ?? defaultOnCancelTakeover;
+  const pendingTakeoverOf = deps.pendingTakeoverOf ?? defaultPendingTakeoverOf;
 
   const routes = new Hono<ApiEnv>();
   routes.use("*", requireAuth);
@@ -265,13 +273,31 @@ export const createDesktopRoutes = (
     kind: "human",
     userId: c.get("userId"),
   });
+  /** A status answer, with the takeover the agent is waiting on. */
+  const statusPayload = async (c: Context<ApiEnv>, status: RelayStatus) => ({
+    ...statusBody(status, c.get("userId")),
+    pendingTakeover: await pendingTakeoverOf(
+      c.env,
+      c.get("workspace").id,
+      agentIdOf(c)
+    ),
+  });
+  /** The takeover was settled by someone else first, or nothing waited to be settled. */
+  const alreadyHandled = (c: Context<ApiEnv>) =>
+    c.json(
+      {
+        error: "already_handled",
+        message: "This takeover was already handled.",
+      },
+      409
+    );
 
   routes.get("/:id/desktop", async (c) => {
     const relay = await relayOf(c);
     if (!relay) {
       return notFound(c);
     }
-    return c.json(statusBody(await relay.status(), c.get("userId")));
+    return c.json(await statusPayload(c, await relay.status()));
   });
 
   routes.get("/:id/desktop/screenshot", async (c) => {
@@ -408,7 +434,7 @@ export const createDesktopRoutes = (
         taken.reason === "desktop_busy" ? "clearing" : "desktop_unavailable";
       return c.json({ error, message: taken.message }, status);
     }
-    return c.json(statusBody(await relay.status(), c.get("userId")));
+    return c.json(await statusPayload(c, await relay.status()));
   });
 
   routes.post("/:id/desktop/hand-back", async (c) => {
@@ -443,13 +469,36 @@ export const createDesktopRoutes = (
         423
       );
     }
-    await onHandBack({
+    const outcome = await onHandBack({
       agentId: agentIdOf(c),
+      env: c.env,
       note: body.note ?? null,
       userId,
       workspaceId: c.get("workspace").id,
     });
-    return c.json(statusBody(await relay.status(), userId));
+    if (outcome.kind === "already_handled") {
+      return alreadyHandled(c);
+    }
+    return c.json(await statusPayload(c, await relay.status()));
+  });
+
+  routes.post("/:id/desktop/cancel-takeover", async (c) => {
+    if (isForeignOriginWrite(c)) {
+      return c.json(
+        { error: "forbidden", message: "Cross-origin request refused." },
+        403
+      );
+    }
+    const outcome = await onCancelTakeover({
+      agentId: agentIdOf(c),
+      env: c.env,
+      userId: c.get("userId"),
+      workspaceId: c.get("workspace").id,
+    });
+    if (outcome.kind !== "settled") {
+      return alreadyHandled(c);
+    }
+    return c.json({ question: outcome.question });
   });
 
   return routes;

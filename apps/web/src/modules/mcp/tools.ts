@@ -105,7 +105,7 @@ const agentNamesById = async (
 const memberOf = (agent: Agent) =>
   ({ memberId: agent.id, memberType: "agent" }) as const;
 
-const NOT_A_MEMBER =
+export const NOT_A_MEMBER =
   "You are not a member of that channel. Use list_channels to see the channels you can read and post in.";
 
 // --- messaging ---------------------------------------------------------------

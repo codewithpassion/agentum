@@ -4,7 +4,7 @@ import {
   getAgentsByIds,
   listAgentMentionCandidates,
 } from "#/modules/agents/service";
-import { QUESTION_ORIGIN } from "#/modules/questions/schema";
+import { QUESTION_ORIGIN, TAKEOVER_ORIGIN } from "#/modules/questions/schema";
 import {
   type QuestionView,
   questionsForMessages,
@@ -589,7 +589,9 @@ const hydrateMessages = async (
   // Only when the batch actually holds a question card: every other read - the
   // whole channel history, every broadcast - pays nothing for this.
   const questionMessageIds = rows
-    .filter((row) => row.origin === QUESTION_ORIGIN)
+    .filter(
+      (row) => row.origin === QUESTION_ORIGIN || row.origin === TAKEOVER_ORIGIN
+    )
     .map((row) => row.id);
   const questions = await questionsForMessages(
     db,

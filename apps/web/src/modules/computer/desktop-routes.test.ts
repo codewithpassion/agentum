@@ -19,8 +19,9 @@ mock.module("@clerk/hono", () => ({
 }));
 
 const { createDesktopRoutes } = await import("./desktop-routes");
-const { onHandBack } = await import("./takeover-hook");
-type HandBackEvent = Parameters<typeof onHandBack>[0];
+type HandBackEvent = import("./takeover-hook").HandBackEvent;
+type PendingTakeover = import("./takeover-hook").PendingTakeover;
+type TakeoverOutcome = import("./takeover-hook").TakeoverOutcome;
 
 const APP_ORIGIN = "https://app.example.com";
 const JPEG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
@@ -35,6 +36,10 @@ let requests: Recorded[] = [];
 let takes: string[] = [];
 let releases: string[] = [];
 let hands: HandBackEvent[] = [];
+let cancels: { agentId: string; userId: string }[] = [];
+let handBackOutcome: TakeoverOutcome = { kind: "none" };
+let cancelOutcome: TakeoverOutcome = { kind: "none" };
+let pendingTakeover: PendingTakeover | null = null;
 let connected = true;
 let control: RelayStatus["control"] = null;
 let failWith: RelayOutcome | null = null;
@@ -125,10 +130,15 @@ app.route(
   createDesktopRoutes({
     findAgentHost: (_env, _workspaceId, agentId) =>
       Promise.resolve(agentId === "a-none" ? undefined : { id: "host-1" }),
+    onCancelTakeover: (event) => {
+      cancels.push({ agentId: event.agentId, userId: event.userId });
+      return Promise.resolve(cancelOutcome);
+    },
     onHandBack: (event) => {
       hands.push(event);
-      return Promise.resolve();
+      return Promise.resolve(handBackOutcome);
     },
+    pendingTakeoverOf: () => Promise.resolve(pendingTakeover),
     relayFor: () => fakeRelay,
   })
 );
@@ -154,6 +164,7 @@ const statusJson = {
   control: null,
   desktop: true,
   desktopUnavailableReason: null,
+  pendingTakeover: null,
   youHaveControl: false,
 };
 
@@ -163,6 +174,10 @@ beforeEach(() => {
   takes = [];
   releases = [];
   hands = [];
+  cancels = [];
+  handBackOutcome = { kind: "none" };
+  cancelOutcome = { kind: "none" };
+  pendingTakeover = null;
   connected = true;
   control = null;
   failWith = null;
@@ -188,6 +203,7 @@ describe("desktop status", () => {
       control: { expiresAt: 123, holder: { kind: "human", userId: "user-1" } },
       desktop: true,
       desktopUnavailableReason: null,
+      pendingTakeover: null,
       youHaveControl: true,
     });
   });
@@ -401,7 +417,7 @@ describe("hand back", () => {
 
     expect(res.status).toBe(200);
     expect(releases).toEqual(["user-1"]);
-    expect(hands).toEqual([
+    expect(hands).toMatchObject([
       { agentId: "a1", note: "done", userId: "user-1", workspaceId: "ws-1" },
     ]);
     expect((await res.json()) as unknown).toEqual(statusJson);
@@ -410,9 +426,18 @@ describe("hand back", () => {
   test("a hand-back with no body is accepted, and the note is null", async () => {
     await call("/a1/desktop/hand-back", write("POST", undefined));
 
-    expect(hands).toEqual([
+    expect(hands).toMatchObject([
       { agentId: "a1", note: null, userId: "user-1", workspaceId: "ws-1" },
     ]);
+  });
+
+  test("a hand-back that lost the race to another settlement is a 409 already_handled", async () => {
+    handBackOutcome = { kind: "already_handled" };
+
+    const res = await call("/a1/desktop/hand-back", write("POST", {}));
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "already_handled" });
   });
 
   test("a person who holds no control gets lease_required and nothing is handed back", async () => {
@@ -426,10 +451,52 @@ describe("hand back", () => {
   });
 });
 
-describe("default takeover hook", () => {
-  test("is a no-op until the takeover flow is built", async () => {
-    await expect(
-      onHandBack({ agentId: "a1", note: null, userId: "u", workspaceId: "w" })
-    ).resolves.toBeUndefined();
+describe("takeover status", () => {
+  test("the status carries the takeover the agent is waiting on", async () => {
+    pendingTakeover = { createdAt: 1000, id: "q1", reason: "Log in for me" };
+
+    const res = await call("/a1/desktop");
+
+    expect((await res.json()) as unknown).toEqual({
+      ...statusJson,
+      pendingTakeover: { createdAt: 1000, id: "q1", reason: "Log in for me" },
+    });
+  });
+});
+
+describe("cancel takeover", () => {
+  test("cancelling settles the takeover and answers with the settled question", async () => {
+    cancelOutcome = {
+      kind: "settled",
+      question: { id: "q1" } as unknown as Extract<
+        TakeoverOutcome,
+        { kind: "settled" }
+      >["question"],
+    };
+
+    const res = await call("/a1/desktop/cancel-takeover", write("POST", {}));
+
+    expect(res.status).toBe(200);
+    expect(cancels).toEqual([{ agentId: "a1", userId: "user-1" }]);
+    expect((await res.json()) as unknown).toEqual({ question: { id: "q1" } });
+  });
+
+  test("a cancel that finds nothing left to settle is a 409 already_handled", async () => {
+    cancelOutcome = { kind: "already_handled" };
+
+    const res = await call("/a1/desktop/cancel-takeover", write("POST", {}));
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "already_handled" });
+  });
+
+  test("a cross-origin cancel is refused before anything is settled", async () => {
+    const res = await call(
+      "/a1/desktop/cancel-takeover",
+      write("POST", {}, { Origin: "https://evil.example" })
+    );
+
+    expect(res.status).toBe(403);
+    expect(cancels).toHaveLength(0);
   });
 });
