@@ -1,5 +1,13 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { readFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import type { Db } from "#/db/client";
@@ -277,6 +285,12 @@ const relayFor = (hostId: string) => {
   return { background, connect, deliver, disconnect, instance, wake };
 };
 
+/** A daemon whose desktop is running, so desktop ops and the clipboard clear are sent. */
+const DESKTOP_HELLO = {
+  ...HELLO,
+  capabilities: { ...HELLO.capabilities, desktop: true },
+};
+
 const frames = (socket: FakeSocket): Record<string, unknown>[] =>
   socket.sent.map((raw) => JSON.parse(raw) as Record<string, unknown>);
 
@@ -287,6 +301,7 @@ beforeEach(() => {
 
 afterEach(() => {
   Object.assign(globalThis, { setTimeout: realSetTimeout });
+  setSystemTime();
 });
 
 describe("ComputerRelay hello", () => {
@@ -315,6 +330,7 @@ describe("ComputerRelay hello", () => {
     expect(await relay.instance.status()).toEqual({
       capabilities: HELLO.capabilities,
       connected: true,
+      control: null,
       hostname: "office-box",
       version: "1.2.3",
       workdir: HELLO.workdir,
@@ -400,10 +416,7 @@ describe("ComputerRelay requests", () => {
     const relay = relayFor(hostId);
     const socket = await relay.connect();
 
-    const outcome = relay.instance.request({
-      op: "desktop_screenshot",
-      quality: null,
-    });
+    const outcome = relay.instance.request({ op: "file_get", path: "/a" });
     await flush();
     const [sent] = frames(socket);
     const id = String(sent?.id);
@@ -490,6 +503,7 @@ describe("ComputerRelay requests", () => {
     const hostId = await seedHost("office");
     const relay = relayFor(hostId);
     const socket = await relay.connect();
+    await relay.deliver(socket, DESKTOP_HELLO);
 
     relay.instance.request({ id: "d1", op: "desktop_clipboard_get" });
     await flush();
@@ -669,5 +683,311 @@ describe("ComputerRelay request ids and hellos", () => {
     await relay.deliver(old, { ...HELLO, hostname: "impostor" });
 
     expect((await relay.instance.status()).hostname).toBe("office-box");
+  });
+});
+
+const AGENT_A = { agentId: "agent-a", kind: "agent" } as const;
+const AGENT_B = { agentId: "agent-b", kind: "agent" } as const;
+const PERSON = { kind: "human", userId: "user-1" } as const;
+const OTHER_PERSON = { kind: "human", userId: "user-2" } as const;
+const MINUTE = 60_000;
+const START = new Date("2026-10-13T10:00:00Z");
+
+/** A connected desktop host, with its hello read. */
+const desktopHost = async () => {
+  const hostId = await seedHost("office");
+  const relay = relayFor(hostId);
+  const socket = await relay.connect();
+  await relay.deliver(socket, DESKTOP_HELLO);
+  await flush();
+  return { relay, socket };
+};
+
+/** The clipboard clears the relay has sent so far. */
+const clearsOf = (socket: FakeSocket) =>
+  frames(socket).filter((frame) => frame.op === "desktop_clipboard_set");
+
+describe("ComputerRelay desktop lease", () => {
+  test("an agent takes the desktop, and another agent is refused while it holds it", async () => {
+    const { relay, socket } = await desktopHost();
+
+    relay.instance.request(
+      { op: "desktop_screenshot", quality: null },
+      AGENT_A
+    );
+    await flush();
+    const second = await relay.instance.request(
+      { op: "desktop_screenshot", quality: null },
+      AGENT_B
+    );
+
+    expect(second).toMatchObject({ ok: false, reason: "desktop_busy" });
+    expect(frames(socket)).toHaveLength(1);
+    expect((await relay.instance.status()).control).toEqual({
+      expiresAt: expect.any(Number),
+      holder: AGENT_A,
+    });
+  });
+
+  test("a person preempts the agent, and the agent's exec and file ops are refused", async () => {
+    const { relay, socket } = await desktopHost();
+    relay.instance.request(
+      { op: "desktop_screenshot", quality: null },
+      AGENT_A
+    );
+    await flush();
+
+    const taken = await relay.instance.takeHumanLease("user-1");
+    const exec = await relay.instance.request(
+      { command: "ls", op: "exec" },
+      AGENT_A
+    );
+    const file = await relay.instance.request(
+      { op: "file_get", path: "/a" },
+      AGENT_A
+    );
+    const input = await relay.instance.request(
+      { actions: [], op: "desktop_input" },
+      AGENT_A
+    );
+
+    expect(taken).toMatchObject({ control: { holder: PERSON }, ok: true });
+    expect(exec).toMatchObject({ ok: false, reason: "human_in_control" });
+    expect(file).toMatchObject({ ok: false, reason: "human_in_control" });
+    expect(input).toMatchObject({ ok: false, reason: "human_in_control" });
+    expect(frames(socket).map((frame) => frame.op)).toEqual([
+      "desktop_screenshot",
+    ]);
+  });
+
+  test("cancel still reaches the daemon while a person holds control", async () => {
+    const { relay, socket } = await desktopHost();
+    await relay.instance.takeHumanLease("user-1");
+
+    relay.instance.request({ op: "cancel", target_id: "x" }, AGENT_A);
+    await flush();
+
+    expect(frames(socket).map((frame) => frame.op)).toEqual(["cancel"]);
+  });
+
+  test("a person may screenshot without the lease, but input needs it", async () => {
+    const { relay, socket } = await desktopHost();
+
+    relay.instance.request({ op: "desktop_screenshot", quality: null }, PERSON);
+    const input = await relay.instance.request(
+      { actions: [{ text: "x", type: "type" }], op: "desktop_input" },
+      PERSON
+    );
+
+    expect(input).toMatchObject({ ok: false, reason: "forbidden" });
+    expect(frames(socket).map((frame) => frame.op)).toEqual([
+      "desktop_screenshot",
+    ]);
+  });
+
+  test("another person is refused, even a screenshot, while one holds control", async () => {
+    const { relay } = await desktopHost();
+    await relay.instance.takeHumanLease("user-1");
+
+    const shot = await relay.instance.request(
+      { op: "desktop_screenshot", quality: null },
+      OTHER_PERSON
+    );
+
+    expect(shot).toMatchObject({ ok: false, reason: "human_in_control" });
+  });
+
+  test("a person's input renews their lease, which expires after five idle minutes", async () => {
+    setSystemTime(START);
+    const { relay, socket } = await desktopHost();
+    await relay.instance.takeHumanLease("user-1");
+    setSystemTime(new Date(START.getTime() + 4 * MINUTE));
+    relay.instance.request(
+      { actions: [{ text: "x", type: "type" }], op: "desktop_input" },
+      PERSON
+    );
+
+    const { control } = await relay.instance.status();
+    expect(control?.expiresAt).toBe(START.getTime() + 9 * MINUTE);
+    expect(frames(socket).map((frame) => frame.op)).toContain("desktop_input");
+  });
+
+  test("an agent's idle hold expires after ten minutes, and the desktop is free again", async () => {
+    setSystemTime(START);
+    const { relay, socket } = await desktopHost();
+    relay.instance.request(
+      { op: "desktop_screenshot", quality: null },
+      AGENT_A
+    );
+    await flush();
+
+    setSystemTime(new Date(START.getTime() + 10 * MINUTE - 1));
+    expect((await relay.instance.status()).control).not.toBeNull();
+    setSystemTime(new Date(START.getTime() + 10 * MINUTE));
+    expect((await relay.instance.status()).control).toBeNull();
+
+    relay.instance.request(
+      { op: "desktop_screenshot", quality: null },
+      AGENT_B
+    );
+    await flush();
+    expect(
+      frames(socket).filter((frame) => frame.op === "desktop_screenshot")
+    ).toHaveLength(2);
+  });
+
+  test("the alarm expires a person's idle hold and starts clearing their clipboard", async () => {
+    setSystemTime(START);
+    const { relay, socket } = await desktopHost();
+    await relay.instance.takeHumanLease("user-1");
+
+    setSystemTime(new Date(START.getTime() + 5 * MINUTE + 1));
+    await relay.instance.alarm();
+    await flush();
+
+    expect((await relay.instance.status()).control).toBeNull();
+    expect(clearsOf(socket)).toEqual([
+      expect.objectContaining({
+        op: "desktop_clipboard_set",
+        selections: ["clipboard", "primary"],
+        text: "",
+      }),
+    ]);
+  });
+
+  test("handing back clears both selections, and nobody has the desktop until the clear is confirmed", async () => {
+    const { relay, socket } = await desktopHost();
+    await relay.instance.takeHumanLease("user-1");
+
+    const released = relay.instance.releaseHumanLease("user-1");
+    await flush();
+    const agentDuringClear = await relay.instance.request(
+      { op: "desktop_screenshot", quality: null },
+      AGENT_A
+    );
+    const [clear] = clearsOf(socket);
+    await relay.deliver(socket, { id: clear?.id, result: { ok: true } });
+
+    expect(agentDuringClear).toMatchObject({
+      ok: false,
+      reason: "desktop_busy",
+    });
+    expect(await released).toEqual({ clipboardCleared: true, released: true });
+    expect((await relay.instance.status()).control).toBeNull();
+  });
+
+  test("a clear that answers read_only counts as cleared", async () => {
+    const { relay, socket } = await desktopHost();
+    await relay.instance.takeHumanLease("user-1");
+
+    const released = relay.instance.releaseHumanLease("user-1");
+    await flush();
+    const [clear] = clearsOf(socket);
+    await relay.deliver(socket, {
+      error: { code: "read_only", message: "no clipboard here" },
+      id: clear?.id,
+    });
+
+    expect(await released).toEqual({ clipboardCleared: true, released: true });
+  });
+
+  test("after three failed clears, commands run again while desktop ops stay refused", async () => {
+    const { relay, socket } = await desktopHost();
+    await relay.instance.takeHumanLease("user-1");
+    const failClear = async () => {
+      const clears = clearsOf(socket);
+      const [clear] = clears.slice(-1);
+      await relay.deliver(socket, {
+        error: { code: "tool_failed", message: "xclip is missing" },
+        id: clear?.id,
+      });
+    };
+
+    const released = relay.instance.releaseHumanLease("user-1");
+    await flush();
+    await failClear();
+    // Two more clears, each failing the same way.
+    for (const _attempt of [0, 1]) {
+      // biome-ignore lint/performance/noAwaitInLoops: each clear is answered before the next is sent
+      await relay.instance.status();
+      await flush();
+      await failClear();
+    }
+    await released;
+
+    relay.instance.request({ command: "ls", op: "exec" }, AGENT_A);
+    await flush();
+    const desktop = await relay.instance.request(
+      { op: "desktop_screenshot", quality: null },
+      AGENT_A
+    );
+
+    expect(frames(socket).filter((frame) => frame.op === "exec")).toHaveLength(
+      1
+    );
+    expect(desktop).toMatchObject({ ok: false, reason: "desktop_busy" });
+  });
+
+  test("a clear that could not reach the machine is sent again when it reconnects", async () => {
+    const { relay, socket } = await desktopHost();
+    await relay.instance.takeHumanLease("user-1");
+    await relay.disconnect(socket);
+
+    const released = await relay.instance.releaseHumanLease("user-1");
+    const reconnected = await relay.connect();
+    await relay.deliver(reconnected, DESKTOP_HELLO);
+    await flush();
+
+    expect(released).toEqual({ clipboardCleared: false, released: true });
+    expect(clearsOf(reconnected)).toHaveLength(1);
+  });
+
+  test("a second person waits for the last person's clipboard to be cleared before taking over", async () => {
+    const { relay, socket } = await desktopHost();
+    await relay.instance.takeHumanLease("user-1");
+
+    const takeover = relay.instance.takeHumanLease("user-2");
+    await flush();
+    const [clear] = clearsOf(socket);
+    await relay.deliver(socket, { id: clear?.id, result: { ok: true } });
+
+    expect(await takeover).toMatchObject({
+      control: { holder: OTHER_PERSON },
+      ok: true,
+    });
+  });
+
+  test("an agent releases only its own hold at the end of its turn", async () => {
+    const { relay } = await desktopHost();
+    relay.instance.request(
+      { op: "desktop_screenshot", quality: null },
+      AGENT_A
+    );
+    await flush();
+
+    expect(await relay.instance.releaseAgentLease("agent-b")).toEqual({
+      released: false,
+    });
+    expect(await relay.instance.releaseAgentLease("agent-a")).toEqual({
+      released: true,
+    });
+    expect((await relay.instance.status()).control).toBeNull();
+  });
+
+  test("a host whose desktop is not running refuses desktop ops and takeover", async () => {
+    const hostId = await seedHost("office");
+    const relay = relayFor(hostId);
+    const socket = await relay.connect();
+    await relay.deliver(socket, HELLO);
+    await flush();
+
+    const op = await relay.instance.request(
+      { op: "desktop_screenshot", quality: null },
+      PERSON
+    );
+    const take = await relay.instance.takeHumanLease("user-1");
+
+    expect(op).toMatchObject({ ok: false, reason: "desktop_unavailable" });
+    expect(take).toMatchObject({ ok: false, reason: "desktop_unavailable" });
   });
 });

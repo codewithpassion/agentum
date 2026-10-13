@@ -23,10 +23,18 @@ const SAFE_DIRECTORY_NAME = /^[A-Za-z0-9_-]+$/;
 const relayStub = (env: Env, hostId: string) =>
   env.COMPUTER_RELAY.get(env.COMPUTER_RELAY.idFromName(hostId));
 
-export const createRelayTransport = (env: Env, hostId: string): Transport => ({
+/** `agentId` is the agent the operations are for; the desktop lease is decided on it. */
+export const createRelayTransport = (
+  env: Env,
+  hostId: string,
+  agentId?: string
+): Transport => ({
   send: async (message) => {
     const outcome = await relayStub(env, hostId)
-      .request(message)
+      .request(
+        message,
+        agentId === undefined ? undefined : { agentId, kind: "agent" }
+      )
       .catch((error: unknown) => {
         throw new ComputerTransportError(
           error instanceof Error ? error.message : UNREACHABLE,

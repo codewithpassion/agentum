@@ -3,7 +3,7 @@ import {
   DesktopScreenshotRequestSchema,
   DesktopScreenshotResultPayloadSchema,
 } from "./protocol";
-import type { RelayOutcome } from "./relay";
+import type { ComputerPrincipal, RelayOutcome } from "./relay";
 
 /**
  * The server half of `computer_screenshot`: one `desktop_screenshot` op through
@@ -14,7 +14,10 @@ import type { RelayOutcome } from "./relay";
 
 /** What the relay stub offers; a fake in tests is just this one method. */
 export interface DesktopRelay {
-  request: (message: Record<string, unknown>) => Promise<RelayOutcome>;
+  request: (
+    message: Record<string, unknown>,
+    principal?: ComputerPrincipal
+  ) => Promise<RelayOutcome>;
 }
 
 export type DesktopFailureReason =
@@ -42,8 +45,12 @@ const BAD_REPLY =
   "The computer sent a screenshot this server could not understand. Check that its version matches this deployment.";
 const UNREACHABLE = "The computer host could not be reached.";
 
-const fromBase64 = (encoded: string): Uint8Array =>
-  Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+export const fromBase64 = (encoded: string): Uint8Array<ArrayBuffer> => {
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  bytes.set(Array.from(binary, (character) => character.charCodeAt(0)));
+  return bytes;
+};
 
 /** A daemon error code, or a relay refusal, folded into the reasons the tool words. */
 const reasonOf = (outcome: RelayOutcome): DesktopFailureReason => {
@@ -65,9 +72,11 @@ const reasonOf = (outcome: RelayOutcome): DesktopFailureReason => {
   }
 };
 
+/** `agentId` names the agent the screenshot is for; without it the lease holder is unnamed. */
 export const takeDesktopScreenshot = async (
   relay: DesktopRelay,
-  quality: number | null = null
+  quality: number | null = null,
+  agentId?: string
 ): Promise<DesktopScreenshot> => {
   const request = DesktopScreenshotRequestSchema.parse({
     op: "desktop_screenshot",
@@ -76,11 +85,14 @@ export const takeDesktopScreenshot = async (
 
   let outcome: RelayOutcome;
   try {
-    outcome = await relay.request({
-      ...request,
-      id: crypto.randomUUID(),
-      timeout_ms: DESKTOP_SCREENSHOT_TIMEOUT_MS,
-    });
+    outcome = await relay.request(
+      {
+        ...request,
+        id: crypto.randomUUID(),
+        timeout_ms: DESKTOP_SCREENSHOT_TIMEOUT_MS,
+      },
+      agentId === undefined ? undefined : { agentId, kind: "agent" }
+    );
   } catch (error) {
     return {
       message: error instanceof Error ? error.message : UNREACHABLE,

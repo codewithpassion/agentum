@@ -1074,6 +1074,11 @@ export class AgentRouter extends DurableObject<Env> {
       return;
     }
 
+    if (status !== "running") {
+      // The turn is over, so the agent gives up any desktop it held.
+      await this.releaseDesktopLease(agentId);
+    }
+
     if (errors.length > 0) {
       // A session error that names one of the agent's connectors and blames
       // its credentials is the connector's problem, not the session's: it
@@ -1123,6 +1128,24 @@ export class AgentRouter extends DurableObject<Env> {
   }
 
   // --- helpers ---------------------------------------------------------------
+
+  /**
+   * Gives up the desktop an agent's turn may have taken. Best effort: a lease
+   * that is never released expires on its own after ten idle minutes.
+   */
+  private async releaseDesktopLease(agentId: string): Promise<void> {
+    try {
+      const agent = await this.agentOf(agentId);
+      if (!agent?.computerHostId) {
+        return;
+      }
+      await this.env.COMPUTER_RELAY.get(
+        this.env.COMPUTER_RELAY.idFromName(agent.computerHostId)
+      ).releaseAgentLease(agentId);
+    } catch {
+      // The idle expiry is the backstop; the pump must not die on a lease.
+    }
+  }
 
   private async countActiveSessions(): Promise<number> {
     const sessions = await this.ctx.storage.list<StoredSession>({

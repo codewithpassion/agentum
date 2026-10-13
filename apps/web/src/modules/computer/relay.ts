@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { z } from "zod";
 import { createDb, type Db } from "#/db/client";
 import {
   getHostByIdUnscoped,
@@ -13,10 +14,12 @@ import {
   CLOSE_STALE,
   type ClientReply,
   classifyClientFrame,
+  DESKTOP_CLIPBOARD_TIMEOUT_MS,
   HEARTBEAT_PING,
   HEARTBEAT_PONG,
   type HelloMessage,
   HelloMessageSchema,
+  isDesktopOp,
   RELAY_GRACE_MS,
   STALE_AFTER_MS,
   STALENESS_POLL_MS,
@@ -30,8 +33,8 @@ import {
  * One self-hosted host's daemon connection (`idFromName(hostId)`). The container
  * dials out to `/api/computer-hosts/connect`, that route hands the upgraded
  * socket here, and every computer operation for an agent on this host is written
- * to it. Ported from TrueForge's `RemoteComputerDO`, with the desktop lease,
- * human takeover and clipboard clearing left out.
+ * to it. Ported from TrueForge's `RemoteComputerDO`. The desktop lease is keyed
+ * by agent, not by turn: one host serves one agent.
  *
  * The socket uses the hibernation API. Heartbeats are answered by the platform
  * (`setWebSocketAutoResponse`), so an idle daemon costs nothing. Presence is
@@ -48,6 +51,35 @@ const ORPHANS_KEY = "orphaned_request_ids";
 /** A machine that has been away for a long time has nothing left worth cancelling. */
 const MAX_ORPHANS = 64;
 const LAST_SEEN_ALARM_MS = 60_000;
+
+const LEASE_KEY = "desktop_lease";
+/** A crash backstop: a hold that goes idle for this long is let go. */
+const AGENT_LEASE_IDLE_MS = 10 * 60_000;
+const HUMAN_LEASE_IDLE_MS = 5 * 60_000;
+/** Renewals live in memory and reach storage at most this often. */
+const LEASE_PERSIST_INTERVAL_MS = 30_000;
+/** After this many failed clears in a row, commands and file transfers run again. */
+const FAILED_CLEARS_BEFORE_COMMANDS = 3;
+/** Answers to a clear that mean there is nothing left to clear. */
+const NOTHING_TO_CLEAR_CODES: ReadonlySet<string> = new Set([
+  "read_only",
+  "desktop_unavailable",
+]);
+/** Clears both selections, so nothing a person put there outlives their control. */
+const CLEAR_CLIPBOARD = {
+  op: "desktop_clipboard_set",
+  selections: ["clipboard", "primary"],
+  text: "",
+} as const;
+
+const HUMAN_IN_CONTROL_MESSAGE =
+  "A person has taken control of this computer. Desktop actions and commands are paused until they hand it back.";
+const CLEARING_MESSAGE =
+  "The desktop is being cleared after a person used it. It is available again once the computer confirms.";
+const OTHER_PERSON_MESSAGE = "Another person has control of this desktop.";
+const LEASE_REQUIRED_MESSAGE = "Take control of the desktop first.";
+const AGENT_BUSY_MESSAGE =
+  "Another agent is using the desktop of this computer.";
 
 /** Added to the operation's own timeout before this side gives up. */
 const TIMED_OUT =
@@ -68,7 +100,11 @@ export type RelayFailureReason =
   | "revoked"
   | "interrupted"
   | "client_error"
-  | "duplicate_id";
+  | "duplicate_id"
+  | "human_in_control"
+  | "forbidden"
+  | "desktop_busy"
+  | "desktop_unavailable";
 
 /**
  * What a request resolves to. Never thrown across RPC. A failure the daemon
@@ -88,10 +124,194 @@ export interface RelayOutcome {
 export interface RelayStatus {
   capabilities: HelloMessage["capabilities"] | null;
   connected: boolean;
+  /** Who holds the desktop, or null when nobody does (including while it is being cleared). */
+  control: ComputerControl | null;
   hostname: string | null;
   version: string | null;
   workdir: string | null;
 }
+
+/**
+ * Who a request acts for, or who holds the desktop. An agent with no `agentId`
+ * matches any agent, because one host serves one agent.
+ */
+export type ComputerPrincipal =
+  | { kind: "agent"; agentId?: string }
+  | { kind: "human"; userId: string };
+
+/** Who holds the desktop, and until when. `expiresAt` is epoch milliseconds. */
+export interface ComputerControl {
+  expiresAt: number;
+  holder: ComputerPrincipal;
+}
+
+export type TakeHumanLeaseOutcome =
+  | { ok: true; control: ComputerControl }
+  | {
+      ok: false;
+      reason: "desktop_busy" | "desktop_unavailable";
+      message: string;
+    };
+
+const PrincipalSchema = z.discriminatedUnion("kind", [
+  z.object({ agentId: z.string().optional(), kind: z.literal("agent") }),
+  z.object({ kind: z.literal("human"), userId: z.string() }),
+]);
+const StoredLeaseSchema = z.discriminatedUnion("kind", [
+  z.object({
+    holder: PrincipalSchema,
+    kind: z.literal("held"),
+    lastOpAt: z.number(),
+  }),
+  z.object({
+    failedClears: z.number().int().nonnegative(),
+    kind: z.literal("clearing"),
+  }),
+]);
+/**
+ * Who controls the desktop; absent means nobody. `clearing` is the gap after a
+ * person's control ends and before the machine confirms both clipboard
+ * selections are empty.
+ */
+type StoredLease = z.infer<typeof StoredLeaseSchema>;
+type HeldLease = Extract<StoredLease, { kind: "held" }>;
+
+/** What `request()` decided about one op before anything was sent. */
+type Decision =
+  | { kind: "send" }
+  | { kind: "send_and_renew" }
+  | { kind: "refuse"; reason: RelayFailureReason; message: string };
+
+const SEND: Decision = { kind: "send" };
+const SEND_AND_RENEW: Decision = { kind: "send_and_renew" };
+
+const refusal = (
+  reason: RelayFailureReason,
+  message: string
+): RelayOutcome => ({
+  code: null,
+  message,
+  ok: false,
+  reason,
+  result_json: null,
+});
+
+/** Undefined on either side matches: an agent that never named itself is the host's agent. */
+const sameAgent = (
+  held: string | undefined,
+  asked: string | undefined
+): boolean => held === undefined || asked === undefined || held === asked;
+
+/** Whether `principal` is the controller: the same agent, or the same person. */
+const holdsControl = (
+  holder: ComputerPrincipal,
+  principal: ComputerPrincipal
+): boolean => {
+  if (holder.kind === "agent") {
+    return (
+      principal.kind === "agent" && sameAgent(holder.agentId, principal.agentId)
+    );
+  }
+  return principal.kind === "human" && principal.userId === holder.userId;
+};
+
+const leaseExpiresAt = (lease: HeldLease): number =>
+  lease.lastOpAt +
+  (lease.holder.kind === "agent" ? AGENT_LEASE_IDLE_MS : HUMAN_LEASE_IDLE_MS);
+
+const controlOf = (lease: HeldLease): ComputerControl => ({
+  expiresAt: leaseExpiresAt(lease),
+  holder: lease.holder,
+});
+
+/** An agent's op against the lease: `cancel` always goes, a person's hold stops everything else. */
+const decideForAgent = ({
+  lease,
+  op,
+  principal,
+}: {
+  lease: StoredLease | undefined;
+  op: string;
+  principal: ComputerPrincipal;
+}): Decision => {
+  if (op === "cancel") {
+    return SEND;
+  }
+  if (lease?.kind === "clearing") {
+    const commandsResume =
+      !isDesktopOp(op) && lease.failedClears >= FAILED_CLEARS_BEFORE_COMMANDS;
+    return commandsResume
+      ? SEND
+      : { kind: "refuse", message: CLEARING_MESSAGE, reason: "desktop_busy" };
+  }
+  if (lease?.holder.kind === "human") {
+    return {
+      kind: "refuse",
+      message: HUMAN_IN_CONTROL_MESSAGE,
+      reason: "human_in_control",
+    };
+  }
+  if (!isDesktopOp(op)) {
+    return SEND;
+  }
+  // The agent a lease names is the only one the desktop is free for.
+  if (lease === undefined || holdsControl(lease.holder, principal)) {
+    return SEND_AND_RENEW;
+  }
+  return {
+    kind: "refuse",
+    message: AGENT_BUSY_MESSAGE,
+    reason: "desktop_busy",
+  };
+};
+
+/** A person's op against the lease: watching is free, and only the holder may input. */
+const decideForPerson = ({
+  lease,
+  op,
+  principal,
+}: {
+  lease: StoredLease | undefined;
+  op: string;
+  principal: ComputerPrincipal;
+}): Decision => {
+  if (!isDesktopOp(op)) {
+    return {
+      kind: "refuse",
+      message: "A person may only send desktop operations",
+      reason: "forbidden",
+    };
+  }
+  if (lease?.kind === "clearing") {
+    return {
+      kind: "refuse",
+      message: CLEARING_MESSAGE,
+      reason: "desktop_busy",
+    };
+  }
+  if (
+    lease?.holder.kind === "human" &&
+    !holdsControl(lease.holder, principal)
+  ) {
+    return {
+      kind: "refuse",
+      message: OTHER_PERSON_MESSAGE,
+      reason: "human_in_control",
+    };
+  }
+  // Watching needs no lease and renews none: only input keeps a person in control.
+  if (op === "desktop_screenshot") {
+    return SEND;
+  }
+  if (lease !== undefined && holdsControl(lease.holder, principal)) {
+    return SEND_AND_RENEW;
+  }
+  return {
+    kind: "refuse",
+    message: LEASE_REQUIRED_MESSAGE,
+    reason: "forbidden",
+  };
+};
 
 interface SocketAttachment {
   readonly connected_at: number;
@@ -167,9 +387,20 @@ export class ComputerRelay extends DurableObject<Env> {
   private generation: number | null = null;
   private hello: HelloMessage | null = null;
   private loaded: Promise<void> | null = null;
+  /** Set once `load()` has read storage; after that, a lease decision needs no await. */
+  private hydrated = false;
+
+  /** Whether storage has been read, so a lease decision needs no await. */
+  private isHydrated(): boolean {
+    return this.hydrated;
+  }
   private readonly pending = new Map<string, Pending>();
   /** The tail of the exec queue: one command in flight per host, as in the DO backend. */
   private execQueue: Promise<unknown> = Promise.resolve();
+  /** In memory on purpose: renewals reach storage at most every LEASE_PERSIST_INTERVAL_MS. */
+  private lease: StoredLease | undefined;
+  private leasePersistedAt = 0;
+  private clearInFlight: Promise<boolean> | undefined;
 
   private db(): Db {
     this.database ??= createDb(this.env.DB);
@@ -186,6 +417,13 @@ export class ComputerRelay extends DurableObject<Env> {
       );
       this.hello = stored.success ? stored.data : null;
       this.hostId = (await this.ctx.storage.get<string>(HOST_KEY)) ?? null;
+      const storedLease = StoredLeaseSchema.safeParse(
+        await this.ctx.storage.get(LEASE_KEY)
+      );
+      this.lease = storedLease.success ? storedLease.data : undefined;
+      this.leasePersistedAt =
+        this.lease?.kind === "held" ? this.lease.lastOpAt : 0;
+      this.hydrated = true;
     })();
     return this.loaded;
   }
@@ -288,42 +526,150 @@ export class ComputerRelay extends DurableObject<Env> {
     await this.dropped(socket);
   }
 
-  /** Presence while connected: the last-seen column moves once a minute, not per heartbeat. */
+  /**
+   * Presence while connected: the last-seen column moves once a minute, not per
+   * heartbeat. Also expires an idle desktop hold, with or without the daemon.
+   */
   override async alarm(): Promise<void> {
     await this.load();
+    this.currentLease(Date.now());
     if (this.currentSocket() === undefined) {
+      await this.armAlarm(false);
       return;
     }
     const hostId = await this.host();
     if (hostId) {
       await touchHostSeen(this.db(), hostId);
     }
-    await this.ctx.storage.setAlarm(Date.now() + LAST_SEEN_ALARM_MS);
+    await this.armAlarm(true);
   }
 
   /**
    * One protocol message to the daemon, resolved with its outcome. Never throws:
    * a host with no socket answers `offline` here and now, rather than making the
-   * caller wait for a timeout.
+   * caller wait for a timeout. `principal` is who the op is for; it defaults to
+   * an agent, and only desktop ops and agent ops consult the lease with it.
    */
-  async request(message: Record<string, unknown>): Promise<RelayOutcome> {
-    await this.load();
-    if (message.op === "exec") {
-      return await this.enqueueExec(() => this.dispatch(message));
+  async request(
+    message: Record<string, unknown>,
+    principal: ComputerPrincipal = { kind: "agent" }
+  ): Promise<RelayOutcome> {
+    if (!this.isHydrated()) {
+      await this.load();
+    }
+    // Decided before the first await, so two callers can never both take a free lease.
+    const op = typeof message.op === "string" ? message.op : "";
+    if (isDesktopOp(op) && this.hello?.capabilities.desktop !== true) {
+      return refusal("desktop_unavailable", this.desktopUnavailableMessage());
+    }
+    const now = Date.now();
+    const decision = this.decide(op, principal, now);
+    if (decision.kind === "refuse") {
+      return refusal(decision.reason, decision.message);
+    }
+    if (decision.kind === "send_and_renew") {
+      // Checked before renewing, so an offline machine answers offline instead of taking a lease.
+      if (this.currentSocket() === undefined) {
+        return refusal("offline", await this.offlineReason());
+      }
+      this.renewLease(principal, now);
+    }
+    if (op === "exec") {
+      return await this.enqueueExec(() =>
+        this.sendExecIfAllowed(message, principal)
+      );
     }
     return await this.dispatch(message);
   }
 
-  /** The connection state and what the daemon said about itself in its hello. */
+  /** The connection state, what the daemon said in its hello, and who holds the desktop. */
   async status(): Promise<RelayStatus> {
     await this.load();
+    const lease = this.currentLease(Date.now());
     return {
       capabilities: this.hello?.capabilities ?? null,
       connected: this.currentSocket() !== undefined,
+      control: lease?.kind === "held" ? controlOf(lease) : null,
       hostname: this.hello?.hostname ?? null,
       version: this.hello?.version ?? null,
       workdir: this.hello?.workdir ?? null,
     };
+  }
+
+  /**
+   * A person takes the desktop, preempting any agent at once. Taking it from
+   * another person, or while the last person's clipboard is still being cleared,
+   * waits for that clear first, so one person never reads what another copied.
+   */
+  async takeHumanLease(userId: string): Promise<TakeHumanLeaseOutcome> {
+    await this.load();
+    if (this.hello?.capabilities.desktop !== true) {
+      return {
+        message: this.desktopUnavailableMessage(),
+        ok: false,
+        reason: "desktop_unavailable",
+      };
+    }
+    // Re-checked after every clear: someone else may have taken control while it was in flight.
+    for (;;) {
+      const lease = this.currentLease(Date.now());
+      const anotherPerson =
+        lease?.kind === "held" &&
+        lease.holder.kind === "human" &&
+        lease.holder.userId !== userId;
+      if (lease?.kind !== "clearing" && !anotherPerson) {
+        break;
+      }
+      if (anotherPerson) {
+        this.startClearing();
+      }
+      // biome-ignore lint/performance/noAwaitInLoops: each clear must settle before the next check
+      if (!(await this.clearClipboard())) {
+        return {
+          message:
+            "The last person's clipboard could not be cleared yet; try again once the computer is online",
+          ok: false,
+          reason: "desktop_busy",
+        };
+      }
+    }
+    const held = this.renewLease({ kind: "human", userId }, Date.now());
+    return { control: controlOf(held), ok: true };
+  }
+
+  /**
+   * A person hands the desktop back. Nobody gets it until both clipboard
+   * selections are cleared; a clear that fails leaves it clearing.
+   */
+  async releaseHumanLease(
+    userId: string
+  ): Promise<{ clipboardCleared: boolean; released: boolean }> {
+    await this.load();
+    const lease = this.currentLease(Date.now());
+    if (
+      lease?.kind !== "held" ||
+      lease.holder.kind !== "human" ||
+      lease.holder.userId !== userId
+    ) {
+      return { clipboardCleared: false, released: false };
+    }
+    this.startClearing();
+    return { clipboardCleared: await this.clearClipboard(), released: true };
+  }
+
+  /** Ends an agent's hold at the end of its turn. Other holders are left alone. */
+  async releaseAgentLease(agentId: string): Promise<{ released: boolean }> {
+    await this.load();
+    const lease = this.currentLease(Date.now());
+    if (
+      lease?.kind !== "held" ||
+      lease.holder.kind !== "agent" ||
+      !sameAgent(lease.holder.agentId, agentId)
+    ) {
+      return { released: false };
+    }
+    this.setLease(undefined);
+    return { released: true };
   }
 
   /**
@@ -345,6 +691,8 @@ export class ComputerRelay extends DurableObject<Env> {
     await this.load();
     this.hello = hello;
     await this.ctx.storage.put(HELLO_KEY, hello);
+    // A clear that failed while the machine was away is sent again as soon as it is back.
+    this.currentLease(Date.now());
     const hostId = await this.host();
     if (!hostId) {
       return;
@@ -498,6 +846,172 @@ export class ComputerRelay extends DurableObject<Env> {
       () => undefined
     );
     return result;
+  }
+
+  /**
+   * The per-op check against the one desktop controller. Under a person's
+   * control, and while their clipboard is being cleared, every agent op but
+   * `cancel` is refused: `exec` runs with DISPLAY set, so it could read the
+   * screen or clipboard behind the tools. Once the machine has failed enough
+   * clears in a row, commands and file transfers run again.
+   */
+  private decide(
+    op: string,
+    principal: ComputerPrincipal,
+    now: number
+  ): Decision {
+    const lease = this.currentLease(now);
+    return principal.kind === "agent"
+      ? decideForAgent({ lease, op, principal })
+      : decideForPerson({ lease, op, principal });
+  }
+
+  /** An exec that waited its turn is checked again: a person may have taken the desktop meanwhile. */
+  private async sendExecIfAllowed(
+    message: Record<string, unknown>,
+    principal: ComputerPrincipal
+  ): Promise<RelayOutcome> {
+    const late = this.decide("exec", principal, Date.now());
+    if (late.kind === "refuse") {
+      return refusal(late.reason, late.message);
+    }
+    return await this.dispatch(message);
+  }
+
+  /**
+   * The controller as of `now`. An idle agent simply lets go; a person who went
+   * quiet leaves the desktop clearing. Every call while clearing retries the clear.
+   */
+  private currentLease(now: number): StoredLease | undefined {
+    const { lease } = this;
+    if (lease?.kind === "clearing") {
+      this.clearClipboard();
+      return lease;
+    }
+    if (lease === undefined || now < leaseExpiresAt(lease)) {
+      return lease;
+    }
+    if (lease.holder.kind === "agent") {
+      this.setLease(undefined);
+      return;
+    }
+    return this.startClearing();
+  }
+
+  private setLease(next: StoredLease | undefined): void {
+    this.lease = next;
+    this.leasePersistedAt = next?.kind === "held" ? next.lastOpAt : 0;
+    this.ctx.waitUntil(
+      next === undefined
+        ? this.ctx.storage.delete(LEASE_KEY)
+        : this.ctx.storage.put(LEASE_KEY, next)
+    );
+    if (next?.kind === "held") {
+      this.ctx.waitUntil(this.armAlarm(this.currentSocket() !== undefined));
+    }
+  }
+
+  /** Wakes for the next presence check, or for a held lease's expiry, whichever comes first. */
+  private async armAlarm(connected: boolean): Promise<void> {
+    const now = Date.now();
+    const wakes: number[] = [];
+    if (connected) {
+      wakes.push(now + LAST_SEEN_ALARM_MS);
+    }
+    if (this.lease?.kind === "held") {
+      wakes.push(leaseExpiresAt(this.lease));
+    }
+    if (wakes.length > 0) {
+      await this.ctx.storage.setAlarm(Math.min(...wakes));
+    }
+  }
+
+  /** A person's control ends here; nobody drives or reads the desktop until the clear is confirmed. */
+  private startClearing(): StoredLease {
+    const clearing: StoredLease = { failedClears: 0, kind: "clearing" };
+    this.setLease(clearing);
+    this.clearClipboard();
+    return clearing;
+  }
+
+  /**
+   * Takes or renews the hold for `principal`. The holder recorded stays the one
+   * already holding it, so a renewal by an unnamed agent keeps the agent's id.
+   * A new holder is written at once; a renewal only when the stored time is stale.
+   */
+  private renewLease(principal: ComputerPrincipal, now: number): HeldLease {
+    const previous = this.lease;
+    if (previous?.kind === "held" && holdsControl(previous.holder, principal)) {
+      const next: HeldLease = {
+        holder: previous.holder,
+        kind: "held",
+        lastOpAt: now,
+      };
+      if (now - this.leasePersistedAt >= LEASE_PERSIST_INTERVAL_MS) {
+        this.setLease(next);
+      } else {
+        this.lease = next;
+      }
+      return next;
+    }
+    const next: HeldLease = { holder: principal, kind: "held", lastOpAt: now };
+    this.setLease(next);
+    return next;
+  }
+
+  /** One clear at a time: everyone waiting on the desktop waits on the same one. */
+  private clearClipboard(): Promise<boolean> {
+    if (this.clearInFlight === undefined) {
+      const clearing = this.sendClear().finally(() => {
+        this.clearInFlight = undefined;
+      });
+      this.clearInFlight = clearing;
+      this.ctx.waitUntil(clearing);
+    }
+    return this.clearInFlight;
+  }
+
+  /**
+   * Clears both selections, then ends the clearing state. A clear that fails
+   * leaves the desktop clearing on purpose; the next op, alarm or reconnect sends
+   * it again. Only failures from a machine that answered count towards letting
+   * commands through: an offline machine says nothing about its clipboard.
+   */
+  private async sendClear(): Promise<boolean> {
+    // With no desktop running there is no X server, so no selection is left for anyone to read.
+    if (this.hello?.capabilities.desktop === true) {
+      const outcome = await this.dispatch({
+        ...CLEAR_CLIPBOARD,
+        timeout_ms: DESKTOP_CLIPBOARD_TIMEOUT_MS,
+      });
+      const nothingToClear =
+        outcome.code !== null && NOTHING_TO_CLEAR_CODES.has(outcome.code);
+      if (!(outcome.ok || nothingToClear)) {
+        if (outcome.code !== null || outcome.reason === "timeout") {
+          this.countFailedClear();
+        }
+        return false;
+      }
+    }
+    if (this.lease?.kind === "clearing") {
+      this.setLease(undefined);
+    }
+    return true;
+  }
+
+  private countFailedClear(): void {
+    if (this.lease?.kind !== "clearing") {
+      return;
+    }
+    this.setLease({
+      failedClears: this.lease.failedClears + 1,
+      kind: "clearing",
+    });
+  }
+
+  private desktopUnavailableMessage(): string {
+    const reason = this.hello?.capabilities.desktop_unavailable_reason;
+    return `The computer has no desktop running${reason ? `: ${reason}` : ""}`;
   }
 
   private async dispatch(

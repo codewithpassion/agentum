@@ -123,10 +123,13 @@ const failingBackend = (reason: string): ComputerBackend => ({
 /**
  * How to reach one host's client: through the relay, for both kinds. The client
  * dials out, so a Fly machine and a container on someone's desk look the same
- * from here.
+ * from here. `agentId` is the agent whose operations these are.
  */
-export const transportForHost = (env: Env, host: ComputerHost): Transport =>
-  createRelayTransport(env, host.id);
+export const transportForHost = (
+  env: Env,
+  host: ComputerHost,
+  agentId?: string
+): Transport => createRelayTransport(env, host.id, agentId);
 
 /** Test seams for the Fly wake path; production passes none. */
 export interface ComputerClientDeps {
@@ -162,7 +165,7 @@ const wakingParts = (
     },
   });
 
-  const inner = transportForHost(env, host);
+  const inner = transportForHost(env, host, agent.id);
   const root = createRelaySessionRoot(env, host.id, agent.id);
   return {
     root: async () => {
@@ -205,7 +208,7 @@ const remoteBackendFor = async (
   }
   if (host.kind === "self_hosted") {
     return createRemoteBackend(
-      transportForHost(env, host),
+      transportForHost(env, host, agent.id),
       createRelaySessionRoot(env, host.id, agent.id)
     );
   }
