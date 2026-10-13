@@ -45,6 +45,11 @@ const NOTE_MAX_CHARS = 2000;
 const STALE_FRAME_MS = 5000;
 const CLOCK_TICK_MS = 1000;
 const FRAME_AGE_TICK_MS = 250;
+/** Room the expanded overlay keeps above the screen: its padding plus the status and buttons. */
+const EXPANDED_RESERVED_REM = 12;
+const FRAME_ASPECT_RATIO = DESKTOP_SCREEN.width / DESKTOP_SCREEN.height;
+/** Widest the screen can be while the whole frame stays on the viewport's height. */
+const EXPANDED_FRAME_WIDTH = `min(100%, calc((100dvh - ${String(EXPANDED_RESERVED_REM)}rem) * ${String(FRAME_ASPECT_RATIO)}))`;
 
 /** Chords the local browser keeps for itself, so they can only reach the desktop from here. */
 const RESERVED_CHORDS: { label: string; keys: string }[] = [
@@ -221,11 +226,29 @@ export function DesktopScreen({
   const beforeInputSeenRef = useRef<boolean>(false);
   const pressedRef = useRef(new Set<DesktopMouseButton>());
   const [keyboardFocused, setKeyboardFocused] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const controller = status?.controller;
   const inControl = isMine(controller);
   const inControlRef = useRef(inControl);
   inControlRef.current = inControl;
+  // Escape belongs to the remote desktop while this page is sending it keys.
+  const keyboardHeld = inControl && keyboardFocused;
+
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+
+  useEffect(() => {
+    if (!expanded) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !keyboardHeld) {
+        setExpanded(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expanded, keyboardHeld]);
 
   /** Lets go of every button still held on the desktop, so none stays pressed there. */
   const releaseButtons = useCallback(() => {
@@ -611,7 +634,13 @@ export function DesktopScreen({
   return (
     <section
       aria-label="Desktop"
-      className={cx("flex min-h-0 flex-col gap-3", className)}
+      className={cx(
+        "flex min-h-0 flex-col gap-3",
+        // The dark surround is a spread shadow, so the same element covers the view without a wrapper.
+        expanded &&
+          "fixed inset-4 z-50 overflow-y-auto rounded-xl bg-[var(--ws-bg)] p-4 shadow-[0_0_0_100vmax_rgba(0,0,0,0.8)]",
+        className
+      )}
       data-testid="desktop-screen"
     >
       {status?.pendingTakeover ? (
@@ -652,6 +681,36 @@ export function DesktopScreen({
               Take control
             </Button>
           )}
+          <Button
+            aria-label={expanded ? "Exit full size" : "Expand screen"}
+            onClick={toggleExpanded}
+            size="icon"
+            title={
+              expanded
+                ? "Exit full size. Escape also exits, unless the keyboard is with the desktop; Ctrl+Alt+Shift hands it back first."
+                : "Expand to full size. Escape exits unless the keyboard is with the desktop; Ctrl+Alt+Shift hands it back first."
+            }
+            variant="subtle"
+          >
+            <svg
+              aria-hidden="true"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="1.8"
+              viewBox="0 0 16 16"
+              width="14"
+            >
+              <path
+                d={
+                  expanded
+                    ? "M2 6h4V2M14 6h-4V2M2 10h4v4M14 10h-4v4"
+                    : "M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"
+                }
+              />
+            </svg>
+          </Button>
         </div>
       </div>
 
@@ -693,12 +752,14 @@ export function DesktopScreen({
 
       <div
         className={cx(
-          "relative max-h-[75vh] w-full shrink-0 overflow-hidden rounded-lg border border-[var(--ws-line)] bg-[var(--ws-bg)]",
+          "relative shrink-0 overflow-hidden rounded-lg border border-[var(--ws-line)] bg-[var(--ws-bg)]",
+          expanded ? "mx-auto" : "max-h-[75vh] w-full",
           inControl && keyboardFocused && "ring-2 ring-[var(--ws-accent)]"
         )}
         data-testid="desktop-view"
         style={{
           aspectRatio: `${String(DESKTOP_SCREEN.width)} / ${String(DESKTOP_SCREEN.height)}`,
+          ...(expanded ? { width: EXPANDED_FRAME_WIDTH } : {}),
         }}
       >
         {/* biome-ignore lint/a11y/noStaticElementInteractions: a pointer surface mirrors the desktop; keys go through the sink textarea beside it */}

@@ -94,6 +94,43 @@ describe("toDesktopPoint", () => {
     });
   });
 
+  it("maps a full-size frame with no letterbox at its offset", () => {
+    // The expanded view is sized to the exact 16:10 ratio, so the box is the frame.
+    const box = { height: 1600, left: 100, top: 50, width: 2560 };
+    expect(containedFrameRect(box)).toEqual(box);
+    expect(toDesktopPoint({ box, clientX: 100, clientY: 50 })).toEqual({
+      x: 0,
+      y: 0,
+    });
+    expect(toDesktopPoint({ box, clientX: 1380, clientY: 850 })).toEqual({
+      x: 640,
+      y: 400,
+    });
+    expect(toDesktopPoint({ box, clientX: 2659, clientY: 1649 })).toEqual({
+      x: 1279,
+      y: 799,
+    });
+  });
+
+  it("maps a large letterboxed frame at any size", () => {
+    // 1920x1080 box: the frame is 1728 wide, centred with 96 on each side.
+    const box = { height: 1080, left: 0, top: 0, width: 1920 };
+    expect(containedFrameRect(box)).toEqual({
+      height: 1080,
+      left: 96,
+      top: 0,
+      width: 1728,
+    });
+    expect(toDesktopPoint({ box, clientX: 95, clientY: 540 })).toEqual({
+      x: 0,
+      y: 400,
+    });
+    expect(toDesktopPoint({ box, clientX: 1823, clientY: 1079 })).toEqual({
+      x: 1279,
+      y: 799,
+    });
+  });
+
   it("maps DOM buttons and ignores back and forward", () => {
     expect(toDesktopButton(0)).toBe("left");
     expect(toDesktopButton(1)).toBe("middle");
