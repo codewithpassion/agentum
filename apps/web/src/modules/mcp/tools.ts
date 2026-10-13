@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Db } from "#/db/client";
+import { sendImageToAgentSession } from "#/modules/agent-images/send";
 import {
   clearOverride,
   resolveModelWithSource,
@@ -14,7 +15,7 @@ import {
   isAvailableModel,
 } from "#/modules/anthropic/config";
 import { createBrowserClient } from "#/modules/browser/client";
-import { absoluteUrl } from "#/modules/browser/service";
+import { absoluteUrl, getScreenshot } from "#/modules/browser/service";
 import { summarizeSnapshot } from "#/modules/browser/snapshot";
 import { createComputerClient } from "#/modules/computer/client";
 import {
@@ -853,14 +854,39 @@ const registerBrowserTools = (server: McpServer, ctx: McpToolContext): void => {
         return fail(result.reason);
       }
       const { screenshot } = result;
+      const url = absoluteUrl(
+        ctx.env.PUBLIC_APP_URL,
+        ctx.requestUrl,
+        screenshot.url
+      );
+
+      // A managed agent cannot open the link, so the picture itself is sent
+      // into its session as the next message. The Cloudflare runtime has no
+      // such path and keeps the link alone.
+      let delivered = false;
+      if (ctx.agent.runtime === "managed") {
+        const stored = await getScreenshot(ctx.db, screenshot.id);
+        if (stored) {
+          const delivery = await sendImageToAgentSession(ctx.env, {
+            agentId: ctx.agent.id,
+            caption: `Screenshot of ${screenshot.pageUrl}`,
+            origin: absoluteUrl(ctx.env.PUBLIC_APP_URL, ctx.requestUrl, ""),
+            r2Key: stored.r2Key,
+            workspaceId: ctx.workspace.id,
+          });
+          delivered = delivery.sent;
+        }
+      }
+
       return json({
-        markdown: `![Screenshot of ${screenshot.pageUrl}](${absoluteUrl(ctx.env.PUBLIC_APP_URL, ctx.requestUrl, screenshot.url)})`,
+        markdown: `![Screenshot of ${screenshot.pageUrl}](${url})`,
+        ...(delivered
+          ? {
+              note: "The screenshot follows as the next message, so you can see it. The link is for people.",
+            }
+          : {}),
         pageUrl: screenshot.pageUrl,
-        url: absoluteUrl(
-          ctx.env.PUBLIC_APP_URL,
-          ctx.requestUrl,
-          screenshot.url
-        ),
+        url,
       });
     }
   );
