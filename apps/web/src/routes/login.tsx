@@ -26,6 +26,11 @@ function LoginPage() {
               <SectionLabel>Access</SectionLabel>
               <h1 className="df-h2">Sign in to continue</h1>
             </div>
+            <p className="df-notice" role="note">
+              No sign ups accepted at the moment, please{" "}
+              <a href="#newsletter">subscribe to the newsletter</a> to stay in
+              the loop.
+            </p>
             <div style={{ display: "flex", justifyContent: "center" }}>
               <SignIn appearance={clerkAppearance} routing="hash" />
             </div>

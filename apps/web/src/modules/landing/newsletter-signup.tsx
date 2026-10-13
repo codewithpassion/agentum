@@ -3,7 +3,6 @@ import { SectionLabel } from "./df-parts";
 
 const SUBSCRIBE_URL =
   "https://newsletters.rockyshoreslabs.io/api/public/newsletters/agentum/subscribe";
-const ARCHIVE_URL = "https://newsletters.rockyshoreslabs.io/n/agentum";
 
 const HTTP_UNPROCESSABLE = 422;
 const HTTP_RATE_LIMITED = 429;
@@ -75,7 +74,11 @@ export function NewsletterSignup() {
   const sending = feedback.status === "sending";
 
   return (
-    <section aria-labelledby="df-news-title" className="df-section df-news">
+    <section
+      aria-labelledby="df-news-title"
+      className="df-section df-news"
+      id="newsletter"
+    >
       <div className="df-container">
         <div className="df-narrow df-center df-news-body">
           <SectionLabel>Stay in the loop</SectionLabel>
@@ -146,14 +149,6 @@ export function NewsletterSignup() {
               </>
             )}
           </div>
-          <a
-            className="df-news-archive"
-            href={ARCHIVE_URL}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            Read past issues →
-          </a>
         </div>
       </div>
     </section>

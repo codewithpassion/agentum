@@ -845,15 +845,21 @@
   color: var(--neon-red);
 }
 
-.df-news-archive {
-  font-family: var(--font-label);
-  font-size: 0.875rem;
-  color: var(--text-nav);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  transition: color 0.5s;
+.df-notice {
+  padding: 1rem 1.5rem;
+  margin: 0;
+  color: var(--text-strong);
+  text-align: center;
+  background: var(--tint-orange-10);
+  border: 1px solid var(--border-accent);
 }
 
-.df-news-archive:hover {
+.df-notice a {
   color: var(--electric-cyan);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.df-notice a:hover {
+  color: var(--burnt-orange);
 }
