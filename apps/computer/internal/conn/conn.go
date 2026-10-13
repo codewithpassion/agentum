@@ -23,7 +23,7 @@ import (
 var ErrRevoked = errors.New("the machine credential was revoked")
 
 // ConnectPath is the relay's upgrade endpoint.
-const ConnectPath = "/api/v1/computers/connect"
+const ConnectPath = "/api/computer-hosts/connect"
 
 const (
 	defaultDialTimeout = 20 * time.Second

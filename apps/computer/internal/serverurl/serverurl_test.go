@@ -44,14 +44,14 @@ func TestPlaintextIsRefusedExceptToThisMachine(t *testing.T) {
 
 func TestSchemeMapping(t *testing.T) {
 	websockets := map[string]string{
-		"https://example.com":        "wss://example.com/api/v1/computers/connect",
-		"https://example.com/":       "wss://example.com/api/v1/computers/connect",
-		"wss://example.com":          "wss://example.com/api/v1/computers/connect",
-		"http://127.0.0.1:8787":      "ws://127.0.0.1:8787/api/v1/computers/connect",
-		"https://example.com/prefix": "wss://example.com/prefix/api/v1/computers/connect",
+		"https://example.com":        "wss://example.com/api/computer-hosts/connect",
+		"https://example.com/":       "wss://example.com/api/computer-hosts/connect",
+		"wss://example.com":          "wss://example.com/api/computer-hosts/connect",
+		"http://127.0.0.1:8787":      "ws://127.0.0.1:8787/api/computer-hosts/connect",
+		"https://example.com/prefix": "wss://example.com/prefix/api/computer-hosts/connect",
 	}
 	for input, want := range websockets {
-		got, err := serverurl.WebSocket(input, "/api/v1/computers/connect")
+		got, err := serverurl.WebSocket(input, "/api/computer-hosts/connect")
 		if err != nil {
 			t.Fatalf("WebSocket(%q): %v", input, err)
 		}
@@ -61,12 +61,12 @@ func TestSchemeMapping(t *testing.T) {
 	}
 
 	https := map[string]string{
-		"https://example.com":   "https://example.com/api/v1/computers/enroll",
-		"wss://example.com":     "https://example.com/api/v1/computers/enroll",
-		"http://127.0.0.1:8787": "http://127.0.0.1:8787/api/v1/computers/enroll",
+		"https://example.com":   "https://example.com/api/computer-hosts/enroll",
+		"wss://example.com":     "https://example.com/api/computer-hosts/enroll",
+		"http://127.0.0.1:8787": "http://127.0.0.1:8787/api/computer-hosts/enroll",
 	}
 	for input, want := range https {
-		got, err := serverurl.HTTP(input, "/api/v1/computers/enroll")
+		got, err := serverurl.HTTP(input, "/api/computer-hosts/enroll")
 		if err != nil {
 			t.Fatalf("HTTP(%q): %v", input, err)
 		}

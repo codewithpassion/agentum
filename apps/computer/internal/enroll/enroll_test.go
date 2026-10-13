@@ -26,12 +26,12 @@ func fixture(t *testing.T, name string) []byte {
 
 func TestURLDerivation(t *testing.T) {
 	for input, want := range map[string]string{
-		"https://agentum.example.com":  "https://agentum.example.com/api/v1/computers/enroll",
-		"https://agentum.example.com/": "https://agentum.example.com/api/v1/computers/enroll",
+		"https://agentum.example.com":  "https://agentum.example.com/api/computer-hosts/enroll",
+		"https://agentum.example.com/": "https://agentum.example.com/api/computer-hosts/enroll",
 		// Plaintext to this machine is the development case and stays allowed.
-		"http://127.0.0.1:8787": "http://127.0.0.1:8787/api/v1/computers/enroll",
+		"http://127.0.0.1:8787": "http://127.0.0.1:8787/api/computer-hosts/enroll",
 		// A websocket scheme names the same server; the enrollment call is still HTTP.
-		"wss://agentum.example.com": "https://agentum.example.com/api/v1/computers/enroll",
+		"wss://agentum.example.com": "https://agentum.example.com/api/computer-hosts/enroll",
 	} {
 		got, err := enroll.URL(input)
 		if err != nil {

@@ -156,10 +156,10 @@ func newClient(t *testing.T, relay *fakeRelay, sleep func(context.Context, time.
 
 func TestDialURLDerivation(t *testing.T) {
 	cases := map[string]string{
-		"https://agentum.example.com":         "wss://agentum.example.com/api/v1/computers/connect",
-		"https://agentum.example.com/":        "wss://agentum.example.com/api/v1/computers/connect",
-		"http://127.0.0.1:8787":               "ws://127.0.0.1:8787/api/v1/computers/connect",
-		"https://example.com/behind/a/prefix": "wss://example.com/behind/a/prefix/api/v1/computers/connect",
+		"https://agentum.example.com":         "wss://agentum.example.com/api/computer-hosts/connect",
+		"https://agentum.example.com/":        "wss://agentum.example.com/api/computer-hosts/connect",
+		"http://127.0.0.1:8787":               "ws://127.0.0.1:8787/api/computer-hosts/connect",
+		"https://example.com/behind/a/prefix": "wss://example.com/behind/a/prefix/api/computer-hosts/connect",
 	}
 	for input, want := range cases {
 		got, err := conn.DialURL(input)

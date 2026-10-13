@@ -17,7 +17,7 @@ import (
 )
 
 // Path is the unauthenticated enrollment endpoint.
-const Path = "/api/v1/computers/enroll"
+const Path = "/api/computer-hosts/enroll"
 
 // ErrCodeRejected means the code was wrong, has expired, or has already been used. The server
 // cannot say which, and neither can we.
