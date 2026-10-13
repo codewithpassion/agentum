@@ -15,6 +15,7 @@ import { slackRoutes } from "#/modules/bridges/slack/routes";
 import { browserRoutes } from "#/modules/browser/routes";
 import { categoriesRoutes } from "#/modules/categories/routes";
 import { computerConnectRoutes } from "#/modules/computer/connect-route";
+import { computerEnrollRoutes } from "#/modules/computer/enroll-route";
 import { computerHostRoutes } from "#/modules/computer/host-routes";
 import { computerRoutes } from "#/modules/computer/routes";
 import {
@@ -170,10 +171,13 @@ app.route("/api/attachment-links", attachmentLinkRoutes);
 // agent is sent a screenshot (see modules/agent-images).
 app.route("/api/agent-images", agentImageRoutes);
 
-// Where a self-hosted computerd container dials in. Not behind Clerk either:
+// Where a computer client dials in. Not behind Clerk either:
 // the host token in the Authorization header is the credential, and it names
 // the host whose relay the socket is handed to (see modules/computer/connect-route).
 app.route("/api/computer-hosts", computerConnectRoutes);
+// Where a computer client redeems its enrollment code (also public: the code is
+// the credential).
+app.route("/api/computer-hosts", computerEnrollRoutes);
 
 // Everything else is handled by TanStack Start (SSR pages, server functions, assets).
 app.all("*", (c) => handler.fetch(c.req.raw));

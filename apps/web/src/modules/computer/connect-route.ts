@@ -3,19 +3,18 @@ import { createDb } from "#/db/client";
 import { findHostByToken } from "./hosts";
 
 /**
- * `GET /api/computer-hosts/connect` - where a self-hosted `computerd`
- * container dials in (docs/plan-computer-backends.md §6). Deliberately outside
- * `requireAuth`, exactly like `/mcp/:token`: the host token in the
- * `Authorization` header is the credential, and it is what names the host.
+ * `GET /api/computer-hosts/connect` - where a computer client dials
+ * in with the machine credential it got from `POST /enroll`. Deliberately
+ * outside `requireAuth`, exactly like `/mcp/:token`: the credential in the
+ * `Authorization` header is what names the host.
  *
- * The token is a header and never a query parameter. A browser cannot set
+ * The credential is a header and never a query parameter. A browser cannot set
  * headers on a WebSocket upgrade, but the daemon can - and it is the only
  * client this route has, so the weaker variant would only widen where the
  * token can be logged, cached or shoulder-read.
  *
- * Every rejection is a bare 401. Which of "no header", "unknown token" or
- * "that is a Fly host" it was is not something an unauthenticated caller gets
- * to learn.
+ * Every rejection is a bare 401. Which of "no header" or "unknown credential"
+ * it was is not something an unauthenticated caller gets to learn.
  */
 
 const UNAUTHORIZED = 401;
@@ -30,9 +29,7 @@ computerConnectRoutes.get("/connect", async (c) => {
   }
 
   const host = await findHostByToken(createDb(c.env.DB), presented.trim());
-  // A Fly host's token never travels this way - Agentum presents it to the
-  // machine, not the other way round - so one arriving here is a wrong token.
-  if (host?.kind !== "self_hosted") {
+  if (!host) {
     return c.json({ error: "Unauthorized." }, UNAUTHORIZED);
   }
 

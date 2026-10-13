@@ -166,7 +166,7 @@ export function ComputersApp({ hostId }: { hostId: string | null }) {
             agents={agents}
             canManage={canManage}
             host={host}
-            // Switching hosts must not carry the previous one's rotated token,
+            // Switching hosts must not carry the previous one's enrollment code,
             // test result or error onto this page.
             key={host.id}
             onChanged={reload}

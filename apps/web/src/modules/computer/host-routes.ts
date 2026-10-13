@@ -43,9 +43,10 @@ import {
  *
  * Members may list, owners may change: a host is a machine somebody pays for
  * and a credential somebody issued, which puts it with the other settings
- * screens rather than with the agents. Neither the daemon token nor the Fly
- * API token is ever in a response - the self-hosted daemon token appears once,
- * at creation or rotation, and after that only its hash exists here.
+ * screens rather than with the agents. Neither the machine credential nor the
+ * Fly API token is ever in a response - a self-hosted host's enrollment code
+ * appears once, at creation or re-enrollment, and the credential it buys is
+ * only ever seen by the client that redeemed it.
  */
 
 const CONFLICT = 409;
@@ -87,8 +88,39 @@ export interface HostRouteDeps {
   flyProbe: FlyProbe;
   /** The rotation's other half: the new hash, pushed to the host's machines. */
   onTokenRotated: typeof onFlyHostTokenRotated;
+  /** Closes the host's live socket once its credential is gone (close 4401). */
+  revokeSocket: (env: Env, hostId: string) => Promise<void>;
   transportFor: typeof transportForHost;
 }
+
+/**
+ * Calls the relay's `revoke()` RPC. Guarded because the relay agent adds it
+ * separately: until it exists the credential is already gone from the row, so
+ * the socket can only linger until its next reconnect, which will be refused.
+ */
+const revokeRelaySocket = async (env: Env, hostId: string): Promise<void> => {
+  const stub = env.COMPUTER_RELAY.get(
+    env.COMPUTER_RELAY.idFromName(hostId)
+  ) as unknown as { revoke?: () => Promise<unknown> };
+  if (typeof stub.revoke === "function") {
+    await stub.revoke();
+  }
+};
+
+/** Re-enrolling is the self-hosted action; rotating the daemon token is Fly's. */
+const requireCredentialActionFor = (
+  kind: ComputerHostKind,
+  input: { reenroll?: boolean; rotateToken?: boolean }
+): void => {
+  if (input.reenroll && kind === "fly") {
+    throw badRequest('"reenroll" applies to self-hosted hosts only.');
+  }
+  if (input.rotateToken && kind !== "fly") {
+    throw badRequest(
+      '"rotateToken" applies to Fly hosts only. Re-enroll a self-hosted host.'
+    );
+  }
+};
 
 const isPositiveIntWithin = (value: unknown, max: number): boolean =>
   typeof value === "number" &&
@@ -256,6 +288,7 @@ export const createComputerHostRoutes = (
 ): Hono<ApiEnv> => {
   const flyProbe = deps.flyProbe ?? liveFlyProbe;
   const onTokenRotated = deps.onTokenRotated ?? onFlyHostTokenRotated;
+  const revokeSocket = deps.revokeSocket ?? revokeRelaySocket;
   const transportFor = deps.transportFor ?? transportForHost;
 
   const routes = new Hono<ApiEnv>();
@@ -298,16 +331,15 @@ export const createComputerHostRoutes = (
     }
 
     try {
-      const { host, token } = await createHost(
+      const { enrollmentCode, host } = await createHost(
         createDb(c.env.DB),
         c.env,
         c.get("workspace").id,
         input
       );
-      // `token` is the plaintext daemon token, and this is the only response
-      // it ever appears in - and only for a self-hosted host, whose daemon is
-      // the side that presents it. It is null for Fly.
-      return c.json({ host: await viewOf(c, host), token }, 201);
+      // `enrollmentCode` is plaintext and this is the only response it ever
+      // appears in - and only for a self-hosted host. It is null for Fly.
+      return c.json({ enrollmentCode, host: await viewOf(c, host) }, 201);
     } catch (error) {
       if (isUniqueConstraintError(error)) {
         return c.json(
@@ -335,8 +367,10 @@ export const createComputerHostRoutes = (
           : parseConfig(body, existing.kind),
       flyApiToken: parseFlyApiToken(body, existing.kind),
       name: optionalString(body, "name", { maxLength: NAME_MAX_LENGTH }),
+      reenroll: optionalBoolean(body, "reenroll"),
       rotateToken: optionalBoolean(body, "rotateToken"),
     };
+    requireCredentialActionFor(existing.kind, input);
 
     try {
       const updated = await updateHost(
@@ -356,11 +390,16 @@ export const createComputerHostRoutes = (
         // every request, and the owner is standing right here.
         await onTokenRotated(createDb(c.env.DB), c.env, updated.host);
       }
-      // A rotation shows the new self-hosted token once, exactly as creation
-      // did; every other edit answers with `token: null`.
+      if (input.reenroll) {
+        // The old credential is already gone from the row; this drops the
+        // socket that was authenticated with it.
+        await revokeSocket(c.env, updated.host.id);
+      }
+      // A re-enrollment shows the new code once, exactly as creation did;
+      // every other edit answers with `enrollmentCode: null`.
       return c.json({
+        enrollmentCode: updated.enrollmentCode,
         host: await viewOf(c, updated.host),
-        token: updated.token,
       });
     } catch (error) {
       if (isUniqueConstraintError(error)) {

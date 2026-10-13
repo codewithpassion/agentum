@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { ComputerHost } from "./api";
 import {
-  COMPUTERD_IMAGE,
-  computerdRunCommand,
+  COMPUTER_DESKTOP_IMAGE,
+  COMPUTER_IMAGE,
+  computerRunCommand,
   computerSummary,
   hostChoicesFor,
   hostRemovalBlock,
@@ -11,6 +12,8 @@ import {
 
 const host = (overrides: Partial<ComputerHost> = {}): ComputerHost => ({
   agentIds: [],
+  arch: null,
+  capabilities: null,
   config: {},
   createdAt: "2026-08-20T12:00:00.000Z",
   flyApiTokenHint: null,
@@ -18,28 +21,33 @@ const host = (overrides: Partial<ComputerHost> = {}): ComputerHost => ({
   kind: "self_hosted",
   lastSeenAt: null,
   name: "office-box",
+  os: null,
+  protocolVersion: null,
   status: "unconfigured",
   statusError: null,
   ...overrides,
 });
 
-describe("computerdRunCommand", () => {
-  const input = { token: "tok_abc", url: "https://agentum.example.com" };
+describe("computerRunCommand", () => {
+  const input = { code: "code_abc", url: "https://agentum.example.com" };
 
-  test("carries the volume, the caps and the token", () => {
-    const command = computerdRunCommand("docker", input);
-    expect(command).toStartWith("docker run -d --name agentum-computer");
-    expect(command).toContain("--restart unless-stopped");
-    expect(command).toContain("--memory 2g --cpus 2");
-    expect(command).toContain("-v agentum-computer:/home/agent");
+  test("the base command carries the volume, the URL and the code", () => {
+    const command = computerRunCommand("base", input);
+    expect(command).toStartWith("docker run -d --restart unless-stopped");
     expect(command).toContain("-e AGENTUM_URL=https://agentum.example.com");
-    expect(command).toContain("-e AGENTUM_COMPUTER_TOKEN=tok_abc");
-    expect(command).toEndWith(COMPUTERD_IMAGE);
+    expect(command).toContain("-e AGENTUM_ENROLL_CODE=code_abc");
+    expect(command).toContain("-v agentum-computer:/var/lib/agentum-computer");
+    expect(command).toEndWith(COMPUTER_IMAGE);
+    expect(command).not.toContain("seccomp");
   });
 
-  test("adds the rootless volume-ownership flag for podman only", () => {
-    expect(computerdRunCommand("podman", input)).toContain("--userns=keep-id");
-    expect(computerdRunCommand("docker", input)).not.toContain("--userns");
+  test("the desktop command adds the seccomp profile and its own image", () => {
+    const command = computerRunCommand("desktop", input);
+    expect(command).toContain("--security-opt seccomp=./seccomp.json");
+    expect(command).toContain(
+      "-v agentum-computer-desktop:/var/lib/agentum-computer"
+    );
+    expect(command).toEndWith(COMPUTER_DESKTOP_IMAGE);
   });
 });
 

@@ -5,7 +5,7 @@ import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
 import type { Agent, ComputerHost } from "#/lib/api";
 import {
   COMPUTER_HOST_KIND_LABELS,
-  COMPUTERD_IMAGE,
+  COMPUTER_IMAGE,
   hostRemovalBlock,
 } from "#/lib/computer-hosts";
 import { formatDay } from "#/lib/format";
@@ -96,7 +96,7 @@ function HostFacts({ host }: { host: ComputerHost }) {
   return (
     <div>
       <Fact label="Kind" value={COMPUTER_HOST_KIND_LABELS.self_hosted} />
-      <Fact label="Image" value={COMPUTERD_IMAGE} />
+      <Fact label="Image" value={COMPUTER_IMAGE} />
       <Fact label="Agents" value={host.agentIds.length === 0 ? "none" : "1"} />
       <Fact
         label="Added"
@@ -145,7 +145,7 @@ export function ComputerHostDetail({
   onRemoved,
 }: {
   agents: Agent[];
-  /** An owner may test, rotate and remove; everyone else only reads. */
+  /** An owner may test, re-enroll and remove; everyone else only reads. */
   canManage: boolean;
   host: ComputerHost;
   onChanged: () => Promise<void>;
@@ -156,7 +156,7 @@ export function ComputerHostDetail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [rotated, setRotated] = useState<string | null>(null);
+  const [enrollCode, setEnrollCode] = useState<string | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
 
   const run = useCallback(async (work: () => Promise<void>) => {
@@ -177,31 +177,32 @@ export function ComputerHostDetail({
       const result = await api.testComputerHost(host.id);
       setNote(
         result.ok
-          ? `Answered: computerd ${result.version ?? "?"} on ${result.hostname ?? "the host"}.`
+          ? `Answered: agentum-computer ${result.version ?? "?"} on ${result.hostname ?? "the host"}.`
           : (result.reason ?? "The host did not answer.")
       );
       await onChanged();
     });
   }, [api, host.id, onChanged, run]);
 
-  const rotate = useCallback(() => {
+  const reenroll = useCallback(() => {
     setNote(null);
-    setRotated(null);
+    setEnrollCode(null);
     run(async () => {
-      const issued = await api.updateComputerHost(host.id, {
-        rotateToken: true,
-      });
-      // Fly hosts hold their own token; there is nothing for a person to copy.
-      if (issued.token) {
-        setRotated(issued.token);
-      } else {
+      // Fly hosts hold their own token and never enroll; they rotate it.
+      if (host.kind === "fly") {
+        await api.updateComputerHost(host.id, { rotateToken: true });
         setNote(
           "Rotated. Fly machines pick up the new token on the next call."
         );
+      } else {
+        const issued = await api.updateComputerHost(host.id, {
+          reenroll: true,
+        });
+        setEnrollCode(issued.enrollmentCode);
       }
       await onChanged();
     });
-  }, [api, host.id, onChanged, run]);
+  }, [api, host.id, host.kind, onChanged, run]);
 
   const askRemove = useCallback(() => setRemoveOpen(true), []);
   const cancelRemove = useCallback(() => setRemoveOpen(false), []);
@@ -226,8 +227,8 @@ export function ComputerHostDetail({
             <Button disabled={busy} onClick={test}>
               Test connection
             </Button>
-            <Button disabled={busy} onClick={rotate}>
-              Rotate token
+            <Button disabled={busy} onClick={reenroll}>
+              {host.kind === "fly" ? "Rotate token" : "Re-enroll"}
             </Button>
             <Button
               disabled={busy || removalBlock !== null}
@@ -240,7 +241,7 @@ export function ComputerHostDetail({
           </div>
         ) : (
           <Notice tone="muted">
-            Only an owner can test, rotate or remove a computer host.
+            Only an owner can test, re-enroll or remove a computer host.
           </Notice>
         )}
 
@@ -253,14 +254,15 @@ export function ComputerHostDetail({
           <Notice tone="danger">{host.statusError}</Notice>
         ) : null}
 
-        {rotated ? (
-          <Section title="New token">
+        {enrollCode ? (
+          <Section title="New enrollment code">
             <Notice tone="muted">
-              The container is disconnected until it is restarted with this
-              token. Stop the old one (
-              <code>docker rm -f agentum-computer</code>) and run:
+              The old credential no longer works and the container is
+              disconnected. Remove it and its volume (
+              <code>docker rm -f agentum-computer</code>,{" "}
+              <code>docker volume rm agentum-computer</code>), then run:
             </Notice>
-            <ComputerTokenPanel token={rotated} />
+            <ComputerTokenPanel code={enrollCode} />
           </Section>
         ) : null}
 

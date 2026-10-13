@@ -53,6 +53,13 @@ export interface ComputerHostConfig {
 export const computerHosts = sqliteTable(
   "computer_hosts",
   {
+    /** Reported by the client's hello; null until it has connected once. */
+    arch: text("arch"),
+    /** What the client's hello said it can do (e.g. `{ desktop: true }`). */
+    capabilities: text("capabilities", { mode: "json" }).$type<Record<
+      string,
+      unknown
+    > | null>(),
     /**
      * Fly: `{ app, region, image, instance, volume_gb }`.
      * Self-hosted: `{}`.
@@ -79,6 +86,8 @@ export const computerHosts = sqliteTable(
     lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
     /** Unique within the workspace only - see the index below. */
     name: text("name").notNull(),
+    os: text("os"),
+    protocolVersion: integer("protocol_version"),
     status: text("status", { enum: COMPUTER_HOST_STATUSES })
       .notNull()
       .default("unconfigured"),
@@ -91,8 +100,8 @@ export const computerHosts = sqliteTable(
      */
     tokenEnc: text("token_enc"),
     /**
-     * Self-hosted only: SHA-256 of the token the daemon dials in with. The
-     * plaintext exists once, in the create/rotate response.
+     * SHA-256 of the machine credential the client dials in with. The
+     * plaintext exists once, in the enrollment response.
      *
      * Globally unique, unlike the name: it is a credential lookup key, resolved
      * before any workspace is known - exactly like `agents.mcp_token_hash`.
@@ -112,3 +121,21 @@ export const computerHosts = sqliteTable(
 );
 
 export type ComputerHost = typeof computerHosts.$inferSelect;
+
+/**
+ * A single-use, 15-minute code that a client redeems for its machine
+ * credential. Only the code's hash is stored; `redeemed_credential_hash` records
+ * which credential the redemption minted.
+ */
+export const computerEnrollments = sqliteTable("computer_enrollments", {
+  codeHash: text("code_hash").notNull().unique(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  hostId: text("host_id").notNull(),
+  id: text("id").primaryKey(),
+  redeemedAt: integer("redeemed_at", { mode: "timestamp_ms" }),
+  redeemedCredentialHash: text("redeemed_credential_hash"),
+  workspaceId: text("workspace_id").notNull(),
+});

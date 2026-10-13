@@ -7,31 +7,40 @@ import { formatRelativeTime } from "./format";
  * "UI").
  */
 
-/** The published image; the same one Fly machines run. */
-export const COMPUTERD_IMAGE = "ghcr.io/codewithpassion/agentum-computerd";
+/** The published images; the base one is also what Fly machines run. */
+export const COMPUTER_IMAGE = "ghcr.io/codewithpassion/agentum-computer:latest";
+export const COMPUTER_DESKTOP_IMAGE =
+  "ghcr.io/codewithpassion/agentum-computer-desktop:latest";
 
-export type ContainerEngine = "docker" | "podman";
+/** Where to download the profile the desktop command points `--security-opt` at. */
+export const SECCOMP_PROFILE_URL =
+  "https://raw.githubusercontent.com/codewithpassion/agentum/main/apps/computer/packaging/desktop/seccomp.json";
+
+export type ComputerImageVariant = "base" | "desktop";
 
 /**
- * The pairing command, verbatim from `apps/computerd/README.md`: a named volume
- * so the files outlive the container, a memory and CPU cap because the agent
- * decides what runs in there, and - under rootless Podman - `--userns=keep-id`
- * so the volume stays readable from the host.
+ * The enrol-and-run command, mirroring `apps/computer/README.md`: the client
+ * enrols itself from the environment on first start, and a named volume on its
+ * state dir keeps the credential across restarts, so the spent code left in
+ * the command is harmless. The desktop image needs the committed seccomp
+ * profile because Chromium's sandbox wants user namespaces, which Docker's
+ * default profile refuses.
  */
-export const computerdRunCommand = (
-  engine: ContainerEngine,
-  input: { token: string; url: string }
-): string =>
-  [
-    `${engine} run -d --name agentum-computer`,
-    "--restart unless-stopped",
-    "--memory 2g --cpus 2",
-    ...(engine === "podman" ? ["--userns=keep-id"] : []),
-    "-v agentum-computer:/home/agent",
+export const computerRunCommand = (
+  variant: ComputerImageVariant,
+  input: { code: string; url: string }
+): string => {
+  const name =
+    variant === "desktop" ? "agentum-computer-desktop" : "agentum-computer";
+  return [
+    `docker run -d --restart unless-stopped --name ${name}`,
+    ...(variant === "desktop" ? ["--security-opt seccomp=./seccomp.json"] : []),
     `-e AGENTUM_URL=${input.url}`,
-    `-e AGENTUM_COMPUTER_TOKEN=${input.token}`,
-    COMPUTERD_IMAGE,
+    `-e AGENTUM_ENROLL_CODE=${input.code}`,
+    `-v ${name}:/var/lib/agentum-computer`,
+    variant === "desktop" ? COMPUTER_DESKTOP_IMAGE : COMPUTER_IMAGE,
   ].join(" \\\n  ");
+};
 
 export const COMPUTER_HOST_KIND_LABELS: Record<ComputerHostKind, string> = {
   fly: "Fly.io",

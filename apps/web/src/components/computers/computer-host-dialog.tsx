@@ -14,7 +14,7 @@ import { ComputerTokenPanel } from "./computer-token-panel";
 /**
  * Adding a computer host: pick which of the two backends it is, fill in what
  * that backend needs, and - for a self-hosted container - leave with the
- * command that pairs it. The two forms have nothing in common but the name,
+ * command that enrolls it. The two forms have nothing in common but the name,
  * which is why the kind is the first field rather than a tab.
  */
 
@@ -146,8 +146,8 @@ function SelfHostedForm() {
     <p className="m-0 text-[var(--ws-muted)] text-xs">
       A self-hosted host is one container on a machine you run. There is nothing
       else to configure here — the next screen has the command to start it, with
-      a token that is shown once. One container is one agent's computer; run a
-      second container with its own token for a second agent.
+      an enrollment code that is shown once. One container is one agent's
+      computer; add a second host for a second agent.
     </p>
   );
 }
@@ -168,8 +168,8 @@ export function ComputerHostDialog({
   const [name, setName] = useState("");
   const [fly, setFly] = useState<FlyDraft>(EMPTY_FLY);
   const [issued, setIssued] = useState<{
+    code: string;
     host: ComputerHost;
-    token: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -216,14 +216,14 @@ export function ComputerHostDialog({
             ? { config: flyConfig(fly), flyApiToken: fly.token }
             : {}),
         });
-        // A self-hosted host's token exists in this response and nowhere else,
-        // so the dialog stays open on it. The caller is told only when that
-        // screen is dismissed (`finish`): it navigates to the host's page,
-        // which is a different route, and a route change remounts this dialog
-        // - telling it now would drop the token before anyone could copy it.
-        // A Fly host has no token to show and closes straight away.
-        if (created.token) {
-          setIssued({ host: created.host, token: created.token });
+        // A self-hosted host's enrollment code exists in this response and
+        // nowhere else, so the dialog stays open on it. The caller is told only
+        // when that screen is dismissed (`finish`): it navigates to the host's
+        // page, which is a different route, and a route change remounts this
+        // dialog - telling it now would drop the code before anyone could copy
+        // it. A Fly host has no code to show and closes straight away.
+        if (created.enrollmentCode) {
+          setIssued({ code: created.enrollmentCode, host: created.host });
           return;
         }
         await onDone(created.host);
@@ -237,9 +237,9 @@ export function ComputerHostDialog({
     [api, fly, kind, name, onClose, onDone]
   );
 
-  // Leaving the token screen by any route - the Done button, Escape, the
+  // Leaving the code screen by any route - the Done button, Escape, the
   // close button - hands the host to the caller: it exists whether or not
-  // the token was copied, and the list and navigation must say so.
+  // the code was copied, and the list and navigation must say so.
   const finish = useCallback(async () => {
     if (issued) {
       await onDone(issued.host);
@@ -255,7 +255,7 @@ export function ComputerHostDialog({
     >
       {issued ? (
         <div className="space-y-4">
-          <ComputerTokenPanel token={issued.token} />
+          <ComputerTokenPanel code={issued.code} />
           <div className="flex justify-end">
             <Button onClick={finish} variant="primary">
               Done

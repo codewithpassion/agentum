@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import { decryptSecret, encryptSecret } from "#/crypto";
 import type { Db } from "#/db/client";
 import {
@@ -15,6 +15,7 @@ import {
   type ComputerHostConfig,
   type ComputerHostKind,
   type ComputerHostStatus,
+  computerEnrollments,
   computerHosts,
 } from "./schema";
 
@@ -22,20 +23,25 @@ import {
  * Computer hosts: creating them, describing them, and - in the one function
  * allowed to decrypt it - resolving the token a Fly host's transport presents.
  *
- * Both credentials on a host row are write-only from the outside. The
- * self-hosted daemon token exists in plaintext exactly once, in the create or
- * rotate response; the Fly daemon token is never shown at all, because Agentum
- * is the side that presents it; the Fly API token comes back as four
- * characters. Nothing here logs any of them, and nothing here puts one in an
- * error message.
+ * Every credential here is write-only from the outside. A self-hosted client
+ * gets an enrollment code once, in the create or re-enroll response, and trades
+ * it for a machine credential at `POST /api/computer-hosts/enroll`; only
+ * SHA-256 hashes of either are stored. The Fly daemon token is never shown at
+ * all, because Agentum is the side that presents it; the Fly API token comes
+ * back as four characters. Nothing here logs any of them, and nothing here puts
+ * one in an error message.
  */
 
 const HINT_LENGTH = 4;
+/** How long an enrollment code stays redeemable. */
+export const ENROLLMENT_CODE_TTL_MS = 15 * 60 * 1000;
 
 /** Everything a client may know about a host: never a hash or a ciphertext. */
 export interface HostView {
   /** The agents whose computer runs on this host. */
   agentIds: string[];
+  arch: string | null;
+  capabilities: Record<string, unknown> | null;
   config: ComputerHostConfig;
   createdAt: Date;
   /** The Fly API token's last four characters, or null. */
@@ -44,6 +50,8 @@ export interface HostView {
   kind: ComputerHostKind;
   lastSeenAt: Date | null;
   name: string;
+  os: string | null;
+  protocolVersion: number | null;
   status: ComputerHostStatus;
   statusError: string | null;
 }
@@ -53,6 +61,8 @@ export const toHostView = (
   agentIds: string[]
 ): HostView => ({
   agentIds,
+  arch: host.arch,
+  capabilities: host.capabilities,
   config: host.config,
   createdAt: host.createdAt,
   flyApiTokenHint: host.flyApiTokenHint,
@@ -60,6 +70,8 @@ export const toHostView = (
   kind: host.kind,
   lastSeenAt: host.lastSeenAt,
   name: host.name,
+  os: host.os,
+  protocolVersion: host.protocolVersion,
   status: host.status,
   statusError: host.statusError,
 });
@@ -142,9 +154,9 @@ export const getHostByIdUnscoped = async (
 };
 
 /**
- * Resolves the daemon's WebSocket upgrade to its host; undefined means "not a
- * host". Global by design, exactly like `findAgentByMcpToken`: the token is a
- * credential presented before any workspace is known.
+ * Resolves the client's WebSocket upgrade to its host; undefined means "not a
+ * host". Global by design, exactly like `findAgentByMcpToken`: the machine
+ * credential is presented before any workspace is known.
  */
 export const findHostByToken = async (
   db: Db,
@@ -170,43 +182,30 @@ export interface CreateHostInput {
 }
 
 /**
- * The plaintext daemon token, and the only moment it exists - for a
+ * The plaintext enrollment code, and the only moment it exists - for a
  * self-hosted host. A Fly host's token is stored encrypted and never handed
- * out, so `token` is null there and the client has nothing to show.
+ * out, so `enrollmentCode` is null there and the client has nothing to show.
  */
 export interface IssuedHost {
+  enrollmentCode: string | null;
   host: ComputerHost;
-  token: string | null;
 }
 
 /**
- * Which column the daemon token lands in, and whether the caller gets to see
- * it, is decided entirely by the direction the token travels (see the plan,
- * §3): self-hosted daemons dial *in* and present it, so we keep a hash; Fly
- * machines are dialled *out* to, so we keep the plaintext encrypted.
+ * Fly machines are dialled *out* to, so Agentum keeps the daemon token
+ * plaintext-under-encryption and presents it. Self-hosted clients dial in with
+ * a machine credential minted at enrollment, so nothing is stored for them
+ * until then.
  */
-const tokenColumnsFor = async (
+const flyTokenColumns = async (
   env: Env,
-  kind: ComputerHostKind,
-  token: string
-): Promise<{
-  issued: string | null;
-  tokenEnc: string | null;
-  tokenHash: string | null;
-}> => {
-  if (kind === "self_hosted") {
-    return {
-      issued: token,
-      tokenEnc: null,
-      tokenHash: await hashMcpToken(token),
-    };
-  }
-  return {
-    issued: null,
-    tokenEnc: await encryptSecret(requireConnectorKey(env), token),
-    tokenHash: null,
-  };
-};
+  kind: ComputerHostKind
+): Promise<{ tokenEnc: string | null }> => ({
+  tokenEnc:
+    kind === "fly"
+      ? await encryptSecret(requireConnectorKey(env), generateMcpToken())
+      : null,
+});
 
 const flyApiTokenColumns = async (
   env: Env,
@@ -216,18 +215,90 @@ const flyApiTokenColumns = async (
   flyApiTokenHint: flyApiToken.slice(-HINT_LENGTH),
 });
 
+/**
+ * Mints a code for the host and returns it in plaintext, once. Any code the
+ * host still holds unredeemed is deleted first, so there is only ever one live
+ * way in.
+ */
+export const issueEnrollmentCode = async (
+  db: Db,
+  host: Pick<ComputerHost, "id" | "workspaceId">
+): Promise<string> => {
+  const code = generateMcpToken();
+  await db
+    .delete(computerEnrollments)
+    .where(
+      and(
+        eq(computerEnrollments.hostId, host.id),
+        isNull(computerEnrollments.redeemedAt)
+      )
+    );
+  await db.insert(computerEnrollments).values({
+    codeHash: await hashMcpToken(code),
+    expiresAt: new Date(Date.now() + ENROLLMENT_CODE_TTL_MS),
+    hostId: host.id,
+    id: crypto.randomUUID(),
+    workspaceId: host.workspaceId,
+  });
+  return code;
+};
+
+export interface RedeemedEnrollment {
+  /** The plaintext machine credential; the caller's one chance to hand it out. */
+  credential: string;
+  host: ComputerHost;
+}
+
+/**
+ * Trades a code for a machine credential. Undefined for every failure - wrong,
+ * expired, already used - because the caller must not learn which.
+ *
+ * The conditional UPDATE is the lock: two concurrent redemptions of the same
+ * code both see `redeemed_at IS NULL` in their WHERE, and SQLite lets exactly
+ * one of them write.
+ */
+export const redeemEnrollmentCode = async (
+  db: Db,
+  code: string
+): Promise<RedeemedEnrollment | undefined> => {
+  const credential = generateMcpToken();
+  const credentialHash = await hashMcpToken(credential);
+  const now = new Date();
+
+  const [claimed] = await db
+    .update(computerEnrollments)
+    .set({ redeemedAt: now, redeemedCredentialHash: credentialHash })
+    .where(
+      and(
+        eq(computerEnrollments.codeHash, await hashMcpToken(code)),
+        isNull(computerEnrollments.redeemedAt),
+        gt(computerEnrollments.expiresAt, now)
+      )
+    )
+    .returning({ hostId: computerEnrollments.hostId });
+  if (!claimed) {
+    return;
+  }
+
+  const [host] = await db
+    .update(computerHosts)
+    .set({
+      status: "unconfigured",
+      statusError: null,
+      tokenHash: credentialHash,
+      updatedAt: now,
+    })
+    .where(eq(computerHosts.id, claimed.hostId))
+    .returning();
+  return host ? { credential, host } : undefined;
+};
+
 export const createHost = async (
   db: Db,
   env: Env,
   workspaceId: string,
   input: CreateHostInput
 ): Promise<IssuedHost> => {
-  const { issued, tokenEnc, tokenHash } = await tokenColumnsFor(
-    env,
-    input.kind,
-    generateMcpToken()
-  );
-
   const [host] = await db
     .insert(computerHosts)
     .values({
@@ -235,9 +306,8 @@ export const createHost = async (
       id: crypto.randomUUID(),
       kind: input.kind,
       name: input.name,
-      tokenEnc,
-      tokenHash,
       workspaceId,
+      ...(await flyTokenColumns(env, input.kind)),
       ...(input.flyApiToken
         ? await flyApiTokenColumns(env, input.flyApiToken)
         : {}),
@@ -246,7 +316,11 @@ export const createHost = async (
   if (!host) {
     throw new Error("Failed to create the computer host.");
   }
-  return { host, token: issued };
+  return {
+    enrollmentCode:
+      host.kind === "fly" ? null : await issueEnrollmentCode(db, host),
+    host,
+  };
 };
 
 export interface UpdateHostInput {
@@ -254,9 +328,13 @@ export interface UpdateHostInput {
   flyApiToken?: string;
   name?: string;
   /**
-   * Issues a fresh daemon token. Self-hosted: returned once, and the daemon
-   * stays disconnected until it is restarted with it. Fly: re-encrypted, and
-   * the machines' env has to be updated with the new hash (track 3).
+   * Self-hosted: drops the machine credential and issues a fresh enrollment
+   * code, returned once. The client stays disconnected until it enrolls again.
+   */
+  reenroll?: boolean;
+  /**
+   * Fly only: re-encrypts a fresh daemon token; the machines' env has to be
+   * updated with the new hash (track 3).
    */
   rotateToken?: boolean;
 }
@@ -265,9 +343,9 @@ export interface UpdateHostInput {
  * `updatedAt` is written explicitly: the column default fires on insert only,
  * and every edit here has to move the date the settings page shows.
  *
- * A rotation puts the host back to `unconfigured` - the old credential is gone
- * and nothing has proved the new one works yet, which is exactly what the
- * status is for.
+ * A re-enrollment or rotation puts the host back to `unconfigured` - the old
+ * credential is gone and nothing has proved the new one works yet, which is
+ * exactly what the status is for.
  */
 export const updateHost = async (
   db: Db,
@@ -282,7 +360,7 @@ export const updateHost = async (
   }
 
   const rotated = input.rotateToken
-    ? await tokenColumnsFor(env, existing.kind, generateMcpToken())
+    ? await flyTokenColumns(env, existing.kind)
     : null;
 
   const [host] = await db
@@ -295,11 +373,13 @@ export const updateHost = async (
         ? await flyApiTokenColumns(env, input.flyApiToken)
         : {}),
       ...(rotated
+        ? { status: "unconfigured" as const, statusError: null, ...rotated }
+        : {}),
+      ...(input.reenroll
         ? {
             status: "unconfigured" as const,
             statusError: null,
-            tokenEnc: rotated.tokenEnc,
-            tokenHash: rotated.tokenHash,
+            tokenHash: null,
           }
         : {}),
     })
@@ -307,8 +387,13 @@ export const updateHost = async (
       and(eq(computerHosts.workspaceId, workspaceId), eq(computerHosts.id, id))
     )
     .returning();
-
-  return host ? { host, token: rotated?.issued ?? null } : undefined;
+  if (!host) {
+    return;
+  }
+  return {
+    enrollmentCode: input.reenroll ? await issueEnrollmentCode(db, host) : null,
+    host,
+  };
 };
 
 /**
@@ -325,6 +410,14 @@ export const deleteHost = async (
   if (agentIds.length > 0) {
     throw new ComputerHostInUseError(agentIds.length);
   }
+  await db
+    .delete(computerEnrollments)
+    .where(
+      and(
+        eq(computerEnrollments.workspaceId, workspaceId),
+        eq(computerEnrollments.hostId, id)
+      )
+    );
   const deleted = await db
     .delete(computerHosts)
     .where(

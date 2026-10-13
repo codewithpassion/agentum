@@ -7,7 +7,7 @@ import type { Db } from "#/db/client";
 
 /**
  * The computer hosts API. Two things are load-bearing here and neither is
- * about happy paths: a self-hosted host's token exists in exactly one response
+ * about happy paths: a self-hosted host's enrollment code exists in exactly one response
  * and never again, and no response anywhere carries a hash, a ciphertext or
  * the Fly API token.
  *
@@ -35,7 +35,8 @@ const { addMember, createWorkspace } = await import(
 );
 const { workspaceScopedRoutes } = await import("#/modules/workspaces/routes");
 const { createComputerHostRoutes } = await import("./host-routes");
-const { getHostByIdUnscoped } = await import("./hosts");
+const { findHostByToken, getHostByIdUnscoped, redeemEnrollmentCode } =
+  await import("./hosts");
 const { ComputerTransportError } = await import("./remote-client");
 
 const migrationsDir = new URL("../../../drizzle/", import.meta.url);
@@ -80,6 +81,8 @@ let pingReply: unknown = { hostname: "office-box", ok: true, version: "1.0.0" };
 let pingThrows: Error | null = null;
 /** Which hosts had the rotation's other half - the machines' env - run for them. */
 let rotatedHosts: string[] = [];
+/** Which hosts had their live socket revoked. */
+let revokedHosts: string[] = [];
 
 workspaceScopedRoutes.route(
   "/computer-hosts",
@@ -90,6 +93,10 @@ workspaceScopedRoutes.route(
     },
     onTokenRotated: (_db, _env, host) => {
       rotatedHosts.push(host.id);
+      return Promise.resolve();
+    },
+    revokeSocket: (_env, hostId) => {
+      revokedHosts.push(hostId);
       return Promise.resolve();
     },
     transportFor: () =>
@@ -132,6 +139,7 @@ const request = (
 };
 
 interface HostBody {
+  enrollmentCode: string | null;
   host: {
     agentIds: string[];
     config: Record<string, unknown>;
@@ -140,7 +148,6 @@ interface HostBody {
     kind: string;
     status: string;
   };
-  token: string | null;
 }
 
 const postHost = async (body: Record<string, unknown>) => {
@@ -169,6 +176,7 @@ beforeEach(async () => {
   flyProbeAnswer = true;
   probedWith = [];
   rotatedHosts = [];
+  revokedHosts = [];
   pingReply = { hostname: "office-box", ok: true, version: "1.0.0" };
   pingThrows = null;
 
@@ -192,17 +200,23 @@ beforeEach(async () => {
 });
 
 describe("POST /computer-hosts", () => {
-  test("a self-hosted host shows its token exactly once", async () => {
+  test("a self-hosted host shows its enrollment code exactly once", async () => {
     const created = await newSelfHostedHost();
 
     expect(created.response.status).toBe(201);
-    expect(typeof created.body.token).toBe("string");
+    expect(typeof created.body.enrollmentCode).toBe("string");
     expect(created.body.host.status).toBe("unconfigured");
+    // No credential until the client redeems the code.
+    expect(
+      (await getHostByIdUnscoped(db, created.body.host.id))?.tokenHash
+    ).toBeNull();
 
     // The one place it existed. Every later read has only the hash.
     const list = await (await request("/api/w/alpha/computer-hosts")).text();
-    expect(list).not.toContain(created.body.token);
-    expect(list).not.toContain(await hashMcpToken(created.body.token ?? ""));
+    expect(list).not.toContain(created.body.enrollmentCode);
+    expect(list).not.toContain(
+      await hashMcpToken(created.body.enrollmentCode ?? "")
+    );
   });
 
   test("a Fly host's daemon token is never handed out", async () => {
@@ -211,7 +225,7 @@ describe("POST /computer-hosts", () => {
     expect(created.response.status).toBe(201);
     // Agentum is the client on Fly, so it keeps the plaintext encrypted and
     // the user has nothing to paste anywhere.
-    expect(created.body.token).toBeNull();
+    expect(created.body.enrollmentCode).toBeNull();
     const stored = await getHostByIdUnscoped(db, created.body.host.id);
     expect(stored?.tokenEnc).toBeTruthy();
     expect(stored?.tokenHash).toBeNull();
@@ -348,23 +362,66 @@ describe("PATCH /computer-hosts/:id", () => {
     );
   });
 
-  test("rotating a self-hosted token returns a new one and unconfigures the host", async () => {
+  test("re-enrolling clears the credential, issues a new code and revokes the socket", async () => {
     const created = await newSelfHostedHost();
-    const before = await getHostByIdUnscoped(db, created.body.host.id);
+    const redeemed = await redeemEnrollmentCode(
+      db,
+      created.body.enrollmentCode ?? ""
+    );
+    expect(redeemed?.host.tokenHash).toBeTruthy();
 
     const body = (await (
       await request(`/api/w/alpha/computer-hosts/${created.body.host.id}`, {
-        body: { rotateToken: true },
+        body: { reenroll: true },
         method: "PATCH",
       })
     ).json()) as HostBody;
 
-    expect(typeof body.token).toBe("string");
-    expect(body.token).not.toBe(created.body.token);
+    expect(typeof body.enrollmentCode).toBe("string");
+    expect(body.enrollmentCode).not.toBe(created.body.enrollmentCode);
     expect(body.host.status).toBe("unconfigured");
-    const after = await getHostByIdUnscoped(db, created.body.host.id);
-    expect(after?.tokenHash).not.toBe(before?.tokenHash);
-    expect(after?.tokenHash).toBe(await hashMcpToken(body.token ?? ""));
+    expect(
+      (await getHostByIdUnscoped(db, created.body.host.id))?.tokenHash
+    ).toBeNull();
+    expect(
+      await findHostByToken(db, redeemed?.credential ?? "")
+    ).toBeUndefined();
+    expect(revokedHosts).toEqual([created.body.host.id]);
+    // The new code works.
+    expect(
+      await redeemEnrollmentCode(db, body.enrollmentCode ?? "")
+    ).toBeDefined();
+  });
+
+  test("re-enrolling invalidates a code that was never redeemed", async () => {
+    const created = await newSelfHostedHost();
+
+    await request(`/api/w/alpha/computer-hosts/${created.body.host.id}`, {
+      body: { reenroll: true },
+      method: "PATCH",
+    });
+
+    expect(
+      await redeemEnrollmentCode(db, created.body.enrollmentCode ?? "")
+    ).toBeUndefined();
+  });
+
+  test("re-enroll is for self-hosted hosts and rotateToken for Fly", async () => {
+    const fly = await newFlyHost();
+    const selfHosted = await newSelfHostedHost();
+
+    const [reenrollFly, rotateSelfHosted] = await Promise.all([
+      request(`/api/w/alpha/computer-hosts/${fly.body.host.id}`, {
+        body: { reenroll: true },
+        method: "PATCH",
+      }),
+      request(`/api/w/alpha/computer-hosts/${selfHosted.body.host.id}`, {
+        body: { rotateToken: true },
+        method: "PATCH",
+      }),
+    ]);
+
+    expect([reenrollFly.status, rotateSelfHosted.status]).toEqual([400, 400]);
   });
 
   test("rotating a Fly token re-encrypts it and still shows nothing", async () => {
@@ -378,7 +435,7 @@ describe("PATCH /computer-hosts/:id", () => {
       })
     ).json()) as HostBody;
 
-    expect(body.token).toBeNull();
+    expect(body.enrollmentCode).toBeNull();
     const after = await getHostByIdUnscoped(db, created.body.host.id);
     expect(after?.tokenEnc).toBeTruthy();
     expect(after?.tokenEnc).not.toBe(before?.tokenEnc);
@@ -387,11 +444,11 @@ describe("PATCH /computer-hosts/:id", () => {
     expect(rotatedHosts).toEqual([created.body.host.id]);
   });
 
-  test("a self-hosted rotation has no machines to update", async () => {
+  test("a self-hosted re-enrollment has no machines to update", async () => {
     const created = await newSelfHostedHost();
 
     await request(`/api/w/alpha/computer-hosts/${created.body.host.id}`, {
-      body: { rotateToken: true },
+      body: { reenroll: true },
       method: "PATCH",
     });
 

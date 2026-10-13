@@ -13,10 +13,11 @@ import type { Db } from "#/db/client";
 mock.module("cloudflare:workers", () => ({ DurableObject: class {} }));
 
 const { createDb } = await import("#/db/client");
-const { createHost } = await import("./hosts");
+const { createHost, issueEnrollmentCode, redeemEnrollmentCode } = await import(
+  "./hosts"
+);
 const { computerConnectRoutes } = await import("./connect-route");
-const { computerHosts } = await import("./schema");
-const { hashMcpToken } = await import("#/modules/agents/mcp-token");
+const { generateConnectorKey } = await import("#/crypto");
 
 const migrationsDir = new URL("../../../drizzle/", import.meta.url);
 
@@ -101,14 +102,23 @@ beforeEach(() => {
 });
 
 describe("GET /api/computer-hosts/connect", () => {
-  test("hands a good token's upgrade to that host's relay", async () => {
-    const { host, token } = await createHost(db, {} as Env, "workspace-1", {
-      config: {},
-      kind: "self_hosted",
-      name: "office-box",
-    });
+  const enrolledHost = async (kind: "fly" | "self_hosted" = "self_hosted") => {
+    const { enrollmentCode, host } = await createHost(
+      db,
+      { CONNECTOR_KEY: generateConnectorKey() } as Env,
+      "workspace-1",
+      { config: kind === "fly" ? { app: "a" } : {}, kind, name: "office-box" }
+    );
+    // Fly hosts get no code; they enroll through a hand-issued one.
+    const code = enrollmentCode ?? (await issueEnrollmentCode(db, host));
+    const redeemed = await redeemEnrollmentCode(db, code);
+    return { credential: redeemed?.credential ?? "", host };
+  };
 
-    const response = await upgrade(token);
+  test("hands an enrolled credential's upgrade to that host's relay", async () => {
+    const { credential, host } = await enrolledHost();
+
+    const response = await upgrade(credential);
 
     expect(response.status).toBe(101);
     expect(addressed).toEqual([host.id]);
@@ -118,6 +128,23 @@ describe("GET /api/computer-hosts/connect", () => {
         url: `http://localhost/hosts/${host.id}`,
       },
     ]);
+  });
+
+  test("accepts a Fly host's credential too", async () => {
+    const { credential } = await enrolledHost("fly");
+
+    expect((await upgrade(credential)).status).toBe(101);
+  });
+
+  test("refuses the enrollment code itself as a credential", async () => {
+    const { enrollmentCode } = await createHost(db, {} as Env, "workspace-1", {
+      config: {},
+      kind: "self_hosted",
+      name: "office-box",
+    });
+
+    expect((await upgrade(enrollmentCode)).status).toBe(401);
+    expect(handed).toEqual([]);
   });
 
   test("refuses an unknown token, a missing one, and says nothing more", async () => {
@@ -135,25 +162,6 @@ describe("GET /api/computer-hosts/connect", () => {
       { error: "Unauthorized." },
       { error: "Unauthorized." },
     ]);
-    expect(handed).toEqual([]);
-  });
-
-  test("refuses a token that resolves to a Fly host", async () => {
-    // Nothing issues one today - a Fly host's token is stored encrypted, not
-    // hashed, because Agentum is the side that presents it - so this is the
-    // defensive half of the check, kept honest by writing the row by hand.
-    await db.insert(computerHosts).values({
-      config: {},
-      id: "host-fly",
-      kind: "fly",
-      name: "fly-app",
-      tokenHash: await hashMcpToken("fly-token"),
-      workspaceId: "workspace-1",
-    });
-
-    const response = await upgrade("fly-token");
-
-    expect(response.status).toBe(401);
     expect(handed).toEqual([]);
   });
 });

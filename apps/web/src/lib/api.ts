@@ -309,22 +309,26 @@ export interface ComputerHostInput {
   name: string;
 }
 
-/** What a host edit may change; `rotateToken` issues a fresh daemon token. */
+/**
+ * What a host edit may change; `reenroll` issues a fresh enrollment code for a
+ * self-hosted host, `rotateToken` a fresh daemon token for a Fly one.
+ */
 export interface ComputerHostEdit {
   config?: ComputerHostConfig;
   flyApiToken?: string;
   name?: string;
+  reenroll?: true;
   rotateToken?: true;
 }
 
 /**
- * A host plus the daemon token, which exists in plaintext in this one response
- * and nowhere else. It is null for a Fly host - there Agentum is the side that
- * presents the token, so the user never sees it.
+ * A host plus its enrollment code, which exists in plaintext in this one
+ * response and nowhere else. It is null for a Fly host and for any edit that
+ * is not a re-enrollment.
  */
 export interface IssuedComputerHost {
+  enrollmentCode: string | null;
   host: ComputerHost;
-  token: string | null;
 }
 
 /** A `ping` through the host's real transport. */
