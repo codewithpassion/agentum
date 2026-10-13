@@ -23,6 +23,7 @@ type HandBackEvent = import("./takeover-hook").HandBackEvent;
 type PendingTakeover = import("./takeover-hook").PendingTakeover;
 type TakeoverOutcome = import("./takeover-hook").TakeoverOutcome;
 
+const SERVER_TIMING = /^lookup;dur=[\d.]+, relay;dur=[\d.]+, total;dur=[\d.]+$/;
 const APP_ORIGIN = "https://app.example.com";
 const JPEG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
 const JPEG_B64 = btoa(String.fromCharCode(...JPEG_BYTES));
@@ -33,6 +34,7 @@ interface Recorded {
 }
 
 let requests: Recorded[] = [];
+let relayFetches: Request[] = [];
 let takes: string[] = [];
 let releases: string[] = [];
 let hands: HandBackEvent[] = [];
@@ -80,6 +82,10 @@ const resultFor = (op: unknown): string => {
 };
 
 const fakeRelay: DesktopRelayPort = {
+  fetch: (input) => {
+    relayFetches.push(input as Request);
+    return Promise.resolve(new Response("relayed", { status: 200 }));
+  },
   releaseHumanLease: (userId) => {
     releases.push(userId);
     return Promise.resolve(releaseOutcome);
@@ -171,6 +177,7 @@ const statusJson = {
 beforeEach(() => {
   signedInAs = "user-1";
   requests = [];
+  relayFetches = [];
   takes = [];
   releases = [];
   hands = [];
@@ -254,6 +261,90 @@ describe("desktop screenshot", () => {
       expect(await res.json()).toMatchObject({ error });
     }
   );
+});
+
+describe("desktop screenshot timing", () => {
+  test("the response says how long the lookup, the relay and the whole request took", async () => {
+    const res = await call("/a1/desktop/screenshot");
+
+    expect(res.headers.get("server-timing")).toMatch(SERVER_TIMING);
+  });
+});
+
+describe("desktop stream", () => {
+  const upgrade = (headers: Record<string, string> = {}) =>
+    call("/a1/desktop/stream", {
+      headers: { Origin: "http://localhost", Upgrade: "websocket", ...headers },
+    });
+
+  test("a same-origin upgrade is handed to the relay with the signed-in user", async () => {
+    const res = await upgrade();
+
+    expect(await res.text()).toBe("relayed");
+    expect(relayFetches).toHaveLength(1);
+    expect(relayFetches[0]?.headers.get("x-agentum-viewer-user")).toBe(
+      "user-1"
+    );
+    expect(relayFetches[0]?.headers.get("upgrade")).toBe("websocket");
+    expect(new URL(relayFetches[0]?.url ?? "").pathname).toBe("/viewer");
+  });
+
+  test("the viewer's identity comes from the session, never from a header the client sent", async () => {
+    await upgrade({ "x-agentum-viewer-user": "someone-else" });
+
+    expect(relayFetches[0]?.headers.get("x-agentum-viewer-user")).toBe(
+      "user-1"
+    );
+  });
+
+  test("an upgrade from the configured app origin is allowed", async () => {
+    const res = await upgrade({ Origin: APP_ORIGIN });
+
+    expect(res.status).toBe(200);
+    expect(relayFetches).toHaveLength(1);
+  });
+
+  test("an upgrade from another site is refused before the relay is touched", async () => {
+    const res = await upgrade({ Origin: "https://evil.example" });
+
+    expect(res.status).toBe(403);
+    expect(relayFetches).toHaveLength(0);
+  });
+
+  test("an upgrade with no Origin and no bearer token is refused", async () => {
+    const res = await call("/a1/desktop/stream", {
+      headers: { Upgrade: "websocket" },
+    });
+
+    expect(res.status).toBe(403);
+    expect(relayFetches).toHaveLength(0);
+  });
+
+  test("a request that is not an upgrade is told to upgrade", async () => {
+    const res = await call("/a1/desktop/stream", {
+      headers: { Origin: "http://localhost" },
+    });
+
+    expect(res.status).toBe(426);
+  });
+
+  test("a caller who is not signed in is refused", async () => {
+    signedInAs = null;
+
+    const res = await upgrade();
+
+    expect(res.status).toBe(401);
+    expect(relayFetches).toHaveLength(0);
+  });
+
+  test("an agent with no computer host is not found", async () => {
+    const res = await call("/a-none/desktop/stream", {
+      headers: { Origin: "http://localhost", Upgrade: "websocket" },
+    });
+
+    expect(res.status).toBe(404);
+    expect(relayFetches).toHaveLength(0);
+  });
 });
 
 describe("desktop input", () => {

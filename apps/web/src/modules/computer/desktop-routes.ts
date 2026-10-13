@@ -5,9 +5,13 @@ import type { ApiEnv } from "#/api/types";
 import { createDb } from "#/db/client";
 import { getAgentById } from "#/modules/agents/service";
 import { fromBase64 } from "./desktop";
+import {
+  type Failure,
+  LEASE_REQUIRED_MESSAGE,
+  relayFailure,
+} from "./desktop-failure";
 import { getHostByIdUnscoped } from "./hosts";
 import {
-  CLIENT_ERROR_DESKTOP_UNAVAILABLE,
   DESKTOP_CLIPBOARD_TIMEOUT_MS,
   DESKTOP_SCREENSHOT_TIMEOUT_MS,
   DesktopClipboardGetResultPayloadSchema,
@@ -16,12 +20,7 @@ import {
   DesktopScreenshotResultPayloadSchema,
   desktopInputTimeoutMs,
 } from "./protocol";
-import type {
-  ComputerPrincipal,
-  ComputerRelay,
-  RelayOutcome,
-  RelayStatus,
-} from "./relay";
+import type { ComputerPrincipal, ComputerRelay, RelayStatus } from "./relay";
 import {
   type CancelTakeoverHook,
   onCancelTakeover as defaultOnCancelTakeover,
@@ -30,6 +29,11 @@ import {
   type HandBackHook,
   type PendingTakeoverOf,
 } from "./takeover-hook";
+import {
+  desktopStatusBody,
+  VIEWER_PATH,
+  VIEWER_USER_HEADER,
+} from "./viewer-hub";
 
 /**
  * A person's view of an agent's desktop: watch it, take control, type, share
@@ -40,13 +44,12 @@ import {
 
 const BAD_REPLY =
   "The computer sent a reply this server cannot read. Check that its version matches this deployment.";
-const LEASE_REQUIRED_MESSAGE = "Take control of the desktop first.";
 const NOTE_MAX_CHARS = 2000;
 
-/** The part of the relay stub these routes use; a fake in tests is just these four. */
+/** The part of the relay stub these routes use; a fake in tests is just these five. */
 export type DesktopRelayPort = Pick<
   ComputerRelay,
-  "releaseHumanLease" | "request" | "status" | "takeHumanLease"
+  "fetch" | "releaseHumanLease" | "request" | "status" | "takeHumanLease"
 >;
 
 export interface DesktopRouteDeps {
@@ -95,49 +98,6 @@ const ClipboardBodySchema = z.object({ text: DesktopClipboardTextSchema });
 const HandBackBodySchema = z.object({
   note: z.string().max(NOTE_MAX_CHARS).optional(),
 });
-
-/** What a route answers a failed relay op with: the status, and the code the UI branches on. */
-interface Failure {
-  readonly error: string;
-  readonly message: string;
-  readonly status: 409 | 423 | 502 | 503;
-}
-
-const relayFailure = (outcome: RelayOutcome): Failure => {
-  switch (outcome.reason) {
-    case "human_in_control":
-      return {
-        error: "human_in_control",
-        message: outcome.message,
-        status: 423,
-      };
-    case "forbidden":
-      return {
-        error: "lease_required",
-        message: LEASE_REQUIRED_MESSAGE,
-        status: 423,
-      };
-    case "desktop_busy":
-      return { error: "clearing", message: outcome.message, status: 409 };
-    case "desktop_unavailable":
-      return {
-        error: "desktop_unavailable",
-        message: outcome.message,
-        status: 503,
-      };
-    case "client_error":
-      if (outcome.code === CLIENT_ERROR_DESKTOP_UNAVAILABLE) {
-        return {
-          error: "desktop_unavailable",
-          message: outcome.message,
-          status: 503,
-        };
-      }
-      return { error: "desktop_failed", message: outcome.message, status: 502 };
-    default:
-      return { error: "offline", message: outcome.message, status: 503 };
-  }
-};
 
 const BAD_REPLY_FAILURE: Failure = {
   error: "desktop_failed",
@@ -190,32 +150,18 @@ const isForeignOriginWrite = (c: Context<ApiEnv>): boolean => {
   );
 };
 
-/** Whether the signed-in person is the one holding the desktop right now. */
-const youHold = (status: RelayStatus, userId: string): boolean => {
-  const { control } = status;
-  return (
-    control !== null &&
-    control.holder.kind === "human" &&
-    control.holder.userId === userId
-  );
-};
-
-const statusBody = (status: RelayStatus, userId: string) => ({
-  connected: status.connected,
-  control: status.control,
-  desktop: status.capabilities?.desktop === true,
-  desktopUnavailableReason:
-    status.capabilities?.desktop_unavailable_reason ?? null,
-  youHaveControl: youHold(status, userId),
-});
-
 const failureResponse = (c: Context<ApiEnv>, failure: Failure) =>
   c.json({ error: failure.error, message: failure.message }, failure.status);
 
-const jpeg = (c: Context<ApiEnv>, bytes: Uint8Array<ArrayBuffer>) =>
+const jpeg = (
+  c: Context<ApiEnv>,
+  bytes: Uint8Array<ArrayBuffer>,
+  serverTiming?: string
+) =>
   c.body(bytes, 200, {
     "Cache-Control": "no-store",
     "Content-Type": "image/jpeg",
+    ...(serverTiming === undefined ? {} : { "Server-Timing": serverTiming }),
     "X-Content-Type-Options": "nosniff",
   });
 
@@ -275,7 +221,7 @@ export const createDesktopRoutes = (
   });
   /** A status answer, with the takeover the agent is waiting on. */
   const statusPayload = async (c: Context<ApiEnv>, status: RelayStatus) => ({
-    ...statusBody(status, c.get("userId")),
+    ...desktopStatusBody(status, c.get("userId")),
     pendingTakeover: await pendingTakeoverOf(
       c.env,
       c.get("workspace").id,
@@ -301,12 +247,52 @@ export const createDesktopRoutes = (
   });
 
   routes.get("/:id/desktop/screenshot", async (c) => {
+    const started = performance.now();
     const relay = await relayOf(c);
     if (!relay) {
       return notFound(c);
     }
+    const asked = performance.now();
     const frame = await frameOf(relay, personOf(c));
-    return frame.ok ? jpeg(c, frame.bytes) : failureResponse(c, frame.failure);
+    if (!frame.ok) {
+      return failureResponse(c, frame.failure);
+    }
+    const done = performance.now();
+    return jpeg(
+      c,
+      frame.bytes,
+      `lookup;dur=${(asked - started).toFixed(1)}, relay;dur=${(done - asked).toFixed(1)}, total;dur=${(done - started).toFixed(1)}`
+    );
+  });
+
+  /** The live view: a WebSocket of frames out and input in, served by the host's relay. */
+  routes.get("/:id/desktop/stream", async (c) => {
+    if (c.req.header("Upgrade")?.toLowerCase() !== "websocket") {
+      return c.json(
+        { error: "upgrade_required", message: "Expected a WebSocket upgrade." },
+        426
+      );
+    }
+    // A browser always sends Origin on a WebSocket, and cookies ride along from any site.
+    if (isForeignOriginWrite(c)) {
+      return c.json(
+        { error: "forbidden", message: "Cross-origin request refused." },
+        403
+      );
+    }
+    const relay = await relayOf(c);
+    if (!relay) {
+      return notFound(c);
+    }
+    // Built fresh: nothing the client sent, the viewer header included, reaches the relay.
+    return await relay.fetch(
+      new Request(new URL(VIEWER_PATH, "https://relay.internal"), {
+        headers: {
+          Upgrade: "websocket",
+          [VIEWER_USER_HEADER]: c.get("userId"),
+        },
+      })
+    );
   });
 
   routes.post("/:id/desktop/input", async (c) => {

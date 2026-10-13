@@ -217,9 +217,11 @@ const relayFor = (hostId: string) => {
     return socket;
   };
 
+  const tagged = new Map<FakeSocket, string[]>();
   const ctx = {
-    acceptWebSocket: (socket: FakeSocket) => {
+    acceptWebSocket: (socket: FakeSocket, tags: string[] = []) => {
       sockets.push(socket);
+      tagged.set(socket, tags);
     },
     getWebSocketAutoResponseTimestamp: (socket: FakeSocket) => socket.heartbeat,
     getWebSockets: () => [...sockets],
@@ -256,6 +258,23 @@ const relayFor = (hostId: string) => {
     return server;
   };
 
+  const connectViewer = async (userId: string): Promise<FakeSocket> => {
+    const server = makeSocket();
+    const client = makeSocket();
+    Object.assign(globalThis, {
+      WebSocketPair: class {
+        0 = client;
+        1 = server;
+      },
+    });
+    await instance.fetch(
+      new Request("https://relay.internal/viewer", {
+        headers: { Upgrade: "websocket", "x-agentum-viewer-user": userId },
+      })
+    );
+    return server;
+  };
+
   /** What the runtime does when a container stops: the socket is gone from the registry first. */
   const disconnect = async (socket: FakeSocket): Promise<void> => {
     const at = sockets.indexOf(socket);
@@ -282,7 +301,16 @@ const relayFor = (hostId: string) => {
     return woken;
   };
 
-  return { background, connect, deliver, disconnect, instance, wake };
+  return {
+    background,
+    connect,
+    connectViewer,
+    deliver,
+    disconnect,
+    instance,
+    tagged,
+    wake,
+  };
 };
 
 /** A daemon whose desktop is running, so desktop ops and the clipboard clear are sent. */
@@ -989,5 +1017,99 @@ describe("ComputerRelay desktop lease", () => {
 
     expect(op).toMatchObject({ ok: false, reason: "desktop_unavailable" });
     expect(take).toMatchObject({ ok: false, reason: "desktop_unavailable" });
+  });
+});
+
+describe("ComputerRelay viewers", () => {
+  test("a viewer is accepted with the viewer tag and the user it was handed", async () => {
+    const relay = relayFor(await seedHost("office"));
+
+    const viewer = await relay.connectViewer("user-1");
+
+    expect(relay.tagged.get(viewer)).toEqual(["viewer"]);
+    expect(viewer.attachment).toEqual({ kind: "viewer", userId: "user-1" });
+  });
+
+  test("a viewer socket is never taken for the daemon", async () => {
+    const relay = relayFor(await seedHost("office"));
+    const viewer = await relay.connectViewer("user-1");
+    await flush();
+
+    expect((await relay.instance.status()).connected).toBe(false);
+    const outcome = await relay.instance.request({ op: "exec" });
+    expect(outcome.reason).toBe("offline");
+    expect(viewer.sent.some((raw) => raw.includes('"op"'))).toBe(false);
+  });
+
+  test("a viewer upgrade without a user is refused", async () => {
+    const relay = relayFor(await seedHost("office"));
+    const response = await relay.instance.fetch(
+      new Request("https://relay.internal/viewer", {
+        headers: { Upgrade: "websocket" },
+      })
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  test("text from a viewer is never read as a daemon hello or reply", async () => {
+    const hostId = await seedHost("office");
+    const relay = relayFor(hostId);
+    const viewer = await relay.connectViewer("user-1");
+
+    await relay.deliver(viewer, HELLO);
+
+    expect((await relay.instance.status()).hostname).toBeNull();
+    expect((await hostRow(hostId))?.status).not.toBe("ready");
+  });
+
+  test("a new daemon connection leaves viewers open, and a viewer leaving leaves the host online", async () => {
+    const hostId = await seedHost("office");
+    const relay = relayFor(hostId);
+    const first = await relay.connect();
+    await relay.deliver(first, HELLO);
+    const viewer = await relay.connectViewer("user-1");
+
+    const second = await relay.connect();
+
+    expect(first.closed?.code).toBe(4409);
+    expect(viewer.closed).toBeNull();
+    await relay.disconnect(viewer);
+    expect((await relay.instance.status()).connected).toBe(true);
+    expect(second.closed).toBeNull();
+    expect((await hostRow(hostId))?.status).not.toBe("offline");
+  });
+
+  test("the daemon going away leaves the viewer socket alone", async () => {
+    const relay = relayFor(await seedHost("office"));
+    const daemon = await relay.connect();
+    const viewer = await relay.connectViewer("user-1");
+
+    await relay.disconnect(daemon);
+
+    expect(viewer.closed).toBeNull();
+  });
+
+  test("input from a viewer without the lease is refused with lease_required", async () => {
+    const relay = relayFor(await seedHost("office"));
+    const daemon = await relay.connect();
+    await relay.deliver(daemon, DESKTOP_HELLO);
+    const viewer = await relay.connectViewer("user-1");
+
+    await relay.instance.webSocketMessage(
+      viewer as unknown as WebSocket,
+      JSON.stringify({
+        actions: [{ keys: "Return", type: "key" }],
+        t: "input",
+      })
+    );
+    await flush();
+
+    expect(
+      viewer.sent.map((raw) => JSON.parse(raw) as Record<string, unknown>)
+    ).toContainEqual(
+      expect.objectContaining({ code: "lease_required", t: "error" })
+    );
+    expect(frames(daemon).some((f) => f.op === "desktop_input")).toBe(false);
   });
 });

@@ -28,6 +28,13 @@ import {
   REMOTE_EXEC_DEFAULT_TIMEOUT_MS,
   REMOTE_EXEC_MAX_TIMEOUT_MS,
 } from "./remote-client";
+import {
+  DesktopViewers,
+  isViewerAttachment,
+  VIEWER_PATH,
+  VIEWER_TAG,
+  VIEWER_USER_HEADER,
+} from "./viewer-hub";
 
 /**
  * One self-hosted host's daemon connection (`idFromName(hostId)`). The container
@@ -395,6 +402,10 @@ export class ComputerRelay extends DurableObject<Env> {
     return this.hydrated;
   }
   private readonly pending = new Map<string, Pending>();
+  private readonly viewers = new DesktopViewers({
+    request: (message, principal) => this.request(message, principal),
+    status: () => this.status(),
+  });
   /** The tail of the exec queue: one command in flight per host, as in the DO backend. */
   private execQueue: Promise<unknown> = Promise.resolve();
   /** In memory on purpose: renewals reach storage at most every LEASE_PERSIST_INTERVAL_MS. */
@@ -444,6 +455,9 @@ export class ComputerRelay extends DurableObject<Env> {
         status: WEBSOCKET_UPGRADE_REQUIRED,
       });
     }
+    if (new URL(request.url).pathname === VIEWER_PATH) {
+      return this.acceptViewer(request);
+    }
     const hostId = hostIdFromUrl(request.url);
     if (!hostId) {
       return new Response("No host id.", { status: BAD_REQUEST });
@@ -455,7 +469,7 @@ export class ComputerRelay extends DurableObject<Env> {
     this.generation = generation;
     await this.ctx.storage.put(GENERATION_KEY, generation);
 
-    for (const existing of this.ctx.getWebSockets()) {
+    for (const existing of this.daemonSockets()) {
       try {
         existing.close(
           CLOSE_REPLACED,
@@ -481,13 +495,43 @@ export class ComputerRelay extends DurableObject<Env> {
     );
     await this.ctx.storage.setAlarm(Date.now() + LAST_SEEN_ALARM_MS);
     this.ctx.waitUntil(this.cancelOrphans(pair[1]));
+    this.viewers.statusChanged();
     return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+
+  /**
+   * A person's viewer socket, handed over by the desktop stream route with the
+   * signed-in user in a header only that route sets. Viewer sockets carry no
+   * generation, so `currentSocket()` can never mistake one for the daemon.
+   */
+  private acceptViewer(request: Request): Response {
+    const userId = request.headers.get(VIEWER_USER_HEADER);
+    if (!userId) {
+      return new Response("No viewer.", { status: BAD_REQUEST });
+    }
+    // biome-ignore lint/correctness/noUndeclaredVariables: WebSocketPair is a Workers runtime global
+    const pair = new WebSocketPair();
+    this.ctx.acceptWebSocket(pair[1], [VIEWER_TAG]);
+    pair[1].serializeAttachment({ kind: "viewer", userId });
+    this.viewers.open(pair[1]);
+    return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+
+  /** Every socket the daemon may be on: all but the viewers'. */
+  private daemonSockets(): WebSocket[] {
+    return this.ctx
+      .getWebSockets()
+      .filter((socket) => !isViewerAttachment(socket.deserializeAttachment()));
   }
 
   override async webSocketMessage(
     socket: WebSocket,
     message: ArrayBuffer | string
   ): Promise<void> {
+    if (isViewerAttachment(socket.deserializeAttachment())) {
+      this.viewers.message(socket, message);
+      return;
+    }
     if (typeof message !== "string") {
       return;
     }
@@ -526,12 +570,23 @@ export class ComputerRelay extends DurableObject<Env> {
     await this.dropped(socket);
   }
 
+  /** Viewers leave quietly; only the daemon's loss changes the host's presence. */
+  private isViewer(socket: WebSocket): boolean {
+    return isViewerAttachment(socket.deserializeAttachment());
+  }
+
   /**
    * Presence while connected: the last-seen column moves once a minute, not per
    * heartbeat. Also expires an idle desktop hold, with or without the daemon.
    */
   override async alarm(): Promise<void> {
     await this.load();
+    // Viewers that survived a hibernation have no pump until something reminds this object of them.
+    this.viewers.adoptAll(
+      this.ctx
+        .getWebSockets()
+        .filter((socket) => isViewerAttachment(socket.deserializeAttachment()))
+    );
     this.currentLease(Date.now());
     if (this.currentSocket() === undefined) {
       await this.armAlarm(false);
@@ -677,7 +732,7 @@ export class ComputerRelay extends DurableObject<Env> {
    * what is in flight. Called when the host's credential is revoked.
    */
   revoke(): void {
-    for (const socket of this.ctx.getWebSockets()) {
+    for (const socket of this.daemonSockets()) {
       try {
         socket.close(CLOSE_REVOKED, REVOKED_MESSAGE);
       } catch {
@@ -691,6 +746,7 @@ export class ComputerRelay extends DurableObject<Env> {
     await this.load();
     this.hello = hello;
     await this.ctx.storage.put(HELLO_KEY, hello);
+    this.viewers.statusChanged();
     // A clear that failed while the machine was away is sent again as soon as it is back.
     this.currentLease(Date.now());
     const hostId = await this.host();
@@ -726,10 +782,15 @@ export class ComputerRelay extends DurableObject<Env> {
   }
 
   private async dropped(socket: WebSocket): Promise<void> {
+    if (this.isViewer(socket)) {
+      this.viewers.close(socket);
+      return;
+    }
     this.failAll("interrupted", CONNECTION_LOST, socket);
+    this.viewers.statusChanged();
     // A replacement connects before the old socket's close is delivered, so
     // "was that the last one?" is the question, not "did one close?".
-    if (this.ctx.getWebSockets().some((other) => other !== socket)) {
+    if (this.daemonSockets().some((other) => other !== socket)) {
       return;
     }
     const hostId = await this.host();
@@ -900,6 +961,7 @@ export class ComputerRelay extends DurableObject<Env> {
 
   private setLease(next: StoredLease | undefined): void {
     this.lease = next;
+    this.viewers.statusChanged();
     this.leasePersistedAt = next?.kind === "held" ? next.lastOpAt : 0;
     this.ctx.waitUntil(
       next === undefined
