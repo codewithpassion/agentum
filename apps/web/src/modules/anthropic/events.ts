@@ -17,9 +17,13 @@ export type SessionStatus =
 
 /** What the router needs from an event; the raw SDK shape stays inside the gateway. */
 export interface SessionEvent {
+  /** The tool's name, on an `agent.custom_tool_use`. */
+  customToolName?: string;
   id: string;
   /** ISO 8601, null while the event is still queued. */
   processedAt: string | null;
+  /** The event ids a `requires_action` idle is blocked on. */
+  requiredEventIds?: string[];
   /** Why the session stopped, on a `session.status_idle` that says so. */
   stopReason?: string;
   /** Agent text output, when the event carries any. */
@@ -60,14 +64,23 @@ export const advanceCursor = (
   return { lastEventId: last.id, lastProcessedAt: last.processedAt };
 };
 
+export interface CustomToolCall {
+  id: string;
+  name: string;
+}
+
 export interface PumpOutcome {
   /** Text the agent produced. We do not post it - the agent posts via MCP. */
   agentText: string[];
+  /** Every `agent.custom_tool_use` the page carried, in order. */
+  customToolCalls: CustomToolCall[];
   /**
    * Every error the page reported, in order. All of them, not just the last:
    * one page can carry a failure per connector, and each names a different one.
    */
   errors: string[];
+  /** Ids of the events the session said it is blocked on (`requires_action`). */
+  requiredEventIds: string[];
   status: SessionStatus;
   /** The last stop reason a status event in the page carried, if any. */
   stopReason: string | null;
@@ -93,8 +106,14 @@ export const reduceEvents = (
   let stopReason: string | null = null;
   const errors: string[] = [];
   const agentText: string[] = [];
+  const customToolCalls: CustomToolCall[] = [];
+  const requiredEventIds: string[] = [];
 
   for (const event of events) {
+    if (event.type === "agent.custom_tool_use") {
+      customToolCalls.push({ id: event.id, name: event.customToolName ?? "" });
+    }
+    requiredEventIds.push(...(event.requiredEventIds ?? []));
     const next = STATUS_EVENTS[event.type];
     if (next) {
       status = next;
@@ -108,7 +127,14 @@ export const reduceEvents = (
     }
   }
 
-  return { agentText, errors, status, stopReason };
+  return {
+    agentText,
+    customToolCalls,
+    errors,
+    requiredEventIds,
+    status,
+    stopReason,
+  };
 };
 
 /** A session we can still send into: not finished, not wedged. */
@@ -121,4 +147,7 @@ export const isSessionReusable = (status: SessionStatus): boolean =>
  * without a word. `end_turn` is the agent finishing on its own terms.
  */
 export const isAbnormalStop = (stopReason: string | null): boolean =>
-  stopReason !== null && stopReason !== "end_turn";
+  stopReason !== null &&
+  stopReason !== "end_turn" &&
+  // Waiting on a client-run tool result, which the pump supplies.
+  stopReason !== "requires_action";

@@ -12,7 +12,16 @@ export interface RosterEntry {
   soul: string;
 }
 
+/** The remote computer an agent is bound to, when it has one. */
+export interface ComputerInfo {
+  /** Whether the host reports a desktop (display :99). */
+  desktop: boolean;
+  name: string;
+}
+
 export interface SystemPromptInput {
+  /** Set for a managed agent bound to a self-hosted or Fly computer. */
+  computer?: ComputerInfo;
   instructions: string;
   name: string;
   /** Every other agent in the workspace - the delegation directory. */
@@ -92,6 +101,23 @@ A skill is a reusable bundle - a SKILL.md plus any scripts it needs - that you l
 - **When a skill fails, fix the skill.** Do not quietly work around it and move on: diagnose the failure, correct the files, \`skill_update\` with a changelog naming what broke and what you changed ("fixed: script assumed bash, the sandbox runs sh"), then retry the task with the new version. Everyone else using that skill gets your fix on their next session.
 - Assigning a skill to *another* agent is the human's call, not yours.`;
 
+/**
+ * Tells an agent bound to a remote computer which machine is "its own". Without
+ * it the model reaches for the built-in sandbox (a separate scratch machine the
+ * user cannot see); those tools are also switched off for such agents.
+ */
+const computerSection = (computer: ComputerInfo): string => {
+  const base = `# Your computer
+
+Your computer is "${computer.name}". Use the \`computer_*\` tools (\`computer_exec\`, \`computer_write_file\`, \`computer_read_file\`, \`computer_edit_file\`, \`computer_list_dir\`) for all file and shell work the user asks for. Any sandbox you might have besides it is a separate scratch machine the user cannot see; never do the user's work there.`;
+  if (!computer.desktop) {
+    return base;
+  }
+  return `${base}
+
+It has a desktop: display :99, with \`DISPLAY\` already set for \`computer_exec\`. Launch graphical apps in the background so the command returns, for example \`chromium https://example.com >/dev/null 2>&1 &\` or \`xterm &\`, give them a moment to open, then call \`desktop_screenshot\`. The picture comes back in the tool result.`;
+};
+
 const rosterSection = (roster: readonly RosterEntry[]): string => {
   if (roster.length === 0) {
     return "# The other agents\n\nYou are the only agent in the workspace so far. The human is the only one who can answer you.";
@@ -120,6 +146,9 @@ export const composeSystemPrompt = (input: SystemPromptInput): string => {
   sections.push(workspaceRules(input.name, runtime));
   if (runtime === "managed") {
     sections.push(subagentsSection());
+  }
+  if (input.computer) {
+    sections.push(computerSection(input.computer));
   }
   sections.push(skillsSection(), rosterSection(input.roster));
 

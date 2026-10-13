@@ -6,7 +6,7 @@ import {
 import type { ComputerPrincipal, RelayOutcome } from "./relay";
 
 /**
- * The server half of `computer_screenshot`: one `desktop_screenshot` op through
+ * The server half of `desktop_screenshot`: one `desktop_screenshot` op through
  * the host's `ComputerRelay`, answered with the JPEG's bytes or a failure the
  * tool can word for the model. Never throws; a relay that rejects is reported
  * as `unreachable`.

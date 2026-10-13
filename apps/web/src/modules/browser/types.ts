@@ -34,7 +34,7 @@ export interface StoredScreenshot {
 }
 
 export type ScreenshotResult =
-  | { ok: true; screenshot: StoredScreenshot }
+  | { bytes: Uint8Array; ok: true; screenshot: StoredScreenshot }
   | { ok: false; reason: string };
 
 export interface BrowserStatus {

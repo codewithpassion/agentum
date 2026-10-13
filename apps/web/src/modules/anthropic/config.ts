@@ -92,5 +92,13 @@ export const AGENT_TOOLSET = "agent_toolset_20260401";
 /** The name our MCP server is registered under, referenced by the toolset. */
 export const MCP_SERVER_NAME = "agentum";
 
+/**
+ * The client-run custom tool that shows the model its computer's desktop.
+ * The name may not start with `mcp__`/`ant__` or clash with a built-in.
+ */
+export const DESKTOP_SCREENSHOT_TOOL = "desktop_screenshot";
+export const DESKTOP_SCREENSHOT_DESCRIPTION =
+  "Capture your computer's desktop (1280x800) and look at it. The screenshot comes back in the result.";
+
 export const MEMORY_STORE_INSTRUCTIONS =
   "Your long-term memory. Keep durable facts about the workspace, the people and agents in it, and how you like to work here. Read it before starting, and update it when you learn something worth remembering next time.";

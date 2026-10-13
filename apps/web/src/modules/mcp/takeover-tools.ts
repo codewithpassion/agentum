@@ -1,5 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import type { Db } from "#/db/client";
+import type { Agent } from "#/modules/agents/schema";
+import { getHostByIdUnscoped } from "#/modules/computer/hosts";
 import { isChannelMember } from "#/modules/messaging/service";
 import {
   requestTakeover,
@@ -11,9 +14,21 @@ import { type McpToolContext, NOT_A_MEMBER } from "./tools";
 
 /**
  * `request_human_takeover`: the agent asks a person to use its desktop for a
- * step only a person can do. Offered only where the desktop tools are, so
- * `routes.ts` gates it with the same check.
+ * step only a person can do. Offered only where the agent has a desktop, so
+ * `routes.ts` gates it with `agentHasDesktop`.
  */
+
+/** Whether this agent has a desktop a person can take over. */
+export const agentHasDesktop = async (
+  db: Db,
+  agent: Agent
+): Promise<boolean> => {
+  if (agent.runtime !== "managed" || !agent.computerHostId) {
+    return false;
+  }
+  const host = await getHostByIdUnscoped(db, agent.computerHostId);
+  return host?.capabilities?.desktop === true;
+};
 
 const TAKEOVER_NOTE =
   "A person has been asked to take over the desktop. End your turn now. You will get a message when they hand the desktop back.";

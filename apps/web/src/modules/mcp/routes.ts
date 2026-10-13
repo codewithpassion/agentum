@@ -5,9 +5,8 @@ import type { Agent } from "#/modules/agents/schema";
 import { findAgentByMcpToken } from "#/modules/agents/service";
 import type { Workspace } from "#/modules/workspaces/schema";
 import { getWorkspaceById } from "#/modules/workspaces/service";
-import { agentHasDesktop, registerDesktopTools } from "./desktop-tools";
 import { buildWorkspaceServer } from "./server";
-import { registerTakeoverTools } from "./takeover-tools";
+import { agentHasDesktop, registerTakeoverTools } from "./takeover-tools";
 
 /**
  * `POST /mcp/:agentToken` - the agents' entry point. It is deliberately outside
@@ -44,7 +43,6 @@ mcpRoutes.all("/:agentToken", async (c) => {
   const ctx = { agent, db, env: c.env, requestUrl: c.req.url, workspace };
   const server = buildWorkspaceServer(ctx);
   if (await agentHasDesktop(db, agent)) {
-    registerDesktopTools(server, ctx);
     registerTakeoverTools(server, ctx);
   }
   await server.connect(transport);

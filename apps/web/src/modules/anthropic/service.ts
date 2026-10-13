@@ -12,8 +12,10 @@ import {
   setAgentRegistration,
   setAgentSyncStatus,
 } from "#/modules/agents/service";
+import { getHostByIdUnscoped } from "#/modules/computer/hosts";
 import { listConnectorsForAgent } from "#/modules/connectors/service";
 import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
+import { retireAgentSession } from "#/modules/router/retire";
 import { agentHasSecrets } from "#/modules/secrets/service";
 import { listAgentSkillAssignments } from "#/modules/skills/service";
 import { composeAgentConnectors } from "./agent-connectors";
@@ -32,7 +34,11 @@ import {
   WORKER_AGENT_ID_KEY,
   workerAgentIdKeyFor,
 } from "./schema";
-import { composeSystemPrompt, rosterFor } from "./system-prompt";
+import {
+  type ComputerInfo,
+  composeSystemPrompt,
+  rosterFor,
+} from "./system-prompt";
 import type { SecretVaultGateway } from "./vaults";
 import {
   MissingConnectorKeyError,
@@ -159,8 +165,27 @@ export const createGateway = async (
   });
 };
 
-const systemPromptFor = (agent: Agent, all: readonly Agent[]): string =>
+/** The remote computer a managed agent works on, if it is bound to one. */
+const computerFor = async (
+  db: Db,
+  agent: Agent
+): Promise<ComputerInfo | undefined> => {
+  if (agent.runtime !== "managed" || !agent.computerHostId) {
+    return;
+  }
+  const host = await getHostByIdUnscoped(db, agent.computerHostId);
+  return host
+    ? { desktop: host.capabilities?.desktop === true, name: host.name }
+    : undefined;
+};
+
+const systemPromptFor = (
+  agent: Agent,
+  all: readonly Agent[],
+  computer?: ComputerInfo
+): string =>
   composeSystemPrompt({
+    computer,
     instructions: agent.instructions,
     name: agent.name,
     roster: rosterFor(agent.id, all),
@@ -177,7 +202,8 @@ const resyncRosters = async (
   db: Db,
   gateway: AnthropicGateway,
   workspaceId: string,
-  skipId: string | null
+  skipId: string | null,
+  onToolsChanged?: ToolsChangedHook
 ): Promise<void> => {
   const all = await listAgents(db, workspaceId);
   for (const agent of all) {
@@ -188,18 +214,30 @@ const resyncRosters = async (
       // Sequential on purpose: agent updates are create-rate-limited (300 RPM)
       // and one failure must not take the others down with it.
       // biome-ignore lint/performance/noAwaitInLoops: paced to stay inside the API's rate limits
-      await gateway.syncAgent({
+      const computer = await computerFor(db, agent);
+      const { toolsChanged } = await gateway.syncAgent({
         anthropicAgentId: agent.anthropicAgentId,
+        computerOnly: computer !== undefined,
+        desktop: computer?.desktop,
         model: modelOrDefault(agent.model),
         name: agent.name,
-        system: systemPromptFor(agent, all),
+        system: systemPromptFor(agent, all, computer),
       });
       await setAgentSyncStatus(db, agent.id, "synced");
+      if (toolsChanged) {
+        await onToolsChanged?.(agent);
+      }
     } catch (error) {
       await setAgentSyncStatus(db, agent.id, "error", messageOf(error));
     }
   }
 };
+
+/**
+ * Called when a sync changed an agent's tools. A running session keeps the
+ * tools it started with, so this is where the caller retires it.
+ */
+export type ToolsChangedHook = (agent: Agent) => Promise<void>;
 
 export interface SyncAgentOptions {
   /**
@@ -207,6 +245,8 @@ export interface SyncAgentOptions {
    * the token is stored hashed - omit it to leave the registered URL as is.
    */
   mcpUrl?: string;
+  /** See `ToolsChangedHook`. */
+  onToolsChanged?: ToolsChangedHook;
 }
 
 const cappedMessage = (dropped: number): string =>
@@ -253,19 +293,27 @@ export const syncAgentToAnthropic = async (
     : null;
 
   try {
-    const system = systemPromptFor(agent, all);
+    const computer = await computerFor(db, agent);
+    const system = systemPromptFor(agent, all, computer);
     if (agent.anthropicAgentId) {
-      await gateway.syncAgent({
+      const { toolsChanged } = await gateway.syncAgent({
         anthropicAgentId: agent.anthropicAgentId,
+        computerOnly: computer !== undefined,
         connectors: composed?.servers,
+        desktop: computer?.desktop,
         mcpUrl: options.mcpUrl,
         model: modelOrDefault(agent.model),
         name: agent.name,
         system,
       });
+      if (toolsChanged) {
+        await options.onToolsChanged?.(agent);
+      }
     } else if (options.mcpUrl) {
       const registration = await gateway.registerAgent({
+        computerOnly: computer !== undefined,
         connectors: composed?.servers,
+        desktop: computer?.desktop,
         instructions: agent.instructions,
         mcpUrl: options.mcpUrl,
         model: modelOrDefault(agent.model),
@@ -313,6 +361,15 @@ export const syncAgentToAnthropic = async (
   return true;
 };
 
+/** A sync that moved an agent's tools retires its session; best effort. */
+const retireOnToolsChange =
+  (env: Env): ToolsChangedHook =>
+  async (agent) => {
+    await retireAgentSession(env, agent.workspaceId, agent.id).catch(() => {
+      // The session ends at its idle TTL either way.
+    });
+  };
+
 /**
  * Registers (or updates) one agent with Anthropic, then refreshes everyone
  * else's roster. Never throws: failures land in the agent's `syncStatus`, which
@@ -334,8 +391,12 @@ export const syncAgentWithAnthropic = async (
     return;
   }
 
-  await syncAgentToAnthropic(db, gateway, agentId, options);
-  await resyncRosters(db, gateway, agent.workspaceId, agentId);
+  const onToolsChanged = retireOnToolsChange(env);
+  await syncAgentToAnthropic(db, gateway, agentId, {
+    onToolsChanged,
+    ...options,
+  });
+  await resyncRosters(db, gateway, agent.workspaceId, agentId, onToolsChanged);
 };
 
 // --- skills -----------------------------------------------------------------
@@ -736,5 +797,5 @@ export const resyncRostersWithAnthropic = async (
   if (!gateway) {
     return;
   }
-  await resyncRosters(db, gateway, workspaceId, null);
+  await resyncRosters(db, gateway, workspaceId, null, retireOnToolsChange(env));
 };

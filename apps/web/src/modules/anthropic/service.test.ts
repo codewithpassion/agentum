@@ -100,7 +100,7 @@ const fakeGateway = (
     syncAgent: (input) => {
       onSync?.();
       calls.synced.push(input);
-      return Promise.resolve();
+      return Promise.resolve({ toolsChanged: false });
     },
     syncAgentSkills: (input) => {
       calls.skillsOnly.push(input);
@@ -268,6 +268,42 @@ describe("resyncAgentConnectors", () => {
     const agent = await getAgentById(db, DEFAULT_WORKSPACE_ID, agentId);
     expect(agent?.syncStatus).toBe("error");
     expect(agent?.syncError).toContain("1 connector could not be attached");
+  });
+});
+
+describe("syncAgentToAnthropic and the session", () => {
+  test("a sync that changed the tools tells the caller to retire the session", async () => {
+    const agentId = await registeredAgent();
+    const { gateway } = fakeGateway();
+    const changed = {
+      ...gateway,
+      syncAgent: () => Promise.resolve({ toolsChanged: true }),
+    };
+    const retired: string[] = [];
+
+    await syncAgentToAnthropic(db, changed, agentId, {
+      onToolsChanged: (agent) => {
+        retired.push(agent.id);
+        return Promise.resolve();
+      },
+    });
+
+    expect(retired).toEqual([agentId]);
+  });
+
+  test("a sync that changed nothing leaves the session alone", async () => {
+    const agentId = await registeredAgent();
+    const { gateway } = fakeGateway();
+    const retired: string[] = [];
+
+    await syncAgentToAnthropic(db, gateway, agentId, {
+      onToolsChanged: (agent) => {
+        retired.push(agent.id);
+        return Promise.resolve();
+      },
+    });
+
+    expect(retired).toEqual([]);
   });
 });
 

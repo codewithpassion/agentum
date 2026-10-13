@@ -132,9 +132,17 @@ describe("ensureEnvironment", () => {
 
 describe("syncAgent", () => {
   const updates: Record<string, unknown>[] = [];
+  let registeredTools: unknown[] = [];
   const gateway = createAnthropicGateway(
     client({
       agents: {
+        retrieve: () =>
+          Promise.resolve({
+            mcp_servers: [
+              { name: "agentum", type: "url", url: "https://x/mcp/tok" },
+            ],
+            tools: registeredTools,
+          }),
         update: (_id: string, body: Record<string, unknown>) => {
           updates.push(body);
           return Promise.resolve({});
@@ -170,6 +178,148 @@ describe("syncAgent", () => {
         url: "https://a.example.com/mcp",
       },
     ]);
+  });
+
+  test("turns the built-in shell and file tools off for a computer agent", async () => {
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      computerOnly: true,
+      mcpUrl: "https://app.example.com/mcp/tok",
+      model: AGENT_MODEL,
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    const allow = { type: "always_allow" };
+    expect((lastUpdate().tools as unknown[])[0]).toEqual({
+      configs: [
+        { enabled: true, name: "web_fetch", permission_policy: allow },
+        { enabled: true, name: "web_search", permission_policy: allow },
+      ],
+      default_config: { enabled: false, permission_policy: allow },
+      type: "agent_toolset_20260401",
+    });
+  });
+
+  test("a computer agent resynced without a url keeps its registered servers", async () => {
+    const retrieving = createAnthropicGateway(
+      client({
+        agents: {
+          retrieve: () =>
+            Promise.resolve({
+              mcp_servers: [
+                { name: "agentum", type: "url", url: "https://x/mcp/tok" },
+                { name: "connector_aaaa", type: "url", url: "https://a/mcp" },
+              ],
+            }),
+          update: (_id: string, body: Record<string, unknown>) => {
+            updates.push(body);
+            return Promise.resolve({});
+          },
+        },
+      }),
+      {
+        cache: memoryCache(),
+        environmentName: "agentum",
+        workerCache: workerCache(),
+      }
+    );
+    await retrieving.syncAgent({
+      anthropicAgentId: "agt_1",
+      computerOnly: true,
+      model: AGENT_MODEL,
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    const tools = lastUpdate().tools as { mcp_server_name?: string }[];
+    expect(tools.map((tool) => tool.mcp_server_name)).toEqual([
+      undefined,
+      "agentum",
+      "connector_aaaa",
+    ]);
+    expect(lastUpdate()).not.toHaveProperty("mcp_servers");
+  });
+
+  test("declares desktop_screenshot as a custom tool for a desktop computer", async () => {
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      computerOnly: true,
+      desktop: true,
+      mcpUrl: "https://app.example.com/mcp/tok",
+      model: AGENT_MODEL,
+      name: "Ada",
+      system: "be helpful",
+    });
+
+    expect((lastUpdate().tools as unknown[]).at(-1)).toEqual({
+      description: expect.stringContaining("1280x800"),
+      input_schema: { properties: {}, type: "object" },
+      name: "desktop_screenshot",
+      type: "custom",
+    });
+  });
+
+  test("declares no custom tool without a desktop, nor without a computer", async () => {
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      computerOnly: true,
+      desktop: false,
+      mcpUrl: "https://app.example.com/mcp/tok",
+      model: AGENT_MODEL,
+      name: "Ada",
+      system: "be helpful",
+    });
+    const names = (tools: unknown) =>
+      (tools as { name?: string; type: string }[]).filter(
+        (tool) => tool.type === "custom"
+      );
+    expect(names(lastUpdate().tools)).toEqual([]);
+
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      desktop: true,
+      mcpUrl: "https://app.example.com/mcp/tok",
+      model: AGENT_MODEL,
+      name: "Ada",
+      system: "be helpful",
+    });
+    expect(names(lastUpdate().tools)).toEqual([]);
+  });
+
+  test("reports a tool change only when the effective tools differ", async () => {
+    const input = {
+      anthropicAgentId: "agt_1",
+      computerOnly: true,
+      desktop: true,
+      model: AGENT_MODEL,
+      name: "Ada",
+      system: "be helpful",
+    };
+    registeredTools = [];
+    expect(await gateway.syncAgent(input)).toEqual({ toolsChanged: true });
+
+    // What the API hands back for what we just sent: same switches, defaults
+    // filled in differently.
+    registeredTools = [
+      {
+        configs: [
+          { enabled: true, name: "web_fetch" },
+          { enabled: true, name: "web_search" },
+          { enabled: false, name: "bash" },
+        ],
+        default_config: { enabled: false },
+        type: "agent_toolset_20260401",
+      },
+      { mcp_server_name: "agentum", type: "mcp_toolset" },
+      { name: "desktop_screenshot", type: "custom" },
+    ];
+    expect(await gateway.syncAgent(input)).toEqual({ toolsChanged: false });
+
+    // The desktop went away: the custom tool must go with it.
+    expect(await gateway.syncAgent({ ...input, desktop: false })).toEqual({
+      toolsChanged: true,
+    });
   });
 
   test("gives every declared server a matching always-allow toolset", async () => {
@@ -632,33 +782,112 @@ describe("sendMessage", () => {
       },
     ]);
   });
+});
 
-  test("appends each image as a url image block after the text", async () => {
-    const sent: unknown[] = [];
-    await gatewayFor(sent).sendMessage("sesn_1", "Screenshot", [
-      { url: "https://app.example.com/api/agent-images?key=k" },
+describe("custom tool events", () => {
+  const sessionClient = (events: unknown[]) => {
+    const sent: { events: unknown[]; id: string }[] = [];
+    const gateway = createAnthropicGateway(
+      client({
+        sessions: {
+          events: {
+            list: () => iterate(events),
+            send: (id: string, body: { events: unknown[] }) => {
+              sent.push({ events: body.events, id });
+              return Promise.resolve({});
+            },
+          },
+        },
+      }),
+      {
+        cache: memoryCache(),
+        environmentName: "agentum",
+        workerCache: workerCache(),
+      }
+    );
+    return { gateway, sent };
+  };
+
+  test("maps a custom tool call and the requires_action idle that waits on it", async () => {
+    const { gateway } = sessionClient([
+      {
+        id: "evt_use",
+        input: {},
+        name: "desktop_screenshot",
+        processed_at: "2026-10-13T10:00:00Z",
+        type: "agent.custom_tool_use",
+      },
+      {
+        id: "evt_idle",
+        processed_at: "2026-10-13T10:00:01Z",
+        stop_reason: { event_ids: ["evt_use"], type: "requires_action" },
+        type: "session.status_idle",
+      },
     ]);
+
+    const { events } = await gateway.pollEvents("sesn_1", undefined);
+
+    expect(events[0]).toMatchObject({
+      customToolName: "desktop_screenshot",
+      id: "evt_use",
+      type: "agent.custom_tool_use",
+    });
+    expect(events[1]).toMatchObject({
+      requiredEventIds: ["evt_use"],
+      stopReason: "requires_action",
+    });
+  });
+
+  test("answers with text and a base64 image block", async () => {
+    const { gateway, sent } = sessionClient([]);
+
+    await gateway.sendCustomToolResult?.("sesn_1", {
+      image: { base64: "AAAA", mediaType: "image/jpeg" },
+      isError: false,
+      text: "Screenshot",
+      toolUseId: "evt_use",
+    });
 
     expect(sent).toEqual([
       {
-        params: {
-          events: [
-            {
-              content: [
-                { text: "Screenshot", type: "text" },
-                {
-                  source: {
-                    type: "url",
-                    url: "https://app.example.com/api/agent-images?key=k",
-                  },
-                  type: "image",
+        events: [
+          {
+            content: [
+              { text: "Screenshot", type: "text" },
+              {
+                source: {
+                  data: "AAAA",
+                  media_type: "image/jpeg",
+                  type: "base64",
                 },
-              ],
-              type: "user.message",
-            },
-          ],
-        },
-        sessionId: "sesn_1",
+                type: "image",
+              },
+            ],
+            custom_tool_use_id: "evt_use",
+            is_error: false,
+            type: "user.custom_tool_result",
+          },
+        ],
+        id: "sesn_1",
+      },
+    ]);
+  });
+
+  test("an error answer carries only text and the error flag", async () => {
+    const { gateway, sent } = sessionClient([]);
+
+    await gateway.sendCustomToolResult?.("sesn_1", {
+      isError: true,
+      text: "desktop is down",
+      toolUseId: "evt_use",
+    });
+
+    expect(sent[0]?.events).toEqual([
+      {
+        content: [{ text: "desktop is down", type: "text" }],
+        custom_tool_use_id: "evt_use",
+        is_error: true,
+        type: "user.custom_tool_result",
       },
     ]);
   });

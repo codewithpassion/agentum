@@ -11,6 +11,7 @@ import {
 } from "#/modules/agents/service";
 import { AGENT_MODEL, isAvailableModel } from "#/modules/anthropic/config";
 import {
+  type CustomToolCall,
   isAbnormalStop,
   isSessionReusable,
   reduceEvents,
@@ -55,6 +56,7 @@ import {
   PUMP_INTERVAL_MS,
   SESSION_IDLE_TTL_MS,
 } from "./config";
+import { answerCustomTools, runCustomTool } from "./custom-tools";
 import {
   type ChannelGuard,
   checkWakeRate,
@@ -63,6 +65,7 @@ import {
 } from "./loop-guard";
 import { freeSlots, planWakes } from "./plan";
 import {
+  CUSTOM_TOOL_KEY_PREFIX,
   DIGEST_KEY,
   GUARD_KEY,
   NEXT_DIGEST_KEY,
@@ -256,54 +259,6 @@ export class AgentRouter extends DurableObject<Env> {
     });
     await this.write(PENDING_KEY, pending);
     await this.ctx.storage.setAlarm(Date.now());
-  }
-
-  /**
-   * Sends an image into the agent's running Managed Agents session, as a
-   * `user.message` with a caption. Called by tools that take pictures
-   * (`modules/agent-images`). It never starts a session and never touches the
-   * stored one: with nothing running there is nobody to show it to, and the
-   * answer says so instead of throwing.
-   */
-  async deliverImage(input: {
-    agentId: string;
-    caption: string;
-    imageUrl: string;
-  }): Promise<{ sent: true } | { reason: string; sent: false }> {
-    const session = await this.read<StoredSession>(SESSION_KEY(input.agentId));
-    if (session?.status !== "running" || session.runtime === "cloudflare") {
-      return { reason: "The agent has no running session.", sent: false };
-    }
-    const gateway = await this.gateway();
-    if (!gateway) {
-      return { reason: "The Anthropic integration is off.", sent: false };
-    }
-    try {
-      await gateway.sendMessage(session.sessionId, input.caption, [
-        { url: input.imageUrl },
-      ]);
-    } catch (error) {
-      return {
-        reason: error instanceof Error ? error.message : String(error),
-        sent: false,
-      };
-    }
-    // Bookkeeping as for any send: if Anthropic runs this as a new turn after
-    // the current one ends, the session must read as running so the pump keeps
-    // polling it and the idle TTL does not retire it. (Replies reach channels
-    // through the agent's own MCP calls, not through the pump.)
-    await this.write(SESSION_KEY(input.agentId), {
-      ...session,
-      lastActivityAt: Date.now(),
-      status: "running",
-    } satisfies StoredSession);
-    await this.setStatus(
-      input.agentId,
-      "working",
-      session.channelId,
-      session.sessionId
-    );
-    return { sent: true };
   }
 
   // --- alarm -----------------------------------------------------------------
@@ -1048,6 +1003,8 @@ export class AgentRouter extends DurableObject<Env> {
     let status: SessionStatus;
     let stopReason: string | null;
     let errors: string[];
+    let customToolCalls: CustomToolCall[];
+    let requiredEventIds: string[];
 
     try {
       const page = await gateway.pollEvents(
@@ -1056,10 +1013,8 @@ export class AgentRouter extends DurableObject<Env> {
           ? { lastEventId: session.cursorId, lastProcessedAt: session.cursorAt }
           : undefined
       );
-      ({ errors, status, stopReason } = reduceEvents(
-        page.events,
-        session.status
-      ));
+      ({ customToolCalls, errors, requiredEventIds, status, stopReason } =
+        reduceEvents(page.events, session.status));
       const { cursor } = page;
       await this.write(key, {
         ...session,
@@ -1072,11 +1027,6 @@ export class AgentRouter extends DurableObject<Env> {
       // Poll failures are transient far more often than not: the next tick
       // retries, and the idle TTL is the backstop.
       return;
-    }
-
-    if (status !== "running") {
-      // The turn is over, so the agent gives up any desktop it held.
-      await this.releaseDesktopLease(agentId);
     }
 
     if (errors.length > 0) {
@@ -1098,6 +1048,27 @@ export class AgentRouter extends DurableObject<Env> {
       await this.reportSessionDeath(agentId, session, stopReason ?? "");
       await this.setStatus(agentId, "error", session.channelId, null);
       return;
+    }
+
+    if (
+      (customToolCalls.length > 0 || requiredEventIds.length > 0) &&
+      (await this.answerCustomTools(
+        gateway,
+        key,
+        agentId,
+        session,
+        customToolCalls,
+        requiredEventIds,
+        now
+      ))
+    ) {
+      return;
+    }
+
+    if (status !== "running") {
+      // The turn is over, so the agent gives up any desktop it held. A
+      // requires_action idle returned above: the turn is not over yet.
+      await this.releaseDesktopLease(agentId);
     }
 
     if (errors.length > 0) {
@@ -1127,6 +1098,64 @@ export class AgentRouter extends DurableObject<Env> {
     await this.setStatus(agentId, "idle", session.channelId, session.sessionId);
   }
 
+  /**
+   * Answers the client-run tool calls a session is blocked on, then marks it
+   * running again so the pump keeps polling it. True when it handled the page
+   * (answered something, or retired a session it could not answer).
+   */
+  private async answerCustomTools(
+    gateway: SessionGateway,
+    key: string,
+    agentId: string,
+    session: StoredSession,
+    calls: CustomToolCall[],
+    blockedOn: string[],
+    now: number
+  ): Promise<boolean> {
+    const { sendCustomToolResult } = gateway;
+    if (!sendCustomToolResult) {
+      return false;
+    }
+    let answered: number;
+    try {
+      const agent = await this.agentOf(agentId);
+      answered = await answerCustomTools(
+        {
+          run: (name) => runCustomTool(this.db, this.env, agent, name),
+          send: (result) =>
+            sendCustomToolResult.call(gateway, session.sessionId, result),
+          sessionId: session.sessionId,
+          storage: this.ctx.storage,
+        },
+        calls,
+        blockedOn
+      );
+    } catch {
+      // The session is blocked on a call that cannot be answered, so it would
+      // never resume. A fresh one on the next message does.
+      await this.ctx.storage.delete(key);
+      await this.setStatus(agentId, "error", session.channelId, null);
+      return true;
+    }
+    if (answered === 0) {
+      return false;
+    }
+    // The pump just stored this page's cursor; keep it, change only the status.
+    const current = (await this.read<StoredSession>(key)) ?? session;
+    await this.write(key, {
+      ...current,
+      lastActivityAt: now,
+      status: "running",
+    } satisfies StoredSession);
+    await this.setStatus(
+      agentId,
+      "working",
+      session.channelId,
+      session.sessionId
+    );
+    return true;
+  }
+
   // --- helpers ---------------------------------------------------------------
 
   /**
@@ -1145,6 +1174,25 @@ export class AgentRouter extends DurableObject<Env> {
     } catch {
       // The idle expiry is the backstop; the pump must not die on a lease.
     }
+  }
+
+  /**
+   * Drops an agent's session so its next message starts a new one on the
+   * agent's current configuration (a session keeps the tools it began with).
+   * The same bookkeeping the idle TTL does; nothing is deleted at Anthropic.
+   */
+  async retireSession(agentId: string): Promise<{ retired: boolean }> {
+    const session = await this.read<StoredSession>(SESSION_KEY(agentId));
+    if (!session) {
+      return { retired: false };
+    }
+    await this.ctx.storage.delete(SESSION_KEY(agentId));
+    const calls = await this.ctx.storage.list({
+      prefix: CUSTOM_TOOL_KEY_PREFIX(session.sessionId),
+    });
+    await this.ctx.storage.delete([...calls.keys()]);
+    await this.setStatus(agentId, "idle", session.channelId, null);
+    return { retired: true };
   }
 
   private async countActiveSessions(): Promise<number> {

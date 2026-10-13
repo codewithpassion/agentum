@@ -1,0 +1,7 @@
+#!/bin/sh
+# Started by openbox once it is up. Each program runs in the background, so this script returns
+# and openbox keeps going. A plain colour keeps the screenshot visibly non-black; the panel and
+# one terminal make the desktop usable without any agent action.
+xsetroot -solid '#2b3a4a'
+tint2 &
+xterm &

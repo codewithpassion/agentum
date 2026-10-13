@@ -218,7 +218,7 @@ export const createBrowserClient = (
         kind: "browser.screenshot",
         summary: summarizeScreenshot({ url: snapshot.url }),
       });
-      return { ok: true, screenshot: stored };
+      return { bytes: outcome.bytes, ok: true, screenshot: stored };
     },
 
     async snapshot() {
