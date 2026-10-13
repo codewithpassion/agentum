@@ -29,6 +29,8 @@ RUN apt-get update \
     openbox \
     procps \
     tini \
+    tint2 \
+    x11-xserver-utils \
     xclip \
     xdotool \
     xterm \
@@ -42,6 +44,10 @@ RUN cat /tmp/xterm-resources >> /etc/X11/app-defaults/XTerm && rm /tmp/xterm-res
 COPY packaging/desktop/chromium-policy.json /etc/chromium/policies/managed/agentum.json
 # /usr/local/bin is ahead of /usr/bin on PATH, so `chromium` is always the pinned wrapper.
 COPY --chmod=0755 packaging/desktop/chromium /usr/local/bin/chromium
+# The daemon starts `openbox` with no flags; this wrapper adds the startup script that draws the
+# background, panel and first terminal. It sits ahead of /usr/bin on PATH, as chromium does.
+COPY --chmod=0755 packaging/desktop/openbox /usr/local/bin/openbox
+COPY --chmod=0755 packaging/desktop/desktop-session /usr/local/bin/agentum-desktop-session
 COPY --from=build /out/agentum-computer /usr/local/bin/agentum-computer
 
 RUN useradd --create-home --uid 1000 agentum \

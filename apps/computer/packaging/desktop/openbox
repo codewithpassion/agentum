@@ -1,0 +1,4 @@
+#!/bin/sh
+# The daemon starts plain `openbox`, which runs no autostart. This wrapper, first on PATH, adds
+# --startup so the desktop session script runs once the window manager is up. Nothing else changes.
+exec /usr/bin/openbox --startup /usr/local/bin/agentum-desktop-session "$@"
