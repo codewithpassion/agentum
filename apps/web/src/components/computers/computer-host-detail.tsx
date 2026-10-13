@@ -6,6 +6,7 @@ import type { Agent, ComputerHost } from "#/lib/api";
 import {
   COMPUTER_HOST_KIND_LABELS,
   COMPUTER_IMAGE,
+  computerResourceName,
   hostRemovalBlock,
 } from "#/lib/computer-hosts";
 import { formatDay } from "#/lib/format";
@@ -251,8 +252,9 @@ export function ComputerHostDetail({
             <Notice tone="muted">
               The old credential no longer works and the container is
               disconnected. Remove it and its volume (
-              <code>docker rm -f agentum-computer</code>,{" "}
-              <code>docker volume rm agentum-computer</code>), then run:
+              <code>docker rm -f {computerResourceName("base", host)}</code>,{" "}
+              <code>docker volume rm {computerResourceName("base", host)}</code>
+              ), then run:
             </Notice>
             <ComputerTokenPanel code={enrollCode} host={host} />
           </Section>

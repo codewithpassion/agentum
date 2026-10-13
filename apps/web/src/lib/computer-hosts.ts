@@ -39,7 +39,7 @@ export const computerHostSlug = (
  * The container, volume and hostname a host's command uses. Each host gets its
  * own, so several can run on one machine.
  */
-const computerResourceName = (
+export const computerResourceName = (
   variant: ComputerImageVariant,
   host: Pick<ComputerHost, "id" | "name">
 ): string => `agentum-${variant}-${computerHostSlug(host)}`;
