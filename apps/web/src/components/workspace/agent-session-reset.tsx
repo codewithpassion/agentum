@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { sessionEndLabel, sessionResetMessage } from "#/lib/agent-session";
+import {
+  showSessionNotice,
+  useSessionNotice,
+} from "#/lib/agent-session-notice";
 import type { AgentSessionView } from "#/lib/api";
 import { formatDay, formatTime } from "#/lib/format";
 import { useActiveWorkspace } from "#/lib/workspace-context";
@@ -55,9 +59,17 @@ export function NewSessionControl({ agentId }: { agentId: string }) {
   const isOwner = membership?.role === "owner";
   const [confirming, setConfirming] = useState(false);
   const [resuming, setResuming] = useState<AgentSessionView | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [sessions, setSessions] = useState<AgentSessionView[]>([]);
   const [version, setVersion] = useState(0);
+  const notice = useSessionNotice(agentId);
+  const noticeRef = useRef<HTMLDivElement | null>(null);
+
+  // The notice may sit below the fold of the rail; bring it into view.
+  useEffect(() => {
+    if (notice) {
+      noticeRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [notice]);
 
   useEffect(() => {
     if (!isOwner) {
@@ -81,7 +93,7 @@ export function NewSessionControl({ agentId }: { agentId: string }) {
   // A failure throws out of here, and the dialog shows it.
   const startNewSession = useCallback(async () => {
     const result = await api.resetAgentSession(agentId);
-    setNotice(sessionResetMessage(result.retired));
+    showSessionNotice(agentId, sessionResetMessage(result.retired));
     setConfirming(false);
     setVersion((current) => current + 1);
   }, [agentId, api]);
@@ -91,7 +103,7 @@ export function NewSessionControl({ agentId }: { agentId: string }) {
       return;
     }
     await api.resumeAgentSession(agentId, resuming.id);
-    setNotice("Resumed. The agent continues in that session.");
+    showSessionNotice(agentId, "Resumed. The agent continues in that session.");
     setResuming(null);
     setVersion((current) => current + 1);
   }, [agentId, api, resuming]);
@@ -104,10 +116,14 @@ export function NewSessionControl({ agentId }: { agentId: string }) {
 
   return (
     <div className="flex flex-col items-start gap-1">
+      {notice ? (
+        <div className="w-full" ref={noticeRef}>
+          <ResetNotice message={notice} />
+        </div>
+      ) : null}
       <Button onClick={openConfirm} size="sm" variant="subtle">
         New session
       </Button>
-      {notice ? <ResetNotice message={notice} /> : null}
       {past.length > 0 ? (
         <div className="mt-2 flex w-full flex-col gap-1">
           <p className="m-0 font-medium text-xs">Past sessions</p>
