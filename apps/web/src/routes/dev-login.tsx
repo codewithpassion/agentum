@@ -7,6 +7,7 @@ import { useUser } from "@clerk/tanstack-react-start";
 import { useSignIn } from "@clerk/tanstack-react-start/legacy";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { PublicShell } from "#/modules/landing";
 
 export const Route = createFileRoute("/dev-login")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -58,17 +59,13 @@ function DevLogin() {
     })();
   }, [isLoaded, setActive, signIn, token, user]);
 
-  if (error) {
-    return (
-      <main className="demo-page demo-center">
-        <p className="demo-muted text-sm">{error}</p>
-      </main>
-    );
-  }
-
   return (
-    <main className="demo-page demo-center">
-      <p className="demo-muted text-sm">Signing in…</p>
-    </main>
+    <PublicShell homeHref="/" links={[]}>
+      <main className="df-auth">
+        <p className="df-body" role="status">
+          {error ?? "Signing in…"}
+        </p>
+      </main>
+    </PublicShell>
   );
 }
