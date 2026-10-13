@@ -240,6 +240,36 @@ describe("POST /channels/:id/clear", () => {
     expect(await dividersIn(roomChannelId)).toEqual([]);
   });
 
+  test("one agent failing does not stop the others, and each reports", async () => {
+    const original = env.AGENT_ROUTER.get;
+    (env.AGENT_ROUTER as { get: unknown }).get = (...args: never[]) => {
+      const stub = (original as (...a: never[]) => Record<string, unknown>)(
+        ...args
+      );
+      return {
+        ...stub,
+        retireSession: (agentId: string) =>
+          agentId === ada.id
+            ? Promise.reject(new Error("router down"))
+            : (stub.retireSession as (id: string) => Promise<unknown>)(agentId),
+      };
+    };
+
+    const response = await clear(roomChannelId, {});
+    const body = (await response.json()) as {
+      reset: { agentId: string; error?: string }[];
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.reset.find((r) => r.agentId === ada.id)?.error).toBe(
+      "router down"
+    );
+    expect(
+      body.reset.find((r) => r.agentId === grace.id)?.error
+    ).toBeUndefined();
+    expect(retired).toEqual([grace.id]);
+  });
+
   test("refuses a member who is not an owner", async () => {
     const response = await clear(roomChannelId, {}, BOB_ID);
 

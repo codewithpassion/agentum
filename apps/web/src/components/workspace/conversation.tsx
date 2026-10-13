@@ -156,7 +156,16 @@ export function ConversationPane({
         }
         agentIds = [agent.id];
       }
-      await api.clearChannel(channelId, { agentIds });
+      const outcomes = await api.clearChannel(channelId, { agentIds });
+      const failed = outcomes.filter((outcome) => outcome.error);
+      if (failed.length > 0) {
+        const done = outcomes.length - failed.length;
+        throw new Error(
+          `New session started for ${done} of ${outcomes.length} agents. Failed: ${failed
+            .map((o) => `${o.name || o.agentId} (${o.error})`)
+            .join(", ")}.`
+        );
+      }
     },
     [agents, api, channelId, isOwner, members]
   );

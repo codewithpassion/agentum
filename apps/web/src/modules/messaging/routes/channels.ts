@@ -327,16 +327,32 @@ channelsRoutes.post("/:id/clear", requireOwner, async (c) => {
     throw badRequest("There is no agent in this channel to start fresh.");
   }
 
-  const found = await Promise.all(
-    targetIds.map((id) => getAgentById(db, workspace.id, id))
-  );
-  const agents = found.filter((agent) => agent !== undefined);
+  // One agent failing must not abandon the others, so each reports its own.
   const reset = await Promise.all(
-    agents.map(async (agent) => ({
-      agentId: agent.id,
-      name: agent.name,
-      ...(await resetAgentSession(db, c.env, workspace, agent, { channelId })),
-    }))
+    targetIds.map(async (id) => {
+      const agent = await getAgentById(db, workspace.id, id);
+      if (!agent) {
+        return {
+          agentId: id,
+          error: "This agent no longer exists.",
+          name: "",
+          retired: false,
+        };
+      }
+      try {
+        const result = await resetAgentSession(db, c.env, workspace, agent, {
+          channelId,
+        });
+        return { agentId: id, name: agent.name, ...result };
+      } catch (error) {
+        return {
+          agentId: id,
+          error: error instanceof Error ? error.message : "Reset failed.",
+          name: agent.name,
+          retired: false,
+        };
+      }
+    })
   );
   return c.json({ reset });
 });

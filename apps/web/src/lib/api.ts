@@ -685,10 +685,16 @@ export const createApi = (workspaceSlug: string) => {
 
   /** Owner-only. Starts a new session for the channel's agents (or those named). */
   const clearChannel = (channelId: string, input: { agentIds?: string[] }) =>
-    request<{ reset: { agentId: string; name: string; retired: boolean }[] }>(
-      `/channels/${channelId}/clear`,
-      { json: input, method: "POST" }
-    ).then((data) => data.reset);
+    request<{
+      reset: {
+        agentId: string;
+        error?: string;
+        name: string;
+        retired: boolean;
+      }[];
+    }>(`/channels/${channelId}/clear`, { json: input, method: "POST" }).then(
+      (data) => data.reset
+    );
 
   const addChannelMember = (
     channelId: string,
