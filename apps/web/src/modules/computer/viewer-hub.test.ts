@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { ComputerPrincipal, RelayOutcome, RelayStatus } from "./relay";
 import {
   DesktopViewers,
+  FRAME_INTERVAL_MS,
+  IDLE_INTERVAL_MS,
   MAX_UNACKED_FRAMES,
   RETRY_AFTER_FAILURE_MS,
 } from "./viewer-hub";
@@ -76,6 +78,8 @@ let now: number;
 let sleeps: (() => void)[] = [];
 let hub: DesktopViewers;
 
+let held: FakeViewer[] = [];
+
 const makeHub = () =>
   new DesktopViewers(
     {
@@ -100,6 +104,7 @@ const makeHub = () =>
           version: "1",
           workdir: "/w",
         }),
+      viewerSockets: () => held.map(asSocket),
     },
     {
       clock: () => now,
@@ -119,6 +124,7 @@ beforeEach(async () => {
     wake();
   }
   await flush();
+  held = [];
   hub = makeHub();
   control = null;
   screenshot = ok(jpegResult([1, 2, 3]));
@@ -381,5 +387,62 @@ describe("viewer input", () => {
     });
     hub.close(asSocket(mine));
     hub.close(asSocket(theirs));
+  });
+});
+
+describe("viewer pump recovery and pacing", () => {
+  test("a viewer this object forgot is taken back by the next status change", async () => {
+    const forgotten = viewerFor("u1");
+    held = [forgotten];
+    expect(hub.viewerCount).toBe(0);
+
+    hub.statusChanged();
+    await flush();
+
+    expect(hub.viewerCount).toBe(1);
+    expect(texts(forgotten)[0]).toMatchObject({ t: "status" });
+    expect(binaries(forgotten).length).toBeGreaterThan(0);
+    hub.close(asSocket(forgotten));
+  });
+
+  test("an unchanged screen backs the pump off, and a change or input brings it back", async () => {
+    const viewer = viewerFor("u1");
+    hub.open(asSocket(viewer));
+    await flush();
+    const ack = () =>
+      hub.message(
+        asSocket(viewer),
+        JSON.stringify({ id: frameId(binaries(viewer).at(-1)), t: "ack" })
+      );
+    ack();
+    await hub.tick();
+    const idle = captures().length;
+
+    now += FRAME_INTERVAL_MS;
+    await hub.tick();
+    expect(captures()).toHaveLength(idle);
+
+    now += IDLE_INTERVAL_MS;
+    screenshot = ok(jpegResult([42]));
+    await hub.tick();
+    expect(captures()).toHaveLength(idle + 1);
+    ack();
+
+    now += FRAME_INTERVAL_MS;
+    await hub.tick();
+    expect(captures()).toHaveLength(idle + 2);
+
+    await hub.tick();
+    now += FRAME_INTERVAL_MS;
+    hub.message(
+      asSocket(viewer),
+      JSON.stringify({
+        actions: [{ keys: "Return", type: "key" }],
+        t: "input",
+      })
+    );
+    await hub.tick();
+    expect(captures().length).toBeGreaterThan(idle + 2);
+    hub.close(asSocket(viewer));
   });
 });

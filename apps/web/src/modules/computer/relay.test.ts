@@ -70,6 +70,8 @@ const createTestD1 = (): D1Database => {
   } as unknown as D1Database;
 };
 
+const alarms: number[] = [];
+
 /** The in-memory stand-in for `ctx.storage`. */
 const storage = () => {
   const values = new Map<string, unknown>();
@@ -83,7 +85,10 @@ const storage = () => {
       values.set(key, value);
       return Promise.resolve();
     },
-    setAlarm: () => Promise.resolve(),
+    setAlarm: (at: number) => {
+      alarms.push(at);
+      return Promise.resolve();
+    },
   };
 };
 
@@ -1111,5 +1116,55 @@ describe("ComputerRelay viewers", () => {
       expect.objectContaining({ code: "lease_required", t: "error" })
     );
     expect(frames(daemon).some((f) => f.op === "desktop_input")).toBe(false);
+  });
+});
+
+describe("ComputerRelay viewers after the object is forgotten", () => {
+  test("a new daemon connection takes back viewers a woken object does not know", async () => {
+    const relay = relayFor(await seedHost("office"));
+    const viewer = await relay.connectViewer("user-1");
+    await flush();
+    const woken = relay.wake();
+    const before = viewer.sent.length;
+    Object.assign(globalThis, {
+      WebSocketPair: class {
+        0 = {};
+        1 = {
+          deserializeAttachment: () => null,
+          serializeAttachment: () => undefined,
+        };
+      },
+      WebSocketRequestResponsePair: class {},
+    });
+
+    await woken.fetch(
+      new Request("https://relay/hosts/x", {
+        headers: { Upgrade: "websocket" },
+      })
+    );
+    await flush();
+
+    expect(viewer.sent.length).toBeGreaterThan(before);
+  });
+
+  test("the alarm stays armed while a viewer is connected and the daemon is not", async () => {
+    const relay = relayFor(await seedHost("office"));
+    await relay.connectViewer("user-1");
+    alarms.length = 0;
+
+    await relay.instance.alarm();
+
+    expect(alarms).toHaveLength(1);
+  });
+
+  test("revoking closes the viewers as well as the daemon", async () => {
+    const relay = relayFor(await seedHost("office"));
+    const daemon = await relay.connect();
+    const viewer = await relay.connectViewer("user-1");
+
+    relay.instance.revoke();
+
+    expect(daemon.closed?.code).toBe(4401);
+    expect(viewer.closed?.code).toBe(4401);
   });
 });

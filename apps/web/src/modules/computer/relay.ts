@@ -405,6 +405,7 @@ export class ComputerRelay extends DurableObject<Env> {
   private readonly viewers = new DesktopViewers({
     request: (message, principal) => this.request(message, principal),
     status: () => this.status(),
+    viewerSockets: () => this.viewerSockets(),
   });
   /** The tail of the exec queue: one command in flight per host, as in the DO backend. */
   private execQueue: Promise<unknown> = Promise.resolve();
@@ -514,7 +515,15 @@ export class ComputerRelay extends DurableObject<Env> {
     this.ctx.acceptWebSocket(pair[1], [VIEWER_TAG]);
     pair[1].serializeAttachment({ kind: "viewer", userId });
     this.viewers.open(pair[1]);
+    // Viewers wake this object every minute, daemon or not, so none is left without a pump.
+    this.ctx.waitUntil(this.armAlarm(this.currentSocket() !== undefined));
     return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+
+  private viewerSockets(): WebSocket[] {
+    return this.ctx
+      .getWebSockets()
+      .filter((socket) => isViewerAttachment(socket.deserializeAttachment()));
   }
 
   /** Every socket the daemon may be on: all but the viewers'. */
@@ -582,11 +591,7 @@ export class ComputerRelay extends DurableObject<Env> {
   override async alarm(): Promise<void> {
     await this.load();
     // Viewers that survived a hibernation have no pump until something reminds this object of them.
-    this.viewers.adoptAll(
-      this.ctx
-        .getWebSockets()
-        .filter((socket) => isViewerAttachment(socket.deserializeAttachment()))
-    );
+    this.viewers.adoptAll(this.viewerSockets());
     this.currentLease(Date.now());
     if (this.currentSocket() === undefined) {
       await this.armAlarm(false);
@@ -732,7 +737,8 @@ export class ComputerRelay extends DurableObject<Env> {
    * what is in flight. Called when the host's credential is revoked.
    */
   revoke(): void {
-    for (const socket of this.daemonSockets()) {
+    // Viewers go too: there is no desktop left for them to watch.
+    for (const socket of this.ctx.getWebSockets()) {
       try {
         socket.close(CLOSE_REVOKED, REVOKED_MESSAGE);
       } catch {
@@ -977,7 +983,7 @@ export class ComputerRelay extends DurableObject<Env> {
   private async armAlarm(connected: boolean): Promise<void> {
     const now = Date.now();
     const wakes: number[] = [];
-    if (connected) {
+    if (connected || this.viewerSockets().length > 0) {
       wakes.push(now + LAST_SEEN_ALARM_MS);
     }
     if (this.lease?.kind === "held") {

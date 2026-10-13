@@ -39,6 +39,8 @@ export const FRAME_INTERVAL_MS = 60;
 const MAX_CAPTURES_IN_FLIGHT = 2;
 /** How long to leave a failing desktop alone before asking again. */
 export const RETRY_AFTER_FAILURE_MS = 1500;
+/** The pump's pace while the screen is not changing; a change or input brings back FRAME_INTERVAL_MS. */
+export const IDLE_INTERVAL_MS = 250;
 const FRAME_HEADER_BYTES = 4;
 const HASH_ALGORITHM = "SHA-256";
 
@@ -90,6 +92,8 @@ export interface ViewerHost {
     principal: ComputerPrincipal
   ) => Promise<RelayOutcome>;
   status: () => Promise<RelayStatus>;
+  /** Every viewer socket the runtime still holds, including ones this object forgot. */
+  viewerSockets: () => WebSocket[];
 }
 
 interface Viewer {
@@ -183,6 +187,7 @@ export class DesktopViewers {
       viewer.unacked = viewer.unacked.filter((id) => id > message.id);
       return;
     }
+    this.retryAt = 0;
     viewer.inputChain = viewer.inputChain.then(() =>
       this.runInput(viewer, message.actions)
     );
@@ -190,6 +195,8 @@ export class DesktopViewers {
 
   /** Control, connection or capabilities changed: push every viewer its status and let frames resume. */
   statusChanged(): void {
+    // After a hibernation or eviction the sockets outlive this object's memory.
+    this.adoptAll(this.host.viewerSockets());
     this.retryAt = 0;
     // biome-ignore lint/suspicious/noUnnecessaryConditions: statusQueued is reset by the microtask below, which the checker cannot see
     if (this.statusQueued || this.viewers.size === 0) {
@@ -378,8 +385,13 @@ export class DesktopViewers {
       (viewer) => viewer.lastHash !== hash || viewer.problem !== null
     );
     if (changed.length === 0) {
+      // Nothing moved on screen: look less often until something does.
+      if (recipients.length > 0) {
+        this.retryAt = this.clock() + IDLE_INTERVAL_MS;
+      }
       return;
     }
+    this.retryAt = 0;
     const id = this.nextFrameId;
     this.nextFrameId += 1;
     const frame = frameMessage(id, jpeg);
