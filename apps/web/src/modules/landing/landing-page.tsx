@@ -2,7 +2,7 @@ import chatAndDesktop from "./assets/shots/chat-and-desktop.webp";
 import desktop from "./assets/shots/desktop.webp";
 import slack from "./assets/shots/slack.webp";
 import { CyberButton, CyberFrame, InfoBlock, SectionLabel } from "./df-parts";
-import { type NavLinkItem, PublicShell } from "./public-shell";
+import { type NavLinkItem, PublicShell, REPO_URL } from "./public-shell";
 
 const STEPS = [
   {
@@ -60,6 +60,7 @@ export function LandingPage({ signInHref }: LandingPageProps) {
   const links: NavLinkItem[] = [
     { href: "#how", label: "How it works", secondary: true },
     { href: "#capabilities", label: "Capabilities", secondary: true },
+    { external: true, href: REPO_URL, label: "GitHub" },
     { cta: true, href: signInHref, label: "Sign in" },
   ];
 

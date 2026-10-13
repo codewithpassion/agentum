@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 import "./landing.css";
 import { Logo } from "./df-parts";
+import { NewsletterSignup } from "./newsletter-signup";
 
 export interface NavLinkItem {
   cta?: boolean;
+  external?: boolean;
   href: string;
   label: string;
   /** Hidden below the md breakpoint, where the bar only has room for the CTA. */
@@ -12,6 +14,8 @@ export interface NavLinkItem {
 
 const cx = (...parts: (string | false | undefined)[]): string =>
   parts.filter(Boolean).join(" ");
+
+export const REPO_URL = "https://github.com/codewithpassion/agentum";
 
 export const BRAND = "Agentum";
 
@@ -39,6 +43,8 @@ export function PublicNav({
               )}
               href={link.href}
               key={link.href}
+              rel={link.external ? "noopener noreferrer" : undefined}
+              target={link.external ? "_blank" : undefined}
             >
               {link.label}
             </a>
@@ -56,7 +62,18 @@ export function PublicFooter() {
         <span>
           &copy; {new Date().getFullYear()} AGENTUM. All rights reserved.
         </span>
-        <span>Built on Claude Managed Agents</span>
+        <span>
+          <a
+            className="df-footer-link"
+            href={REPO_URL}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            GitHub →
+          </a>
+          {" · "}
+          Built on Claude Managed Agents
+        </span>
       </div>
     </footer>
   );
@@ -80,6 +97,7 @@ export function PublicShell({
       <div aria-hidden="true" className="df-grid" />
       <PublicNav homeHref={homeHref} links={links} />
       {children}
+      <NewsletterSignup />
       <PublicFooter />
     </div>
   );
