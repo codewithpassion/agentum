@@ -1,9 +1,6 @@
-import {
-  MAX_LINK_TTL_SECONDS,
-  signAttachmentLink,
-} from "#/modules/messaging/attachment-links";
+import { signAttachmentLink } from "#/modules/messaging/attachment-links";
 import { routerStub } from "#/modules/router/agent-router";
-import { AGENT_IMAGE_BASE_PATH } from "./route";
+import { AGENT_IMAGE_BASE_PATH, AGENT_IMAGE_DOMAIN } from "./route";
 
 /**
  * Hands an agent an image it can see: a `user.message` with a caption and the
@@ -27,6 +24,8 @@ export interface SendImageInput {
   workspaceId: string;
 }
 
+/** Anthropic fetches the image right after the send; no need for longer. */
+const LINK_TTL_SECONDS = 300;
 const TRAILING_SLASHES = /\/+$/;
 
 export const signedImageUrl = async (
@@ -35,8 +34,9 @@ export const signedImageUrl = async (
   r2Key: string
 ): Promise<string> => {
   const link = await signAttachmentLink(signingKey, {
+    domain: AGENT_IMAGE_DOMAIN,
     id: r2Key,
-    ttlSeconds: MAX_LINK_TTL_SECONDS,
+    ttlSeconds: LINK_TTL_SECONDS,
   });
   const query = new URLSearchParams({
     exp: String(link.expiresAt),

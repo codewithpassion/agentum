@@ -288,6 +288,21 @@ export class AgentRouter extends DurableObject<Env> {
         sent: false,
       };
     }
+    // Bookkeeping as for any send: if Anthropic runs this as a new turn after
+    // the current one ends, the session must read as running so the pump keeps
+    // polling it and the idle TTL does not retire it. (Replies reach channels
+    // through the agent's own MCP calls, not through the pump.)
+    await this.write(SESSION_KEY(input.agentId), {
+      ...session,
+      lastActivityAt: Date.now(),
+      status: "running",
+    } satisfies StoredSession);
+    await this.setStatus(
+      input.agentId,
+      "working",
+      session.channelId,
+      session.sessionId
+    );
     return { sent: true };
   }
 

@@ -767,6 +767,9 @@ describe("the Cloudflare runtime", () => {
       });
 
       expect(result).toEqual({ sent: true });
+      expect(
+        (store.values.get(SESSION_KEY(alpha.agentId)) as StoredSession).status
+      ).toBe("running");
       expect(calls.sent).toEqual([
         {
           images: [{ url: image.imageUrl }],

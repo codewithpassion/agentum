@@ -16,7 +16,15 @@ import { verifyAttachmentLink } from "#/modules/messaging/attachment-links";
 export const AGENT_IMAGE_BASE_PATH = "/api/agent-images";
 
 const NOT_FOUND = 404;
-const IMAGE_PREFIX = "image/";
+/** Signature domain, so an attachment-link signature never opens an image. */
+export const AGENT_IMAGE_DOMAIN = "agent-image.v1";
+/** Raster formats only: SVG and friends can carry script. */
+const SERVED_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 
 const reject = (): Response =>
   Response.json(
@@ -33,6 +41,7 @@ agentImageRoutes.get("/", async (c) => {
     return reject();
   }
   const signed = await verifyAttachmentLink(signing, {
+    domain: AGENT_IMAGE_DOMAIN,
     exp: c.req.query("exp"),
     id: key,
     sig: c.req.query("sig"),
@@ -43,8 +52,8 @@ agentImageRoutes.get("/", async (c) => {
 
   const object = await c.env.ATTACHMENTS.get(key);
   const contentType = object?.httpMetadata?.contentType;
-  // Only images: a signature over some other kind of object must not serve it.
-  if (!(object?.body && contentType?.startsWith(IMAGE_PREFIX))) {
+  // Only raster images: a signature over some other kind of object must not serve it.
+  if (!(object?.body && contentType && SERVED_TYPES.has(contentType))) {
     return reject();
   }
 
@@ -53,6 +62,7 @@ agentImageRoutes.get("/", async (c) => {
       "Cache-Control": "no-store",
       "Content-Length": String(object.size),
       "Content-Type": contentType,
+      "X-Content-Type-Options": "nosniff",
     },
   });
 });

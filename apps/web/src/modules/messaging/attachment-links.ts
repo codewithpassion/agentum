@@ -104,8 +104,14 @@ const importKey = async (key: string): Promise<CryptoKey> => {
   ]);
 };
 
-const messageFor = (id: string, expiry: string): Uint8Array<ArrayBuffer> =>
-  new TextEncoder().encode(`attachment-link.v1:${id}:${expiry}`);
+const DEFAULT_DOMAIN = "attachment-link.v1";
+
+const messageFor = (
+  id: string,
+  expiry: string,
+  domain: string
+): Uint8Array<ArrayBuffer> =>
+  new TextEncoder().encode(`${domain}:${id}:${expiry}`);
 
 /**
  * A ttl the agent asked for, made safe: out of range or absent becomes the
@@ -133,7 +139,7 @@ export interface AttachmentLink {
 
 export const signAttachmentLink = async (
   key: string | null | undefined,
-  input: { id: string; now?: number; ttlSeconds?: number }
+  input: { domain?: string; id: string; now?: number; ttlSeconds?: number }
 ): Promise<AttachmentLink> => {
   const now = input.now ?? Date.now();
   const expiresAt =
@@ -141,7 +147,7 @@ export const signAttachmentLink = async (
   const signature = await crypto.subtle.sign(
     HMAC,
     await importKey(requireKey(key)),
-    messageFor(input.id, String(expiresAt))
+    messageFor(input.id, String(expiresAt), input.domain ?? DEFAULT_DOMAIN)
   );
   return {
     expiresAt,
@@ -165,6 +171,8 @@ export const signAttachmentLink = async (
 export const verifyAttachmentLink = async (
   key: string | null | undefined,
   input: {
+    /** Must match the domain the link was signed under. */
+    domain?: string;
     exp: string | undefined | null;
     id: string;
     now?: number;
@@ -195,7 +203,7 @@ export const verifyAttachmentLink = async (
     HMAC,
     await importKey(key),
     signature,
-    messageFor(input.id, exp)
+    messageFor(input.id, exp, input.domain ?? DEFAULT_DOMAIN)
   );
 };
 

@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { generateConnectorKey } from "#/crypto";
 import { signAttachmentLink } from "#/modules/messaging/attachment-links";
-import { agentImageRoutes } from "./route";
+import { AGENT_IMAGE_DOMAIN, agentImageRoutes } from "./route";
 
 const KEY = generateConnectorKey();
 const IMAGE_KEY = "browser/agent-1/1700000000000-abcd.png";
 const TEXT_KEY = "attachments/notes.txt";
+const SVG_KEY = "browser/agent-1/x.svg";
 const MISSING_KEY = "browser/agent-1/gone.png";
 
 const fakeBucket = (): R2Bucket =>
@@ -17,6 +18,13 @@ const fakeBucket = (): R2Bucket =>
           body: "png-bytes",
           httpMetadata: { contentType: "image/png" },
           size: 9,
+        });
+      }
+      if (key === SVG_KEY) {
+        return Promise.resolve({
+          body: "<svg/>",
+          httpMetadata: { contentType: "image/svg+xml" },
+          size: 6,
         });
       }
       if (key === TEXT_KEY) {
@@ -43,7 +51,11 @@ const get = async (
   key: string,
   overrides: { exp?: string; sig?: string; now?: number } = {}
 ) => {
-  const link = await signAttachmentLink(KEY, { id: key, now: overrides.now });
+  const link = await signAttachmentLink(KEY, {
+    domain: AGENT_IMAGE_DOMAIN,
+    id: key,
+    now: overrides.now,
+  });
   const params = new URLSearchParams({
     exp: overrides.exp ?? String(link.expiresAt),
     key,
@@ -58,6 +70,7 @@ describe("GET /api/agent-images", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("image/png");
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(await response.text()).toBe("png-bytes");
   });
 
@@ -69,7 +82,10 @@ describe("GET /api/agent-images", () => {
 
   test("refuses a bad signature and an edited key", async () => {
     const forged = await get(IMAGE_KEY, { sig: "AAAA" });
-    const other = await signAttachmentLink(KEY, { id: TEXT_KEY });
+    const other = await signAttachmentLink(KEY, {
+      domain: AGENT_IMAGE_DOMAIN,
+      id: TEXT_KEY,
+    });
     const swapped = await app.request(
       `/api/agent-images?${new URLSearchParams({
         exp: String(other.expiresAt),
@@ -87,10 +103,27 @@ describe("GET /api/agent-images", () => {
   test("answers the same for a missing object and a non-image", async () => {
     const missing = await get(MISSING_KEY);
     const text = await get(TEXT_KEY);
+    const svg = await get(SVG_KEY);
     const bad = await get(IMAGE_KEY, { sig: "AAAA" });
 
     expect(missing.status).toBe(404);
     expect(text.status).toBe(404);
+    expect(svg.status).toBe(404);
     expect(await missing.json()).toEqual(await bad.json());
+  });
+
+  test("refuses a signature minted for an attachment link", async () => {
+    const plain = await signAttachmentLink(KEY, { id: IMAGE_KEY });
+    const response = await app.request(
+      `/api/agent-images?${new URLSearchParams({
+        exp: String(plain.expiresAt),
+        key: IMAGE_KEY,
+        sig: plain.signature,
+      })}`,
+      {},
+      env
+    );
+
+    expect(response.status).toBe(404);
   });
 });

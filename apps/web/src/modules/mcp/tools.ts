@@ -882,7 +882,7 @@ const registerBrowserTools = (server: McpServer, ctx: McpToolContext): void => {
         markdown: `![Screenshot of ${screenshot.pageUrl}](${url})`,
         ...(delivered
           ? {
-              note: "The screenshot follows as the next message, so you can see it. The link is for people.",
+              note: "The screenshot arrives as the next message, after this turn. If you need to see it before continuing, end your turn now. The link is for people.",
             }
           : {}),
         pageUrl: screenshot.pageUrl,

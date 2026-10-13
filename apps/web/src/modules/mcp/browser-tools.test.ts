@@ -155,7 +155,7 @@ describe("browser_screenshot", () => {
     expect(managed.delivered[0]?.imageUrl).toContain(
       encodeURIComponent(managed.stored[0] ?? "")
     );
-    expect(managed.payload.note).toContain("follows as the next message");
+    expect(managed.payload.note).toContain("arrives as the next message");
     expect(managed.payload.url).toContain("/browser/screenshots/");
   });
 
