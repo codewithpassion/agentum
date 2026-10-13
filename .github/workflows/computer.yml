@@ -1,0 +1,54 @@
+# Publishes the agent computer images users pull onto their own hardware. The plain image is the
+# headless daemon; the desktop image adds Xvfb, openbox and Chromium. Both are tagged `latest`
+# plus the commit, so a host can be pinned to a known build.
+name: computer images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/computer/**"
+      - ".github/workflows/computer.yml"
+
+concurrency:
+  group: computer-images
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/computer
+          file: apps/computer/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/codewithpassion/agentum-computer:latest
+            ghcr.io/codewithpassion/agentum-computer:${{ github.sha }}
+          cache-from: type=gha,scope=computer
+          cache-to: type=gha,mode=max,scope=computer
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/computer
+          file: apps/computer/Dockerfile.desktop
+          push: true
+          tags: |
+            ghcr.io/codewithpassion/agentum-computer-desktop:latest
+            ghcr.io/codewithpassion/agentum-computer-desktop:${{ github.sha }}
+          cache-from: type=gha,scope=computer-desktop
+          cache-to: type=gha,mode=max,scope=computer-desktop
