@@ -139,6 +139,9 @@ export function Composer({
       return;
     }
     setBusy(true);
+    // Clear right away so the box empties on Enter; a failure puts it back.
+    setBody("");
+    setPending([]);
     try {
       // A command is never sent as a message.
       const command =
@@ -151,10 +154,11 @@ export function Composer({
           body: trimmed,
         });
       }
-      setBody("");
-      setPending([]);
       setError(null);
     } catch (cause) {
+      // Keep anything typed while the send was in flight.
+      setBody((current) => (current === "" ? body : current));
+      setPending((current) => (current.length === 0 ? pending : current));
       setError(cause instanceof Error ? cause.message : "Failed to send.");
     } finally {
       setBusy(false);
