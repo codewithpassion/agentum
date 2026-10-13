@@ -1,21 +1,26 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { type ExecView, latestExec } from "#/lib/agent-screen";
 import type { BrowserStatus, Screenshot } from "#/lib/api";
+import { createDesktopServer } from "#/lib/desktop-api";
 import { formatRelativeTime } from "#/lib/format";
 import { usePolling } from "#/lib/use-agent-screen";
-import { useApi } from "#/lib/workspace-context";
+import { useApi, useWorkspaceSlug } from "#/lib/workspace-context";
+import { DesktopScreen } from "./desktop-screen";
 
 /**
- * The right rail's Screen tab: what the agent is looking at (its browser's last
- * screenshot and page) and what it last ran (the newest `computer.exec` in its
- * activity log). It polls rather than listening on a socket, because the
- * computer and the browser write from tool calls that belong to no channel.
+ * The right rail's Screen tab: the agent's live desktop when its computer has
+ * one, otherwise what the agent is looking at (its browser's last screenshot and
+ * page) and what it last ran (the newest `computer.exec` in its activity log).
+ * It polls rather than listening on a socket, because the computer and the
+ * browser write from tool calls that belong to no channel.
  */
 
 /** Deep enough to find the last command under a burst of file writes. */
 const EXEC_SCAN_LIMIT = 20;
+/** Tailwind's `md` breakpoint. Below it the desktop pauses rather than unmounts, so control is kept. */
+const WIDE_QUERY = "(min-width: 48rem)";
 
 type ScreenState =
   | {
@@ -24,7 +29,22 @@ type ScreenState =
       screenshot: Screenshot | null;
       status: "ready";
     }
+  | { status: "desktop" }
   | { message: string; status: "error" };
+
+function useWideScreen(): boolean {
+  const [wide, setWide] = useState(
+    () => typeof window === "undefined" || window.matchMedia(WIDE_QUERY).matches
+  );
+  useEffect(() => {
+    const media = window.matchMedia(WIDE_QUERY);
+    const onChange = () => setWide(media.matches);
+    onChange();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+  return wide;
+}
 
 function Unreachable({
   message,
@@ -179,11 +199,17 @@ export function AgentScreenTab({
   pollMs: number;
 }) {
   const api = useApi();
+  const slug = useWorkspaceSlug();
+  const desktop = useMemo(() => createDesktopServer(slug), [slug]);
+  const wide = useWideScreen();
 
   const [state, setState] = useState<ScreenState | null>(null);
   const [zoomed, setZoomed] = useState(false);
+  // Read by the load callback, which must not depend on the mode it decides.
+  const modeRef = useRef<ScreenState["status"] | null>(null);
+  modeRef.current = state?.status ?? null;
 
-  const load = useCallback(() => {
+  const loadBrowser = useCallback(() => {
     Promise.all([
       api.listBrowserScreenshots(agentId, 1),
       api.getBrowserStatus(agentId),
@@ -208,6 +234,26 @@ export function AgentScreenTab({
       });
   }, [agentId, api]);
 
+  const load = useCallback(() => {
+    desktop.getDesktopStatus({ agentId }).then(
+      (desktopStatus) => {
+        if (desktopStatus.desktop) {
+          setState((current) =>
+            current?.status === "desktop" ? current : { status: "desktop" }
+          );
+          return;
+        }
+        loadBrowser();
+      },
+      () => {
+        // A failed probe must not unmount an open desktop: that would hand control back over a blip.
+        if (modeRef.current !== "desktop") {
+          loadBrowser();
+        }
+      }
+    );
+  }, [agentId, desktop, loadBrowser]);
+
   usePolling(load, pollMs);
 
   const openZoom = useCallback(() => setZoomed(true), []);
@@ -225,6 +271,9 @@ export function AgentScreenTab({
       ) : null}
       {state?.status === "ready" ? (
         <ReadyScreen onZoom={openZoom} state={state} />
+      ) : null}
+      {state?.status === "desktop" ? (
+        <DesktopScreen agentId={agentId} paused={!wide} server={desktop} />
       ) : null}
 
       <Dialog
