@@ -5,6 +5,7 @@ import type { Agent } from "#/modules/agents/schema";
 import { findAgentByMcpToken } from "#/modules/agents/service";
 import type { Workspace } from "#/modules/workspaces/schema";
 import { getWorkspaceById } from "#/modules/workspaces/service";
+import { agentHasDesktop, registerDesktopTools } from "./desktop-tools";
 import { buildWorkspaceServer } from "./server";
 
 /**
@@ -39,12 +40,11 @@ mcpRoutes.all("/:agentToken", async (c) => {
   }
 
   const transport = new StreamableHTTPTransport({ enableJsonResponse: true });
-  await buildWorkspaceServer({
-    agent,
-    db,
-    env: c.env,
-    requestUrl: c.req.url,
-    workspace,
-  }).connect(transport);
+  const ctx = { agent, db, env: c.env, requestUrl: c.req.url, workspace };
+  const server = buildWorkspaceServer(ctx);
+  if (await agentHasDesktop(db, agent)) {
+    registerDesktopTools(server, ctx);
+  }
+  await server.connect(transport);
   return await transport.handleRequest(c);
 });

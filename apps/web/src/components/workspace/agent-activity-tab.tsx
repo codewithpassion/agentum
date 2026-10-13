@@ -25,6 +25,7 @@ const ICONS: Record<ActivityView["kind"], string> = {
   "browser.navigate": "🌐",
   "browser.screenshot": "📸",
   "computer.delete": "🗑️",
+  "computer.desktop": "🖥️",
   "computer.edit": "✏️",
   "computer.exec": "⌗",
   "computer.write": "📄",

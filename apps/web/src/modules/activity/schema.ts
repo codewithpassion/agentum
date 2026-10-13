@@ -21,6 +21,7 @@ export const ACTIVITY_KINDS = [
   "browser.navigate",
   "browser.screenshot",
   "computer.delete",
+  "computer.desktop",
   "computer.edit",
   "computer.exec",
   "computer.write",

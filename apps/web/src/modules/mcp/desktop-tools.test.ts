@@ -1,0 +1,252 @@
+import { Database, type SQLQueryBindings } from "bun:sqlite";
+import { describe, expect, mock, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { eq } from "drizzle-orm";
+import { generateConnectorKey } from "#/crypto";
+import { createDb } from "#/db/client";
+
+mock.module("cloudflare:workers", () => ({
+  DurableObject: class {},
+  env: {},
+}));
+
+const { agentActivity } = await import("#/modules/activity/schema");
+const { agents } = await import("#/modules/agents/schema");
+const { createAgent } = await import("#/modules/agents/service");
+const { browserScreenshots } = await import("#/modules/browser/schema");
+const { computerHosts } = await import("#/modules/computer/schema");
+const { createWorkspace } = await import("#/modules/workspaces/service");
+const { agentHasDesktop, registerDesktopTools } = await import(
+  "./desktop-tools"
+);
+
+const migrate = () => {
+  const dir = new URL("../../../drizzle/", import.meta.url);
+  const journal = JSON.parse(
+    readFileSync(new URL("meta/_journal.json", dir), "utf8")
+  ) as { entries: { tag: string }[] };
+  const sqlite = new Database(":memory:");
+  for (const entry of journal.entries) {
+    const sql = readFileSync(new URL(`${entry.tag}.sql`, dir), "utf8");
+    for (const statement of sql.split("--> statement-breakpoint")) {
+      sqlite.run(statement);
+    }
+  }
+  return createDb({
+    batch: (statements: { all: () => Promise<unknown> }[]) =>
+      Promise.all(statements.map((statement) => statement.all())),
+    prepare: (query: string) => {
+      const stmt = sqlite.query(query);
+      return {
+        bind: (...params: SQLQueryBindings[]) => ({
+          all: () => Promise.resolve({ results: stmt.all(...params) }),
+          raw: () => Promise.resolve(stmt.values(...params)),
+          run: () => Promise.resolve(stmt.run(...params)),
+        }),
+      };
+    },
+  } as unknown as D1Database);
+};
+
+type Handler = () => Promise<CallToolResult>;
+interface Outcome {
+  code: string | null;
+  message: string;
+  ok: boolean;
+  reason: string | null;
+  result_json: string | null;
+}
+
+const SHOT: Outcome = {
+  code: null,
+  message: "",
+  ok: true,
+  reason: null,
+  result_json: JSON.stringify({
+    data_b64: btoa("jpeg"),
+    height: 800,
+    media_type: "image/jpeg",
+    width: 1280,
+  }),
+};
+
+const setup = async (
+  runtime: "cloudflare" | "managed",
+  capabilities: Record<string, unknown> | null
+) => {
+  const db = migrate();
+  const { workspace } = await createWorkspace(db, {
+    name: "Alpha",
+    owner: {
+      clerkUserId: "user_1",
+      email: "a@example.com",
+      imageUrl: null,
+      name: "Ada",
+    },
+  });
+  const { agent: created } = await createAgent(db, workspace.id, {
+    instructions: "",
+    name: "Operator",
+    runtime,
+    soul: "",
+  });
+  await db.insert(computerHosts).values({
+    capabilities,
+    id: "host_1",
+    kind: "self_hosted",
+    name: "Box",
+    workspaceId: workspace.id,
+  });
+  await db
+    .update(agents)
+    .set({ computer: "self_hosted", computerHostId: "host_1" })
+    .where(eq(agents.id, created.id));
+  const [agent] = await db
+    .select()
+    .from(agents)
+    .where(eq(agents.id, created.id));
+  if (!agent) {
+    throw new Error("agent missing");
+  }
+  return { agent, db, workspace };
+};
+
+describe("agentHasDesktop", () => {
+  test("offered to a managed agent whose host reports a desktop", async () => {
+    const { agent, db } = await setup("managed", { desktop: true });
+    expect(await agentHasDesktop(db, agent)).toBe(true);
+  });
+
+  test("not offered when the host reports no desktop", async () => {
+    const { agent, db } = await setup("managed", { desktop: false });
+    expect(await agentHasDesktop(db, agent)).toBe(false);
+  });
+
+  test("not offered before the host has said hello", async () => {
+    const { agent, db } = await setup("managed", null);
+    expect(await agentHasDesktop(db, agent)).toBe(false);
+  });
+
+  test("not offered on the cloudflare runtime", async () => {
+    const { agent, db } = await setup("cloudflare", { desktop: true });
+    expect(await agentHasDesktop(db, agent)).toBe(false);
+  });
+});
+
+describe("computer_screenshot", () => {
+  const run = async (outcome: Outcome, deliver = { sent: true } as object) => {
+    const { agent, db, workspace } = await setup("managed", { desktop: true });
+    const requests: Record<string, unknown>[] = [];
+    const puts: { key: string; type: string | undefined }[] = [];
+    const delivered: { agentId: string; caption: string; imageUrl: string }[] =
+      [];
+    const env = {
+      AGENT_ROUTER: {
+        get: () => ({
+          deliverImage: (call: (typeof delivered)[number]) => {
+            delivered.push(call);
+            return Promise.resolve(deliver);
+          },
+        }),
+        idFromName: (name: string) => name,
+      },
+      ATTACHMENT_LINK_KEY: generateConnectorKey(),
+      ATTACHMENTS: {
+        put: (
+          key: string,
+          _body: unknown,
+          options: { httpMetadata: { contentType: string } }
+        ) => {
+          puts.push({ key, type: options.httpMetadata.contentType });
+          return Promise.resolve();
+        },
+      },
+      COMPUTER_RELAY: {
+        get: (hostId: string) => ({
+          request: (message: Record<string, unknown>) => {
+            requests.push({ ...message, hostId });
+            return Promise.resolve(outcome);
+          },
+        }),
+        idFromName: (name: string) => name,
+      },
+      PUBLIC_APP_URL: "https://app.example.com",
+    } as unknown as Env;
+
+    let handler: Handler | undefined;
+    registerDesktopTools(
+      {
+        registerTool: (name: string, _config: unknown, fn: Handler) => {
+          if (name === "computer_screenshot") {
+            handler = fn;
+          }
+        },
+      } as unknown as McpServer,
+      {
+        agent,
+        db,
+        env,
+        requestUrl: "https://app.example.com/mcp/tok",
+        workspace: { id: workspace.id, slug: workspace.slug },
+      }
+    );
+    const result = await handler?.();
+    const [block] = result?.content ?? [];
+    const text = block?.type === "text" ? block.text : "";
+    return { agent, db, delivered, puts, requests, result, text };
+  };
+
+  test("stores the JPEG, indexes and logs it, and sends it to the session", async () => {
+    const { agent, db, delivered, puts, requests, result, text } =
+      await run(SHOT);
+    expect(result?.isError).toBeUndefined();
+    expect(requests[0]).toMatchObject({
+      hostId: "host_1",
+      op: "desktop_screenshot",
+      quality: 60,
+    });
+    expect(puts).toHaveLength(1);
+    const key = puts.map((put) => put.key).join("");
+    expect(key.startsWith(`desktop/${agent.id}/`)).toBe(true);
+    expect(puts.map((put) => put.type)).toEqual(["image/jpeg"]);
+
+    const rows = await db.select().from(browserScreenshots);
+    expect(rows.map((row) => row.r2Key)).toEqual([key]);
+    const [activity] = await db.select().from(agentActivity);
+    expect(activity).toMatchObject({
+      kind: "computer.desktop",
+      summary: "screenshot 1280x800",
+    });
+
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]?.agentId).toBe(agent.id);
+    expect(delivered[0]?.caption).toContain("1280x800");
+    expect(delivered[0]?.imageUrl).toContain(encodeURIComponent(key));
+    expect(text).toContain("next message");
+  });
+
+  test("tells the model what to do when the desktop is down", async () => {
+    const { delivered, puts, result, text } = await run({
+      code: "desktop_unavailable",
+      message: "Xvfb exited",
+      ok: false,
+      reason: "client_error",
+      result_json: null,
+    });
+    expect(result?.isError).toBe(true);
+    expect(text).toContain("use exec instead");
+    expect(puts).toHaveLength(0);
+    expect(delivered).toHaveLength(0);
+  });
+
+  test("reports a screenshot that could not be sent", async () => {
+    const { result, text } = await run(SHOT, {
+      reason: "no running session",
+      sent: false,
+    });
+    expect(result?.isError).toBe(true);
+    expect(text).toContain("no running session");
+  });
+});
