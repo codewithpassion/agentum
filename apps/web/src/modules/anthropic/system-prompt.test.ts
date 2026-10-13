@@ -16,6 +16,17 @@ const input = (
 });
 
 describe("composeSystemPrompt", () => {
+  test("treats the latest session marker as the start of the agent's context", () => {
+    const managed = composeSystemPrompt(input());
+    const cloudflare = composeSystemPrompt(input({ runtime: "cloudflare" }));
+
+    expect(managed).toContain("[session start]");
+    expect(managed).toContain("before the most recent marker");
+    expect(managed).toContain("list_past_sessions");
+    expect(cloudflare).toContain("before the most recent marker");
+    expect(cloudflare).not.toContain("list_past_sessions");
+  });
+
   test("names the computer and its tools only for an agent bound to one", () => {
     const bare = composeSystemPrompt(input());
     const bound = composeSystemPrompt(

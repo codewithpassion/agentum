@@ -683,6 +683,13 @@ export const createApi = (workspaceSlug: string) => {
       method: "POST",
     }).then((data) => data.message);
 
+  /** Owner-only. Starts a new session for the channel's agents (or those named). */
+  const clearChannel = (channelId: string, input: { agentIds?: string[] }) =>
+    request<{ reset: { agentId: string; name: string; retired: boolean }[] }>(
+      `/channels/${channelId}/clear`,
+      { json: input, method: "POST" }
+    ).then((data) => data.reset);
+
   const addChannelMember = (
     channelId: string,
     member: { memberId: string; memberType: "agent" | "user" }
@@ -1254,6 +1261,7 @@ export const createApi = (workspaceSlug: string) => {
     assignConnectorToAgent,
     assignSkillToAgent,
     channelSocketUrl,
+    clearChannel,
     computerFileUrl,
     createAgent,
     createAgentSlackApp,

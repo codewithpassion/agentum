@@ -20,6 +20,7 @@ import { AgentSkillChips } from "./agent-skill-chips";
 import { BridgeCard } from "./bridge-card";
 import { McpUrlField } from "./mcp-url";
 import { PendingBadge, pendingLabel } from "./pending-badge";
+import { AgentSessionStatus } from "./session-indicators";
 
 /** The agent's screen (docs/plan.md 3c); Profile is the phase 1 rail, tabbed. */
 const TABS = ["Screen", "Files", "Activity", "Profile"] as const;
@@ -272,6 +273,7 @@ function ProfilePanel({
       <Section body={agent.soul} title="Soul" />
       <Section body={agent.instructions} title="Instructions" />
       <div className="space-y-2">
+        <AgentSessionStatus agentId={agent.id} key={`status:${agent.id}`} />
         <NewSessionControl agentId={agent.id} key={agent.id} />
         <AgentActions agent={agent} onDelete={onDelete} onEdit={onEdit} />
       </div>

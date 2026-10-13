@@ -3,12 +3,14 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import type { Agent, ChannelMemberView, MessageView } from "#/lib/api";
 import type { Viewer } from "#/lib/authors";
+import type { ClearCommand } from "#/lib/session-divider";
 import type { Conversation as ConversationState } from "#/lib/use-conversation";
-import { useApi } from "#/lib/workspace-context";
+import { useActiveWorkspace, useApi } from "#/lib/workspace-context";
 import { AgentActivity } from "./agent-activity";
 import { ChannelSettings } from "./channel-settings";
 import { Composer } from "./composer";
 import { MessageStream } from "./message-stream";
+import { NewSessionBadge } from "./session-indicators";
 
 const FALLBACK_COLOR = "#52525b";
 
@@ -75,6 +77,9 @@ function ChannelHeader({
           </li>
         ))}
       </ul>
+      {channel?.kind === "dm" ? (
+        <NewSessionBadge messages={conversation.messages} />
+      ) : null}
       <span className="text-[var(--ws-muted)] text-xs">
         {members.length} {members.length === 1 ? "member" : "members"}
       </span>
@@ -116,6 +121,8 @@ export function ConversationPane({
   viewer: Viewer;
 }) {
   const api = useApi();
+  const { membership } = useActiveWorkspace();
+  const isOwner = membership?.role === "owner";
 
   const { channel, mergeMessage } = conversation;
   const channelId = channel?.id ?? null;
@@ -128,6 +135,30 @@ export function ConversationPane({
       mergeMessage(await api.postMessage(channelId, input));
     },
     [api, channelId, mergeMessage]
+  );
+
+  const { members } = conversation;
+  const clear = useCallback(
+    async (command: ClearCommand) => {
+      if (!(channelId && isOwner)) {
+        throw new Error("Only workspace owners can start a new session.");
+      }
+      let agentIds: string[] | undefined;
+      if (command.agentName) {
+        const wanted = command.agentName.toLowerCase();
+        const agent = agents.find(
+          (entry) => entry.name.toLowerCase() === wanted
+        );
+        if (!agent || members.every((m) => m.memberId !== agent.id)) {
+          throw new Error(
+            `No agent named "${command.agentName}" in this channel.`
+          );
+        }
+        agentIds = [agent.id];
+      }
+      await api.clearChannel(channelId, { agentIds });
+    },
+    [agents, api, channelId, isOwner, members]
   );
 
   if (!channel) {
@@ -166,6 +197,7 @@ export function ConversationPane({
       ) : null}
       <MessageStream
         agentsById={agentsById}
+        key={channel.id}
         messages={conversation.messages}
         nextCursor={conversation.nextCursor}
         onAnswerQuestion={conversation.applyQuestion}
@@ -180,6 +212,7 @@ export function ConversationPane({
       />
       <Composer
         agents={agents}
+        onClear={clear}
         onSend={send}
         placeholder={
           channel.kind === "dm"

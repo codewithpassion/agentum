@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import type { Agent, MessageView, Question } from "#/lib/api";
 import { authorOf, groupKeyOf, type Viewer } from "#/lib/authors";
+import { visibleFromLatestDivider } from "#/lib/session-divider";
+import { isSessionStartMessage } from "#/modules/messaging/session-origin";
 import { MessageItem } from "./message-item";
 
 /** Consecutive messages from one author within this window share a header. */
@@ -35,6 +37,12 @@ export function MessageStream({
   viewer: Viewer;
 }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  // Expanding is remembered per divider, so a fresh one (a `/clear`) starts
+  // the view over, collapsed again.
+  const latestDividerId = messages.findLast(isSessionStartMessage)?.id;
+  const [expandedFor, setExpandedFor] = useState<string | undefined>();
+  const expanded = expandedFor !== undefined && expandedFor === latestDividerId;
+  const { hiddenCount, visible } = visibleFromLatestDivider(messages, expanded);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -46,9 +54,22 @@ export function MessageStream({
     onLoadOlder();
   }, [onLoadOlder]);
 
+  const showEarlier = useCallback(
+    () => setExpandedFor(latestDividerId),
+    [latestDividerId]
+  );
+
   return (
     <div className="flex-1 overflow-y-auto px-4 py-4">
-      {nextCursor ? (
+      {hiddenCount > 0 ? (
+        <div className="mb-4 flex justify-center">
+          <Button onClick={showEarlier} size="sm" variant="ghost">
+            Show earlier messages ({hiddenCount})
+          </Button>
+        </div>
+      ) : null}
+
+      {nextCursor && hiddenCount === 0 ? (
         <div className="mb-4 flex justify-center">
           <Button onClick={loadOlder} size="sm" variant="ghost">
             Load older messages
@@ -63,7 +84,7 @@ export function MessageStream({
       ) : null}
 
       <div className="flex flex-col gap-3">
-        {messages.map((message, index) => (
+        {visible.map((message, index) => (
           <MessageItem
             author={authorOf(message, agentsById, viewer)}
             key={message.id}
@@ -71,7 +92,7 @@ export function MessageStream({
             onAnswerQuestion={onAnswerQuestion}
             onOpenThread={onOpenThread}
             onSelectAgent={onSelectAgent}
-            showAuthor={startsGroup(message, messages[index - 1])}
+            showAuthor={startsGroup(message, visible[index - 1])}
           />
         ))}
       </div>

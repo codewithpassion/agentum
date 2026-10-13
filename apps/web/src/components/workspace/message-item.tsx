@@ -4,6 +4,7 @@ import type { MessageView, Question } from "#/lib/api";
 import type { AuthorInfo } from "#/lib/authors";
 import { cx } from "#/lib/cx";
 import { formatTime } from "#/lib/format";
+import { isSessionStartMessage } from "#/modules/messaging/session-origin";
 import { AttachmentList } from "./attachments";
 import { Markdown } from "./markdown";
 import { QuestionCard } from "./question-card";
@@ -66,6 +67,22 @@ function AuthorChip({
   );
 }
 
+/** The line between two sessions: centred, with the agent's name and the time. */
+function SessionDivider({ message }: { message: MessageView }) {
+  return (
+    <div
+      className="flex items-center gap-3 py-1 text-[11px] text-[var(--ws-muted)]"
+      data-testid="session-divider"
+    >
+      <span className="h-px flex-1 bg-[var(--ws-line)]" />
+      <span>
+        {message.body} <time>{formatTime(message.createdAt)}</time>
+      </span>
+      <span className="h-px flex-1 bg-[var(--ws-line)]" />
+    </div>
+  );
+}
+
 export function MessageItem({
   author,
   message,
@@ -87,6 +104,9 @@ export function MessageItem({
     () => onOpenThread?.(message),
     [message, onOpenThread]
   );
+  if (isSessionStartMessage(message)) {
+    return <SessionDivider message={message} />;
+  }
   const replyLabel =
     message.replyCount > 0
       ? `${message.replyCount} ${message.replyCount === 1 ? "reply" : "replies"}`

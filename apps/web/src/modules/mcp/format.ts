@@ -1,5 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { AuthorType, MessageView } from "#/modules/messaging/service";
+import { isSessionStartMessage } from "#/modules/messaging/session-origin";
 
 /**
  * The shapes agents see. They are deliberately narrower than the UI's views:
@@ -119,6 +120,9 @@ export const toMcpAttachment = (attachment: {
   size: attachment.size,
 });
 
+/** Marks a new-session divider so an agent reads it as a boundary, not talk. */
+export const SESSION_START_MARK = "[session start]";
+
 export const toMcpMessage = (
   message: MessageView,
   agentNamesById: ReadonlyMap<string, string>
@@ -129,7 +133,9 @@ export const toMcpMessage = (
     name: authorNameOf(message, agentNamesById),
     type: message.authorType,
   },
-  body: message.body,
+  body: isSessionStartMessage(message)
+    ? `${SESSION_START_MARK} ${message.body}`
+    : message.body,
   createdAt: new Date(message.createdAt).toISOString(),
   id: message.id,
   mentions: message.mentions.map((mention) => mention.name),

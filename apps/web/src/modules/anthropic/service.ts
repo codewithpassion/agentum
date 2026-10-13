@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { eq } from "drizzle-orm";
-import type { Db } from "#/db/client";
+import { createDb, type Db } from "#/db/client";
 import { mcpUrlForToken } from "#/modules/agents/mcp-token";
 import type { Agent } from "#/modules/agents/schema";
 import {
@@ -19,6 +19,10 @@ import {
 import { getHostByIdUnscoped } from "#/modules/computer/hosts";
 import { listConnectorsForAgent } from "#/modules/connectors/service";
 import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
+import {
+  findAgentDmId,
+  postSessionDivider,
+} from "#/modules/messaging/session-divider";
 import { retireAgentSession } from "#/modules/router/retire";
 import { agentHasSecrets } from "#/modules/secrets/service";
 import { listAgentSkillAssignments } from "#/modules/skills/service";
@@ -369,14 +373,28 @@ export const syncAgentToAnthropic = async (
 const retireOnToolsChange =
   (env: Env): ToolsChangedHook =>
   async (agent) => {
-    await retireAgentSession(
+    const result = await retireAgentSession(
       env,
       agent.workspaceId,
       agent.id,
       "tools_changed"
     ).catch(() => {
       // The session ends at its idle TTL either way.
+      return null;
     });
+    if (!result?.retired) {
+      return;
+    }
+    // The person talking to the agent should see that its context restarted.
+    const db = createDb(env.DB);
+    const channelId = await findAgentDmId(db, agent.workspaceId, agent.id);
+    if (channelId) {
+      await postSessionDivider(db, env, {
+        agent,
+        channelId,
+        workspaceId: agent.workspaceId,
+      }).catch(() => undefined);
+    }
   };
 
 /**

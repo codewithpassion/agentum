@@ -14,6 +14,7 @@ import {
 import { createDb, type Db } from "#/db/client";
 import { deleteOverridesForChannel } from "#/modules/agents/model-overrides";
 import { getAgentById } from "#/modules/agents/service";
+import { resetAgentSession } from "#/modules/agents/session-reset";
 import { deleteBridgesForChannel } from "#/modules/bridges/bridges";
 import { deleteExternalRefsForMessages } from "#/modules/bridges/refs";
 import { deleteQuestionsForChannel } from "#/modules/questions/service";
@@ -297,6 +298,47 @@ channelsRoutes.post("/:id/messages", async (c) => {
   }
 
   return c.json({ message: result.message }, 201);
+});
+
+/**
+ * Owner-only `/clear`: starts a new session for the agents of this channel -
+ * all of them, or just the ones named - and marks it with a divider here.
+ * Every agent is resolved from the channel's own members, so an id from
+ * anywhere else is refused rather than reset.
+ */
+channelsRoutes.post("/:id/clear", requireOwner, async (c) => {
+  const db = createDb(c.env.DB);
+  const workspace = c.get("workspace");
+  const channelId = c.req.param("id");
+  if (!(await getChannel(db, workspace.id, channelId))) {
+    throw notFound("Channel not found.");
+  }
+
+  const body = await readJsonObject(c.req.raw);
+  const requested = optionalStringArray(body, "agentIds");
+  const memberIds = (await listChannelMembers(db, workspace.id, channelId))
+    .filter((member) => member.memberType === "agent")
+    .map((member) => member.memberId);
+  const targetIds = requested ?? memberIds;
+  if (targetIds.some((id) => !memberIds.includes(id))) {
+    throw badRequest("That agent is not in this channel.");
+  }
+  if (targetIds.length === 0) {
+    throw badRequest("There is no agent in this channel to start fresh.");
+  }
+
+  const found = await Promise.all(
+    targetIds.map((id) => getAgentById(db, workspace.id, id))
+  );
+  const agents = found.filter((agent) => agent !== undefined);
+  const reset = await Promise.all(
+    agents.map(async (agent) => ({
+      agentId: agent.id,
+      name: agent.name,
+      ...(await resetAgentSession(db, c.env, workspace, agent, { channelId })),
+    }))
+  );
+  return c.json({ reset });
 });
 
 /**

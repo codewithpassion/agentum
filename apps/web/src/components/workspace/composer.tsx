@@ -10,6 +10,7 @@ import {
   matchMentionCandidates,
   mentionQueryAt,
 } from "#/lib/mention-input";
+import { type ClearCommand, parseClearCommand } from "#/lib/session-divider";
 import { useApi } from "#/lib/workspace-context";
 
 const MAX_SUGGESTIONS = 6;
@@ -63,12 +64,23 @@ function PendingChip({
   );
 }
 
+const CLEAR_HINT = "/clear";
+
+/** True while the line is a bare `/…` that could still become `/clear`. */
+const isTypingCommand = (body: string): boolean =>
+  body.startsWith("/") &&
+  !body.includes(" ") &&
+  CLEAR_HINT.startsWith(body.toLowerCase());
+
 export function Composer({
   agents,
+  onClear,
   onSend,
   placeholder,
 }: {
   agents: Agent[];
+  /** Runs `/clear [@agent]`; a throw is shown under the box. Omit to send it as text. */
+  onClear?: (command: ClearCommand) => Promise<void>;
   onSend: (input: { attachmentIds: string[]; body: string }) => Promise<void>;
   placeholder: string;
 }) {
@@ -89,6 +101,11 @@ export function Composer({
 
   const syncMention = useCallback((element: HTMLTextAreaElement) => {
     setMention(mentionQueryAt(element.value, element.selectionStart));
+  }, []);
+
+  const fillClear = useCallback(() => {
+    setBody(`${CLEAR_HINT} `);
+    textareaRef.current?.focus();
   }, []);
 
   const closeMention = useCallback(() => setMention(undefined), []);
@@ -123,10 +140,17 @@ export function Composer({
     }
     setBusy(true);
     try {
-      await onSend({
-        attachmentIds: pending.map((attachment) => attachment.id),
-        body: trimmed,
-      });
+      // A command is never sent as a message.
+      const command =
+        onClear && pending.length === 0 ? parseClearCommand(trimmed) : null;
+      if (command && onClear) {
+        await onClear(command);
+      } else {
+        await onSend({
+          attachmentIds: pending.map((attachment) => attachment.id),
+          body: trimmed,
+        });
+      }
       setBody("");
       setPending([]);
       setError(null);
@@ -135,7 +159,7 @@ export function Composer({
     } finally {
       setBusy(false);
     }
-  }, [body, busy, onSend, pending]);
+  }, [body, busy, onClear, onSend, pending]);
 
   const submit = useCallback(() => {
     send();
@@ -221,6 +245,20 @@ export function Composer({
           <MentionOption agent={agent} key={agent.id} onPick={pickMention} />
         ))}
       </Popover>
+
+      {onClear && isTypingCommand(body) ? (
+        <button
+          className="ws-focus mb-2 block rounded-lg border border-[var(--ws-line)] bg-[var(--ws-surface)] px-2 py-1 text-left text-xs"
+          onClick={fillClear}
+          type="button"
+        >
+          <span className="font-medium">/clear</span>
+          <span className="text-[var(--ws-muted)]">
+            {" "}
+            Start a new session for the agents here, or /clear @agent for one
+          </span>
+        </button>
+      ) : null}
 
       {pending.length > 0 ? (
         <ul className="m-0 mb-2 flex list-none flex-wrap gap-2 p-0">

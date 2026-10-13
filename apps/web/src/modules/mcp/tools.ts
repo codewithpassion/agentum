@@ -34,6 +34,10 @@ import {
   type MessageCursor,
   searchMessages,
 } from "#/modules/messaging/service";
+import {
+  getLatestSessionStart,
+  windowSinceDivider,
+} from "#/modules/messaging/session-divider";
 import { parseExpiresIn } from "#/modules/questions/duration";
 import { QUESTION_KINDS } from "#/modules/questions/schema";
 import {
@@ -89,6 +93,17 @@ export interface McpToolContext {
 const DEFAULT_MESSAGE_LIMIT = 30;
 const MAX_MESSAGE_LIMIT = 100;
 const MESSAGE_BODY_MAX_LENGTH = 50_000;
+const EARLIER_HIDDEN = {
+  note: "Messages before your latest [session start] marker are left out. Pass includeEarlier: true to read them.",
+};
+
+/** Whether a page starting below `cursor` would only hold pre-divider messages. */
+const isAtOrBefore = (
+  cursor: MessageCursor,
+  divider: { createdAt: number; id: string }
+): boolean =>
+  cursor.createdAt < divider.createdAt ||
+  (cursor.createdAt === divider.createdAt && cursor.id <= divider.id);
 const WIKI_BODY_MAX_LENGTH = 200_000;
 const WIKI_TITLE_MAX_LENGTH = 200;
 const COMPUTER_CONTENT_MAX_LENGTH = 500_000;
@@ -141,13 +156,19 @@ const registerReadChannel = (server: McpServer, ctx: McpToolContext): void => {
     "read_channel",
     {
       description:
-        "Read a channel's messages, oldest first. Returns top-level messages only; a message with replyCount > 0 has a thread, which you read with read_thread. Page backwards by passing the id of the oldest message you received as beforeId.",
+        "Read a channel's messages, oldest first. Returns top-level messages only; a message with replyCount > 0 has a thread, which you read with read_thread. Page backwards by passing the id of the oldest message you received as beforeId. A message starting with [session start] marks where one of your sessions began: by default you only get messages since your latest marker, and the result says when earlier ones exist. Pass includeEarlier to read past it.",
       inputSchema: {
         beforeId: z
           .string()
           .optional()
           .describe("Return messages posted before this message id."),
         channelId: z.string(),
+        includeEarlier: z
+          .boolean()
+          .optional()
+          .describe(
+            "Also read messages from before your latest [session start] marker."
+          ),
         limit: z
           .number()
           .int()
@@ -156,7 +177,7 @@ const registerReadChannel = (server: McpServer, ctx: McpToolContext): void => {
       },
       title: "Read a channel",
     },
-    async ({ beforeId, channelId, limit }) => {
+    async ({ beforeId, channelId, includeEarlier, limit }) => {
       if (!(await isChannelMember(ctx.db, channelId, memberOf(ctx.agent)))) {
         return fail(NOT_A_MEMBER);
       }
@@ -179,6 +200,15 @@ const registerReadChannel = (server: McpServer, ctx: McpToolContext): void => {
         cursor = { createdAt: before.createdAt.getTime(), id: before.id };
       }
 
+      // Where this agent's current context begins in the channel. Paging back
+      // past it is opt-in, so a fresh session is not fed the last one's talk.
+      const divider = includeEarlier
+        ? null
+        : await getLatestSessionStart(ctx.db, channelId, ctx.agent.id);
+      if (divider && cursor && isAtOrBefore(cursor, divider)) {
+        return json({ ...EARLIER_HIDDEN, hasMore: false, messages: [] });
+      }
+
       const page = await listChannelMessages(ctx.db, ctx.workspace, {
         channelId,
         cursor,
@@ -187,10 +217,14 @@ const registerReadChannel = (server: McpServer, ctx: McpToolContext): void => {
           max: MAX_MESSAGE_LIMIT,
         }),
       });
+      const windowed = divider
+        ? windowSinceDivider(page.messages, divider.id)
+        : { messages: page.messages, reached: false };
       const names = await agentNamesById(ctx.db, ctx.workspace.id);
       return json({
-        hasMore: page.nextCursor !== null,
-        messages: page.messages
+        ...(windowed.reached ? EARLIER_HIDDEN : {}),
+        hasMore: !windowed.reached && page.nextCursor !== null,
+        messages: windowed.messages
           .map((message) => toMcpMessage(message, names))
           .reverse(),
       });

@@ -13,7 +13,6 @@ import { createDb, type Db } from "#/db/client";
 import { isUniqueConstraintError } from "#/db/errors";
 import { AVAILABLE_MODELS, isAvailableModel } from "#/modules/anthropic/config";
 import {
-  backfillSessionHistory,
   resyncRostersWithAnthropic,
   syncAgentWithAnthropic,
 } from "#/modules/anthropic/service";
@@ -27,7 +26,6 @@ import {
   countPendingQuestionsByAgent,
   countPendingQuestionsForAgent,
 } from "#/modules/questions/service";
-import { retireAgentSession } from "#/modules/router/retire";
 import { isCloudflareModelShaped } from "#/modules/runner/models";
 import { deleteSecretGrantsForAgent } from "#/modules/secrets/service";
 import { requireOwner } from "#/modules/workspaces/require-workspace";
@@ -50,6 +48,7 @@ import {
   toAgentView,
   updateAgent,
 } from "./service";
+import { resetAgentSession } from "./session-reset";
 import { createAgentSessionRoutes } from "./session-routes";
 
 const NAME_MAX_LENGTH = 80;
@@ -366,10 +365,7 @@ agentsRoutes.post("/:id/session/reset", requireOwner, async (c) => {
   if (!agent) {
     throw notFound("Agent not found.");
   }
-  await syncAgentWithAnthropic(db, c.env, agent.id);
-  // Before the retire: the current session needs a history row to be closed.
-  await backfillSessionHistory(db, c.env, agent);
-  return c.json(await retireAgentSession(c.env, workspaceId, agent.id));
+  return c.json(await resetAgentSession(db, c.env, c.get("workspace"), agent));
 });
 
 agentsRoutes.route("/", createAgentSessionRoutes());
