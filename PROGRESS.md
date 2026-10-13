@@ -5,6 +5,36 @@ done, what went wrong, and what to avoid next time. Newest entry first.
 
 ---
 
+## Cycle 19 — Remote desktop and take control (2026-10-14)
+
+**Goal:** Port the remote desktop from the TrueForge fork (docs/tasks-remote-desktop.md), get desktop screenshots in front of a managed agent, and let a person take over an agent's desktop and hand it back.
+
+**What we did:**
+- Moved the Go client from `codewithpassion/trueforge` `dom/main` at `b3aded57` into `apps/computer` (902b7a1) as `agentum-computer` with `AGENTUM_*` env vars. `scripts/go.sh` falls back to Docker when no Go toolchain is installed, and `build:local` keeps Docker out of the root turbo build. Both images publish to ghcr (ae01645). `apps/computerd` and the Fly HTTP transport are gone
+- Ported `RemoteComputerDO` over `ComputerRelay` on the v1 protocol (f22c23e), keeping the class name and binding so wrangler needed no migration. Enrollment replaced token rotation (ab31be8): 15-minute single-use codes, a bearer credential for connect, and re-enroll closing the old socket with 4401. Fly machines now connect out through the relay with a 24 h code, and an op on a stopped machine starts it and waits for `hello` (1454954)
+- Screenshots to Managed Agents took three attempts. A signed-URL image on a late `user.message` (d8af2b0) landed after the turn. MCP image blocks in the tool result (75ba6ef) never reached the model. A client-run custom tool works (a823bdb): the router answers `agent.custom_tool_use` with a `user.custom_tool_result` carrying the JPEG. A sync that changes an agent's tools now retires its session
+- Tool routing: an agent bound to a computer gets a system-prompt section naming it, and its built-in bash/read/write/edit/glob/grep toolset is disabled on sync, so file and shell work goes to the computer and not the Anthropic sandbox
+- Minimal desktop (5581c0a): a wrapper at `/usr/local/bin/openbox` adds `--startup` with a session script that paints the background and starts tint2 and one xterm
+- Take control: a per-agent lease in the relay (e178d0e) where a person's hold preempts the agent's and clears both clipboard selections on hand-back. Person-facing routes under `/agents/:id/desktop` (305d392), the live view on the agent Screen tab with a full-size mode (e2eee00, 8e93b81), and `request_human_takeover` posting a card with Open screen and Cancel (acd38d1, 15af1d7)
+- Sessions: a history row per managed session with `list_past_sessions`, `read_past_session` and a resume route (fa267a0, migration 0025). Also a New session button for owners (b4f5bf0), and `/clear` plus a `session_start` divider that hides earlier messages behind "Show earlier messages" (4332009)
+- Desktop over WebSocket (1482a68, 18e88ec): the relay pumps acked binary frames, skips identical frames and slow viewers, takes input from the lease holder, and falls back to HTTP polling. Smaller changes: Opus/Sonnet/Haiku 5.5 as the model catalog (681093d), sidebar header on two rows (64386e9), and per-host container and volume names `agentum-<variant>-<slug>` (09d3e2f)
+
+**Lessons learned:**
+- Managed Agents drops images from MCP tool results without an error. The tool call succeeds, the model describes nothing. The only path that showed the model a screenshot was a custom tool whose result we send ourselves. Check that the model actually sees an image before building on a delivery path
+- Changing an agent's tools does not touch a session that is already running. It keeps the old tool list until it is retired, so a tools sync now retires the session, and owners can force it through `POST /agents/:id/session/reset`
+- `control.expiresAt` came over the wire as epoch milliseconds but the client typed it as a string, so `Date.parse` gave NaN and the lease warning and near-expiry refresh never fired (c9add91). Nothing failed loudly, the warning just never showed
+- `xdotool click` waits 100 ms between repeats by default, so every click cost about 105 ms and a triple click 300 ms. `--delay 0` and chaining the move into the same process fixed it (94df138)
+- Plain openbox runs no autostart, so the desktop came up as a black screen. Busybox `find` has no `-printf`, so directory listing on the base image needed a POSIX sh loop (c8c9642)
+- A Durable Object woken from eviction forgets its in-memory viewer list. The relay now awaits stored state before every request, alarm and dispatch, and re-adopts viewer sockets from `getWebSockets()` (c8c9642, 7e9320f)
+
+**Avoid next time:**
+- Don't infer from a green tool call that an agent saw an image. Ask it to describe the screen and check the answer against the screen
+- Don't type wire fields from memory. Parse them with the shared Zod protocol schema, or at least build test fixtures from a real relay message
+- Don't hard-code a container or volume name in a generated `docker run` command. A second host on the same machine collided with the first until the names came from the host (09d3e2f), and the re-enroll hint still named the old container until 62389b7
+- Don't keep per-session UI notices in a component's local state. The New session notice vanished on every remount of the rail until it moved up (db65bdb)
+
+---
+
 ## Cycle 18 — Workspace secrets: a broker tool and a vault mirror (2026-09-10)
 
 **Goal:** Implement docs/plan-workspace-secrets.md — a workspace owner stores an API key, grants it to agents, and those agents use it without ever holding the value, on both runtimes.
