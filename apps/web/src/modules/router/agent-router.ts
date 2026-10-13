@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { createDb, type Db } from "#/db/client";
 import { resolveModel } from "#/modules/agents/model-overrides";
-import type { Agent } from "#/modules/agents/schema";
+import type { Agent, SessionEndReason } from "#/modules/agents/schema";
 import {
   type AgentStatus,
   getAgentById,
@@ -9,6 +9,11 @@ import {
   listAgents,
   setAgentRuntimeStatus,
 } from "#/modules/agents/service";
+import {
+  recordSessionEnd,
+  recordSessionStart,
+  reopenSession,
+} from "#/modules/agents/session-history";
 import { AGENT_MODEL, isAvailableModel } from "#/modules/anthropic/config";
 import {
   type CustomToolCall,
@@ -579,7 +584,11 @@ export class AgentRouter extends DurableObject<Env> {
         );
       }
     } catch (error) {
-      await this.ctx.storage.delete(SESSION_KEY(agentId));
+      await this.dropSession(
+        agentId,
+        await this.read<StoredSession>(SESSION_KEY(agentId)),
+        "error"
+      );
       await this.setStatus(agentId, "error", channelId, null);
       throw error;
     }
@@ -627,7 +636,11 @@ export class AgentRouter extends DurableObject<Env> {
     }
     const modelChanged = (session.model ?? AGENT_MODEL) !== model;
     if (modelChanged || (startsThread && session.status === "idle")) {
-      await this.ctx.storage.delete(SESSION_KEY(agentId));
+      await this.dropSession(
+        agentId,
+        session,
+        modelChanged ? "model_changed" : "new_task"
+      );
       return null;
     }
     return session;
@@ -738,7 +751,7 @@ export class AgentRouter extends DurableObject<Env> {
     } catch {
       // A live session can still refuse new work - it hit its budget cap, or it
       // terminated between our last poll and now. A fresh session always works.
-      await this.ctx.storage.delete(SESSION_KEY(agent.id));
+      await this.dropSession(agent.id, session, "error");
       await this.startSession(agent, text, channelId, model);
       return;
     }
@@ -810,6 +823,16 @@ export class AgentRouter extends DurableObject<Env> {
       sessionId: created.sessionId,
       status: created.status,
     } satisfies StoredSession);
+    if (agent.runtime === "managed") {
+      // History is a convenience: losing a row must not fail the wake.
+      await recordSessionStart(this.db, {
+        agentId: agent.id,
+        anthropicSessionId: created.sessionId,
+        model,
+        title: `${agent.name} in ${channelId}`,
+        workspaceId: agent.workspaceId,
+      }).catch(() => undefined);
+    }
     await this.setStatus(agent.id, "working", channelId, created.sessionId);
   }
 
@@ -973,7 +996,7 @@ export class AgentRouter extends DurableObject<Env> {
           alive = polled === "running";
         }
         if (!alive) {
-          await this.ctx.storage.delete(key);
+          await this.dropSession(agentId, session, "idle_ttl");
           await this.setStatus(agentId, "idle", session.channelId, null);
           continue;
         }
@@ -1044,7 +1067,7 @@ export class AgentRouter extends DurableObject<Env> {
       // was waiting deserves to hear it died: the notice goes out before the
       // status write, because `setStatus` retires the very "Thinking…"
       // placeholder the notice rewrites into an answer.
-      await this.ctx.storage.delete(key);
+      await this.dropSession(agentId, session, "error");
       await this.reportSessionDeath(agentId, session, stopReason ?? "");
       await this.setStatus(agentId, "error", session.channelId, null);
       return;
@@ -1090,7 +1113,7 @@ export class AgentRouter extends DurableObject<Env> {
       return;
     }
     if (!isSessionReusable(status)) {
-      await this.ctx.storage.delete(key);
+      await this.dropSession(agentId, session, "terminated");
       await this.setStatus(agentId, "idle", session.channelId, null);
       return;
     }
@@ -1133,7 +1156,7 @@ export class AgentRouter extends DurableObject<Env> {
     } catch {
       // The session is blocked on a call that cannot be answered, so it would
       // never resume. A fresh one on the next message does.
-      await this.ctx.storage.delete(key);
+      await this.dropSession(agentId, session, "error");
       await this.setStatus(agentId, "error", session.channelId, null);
       return true;
     }
@@ -1181,18 +1204,77 @@ export class AgentRouter extends DurableObject<Env> {
    * agent's current configuration (a session keeps the tools it began with).
    * The same bookkeeping the idle TTL does; nothing is deleted at Anthropic.
    */
-  async retireSession(agentId: string): Promise<{ retired: boolean }> {
+  async retireSession(
+    agentId: string,
+    reason: SessionEndReason = "reset"
+  ): Promise<{ retired: boolean }> {
     const session = await this.read<StoredSession>(SESSION_KEY(agentId));
     if (!session) {
       return { retired: false };
     }
-    await this.ctx.storage.delete(SESSION_KEY(agentId));
+    await this.dropSession(agentId, session, reason);
     const calls = await this.ctx.storage.list({
       prefix: CUSTOM_TOOL_KEY_PREFIX(session.sessionId),
     });
     await this.ctx.storage.delete([...calls.keys()]);
     await this.setStatus(agentId, "idle", session.channelId, null);
     return { retired: true };
+  }
+
+  /**
+   * Forgets a session: the router stops driving it and its history row is
+   * closed. Anthropic keeps the session itself, so it can be switched back to.
+   */
+  private async dropSession(
+    agentId: string,
+    session: StoredSession | undefined,
+    reason: SessionEndReason
+  ): Promise<void> {
+    await this.ctx.storage.delete(SESSION_KEY(agentId));
+    if (session && (session.runtime ?? "managed") === "managed") {
+      await recordSessionEnd(this.db, session.sessionId, reason).catch(
+        () => undefined
+      );
+    }
+  }
+
+  /**
+   * Makes an earlier session the agent's current one. The caller has checked
+   * that Anthropic still considers it usable. The cursor starts at now, so the
+   * pump does not replay the old transcript, and the model is the one the
+   * session was created with, so the next wake does not retire it for a
+   * "changed" model.
+   */
+  async switchSession(
+    agentId: string,
+    target: { model: string | null; sessionId: string; status: SessionStatus }
+  ): Promise<void> {
+    const current = await this.read<StoredSession>(SESSION_KEY(agentId));
+    if (current?.sessionId === target.sessionId) {
+      return;
+    }
+    if (current) {
+      await this.retireSession(agentId, "switched");
+    }
+    const now = Date.now();
+    await this.write(SESSION_KEY(agentId), {
+      channelId: current?.channelId ?? "",
+      cursorAt: new Date(now).toISOString(),
+      cursorId: "resumed",
+      lastActivityAt: now,
+      ...(target.model ? { model: target.model } : {}),
+      runtime: "managed",
+      sessionId: target.sessionId,
+      status: target.status,
+    } satisfies StoredSession);
+    await reopenSession(this.db, target.sessionId);
+    await this.setStatus(
+      agentId,
+      target.status === "running" ? "working" : "idle",
+      current?.channelId ?? "",
+      target.sessionId
+    );
+    await this.scheduleNextAlarm();
   }
 
   private async countActiveSessions(): Promise<number> {
@@ -1217,11 +1299,13 @@ export class AgentRouter extends DurableObject<Env> {
     if (!session) {
       return null;
     }
-    if (
-      !isSessionReusable(session.status) ||
-      now - session.lastActivityAt > SESSION_IDLE_TTL_MS
-    ) {
-      await this.ctx.storage.delete(SESSION_KEY(agentId));
+    const spent = !isSessionReusable(session.status);
+    if (spent || now - session.lastActivityAt > SESSION_IDLE_TTL_MS) {
+      await this.dropSession(
+        agentId,
+        session,
+        spent ? "terminated" : "idle_ttl"
+      );
       return null;
     }
     return session;

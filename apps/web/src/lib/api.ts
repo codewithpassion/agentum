@@ -255,6 +255,17 @@ export interface IssuedAgent {
   mcpUrl: string;
 }
 
+/** One of an agent's sessions, current or past. Owner-only. */
+export interface AgentSessionView {
+  current: boolean;
+  endedAt: string | null;
+  endReason: string | null;
+  /** The Anthropic session id. */
+  id: string;
+  startedAt: string;
+  title: string | null;
+}
+
 /** What the router and the Anthropic registration currently say about an agent. */
 export interface AgentStatusView {
   agentId: string;
@@ -558,6 +569,21 @@ export const createApi = (workspaceSlug: string) => {
     request<{ retired: boolean }>(`/agents/${id}/session/reset`, {
       method: "POST",
     });
+
+  /** Owner-only. Newest first. */
+  const listAgentSessions = (id: string) =>
+    request<{ sessions: AgentSessionView[] }>(`/agents/${id}/sessions`).then(
+      (data) => data.sessions
+    );
+
+  /** Owner-only. Throws "This session can't be resumed." when Anthropic ended it. */
+  const resumeAgentSession = (id: string, sessionId: string) =>
+    request<{ resumed: boolean }>(
+      `/agents/${id}/sessions/${sessionId}/resume`,
+      {
+        method: "POST",
+      }
+    );
 
   // --- the agent's screen: activity, computer, browser ----------------------
 
@@ -1269,6 +1295,7 @@ export const createApi = (workspaceSlug: string) => {
     listAgentBridges,
     listAgentConnectors,
     listAgentQuestions,
+    listAgentSessions,
     listAgentSkills,
     listAgents,
     listBrowserScreenshots,
@@ -1302,6 +1329,7 @@ export const createApi = (workspaceSlug: string) => {
     renameConnector,
     renameWorkspace,
     resetAgentSession,
+    resumeAgentSession,
     retrySkillSync,
     revokeSecretFromAgent,
     rotateAgentMcpToken,

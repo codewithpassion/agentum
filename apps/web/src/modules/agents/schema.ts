@@ -170,5 +170,48 @@ export const agentModelOverrides = sqliteTable(
   ]
 );
 
+/** Why a managed session stopped being the agent's current one. */
+export const SESSION_END_REASONS = [
+  "reset",
+  "tools_changed",
+  "switched",
+  "idle_ttl",
+  "model_changed",
+  "new_task",
+  "terminated",
+  "error",
+  "imported",
+] as const;
+
+export type SessionEndReason = (typeof SESSION_END_REASONS)[number];
+
+/**
+ * Every Managed Agents session an agent has had. The agent row and the router
+ * remember only the current one; Anthropic keeps the rest, and this table is
+ * how the owner and the agent find them again.
+ */
+export const agentSessions = sqliteTable(
+  "agent_sessions",
+  {
+    agentId: text("agent_id").notNull(),
+    anthropicSessionId: text("anthropic_session_id").notNull().unique(),
+    /** Null while the session is the agent's current one. */
+    endedAt: integer("ended_at", { mode: "timestamp_ms" }),
+    endReason: text("end_reason", { enum: SESSION_END_REASONS }),
+    id: text("id").primaryKey(),
+    /** The model the session was created on; null on an imported row. */
+    model: text("model"),
+    startedAt: integer("started_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    title: text("title"),
+    workspaceId: text("workspace_id").notNull(),
+  },
+  (table) => [
+    index("agent_sessions_agent_idx").on(table.agentId, table.startedAt),
+  ]
+);
+
 export type Agent = typeof agents.$inferSelect;
+export type AgentSession = typeof agentSessions.$inferSelect;
 export type AgentModelOverride = typeof agentModelOverrides.$inferSelect;

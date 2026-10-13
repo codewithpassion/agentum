@@ -12,6 +12,7 @@ import {
   setAgentRegistration,
   setAgentSyncStatus,
 } from "#/modules/agents/service";
+import { backfillFromGateway } from "#/modules/agents/session-history";
 import { getHostByIdUnscoped } from "#/modules/computer/hosts";
 import { listConnectorsForAgent } from "#/modules/connectors/service";
 import { MAX_AGENT_CONNECTORS } from "#/modules/connectors/usability";
@@ -365,7 +366,12 @@ export const syncAgentToAnthropic = async (
 const retireOnToolsChange =
   (env: Env): ToolsChangedHook =>
   async (agent) => {
-    await retireAgentSession(env, agent.workspaceId, agent.id).catch(() => {
+    await retireAgentSession(
+      env,
+      agent.workspaceId,
+      agent.id,
+      "tools_changed"
+    ).catch(() => {
       // The session ends at its idle TTL either way.
     });
   };
@@ -653,6 +659,25 @@ export const resyncWorkspaceAfterKeyChange = async (
       // Recorded on the agent row; the flag keeps the debt for the next try.
     });
   }
+};
+
+/**
+ * Imports the agent's existing Anthropic sessions into its history, the first
+ * time anything asks for it. Best effort: history is a convenience.
+ */
+export const backfillSessionHistory = async (
+  db: Db,
+  env: Env,
+  agent: Agent
+): Promise<void> => {
+  if (agent.runtime !== "managed" || !agent.anthropicAgentId) {
+    return;
+  }
+  await backfillFromGateway(
+    db,
+    agent,
+    await createGateway(db, env, agent.workspaceId)
+  );
 };
 
 /** The router's hook: one agent, at the moment it stops having a session. */

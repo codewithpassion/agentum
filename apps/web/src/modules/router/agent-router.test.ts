@@ -4,7 +4,11 @@ import { readFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { Db } from "#/db/client";
-import { agents } from "#/modules/agents/schema";
+import { agentSessions, agents } from "#/modules/agents/schema";
+import {
+  listAgentSessionRows,
+  recordSessionStart,
+} from "#/modules/agents/session-history";
 
 /**
  * The router Durable Object, one per workspace since phase 5.
@@ -187,6 +191,8 @@ const fakeGateway = () => {
     deleteSession: () => Promise.resolve(),
     ensureEnvironment: () => Promise.resolve("env_1"),
     getSession: () => Promise.resolve("idle" as const),
+    listSessionEvents: () => Promise.resolve({ entries: [], nextCursor: null }),
+    listSessions: () => Promise.resolve([]),
     pollEvents: () => Promise.resolve({ cursor: undefined, events: [] }),
     registerAgent: () =>
       Promise.resolve({ anthropicAgentId: "agt_1", memoryStoreId: null }),
@@ -857,5 +863,104 @@ describe("the Cloudflare runtime", () => {
     expect(
       (await getAgentById(db, alpha.workspaceId, alpha.agentId))?.status
     ).toBe("idle");
+  });
+});
+
+describe("session history", () => {
+  const rows = () =>
+    listAgentSessionRows(db, alpha.workspaceId, alpha.agentId, 10);
+
+  const seedOld = async (store: ReturnType<typeof storage>) => {
+    await register(alpha, null);
+    await store.api.put(WORKSPACE_KEY, alpha.workspaceId);
+    await store.api.put(SESSION_KEY(alpha.agentId), storedSession());
+    await recordSessionStart(db, {
+      agentId: alpha.agentId,
+      anthropicSessionId: "sesn_old",
+      workspaceId: alpha.workspaceId,
+    });
+  };
+
+  test("a new session gets a row, and the one it replaces is closed", async () => {
+    const store = storage();
+    const router = routerFor(store, fakeGateway().gateway);
+    await seedOld(store);
+
+    await router.notifyMessage(notification(alpha));
+    await router.alarm();
+
+    const byId = new Map(
+      (await rows()).map((row) => [row.anthropicSessionId, row])
+    );
+    expect(byId.get("sesn_old")?.endReason).toBe("new_task");
+    expect(byId.get("sesn_old")?.endedAt).not.toBeNull();
+    expect(byId.get("sesn_1")?.endedAt).toBeNull();
+    expect(byId.get("sesn_1")?.model).toBe(AGENT_MODEL);
+    expect(byId.get("sesn_1")?.title).toContain("Researcher");
+  });
+
+  test("retireSession records why, and keeps the first reason", async () => {
+    const store = storage();
+    const router = routerFor(store, fakeGateway().gateway);
+    await seedOld(store);
+
+    await router.retireSession(alpha.agentId, "tools_changed");
+
+    const [row] = await rows();
+    expect(row?.endReason).toBe("tools_changed");
+    expect(row?.endedAt).not.toBeNull();
+  });
+
+  test("the idle TTL closes the row", async () => {
+    const store = storage();
+    const router = routerFor(store, fakeGateway().gateway);
+    await seedOld(store);
+    await store.api.put(SESSION_KEY(alpha.agentId), {
+      ...storedSession(),
+      lastActivityAt: Date.now() - SESSION_IDLE_TTL_MS - 1,
+    });
+
+    await router.alarm();
+
+    expect((await rows())[0]?.endReason).toBe("idle_ttl");
+  });
+
+  test("switchSession makes an earlier session current again", async () => {
+    const store = storage();
+    const router = routerFor(store, fakeGateway().gateway);
+    await seedOld(store);
+    await recordSessionStart(db, {
+      agentId: alpha.agentId,
+      anthropicSessionId: "sesn_past",
+      workspaceId: alpha.workspaceId,
+    });
+    await db
+      .update(agentSessions)
+      .set({ endedAt: new Date(), endReason: "reset" })
+      .where(eq(agentSessions.anthropicSessionId, "sesn_past"));
+
+    await router.switchSession(alpha.agentId, {
+      model: OPUS,
+      sessionId: "sesn_past",
+      status: "idle",
+    });
+
+    const byId = new Map(
+      (await rows()).map((row) => [row.anthropicSessionId, row])
+    );
+    expect(byId.get("sesn_old")?.endReason).toBe("switched");
+    expect(byId.get("sesn_past")?.endedAt).toBeNull();
+    expect(byId.get("sesn_past")?.endReason).toBeNull();
+    const stored = store.values.get(
+      SESSION_KEY(alpha.agentId)
+    ) as StoredSession;
+    expect(stored.sessionId).toBe("sesn_past");
+    expect(stored.model).toBe(OPUS);
+    expect(stored.cursorId).not.toBeNull();
+    const [agent] = await db
+      .select()
+      .from(agents)
+      .where(eq(agents.id, alpha.agentId));
+    expect(agent?.sessionId).toBe("sesn_past");
   });
 });

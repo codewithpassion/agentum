@@ -6,6 +6,7 @@ import { findAgentByMcpToken } from "#/modules/agents/service";
 import type { Workspace } from "#/modules/workspaces/schema";
 import { getWorkspaceById } from "#/modules/workspaces/service";
 import { buildWorkspaceServer } from "./server";
+import { registerSessionTools } from "./session-tools";
 import { agentHasDesktop, registerTakeoverTools } from "./takeover-tools";
 
 /**
@@ -42,6 +43,9 @@ mcpRoutes.all("/:agentToken", async (c) => {
   const transport = new StreamableHTTPTransport({ enableJsonResponse: true });
   const ctx = { agent, db, env: c.env, requestUrl: c.req.url, workspace };
   const server = buildWorkspaceServer(ctx);
+  if (agent.runtime === "managed") {
+    registerSessionTools(server, ctx);
+  }
   if (await agentHasDesktop(db, agent)) {
     registerTakeoverTools(server, ctx);
   }

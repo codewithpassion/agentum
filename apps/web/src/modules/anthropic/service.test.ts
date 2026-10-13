@@ -88,6 +88,8 @@ const fakeGateway = (
     deleteSession: () => Promise.resolve(),
     ensureEnvironment: () => Promise.resolve("env_1"),
     getSession: () => Promise.resolve("idle" as const),
+    listSessionEvents: () => Promise.resolve({ entries: [], nextCursor: null }),
+    listSessions: () => Promise.resolve([]),
     pollEvents: () => Promise.resolve({ cursor: undefined, events: [] }),
     registerAgent: (input) => {
       calls.registered.push(input.name);

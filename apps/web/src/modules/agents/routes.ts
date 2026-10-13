@@ -13,6 +13,7 @@ import { createDb, type Db } from "#/db/client";
 import { isUniqueConstraintError } from "#/db/errors";
 import { AVAILABLE_MODELS, isAvailableModel } from "#/modules/anthropic/config";
 import {
+  backfillSessionHistory,
   resyncRostersWithAnthropic,
   syncAgentWithAnthropic,
 } from "#/modules/anthropic/service";
@@ -49,6 +50,7 @@ import {
   toAgentView,
   updateAgent,
 } from "./service";
+import { createAgentSessionRoutes } from "./session-routes";
 
 const NAME_MAX_LENGTH = 80;
 const PROMPT_MAX_LENGTH = 20_000;
@@ -365,8 +367,12 @@ agentsRoutes.post("/:id/session/reset", requireOwner, async (c) => {
     throw notFound("Agent not found.");
   }
   await syncAgentWithAnthropic(db, c.env, agent.id);
+  // Before the retire: the current session needs a history row to be closed.
+  await backfillSessionHistory(db, c.env, agent);
   return c.json(await retireAgentSession(c.env, workspaceId, agent.id));
 });
+
+agentsRoutes.route("/", createAgentSessionRoutes());
 
 agentsRoutes.delete("/:id", async (c) => {
   const db = createDb(c.env.DB);
