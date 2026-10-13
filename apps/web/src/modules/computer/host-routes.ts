@@ -10,7 +10,7 @@ import {
   requireEnum,
   requireString,
 } from "#/api/validation";
-import { createDb, type Db } from "#/db/client";
+import { createDb } from "#/db/client";
 import { isUniqueConstraintError } from "#/db/errors";
 import { listAgentIdsForComputerHost } from "#/modules/agents/service";
 import { requireOwner } from "#/modules/workspaces/require-workspace";
@@ -29,7 +29,6 @@ import {
   touchHostSeen,
   updateHost,
 } from "./hosts";
-import { onFlyHostTokenRotated } from "./lifecycle";
 import { type PingResult, ping } from "./remote-client";
 import {
   COMPUTER_HOST_KINDS,
@@ -87,7 +86,6 @@ const liveFlyProbe: FlyProbe = async ({ app, token }) => {
 export interface HostRouteDeps {
   flyProbe: FlyProbe;
   /** The rotation's other half: the new hash, pushed to the host's machines. */
-  onTokenRotated: typeof onFlyHostTokenRotated;
   /** Closes the host's live socket once its credential is gone (close 4401). */
   revokeSocket: (env: Env, hostId: string) => Promise<void>;
   transportFor: typeof transportForHost;
@@ -107,17 +105,18 @@ const revokeRelaySocket = async (env: Env, hostId: string): Promise<void> => {
   }
 };
 
-/** Re-enrolling is the self-hosted action; rotating the daemon token is Fly's. */
+/**
+ * A Fly machine takes its enrollment code from its env at creation, and keeps
+ * the credential it redeemed on its volume. Neither can be reissued from here,
+ * so re-enrolling is a self-hosted action.
+ */
 const requireCredentialActionFor = (
   kind: ComputerHostKind,
-  input: { reenroll?: boolean; rotateToken?: boolean }
+  input: { reenroll?: boolean }
 ): void => {
   if (input.reenroll && kind === "fly") {
-    throw badRequest('"reenroll" applies to self-hosted hosts only.');
-  }
-  if (input.rotateToken && kind !== "fly") {
     throw badRequest(
-      '"rotateToken" applies to Fly hosts only. Re-enroll a self-hosted host.'
+      '"reenroll" applies to self-hosted hosts only. A Fly machine enrolls when it is created.'
     );
   }
 };
@@ -262,19 +261,16 @@ const asHttpError = (c: Context<ApiEnv>, error: unknown): Response => {
 };
 
 /**
- * A real `ping` through the host's own transport. A transport that cannot even
- * be built - a missing key, a host with no token stored - is a configuration
- * failure rather than a connection one, but both are the owner's to fix, so
- * both come back as the same refusal.
+ * A real `ping` through the relay. Any failure to get an answer comes back as
+ * the same refusal.
  */
 const pingHost = async (
-  db: Db,
   env: Env,
   host: ComputerHost,
   transportFor: typeof transportForHost
 ): Promise<PingResult> => {
   try {
-    return await ping(await transportFor(db, env, host, null));
+    return await ping(transportFor(env, host));
   } catch (error) {
     return {
       ok: false,
@@ -287,7 +283,6 @@ export const createComputerHostRoutes = (
   deps: Partial<HostRouteDeps> = {}
 ): Hono<ApiEnv> => {
   const flyProbe = deps.flyProbe ?? liveFlyProbe;
-  const onTokenRotated = deps.onTokenRotated ?? onFlyHostTokenRotated;
   const revokeSocket = deps.revokeSocket ?? revokeRelaySocket;
   const transportFor = deps.transportFor ?? transportForHost;
 
@@ -368,7 +363,6 @@ export const createComputerHostRoutes = (
       flyApiToken: parseFlyApiToken(body, existing.kind),
       name: optionalString(body, "name", { maxLength: NAME_MAX_LENGTH }),
       reenroll: optionalBoolean(body, "reenroll"),
-      rotateToken: optionalBoolean(body, "rotateToken"),
     };
     requireCredentialActionFor(existing.kind, input);
 
@@ -382,13 +376,6 @@ export const createComputerHostRoutes = (
       );
       if (!updated) {
         throw notFound("Computer host not found.");
-      }
-      if (input.rotateToken && updated.host.kind === "fly") {
-        // Fly's machines hold the *hash* of the token this server presents, so
-        // a rotation is only finished once every machine has the new one.
-        // Awaited, not backgrounded: until it lands the host's computers refuse
-        // every request, and the owner is standing right here.
-        await onTokenRotated(createDb(c.env.DB), c.env, updated.host);
       }
       if (input.reenroll) {
         // The old credential is already gone from the row; this drops the
@@ -431,7 +418,7 @@ export const createComputerHostRoutes = (
   routes.post("/:id/test", requireOwner, async (c) => {
     const db = createDb(c.env.DB);
     const host = await requireHost(c, c.req.param("id"));
-    const result = await pingHost(db, c.env, host, transportFor);
+    const result = await pingHost(c.env, host, transportFor);
 
     if (result.ok) {
       await setHostStatus(db, host.id, "ready");

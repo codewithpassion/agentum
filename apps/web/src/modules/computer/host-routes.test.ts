@@ -86,8 +86,6 @@ let pingReply: unknown = {
   truncated: false,
 };
 let pingThrows: Error | null = null;
-/** Which hosts had the rotation's other half - the machines' env - run for them. */
-let rotatedHosts: string[] = [];
 /** Which hosts had their live socket revoked. */
 let revokedHosts: string[] = [];
 
@@ -98,23 +96,26 @@ workspaceScopedRoutes.route(
       probedWith.push(input);
       return Promise.resolve(flyProbeAnswer);
     },
-    onTokenRotated: (_db, _env, host) => {
-      rotatedHosts.push(host.id);
-      return Promise.resolve();
-    },
     revokeSocket: (_env, hostId) => {
       revokedHosts.push(hostId);
       return Promise.resolve();
     },
-    transportFor: () =>
-      Promise.resolve({
-        send: (message) => {
-          if (pingThrows) {
-            return Promise.reject(pingThrows);
-          }
-          return Promise.resolve({ id: message.id, result: pingReply });
-        },
-      }),
+    transportFor: () => ({
+      send: (message) => {
+        if (pingThrows) {
+          return Promise.reject(pingThrows);
+        }
+        return Promise.resolve({ id: message.id, result: pingReply });
+      },
+      status: () =>
+        pingThrows
+          ? Promise.reject(pingThrows)
+          : Promise.resolve({
+              connected: true,
+              hostname: "office-box",
+              version: "1.0.0",
+            }),
+    }),
   })
 );
 
@@ -182,7 +183,6 @@ beforeEach(async () => {
   env = { CONNECTOR_KEY: generateConnectorKey(), DB: d1 } as unknown as Env;
   flyProbeAnswer = true;
   probedWith = [];
-  rotatedHosts = [];
   revokedHosts = [];
   pingReply = {
     bytes_total: 0,
@@ -233,15 +233,13 @@ describe("POST /computer-hosts", () => {
     );
   });
 
-  test("a Fly host's daemon token is never handed out", async () => {
+  test("a Fly host shows no code: its machine gets one when it is created", async () => {
     const created = await newFlyHost();
 
     expect(created.response.status).toBe(201);
-    // Agentum is the client on Fly, so it keeps the plaintext encrypted and
-    // the user has nothing to paste anywhere.
     expect(created.body.enrollmentCode).toBeNull();
     const stored = await getHostByIdUnscoped(db, created.body.host.id);
-    expect(stored?.tokenEnc).toBeTruthy();
+    expect(stored?.tokenEnc).toBeNull();
     expect(stored?.tokenHash).toBeNull();
   });
 
@@ -420,64 +418,15 @@ describe("PATCH /computer-hosts/:id", () => {
     ).toBeUndefined();
   });
 
-  test("re-enroll is for self-hosted hosts and rotateToken for Fly", async () => {
+  test("re-enroll is for self-hosted hosts only", async () => {
     const fly = await newFlyHost();
-    const selfHosted = await newSelfHostedHost();
 
-    const [reenrollFly, rotateSelfHosted] = await Promise.all([
-      request(`/api/w/alpha/computer-hosts/${fly.body.host.id}`, {
-        body: { reenroll: true },
-        method: "PATCH",
-      }),
-      request(`/api/w/alpha/computer-hosts/${selfHosted.body.host.id}`, {
-        body: { rotateToken: true },
-        method: "PATCH",
-      }),
-    ]);
+    const response = await request(
+      `/api/w/alpha/computer-hosts/${fly.body.host.id}`,
+      { body: { reenroll: true }, method: "PATCH" }
+    );
 
-    expect([reenrollFly.status, rotateSelfHosted.status]).toEqual([400, 400]);
-  });
-
-  test("rotating a Fly token re-encrypts it and still shows nothing", async () => {
-    const created = await newFlyHost();
-    const before = await getHostByIdUnscoped(db, created.body.host.id);
-
-    const body = (await (
-      await request(`/api/w/alpha/computer-hosts/${created.body.host.id}`, {
-        body: { rotateToken: true },
-        method: "PATCH",
-      })
-    ).json()) as HostBody;
-
-    expect(body.enrollmentCode).toBeNull();
-    const after = await getHostByIdUnscoped(db, created.body.host.id);
-    expect(after?.tokenEnc).toBeTruthy();
-    expect(after?.tokenEnc).not.toBe(before?.tokenEnc);
-    // The machines hold the token's hash, so a rotation that stopped at the
-    // database would leave every computer on this host refusing us.
-    expect(rotatedHosts).toEqual([created.body.host.id]);
-  });
-
-  test("a self-hosted re-enrollment has no machines to update", async () => {
-    const created = await newSelfHostedHost();
-
-    await request(`/api/w/alpha/computer-hosts/${created.body.host.id}`, {
-      body: { reenroll: true },
-      method: "PATCH",
-    });
-
-    expect(rotatedHosts).toEqual([]);
-  });
-
-  test("an edit that is not a rotation leaves the machines alone", async () => {
-    const created = await newFlyHost();
-
-    await request(`/api/w/alpha/computer-hosts/${created.body.host.id}`, {
-      body: { name: "fly-renamed" },
-      method: "PATCH",
-    });
-
-    expect(rotatedHosts).toEqual([]);
+    expect(response.status).toBe(400);
   });
 
   test("the kind is fixed once the host exists", async () => {
@@ -592,7 +541,11 @@ describe("POST /computer-hosts/:id/test", () => {
       version: string | null;
     };
 
-    expect(body).toEqual({ hostname: null, ok: true, version: null });
+    expect(body).toEqual({
+      hostname: "office-box",
+      ok: true,
+      version: "1.0.0",
+    });
     const host = await getHostByIdUnscoped(db, created.body.host.id);
     expect(host?.status).toBe("ready");
     expect(host?.lastSeenAt).toBeInstanceOf(Date);

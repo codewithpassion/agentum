@@ -10,7 +10,7 @@ import type {
 } from "./fly-gateway";
 
 /**
- * Provisioning, teardown and token rotation against a fake Fly. No network:
+ * Provisioning and teardown against a fake Fly. No network:
  * the gateway is injected, which is the whole reason it exists.
  *
  * What is being pinned here is the *order* and the *survivability*: the volume
@@ -23,18 +23,16 @@ mock.module("cloudflare:workers", () => ({ DurableObject: class {} }));
 
 const { createDb } = await import("#/db/client");
 const { generateConnectorKey } = await import("#/crypto");
-const { hashMcpToken } = await import("#/modules/agents/mcp-token");
 const { createAgent, getAgentByIdUnscoped, setAgentComputerRef } = await import(
   "#/modules/agents/service"
 );
 const { createWorkspace } = await import("#/modules/workspaces/service");
-const { createHost, getHostByIdUnscoped, resolveHostToken, updateHost } =
-  await import("./hosts");
-const {
-  onAgentComputerCreated,
-  onAgentComputerDeleted,
-  onFlyHostTokenRotated,
-} = await import("./lifecycle");
+const { createHost, getHostByIdUnscoped, redeemEnrollmentCode } = await import(
+  "./hosts"
+);
+const { onAgentComputerCreated, onAgentComputerDeleted } = await import(
+  "./lifecycle"
+);
 
 const migrationsDir = new URL("../../../drizzle/", import.meta.url);
 
@@ -75,13 +73,8 @@ const createTestD1 = (): D1Database => {
 let trail: string[] = [];
 let volumes: CreateVolumeInput[] = [];
 let machines: CreateMachineInput[] = [];
-let updates: { config: Record<string, unknown>; id: string }[] = [];
 let apiTokens: string[] = [];
 let failOn: string | null = null;
-let machineConfig: Record<string, unknown> | null = {
-  env: { COMPUTERD_MODE: "listen", COMPUTERD_TOKEN_HASH: "old-hash" },
-  image: "ghcr.io/codewithpassion/agentum-computerd:latest",
-};
 
 const refuse = (what: string) => {
   if (failOn === what) {
@@ -119,25 +112,20 @@ const fakeGateway = (apiToken: string): FlyGateway => {
       return Promise.resolve();
     },
     getApp: () => Promise.resolve({ name: "agentum-computers", status: "ok" }),
-    getMachine: (_app, id) => {
-      trail.push(`getMachine:${id}`);
-      refuse("read the machine");
-      return Promise.resolve({ config: machineConfig, id, state: "stopped" });
+    getMachine: (_app, id) =>
+      Promise.resolve({ config: null, id, state: "stopped" }),
+    startMachine: (_app, id) => {
+      trail.push(`startMachine:${id}`);
+      refuse("start the machine");
+      return Promise.resolve();
     },
     stopMachine: (_app, id) => {
       trail.push(`stopMachine:${id}`);
       refuse("stop the machine");
       return Promise.resolve();
     },
-    updateMachine: (_app, id, config) => {
-      trail.push(`updateMachine:${id}`);
-      refuse("update the machine");
-      updates.push({
-        config: config as unknown as Record<string, unknown>,
-        id,
-      });
-      return Promise.resolve({ config: null, id, state: "started" });
-    },
+    updateMachine: (_app, id) =>
+      Promise.resolve({ config: null, id, state: "started" }),
   };
 };
 
@@ -151,14 +139,13 @@ beforeEach(async () => {
   trail = [];
   volumes = [];
   machines = [];
-  updates = [];
   apiTokens = [];
   failOn = null;
-  machineConfig = {
-    env: { COMPUTERD_MODE: "listen", COMPUTERD_TOKEN_HASH: "old-hash" },
-    image: "ghcr.io/codewithpassion/agentum-computerd:latest",
-  };
-  env = { CONNECTOR_KEY: generateConnectorKey(), DB: d1 } as unknown as Env;
+  env = {
+    CONNECTOR_KEY: generateConnectorKey(),
+    DB: d1,
+    PUBLIC_APP_URL: "https://agentum.example.com",
+  } as unknown as Env;
 
   const workspace = await createWorkspace(db, {
     name: "Alpha",
@@ -218,7 +205,7 @@ describe("provisioning a Fly computer", () => {
       sizeGb: 20,
     });
     expect(machines[0]?.config.mounts).toEqual([
-      { path: "/home/agent", volume: "vol-1" },
+      { path: "/var/lib/agentum-computer", volume: "vol-1" },
     ]);
     expect(machines[0]?.region).toBe("ams");
     expect(await refOf(agent.id)).toEqual({
@@ -227,50 +214,75 @@ describe("provisioning a Fly computer", () => {
     });
   });
 
-  test("the machine is given the hash of the host's daemon token", async () => {
+  test("the machine connects out with the server URL and an enrollment code", async () => {
     const host = await newFlyHost();
     const agent = await newAgent({ computer: "fly", hostId: host.id });
 
     await onAgentComputerCreated(db, env, agent, fakeGateway);
 
-    const expected = await hashMcpToken(await resolveHostToken(db, env, host));
-    expect(machines[0]?.config.env).toEqual({
-      COMPUTERD_MODE: "listen",
-      COMPUTERD_TOKEN_HASH: expected,
-    });
-    // The plaintext is this server's to hold, and never the machine's.
-    expect(JSON.stringify(machines[0])).not.toContain(
-      await resolveHostToken(db, env, host)
+    const machineEnv = machines[0]?.config.env;
+    expect(Object.keys(machineEnv ?? {}).sort()).toEqual([
+      "AGENTUM_ENROLL_CODE",
+      "AGENTUM_URL",
+    ]);
+    expect(machineEnv?.AGENTUM_URL).toBe("https://agentum.example.com");
+    // The code the machine was given is a live one for this host.
+    const redeemed = await redeemEnrollmentCode(
+      db,
+      machineEnv?.AGENTUM_ENROLL_CODE ?? ""
     );
+    expect(redeemed?.host.id).toBe(host.id);
   });
 
-  test("the machine is published on 443 and left to Fly to start and stop", async () => {
+  test("the code outlives the 15 minutes a pasted one gets", async () => {
+    const host = await newFlyHost();
+    const agent = await newAgent({ computer: "fly", hostId: host.id });
+    const before = Date.now();
+
+    await onAgentComputerCreated(db, env, agent, fakeGateway);
+
+    const rows = (await env.DB.prepare(
+      "SELECT expires_at FROM computer_enrollments WHERE host_id = ?"
+    )
+      .bind(host.id)
+      .raw()) as number[][];
+    const day = 24 * 60 * 60 * 1000;
+    expect((rows[0]?.[0] ?? 0) - before).toBeGreaterThan(day - 60_000);
+  });
+
+  test("the machine has no service for Fly to autostop, and restarts if the client exits", async () => {
     const host = await newFlyHost();
     const agent = await newAgent({ computer: "fly", hostId: host.id });
 
     await onAgentComputerCreated(db, env, agent, fakeGateway);
 
-    expect(machines[0]?.config.services).toEqual([
-      {
-        autostart: true,
-        autostop: "stop",
-        internal_port: 8080,
-        ports: [{ handlers: ["tls", "http"], port: 443 }],
-        protocol: "tcp",
-      },
-    ]);
+    expect(machines[0]?.config.services).toBeUndefined();
+    expect(machines[0]?.config.restart).toEqual({ policy: "always" });
+  });
+
+  test("without PUBLIC_APP_URL nothing is created and the host says why", async () => {
+    env = { ...env, PUBLIC_APP_URL: "" } as unknown as Env;
+    const host = await newFlyHost();
+    const agent = await newAgent({ computer: "fly", hostId: host.id });
+
+    await onAgentComputerCreated(db, env, agent, fakeGateway);
+
+    expect(trail).toEqual([]);
+    expect((await statusOf(host.id)).error).toContain("PUBLIC_APP_URL");
   });
 
   test("the host's image and instance size win over the defaults", async () => {
     const host = await newFlyHost({
-      image: "ghcr.io/acme/computerd:pinned",
+      image: "ghcr.io/acme/agentum-computer:pinned",
       instance: { cpus: 4, memory_mb: 2048 },
     });
     const agent = await newAgent({ computer: "fly", hostId: host.id });
 
     await onAgentComputerCreated(db, env, agent, fakeGateway);
 
-    expect(machines[0]?.config.image).toBe("ghcr.io/acme/computerd:pinned");
+    expect(machines[0]?.config.image).toBe(
+      "ghcr.io/acme/agentum-computer:pinned"
+    );
     expect(machines[0]?.config.guest).toEqual({
       cpu_kind: "shared",
       cpus: 4,
@@ -285,7 +297,7 @@ describe("provisioning a Fly computer", () => {
     await onAgentComputerCreated(db, env, agent, fakeGateway);
 
     expect(machines[0]?.config.image).toBe(
-      "ghcr.io/codewithpassion/agentum-computerd:latest"
+      "ghcr.io/codewithpassion/agentum-computer:latest"
     );
     expect(machines[0]?.config.guest).toEqual({
       cpu_kind: "shared",
@@ -451,95 +463,6 @@ describe("tearing a Fly computer down", () => {
     const agent = await newAgent({ computer: "self_hosted", hostId: host.id });
 
     await onAgentComputerDeleted(db, env, agent, fakeGateway);
-
-    expect(trail).toEqual([]);
-  });
-});
-
-describe("rotating a Fly host's token", () => {
-  test("pushes the new hash into every machine's env", async () => {
-    const host = await newFlyHost();
-    const first = await newAgent({ computer: "fly", hostId: host.id });
-    const second = await newAgent({ computer: "fly", hostId: host.id });
-    await onAgentComputerCreated(db, env, first, fakeGateway);
-    await setAgentComputerRef(db, first.id, {
-      machineId: "m-first",
-      volumeId: "vol-1",
-    });
-    await onAgentComputerCreated(db, env, second, fakeGateway);
-    await setAgentComputerRef(db, second.id, {
-      machineId: "m-second",
-      volumeId: "vol-2",
-    });
-
-    const rotated = await updateHost(db, env, workspaceId, host.id, {
-      rotateToken: true,
-    });
-    await onFlyHostTokenRotated(db, env, rotated?.host ?? host, fakeGateway);
-
-    const expected = await hashMcpToken(await resolveHostToken(db, env, host));
-    expect(updates.map((update) => update.id).sort()).toEqual([
-      "m-first",
-      "m-second",
-    ]);
-    expect(updates.map((update) => update.config.env)).toEqual([
-      { COMPUTERD_MODE: "listen", COMPUTERD_TOKEN_HASH: expected },
-      { COMPUTERD_MODE: "listen", COMPUTERD_TOKEN_HASH: expected },
-    ]);
-  });
-
-  test("the rest of the machine's config survives the round trip", async () => {
-    machineConfig = {
-      env: { COMPUTERD_MODE: "listen", COMPUTERD_TOKEN_HASH: "old-hash" },
-      image: "ghcr.io/acme/computerd:pinned",
-      mounts: [{ path: "/home/agent", volume: "vol-1" }],
-      restart: { policy: "always" },
-    };
-    const host = await newFlyHost();
-    const agent = await newAgent({ computer: "fly", hostId: host.id });
-    await setAgentComputerRef(db, agent.id, { machineId: "m-1" });
-
-    await onFlyHostTokenRotated(db, env, host, fakeGateway);
-
-    expect(updates[0]?.config.image).toBe("ghcr.io/acme/computerd:pinned");
-    expect(updates[0]?.config.mounts).toEqual([
-      { path: "/home/agent", volume: "vol-1" },
-    ]);
-    expect(updates[0]?.config.restart).toEqual({ policy: "always" });
-    expect(updates[0]?.config.env).toMatchObject({ COMPUTERD_MODE: "listen" });
-  });
-
-  test("an agent with no machine yet is skipped, not failed", async () => {
-    const host = await newFlyHost();
-    await newAgent({ computer: "fly", hostId: host.id });
-
-    await onFlyHostTokenRotated(db, env, host, fakeGateway);
-
-    expect(trail).toEqual([]);
-    expect((await statusOf(host.id)).status).not.toBe("error");
-  });
-
-  test("a machine Fly would not update leaves the reason on the host", async () => {
-    const host = await newFlyHost();
-    const agent = await newAgent({ computer: "fly", hostId: host.id });
-    await setAgentComputerRef(db, agent.id, { machineId: "m-1" });
-    failOn = "update the machine";
-
-    await onFlyHostTokenRotated(db, env, host, fakeGateway);
-
-    const { error, status } = await statusOf(host.id);
-    expect(status).toBe("error");
-    expect(error).toContain("did not reach");
-  });
-
-  test("a self-hosted host has no machines to update", async () => {
-    const { host } = await createHost(db, env, workspaceId, {
-      config: {},
-      kind: "self_hosted",
-      name: "office-box",
-    });
-
-    await onFlyHostTokenRotated(db, env, host, fakeGateway);
 
     expect(trail).toEqual([]);
   });

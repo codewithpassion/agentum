@@ -2,11 +2,12 @@ import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { Db } from "#/db/client";
+import type { FlyGateway } from "./fly-gateway";
 
 /**
  * The dispatcher: which backend an agent's computer resolves to, decided by
- * `agent.computer` alone. What proves the choice is which of the three fakes
- * below was called - the Durable Object, the relay, or the Fly transport.
+ * `agent.computer` alone. What proves the choice is which fake
+ * below was called - the Durable Object or the relay.
  */
 
 mock.module("cloudflare:workers", () => ({ DurableObject: class {} }));
@@ -65,6 +66,9 @@ let workspaceId: string;
 let execCalls: string[];
 let writeCalls: { content: string | Uint8Array; path: string }[];
 let relayCalls: Record<string, unknown>[];
+/** Whether the relay reports the client as connected; tests flip it. */
+let relayConnected: () => boolean;
+let relayOnline: boolean;
 
 beforeEach(async () => {
   const d1 = createTestD1();
@@ -72,6 +76,8 @@ beforeEach(async () => {
   execCalls = [];
   writeCalls = [];
   relayCalls = [];
+  relayOnline = false;
+  relayConnected = () => relayOnline;
   env = {
     AGENT_COMPUTER: {
       get: () => ({
@@ -97,12 +103,25 @@ beforeEach(async () => {
       get: () => ({
         request: (message: Record<string, unknown>) => {
           relayCalls.push(message);
+          if (relayConnected()) {
+            return Promise.resolve({
+              ok: true,
+              result_json: JSON.stringify({
+                bytes_total: 2,
+                duration_ms: 1,
+                exit_code: 0,
+                stderr: "",
+                stdout: "hi",
+                truncated: false,
+              }),
+            });
+          }
           return Promise.reject(new Error(RELAY_OFFLINE));
         },
         status: () =>
           Promise.resolve({
             capabilities: null,
-            connected: false,
+            connected: relayConnected(),
             hostname: null,
             version: null,
             workdir: "/var/lib/agentum-computer/sessions",
@@ -178,47 +197,121 @@ describe("createComputerClient", () => {
     expect(result.ok === false && result.reason).toBe(RELAY_OFFLINE);
   });
 
-  test("a fly agent's files are refused until Fly moves to the relay", async () => {
-    const { host } = await createHost(db, env, workspaceId, {
-      config: { app: "agentum-computers" },
-      flyApiToken: "fly_api_token",
-      kind: "fly",
-      name: "fly-eu",
-    });
-    const agent = await newAgent({ computer: "fly", hostId: host.id });
-    await db.run(
-      `update agents set computer_ref = '{"machineId":"m-1"}' where id = '${agent.id}'`
-    );
+  describe("a fly agent", () => {
+    let started: string[];
+    let connectAfterStart: boolean;
+    let sleeps: number;
 
-    // The transport's `fetch` is the global one when nothing injects it, so it
-    // is replaced here: nothing in this suite may reach a network.
-    const realFetch = globalThis.fetch;
-    const calledWith: string[] = [];
-    globalThis.fetch = ((url: string, init: RequestInit) => {
-      calledWith.push(String(url));
-      const message = JSON.parse(String(init.body)) as { id: string };
-      return Promise.resolve(
-        Response.json({
-          id: message.id,
-          result: { exitCode: 0, ok: true, stderr: "", stdout: "from fly" },
-        })
-      );
-    }) as unknown as typeof fetch;
-
-    try {
-      const result = await (await createComputerClient(db, env, agent.id)).exec(
-        "ls"
-      );
-
-      expect(execCalls).toEqual([]);
-      expect(calledWith).toEqual([]);
-      expect(result).toEqual({
-        ok: false,
-        reason: expect.stringContaining("not available yet"),
+    const flyAgent = async () => {
+      const { host } = await createHost(db, env, workspaceId, {
+        config: { app: "agentum-computers" },
+        flyApiToken: "fly_api_token",
+        kind: "fly",
+        name: "fly-eu",
       });
-    } finally {
-      globalThis.fetch = realFetch;
-    }
+      const agent = await newAgent({ computer: "fly", hostId: host.id });
+      await db.run(
+        `update agents set computer_ref = '{"machineId":"m-1"}' where id = '${agent.id}'`
+      );
+      return agent;
+    };
+
+    const clientFor = (agentId: string, timeoutMs = 45_000) =>
+      createComputerClient(db, env, agentId, {
+        createFlyGateway: () =>
+          ({
+            startMachine: (_app: string, id: string) => {
+              started.push(id);
+              return Promise.resolve();
+            },
+          }) as unknown as FlyGateway,
+        wake: {
+          pollMs: 1000,
+          sleep: () => {
+            sleeps += 1;
+            // The client dials in a few polls after the machine boots.
+            if (sleeps === 3 && connectAfterStart) {
+              relayOnline = true;
+            }
+            return Promise.resolve();
+          },
+          timeoutMs,
+        },
+      });
+
+    beforeEach(() => {
+      started = [];
+      connectAfterStart = true;
+      sleeps = 0;
+    });
+
+    test("goes through the relay, never Fly's HTTP proxy", async () => {
+      relayOnline = true;
+      const realFetch = globalThis.fetch;
+      let fetched = 0;
+      globalThis.fetch = (() => {
+        fetched += 1;
+        return Promise.reject(new Error("no network in tests"));
+      }) as unknown as typeof fetch;
+      try {
+        const agent = await flyAgent();
+        const result = await (await clientFor(agent.id)).exec("ls");
+
+        expect(result.ok).toBe(true);
+        expect(execCalls).toEqual([]);
+        expect(fetched).toBe(0);
+        expect(relayCalls.map((message) => message.op)).toContain("exec");
+        // Already connected: nothing to wake.
+        expect(started).toEqual([]);
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
+
+    test("starts a machine whose client is not connected, waits for it, then sends", async () => {
+      const agent = await flyAgent();
+
+      const result = await (await clientFor(agent.id)).exec("ls");
+
+      expect(started).toEqual(["m-1"]);
+      expect(sleeps).toBe(3);
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.stdout).toBe("hi");
+      expect(relayCalls.map((message) => message.op)).toContain("exec");
+    });
+
+    test("tells the agent when the machine never connects, and sends nothing", async () => {
+      connectAfterStart = false;
+      const agent = await flyAgent();
+
+      const result = await (await clientFor(agent.id, 5000)).exec("ls");
+
+      expect(started).toEqual(["m-1"]);
+      expect(sleeps).toBe(5);
+      expect(relayCalls).toEqual([]);
+      expect(result.ok).toBe(false);
+      expect(result.ok === false && result.reason).toContain(
+        "did not come online within 5 seconds"
+      );
+    });
+
+    test("a start Fly refuses is named in the timeout, not thrown", async () => {
+      connectAfterStart = false;
+      const agent = await flyAgent();
+      const client = await createComputerClient(db, env, agent.id, {
+        createFlyGateway: () =>
+          ({
+            startMachine: () => Promise.reject(new Error("machine is gone")),
+          }) as unknown as FlyGateway,
+        wake: { pollMs: 1000, sleep: () => Promise.resolve(), timeoutMs: 2000 },
+      });
+
+      const result = await client.exec("ls");
+
+      expect(result.ok === false && result.reason).toContain(
+        "starting it failed: machine is gone"
+      );
+    });
   });
 
   test("a fly agent with no machine yet says so, rather than failing obscurely", async () => {

@@ -188,21 +188,11 @@ export function ComputerHostDetail({
     setNote(null);
     setEnrollCode(null);
     run(async () => {
-      // Fly hosts hold their own token and never enroll; they rotate it.
-      if (host.kind === "fly") {
-        await api.updateComputerHost(host.id, { rotateToken: true });
-        setNote(
-          "Rotated. Fly machines pick up the new token on the next call."
-        );
-      } else {
-        const issued = await api.updateComputerHost(host.id, {
-          reenroll: true,
-        });
-        setEnrollCode(issued.enrollmentCode);
-      }
+      const issued = await api.updateComputerHost(host.id, { reenroll: true });
+      setEnrollCode(issued.enrollmentCode);
       await onChanged();
     });
-  }, [api, host.id, host.kind, onChanged, run]);
+  }, [api, host.id, onChanged, run]);
 
   const askRemove = useCallback(() => setRemoveOpen(true), []);
   const cancelRemove = useCallback(() => setRemoveOpen(false), []);
@@ -227,9 +217,11 @@ export function ComputerHostDetail({
             <Button disabled={busy} onClick={test}>
               Test connection
             </Button>
-            <Button disabled={busy} onClick={reenroll}>
-              {host.kind === "fly" ? "Rotate token" : "Re-enroll"}
-            </Button>
+            {host.kind === "self_hosted" ? (
+              <Button disabled={busy} onClick={reenroll}>
+                Re-enroll
+              </Button>
+            ) : null}
             <Button
               disabled={busy || removalBlock !== null}
               onClick={askRemove}

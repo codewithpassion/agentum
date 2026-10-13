@@ -23,8 +23,7 @@ install -m 0755 agentum-computer_linux_amd64 /usr/local/bin/agentum-computer
 ```
 
 Artifacts are named `agentum-computer_<os>_<arch>` with os in `linux`, `darwin` and arch in
-`amd64`, `arm64`, beside a `SHA256SUMS` covering all four. The server's `/install.sh`
-one-liner fetches the same names and verifies the same file.
+`amd64`, `arm64`, beside a `SHA256SUMS` covering all four.
 
 Builds are static, with no runtime to install: `linux/amd64`, `linux/arm64`, `darwin/amd64`
 and `darwin/arm64`. Windows is not supported.
@@ -141,9 +140,9 @@ Chromium's sandbox self-test passes. Otherwise it sends `desktop: false` and a r
 display, and gives commands no `DISPLAY`. Chromium's sandbox is never switched off.
 
 On bare metal the desktop is supported on Debian only. It needs Xvfb, openbox, xterm, Chromium,
-xdotool and xclip (`sudo apt-get install -y xvfb openbox xterm chromium xdotool xclip`), and
-`install.sh --desktop` checks for them. It refuses Ubuntu's chromium, which is a snap whose
-confinement keeps it away from the cookie and the profile. The `chromium` wrapper and the
+xdotool and xclip (`sudo apt-get install -y xvfb openbox xterm chromium xdotool xclip`). Ubuntu's
+chromium does not work, because it is a snap whose confinement keeps it away from the cookie and
+the profile. The `chromium` wrapper and the
 password-manager policy described below ship only in the desktop image: installing them on a host
 would change the browser for every user of that machine, so on bare metal `chromium` is Debian's
 own, with its usual profile in the run-as user's home.

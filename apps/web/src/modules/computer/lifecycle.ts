@@ -1,11 +1,6 @@
 import type { Db } from "#/db/client";
-import { hashMcpToken } from "#/modules/agents/mcp-token";
 import type { Agent } from "#/modules/agents/schema";
-import {
-  getAgentByIdUnscoped,
-  listAgentIdsForComputerHost,
-  setAgentComputerRef,
-} from "#/modules/agents/service";
+import { setAgentComputerRef } from "#/modules/agents/service";
 import {
   createFlyGateway,
   type FlyGateway,
@@ -13,9 +8,10 @@ import {
   type FlyMachineConfig,
 } from "./fly-gateway";
 import {
+  FLY_ENROLLMENT_CODE_TTL_MS,
   getHostByIdUnscoped,
+  issueEnrollmentCode,
   resolveFlyApiToken,
-  resolveHostToken,
   setHostStatus,
 } from "./hosts";
 import type { ComputerHost } from "./schema";
@@ -38,17 +34,19 @@ import type { ComputerHost } from "./schema";
  * documentation; see `fly-gateway.ts`.
  */
 
-/** Where the volume is mounted, and the root the daemon serves paths from. */
-const COMPUTER_ROOT = "/home/agent";
+/**
+ * Where the volume is mounted: the client's state dir, which holds its
+ * credential and, by default, the per-agent session directories (the client's
+ * workdir defaults to `<state-dir>/sessions`), so both survive a restart.
+ */
+const COMPUTER_STATE_DIR = "/var/lib/agentum-computer";
 
 /** The image the plan ships; a host may name its own. */
-const DEFAULT_IMAGE = "ghcr.io/codewithpassion/agentum-computerd:latest";
+const DEFAULT_IMAGE = "ghcr.io/codewithpassion/agentum-computer:latest";
 
 const DEFAULT_VOLUME_GB = 10;
 const DEFAULT_CPUS = 1;
 const DEFAULT_MEMORY_MB = 512;
-const DAEMON_PORT = 8080;
-const HTTPS_PORT = 443;
 
 /**
  * Fly volume names are short and alphanumeric, so the agent's UUID is stripped
@@ -68,22 +66,24 @@ const machineNameFor = (agentId: string): string =>
   `agent-${idSuffix(agentId)}`;
 
 /**
- * The machine the plan describes (§5): the computerd image in listen mode, the
- * agent's volume on `/home/agent`, and one service on 443 that Fly's proxy
- * starts on the first request and stops again when the agent goes idle - which
- * is why nothing in the hot path ever calls start or stop.
+ * The machine: the client image in connect mode, the agent's volume on its
+ * state dir, and nothing else. No service and no port, because the client dials
+ * out to the relay. With no service there is no Fly proxy to autostop it, so it
+ * stays up until something stops it; `restart: always` brings it back if the
+ * client exits.
  *
- * The daemon is given the token's *hash*: it compares what each caller presents
- * against it, and never holds the plaintext.
+ * The enrollment code is only read on the first boot. Once the credential is on
+ * the volume the client ignores it, so the same env serves every restart.
  */
 const machineConfigFor = (
   host: ComputerHost,
   volumeId: string,
-  tokenHash: string
+  appUrl: string,
+  enrollCode: string
 ): FlyMachineConfig => ({
   env: {
-    COMPUTERD_MODE: "listen",
-    COMPUTERD_TOKEN_HASH: tokenHash,
+    AGENTUM_ENROLL_CODE: enrollCode,
+    AGENTUM_URL: appUrl,
   },
   guest: {
     cpu_kind: "shared",
@@ -91,16 +91,8 @@ const machineConfigFor = (
     memory_mb: host.config.instance?.memory_mb ?? DEFAULT_MEMORY_MB,
   },
   image: host.config.image ?? DEFAULT_IMAGE,
-  mounts: [{ path: COMPUTER_ROOT, volume: volumeId }],
-  services: [
-    {
-      autostart: true,
-      autostop: "stop",
-      internal_port: DAEMON_PORT,
-      ports: [{ handlers: ["tls", "http"], port: HTTPS_PORT }],
-      protocol: "tcp",
-    },
-  ],
+  mounts: [{ path: COMPUTER_STATE_DIR, volume: volumeId }],
+  restart: { policy: "always" },
 });
 
 const messageOf = (error: unknown): string =>
@@ -158,7 +150,11 @@ const provisionFlyComputer = async (
   context: FlyContext
 ): Promise<void> => {
   const { app, gateway, host } = context;
-  const tokenHash = await hashMcpToken(await resolveHostToken(db, env, host));
+  if (!env.PUBLIC_APP_URL) {
+    throw new Error(
+      "PUBLIC_APP_URL is not set, so the machine would not know where to connect."
+    );
+  }
 
   const volume = await gateway.createVolume(app, {
     name: volumeNameFor(agent.id),
@@ -167,8 +163,15 @@ const provisionFlyComputer = async (
   });
   await setAgentComputerRef(db, agent.id, { volumeId: volume.id });
 
+  // Minted after the volume, so a failed volume leaves no code behind. 24 h,
+  // not 15 min: the machine redeems it whenever it first boots.
+  const enrollCode = await issueEnrollmentCode(
+    db,
+    host,
+    FLY_ENROLLMENT_CODE_TTL_MS
+  );
   const machine = await gateway.createMachine(app, {
-    config: machineConfigFor(host, volume.id, tokenHash),
+    config: machineConfigFor(host, volume.id, env.PUBLIC_APP_URL, enrollCode),
     name: machineNameFor(agent.id),
     ...(host.config.region === undefined ? {} : { region: host.config.region }),
   });
@@ -311,99 +314,6 @@ export const onAgentComputerDeleted = async (
       host.id,
       "error",
       `"${agent.name}" was deleted, but Fly would not ${failures.join(", nor ")}. Remove them in the Fly dashboard.`
-    );
-  }
-};
-
-/**
- * A machine's config with one env var replaced. The rest is sent back exactly
- * as Fly handed it over: an update replaces the whole config, so anything
- * dropped here would be dropped from the machine.
- */
-const withTokenHash = (
-  config: Record<string, unknown> | null,
-  tokenHash: string
-): FlyMachineConfig => {
-  if (!config) {
-    throw new Error("Fly did not return the machine's current configuration.");
-  }
-  if (typeof config.image !== "string") {
-    throw new Error("Fly did not return the machine's image.");
-  }
-  const env =
-    typeof config.env === "object" && config.env !== null ? config.env : {};
-  // Cast rather than rebuilt: a machine config has fields this app does not
-  // model, and every one of them has to survive the round trip.
-  return {
-    ...config,
-    env: { ...env, COMPUTERD_TOKEN_HASH: tokenHash },
-    image: config.image,
-  } as unknown as FlyMachineConfig;
-};
-
-const updateMachineToken = async (
-  db: Db,
-  context: FlyContext,
-  agentId: string,
-  tokenHash: string
-): Promise<void> => {
-  const agent = await getAgentByIdUnscoped(db, agentId);
-  const machineId = agent?.computerRef?.machineId;
-  if (!machineId) {
-    // Nothing was provisioned for this agent, so there is nothing holding the
-    // old hash either.
-    return;
-  }
-  const machine = await context.gateway.getMachine(context.app, machineId);
-  await context.gateway.updateMachine(
-    context.app,
-    machineId,
-    withTokenHash(machine.config, tokenHash)
-  );
-};
-
-/**
- * A rotated Fly host token, pushed to every machine on the host. Until this
- * runs, the machines still check against the old hash and every request this
- * server makes with the new token would be refused - so the rotation is only
- * really finished here.
- *
- * Best-effort like the rest of this file: a machine that could not be updated
- * is named on the host's status rather than failing the owner's rotation.
- */
-export const onFlyHostTokenRotated = async (
-  db: Db,
-  env: Env,
-  host: ComputerHost,
-  createGateway: FlyGatewayFactory = createFlyGateway
-): Promise<void> => {
-  if (host.kind !== "fly") {
-    return;
-  }
-  try {
-    const context = await flyContextFor(env, host, createGateway);
-    const tokenHash = await hashMcpToken(await resolveHostToken(db, env, host));
-    const agentIds = await listAgentIdsForComputerHost(db, host.id);
-    const outcomes = await Promise.allSettled(
-      agentIds.map((agentId) =>
-        updateMachineToken(db, context, agentId, tokenHash)
-      )
-    );
-    const failed = outcomes.filter((outcome) => outcome.status === "rejected");
-    if (failed.length > 0) {
-      await setHostStatus(
-        db,
-        host.id,
-        "error",
-        `The new token did not reach ${failed.length} of this host's ${agentIds.length} machines: ${messageOf(failed[0]?.reason)}`
-      );
-    }
-  } catch (error) {
-    await setHostStatus(
-      db,
-      host.id,
-      "error",
-      `The new token did not reach this host's machines: ${messageOf(error)}`
     );
   }
 };

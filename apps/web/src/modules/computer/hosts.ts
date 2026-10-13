@@ -21,21 +21,27 @@ import {
 } from "./schema";
 
 /**
- * Computer hosts: creating them, describing them, and - in the one function
- * allowed to decrypt it - resolving the token a Fly host's transport presents.
+ * Computer hosts: creating them and describing them.
  *
  * Every credential here is write-only from the outside. A self-hosted client
  * gets an enrollment code once, in the create or re-enroll response, and trades
  * it for a machine credential at `POST /api/computer-hosts/enroll`; only
- * SHA-256 hashes of either are stored. The Fly daemon token is never shown at
- * all, because Agentum is the side that presents it; the Fly API token comes
- * back as four characters. Nothing here logs any of them, and nothing here puts
+ * SHA-256 hashes of either are stored. A Fly machine gets its code in its env
+ * when the machine is created. The Fly API token comes back as four
+ * characters. Nothing here logs any of them, and nothing here puts
  * one in an error message.
  */
 
 const HINT_LENGTH = 4;
 /** How long an enrollment code stays redeemable. */
 export const ENROLLMENT_CODE_TTL_MS = 15 * 60 * 1000;
+/**
+ * A Fly code is minted when the machine is created and redeemed whenever the
+ * machine first boots, which is not under a person's eye the way a pasted
+ * `docker run` is. A day is long enough for any boot or retry, and the code is
+ * single-use, so the longer window costs little.
+ */
+export const FLY_ENROLLMENT_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** Everything a client may know about a host: never a hash or a ciphertext. */
 export interface HostView {
@@ -184,29 +190,13 @@ export interface CreateHostInput {
 
 /**
  * The plaintext enrollment code, and the only moment it exists - for a
- * self-hosted host. A Fly host's token is stored encrypted and never handed
- * out, so `enrollmentCode` is null there and the client has nothing to show.
+ * self-hosted host. A Fly host's code is minted later, when a machine is
+ * created, so `enrollmentCode` is null there and the client has nothing to show.
  */
 export interface IssuedHost {
   enrollmentCode: string | null;
   host: ComputerHost;
 }
-
-/**
- * Fly machines are dialled *out* to, so Agentum keeps the daemon token
- * plaintext-under-encryption and presents it. Self-hosted clients dial in with
- * a machine credential minted at enrollment, so nothing is stored for them
- * until then.
- */
-const flyTokenColumns = async (
-  env: Env,
-  kind: ComputerHostKind
-): Promise<{ tokenEnc: string | null }> => ({
-  tokenEnc:
-    kind === "fly"
-      ? await encryptSecret(requireConnectorKey(env), generateMcpToken())
-      : null,
-});
 
 const flyApiTokenColumns = async (
   env: Env,
@@ -223,7 +213,8 @@ const flyApiTokenColumns = async (
  */
 export const issueEnrollmentCode = async (
   db: Db,
-  host: Pick<ComputerHost, "id" | "workspaceId">
+  host: Pick<ComputerHost, "id" | "workspaceId">,
+  ttlMs: number = ENROLLMENT_CODE_TTL_MS
 ): Promise<string> => {
   const code = generateMcpToken();
   await db
@@ -236,7 +227,7 @@ export const issueEnrollmentCode = async (
     );
   await db.insert(computerEnrollments).values({
     codeHash: await hashMcpToken(code),
-    expiresAt: new Date(Date.now() + ENROLLMENT_CODE_TTL_MS),
+    expiresAt: new Date(Date.now() + ttlMs),
     hostId: host.id,
     id: crypto.randomUUID(),
     workspaceId: host.workspaceId,
@@ -308,7 +299,6 @@ export const createHost = async (
       kind: input.kind,
       name: input.name,
       workspaceId,
-      ...(await flyTokenColumns(env, input.kind)),
       ...(input.flyApiToken
         ? await flyApiTokenColumns(env, input.flyApiToken)
         : {}),
@@ -333,18 +323,13 @@ export interface UpdateHostInput {
    * code, returned once. The client stays disconnected until it enrolls again.
    */
   reenroll?: boolean;
-  /**
-   * Fly only: re-encrypts a fresh daemon token; the machines' env has to be
-   * updated with the new hash (track 3).
-   */
-  rotateToken?: boolean;
 }
 
 /**
  * `updatedAt` is written explicitly: the column default fires on insert only,
  * and every edit here has to move the date the settings page shows.
  *
- * A re-enrollment or rotation puts the host back to `unconfigured` - the old
+ * A re-enrollment puts the host back to `unconfigured` - the old
  * credential is gone and nothing has proved the new one works yet, which is
  * exactly what the status is for.
  */
@@ -360,10 +345,6 @@ export const updateHost = async (
     return;
   }
 
-  const rotated = input.rotateToken
-    ? await flyTokenColumns(env, existing.kind)
-    : null;
-
   const [host] = await db
     .update(computerHosts)
     .set({
@@ -372,9 +353,6 @@ export const updateHost = async (
       ...(input.name === undefined ? {} : { name: input.name }),
       ...(input.flyApiToken
         ? await flyApiTokenColumns(env, input.flyApiToken)
-        : {}),
-      ...(rotated
-        ? { status: "unconfigured" as const, statusError: null, ...rotated }
         : {}),
       ...(input.reenroll
         ? {
@@ -471,39 +449,8 @@ export const setHostHello = async (
 };
 
 /**
- * The only place a Fly host's daemon token is decrypted, and the reason
- * `token_enc` exists at all: the HTTP transport is the client, so it has to
- * present the plaintext on every request.
- *
- * Self-hosted hosts never reach this - the daemon holds their plaintext and we
- * hold only the hash - so asking for one is a programming error, not a
- * configuration one.
- */
-export const resolveHostToken = async (
-  db: Db,
-  env: Env,
-  host: ComputerHost
-): Promise<string> => {
-  if (host.kind !== "fly") {
-    throw new Error(
-      `Host ${host.id} is ${host.kind}: its daemon token is never held in plaintext here.`
-    );
-  }
-  // Re-read rather than trusting the row the caller is holding: a rotation
-  // between that read and this one would otherwise present the retired token.
-  const current = (await getHostByIdUnscoped(db, host.id)) ?? host;
-  if (!current.tokenEnc) {
-    throw new Error(
-      `Host ${host.id} has no daemon token stored. Rotate the host's token to issue one.`
-    );
-  }
-  return await decryptSecret(requireConnectorKey(env), current.tokenEnc);
-};
-
-/**
- * The one Fly secret track 3 needs and nothing else may read. Separate from
- * `resolveHostToken` because they are different credentials with different
- * blast radii: this one can create and destroy machines.
+ * The Fly API token: the one Fly secret nothing else may read. It can create
+ * and destroy machines.
  */
 export const resolveFlyApiToken = async (
   env: Env,

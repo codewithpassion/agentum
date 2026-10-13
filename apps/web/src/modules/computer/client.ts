@@ -8,8 +8,9 @@ import {
   summarizeExecFailure,
   summarizeWrite,
 } from "./activity";
-import { createFlyTransport } from "./fly-transport";
-import { getHostByIdUnscoped, resolveHostToken } from "./hosts";
+import { createFlyGateway, type FlyGatewayFactory } from "./fly-gateway";
+import { createEnsureConnected, type WakeOptions } from "./fly-wake";
+import { getHostByIdUnscoped, resolveFlyApiToken } from "./hosts";
 import { ACTIVITY_STREAM_MAX_BYTES, truncateText } from "./output";
 import {
   MAX_FILE_BYTES,
@@ -22,6 +23,7 @@ import {
   createRelayTransport,
 } from "./relay-transport";
 import {
+  ComputerTransportError,
   createRemoteBackend,
   REMOTE_EXEC_MAX_TIMEOUT_MS,
   type SessionRoot,
@@ -57,7 +59,7 @@ export interface AgentComputerClient {
 /**
  * The five raw operations, with none of the rules around them: the same shape
  * the `AgentComputer` Durable Object exposes, so that stub *is* one of these,
- * and `remote-client.ts` is another over the `computerd` protocol. Everything
+ * and `remote-client.ts` is another over the `agentum-computer` protocol. Everything
  * a backend is trusted with is a validated path and a checked payload.
  *
  * `timeoutMs` is a request, not a promise: the Durable Object ignores it (its
@@ -119,49 +121,76 @@ const failingBackend = (reason: string): ComputerBackend => ({
 });
 
 /**
- * How to reach one host's daemon. `machineId` is per agent and only means
- * anything on Fly; null asks the Fly proxy for any machine in the app, which
- * is what the host's "Test connection" wants and what an agent's traffic never
- * does.
+ * How to reach one host's client: through the relay, for both kinds. The client
+ * dials out, so a Fly machine and a container on someone's desk look the same
+ * from here.
  */
-export const transportForHost = async (
-  db: Db,
-  env: Env,
-  host: ComputerHost,
-  machineId: string | null
-): Promise<Transport> => {
-  if (host.kind === "self_hosted") {
-    return createRelayTransport(env, host.id);
-  }
-  return createFlyTransport(env, {
-    host,
-    machineId,
-    token: await resolveHostToken(db, env, host),
-  });
-};
+export const transportForHost = (env: Env, host: ComputerHost): Transport =>
+  createRelayTransport(env, host.id);
+
+/** Test seams for the Fly wake path; production passes none. */
+export interface ComputerClientDeps {
+  createFlyGateway?: FlyGatewayFactory;
+  wake?: Pick<WakeOptions, "pollMs" | "sleep" | "timeoutMs">;
+}
 
 /**
- * Where an agent's files live on its host. Only a self-hosted host has said
- * where its working directory is; a Fly host's daemon speaks the retired file
- * protocol, so its files are refused until Fly moves to the relay.
+ * Wraps a Fly agent's transport and session root so that an operation on a
+ * machine whose client is not connected starts the machine first.
  */
-const sessionRootFor = (
+const wakingParts = (
   env: Env,
   host: ComputerHost,
-  agent: Agent
-): SessionRoot =>
-  host.kind === "self_hosted"
-    ? createRelaySessionRoot(env, host.id, agent.id)
-    : () =>
-        Promise.resolve({
-          ok: false,
-          reason: `${agent.name}'s files on Fly host "${host.name}" are not available yet.`,
-        });
+  agent: Agent,
+  machineId: string,
+  deps: ComputerClientDeps
+): { root: SessionRoot; transport: Transport } => {
+  const stub = env.COMPUTER_RELAY.get(env.COMPUTER_RELAY.idFromName(host.id));
+  const ensureConnected = createEnsureConnected({
+    ...deps.wake,
+    isConnected: async () => (await stub.status()).connected,
+    label: `${agent.name}'s computer on Fly host "${host.name}"`,
+    start: async () => {
+      const apiToken = await resolveFlyApiToken(env, host);
+      if (!(apiToken && host.config.app)) {
+        throw new Error("the host has no Fly app or API token configured");
+      }
+      await (deps.createFlyGateway ?? createFlyGateway)(apiToken).startMachine(
+        host.config.app,
+        machineId
+      );
+    },
+  });
+
+  const inner = transportForHost(env, host);
+  const root = createRelaySessionRoot(env, host.id, agent.id);
+  return {
+    root: async () => {
+      try {
+        await ensureConnected();
+      } catch (error) {
+        if (error instanceof ComputerTransportError) {
+          return { ok: false, reason: error.message };
+        }
+        throw error;
+      }
+      return await root();
+    },
+    transport: {
+      send: async (message) => {
+        await ensureConnected();
+        return await inner.send(message);
+      },
+      status: () => inner.status(),
+    },
+  };
+};
 
 const remoteBackendFor = async (
   db: Db,
   env: Env,
-  agent: Agent
+  agent: Agent,
+  deps: ComputerClientDeps
 ): Promise<ComputerBackend> => {
   if (!agent.computerHostId) {
     return failingBackend(
@@ -174,37 +203,31 @@ const remoteBackendFor = async (
       `${agent.name}'s computer host no longer exists. Add it again in Settings and recreate the agent.`
     );
   }
-  const machineId = agent.computerRef?.machineId ?? null;
-  if (host.kind === "fly" && !machineId) {
+  if (host.kind === "self_hosted") {
+    return createRemoteBackend(
+      transportForHost(env, host),
+      createRelaySessionRoot(env, host.id, agent.id)
+    );
+  }
+  const machineId = agent.computerRef?.machineId;
+  if (!machineId) {
     return failingBackend(
       `No machine has been created for ${agent.name} on host "${host.name}" yet.`
     );
   }
-
-  try {
-    return createRemoteBackend(
-      await transportForHost(db, env, host, machineId),
-      sessionRootFor(env, host, agent)
-    );
-  } catch (error) {
-    // A configuration failure - a missing CONNECTOR_KEY, a host with no stored
-    // token. The message is ours, not a third party's, so it is safe to show.
-    return failingBackend(
-      error instanceof Error
-        ? `${agent.name}'s computer host is not usable: ${error.message}`
-        : `${agent.name}'s computer host is not usable.`
-    );
-  }
+  const { root, transport } = wakingParts(env, host, agent, machineId, deps);
+  return createRemoteBackend(transport, root);
 };
 
 const backendFor = (
   db: Db,
   env: Env,
-  agent: Agent
+  agent: Agent,
+  deps: ComputerClientDeps
 ): Promise<ComputerBackend> =>
   agent.computer === "cloudflare"
     ? Promise.resolve(durableObjectBackend(env, agent.id))
-    : remoteBackendFor(db, env, agent);
+    : remoteBackendFor(db, env, agent, deps);
 
 /** Nonsense timeouts are dropped rather than argued with; the cap is the plan's. */
 const clampTimeout = (timeoutMs: number | undefined): number | undefined => {
@@ -231,13 +254,14 @@ const clampTimeout = (timeoutMs: number | undefined): number | undefined => {
 export const createComputerClient = async (
   db: Db,
   env: Env,
-  agentId: string
+  agentId: string,
+  deps: ComputerClientDeps = {}
 ): Promise<AgentComputerClient> => {
   const agent = await getAgentByIdUnscoped(db, agentId);
   if (!agent) {
     throw new Error(`No agent ${agentId}: its computer cannot be resolved.`);
   }
-  const backend = await backendFor(db, env, agent);
+  const backend = await backendFor(db, env, agent, deps);
 
   return {
     async editFile(path, oldString, newString) {

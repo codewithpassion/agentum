@@ -71,28 +71,31 @@ created and fixed from then on (`agents.computer`):
   filesystem that works everywhere, and a shell only under `bun run dev`
   (the Worker Loader is refused in deployed Workers).
 - **Self-hosted** — a container on your own hardware running
-  [`apps/computerd`](../computerd), which dials out to
-  `GET /api/computer-hosts/connect` with a host token; no inbound port or
-  tunnel. The `ComputerRelay` Durable Object (`COMPUTER_RELAY`, one per host)
-  keeps that socket with the hibernation API and forwards requests over it.
-  One container is one agent's computer. The Computers page issues the token
-  once, inside a ready-to-paste `docker run` / `podman run` command. The
-  container runs whatever the agent decides to run; the container boundary
-  is the safety.
+  [`apps/computer`](../computer). The Computers page issues a one-time
+  enrollment code inside a ready-to-paste `docker run` command; the client
+  trades it for a machine credential and dials out to
+  `GET /api/computer-hosts/connect`, so no inbound port or tunnel is needed.
+  The `ComputerRelay` Durable Object (`COMPUTER_RELAY`, one per host) keeps
+  that socket with the hibernation API and forwards requests over it. One
+  container is one agent's computer. The container runs whatever the agent
+  decides to run; the container boundary is the safety.
 - **Fly.io** — a Fly Machine plus volume per agent in an app you own,
-  provisioned through the Machines API with an app-scoped deploy token and
-  reached at `https://<app>.fly.dev/op` with `fly-force-instance-id`. Built
-  against the API docs and fakes only so far: nobody has run it against a
-  real Fly account, and the plan's spike 1 (routing, auto-start) is still
-  owed before trusting it.
+  provisioned through the Machines API with an app-scoped deploy token. The
+  machine runs the same `agentum-computer` image with `AGENTUM_URL` and a
+  24-hour enrollment code in its env, and the volume is mounted at the
+  client's state dir so the credential and the agent's files survive restarts.
+  It connects out like a self-hosted one. Fly cannot wake an outbound-only
+  machine, so an operation on a disconnected machine starts it through the
+  Machines API and waits up to 45 seconds for it to connect. Built against the
+  API docs and fakes only so far: nobody has run it against a real Fly account.
 
 All three sit behind `AgentComputerClient` in `modules/computer/client.ts`,
-which dispatches to a `ComputerBackend`; the remote ones speak computerd's
-JSON protocol through a `Transport` (`remote-client.ts`). `computer_hosts`
-rows hold the host and its credential: hashed for self-hosted (the daemon
-presents it inbound), encrypted for Fly (Agentum presents it). Remote shells
+which dispatches to a `ComputerBackend`; the remote ones speak the
+`agentum-computer` protocol through a `Transport` (`remote-client.ts`).
+`computer_hosts` rows hold the host and its credential, hashed. Remote shells
 honour `timeout_ms` up to ten minutes. File-tool paths are rooted at the
-computer's home (`/notes/x` is `/home/agent/notes/x` in a remote shell).
+agent's own directory under the client's workdir (`<workdir>/<agentId>/notes/x`
+for `/notes/x` in a remote shell).
 See `docs/plan-computer-backends.md`.
 
 Set `AI_GATEWAY_ID` to route Workers AI calls through a named AI Gateway

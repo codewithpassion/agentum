@@ -46,7 +46,7 @@ const lastCall = (): Call => calls.at(-1) as Call;
 
 const MACHINE_CONFIG: FlyMachineConfig = {
   env: { COMPUTERD_MODE: "listen" },
-  image: "ghcr.io/codewithpassion/agentum-computerd:latest",
+  image: "ghcr.io/codewithpassion/agentum-agentum-computer:latest",
 };
 
 beforeEach(() => {
@@ -134,7 +134,7 @@ describe("the requests the gateway makes", () => {
     });
   });
 
-  test("getMachine returns the state and the config a rotation needs", async () => {
+  test("getMachine returns the state and the config", async () => {
     reply = {
       body: { config: MACHINE_CONFIG, id: "m-1", state: "started" },
       status: 200,
@@ -170,6 +170,17 @@ describe("the requests the gateway makes", () => {
     expect(lastCall().method).toBe("POST");
     expect(lastCall().url).toBe(
       "https://api.machines.dev/v1/apps/agentum-computers/machines/m-1/stop"
+    );
+  });
+
+  test("startMachine posts to the start endpoint", async () => {
+    reply = { body: { ok: true }, status: 200 };
+
+    await gateway().startMachine(APP, "m-1");
+
+    expect(lastCall().method).toBe("POST");
+    expect(lastCall().url).toBe(
+      "https://api.machines.dev/v1/apps/agentum-computers/machines/m-1/start"
     );
   });
 

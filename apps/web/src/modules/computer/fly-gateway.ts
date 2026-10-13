@@ -71,6 +71,7 @@ export interface FlyMachineConfig {
   guest?: { cpu_kind?: string; cpus?: number; memory_mb?: number };
   image: string;
   mounts?: { path: string; volume: string }[];
+  restart?: { policy: "always" | "no" | "on-failure" };
   services?: FlyService[];
 }
 
@@ -101,6 +102,7 @@ export interface FlyGateway {
   deleteVolume: (app: string, volumeId: string) => Promise<void>;
   getApp: (app: string) => Promise<FlyApp>;
   getMachine: (app: string, id: string) => Promise<FlyMachine>;
+  startMachine: (app: string, id: string) => Promise<void>;
   stopMachine: (app: string, id: string) => Promise<void>;
   updateMachine: (
     app: string,
@@ -257,6 +259,14 @@ export const createFlyGateway = (
     async getMachine(app, id) {
       return asMachine(
         await request("GET", `/apps/${segment(app)}/machines/${segment(id)}`)
+      );
+    },
+
+    async startMachine(app, id) {
+      await request(
+        "POST",
+        `/apps/${segment(app)}/machines/${segment(id)}/start`,
+        {}
       );
     },
 

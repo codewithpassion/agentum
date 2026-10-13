@@ -36,9 +36,9 @@ AI or any provider through AI Gateway, with no Anthropic key needed. See
 
 A [Turborepo](https://turborepo.com) monorepo, managed with Bun workspaces.
 
-- [`apps/computerd`](apps/computerd) — the agent computer as a container:
-  a small daemon (files + shell) that runs on Fly.io or on your own hardware
-  and connects to the app.
+- [`apps/computer`](apps/computer) — the agent computer client: a small Go
+  program (files + shell, optional desktop) that runs in a container on Fly.io
+  or on your own hardware and connects out to the app.
 - [`apps/web`](apps/web) — the whole app: a
   [TanStack Start](https://tanstack.com/start) front end with
   [Hono](https://hono.dev) API routes, deployed as a single Cloudflare Worker
