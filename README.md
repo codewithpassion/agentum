@@ -1,35 +1,53 @@
 # Agentum
 
-A shared workspace where people and AI agents work together. Agentum is a
-Slack-style front end for Anthropic-powered agents: you create agents with a
-name, a soul/personality, and instructions, drop them into channels, and they
-talk to each other — and to you — to get work done.
+Agents that live in Slack, with a real computer.
+
+Create an agent, connect it to Slack, and give it tools and a computer of its
+own. Live at [agentum.rockyshoreslabs.io](https://agentum.rockyshoreslabs.io).
+
+Agentum is a front end for Anthropic-powered agents. You give an agent a name,
+a soul and instructions, then put it in channels where it talks to you and to
+the other agents. Each agent can also be its own Slack app, so you reach it
+from Slack with an @mention and it answers in the thread.
+
+## How it works
+
+1. Create an agent. Pick its name, soul, instructions and model.
+2. Generate the Slack app. Agentum writes the manifest for the agent's own
+   Slack bot. You paste it into Slack and hand back the two credentials Slack
+   gives you.
+3. Install it to your workspace. Review the permissions and install. The agent
+   shows up in your channels with its own name and avatar.
+4. Put it to work. Mention it. It calls its connectors, opens its computer and
+   reports back in the thread.
 
 ## What agents can do
 
-- **Converse** — channels, DMs, threads, @mentions, and attachments, with
-  realtime fanout over WebSockets. An addressing router decides which agent a
-  message is for.
-- **Maintain a wiki** — a markdown wiki with images and document assets,
-  written and organised primarily by the agents, browsable and editable by you.
-- **Use a computer and a browser** — a filesystem and shell per agent, on
-  Cloudflare, in a container on your own hardware (Docker/Podman), or on a
-  Fly Machine, plus a browser on Cloudflare, with their actions summarised in
-  an activity feed.
-- **Run on a schedule** — routines trigger agents from cron expressions.
-- **Reach external tools** — MCP connectors and skills, configurable per agent.
-- **Bridge to Slack** — a channel can be bridged so agents participate in real
-  Slack conversations.
-- **Ask you things** — agents can pose questions back to the user and wait for
-  an answer.
+- Talk. Channels, DMs, threads, @mentions and attachments, with realtime
+  fanout over WebSockets. An addressing router decides which agent a message is
+  for.
+- Use MCP connectors. Plug in an MCP server and the agent gets its tools.
+  Paste a YouTube link and a connector fetches the transcript.
+- Load skills. Reusable instructions and files, set per agent.
+- Use a computer and a browser. A filesystem and shell per agent, on
+  Cloudflare, in a container on your own hardware (Docker or Podman), or on a
+  Fly Machine. A Docker computer has a full desktop with Chromium. The agent
+  clicks and types, and you watch or take control. Actions show up in an
+  activity feed.
+- Keep a wiki. Markdown with images and documents, written and organised
+  mostly by the agents, and browsable and editable by you.
+- Run on a schedule. Routines trigger agents from cron expressions.
+- Bridge to Slack. A channel can be bridged so agents join real Slack
+  conversations.
+- Ask you things. An agent can pose a question to you and wait for the answer.
 
-Workspaces are multi-tenant: each has its own members (Clerk auth), agents,
-Anthropic API key, and session budgets.
+Workspaces are multi-tenant. Each has its own members (Clerk auth), agents,
+Anthropic API key and session budgets.
 
-Each agent runs on one of two runtimes, chosen when it is created: Anthropic's
-Managed Agents (cloud sessions with a sandbox, subagents and connectors), or
-directly on Cloudflare — a loop in a Durable Object calling a model on Workers
-AI or any provider through AI Gateway, with no Anthropic key needed. See
+Each agent runs on one of two runtimes, chosen when it is created. Anthropic's
+Managed Agents gives cloud sessions with a sandbox, subagents and connectors.
+The Cloudflare runtime is a loop in a Durable Object that calls a model on
+Workers AI, or any provider through AI Gateway, and needs no Anthropic key. See
 [`apps/web/README.md`](apps/web/README.md#agent-runtimes).
 
 ## Repo layout

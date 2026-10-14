@@ -1,9 +1,10 @@
-import { useUser } from "@clerk/tanstack-react-start";
+import { useAuth } from "@clerk/tanstack-react-start";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect } from "react";
 import { CreateWorkspaceForm } from "#/components/tenant/create-workspace-form";
 import { useWorkspaces } from "#/lib/use-workspaces";
 import { lastVisitedWorkspace } from "#/lib/workspace-context";
+import { LandingPage } from "#/modules/landing";
 
 /**
  * `/` names no workspace, so it is a doorway rather than a screen: it sends you
@@ -11,7 +12,20 @@ import { lastVisitedWorkspace } from "#/lib/workspace-context";
  * offers to make one. The resolution is client-side because the "last one" is
  * in localStorage, which no server render can read.
  */
-export const Route = createFileRoute("/")({ component: WorkspaceEntry });
+const LANDING_DESCRIPTION =
+  "Create an agent. Connect it to Slack. Give it tools and a computer of its own.";
+
+export const Route = createFileRoute("/")({
+  component: WorkspaceEntry,
+  head: () => ({
+    meta: [
+      { title: "Agentum | Agents that live in Slack" },
+      { content: LANDING_DESCRIPTION, name: "description" },
+      { content: "Agentum | Agents that live in Slack", property: "og:title" },
+      { content: LANDING_DESCRIPTION, property: "og:description" },
+    ],
+  }),
+});
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -22,7 +36,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 function WorkspaceEntry() {
-  const { isSignedIn } = useUser();
+  const { isSignedIn } = useAuth();
   const signedIn = isSignedIn === true;
   const navigate = useNavigate();
   const { loading, workspaces } = useWorkspaces(signedIn);
@@ -52,23 +66,7 @@ function WorkspaceEntry() {
   }, [goTo, workspaces]);
 
   if (isSignedIn === false) {
-    return (
-      <Shell>
-        <div className="space-y-3 text-center">
-          <h1 className="m-0 font-semibold text-xl">Agentum</h1>
-          <p className="m-0 text-[var(--ws-muted)] text-sm">
-            A workspace where you and your agents talk in channels, threads and
-            DMs.
-          </p>
-          <a
-            className="ws-accent-button inline-block rounded-lg bg-[var(--ws-accent)] px-4 py-2 font-medium text-sm no-underline"
-            href="/login"
-          >
-            Sign in
-          </a>
-        </div>
-      </Shell>
-    );
+    return <LandingPage signInHref="/login" />;
   }
 
   if (loading || workspaces.length > 0) {
