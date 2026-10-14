@@ -106,6 +106,8 @@ export function NewsletterSignup() {
                     <input
                       autoComplete="email"
                       className="df-input"
+                      data-1p-ignore
+                      data-lpignore="true"
                       id="df-news-email"
                       name="email"
                       placeholder="you@company.com"
@@ -120,6 +122,8 @@ export function NewsletterSignup() {
                     <input
                       autoComplete="name"
                       className="df-input"
+                      data-1p-ignore
+                      data-lpignore="true"
                       id="df-news-name"
                       name="name"
                       type="text"
