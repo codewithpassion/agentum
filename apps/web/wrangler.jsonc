@@ -112,7 +112,7 @@
     }
   ],
   "env": {
-    // Deployed to agentum.rockyshoreslabs.io. Build + deploy:
+    // Deployed to agentum.rockyshoreslabs.io and agentumbot.io. Build + deploy:
     //   CLOUDFLARE_ENV=production bun run deploy
     // Bindings do not inherit, so they are redeclared here; the Worker Loader
     // is explicitly cleared and `experimental` dropped from the flags, since
@@ -126,7 +126,8 @@
       "workers_dev": false,
       "worker_loaders": [],
       "routes": [
-        { "pattern": "agentum.rockyshoreslabs.io", "custom_domain": true }
+        { "pattern": "agentum.rockyshoreslabs.io", "custom_domain": true },
+        { "pattern": "agentumbot.io", "custom_domain": true }
       ],
       "d1_databases": [
         {
