@@ -1,3 +1,4 @@
+import { DurableObject } from "cloudflare:workers";
 import { createClerkClient } from "@clerk/backend";
 import { clerkMiddleware, getAuth } from "@clerk/hono";
 import { trpcServer } from "@hono/trpc-server";
@@ -7,6 +8,14 @@ import { csrf } from "hono/csrf";
 import { createHonoContext } from "./server/trpc/context.ts";
 import { appRouter } from "./server/trpc/router.ts";
 
+// Placeholder for the per-machine relay (M0.0 spike): answers a ping from
+// inside the Durable Object.
+export class MachineRelay extends DurableObject<Env> {
+  ping() {
+    return { pong: true };
+  }
+}
+
 const app = new Hono<{ Bindings: Env }>();
 
 app.use("*", clerkMiddleware());
@@ -14,6 +23,11 @@ app.use("*", clerkMiddleware());
 app.get("/api/health", (c) => {
   const auth = getAuth(c);
   return c.json({ status: "ok", userId: auth?.userId ?? null });
+});
+
+app.get("/api/machines/ping-do", async (c) => {
+  const stub = c.env.MACHINE_RELAY.get(c.env.MACHINE_RELAY.idFromName("ping"));
+  return c.json(await stub.ping());
 });
 
 // One-click dev login: mints a one-time Clerk sign-in token for the dev user
