@@ -6,10 +6,10 @@ How Harbourmaster gets built. The controller follows all of it. Subagents get th
 
 | Role | Agent call | Started by | Job |
 |---|---|---|---|
-| Controller | Opus, the main session | Dom | Picks ready tasks, makes worktrees, starts dispatchers and reviewers, merges, owns `docs/tasks/`. Writes no product code. |
-| Dispatcher | `model: "sonnet"`, `effort: "high"` | Controller, one per task | Splits its task into units, runs workers, integrates, runs the task's check, commits, makes review fixes. |
+| Controller | Opus, the main session | Dom | Picks ready tasks, makes worktrees, starts dispatchers and milestone reviewers, merges, owns `docs/tasks/`. Writes no product code. |
+| Dispatcher | `model: "sonnet"`, `effort: "high"` | Controller, one per task | Splits its task into units, runs workers, integrates, runs the task's check, commits, runs the review loop and makes review fixes. |
 | Worker | `model: "haiku"`, `effort: "medium"` | Dispatcher, one per unit | Does one unit in the dispatcher's worktree and runs the unit's check. |
-| Reviewer | `model: "opus"`, `effort: "medium"` | Controller | Reviews a task branch or a milestone. Reads only. |
+| Reviewer | `model: "opus"`, `effort: "medium"` | Dispatcher for a task, controller for a milestone | Reviews a task branch or a milestone. Reads only. |
 
 At most 3 dispatchers run at once, each with at most 4 workers. Raise a role's effort for a task only after a run at the listed level fell short.
 
@@ -32,7 +32,6 @@ A task is ready when it is `todo` and every task in `depends_on` is `done`. `bun
 Only the controller edits task files, in the main checkout, and commits each change straight to `main` (`tasks: M0.2 in_progress`). Every status change also appends a dated line to the task's log: dispatched, review verdict, merged, blocked and why. The frontmatter and the logs are the handoff, so a new controller session reads this file and runs `bun run tasks`.
 
 Units are not files. The dispatcher plans them in its own context.
-
 ## Worktrees and cleanup
 
 Every worktree lives in one folder beside the main checkout, `/home/roboto/devel/harbourmaster-wt/`. Keeping it outside the repo stops Biome and searches from scanning the copies. Inside it, a task's worktree is `<id>`, a reviewer's checkout is `review-<id>-<sha>`, and a task's logs and scratch files go in `tmp/<id>/`.
@@ -50,8 +49,8 @@ Dom starts the controller session in `/home/roboto/devel/harbourmaster`. The con
 1. Take the ready task with the lowest id.
 2. From the main checkout: `git worktree add /home/roboto/devel/harbourmaster-wt/<id> -b task/<id>-<slug> main`. In the worktree run `bun install` and copy `apps/web/.env.local` from the main checkout. Set `status: in_progress` and `branch`.
 3. Start a dispatcher with the dispatcher brief.
-4. When the dispatcher reports done, set `status: review` and start a reviewer with the reviewer brief on the branch head SHA.
-5. A must-fix verdict goes back to the same dispatcher through SendMessage. It fixes, commits and reports the new head. Repeat step 4; the re-review covers only the fix commits.
+4. The dispatcher runs the review loop on its own branch. It starts a reviewer on its head SHA, fixes must-fix findings, and re-reviews only the fix commits until the verdict is clean. Then it reports done with the head SHA and the verdict.
+5. Log the verdict in the task file. A dispatcher still at must-fix after two fix rounds reports blocked with the open findings, and the controller decides.
 6. A clean verdict: in the main checkout, `git merge --no-ff task/<id>-<slug>`, run `bun run check && bun run test && bun run build`, then `git push origin main`. If a check fails, undo the unpushed merge with `git reset --hard ORIG_HEAD` and send the failure to the dispatcher. Set `status: done`, stop the dispatcher with TaskStop, and run `bun run clean`.
 
 Merge one branch at a time. A branch that is behind `main` gets `main` merged in by its dispatcher, and its checks pass again before the controller merges it.
@@ -62,7 +61,7 @@ Milestone gate. Before dispatching a milestone's first task, tag `main` with `<m
 
 ## Briefs
 
-Subagents can't be relied on to load the repo's `CLAUDE.md`: a test subagent saw only the global one. Every rule a subagent needs therefore travels in its brief. The controller writes dispatcher and reviewer briefs, and dispatchers write worker briefs, from the templates below. Fill the `<...>` fields, copy the rest word for word, end with the agent rules block, and add nothing the task file doesn't say.
+Subagents can't be relied on to load the repo's `CLAUDE.md`: a test subagent saw only the global one. Every rule a subagent needs therefore travels in its brief. The controller writes dispatcher and milestone reviewer briefs, and dispatchers write worker and task reviewer briefs, from the templates below. Fill the `<...>` fields, copy the rest word for word, end with the agent rules block, and add nothing the task file doesn't say.
 
 Start agents without a `name`. The controller stops an agent with TaskStop once it has the report. A dispatcher stays until its branch merges.
 
@@ -80,11 +79,14 @@ Keep working until everything in the task file is done. Stop to ask only when yo
 3. Start a worker per unit with model "haiku" and effort "medium", without a name, at most 4 at once. Write each brief from the Worker template in /home/roboto/devel/harbourmaster/docs/workflow.md.
 4. A unit that fails its check twice, you do yourself.
 5. When the units are in, run the task's check, then `bun run check && bun run test && bun run build` from the worktree root. Done means all of them pass.
-6. Commit with the task id first ("<id>: ...") and the Co-Authored-By trailer. Report in at most 10 lines.
+6. Commit with the task id first ("<id>: ...") and the Co-Authored-By trailer.
+7. Start a reviewer with model "opus" and effort "medium", without a name, on your head SHA. Write its brief from the Reviewer template in /home/roboto/devel/harbourmaster/docs/workflow.md.
+8. A must-fix verdict: apply the must-fix items, run `bun run check && bun run test`, commit, and start a new reviewer on the fix commits only. After two fix rounds that still end must-fix, stop and report blocked with the open findings.
+9. A clean verdict: report in at most 10 lines, with the head SHA, the verdict, and the nits you left.
 
-When the scope is done and checked, stop and report. Ideas beyond the scope go at the end of the report. Review belongs to the controller, so start no reviewer agents. Workers leave git to you because parallel commits in one worktree collide on the index.
+Ideas beyond the scope go at the end of the report. Workers leave git to you because parallel commits in one worktree collide on the index.
 
-A fix round applies the must-fix items, runs `bun run check && bun run test`, commits and reports the new head SHA. Bring main in with `git merge main`, never a rebase. Anything that needs Dom's accounts or dashboards goes in your report as a step for Dom.
+The controller may send failures from its merge check. Fix them the same way, through steps 5 to 9. Bring main in with `git merge main`, never a rebase. Anything that needs Dom's accounts or dashboards goes in your report as a step for Dom.
 
 A browser step in the task's check is yours. Run `bunx wrangler d1 migrations apply DB --local && bunx vite dev --port <free port other than 3000>` in apps/web, then use the agent-browser skill with your own session name.
 ```
@@ -110,7 +112,7 @@ Task file: /home/roboto/devel/harbourmaster/docs/tasks/<file>.
 
 Check out the commit with `git -C /home/roboto/devel/harbourmaster worktree add --detach /home/roboto/devel/harbourmaster-wt/review-<id>-<sha> <sha>` and remove it with `git worktree remove` when done. Review against the task file's scope and check, CLAUDE.md in that checkout, and "Rules that are easy to break" in docs/HANDOVER.md. Change no files.
 
-Report every finding you believe is real, minor ones included, one line each with file:line, marked must-fix or nit. The controller does the filtering. End with the verdict: clean when nothing is must-fix.
+Report every finding you believe is real, minor ones included, one line each with file:line, marked must-fix or nit. Whoever started you does the filtering. End with the verdict: clean when nothing is must-fix.
 ```
 
 ### Agent rules block
