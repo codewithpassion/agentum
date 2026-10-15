@@ -10,7 +10,7 @@ One entry per module, no barrel file, same as `@repo/db`. Everything here is ser
 
 ## Using it
 
-A service is a factory that takes a drizzle instance. A new module would be used like this (`createXService` is a placeholder):
+A service is a factory that takes a drizzle instance. A service that writes more than one row also takes `atomic` from `@repo/db/atomic`, as `{ db, atomic }`. A new module would be used like this (`createXService` is a placeholder):
 
 ```ts
 import { createXService } from "@repo/services/x";

@@ -12,8 +12,8 @@ export const sessions = sqliteTable(
     id: id(),
     lastRunAt: text("last_run_at"),
     origin: text("origin").notNull(),
-    // The Claude Code session id, valid only on runtime_machine_id.
     runtimeMachineId: text("runtime_machine_id"),
+    // The Claude Code session id, valid only on runtime_machine_id.
     runtimeRef: text("runtime_ref"),
     workspaceId: workspaceId(),
   },

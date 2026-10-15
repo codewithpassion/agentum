@@ -84,7 +84,7 @@ has no database page yet, so there is no in-app database check. TODO(M0): health
 A new `workers.dev` name can take a minute to resolve; retry a few times before
 calling it a failure.
 
-Done when both checks pass and `bun x wrangler --cwd apps/web secret list` shows
+Done when the health check passes and `bun x wrangler --cwd apps/web secret list` shows
 the uploaded names.
 
 ## 6. Hand back

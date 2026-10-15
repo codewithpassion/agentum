@@ -1,5 +1,6 @@
 import { sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
+import { IDENTITY_PROVIDERS } from "../shared.ts";
 
 /** Created on first request from a Clerk org. The only table with no workspace_id. */
 export const workspaces = sqliteTable("workspaces", {
@@ -20,7 +21,7 @@ export const identityLinks = sqliteTable(
     email: text("email").notNull(),
     externalUserId: text("external_user_id").notNull(),
     id: id(),
-    provider: text("provider", { enum: ["slack"] }).notNull(),
+    provider: text("provider", { enum: IDENTITY_PROVIDERS }).notNull(),
     teamId: text("team_id").notNull(),
     workspaceId: workspaceId(),
   },

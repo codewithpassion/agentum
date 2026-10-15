@@ -9,7 +9,7 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 
 /**
  * An unexecuted insert, update or delete, e.g. `db.insert(runs).values(row)`.
- * Selects have no `run` and do not fit, so they cannot be passed by mistake.
+ * Pass writes only. A select would type-check, but its rows are discarded.
  * Do not await it or call `.run()`: `atomic` does that.
  */
 export type Statement = BatchItem<"sqlite"> & { run: () => unknown };

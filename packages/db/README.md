@@ -40,7 +40,7 @@ await atomic([
 ]);
 ```
 
-Pass unexecuted insert, update or delete builders. Do not `await` them or call `.run()`. Selects are not accepted, so a read that decides the write has to happen before the call and be guarded in the write itself (`WHERE status = ?`).
+Pass unexecuted insert, update or delete builders. Do not `await` them or call `.run()`. Pass writes only. A select would type-check, but its rows are discarded, so a read that decides the write has to happen before the call and be guarded in the write itself (`WHERE status = ?`).
 
 ## Schema and migrations
 

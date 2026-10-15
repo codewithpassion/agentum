@@ -2,6 +2,9 @@
 // needs from this package lives here; the other entries pull in drizzle. The
 // schema takes its enum values from here too, so the UI and the tables agree.
 
+export const IDENTITY_PROVIDERS = ["slack"] as const;
+export type IdentityProvider = (typeof IDENTITY_PROVIDERS)[number];
+
 export const AGENT_RUNTIMES = ["machine", "managed", "fake"] as const;
 export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
 
