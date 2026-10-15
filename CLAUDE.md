@@ -1,7 +1,11 @@
 
 ## Working process
 
-The build runs as a controller session with Sonnet dispatchers and Haiku workers, tracked as task files in `docs/tasks/`. Read `docs/workflow.md` before starting, dispatching or reviewing a task. Subagents follow only the section their brief names.
+The build runs as an Opus controller session with Sonnet dispatchers and Haiku workers, tracked as task files in `docs/tasks/`. The controller follows `docs/workflow.md` and runs from this checkout. A subagent follows its brief, which the workflow's templates write, and works in its own worktree under `/home/roboto/devel/harbourmaster-wt/`.
+
+## Bun
+
+The `Bun.serve`, HTML-import and "don't use vite" guidance below is for `apps/daemon`, which doesn't exist yet. `apps/web` is TanStack Start built with Vite and runs on Cloudflare Workers, so Bun runtime APIs stay out of its shipped code.
 
 Default to using Bun instead of Node.js.
 
