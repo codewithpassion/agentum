@@ -1,3 +1,5 @@
+import { isForbiddenError } from "@repo/services/authz";
+import { isServiceError, type ServiceErrorCode } from "@repo/services/errors";
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { Context } from "./context.ts";
 
@@ -32,6 +34,36 @@ const t = initTRPC.context<Context>().create({
 
 export const { router } = t;
 
+const TRPC_CODE_FOR: Record<ServiceErrorCode, TRPCError["code"]> = {
+  conflict: "CONFLICT",
+  invalid: "BAD_REQUEST",
+  not_found: "NOT_FOUND",
+};
+
+/**
+ * Turns the errors services throw into tRPC codes. tRPC wraps a thrown error
+ * in a TRPCError and keeps the original in `cause`. Anything else passes
+ * through, so it still reaches the errorFormatter as an internal error.
+ */
+const mapServiceErrors = t.middleware(async ({ next }) => {
+  const result = await next();
+  if (result.ok) {
+    return result;
+  }
+  const { cause } = result.error;
+  if (isForbiddenError(cause)) {
+    throw new TRPCError({ cause, code: "FORBIDDEN", message: cause.message });
+  }
+  if (isServiceError(cause)) {
+    throw new TRPCError({
+      cause,
+      code: TRPC_CODE_FOR[cause.code],
+      message: cause.message,
+    });
+  }
+  return result;
+});
+
 /** Anyone, signed in or not. `ctx.principal` may be null. */
 export const publicProcedure = t.procedure;
 
@@ -39,9 +71,11 @@ export const publicProcedure = t.procedure;
  * A signed-in user with an active allowed organisation. Narrows
  * `ctx.principal` to the user principal. Everyone else gets 401.
  */
-export const workspaceProcedure = t.procedure.use(({ ctx, next }) => {
-  if (ctx.principal?.kind !== "user") {
-    throw new TRPCError({ code: "UNAUTHORIZED" });
-  }
-  return next({ ctx: { ...ctx, principal: ctx.principal } });
-});
+export const workspaceProcedure = t.procedure
+  .use(mapServiceErrors)
+  .use(({ ctx, next }) => {
+    if (ctx.principal?.kind !== "user") {
+      throw new TRPCError({ code: "UNAUTHORIZED" });
+    }
+    return next({ ctx: { ...ctx, principal: ctx.principal } });
+  });

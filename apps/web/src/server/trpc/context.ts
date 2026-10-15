@@ -6,13 +6,15 @@
 import { env } from "cloudflare:workers";
 import { getAuth } from "@clerk/hono";
 import { auth } from "@clerk/tanstack-react-start/server";
+import type { AgentsService } from "@repo/services/agents";
+import type { RunsService } from "@repo/services/runs";
 import type {
   createWorkspacesService,
   Principal,
 } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import type { Context as HonoContext } from "hono";
-import { buildContext, parseOrgIds } from "./build-context.ts";
+import { buildContext, d1Infra, parseOrgIds } from "./build-context.ts";
 
 // A type, not an interface: see the biome-ignore. Over HTTP,
 // @hono/trpc-server also adds `env` to ctx, but the SSR path does not, so
@@ -20,7 +22,11 @@ import { buildContext, parseOrgIds } from "./build-context.ts";
 // biome-ignore lint/style/useConsistentTypeDefinitions: @hono/trpc-server needs a Record<string, unknown>, which an interface is not
 export type Context = {
   principal: Principal | null;
-  services: { workspaces: ReturnType<typeof createWorkspacesService> };
+  services: {
+    agents: AgentsService;
+    runs: RunsService;
+    workspaces: ReturnType<typeof createWorkspacesService>;
+  };
 };
 
 /**
@@ -31,9 +37,11 @@ export const createHonoContext = (
   c: HonoContext<{ Bindings: Env }>
 ): Promise<Context> => {
   const { userId, orgId } = getAuth(c) ?? {};
+  const db = drizzle(c.env.DB);
   return buildContext({
     allowedOrgIds: parseOrgIds(c.env.ALLOWED_ORG_IDS),
-    db: drizzle(c.env.DB),
+    db,
+    infra: d1Infra(db, import.meta.env.DEV),
     session: { orgId, userId: userId ?? null },
   });
 };
@@ -44,9 +52,11 @@ export const createHonoContext = (
  */
 export const createSsrContext = async (): Promise<Context> => {
   const { userId, orgId } = await auth();
+  const db = drizzle(env.DB);
   return buildContext({
     allowedOrgIds: parseOrgIds(env.ALLOWED_ORG_IDS),
-    db: drizzle(env.DB),
+    db,
+    infra: d1Infra(db, import.meta.env.DEV),
     session: { orgId, userId },
   });
 };

@@ -1,0 +1,753 @@
+/**
+ * Runs (contracts C3 and C7). Every way to make an agent do something goes
+ * through `startRun`: it derives who is asking from the principal, finds or
+ * creates the session, inserts a queued run and hands it to the agent's
+ * runtime adapter. `ingestRunEvents` and `completeRun` are what the runtime
+ * calls back with, fenced so that only a `running` run accepts them. The types
+ * (adapters, gateways, the input schema) are in `@repo/services/runs/types`.
+ */
+import type { Database } from "@repo/db";
+import type { Atomic, Statement } from "@repo/db/atomic";
+import { events } from "@repo/db/schema/events";
+import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
+import { and, asc, eq, exists, inArray, isNull, lt, max } from "drizzle-orm";
+import { ulid } from "ulidx";
+import { z } from "zod";
+import { findAgent } from "./agents.ts";
+import { authorize, ForbiddenError } from "./authz.ts";
+import { isUniqueViolation, ServiceError } from "./errors.ts";
+import { payloadSchema } from "./events/payload.ts";
+import { type Blobs, createEventsService } from "./events.ts";
+import { createFakeRuntime } from "./runs/fake-runtime.ts";
+import { noneGateway } from "./runs/gateways.ts";
+import {
+  findSession,
+  loadRun,
+  loadRunByRequest,
+  requireFiles,
+} from "./runs/queries.ts";
+import { type RunRow, toRecord, toSummary } from "./runs/records.ts";
+import {
+  type Actor,
+  deriveSubject,
+  eventActor,
+  START_ACTION,
+} from "./runs/subject.ts";
+import {
+  type AdapterDeps,
+  type Clock,
+  type Gateway,
+  RUN_EVENT_TYPES,
+  type RunEventInput,
+  type RunRecord,
+  type RunResult,
+  type RunSummary,
+  type RuntimeAdapter,
+  type StartRunInput,
+  startRunInputSchema,
+  TERMINAL_STATUSES,
+  usageSchema,
+} from "./runs/types.ts";
+import type { Principal } from "./workspaces.ts";
+
+/** A claimed run is `running` until this long after the last heartbeat. */
+export const LEASE_MS = 90_000;
+/** A run still `queued` or `offered` after this long is offered again. */
+export const STALE_QUEUE_MS = 60_000;
+export const WAIT_MAX_MS = 120_000;
+const WAIT_POLL_MS = 500;
+/** Rows one tick job handles; the next minute takes the rest. */
+const SWEEP_BATCH = 100;
+
+const STARTING: RunRecord["status"][] = ["queued", "offered"];
+const ACTIVE: RunRecord["status"][] = ["queued", "offered", "running"];
+
+const READ_ACTION = "runs.read";
+const RUN_KIND = "run";
+
+const runResultSchema = z.strictObject({
+  error: z.string().max(10_000).optional(),
+  fileIds: z.array(z.string().min(1).max(200)).max(100).optional(),
+  runtimeRef: z.string().min(1).max(500).optional(),
+  status: z.enum(["done", "failed", "aborted"]),
+  text: z.string().max(1_000_000).optional(),
+  usage: usageSchema.optional(),
+});
+
+const runEventsSchema = z
+  .array(
+    z.strictObject({
+      payload: payloadSchema,
+      seq: z.number().int().min(1),
+      type: z.enum(RUN_EVENT_TYPES),
+    })
+  )
+  .max(500);
+
+export interface RunsServiceOptions {
+  adapters: readonly RuntimeAdapter[];
+  atomic: Atomic;
+  blobs: Blobs;
+  clock: Clock;
+  db: Database;
+  /** Registers the echo runtime for agents whose runtime is `fake`. */
+  devFakeRuntime: boolean;
+  gateways: readonly Gateway[];
+}
+
+type ParsedInput = ReturnType<typeof startRunInputSchema.parse>;
+
+interface StartResult {
+  runId: string;
+  sessionId: string;
+  status: RunRecord["status"];
+}
+
+export const createRunsService = ({
+  adapters,
+  atomic,
+  blobs,
+  clock,
+  db,
+  devFakeRuntime,
+  gateways,
+}: RunsServiceOptions) => {
+  const eventsService = createEventsService({ blobs, db });
+  const adapterByKind = new Map<string, RuntimeAdapter>(
+    adapters.map((adapter) => [adapter.kind, adapter])
+  );
+  if (devFakeRuntime) {
+    adapterByKind.set("fake", createFakeRuntime());
+  }
+  const gatewayByKind = new Map<string, Gateway>([
+    [noneGateway.kind, noneGateway],
+    ...gateways.map((gateway): [string, Gateway] => [gateway.kind, gateway]),
+  ]);
+
+  const nowIso = () => clock.now().toISOString();
+
+  const requireRun = async (
+    principal: Principal,
+    runId: string
+  ): Promise<RunRecord> => {
+    const run = await loadRun(
+      db,
+      runId,
+      principal.kind === "system" ? undefined : principal.workspaceId
+    );
+    if (!run) {
+      throw new ServiceError("not_found", "Run not found");
+    }
+    return run;
+  };
+
+  const appendRunEvent = (
+    run: RunRecord,
+    type: Parameters<typeof eventsService.append>[0]["type"],
+    actor: Actor,
+    payload: Record<string, unknown> = {}
+  ) =>
+    eventsService.append({
+      actor,
+      agentId: run.agentId,
+      payload,
+      runId: run.id,
+      sessionId: run.sessionId,
+      type,
+      workspaceId: run.workspaceId,
+    });
+
+  const agentActor = (run: RunRecord): Actor => ({
+    id: run.agentId,
+    kind: "agent",
+  });
+
+  const requireSystem = (principal: Principal, action: string) => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError(action);
+    }
+  };
+
+  /** Who may write to a run: in-process runtimes, or the machine that claimed it. */
+  const authorizeRunWrite = (
+    principal: Principal,
+    run: RunRecord,
+    action: string
+  ) => {
+    authorize(principal, action, {
+      id: run.id,
+      kind: RUN_KIND,
+      workspaceId: run.workspaceId,
+    });
+    const allowed =
+      principal.kind === "system" ||
+      (principal.kind === "machine" && run.claimedBy === principal.machineId);
+    if (!allowed) {
+      throw new ForbiddenError(action);
+    }
+  };
+
+  const adapterFor = async (run: RunRecord) => {
+    const agent = await findAgent(db, {
+      id: run.agentId,
+      workspaceId: run.workspaceId,
+    });
+    return { adapter: agent && adapterByKind.get(agent.runtime), agent };
+  };
+
+  const adapterDeps: AdapterDeps = {
+    claimRun: (principal, runId) => claimRun(principal, runId),
+    clock,
+    completeRun: (principal, runId, result) =>
+      completeRun(principal, runId, result),
+    ingestRunEvents: (principal, runId, batch) =>
+      ingestRunEvents(principal, runId, batch),
+  };
+
+  type Prepared = Awaited<ReturnType<typeof prepareStart>>;
+
+  /** Everything `startRun` checks before it writes. */
+  const prepareStart = async (principal: Principal, input: ParsedInput) => {
+    const agent = await findAgent(db, {
+      id: input.agentId,
+      workspaceId:
+        principal.kind === "system" ? undefined : principal.workspaceId,
+    });
+    if (agent?.status !== "active") {
+      throw new ServiceError("not_found", "Agent not found");
+    }
+    authorize(principal, START_ACTION, {
+      kind: RUN_KIND,
+      workspaceId: agent.workspaceId,
+    });
+    const adapter = adapterByKind.get(agent.runtime);
+    if (!adapter) {
+      throw new ServiceError(
+        "invalid",
+        `No runtime is registered for ${agent.runtime} agents`
+      );
+    }
+    if (!gatewayByKind.has(input.reply.kind)) {
+      throw new ServiceError(
+        "invalid",
+        `No gateway is registered for ${input.reply.kind} replies`
+      );
+    }
+    const subject = await deriveSubject(db, principal, agent.id);
+    const fileIds = [...new Set(input.input.fileIds)];
+    if (fileIds.length > 0 && subject.onBehalfOfUserId === null) {
+      throw new ServiceError("invalid", "This caller cannot attach files");
+    }
+    await requireFiles(db, {
+      fileIds,
+      ownerUserId: subject.onBehalfOfUserId ?? undefined,
+      workspaceId: agent.workspaceId,
+    });
+    return { adapter, agent, fileIds, subject };
+  };
+
+  /**
+   * Writes the session (new, or its last-run time) and the run in one atomic
+   * write. A duplicate `requestId` fails the unique index; the run that won is
+   * read back and returned instead.
+   */
+  const insertOnce = async (
+    prepared: Prepared,
+    input: ParsedInput
+  ): Promise<StartResult & { inserted: boolean }> => {
+    const { agent, fileIds, subject } = prepared;
+    const { workspaceId } = agent;
+    const now = clock.now();
+    const created = now.toISOString();
+    const runId = ulid(now.getTime());
+    const known = input.session.externalKey
+      ? await findSession(db, {
+          actor: subject.actor,
+          agentId: agent.id,
+          externalKey: input.session.externalKey,
+          origin: input.session.origin,
+          workspaceId,
+        })
+      : null;
+    const sessionId = known?.id ?? ulid(now.getTime());
+    const sessionWrite: Statement = known
+      ? db
+          .update(sessions)
+          .set({ lastRunAt: created })
+          .where(eq(sessions.id, known.id))
+      : db.insert(sessions).values({
+          actorId: subject.actor.id,
+          actorKind: subject.actor.kind,
+          agentId: agent.id,
+          createdAt: created,
+          // Without a key the session is its own key, so the UI can send the
+          // next message to it by id.
+          externalKey: input.session.externalKey ?? sessionId,
+          id: sessionId,
+          lastRunAt: created,
+          origin: input.session.origin,
+          workspaceId,
+        });
+    const runWrite = db.insert(runs).values({
+      actorId: subject.actor.id,
+      actorKind: subject.actor.kind,
+      agentId: agent.id,
+      createdAt: created,
+      depth: subject.depth,
+      id: runId,
+      inputFileIds: JSON.stringify(fileIds),
+      inputText: input.input.text,
+      onBehalfOfUserId: subject.onBehalfOfUserId,
+      outputFileIds: "[]",
+      parentRunId: subject.parentRunId,
+      reply: JSON.stringify(input.reply),
+      requestId: input.requestId ?? null,
+      sessionId,
+      status: "queued",
+      workspaceId,
+    });
+    try {
+      await atomic([sessionWrite, runWrite]);
+      return { inserted: true, runId, sessionId, status: "queued" };
+    } catch (error) {
+      const existing =
+        input.requestId && isUniqueViolation(error)
+          ? await loadRunByRequest(db, workspaceId, input.requestId)
+          : null;
+      if (!existing) {
+        throw error;
+      }
+      return {
+        inserted: false,
+        runId: existing.id,
+        sessionId: existing.sessionId,
+        status: existing.status,
+      };
+    }
+  };
+
+  /**
+   * Two first messages with one session key race on the session index. The
+   * loser finds the session on a second try.
+   */
+  const insertRun = async (prepared: Prepared, input: ParsedInput) => {
+    try {
+      return await insertOnce(prepared, input);
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
+      }
+      return await insertOnce(prepared, input);
+    }
+  };
+
+  const startRun = async (
+    principal: Principal,
+    rawInput: StartRunInput
+  ): Promise<StartResult> => {
+    const input = startRunInputSchema.parse(rawInput);
+    const prepared = await prepareStart(principal, input);
+    const { inserted, ...started } = await insertRun(prepared, input);
+    if (!inserted) {
+      return started;
+    }
+    const run = await loadRun(db, started.runId, prepared.agent.workspaceId);
+    if (!run) {
+      throw new ServiceError("not_found", "Run not found");
+    }
+    const { actor } = prepared.subject;
+    await appendRunEvent(run, "run.queued", actor, {
+      depth: run.depth,
+      origin: input.session.origin,
+    });
+    await appendRunEvent(run, "message.user", actor, {
+      fileIds: prepared.fileIds,
+      text: input.input.text,
+    });
+    await prepared.adapter.dispatch(db, run, prepared.agent, adapterDeps);
+    return started;
+  };
+
+  const claimRun = async (
+    principal: Principal,
+    runId: string
+  ): Promise<RunRecord> => {
+    requireSystem(principal, "runs.claim");
+    const claimed = await db
+      .update(runs)
+      .set({
+        claimedBy: "system",
+        leaseUntil: new Date(clock.now().getTime() + LEASE_MS).toISOString(),
+        startedAt: nowIso(),
+        status: "running",
+      })
+      .where(
+        and(
+          eq(runs.id, runId),
+          inArray(runs.status, STARTING),
+          // A run with pending Slack files is not claimable.
+          isNull(runs.pendingFiles)
+        )
+      )
+      .returning({ id: runs.id });
+    if (claimed.length === 0) {
+      throw new ServiceError("conflict", "Run cannot be claimed");
+    }
+    const run = await loadRun(db, runId);
+    if (!run) {
+      throw new ServiceError("not_found", "Run not found");
+    }
+    await appendRunEvent(run, "run.started", agentActor(run));
+    return run;
+  };
+
+  const ingestRunEvents = async (
+    principal: Principal,
+    runId: string,
+    batch: readonly RunEventInput[]
+  ): Promise<{ lastSeq: number }> => {
+    const parsed = runEventsSchema.parse(batch);
+    const run = await requireRun(principal, runId);
+    authorizeRunWrite(principal, run, "runs.ingest");
+    if (run.status !== "running") {
+      throw new ServiceError("conflict", `Run is ${run.status}, not running`);
+    }
+    const [last] = await db
+      .select({ seq: max(events.seq) })
+      .from(events)
+      .where(
+        and(eq(events.runId, run.id), eq(events.workspaceId, run.workspaceId))
+      );
+    let lastSeq = last?.seq ?? 0;
+    // A batch the daemon sent twice is stored once.
+    const fresh = parsed
+      .filter((event) => event.seq > lastSeq)
+      .sort((a, b) => a.seq - b.seq);
+    for (const event of fresh) {
+      // biome-ignore lint/performance/noAwaitInLoops: events are stored in seq order
+      await eventsService.append({
+        actor: agentActor(run),
+        agentId: run.agentId,
+        payload: event.payload,
+        runId: run.id,
+        seq: event.seq,
+        sessionId: run.sessionId,
+        type: event.type,
+        workspaceId: run.workspaceId,
+      });
+      lastSeq = event.seq;
+    }
+    return { lastSeq };
+  };
+
+  /** The daemon says the local process of an interrupted run has exited. */
+  const recordProcessEnded = async (run: RunRecord) => {
+    if (run.status !== "interrupted") {
+      throw new ServiceError(
+        "conflict",
+        `Run is ${run.status}, not interrupted`
+      );
+    }
+    await db
+      .update(runs)
+      .set({ processEndedAt: nowIso() })
+      .where(
+        and(
+          eq(runs.id, run.id),
+          eq(runs.status, "interrupted"),
+          isNull(runs.processEndedAt)
+        )
+      );
+  };
+
+  const deliverReply = async (
+    run: RunRecord,
+    message: { fileIds: string[]; text: string }
+  ) => {
+    const gateway = gatewayByKind.get(run.reply.kind);
+    if (!gateway) {
+      throw new ServiceError(
+        "invalid",
+        `No gateway is registered for ${run.reply.kind} replies`
+      );
+    }
+    await gateway.deliver(run.reply, message, {
+      agentId: run.agentId,
+      onBehalfOfUserId: run.onBehalfOfUserId,
+      runId: run.id,
+    });
+  };
+
+  /**
+   * The Claude Code session id, valid only on the machine that ran it. The
+   * write applies only while the run is still `running`, and goes in the same
+   * atomic write as the run's own update.
+   */
+  const runtimeRefWrite = (
+    principal: Principal,
+    run: RunRecord,
+    runtimeRef: string
+  ): Statement =>
+    db
+      .update(sessions)
+      .set({
+        runtimeMachineId:
+          principal.kind === "machine" ? principal.machineId : null,
+        runtimeRef,
+      })
+      .where(
+        and(
+          eq(sessions.id, run.sessionId),
+          exists(
+            db
+              .select({ id: runs.id })
+              .from(runs)
+              .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+          )
+        )
+      );
+
+  const completeRun = async (
+    principal: Principal,
+    runId: string,
+    rawResult: RunResult
+  ): Promise<void> => {
+    const result = runResultSchema.parse(rawResult);
+    const run = await requireRun(principal, runId);
+    authorizeRunWrite(principal, run, "runs.complete");
+    if (result.status === "aborted") {
+      await recordProcessEnded(run);
+      return;
+    }
+    if (run.status !== "running") {
+      throw new ServiceError("conflict", `Run is ${run.status}, not running`);
+    }
+    const fileIds = [...new Set(result.fileIds ?? [])];
+    await requireFiles(db, { fileIds, workspaceId: run.workspaceId });
+    const failed = result.status === "failed";
+    const error = failed ? (result.error ?? "Run failed") : null;
+    const finishedAt = nowIso();
+    const runWrite = db
+      .update(runs)
+      .set({
+        error,
+        finishedAt,
+        outputFileIds: JSON.stringify(fileIds),
+        resultText: result.text ?? null,
+        status: result.status,
+        usage: result.usage ? JSON.stringify(result.usage) : null,
+      })
+      .where(and(eq(runs.id, run.id), eq(runs.status, "running")));
+    // The session write goes first: it only applies while the run is running.
+    await atomic(
+      result.runtimeRef
+        ? [runtimeRefWrite(principal, run, result.runtimeRef), runWrite]
+        : [runWrite]
+    );
+    const after = await loadRun(db, run.id);
+    // Told apart from a concurrent completion with the same status by the
+    // time this call wrote: only the call whose write applied sees its own.
+    // Two calls within one millisecond still tie, because the table has no
+    // per-call column to use as a nonce.
+    if (after?.status !== result.status || after.finishedAt !== finishedAt) {
+      throw new ServiceError("conflict", "Run is no longer running");
+    }
+    if (failed) {
+      await appendRunEvent(run, "run.failed", agentActor(run), { error });
+      return;
+    }
+    await appendRunEvent(run, "run.finished", agentActor(run), {
+      outputFileIds: fileIds,
+    });
+    await deliverReply(run, { fileIds, text: result.text ?? "" });
+  };
+
+  const getRun = async (
+    principal: Principal,
+    runId: string
+  ): Promise<RunSummary> => {
+    const run = await requireRun(principal, runId);
+    authorize(principal, READ_ACTION, {
+      id: run.id,
+      kind: RUN_KIND,
+      workspaceId: run.workspaceId,
+    });
+    return toSummary(run);
+  };
+
+  /**
+   * Polls until the run is finished or `waitMs` has passed, then returns its
+   * summary either way. A caller checks `status` to tell done from pending.
+   */
+  const waitForRun = async (
+    principal: Principal,
+    runId: string,
+    waitMs: number
+  ): Promise<RunSummary> => {
+    const deadline =
+      clock.now().getTime() + Math.min(Math.max(waitMs, 0), WAIT_MAX_MS);
+    for (;;) {
+      // biome-ignore lint/performance/noAwaitInLoops: polling is sequential by nature
+      const summary = await getRun(principal, runId);
+      const remaining = deadline - clock.now().getTime();
+      if (TERMINAL_STATUSES.includes(summary.status) || remaining <= 0) {
+        return summary;
+      }
+      await clock.sleep(Math.min(WAIT_POLL_MS, remaining));
+    }
+  };
+
+  const cancelRun = async (
+    principal: Principal,
+    runId: string
+  ): Promise<void> => {
+    const run = await requireRun(principal, runId);
+    authorize(principal, "runs.cancel", {
+      id: run.id,
+      kind: RUN_KIND,
+      workspaceId: run.workspaceId,
+    });
+    const cancelled = await db
+      .update(runs)
+      .set({ finishedAt: nowIso(), status: "cancelled" })
+      .where(and(eq(runs.id, run.id), inArray(runs.status, ACTIVE)))
+      .returning({ id: runs.id });
+    if (cancelled.length === 0) {
+      throw new ServiceError("conflict", `Run is already ${run.status}`);
+    }
+    await appendRunEvent(run, "run.cancelled", eventActor(principal));
+    const { adapter } = await adapterFor(run);
+    await adapter?.cancel(db, run, adapterDeps);
+  };
+
+  /** Fetches a run's leftover Slack files through its reply gateway. */
+  const downloadPendingFiles = async (run: RunRecord): Promise<boolean> => {
+    const gateway = gatewayByKind.get(run.reply.kind);
+    if (!(run.pendingFiles && gateway?.downloadPendingFiles)) {
+      return false;
+    }
+    const fileIds = await gateway.downloadPendingFiles(run.pendingFiles, {
+      agentId: run.agentId,
+      onBehalfOfUserId: run.onBehalfOfUserId,
+      runId: run.id,
+      workspaceId: run.workspaceId,
+    });
+    await db
+      .update(runs)
+      .set({
+        inputFileIds: JSON.stringify([...run.inputFileIds, ...fileIds]),
+        pendingFiles: null,
+      })
+      .where(and(eq(runs.id, run.id), inArray(runs.status, STARTING)));
+    return true;
+  };
+
+  interface SweepResult {
+    downloaded: string[];
+    failed: { message: string; runId: string }[];
+    offered: string[];
+  }
+
+  /** One stale run: fetch its files, then offer it again if it is claimable. */
+  const sweepRun = async (row: RunRow, result: SweepResult) => {
+    let run = toRecord(row);
+    if (run.pendingFiles && (await downloadPendingFiles(run))) {
+      result.downloaded.push(run.id);
+      run = (await loadRun(db, run.id)) ?? run;
+    }
+    if (run.pendingFiles) {
+      // Still downloading, so the run cannot be claimed yet.
+      return;
+    }
+    const { adapter, agent } = await adapterFor(run);
+    if (agent && adapter) {
+      await adapter.dispatch(db, run, agent, adapterDeps);
+      result.offered.push(run.id);
+    }
+  };
+
+  /**
+   * The minute tick's queue job: offers again every run that has sat `queued`
+   * or `offered` for over 60 seconds, after fetching its leftover files. An
+   * offer is idempotent because the claim is a conditional write.
+   */
+  const sweepQueuedRuns = async (principal: Principal) => {
+    requireSystem(principal, "runs.sweep");
+    const cutoff = new Date(
+      clock.now().getTime() - STALE_QUEUE_MS
+    ).toISOString();
+    const stale = await db
+      .select()
+      .from(runs)
+      .where(and(inArray(runs.status, STARTING), lt(runs.createdAt, cutoff)))
+      .orderBy(asc(runs.createdAt))
+      .limit(SWEEP_BATCH);
+    const result: SweepResult = { downloaded: [], failed: [], offered: [] };
+    for (const row of stale) {
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: one run at a time keeps a failure to that run
+        await sweepRun(row, result);
+      } catch (error) {
+        result.failed.push({
+          message: error instanceof Error ? error.message : String(error),
+          runId: row.id,
+        });
+      }
+    }
+    return result;
+  };
+
+  /**
+   * The minute tick's lease job. A run whose lease passed becomes
+   * `interrupted` and stays there: a lost heartbeat does not prove the
+   * process stopped, so the run is never queued again.
+   */
+  const reapExpiredLeases = async (principal: Principal) => {
+    requireSystem(principal, "runs.reap");
+    const now = nowIso();
+    const expired = await db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.status, "running"), lt(runs.leaseUntil, now)))
+      .limit(SWEEP_BATCH);
+    const interrupted: string[] = [];
+    for (const row of expired) {
+      // biome-ignore lint/performance/noAwaitInLoops: compare-and-set per run, so a heartbeat that wins is respected
+      const moved = await db
+        .update(runs)
+        .set({ error: "Lease expired", finishedAt: now, status: "interrupted" })
+        .where(
+          and(
+            eq(runs.id, row.id),
+            eq(runs.status, "running"),
+            lt(runs.leaseUntil, now)
+          )
+        )
+        .returning({ id: runs.id });
+      if (moved.length > 0) {
+        await appendRunEvent(
+          toRecord(row),
+          "run.interrupted",
+          eventActor(principal)
+        );
+        interrupted.push(row.id);
+      }
+    }
+    return { interrupted };
+  };
+
+  return {
+    cancelRun,
+    claimRun,
+    completeRun,
+    getRun,
+    ingestRunEvents,
+    reapExpiredLeases,
+    startRun,
+    sweepQueuedRuns,
+    waitForRun,
+  };
+};
+
+export type RunsService = ReturnType<typeof createRunsService>;
