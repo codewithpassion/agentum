@@ -19,10 +19,10 @@ signed-in user.
 
 - `context.ts` builds `ctx` for each call: the services from [`@repo/services`](../../packages/services) on this request's `drizzle(env.DB)`, and `userId`, the signed-in user or null. `userId` comes from the Clerk session: `getAuth(c)` over HTTP, `auth()` during SSR.
 - `init.ts` defines `publicProcedure` (anyone) and `protectedProcedure` (signed-in users only, 401 otherwise).
-- `router.ts` is the app router: `notes` (public `list` and `create`) and `me` (protected, the example).
+- `router.ts` is the app router: `me` (protected, the example).
 - `routers/<name>.ts` holds one router per area. Keep them thin: an input schema from the service, then one service call.
 
-`src/integrations/trpc/client.ts` exports `getTrpc()`. In the browser it is an HTTP client for `/api/trpc`. During SSR it runs the router in-process (`unstable_localLink`), so loaders do not fetch their own Worker. Call it from loaders and event handlers: `getTrpc().notes.list.query()`.
+`src/integrations/trpc/client.ts` exports `getTrpc()`. In the browser it is an HTTP client for `/api/trpc`. During SSR it runs the router in-process (`unstable_localLink`), so loaders do not fetch their own Worker. Call it from loaders and event handlers, for example `getTrpc().<router>.<procedure>.query()`.
 
 ## D1
 
@@ -30,7 +30,7 @@ Database access goes through the workspace package [`@repo/db`](../../packages/d
 
 - `wrangler.jsonc` declares the `d1_databases` binding named `DB`, with `migrations_dir` pointing at `packages/db/migrations`. `bun run cf-typegen` turns that into `env.DB: D1Database`.
 - `src/server/trpc/context.ts` calls `drizzle(env.DB)` from `drizzle-orm/d1` and hands it to the services. That is the one place the binding is read.
-- `src/routes/notes.tsx` is the example page: the loader calls `notes.list`, the form calls `notes.create` and invalidates the router. Its `errorComponent` renders a "could not reach D1" panel.
+- The app has no database page right now. TODO(M0): health check
 - Browser code imports only `@repo/db/shared`. The other entries import drizzle and belong behind tRPC.
 
 `bun run dev` runs `wrangler d1 migrations apply DB --local` before starting Vite, so the local database that Miniflare serves is always up to date. It lives in `.wrangler`, which is gitignored; delete that folder for a clean slate.

@@ -4,30 +4,27 @@ The service layer: business rules and input validation, on top of the query func
 
 ## Entry points
 
-| Import | Contents |
-| --- | --- |
-| `@repo/services/notes` | `createNotesService`, `createNoteInput` (zod schema), `NotesService`, `CreateNoteInput` |
+None yet. This package has no services. The `exports` map is empty, so nothing can be imported from it until a module is added.
 
 One entry per module, no barrel file, same as `@repo/db`. Everything here is server-only: services import drizzle-backed modules.
 
 ## Using it
 
-A service is a factory that takes a drizzle instance:
+A service is a factory that takes a drizzle instance. A service that writes more than one row also takes `atomic` from `@repo/db/atomic`, as `{ db, atomic }`. A new module would be used like this (`createXService` is a placeholder):
 
 ```ts
-import { createNotesService } from "@repo/services/notes";
+import { createXService } from "@repo/services/x";
 import { drizzle } from "drizzle-orm/d1";
 
-const notes = createNotesService(drizzle(env.DB));
-await notes.create({ text: "  hello  " }); // stored as "hello"
-await notes.list();
+const x = createXService(drizzle(env.DB));
+await x.list();
 ```
 
 In the app, `apps/web/src/server/trpc/context.ts` builds the services once per call and puts them on `ctx.services`.
 
 ## Writing a service
 
-`src/notes.ts` is the template:
+Add a module as `src/x.ts` and an entry for it in `exports`. Then follow these rules:
 
 - Export the input schema (zod). The tRPC router passes it to `.input()`, and the service parses with it again, so a caller that skips tRPC still gets validated input.
 - Methods are `async`, so a validation error rejects the promise rather than throwing synchronously.
@@ -36,10 +33,6 @@ In the app, `apps/web/src/server/trpc/context.ts` builds the services once per c
 
 A new service also needs a line in `apps/web/src/server/trpc/context.ts` and in the add-clerk skill's copy of that file (`.claude/skills/add-clerk/templates/apps/web/src/server/trpc/context.ts`).
 
-## Tests
+## Scripts
 
-```bash
-bun test
-```
-
-Like `@repo/db`, each test gets a fresh in-memory `bun:sqlite` database with the real migrations applied, so the tests cover the service, the queries and the schema together.
+The package has no `test` or `typecheck` script while `src/` is empty, because `bun test` and `tsc` both fail when they find no files. The first service adds `"test": "bun test"` and `"typecheck": "tsc --noEmit"` to `package.json`.

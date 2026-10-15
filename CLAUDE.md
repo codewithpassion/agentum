@@ -19,15 +19,18 @@ excludes them at the `files` level because `ultracite fix` corrupts them. See
 Data access lives in `packages/db` (`@repo/db`), see its README. Rules that
 are easy to break:
 
-- Only `packages/services` imports `@repo/db/notes` and the other table
+- Only `packages/services` imports `@repo/db/schema/*` and the other table
   modules; the app goes through the services (below). Anything a React
   component needs comes from `@repo/db/shared`. The other entries pull drizzle into the
   browser bundle. One entry per module in `exports`, no barrel file.
 - Query functions take a drizzle instance, they never make one. The app passes
   `drizzle(env.DB)` from `drizzle-orm/d1`; the tests pass a `bun:sqlite` one. The
   parameter type is `Database` from `@repo/db`, which covers both.
-- Changing `src/schema.ts` means running `bun run generate` in `packages/db` and
+- Changing `src/schema/*.ts` means running `bun run generate` in `packages/db` and
   committing `migrations/` including `migrations/meta/`.
+- Multi-statement writes go through `atomic` from `@repo/db/atomic`, never
+  raw `db.batch` or `db.transaction`. The `events` triggers are hand-written at
+  the end of `0002_foundation.sql`; keep them if that migration is regenerated.
 - Migrations are applied by wrangler, not drizzle-kit: `wrangler d1 migrations
   apply DB --local` (which `bun run dev` does for you) or `--remote`.
 - Local database: SQLite via Miniflare, in `apps/web/.wrangler`. No account, no

@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/schema.ts",
-    "./notes": "./src/notes.ts",
+    ".": "./src/database.ts",
+    "./atomic": "./src/atomic.ts",
+    "./schema/*": "./src/schema/*.ts",
     "./shared": "./src/shared.ts"
   },
   "scripts": {

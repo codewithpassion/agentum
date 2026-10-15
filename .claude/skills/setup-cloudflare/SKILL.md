@@ -60,7 +60,7 @@ bun x wrangler --cwd apps/web d1 migrations apply DB --remote
 
 `d1 create` fails if the name is taken; that is fine when the database is the
 user's own, so go straight to `d1 info` for the uuid. `migrations apply` is what
-creates the tables, and it has to run before the first request hits `/notes`.
+creates the tables, and it has to run before the first request that touches the database. The app has no database page yet. TODO(M0): health check
 
 Done when `d1 migrations apply DB --remote` reports the migrations as applied.
 
@@ -79,12 +79,12 @@ The secrets ride along with the deploy because `wrangler secret put` needs a
 Worker that already exists. Run the `rm` whether or not the deploy succeeded;
 the file holds secrets.
 
-Verify: `curl -s <deployed URL>/api/health` returns `{"status":"ok"…}`, and
-`curl -s <deployed URL>/notes` does not show the "Could not reach D1" panel. A
-new `workers.dev` name can take a minute to resolve; retry a few times before
+Verify: `curl -s <deployed URL>/api/health` returns `{"status":"ok"…}`. The app
+has no database page yet, so there is no in-app database check. TODO(M0): health check
+A new `workers.dev` name can take a minute to resolve; retry a few times before
 calling it a failure.
 
-Done when both checks pass and `bun x wrangler --cwd apps/web secret list` shows
+Done when the health check passes and `bun x wrangler --cwd apps/web secret list` shows
 the uploaded names.
 
 ## 6. Hand back

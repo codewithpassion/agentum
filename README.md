@@ -11,7 +11,7 @@ signed-in user.
 
 ## Packages
 
-- [`packages/db`](packages/db) — `@repo/db`: the Drizzle schema for D1, the generated migrations, and the example `notes` table. See its [README](packages/db/README.md).
+- [`packages/db`](packages/db) — `@repo/db`: the Drizzle schema for D1 and the generated migrations. See its [README](packages/db/README.md).
 - [`packages/services`](packages/services) — `@repo/services`: the service layer. Business rules and validation, on top of `@repo/db`. The web app calls it through [tRPC](https://trpc.io). See its [README](packages/services/README.md).
 
 ## Start a new project
@@ -28,7 +28,7 @@ You need [Bun](https://bun.sh) 1.3 or newer and [Claude Code](https://claude.com
 
    Without the `gh` CLI, press "Use this template" on the [template's GitHub page](https://github.com/codewithpassion/cf-tanstack-boilerplate) and clone the repo it creates.
 
-2. Start Claude Code in that folder and type `/project-init`. It asks for a name, renames the project to it and commits. It asks whether you want Clerk auth, then signs you in to Cloudflare, creates the D1 database, applies the migrations and does the first deploy. It asks before creating anything on your account. When it finishes you have a `https://my-app.<subdomain>.workers.dev` URL. Open `/notes` on it to check the database works.
+2. Start Claude Code in that folder and type `/project-init`. It asks for a name, renames the project to it and commits. It asks whether you want Clerk auth, then signs you in to Cloudflare, creates the D1 database, applies the migrations and does the first deploy. It asks before creating anything on your account. When it finishes you have a `https://my-app.<subdomain>.workers.dev` URL. The app has no database page yet, so there is no in-app check that the database works. TODO(M0): health check
 
 3. Commit what `/project-init` left uncommitted and push. That includes the D1 `database_id` in `apps/web/wrangler.jsonc`. It is not a secret, and without it a fresh clone deploys against the `"local"` placeholder.
 
@@ -50,7 +50,7 @@ bun install
 bun run dev
 ```
 
-`bun run dev` applies the D1 migrations to a local database and starts the web app. The local database is SQLite, run by [Miniflare](https://developers.cloudflare.com/workers/testing/miniflare/) under the Cloudflare Vite plugin, and lives in `apps/web/.wrangler`. No account and no Docker needed. Open the Notes page to see the round trip.
+`bun run dev` applies the D1 migrations to a local database and starts the web app. The local database is SQLite, run by [Miniflare](https://developers.cloudflare.com/workers/testing/miniflare/) under the Cloudflare Vite plugin, and lives in `apps/web/.wrangler`. No account and no Docker needed.
 
 Commands at the root run across all apps via [Turborepo](https://turborepo.com):
 
@@ -101,7 +101,7 @@ Repeat the `migrations apply --remote` whenever `packages/db` gains a new migrat
 bun run deploy
 ```
 
-That builds and runs `wrangler deploy`. The URL is printed at the end; open `/notes` on it to confirm the database binding.
+That builds and runs `wrangler deploy`. The URL is printed at the end. The app has no database page yet, so there is no in-app check of the database binding. TODO(M0): health check
 
 ## Pull request previews
 
