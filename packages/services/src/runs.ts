@@ -11,8 +11,7 @@ import type { Atomic, Statement } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
-import type { EventActorKind } from "@repo/db/shared";
-import { and, asc, eq, inArray, isNull, lt, max } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNull, lt, max } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -312,9 +311,10 @@ export const createRunsService = ({
       await atomic([sessionWrite, runWrite]);
       return { inserted: true, runId, sessionId, status: "queued" };
     } catch (error) {
-      const existing = input.requestId
-        ? await loadRunByRequest(db, workspaceId, input.requestId)
-        : null;
+      const existing =
+        input.requestId && isUniqueViolation(error)
+          ? await loadRunByRequest(db, workspaceId, input.requestId)
+          : null;
       if (!existing) {
         throw error;
       }
@@ -479,24 +479,34 @@ export const createRunsService = ({
     });
   };
 
-  /** The Claude Code session id, valid only on the machine that ran it. */
-  const recordRuntimeRef = async (
+  /**
+   * The Claude Code session id, valid only on the machine that ran it. The
+   * write applies only while the run is still `running`, and goes in the same
+   * atomic write as the run's own update.
+   */
+  const runtimeRefWrite = (
     principal: Principal,
     run: RunRecord,
-    runtimeRef: string | undefined
-  ) => {
-    if (!runtimeRef) {
-      return;
-    }
-    await db
+    runtimeRef: string
+  ): Statement =>
+    db
       .update(sessions)
       .set({
         runtimeMachineId:
           principal.kind === "machine" ? principal.machineId : null,
         runtimeRef,
       })
-      .where(eq(sessions.id, run.sessionId));
-  };
+      .where(
+        and(
+          eq(sessions.id, run.sessionId),
+          exists(
+            db
+              .select({ id: runs.id })
+              .from(runs)
+              .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+          )
+        )
+      );
 
   const completeRun = async (
     principal: Principal,
@@ -517,7 +527,7 @@ export const createRunsService = ({
     await requireFiles(db, { fileIds, workspaceId: run.workspaceId });
     const failed = result.status === "failed";
     const error = failed ? (result.error ?? "Run failed") : null;
-    const finished = await db
+    const runWrite = db
       .update(runs)
       .set({
         error,
@@ -527,12 +537,17 @@ export const createRunsService = ({
         status: result.status,
         usage: result.usage ? JSON.stringify(result.usage) : null,
       })
-      .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
-      .returning({ id: runs.id });
-    if (finished.length === 0) {
+      .where(and(eq(runs.id, run.id), eq(runs.status, "running")));
+    // The session write goes first: it only applies while the run is running.
+    await atomic(
+      result.runtimeRef
+        ? [runtimeRefWrite(principal, run, result.runtimeRef), runWrite]
+        : [runWrite]
+    );
+    const after = await loadRun(db, run.id);
+    if (after?.status !== result.status) {
       throw new ServiceError("conflict", "Run is no longer running");
     }
-    await recordRuntimeRef(principal, run, result.runtimeRef);
     if (failed) {
       await appendRunEvent(run, "run.failed", agentActor(run), { error });
       return;
@@ -706,10 +721,11 @@ export const createRunsService = ({
         )
         .returning({ id: runs.id });
       if (moved.length > 0) {
-        await appendRunEvent(toRecord(row), "run.interrupted", {
-          id: "reaper",
-          kind: "system" satisfies EventActorKind,
-        });
+        await appendRunEvent(
+          toRecord(row),
+          "run.interrupted",
+          eventActor(principal)
+        );
         interrupted.push(row.id);
       }
     }

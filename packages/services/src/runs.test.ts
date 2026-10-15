@@ -631,3 +631,40 @@ test("only the system principal runs the jobs", async () => {
     ForbiddenError
   );
 });
+
+test("completeRun stores the runtime ref on the session with the result", async () => {
+  const { runId, sessionId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    runtimeRef: "cc-session-1",
+    status: "done",
+    text: "ok",
+  });
+  expect(runRow(runId)).toMatchObject({ status: "done" });
+  const [session] = db
+    .select()
+    .from(sessionRows)
+    .where(eq(sessionRows.id, sessionId))
+    .all();
+  expect(session?.runtimeRef).toBe("cc-session-1");
+});
+
+test("a refused completion does not touch the session", async () => {
+  const { runId, sessionId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  advance(91 * SECOND);
+  await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+  const late = await failure(
+    runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+      runtimeRef: "cc-late",
+      status: "done",
+    })
+  );
+  expect(late).toMatchObject({ code: "conflict" });
+  const [session] = db
+    .select()
+    .from(sessionRows)
+    .where(eq(sessionRows.id, sessionId))
+    .all();
+  expect(session?.runtimeRef).toBeNull();
+});
