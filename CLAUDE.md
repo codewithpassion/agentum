@@ -1,4 +1,8 @@
 
+## Working process
+
+The build runs as a controller session with Sonnet dispatchers and Haiku workers, tracked as task files in `docs/tasks/`. Read `docs/workflow.md` before starting, dispatching or reviewing a task. Subagents follow only the section their brief names.
+
 Default to using Bun instead of Node.js.
 
 - Use `bun <file>` instead of `node <file>` or `ts-node <file>`

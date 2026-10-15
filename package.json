@@ -15,6 +15,7 @@
     "fix": "ultracite fix",
     "prepare": "husky && turbo run cf-typegen",
     "preview": "turbo run preview",
+    "tasks": "bun scripts/tasks.ts",
     "test": "turbo run test"
   },
   "devDependencies": {
