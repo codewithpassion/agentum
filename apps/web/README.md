@@ -17,9 +17,9 @@ signed-in user.
 
 `src/server/trpc/` holds the API:
 
-- `context.ts` builds `ctx` for each call: the services from [`@repo/services`](../../packages/services) on this request's `drizzle(env.DB)`, and `userId`, the signed-in user or null. `userId` comes from the Clerk session: `getAuth(c)` over HTTP, `auth()` during SSR.
-- `init.ts` defines `publicProcedure` (anyone) and `protectedProcedure` (signed-in users only, 401 otherwise).
-- `router.ts` is the app router: `me` (protected, the example).
+- `context.ts` builds `ctx` for each call: the services from [`@repo/services`](../../packages/services) on this request's `drizzle(env.DB)`, and `principal`, the signed-in user in their workspace, or null. The principal comes from the Clerk session (`getAuth(c)` over HTTP, `auth()` during SSR): its active organisation must be in `ALLOWED_ORG_IDS`, and the workspace for that organisation is created on the first request. `build-context.ts` holds the part that has no Clerk or Worker imports, so tests can build a `ctx` from a fake session.
+- `init.ts` defines `publicProcedure` (anyone) and `workspaceProcedure` (a user with an active, allowed organisation, 401 otherwise; narrows `ctx.principal` to the user principal).
+- `router.ts` is the app router: `me` (returns `{ userId, workspaceId }`, the example).
 - `routers/<name>.ts` holds one router per area. Keep them thin: an input schema from the service, then one service call.
 
 `src/integrations/trpc/client.ts` exports `getTrpc()`. In the browser it is an HTTP client for `/api/trpc`. During SSR it runs the router in-process (`unstable_localLink`), so loaders do not fetch their own Worker. Call it from loaders and event handlers, for example `getTrpc().<router>.<procedure>.query()`.

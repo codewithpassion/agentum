@@ -1,4 +1,4 @@
-import { useSignIn, useUser } from "@clerk/tanstack-react-start";
+import { useClerk, useSignIn, useUser } from "@clerk/tanstack-react-start";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Spinner } from "#/components/ui/spinner";
@@ -6,14 +6,16 @@ import { Spinner } from "#/components/ui/spinner";
 export const Route = createFileRoute("/dev-login")({
   validateSearch: (search: Record<string, unknown>) => ({
     token: typeof search.token === "string" ? search.token : "",
+    org: typeof search.org === "string" ? search.org : "",
   }),
   component: DevLogin,
 });
 
 function DevLogin() {
-  const { token } = Route.useSearch();
+  const { token, org } = Route.useSearch();
   const { signIn } = useSignIn();
   const { user } = useUser();
+  const { setActive } = useClerk();
   const [error, setError] = useState<string | null>(null);
   const consumed = useRef(false);
 
@@ -42,16 +44,22 @@ function DevLogin() {
         return;
       }
 
+      // finalize sets the session. Its navigate runs before that, so it must
+      // not navigate: the page would leave before the organisation is set.
       const { error: finalizeError } = await signIn.finalize({
-        navigate: ({ decorateUrl }) => {
-          window.location.href = decorateUrl("/");
-        },
+        navigate: () => undefined,
       });
       if (finalizeError) {
         setError(finalizeError.message ?? "Dev login failed.");
+        return;
       }
+
+      if (org) {
+        await setActive({ organization: org });
+      }
+      window.location.href = "/";
     })();
-  }, [token, signIn, user]);
+  }, [token, org, signIn, user, setActive]);
 
   if (error) {
     return (

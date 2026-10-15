@@ -22,6 +22,13 @@
       "when": 1792102677275,
       "tag": "0002_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792105276566,
+      "tag": "0003_exotic_madame_hydra",
+      "breakpoints": true
     }
   ]
 }

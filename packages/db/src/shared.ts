@@ -22,6 +22,9 @@ export const RUN_STATUSES = [
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
+export const API_KEY_ACCESS = ["read", "write"] as const;
+export type ApiKeyAccess = (typeof API_KEY_ACCESS)[number];
+
 export const FILE_SOURCES = ["upload", "slack", "run"] as const;
 export type FileSource = (typeof FILE_SOURCES)[number];
 

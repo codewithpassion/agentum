@@ -9,7 +9,7 @@ interface Column {
 
 const NO_WORKSPACE_ID = new Set(["workspaces", "__drizzle_migrations"]);
 
-test("the nine foundation tables exist", () => {
+test("the foundation tables and the two M0.1 stubs exist", () => {
   const { client } = migrated();
   const names = client
     .query<{ name: string }, []>(
@@ -20,6 +20,7 @@ test("the nine foundation tables exist", () => {
     .filter((name) => name !== "__drizzle_migrations");
   expect(names).toEqual([
     "agents",
+    "api_keys",
     "events",
     "files",
     "identity_links",
@@ -27,6 +28,7 @@ test("the nine foundation tables exist", () => {
     "machines",
     "runs",
     "sessions",
+    "triggers",
     "workspaces",
   ]);
 });
@@ -40,7 +42,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(8);
+  expect(tables.length).toBe(10);
 
   for (const table of tables) {
     const column = client

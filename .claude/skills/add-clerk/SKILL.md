@@ -39,9 +39,10 @@ That lands six files, one of them over an existing file:
 - `apps/web/scripts/create-dev-user.ts` - creates the dev login user through
   Clerk's Backend API.
 - `apps/web/src/server/trpc/context.ts` - replaces the no-auth version. The
-  tRPC context's `userId` now comes from the Clerk session: `getAuth(c)` for
-  calls over `/api/trpc`, `auth()` for in-process calls during SSR. That is
-  what makes `protectedProcedure` let signed-in users through.
+  tRPC context's `principal` now comes from the Clerk session: `getAuth(c)` for
+  calls over `/api/trpc`, `auth()` for in-process calls during SSR, resolved
+  to a user in a workspace by `@repo/services/workspaces`. That is what makes
+  `workspaceProcedure` let signed-in users in an allowed organisation through.
 
 Done when all six exist and `git diff --stat` shows
 `apps/web/src/server/trpc/context.ts` modified.
@@ -126,12 +127,24 @@ app.get("/api/dev-login", async (c) => {
     );
   }
 
+  const { data: memberships } =
+    await clerkClient.users.getOrganizationMembershipList({ userId: user.id });
+  const [membership] = memberships;
+  if (!membership) {
+    return c.text(
+      `Dev login user ${email} has no organisation yet. Run "bun run create-dev-user" in apps/web.`,
+      404
+    );
+  }
+
   const { token } = await clerkClient.signInTokens.createSignInToken({
     expiresInSeconds: 60,
     userId: user.id,
   });
 
-  return c.redirect(`/dev-login?token=${encodeURIComponent(token)}`);
+  return c.redirect(
+    `/dev-login?token=${encodeURIComponent(token)}&org=${encodeURIComponent(membership.organization.id)}`
+  );
 });
 ```
 
@@ -337,10 +350,14 @@ Replace the `## Auth` section of the root `CLAUDE.md` with:
 Clerk. `apps/web/src/server.ts` runs `@clerk/hono`'s `clerkMiddleware()`, so
 `getAuth(c)` works in any Hono route; `src/start.ts` wires the same auth into
 TanStack Start, and `src/routes/__root.tsx` wraps the app in `<ClerkProvider>`.
-`src/server/trpc/context.ts` puts the Clerk user id in `ctx.userId`, so
-`protectedProcedure` admits signed-in users and answers 401 to everyone else.
-Set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` and
-`VITE_CLERK_PUBLISHABLE_KEY` on a deployed Worker with `wrangler secret put`.
+`src/server/trpc/context.ts` turns the session's user id and active
+organisation into `ctx.principal`, so `workspaceProcedure` admits users in an
+allowed organisation and answers 401 to everyone else. A workspace is one Clerk
+organisation, created on its first request, and only organisations listed in
+`ALLOWED_ORG_IDS` (comma separated) get one. Turn on Clerk's restricted sign-up
+and Organizations in the Clerk dashboard too.
+Set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`
+and `ALLOWED_ORG_IDS` on a deployed Worker with `wrangler secret put`.
 
 ## Dev login (testing)
 
@@ -353,7 +370,10 @@ automation, instead of going through Clerk's UI. Only active when
 `DEV_LOGIN_EMAIL`/`DEV_LOGIN_PASSWORD` are set in `apps/web/.env.local` (never
 set these in a deployed environment, since their absence is what disables the
 route). Create/refresh the dev user with `bun run create-dev-user` from
-`apps/web`.
+`apps/web`. It also creates a "Dev Workspace" organisation for the user and
+adds its id to `ALLOWED_ORG_IDS` in `.env.local`; `/dev-login` makes that
+organisation active, so the login lands on the app and not on Clerk's
+create-organization screen.
 ```
 
 In `README.md` and `apps/web/README.md`, replace the line
@@ -379,8 +399,8 @@ In the root `CLAUDE.md` "Services and tRPC" section, replace
 with
 
 ```markdown
-  `context.ts` reads the Clerk session, so `ctx.userId` is the signed-in user
-  or null.
+  `context.ts` reads the Clerk session and resolves it to `ctx.principal`, the
+  user in their workspace, or null.
 ```
 
 In `apps/web/README.md`, replace the sentence
@@ -392,7 +412,7 @@ With no auth, `userId` is always null. The `add-clerk` skill swaps this file for
 with
 
 ```markdown
-`userId` comes from the Clerk session: `getAuth(c)` over HTTP, `auth()` during SSR.
+`principal` comes from the Clerk session: `getAuth(c)` over HTTP, `auth()` during SSR.
 ```
 
 ## 13. Verify

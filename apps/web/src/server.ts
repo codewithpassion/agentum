@@ -52,12 +52,24 @@ app.get("/api/dev-login", async (c) => {
     );
   }
 
+  const { data: memberships } =
+    await clerkClient.users.getOrganizationMembershipList({ userId: user.id });
+  const [membership] = memberships;
+  if (!membership) {
+    return c.text(
+      `Dev login user ${email} has no organisation yet. Run "bun run create-dev-user" in apps/web.`,
+      404
+    );
+  }
+
   const { token } = await clerkClient.signInTokens.createSignInToken({
     expiresInSeconds: 60,
     userId: user.id,
   });
 
-  return c.redirect(`/dev-login?token=${encodeURIComponent(token)}`);
+  return c.redirect(
+    `/dev-login?token=${encodeURIComponent(token)}&org=${encodeURIComponent(membership.organization.id)}`
+  );
 });
 
 // tRPC: queries and mutations for the browser. During SSR the loaders call the

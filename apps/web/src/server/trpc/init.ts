@@ -32,13 +32,16 @@ const t = initTRPC.context<Context>().create({
 
 export const { router } = t;
 
-/** Anyone, signed in or not. `ctx.userId` may be null. */
+/** Anyone, signed in or not. `ctx.principal` may be null. */
 export const publicProcedure = t.procedure;
 
-/** Signed-in users only. Narrows `ctx.userId` to a string. */
-export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
-  if (!ctx.userId) {
+/**
+ * A signed-in user with an active allowed organisation. Narrows
+ * `ctx.principal` to the user principal. Everyone else gets 401.
+ */
+export const workspaceProcedure = t.procedure.use(({ ctx, next }) => {
+  if (ctx.principal?.kind !== "user") {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
-  return next({ ctx: { ...ctx, userId: ctx.userId } });
+  return next({ ctx: { ...ctx, principal: ctx.principal } });
 });
