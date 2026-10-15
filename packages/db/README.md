@@ -9,7 +9,8 @@ The database layer of the monorepo: a [Drizzle](https://orm.drizzle.team) schema
 | `@repo/db` | the `Database` type | Anywhere (type only) |
 | `@repo/db/schema/<module>` | the tables of one module, e.g. `@repo/db/schema/runs` | Server only: it imports drizzle |
 | `@repo/db/atomic` | `d1Atomic`, `sqliteAtomic`, the `Atomic` and `Statement` types | Server only |
-| `@repo/db/shared` | enum values (`RUN_STATUSES` and friends) and their types | Anywhere, including React components |
+| `@repo/db/shared` | enum values (`RUN_STATUSES`, `EVENT_TYPES` and friends) and their types | Anywhere, including React components |
+| `@repo/db/test-db` | `migrated()`, an in-memory `bun:sqlite` database with all migrations applied | Tests only |
 
 One entry per module, no barrel file. A new lane adds `src/schema/<module>.ts` (picked up by the glob in `drizzle.config.ts` and by the `@repo/db/schema/*` export) and, for its query functions, a `src/<module>.ts` with its own `exports` line. Keep the server/browser split. Importing a drizzle-backed entry from a route component pulls drizzle into the browser bundle. Anything the UI needs goes in `src/shared.ts`.
 

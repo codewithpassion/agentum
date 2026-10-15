@@ -2,14 +2,21 @@
   "name": "@repo/services",
   "private": true,
   "type": "module",
-  "exports": {},
+  "exports": {
+    "./events": "./src/events.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@repo/db": "workspace:*",
+    "drizzle-orm": "^0.44.7",
+    "ulidx": "^2.4.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "drizzle-orm": "^0.44.7",
     "typescript": "^5.9.2"
   }
 }

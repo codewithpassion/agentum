@@ -4,9 +4,15 @@ The service layer: business rules and input validation, on top of the query func
 
 ## Entry points
 
-None yet. This package has no services. The `exports` map is empty, so nothing can be imported from it until a module is added.
+| Import | Contents |
+| --- | --- |
+| `@repo/services/events` | `createEventsService({ db, blobs })`, the event input and filter schemas |
 
 One entry per module, no barrel file, same as `@repo/db`. Everything here is server-only: services import drizzle-backed modules.
+
+### Events
+
+`append(event)` validates, strips secrets, and writes one row. A payload over 64 KB goes to `blobs.put` under `payloads/<workspaceId>/<eventId>.json`, and the row keeps `{}` as its payload and the key in `payload_ref`. `blobs` is `{ get, put }`: R2 in the app, a `Map` in tests. `transcript(sessionId)` returns the `message.*` and `tool.*` events of a session ordered by id, and the caller has already checked the session's workspace. `query(workspaceId, filters)` filters by agent, run, session, types and an `after` id cursor. `readPayload(event)` fetches an overflowed payload. The event types and actor kinds are in `@repo/db/shared`. The helpers in `src/events/` (ids, payload cap, redaction) are copies from control-plane.
 
 ## Using it
 
@@ -32,7 +38,3 @@ Add a module as `src/x.ts` and an entry for it in `exports`. Then follow these r
 - Return the plain JSON shapes from `@repo/db/shared`.
 
 A new service also needs a line in `apps/web/src/server/trpc/context.ts` and in the add-clerk skill's copy of that file (`.claude/skills/add-clerk/templates/apps/web/src/server/trpc/context.ts`).
-
-## Scripts
-
-The package has no `test` or `typecheck` script while `src/` is empty, because `bun test` and `tsc` both fail when they find no files. The first service adds `"test": "bun test"` and `"typecheck": "tsc --noEmit"` to `package.json`.

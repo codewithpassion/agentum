@@ -6,7 +6,8 @@
     ".": "./src/database.ts",
     "./atomic": "./src/atomic.ts",
     "./schema/*": "./src/schema/*.ts",
-    "./shared": "./src/shared.ts"
+    "./shared": "./src/shared.ts",
+    "./test-db": "./src/test-db.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",
