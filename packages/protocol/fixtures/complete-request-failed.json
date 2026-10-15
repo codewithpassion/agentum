@@ -1,0 +1,9 @@
+{
+  "status": "failed",
+  "error": "Input file 01HZXA5T7V9W1X3Y5Z7A9B1C3D could not be read: 404 not found.",
+  "usage": {
+    "inputTokens": 512,
+    "outputTokens": 38
+  },
+  "runtimeRef": "sdk-session-7f3a9c"
+}

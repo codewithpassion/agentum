@@ -1,0 +1,9 @@
+{
+  "type": "hello",
+  "daemonVersion": "0.1.0",
+  "capabilities": {
+    "agentSdk": "0.2.0",
+    "container": false
+  },
+  "agents": ["researcher", "writer"]
+}
