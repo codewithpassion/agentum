@@ -410,17 +410,13 @@ Done means all five hold:
 - `curl -s localhost:3000/api/trpc/me` returns a 401 `UNAUTHORIZED` when signed
   out. Signed in with the dev login, the browser's devtools console
   `await (await fetch("/api/trpc/me")).json()` shows the user id. Anonymous
-  procedures (`notes.list`) keep working either way.
+  procedures keep working either way.
 
 ## 14. Hand back
 
 Report the Clerk app name and id, whether the dev login is on, and the diff.
 Commit only if the user asks. Leave to the user:
 
-- Every notes procedure is still a `publicProcedure`, so anonymous visitors can
-  add notes on a deployed app. Making `notes.create` a `protectedProcedure` (in
-  `apps/web/src/server/trpc/routers/notes.ts`) is a one-word change; ask
-  whether they want it.
 - The dev instance also serves the deployed Worker. A production instance is a
   separate `clerk deploy` wizard and needs a custom domain.
 - If the Worker is already deployed, its Clerk secrets go up with the next

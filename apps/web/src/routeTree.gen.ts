@@ -13,7 +13,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as NotesRouteImport } from './routes/notes'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -35,25 +34,18 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const NotesRoute = NotesRouteImport.update({
-  id: '/notes',
-  path: '/notes',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
-  '/notes': typeof NotesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
-  '/notes': typeof NotesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -61,14 +53,13 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
-  '/notes': typeof NotesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/dev-login' | '/login' | '/notes'
+  fullPaths: '/' | '/about' | '/dev-login' | '/login'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/dev-login' | '/login' | '/notes'
-  id: '__root__' | '/' | '/about' | '/dev-login' | '/login' | '/notes'
+  to: '/' | '/about' | '/dev-login' | '/login'
+  id: '__root__' | '/' | '/about' | '/dev-login' | '/login'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,7 +67,6 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   DevLoginRoute: typeof DevLoginRoute
   LoginRoute: typeof LoginRoute
-  NotesRoute: typeof NotesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -109,13 +99,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/notes': {
-      id: '/notes'
-      path: '/notes'
-      fullPath: '/notes'
-      preLoaderRoute: typeof NotesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -124,7 +107,6 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   DevLoginRoute: DevLoginRoute,
   LoginRoute: LoginRoute,
-  NotesRoute: NotesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

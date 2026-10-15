@@ -1,11 +1,8 @@
-// What every tRPC procedure receives as `ctx`: the services, built on this
-// request's D1 binding, and who is calling. `userId` is the Clerk user, or
-// null for anonymous callers; `protectedProcedure` rejects the latter.
-import { env } from "cloudflare:workers";
+// What every tRPC procedure receives as `ctx`: the services, and who is
+// calling. `userId` is the Clerk user, or null for anonymous callers;
+// `protectedProcedure` rejects the latter.
 import { getAuth } from "@clerk/hono";
 import { auth } from "@clerk/tanstack-react-start/server";
-import { createNotesService } from "@repo/services/notes";
-import { drizzle } from "drizzle-orm/d1";
 import type { Context as HonoContext } from "hono";
 
 // A type, not an interface: see the biome-ignore. Over HTTP,
@@ -13,15 +10,16 @@ import type { Context as HonoContext } from "hono";
 // procedures use `ctx.services` and never `ctx.env`.
 // biome-ignore lint/style/useConsistentTypeDefinitions: @hono/trpc-server needs a Record<string, unknown>, which an interface is not
 export type Context = {
-  services: { notes: ReturnType<typeof createNotesService> };
+  // Empty until a service is added. Add each one here and in createContext.
+  services: Record<string, never>;
   /** Signed-in user, or null for anonymous callers. */
   userId: string | null;
 };
 
-const createContext = (bindings: Env, userId: string | null): Context => {
-  const db = drizzle(bindings.DB);
-  return { services: { notes: createNotesService(db) }, userId };
-};
+const createContext = (userId: string | null): Context => ({
+  services: {},
+  userId,
+});
 
 /**
  * Calls over HTTP: /api/trpc, mounted in src/server.ts after @clerk/hono's
@@ -30,7 +28,7 @@ const createContext = (bindings: Env, userId: string | null): Context => {
 export const createHonoContext = (
   c: HonoContext<{ Bindings: Env }>
 ): Promise<Context> =>
-  Promise.resolve(createContext(c.env, getAuth(c)?.userId ?? null));
+  Promise.resolve(createContext(getAuth(c)?.userId ?? null));
 
 /**
  * In-process calls from route loaders during SSR (src/integrations/trpc).
@@ -38,5 +36,5 @@ export const createHonoContext = (
  */
 export const createSsrContext = async (): Promise<Context> => {
   const { userId } = await auth();
-  return createContext(env, userId);
+  return createContext(userId);
 };

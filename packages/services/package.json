@@ -2,13 +2,7 @@
   "name": "@repo/services",
   "private": true,
   "type": "module",
-  "exports": {
-    "./notes": "./src/notes.ts"
-  },
-  "scripts": {
-    "test": "bun test",
-    "typecheck": "tsc --noEmit"
-  },
+  "exports": {},
   "dependencies": {
     "@repo/db": "workspace:*",
     "zod": "^4.6.5"

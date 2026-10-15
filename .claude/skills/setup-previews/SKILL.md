@@ -84,8 +84,9 @@ gh pr create --fill --draft
 gh pr checks --watch
 ```
 
-Done when the PR has a comment with the preview URL, `<url>/notes` saves a note,
-and after `gh pr close --delete-branch` the cleanup job passes and
+The app has no database page yet, so there is no in-app save check. TODO(M0): health check
+
+Done when the PR has a comment with the preview URL, and after `gh pr close --delete-branch` the cleanup job passes and
 `bun x wrangler --cwd apps/web d1 list` no longer shows
 `<worker>-preview-pr-<N>`.
 

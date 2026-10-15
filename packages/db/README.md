@@ -1,47 +1,50 @@
 # @repo/db
 
-The database layer of the monorepo: a [Drizzle](https://orm.drizzle.team) schema for [Cloudflare D1](https://developers.cloudflare.com/d1/), the generated migrations, and one example table (`notes`) showing the shape every table should follow.
+The database layer of the monorepo: a [Drizzle](https://orm.drizzle.team) schema for [Cloudflare D1](https://developers.cloudflare.com/d1/), the generated migrations, and the `atomic` write port.
 
 ## Entry points
 
 | Import | Contents | Where it may run |
 | --- | --- | --- |
-| `@repo/db` | the tables, the `Database` type | Server only: it imports drizzle |
-| `@repo/db/notes` | `listNotes`, `createNote` | Server only, called by `@repo/services` |
-| `@repo/db/shared` | `Note` type, `NOTE_TEXT_MAX_LENGTH` | Anywhere, including React components |
+| `@repo/db` | the `Database` type | Anywhere (type only) |
+| `@repo/db/schema/<module>` | the tables of one module, e.g. `@repo/db/schema/runs` | Server only: it imports drizzle |
+| `@repo/db/atomic` | `d1Atomic`, `sqliteAtomic`, the `Atomic` and `Statement` types | Server only |
+| `@repo/db/shared` | enum values (`RUN_STATUSES` and friends) and their types | Anywhere, including React components |
 
-One entry per module, no barrel file: a new table gets its own `src/<name>.ts` and its own `exports` line in `package.json`. Keep the server/browser split. Importing a drizzle-backed entry from a route component pulls drizzle into the browser bundle. Anything the UI needs goes in `src/shared.ts`.
+One entry per module, no barrel file. A new lane adds `src/schema/<module>.ts` (picked up by the glob in `drizzle.config.ts` and by the `@repo/db/schema/*` export) and, for its query functions, a `src/<module>.ts` with its own `exports` line. Keep the server/browser split. Importing a drizzle-backed entry from a route component pulls drizzle into the browser bundle. Anything the UI needs goes in `src/shared.ts`.
 
-## Using it
+## The tables
 
-The query functions take a drizzle instance rather than making one, so the same
-code runs against D1 on the Worker and against `bun:sqlite` in the tests. The
-app does not call them directly. It goes through [`@repo/services`](../services),
-which validates input first:
+The nine foundation tables are `workspaces`, `identity_links`, `agents`, `machines`, `machine_enroll_tokens`, `sessions`, `runs`, `events` and `files`, grouped into `src/schema/` modules by area. Ids are ULIDs as text, timestamps are ISO text, JSON columns are text. Every table except `workspaces` has `workspace_id TEXT NOT NULL` with no default, so a forgotten scope fails at insert; `src/columns.ts` holds the shared builder. `events` is append-only: its migration ends with `BEFORE UPDATE` and `BEFORE DELETE` triggers that abort. drizzle-kit does not emit triggers, so they are hand-written at the end of `migrations/0002_foundation.sql`. Keep them there if you regenerate that migration.
+
+## Query functions
+
+Query functions take a drizzle instance rather than making one, so the same code runs against D1 on the Worker and against `bun:sqlite` in the tests. The parameter type is `Database` from `@repo/db`, which is any drizzle SQLite instance, sync or async. This package never reads environment variables or bindings. Return plain JSON shapes, not row types, and leave validation to the service in `@repo/services`.
 
 ```ts
-import { createNote, listNotes } from "@repo/db/notes";
 import { drizzle } from "drizzle-orm/d1";
 
-const db = drizzle(env.DB);
-const notes = await listNotes(db);
-const note = await createNote(db, { text: "hello" });
+const db = drizzle(env.DB); // cheap, nothing to cache between requests
 ```
 
-`env.DB` is the D1 binding declared in `apps/web/wrangler.jsonc`; this package never reads environment variables or bindings itself. `drizzle(env.DB)` is cheap, so there is nothing to cache between requests.
+## Writing more than one row: `atomic`
 
-### Table modules
+Any write that must succeed or fail as a whole goes through `atomic`. Never call `db.batch` or `db.transaction` directly, and never run two writes in a row and hope.
 
-`src/notes.ts` is the template for new tables:
+drizzle 0.44 has `batch` only on the D1 driver and interactive transactions only on the SQLite drivers, and D1 has no interactive transactions at all. So `@repo/db/atomic` has one type, `Atomic`, and two adapters: `d1Atomic(drizzle(env.DB))` runs one `db.batch`, and `sqliteAtomic(db)` runs one `db.transaction` on `bun:sqlite`. The app builds the D1 one, tests build the SQLite one, and services take an `atomic` parameter next to `db`.
 
-- The stored row shape stays private to the module.
-- Functions return plain JSON (`Note`, with `id: string` and an ISO date). tRPC serializes results as JSON, so the row types should not leak.
-- No validation here. The service in `@repo/services` validates input before it reaches these functions.
-- The parameter type is `Database` from `@repo/db`, which is any drizzle SQLite instance, sync or async. That is what lets the tests swap D1 for `bun:sqlite`.
+```ts
+await atomic([
+  db.insert(runs).values(run),
+  db.insert(events).values(queuedEvent),
+]);
+```
+
+Pass unexecuted insert, update or delete builders. Do not `await` them or call `.run()`. Selects are not accepted, so a read that decides the write has to happen before the call and be guarded in the write itself (`WHERE status = ?`).
 
 ## Schema and migrations
 
-`src/schema.ts` defines the tables. After changing it, generate a migration:
+`src/schema/*.ts` defines the tables. After changing it, generate a migration:
 
 ```bash
 bun run generate            # drizzle-kit generate, writes migrations/
@@ -64,4 +67,4 @@ Commit `migrations/`, including `migrations/meta/`. Drizzle diffs the schema aga
 bun test
 ```
 
-Each test gets a fresh in-memory `bun:sqlite` database with the migrations applied (`drizzle-orm/bun-sqlite`). No server, no network, and the migrations are exercised alongside the queries.
+Each test gets a fresh in-memory `bun:sqlite` database with the migrations applied (`migrated()` in `src/test-db.ts`). No server, no network, and the migrations are exercised alongside the queries.
