@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./events": "./src/events.ts"
+    "./crypto": "./src/crypto.ts",
+    "./events": "./src/events.ts",
+    "./run-tokens": "./src/run-tokens.ts"
   },
   "scripts": {
     "test": "bun test",
