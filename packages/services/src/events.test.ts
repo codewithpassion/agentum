@@ -2,8 +2,15 @@ import { beforeEach, expect, test } from "bun:test";
 import { events } from "@repo/db/schema/events";
 import { migrated } from "@repo/db/test-db";
 import { createEventsService } from "./events.ts";
+import type { Principal } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
+const principal: Principal = {
+  kind: "user",
+  userId: "u1",
+  via: "session",
+  workspaceId: WORKSPACE,
+};
 const KB = 1024;
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
@@ -62,7 +69,7 @@ test("a 100 KB payload goes to the blob store and the row keeps a ref", async ()
   expect(row?.payloadRef).toBe(`payloads/${WORKSPACE}/${event.id}.json`);
   expect(store.get(row?.payloadRef ?? "")).toBe(JSON.stringify(payload));
   expect(event.payload).toEqual({});
-  expect(await service.readPayload(event)).toEqual(payload);
+  expect(await service.readPayload(principal, event)).toEqual(payload);
 });
 
 test("readPayload fails when the blob is gone", async () => {
@@ -72,7 +79,9 @@ test("readPayload fails when the blob is gone", async () => {
     type: "tool.result",
   });
   store.clear();
-  await expect(service.readPayload(event)).rejects.toThrow("missing");
+  await expect(service.readPayload(principal, event)).rejects.toThrow(
+    "missing"
+  );
 });
 
 test("secrets are stripped from inline payloads", async () => {
@@ -142,7 +151,7 @@ test("transcript returns messages and tool events of one session ordered by id",
       row("06", "message.assistant", "s1"),
     ])
     .run();
-  const transcript = await service.transcript("s1");
+  const transcript = await service.transcript(principal, WORKSPACE, "s1");
   expect(transcript.map((e) => e.id)).toEqual(["01", "02", "03", "06"]);
 });
 
@@ -161,8 +170,8 @@ test("query scopes to the workspace and applies filters", async () => {
   });
   const c = await service.append({ ...base, runId: "r2", type: "run.failed" });
 
-  const ids = async (filters?: Parameters<typeof service.query>[1]) =>
-    (await service.query(WORKSPACE, filters)).map((e) => e.id);
+  const ids = async (filters?: Parameters<typeof service.query>[2]) =>
+    (await service.query(principal, WORKSPACE, filters)).map((e) => e.id);
 
   expect(await ids()).toEqual([a.id, b.id, c.id]);
   expect(await ids({ runId: "r1" })).toEqual([a.id, b.id]);
@@ -173,7 +182,9 @@ test("query scopes to the workspace and applies filters", async () => {
   ]);
   expect(await ids({ after: a.id })).toEqual([b.id, c.id]);
   expect(await ids({ limit: 2 })).toEqual([a.id, b.id]);
-  await expect(service.query(WORKSPACE, { limit: 0 })).rejects.toThrow();
+  await expect(
+    service.query(principal, WORKSPACE, { limit: 0 })
+  ).rejects.toThrow();
 });
 
 test("ids from concurrent appends sort in call order", async () => {
@@ -182,6 +193,6 @@ test("ids from concurrent appends sort in call order", async () => {
       service.append({ ...base, type: "run.queued" })
     )
   );
-  const queried = await service.query(WORKSPACE);
+  const queried = await service.query(principal, WORKSPACE);
   expect(queried.map((e) => e.id)).toEqual(appended.map((e) => e.id));
 });

@@ -50,9 +50,15 @@ that are easy to break:
   `getTrpc()` from `#/integrations/trpc/client`. It calls the router in-process
   during SSR and over HTTP in the browser, so it works in both.
 - Two procedure kinds in `init.ts`: `publicProcedure` for anyone,
-  `protectedProcedure` for signed-in users (narrows `ctx.userId` to a string).
-  `context.ts` reads the Clerk session, so `ctx.userId` is the signed-in user
-  or null.
+  `workspaceProcedure` for a user with an active, allowed Clerk organisation
+  (narrows `ctx.principal` to the user principal, 401 otherwise).
+  `context.ts` reads the Clerk session and resolves it to `ctx.principal`
+  through `@repo/services/workspaces`. Bearer-authenticated Hono routes
+  (`/mcp`, `/api/proxy`, machine, Slack, trigger and file routes) use
+  `createPrincipalResolver` and call services directly, the one exception to
+  "the app reaches it only through tRPC".
+- A service method that reads workspace data takes the calling principal and
+  calls `authorize()` from `@repo/services/authz` first, as the events reads do.
 - A new service goes in the context in `context.ts`, and add-clerk keeps a copy
   of that file in `.claude/skills/add-clerk/templates/apps/web/src/server/trpc/`.
   Change both, or running add-clerk later drops the new service.
@@ -108,10 +114,14 @@ skill has created the account state. Rules that are easy to break:
 Clerk. `apps/web/src/server.ts` runs `@clerk/hono`'s `clerkMiddleware()`, so
 `getAuth(c)` works in any Hono route; `src/start.ts` wires the same auth into
 TanStack Start, and `src/routes/__root.tsx` wraps the app in `<ClerkProvider>`.
-`src/server/trpc/context.ts` puts the Clerk user id in `ctx.userId`, so
-`protectedProcedure` admits signed-in users and answers 401 to everyone else.
-Set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` and
-`VITE_CLERK_PUBLISHABLE_KEY` on a deployed Worker with `wrangler secret put`.
+`src/server/trpc/context.ts` turns the session's user id and active
+organisation into `ctx.principal`, so `workspaceProcedure` admits users in an
+allowed organisation and answers 401 to everyone else. A workspace is one Clerk
+organisation, created on its first request, and only organisations listed in
+`ALLOWED_ORG_IDS` (comma separated) get one. Turn on Clerk's restricted sign-up
+and Organizations in the Clerk dashboard too.
+Set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`
+and `ALLOWED_ORG_IDS` on a deployed Worker with `wrangler secret put`.
 
 ## Dev login (testing)
 
@@ -124,4 +134,7 @@ automation, instead of going through Clerk's UI. Only active when
 `DEV_LOGIN_EMAIL`/`DEV_LOGIN_PASSWORD` are set in `apps/web/.env.local` (never
 set these in a deployed environment, since their absence is what disables the
 route). Create/refresh the dev user with `bun run create-dev-user` from
-`apps/web`.
+`apps/web`. It also creates a "Dev Workspace" organisation for the user and
+adds its id to `ALLOWED_ORG_IDS` in `.env.local`; `/dev-login` makes that
+organisation active, so the login lands on the app and not on Clerk's
+create-organization screen.

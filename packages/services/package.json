@@ -3,9 +3,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./authz": "./src/authz.ts",
     "./crypto": "./src/crypto.ts",
     "./events": "./src/events.ts",
-    "./run-tokens": "./src/run-tokens.ts"
+    "./run-tokens": "./src/run-tokens.ts",
+    "./workspaces": "./src/workspaces.ts"
   },
   "scripts": {
     "test": "bun test",

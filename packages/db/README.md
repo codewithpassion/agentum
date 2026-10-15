@@ -16,7 +16,7 @@ One entry per module, no barrel file. A new lane adds `src/schema/<module>.ts` (
 
 ## The tables
 
-The nine foundation tables are `workspaces`, `identity_links`, `agents`, `machines`, `machine_enroll_tokens`, `sessions`, `runs`, `events` and `files`, grouped into `src/schema/` modules by area. Ids are ULIDs as text, timestamps are ISO text, JSON columns are text. Every table except `workspaces` has `workspace_id TEXT NOT NULL` with no default, so a forgotten scope fails at insert; `src/columns.ts` holds the shared builder. `events` is append-only: its migration ends with `BEFORE UPDATE` and `BEFORE DELETE` triggers that abort. drizzle-kit does not emit triggers, so they are hand-written at the end of `migrations/0002_foundation.sql`. Keep them there if you regenerate that migration.
+The nine foundation tables are `workspaces`, `identity_links`, `agents`, `machines`, `machine_enroll_tokens`, `sessions`, `runs`, `events` and `files`, grouped into `src/schema/` modules by area. Two stub tables sit beside them so the principal resolver can read bearer tokens: `api_keys` (M2.1 builds the service and settings page on it) and `triggers` (M4.1 replaces it with the full table). Ids are ULIDs as text, timestamps are ISO text, JSON columns are text. Every table except `workspaces` has `workspace_id TEXT NOT NULL` with no default, so a forgotten scope fails at insert; `src/columns.ts` holds the shared builder. `events` is append-only: its migration ends with `BEFORE UPDATE` and `BEFORE DELETE` triggers that abort. drizzle-kit does not emit triggers, so they are hand-written at the end of `migrations/0002_foundation.sql`. Keep them there if you regenerate that migration.
 
 ## Query functions
 

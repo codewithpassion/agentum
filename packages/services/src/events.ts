@@ -8,9 +8,14 @@ import {
 } from "@repo/db/shared";
 import { and, asc, eq, gt, inArray, like, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
+import { authorize } from "./authz.ts";
 import { newEventId } from "./events/ids.ts";
 import { capPayload, type Payload, payloadSchema } from "./events/payload.ts";
 import { stripSecrets } from "./events/redact.ts";
+import type { Principal } from "./workspaces.ts";
+
+const EVENT_READ = "events.read";
+const EVENT_KIND = "event";
 
 const idString = z.string().min(1).max(200);
 
@@ -129,15 +134,22 @@ export const createEventsService = ({
   };
 
   /**
-   * The messages and tool calls of one session, oldest first. The caller has
-   * already checked that the session belongs to the principal's workspace.
+   * The messages and tool calls of one session, oldest first. Authorizes the
+   * principal against `workspaceId` and filters on it, so a session id from
+   * another workspace returns nothing.
    */
-  const transcript = async (sessionId: string): Promise<EventRecord[]> => {
+  const transcript = async (
+    principal: Principal,
+    workspaceId: string,
+    sessionId: string
+  ): Promise<EventRecord[]> => {
+    authorize(principal, EVENT_READ, { kind: EVENT_KIND, workspaceId });
     const rows = await db
       .select()
       .from(events)
       .where(
         and(
+          eq(events.workspaceId, workspaceId),
           eq(events.sessionId, sessionId),
           or(like(events.type, "message.%"), like(events.type, "tool.%"))
         )
@@ -148,9 +160,11 @@ export const createEventsService = ({
 
   /** Events of one workspace, oldest first, up to `limit`. */
   const query = async (
+    principal: Principal,
     workspaceId: string,
     filters: EventFilters = {}
   ): Promise<EventRecord[]> => {
+    authorize(principal, EVENT_READ, { kind: EVENT_KIND, workspaceId });
     const f = eventFiltersSchema.parse(filters);
     const conditions: SQL[] = [eq(events.workspaceId, workspaceId)];
     if (f.after) {
@@ -178,7 +192,15 @@ export const createEventsService = ({
   };
 
   /** The payload of an event, fetched from the blob store when it overflowed. */
-  const readPayload = async (event: EventRecord): Promise<Payload> => {
+  const readPayload = async (
+    principal: Principal,
+    event: EventRecord
+  ): Promise<Payload> => {
+    authorize(principal, EVENT_READ, {
+      id: event.id,
+      kind: EVENT_KIND,
+      workspaceId: event.workspaceId,
+    });
     if (!event.payloadRef) {
       return event.payload;
     }
