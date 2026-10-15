@@ -5,6 +5,11 @@
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/server.ts",
   "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [{ "name": "MACHINE_RELAY", "class_name": "MachineRelay" }]
+  },
+  // Migrations are not per environment, so they live at the top level only.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MachineRelay"] }],
   "routes": [
     { "pattern": "harbourmaster.rockyshoreslabs.io", "custom_domain": true }
   ],
@@ -23,6 +28,9 @@
     // Previews never touch production. See README "Pull request previews".
     "staging": {
       "preview_urls": true,
+      "durable_objects": {
+        "bindings": [{ "name": "MACHINE_RELAY", "class_name": "MachineRelay" }]
+      },
       "d1_databases": [
         {
           "binding": "DB",
@@ -36,6 +44,11 @@
       // apps/web/scripts/preview.ts swaps these placeholders for it after the
       // build. Never commit a real id here.
       "previews": {
+        "durable_objects": {
+          "bindings": [
+            { "name": "MACHINE_RELAY", "class_name": "MachineRelay" }
+          ]
+        },
         "d1_databases": [
           {
             "binding": "DB",
