@@ -548,6 +548,8 @@ export const createRunsService = ({
     const after = await loadRun(db, run.id);
     // Told apart from a concurrent completion with the same status by the
     // time this call wrote: only the call whose write applied sees its own.
+    // Two calls within one millisecond still tie, because the table has no
+    // per-call column to use as a nonce.
     if (after?.status !== result.status || after.finishedAt !== finishedAt) {
       throw new ServiceError("conflict", "Run is no longer running");
     }

@@ -672,15 +672,32 @@ test("a refused completion does not touch the session", async () => {
   expect(session?.runtimeRef).toBeNull();
 });
 
-test("a completion that loses the race to an identical one is refused", async () => {
+test("two identical completions in flight finish the run once", async () => {
+  // A clock that moves on every read, so the two writes never share a time.
+  const ticking: Clock = {
+    now: () => {
+      nowMs += 1;
+      return new Date(nowMs);
+    },
+    sleep: clock.sleep,
+  };
+  const racing = buildRuns({ clock: ticking });
   const { runId } = await start(user, spyAgentId);
-  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
-  await runs.completeRun(SYSTEM_PRINCIPAL, runId, { status: "done" });
-  advance(SECOND);
-  const second = await failure(
-    runs.completeRun(SYSTEM_PRINCIPAL, runId, { status: "done" })
-  );
-  expect(second).toMatchObject({ code: "conflict" });
+  await racing.claimRun(SYSTEM_PRINCIPAL, runId);
+
+  const outcomes = await Promise.allSettled([
+    racing.completeRun(SYSTEM_PRINCIPAL, runId, { status: "done", text: "a" }),
+    racing.completeRun(SYSTEM_PRINCIPAL, runId, { status: "done", text: "b" }),
+  ]);
+
+  expect(outcomes.map((outcome) => outcome.status).sort()).toEqual([
+    "fulfilled",
+    "rejected",
+  ]);
+  const loser = outcomes.find((outcome) => outcome.status === "rejected");
+  expect(loser?.status === "rejected" && loser.reason).toMatchObject({
+    code: "conflict",
+  });
   expect(
     runEvents(runId).filter((event) => event.type === "run.finished")
   ).toHaveLength(1);
