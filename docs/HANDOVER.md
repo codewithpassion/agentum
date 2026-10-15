@@ -71,7 +71,7 @@ After M0, the solo order is O.1 (staging, half a day), M1 (walking skeleton, use
 
 Each of these has a named check in the build plan.
 
-- A Durable Object under the Vite plugin plus TanStack Start (M0.7 ping).
+- A Durable Object under the Vite plugin plus TanStack Start runs locally (M0.0, 16 Oct 2026). Not yet checked in a deployed Worker or a PR preview.
 - Whether `canUseTool` fires under `bypassPermissions`, and whether servers added with `setMcpServers()` are connected before the first turn (M1.4 probes).
 - That a run token stays out of `/proc/<pid>/cmdline` (M1.4 live check).
 - A 4-minute MCP call held open through the deployed Worker, which decides whether the 5-minute cap holds (M3.3).

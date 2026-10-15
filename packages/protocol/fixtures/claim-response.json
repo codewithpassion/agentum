@@ -1,0 +1,35 @@
+{
+  "run": {
+    "id": "01HZXA3N5P7Q9R1S3T5V7W9X1Y",
+    "sessionId": "01HZXA4Q6R8S0T2V4W6X8Y0Z2A",
+    "agentId": "01HZX9B6C8D0E2F4G6H8J0K2M4",
+    "inputText": "Summarise the attached meeting notes into three action items."
+  },
+  "agent": {
+    "id": "01HZX9B6C8D0E2F4G6H8J0K2M4",
+    "slug": "meeting-summariser",
+    "name": "Meeting summariser",
+    "model": "claude-sonnet-4-5",
+    "runtimeConfig": {
+      "maxTurns": 12,
+      "allowedTools": ["read_file", "write_file"]
+    }
+  },
+  "session": {
+    "id": "01HZXA4Q6R8S0T2V4W6X8Y0Z2A",
+    "runtimeRef": null,
+    "runtimeMachineId": null
+  },
+  "runToken": "hm_run_7Fq2KxR9mWt4LpZc1Ns8VbYd",
+  "mcpServers": {
+    "harbourmaster": {
+      "type": "http",
+      "url": "https://harbourmaster.example.workers.dev/mcp",
+      "headers": {
+        "authorization": "Bearer hm_run_7Fq2KxR9mWt4LpZc1Ns8VbYd"
+      }
+    }
+  },
+  "inputFileIds": ["01HZXA5T7V9W1X3Y5Z7A9B1C3D"],
+  "instructions": "You summarise meeting notes. Reply with exactly three action items, each with an owner."
+}

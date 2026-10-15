@@ -1,0 +1,11 @@
+{
+  "status": "done",
+  "text": "1. Anna sends the pricing draft by Friday. 2. Ben books the client review. 3. Chloe updates the roadmap.",
+  "fileIds": ["01HZXA6V8W0X2Y4Z6A8B0C2D4E"],
+  "usage": {
+    "inputTokens": 1834,
+    "outputTokens": 412,
+    "costUsd": 0.0231
+  },
+  "runtimeRef": "sdk-session-7f3a9c"
+}
