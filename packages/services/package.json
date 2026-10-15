@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     "./crypto": "./src/crypto.ts",
+    "./events": "./src/events.ts",
     "./run-tokens": "./src/run-tokens.ts"
   },
   "scripts": {
@@ -13,6 +14,7 @@
   "dependencies": {
     "@repo/db": "workspace:*",
     "drizzle-orm": "^0.44.7",
+    "ulidx": "^2.4.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
