@@ -1,0 +1,1616 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Harbourmaster reuse matrix</title>
+    <style>
+    :root {
+      --bg: #fbfaf7;
+      --fg: #1d1d1b;
+      --muted: #5f5e58;
+      --line: #d9d6cc;
+      --accent: #0b6e6e;
+      --code: #f0eee7;
+      --warn: #9a5b00;
+      --card: #ffffff;
+      --ok: #2d7a3a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #15161a;
+        --fg: #e8e6df;
+        --muted: #a19e94;
+        --line: #34363d;
+        --accent: #5fc3c3;
+        --code: #1f2126;
+        --warn: #e0a24a;
+        --card: #1b1d22;
+        --ok: #6fcf7f;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #15161a;
+      --fg: #e8e6df;
+      --muted: #a19e94;
+      --line: #34363d;
+      --accent: #5fc3c3;
+      --code: #1f2126;
+      --warn: #e0a24a;
+      --card: #1b1d22;
+      --ok: #6fcf7f;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font:
+        16px / 1.55 system-ui,
+        -apple-system,
+        "Segoe UI",
+        Roboto,
+        sans-serif;
+      color: var(--fg);
+      background: var(--bg);
+    }
+    main {
+      max-width: 1100px;
+      padding: 16px 16px 72px;
+      margin: 0 auto;
+    }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding: 12px 0;
+      font-size: 15px;
+      border-bottom: 1px solid var(--line);
+    }
+    nav a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    nav a[aria-current] {
+      font-weight: 600;
+      color: var(--fg);
+    }
+    h1 {
+      margin: 24px 0 8px;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+    h2 {
+      padding-top: 8px;
+      margin: 40px 0 12px;
+      font-size: 22px;
+      border-top: 1px solid var(--line);
+    }
+    h3 {
+      margin: 24px 0 8px;
+      font-size: 17px;
+    }
+    p {
+      margin: 0 0 12px;
+    }
+    .lead {
+      font-size: 15px;
+      color: var(--muted);
+    }
+    main a {
+      color: var(--accent);
+    }
+    code {
+      padding: 1px 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      background: var(--code);
+      border-radius: 4px;
+    }
+    .tw {
+      margin: 0 0 16px;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      min-width: 900px;
+      font-size: 14px;
+      border-collapse: collapse;
+    }
+    th,
+    td {
+      padding: 8px 10px;
+      vertical-align: top;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    th {
+      font-weight: 600;
+      white-space: nowrap;
+      background: var(--code);
+    }
+    .copy {
+      font-weight: 600;
+      color: var(--ok);
+      white-space: nowrap;
+    }
+    .borrow {
+      font-weight: 600;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .new {
+      font-weight: 600;
+      color: var(--warn);
+      white-space: nowrap;
+    }
+    .muted {
+      color: var(--muted);
+    }
+    ul {
+      padding-left: 22px;
+      margin: 0 0 12px;
+    }
+    li {
+      margin: 0 0 6px;
+    }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav>
+        <a href="index.html">Overview</a>
+        <a aria-current="page" href="reuse.html">Reuse matrix</a>
+        <a href="build-plan.html">Build plan</a>
+        <a href="review-response.html">Review response</a>
+      </nav>
+
+      <h1>Reuse matrix</h1>
+      <p class="lead">
+        What v1 takes from Dom's repos, from where, and how.
+        <span class="copy">Copy</span>
+        means lift the files and edit.
+        <span class="borrow">Borrow</span>
+        means rebuild from the idea.
+        <span class="new">New</span>
+        means no source exists. All paths are under
+        <code>/home/roboto/devel/</code>
+        and were checked to exist on 16 October 2026. Line counts are from
+        <code>wc -l</code>. Everything except OpenClaw is Dom's own code;
+        OpenClaw is MIT and only borrowed from.
+      </p>
+
+      <p>
+        Two rules for anyone copying. First, a copied file comes in with its
+        tests, or it does not come in. Second, every file loses its source
+        repo's config, logger and db imports at the door and takes them as
+        parameters, which is the repo's service rule anyway.
+      </p>
+
+      <h2>Foundations</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Piece</th>
+            <th>Source</th>
+            <th>Mode</th>
+            <th>Changes on the way in</th>
+            <th>Risk</th>
+          </tr>
+          <tr>
+            <td>
+              Encrypted secrets at rest: AES-GCM, fresh IV, AAD binding,
+              <code>v1:</code>
+              prefix, non-extractable key, token generate and hash
+            </td>
+            <td>
+              <code>flightdex-v2/packages/core/src/crypto/secrets.ts</code>
+              (151 lines) and <code>secrets.test.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Rename <code>SecretBinding</code> fields to
+              <code>{ workspaceId, table, rowId, field }</code>. Key from
+              <code>SECRETS_KEY</code>. Goes in
+              <code>@repo/services/crypto</code>.
+            </td>
+            <td>
+              Low. Web Crypto only, no deps. No rotation code, only room for it.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Hashed bearer tokens with prefix, hash lookup, shown-once,
+              throttled last-used, revoke
+            </td>
+            <td>
+              <code>flightdex-v2/packages/core/src/services/api-keys.ts</code>
+              (311), <code>api-key-schemas.ts</code>; prefix idea from
+              <code>control-plane/packages/services/src/tokens.ts</code>
+              (<code>cpt_</code>)
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Prefix <code>hm_key_</code>. One generic
+              <code>hashedToken</code>
+              helper reused for machine credentials and trigger tokens.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Stateless HMAC token for short-lived machine identity (the run
+              token)
+            </td>
+            <td>
+              <code>the-brain/packages/db/src/auth/tokens.ts</code>
+              (<code>bdev_</code>)
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Payload: run id, agent id, workspace id, expiry. Prefix
+              <code>hm_run_</code>. Also checked against
+              <code>runs.status</code>
+              on use.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Principal chain: Clerk session, then bearer prefixes, 401 when no
+              workspace is named
+            </td>
+            <td>
+              <code>the-brain/packages/db/src/auth/resolve.ts</code>;
+              <code>flightdex-v2/apps/web/src/server/trpc/procedures.ts</code>
+              (<code>workspaceProcedure</code>, NOT_FOUND for non-members)
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Workspace comes from the Clerk <code>orgId</code> claim, not a
+              members table. Four bearer kinds instead of two.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Event envelope, ULID ids, 64 KB payload cap with R2 pointer,
+              secret stripping
+            </td>
+            <td>
+              <code>control-plane/packages/events/src/envelope.ts</code>
+              (176), <code>ids.ts</code>, <code>payload.ts</code>,
+              <code>redact.ts</code>, <code>text.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Replace <code>EVENT_TYPES</code> and
+              <code>EVENT_SOURCES</code>
+              with the v1 list. Drop
+              <code>severity</code>, <code>system_id</code>,
+              <code>correlation_id</code>. Keep <code>actor { kind, id}</code>.
+              Add the append-only triggers in the migration (new).
+            </td>
+            <td>Low. Already zod 4 and Workers-safe.</td>
+          </tr>
+          <tr>
+            <td>
+              In-memory D1 test harness so <code>bun test</code> runs real SQL
+            </td>
+            <td>
+              Already in this repo (<code>packages/db/src/notes.test.ts</code>
+              pattern); richer version in
+              <code>ariadne/packages/db/src/test-d1.ts</code>
+              (196)
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Keep the repo's own approach; take Ariadne's seeded-workspace
+              helper.
+            </td>
+            <td>None.</td>
+          </tr>
+          <tr>
+            <td>
+              Boundary lint: a regex scan that fails on forbidden imports, with
+              a test that proves it fails
+            </td>
+            <td>
+              <code>the-brain/scripts/boundary-lint.ts</code>
+              (222), <code>boundary-lint.test.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Rules: no <code>@repo/db/&lt;table&gt;</code> outside
+              <code>packages/services</code>, no <code>#/server</code> in routes
+              components, no <code>drizzle</code> in <code>dist/client</code>.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Two-tenant isolation test: run every service as A, B's rows must
+              not change or appear
+            </td>
+            <td>
+              <code>flightdex-v2/packages/core/src/isolation/harness.ts</code>
+              (819)
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Much smaller version. One test file per service module, seeded
+              with two workspaces.
+            </td>
+            <td>Low. Do it in M0, not after.</td>
+          </tr>
+          <tr>
+            <td>Dev login, create-dev-user script</td>
+            <td>Already in this repo</td>
+            <td class="muted">Present</td>
+            <td>
+              Extend: the dev user gets an org and a membership, and
+              <code>/dev-login</code>
+              sets it active. Carry flightdex's lesson: redeem can fail on the
+              first try in a fresh browser context, so UI checks wait for the
+              redirect.
+            </td>
+            <td>None.</td>
+          </tr>
+          <tr>
+            <td>
+              <code>bun test</code>
+              shim for <code>cloudflare:workers</code> imports (the relay
+              extends <code>DurableObject</code>)
+            </td>
+            <td>
+              <code>ariadne/apps/web/bunfig.toml</code>
+              (<code>[test] preload</code>),
+              <code>ariadne/apps/web/tests/cloudflare-workers-shim.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Also change <code>apps/web</code>'s <code>test</code> script from
+              <code>bun test scripts</code>
+              to <code>bun test</code>, or tests under <code>src/</code> never
+              run; CI runs
+              <code>bun run test</code>
+              so each package's bunfig applies.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Atomic multi-statement write port over <code>db.batch</code> (D1)
+              and <code>db.transaction</code> (<code>bun:sqlite</code>)
+            </td>
+            <td>
+              Pattern only: Ariadne <code>jobs-queue.ts</code> claims "as one D1
+              batch"; the-brain <code>scoped/audit.ts</code> (<code
+                >batchWithAudit</code
+              >)
+            </td>
+            <td class="new">New</td>
+            <td>
+              drizzle 0.44.7 has <code>batch</code> on the D1 driver only and no
+              interactive transactions on D1, so the port is the only way a
+              service typed on <code>Database</code> can be atomic on both.
+              About 40 lines plus a rollback test.
+            </td>
+            <td>Low.</td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>Machine runtime (relay, daemon, Claude Code)</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Piece</th>
+            <th>Source</th>
+            <th>Mode</th>
+            <th>Changes on the way in</th>
+            <th>Risk</th>
+          </tr>
+          <tr>
+            <td>
+              Enrolment: 15 minute single-use token, long-lived hashed
+              credential, rotate, revoke
+            </td>
+            <td>
+              <code>ariadne/apps/web/src/api/runner-enrollment.ts</code>
+              (99), <code>runners.ts</code>,
+              <code>credential-crypto.ts</code>
+              (67:
+              <code>generateSecret</code>, <code>sha256Hex</code>,
+              <code>credentialMatches</code>)
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Rename runner to machine. Enrol token prefix <code>hm_enr_</code>,
+              credential <code>hm_mach_</code>. Install script route (<code
+                >install-script.ts</code
+              >, 182) comes too, with the binary URL changed.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Connect route: upgrade first, then close 4401 on a bad credential,
+              1012 when replaced, identity passed to the DO in headers
+            </td>
+            <td>
+              <code>ariadne/apps/web/src/api/runner-connect.ts</code>
+              (477)
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Strip the job frames and GitHub webhook relay. Keep the
+              upgrade-then-close rule and the header hand-off.
+            </td>
+            <td>
+              Low. The reasoning for closing inside the socket is in the file
+              header.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Relay Durable Object: hibernating WebSocket, presence in DO
+              storage, alarm-based offline detection, offer set,
+              replaced-connection close
+            </td>
+            <td>
+              <code>ariadne/apps/web/src/relay/runner-relay.ts</code>
+              (770), <code>runner-presence.ts</code>, <code>job-relay.ts</code>,
+              <code>relay-protocol.ts</code>
+            </td>
+            <td class="copy">Copy, then trim</td>
+            <td>
+              Keep hello, ping, alarm, presence writes to D1, offer. Drop job
+              frames beyond offer and claim. Target under 300 lines.
+            </td>
+            <td>
+              Medium. A DO exported through <code>server.ts</code> under the
+              Vite plugin plus TanStack Start is unproven in this repo; M0
+              checks it with a ping DO before this lands.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Wire frames as strict zod objects with capability flags in
+              <code>hello</code>
+            </td>
+            <td>
+              <code>ariadne/packages/protocol/src/runner-frames.ts</code>
+              (214), <code>job-frames.ts</code>
+            </td>
+            <td class="copy">Copy shape</td>
+            <td>
+              New frame set (overview, seam 3). Keep
+              <code>strictObject</code>
+              and the rule that new frames hide behind a capability.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Run queue with leases: claim as one D1 batch, heartbeat, lease
+              expiry reaper, cancel on heartbeat
+            </td>
+            <td>
+              <code>ariadne/apps/web/src/api/jobs-queue.ts</code>
+              (890), <code>packages/domain/src/job-transitions.ts</code>
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Much smaller: <code>runs</code> rows with <code>status</code>,
+              <code>claimed_by</code>, <code>lease_until</code>, compare-and-set
+              updates through the <code>atomic</code> port. The transition table
+              idea stays.
+            </td>
+            <td>
+              Low. D1 has no interactive transactions; use
+              <code>atomic</code>
+              and <code>WHERE status = ?</code>.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Daemon WebSocket client: backoff with jitter, ping, close-code
+              handling, injected sockets and timers
+            </td>
+            <td>
+              <code>ariadne/apps/runner/src/client.ts</code>
+              (485), <code>backoff.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>Frames swapped. Keep injection so tests need no socket.</td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Daemon enrol command and systemd user unit installer, linger
+              preflight
+            </td>
+            <td>
+              <code>ariadne/apps/runner/src/enroll.ts</code>
+              (117), <code>install-service.ts</code> (220); linger lesson in
+              <code>bruce-next/runtime/src/cli/gateway_service.ts</code>
+              (798)
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Binary name <code>harbourmaster</code>, config dir
+              <code>~/.harbourmaster</code>. Ariadne is Linux-only; launchd is
+              deferred.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Agent core around <code>query()</code>: preset system prompt with
+              append, <code>cwd</code>, <code>resume</code>,
+              <code>settingSources</code>, <code>mcpServers</code> passed in
+              memory, abort, injected <code>queryFn</code>
+            </td>
+            <td>
+              <code>bruce-next/runtime/src/core/agent.ts</code>
+              (496), <code>core/env.ts</code> (45)
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Drop memory, compression and token budget. Keep
+              <code>queryFn</code>
+              injection and the
+              <code>systemPrompt: { preset, append }</code>
+              shape for the agent's instructions. Add
+              <code>maxBudgetUsd</code>
+              from agent config,
+              <code>allowDangerouslySkipPermissions: true</code>
+              (the SDK typings require it next to
+              <code>bypassPermissions</code>; bruce-next omits it),
+              <code>strictMcpConfig: true</code>, and streaming-input mode so
+              MCP servers go in through
+              <code>setMcpServers()</code>
+              on the control channel instead of
+              <code>--mcp-config</code>
+              on argv. The spawn goes through
+              <code>sudo -u hm-agent</code>. <code>buildAgentEnv</code> strips
+              <code>CLAUDECODE</code>
+              and platform secrets.
+            </td>
+            <td>
+              Low. The SDK 0.2.119 options were checked against
+              <code>sdk.d.ts</code>: <code>resume</code>, <code>cwd</code>,
+              <code>settingSources</code>, <code>mcpServers</code> with
+              <code>type: "http"</code>
+              and <code>headers</code>,
+              <code>canUseTool</code>, <code>maxBudgetUsd</code>,
+              <code>allowDangerouslySkipPermissions</code>. Whether
+              <code>canUseTool</code>
+              fires under bypass is not stated in the typings; M1.4 checks it.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Harness adapter interface and Claude Code adapter with event
+              normalisation
+            </td>
+            <td>
+              <code>ariadne/apps/runner/src/harness/adapter.ts</code>
+              (377), <code>claude-code.ts</code> (510),
+              <code>normalize.ts</code>
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Ariadne drives the <code>claude</code> CLI with
+              <code>--output-format stream-json</code>; v1 uses the SDK instead
+              (bruce-next). Take the normalisation from SDK messages to event
+              kinds and the fake harness fixtures idea.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Secret masking on everything leaving the box, raw and JSON-encoded
+              needles
+            </td>
+            <td>
+              <code>ariadne/apps/runner/src/masker.ts</code>
+              (93), <code>packages/protocol/src/redact.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>Needles: run token, machine credential.</td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Env filtering for the agent child: allow list, deny pattern,
+              process-group kill
+            </td>
+            <td>
+              <code>ariadne/packages/domain/src/harness-env.ts</code>
+              (69), <code>apps/runner/src/stages/spawn.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>Merge with bruce-next <code>env.ts</code>; one function.</td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Several agents per machine as directories, state path resolution
+              in one file
+            </td>
+            <td>
+              <code>bruce-next/runtime/src/config/paths.ts</code>,
+              <code>profiles.ts</code>
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              <code
+                >~hm-agent/harbourmaster/&lt;workspaceId&gt;/&lt;agentId&gt;/work/</code
+              >. Ids, not slugs, so two workspaces never collide. No
+              <code>CLAUDE.md</code>
+              (instructions go in
+              <code>systemPrompt.append</code>) and no
+              <code>.mcp.json</code>
+              (MCP config goes in through
+              <code>setMcpServers()</code>, in memory). One shared
+              <code>hm-agent</code>
+              user, no per-agent Unix users in v1.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Outbound attachment convention <code>[ATTACHMENT:path]</code> with
+              root and size policy
+            </td>
+            <td>
+              <code
+                >bruce-next/runtime/src/gateway/outbound_attachments.ts</code
+              >, <code>delivery.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              The daemon uploads the file to <code>/api/files</code> with the
+              run token and replaces the marker with a file id in the
+              completion.
+            </td>
+            <td>Low.</td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>Connectors, credentials, proxy</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Piece</th>
+            <th>Source</th>
+            <th>Mode</th>
+            <th>Changes on the way in</th>
+            <th>Risk</th>
+          </tr>
+          <tr>
+            <td>
+              OAuth for remote MCP servers: <code>WWW-Authenticate</code> parse,
+              RFC 9728 and 8414 discovery, dynamic client registration, PKCE,
+              authorize URL, code exchange, refresh HTTP call
+            </td>
+            <td>
+              <code>agentum/apps/web/src/modules/connectors/oauth.ts</code>
+              (517) with <code>oauth.test.ts</code>; it imports
+              <code>schema.ts</code>
+              (<code>TokenEndpointAuthMethod</code>) and
+              <code>url.ts</code>, which come too; <code>health.ts</code>,
+              <code>usability.ts</code>, <code>mcp.ts</code> (probe and tool
+              list)
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Pure functions, keep as is. Tokens go to the
+              <code>credentials</code>
+              table instead of an Anthropic vault. Add a manual client id and
+              secret path (non-DCR servers) as an open edit. The refresh
+              coordination (a
+              <code>refreshing_until</code>
+              lease taken before the token-endpoint call, a versioned
+              conditional write, losers re-read) is new;
+              <code>refreshTokens</code>
+              here is only the HTTP call.
+            </td>
+            <td>
+              Low to medium. Hand-rolled probe exists because the SDK transport
+              swallows the 401 header; keep it.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Credential resolution by caller: shared credential, then the
+              acting person's own, no fallback after a refusal
+            </td>
+            <td>
+              <code>flightdex-v2/apps/web/src/server/context.ts</code>
+              (<code>createWorkspaceContext(env, workspaceId, acting?)</code>),
+              <code>packages/core/src/services/member-linear.ts</code>
+              (<code>actAsMember</code>, AAD includes the Clerk user id)
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Generalised to
+              <code
+                >credentials.resolve( { connectorId, agentId, onBehalfOfUserId
+                })</code
+              >
+              with the three <code>credential_mode</code> values, an explicit
+              <code>not_assigned</code>
+              result, and ownership independent of auth kind (header secrets can
+              be user-owned too).
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              "Connect, confirm, persist" callback that stashes the grant and
+              redirects to a same-user confirm step
+            </td>
+            <td>
+              <code>the-brain/apps/api/src/notion/routes.ts</code>,
+              <code>packages/db/src/notion/connect.ts</code>
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Only needed for providers without PKCE. The generic OAuth path
+              uses PKCE and state in <code>oauth_states</code>.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              SSRF guard for user-supplied URLs (connector URL, proxy upstream)
+            </td>
+            <td>
+              <code>control-plane/apps/engine/src/actions/safe-url.ts</code>
+              (208); same list in <code>agentum/.../secrets/hosts.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              One copy. Note from Agentum: a Worker cannot resolve DNS, so a
+              public hostname that points at a private address passes. Accepted
+              gap, listed.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Secret broker idea: agent names a secret, server injects it, host
+              allow-list, redaction, activity row without headers
+            </td>
+            <td>
+              <code>agentum/apps/web/src/modules/secrets/*</code>,
+              <code>modules/mcp/secret-tools.ts</code>
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              The connector proxy is this idea applied to MCP instead of raw
+              HTTP. No generic <code>http_request</code> tool in v1.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Connector UI: add by URL, probe, OAuth popup, status with
+              re-authorise, assign to agents
+            </td>
+            <td>Agentum <code>components/connectors/*</code></td>
+            <td class="new">Not used</td>
+            <td>Dom's rule: no Agentum UI. The screens are new, on shadcn.</td>
+            <td>None.</td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>Platform MCP server</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Piece</th>
+            <th>Source</th>
+            <th>Mode</th>
+            <th>Changes on the way in</th>
+            <th>Risk</th>
+          </tr>
+          <tr>
+            <td>
+              MCP over Streamable HTTP on Workers, handler per request, body
+              cap, structured log line, last-used touch in
+              <code>waitUntil</code>, <code>.well-known</code> documents
+            </td>
+            <td>
+              <code>flightdex-v2/apps/web/src/server/mcp/routes.ts</code>
+              (560), <code>metadata.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Services and tool list swapped. Depends on
+              <code>@modelcontextprotocol/server</code>
+              2 and
+              <code>agents</code>
+              (<code>createMcpHandler</code>), both zod 4. Set
+              <code>allowedHostnames</code>
+              explicitly or every request is refused.
+            </td>
+            <td>
+              Medium. Two new dependencies; <code>agents</code> is used only as
+              a request handler.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Bearer authentication for MCP: own keys by prefix, Clerk OAuth
+              otherwise, 401 vs 403 vs 503 with RFC 9728 headers
+            </td>
+            <td>
+              <code>flightdex-v2/apps/web/src/server/mcp/authenticate.ts</code>
+              (333), <code>clerk-oauth.ts</code> (262:
+              <code>idPOAuthAccessToken.verify</code>, seconds-vs-ms quirk, 60 s
+              cache, outage is 503 not 401)
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Prefix <code>hm_key_</code>. Resolve into the shared
+              <code>Principal</code>. flightdex-v2 checks membership on every
+              request against its own members table by verified email;
+              Harbourmaster has no such table, so the membership check becomes a
+              Clerk Backend API call (<code>isOrgMember</code>, 60 s cache)
+              injected into the resolver. That is a rewrite of the membership
+              half, so Borrow, not Copy.
+            </td>
+            <td>
+              Medium. Read the file headers: real Clerk answers differ from the
+              typings.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              OAuth client approval gate: pending, approved, revoked, by client
+              id not name; the approval row names the workspace an OAuth
+              principal acts in
+            </td>
+            <td>
+              <code
+                >flightdex-v2/packages/core/src/services/oauth-clients.ts</code
+              >
+              (317), <code>features/settings/connected-apps-table.tsx</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Table names, and <code>client_id</code> unique across workspaces.
+              The settings page is shadcn and may be copied too.
+            </td>
+            <td>
+              Low. Required because a Clerk OAuth token carries no audience, so
+              a token minted for any app on the instance would pass.
+              Harbourmaster has its own Clerk instance; the gate is still
+              needed.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Framework-free tool package: <code>defineTool</code>,
+              <code>registerTools</code>, result wrapper that lets only known
+              error text through, <code>destructiveHint</code> set explicitly,
+              test helper with a real MCP client
+            </td>
+            <td>
+              <code
+                >flightdex-v2/packages/mcp/src/ {
+                server,register,principal,result,testing}.ts</code
+              >, <code>tools/define.ts</code>
+            </td>
+            <td class="copy">Copy scaffolding</td>
+            <td>
+              Tools rewritten: <code>list_agents</code>,
+              <code>send_message</code>
+              (with <code>waitMs</code>),
+              <code>get_run</code>, <code>list_sessions</code>,
+              <code>read_session</code>, <code>search_sessions</code>,
+              <code>inbox_list</code>, <code>inbox_read</code>,
+              <code>inbox_post</code>.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Idempotent send with wait:
+              <code>{ content, requestId, waitMs}</code>
+              returns
+              <code>done</code>
+              with the answer or <code>pending</code> with an id to poll
+            </td>
+            <td>
+              <code>durable-pi/apps/dpi-backend/src/routes.ts</code>,
+              <code>store.ts</code> <code>send()</code> and
+              <code>settled()</code>, <code>API.md</code>
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Becomes <code>startRun</code> plus <code>waitForRun</code>.
+              <code>requestId</code>
+              maps to <code>runs.request_id</code>.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Tool result text marks returned data as untrusted; errors name the
+              bad field
+            </td>
+            <td>
+              <code>control-plane/apps/web/src/server/mcp/trpc-tool.ts</code>;
+              <code>the-brain/apps/api/src/mcp/dispatch.ts</code>
+              (<code>zodIssueSummary</code>)
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>Two small conventions in <code>packages/mcp</code>.</td>
+            <td>None.</td>
+          </tr>
+          <tr>
+            <td>
+              Session capture from Claude Code hooks (<code
+                >brain hooks install</code
+              >)
+            </td>
+            <td><code>the-brain/apps/cli/src/commands/hooks.ts</code> (346)</td>
+            <td class="muted">Not in v1</td>
+            <td>
+              Sessions in v1 are captured by the daemon from SDK messages, which
+              is more complete. The hook kit matters if Dom's interactive Claude
+              Code sessions should land in Harbourmaster; listed under deferred.
+            </td>
+            <td></td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>Triggers and routines</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Piece</th>
+            <th>Source</th>
+            <th>Mode</th>
+            <th>Changes on the way in</th>
+            <th>Risk</th>
+          </tr>
+          <tr>
+            <td>
+              Timezone-aware 5-field cron: <code>nextFireTime</code>,
+              <code>validateCron</code>, <code>Intl</code> only
+            </td>
+            <td>
+              <code>bruce-next/runtime/src/scheduler/cron.ts</code>
+              (169) and its test
+            </td>
+            <td class="copy">Copy</td>
+            <td>Default timezone becomes a workspace setting, not Sydney.</td>
+            <td>Low. Pure.</td>
+          </tr>
+          <tr>
+            <td>
+              Schedule types beyond cron (daily, weekly, interval, once) with
+              DST handling
+            </td>
+            <td>
+              <code>agentum/apps/web/src/modules/routines/schedule.ts</code>,
+              <code>cron.ts</code>, <code>validate.ts</code>
+            </td>
+            <td class="muted">Not in v1</td>
+            <td>
+              v1 takes cron plus timezone only. The UI can offer presets that
+              compile to cron.
+            </td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>
+              Cron fan-out: one tick, pick due rows by oldest attempt so a
+              failing row cannot starve the rest
+            </td>
+            <td>
+              <code>flightdex-v2/apps/web/src/server/scheduled.ts</code>
+              (111), <code>packages/core/src/sync/schedule.ts</code>
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Minute tick over <code>triggers</code> with
+              <code>next_run_at</code>. The schedule advance and the run insert
+              (keyed <code>trigger:id:occurrence</code>) are one
+              <code>atomic</code>
+              write, so a crash neither skips nor double-fires; the queued-run
+              sweep dispatches anything left queued.
+            </td>
+            <td>
+              Low. D1 allows 1000 queries per invocation; the tick stays small.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Delivery status kept apart from run status, auto-disable after
+              repeated errors
+            </td>
+            <td>
+              OpenClaw <code>src/cron/types.ts</code> (<code
+                >CronJobState</code
+              >), <code>docs/automation/cron-jobs.md</code>
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              <code>runs.status</code>
+              and a <code>slack.delivered</code> event, and
+              <code>triggers.consecutive_errors</code>
+              with a cap.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Generic bearer ingest endpoint: hashed token, 202 fast, 401 and
+              403 contract
+            </td>
+            <td>
+              <code
+                >control-plane/apps/engine/src/routes/ingest-events.ts</code
+              >, <code>packages/services/src/tokens.ts</code> (228)
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Per-trigger token instead of scopes. Body is
+              <code>{ text, requestId?, waitMs? }</code>.
+              <code>waitMs</code>
+              long-polls like the MCP tool.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Webhook trigger shape: bearer in the header only, explicit allowed
+              agent, session key, deliver target
+            </td>
+            <td>OpenClaw <code>docs/automation/webhook.md</code></td>
+            <td class="borrow">Borrow</td>
+            <td>Per-trigger tokens, not one shared token.</td>
+            <td>None.</td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>Slack</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Piece</th>
+            <th>Source</th>
+            <th>Mode</th>
+            <th>Changes on the way in</th>
+            <th>Risk</th>
+          </tr>
+          <tr>
+            <td>
+              Request signature verification (<code>v0:timestamp:body</code>,
+              constant-time, freshness window)
+            </td>
+            <td>
+              <code>ariadne/packages/slack/src/signature.ts</code>
+              (<code>verifySlackRequest</code>) and test
+            </td>
+            <td class="copy">Copy</td>
+            <td>None.</td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              App manifest with bot scopes, bot events and
+              <code>features.agent_view</code>
+              (required for apps created after 30 June 2026)
+            </td>
+            <td>
+              <code>ariadne/packages/slack/src/manifest.ts</code>
+              (<code>manifestJson</code>); alternatives in
+              <code>trueforge/.../slack/appManifest.ts</code>
+              (112),
+              <code>agentum/.../bridges/slack/manifest.ts</code>,
+              <code>bruce-next/agent/execution/slack/lib/manifest.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Agent name and description from the agent row. Redirect URL and
+              event URL from <code>PUBLIC_BASE_URL</code>. Scopes:
+              <code>app_mentions:read</code>, <code>chat:write</code>,
+              <code>channels:history</code>, <code>groups:history</code>,
+              <code>im:history</code>, <code>files:read</code>,
+              <code>files:write</code>, <code>users:read</code>,
+              <code>users:read.email</code>.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Event parsing: mention, DM, thread resolution, file references,
+              bot-message filtering
+            </td>
+            <td>
+              <code>ariadne/packages/slack/src/events.ts</code>
+              (11 KB) and test;
+              <code
+                >agentum/.../bridges/slack/ { events,normalize,ingest}.ts</code
+              >
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Output becomes a <code>StartRunInput</code>. Drop Ariadne's intake
+              grammar.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Inbound dedupe by body hash, streamed body cap, apply in
+              <code>waitUntil</code>
+            </td>
+            <td>
+              <code>flightdex-v2/apps/web/src/server/webhooks/routes.ts</code>
+              (<code>readCappedBody</code>),
+              <code>packages/core/src/sync/webhooks-process.ts</code>
+              and
+              <code>webhooks-hardening.test.ts</code>; dedupe idea also in
+              OpenClaw <code>persistent-dedupe.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Table <code>slack_events_seen</code>. One change: Harbourmaster
+              writes the dedupe row and the run (with Slack file descriptors as
+              <code>pending_files</code>) in one <code>atomic</code> write
+              before the 200, where flightdex-v2 applies after the ack.
+              <code>waitUntil</code>
+              downloads pending files and replies to an unlinked sender.
+            </td>
+            <td>
+              Low. Slack retries on any slow answer, so the atomic write must be
+              the only work before the 200.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Outbound posting with 429 <code>Retry-After</code>, thread
+              replies, escaping, claim-then-post root dedupe
+            </td>
+            <td>
+              <code>control-plane/apps/engine/src/notify/slack-client.ts</code>
+              (118), <code>slack-render.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Bot token comes from the decrypted <code>slack_apps</code> row.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>Slack user to platform user by verified email</td>
+            <td>
+              <code>ariadne/packages/slack/src/user-mapping.ts</code>,
+              <code>apps/web/src/api/slack-link.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Writes <code>identity_links</code>. Needs
+              <code>users:read.email</code>. Two extra checks: the matched Clerk
+              user must be a member of the workspace's org, and the event's
+              <code>team_id</code>
+              must match the <code>slack_apps</code> row found by
+              <code>api_app_id</code>.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Files from Slack: fetch with the bot token, MIME allow-list, size
+              cap, store, hand the agent a reference
+            </td>
+            <td>
+              <code>bruce-next/runtime/src/gateway/attachments.ts</code>;
+              OpenClaw <code>src/media/store.ts</code> for the SSRF-pinned fetch
+              idea
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Store in R2 through <code>@repo/services/files</code>. The daemon
+              downloads by file id with the run token into
+              <code>work/inbox/</code>.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Guided install: one operator-owned OAuth app, three env values,
+              connect per workspace is one button
+            </td>
+            <td>
+              <code>ariadne/apps/web/src/api/linear-operator-app.ts</code>,
+              <code>linear-oauth.ts</code>, <code>linear-installation.ts</code>
+            </td>
+            <td class="borrow">Borrow the flow</td>
+            <td>
+              Applied to Slack's <code>oauth.v2.authorize</code> and
+              <code>oauth.v2.access</code>.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              App creation through Slack's manifest API from a pasted app
+              configuration token (<code>apps.manifest.create</code>), then
+              OAuth install
+            </td>
+            <td>
+              No repo does this (grep for <code>apps.manifest</code> and
+              <code>oauth.v2.access</code>
+              across Agentum, trueforge and Ariadne found nothing)
+            </td>
+            <td class="new">New</td>
+            <td>
+              Optional follow-up, built only if the manifest-paste wizard (which
+              is Copy) proves too many clicks in use. A fresh configuration
+              token is pasted per app creation; nothing is stored.
+            </td>
+            <td>
+              Medium. Slack API behaviour cannot be verified from the repos.
+              Configuration tokens rotate every 12 hours, which is why v1 stores
+              none.
+            </td>
+          </tr>
+          <tr>
+            <td>Slack agent-view streaming (status, task plan, stop button)</td>
+            <td>
+              <code>bruce/agent/service/channels/slack/agent_stream.ts</code>
+              (195)
+            </td>
+            <td class="muted">Not in v1</td>
+            <td>
+              Needs a paid plan and changes often. Plain thread replies in v1.
+            </td>
+            <td></td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>Inbox, files, UI</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Piece</th>
+            <th>Source</th>
+            <th>Mode</th>
+            <th>Changes on the way in</th>
+            <th>Risk</th>
+          </tr>
+          <tr>
+            <td>Inbox threads and posts, mention wakes an agent</td>
+            <td>
+              Nothing fits. Agentum's messaging is a Slack clone; bruce-next's
+              <code>delegate</code>
+              addresses chats; OpenClaw's
+              <code>sessions_send</code>
+              is parent-to-child.
+            </td>
+            <td class="new">New</td>
+            <td>
+              Two tables, one mention parser, one
+              <code>Gateway</code>
+              implementation.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Loop guard: after N agent-authored posts in a row in one thread,
+              no agent is woken there until a person posts; plus a
+              sliding-window wake budget per agent
+            </td>
+            <td>
+              <code>agentum/apps/web/src/modules/router/loop-guard.ts</code>
+              (58: <code>nextChannelGuard</code>, <code>checkWakeRate</code>),
+              imports its config and a type from <code>messaging/service</code>
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Same two rules, reimplemented over
+              <code>inbox_posts</code>
+              (streak limit 3, wake budget 10 per agent per hour). The first
+              draft of this plan described a different guard; this is Agentum's.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              R2 file routes with membership check and key-to-workspace binding,
+              404 on refusal
+            </td>
+            <td>
+              <code>flightdex-v2/apps/web/src/server/files-routes.ts</code>,
+              <code>r2-files.ts</code>,
+              <code>packages/core/src/services/attachments.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Principal can also be a run token (daemon uploads and downloads).
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>tRPC client provider with global error toasts</td>
+            <td>
+              <code>flightdex/apps/web/src/integrations/trpc/provider.tsx</code>
+              (52)
+            </td>
+            <td class="copy">Copy</td>
+            <td>None.</td>
+            <td>None.</td>
+          </tr>
+          <tr>
+            <td>
+              Dashboard shell: sidebar with counts, topbar, command palette
+            </td>
+            <td>
+              <code
+                >flightdex/apps/web/src/features/shell/ { sidebar,topbar}.tsx</code
+              >
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>
+              Nav: Agents, Sessions, Inbox, Connectors, Machines, Triggers, Log,
+              Settings.
+            </td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>
+              Settings pages: API keys table, create-key dialog, copy-once
+              secret dialog, connected apps table
+            </td>
+            <td><code>flightdex-v2/apps/web/src/features/settings/*</code></td>
+            <td class="copy">Copy</td>
+            <td>Table names.</td>
+            <td>Low.</td>
+          </tr>
+          <tr>
+            <td>Chat message components</td>
+            <td>
+              Unused shadcn components already in
+              <code>apps/web/src/components/ui/</code>
+              (<code>message</code>,
+              <code>bubble</code>, <code>message-scroller</code>)
+            </td>
+            <td class="muted">Present</td>
+            <td>Not Agentum's.</td>
+            <td>None.</td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>Managed Agents runtime (after v1 by default, open question 2)</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Piece</th>
+            <th>Source</th>
+            <th>Mode</th>
+            <th>Changes on the way in</th>
+            <th>Risk</th>
+          </tr>
+          <tr>
+            <td>
+              Anthropic gateway behind one interface: register, sync, create
+              session, poll events with timestamp cursor, custom tool results,
+              transcripts
+            </td>
+            <td>
+              <code>agentum/apps/web/src/modules/anthropic/gateway.ts</code>
+              (849: <code>SessionGateway</code> at line 159,
+              <code>AnthropicGateway</code>), <code>events.ts</code>,
+              <code>config.ts</code>, <code>system-prompt.ts</code>,
+              <code>workspace-keys.ts</code>
+            </td>
+            <td class="copy">Copy</td>
+            <td>
+              Vaults and skills gateways left out. One interface change is
+              unavoidable: <code>RegisterAgentInput</code> and
+              <code>SyncAgentInput</code>
+              carry <code>mcpUrl</code> and
+              <code>connectors</code>, and <code>CreateSessionInput</code> has
+              no MCP field (checked at lines 46 to 115), so MCP servers and
+              their headers are fixed per Anthropic agent, not per session or
+              run. A per-run token therefore needs a re-sync per run, or a
+              session-scoped token whose proxy lookup finds the session's active
+              run. Decide that before building; it is the reason this is out of
+              v1 by default.
+            </td>
+            <td>
+              Medium. Beta API. The Agentum gotcha list applies:
+              <code>always_allow</code>
+              on toolsets, sessions fixed at create, loopback URLs refused,
+              image tool results dropped.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Poller: a DO with an alarm per active managed run that pulls
+              events into <code>ingestRunEvents</code>, honours
+              <code>stop_reason</code>, budgets per session
+            </td>
+            <td>
+              <code>agentum/apps/web/src/modules/router/agent-router.ts</code>
+              (1400 lines, pattern only), pure files <code>plan.ts</code>,
+              <code>wake-decision.ts</code>, <code>state.ts</code>
+            </td>
+            <td class="borrow">Borrow</td>
+            <td>Far smaller: no channels, no Slack, one run at a time.</td>
+            <td>Medium.</td>
+          </tr>
+          <tr>
+            <td>
+              Go computer daemon and relay for giving a managed agent a shell on
+              a real machine
+            </td>
+            <td>
+              <code>agentum/apps/computer/**</code>
+              (Go),
+              <code>modules/computer/ { protocol,relay,...}.ts</code>
+              (protocol 657 lines, zod, frozen v1)
+            </td>
+            <td class="muted">Deferred</td>
+            <td>
+              Copy whole when a managed agent needs a computer. Not part of v1.
+            </td>
+            <td></td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>Considered and not reused</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Candidate</th>
+            <th>Why not</th>
+          </tr>
+          <tr>
+            <td><code>@earendil-works/pi-durable</code> (durable-pi)</td>
+            <td>
+              Node-only (<code>node:sqlite</code>), experimental with an API
+              that "changes without notice", no Workers adapter exists,
+              OpenRouter-first. The crash-safe spawn recipe and the
+              send-with-wait API shape were borrowed.
+            </td>
+          </tr>
+          <tr>
+            <td>Trueforge as the runtime or as an upstream</td>
+            <td>
+              Fork upkeep: 74 upstream commits and 35 conflicts in one merge.
+              Its relay, protocol and Slack adapter are the same ideas as
+              Agentum's and Ariadne's, which are Dom's code without an upstream.
+              Its MCP OAuth code stores tokens in plain JSON. Read
+              <code>PROGRESS.md</code>
+              Cycle 32 before touching any Durable Object.
+            </td>
+          </tr>
+          <tr>
+            <td>OpenClaw code</td>
+            <td>
+              Single-operator trust model, config file as database,
+              process-bound, four renames in a year, 4,650 files. Patterns
+              borrowed (route resolution, cron state split, webhook shape,
+              dedupe, pairing). No files copied, so no license notice to carry.
+            </td>
+          </tr>
+          <tr>
+            <td>The Brain's <code>Scoped*</code> stack and 32-table schema</td>
+            <td>
+              Far more than one-org-per-deployment needs. The Brain is used as a
+              service instead (open question 4).
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>@cloudflare/workers-oauth-provider</code>
+              (The Brain, Ariadne)
+            </td>
+            <td>
+              Wraps the Worker, needs KV, pins old <code>agents</code>.
+              flightdex-v2's Clerk-as-authorization-server path is lighter and
+              deployed. Revisit if the client gate is not enough.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Agentum's Slack bridge, messaging, router and questions modules
+            </td>
+            <td>
+              All ride on Agentum's channel model. The pure Slack files
+              (signature, manifest, normalize) are equivalent to Ariadne's, and
+              Ariadne's package has no module coupling.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Agentum UI, Trueforge UI, durable-pi Vue client, The Brain
+              dashboard
+            </td>
+            <td>
+              Agentum UI is excluded by Dom. Trueforge is assistant-ui plus a
+              Fern SDK. durable-pi is Vue. The Brain uses
+              <code>createServerFn</code>
+              65 times, which this repo forbids.
+            </td>
+          </tr>
+          <tr>
+            <td>control-plane's K2 stream, Pipelines and Basin archive</td>
+            <td>
+              No local emulation, beta products, each env needs its own stream.
+              A D1 table with triggers does the append-only job for v1.
+            </td>
+          </tr>
+          <tr>
+            <td>control-plane's heartbeat monitor</td>
+            <td>
+              Took five review rounds to get cron-slot attribution right.
+              Machine liveness in v1 is a ping over the socket plus an alarm,
+              which is simpler and already in Ariadne's relay.
+            </td>
+          </tr>
+          <tr>
+            <td>bruce-next Socket Mode Slack adapter (1133 lines)</td>
+            <td>
+              Socket Mode needs an always-on process and an app-level token no
+              manifest can mint. Harbourmaster receives events in the Worker.
+            </td>
+          </tr>
+          <tr>
+            <td>bruce-next memory and dream pipeline, remote Memory Stores</td>
+            <td>
+              Different design from the brief's file wiki, data leaves the
+              machine, high effort. The Brain covers memory as a service.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Ariadne's workflow walker, contract envelopes, Linear agent
+              integration, <code>run-loop.ts</code> (150 KB)
+            </td>
+            <td>
+              Pull-request factory concerns, not general agents. The big files
+              mix concerns and are poor copy sources, as the analysis says.
+            </td>
+          </tr>
+          <tr>
+            <td>Trueforge's Cloudflare Container sandbox and Code Mode</td>
+            <td>
+              Only needed for a Worker-hosted agent that runs code. Deferred
+              with that runtime.
+            </td>
+          </tr>
+          <tr>
+            <td>flightdex v1</td>
+            <td>Superseded by v2 for everything but the shell layout.</td>
+          </tr>
+        </table>
+      </div>
+
+      <p class="muted">
+        Back to the <a href="index.html">overview</a>, on to the
+        <a href="build-plan.html">build plan</a>, or the
+        <a href="review-response.html">review response</a>.
+      </p>
+    </main>
+  </body>
+</html>

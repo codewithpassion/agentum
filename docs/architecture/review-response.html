@@ -1,0 +1,1105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Harbourmaster review response</title>
+    <style>
+    :root {
+      --bg: #fbfaf7;
+      --fg: #1d1d1b;
+      --muted: #5f5e58;
+      --line: #d9d6cc;
+      --accent: #0b6e6e;
+      --code: #f0eee7;
+      --warn: #9a5b00;
+      --card: #ffffff;
+      --ok: #2d7a3a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #15161a;
+        --fg: #e8e6df;
+        --muted: #a19e94;
+        --line: #34363d;
+        --accent: #5fc3c3;
+        --code: #1f2126;
+        --warn: #e0a24a;
+        --card: #1b1d22;
+        --ok: #6fcf7f;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #15161a;
+      --fg: #e8e6df;
+      --muted: #a19e94;
+      --line: #34363d;
+      --accent: #5fc3c3;
+      --code: #1f2126;
+      --warn: #e0a24a;
+      --card: #1b1d22;
+      --ok: #6fcf7f;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font:
+        16px / 1.55 system-ui,
+        -apple-system,
+        "Segoe UI",
+        Roboto,
+        sans-serif;
+      color: var(--fg);
+      background: var(--bg);
+    }
+    main {
+      max-width: 1100px;
+      padding: 16px 16px 72px;
+      margin: 0 auto;
+    }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding: 12px 0;
+      font-size: 15px;
+      border-bottom: 1px solid var(--line);
+    }
+    nav a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    nav a[aria-current] {
+      font-weight: 600;
+      color: var(--fg);
+    }
+    h1 {
+      margin: 24px 0 8px;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+    h2 {
+      padding-top: 8px;
+      margin: 40px 0 12px;
+      font-size: 22px;
+      border-top: 1px solid var(--line);
+    }
+    p {
+      margin: 0 0 12px;
+    }
+    .lead {
+      font-size: 15px;
+      color: var(--muted);
+    }
+    main a {
+      color: var(--accent);
+    }
+    code {
+      padding: 1px 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      background: var(--code);
+      border-radius: 4px;
+    }
+    .tw {
+      margin: 0 0 16px;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      min-width: 860px;
+      font-size: 14px;
+      border-collapse: collapse;
+    }
+    th,
+    td {
+      padding: 8px 10px;
+      vertical-align: top;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    th {
+      font-weight: 600;
+      white-space: nowrap;
+      background: var(--code);
+    }
+    .fixed {
+      font-weight: 600;
+      color: var(--ok);
+      white-space: nowrap;
+    }
+    .rejected {
+      font-weight: 600;
+      color: var(--warn);
+      white-space: nowrap;
+    }
+    .deferred {
+      font-weight: 600;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .muted {
+      color: var(--muted);
+    }
+    ul {
+      padding-left: 22px;
+      margin: 0 0 12px;
+    }
+    li {
+      margin: 0 0 6px;
+    }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav>
+        <a href="index.html">Overview</a>
+        <a href="reuse.html">Reuse matrix</a>
+        <a href="build-plan.html">Build plan</a>
+        <a aria-current="page" href="review-response.html">Review response</a>
+      </nav>
+
+      <h1>Review response</h1>
+      <p class="lead">
+        Two reviews of the first draft arrived on 16 October 2026: a blind
+        review (<code>review-blind.md</code>: 3 blockers, 13 major, 20 minor)
+        and an adversarial Codex review (<code>review-codex.md</code>: 6 high, 2
+        medium). This page lists every blocker, high, major and medium with the
+        decision and where the pages changed. Minors are grouped at the end.
+        Reuse-related findings were checked against source before acceptance;
+        the checks are noted in the summary column.
+      </p>
+      <p class="muted">
+        The round 1 rows record what the first revision did. Round 2 (below)
+        replaced some of those mechanisms: the rotating run token,
+        <code>mcpServers</code>
+        passed to <code>query()</code>, "one D1 batch", and agent paths under
+        <code>~/.harbourmaster</code>. Where the two disagree, the round 2 rows
+        and the overview are current.
+      </p>
+
+      <p>
+        What changed in shape: three build lanes instead of ten; only the three
+        boundary-crossing contracts freeze at M0; Managed Agents is out of v1 by
+        default behind a new open question; the credential subject is a per-run
+        <code>on_behalf_of_user_id</code>
+        chain instead of the direct actor; run tokens never touch disk; an
+        expired lease interrupts a run instead of re-running it; Slack and
+        routines admit work durably before acknowledging; channel watch, agent
+        env secrets and the daemon release pipeline moved to Deferred with their
+        seams.
+      </p>
+
+      <h2>Blockers and highs</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Id</th>
+            <th>Source</th>
+            <th>Summary</th>
+            <th>Decision</th>
+            <th>Where it changed</th>
+          </tr>
+          <tr>
+            <td>B1</td>
+            <td>Blind</td>
+            <td>
+              Agent-to-agent and inbox runs resolved to the agent's credential
+              for a person's request, so a colleague could route around
+              <code>needs_auth</code>.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              Overview seam 1 (<code>on_behalf_of_user_id</code>
+              derivation), seam 4 (rule applies to that column, never the
+              actor), data model <code>runs</code>, auth case 2. Plan M0.4,
+              M2.1, M3.3 (chain test), M6.1.
+            </td>
+          </tr>
+          <tr>
+            <td>B2</td>
+            <td>Blind</td>
+            <td>
+              One <code>.mcp.json</code> with a run token shared by concurrent
+              sessions of one agent.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              <code>mcpServers</code>
+              passed to <code>query()</code> in memory only; one run per agent
+              at a time; paths by ids. Overview seams 1, 3, 4, where things run.
+              Plan M1.4 (concurrency test, <code>grep hm_run_</code> finds
+              nothing).
+            </td>
+          </tr>
+          <tr>
+            <td>B3</td>
+            <td>Blind</td>
+            <td>
+              Three frozen contracts took <code>env</code>, against the repo's
+              service rule.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              Constructor injection:
+              <code>createEventsService( { db, blobs })</code>,
+              <code
+                >createPrincipalResolver( { db, runTokenKey,
+                verifyClerkOAuthToken, isOrgMember })</code
+              >, gateway factories, <code>createRunsService( { ...})</code>.
+              Overview seams 5 and 6. Plan C2, C5, C7, M0.1, M0.3, M0.4.
+            </td>
+          </tr>
+          <tr>
+            <td>C-H1</td>
+            <td>Codex</td>
+            <td>
+              Agent directories keyed by slug collide across workspaces;
+              sessions of one agent overwrite the per-run MCP token.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              Path
+              <code>~/.harbourmaster/&lt;workspaceId&gt;/&lt;agentId&gt;</code>;
+              one machine serves one workspace (stated); one run per agent at a
+              time. Overview module map (machines), data model, where things
+              run, auth trust-boundary paragraph. Plan M1.4.
+            </td>
+          </tr>
+          <tr>
+            <td>C-H2, M1</td>
+            <td>Codex, Blind</td>
+            <td>
+              Proxy never checked that the connector is assigned to the run's
+              agent; revoked credentials unhandled.
+            </td>
+            <td class="fixed">Fixed once</td>
+            <td>
+              No <code>agent_connectors</code> row means 403 before any
+              credential lookup; <code>revoked</code> is
+              <code>needs_auth</code>. Overview seam 4 (<code
+                >not_assigned</code
+              >
+              result, ordered proxy steps). Plan M3.3 tests.
+            </td>
+          </tr>
+          <tr>
+            <td>C-H3</td>
+            <td>Codex</td>
+            <td>
+              Concurrent refreshes race; one failure could mark a just-renewed
+              credential <code>needs_auth</code> or overwrite a revocation.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              <code>credentials.version</code>
+              and a conditional write (<code
+                >WHERE version = ? AND status != 'revoked'</code
+              >); loser re-reads; <code>needs_auth</code> only when the version
+              is unchanged. Overview seam 4, data model. Plan M3.3 (three race
+              tests). Reuse: Agentum <code>refreshTokens</code> relabelled as
+              the HTTP call only.
+            </td>
+          </tr>
+          <tr>
+            <td>C-H4</td>
+            <td>Codex</td>
+            <td>
+              Re-queue on lease expiry repeats work that may have had an
+              external effect; no fence against late events.
+            </td>
+            <td class="fixed">Fixed (attempt ids rejected)</td>
+            <td>
+              Expired lease makes the run <code>interrupted</code>, never
+              re-queued; events and complete answer 409 unless the run is
+              <code>running</code>; UI offers Retry as a new run. Attempt ids on
+              every frame were not added, because status fencing plus no
+              re-queue closes the hole without a new field. Overview seam 2,
+              data model, decisions. Plan M0.4, M1.3, M1.5.
+            </td>
+          </tr>
+          <tr>
+            <td>C-H5</td>
+            <td>Codex</td>
+            <td>
+              Slack acknowledged before the run was durable; a dedupe row could
+              suppress a retry with no run.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              One <code>db.batch</code> writes the dedupe row and the run, then
+              200. Unlinked sender: dedupe row plus a
+              <code>slack.unlinked_sender</code>
+              event in the batch, lookup in
+              <code>waitUntil</code>. Overview seam 5, data model
+              <code>slack_events_seen</code>. Plan M5.1 (failure-in-batch test).
+              Reuse dedupe row updated.
+            </td>
+          </tr>
+          <tr>
+            <td>C-H6</td>
+            <td>Codex</td>
+            <td>
+              Routine advanced <code>next_run_at</code> before creating the run,
+              so a crash skipped the occurrence.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              One batch inserts the run with
+              <code>request_id = trigger:id:occurrence</code>
+              and advances with
+              <code>WHERE next_run_at = due</code>; the unique index makes
+              overlapping ticks no-ops. Overview data model
+              <code>triggers</code>, decisions. Plan M4.2 (crash-on-either-side
+              tests).
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>Majors and mediums</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Id</th>
+            <th>Source</th>
+            <th>Summary</th>
+            <th>Decision</th>
+            <th>Where it changed</th>
+          </tr>
+          <tr>
+            <td>M2</td>
+            <td>Blind</td>
+            <td>
+              Machine credential and all agents' files readable by any agent on
+              the box; <code>bypassPermissions</code> confines nothing; SDK
+              requires <code>allowDangerouslySkipPermissions</code>.
+            </td>
+            <td class="fixed">Fixed (credential rotation rejected)</td>
+            <td>
+              Trust boundary stated; claim bound to the machine by a conditional
+              write; <code>allowDangerouslySkipPermissions: true</code> with a
+              fixture test (checked in <code>sdk.d.ts</code> 0.2.119 lines 1443
+              and 1459); <code>canUseTool</code> under bypass is an M1.4 probe;
+              per-agent Unix user in Deferred; Q7 rewritten. Rotating the
+              machine credential on connect was not added: not cheap, and the
+              claim binding already limits a stolen credential to runs for that
+              machine. Overview auth, deferred, Q7, where things run. Plan M1.3,
+              M1.4.
+            </td>
+          </tr>
+          <tr>
+            <td>M3, m20</td>
+            <td>Blind</td>
+            <td>
+              Channel-watch runs had no defined actor, and every watched message
+              would be a Claude Code run.
+            </td>
+            <td class="deferred">Deferred</td>
+            <td>
+              Channel watch out of v1. The Deferred row records the rules
+              (poster as actor via <code>identity_links</code>, unknown poster
+              starts nothing, daily cap). Mentions and DMs ship. Overview scope,
+              deferred, decisions, Q8. Plan M5.1.
+            </td>
+          </tr>
+          <tr>
+            <td>M4</td>
+            <td>Blind</td>
+            <td>
+              API keys and OAuth clients kept working after a user left the
+              Clerk org; flightdex-v2's membership check does not transfer.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              <code>isOrgMember</code>
+              injected into the resolver, run for <code>api_key</code> and
+              <code>oauth</code>
+              principals on every request with a 60 s cache. Reuse row
+              relabelled Borrow. The webhook alternative was not added; the
+              on-use check is enough. Overview seam 6. Plan M0.1, M2.1, M2.2
+              tests.
+            </td>
+          </tr>
+          <tr>
+            <td>M5</td>
+            <td>Blind</td>
+            <td>
+              Deploy order used <code>versions upload</code> for a release that
+              creates a DO class; previews config put migrations in three
+              places.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              Checked against Cloudflare docs (deployment-management, previews
+              configuration): lifecycle changes need
+              <code>wrangler deploy</code>; keep classes and migrations
+              top-level and repeat only the binding under previews. Overview
+              where things run. Plan M0.7, O.1, M8.1.
+            </td>
+          </tr>
+          <tr>
+            <td>M6</td>
+            <td>Blind</td>
+            <td>
+              Schema frozen but missing columns; no rule for parallel
+              migrations.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              Added <code>triggers.consecutive_errors</code>,
+              <code>workspaces.timezone</code>,
+              <code>credentials.version</code>,
+              <code>runs.on_behalf_of_user_id</code>,
+              <code>runs.status = interrupted</code>,
+              <code>slack_events_seen.run_id</code>. No attempt column (see
+              C-H4) and no config-token table (see M13). Serial migration queue
+              rule. Overview data model. Plan C1, after-contracts paragraph.
+            </td>
+          </tr>
+          <tr>
+            <td>M7</td>
+            <td>Blind</td>
+            <td>
+              Every lane edited <code>server.ts</code>, <code>context.ts</code>,
+              <code>router.ts</code>, <code>scheduled()</code> and
+              <code>runs.ts</code>.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              M0.7 pre-splits one Hono sub-app and one router per lane, stubs
+              every service in <code>context.ts</code> and the template, adds a
+              tick registry, registers gateways by injection. Fewer lanes also
+              helps. Plan M0.7.
+            </td>
+          </tr>
+          <tr>
+            <td>M8</td>
+            <td>Blind</td>
+            <td>Nobody owned "the daemon downloads fileIds".</td>
+            <td class="fixed">Fixed</td>
+            <td>
+              New M1.6 in the Runtime lane after M7; M5.3 depends on it; the
+              browser check moved there. Plan M1.6, M5.3, M7.1, lane table.
+            </td>
+          </tr>
+          <tr>
+            <td>M9</td>
+            <td>Blind</td>
+            <td>
+              Checks needed a Clerk org the dev user lacks and curl-with-cookie
+              steps that cannot run.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              <code>create-dev-user</code>
+              creates an org and membership; <code>/dev-login</code> sets the
+              active org; curl-with-cookie checks replaced by router tests with
+              a built context and bun scripts with a dev principal. Plan M0.1,
+              M1.1.
+            </td>
+          </tr>
+          <tr>
+            <td>M10</td>
+            <td>Blind</td>
+            <td>
+              M1 gate and M2.2 depended on the ops lane without saying so.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              M1 gate's second-machine check depends on O.1 and copies the
+              binary by <code>scp</code>; M2.2 names the tunnel or O.1. Plan M1
+              gate, M2.2, lane table.
+            </td>
+          </tr>
+          <tr>
+            <td>M11</td>
+            <td>Blind</td>
+            <td>
+              The brief's "secrets in vaults given to agents" was dropped
+              silently.
+            </td>
+            <td class="deferred">Deferred</td>
+            <td>
+              Deferred row with the seam: claim response gains an
+              <code>env</code>
+              map of agent-owned secrets, masker adds needles. Overview
+              deferred.
+            </td>
+          </tr>
+          <tr>
+            <td>M12</td>
+            <td>Blind</td>
+            <td>
+              The SMB runtime was the last milestone; subscription-login terms
+              unchecked.
+            </td>
+            <td class="fixed">Fixed as a new open question</td>
+            <td>
+              Q2 is now "Dom first or SMB first", default Dom first with Managed
+              Agents out of v1. Q10 records the unverified terms and the
+              <code>ANTHROPIC_API_KEY</code>
+              fallback. Overview summary, scope, deferred, decisions, Q2, Q10.
+              Plan M8 moved under "if Dom picks SMB first".
+            </td>
+          </tr>
+          <tr>
+            <td>M13</td>
+            <td>Blind</td>
+            <td>
+              Slack configuration tokens rotate every 12 hours; nothing stored
+              the refresh token.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              A fresh token is pasted per app creation and discarded; manifest
+              paste is built first (copy), API create second (new). Stored
+              tokens are a Deferred row. Overview scope, deferred, decisions,
+              Q1. Plan M5.2. Reuse Slack row.
+            </td>
+          </tr>
+          <tr>
+            <td>C-M1</td>
+            <td>Codex</td>
+            <td>
+              Header credentials were agent-owned only, so a personal API token
+              could not satisfy the user cases.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              Ownership independent of auth kind; a header secret is pasted as
+              yourself or as the agent. Overview seam 4. Plan M3.1 test. Reuse
+              credential-resolution row.
+            </td>
+          </tr>
+          <tr>
+            <td>C-M2</td>
+            <td>Codex</td>
+            <td>
+              Agentum's <code>CreateSessionInput</code> has no MCP config, so a
+              per-run token cannot be given to a managed session.
+            </td>
+            <td class="deferred">Deferred, verified</td>
+            <td>
+              Checked <code>gateway.ts</code> lines 46 to 115:
+              <code>mcpUrl</code>
+              and <code>connectors</code> live on register and sync, not on
+              session create. Recorded in the Deferred row and the M8 task as
+              the first thing to decide (session-scoped token). It is one of the
+              two reasons Managed Agents is out of v1 by default. Overview
+              deferred. Reuse Managed Agents row. Plan M8.1.
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>Minors</h2>
+      <p>Applied as written, grouped by page.</p>
+      <ul>
+        <li>
+          Overview: m2 (WebSocket <code>claim</code> frame dropped; HTTP claim
+          is the compare-and-set), m4 (unique index on
+          <code>(workspace_id, request_id)</code>), m6 (one row-based AAD
+          <code>{ workspaceId, table, rowId, field }</code>
+          everywhere), m7 (Drive and OneDrive reach v1 as remote MCP connectors;
+          only Samba, Meet scans and file-landed triggers stay deferred), m10 (<code
+            >csrf()</code
+          >
+          on every cookie-authenticated non-GET route group), m11 (identity link
+          requires org membership and a matching <code>team_id</code>), m13 (no
+          <code>tick</code>
+          event; the tick logs to <code>console.log</code> and writes only when
+          it did work), m14 (Q8 states that a thread's context crosses posters),
+          m17 (run token expiry equals the lease, heartbeat returns a fresh
+          token).
+        </li>
+        <li>
+          Build plan: m1 (resume proved by "Which word did I ask for first?"),
+          m3 (superseded by C-H4: interrupted, no re-queue, no attempt column),
+          m5 (<code>schema.test.ts</code>
+          exempts <code>workspaces</code> and
+          <code>__drizzle_migrations</code>), m8 (M0.8 updates
+          <code>CLAUDE.md</code>
+          and the services README with the route exception,
+          <code>workspaceProcedure</code>, and where the Bun.serve text
+          applies), m12 (the tick check is a bun test; the curl is a manual
+          extra), m15 (M0 is two to three weeks), m16 (linux x64 and arm64 only;
+          darwin with launchd deferred), m18 (O.2 release pipeline deferred; the
+          M1 gate copies the binary by <code>scp</code>), m19 (three lanes; C1,
+          C4, C6 freeze at M0, the rest after the M1 gate).
+        </li>
+        <li>
+          Reuse: m9 (dedupe path corrected to
+          <code>sync/webhooks-process.ts</code>; <code>schema.ts</code> listed
+          next to Agentum's <code>oauth.ts</code>; loop guard relabelled Borrow
+          and described as Agentum's streak-plus-budget rule, which M6.1 now
+          uses).
+        </li>
+      </ul>
+
+      <h2>Counts</h2>
+      <p>
+        Blockers, highs, majors and mediums: 24 findings. Fixed 19 (two pairs
+        fixed once: C-H2 with M1, M3 with m20 counted under deferred). Deferred
+        4 (M3 and m20 as one, M11, C-M2, and the Managed Agents milestone under
+        M12, which became an open question). Rejected in part 3 (attempt ids
+        inside C-H4, credential rotation inside M2, the webhook alternative
+        inside M4), each with the reason in its row. Minors: 20, all applied,
+        one superseded (m3).
+      </p>
+
+      <h2>Open questions the reviews changed</h2>
+      <ul>
+        <li>
+          Q1: per-agent Slack apps stay the default; paste flow first, API flow
+          second, fresh configuration token per creation.
+        </li>
+        <li>
+          Q2 (new): Dom first or SMB first. Default Dom first, Managed Agents
+          out of v1.
+        </li>
+        <li>
+          Q7: rewritten so it no longer claims
+          <code>bypassPermissions</code>
+          confines Claude Code to a directory; names <code>dontAsk</code> as the
+          alternative.
+        </li>
+        <li>
+          Q8: states that a thread's context crosses posters and offers (thread,
+          poster) keying.
+        </li>
+        <li>
+          Q10: subscription-login terms are unverified;
+          <code>ANTHROPIC_API_KEY</code>
+          through the daemon env is the fallback.
+        </li>
+      </ul>
+
+      <h2>Round 2</h2>
+      <p>
+        A fresh blind review (<code>review-blind-r2.md</code>: 2 blockers, 9
+        major, 11 minor) and a second Codex pass (<code
+          >review-codex-r2.md</code
+        >: 5 high, 3 medium, 2 low, from inlined text without repo access).
+        Claims about the Agent SDK, drizzle and Ariadne's test shim were checked
+        against source before acceptance: <code>setMcpServers</code> sends
+        <code>mcp_set_servers</code>
+        over the control channel while
+        <code>--mcp-config</code>
+        goes on argv (<code>sdk.mjs</code>,
+        <code>sdk.d.ts</code>
+        0.2.119); <code>batch</code> exists only on drizzle's D1 driver and
+        <code>transaction</code>
+        on the SQLite drivers (drizzle-orm 0.44.7 typings in this repo);
+        <code>ariadne/apps/web/bunfig.toml</code>
+        preloads a
+        <code>cloudflare:workers</code>
+        shim.
+      </p>
+      <p>
+        What changed in shape: one run token for the life of the run, delivered
+        through <code>setMcpServers()</code> on the SDK control channel,
+        validated server-side against the running row and its lease; an
+        <code>atomic</code>
+        write port in <code>@repo/db</code> so "in one atomic write" is a real
+        call on both drivers; Claude Code runs as a separate
+        <code>hm-agent</code>
+        Unix user; queued runs are the dispatch source, with the relay offering
+        on <code>hello</code> and a sweep job re-offering; one running run per
+        agent enforced in the claim predicate; a refresh lease before any
+        token-endpoint call;
+        <code>actor</code>
+        removed from <code>StartRunInput</code> and derived from the principal,
+        with trusted context passed to gateways; Connect links are signed-in
+        Harbourmaster pages bound to the initiator; only the nine foundation
+        tables and the tool names freeze at M0; the manifest API is optional; UI
+        pages belong to the lane that owns the service.
+      </p>
+
+      <h3>Blockers and highs</h3>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Id</th>
+            <th>Source</th>
+            <th>Summary</th>
+            <th>Decision</th>
+            <th>Where it changed</th>
+          </tr>
+          <tr>
+            <td>B1, C-H2</td>
+            <td>Blind, Codex</td>
+            <td>
+              Run token expired with the lease and was renewed by heartbeat, but
+              Claude Code keeps the headers it got at claim, so every tool call
+              fails after the first lease.
+            </td>
+            <td class="fixed">Fixed once</td>
+            <td>
+              One token minted at claim, 12 h cap, valid while
+              <code>runs.status = 'running' AND lease_until &gt; now</code>;
+              heartbeat extends the lease and returns <code>{ }</code>; lease 90
+              s, heartbeat 20 s stated. Overview seams 3, 4, 6, token prefixes,
+              decisions. Plan C4, C6, M0.5, M1.3 (token accepted after three
+              leases, refused on interruption), M3.3 (live call after a
+              four-minute idle).
+            </td>
+          </tr>
+          <tr>
+            <td>B2</td>
+            <td>Blind</td>
+            <td>
+              The repo's <code>Database</code> type has no <code>batch</code>;
+              the "one D1 batch" claims had no mechanism and could not be tested
+              on <code>bun:sqlite</code>.
+            </td>
+            <td class="fixed">Fixed, verified</td>
+            <td>
+              <code>atomic(statements)</code>
+              port in <code>@repo/db</code> over <code>db.batch</code> (D1) and
+              <code>db.transaction</code>
+              (<code>bun:sqlite</code>); services take
+              <code>{ db, atomic }</code>; every "one D1 batch" phrase replaced.
+              Overview data model, seams, decisions. Plan C1, M0.2 (rollback
+              test), M0.7 (D1 probe), M0.8 (README rule). Reuse: new row.
+            </td>
+          </tr>
+          <tr>
+            <td>C-H1, M8</td>
+            <td>Codex, Blind</td>
+            <td>
+              A versioned write orders database writes but both callers still
+              hit the provider's token endpoint; rotating refresh tokens then
+              fail or revoke the family.
+            </td>
+            <td class="fixed">Fixed once</td>
+            <td>
+              <code>credentials.refreshing_until</code>
+              lease taken before the provider call; only the winner calls;
+              losers poll <code>version</code> up to 5 s; refresh ahead at two
+              minutes; revocation and re-auth bump <code>version</code> and
+              clear the lease; writes fenced on version and lease ownership.
+              Overview seam 4, data model. Plan M3.3 (stub counts token-endpoint
+              calls; success and failure orderings; dead-holder lease expiry).
+            </td>
+          </tr>
+          <tr>
+            <td>C-H3</td>
+            <td>Codex</td>
+            <td>
+              <code>Gateway.deliver</code>
+              carried no run id, so the inbox reply post could not inherit the
+              subject; <code>actor</code> was a caller input that could outrank
+              the run principal.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              <code
+                >deliver(target, message, context: { runId, agentId,
+                onBehalfOfUserId })</code
+              >; the inbox gateway writes <code>run_id</code> itself;
+              <code>actor</code>
+              removed from <code>StartRunInput</code> and derived from the
+              principal; a <code>system</code> principal kind for the tick; a
+              Slack route builds a user principal only after signature and link.
+              Overview seams 1, 5, 6. Plan C3, C7, M0.4, M6.1 (full user to A to
+              post to B path through
+              <code>completeRun</code>
+              and the real gateway).
+            </td>
+          </tr>
+          <tr>
+            <td>C-H4, M6</td>
+            <td>Codex, Blind</td>
+            <td>
+              One running run per agent was enforced only by the daemon;
+              interruption did not confirm the process stopped before Retry.
+            </td>
+            <td class="fixed">Fixed once</td>
+            <td>
+              Claim predicate gains
+              <code>NOT EXISTS running run for this agent</code>
+              and refuses a newer run while an older queued run exists for the
+              session; on heartbeat 409 or a 1012 close the daemon aborts the
+              local process and posts
+              <code>complete { status: "aborted" }</code>
+              after exit, recording
+              <code>process_ended_at</code>; Retry only after that or ten
+              minutes. Overview seams 1, 2, 3, data model. Plan M0.4, M1.3 (two
+              claimers, one wins), M1.4 (abort then aborted), M1.5.
+            </td>
+          </tr>
+          <tr>
+            <td>C-H5, M5</td>
+            <td>Codex, Blind</td>
+            <td>
+              A crash between durable admission and dispatch, or a lost offer,
+              left a queued run forever; M4.2's "next tick dispatches" named no
+              job.
+            </td>
+            <td class="fixed">Fixed once</td>
+            <td>
+              Queued runs are the dispatch source: the relay offers every queued
+              or offered run on <code>hello</code>; a sweep job re-offers
+              anything queued or offered for more than 60 s and finishes pending
+              file downloads; offers idempotent because the claim is the
+              conditional write; duplicate <code>request_id</code> handled by
+              reading the existing run back. Overview seam 3, where things run,
+              decisions. Plan M0.4, M1.1 (run started while the daemon is down
+              completes after connect), M4.2, M5.1.
+            </td>
+          </tr>
+          <tr>
+            <td>M1</td>
+            <td>Blind</td>
+            <td>
+              The SDK puts <code>mcpServers</code> given to
+              <code>query()</code>
+              on the <code>claude</code> command line, so the run token is
+              readable in <code>ps</code> by any user.
+            </td>
+            <td class="fixed">Fixed, verified</td>
+            <td>
+              Start <code>query()</code> in streaming-input mode with no HTTP
+              servers, call <code>setMcpServers()</code> (control channel on
+              stdin), then send the first message. Overview seam 3, where things
+              run, decisions. Plan M1.4 (<code>/proc/&lt;pid&gt;/cmdline</code>
+              contains no <code>hm_run_</code>;
+              servers-connected-before-first-turn recorded as a probe). Reuse
+              agent core row.
+            </td>
+          </tr>
+          <tr>
+            <td>M2</td>
+            <td>Blind</td>
+            <td>
+              With one Unix user a run could read the machine credential, claim
+              other people's queued runs and spend their run tokens;
+              <code>settingSources</code>
+              let one run plant hooks for the next.
+            </td>
+            <td class="fixed">Fixed (fallback rule for no-sudo boxes)</td>
+            <td>
+              Token minted only at claim; Claude Code runs as
+              <code>hm-agent</code>
+              via <code>sudo -u</code> with a sudoers drop-in written by
+              <code>install-service</code>;
+              <code>config.json</code>
+              600 under the daemon user;
+              <code>strictMcpConfig: true</code>
+              and a per-run reset of
+              <code>work/.claude/</code>
+              and <code>work/.mcp.json</code>; machines that cannot get a second
+              user are
+              <code>single_user</code>
+              and colleagues get agent credentials only, stated in the UI. Real
+              blast radius written into Auth and Q7. Overview auth, deferred,
+              decisions, Q7. Plan M1.2, M1.4, M3.3.
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <h3>Majors, mediums and lows</h3>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Id</th>
+            <th>Source</th>
+            <th>Summary</th>
+            <th>Decision</th>
+            <th>Where it changed</th>
+          </tr>
+          <tr>
+            <td>M3</td>
+            <td>Blind</td>
+            <td>
+              Open Clerk sign-up on a public domain gave any stranger a tenant.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              Injected <code>allowedOrgIds</code> in the resolver plus Clerk
+              restricted sign-up; Organizations enabled on the instance as an
+              M0.1 task. Overview seam 6, auth, Q6. Plan M0.1 (org not on the
+              list resolves to null).
+            </td>
+          </tr>
+          <tr>
+            <td>M4</td>
+            <td>Blind</td>
+            <td>
+              Checks needed a fake-runtime agent that nothing could create.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              <code>fake</code>
+              in <code>agents.runtime</code>, the adapter registered only under
+              <code>devFakeRuntime</code>, <code>seed-fake-agent.ts</code>.
+              Overview seam 2. Plan C1, M0.4, M1.5, M2.1, M4.1.
+            </td>
+          </tr>
+          <tr>
+            <td>M7</td>
+            <td>Blind</td>
+            <td>
+              OAuth callback not bound to the person completing it; Connect
+              links posted into shared threads.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              <code>/connect/:connectorId?as=...</code>
+              requires a session and creates the state row with
+              <code>initiator_user_id</code>; callback refuses a different user;
+              <code>return_to</code>
+              same-origin; agent-owned connects only from the agent page; Slack
+              sends the link as an ephemeral message. Overview seam 4, data
+              model, auth case 2. Plan M3.2 (two refusal tests), M3.3, M5.1.
+            </td>
+          </tr>
+          <tr>
+            <td>M9, C-M7</td>
+            <td>Blind, Codex</td>
+            <td>
+              Page ownership contradicted itself; lanes still coupled through
+              unowned shared services and composition.
+            </td>
+            <td class="fixed">Fixed once</td>
+            <td>
+              Called coordinated lanes; owners named per contract (Runtime:
+              runs, events, gateway, composition in <code>compose.ts</code>;
+              Access: principal, tool names, <code>mcpServers</code> builder);
+              M0.7 adds the shell with a nav registry and an agent page with one
+              tab file per lane; M9 shrinks to Sessions and Log; UI pages listed
+              per lane; M0.1 implements all four prefixes (no nulls); contract
+              tests with fakes separated from route integration tests. Plan
+              contracts, lane table, M0.1, M0.7, M9.
+            </td>
+          </tr>
+          <tr>
+            <td>C-M6, m8</td>
+            <td>Codex, Blind</td>
+            <td>
+              C1 and C4 had nowhere to carry file references; file access by a
+              run token was undefined before the session existed.
+            </td>
+            <td class="fixed">Fixed once</td>
+            <td>
+              <code>runs.input_file_ids</code>, <code>pending_files</code>,
+              <code>output_file_ids</code>; claim returns
+              <code>inputFileIds</code>; completion carries
+              <code>fileIds</code>; <code>files.run_id</code>; a run token
+              downloads only its input files and uploads under its run id;
+              composer uploads belong to the uploader until
+              <code>startRun</code>
+              attaches them. Overview seams 1, 2, 3, data model. Plan C1, C4,
+              M0.4, M1.6, M7.1.
+            </td>
+          </tr>
+          <tr>
+            <td>C-M8</td>
+            <td>Codex</td>
+            <td>
+              Downloading Slack files before the 200 is slow; after it, the run
+              could start without them.
+            </td>
+            <td class="fixed">Fixed</td>
+            <td>
+              Slack file descriptors stored on the admitted run as
+              <code>pending_files</code>; such a run is not claimable;
+              <code>waitUntil</code>
+              downloads, the sweep finishes leftovers, three attempts then
+              <code>failed</code>. Overview seam 5, data model, where things
+              run. Plan M5.1 (process loss between 200 and download), M5.3.
+            </td>
+          </tr>
+          <tr>
+            <td>C-L9</td>
+            <td>Codex</td>
+            <td>Some checks ran before the thing they checked existed.</td>
+            <td class="fixed">Fixed</td>
+            <td>
+              M1.2 checks through a machines script; M2.3 polls
+              <code>inbox_read</code>; M4.2's live check is a probe and the
+              clock test is the gate; O.1 curls the staging URL; O.1 is the
+              first task after M0 in the solo order. Plan.
+            </td>
+          </tr>
+          <tr>
+            <td>C-L10, m11</td>
+            <td>Codex, Blind</td>
+            <td>
+              M0 froze every feature table and all tool input schemas; the
+              manifest API stayed mandatory.
+            </td>
+            <td class="fixed">Fixed once</td>
+            <td>
+              C1 is the nine foundation tables; later lanes add theirs in their
+              first PR; C6 freezes the tool names, input schemas land with M2
+              and M6; the manifest API is an optional follow-up measured against
+              the paste flow's click count. Overview scope, deferred, decisions,
+              Q1. Plan contracts, M0.2, M0.6, M2.1, M3.1, M4.1, M5.1, M5.2,
+              M6.1. Reuse Slack row.
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <h3>Minors</h3>
+      <ul>
+        <li>
+          Overview: m1 (tick row says <code>interrupted</code>), m2 (every
+          service is a factory with its deps, including
+          <code
+            >createCredentialsService( { db, atomic, secretsKey, clock, fetch })</code
+          >), m3 (<code>system</code>
+          principal kind; actor derived from the principal), m7 (<code
+            >runs.parent_run_id</code
+          >, <code>depth</code> capped at 3, a <code>send_message</code> that
+          would wait on a busy ancestor is refused), m9 (Drive moved to
+          Deferred; no remote MCP server with OAuth discovery is named), m10
+          (gate reason corrected: Clerk tokens carry no audience; Harbourmaster
+          has its own instance; workspace from the approval row;
+          <code>client_id</code>
+          unique).
+        </li>
+        <li>
+          Build plan: m4 (Ariadne's <code>bunfig.toml</code> shim,
+          <code>test</code>
+          script is <code>bun test</code>, CI runs
+          <code>bun run test</code>), m5 (local D1 trigger check with
+          <code>wrangler d1 execute</code>), m6 (instructions through
+          <code>systemPrompt.append</code>, no <code>CLAUDE.md</code> file; the
+          e2e asks the agent its name).
+        </li>
+        <li>
+          Reuse: agent core row (streaming input, <code>setMcpServers</code>,
+          <code>strictMcpConfig</code>, <code>sudo -u</code>), dev login row
+          (org for the dev user), new rows for the test shim and the atomic
+          port.
+        </li>
+      </ul>
+
+      <h3>Round 2 counts</h3>
+      <p>
+        Blockers, highs, majors, mediums and lows: 21 findings, fixed 21, with
+        six pairs that both reviews raised fixed once (token lifetime, refresh
+        lease, one run per agent, recovery dispatch, lanes and ownership, freeze
+        less). Rejected 0. Deferred 1 inside a fix: the manifest-API Slack flow
+        is now optional (C-L10). All 11 minors applied. One open question
+        changed: Q7 now describes the <code>hm-agent</code> user and the
+        <code>single_user</code>
+        fallback; Q6 now includes the org allow-list; Q1 makes the manifest API
+        optional. No new question for Dom.
+      </p>
+
+      <p class="muted">
+        Back to the <a href="index.html">overview</a>, the
+        <a href="reuse.html">reuse matrix</a>
+        or the
+        <a href="build-plan.html">build plan</a>.
+      </p>
+    </main>
+  </body>
+</html>

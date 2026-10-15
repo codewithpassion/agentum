@@ -1,0 +1,2879 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Harbourmaster architecture</title>
+    <style>
+    :root {
+      --bg: #fbfaf7;
+      --fg: #1d1d1b;
+      --muted: #5f5e58;
+      --line: #d9d6cc;
+      --accent: #0b6e6e;
+      --code: #f0eee7;
+      --warn: #9a5b00;
+      --card: #ffffff;
+      --ok: #2d7a3a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #15161a;
+        --fg: #e8e6df;
+        --muted: #a19e94;
+        --line: #34363d;
+        --accent: #5fc3c3;
+        --code: #1f2126;
+        --warn: #e0a24a;
+        --card: #1b1d22;
+        --ok: #6fcf7f;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #15161a;
+      --fg: #e8e6df;
+      --muted: #a19e94;
+      --line: #34363d;
+      --accent: #5fc3c3;
+      --code: #1f2126;
+      --warn: #e0a24a;
+      --card: #1b1d22;
+      --ok: #6fcf7f;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font:
+        16px / 1.55 system-ui,
+        -apple-system,
+        "Segoe UI",
+        Roboto,
+        sans-serif;
+      color: var(--fg);
+      background: var(--bg);
+    }
+    main {
+      max-width: 1000px;
+      padding: 16px 16px 72px;
+      margin: 0 auto;
+    }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding: 12px 0;
+      font-size: 15px;
+      border-bottom: 1px solid var(--line);
+    }
+    nav a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    nav a[aria-current] {
+      font-weight: 600;
+      color: var(--fg);
+    }
+    h1 {
+      margin: 24px 0 8px;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+    h2 {
+      padding-top: 8px;
+      margin: 40px 0 12px;
+      font-size: 22px;
+      border-top: 1px solid var(--line);
+    }
+    h3 {
+      margin: 24px 0 8px;
+      font-size: 17px;
+    }
+    p {
+      margin: 0 0 12px;
+    }
+    .lead {
+      font-size: 15px;
+      color: var(--muted);
+    }
+    main a {
+      color: var(--accent);
+    }
+    code,
+    pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13.5px;
+    }
+    code {
+      padding: 1px 5px;
+      background: var(--code);
+      border-radius: 4px;
+    }
+    pre {
+      padding: 12px 14px;
+      margin: 0 0 16px;
+      overflow-x: auto;
+      line-height: 1.45;
+      background: var(--code);
+      border-radius: 6px;
+    }
+    pre code {
+      padding: 0;
+      background: none;
+    }
+    .tw {
+      margin: 0 0 16px;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      font-size: 14.5px;
+      border-collapse: collapse;
+    }
+    th,
+    td {
+      padding: 8px 10px;
+      vertical-align: top;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    th {
+      font-weight: 600;
+      white-space: nowrap;
+      background: var(--code);
+    }
+    td code {
+      white-space: nowrap;
+    }
+    ul,
+    ol {
+      padding-left: 22px;
+      margin: 0 0 12px;
+    }
+    li {
+      margin: 0 0 6px;
+    }
+    .card {
+      padding: 14px 16px;
+      margin: 0 0 16px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .muted {
+      color: var(--muted);
+    }
+    .warn {
+      color: var(--warn);
+    }
+    figure {
+      margin: 0 0 16px;
+    }
+    figure svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    figcaption {
+      margin-top: 6px;
+      font-size: 13.5px;
+      color: var(--muted);
+    }
+    .q {
+      margin: 0 0 14px;
+    }
+    .q b {
+      display: block;
+    }
+    .toc {
+      columns: 2;
+      column-gap: 24px;
+      font-size: 14.5px;
+    }
+    @media (max-width: 640px) {
+      .toc {
+        columns: 1;
+      }
+    }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav>
+        <a aria-current="page" href="index.html">Overview</a>
+        <a href="reuse.html">Reuse matrix</a>
+        <a href="build-plan.html">Build plan</a>
+        <a href="review-response.html">Review response</a>
+      </nav>
+
+      <h1>Harbourmaster architecture</h1>
+      <p class="lead">
+        v1 design for Dom's agent platform. Written 16 October 2026 from the
+        brief (<code>docs/log/2026-10-16-agent-platform-vision.md</code>), the
+        eleven repo analyses in <code>docs/analysis/</code>, and a read of the
+        starting repo. Revised the same day after two rounds of review (see
+        <a href="review-response.html">review response</a>). Source-repo claims
+        the design depends on were checked against code. Nothing here is
+        implemented.
+      </p>
+
+      <div class="toc">
+        <ol>
+          <li><a href="#summary">One-paragraph summary</a></li>
+          <li><a href="#scope">v1 scope</a></li>
+          <li><a href="#deferred">Deferred</a></li>
+          <li><a href="#diagram">System diagram</a></li>
+          <li><a href="#modules">Module map</a></li>
+          <li><a href="#seams">Core seams</a></li>
+          <li><a href="#data">Data model</a></li>
+          <li><a href="#where">Where things run</a></li>
+          <li><a href="#auth">Auth and the three credential cases</a></li>
+          <li><a href="#decisions">Decisions and rejected alternatives</a></li>
+          <li><a href="#questions">Open questions for Dom</a></li>
+        </ol>
+      </div>
+
+      <h2 id="summary">One-paragraph summary</h2>
+      <p>
+        Harbourmaster stays one Cloudflare Worker (Hono, TanStack Start, tRPC,
+        D1, Clerk) plus one Durable Object class and one new app. The Worker
+        owns agents, sessions, runs, connectors, credentials, triggers, the
+        Slack gateway, the inbox, the append-only event log, and an MCP server
+        that Claude and the agents themselves call. Agents do not run in the
+        Worker in v1. They run on machines Dom controls, through a Bun daemon (<code
+          >apps/daemon</code
+        >) that enrols once, keeps an outbound WebSocket to a
+        <code>MachineRelay</code>
+        Durable Object, claims runs, and executes each run as a Claude Code
+        session through
+        <code>@anthropic-ai/claude-agent-sdk</code>. The same daemon on a laptop
+        against <code>wrangler dev</code> is the local mode the brief asks for.
+        Every runtime sits behind one <code>RuntimeAdapter</code> interface, so
+        Claude Managed Agents (Agentum's gateway code) can arrive as a second
+        adapter without touching the trigger, session or credential code. It is
+        not in v1 unless Dom picks "SMB first" in
+        <a href="#q2">open question 2</a>. Credentials never leave the Worker.
+        Each run gets one token for its whole life, handed to Claude Code over
+        the SDK's control channel (never on disk, never on the command line),
+        and a per-connector proxy URL. The Worker injects the right credential
+        (the person the run is on behalf of, or the agent's own) on the way out.
+        That one proxy covers all three credential cases in the brief, logs
+        every connector call, and works for any runtime that can speak MCP over
+        HTTP.
+      </p>
+
+      <h2 id="scope">v1 scope</h2>
+      <p>
+        What the first iteration contains. Each line maps to a milestone in the
+        <a href="build-plan.html">build plan</a>.
+      </p>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Area</th>
+            <th>In v1</th>
+            <th>Brief section</th>
+          </tr>
+          <tr>
+            <td>Tenancy and auth</td>
+            <td>
+              Clerk sign-in. A workspace is a Clerk organization. Every row
+              carries <code>workspace_id</code>. One <code>Principal</code> type
+              for people, API keys, machines, runs and triggers. One
+              <code>authz.can()</code>
+              stub that admits any member. No roles.
+            </td>
+            <td>First iteration: auth and permissions</td>
+          </tr>
+          <tr>
+            <td>Agents</td>
+            <td>
+              Create, edit, list. Name, slug, instructions, model, runtime (<code
+                >machine</code
+              >
+              in v1, <code>managed</code> as a second adapter), machine,
+              connectors.
+            </td>
+            <td>Creating and running agents</td>
+          </tr>
+          <tr>
+            <td>Machine runtime</td>
+            <td>
+              Enrol a machine with a one-time code, Bun daemon, relay DO, native
+              process, one directory per agent on the machine. Claude Code
+              through the Agent SDK with <code>resume</code>.
+            </td>
+            <td>Creating and running agents</td>
+          </tr>
+          <tr>
+            <td>Sessions and runs</td>
+            <td>
+              Every conversation is a session, every piece of work is a run.
+              Transcript stored. Agents read their own past sessions through
+              platform MCP tools. UI chat page, polling.
+            </td>
+            <td>Talking to agents</td>
+          </tr>
+          <tr>
+            <td>Platform MCP</td>
+            <td>
+              <code>/mcp</code>
+              for Claude.ai, Claude Code and agents. Clerk OAuth with a client
+              approval gate, plus API keys. Tools: list agents, message an agent
+              and wait, read and search sessions, inbox read and post.
+            </td>
+            <td>Talking to agents</td>
+          </tr>
+          <tr>
+            <td>Inbox</td>
+            <td>
+              Threads and posts. People and agents post. An
+              <code>@agent</code>
+              mention starts a run whose reply posts back.
+            </td>
+            <td>Talking to agents</td>
+          </tr>
+          <tr>
+            <td>Connectors and credentials</td>
+            <td>
+              Central registry of remote MCP servers. Auth kinds: none, header,
+              OAuth (discovery, dynamic registration, PKCE, refresh, re-auth).
+              Credentials owned by a user or by an agent. Assign to many agents.
+              Connector proxy in the Worker.
+            </td>
+            <td>MCP connectors and credentials</td>
+          </tr>
+          <tr>
+            <td>Triggers</td>
+            <td>
+              HTTP endpoint with a per-trigger bearer token. Routines (5-field
+              cron with timezone, minute tick). Slack mentions and DMs.
+            </td>
+            <td>Slack, triggers and gateways</td>
+          </tr>
+          <tr>
+            <td>Slack</td>
+            <td>
+              One Slack app per agent, created from a generated manifest and
+              pasted tokens (copied from four repos). Events API over HTTP.
+              Thread equals session. Mention and DM only. Files in and out.
+              Creation through Slack's manifest API is an optional follow-up
+              once the paste flow has been used.
+            </td>
+            <td>Slack, triggers and gateways; Files</td>
+          </tr>
+          <tr>
+            <td>Files</td>
+            <td>
+              R2 store with per-workspace keys. Upload from UI and Slack.
+              Outbound attachments from runs.
+            </td>
+            <td>Files</td>
+          </tr>
+          <tr>
+            <td>Log</td>
+            <td>
+              One append-only <code>events</code> table with a SQLite trigger
+              that refuses UPDATE and DELETE. Transcripts are a view over it.
+              Large payloads go to R2 by reference.
+            </td>
+            <td>Logging and knowledge</td>
+          </tr>
+        </table>
+      </div>
+      <p>
+        Not in v1 by default: the Managed Agents runtime (see Deferred and
+        <a href="#q2">open question 2</a>).
+      </p>
+
+      <h2 id="deferred">Deferred</h2>
+      <p>
+        Kept out on purpose. Each line names the seam that keeps it open, so
+        nothing here needs a redesign later.
+      </p>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Deferred item</th>
+            <th>Seam that keeps it open</th>
+          </tr>
+          <tr>
+            <td>Claude Managed Agents runtime</td>
+            <td>
+              A second <code>RuntimeAdapter</code> using Agentum's gateway (<code
+                >modules/anthropic/gateway.ts</code
+              >). Two facts for whoever builds it: Managed Agents fix
+              <code>mcp_servers</code>
+              at agent register or sync, not per session (<code
+                >CreateSessionInput</code
+              >
+              has no MCP field), so a per-run token needs a re-sync per run, a
+              session-scoped token, or Anthropic vaults for credentials; and
+              Anthropic refuses loopback MCP URLs, so dev needs a tunnel.
+              Default is after v1, see <a href="#q2">open question 2</a>.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Docker or Podman per agent on a machine, and one Unix user per
+              agent
+            </td>
+            <td>
+              The daemon's <code>spawn</code> takes a command prefix. v1 already
+              uses it once: Claude Code runs as one shared
+              <code>hm-agent</code>
+              user through <code>sudo -u</code>, separate from the daemon's user
+              (see Auth). Per-agent users and containers are further values of
+              the same prefix. The brief asks for "dedicated directories and/or
+              user accounts"; v1 gives directories and one shared agent user.
+              <code>agents.runtime_config.container</code>
+              is reserved, unused.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              A Worker-hosted tool loop ("Cloudflare agent" that needs no
+              machine)
+            </td>
+            <td>
+              A third <code>RuntimeAdapter</code>. Ariadne's concierge and
+              control-plane's <code>TriageAgent</code> are the sources when
+              needed.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Slack channel watch ("monitor all messages and be proactive")
+            </td>
+            <td>
+              <code>triggers.kind = slack_channel</code>
+              with <code>mode = all</code>. The rules are already decided: the
+              actor is the poster through <code>identity_links</code>, an
+              unknown or guest poster starts nothing, and the trigger config
+              carries a daily run cap. Deferred because every watched message
+              would start a Claude Code run on Dom's box and no cheap filter
+              exists yet. Mention and DM ship in v1.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Agent-owned secrets as environment variables (the brief's "secrets
+              kept in vaults that can be given to agents")
+            </td>
+            <td>
+              The claim response gains an <code>env</code> map of agent-owned
+              secrets of kind <code>env</code>, decrypted for that run only, and
+              the daemon's masker adds them as needles. Connector credentials
+              cover the MCP case in v1; a CLI such as <code>gh</code> on the
+              machine uses the machine's own login until this lands.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Google Drive, OneDrive, Samba or Windows shares, Meet folder
+              scans, file-landed triggers
+            </td>
+            <td>
+              Drive would be a remote MCP connector if a server with OAuth
+              discovery existed; none is named, so it is deferred rather than
+              promised. The daemon can still run bruce's
+              <code>gws-*</code>
+              scripts on the machine.
+              <code>triggers.kind</code>
+              is an enum; add
+              <code>file_landed</code>. The Brain's vault-events queue is the
+              pattern.
+            </td>
+          </tr>
+          <tr>
+            <td>Slack app creation through the manifest API</td>
+            <td>
+              The paste flow (generated manifest, pasted bot token and signing
+              secret) is v1. <code>apps.manifest.create</code> plus OAuth
+              install is an optional follow-up after the paste flow has been
+              used in anger. A fresh configuration token per creation; nothing
+              stored.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Daemon release pipeline (R2 upload, <code>latest.json</code>,
+              <code>install.sh</code>)
+            </td>
+            <td>
+              v1 copies the compiled binary by <code>scp</code>. Ariadne's
+              <code>release.ts</code>
+              and <code>install-script.ts</code> are the sources when a machine
+              outside Dom's hands needs installing.
+            </td>
+          </tr>
+          <tr>
+            <td>Shared wiki and knowledge base</td>
+            <td>
+              Connect The Brain as an MCP connector (it is live, Clerk-authed,
+              has <code>wiki_*</code> and <code>memory_*</code> tools). No wiki
+              code in this repo. See <a href="#q4">open question 4</a>.
+            </td>
+          </tr>
+          <tr>
+            <td>Fine-grained permissions and roles</td>
+            <td>
+              <code>authz.can(principal, action, resource)</code>
+              is called on every service method from day one and returns true
+              for members. Rules go in there.
+            </td>
+          </tr>
+          <tr>
+            <td>Streaming chat (tokens, live tool cards)</td>
+            <td>
+              UI polls <code>runs.events</code> every 1.5 s. A per-session
+              fan-out DO (Ariadne <code>RunRoom</code>) replaces the poll later.
+            </td>
+          </tr>
+          <tr>
+            <td>Pairing codes for unknown Slack senders</td>
+            <td>
+              v1 links a Slack user to a Clerk user by verified email only.
+              <code>identity_links</code>
+              gains a <code>pending</code> status later.
+            </td>
+          </tr>
+          <tr>
+            <td>macOS launchd, Windows service</td>
+            <td>
+              <code>daemon install-service</code>
+              writes a systemd user unit. launchd is a second template.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Agent-to-agent session extracts ("ask Bruce for a summary of
+              session X")
+            </td>
+            <td>
+              The platform MCP <code>send_message</code> tool already lets agent
+              A message agent B with a session id in the text. A dedicated tool
+              comes after people use it that way.
+            </td>
+          </tr>
+          <tr>
+            <td>Event archive and retention</td>
+            <td>
+              <code>events</code>
+              grows without bound in v1. Nightly copy to R2 ndjson and trim (The
+              Brain's <code>auditExport</code>) when it matters.
+            </td>
+          </tr>
+          <tr>
+            <td>Other gateways (Discord, Teams, email)</td>
+            <td>
+              The <code>Gateway</code> interface (seam 5) has one
+              implementation, Slack.
+            </td>
+          </tr>
+          <tr>
+            <td>Human approval before a risky tool call</td>
+            <td>
+              Agent SDK <code>canUseTool</code>, or a change of
+              <code>permissionMode</code>. M1.4 checks whether
+              <code>canUseTool</code>
+              fires at all under
+              <code>bypassPermissions</code>; if not, the seam is the mode, not
+              the hook. The run token already identifies who to ask.
+            </td>
+          </tr>
+          <tr>
+            <td>Skills bundles per agent</td>
+            <td>
+              Instructions are one text field passed per run through
+              <code>systemPrompt.append</code>. A
+              <code>.claude/skills/</code>
+              sync into the agent directory is a later addition.
+            </td>
+          </tr>
+          <tr>
+            <td>Go computer daemon for Managed Agents</td>
+            <td>
+              Only needed when a managed agent needs a shell on Dom's box. Copy
+              <code>agentum/apps/computer</code>
+              whole when that day comes.
+            </td>
+          </tr>
+          <tr>
+            <td>Capturing Dom's interactive Claude Code sessions</td>
+            <td>
+              The Brain's hook kit (<code>apps/cli/src/commands/hooks.ts</code>)
+              posts turns from Claude Code hooks. v1 captures sessions only from
+              runs the daemon executes.
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <h2 id="diagram">System diagram</h2>
+      <figure>
+        <svg
+          aria-label="System diagram: callers reach one Worker with D1, R2 and a MachineRelay Durable Object; agents run as Claude Code on Dom's machines and reach connectors through the Worker proxy"
+          font-family="system-ui, sans-serif"
+          font-size="13"
+          role="img"
+          viewBox="0 0 980 560"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <marker
+              id="arr"
+              markerHeight="8"
+              markerWidth="8"
+              orient="auto-start-reverse"
+              refX="9"
+              refY="5"
+              viewBox="0 0 10 10"
+            >
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)" />
+            </marker>
+          </defs>
+          <!-- callers -->
+          <g>
+            <rect
+              fill="var(--card)"
+              height="54"
+              rx="8"
+              stroke="var(--line)"
+              width="150"
+              x="20"
+              y="20"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="95"
+              y="42"
+            >
+              Browser
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="95" y="60">
+              TanStack UI, Clerk
+            </text>
+            <rect
+              fill="var(--card)"
+              height="54"
+              rx="8"
+              stroke="var(--line)"
+              width="150"
+              x="190"
+              y="20"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="265"
+              y="42"
+            >
+              Claude.ai / Claude Code
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="265" y="60">
+              MCP client, OAuth or key
+            </text>
+            <rect
+              fill="var(--card)"
+              height="54"
+              rx="8"
+              stroke="var(--line)"
+              width="150"
+              x="360"
+              y="20"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="435"
+              y="42"
+            >
+              Slack
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="435" y="60">
+              Events API, signed
+            </text>
+            <rect
+              fill="var(--card)"
+              height="54"
+              rx="8"
+              stroke="var(--line)"
+              width="150"
+              x="530"
+              y="20"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="605"
+              y="42"
+            >
+              External caller
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="605" y="60">
+              POST /api/triggers/:id
+            </text>
+            <rect
+              fill="var(--card)"
+              height="54"
+              rx="8"
+              stroke="var(--line)"
+              width="150"
+              x="700"
+              y="20"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="775"
+              y="42"
+            >
+              Cron
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="775" y="60">
+              * * * * * routines tick
+            </text>
+          </g>
+          <!-- arrows down into worker -->
+          <g marker-end="url(#arr)" stroke="var(--muted)" stroke-width="1.5">
+            <line x1="95" x2="95" y1="74" y2="118" />
+            <line x1="265" x2="265" y1="74" y2="118" />
+            <line x1="435" x2="435" y1="74" y2="118" />
+            <line x1="605" x2="605" y1="74" y2="118" />
+            <line x1="775" x2="775" y1="74" y2="118" />
+          </g>
+          <!-- worker -->
+          <rect
+            fill="var(--card)"
+            height="190"
+            rx="10"
+            stroke="var(--accent)"
+            stroke-width="1.5"
+            width="830"
+            x="20"
+            y="120"
+          />
+          <text fill="var(--accent)" font-weight="700" x="34" y="142">
+            Worker: apps/web (Hono + TanStack Start + tRPC)
+          </text>
+          <g font-size="12.5">
+            <rect
+              fill="var(--code)"
+              height="58"
+              rx="6"
+              stroke="var(--line)"
+              width="190"
+              x="34"
+              y="156"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="129"
+              y="176"
+            >
+              tRPC + routes
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="129" y="194">
+              agents, sessions, connectors, UI
+            </text>
+            <rect
+              fill="var(--code)"
+              height="58"
+              rx="6"
+              stroke="var(--line)"
+              width="150"
+              x="236"
+              y="156"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="311"
+              y="176"
+            >
+              /mcp
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="311" y="194">
+              platform MCP server
+            </text>
+            <rect
+              fill="var(--code)"
+              height="58"
+              rx="6"
+              stroke="var(--line)"
+              width="150"
+              x="398"
+              y="156"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="473"
+              y="176"
+            >
+              gateways
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="473" y="194">
+              slack, triggers, inbox
+            </text>
+            <rect
+              fill="var(--code)"
+              height="58"
+              rx="6"
+              stroke="var(--line)"
+              width="130"
+              x="560"
+              y="156"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="625"
+              y="176"
+            >
+              startRun()
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="625" y="194">
+              sessions, runs, adapter
+            </text>
+            <rect
+              fill="var(--code)"
+              height="58"
+              rx="6"
+              stroke="var(--line)"
+              width="134"
+              x="702"
+              y="156"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="769"
+              y="176"
+            >
+              /api/proxy/:c
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="769" y="194">
+              connector proxy
+            </text>
+            <rect
+              fill="var(--code)"
+              height="68"
+              rx="6"
+              stroke="var(--line)"
+              width="250"
+              x="34"
+              y="226"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="159"
+              y="248"
+            >
+              D1 (Drizzle)
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="159" y="266">
+              workspaces, agents, sessions, runs,
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="159" y="282">
+              connectors, credentials, events (append-only)
+            </text>
+            <rect
+              fill="var(--code)"
+              height="68"
+              rx="6"
+              stroke="var(--line)"
+              width="150"
+              x="296"
+              y="226"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="371"
+              y="248"
+            >
+              R2
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="371" y="266">
+              files, large event
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="371" y="282">
+              payloads
+            </text>
+            <rect
+              fill="var(--code)"
+              height="68"
+              rx="6"
+              stroke="var(--accent)"
+              width="378"
+              x="458"
+              y="226"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="647"
+              y="248"
+            >
+              Durable Object: MachineRelay (one per machine)
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="647" y="266">
+              hibernating WebSocket, presence, run offers.
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="647" y="282">
+              Transport only. Run state lives in D1.
+            </text>
+          </g>
+          <!-- machine -->
+          <g
+            marker-end="url(#arr)"
+            marker-start="url(#arr)"
+            stroke="var(--muted)"
+            stroke-width="1.5"
+          >
+            <line x1="647" x2="647" y1="294" y2="352" />
+          </g>
+          <text fill="var(--muted)" font-size="12" x="660" y="330">
+            WS: hello, offer, claim. HTTP: events, complete
+          </text>
+          <rect
+            fill="var(--card)"
+            height="120"
+            rx="10"
+            stroke="var(--line)"
+            stroke-width="1.5"
+            width="410"
+            x="440"
+            y="354"
+          />
+          <text fill="var(--fg)" font-weight="700" x="454" y="376">
+            Machine Dom controls (also the dev laptop)
+          </text>
+          <g font-size="12.5">
+            <rect
+              fill="var(--code)"
+              height="72"
+              rx="6"
+              stroke="var(--line)"
+              width="180"
+              x="454"
+              y="388"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="544"
+              y="408"
+            >
+              apps/daemon (Bun)
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="544" y="426">
+              enrol, connect, claim, run,
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="544" y="442">
+              install-service
+            </text>
+            <rect
+              fill="var(--code)"
+              height="72"
+              rx="6"
+              stroke="var(--line)"
+              width="188"
+              x="648"
+              y="388"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="742"
+              y="408"
+            >
+              Claude Code per run
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="742" y="426">
+              Agent SDK query(), cwd =
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="742" y="442">
+              ~/.harbourmaster/&lt;ws&gt;/&lt;agentId&gt;
+            </text>
+          </g>
+          <!-- external MCP -->
+          <rect
+            fill="var(--card)"
+            height="120"
+            rx="10"
+            stroke="var(--line)"
+            stroke-width="1.5"
+            width="390"
+            x="20"
+            y="354"
+          />
+          <text fill="var(--fg)" font-weight="700" x="34" y="376">Outside</text>
+          <g font-size="12.5">
+            <rect
+              fill="var(--code)"
+              height="72"
+              rx="6"
+              stroke="var(--line)"
+              width="170"
+              x="34"
+              y="388"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="119"
+              y="408"
+            >
+              Remote MCP servers
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="119" y="426">
+              Notion, Drive, The Brain,
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="119" y="442">
+              anything with a URL
+            </text>
+            <rect
+              fill="var(--code)"
+              height="72"
+              rx="6"
+              stroke="var(--line)"
+              width="178"
+              x="218"
+              y="388"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="600"
+              text-anchor="middle"
+              x="307"
+              y="408"
+            >
+              Claude Managed Agents
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="307" y="426">
+              second RuntimeAdapter,
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="307" y="442">
+              after v1 (question 2)
+            </text>
+          </g>
+          <!-- proxy arrows -->
+          <g
+            marker-end="url(#arr)"
+            stroke="var(--muted)"
+            stroke-dasharray="5 4"
+            stroke-width="1.5"
+          >
+            <path d="M742 388 C 742 340, 800 330, 800 310" />
+            <path d="M769 214 C 769 230, 300 330, 190 388" />
+            <path d="M307 388 C 307 340, 625 330, 625 310" />
+          </g>
+          <text
+            fill="var(--muted)"
+            font-size="12.5"
+            text-anchor="middle"
+            x="490"
+            y="518"
+          >
+            Dashed: MCP over HTTP. Claude Code on the machine calls /mcp
+            (platform tools) and /api/proxy/:connector with a run token.
+          </text>
+          <text
+            fill="var(--muted)"
+            font-size="12.5"
+            text-anchor="middle"
+            x="490"
+            y="536"
+          >
+            The proxy injects the resolved credential and forwards to the remote
+            MCP server. Managed Agents use the same two URLs.
+          </text>
+        </svg>
+        <figcaption>
+          Everything hosted is one Worker and one Durable Object class. Agents
+          execute on machines through the daemon, or (after v1) on Claude
+          Managed Agents. Both reach tools through the Worker, so credentials
+          and the log live in one place.
+        </figcaption>
+      </figure>
+
+      <h2 id="modules">Module map</h2>
+      <p>
+        The repo layers by tier (route, tRPC router, service, query functions),
+        so each capability is a name that appears once per tier. The public API
+        of a capability is its <code>exports</code> subpath in
+        <code>packages/services</code>, never a barrel. Tables move from the
+        single <code>schema.ts</code> into
+        <code>packages/db/src/schema/&lt;module&gt;.ts</code>, with
+        <code>drizzle.config.ts</code>
+        listing the files (Agentum does the same). The browser imports only
+        <code>@repo/db/shared</code>. Pure protocol code and state machines go
+        in <code>packages/protocol</code> so the daemon and the Worker parse the
+        same frames. Durable Object classes live in
+        <code>apps/web/src/server/durable/</code>
+        and hold transport state only. Three rows below list two subpaths. That
+        is one module with two consumer sets (<code>authz</code>
+        is called by every service, <code>credentials</code> by the proxy and
+        the claim route, <code>api-keys</code> and <code>oauth-clients</code> by
+        the settings UI and the MCP route), and still no barrel: each subpath is
+        one file with its own code.
+      </p>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Module</th>
+            <th>Responsibility</th>
+            <th>Public API</th>
+            <th>Data it owns</th>
+            <th>Reuse</th>
+          </tr>
+          <tr>
+            <td><code>workspaces</code></td>
+            <td>
+              Workspace per Clerk org, principal resolution for all four bearer
+              kinds, <code>authz.can()</code>, identity links (Slack user to
+              Clerk user).
+            </td>
+            <td>
+              <code>@repo/services/workspaces</code>,
+              <code>@repo/services/authz</code>,
+              <code
+                >createPrincipalResolver( { db, runTokenKey,
+                verifyClerkOAuthToken, isOrgMember, allowedOrgIds })</code
+              >; tRPC <code>workspaceProcedure</code>
+            </td>
+            <td><code>workspaces</code>, <code>identity_links</code></td>
+            <td>
+              Pattern: flightdex-v2 <code>workspaceProcedure</code>, the-brain
+              principal chain
+            </td>
+          </tr>
+          <tr>
+            <td><code>agents</code></td>
+            <td>
+              Agent CRUD, slug, instructions, runtime choice, connector
+              assignments.
+            </td>
+            <td>
+              <code>@repo/services/agents</code>; tRPC <code>agents.*</code>
+            </td>
+            <td><code>agents</code>, <code>agent_connectors</code></td>
+            <td>New</td>
+          </tr>
+          <tr>
+            <td><code>machines</code></td>
+            <td>
+              Enrol tokens, machine credentials, presence, offer of queued runs
+              to a connected daemon. One machine row belongs to one workspace,
+              so one daemon serves one workspace.
+            </td>
+            <td>
+              <code>@repo/services/machines</code>; routes
+              <code>/api/machines/enroll</code>,
+              <code>/api/machines/connect</code>
+              (WS); DO
+              <code>MachineRelay</code>
+            </td>
+            <td><code>machines</code>, <code>machine_enroll_tokens</code></td>
+            <td>Copy: Ariadne enrolment, connect route, relay DO, presence</td>
+          </tr>
+          <tr>
+            <td><code>runs</code></td>
+            <td>
+              <code>startRun()</code>, session get-or-create, run queue with
+              leases, <code>RuntimeAdapter</code> registry, the queued-run
+              sweep, event ingestion, completion and reply delivery, run tokens.
+              Also owns <code>apps/web/src/server/compose.ts</code>, the one
+              place that builds every service with its dependencies.
+            </td>
+            <td>
+              <code>@repo/services/runs</code>; routes
+              <code>/api/machines/runs/:id/claim</code>,
+              <code>.../events</code>, <code>.../heartbeat</code>,
+              <code>.../complete</code>; tRPC <code>runs.*</code>,
+              <code>sessions.*</code>
+            </td>
+            <td><code>sessions</code>, <code>runs</code></td>
+            <td>
+              Pattern: Ariadne <code>jobs-queue</code> (claim as one conditional
+              write), durable-pi send with <code>waitMs</code>
+            </td>
+          </tr>
+          <tr>
+            <td><code>events</code></td>
+            <td>
+              The append-only log. Envelope, payload cap with R2 pointer,
+              transcript query, append trigger in the migration.
+            </td>
+            <td>
+              <code>@repo/services/events</code>
+              (<code>append</code>, <code>transcript</code>,
+              <code>query</code>); <code>@repo/db/shared</code> exports the
+              kinds
+            </td>
+            <td><code>events</code></td>
+            <td>
+              Copy: control-plane <code>envelope.ts</code>, <code>ids.ts</code>,
+              <code>payload.ts</code>, <code>redact.ts</code>
+            </td>
+          </tr>
+          <tr>
+            <td><code>connectors</code></td>
+            <td>
+              Registry of remote MCP servers, auth kinds, OAuth discovery and
+              registration, credential storage (encrypted), resolution per run,
+              re-auth links, the proxy route.
+            </td>
+            <td>
+              <code>@repo/services/connectors</code>,
+              <code>@repo/services/credentials</code>; routes
+              <code>/api/proxy/:connectorId</code>,
+              <code>/api/connectors/oauth/start</code>, <code>/callback</code>
+            </td>
+            <td>
+              <code>connectors</code>, <code>credentials</code>,
+              <code>oauth_states</code>
+            </td>
+            <td>
+              Copy: Agentum <code>connectors/oauth.ts</code>,
+              <code>url.ts</code>, <code>health.ts</code>; flightdex-v2
+              <code>crypto/secrets.ts</code>. Pattern: flightdex-v2
+              <code>acting?</code>
+              resolution
+            </td>
+          </tr>
+          <tr>
+            <td><code>triggers</code></td>
+            <td>
+              HTTP bearer endpoint per trigger, routines with cron and timezone.
+              Minute tick creates runs in one batch with the schedule advance.
+            </td>
+            <td>
+              <code>@repo/services/triggers</code>; route
+              <code>/api/triggers/:id</code>; <code>scheduled()</code> handler
+            </td>
+            <td><code>triggers</code></td>
+            <td>
+              Copy: bruce-next <code>scheduler/cron.ts</code>; pattern:
+              control-plane scoped tokens, flightdex-v2 cron fan-out
+            </td>
+          </tr>
+          <tr>
+            <td><code>slack</code></td>
+            <td>
+              App creation from a generated manifest with pasted tokens
+              (manifest API and OAuth install optional, later), signed event
+              receiver, dedupe, thread to session mapping, identity link by
+              email, outbound posts and files.
+            </td>
+            <td>
+              <code>@repo/services/slack</code>; routes
+              <code>/api/slack/events</code>,
+              <code>/api/slack/interactive</code>,
+              <code>/api/slack/oauth/callback</code>; implements
+              <code>Gateway</code>
+            </td>
+            <td><code>slack_apps</code>, <code>slack_events_seen</code></td>
+            <td>
+              Copy: Ariadne <code>packages/slack</code> (signature, manifest,
+              events parse), control-plane <code>slack-client.ts</code>. New,
+              optional and later: manifest API create and OAuth install
+            </td>
+          </tr>
+          <tr>
+            <td><code>inbox</code></td>
+            <td>
+              Threads and posts by people and agents, mention parsing, reply
+              delivery.
+            </td>
+            <td>
+              <code>@repo/services/inbox</code>; tRPC <code>inbox.*</code>;
+              implements <code>Gateway</code>
+            </td>
+            <td><code>inbox_threads</code>, <code>inbox_posts</code></td>
+            <td>
+              New (pattern from durable-pi shared state receipts for idempotent
+              posts)
+            </td>
+          </tr>
+          <tr>
+            <td><code>mcp</code></td>
+            <td>
+              Platform MCP server, API keys, Clerk OAuth verification, OAuth
+              client approval gate, tool registry. Tools call services with the
+              principal.
+            </td>
+            <td>
+              route <code>/mcp</code>,
+              <code>/.well-known/oauth-protected-resource</code>;
+              <code>@repo/services/api-keys</code>,
+              <code>@repo/services/oauth-clients</code>;
+              <code>packages/mcp</code>
+              (framework-free tools)
+            </td>
+            <td><code>api_keys</code>, <code>oauth_clients</code></td>
+            <td>
+              Copy: flightdex-v2 <code>server/mcp/*</code>,
+              <code>packages/mcp</code>
+              scaffolding,
+              <code>services/api-keys.ts</code>, <code>oauth-clients.ts</code>
+            </td>
+          </tr>
+          <tr>
+            <td><code>files</code></td>
+            <td>
+              R2 keys per workspace, upload and download routes, attachment
+              references on events and posts.
+            </td>
+            <td>
+              <code>@repo/services/files</code>; routes <code>/api/files</code>,
+              <code>/files/:id</code>
+            </td>
+            <td><code>files</code></td>
+            <td>
+              Copy: flightdex-v2 <code>files-routes.ts</code>,
+              <code>r2-files.ts</code>
+            </td>
+          </tr>
+          <tr>
+            <td><code>daemon</code> (<code>apps/daemon</code>)</td>
+            <td>
+              CLI: <code>enroll</code>, <code>run</code>,
+              <code>install-service</code>, <code>status</code>. Connects,
+              claims, runs <code>query()</code> as <code>hm-agent</code> with
+              the claim's instructions in <code>systemPrompt.append</code> and
+              its <code>mcpServers</code> through <code>setMcpServers()</code>,
+              posts events, keeps per-agent state. One run per agent at a time.
+            </td>
+            <td>
+              binary <code>harbourmaster</code>; wire contract in
+              <code>packages/protocol</code>
+            </td>
+            <td><code>~/.harbourmaster/</code> on the machine</td>
+            <td>
+              Copy: Ariadne <code>client.ts</code>, <code>backoff.ts</code>,
+              <code>enroll.ts</code>, <code>install-service.ts</code>,
+              <code>masker.ts</code>; bruce-next <code>core/agent.ts</code>,
+              <code>core/env.ts</code>
+            </td>
+          </tr>
+          <tr>
+            <td><code>managed</code> (after v1)</td>
+            <td>
+              Second <code>RuntimeAdapter</code>: register agent with Anthropic,
+              create session, poll events into <code>events</code>, custom
+              tools. See the Deferred row for the MCP-config constraint.
+            </td>
+            <td>
+              <code>@repo/services/runtime-managed</code>; DO
+              <code>ManagedPoller</code>
+              (alarm per run)
+            </td>
+            <td><code>managed_agents</code> (anthropic ids)</td>
+            <td>
+              Copy: Agentum <code>modules/anthropic/gateway.ts</code>,
+              <code>events.ts</code>, <code>config.ts</code>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <h2 id="seams">Core seams</h2>
+      <p>
+        Six interfaces. They are written in M0 as code with tests, because every
+        lane builds against them. What freezes at M0 is the part that crosses a
+        process or network boundary: the foundation tables, the machine
+        protocol, the run token and proxy URL, and the platform MCP tool names.
+        The rest may still change until the M1 gate, with changes announced.
+        Type sketches use the repo's conventions: ISO strings, string ids, plain
+        JSON. Every service is a factory that takes a <code>Database</code>, the
+        <code>atomic</code>
+        write port, and narrow injected dependencies, never
+        <code>env</code>.
+      </p>
+
+      <h3>1. Trigger to run: <code>startRun()</code></h3>
+      <p>
+        Every way to make an agent do something goes through one service
+        function. UI chat, Slack mention, inbox mention, routine tick, HTTP
+        trigger and the MCP <code>send_message</code> tool all call it. It finds
+        or creates the session, inserts a queued run, appends
+        <code>run.queued</code>
+        to events, and hands the run to the agent's
+        <code>RuntimeAdapter</code>.
+      </p>
+      <pre><code>// @repo/services/runs
+createRunsService({ db, atomic, adapters, gateways, blobs, clock, devFakeRuntime }): RunsService
+interface StartRunInput {
+  agentId: string;
+  // Session identity. Same key, same session, so a Slack thread or an inbox
+  // thread keeps its context. "ui" keys are session ids the UI already holds.
+  session: { origin: "ui" | "slack" | "inbox" | "routine" | "trigger" | "mcp"; externalKey?: string };
+  input: { text: string; fileIds?: string[] };   // fileIds must belong to the principal's user and workspace
+  reply?: ReplyTarget;                            // where the answer goes when the run finishes
+  requestId?: string;                             // idempotency; unique index on (workspace_id, request_id)
+}
+type ReplyTarget =
+  | { kind: "slack"; teamId: string; channel: string; threadTs: string }
+  | { kind: "inbox"; threadId: string }
+  | { kind: "none" };
+runs.startRun(principal, input): Promise&lt;{ runId: string; sessionId: string; status: "queued" }&gt;
+runs.waitForRun(runId, waitMs): Promise&lt;RunSummary&gt;   // long-poll helper for MCP and HTTP triggers
+
+// There is no actor input. startRun derives everything from the authenticated principal:
+//   principal.kind "user"    -> actor = that user;      on_behalf_of_user_id = that user
+//   principal.kind "run"     -> actor = parent agent;   on_behalf_of_user_id = parent run's value (inherited, never overridable)
+//                               parent_run_id = parent run; depth = parent depth + 1, refused above 3
+//   principal.kind "trigger" -> actor = that trigger;   on_behalf_of_user_id = null
+//   principal.kind "system"  -> only the tick calls this, for routines: actor = the routine's trigger; null
+// A duplicate requestId is caught as the unique violation, the existing run is read back and returned.
+// Credential resolution (seam 4) reads on_behalf_of_user_id, nothing else.</code></pre>
+      <p>
+        The <code>on_behalf_of_user_id</code> chain is what stops a person
+        without a credential from getting one by asking agent A to ask agent B.
+        A run descended from a human request stays that human's request however
+        many agents it passes through. Only routines and HTTP triggers, and runs
+        descended from them, run as the agent itself. Because the subject comes
+        from the principal and the principal comes from the token, no caller can
+        supply a different one. A Slack route builds a
+        <code>user</code>
+        principal with <code>via: "slack"</code> only after the signature check
+        and the identity link, so a Slack message is a user's request or
+        nothing.
+      </p>
+      <p>
+        A second message to a session while a run is active queues a second run.
+        One run per agent runs at a time, enforced by the claim's conditional
+        write (seam 3), not by the daemon. A <code>send_message</code> from a
+        run that would wait on a busy ancestor (A asks B, B asks A) is refused
+        instead of waiting for a timeout.
+      </p>
+
+      <h3>2. Runtime adapter</h3>
+      <pre><code>// @repo/services/runs
+interface RuntimeAdapter {
+  kind: "machine" | "managed" | "fake";
+  // Fast. Enqueue or offer, never execute inline.
+  dispatch(db, run: RunRecord, agent: AgentRecord, deps: AdapterDeps): Promise&lt;void&gt;;
+  cancel(db, run: RunRecord): Promise&lt;void&gt;;
+}
+// Shared by every runtime. The daemon POSTs these; the managed poller calls them in-process.
+ingestRunEvents(db, principal: RunPrincipal, events: RunEventInput[]): Promise&lt;{ lastSeq: number }&gt;
+completeRun(db, principal: RunPrincipal, result: { status: "done" | "failed"; text?: string; fileIds?: string[]; error?: string; usage?: Usage; runtimeRef?: string }): Promise&lt;void&gt;
+// Both refuse with 409 unless runs.status is "running". That is the fence against a
+// late event or completion from an execution whose lease already expired.
+// One exception: completeRun({ status: "aborted" }) is accepted for an "interrupted" run and
+// records process_ended_at, which is the daemon saying "the local process has exited".</code></pre>
+      <p>
+        The <code>fake</code> adapter answers with an echo. It is registered
+        only when <code>devFakeRuntime</code> is set, and
+        <code>agents.runtime</code>
+        allows <code>fake</code> so a seed script can create such an agent; that
+        is how the Access and Automation lanes run their checks before a machine
+        exists. A run whose lease expires becomes <code>interrupted</code>,
+        never re-queued, because a lost heartbeat does not prove the Claude Code
+        process stopped before it sent an email. The daemon, on a 409 from
+        heartbeat or a 1012 close, aborts its local process and posts
+        <code>aborted</code>
+        once it has exited. The UI offers Retry (a new run) only after that, or
+        after ten minutes, so two processes never work on the same files on
+        purpose.
+      </p>
+
+      <h3>3. Machine protocol (daemon and relay)</h3>
+      <p>
+        Zod schemas in <code>packages/protocol</code>, parsed on both sides,
+        strict objects, capability flags in <code>hello</code> so a newer Worker
+        never sends a frame an old daemon cannot read (Ariadne's rule).
+        WebSocket carries presence and offers only. Run data goes over HTTP with
+        the machine credential, which keeps the relay small and lets curl
+        reproduce every step. Queued runs in D1 are the source of truth for
+        dispatch: on <code>hello</code> the relay offers every queued or offered
+        run for the machine's agents, oldest first, and a tick job re-offers
+        anything queued or offered for more than 60 s. Offers are idempotent
+        because the claim is the conditional write. Lease is 90 s, heartbeat
+        every 20 s.
+      </p>
+      <pre><code>// daemon -&gt; relay (WS)
+{ type: "hello", daemonVersion, capabilities: { agentSdk: "0.2.119", container: false }, agents: string[] }
+{ type: "ping", at }
+// relay -&gt; daemon (WS)
+{ type: "hello_ack", machineId, serverTime }
+{ type: "offer", runId, agentId }       // one per queued run for an agent on this machine
+{ type: "cancel", runId }
+// close codes: 4401 credential rejected (stop), 1012 replaced by a newer connection
+// daemon -&gt; worker (HTTP, bearer hm_mach_...)
+POST /api/machines/runs/:runId/claim     -&gt; { run, agent, session, runToken, mcpServers, inputFileIds, instructions }
+   // one conditional write, all of: runs.status IN ('queued','offered')
+   //   AND agents.machine_id = this machine
+   //   AND NOT EXISTS (another run for this agent with status 'running')
+   //   AND NOT EXISTS (an older queued run for this session)
+   //   AND runs.pending_files IS NULL
+   // The run token is minted here, once, and nowhere else.
+POST /api/machines/runs/:runId/events    -&gt; { events: RunEventInput[] }      // batched every 500 ms, 409 unless running
+POST /api/machines/runs/:runId/heartbeat -&gt; {}                               // extends lease_until by 90 s, 409 unless running
+POST /api/machines/runs/:runId/complete  -&gt; { status, text, fileIds, usage, runtimeRef }   // or { status: "aborted" } for an interrupted run</code></pre>
+      <p>
+        The claim answer carries everything the daemon needs for the run,
+        including the generated <code>mcpServers</code> map (seam 4), so the
+        daemon holds no credentials and no connector list. The run token lives
+        as long as the run, with a hard cap of 12 hours. Its validity is checked
+        on every use against the current row:
+        <code>runs.status = 'running' AND lease_until &gt; now</code>. Nothing
+        rotates, so Claude Code holds one token from first tool call to last.
+        How it reaches Claude Code matters: the SDK puts
+        <code>mcpServers</code>
+        given to <code>query()</code> on the
+        <code>claude</code>
+        command line (<code>--mcp-config</code>), where any process on the box
+        can read it from <code>ps</code>. The daemon therefore starts
+        <code>query()</code>
+        in streaming-input mode with no HTTP servers, calls
+        <code>query.setMcpServers( { ...})</code>, which travels over the SDK's
+        control channel on stdin, and only then sends the first user message.
+        <code>strictMcpConfig: true</code>
+        keeps settings-file servers out. The claim is bound to the machine and
+        to the agent's execution slot: a daemon can only claim runs for agents
+        assigned to its own machine row, and only one run per agent can be
+        <code>running</code>.
+      </p>
+
+      <h3>4. Credential resolution and the connector proxy</h3>
+      <p>
+        Every assigned connector becomes an entry in the run's
+        <code>mcpServers</code>
+        map that points back at the Worker. The proxy resolves the credential
+        per call, so a token refresh or a re-auth in the middle of a long run
+        just works.
+      </p>
+      <pre
+      ><code>// What the daemon passes to query.setMcpServers() for a run, in memory only (never query()'s mcpServers option, which goes on argv)
+"notion": { "type": "http", "url": "https://hm.example/api/proxy/con_123", "headers": { "Authorization": "Bearer hm_run_..." } }
+"harbourmaster": { "type": "http", "url": "https://hm.example/mcp", "headers": { "Authorization": "Bearer hm_run_..." } }
+
+// @repo/services/credentials
+createCredentialsService({ db, atomic, secretsKey, clock, fetch }): CredentialsService
+credentials.resolve({ connectorId, agentId, onBehalfOfUserId }): Promise&lt;
+  | { ok: true; credential: DecryptedCredential; ownerKind: "user" | "agent"; version: number }
+  | { ok: false; reason: "not_assigned" }                                   // the proxy answers 403
+  | { ok: false; reason: "needs_auth"; ownerKind: "user" | "agent"; ownerId: string; connectPath: string }&gt;
+// connectPath is a Harbourmaster page, /connect/:connectorId?as=user or ?as=agent:&lt;id&gt;, never a provider URL.</code></pre>
+      <p>
+        The rule, per <code>agent_connectors.credential_mode</code>, applied to
+        the run's <code>on_behalf_of_user_id</code> (seam 1), never to the
+        direct actor:
+      </p>
+      <ul>
+        <li>
+          <code>user_or_agent</code>
+          (default). A run on behalf of a person uses that person's credential
+          for the connector. A run on behalf of nobody (routine, HTTP trigger,
+          and runs descended from them) uses the agent's credential. A person
+          without a credential gets <code>needs_auth</code> with a Connect link.
+          It never falls back to the agent's credential for a person, however
+          many agents the request passed through.
+        </li>
+        <li>
+          <code>agent</code>. Always the agent's credential. For shared systems
+          where the agent should have its own identity.
+        </li>
+        <li>
+          <code>user</code>. Only a person's credential. A routine run with this
+          mode fails with <code>connector.needs_auth</code>, which is the right
+          answer.
+        </li>
+      </ul>
+      <p>
+        Credential ownership is independent of auth kind. A header credential
+        can be pasted as yourself or as the agent, the same as an OAuth grant,
+        so a personal API token still gives "it looks like Dom".
+      </p>
+      <p>
+        The proxy route, in order: verify the run token (stateless HMAC with run
+        id, agent id, workspace id and a 12 h cap; then
+        <code>runs.status = 'running' AND lease_until &gt; now</code>, which is
+        the real fence); load the <code>agent_connectors</code> row for the
+        run's agent and the requested connector, and answer 403 when there is
+        none (a URL missing from <code>mcpServers</code> is not authorisation);
+        resolve the credential by the rule above, treating
+        <code>revoked</code>
+        as <code>needs_auth</code>; forward the MCP request with the real
+        header.
+      </p>
+      <p>
+        Refresh. Most refreshes never race, because the proxy refreshes ahead of
+        time when <code>expires_at</code> is within two minutes. When a refresh
+        is needed, the caller first takes a lease:
+        <code
+          >UPDATE credentials SET refreshing_until = now + 30 s WHERE id = ? AND
+          version = ? AND (refreshing_until IS NULL OR refreshing_until &lt;
+          now)</code
+        >. Only the row's winner calls the provider's token endpoint, once. It
+        then writes the new secret with
+        <code
+          >WHERE id = ? AND version = ? AND refreshing_until = mine AND status
+          != 'revoked'</code
+        >, bumping <code>version</code> and clearing the lease. Losers poll
+        <code>version</code>
+        for up to five seconds and use the newer secret; if nothing changed they
+        answer the model with a retry error, not
+        <code>needs_auth</code>. <code>needs_auth</code> is written only by the
+        lease holder, only when the provider refused, and only through the same
+        fenced write. A revocation or a re-authorisation bumps
+        <code>version</code>
+        and clears <code>refreshing_until</code>, so a stale lease holder's
+        write fails its version check and nothing it does survives. That is what
+        "exactly one refresh" means here: one token-endpoint call per rotation,
+        which the stub in M3.3 counts.
+      </p>
+      <p>
+        The error text returned to the model carries the Connect path. Append
+        one <code>connector.call</code> event per request, with the tool name
+        and no payload. Cap forwarded responses at a wall-clock limit (open
+        question 9), because a tool call held open through the Worker is the one
+        path nobody has measured.
+      </p>
+      <p>
+        Connecting is always a signed-in act.
+        <code>/connect/:connectorId?as=user</code>
+        requires a Clerk session, creates the <code>oauth_states</code> row with
+        <code>initiator_user_id</code>
+        at click time, and sends the browser to the provider. The callback
+        refuses unless the session user is the initiator, and
+        <code>return_to</code>
+        must be a same-origin path.
+        <code>?as=agent:&lt;id&gt;</code>
+        is offered only on the agent's page. So a Connect path posted in a Slack
+        thread or an inbox thread cannot bind the clicker's account to someone
+        else's credential row, and the Slack gateway sends it as an ephemeral
+        message to the run's
+        <code>on_behalf_of</code>
+        user anyway.
+      </p>
+
+      <h3>5. Gateway adapter (Slack now, others later)</h3>
+      <pre><code>// @repo/services/runs
+interface Gateway {
+  kind: "slack" | "inbox";
+  // Called by completeRun with trusted context the gateway may rely on.
+  deliver(target: ReplyTarget, message: { text: string; fileIds: string[] },
+          context: { runId: string; agentId: string; onBehalfOfUserId: string | null }): Promise&lt;void&gt;;
+}
+// A gateway is built with its own narrow dependencies and registered by injection:
+createSlackGateway({ db, atomic, slackClientFor: (teamId) =&gt; SlackClient }): Gateway
+createInboxGateway({ db, atomic }): Gateway
+// The inbox gateway writes the reply post with run_id = context.runId itself. A mention in that
+// post starts the next run with a run principal for that run, so the subject chain is server-side
+// data from end to end; nothing in a post body is trusted as provenance.
+// Inbound is not an interface. Each gateway has its own route that normalises its
+// payload to a StartRunInput and calls startRun(). Slack: verify signature, then in one
+// atomic write store the dedupe row and the run (with any Slack file descriptors as
+// pending_files), then answer 200. Nothing is acknowledged before it is durable, and
+// nothing slow happens before the 200.</code></pre>
+
+      <h3>6. Principal and authorisation</h3>
+      <pre><code>// @repo/services/workspaces
+type Principal =
+  | { kind: "user";     workspaceId: string; userId: string; via: "session" | "api_key" | "oauth" }
+  | { kind: "run";      workspaceId: string; runId: string; agentId: string }      // hm_run_
+  | { kind: "machine";  workspaceId: string; machineId: string }                  // hm_mach_
+  | { kind: "trigger";  workspaceId: string; triggerId: string; agentId: string } // hm_trg_
+  | { kind: "system" }                                                            // the tick, in-process only
+createPrincipalResolver({ db, runTokenKey, verifyClerkOAuthToken, isOrgMember, allowedOrgIds }): {
+  resolve(authorization: string | null): Promise&lt;Principal | null&gt;
+}
+// isOrgMember(userId, clerkOrgId) is a Clerk Backend API call with a 60 s cache, injected
+// by apps/web. It runs for api_key and oauth principals on every request, because a
+// bearer token has no session and a person who left the org must lose access that minute.
+// allowedOrgIds: an org not on the list never gets a workspace. Sign-up on the public domain
+// is open by default in Clerk, and v1 is Dom's; Clerk's restricted sign-up mode is turned on too.
+// An oauth principal's workspace comes from its approved oauth_clients row, never from input.
+// @repo/services/authz
+can(principal: Principal, action: string, resource: { workspaceId: string; kind: string; id?: string }): boolean
+// v1 body: principal.workspaceId === resource.workspaceId. Every service method calls it.</code></pre>
+      <p>
+        Token prefixes: <code>hm_key_</code> API key (hashed in D1, flightdex-v2
+        pattern), <code>hm_mach_</code> machine credential (hashed, Ariadne),
+        <code>hm_trg_</code>
+        trigger token (hashed), <code>hm_run_</code> run token (stateless HMAC
+        with the Worker secret, The Brain's
+        <code>bdev_</code>
+        pattern, minted once at claim, 12 h cap, valid while the run is
+        <code>running</code>
+        and its lease is live),
+        <code>hm_enr_</code>
+        enrol code (single use, 15 minutes). Clerk sessions and Clerk OAuth
+        access tokens resolve to <code>kind: "user"</code>. Routes that take a
+        cookie session and mutate (file upload, OAuth start, Slack install) run
+        behind <code>csrf()</code> like tRPC does today; routes meant for bearer
+        tokens ignore cookies.
+      </p>
+
+      <h2 id="data">Data model</h2>
+      <p>
+        Twenty tables (a twenty-first, <code>managed_agents</code>, arrives with
+        the managed runtime), all except <code>workspaces</code> with
+        <code>workspace_id TEXT NOT NULL</code>
+        and no default, so a forgotten scope fails at insert. Nine of them are
+        the foundation and exist at M0:
+        <code>workspaces</code>, <code>identity_links</code>,
+        <code>agents</code>, <code>machines</code>,
+        <code>machine_enroll_tokens</code>, <code>sessions</code>,
+        <code>runs</code>, <code>events</code>, <code>files</code>. Each later
+        lane adds its own tables in its first PR. Ids are ULIDs as text.
+        Timestamps are ISO text. JSON columns are text with a zod schema in the
+        owning module. Encrypted columns use AES-GCM with an AAD of
+        <code>{ workspaceId, table, rowId, field }</code>, the same binding for
+        every secret in the system. After M0, schema changes go through one
+        serial queue, one small PR each; lanes rebase and regenerate, and never
+        merge two <code>migrations/meta</code> journals.
+      </p>
+      <p>
+        Multi-statement writes go through one port, <code>atomic</code>,
+        exported by <code>@repo/db</code>. The repo's <code>Database</code> type
+        covers D1 and <code>bun:sqlite</code>, but drizzle 0.44.7 has
+        <code>batch</code>
+        only on the D1 driver and interactive transactions only on the SQLite
+        drivers, and D1 has no interactive transactions at all. So
+        <code>atomic(statements)</code>
+        runs <code>db.batch</code> on D1 and a
+        <code>db.transaction</code>
+        on <code>bun:sqlite</code>; the app passes the D1 one, tests pass the
+        SQLite one, and services take
+        <code>{ db, atomic }</code>. Every "in one atomic write" on these pages
+        means this call.
+      </p>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Table</th>
+            <th>Key fields</th>
+            <th>Notes</th>
+          </tr>
+          <tr>
+            <td><code>workspaces</code></td>
+            <td>
+              <code>id</code>, <code>clerk_org_id</code> unique,
+              <code>name</code>, <code>timezone</code>, <code>created_at</code>
+            </td>
+            <td>
+              Created on first request from a Clerk org.
+              <code>timezone</code>
+              is the default for routines.
+            </td>
+          </tr>
+          <tr>
+            <td><code>identity_links</code></td>
+            <td>
+              <code>provider</code>
+              ('slack'), <code>team_id</code>, <code>external_user_id</code>,
+              <code>clerk_user_id</code>, <code>email</code>
+            </td>
+            <td>
+              Unique on (workspace, provider, team, external user). Email match
+              on first contact.
+            </td>
+          </tr>
+          <tr>
+            <td><code>agents</code></td>
+            <td>
+              <code>slug</code>
+              unique per workspace, <code>name</code>,
+              <code>instructions</code>, <code>model</code>,
+              <code>runtime</code>
+              ('machine' | 'managed'),
+              <code>machine_id</code>
+              null, <code>runtime_config</code> json,
+              <code>status</code>, <code>created_by</code>
+            </td>
+            <td></td>
+          </tr>
+          <tr>
+            <td><code>agent_connectors</code></td>
+            <td>
+              <code>agent_id</code>, <code>connector_id</code>,
+              <code>credential_mode</code>
+            </td>
+            <td>PK (agent, connector).</td>
+          </tr>
+          <tr>
+            <td><code>machines</code></td>
+            <td>
+              <code>name</code>, <code>credential_hash</code>,
+              <code>status</code>
+              ('online' | 'offline' | 'revoked'),
+              <code>last_seen_at</code>, <code>capabilities</code> json,
+              <code>single_user</code>
+              bool, <code>enrolled_by</code>
+            </td>
+            <td>
+              Status written by the relay alarm, never trusted from the socket
+              alone. A machine belongs to one workspace.
+              <code>single_user</code>
+              is set when the daemon could not get a separate agent user (see
+              Auth); <code>enrolled_by</code> is the Clerk user who enrolled it.
+            </td>
+          </tr>
+          <tr>
+            <td><code>machine_enroll_tokens</code></td>
+            <td>
+              <code>token_hash</code>, <code>expires_at</code>,
+              <code>used_at</code>, <code>machine_name</code>
+            </td>
+            <td>Single use, 15 minutes.</td>
+          </tr>
+          <tr>
+            <td><code>sessions</code></td>
+            <td>
+              <code>agent_id</code>, <code>origin</code>,
+              <code>external_key</code>
+              null, <code>actor_kind</code>,
+              <code>actor_id</code>, <code>runtime_ref</code> null,
+              <code>runtime_machine_id</code>
+              null, <code>last_run_at</code>
+            </td>
+            <td>
+              Unique on (workspace, agent, origin, external_key).
+              <code>runtime_ref</code>
+              is the Claude Code session id, valid only on
+              <code>runtime_machine_id</code>.
+            </td>
+          </tr>
+          <tr>
+            <td><code>runs</code></td>
+            <td>
+              <code>session_id</code>, <code>agent_id</code>,
+              <code>status</code>
+              ('queued' | 'offered' | 'running' | 'done' | 'failed' |
+              'cancelled' | 'interrupted'),
+              <code>request_id</code>
+              null, <code>input_text</code>,
+              <code>input_file_ids</code>
+              json, <code>pending_files</code> json null,
+              <code>output_file_ids</code>
+              json, <code>actor_kind</code>,
+              <code>actor_id</code>, <code>on_behalf_of_user_id</code> null,
+              <code>parent_run_id</code>
+              null, <code>depth</code>,
+              <code>reply</code>
+              json, <code>claimed_by</code>,
+              <code>lease_until</code>, <code>started_at</code>,
+              <code>finished_at</code>, <code>process_ended_at</code> null,
+              <code>error</code>, <code>usage</code> json,
+              <code>result_text</code>
+            </td>
+            <td>
+              Unique index on (workspace_id, request_id). Claim, heartbeat and
+              complete are compare-and-set updates (<code
+                >WHERE status = ?</code
+              >). An expired lease makes the run <code>interrupted</code>; it is
+              never re-queued. <code>pending_files</code> holds Slack file
+              descriptors not yet in R2; a run with pending files is not
+              claimable.
+            </td>
+          </tr>
+          <tr>
+            <td><code>events</code></td>
+            <td>
+              <code>id</code>
+              ulid, <code>type</code>, <code>actor_kind</code>,
+              <code>actor_id</code>, <code>agent_id</code>,
+              <code>session_id</code>, <code>run_id</code>, <code>seq</code>,
+              <code>payload</code>
+              json (64 KB cap),
+              <code>payload_ref</code>
+              (R2 key), <code>created_at</code>
+            </td>
+            <td>
+              Append-only. Migration adds <code>BEFORE UPDATE</code> and
+              <code>BEFORE DELETE</code>
+              triggers with
+              <code>RAISE(ABORT)</code>. Index (session_id, id), (run_id, seq),
+              (workspace_id, created_at).
+            </td>
+          </tr>
+          <tr>
+            <td><code>connectors</code></td>
+            <td>
+              <code>name</code>, <code>url</code>,
+              <code>auth_kind</code>
+              ('none' | 'header' | 'oauth'),
+              <code>header_name</code>, <code>oauth</code> json (metadata,
+              client id, client secret enc), <code>status</code>
+            </td>
+            <td>
+              Unique on (workspace, url) is not enforced, so two OAuth setups
+              for one server are two rows.
+            </td>
+          </tr>
+          <tr>
+            <td><code>credentials</code></td>
+            <td>
+              <code>connector_id</code>, <code>owner_kind</code> ('user' |
+              'agent'), <code>owner_id</code>, <code>secret</code> enc,
+              <code>version</code>, <code>refreshing_until</code> null,
+              <code>expires_at</code>, <code>status</code> ('ok' | 'needs_auth'
+              | 'revoked'), <code>scopes</code>
+            </td>
+            <td>
+              Unique on (connector, owner_kind, owner_id).
+              <code>version</code>
+              and <code>refreshing_until</code> together give one refresh per
+              rotation (seam 4).
+            </td>
+          </tr>
+          <tr>
+            <td><code>oauth_states</code></td>
+            <td>
+              <code>connector_id</code>, <code>owner_kind</code>,
+              <code>owner_id</code>, <code>initiator_user_id</code>,
+              <code>verifier</code>, <code>state</code>,
+              <code>return_to</code>
+              (same-origin path), <code>expires_at</code>
+            </td>
+            <td>
+              PKCE in flight, created by the signed-in initiator at click time.
+              The callback checks the session user against
+              <code>initiator_user_id</code>. Purged by the minute tick.
+            </td>
+          </tr>
+          <tr>
+            <td><code>triggers</code></td>
+            <td>
+              <code>agent_id</code>, <code>kind</code> ('http' | 'routine'),
+              <code>name</code>, <code>token_hash</code>, <code>schedule</code>,
+              <code>timezone</code>, <code>next_run_at</code>,
+              <code>config</code>
+              json, <code>enabled</code>,
+              <code>consecutive_errors</code>, <code>last_fired_at</code>
+            </td>
+            <td>
+              Routine config: prompt text, reply target. A routine's run gets
+              <code>request_id = trigger:&lt;id&gt;:&lt;occurrence&gt;</code>,
+              inserted in the same batch that advances <code>next_run_at</code>.
+              <code>slack_channel</code>
+              joins the enum with channel watch (deferred).
+            </td>
+          </tr>
+          <tr>
+            <td><code>slack_apps</code></td>
+            <td>
+              <code>agent_id</code>, <code>team_id</code>, <code>app_id</code>,
+              <code>bot_user_id</code>, <code>client_id</code>,
+              <code>client_secret</code>
+              enc, <code>signing_secret</code> enc,
+              <code>bot_token</code>
+              enc, <code>status</code> ('created' | 'installed' | 'revoked')
+            </td>
+            <td>Unique on (agent, team).</td>
+          </tr>
+          <tr>
+            <td><code>slack_events_seen</code></td>
+            <td>
+              <code>event_hash</code>, <code>run_id</code> null,
+              <code>received_at</code>
+            </td>
+            <td>
+              Dedupe of Slack retries. Written in the same batch as the run it
+              admitted, before the 200. Trimmed by the tick.
+            </td>
+          </tr>
+          <tr>
+            <td><code>inbox_threads</code></td>
+            <td>
+              <code>title</code>, <code>created_by_kind</code>,
+              <code>created_by_id</code>, <code>last_post_at</code>
+            </td>
+            <td></td>
+          </tr>
+          <tr>
+            <td><code>inbox_posts</code></td>
+            <td>
+              <code>thread_id</code>, <code>author_kind</code>,
+              <code>author_id</code>, <code>body</code>,
+              <code>run_id</code>
+              null, <code>file_ids</code> json
+            </td>
+            <td>An agent's reply post carries its run id.</td>
+          </tr>
+          <tr>
+            <td><code>api_keys</code></td>
+            <td>
+              <code>name</code>, <code>prefix</code>, <code>key_hash</code>,
+              <code>created_by</code>, <code>access</code> ('read' | 'write'),
+              <code>last_used_at</code>, <code>revoked_at</code>
+            </td>
+            <td>Secret shown once.</td>
+          </tr>
+          <tr>
+            <td><code>oauth_clients</code></td>
+            <td>
+              <code>client_id</code>
+              unique across workspaces, <code>name</code>,
+              <code>status</code>
+              ('pending' | 'approved' | 'revoked'),
+              <code>access</code>
+            </td>
+            <td>
+              Clerk OAuth clients must be approved before
+              <code>/mcp</code>
+              serves them, and the approval row is where an OAuth principal's
+              workspace comes from.
+            </td>
+          </tr>
+          <tr>
+            <td><code>files</code></td>
+            <td>
+              <code>r2_key</code>, <code>name</code>, <code>mime</code>,
+              <code>size</code>, <code>source</code> ('upload' | 'slack' |
+              'run'), <code>run_id</code> null, <code>created_by_kind</code>,
+              <code>created_by_id</code>
+            </td>
+            <td>
+              R2 key is <code>$ { workspaceId}/files/$ { id}</code>. A run token
+              may download the files in its run's
+              <code>input_file_ids</code>
+              and upload files that get its
+              <code>run_id</code>; a composer upload belongs to the uploading
+              user until <code>startRun</code> attaches it.
+            </td>
+          </tr>
+        </table>
+      </div>
+      <p>
+        Event types in v1: <code>run.queued</code>, <code>run.started</code>,
+        <code>run.finished</code>, <code>run.failed</code>,
+        <code>run.interrupted</code>, <code>message.user</code>,
+        <code>message.assistant</code>, <code>tool.call</code>,
+        <code>tool.result</code>, <code>connector.call</code>,
+        <code>connector.needs_auth</code>, <code>connector.timeout</code>,
+        <code>trigger.fired</code>, <code>slack.received</code>,
+        <code>slack.unlinked_sender</code>, <code>slack.delivered</code>,
+        <code>inbox.posted</code>, <code>inbox.loop_stopped</code>,
+        <code>machine.online</code>, <code>machine.offline</code>,
+        <code>agent.created</code>, <code>agent.updated</code>,
+        <code>credential.created</code>, <code>credential.revoked</code>,
+        <code>api_key.created</code>. The minute tick writes nothing unless it
+        did work; its own heartbeat goes to <code>console.log</code> for Workers
+        observability. A transcript is
+        <code
+          >events WHERE session_id = ? AND (type LIKE 'message.%' OR type LIKE
+          'tool.%') ORDER BY id</code
+        >.
+      </p>
+
+      <h2 id="where">Where things run</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Place</th>
+            <th>What runs there</th>
+            <th>Why there</th>
+          </tr>
+          <tr>
+            <td>Worker <code>apps/web</code> (fetch)</td>
+            <td>
+              UI, tRPC, <code>/mcp</code>, Slack routes, trigger endpoint,
+              connector proxy, machine HTTP routes, OAuth callbacks, file
+              routes.
+            </td>
+            <td>
+              Already there. Stateless. Every route ends in a service call.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Worker <code>scheduled()</code>, cron <code>* * * * *</code>
+            </td>
+            <td>
+              A registry of jobs, each lane adding its own: routines whose
+              <code>next_run_at</code>
+              has passed (creates runs); the queued-run sweep (re-offer anything
+              queued or offered for more than 60 s, and finish downloading
+              <code>pending_files</code>
+              that a
+              <code>waitUntil</code>
+              did not); stale run leases (mark
+              <code>interrupted</code>); purge <code>oauth_states</code> and
+              <code>slack_events_seen</code>; a backstop for machines still
+              marked online with <code>last_seen_at</code> older than five
+              minutes (the relay alarm owns the 90 s offline mark).
+            </td>
+            <td>
+              One minute granularity is enough for routines. No DO alarm fleet
+              to keep alive. Cron does not fire in previews and needs
+              <code>wrangler triggers deploy</code>
+              after
+              <code>versions upload</code>.
+            </td>
+          </tr>
+          <tr>
+            <td>Durable Object <code>MachineRelay</code>, one per machine</td>
+            <td>
+              Accepts the daemon WebSocket (hibernation API), stores machine id
+              and last ping in DO storage, offers queued runs, alarm checks
+              liveness.
+            </td>
+            <td>
+              A WebSocket needs an owner. Everything else about a run is a D1
+              row, so an evicted DO loses nothing that matters (Ariadne rule,
+              trueforge Cycle 32).
+            </td>
+          </tr>
+          <tr>
+            <td>D1</td>
+            <td>All tables.</td>
+            <td>
+              One database, one migration history, tests on
+              <code>bun:sqlite</code>.
+            </td>
+          </tr>
+          <tr>
+            <td>R2 <code>FILES</code></td>
+            <td>Files, event payloads over 64 KB.</td>
+            <td>D1 rows stay small.</td>
+          </tr>
+          <tr>
+            <td>
+              Machine daemon <code>apps/daemon</code>, as the daemon's Unix user
+            </td>
+            <td>
+              Enrolment, WebSocket client, run claim and execution, event
+              batching, systemd unit. Holds the machine credential (<code
+                >config.json</code
+              >, mode 600) and the run token in memory. Spawns Claude Code as
+              <code>hm-agent</code>
+              through <code>sudo -u</code>.
+            </td>
+            <td>
+              Claude Code is a Node process; it cannot run in a Worker. The
+              machine also holds the Anthropic login. On a laptop against
+              <code>wrangler dev</code>
+              this is local mode.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Claude Code (per run, on the machine, as <code>hm-agent</code>)
+            </td>
+            <td>
+              <code>query()</code>
+              in streaming-input mode with <code>cwd</code>
+              <code
+                >~hm-agent/harbourmaster/&lt;workspaceId&gt;/&lt;agentId&gt;/work</code
+              >, instructions through
+              <code>systemPrompt: { preset: "claude_code", append }</code>
+              (bruce-next does this; no <code>CLAUDE.md</code> file to go
+              stale), <code>settingSources: ["project"]</code> with
+              <code>work/.claude/</code>
+              and <code>work/.mcp.json</code> reset before each run,
+              <code>strictMcpConfig: true</code>,
+              <code>resume</code>
+              when the session's
+              <code>runtime_ref</code>
+              belongs to this machine,
+              <code>permissionMode: "bypassPermissions"</code>
+              with
+              <code>allowDangerouslySkipPermissions: true</code>
+              (the SDK typings require both; bruce-next omits the second, M1.4
+              settles it with a fixture test), MCP servers added by
+              <code>setMcpServers()</code>
+              before the first message. One run per agent at a time.
+            </td>
+            <td>
+              bruce-next proved the rest of the options set. Resume ids are
+              machine-local, which is why sessions carry
+              <code>runtime_machine_id</code>. Ids in the path, not slugs, so
+              nothing collides.
+            </td>
+          </tr>
+          <tr>
+            <td>Claude Managed Agents (after v1)</td>
+            <td>
+              Agent registered per Harbourmaster agent, session per
+              Harbourmaster session, <code>mcp_servers</code> pointing at the
+              proxy and <code>/mcp</code>.
+            </td>
+            <td>
+              Anthropic rejects loopback MCP URLs, so dev needs a tunnel. MCP
+              servers are fixed at register or sync, see Deferred.
+            </td>
+          </tr>
+        </table>
+      </div>
+      <p>
+        <code>apps/web/src/server/compose.ts</code>
+        is the one place that builds every service with its dependencies (D1
+        <code>atomic</code>, R2 <code>blobs</code>, the Clerk and Slack clients,
+        keys from secrets) and hands them to the tRPC context, the Hono route
+        groups and the tick. It is owned by the Runtime lane; every other lane
+        adds its factory call there in one line. Bindings to add in
+        <code>wrangler.jsonc</code>: <code>FILES</code> (R2) and the
+        <code>MACHINE_RELAY</code>
+        DO binding in all three places; the DO
+        <code>migrations</code>
+        block (<code>new_sqlite_classes</code>) and
+        <code>triggers.crons</code>
+        at the top level only, as the previews docs say. Secrets:
+        <code>SECRETS_KEY</code>
+        (base64 AES key for credentials),
+        <code>RUN_TOKEN_KEY</code>
+        (HMAC), <code>PUBLIC_BASE_URL</code>, plus the existing Clerk ones.
+        <code>server.ts</code>
+        changes from
+        <code>export default app</code>
+        to
+        <code>export default { fetch: app.fetch, scheduled }</code>
+        plus
+        <code>export { MachineRelay }</code>. Any release that creates or
+        renames a DO class goes out with <code>wrangler deploy</code>;
+        Cloudflare refuses <code>versions upload</code> for those.
+      </p>
+
+      <h2 id="auth">Auth and the three credential cases</h2>
+      <p>
+        People sign in with Clerk. The Clerk session's <code>orgId</code> picks
+        the workspace; a user with no org is sent to Clerk's create-organization
+        screen. Because the Worker sits on a public domain and Clerk sign-up is
+        open by default, two gates sit in front of that: Clerk's restricted
+        sign-up mode on the instance, and an injected
+        <code>allowedOrgIds</code>
+        list in the principal resolver, so an org not on the list never gets a
+        workspace.
+        <code>workspaceProcedure</code>
+        replaces
+        <code>protectedProcedure</code>
+        and narrows
+        <code>ctx.principal</code>
+        to a user in a workspace. Machine callers send a bearer token and go
+        through the principal resolver, which looks at the prefix.
+      </p>
+      <p>
+        Claude.ai and Claude Code connect to <code>/mcp</code> in one of two
+        ways. An API key minted in Settings (<code>hm_key_</code>) for scripts
+        and Claude Code. Clerk OAuth for Claude.ai: Harbourmaster publishes
+        protected-resource metadata, Clerk is the authorization server, the
+        Worker verifies the access token with
+        <code>idPOAuthAccessToken.verify</code>, and a per-workspace approval
+        gate refuses clients nobody approved, because Clerk tokens carry no
+        audience (flightdex-v2 cycle 9 finding). Both end as
+        <code>Principal { kind: "user" }</code>, so the MCP tools and the tRPC
+        routers call the same services.
+      </p>
+      <p>The three cases from the brief, walked through the design:</p>
+      <ol>
+        <li>
+          <b>Linked to Dom, so it looks like Dom in the external system.</b>
+          Dom opens Connectors, picks Notion, clicks Connect. The OAuth flow
+          stores a <code>credentials</code> row with
+          <code>owner_kind = user</code>, <code>owner_id = Dom</code>. Dom
+          messages the agent from the UI or from Claude.ai; the run's actor is
+          Dom; the proxy sends Dom's token.
+        </li>
+        <li>
+          <b>A colleague tasks the agent.</b>
+          The colleague mentions the agent in Slack. The Slack route maps the
+          Slack user to a Clerk user through <code>identity_links</code> (email
+          match on first contact, and only when that Clerk user is a member of
+          the workspace's org and the event's <code>team_id</code> matches the
+          app row). The run is on behalf of that user. If they have no Notion
+          credential, the Slack gateway sends them an ephemeral message with the
+          Connect path (a signed-in Harbourmaster page, so nobody else can bind
+          their account to it), and the run records
+          <code>connector.needs_auth</code>. If the colleague instead asks the
+          agent to "ask Bruce to search Notion", Bruce's run inherits
+          <code>on_behalf_of_user_id</code>
+          from the colleague's run and hits the same <code>needs_auth</code>.
+          Nothing runs as Dom, or as the agent, by accident.
+        </li>
+        <li>
+          <b>The agent runs on a routine or an event.</b>
+          The actor is the trigger and <code>on_behalf_of_user_id</code> is
+          null. The proxy picks the <code>owner_kind = agent</code> credential,
+          which someone connected once from the agent's Connectors tab ("Connect
+          as this agent"). Missing credential, same
+          <code>needs_auth</code>
+          path, delivered to the reply target or shown on the agent page.
+        </li>
+      </ol>
+      <p>
+        Secrets at rest: AES-GCM through Web Crypto with a non-extractable key
+        imported from <code>SECRETS_KEY</code> and an AAD that binds the
+        ciphertext to its row (flightdex-v2 <code>secrets.ts</code>, copied).
+        Inbound tokens (API keys, machine credentials, trigger tokens) are
+        hashed, never encrypted. Connector secrets never reach the daemon,
+        Claude Code, Slack or the browser. The daemon's env for Claude Code is
+        filtered (bruce-next <code>buildAgentEnv</code>), and outbound text from
+        the daemon passes a masker that redacts the run token and the machine
+        credential (Ariadne <code>masker.ts</code>).
+      </p>
+      <p>
+        The machine. Claude Code runs with <code>bypassPermissions</code>, which
+        confines nothing to a directory, so the boundary is drawn with Unix
+        users. The daemon runs as the user who installed it and owns
+        <code>~/.harbourmaster/config.json</code>
+        (mode 600) with the machine credential. It spawns every Claude Code
+        process as a separate user,
+        <code>hm-agent</code>, through <code>sudo -u hm-agent</code>;
+        <code>install-service</code>
+        writes a sudoers drop-in that allows that one command and creates the
+        user. Work directories belong to
+        <code>hm-agent</code>. A run can therefore read every agent's files on
+        the box and the machine's Claude login, but not the machine credential,
+        so it cannot claim or heartbeat other runs and cannot obtain another
+        person's run token. Run tokens exist once, in the daemon's memory and in
+        the Claude Code process that received it over stdin, never on disk and
+        never on the command line. Connector secrets are never on the box.
+        <code>strictMcpConfig</code>
+        and the per-run reset of
+        <code>work/.claude/</code>
+        stop one run from planting a hook or an MCP server that fires in a later
+        run on behalf of someone else. What a prompt-injected run can still do:
+        act as any agent on the same machine in the same workspace with that
+        agent's own credentials, and read their files. That is the same trust
+        the brief gives Bruce today. One Unix user per agent is the next step
+        and sits in Deferred.
+      </p>
+      <p>
+        A machine where the daemon cannot get a second user (no sudo, no root)
+        is enrolled as <code>single_user</code>, and the rule changes: runs on
+        behalf of anyone other than the person who enrolled it resolve only
+        <code>agent</code>
+        credentials. The agent page and the Slack reply both say so, so the
+        brief's case 2 is never silently downgraded.
+      </p>
+
+      <h2 id="decisions">Decisions and rejected alternatives</h2>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Decision</th>
+            <th>Why</th>
+            <th>Rejected</th>
+          </tr>
+          <tr>
+            <td>
+              The walking-skeleton runtime is a machine daemon running Claude
+              Code through the Agent SDK.
+            </td>
+            <td>
+              It is Dom's own use case (Bruce), it has the most copyable code
+              (Ariadne relay and client, bruce-next agent core), and the same
+              binary on a laptop against <code>wrangler dev</code> is the "run
+              locally straight away" mode. It proves the hardest seam first.
+            </td>
+            <td>
+              A Worker-hosted tool loop first: less reuse, no local-machine
+              story, and it would need an MCP client plus tool execution built
+              from scratch. Managed Agents first: needs a public URL in dev and
+              the beta API's quirks on day one.
+            </td>
+          </tr>
+          <tr>
+            <td>Daemon in TypeScript on Bun, not Go.</td>
+            <td>
+              Claude Code and the Agent SDK are Node packages; a Go daemon would
+              still have to spawn them. <code>bun build --compile</code> gives
+              one binary (Ariadne ships this way).
+            </td>
+            <td>
+              Reusing Agentum's Go computer daemon as the runner: it exposes a
+              shell and files to an agent that runs elsewhere, which is the
+              Managed Agents story, not this one. It stays on the shelf for that
+              milestone.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Relay is transport only. Claim, heartbeat and complete are
+              compare-and-set rows in D1. An expired lease interrupts the run
+              and never re-runs it.
+            </td>
+            <td>
+              Durable Objects get evicted and alarms double-fire. trueforge lost
+              a 45 s exec to an instance swap; Ariadne put all job state in D1
+              and the relay survived it. A lost heartbeat does not prove the
+              process stopped, so an automatic re-run could send the same email
+              twice.
+            </td>
+            <td>
+              Run state in DO storage: simpler code, lost on eviction,
+              untestable locally (workerd never supersedes instances). Re-queue
+              on expiry with attempt ids on every frame: safe for retry-safe
+              work only, and v1 has no way to know which work that is.
+            </td>
+          </tr>
+          <tr>
+            <td>Managed Agents is not in v1 by default.</td>
+            <td>
+              The brief lists it, but Dom's own use is the machine runtime, and
+              Managed Agents fix MCP servers at agent registration, so the
+              per-run token design needs extra work there (a re-sync per run or
+              a session-scoped token). "Do not invent the future" says keep the
+              adapter seam and build the second adapter when someone needs it.
+              Open question 2 lets Dom flip this.
+            </td>
+            <td>
+              Build it last in v1 (the first draft of this plan). Build it first
+              for SMBs: needs a tunnel in dev and the beta API's quirks on day
+              one.
+            </td>
+          </tr>
+          <tr>
+            <td>Three build lanes, not ten.</td>
+            <td>
+              One to three people will build this. Ten lanes with seven frozen
+              contracts pay the whole coordination cost of parallel work and
+              still collide in <code>server.ts</code>,
+              <code>context.ts</code>
+              and <code>router.ts</code>. Three lanes with pre-split wiring
+              files is the most parallelism the staffing can use.
+            </td>
+            <td>Ten lanes (the first draft).</td>
+          </tr>
+          <tr>
+            <td>
+              One run token for the life of the run, delivered over the SDK
+              control channel.
+            </td>
+            <td>
+              Claude Code gets its MCP headers once; nothing updates a running
+              process's transports, so a token that expired with a 90 s lease
+              would fail every tool call after the first lease. Validity is
+              server-side (<code>running</code>
+              and a live lease, 12 h cap), which is the real fence anyway. The
+              SDK's <code>--mcp-config</code> puts <code>query()</code>'s
+              <code>mcpServers</code>
+              on argv, readable by every process on the box;
+              <code>setMcpServers()</code>
+              goes over stdin.
+            </td>
+            <td>
+              Rotating tokens per heartbeat (the previous draft): breaks
+              mid-run. Passing <code>mcpServers</code> to <code>query()</code>:
+              leaks the token through <code>ps</code>.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              One <code>atomic</code> write port in <code>@repo/db</code>, over
+              <code>db.batch</code>
+              on D1 and <code>db.transaction</code> on
+              <code>bun:sqlite</code>.
+            </td>
+            <td>
+              The repo's <code>Database</code> type has no <code>batch</code>,
+              and D1 has no interactive transactions. Without a port, every
+              "atomic" claim on these pages is a wish and the tests would run
+              against a driver that cannot do it.
+            </td>
+            <td>
+              Services typed on the D1 driver: untestable on
+              <code>bun:sqlite</code>. Drizzle's D1 <code>transaction</code>:
+              not interactive on D1.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Claude Code runs as a separate Unix user (<code>hm-agent</code>)
+              from the daemon.
+            </td>
+            <td>
+              With one user, a run can read the machine credential, claim other
+              people's queued runs, and spend their run tokens through the
+              proxy. That is case 2 of the brief broken by a
+              <code>cat</code>
+              and a <code>curl</code>. <code>sudo -u</code> is the spawn prefix
+              the deferred container and per-agent-user work already needed.
+            </td>
+            <td>
+              Keep one user and downgrade colleagues to agent credentials:
+              breaks case 2 for everyone. Offer tokens over the socket: a run
+              can open its own socket with the credential.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Run events travel daemon to Worker over HTTP POST, batched.
+              WebSocket carries hello, ping, offer, cancel.
+            </td>
+            <td>
+              Small relay, every step reproducible with curl, no 32 MiB frame
+              limit to think about, and the HTTP route is an ordinary Hono route
+              with the machine principal.
+            </td>
+            <td>
+              Everything over the socket (Ariadne, trueforge): more frames, a
+              bigger DO, harder to test.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Credentials resolve in the Worker and connectors are reached
+              through a proxy URL with a run token.
+            </td>
+            <td>
+              One code path for all three credential cases and all runtimes.
+              Secrets never leave the Worker. Every connector call lands in the
+              log. Refresh and re-auth happen in one place. The Agent SDK's
+              <code>type: "http"</code>
+              MCP config with headers makes it free on the daemon side (checked
+              in <code>sdk.d.ts</code> 0.2.119).
+            </td>
+            <td>
+              Hand decrypted tokens to the daemon per run: leaks secrets to the
+              machine and to Claude Code's env. Anthropic vaults as the only
+              store (Agentum): managed runtime only. Per-machine
+              <code>.mcp.json</code>
+              edited by hand (bruce-next): no central registry.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              One append-only <code>events</code> table, append enforced by
+              SQLite triggers, transcripts as a view over it.
+            </td>
+            <td>
+              The brief wants every action in one log to learn from. One insert
+              path is easier to keep honest than two tables. Triggers make
+              "append-only" a database fact, not a convention (no repo analysed
+              enforces it).
+            </td>
+            <td>
+              Separate <code>session_events</code> and
+              <code>activity_log</code>
+              tables (trueforge, Agentum): two write paths, two shapes. K2
+              streams plus consumers (control-plane): no local emulation, beta
+              product.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Platform MCP on <code>@modelcontextprotocol/server</code> 2 with
+              <code>createMcpHandler</code>
+              per request, Clerk OAuth plus API keys, client approval gate.
+            </td>
+            <td>
+              Copied from flightdex-v2 where it is deployed and smoke-tested
+              with both lanes, and it is on zod 4 like this repo. No Durable
+              Object, no KV.
+            </td>
+            <td>
+              <code>@cloudflare/workers-oauth-provider</code>
+              (The Brain, Ariadne): a proper authorization server with
+              audiences, but it wraps the whole Worker, needs KV, and pins an
+              <code>agents</code>
+              version that has moved. Worth revisiting if the
+              Clerk-token-without-audience problem bites beyond the gate.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Slack through the Events API over HTTP, one app per agent, created
+              from a generated manifest with pasted tokens. Mentions and DMs
+              only in v1. The manifest API is an optional follow-up.
+            </td>
+            <td>
+              HTTP mode needs no always-on process. Four repos have the paste
+              flow; none has used the manifest API, and the brief's "few clicks"
+              can be measured on the paste flow before deciding whether the API
+              path is worth building. Per-agent apps give <code>@Bruce</code> in
+              Slack. New Slack apps are agent-view only since June 2026, and
+              Ariadne's manifest already has <code>features.agent_view</code>.
+              Channel watch is deferred because each watched message would be a
+              Claude Code run.
+            </td>
+            <td>
+              Socket Mode on the daemon (bruce-next): ties Slack to a machine
+              being up and needs an app-level token no manifest can create.
+              Manifest paste (every repo analysed): works, kept as the fallback,
+              but it is five copy steps. One bot per workspace with channel
+              routing: fewer apps, but the agent is not a Slack user.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Workspace equals Clerk organization from day one,
+              <code>workspace_id NOT NULL</code>
+              everywhere.
+            </td>
+            <td>
+              Agentum rebuilt for tenancy in cycle 8, flightdex-v2 scoped 130
+              call sites by hand, Ariadne decided it on day one and never looked
+              back. Cheap now, expensive later, and the brief says not to paint
+              into a corner.
+            </td>
+            <td>
+              Single tenant with a later retrofit. Personal workspaces for users
+              without an org (adds a second path through every auth check).
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Routines run from the Worker cron minute tick over a
+              <code>triggers</code>
+              table.
+            </td>
+            <td>
+              No DO per workspace to re-arm, no alarm to lose. One
+              <code>atomic</code>
+              write inserts the run (with
+              <code>request_id = trigger:id:occurrence</code>) and advances
+              <code>next_run_at</code>, so a crash on either side loses nothing;
+              an overlapping tick hits the unique index, reads the existing run
+              back and moves on. A crash after the write leaves a queued run
+              that the sweep offers. Cron math copied from bruce-next.
+            </td>
+            <td>
+              Scheduler DO with one alarm per workspace (Agentum, trueforge):
+              precise to the second, more moving parts than a minute tick needs.
+            </td>
+          </tr>
+          <tr>
+            <td>Chat UI polls run events in v1.</td>
+            <td>
+              Message-level updates every 1.5 s are fine for a first iteration
+              and need no second DO.
+            </td>
+            <td>
+              WebSocket fan-out per session (Ariadne <code>RunRoom</code>):
+              deferred, listed.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Module layout: slice by name inside the existing tiers, tables in
+              <code>packages/db/src/schema/&lt;module&gt;.ts</code>, protocol in
+              <code>packages/protocol</code>, framework-free MCP tools in
+              <code>packages/mcp</code>.
+            </td>
+            <td>
+              Fits the repo's layering and lint rules. The global "one folder
+              per capability with an index barrel" rule loses to the repo's
+              <code>noBarrelFile</code>
+              and the browser-bundle rule; the intent survives as one
+              <code>exports</code>
+              subpath per capability. Recorded here so it is not re-argued.
+            </td>
+            <td>
+              One workspace package per capability: closer to "copy the folder
+              to move it", but untested with <code>drizzle.config.ts</code> and
+              the Vite plugin, and the schema still has to be one migration
+              history.
+            </td>
+          </tr>
+          <tr>
+            <td>No pi-durable, no Trueforge fork, no OpenClaw dependency.</td>
+            <td>
+              pi-durable is Node-only and "changes without notice". Trueforge
+              cost a 35-conflict merge per upstream sync. OpenClaw is a
+              single-operator design with four renames in a year. All three are
+              good to read and bad to depend on.
+            </td>
+            <td>Building on any of them as the runtime.</td>
+          </tr>
+        </table>
+      </div>
+
+      <h2 id="questions">Open questions for Dom</h2>
+      <p>
+        Dom answered all ten on 16 October 2026. The table is the decision; the
+        text under it keeps the reasoning each answer was made on.
+      </p>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Question</th>
+            <th>Decision</th>
+          </tr>
+          <tr>
+            <td>1. Slack apps</td>
+            <td>
+              One app per agent, manifest-paste flow. Manifest API only if
+              pasting proves too many clicks.
+            </td>
+          </tr>
+          <tr>
+            <td>2. Dom or SMB first</td>
+            <td>
+              Dom first. Managed Agents stays out of v1; the
+              <code>RuntimeAdapter</code>
+              seam stays.
+            </td>
+          </tr>
+          <tr>
+            <td>3. Worker-hosted loop</td>
+            <td>Not in v1.</td>
+          </tr>
+          <tr>
+            <td>4. Wiki</td>
+            <td>Connect The Brain as an MCP connector. No wiki code in v1.</td>
+          </tr>
+          <tr>
+            <td>5. Default credential mode</td>
+            <td><code>user_or_agent</code>.</td>
+          </tr>
+          <tr>
+            <td>6. Sign-up</td>
+            <td>
+              Clerk org required, allow-listed orgs only, restricted sign-up on.
+            </td>
+          </tr>
+          <tr>
+            <td>7. Permission mode</td>
+            <td>
+              <code>bypassPermissions</code>
+              as <code>hm-agent</code>, <code>single_user</code> fallback.
+            </td>
+          </tr>
+          <tr>
+            <td>8. Slack thread sessions</td>
+            <td>One session per thread.</td>
+          </tr>
+          <tr>
+            <td>9. Proxy call cap</td>
+            <td>
+              5 minutes (not the 60 s default). M3.3 measures a long call
+              through the Worker before the number is trusted.
+            </td>
+          </tr>
+          <tr>
+            <td>10. Anthropic credential</td>
+            <td>
+              The machine's own Claude Code subscription login, for every run
+              including colleagues'. Dom treats the terms question as settled;
+              the <code>ANTHROPIC_API_KEY</code> path stays as a fallback in
+              <code>buildAgentEnv</code>.
+            </td>
+          </tr>
+        </table>
+      </div>
+      <div class="q" id="q1">
+        <b>1. One Slack app per agent, or one per workspace?</b>Default: per
+        agent, through the manifest-paste flow every source repo has. The
+        manifest-API flow is an optional follow-up, built only if the paste flow
+        turns out to be too many clicks in practice; it would ask for a fresh
+        app configuration token each time, because those rotate every 12 hours.
+      </div>
+      <div class="q" id="q2">
+        <b>2. Dom first, or SMB first?</b>The brief's first sentence is about
+        SMBs, but until Managed Agents exists the only runtime needs a Linux box
+        with a Claude login. Default: Dom first. Managed Agents stays out of v1,
+        the <code>RuntimeAdapter</code> seam stays, and the deferred row records
+        the two constraints (MCP servers fixed at registration, tunnel in dev).
+        If you say SMB first, the managed adapter is built right after the
+        connector proxy (M3) and before Slack, and the per-run token design
+        needs the session-scoped variant worked out first.
+      </div>
+      <div class="q" id="q3">
+        <b
+          >3. Do you want a Worker-hosted agent loop (no machine, no Anthropic
+          sandbox) in v1?</b
+        >Default: no. The machine runtime covers you and the managed runtime
+        covers SMBs without a machine. Add it when a cheap always-on Slack
+        responder is wanted.
+      </div>
+      <div class="q" id="q4">
+        <b>4. Wiki: connect The Brain, or build in-repo?</b>Default: connect The
+        Brain as an MCP connector (agent credential). It is live and has
+        <code>wiki_*</code>, <code>memory_*</code>, <code>capture_turn</code>.
+        No wiki code in Harbourmaster v1.
+      </div>
+      <div class="q" id="q5">
+        <b>5. Default credential mode per assignment.</b>Default:
+        <code>user_or_agent</code>. A person's run uses their credential or
+        stops with a Connect link; a routine uses the agent's. Alternative is
+        <code>agent</code>
+        as the default, which is simpler for SMBs but loses "it looks like Dom".
+      </div>
+      <div class="q" id="q6">
+        <b
+          >6. Require a Clerk organization, or give solo users a personal
+          workspace?</b
+        >Default: require an org, and only orgs on the
+        <code>allowedOrgIds</code>
+        list get a workspace, with Clerk restricted sign-up on. One path through
+        auth, and no stranger gets a tenant on the public domain. Opening
+        sign-up is a one-line change when SMBs arrive.
+      </div>
+      <div class="q" id="q7">
+        <b
+          >7. Permission mode and user for Claude Code on the machine.</b
+        >Default: <code>bypassPermissions</code> with
+        <code>allowDangerouslySkipPermissions: true</code>, as Bruce runs today,
+        running as a separate <code>hm-agent</code> user so the machine
+        credential stays out of reach. That still confines nothing inside that
+        user: a linked colleague in Slack gets whatever any agent on your box
+        can do with the agents' own credentials and files. The alternative is
+        <code>permissionMode: "dontAsk"</code>
+        with an allow-list, which denies anything not pre-approved and would
+        need the allow-list tuned per agent. On a box with no sudo, the machine
+        is <code>single_user</code> and colleagues get agent credentials only.
+        Whether
+        <code>canUseTool</code>
+        fires under bypass is checked in M1.4 before anyone promises an approval
+        gate on it.
+      </div>
+      <div class="q" id="q8">
+        <b>8. Session identity in Slack threads.</b>Default: one session per
+        (agent, team, DM channel), which is per person because DMs are per
+        person, and one session per thread in channels. One thing to know: a
+        thread is one Claude Code session that resumes across posters, so tool
+        results fetched with Dom's credential stay in context when a colleague
+        posts next. If that matters, key channel sessions by (thread, poster) at
+        the cost of each poster seeing only their own half of the thread.
+      </div>
+      <div class="q" id="q9">
+        <b>9. Cap on a connector call through the proxy.</b>Default: 60 s wall
+        clock, then the proxy returns an MCP error and logs
+        <code>connector.timeout</code>. Nobody has measured a long MCP tool call
+        held through a Worker; this needs one test in milestone 3 before the
+        number is trusted.
+      </div>
+      <div class="q" id="q10">
+        <b
+          >10. Where does the Anthropic key for the machine runtime come from?</b
+        >Default: the machine's own Claude Code login (<code>claude login</code>
+        once, per machine user). The daemon never sees a key. Unverified:
+        whether Anthropic's terms allow a subscription login to serve other
+        people's requests through an Agent SDK product once colleagues task the
+        agent. Check before the first non-Dom user. The fallback is
+        <code>ANTHROPIC_API_KEY</code>
+        in the daemon's environment, which
+        <code>buildAgentEnv</code>
+        passes through. The managed runtime, when built, needs a per-workspace
+        key stored encrypted (Agentum
+        <code>workspace-keys.ts</code>).
+      </div>
+
+      <p class="muted">
+        Next: <a href="reuse.html">reuse matrix</a>,
+        <a href="build-plan.html">build plan</a>,
+        <a href="review-response.html">review response</a>.
+      </p>
+    </main>
+  </body>
+</html>

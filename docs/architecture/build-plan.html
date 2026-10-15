@@ -1,0 +1,2133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Harbourmaster build plan</title>
+    <style>
+    :root {
+      --bg: #fbfaf7;
+      --fg: #1d1d1b;
+      --muted: #5f5e58;
+      --line: #d9d6cc;
+      --accent: #0b6e6e;
+      --code: #f0eee7;
+      --warn: #9a5b00;
+      --card: #ffffff;
+      --ok: #2d7a3a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #15161a;
+        --fg: #e8e6df;
+        --muted: #a19e94;
+        --line: #34363d;
+        --accent: #5fc3c3;
+        --code: #1f2126;
+        --warn: #e0a24a;
+        --card: #1b1d22;
+        --ok: #6fcf7f;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #15161a;
+      --fg: #e8e6df;
+      --muted: #a19e94;
+      --line: #34363d;
+      --accent: #5fc3c3;
+      --code: #1f2126;
+      --warn: #e0a24a;
+      --card: #1b1d22;
+      --ok: #6fcf7f;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font:
+        16px / 1.55 system-ui,
+        -apple-system,
+        "Segoe UI",
+        Roboto,
+        sans-serif;
+      color: var(--fg);
+      background: var(--bg);
+    }
+    main {
+      max-width: 1060px;
+      padding: 16px 16px 72px;
+      margin: 0 auto;
+    }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding: 12px 0;
+      font-size: 15px;
+      border-bottom: 1px solid var(--line);
+    }
+    nav a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    nav a[aria-current] {
+      font-weight: 600;
+      color: var(--fg);
+    }
+    h1 {
+      margin: 24px 0 8px;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+    h2 {
+      padding-top: 8px;
+      margin: 40px 0 12px;
+      font-size: 22px;
+      border-top: 1px solid var(--line);
+    }
+    h3 {
+      margin: 28px 0 8px;
+      font-size: 17px;
+    }
+    p {
+      margin: 0 0 12px;
+    }
+    .lead {
+      font-size: 15px;
+      color: var(--muted);
+    }
+    main a {
+      color: var(--accent);
+    }
+    code,
+    pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+    code {
+      padding: 1px 5px;
+      background: var(--code);
+      border-radius: 4px;
+    }
+    pre {
+      padding: 12px 14px;
+      margin: 0 0 16px;
+      overflow-x: auto;
+      line-height: 1.45;
+      background: var(--code);
+      border-radius: 6px;
+    }
+    pre code {
+      padding: 0;
+      background: none;
+    }
+    .tw {
+      margin: 0 0 16px;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      font-size: 14px;
+      border-collapse: collapse;
+    }
+    th,
+    td {
+      padding: 8px 10px;
+      vertical-align: top;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    th {
+      font-weight: 600;
+      white-space: nowrap;
+      background: var(--code);
+    }
+    .task {
+      padding: 12px 16px;
+      margin: 0 0 12px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .task h4 {
+      margin: 0 0 6px;
+      font-size: 15.5px;
+    }
+    .task p {
+      margin: 0 0 6px;
+      font-size: 14.5px;
+    }
+    .task .k {
+      color: var(--muted);
+    }
+    .muted {
+      color: var(--muted);
+    }
+    ul,
+    ol {
+      padding-left: 22px;
+      margin: 0 0 12px;
+    }
+    li {
+      margin: 0 0 6px;
+    }
+    figure {
+      margin: 0 0 16px;
+    }
+    figure svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    figcaption {
+      margin-top: 6px;
+      font-size: 13.5px;
+      color: var(--muted);
+    }
+    .size {
+      font-size: 12.5px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav>
+        <a href="index.html">Overview</a>
+        <a href="reuse.html">Reuse matrix</a>
+        <a aria-current="page" href="build-plan.html">Build plan</a>
+        <a href="review-response.html">Review response</a>
+      </nav>
+
+      <h1>Build plan</h1>
+      <p class="lead">
+        Milestone 0 is serial: the foundation contracts as code with tests, the
+        wiring and the UI shell split so later work does not collide, and a run
+        that goes end to end on a fake runtime. After it, three coordinated
+        lanes run in parallel, which is what one to three people can use.
+        Milestone 1 is the walking skeleton and the first thing Dom can use.
+        Every task ends in a check someone can run, and the checks include the
+        failure cases the reviews asked for. Sizes are rough: S under a day, M
+        one to three days, L more. Revised twice after review; the
+        <a href="review-response.html">review response</a>
+        lists what moved.
+      </p>
+
+      <h2 id="contracts">Contracts</h2>
+      <p>
+        Seven contracts exist as code with tests by the end of M0. What freezes
+        at M0 is the part that crosses a process or network boundary, and only
+        the part the skeleton needs. Feature tables and tool input schemas
+        arrive with their milestones through the serial migration queue. The
+        unfrozen contracts may change until the M1 gate, with every change
+        announced to the other lanes.
+      </p>
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Contract</th>
+            <th>Where it lives</th>
+            <th>What it fixes</th>
+            <th>Frozen</th>
+            <th>Owner</th>
+          </tr>
+          <tr>
+            <td>C1 Foundation schema</td>
+            <td>
+              <code>packages/db/src/schema/*.ts</code>,
+              <code>packages/db/migrations/</code>,
+              <code>packages/db/src/atomic.ts</code>
+            </td>
+            <td>
+              The nine foundation tables (<code>workspaces</code>,
+              <code>identity_links</code>, <code>agents</code>,
+              <code>machines</code>, <code>machine_enroll_tokens</code>,
+              <code>sessions</code>, <code>runs</code>, <code>events</code>,
+              <code>files</code>) with every column the
+              <a href="index.html#data">data model</a>
+              lists for them, including
+              <code>runs.on_behalf_of_user_id</code>,
+              <code>parent_run_id</code>, <code>depth</code>,
+              <code>input_file_ids</code>, <code>pending_files</code>,
+              <code>output_file_ids</code>, <code>process_ended_at</code>,
+              <code>status = interrupted</code>,
+              <code>agents.runtime = fake</code>,
+              <code>machines.single_user</code>; the
+              <code>(workspace_id, request_id)</code>
+              unique index; the
+              <code>events</code>
+              append-only triggers; the
+              <code>atomic</code>
+              write port.
+            </td>
+            <td>M0</td>
+            <td>Runtime</td>
+          </tr>
+          <tr>
+            <td>C4 Machine protocol</td>
+            <td><code>packages/protocol/src/machine.ts</code></td>
+            <td>
+              WebSocket frames (<code>hello</code>, <code>ping</code>,
+              <code>hello_ack</code>, <code>offer</code>, <code>cancel</code>),
+              close codes, the four HTTP routes and their bodies: claim
+              (predicate, response with <code>runToken</code>,
+              <code>mcpServers</code>, <code>inputFileIds</code>,
+              <code>instructions</code>), events, heartbeat (returns
+              <code>{ }</code>), complete (<code>fileIds</code>,
+              <code>aborted</code>). Lease 90 s, heartbeat 20 s.
+            </td>
+            <td>M0</td>
+            <td>Runtime</td>
+          </tr>
+          <tr>
+            <td>C6 Run token, proxy URL, platform MCP tool names</td>
+            <td>
+              <code>packages/services/src/run-tokens.ts</code>,
+              <code>packages/mcp/src/tools/*.ts</code>
+            </td>
+            <td>
+              <code>hm_run_</code>
+              claims (run, agent, workspace, 12 h cap) and the server-side
+              validity rule; <code>/api/proxy/:connectorId</code>;
+              <code>/mcp</code>; the nine tool names. Tool input schemas land
+              with M2 and M6.
+            </td>
+            <td>M0</td>
+            <td>Access</td>
+          </tr>
+          <tr>
+            <td>C2 Principal and authz</td>
+            <td>
+              <code>packages/services/src/workspaces.ts</code>,
+              <code>authz.ts</code>;
+              <code>apps/web/src/server/trpc/init.ts</code>
+            </td>
+            <td>
+              The <code>Principal</code> union including <code>system</code>,
+              <code
+                >createPrincipalResolver( { db, runTokenKey,
+                verifyClerkOAuthToken, isOrgMember, allowedOrgIds })</code
+              >
+              with all four bearer prefixes implemented, token prefixes,
+              <code>can()</code>.
+            </td>
+            <td>After M1 gate</td>
+            <td>Access</td>
+          </tr>
+          <tr>
+            <td>C3 Start a run</td>
+            <td><code>packages/services/src/runs.ts</code></td>
+            <td>
+              <code
+                >createRunsService( { db, atomic, adapters, gateways, blobs,
+                clock, devFakeRuntime })</code
+              >, <code>StartRunInput</code> (no actor input), the derivation of
+              actor and subject from the principal,
+              <code>parent_run_id</code>
+              and the depth cap, session get-or-create, duplicate
+              <code>requestId</code>
+              handling,
+              <code>waitForRun</code>, <code>RuntimeAdapter</code>,
+              <code>ingestRunEvents</code>
+              and <code>completeRun</code> with the 409 rule and the
+              <code>aborted</code>
+              exception, the queued-run sweep.
+            </td>
+            <td>After M1 gate</td>
+            <td>Runtime</td>
+          </tr>
+          <tr>
+            <td>C5 Event envelope</td>
+            <td>
+              <code>packages/services/src/events.ts</code>, kinds in
+              <code>@repo/db/shared</code>
+            </td>
+            <td>
+              <code>createEventsService( { db, blobs })</code>, event types,
+              actor shape, payload cap, transcript query.
+            </td>
+            <td>After M1 gate</td>
+            <td>Runtime</td>
+          </tr>
+          <tr>
+            <td>C7 Gateway</td>
+            <td><code>packages/services/src/runs.ts</code></td>
+            <td>
+              <code>Gateway.deliver(target, message, context)</code>
+              with the trusted
+              <code>{ runId, agentId, onBehalfOfUserId }</code>, gateway
+              factories with injected clients, registration by injection.
+            </td>
+            <td>After M1 gate</td>
+            <td>Runtime</td>
+          </tr>
+        </table>
+      </div>
+      <p>
+        Composition has one owner: <code>apps/web/src/server/compose.ts</code>,
+        under the Runtime lane, builds every service with its dependencies and
+        hands them to the tRPC context, the route groups and the tick. Every
+        other lane adds one factory call there. Schema rule after M0: one serial
+        queue of small migration PRs. A lane that needs a table or column opens
+        that PR first, the others rebase and rerun
+        <code>bun run generate</code>. Nobody merges two
+        <code>migrations/meta</code>
+        journals.
+      </p>
+      <p>
+        Two kinds of check. Contract tests in M0 run on
+        <code>bun:sqlite</code>
+        with injected fakes (a fake clock, a fake blob store, a fake Clerk
+        verifier) and need no Worker. Route integration tests from M1 on run the
+        Hono apps with the
+        <code>cloudflare:workers</code>
+        shim and name their prerequisites. The build order is the dependency
+        order, so no check runs before the thing it checks exists.
+      </p>
+
+      <h2 id="graph">Lanes and dependencies</h2>
+      <figure>
+        <svg
+          aria-label="Lane graph: M0 foundations, then Runtime, Access and Automation lanes in parallel, with their milestones and cross-lane waits"
+          font-family="system-ui, sans-serif"
+          font-size="13"
+          role="img"
+          viewBox="0 0 980 470"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <marker
+              id="a"
+              markerHeight="8"
+              markerWidth="8"
+              orient="auto-start-reverse"
+              refX="9"
+              refY="5"
+              viewBox="0 0 10 10"
+            >
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)" />
+            </marker>
+          </defs>
+          <rect
+            fill="var(--card)"
+            height="56"
+            rx="8"
+            stroke="var(--accent)"
+            stroke-width="1.5"
+            width="220"
+            x="380"
+            y="16"
+          />
+          <text
+            fill="var(--fg)"
+            font-weight="700"
+            text-anchor="middle"
+            x="490"
+            y="39"
+          >
+            M0 Foundations (serial)
+          </text>
+          <text fill="var(--muted)" text-anchor="middle" x="490" y="58">
+            contracts, fake runtime, split wiring, shell, CI
+          </text>
+          <g marker-end="url(#a)" stroke="var(--muted)" stroke-width="1.5">
+            <line x1="490" x2="170" y1="72" y2="108" />
+            <line x1="490" x2="490" y1="72" y2="108" />
+            <line x1="490" x2="810" y1="72" y2="108" />
+          </g>
+          <text
+            fill="var(--accent)"
+            font-weight="700"
+            text-anchor="middle"
+            x="170"
+            y="100"
+          >
+            Runtime lane
+          </text>
+          <text
+            fill="var(--accent)"
+            font-weight="700"
+            text-anchor="middle"
+            x="490"
+            y="100"
+          >
+            Access lane
+          </text>
+          <text
+            fill="var(--accent)"
+            font-weight="700"
+            text-anchor="middle"
+            x="810"
+            y="100"
+          >
+            Automation lane
+          </text>
+          <g>
+            <rect
+              fill="var(--card)"
+              height="50"
+              rx="8"
+              stroke="var(--ok)"
+              stroke-width="1.5"
+              width="180"
+              x="80"
+              y="112"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="700"
+              text-anchor="middle"
+              x="170"
+              y="133"
+            >
+              M1 skeleton
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="170" y="150">
+              relay, daemon, Claude Code, chat
+            </text>
+            <rect
+              fill="var(--card)"
+              height="50"
+              rx="8"
+              stroke="var(--line)"
+              stroke-width="1.5"
+              width="180"
+              x="80"
+              y="186"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="700"
+              text-anchor="middle"
+              x="170"
+              y="207"
+            >
+              M7 files
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="170" y="224">
+              R2 routes, upload
+            </text>
+            <rect
+              fill="var(--card)"
+              height="50"
+              rx="8"
+              stroke="var(--line)"
+              stroke-width="1.5"
+              width="180"
+              x="80"
+              y="260"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="700"
+              text-anchor="middle"
+              x="170"
+              y="281"
+            >
+              M1.6 daemon fetches files
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="170" y="298">
+              input files in, attachments out
+            </text>
+            <rect
+              fill="var(--card)"
+              height="50"
+              rx="8"
+              stroke="var(--line)"
+              stroke-width="1.5"
+              width="180"
+              x="80"
+              y="334"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="700"
+              text-anchor="middle"
+              x="170"
+              y="355"
+            >
+              M5 Slack
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="170" y="372">
+              events, paste install, files
+            </text>
+          </g>
+          <g>
+            <rect
+              fill="var(--card)"
+              height="50"
+              rx="8"
+              stroke="var(--line)"
+              stroke-width="1.5"
+              width="180"
+              x="400"
+              y="112"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="700"
+              text-anchor="middle"
+              x="490"
+              y="133"
+            >
+              M2 platform MCP
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="490" y="150">
+              keys, Clerk OAuth, tools
+            </text>
+            <rect
+              fill="var(--card)"
+              height="50"
+              rx="8"
+              stroke="var(--line)"
+              stroke-width="1.5"
+              width="180"
+              x="400"
+              y="186"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="700"
+              text-anchor="middle"
+              x="490"
+              y="207"
+            >
+              M3 connectors
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="490" y="224">
+              registry, OAuth, credentials, proxy
+            </text>
+            <rect
+              fill="var(--card)"
+              height="50"
+              rx="8"
+              stroke="var(--line)"
+              stroke-width="1.5"
+              width="180"
+              x="400"
+              y="260"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="700"
+              text-anchor="middle"
+              x="490"
+              y="281"
+            >
+              M2.3 inbox tools
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="490" y="298">
+              after M6
+            </text>
+            <rect
+              fill="var(--card)"
+              height="50"
+              rx="8"
+              stroke="var(--line)"
+              stroke-dasharray="6 4"
+              stroke-width="1.5"
+              width="180"
+              x="400"
+              y="334"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="700"
+              text-anchor="middle"
+              x="490"
+              y="355"
+            >
+              M8 Managed Agents
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="490" y="372">
+              only if Dom says SMB first
+            </text>
+          </g>
+          <g>
+            <rect
+              fill="var(--card)"
+              height="50"
+              rx="8"
+              stroke="var(--line)"
+              stroke-width="1.5"
+              width="180"
+              x="720"
+              y="112"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="700"
+              text-anchor="middle"
+              x="810"
+              y="133"
+            >
+              O.1 staging
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="810" y="150">
+              deploy, secrets, previews
+            </text>
+            <rect
+              fill="var(--card)"
+              height="50"
+              rx="8"
+              stroke="var(--line)"
+              stroke-width="1.5"
+              width="180"
+              x="720"
+              y="186"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="700"
+              text-anchor="middle"
+              x="810"
+              y="207"
+            >
+              M4 triggers
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="810" y="224">
+              HTTP endpoint, routines
+            </text>
+            <rect
+              fill="var(--card)"
+              height="50"
+              rx="8"
+              stroke="var(--line)"
+              stroke-width="1.5"
+              width="180"
+              x="720"
+              y="260"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="700"
+              text-anchor="middle"
+              x="810"
+              y="281"
+            >
+              M6 inbox
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="810" y="298">
+              threads, posts, mentions
+            </text>
+            <rect
+              fill="var(--card)"
+              height="50"
+              rx="8"
+              stroke="var(--line)"
+              stroke-width="1.5"
+              width="180"
+              x="720"
+              y="334"
+            />
+            <text
+              fill="var(--fg)"
+              font-weight="700"
+              text-anchor="middle"
+              x="810"
+              y="355"
+            >
+              M9 sessions, log pages
+            </text>
+            <text fill="var(--muted)" text-anchor="middle" x="810" y="372">
+              the two cross-lane pages
+            </text>
+          </g>
+          <g marker-end="url(#a)" stroke="var(--muted)" stroke-width="1.5">
+            <line x1="170" x2="170" y1="162" y2="184" />
+            <line x1="170" x2="170" y1="236" y2="258" />
+            <line x1="170" x2="170" y1="310" y2="332" />
+            <line x1="490" x2="490" y1="162" y2="184" />
+            <line x1="490" x2="490" y1="236" y2="258" />
+            <line x1="490" x2="490" y1="310" y2="332" />
+            <line x1="810" x2="810" y1="162" y2="184" />
+            <line x1="810" x2="810" y1="236" y2="258" />
+            <line x1="810" x2="810" y1="310" y2="332" />
+          </g>
+          <g
+            marker-end="url(#a)"
+            stroke="var(--muted)"
+            stroke-dasharray="5 4"
+            stroke-width="1.5"
+          >
+            <line x1="720" x2="582" y1="285" y2="276" />
+            <line x1="720" x2="262" y1="137" y2="140" />
+            <line x1="400" x2="262" y1="226" y2="152" />
+          </g>
+          <text
+            fill="var(--muted)"
+            font-size="12.5"
+            text-anchor="middle"
+            x="490"
+            y="420"
+          >
+            Solid: order inside a lane. Dashed: M2.3 waits for M6; the M1 gate's
+            second-machine check waits for O.1;
+          </text>
+          <text
+            fill="var(--muted)"
+            font-size="12.5"
+            text-anchor="middle"
+            x="490"
+            y="438"
+          >
+            M3.3's live test through Claude Code waits for M1.4 (its unit tests
+            use a stub MCP server and the fake runtime).
+          </text>
+        </svg>
+        <figcaption>
+          Three coordinated lanes start the moment M0 merges. They share the
+          runs service and the principal resolver, each with a named owner; each
+          lane edits only its own route group, router, tab file and nav entry
+          after M0.7.
+        </figcaption>
+      </figure>
+
+      <div class="tw">
+        <table>
+          <tr>
+            <th>Lane</th>
+            <th>Owns</th>
+            <th>Order</th>
+            <th>Waits on another lane</th>
+          </tr>
+          <tr>
+            <td>Runtime</td>
+            <td>
+              <code>machines</code>, <code>MachineRelay</code>,
+              <code>apps/daemon</code>, machine routes, Claude Code execution,
+              the runs service, <code>compose.ts</code>, <code>files</code>,
+              Slack; UI: Machines page, agent page chat tab, Slack tab, composer
+              upload
+            </td>
+            <td>M1, M7, M1.6, M5</td>
+            <td>
+              M1 gate's second-machine check needs O.1. M5.2's live test needs
+              the staging URL from O.1. M1.3 needs Access's
+              <code>mcpServers</code>
+              builder for connector entries (an empty map until then).
+            </td>
+          </tr>
+          <tr>
+            <td>Access</td>
+            <td>
+              Principal resolver, <code>/mcp</code>, API keys, Clerk OAuth,
+              client gate, <code>packages/mcp</code>, <code>connectors</code>,
+              <code>credentials</code>, OAuth flows, proxy, the
+              <code>mcpServers</code>
+              builder; UI: Settings pages, Connectors page, agent page
+              connectors tab
+            </td>
+            <td>M2, M3, M2.3, (M8)</td>
+            <td>
+              M2.3 needs M6. M3.3's Claude Code test needs M1.4. M2.2's
+              Claude.ai check needs O.1 or a tunnel.
+            </td>
+          </tr>
+          <tr>
+            <td>Automation</td>
+            <td>
+              Staging and deploy, <code>triggers</code>,
+              <code>scheduled()</code>
+              jobs beyond the sweep,
+              <code>inbox</code>; UI: Triggers page, agent page triggers tab,
+              Inbox page, Sessions page, Log page
+            </td>
+            <td>O.1, M4, M6, M9</td>
+            <td>
+              Sessions and Log pages wait for the runs and events routers (M0,
+              so no wait in practice).
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <h2 id="m0">
+        M0 Foundations
+        <span class="size">serial, two to three weeks for one person</span>
+      </h2>
+      <p>
+        Goal: the foundation contracts exist as code with tests, the Worker
+        entry has its final shape, the wiring files and the UI shell are
+        pre-split per lane, and a run goes from <code>startRun</code> to a
+        finished transcript on a fake runtime.
+      </p>
+
+      <div class="task">
+        <h4>M0.1 Workspace, principal, authz <span class="size">M</span></h4>
+        <p>
+          Scope: <code>workspaces</code> and <code>identity_links</code> tables.
+          <code
+            >createPrincipalResolver( { db, runTokenKey, verifyClerkOAuthToken,
+            isOrgMember, allowedOrgIds })</code
+          >
+          with all four bearer prefixes implemented against the foundation
+          tables (machine credentials, trigger tokens in a stub table that M4
+          replaces, run tokens by HMAC plus the <code>runs</code> row check) and
+          the <code>system</code> kind for the tick.
+          <code>isOrgMember</code>
+          runs for <code>api_key</code> and
+          <code>oauth</code>
+          principals on every request, cached 60 s. An org not in
+          <code>allowedOrgIds</code>
+          gets no workspace; Clerk restricted sign-up and Organizations are
+          turned on in the Clerk dashboard as part of this task.
+          <code>authz.can()</code>.
+          <code>workspaceProcedure</code>
+          replacing
+          <code>protectedProcedure</code>
+          in <code>init.ts</code>,
+          <code>ctx.principal</code>
+          in <code>context.ts</code> and the add-clerk template copy.
+          <code>create-dev-user</code>
+          creates an org and a membership, adds the org to the dev allow-list,
+          and
+          <code>/dev-login</code>
+          calls <code>setActive</code> with it.
+        </p>
+        <p class="k">
+          Provides C2. Reuse: flightdex-v2 <code>workspaceProcedure</code> and
+          <code>authenticate.ts</code>
+          (borrow), the-brain principal chain.
+        </p>
+        <p>
+          Check: <code>bun test packages/services</code> includes
+          <code>authz.test.ts</code>
+          (a member of A cannot read B's row through any service),
+          <code>principal.test.ts</code>
+          (each prefix resolves to its kind; unknown prefix is null; an
+          <code>api_key</code> principal whose
+          <code>isOrgMember</code>
+          answers false resolves to null; an org not in
+          <code>allowedOrgIds</code>
+          resolves to null). A router test builds a context from a fake Clerk
+          session with an org and asserts
+          <code>me</code>
+          returns <code>{ userId, workspaceId }</code>. Browser: dev login lands
+          on the app, not on the create-organization screen.
+        </p>
+      </div>
+
+      <div class="task">
+        <h4>
+          M0.2 Foundation schema, migrations, atomic port
+          <span class="size">M</span>
+        </h4>
+        <p>
+          Scope: split <code>packages/db/src/schema.ts</code> into
+          <code>schema/&lt;module&gt;.ts</code>
+          and point
+          <code>drizzle.config.ts</code>
+          at the list. The nine foundation tables with the columns under C1,
+          <code>workspace_id NOT NULL</code>
+          no default, indexes from the data model. The
+          <code>events</code>
+          migration appends two hand-written triggers (drizzle-kit does not emit
+          triggers).
+          <code>packages/db/src/atomic.ts</code>:
+          <code>atomic(statements)</code>
+          over <code>db.batch</code> for D1 and
+          <code>db.transaction</code>
+          for <code>bun:sqlite</code>, exported as
+          <code>@repo/db/atomic</code>; the rule goes into the
+          <code>packages/db</code>
+          README. Delete the <code>notes</code> example and its route.
+        </p>
+        <p class="k">Provides C1.</p>
+        <p>
+          Check:
+          <code>cd packages/db &amp;&amp; bun run generate</code>
+          produces no diff after the commit.
+          <code>bun test packages/db</code>
+          includes
+          <code>events.test.ts</code>
+          proving <code>UPDATE events</code> and
+          <code>DELETE FROM events</code>
+          throw,
+          <code>schema.test.ts</code>
+          asserting every table except
+          <code>workspaces</code>
+          and <code>__drizzle_migrations</code> has
+          <code>workspace_id</code>
+          with <code>notnull = 1</code> via
+          <code>PRAGMA table_info</code>, and
+          <code>atomic.test.ts</code>
+          proving a failing second statement rolls back the first on
+          <code>bun:sqlite</code>. Against the local D1:
+          <code>wrangler d1 migrations apply DB --local</code>
+          then
+          <code
+            >wrangler d1 execute DB --local --command "DELETE FROM events"</code
+          >
+          fails, because wrangler applies the real migration.
+        </p>
+      </div>
+
+      <div class="task">
+        <h4>M0.3 Events service <span class="size">S</span></h4>
+        <p>
+          Scope: copy control-plane's envelope, ids, payload cap and redact.
+          <code>createEventsService( { db, blobs })</code>
+          where
+          <code>blobs</code>
+          is <code>{ put, get }</code> over R2 in the app and a Map in tests.
+          <code>append(event)</code>
+          writes the row, or a blob plus a
+          <code>payload_ref</code>
+          when over 64 KB.
+          <code>transcript(sessionId)</code>,
+          <code>query(workspaceId, filters)</code>. Types list exported through
+          <code>@repo/db/shared</code>.
+        </p>
+        <p class="k">Provides C5.</p>
+        <p>
+          Check: <code>bun test packages/services</code>: a 100 KB payload lands
+          in the fake blob store and the row has an empty payload with a ref;
+          secrets in payloads are stripped; <code>transcript</code> orders by
+          id.
+        </p>
+      </div>
+
+      <div class="task">
+        <h4>
+          M0.4 Runs service, fake runtime, seed <span class="size">M</span>
+        </h4>
+        <p>
+          Scope:
+          <code
+            >createRunsService( { db, atomic, adapters, gateways, blobs, clock,
+            devFakeRuntime })</code
+          >. <code>startRun(principal, input)</code> derives actor and
+          <code>on_behalf_of_user_id</code>
+          from the principal, sets
+          <code>parent_run_id</code>
+          and <code>depth</code> for run principals and refuses depth above 3,
+          verifies <code>input.fileIds</code> belong to the principal's user and
+          workspace, session get-or-create on
+          <code>(agent, origin, externalKey)</code>, inserts the run; a
+          duplicate <code>requestId</code> is caught as the unique violation and
+          the existing run is read back and returned. Adapter registry keyed by
+          <code>agents.runtime</code>; <code>FakeRuntime</code> (echo)
+          registered only when <code>devFakeRuntime</code> is true.
+          <code>ingestRunEvents</code>
+          and <code>completeRun</code> refuse with 409 unless the run is
+          <code>running</code>, except
+          <code>completeRun( { status: "aborted" })</code>
+          on an
+          <code>interrupted</code>
+          run, which records
+          <code>process_ended_at</code>. <code>completeRun</code> writes
+          <code>result_text</code>
+          and <code>output_file_ids</code> and calls the reply target's gateway
+          with the trusted context.
+          <code>waitForRun</code>, <code>cancelRun</code>. The queued-run sweep
+          job: re-offer runs queued or offered for more than 60 s through the
+          agent's adapter; download leftover <code>pending_files</code>. Lease
+          reaper: expired lease makes the run <code>interrupted</code> with a
+          <code>run.interrupted</code>
+          event, never re-queued.
+          <code>Gateway</code>
+          interface with a
+          <code>none</code>
+          implementation. <code>agents</code> service with CRUD, slug rules,
+          <code>runtime</code>
+          including <code>fake</code>, and its tRPC router.
+          <code>bun scripts/dev/seed-fake-agent.ts</code>
+          prints a fake-runtime agent id.
+        </p>
+        <p class="k">
+          Provides C3, C7. Reuse: Ariadne queue transitions as a pattern,
+          durable-pi send-with-wait.
+        </p>
+        <p>
+          Check: <code>runs.test.ts</code>: start a run on a fake-runtime agent,
+          <code>waitForRun</code>
+          returns <code>done</code> with the echo, the transcript has
+          <code>message.user</code>
+          and
+          <code>message.assistant</code>; the same <code>requestId</code> twice
+          returns the same run id and the second call did not insert; a second
+          message on the same session key reuses the session; a run started with
+          a run-token principal inherits the parent's
+          <code>on_behalf_of_user_id</code>, gets
+          <code>parent_run_id</code>
+          set, and a fourth level is refused; a trigger-started run has a null
+          subject; a <code>fileId</code> owned by another user is refused; an
+          event or completion for an
+          <code>interrupted</code>
+          run gets 409 and writes nothing, while
+          <code>aborted</code>
+          is accepted and sets
+          <code>process_ended_at</code>; the reaper interrupts a run whose lease
+          passed and leaves it there; the sweep re-offers a run that has been
+          queued for 61 s and ignores one queued for 30 s.
+          <code>bun scripts/dev/seed-fake-agent.ts</code>
+          prints an id that
+          <code>runs.start</code>
+          accepts.
+        </p>
+      </div>
+
+      <div class="task">
+        <h4>M0.5 Crypto and tokens <span class="size">S</span></h4>
+        <p>
+          Scope: copy flightdex-v2 <code>secrets.ts</code> into
+          <code>@repo/services/crypto</code>
+          with the binding
+          <code>{ workspaceId, table, rowId, field }</code>.
+          <code>hashedToken</code>
+          helper (generate with prefix, SHA-256, constant-time match). Run token
+          sign and verify (HMAC,
+          <code>hm_run_</code>, run id, agent id, workspace id, issued-at, 12 h
+          cap). Validity on use is the token plus
+          <code>runs.status = 'running' AND lease_until &gt; now</code>.
+        </p>
+        <p class="k">Provides half of C6.</p>
+        <p>
+          Check: copied tests pass. <code>run-tokens.test.ts</code>: a token for
+          a finished or interrupted run is refused by the resolver; a tampered
+          token is refused; a token older than 12 h is refused; a token for a
+          running run whose lease has passed is refused; a token minted at claim
+          is still accepted after three simulated lease extensions.
+        </p>
+      </div>
+
+      <div class="task">
+        <h4>
+          M0.6 Protocol and MCP tool contracts <span class="size">S</span>
+        </h4>
+        <p>
+          Scope: new workspace package <code>packages/protocol</code> with the
+          machine frames and route bodies as strict zod schemas and a golden
+          fixture per frame. New package <code>packages/mcp</code> with
+          flightdex-v2's scaffolding and the nine tool names registered with
+          placeholder input schemas and bodies throwing "not implemented"; real
+          input schemas land with M2.1 and M2.3.
+        </p>
+        <p class="k">Provides C4 and the rest of C6.</p>
+        <p>
+          Check: <code>bun test packages/protocol packages/mcp</code>: every
+          fixture parses, an unknown field fails (<code>strictObject</code>),
+          the tool list from a real MCP client (<code
+            >@modelcontextprotocol/client</code
+          >, the flightdex-v2 <code>testing.ts</code> helper) matches the nine
+          names.
+        </p>
+      </div>
+
+      <div class="task">
+        <h4>
+          M0.7 Worker entry shape, bindings, split wiring, shell
+          <span class="size">M, and it retires the biggest unknown</span>
+        </h4>
+        <p>
+          Scope: <code>server.ts</code> exports
+          <code>{ fetch, scheduled }</code>
+          and the
+          <code>MachineRelay</code>
+          class (a placeholder that answers a ping).
+          <code>wrangler.jsonc</code>
+          gains the DO binding in all three places, the DO
+          <code>migrations</code>
+          block and cron
+          <code>* * * * *</code>
+          at the top level only, R2 <code>FILES</code> in all three places, vars
+          <code>PUBLIC_BASE_URL</code>.
+          <code>cf-typegen</code>.
+          <code>apps/web/src/server/compose.ts</code>
+          builds every service once per request from bindings and secrets.
+          Pre-split wiring so the lanes never edit the same file: one Hono
+          sub-app per lane under
+          <code>server/routes/ { runtime,access,automation}.ts</code>
+          mounted from <code>server.ts</code>; one tRPC router per lane merged
+          in
+          <code>router.ts</code>; a tick registry (<code>scheduled()</code>
+          runs every registered job; each lane registers from its own file; the
+          sweep and the reaper register here); gateways registered by injection
+          in <code>compose.ts</code>. <code>csrf()</code> applied to every
+          cookie-authenticated non-GET route group; bearer route groups ignore
+          cookies. UI shell: sidebar with a nav registry each lane appends to
+          from its own file, and an agent page with one tab file per lane (<code
+            >tabs/chat.tsx</code
+          >, <code>tabs/connectors.tsx</code>, <code>tabs/slack.tsx</code>,
+          <code>tabs/triggers.tsx</code>, empty until their milestone).
+          <code>apps/web/bunfig.toml</code>
+          with Ariadne's
+          <code>cloudflare:workers</code>
+          shim, and the <code>test</code> script changed to
+          <code>bun test</code>. The boundary lint from The Brain with the three
+          repo rules.
+        </p>
+        <p class="k">
+          This is where "a Durable Object under the Cloudflare Vite plugin plus
+          TanStack Start" gets proven, before the Runtime lane builds on it.
+        </p>
+        <p>
+          Check: <code>bun run dev</code> then
+          <code>curl localhost:3000/api/machines/ping-do</code>
+          returns
+          <code>{ "pong":true}</code>
+          from inside the DO.
+          <code>tick.test.ts</code>
+          runs the tick with an injected clock and asserts each registered job
+          ran once and nothing was appended to
+          <code>events</code>
+          when no job did work. A probe, not a gate:
+          <code
+            >curl "localhost:3000/cdn-cgi/handler/scheduled?cron=*+*+*+*+*"</code
+          >
+          (or <code>/__scheduled</code> under plain <code>wrangler dev</code>)
+          returns 200.
+          <code
+            >bun run build &amp;&amp; ! grep -rl drizzle apps/web/dist/client</code
+          >. <code>bun scripts/boundary-lint.ts</code> exits 0 and its test
+          proves it exits 1 on a planted import. A test under
+          <code>apps/web/src</code>
+          that imports the relay module runs under
+          <code>bun run test</code>. The <code>atomic</code> probe: a dev route
+          runs a two-statement <code>atomic</code> whose second statement fails
+          and the first row is absent afterwards on the local D1.
+        </p>
+      </div>
+
+      <div class="task">
+        <h4>M0.8 CI and repo docs <span class="size">S</span></h4>
+        <p>
+          Scope: <code>.github/workflows/ci.yml</code> running
+          <code>bun install</code>, <code>bun run check</code>,
+          <code>bun run test</code>
+          (so each package's bunfig applies),
+          <code>bun run build</code>
+          and the bundle grep on every push and PR. Update the root
+          <code>CLAUDE.md</code>,
+          <code>packages/db/README.md</code>
+          and
+          <code>packages/services/README.md</code>:
+          <code>workspaceProcedure</code>
+          replaces
+          <code>protectedProcedure</code>; bearer-authenticated Hono routes (<code
+            >/mcp</code
+          >, <code>/api/proxy</code>, machine, Slack, trigger and file routes)
+          call services directly and are the documented exception to "the app
+          reaches it only through tRPC"; services are factories taking
+          <code>{ db, atomic, ... }</code>
+          and never <code>env</code>; multi-statement writes use
+          <code>atomic</code>; the
+          <code>Bun.serve</code>
+          and "don't use vite" text applies to
+          <code>apps/daemon</code>, not <code>apps/web</code>. Fix the stale
+          <code>boilerplate</code>
+          text in the READMEs.
+        </p>
+        <p>
+          Check: the workflow is green on the M0 PR, and a PR that plants
+          <code>import "drizzle-orm"</code>
+          in a route component goes red.
+        </p>
+      </div>
+
+      <h2 id="m1">
+        M1 Walking skeleton <span class="size">Runtime lane</span>
+      </h2>
+      <p>
+        Goal: enrol a machine, create an agent on it, send a message from the
+        browser, watch Claude Code answer, see the transcript. On a laptop this
+        is also local mode. Everything below runs against
+        <code>bun run dev</code>
+        with the daemon started from a second terminal.
+      </p>
+
+      <div class="task">
+        <h4>
+          M1.1 Machines service, connect route, relay
+          <span class="size">M</span>
+        </h4>
+        <p>
+          Scope: enrol tokens (<code>hm_enr_</code>, 15 minutes, single use),
+          machine credentials (<code>hm_mach_</code>, hashed),
+          <code>machines.enrolled_by</code>
+          and <code>single_user</code> from the enrol call,
+          <code>POST /api/machines/enroll</code>,
+          <code>GET /api/machines/connect</code>
+          (upgrade, then 4401 or 1012 inside the socket),
+          <code>MachineRelay</code>
+          with hibernation,
+          <code>hello</code>
+          and <code>hello_ack</code>, ping with last-ping in DO storage, alarm
+          marks the machine offline in D1 after 90 s, machine online and offline
+          events, revoke. On <code>hello</code> the relay reads every queued or
+          offered run for the machine's agents and offers them oldest first; the
+          machine adapter's <code>dispatch</code> and the sweep also offer
+          through the DO stub.
+        </p>
+        <p class="k">
+          Depends on C1, C2, C4. Reuse: Ariadne enrolment, connect, relay,
+          presence (copy).
+        </p>
+        <p>
+          Check: <code>bun test apps/web</code> for the relay logic with a fake
+          socket (hello, replaced connection closes the old one with 1012,
+          revoked credential closes 4401, alarm after silence marks offline,
+          hello with two queued runs produces two offers oldest first). Then:
+          <code>bun scripts/dev/enroll-token.ts</code>
+          prints a code;
+          <code>bun scripts/dev/fake-daemon.ts --code hm_enr_...</code>
+          enrols, connects, prints <code>hello_ack</code>;
+          <code>bun scripts/dev/machines.ts</code>
+          lists the machine as
+          <code>online</code>; kill the script; within two minutes it lists
+          <code>offline</code>
+          and an event exists; start a run on a fake-runtime agent assigned to
+          the machine while the fake daemon is stopped, start it, and the offer
+          arrives.
+        </p>
+      </div>
+
+      <div class="task">
+        <h4>
+          M1.2 Daemon: enrol, connect, service, agent user
+          <span class="size">M</span>
+        </h4>
+        <p>
+          Scope: <code>apps/daemon</code> on Bun. Commands
+          <code>enroll &lt;code&gt; --server &lt;url&gt;</code>,
+          <code>run</code>, <code>status</code>,
+          <code>install-service</code>
+          (systemd user unit, linger preflight; Linux only).
+          <code>install-service</code>
+          also creates the
+          <code>hm-agent</code>
+          user, its home, and a sudoers drop-in allowing the daemon's user to
+          run exactly
+          <code>sudo -u hm-agent &lt;claude binary&gt;</code>; when that fails
+          (no root), the daemon reports <code>single_user: true</code> at enrol
+          and runs Claude Code as itself. Config in
+          <code>~/.harbourmaster/config.json</code>
+          (mode 600, the daemon's user). WebSocket client with backoff, ping,
+          close-code handling, injected sockets and timers. The process awaits a
+          shutdown promise so Bun keeps it alive.
+          <code>bun build --compile</code>
+          for linux x64 and arm64.
+        </p>
+        <p class="k">
+          Depends on C4. Reuse: Ariadne <code>client.ts</code>,
+          <code>backoff.ts</code>, <code>enroll.ts</code>,
+          <code>install-service.ts</code>
+          (copy).
+        </p>
+        <p>
+          Check: <code>bun test apps/daemon</code> (reconnect after a 1012, stop
+          after a 4401, no reconnect storm; the sudoers line is generated with
+          the exact binary path).
+          <code>bun run --cwd apps/daemon build</code>
+          produces
+          <code>dist/harbourmaster</code>;
+          <code
+            >./dist/harbourmaster enroll ... &amp;&amp; ./dist/harbourmaster run</code
+          >
+          makes <code>bun scripts/dev/machines.ts</code> list it online with
+          <code>single_user: false</code>
+          on a box with sudo.
+          <code>sudo -u hm-agent cat ~/.harbourmaster/config.json</code>
+          is refused.
+        </p>
+      </div>
+
+      <div class="task">
+        <h4>
+          M1.3 Machine runtime adapter and run routes
+          <span class="size">M</span>
+        </h4>
+        <p>
+          Scope: <code>MachineRuntime.dispatch</code> marks the run
+          <code>offered</code>
+          and tells the relay.
+          <code>POST .../claim</code>
+          is one conditional write with the predicate from seam 3 (status queued
+          or offered, agent on this machine, no running run for the agent, no
+          older queued run for the session, no pending files); it mints the run
+          token here and returns run, agent, session, token,
+          <code>mcpServers</code>
+          (the platform entry now, connector entries once M3 lands),
+          <code>inputFileIds</code>, <code>instructions</code>.
+          <code>.../events</code>
+          with sequence check and the 409 rule.
+          <code>.../heartbeat</code>
+          extends <code>lease_until</code> by 90 s and returns <code>{ }</code>,
+          409 unless running.
+          <code>.../complete</code>
+          calls <code>completeRun</code>, including
+          <code>aborted</code>
+          for an interrupted run.
+        </p>
+        <p class="k">Depends on M0.4, M1.1, C6.</p>
+        <p>
+          Check: <code>runs-machine.test.ts</code> drives the routes with the
+          machine principal: queued to offered to running to done; a second
+          claim of the same run gets 409; two claimers of two queued runs for
+          one agent, one wins and the other gets 409; a claim for a newer run
+          while an older queued run exists on the same session gets 409; a claim
+          for a run whose agent lives on another machine gets 403; a run with
+          <code>pending_files</code>
+          cannot be claimed; the claim-time token is still accepted by the proxy
+          resolver after three lease periods with heartbeats in between, and
+          refused the moment the run is interrupted; after the lease passes the
+          reaper makes the run
+          <code>interrupted</code>, a late <code>events</code> or
+          <code>complete</code>
+          call gets 409, and
+          <code>complete { status: "aborted" }</code>
+          is accepted once.
+          <code>bun scripts/dev/fake-daemon.ts --echo</code>
+          completes a real run started from the agent page.
+        </p>
+      </div>
+
+      <div class="task">
+        <h4>
+          M1.4 Daemon executes runs with Claude Code <span class="size">L</span>
+        </h4>
+        <p>
+          Scope: on claim, ensure
+          <code
+            >~hm-agent/harbourmaster/&lt;workspaceId&gt;/&lt;agentId&gt;/work</code
+          >
+          (owned by <code>hm-agent</code>), reset <code>work/.claude/</code> and
+          <code>work/.mcp.json</code>, start <code>query()</code> as
+          <code>hm-agent</code>
+          in streaming-input mode with
+          <code>cwd = work/</code>, the instructions from the claim as
+          <code>systemPrompt: { preset: "claude_code", append }</code>,
+          <code>settingSources: ["project"]</code>,
+          <code>strictMcpConfig: true</code>,
+          <code>permissionMode: "bypassPermissions"</code>
+          with
+          <code>allowDangerouslySkipPermissions: true</code>,
+          <code>resume</code>
+          when the session's
+          <code>runtime_ref</code>
+          belongs to this machine,
+          <code>maxBudgetUsd</code>
+          from agent config, filtered env; then
+          <code>query.setMcpServers(mcpServers)</code>; then the first user
+          message. One run per agent at a time locally too. Normalise SDK
+          messages to <code>message.assistant</code>, <code>tool.call</code>,
+          <code>tool.result</code>; batch events every 500 ms; heartbeat every
+          20 s. On a heartbeat 409 or a 1012 close, abort the local process,
+          wait for it to exit, then post
+          <code>complete { status: "aborted" }</code>; the local slot is
+          released only after exit. Complete with the final text, usage and the
+          new session id as <code>runtimeRef</code>. Masker on all outbound text
+          with the run token and machine credential as needles.
+          <code>[ATTACHMENT:path]</code>
+          markers pass through as text until M1.6.
+        </p>
+        <p class="k">
+          Depends on M1.3. Reuse: bruce-next <code>agent.ts</code>,
+          <code>env.ts</code>; Ariadne <code>masker.ts</code>,
+          <code>harness-env.ts</code>, normaliser idea.
+        </p>
+        <p>
+          Check: <code>bun test apps/daemon</code> with an injected
+          <code>queryFn</code>
+          that yields recorded SDK messages (fixtures under
+          <code>apps/daemon/fixtures/</code>): the event batches and the
+          completion match goldens; the options passed to
+          <code>queryFn</code>
+          carry <code>bypassPermissions</code>,
+          <code>allowDangerouslySkipPermissions: true</code>,
+          <code>strictMcpConfig: true</code>, the instructions in
+          <code>systemPrompt.append</code>, and no <code>mcpServers</code>;
+          <code>setMcpServers</code>
+          is called with the claim's map before the first message; resume is
+          passed only when
+          <code>runtime_machine_id</code>
+          matches; a simulated heartbeat 409 aborts the fake process and posts
+          <code>aborted</code>
+          only after it exits. Live, with a real Claude Code: during a run,
+          <code>cat /proc/&lt;claude pid&gt;/cmdline</code>
+          contains no
+          <code>hm_run_</code>, and
+          <code>grep -r hm_run_ ~hm-agent ~/.harbourmaster</code>
+          finds nothing. Two probes recorded in the task: does
+          <code>canUseTool</code>
+          fire under <code>bypassPermissions</code>, and are the servers from
+          <code>setMcpServers</code>
+          connected before the first turn. Live end to end:
+          <code>bun scripts/e2e/skeleton.ts</code>
+          (needs
+          <code>bun run dev</code>, a running daemon and a Claude login) creates
+          an agent whose instructions say "you are called Pelican", sends "What
+          is your name? Reply with the name only", asserts the reply contains
+          "Pelican" (instructions reached the model), sends "Reply with exactly
+          the word heron", then "Which word did I ask for in my previous
+          message?" and asserts "heron" (the session resumed).
+        </p>
+      </div>
+
+      <div class="task">
+        <h4>M1.5 Chat and machines UI <span class="size">M</span></h4>
+        <p>
+          Scope: in the shell from M0.7. Agents list, create and edit (name,
+          instructions, model, runtime <code>machine</code> or, in dev,
+          <code>fake</code>, machine picker). Agent page chat tab: input box,
+          transcript rendered from <code>sessions.transcript</code>, polling
+          every 1.5 s while a run is active, run status line, Retry on an
+          interrupted run enabled only after <code>process_ended_at</code> or
+          ten minutes. Machines page with an enrol button that shows the enrol
+          command. Sessions list per agent.
+        </p>
+        <p class="k">
+          Depends on M0.4, M1.1. Reuse: flightdex shell pattern, shadcn message
+          components already in the repo.
+        </p>
+        <p>
+          Check: dev-login browser script (agent-browser or claude-in-chrome):
+          open <code>/login</code>, click Dev login, create agent "Pelican",
+          open it, send a message, see the reply within 60 s. Plus the build
+          grep from M0.7.
+        </p>
+      </div>
+
+      <div class="task">
+        <h4>
+          M1.6 Daemon fetches and uploads files
+          <span class="size">S, after M7</span>
+        </h4>
+        <p>
+          Scope: before a run, download each id in the claim's
+          <code>inputFileIds</code>
+          with the run token into
+          <code>work/inbox/</code>
+          and name the paths in the first message. After a run, upload each
+          <code>[ATTACHMENT:path]</code>
+          under
+          <code>work/</code>
+          (50 MB cap, allowed root) through
+          <code>POST /api/files</code>
+          with the run token, and pass the returned ids as
+          <code>fileIds</code>
+          in the completion.
+        </p>
+        <p class="k">
+          Depends on M7.1. Reuse: bruce-next
+          <code>outbound_attachments.ts</code>
+          (copy).
+        </p>
+        <p>
+          Check: daemon test with a fake files API: a run with two input file
+          ids gets both files on disk before the first message; a completion
+          with a marker outside <code>work/</code> is refused; a download of a
+          file id not in the run's input is refused by the route (404). Browser:
+          attach a text file to a chat message and ask the agent to quote it;
+          upload, queued run, daemon download, daemon upload, completion with
+          <code>output_file_ids</code>, file chip in the transcript.
+        </p>
+      </div>
+
+      <p>
+        <b>M1 gate.</b> <code>bun scripts/e2e/skeleton.ts</code> passes on Dom's
+        laptop with the compiled daemon. Then, after O.1: copy the binary to a
+        second Linux machine by <code>scp</code>, <code>install-service</code>,
+        and the same script against the staging Worker passes. That is the first
+        useful Harbourmaster. The unfrozen contracts freeze here.
+      </p>
+
+      <h2 id="m2">M2 Platform MCP <span class="size">Access lane</span></h2>
+      <div class="task">
+        <h4>
+          M2.1 API keys and <code>/mcp</code> with keys
+          <span class="size">M</span>
+        </h4>
+        <p>
+          Scope: <code>api_keys</code> table (this lane's first migration),
+          service and tRPC router, settings page (table, create dialog,
+          copy-once). <code>/mcp</code> route with
+          <code>createMcpHandler</code>
+          per request, 1 MB body cap,
+          <code>allowedHostnames</code>
+          from <code>PUBLIC_BASE_URL</code>, structured log line. Tool input
+          schemas and bodies:
+          <code>list_agents</code>, <code>send_message</code> (<code
+            >startRun</code
+          >
+          with <code>origin: "mcp"</code>, <code>requestId</code>, optional
+          <code>waitMs</code>
+          up to 25 s; from a run principal it inherits the subject and is
+          refused when the target is a busy ancestor or depth would exceed 3),
+          <code>get_run</code>, <code>list_sessions</code>,
+          <code>read_session</code>, <code>search_sessions</code> (LIKE over
+          <code>message.*</code>
+          payloads, FTS later). Run tokens are accepted here too, so an agent
+          can read its own sessions, scoped to its agent id.
+        </p>
+        <p class="k">
+          Depends on C2, C3, C6. Reuse: flightdex-v2 routes, authenticate
+          (borrow), api-keys, packages/mcp (copy).
+        </p>
+        <p>
+          Check: <code>bun scripts/smoke-mcp.ts --key hm_key_...</code> against
+          <code>bun run dev</code>
+          with the seeded fake agent: lists tools, sends a message with
+          <code>waitMs: 5000</code>, gets the echo back, reads the session.
+          <code>mcp.test.ts</code>: a run-token principal can read its own
+          session and gets an empty list for another agent's; an api-key
+          principal whose user left the org (fake
+          <code>isOrgMember</code>
+          false) gets 401;
+          <code>send_message</code>
+          from a run on behalf of user U creates a run on behalf of U with
+          <code>parent_run_id</code>
+          set; a
+          <code>send_message</code>
+          from B back to A while A is B's running ancestor is refused. Manual:
+          <code
+            >claude mcp add --transport http harbourmaster
+            http://localhost:3000/mcp --header "Authorization: Bearer
+            hm_key_..."</code
+          >
+          then ask Claude Code to message the agent.
+        </p>
+      </div>
+      <div class="task">
+        <h4>
+          M2.2 Clerk OAuth and the client gate <span class="size">M</span>
+        </h4>
+        <p>
+          Scope: <code>oauth_clients</code> table (<code>client_id</code>
+          unique across workspaces), protected-resource metadata and
+          authorization-server proxy under <code>/.well-known</code>, Clerk
+          token verification with the 60 s cache and 503-on-outage rule,
+          approval states, connected-apps settings page. An OAuth principal's
+          workspace comes from its approved row. Org membership checked on every
+          OAuth-principal request through the injected <code>isOrgMember</code>.
+        </p>
+        <p class="k">
+          Reuse: flightdex-v2 <code>clerk-oauth.ts</code>,
+          <code>metadata.ts</code>, <code>oauth-clients.ts</code>, settings UI
+          (copy).
+        </p>
+        <p>
+          Check: <code>bun scripts/smoke-mcp-oauth.ts</code> (ported) completes
+          the consent flow against the Clerk dev instance, gets 403
+          <code>client_not_approved</code>, is approved in the UI, then lists
+          tools. Live (needs O.1's staging URL or
+          <code
+            >cloudflared tunnel --config /dev/null --url http://localhost:3000</code
+          >): add Harbourmaster as a connector in Claude.ai and ask it to list
+          agents.
+        </p>
+      </div>
+      <div class="task">
+        <h4>M2.3 Inbox tools <span class="size">S, after M6</span></h4>
+        <p>
+          Scope: input schemas and bodies for <code>inbox_list</code>,
+          <code>inbox_read</code>, <code>inbox_post</code>.
+          <code>inbox_post</code>
+          returns the ids of any runs its mentions started.
+        </p>
+        <p>
+          Check: the smoke script posts to a thread mentioning the fake agent,
+          then polls <code>inbox_read</code> every second for up to 10 s until a
+          post with that run id appears.
+        </p>
+      </div>
+
+      <h2 id="m3">
+        M3 Connectors and credentials <span class="size">Access lane</span>
+      </h2>
+      <div class="task">
+        <h4>M3.1 Registry, probe, header auth <span class="size">M</span></h4>
+        <p>
+          Scope: <code>connectors</code>, <code>credentials</code>,
+          <code>agent_connectors</code>
+          tables (this lane's migration).
+          <code>createConnectorsService( { db, atomic, fetch })</code>
+          and router: create by URL, SSRF check, probe for tool list, auth kind.
+          A header credential is pasted either as yourself (user-owned) or as
+          the agent (agent-owned, from the agent page only). Assign to agents
+          with
+          <code>credential_mode</code>. Connectors page and the agent page
+          connectors tab.
+        </p>
+        <p class="k">
+          Reuse: Agentum <code>url.ts</code>, <code>mcp.ts</code>,
+          <code>health.ts</code>; control-plane <code>safe-url.ts</code> (copy).
+        </p>
+        <p>
+          Check: <code>connectors.test.ts</code> against a bun stub MCP server (<code
+            >scripts/dev/stub-mcp.ts</code
+          >, bearer-protected, one <code>echo</code> tool, flags
+          <code>--sleep</code>, <code>--fail-once</code>,
+          <code>--count-token-calls</code>): probe lists <code>echo</code>, a
+          private IP URL is refused, the stored header value never appears in
+          any tRPC response, a user-owned and an agent-owned header credential
+          can coexist for one connector.
+        </p>
+      </div>
+      <div class="task">
+        <h4>M3.2 OAuth connectors <span class="size">M</span></h4>
+        <p>
+          Scope: <code>oauth_states</code> table. Discovery (RFC 9728 and 8414),
+          dynamic client registration with a manual client id and secret
+          fallback, PKCE. <code>/connect/:connectorId?as=user</code> and
+          <code>?as=agent:&lt;id&gt;</code>: Clerk session required, creates the
+          state row with <code>initiator_user_id</code>, redirects to the
+          provider. <code>/api/connectors/oauth/callback</code>: refuses unless
+          the session user is the initiator, <code>return_to</code> same-origin
+          path only, token exchange, credential row with
+          <code>version = 1</code>. Re-authorise link, status. UI: Connect
+          buttons, status badge, re-authorise.
+        </p>
+        <p class="k">
+          Reuse: Agentum <code>connectors/oauth.ts</code> with
+          <code>schema.ts</code>, <code>url.ts</code> and its tests (copy).
+        </p>
+        <p>
+          Check: copied <code>oauth.test.ts</code> passes.
+          <code>stub-mcp.ts --oauth</code>
+          exposes metadata and a one-page consent; the browser script connects
+          it as the user and again as an agent from the agent page; two
+          <code>credentials</code>
+          rows exist with different owners.
+          <code>oauth-callback.test.ts</code>: a callback completed by a
+          different signed-in user is refused and the state row is deleted; an
+          off-site <code>return_to</code> is refused at
+          <code>/connect</code>; <code>?as=agent</code> from a non-member is
+          refused.
+        </p>
+      </div>
+      <div class="task">
+        <h4>
+          M3.3 Credential resolution and the proxy <span class="size">M</span>
+        </h4>
+        <p>
+          Scope:
+          <code
+            >createCredentialsService( { db, atomic, secretsKey, clock, fetch })</code
+          >.
+          <code>resolve( { connectorId, agentId, onBehalfOfUserId })</code>
+          with the three modes, the <code>not_assigned</code> result, and the
+          <code>single_user</code>
+          machine rule.
+          <code>/api/proxy/:connectorId</code>
+          in the order the overview gives: token and row check, assignment row
+          or 403, resolve (revoked counts as needs_auth), forward, 5 minute cap
+          (Dom's answer to open question 9), one
+          <code>connector.call</code>
+          event. Refresh ahead when
+          <code>expires_at</code>
+          is within two minutes; on a refresh, take the
+          <code>refreshing_until</code>
+          lease first, only the winner calls the token endpoint, losers poll
+          <code>version</code>
+          for up to 5 s.
+          <code>mcpServers</code>
+          builder used by the claim route. Needs-auth error text carries the
+          Connect path, and the Slack gateway sends it as an ephemeral message.
+        </p>
+        <p class="k">
+          Depends on M0.5. Pattern: flightdex-v2
+          <code>acting?</code>
+          resolution.
+        </p>
+        <p>
+          Check: <code>credentials.test.ts</code> covers the mode matrix: on
+          behalf of a user with and without a credential, no user, each of the
+          three modes, never the agent's credential for a person in
+          <code>user_or_agent</code>; the chain case: user without a credential
+          starts run A, run A's token starts run B on another agent, B's
+          resolution is <code>needs_auth</code>; a
+          <code>single_user</code>
+          machine run on behalf of a non-enrolling user resolves the agent
+          credential and records why.
+          <code>proxy.test.ts</code>: a run token for a finished or interrupted
+          run gets 401; a connector not assigned to the run's agent gets 403
+          before any credential lookup; a revoked credential gets the needs_auth
+          error; the stub sees the real header and never the run token;
+          <code>--fail-once</code>
+          makes the next call refresh and succeed with
+          <code>version = 2</code>; two concurrent calls that both see a 401
+          produce exactly one token-endpoint call at the stub (<code
+            >--count-token-calls</code
+          >) and both succeed; a refresh racing a revocation leaves the row
+          <code>revoked</code>
+          and the stale holder's write is rejected; a refresh racing a
+          re-authorisation leaves the newer grant; a lease holder that dies
+          leaves a lease that expires in 30 s and the next caller takes it;
+          <code>--fail-once</code>
+          with no refresh token sets
+          <code>needs_auth</code>
+          and appends <code>connector.needs_auth</code>;
+          <code>--sleep 310</code>
+          produces <code>connector.timeout</code>, and a live
+          <code>--sleep 240</code>
+          call through the deployed Worker completes (this is where the 5 minute
+          cap from open question 9 is proven or lowered). Live with M1.4: an
+          agent on a machine calls the stub's
+          <code>echo</code>
+          through the proxy after a four-minute idle wait (so more than two
+          leases have passed); the transcript shows
+          <code>tool.call</code>
+          and the log shows <code>connector.call</code>.
+        </p>
+      </div>
+
+      <h2 id="m4">M4 Triggers <span class="size">Automation lane</span></h2>
+      <div class="task">
+        <h4>M4.1 HTTP triggers <span class="size">S</span></h4>
+        <p>
+          Scope: <code>triggers</code> table (this lane's migration, replacing
+          M0.1's stub). <code>kind: "http"</code>, token shown once,
+          <code>POST /api/triggers/:id</code>
+          with
+          <code>{ text, requestId?, waitMs? }</code>, 202 with run id or 200
+          with the result, 401 and 403 contract,
+          <code>trigger.fired</code>
+          event. Triggers page and the agent page triggers tab.
+        </p>
+        <p class="k">
+          Pattern: control-plane ingest route, OpenClaw webhook shape.
+        </p>
+        <p>
+          Check:
+          <code
+            >curl -X POST -H "Authorization: Bearer hm_trg_..." -d ' {
+            "text":"ping","waitMs":5000}' localhost:3000/api/triggers/trg_...</code
+          >
+          against the seeded fake agent returns the echo; the same
+          <code>requestId</code>
+          twice returns the same run; a revoked token gets 401; the run's
+          <code>on_behalf_of_user_id</code>
+          is null.
+        </p>
+      </div>
+      <div class="task">
+        <h4>M4.2 Routines <span class="size">M</span></h4>
+        <p>
+          Scope: <code>kind: "routine"</code> with cron, timezone (default from
+          the workspace), prompt, <code>next_run_at</code>. The tick job, for
+          each due row, runs one <code>atomic</code> write: insert the run with
+          <code>request_id = trigger:&lt;id&gt;:&lt;occurrenceIso&gt;</code>
+          and
+          <code
+            >UPDATE triggers SET next_run_at = &lt;next&gt; WHERE id = ? AND
+            next_run_at = &lt;due&gt;</code
+          >; then dispatch. A duplicate <code>request_id</code> from an
+          overlapping tick is caught and the existing run read back. A run left
+          queued by a crash after the write is picked up by the sweep from M0.4.
+          <code>consecutive_errors</code>
+          with auto-disable at 5. UI with a few presets that compile to cron.
+        </p>
+        <p class="k">Reuse: bruce-next <code>cron.ts</code> (copy).</p>
+        <p>
+          Check: <code>cron.test.ts</code> copied.
+          <code>routines.test.ts</code>
+          with an injected clock: a
+          <code>*/5</code>
+          routine fires once per slot, never twice; two ticks for the same
+          minute produce one run and the second tick reads it back without
+          inserting; a tick whose atomic write fails leaves
+          <code>next_run_at</code>
+          at the due slot so the next tick fires it; a crash after the write and
+          before dispatch leaves a
+          <code>queued</code>
+          run that the sweep offers within 60 s of simulated time; a DST change
+          in <code>Australia/Sydney</code> does not skip or double. Live probe,
+          not a gate: create a
+          <code>* * * * *</code>
+          routine, hit the scheduled handler URL twice a minute apart, see two
+          runs.
+        </p>
+      </div>
+
+      <h2 id="m5">
+        M5 Slack <span class="size">Runtime lane, after M1.6</span>
+      </h2>
+      <div class="task">
+        <h4>
+          M5.1 Events receiver and thread sessions <span class="size">M</span>
+        </h4>
+        <p>
+          Scope: <code>slack_apps</code> and
+          <code>slack_events_seen</code>
+          tables.
+          <code>POST /api/slack/events</code>: URL verification, signature check
+          with the app's signing secret (looked up by <code>api_app_id</code>,
+          and the event's <code>team_id</code> must match that row), body cap.
+          Mention and DM to <code>StartRunInput</code> with
+          <code>origin: "slack"</code>,
+          <code>externalKey = team:channel:threadTs</code>, principal
+          <code>{ kind: "user", via: "slack" }</code>
+          from
+          <code>identity_links</code>. Durable admission: one
+          <code>atomic</code>
+          write stores the
+          <code>slack_events_seen</code>
+          row and the run, with any Slack file descriptors in
+          <code>pending_files</code>, then the route answers 200. A
+          <code>waitUntil</code>
+          downloads pending files into R2 and clears
+          <code>pending_files</code>; the sweep finishes any it did not, three
+          attempts then <code>failed</code> with an event. A sender with no
+          link: the write stores the dedupe row and a
+          <code>slack.unlinked_sender</code>
+          event, the 200 goes out, and
+          <code>waitUntil</code>
+          runs the <code>users.info</code> email lookup; a match that is also an
+          org member creates the link and a reply asking them to send again,
+          anything else gets "ask Dom to add you". Slack gateway
+          <code>deliver</code>
+          posts in the thread with retry, and sends a Connect path as an
+          ephemeral message to the context's
+          <code>onBehalfOfUserId</code>. Channel watch is deferred.
+        </p>
+        <p class="k">
+          Depends on C3, C7, M1.6. Reuse: Ariadne <code>signature.ts</code>,
+          <code>events.ts</code>, <code>user-mapping.ts</code>; control-plane
+          <code>slack-client.ts</code>; flightdex-v2
+          <code>readCappedBody</code>
+          (copy).
+        </p>
+        <p>
+          Check: <code>slack-events.test.ts</code> with recorded fixtures: a
+          mention from a linked user creates a run with the right session key
+          and <code>on_behalf_of_user_id</code> before the response is returned;
+          a retry with the same body creates nothing and still answers 200; a
+          bad signature is 401; a <code>team_id</code> that does not match the
+          app row is 401; a bot's own message is ignored; an unlinked sender
+          gets no run and a <code>slack.unlinked_sender</code> event; an email
+          match for a Clerk user outside the org creates no link; a failure
+          injected into the atomic write answers 500 so Slack retries, and no
+          dedupe row exists; a message with a file creates a run with
+          <code>pending_files</code>
+          that the claim refuses, and after the download job the run is
+          claimable with the file in
+          <code>input_file_ids</code>; a process loss between the 200 and the
+          download leaves <code>pending_files</code> that the sweep completes.
+          <code
+            >bun scripts/dev/slack-replay.ts fixtures/mention.json --secret ...</code
+          >
+          signs and posts a fixture to the dev server and prints the run id.
+        </p>
+      </div>
+      <div class="task">
+        <h4>
+          M5.2 App creation and install, paste flow <span class="size">S</span>
+        </h4>
+        <p>
+          Scope: Slack tab on the agent page: download the generated manifest
+          (agent name, <code>features.agent_view</code>, scopes, event URL),
+          paste bot token and signing secret, stored encrypted; revoke. The
+          manifest-API flow (<code>apps.manifest.create</code>
+          plus OAuth install) is an optional follow-up, taken only if this flow
+          proves too many clicks.
+        </p>
+        <p class="k">Reuse: Ariadne manifest (copy).</p>
+        <p>
+          Check: <code>slack-apps.test.ts</code> with a fake Slack API: paste,
+          revoke; secrets never leave through tRPC. Live (needs the staging URL
+          from O.1): on a test Slack workspace, run the paste flow for one
+          agent, mention it in a channel, get a reply in the thread, DM it, get
+          a reply. Record the click count against the brief; that number decides
+          whether the API flow is built.
+        </p>
+      </div>
+      <div class="task">
+        <h4>M5.3 Files out to Slack <span class="size">S</span></h4>
+        <p>
+          Scope: output file ids in a completion are uploaded to the thread with
+          <code>files.uploadV2</code>
+          by the Slack gateway. Inbound files are already covered by M5.1's
+          <code>pending_files</code>.
+        </p>
+        <p class="k">Depends on M5.1, M1.6.</p>
+        <p>
+          Check: fixture test with a file event through to a claimable run;
+          live: upload a PDF in the thread, ask the agent to name its first
+          heading, then ask it to write a summary file and see it appear in the
+          thread.
+        </p>
+      </div>
+
+      <h2 id="m6">M6 Inbox <span class="size">Automation lane</span></h2>
+      <div class="task">
+        <h4>M6.1 Threads, posts, mentions <span class="size">M</span></h4>
+        <p>
+          Scope: <code>inbox_threads</code> and <code>inbox_posts</code> tables.
+          <code>createInboxService( { db, atomic })</code>
+          and router: create thread, post, list, read. Mention parser for
+          <code>@slug</code>. A user's post with mentions starts one run per
+          mentioned agent with the user's principal (<code
+            >origin: "inbox"</code
+          >,
+          <code>externalKey = threadId</code>, reply target the thread). The
+          inbox gateway writes the agent's reply post with
+          <code>run_id</code>
+          from the trusted context; mentions in that post start runs with a run
+          principal for that run, so the subject is inherited from server-side
+          data. Loop guard, Agentum's two rules: after 3 agent-authored posts in
+          a row in a thread no agent is woken there until a person posts, and
+          each agent has a wake budget of 10 per hour; a stopped wake appends
+          <code>inbox.loop_stopped</code>. Inbox page: thread list, thread view,
+          composer.
+        </p>
+        <p class="k">
+          Depends on C3, C7. Reuse: Agentum <code>loop-guard.ts</code> (borrow).
+        </p>
+        <p>
+          Check: <code>inbox.test.ts</code> through <code>completeRun</code> and
+          the real inbox gateway with the fake runtime: a user post "@pelican
+          hi" produces a run on behalf of that user and a reply post carrying
+          its <code>run_id</code>; a reply by agent A whose text mentions agent
+          B starts B's run with <code>parent_run_id</code> = A's run and the
+          same subject; a user post that merely quotes a run id does not change
+          the subject; two fake agents that mention each other stop after the
+          third agent post and resume when a person posts; a post with no
+          mention starts nothing. Browser: post in the UI, see the reply appear
+          on poll.
+        </p>
+      </div>
+
+      <h2 id="m7">
+        M7 Files <span class="size">Runtime lane, after M1.5</span>
+      </h2>
+      <div class="task">
+        <h4>M7.1 Files service and routes <span class="size">S</span></h4>
+        <p>
+          Scope: <code>createFilesService( { db, blobs })</code>,
+          <code>POST /api/files</code>
+          (multipart; a user principal behind
+          <code>csrf()</code>, or a run principal, which stamps
+          <code>run_id</code>), <code>GET /files/:id</code> (a user of the
+          workspace, or a run principal whose run lists the id in
+          <code>input_file_ids</code>
+          or <code>output_file_ids</code>; 404 on any refusal), R2 key per
+          workspace, 50 MB cap. Composer upload button;
+          <code>startRun</code>
+          attaches the ids; file chips on messages.
+        </p>
+        <p class="k">Reuse: flightdex-v2 files routes (copy).</p>
+        <p>
+          Check: <code>files.test.ts</code> with a fake R2: a run token can
+          download its input files and upload with its own run id, and gets 404
+          for any other file; a user of workspace A gets 404 for B's file; a
+          composer upload by user U cannot be attached to a run started by user
+          V; a cross-site form POST without the CSRF header is refused.
+        </p>
+      </div>
+
+      <h2 id="m9">
+        M9 Sessions and log pages <span class="size">Automation lane</span>
+      </h2>
+      <p>
+        The two pages that span every lane: Sessions (list, transcript with tool
+        cards, file chips) and Log (filter by agent, type, date; link to session
+        and run). Every other page belongs to the lane that owns its service, as
+        the lane table says. Each page's check is a dev-login browser script
+        under <code>apps/web/e2e/</code> plus the bundle grep.
+      </p>
+
+      <h2 id="ops">
+        O.1 Staging, secrets, deploy
+        <span class="size">Automation lane, first task after M0</span>
+      </h2>
+      <div class="task">
+        <h4>O.1 Staging and previews <span class="size">S</span></h4>
+        <p>
+          Scope: run <code>setup-previews</code>, set
+          <code>CLOUDFLARE_API_TOKEN</code>, add every new binding to
+          <code>env.staging</code>
+          and <code>env.staging.previews</code> (DO migrations and crons stay
+          top-level), put secrets with
+          <code>wrangler secret put</code>
+          and
+          <code>wrangler preview base-config secret put --env staging</code>.
+          Deploy rule: a release that creates or renames a Durable Object class
+          (the first deploy of <code>MachineRelay</code>, and
+          <code>ManagedPoller</code>
+          if M8 happens) goes out as
+          <code>wrangler d1 migrations apply DB --remote</code>
+          then
+          <code>wrangler deploy</code>, because Cloudflare refuses
+          <code>versions upload</code>
+          for DO lifecycle changes. Every other release: build,
+          <code>versions upload</code>, migrate,
+          <code>versions deploy</code>, <code>wrangler triggers deploy</code>.
+          The repo's existing <code>deploy</code> script already uses
+          <code>wrangler deploy</code>.
+        </p>
+        <p>
+          Check: a PR gets a preview URL whose <code>/api/health</code> answers;
+          <code>https://&lt;staging&gt;/api/health</code>
+          answers;
+          <code>https://&lt;staging&gt;/api/machines/ping-do</code>
+          answers from the DO; a routine on staging fires within two minutes of
+          <code>wrangler triggers deploy</code>.
+        </p>
+      </div>
+
+      <h2 id="m8">
+        If Dom picks SMB first: M8 Managed Agents
+        <span class="size">Access lane, after M3</span>
+      </h2>
+      <div class="task">
+        <h4>M8.1 Gateway port and adapter <span class="size">L</span></h4>
+        <p>
+          Scope, only after <a href="index.html#q2">open question 2</a> is
+          answered "SMB first": decide session-scoped versus run-scoped tokens
+          first, because Managed Agents fix <code>mcp_servers</code> at agent
+          register or sync (<code>CreateSessionInput</code>
+          has no MCP field). The likely answer is a session-scoped token whose
+          proxy lookup finds the session's active run for
+          <code>on_behalf_of_user_id</code>, which means the proxy and the
+          run-token resolver grow a second token kind. Then copy Agentum's
+          <code>gateway.ts</code>, <code>events.ts</code>,
+          <code>config.ts</code>, <code>workspace-keys.ts</code>;
+          <code>managed_agents</code>
+          table;
+          <code>ManagedRuntime.dispatch</code>; <code>ManagedPoller</code> DO
+          with an alarm per active run; agent form gains the runtime select.
+        </p>
+        <p class="k">
+          Reuse: Agentum gateway (copy), router pure files (borrow). Read
+          Agentum's gotcha list in <code>docs/analysis/agentum.md</code> section
+          6 first.
+        </p>
+        <p>
+          Check: <code>managed.test.ts</code> against a fake gateway: dispatch,
+          poll, complete, budget stop; a two-turn session where the second run
+          is on behalf of a different user resolves the second user's
+          credential; two concurrent managed sessions on one agent do not share
+          a token. Live (needs
+          <code
+            >cloudflared tunnel --config /dev/null --url http://localhost:3000</code
+          >
+          and <code>PUBLIC_BASE_URL</code> set to it): create a managed agent,
+          send "Reply with the word pelican", get the reply; assign the stub
+          connector and ask it to call <code>echo</code>; the log shows
+          <code>connector.call</code>
+          for the managed session.
+        </p>
+      </div>
+
+      <h2 id="order">Suggested order</h2>
+      <p>
+        One person: M0, O.1 (half a day, so the second-machine check and the
+        Claude.ai check are never waiting), M1 (use it for a day), M2.1, M3, M7
+        and M1.6, M5.1 and M5.2, M4, M6, M5.3, M2.2, M2.3. Three people: one per
+        lane in the order the lane table gives; the Automation person does O.1
+        the day M0 lands.
+      </p>
+
+      <p class="muted">
+        Back to the <a href="index.html">overview</a>, the
+        <a href="reuse.html">reuse matrix</a>
+        or the
+        <a href="review-response.html">review response</a>.
+      </p>
+    </main>
+  </body>
+</html>
