@@ -1,0 +1,46 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "boilerplate",
+  "compatibility_date": "2026-08-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "src/server.ts",
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "boilerplate",
+      // Filled in by `wrangler d1 create` (the setup-cloudflare skill does it).
+      // Local development ignores the value.
+      "database_id": "local",
+      "migrations_dir": "../../packages/db/migrations"
+    }
+  ],
+  "env": {
+    // The Worker every pull request preview hangs off (`boilerplate-staging`).
+    // Previews never touch production. See README "Pull request previews".
+    "staging": {
+      "preview_urls": true,
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "boilerplate-staging",
+          // Filled in by the setup-previews skill.
+          "database_id": "local",
+          "migrations_dir": "../../packages/db/migrations"
+        }
+      ],
+      // A preview inherits no bindings. Each PR gets its own D1 database:
+      // apps/web/scripts/preview.ts swaps these placeholders for it after the
+      // build. Never commit a real id here.
+      "previews": {
+        "d1_databases": [
+          {
+            "binding": "DB",
+            "database_name": "PREVIEW_DB_NAME_PLACEHOLDER",
+            "database_id": "PREVIEW_DB_ID_PLACEHOLDER"
+          }
+        ]
+      }
+    }
+  }
+}

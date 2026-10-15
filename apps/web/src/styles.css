@@ -1,0 +1,265 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300..700&family=Newsreader:opsz,wght@6..72,300..600&display=swap");
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Newsreader", ui-serif, Georgia, serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Brand core from docs/image.png - constant across themes. One accent only:
+   terracotta. Everything else is warm paper and ink. */
+:root {
+  --brand-terracotta: oklch(0.6724 0.1308 38.76); /* #d97757 */
+  --brand-paper: oklch(0.9818 0.0054 95.1); /* #faf9f5 */
+  --brand-ink: oklch(0.209 0 0); /* #181818 */
+
+  --radius: 0.75rem;
+}
+
+/* Light is the reference surface: ink on warm paper, hairline dividers, and
+   terracotta for fills and labels. */
+:root,
+.light {
+  --background: var(--brand-paper);
+  --foreground: var(--brand-ink);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--brand-ink);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--brand-ink);
+  --primary: var(--brand-terracotta);
+  --primary-foreground: var(
+    --brand-ink
+  ); /* white on terracotta is only 3.1:1 */
+  --secondary: oklch(0.9457 0.0096 93.57); /* #efede6 */
+  --secondary-foreground: var(--brand-ink);
+  --muted: oklch(0.9457 0.0096 93.57);
+  --muted-foreground: oklch(
+    0.5181 0.01 84.59
+  ); /* #6b6862, image's #8a8681 fails AA */
+  --accent: oklch(0.9457 0.0096 93.57);
+  --accent-foreground: var(--brand-ink);
+  --destructive: oklch(0.5289 0.1661 28.5); /* #b8382e */
+  --border: oklch(0.9088 0.0123 96.43); /* #e3e1d8 divider */
+  --input: oklch(0.9088 0.0123 96.43);
+  --ring: var(--brand-terracotta);
+  --chart-1: var(--brand-terracotta);
+  --chart-2: var(--brand-ink);
+  --chart-3: oklch(0.3791 0 0); /* #424242 */
+  --chart-4: oklch(0.622 0.0088 73.7); /* #8a8681 */
+  --chart-5: oklch(0.9088 0.0123 96.43);
+  --sidebar: var(--brand-paper);
+  --sidebar-foreground: var(--brand-ink);
+  --sidebar-primary: var(--brand-terracotta);
+  --sidebar-primary-foreground: var(--brand-ink);
+  --sidebar-accent: oklch(0.9457 0.0096 93.57);
+  --sidebar-accent-foreground: var(--brand-ink);
+  --sidebar-border: oklch(0.9088 0.0123 96.43);
+  --sidebar-ring: var(--brand-terracotta);
+
+  /* Terracotta text needs a darker step to pass AA on paper. */
+  --brand-label: oklch(0.5585 0.1322 38.91); /* #b35434 */
+}
+
+/* Dark variant: the same hues with paper and ink swapped. */
+.dark {
+  --background: var(--brand-ink);
+  --foreground: var(--brand-paper);
+  --card: oklch(0.2485 0.0024 67.72); /* #222120 */
+  --card-foreground: var(--brand-paper);
+  --popover: oklch(0.2485 0.0024 67.72);
+  --popover-foreground: var(--brand-paper);
+  --primary: var(--brand-terracotta);
+  --primary-foreground: var(--brand-ink);
+  --secondary: oklch(0.2894 0.0039 84.58); /* #2c2b29 */
+  --secondary-foreground: var(--brand-paper);
+  --muted: oklch(0.2894 0.0039 84.58);
+  --muted-foreground: oklch(0.6973 0.0111 81.79); /* #a19d96 */
+  --accent: oklch(0.2894 0.0039 84.58);
+  --accent-foreground: var(--brand-paper);
+  --destructive: oklch(0.6683 0.1574 28.93); /* #e5695a */
+  --border: oklch(0.3417 0.0059 78.25); /* #3a3835 */
+  --input: oklch(0.3417 0.0059 78.25);
+  --ring: var(--brand-terracotta);
+  --chart-1: var(--brand-terracotta);
+  --chart-2: var(--brand-paper);
+  --chart-3: oklch(0.6973 0.0111 81.79);
+  --chart-4: oklch(0.5181 0.01 84.59);
+  --chart-5: oklch(0.3417 0.0059 78.25);
+  --sidebar: var(--brand-ink);
+  --sidebar-foreground: var(--brand-paper);
+  --sidebar-primary: var(--brand-terracotta);
+  --sidebar-primary-foreground: var(--brand-ink);
+  --sidebar-accent: oklch(0.2894 0.0039 84.58);
+  --sidebar-accent-foreground: var(--brand-paper);
+  --sidebar-border: oklch(0.3417 0.0059 78.25);
+  --sidebar-ring: var(--brand-terracotta);
+
+  --brand-label: oklch(0.7187 0.1122 39.57); /* #e08b6e */
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  html {
+    @apply font-sans;
+  }
+
+  /* shadcn's base layer does not style inline code, and the Quick Start list
+     on the home page renders it. Layered so Tailwind utilities still win. */
+  code {
+    @apply rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-[0.82em] text-foreground;
+  }
+}
+
+body {
+  min-height: 100dvh;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.page-wrap {
+  width: min(1080px, calc(100% - 2rem));
+  margin-inline: auto;
+}
+
+/* Serif display heading, sentence case, slightly tightened like the image. */
+.display-title {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+/* Soft panel: rounded, hairline border, no shadow. */
+.island-shell {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+}
+
+/* Eyebrow label: small terracotta text above a heading. */
+.island-kicker {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--brand-label);
+}
+
+.nav-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  text-decoration: none;
+  transition: color 200ms ease;
+}
+
+.nav-link::after {
+  position: absolute;
+  bottom: -6px;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  content: "";
+  background: var(--brand-terracotta);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 170ms ease;
+}
+
+.nav-link:hover,
+.nav-link.is-active {
+  color: var(--foreground);
+}
+
+.nav-link:hover::after,
+.nav-link.is-active::after {
+  transform: scaleX(1);
+}
+
+@media (max-width: 640px) {
+  .nav-link::after {
+    bottom: -4px;
+  }
+}
+
+.site-footer {
+  border-top: 1px solid var(--border);
+}
+
+.rise-in {
+  animation: rise-in 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise-in {
+    animation: none;
+  }
+}
