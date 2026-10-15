@@ -1,17 +1,20 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "boilerplate",
+  "name": "harbourmaster",
   "compatibility_date": "2026-08-19",
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/server.ts",
   "observability": { "enabled": true },
+  "routes": [
+    { "pattern": "harbourmaster.rockyshoreslabs.io", "custom_domain": true }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "boilerplate",
+      "database_name": "harbourmaster",
       // Filled in by `wrangler d1 create` (the setup-cloudflare skill does it).
       // Local development ignores the value.
-      "database_id": "local",
+      "database_id": "9641ef87-1cff-4136-86fc-9b0ae3f27cd6",
       "migrations_dir": "../../packages/db/migrations"
     }
   ],
@@ -23,7 +26,7 @@
       "d1_databases": [
         {
           "binding": "DB",
-          "database_name": "boilerplate-staging",
+          "database_name": "harbourmaster-staging",
           // Filled in by the setup-previews skill.
           "database_id": "local",
           "migrations_dir": "../../packages/db/migrations"
