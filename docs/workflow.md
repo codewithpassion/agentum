@@ -52,7 +52,7 @@ The controller's context is the scarce resource. Everything about a task goes th
 2. Set `status: in_progress` and `branch`, and start a dispatcher with the dispatcher brief.
 3. The dispatcher sets up its worktree, builds, and runs the review loop on its own branch until the verdict is clean. It records the verdict, nits and follow-ups in `docs/reviews/tasks/<id>.md` on its branch, brings `main` in, and reports ready with the head SHA.
 4. A dispatcher still at must-fix after two fix rounds reports blocked with a one-line reason, and the controller decides.
-5. On ready: in the main checkout, `git merge --no-ff task/<id>-<slug>`, run `bun run check && bun run test && bun run build`, then `git push origin main`. If a check fails, undo the unpushed merge with `git reset --hard ORIG_HEAD` and send the failure to the dispatcher. Set `status: done`, stop the dispatcher with TaskStop, and run `bun run clean`.
+5. On ready: in the main checkout, `git merge --no-ff task/<id>-<slug>`, run `bun install && bun run check && bun run test && bun run build`, then `git push origin main`. If a check fails, undo the unpushed merge with `git reset --hard ORIG_HEAD` and send the failure to the dispatcher. Set `status: done`, stop the dispatcher with TaskStop, and run `bun run clean`.
 
 Merge one branch at a time. A merge that conflicts is aborted with `git merge --abort` and goes back to the dispatcher, which merges `main` in, re-runs its checks and reports ready again.
 
