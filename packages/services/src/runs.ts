@@ -527,11 +527,12 @@ export const createRunsService = ({
     await requireFiles(db, { fileIds, workspaceId: run.workspaceId });
     const failed = result.status === "failed";
     const error = failed ? (result.error ?? "Run failed") : null;
+    const finishedAt = nowIso();
     const runWrite = db
       .update(runs)
       .set({
         error,
-        finishedAt: nowIso(),
+        finishedAt,
         outputFileIds: JSON.stringify(fileIds),
         resultText: result.text ?? null,
         status: result.status,
@@ -545,7 +546,9 @@ export const createRunsService = ({
         : [runWrite]
     );
     const after = await loadRun(db, run.id);
-    if (after?.status !== result.status) {
+    // Told apart from a concurrent completion with the same status by the
+    // time this call wrote: only the call whose write applied sees its own.
+    if (after?.status !== result.status || after.finishedAt !== finishedAt) {
       throw new ServiceError("conflict", "Run is no longer running");
     }
     if (failed) {

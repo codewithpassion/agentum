@@ -440,6 +440,9 @@ test("the reaper interrupts an expired lease and leaves it there", async () => {
   expect(runEvents(runId).map((event) => event.type)).toContain(
     "run.interrupted"
   );
+  expect(
+    runEvents(runId).find((event) => event.type === "run.interrupted")
+  ).toMatchObject({ actorId: "tick", actorKind: "system" });
 
   advance(5 * 60 * SECOND);
   dispatched.length = 0;
@@ -667,4 +670,18 @@ test("a refused completion does not touch the session", async () => {
     .where(eq(sessionRows.id, sessionId))
     .all();
   expect(session?.runtimeRef).toBeNull();
+});
+
+test("a completion that loses the race to an identical one is refused", async () => {
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.completeRun(SYSTEM_PRINCIPAL, runId, { status: "done" });
+  advance(SECOND);
+  const second = await failure(
+    runs.completeRun(SYSTEM_PRINCIPAL, runId, { status: "done" })
+  );
+  expect(second).toMatchObject({ code: "conflict" });
+  expect(
+    runEvents(runId).filter((event) => event.type === "run.finished")
+  ).toHaveLength(1);
 });
