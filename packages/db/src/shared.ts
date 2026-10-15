@@ -8,6 +8,9 @@ export type IdentityProvider = (typeof IDENTITY_PROVIDERS)[number];
 export const AGENT_RUNTIMES = ["machine", "managed", "fake"] as const;
 export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
 
+export const AGENT_STATUSES = ["active", "archived"] as const;
+export type AgentStatus = (typeof AGENT_STATUSES)[number];
+
 export const MACHINE_STATUSES = ["online", "offline", "revoked"] as const;
 export type MachineStatus = (typeof MACHINE_STATUSES)[number];
 
@@ -31,6 +34,7 @@ export type FileSource = (typeof FILE_SOURCES)[number];
 export const EVENT_TYPES = [
   "run.queued",
   "run.started",
+  "run.cancelled",
   "run.finished",
   "run.failed",
   "run.interrupted",

@@ -3,10 +3,14 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./agents": "./src/agents.ts",
     "./authz": "./src/authz.ts",
     "./crypto": "./src/crypto.ts",
+    "./errors": "./src/errors.ts",
     "./events": "./src/events.ts",
     "./run-tokens": "./src/run-tokens.ts",
+    "./runs": "./src/runs.ts",
+    "./runs/types": "./src/runs/types.ts",
     "./workspaces": "./src/workspaces.ts"
   },
   "scripts": {
