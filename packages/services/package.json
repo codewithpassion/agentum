@@ -2,14 +2,21 @@
   "name": "@repo/services",
   "private": true,
   "type": "module",
-  "exports": {},
+  "exports": {
+    "./crypto": "./src/crypto.ts",
+    "./run-tokens": "./src/run-tokens.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@repo/db": "workspace:*",
+    "drizzle-orm": "^0.44.7",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "drizzle-orm": "^0.44.7",
     "typescript": "^5.9.2"
   }
 }

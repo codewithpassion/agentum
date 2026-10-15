@@ -4,7 +4,10 @@ The service layer: business rules and input validation, on top of the query func
 
 ## Entry points
 
-None yet. This package has no services. The `exports` map is empty, so nothing can be imported from it until a module is added.
+| Import | Contents |
+| --- | --- |
+| `@repo/services/crypto` | `SecretBinding`, `importSecretsKey`, `encryptSecret`, `decryptSecret` (AES-GCM under `SECRETS_KEY`, bound to workspace, table, row and field), and `hashedToken`, `hashToken`, `tokenMatchesHash` for tokens a table stores only as a SHA-256 hash |
+| `@repo/services/run-tokens` | `importRunTokenKey`, `signRunToken`, `verifyRunToken`: `hm_run_` tokens signed with HMAC under `RUN_TOKEN_KEY`, valid for 12 hours and only while the run is `running` on a live lease |
 
 One entry per module, no barrel file, same as `@repo/db`. Everything here is server-only: services import drizzle-backed modules.
 
@@ -35,4 +38,4 @@ A new service also needs a line in `apps/web/src/server/trpc/context.ts` and in 
 
 ## Scripts
 
-The package has no `test` or `typecheck` script while `src/` is empty, because `bun test` and `tsc` both fail when they find no files. The first service adds `"test": "bun test"` and `"typecheck": "tsc --noEmit"` to `package.json`.
+`bun test` and `bun run typecheck`. Tests that need a database import `migrated` from `@repo/db/test-db`, an in-memory SQLite with the real migrations.

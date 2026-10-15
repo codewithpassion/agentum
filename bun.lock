@@ -106,11 +106,11 @@
       "name": "@repo/services",
       "dependencies": {
         "@repo/db": "workspace:*",
+        "drizzle-orm": "^0.44.7",
         "zod": "^4.6.5",
       },
       "devDependencies": {
         "@types/bun": "latest",
-        "drizzle-orm": "^0.44.7",
         "typescript": "^5.9.2",
       },
     },
