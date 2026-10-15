@@ -9,7 +9,7 @@ How Harbourmaster gets built. The controller follows all of it. Dispatchers, wor
 | Controller | Opus, the main session | Dom | Picks ready tasks, makes worktrees, starts dispatchers and reviewers, merges, owns `docs/tasks/`. Writes no product code. |
 | Dispatcher | `model: "sonnet"`, `effort: "high"` | Controller, one per task | Splits its task into units, runs workers, integrates, runs the task's check, commits, makes review fixes. |
 | Worker | `model: "haiku"`, `effort: "medium"` | Dispatcher, one per unit | Does one unit in the dispatcher's worktree and runs the unit's check. |
-| Reviewer | `model: "opus"`, `effort: "medium"` for a task, `"high"` for a milestone gate | Controller | Reviews a task branch or a milestone. Reads only. |
+| Reviewer | `model: "opus"`, `effort: "medium"` | Controller | Reviews a task branch or a milestone. Reads only. |
 
 At most 3 dispatchers run at once, each with at most 4 workers. Raise a role's effort for a task only after a run at the listed level fell short.
 
@@ -33,6 +33,12 @@ Only the controller edits task files, in the main checkout, and commits each cha
 
 Units are not files. The dispatcher plans them in its own context.
 
+## Worktrees and cleanup
+
+Every worktree lives in one folder beside the main checkout, `/home/roboto/devel/harbourmaster-wt/`. Keeping it outside the repo stops Biome and searches from scanning the copies. Inside it, a task's worktree is `<id>`, a reviewer's checkout is `review-<id>-<sha>`, and a task's logs and scratch files go in `tmp/<id>/`. Agents keep their files out of `/tmp`.
+
+`bun run clean` removes the worktrees, `tmp/` folders and `task/*` branches of every `done` task, prunes git's worktree list, and prints what remains with its size. It keeps a worktree with uncommitted changes or a branch not merged into `main`, and says why. The controller runs it after each merge and at the start of each session.
+
 ## GitHub
 
 Dom is on the free GitHub plan, so the build uses no Actions minutes. Work happens on local branches and merges into `main` locally. Nobody opens pull requests. No workflow may trigger on `push` or `pull_request` until Dom says so; a workflow that needs adding gets `workflow_dispatch` as its only trigger. The controller pushes `main` after each merge. Task branches stay local.
@@ -42,11 +48,11 @@ Dom is on the free GitHub plan, so the build uses no Actions minutes. Work happe
 The controller keeps the loop running without waiting on Dom. While a task is ready and a dispatcher slot is free, it dispatches. It ends a turn only to wait for running agents, or when nothing can move without Dom. Status notes go in the same message as the next tool call.
 
 1. Take the ready task with the lowest id.
-2. From the main checkout: `git worktree add ../hm-wt-<id> -b task/<id>-<slug> main`. In the worktree run `bun install` and copy `apps/web/.env.local` from the main checkout. Set `status: in_progress` and `branch`.
+2. From the main checkout: `git worktree add /home/roboto/devel/harbourmaster-wt/<id> -b task/<id>-<slug> main`. In the worktree run `bun install` and copy `apps/web/.env.local` from the main checkout. Set `status: in_progress` and `branch`.
 3. Start a dispatcher with the brief: the task file path, the worktree path, the branch, and "follow the Dispatcher section of docs/workflow.md".
 4. When the dispatcher reports done, set `status: review` and start a reviewer on the branch head SHA.
 5. A must-fix verdict goes back to the same dispatcher through SendMessage. It fixes, commits and reports the new head. Repeat step 4; the re-review covers only the fix commits.
-6. A clean verdict: in the main checkout, `git merge --no-ff task/<id>-<slug>`, run `bun run check && bun run test && bun run build`, then `git push origin main`. If a check fails, undo the unpushed merge with `git reset --hard ORIG_HEAD` and send the failure to the dispatcher. Set `status: done`, stop the dispatcher with TaskStop, remove the worktree and delete the branch.
+6. A clean verdict: in the main checkout, `git merge --no-ff task/<id>-<slug>`, run `bun run check && bun run test && bun run build`, then `git push origin main`. If a check fails, undo the unpushed merge with `git reset --hard ORIG_HEAD` and send the failure to the dispatcher. Set `status: done`, stop the dispatcher with TaskStop, and run `bun run clean`.
 
 Merge one branch at a time. A branch that is behind `main` gets `main` merged in by its dispatcher, and its checks pass again before the controller merges it.
 
@@ -77,14 +83,14 @@ Change only the files your brief lists, and keep working until the brief's check
 
 ## Reviewer
 
-Check out the head SHA in a scratch worktree (`git worktree add --detach ../hm-review-<sha> <sha>`) and remove it when done. Review against the task file's scope and check, `CLAUDE.md`, and "Rules that are easy to break" in `docs/HANDOVER.md`. Report every finding you believe is real, minor ones included, one line each with `file:line`, marked must-fix or nit. The controller does the filtering. End with the verdict: clean when nothing is must-fix.
+Check out the head SHA in a scratch worktree (`git worktree add --detach /home/roboto/devel/harbourmaster-wt/review-<id>-<sha> <sha>`) and remove it with `git worktree remove` when done. Review against the task file's scope and check, `CLAUDE.md`, and "Rules that are easy to break" in `docs/HANDOVER.md`. Report every finding you believe is real, minor ones included, one line each with `file:line`, marked must-fix or nit. The controller does the filtering. End with the verdict: clean when nothing is must-fix.
 
 ## Briefs and reports
 
 - A brief points to files instead of pasting them, and adds no rules the task file lacks.
 - Start agents without a `name`. Each agent delivers one report by ending its turn, without SendMessage. The controller stops an agent with TaskStop once it has the report. A dispatcher stays until its branch merges.
 - Reports carry what was done, commit SHAs, checks run with results, and blockers. No code, diffs or logs. Workers write at most 5 lines and dispatchers 10. Reviewers write one line per finding plus the verdict.
-- Long commands such as dev servers and builds run in the background with output to a log file. Read the tail when they finish.
+- Long commands such as dev servers and builds run in the background with output to a log file in `/home/roboto/devel/harbourmaster-wt/tmp/<id>/`. Read the tail when they finish.
 - Stop processes only by the PIDs you started.
 
 ## Checks

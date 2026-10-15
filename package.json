@@ -10,6 +10,7 @@
   "scripts": {
     "build": "turbo run build",
     "check": "ultracite check && turbo run typecheck",
+    "clean": "bun scripts/clean.ts",
     "deploy": "turbo run deploy",
     "dev": "turbo run dev",
     "fix": "ultracite fix",

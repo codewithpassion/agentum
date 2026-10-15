@@ -1,32 +1,14 @@
 // Lists docs/tasks/*.md with their status and marks the ready ones with "*".
 // Exits 1 on an unknown status or a dependency on a task that does not exist.
-import { Glob, file as readFile, YAML } from "bun";
-
-interface Task {
-  depends_on: string[];
-  id: string;
-  status: string;
-  title: string;
-}
+import { readTasks } from "./task-files";
 
 const STATUSES = new Set(["todo", "in_progress", "review", "done", "blocked"]);
-const FRONTMATTER = /^---\n([\s\S]*?)\n---/;
-const dir = new URL("../docs/tasks/", import.meta.url).pathname;
 
-const tasks: Task[] = [];
-for await (const name of new Glob("*.md").scan(dir)) {
-  const match = FRONTMATTER.exec(await readFile(dir + name).text());
-  if (!match?.[1]) {
-    throw new Error(`${name}: no frontmatter`);
-  }
-  tasks.push(YAML.parse(match[1]) as Task);
-}
-
+const tasks = await readTasks(new URL("..", import.meta.url).pathname);
 const byId = new Map(tasks.map((task) => [task.id, task]));
 const errors: string[] = [];
 const lines: string[] = [];
 
-tasks.sort((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }));
 for (const task of tasks) {
   if (!STATUSES.has(task.status)) {
     errors.push(`${task.id}: unknown status ${task.status}`);
