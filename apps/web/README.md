@@ -2,7 +2,8 @@
 
 A [TanStack Start](https://tanstack.com/start) app deployed on Cloudflare Workers, with [Hono](https://hono.dev) as the top-level `fetch` handler and [Cloudflare D1](https://developers.cloudflare.com/d1/) for data.
 
-There is no auth. To add it, run the `add-clerk` skill (`.claude/skills/add-clerk`).
+Auth is [Clerk](https://clerk.com): `/login` signs in, the header shows the
+signed-in user.
 
 ## Architecture
 
@@ -16,7 +17,7 @@ There is no auth. To add it, run the `add-clerk` skill (`.claude/skills/add-cler
 
 `src/server/trpc/` holds the API:
 
-- `context.ts` builds `ctx` for each call: the services from [`@repo/services`](../../packages/services) on this request's `drizzle(env.DB)`, and `userId`, the signed-in user or null. With no auth, `userId` is always null. The `add-clerk` skill swaps this file for one that reads the Clerk session.
+- `context.ts` builds `ctx` for each call: the services from [`@repo/services`](../../packages/services) on this request's `drizzle(env.DB)`, and `userId`, the signed-in user or null. `userId` comes from the Clerk session: `getAuth(c)` over HTTP, `auth()` during SSR.
 - `init.ts` defines `publicProcedure` (anyone) and `protectedProcedure` (signed-in users only, 401 otherwise).
 - `router.ts` is the app router: `notes` (public `list` and `create`) and `me` (protected, the example).
 - `routers/<name>.ts` holds one router per area. Keep them thin: an input schema from the service, then one service call.

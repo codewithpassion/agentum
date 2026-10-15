@@ -146,8 +146,8 @@ that are easy to break:
   during SSR and over HTTP in the browser, so it works in both.
 - Two procedure kinds in `init.ts`: `publicProcedure` for anyone,
   `protectedProcedure` for signed-in users (narrows `ctx.userId` to a string).
-  Without auth `ctx.userId` is always null, so protected procedures answer 401
-  until the `add-clerk` skill replaces `context.ts` with a Clerk-aware one.
+  `context.ts` reads the Clerk session, so `ctx.userId` is the signed-in user
+  or null.
 - A new service goes in the context in `context.ts`, and add-clerk keeps a copy
   of that file in `.claude/skills/add-clerk/templates/apps/web/src/server/trpc/`.
   Change both, or running add-clerk later drops the new service.
@@ -200,4 +200,23 @@ skill has created the account state. Rules that are easy to break:
 
 ## Auth
 
-There is none. To add it, run the `add-clerk` skill (`.claude/skills/add-clerk`).
+Clerk. `apps/web/src/server.ts` runs `@clerk/hono`'s `clerkMiddleware()`, so
+`getAuth(c)` works in any Hono route; `src/start.ts` wires the same auth into
+TanStack Start, and `src/routes/__root.tsx` wraps the app in `<ClerkProvider>`.
+`src/server/trpc/context.ts` puts the Clerk user id in `ctx.userId`, so
+`protectedProcedure` admits signed-in users and answers 401 to everyone else.
+Set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` and
+`VITE_CLERK_PUBLISHABLE_KEY` on a deployed Worker with `wrangler secret put`.
+
+## Dev login (testing)
+
+`apps/web` exposes a one-click dev login for local testing: `/login` has a
+"Dev login (local only)" link (dev builds only) that hits `GET /api/dev-login`,
+mints a Clerk sign-in token for a dedicated dev user, and redeems it at
+`/dev-login` to establish a real session without going through Clerk's UI. Use
+it to sign in as a real user when testing or driving the app via browser
+automation, instead of going through Clerk's UI. Only active when
+`DEV_LOGIN_EMAIL`/`DEV_LOGIN_PASSWORD` are set in `apps/web/.env.local` (never
+set these in a deployed environment, since their absence is what disables the
+route). Create/refresh the dev user with `bun run create-dev-user` from
+`apps/web`.
