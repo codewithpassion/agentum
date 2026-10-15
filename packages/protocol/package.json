@@ -1,0 +1,19 @@
+{
+  "name": "@repo/protocol",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./machine": "./src/machine.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.2"
+  }
+}
