@@ -10,6 +10,10 @@ import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
 import { Hono } from "hono";
 import { type Composed, composeWith } from "../compose.ts";
+import {
+  OAuthVerificationUnavailableError,
+  type VerifiedOAuthToken,
+} from "../mcp/clerk-oauth.ts";
 import type { AppEnv } from "./groups.ts";
 import { MAX_MCP_BODY_BYTES, mcpRoutes } from "./mcp.ts";
 
@@ -28,6 +32,9 @@ let db: ReturnType<typeof migrated>;
 let composed: Composed;
 let workspaceId: string;
 let members: Set<string>;
+let oauthTokens: Map<string, VerifiedOAuthToken>;
+let clerkDown: boolean;
+let clientNameCalls: string[];
 let logs: Record<string, unknown>[];
 let app: Hono<AppEnv>;
 let agentA: string;
@@ -202,6 +209,9 @@ beforeEach(async () => {
   }
   workspaceId = workspace.id;
   members = new Set(["u1@org_a", "u2@org_a"]);
+  oauthTokens = new Map();
+  clerkDown = false;
+  clientNameCalls = [];
   logs = [];
   app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
@@ -211,6 +221,10 @@ beforeEach(async () => {
   app.route(
     "/mcp",
     mcpRoutes({
+      clientName: () => (clientId) => {
+        clientNameCalls.push(clientId);
+        return Promise.resolve(`App ${clientId}`);
+      },
       defer: (_c, work) => {
         pendingWork.push(work);
       },
@@ -218,6 +232,14 @@ beforeEach(async () => {
       isOrgMember: () => (userId, clerkOrgId) =>
         Promise.resolve(members.has(`${userId}@${clerkOrgId}`)),
       log: (entry) => logs.push(entry),
+      verifyOAuthToken: () => (token) => {
+        if (clerkDown) {
+          return Promise.reject(
+            new OAuthVerificationUnavailableError("status 503")
+          );
+        }
+        return Promise.resolve(oauthTokens.get(token) ?? null);
+      },
     })
   );
   pendingWork = [];
@@ -485,5 +507,198 @@ describe("tools with a run token", () => {
     });
     const token = await runToken("run_a", agentA);
     expect((await post(token, rpcBody("tools/list", {}))).status).toBe(401);
+  });
+});
+
+describe("Clerk OAuth and the client gate", () => {
+  const CLIENT_ID = "client_claude";
+
+  /** A Clerk access token for `userId` through `clientId`, as Clerk would verify it. */
+  const oauthToken = (userId: string, clientId = CLIENT_ID): string => {
+    const token = `oat_${userId}_${clientId}`;
+    oauthTokens.set(token, {
+      clientId,
+      expiresAt: null,
+      scopes: ["profile", "email"],
+      userId,
+    });
+    return token;
+  };
+
+  const list = rpcBody("tools/list", {});
+
+  const clients = () => composed.services.oauthClients.list(sessionUser("u1"));
+
+  const body = async (response: Response): Promise<Record<string, unknown>> =>
+    (await response.json()) as Record<string, unknown>;
+
+  test("a request without a token gets the bare challenge naming the metadata", async () => {
+    const response = await post(null, list);
+    expect(response.status).toBe(401);
+    const challenge = response.headers.get("WWW-Authenticate") ?? "";
+    expect(challenge).toContain(
+      'resource_metadata="https://harbourmaster.example.com/.well-known/oauth-protected-resource/mcp"'
+    );
+    expect(challenge).not.toContain("error=");
+  });
+
+  test("a token nobody vouches for gets 401 invalid_token with the metadata", async () => {
+    const response = await post("oat_garbage", list);
+    expect(response.status).toBe(401);
+    const challenge = response.headers.get("WWW-Authenticate") ?? "";
+    expect(challenge).toContain('error="invalid_token"');
+    expect(challenge).toContain("resource_metadata=");
+  });
+
+  test("a new client is recorded as pending and refused with 403 client_not_approved", async () => {
+    const response = await post(oauthToken("u1"), list);
+    expect(response.status).toBe(403);
+    expect(response.headers.get("WWW-Authenticate")).toBeNull();
+    const answer = await body(response);
+    expect(answer.error).toBe("client_not_approved");
+    expect(String(answer.message)).toContain(CLIENT_ID);
+    expect(String(answer.message)).toContain(
+      "https://harbourmaster.example.com/settings/connected-apps"
+    );
+    expect(await clients()).toMatchObject([
+      { clientId: CLIENT_ID, name: `App ${CLIENT_ID}`, status: "pending" },
+    ]);
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        clientId: CLIENT_ID,
+        event: "mcp.denied",
+        reason: "pending",
+      })
+    );
+  });
+
+  test("a client already known is not looked up again", async () => {
+    const token = oauthToken("u1");
+    await post(token, list);
+    await post(token, list);
+    expect(clientNameCalls).toEqual([CLIENT_ID]);
+    expect(await clients()).toHaveLength(1);
+  });
+
+  test("once approved, the client lists the tools in the workspace of its approval", async () => {
+    const token = oauthToken("u1");
+    expect((await post(token, list)).status).toBe(403);
+    await composed.services.oauthClients.setAccess(sessionUser("u1"), {
+      access: "write",
+      clientId: CLIENT_ID,
+    });
+
+    const response = await post(token, list);
+    expect(response.status).toBe(200);
+    const rpc = (await readRpc(response)) as {
+      result: { tools: { name: string }[] };
+    };
+    expect(rpc.result.tools.map((tool) => tool.name)).toContain("send_message");
+
+    const sent = await callTool(token, "send_message", {
+      agent: "agent-a",
+      text: "ping",
+      waitMs: 5000,
+    });
+    expect(sent.structuredContent).toMatchObject({ answer: "Echo: ping" });
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        clientId: CLIENT_ID,
+        event: "mcp.request",
+        userId: "u1",
+        via: "oauth",
+        workspaceId,
+      })
+    );
+    expect(JSON.stringify(logs)).not.toContain(token);
+  });
+
+  test("a read-only approval lists but cannot send a message", async () => {
+    const token = oauthToken("u1");
+    await post(token, list);
+    await composed.services.oauthClients.setAccess(sessionUser("u1"), {
+      access: "read",
+      clientId: CLIENT_ID,
+    });
+    expect((await post(token, list)).status).toBe(200);
+    const result = await callTool(token, "send_message", {
+      agent: "agent-a",
+      text: "ping",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({ code: "forbidden" });
+  });
+
+  test("revoking takes effect on the next request", async () => {
+    const token = oauthToken("u1");
+    await post(token, list);
+    await composed.services.oauthClients.setAccess(sessionUser("u1"), {
+      access: "write",
+      clientId: CLIENT_ID,
+    });
+    expect((await post(token, list)).status).toBe(200);
+
+    await composed.services.oauthClients.revoke(sessionUser("u1"), {
+      clientId: CLIENT_ID,
+    });
+    const response = await post(token, list);
+    expect(response.status).toBe(403);
+    expect(String((await body(response)).message)).toContain("revoked");
+  });
+
+  test("a user who left the org gets 401 even though the client is approved", async () => {
+    const token = oauthToken("u1");
+    await post(token, list);
+    await composed.services.oauthClients.setAccess(sessionUser("u1"), {
+      access: "write",
+      clientId: CLIENT_ID,
+    });
+    expect((await post(token, list)).status).toBe(200);
+
+    members.delete("u1@org_a");
+    expect((await post(token, list)).status).toBe(401);
+  });
+
+  test("another user of an approved client needs membership of its workspace", async () => {
+    const first = oauthToken("u1");
+    await post(first, list);
+    await composed.services.oauthClients.setAccess(sessionUser("u1"), {
+      access: "write",
+      clientId: CLIENT_ID,
+    });
+    const outsider = oauthToken("u9");
+    expect((await post(outsider, list)).status).toBe(401);
+    const colleague = oauthToken("u2");
+    expect((await post(colleague, list)).status).toBe(200);
+  });
+
+  test("a user in none of the allowed orgs gets 403 forbidden and records nothing", async () => {
+    const response = await post(oauthToken("u9"), list);
+    expect(response.status).toBe(403);
+    expect((await body(response)).error).toBe("forbidden");
+    expect(await clients()).toEqual([]);
+  });
+
+  test("a Clerk outage is 503 with Retry-After, never 401", async () => {
+    clerkDown = true;
+    const response = await post(oauthToken("u1"), list);
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).not.toBeNull();
+    expect(logs).toContainEqual(
+      expect.objectContaining({ misconfigured: false, phase: "authenticate" })
+    );
+  });
+
+  test("an OAuth client use is recorded in last_used_at", async () => {
+    const token = oauthToken("u1");
+    await post(token, list);
+    await composed.services.oauthClients.setAccess(sessionUser("u1"), {
+      access: "read",
+      clientId: CLIENT_ID,
+    });
+    await post(token, list);
+    await Promise.all(pendingWork);
+    const [client] = await clients();
+    expect(client?.lastUsedAt).not.toBeNull();
   });
 });

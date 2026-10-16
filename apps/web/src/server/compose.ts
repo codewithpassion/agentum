@@ -40,6 +40,10 @@ import {
 } from "@repo/services/machines";
 import { createMachineRuntime } from "@repo/services/machines/runtime";
 import type { MachineRelayPort } from "@repo/services/machines/types";
+import {
+  createOAuthClientsService,
+  type OAuthClientsService,
+} from "@repo/services/oauth-clients";
 import { createRunsService, type RunsService } from "@repo/services/runs";
 import {
   type Clock,
@@ -51,6 +55,10 @@ import {
   createSessionsService,
   type SessionsService,
 } from "@repo/services/sessions";
+import {
+  createTriggersService,
+  type TriggersService,
+} from "@repo/services/triggers";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { r2Blobs } from "./r2-blobs.ts";
@@ -83,8 +91,10 @@ export interface Services {
   events: EventsService;
   files: FilesService;
   machines: MachinesService;
+  oauthClients: OAuthClientsService;
   runs: RunsService;
   sessions: SessionsService;
+  triggers: TriggersService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
 
@@ -170,6 +180,7 @@ export const composeWith = ({
     events,
     relay: infra.relay,
   });
+  const oauthClients = createOAuthClientsService({ clock: infra.clock, db });
   const runs = createRunsService({
     adapters,
     atomic: infra.atomic,
@@ -181,6 +192,13 @@ export const composeWith = ({
     runTokenKey: infra.runTokenKey,
   });
   const sessions = createSessionsService({ db, events });
+  const triggers = createTriggersService({
+    allowedOrgIds,
+    clock: infra.clock,
+    db,
+    events,
+    runs,
+  });
   return {
     atomic: infra.atomic,
     clock: infra.clock,
@@ -194,8 +212,10 @@ export const composeWith = ({
       events,
       files,
       machines,
+      oauthClients,
       runs,
       sessions,
+      triggers,
       workspaces,
     },
   };

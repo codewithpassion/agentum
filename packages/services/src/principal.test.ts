@@ -7,9 +7,13 @@ import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
+import { eq } from "drizzle-orm";
 import { hashedToken } from "./crypto.ts";
 import { importRunTokenKey, signRunToken } from "./run-tokens.ts";
-import { createPrincipalResolver } from "./workspaces.ts";
+import {
+  createPrincipalResolver,
+  type VerifiedOAuthClaim,
+} from "./workspaces.ts";
 
 const keyBase64 = (fill: number) =>
   Buffer.from(new Uint8Array(32).fill(fill)).toString("base64");
@@ -23,9 +27,11 @@ let clock: number;
 let members: Set<string>;
 let memberCalls: number;
 let memberOutage: boolean;
-let oauthAnswer: { userId: string; workspaceId: string } | null;
+let oauthAnswer: VerifiedOAuthClaim | null;
 let oauthCalls: number;
 let oauthOutage: boolean;
+
+const claim = { access: "read", clientId: "client_1" } as const;
 
 const isOrgMember = (userId: string, clerkOrgId: string): Promise<boolean> => {
   memberCalls += 1;
@@ -36,7 +42,7 @@ const isOrgMember = (userId: string, clerkOrgId: string): Promise<boolean> => {
 
 const verifyClerkOAuthToken = (
   _token: string
-): Promise<{ userId: string; workspaceId: string } | null> => {
+): Promise<VerifiedOAuthClaim | null> => {
   oauthCalls += 1;
   return oauthOutage
     ? Promise.reject(new Error("clerk outage"))
@@ -125,8 +131,12 @@ const addTrigger = async (id: string, workspaceId: string, agentId: string) => {
     .values({
       agentId,
       createdAt: new Date().toISOString(),
+      createdBy: "u1",
       id,
+      kind: "http",
+      name: "t",
       tokenHash: hash,
+      tokenPrefix: token.slice(0, 11),
       workspaceId,
     })
     .run();
@@ -251,6 +261,14 @@ test("a machine token resolves to a machine principal", async () => {
   });
 });
 
+test("a revoked trigger's token resolves to null", async () => {
+  db.update(triggers)
+    .set({ revokedAt: new Date().toISOString() })
+    .where(eq(triggers.id, "trg_a"))
+    .run();
+  expect(await resolverFor().resolve(bearer(tokens.trigger))).toBeNull();
+});
+
 test("a trigger token resolves to a trigger principal", async () => {
   expect(await resolverFor().resolve(bearer(tokens.trigger))).toEqual({
     agentId: "agent_1",
@@ -285,10 +303,11 @@ test("a revoked machine, a revoked api key and an unknown hm_ prefix resolve to 
 });
 
 test("a token without the hm_ prefix goes to the OAuth verifier and resolves to an oauth principal", async () => {
-  oauthAnswer = { userId: "user_2", workspaceId: "ws_a" };
+  oauthAnswer = { ...claim, userId: "user_2", workspaceId: "ws_a" };
   members.add("user_2@org_a");
   expect(await resolverFor().resolve(bearer("oauth-token"))).toEqual({
     kind: "user",
+    oauthClient: { access: "read", clientId: "client_1" },
     userId: "user_2",
     via: "oauth",
     workspaceId: "ws_a",
@@ -313,12 +332,12 @@ test("an api key whose minter is no longer a member resolves to null", async () 
 });
 
 test("an oauth principal who is not a member resolves to null", async () => {
-  oauthAnswer = { userId: "user_2", workspaceId: "ws_a" };
+  oauthAnswer = { ...claim, userId: "user_2", workspaceId: "ws_a" };
   expect(await resolverFor().resolve(bearer("oauth-token"))).toBeNull();
 });
 
 test("tokens of workspaces outside allowedOrgIds resolve to null", async () => {
-  oauthAnswer = { userId: "user_1", workspaceId: "ws_x" };
+  oauthAnswer = { ...claim, userId: "user_1", workspaceId: "ws_x" };
   members.add("user_1@org_x");
   const { resolve } = resolverFor();
   expect(await resolve(bearer(otherOrgRunToken))).toBeNull();

@@ -20,6 +20,8 @@ export type Principal =
       /** Set when `via` is `api_key`: which key, and what it may do. */
       apiKey?: { access: ApiKeyAccess; id: string };
       kind: "user";
+      /** Set when `via` is `oauth`: which client, and what it may do. */
+      oauthClient?: { access: ApiKeyAccess; clientId: string };
       workspaceId: string;
       userId: string;
       via: "session" | "api_key" | "oauth";
@@ -149,6 +151,43 @@ export const findMachineByCredential = async (
     : null;
 };
 
+/** The trigger principal for an `hm_trg_` token, or null if unknown or revoked. */
+export const findTriggerByToken = async (
+  db: Database,
+  token: string
+): Promise<Extract<Principal, { kind: "trigger" }> | null> => {
+  const [row] = await db
+    .select({
+      agentId: triggers.agentId,
+      id: triggers.id,
+      workspaceId: triggers.workspaceId,
+    })
+    .from(triggers)
+    .where(
+      and(
+        eq(triggers.tokenHash, await hashToken(token)),
+        isNull(triggers.revokedAt)
+      )
+    )
+    .limit(1);
+  return row
+    ? {
+        agentId: row.agentId,
+        kind: "trigger",
+        triggerId: row.id,
+        workspaceId: row.workspaceId,
+      }
+    : null;
+};
+
+/** What the app's Clerk OAuth check hands the resolver for a token it accepts. */
+export interface VerifiedOAuthClaim {
+  access: ApiKeyAccess;
+  clientId: string;
+  userId: string;
+  workspaceId: string;
+}
+
 export interface PrincipalResolverOptions {
   allowedOrgIds: readonly string[];
   db: Database;
@@ -158,13 +197,12 @@ export interface PrincipalResolverOptions {
   now?: () => number;
   runTokenKey: CryptoKey;
   /**
-   * Verifies a Clerk OAuth token and returns the user and the workspace named
-   * by the approved oauth_clients row. The app's implementation does that
-   * lookup. The workspace never comes from the request. Errors propagate.
+   * Verifies a Clerk OAuth token and returns the user, and the client's
+   * access and workspace from its approved oauth_clients row. The app's
+   * implementation does that lookup. The workspace never comes from the
+   * request. Errors propagate.
    */
-  verifyClerkOAuthToken: (
-    token: string
-  ) => Promise<{ userId: string; workspaceId: string } | null>;
+  verifyClerkOAuthToken: (token: string) => Promise<VerifiedOAuthClaim | null>;
 }
 
 const BEARER_SCHEME = "bearer";
@@ -224,26 +262,6 @@ export const createPrincipalResolver = ({
     return { agentId, kind: "run", runId, workspaceId } as const;
   };
 
-  const lookupTrigger = async (token: string) => {
-    const [row] = await db
-      .select({
-        agentId: triggers.agentId,
-        id: triggers.id,
-        workspaceId: triggers.workspaceId,
-      })
-      .from(triggers)
-      .where(eq(triggers.tokenHash, await hashToken(token)))
-      .limit(1);
-    return row
-      ? {
-          agentId: row.agentId,
-          kind: "trigger" as const,
-          triggerId: row.id,
-          workspaceId: row.workspaceId,
-        }
-      : null;
-  };
-
   const lookupApiKey = async (token: string) => {
     const [row] = await db
       .select({
@@ -277,7 +295,7 @@ export const createPrincipalResolver = ({
   > = [
     [RUN_TOKEN_PREFIX, lookupRun],
     ["hm_mach_", (token) => findMachineByCredential(db, token)],
-    ["hm_trg_", lookupTrigger],
+    ["hm_trg_", (token) => findTriggerByToken(db, token)],
     ["hm_key_", lookupApiKey],
   ];
 
@@ -291,6 +309,7 @@ export const createPrincipalResolver = ({
     return claim
       ? {
           kind: "user" as const,
+          oauthClient: { access: claim.access, clientId: claim.clientId },
           userId: claim.userId,
           via: "oauth" as const,
           workspaceId: claim.workspaceId,
