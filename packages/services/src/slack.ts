@@ -191,6 +191,39 @@ export const createSlackService = ({
     await replyInThread(app, event, LINKED_REPLY);
   };
 
+  /**
+   * Records what Slack calls the place the session started in, "#channel" or
+   * "DM with <name>", for the sessions list to title it by. This is a Slack
+   * API call, so it runs after the answer. Without the token, the scope or a
+   * name, no event is written and the list falls back to the first message.
+   */
+  const nameSession = async (
+    app: SlackAppRow,
+    event: Mention,
+    sessionId: string
+  ) => {
+    const token = await secrets.botToken(app);
+    if (!token) {
+      return;
+    }
+    const client = createSlackClient({ fetch: slackFetch, token });
+    const isDm = event.trigger === "dm";
+    const lookup = isDm
+      ? await client.userName(event.userId)
+      : await client.channelName(event.channelId);
+    if (lookup.kind !== "ok" || lookup.name === null) {
+      return;
+    }
+    await events.append({
+      actor: { id: "slack", kind: "system" },
+      agentId: app.agentId,
+      payload: { label: isDm ? `DM with ${lookup.name}` : `#${lookup.name}` },
+      sessionId,
+      type: "slack.named",
+      workspaceId: app.workspaceId,
+    });
+  };
+
   /** The text the agent sees: the message without the bot's own mention. */
   const promptText = (app: SlackAppRow, event: Mention): string =>
     event.text
@@ -299,6 +332,11 @@ export const createSlackService = ({
           : runs.offerQueuedRun(SYSTEM_PRINCIPAL, started.runId));
       } catch (error) {
         console.error("Slack run follow-up failed", error);
+      }
+      try {
+        await nameSession(app, event, started.sessionId);
+      } catch (error) {
+        console.error("Slack session naming failed", error);
       }
     };
     return { after: afterAnswer, kind: "accepted", runId: started.runId };

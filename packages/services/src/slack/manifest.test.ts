@@ -78,10 +78,12 @@ test("the scopes and events are exactly the lists", () => {
   expect(manifest.oauth_config.scopes.bot).toEqual([
     "app_mentions:read",
     "channels:history",
+    "channels:read",
     "chat:write",
     "files:read",
     "files:write",
     "groups:history",
+    "groups:read",
     "im:history",
     "users:read",
     "users:read.email",

@@ -71,6 +71,7 @@ export const EVENT_TYPES = [
   "connector.timeout",
   "trigger.fired",
   "slack.received",
+  "slack.named",
   "slack.unlinked_sender",
   "slack.delivered",
   "slack.app_installed",

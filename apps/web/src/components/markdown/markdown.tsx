@@ -1,10 +1,16 @@
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 
+const linkClassName = "underline underline-offset-2";
+
+// Only Harbourmaster's own image routes. Absolute URLs never match: the host is unknown during SSR.
+const OWN_IMAGE_SRC =
+  /^\/files\/[A-Za-z0-9_-]+$|^\/api\/library\/download\?[^\s#]*$/;
+
 const components: Components = {
   a: ({ href, children }) => (
     <a
-      className="underline underline-offset-2"
+      className={linkClassName}
       href={href}
       rel="noopener noreferrer"
       target="_blank"
@@ -26,6 +32,22 @@ const components: Components = {
   h3: ({ children }) => (
     <h3 className="mb-2 font-medium text-sm last:mb-0">{children}</h3>
   ),
+  img: ({ src, alt }) => {
+    if (src && OWN_IMAGE_SRC.test(src)) {
+      // biome-ignore lint/correctness/useImageSize: markdown images have no known size; max-w-full keeps them in the column
+      return <img alt={alt} className="max-w-full rounded-md" src={src} />;
+    }
+    return (
+      <a
+        className={linkClassName}
+        href={src || undefined}
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        {src || alt}
+      </a>
+    );
+  },
   ol: ({ children }) => (
     <ol className="mb-2 list-decimal pl-5 last:mb-0">{children}</ol>
   ),

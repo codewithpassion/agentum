@@ -15,10 +15,12 @@
  *   a channel it is in.
  * - `channels:history` reads messages in public channels the app is in, so it
  *   can see replies in its own threads.
+ * - `channels:read` gives a public channel's name, which titles its sessions.
  * - `chat:write` posts replies and status messages.
  * - `files:read` downloads files people share with the app.
  * - `files:write` uploads files the app produces.
  * - `groups:history` does the same as `channels:history` for private channels.
+ * - `groups:read` does the same as `channels:read` for private channels.
  * - `im:history` reads direct messages, which is the `message.im` event.
  * - `users:read` looks up members. It also serves `bots.info`, which
  *   Harbourmaster uses to learn the app id when a token is pasted.
@@ -28,10 +30,12 @@
 export const SLACK_BOT_SCOPES = [
   "app_mentions:read",
   "channels:history",
+  "channels:read",
   "chat:write",
   "files:read",
   "files:write",
   "groups:history",
+  "groups:read",
   "im:history",
   "users:read",
   "users:read.email",

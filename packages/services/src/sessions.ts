@@ -6,8 +6,10 @@
  */
 import type { Database } from "@repo/db";
 import { events as eventRows } from "@repo/db/schema/events";
+import { inboxThreads } from "@repo/db/schema/inbox";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import { triggers } from "@repo/db/schema/triggers";
 import type { RunStatus } from "@repo/db/shared";
 import {
   and,
@@ -22,6 +24,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
@@ -57,7 +60,7 @@ export interface SessionRecord {
   private: boolean;
 }
 
-/** A listed session with the first message and the state of its latest run. */
+/** A listed session with its title and the state of its latest run. */
 export interface SessionListItem extends SessionRecord {
   status: RunStatus | null;
   title: string;
@@ -77,7 +80,7 @@ export interface SessionTranscript {
   latestRun: SessionRun | null;
   /** Output file ids of every run in the session, keyed by run id. Runs with no outputs are absent. */
   outputFileIds: Record<string, string[]>;
-  /** The session with its title, the first message trimmed. Empty when it has no run. */
+  /** The session with its title: named by its origin, else the first message trimmed. */
   session: SessionRecord & { title: string };
 }
 
@@ -101,6 +104,19 @@ const requireReader = (principal: Principal): Reader => {
 const truncate = (raw: string): string => {
   const text = raw.trim();
   return text.length > TITLE_MAX ? `${text.slice(0, TITLE_MAX)}...` : text;
+};
+
+const slackLabelSchema = z.object({ label: z.string() });
+
+/** The `label` of a `slack.named` payload, when it is a non-empty string. */
+const labelOf = (payload: string | null): string | null => {
+  if (payload === null) {
+    return null;
+  }
+  const parsed = slackLabelSchema.safeParse(JSON.parse(payload));
+  return parsed.success && parsed.data.label.trim() !== ""
+    ? parsed.data.label
+    : null;
 };
 
 const escapeRegExp = (text: string): string =>
@@ -166,6 +182,20 @@ export const visibleSessions = async (
   );
 };
 
+/** The trigger or thread name a session is titled by, when it has one. */
+const sourceName = (
+  row: SessionRow,
+  triggerNames: Map<string, string>,
+  threadTitles: Map<string, string>
+): string | undefined => {
+  if (row.actorKind === "trigger") {
+    return triggerNames.get(row.actorId);
+  }
+  if (row.origin === "inbox" && row.externalKey !== null) {
+    return threadTitles.get(row.externalKey);
+  }
+};
+
 export const createSessionsService = ({
   db,
   events,
@@ -175,7 +205,113 @@ export const createSessionsService = ({
 }) => {
   const visibleTo = (reader: Reader) => visibleSessions(db, reader);
 
-  /** Pairs each session row with its latest run's status and first message. */
+  /** Trigger names by trigger id, one batched read. */
+  const triggerNamesOf = async (
+    ids: string[]
+  ): Promise<Map<string, string>> => {
+    const names = new Map<string, string>();
+    if (ids.length === 0) {
+      return names;
+    }
+    const found = await db
+      .select({ id: triggers.id, name: triggers.name })
+      .from(triggers)
+      .where(inArray(triggers.id, ids));
+    for (const trigger of found) {
+      names.set(trigger.id, trigger.name);
+    }
+    return names;
+  };
+
+  /** Inbox thread titles by thread id, one batched read. */
+  const threadTitlesOf = async (
+    ids: string[]
+  ): Promise<Map<string, string>> => {
+    const titles = new Map<string, string>();
+    if (ids.length === 0) {
+      return titles;
+    }
+    const found = await db
+      .select({ id: inboxThreads.id, title: inboxThreads.title })
+      .from(inboxThreads)
+      .where(inArray(inboxThreads.id, ids));
+    for (const thread of found) {
+      titles.set(thread.id, thread.title);
+    }
+    return titles;
+  };
+
+  /** The label of each session's newest `slack.named` event, one batched read. */
+  const slackLabelsOf = async (
+    sessionIds: string[]
+  ): Promise<Map<string, string | null>> => {
+    const labels = new Map<string, string | null>();
+    if (sessionIds.length === 0) {
+      return labels;
+    }
+    const found = await db
+      .select({ payload: eventRows.payload, sessionId: eventRows.sessionId })
+      .from(eventRows)
+      .where(
+        and(
+          eq(eventRows.type, "slack.named"),
+          inArray(eventRows.sessionId, sessionIds)
+        )
+      )
+      .orderBy(desc(eventRows.id));
+    // Newest first, so the first event seen per session is the newest one.
+    for (const event of found) {
+      if (event.sessionId !== null && !labels.has(event.sessionId)) {
+        labels.set(event.sessionId, labelOf(event.payload));
+      }
+    }
+    return labels;
+  };
+
+  /**
+   * The title of each session, keyed by session id. A trigger or routine is
+   * named by its trigger, an inbox session by its thread, a Slack session by
+   * its label. Otherwise, or when that name is gone, the first message.
+   * At most three batched reads cover all the rows, none one per session.
+   */
+  const titlesFor = async (
+    rows: SessionRow[],
+    firstMessageBySession: Map<string, string>
+  ): Promise<Map<string, string>> => {
+    const [triggerNames, threadTitles, labels] = await Promise.all([
+      triggerNamesOf(
+        rows.flatMap((row) =>
+          row.actorKind === "trigger" ? [row.actorId] : []
+        )
+      ),
+      threadTitlesOf(
+        rows.flatMap((row) =>
+          row.origin === "inbox" && row.externalKey !== null
+            ? [row.externalKey]
+            : []
+        )
+      ),
+      slackLabelsOf(
+        rows.flatMap((row) => (row.origin === "slack" ? [row.id] : []))
+      ),
+    ]);
+    const titles = new Map<string, string>();
+    for (const row of rows) {
+      const first = firstMessageBySession.get(row.id) ?? "";
+      const name = sourceName(row, triggerNames, threadTitles);
+      const label = labels.get(row.id) ?? null;
+      if (name !== undefined && name.trim() !== "") {
+        titles.set(row.id, truncate(name));
+      } else if (label === null) {
+        titles.set(row.id, truncate(first));
+      } else {
+        titles.set(row.id, truncate(`${label}: ${first}`));
+      }
+    }
+    return titles;
+  };
+
+  /** Pairs each session row with its latest run's status and title. */
   const withRuns = async (rows: SessionRow[]): Promise<SessionListItem[]> => {
     if (rows.length === 0) {
       return [];
@@ -197,14 +333,18 @@ export const createSessionsService = ({
         run,
       ]);
     }
-    return rows.map((row) => {
-      const sessionRuns = bySession.get(row.id) ?? [];
-      return {
-        ...toSession(row),
-        status: sessionRuns.at(-1)?.status ?? null,
-        title: truncate(sessionRuns[0]?.inputText ?? ""),
-      };
-    });
+    const firstMessageBySession = new Map(
+      [...bySession].map(([id, sessionRuns]) => [
+        id,
+        sessionRuns[0]?.inputText ?? "",
+      ])
+    );
+    const titles = await titlesFor(rows, firstMessageBySession);
+    return rows.map((row) => ({
+      ...toSession(row),
+      status: bySession.get(row.id)?.at(-1)?.status ?? null,
+      title: titles.get(row.id) ?? "",
+    }));
   };
 
   const list = async (
@@ -263,6 +403,10 @@ export const createSessionsService = ({
       }
     }
     const entries = await events.transcript(reader, row.workspaceId, row.id);
+    const titles = await titlesFor(
+      [row],
+      new Map([[row.id, sessionRuns[0]?.inputText ?? ""]])
+    );
     return {
       entries,
       latestRun: latest
@@ -271,7 +415,7 @@ export const createSessionsService = ({
       outputFileIds,
       session: {
         ...toSession(row),
-        title: truncate(sessionRuns[0]?.inputText ?? ""),
+        title: titles.get(row.id) ?? "",
       },
     };
   };
