@@ -47,7 +47,8 @@ test("the instruction block names the thread id and both tools", () => {
   });
 
   expect(output).toContain('"thread-1"');
-  expect(output).toContain("inbox_post");
+  expect(output).toContain("do not call inbox_post on this thread");
+  expect(output).toContain("inbox_post takes threadId and text");
   expect(output).toContain("inbox_read");
 });
 

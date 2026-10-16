@@ -532,3 +532,34 @@ test("an earlier post that imitates the closing marker stays inside the block", 
   expect(input.split(CLOSE_MARKER)).toHaveLength(2);
   expect(input.split("\n")).toContain(CLOSE_MARKER);
 });
+
+test("a woken run that finishes with an answer leaves exactly one post from it in the thread", async () => {
+  build({ script: { alpha: "ahoy" } });
+  await addAgents("alpha");
+  const threadId = await newThread();
+
+  await say(threadId, "@alpha hello");
+
+  const [run] = runsOf("alpha");
+  expect(await transcript(threadId)).toEqual([
+    { author: "user", runId: null, text: "@alpha hello" },
+    { author: agentId("alpha"), runId: run?.id ?? "", text: "ahoy" },
+  ]);
+  const { posts } = await inbox.readThread(user, { threadId });
+  expect(posts).toHaveLength(2);
+  expect(posts.filter((post) => post.runId === run?.id)).toHaveLength(1);
+});
+
+test("the wake input tells the agent its final answer is the reply", async () => {
+  build({ script: { alpha: "ahoy" } });
+  await addAgents("alpha");
+  const threadId = await newThread();
+
+  await say(threadId, "@alpha hello");
+
+  const input = onlyRunInput("alpha");
+  expect(input).toContain(
+    `do not call inbox_post on this thread (threadId "${threadId}")`
+  );
+  expect(input).toContain("inbox_post takes threadId and text");
+});
