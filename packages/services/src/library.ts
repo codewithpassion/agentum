@@ -12,7 +12,8 @@
  * The blob store is the source of truth for bytes and etags. A write lands in
  * the store first, then the row and the event land together through `atomic`.
  * If that second step fails, the object stays and the next write repairs the
- * row.
+ * row. A SKILL.md under `skills/` is checked by `checkSkillFile` before any
+ * write or move stores it.
  */
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
@@ -27,6 +28,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { ancestorsOf, normalizePath, parentOf } from "./library/path.ts";
+import { checkSkillFile } from "./library/skill-file.ts";
 import type { Clock } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -373,6 +375,7 @@ export const createLibraryService = ({
     if (bytes.byteLength > LIBRARY_FILE_MAX_BYTES) {
       throw invalid("Library files are limited to 10 MB");
     }
+    checkSkillFile(path, bytes);
     const existing = await entryAt(member.workspaceId, path);
     if (existing?.kind === "dir") {
       throw invalid("Path is a folder");
@@ -516,6 +519,7 @@ export const createLibraryService = ({
       if (!object) {
         throw notFound();
       }
+      checkSkillFile(path, object.bytes);
       const stored = await blobs.put(
         objectKey(member.workspaceId, path),
         object.bytes

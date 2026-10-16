@@ -4,6 +4,7 @@ import { chatTab } from "./tabs/chat.tsx";
 import { connectorsTab } from "./tabs/connectors.tsx";
 import { sessionsTab } from "./tabs/sessions.tsx";
 import { settingsTab } from "./tabs/settings.tsx";
+import { skillsTab } from "./tabs/skills.tsx";
 import { slackTab } from "./tabs/slack.tsx";
 import { triggersTab } from "./tabs/triggers.tsx";
 
@@ -27,6 +28,7 @@ export const agentTabs: readonly AgentTab[] = [
   sessionsTab,
   settingsTab,
   connectorsTab,
+  skillsTab,
   slackTab,
   triggersTab,
 ];

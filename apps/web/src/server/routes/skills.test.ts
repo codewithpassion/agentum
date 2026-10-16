@@ -110,8 +110,15 @@ const claimedRun = async (agentId: string) => {
   return { runId, runToken: claim.runToken };
 };
 
-const writeSkill = (path: string, text: string) =>
-  composed.services.library.write(userA, path, TEXT.encode(text));
+/** A SKILL.md the library accepts: frontmatter named for its folder, then the body. */
+const skillBody = (folder: string, body: string) =>
+  `---\nname: ${folder}\ndescription: Test skill.\n---\n${body}`;
+
+const writeSkill = (path: string, text: string) => {
+  const folder = path.split("/")[2] ?? "";
+  const body = path.endsWith("/SKILL.md") ? skillBody(folder, text) : text;
+  return composed.services.library.write(userA, path, TEXT.encode(body));
+};
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -148,14 +155,16 @@ test("a run token lists its agent's own skill and the shared skill, and reads a 
   const file = await readFile(runId, "shout/SKILL.md", bearer(runToken));
   expect(file.status).toBe(200);
   expect(file.headers.get("Content-Type")).toBe("application/octet-stream");
-  expect(file.headers.get("Content-Length")).toBe("7");
+  expect(file.headers.get("Content-Length")).toBe(
+    String(TEXT.encode(skillBody("shout", "# shout")).byteLength)
+  );
   expect(file.headers.get("Cache-Control")).toBe("private, no-store");
   expect(file.headers.get("X-Content-Type-Options")).toBe("nosniff");
-  expect(await file.text()).toBe("# shout");
+  expect(await file.text()).toBe(skillBody("shout", "# shout"));
 
   const shared = await readFile(runId, "greet/SKILL.md", bearer(runToken));
   expect(shared.status).toBe(200);
-  expect(await shared.text()).toBe("# greet");
+  expect(await shared.text()).toBe(skillBody("greet", "# greet"));
 });
 
 test("another agent's skill in the same workspace is not listed and cannot be read", async () => {
