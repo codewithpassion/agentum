@@ -627,6 +627,24 @@ test("the sweep offers a run queued for 61 s and ignores one queued for 30 s", a
   expect(dispatched).not.toContain(newer.runId);
 });
 
+test("the sweep reaches a crash-left run behind more than 100 runs nobody claims", async () => {
+  for (let i = 0; i < 105; i += 1) {
+    // biome-ignore lint/performance/noAwaitInLoops: seeds run in order so each gets a later createdAt
+    await start(user, spyAgentId, {}, "hello", { offerLater: true });
+    advance(SECOND);
+  }
+  const crashed = await start(user, spyAgentId, {}, "hello", {
+    offerLater: true,
+  });
+  advance(61 * SECOND);
+
+  dispatched.length = 0;
+  await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+  advance(61 * SECOND);
+  await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+  expect(dispatched).toContain(crashed.runId);
+});
+
 test("the sweep fetches pending files first", async () => {
   const downloads: unknown[] = [];
   const slack: Gateway = {

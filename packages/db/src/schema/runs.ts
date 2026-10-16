@@ -56,6 +56,8 @@ export const runs = sqliteTable(
       .references(() => sessions.id),
     startedAt: text("started_at"),
     status: text("status", { enum: RUN_STATUSES }).notNull(),
+    // Written only by the queued-run sweep: when it last looked at the run.
+    sweptAt: text("swept_at"),
     // JSON.
     usage: text("usage"),
     workspaceId: workspaceId().references(() => workspaces.id),
