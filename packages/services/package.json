@@ -22,6 +22,7 @@
     "./runs": "./src/runs.ts",
     "./runs/types": "./src/runs/types.ts",
     "./sessions": "./src/sessions.ts",
+    "./triggers": "./src/triggers.ts",
     "./workspaces": "./src/workspaces.ts"
   },
   "scripts": {

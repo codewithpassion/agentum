@@ -51,6 +51,10 @@ import {
   createSessionsService,
   type SessionsService,
 } from "@repo/services/sessions";
+import {
+  createTriggersService,
+  type TriggersService,
+} from "@repo/services/triggers";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { r2Blobs } from "./r2-blobs.ts";
@@ -85,6 +89,7 @@ export interface Services {
   oauthClients: OAuthClientsService;
   runs: RunsService;
   sessions: SessionsService;
+  triggers: TriggersService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
 
@@ -176,6 +181,13 @@ export const composeWith = ({
     runTokenKey: infra.runTokenKey,
   });
   const sessions = createSessionsService({ db, events });
+  const triggers = createTriggersService({
+    allowedOrgIds,
+    clock: infra.clock,
+    db,
+    events,
+    runs,
+  });
   return {
     atomic: infra.atomic,
     clock: infra.clock,
@@ -191,6 +203,7 @@ export const composeWith = ({
       oauthClients,
       runs,
       sessions,
+      triggers,
       workspaces,
     },
   };
