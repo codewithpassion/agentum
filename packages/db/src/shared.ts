@@ -86,6 +86,7 @@ export const EVENT_TYPES = [
   "api_key.created",
   "library.write",
   "library.delete",
+  "library.command",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

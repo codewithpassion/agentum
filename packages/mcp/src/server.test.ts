@@ -6,6 +6,7 @@ import { createHarbourmasterMcpServer, TOOL_NAMES } from "./server";
 import { connectClient, textOf } from "./testing";
 
 const EXPECTED_NAMES = [
+  "bash",
   "get_run",
   "inbox_list",
   "inbox_post",
@@ -35,6 +36,7 @@ const fakePorts: McpPorts = {
   inboxList: uncalled,
   inboxPost: uncalled,
   inboxRead: uncalled,
+  libraryBash: uncalled,
   listAgents: uncalled,
   listSessions: uncalled,
   readSession: uncalled,
@@ -54,12 +56,12 @@ const withClient = async (run: (client: Client) => Promise<void>) => {
 };
 
 describe("tools/list", () => {
-  test("TOOL_NAMES lists the nine tool names", () => {
+  test("TOOL_NAMES lists the ten tool names", () => {
     expect([...TOOL_NAMES].sort()).toEqual(EXPECTED_NAMES);
-    expect(TOOL_NAMES).toHaveLength(9);
+    expect(TOOL_NAMES).toHaveLength(10);
   });
 
-  test("serves exactly the nine tools", () =>
+  test("serves exactly the ten tools", () =>
     withClient(async (client) => {
       const { tools } = await client.listTools();
       expect(tools.map((tool) => tool.name).sort()).toEqual(EXPECTED_NAMES);
