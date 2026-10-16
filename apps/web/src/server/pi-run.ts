@@ -3,7 +3,12 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Model } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { createRegistry, Harness } from "@earendil-works/pi-durable";
+import {
+  type Cursor,
+  createRegistry,
+  type EntryRecord,
+  Harness,
+} from "@earendil-works/pi-durable";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { PiHarness } from "agents/harness/pi";
@@ -17,6 +22,7 @@ import {
 } from "./pi-run-mcp.ts";
 
 const TOOLS_KEY = "mcp-tools";
+const ENTRY_PAGE = 500;
 const ANTHROPIC = "anthropic";
 const RETRY = { baseDelayMs: 1000, enabled: true, maxRetries: 3 };
 const COMMIT_EVENTS = new Set([
@@ -42,6 +48,7 @@ type Faux = ReturnType<typeof import("./pi-run-faux.ts")["createFaux"]>;
 export class PiRun extends DurableObject<Env> {
   readonly registry = createRegistry();
   #core: ReturnType<typeof createRunCore> | undefined;
+  readonly #installed = new Set<string>();
   #faux: Faux | undefined;
 
   readonly harness = new PiHarness({
@@ -60,7 +67,11 @@ export class PiRun extends DurableObject<Env> {
         storage,
         {
           models,
-          onReport: (event) => console.warn("PiRun: pi report", event),
+          onReport: (error) =>
+            console.warn(
+              "PiRun: pi report",
+              error instanceof Error ? error.message : String(error)
+            ),
           registry: this.registry,
           // The scripted model fails on purpose, and a retry would only slow that check down.
           settings: { retry: { ...RETRY, enabled: !this.#faux } },
@@ -73,7 +84,15 @@ export class PiRun extends DurableObject<Env> {
   readonly lifecycle = Lifecycle.install(this).use(this.harness);
 
   #installTools(tools: ServerTools) {
+    // The tools are those of the newest run's agent: a server it no longer has goes.
+    for (const serverKey of this.#installed) {
+      if (!(serverKey in tools)) {
+        this.registry.uninstall({ name: `mcp-${serverKey}` });
+        this.#installed.delete(serverKey);
+      }
+    }
     for (const [serverKey, list] of Object.entries(tools)) {
+      this.#installed.add(serverKey);
       this.registry.install({
         name: `mcp-${serverKey}`,
         tools: mcpToolRegistrations(serverKey, list, async () => {
@@ -113,7 +132,27 @@ export class PiRun extends DurableObject<Env> {
     return {
       abort: (operationId) => session.abort(operationId),
       busy: () => session.busy(),
-      entries: () => session.messages(),
+      entriesFrom: async (start) => {
+        // The whole transcript, not `session.messages()`: that is the model's context, and compaction cuts it.
+        const root = await (await this.harness.pi()).root(BACKGROUND_CONTEXT);
+        const entries: EntryRecord[] = [];
+        let cursor: Cursor | undefined;
+        do {
+          // biome-ignore lint/performance/noAwaitInLoops: each page needs the cursor of the one before
+          const page = await root.entries(
+            {
+              minEntryId: Number(start) as EntryRecord["id"],
+              order: "ascending",
+            },
+            ENTRY_PAGE,
+            cursor,
+            BACKGROUND_CONTEXT
+          );
+          entries.push(...page.items);
+          cursor = page.next;
+        } while (cursor);
+        return entries;
+      },
       entryOf: async (operationId) => {
         const root = await (await this.harness.pi()).root(BACKGROUND_CONTEXT);
         // `storage()` is marked internal, and PiHarness itself looks submissions up this way.

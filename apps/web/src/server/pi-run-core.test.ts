@@ -47,6 +47,7 @@ const memoryStorage = (): RunStorage & { data: Map<string, unknown> } => {
   const data = new Map<string, unknown>();
   return {
     data,
+    delete: (key: string) => Promise.resolve(data.delete(key)),
     get: <T>(key: string) => Promise.resolve(data.get(key) as T | undefined),
     put: <T>(key: string, value: T) => {
       data.set(key, value);
@@ -126,7 +127,10 @@ const createFakePi = () => {
     },
     busy: () =>
       Promise.resolve([...submissions.values()].some((s) => !s.settled)),
-    entries: () => Promise.resolve([...entries]),
+    entriesFrom: (start) =>
+      Promise.resolve(
+        entries.filter((entry) => Number(entry.id) >= Number(start))
+      ),
     entryOf: (operationId) => {
       const submission = submissions.get(operationId);
       return Promise.resolve(submission ? String(submission.entry) : undefined);
@@ -297,7 +301,8 @@ const build = (
     },
     pi: fake.pi,
     sleep: () => Promise.resolve(),
-    statusOf: () => Promise.resolve(options.status?.() ?? "cancelled"),
+    statusOf: async () =>
+      await Promise.resolve(options.status?.() ?? "cancelled"),
     storage,
   });
   return {
@@ -323,6 +328,9 @@ describe("start", () => {
   test("submits the input under the run id, sets the model, reports and completes", async () => {
     const h = build();
     await h.core.start(startOf("run-1", "hi there"));
+    expect(await h.storage.get(SERVERS_KEY)).toEqual(
+      startOf("run-1").mcpServers
+    );
     expect(h.fake.submitted).toEqual([
       { operationId: "run-1", text: "hi there", whenBusy: "followUp" },
     ]);
@@ -340,9 +348,6 @@ describe("start", () => {
       text: "hello back",
       usage: { costUsd: 0.5, inputTokens: 10, outputTokens: 4 },
     });
-    expect(await h.storage.get(SERVERS_KEY)).toEqual(
-      startOf("run-1").mcpServers
-    );
   });
 
   test("a second start of the same run adds no events and no second completion", async () => {
@@ -601,6 +606,69 @@ describe("a run the platform put back for another claim", () => {
   });
 });
 
+describe("a platform that fails while the runner reads the run's status", () => {
+  test("one failed read does not stop the reports that follow", async () => {
+    let reads = 0;
+    const h = build({
+      ingest: () =>
+        reads < 2 ? Promise.reject(conflict()) : Promise.resolve(),
+      status: () => {
+        reads += 1;
+        if (reads === 1) {
+          throw new Error("D1 is busy");
+        }
+        return "offered";
+      },
+    });
+    await h.core.start(startOf("run-1"));
+    await h.fake.say("a");
+    await h.fake.say("b");
+    h.fake.finish("run-1", { status: "done", text: "b" });
+    await settle();
+
+    expect(sentFor(h, "run-1").map((event) => event.seq)).toEqual([1, 2]);
+    expect(h.completed).toHaveLength(1);
+  });
+
+  test("a run claimed again between the refusal and the read still completes", async () => {
+    let refusals = 1;
+    const h = build({
+      complete: () => {
+        if (refusals > 0) {
+          refusals -= 1;
+          return Promise.reject(conflict());
+        }
+        return Promise.resolve();
+      },
+      status: () => "running",
+    });
+    await h.core.start(startOf("run-1"));
+    h.fake.finish("run-1", { status: "done", text: "ok" });
+    await settle();
+
+    expect(h.fake.aborted).toEqual([]);
+    expect(h.completed).toHaveLength(1);
+    expect(await h.storage.get("run:run-1")).toMatchObject({
+      state: "finished",
+    });
+  });
+});
+
+describe("the run token", () => {
+  test("is dropped when the last active run finishes, and kept while another works", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    await h.core.start(startOf("run-2", "second"));
+    h.fake.finish("run-1", { status: "done", text: "one" });
+    await settle();
+    expect(await h.storage.get(SERVERS_KEY)).toBeDefined();
+
+    h.fake.finish("run-2", { status: "done", text: "two" });
+    await settle();
+    expect(await h.storage.get(SERVERS_KEY)).toBeUndefined();
+  });
+});
+
 describe("completion", () => {
   test("retries a failure that is not a refusal", async () => {
     let attempts = 0;
@@ -646,6 +714,22 @@ describe("completion", () => {
 });
 
 describe("resume", () => {
+  test("submits a run again, on the agent's model, when its start stopped before the submit", async () => {
+    const storage = memoryStorage();
+    await storage.put("runs", ["run-1"]);
+    await storage.put("run:run-1", {
+      model: "claude-test",
+      state: "active",
+      text: "hello",
+    });
+    const h = build({ storage });
+    await h.core.resume();
+    expect(h.fake.models).toEqual(["claude-test"]);
+    expect(h.fake.submitted).toEqual([
+      { operationId: "run-1", text: "hello", whenBusy: "followUp" },
+    ]);
+  });
+
   test("works the unfinished runs again after a wake and leaves finished ones", async () => {
     const first = build();
     await first.core.start(startOf("run-1"));

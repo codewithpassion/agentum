@@ -104,6 +104,17 @@ const piToolName = (serverKey: string, toolName: string): string =>
     .replaceAll(/[^A-Za-z0-9_-]/g, "_")
     .slice(0, TOOL_NAME_MAX);
 
+/** The name, or the name with a number that no tool of the server has taken, still within the length Pi accepts. */
+const uniqueName = (name: string, taken: Set<string>): string => {
+  let candidate = name;
+  for (let attempt = 2; taken.has(candidate); attempt += 1) {
+    const suffix = `_${attempt}`;
+    candidate = `${name.slice(0, TOOL_NAME_MAX - suffix.length)}${suffix}`;
+  }
+  taken.add(candidate);
+  return candidate;
+};
+
 const contentText = (content: readonly ContentPart[]): string =>
   content
     .map((part) =>
@@ -120,8 +131,10 @@ export const mcpToolRegistrations = (
   tools: readonly McpTool[],
   getServer: () => Promise<McpServerEntry>,
   fetcher: McpFetch = defaultFetch
-): ToolRegistration[] =>
-  tools.map(
+): ToolRegistration[] => {
+  // Cutting a long name can make two tools of a server collide, and the registry refuses a repeat.
+  const taken = new Set<string>();
+  return tools.map(
     (tool): ToolRegistration => ({
       description: tool.description ?? tool.name,
       execute: async (args, _api, context) => {
@@ -138,9 +151,10 @@ export const mcpToolRegistrations = (
           output: [{ text: contentText(result.content), type: "text" }],
         };
       },
-      name: piToolName(serverKey, tool.name),
+      name: uniqueName(piToolName(serverKey, tool.name), taken),
       // Type.Unsafe passes the MCP JSON schema through unchanged.
       parameters: Type.Unsafe(tool.inputSchema),
       replay: tool.annotations?.readOnlyHint === true ? "safe" : "unsafe",
     })
   );
+};

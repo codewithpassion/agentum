@@ -7,7 +7,11 @@ import type { EntryRecord } from "@earendil-works/pi-durable";
 import type { RunStatus } from "@repo/db/shared";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { isServiceError } from "@repo/services/errors";
-import type { RunEventInput, RunResult } from "@repo/services/runs/types";
+import {
+  type RunEventInput,
+  type RunResult,
+  TERMINAL_STATUSES,
+} from "@repo/services/runs/types";
 import {
   failureOf,
   finalText,
@@ -27,8 +31,8 @@ export interface PiOutcome {
 export interface PiPort {
   abort: (operationId: string) => Promise<boolean>;
   busy: () => Promise<boolean>;
-  /** The session's transcript, oldest entry first. */
-  entries: () => Promise<readonly EntryRecord[]>;
+  /** The transcript from the entry with this id on, oldest first. Not the model's context: compaction does not cut it. */
+  entriesFrom: (start: string) => Promise<readonly EntryRecord[]>;
   /** The id of the user entry an operation's input was placed as (as a string), once it is placed. */
   entryOf: (operationId: string) => Promise<string | undefined>;
   setModel: (model: string) => Promise<void>;
@@ -43,6 +47,7 @@ export interface PiPort {
 
 /** The part of `DurableObjectStorage` the runner uses. */
 export interface RunStorage {
+  delete: (key: string) => Promise<unknown>;
   get: <T>(key: string) => Promise<T | undefined>;
   put: <T>(key: string, value: T) => Promise<void>;
 }
@@ -65,6 +70,8 @@ export interface RunCoreDeps {
 interface StoredRun {
   /** The user entry Pi placed the input as. Known once placed. */
   entry?: string;
+  /** The agent's model, so a run submitted again after a wake uses it. */
+  model: string;
   state: "active" | "finished";
   /** The input, so a run whose submission never reached Pi can be submitted again. */
   text: string;
@@ -138,15 +145,14 @@ export const createRunCore = ({
     if (!start) {
       return [];
     }
-    const entries = await pi.entries();
-    const startAt = entries.findIndex((entry) => String(entry.id) === start);
+    const entries = await pi.entriesFrom(start);
     const others = await Promise.all(
       (await knownRuns())
         .filter((other) => other !== runId)
         .map((other) => entryOf(other))
     );
     const end = entries
-      .slice(startAt + 1)
+      .slice(1)
       .find((entry) => others.includes(String(entry.id)));
     return sliceRun(entries, start, end ? String(end.id) : undefined);
   };
@@ -163,14 +169,13 @@ export const createRunCore = ({
   };
 
   /**
-   * Whether the platform put the run back for another claim, after a start
-   * that looked failed (`releaseRun`). The work goes on: the sweep offers the
-   * run again, the second start finds it here, and the report goes out then.
+   * Whether the platform has ended the run (done, failed, cancelled,
+   * interrupted). A run it put back for another claim after a start that
+   * looked failed (`releaseRun`) is not over: the work goes on, the sweep
+   * offers the run again, and the second start finds it here and reports it.
    */
-  const awaitingClaim = async (runId: string) => {
-    const status = await statusOf(runId);
-    return status === "queued" || status === "offered";
-  };
+  const isOver = async (runId: string) =>
+    TERMINAL_STATUSES.includes(await statusOf(runId));
 
   const abortQuietly = async (runId: string) => {
     try {
@@ -184,6 +189,11 @@ export const createRunCore = ({
     const run = await load(runId);
     if (run) {
       await save(runId, { ...run, state: "finished" });
+    }
+    // The run token has no use once no run of the session is active.
+    const states = await Promise.all((await knownRuns()).map(load));
+    if (states.every((other) => other?.state !== "active")) {
+      await storage.delete(SERVERS_KEY);
     }
   };
 
@@ -218,36 +228,74 @@ export const createRunCore = ({
     }
   };
 
+  /**
+   * Completes the run. "waiting" means the platform put the run back for
+   * another claim, so the report waits for the second start.
+   */
+  const completeRun = async (
+    runId: string,
+    result: RunResult
+  ): Promise<"completed" | "over" | "waiting"> => {
+    for (let round = 1; ; round += 1) {
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: a second round follows a refusal of the first
+        await completeWithRetry(runId, result);
+        return "completed";
+      } catch (error) {
+        if (!isRunGone(error)) {
+          throw error;
+        }
+        const status = await statusOf(runId);
+        if (TERMINAL_STATUSES.includes(status)) {
+          return "over";
+        }
+        // Claimed again between the refusal and the read: one more try.
+        if (status !== "running" || round >= COMPLETE_ATTEMPTS) {
+          return "waiting";
+        }
+      }
+    }
+  };
+
   const work = async (runId: string): Promise<void> => {
+    if ((await load(runId))?.state !== "active") {
+      return;
+    }
     const sent = { count: 0 };
     let slice: EntryRecord[] = [];
     // Flushes never overlap: two that read the same last seq would write it twice.
+    // A step catches its own failures, so one failed flush cannot stop the next.
     let chain: Promise<void> = Promise.resolve();
     let gone = false;
-    const flush = (): Promise<void> => {
-      chain = chain.then(async () => {
-        if (gone) {
+    const step = async () => {
+      if (gone) {
+        return;
+      }
+      try {
+        slice = await report(runId, sent);
+      } catch (error) {
+        if (!isRunGone(error)) {
+          console.error(`PiRun: reporting run ${runId}: ${describe(error)}`);
           return;
         }
-        try {
-          slice = await report(runId, sent);
-        } catch (error) {
-          if (!isRunGone(error)) {
-            console.error(`PiRun: reporting run ${runId}: ${describe(error)}`);
-            return;
-          }
-          if (await awaitingClaim(runId)) {
-            return;
-          }
+        if (await isOver(runId)) {
           gone = true;
           await abortQuietly(runId);
         }
+      }
+    };
+    const flush = (): Promise<void> => {
+      chain = chain.then(step).catch((error: unknown) => {
+        console.error(`PiRun: flushing run ${runId}: ${describe(error)}`);
       });
       return chain;
     };
     const beat = setInterval(() => {
       heartbeat(runId).catch((error: unknown) => {
-        console.error(`PiRun: heartbeat for ${runId}: ${describe(error)}`);
+        // A run waiting for its second claim refuses heartbeats, and says nothing new.
+        if (!isRunGone(error)) {
+          console.error(`PiRun: heartbeat for ${runId}: ${describe(error)}`);
+        }
       });
     }, heartbeatMs);
     let stop: (() => Promise<unknown>) | undefined;
@@ -257,17 +305,9 @@ export const createRunCore = ({
       await stop();
       stop = undefined;
       await flush();
-      if (gone) {
-        await finishRun(runId);
-        return;
-      }
-      try {
-        await completeWithRetry(runId, resultOf(outcome, slice));
-      } catch (error) {
-        if (!isRunGone(error)) {
-          throw error;
-        }
-        if (await awaitingClaim(runId)) {
+      if (!gone) {
+        const done = await completeRun(runId, resultOf(outcome, slice));
+        if (done === "waiting") {
           return;
         }
       }
@@ -278,8 +318,12 @@ export const createRunCore = ({
     }
   };
 
+  const again = new Set<string>();
+
   const follow = (runId: string) => {
     if (following.has(runId)) {
+      // A start that lands as the work ends would be lost, so the work runs once more.
+      again.add(runId);
       return;
     }
     const job = work(runId)
@@ -289,6 +333,9 @@ export const createRunCore = ({
       })
       .finally(() => {
         following.delete(runId);
+        if (again.delete(runId)) {
+          follow(runId);
+        }
       });
     following.set(runId, job);
   };
@@ -309,7 +356,11 @@ export const createRunCore = ({
     }
     await storage.put(SERVERS_KEY, input.mcpServers);
     if (!existing) {
-      await save(run.id, { state: "active", text: run.inputText });
+      await save(run.id, {
+        model: input.agent.model,
+        state: "active",
+        text: run.inputText,
+      });
       await storage.put(RUNS_KEY, [...(await knownRuns()), run.id]);
     }
     const busy = await pi.busy();
@@ -348,6 +399,9 @@ export const createRunCore = ({
       const run = await load(runId);
       if (run?.state === "active") {
         // Submitting again is a no-op when Pi has the run, and covers a start that stopped before its submit.
+        if (!(await pi.busy())) {
+          await pi.setModel(run.model);
+        }
         await pi.submit(run.text, { operationId: runId, whenBusy: "followUp" });
         follow(runId);
       }

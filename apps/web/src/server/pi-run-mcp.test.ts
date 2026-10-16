@@ -368,3 +368,22 @@ describe("MCP tool through pi-durable", () => {
     expect(await modelSawFrom(registration)).toBe(MCP_TEXT);
   });
 });
+
+describe("tool names that collide after the cut", () => {
+  test("get a number, and stay within 64 characters", () => {
+    const long = "t".repeat(80);
+    const tools = [
+      { inputSchema: {}, name: `${long}a` },
+      { inputSchema: {}, name: `${long}b` },
+      { inputSchema: {}, name: `${long}c` },
+    ];
+    const names = mcpToolRegistrations("server", tools, () =>
+      Promise.reject(new Error("not called"))
+    ).map((registration) => registration.name);
+
+    expect(new Set(names).size).toBe(3);
+    expect(names.every((name) => name.length <= 64)).toBe(true);
+    expect(names[1]?.endsWith("_2")).toBe(true);
+    expect(names[2]?.endsWith("_3")).toBe(true);
+  });
+});

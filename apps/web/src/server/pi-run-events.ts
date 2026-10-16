@@ -14,7 +14,7 @@ import type { RunEventInput, Usage } from "@repo/services/runs/types";
 type EventDraft = Omit<RunEventInput, "seq">;
 
 const FIRST_SEQ = 1;
-const NO_TOKENS = 0;
+const NONE = 0;
 
 const isAssistant = (message: Message): message is AssistantMessage =>
   message.role === "assistant";
@@ -29,7 +29,7 @@ const assistantsOf = (slice: readonly EntryRecord[]): AssistantMessage[] =>
   messagesOf(slice).filter(isAssistant);
 
 const sum = (values: readonly number[]): number =>
-  values.reduce((total, value) => total + value, NO_TOKENS);
+  values.reduce((total, value) => total + value, NONE);
 
 const textOfPart = (part: TextContent | ImageContent): string =>
   part.type === "text" ? part.text : `[${part.type}]`;
@@ -119,7 +119,7 @@ export const usageOf = (slice: readonly EntryRecord[]): Usage | undefined => {
   const cacheReadTokens = sum(usages.map((usage) => usage.cacheRead));
   const cacheWriteTokens = sum(usages.map((usage) => usage.cacheWrite));
   const cacheTokens =
-    cacheReadTokens + cacheWriteTokens > NO_TOKENS
+    cacheReadTokens + cacheWriteTokens > NONE
       ? { cacheReadTokens, cacheWriteTokens }
       : {};
   return {
@@ -139,5 +139,5 @@ export const failureOf = (slice: readonly EntryRecord[]): string | undefined =>
 export const finalText = (slice: readonly EntryRecord[]): string =>
   assistantsOf(slice)
     .map(nonEmptyTexts)
-    .findLast((texts) => texts.length > NO_TOKENS)
+    .findLast((texts) => texts.length > NONE)
     ?.join("\n") ?? "";
