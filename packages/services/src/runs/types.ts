@@ -1,4 +1,5 @@
 import type { Database } from "@repo/db";
+import type { Statement } from "@repo/db/atomic";
 import {
   type AgentRuntime,
   type EventActorKind,
@@ -73,6 +74,20 @@ export const usageSchema = z.looseObject({
   outputTokens: z.number().int().min(0).optional(),
 });
 export type Usage = z.infer<typeof usageSchema>;
+
+/**
+ * What a trusted caller adds to `startRun`. It is not part of the input
+ * schema, so nothing a client sends can reach it.
+ */
+export interface StartRunOptions {
+  /**
+   * Writes that land in the same atomic write as the session and the run,
+   * after them. A failing one (a duplicate row) rolls the run back too.
+   */
+  alongside?: (ids: { runId: string; sessionId: string }) => Statement[];
+  /** File descriptors still to be fetched. The run is not claimable until they are. */
+  pendingFiles?: unknown[];
+}
 
 /** A run row with its JSON columns parsed. */
 export interface RunRecord {

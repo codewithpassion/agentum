@@ -11,4 +11,8 @@ export const runtimeJobs: readonly TickJob[] = [
     name: "runs.reap",
     run: ({ services }) => services.runs.reapExpiredLeases(SYSTEM_PRINCIPAL),
   },
+  {
+    name: "slack.purge-seen",
+    run: ({ services }) => services.slack.purgeSeen(),
+  },
 ];

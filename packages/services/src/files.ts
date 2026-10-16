@@ -103,7 +103,7 @@ const uploadScope = (
       createdById: principal.userId,
       createdByKind: "user",
       runId: null,
-      source: "upload",
+      source: principal.via === "slack" ? "slack" : "upload",
       workspaceId: principal.workspaceId,
     };
   }

@@ -5,6 +5,7 @@ import { files as fileRows } from "@repo/db/schema/files";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
+import { slackEventsSeen } from "@repo/db/schema/slack";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eventsRequestSchema } from "@repo/protocol/machine";
@@ -24,6 +25,7 @@ import type {
   Gateway,
   RuntimeAdapter,
   StartRunInput,
+  StartRunOptions,
 } from "./runs/types.ts";
 import {
   createRunsService,
@@ -99,14 +101,19 @@ const start = (
   principal: Principal,
   agentId: string,
   extra: Partial<StartRunInput> = {},
-  text = "hello"
+  text = "hello",
+  options?: StartRunOptions
 ) =>
-  runs.startRun(principal, {
-    agentId,
-    input: { text },
-    session: { origin: "ui" },
-    ...extra,
-  });
+  runs.startRun(
+    principal,
+    {
+      agentId,
+      input: { text },
+      session: { origin: "ui" },
+      ...extra,
+    },
+    options
+  );
 
 /** Resolves to the error the promise rejects with. Fails if it resolves. */
 const failure = async (promise: Promise<unknown>): Promise<unknown> => {
@@ -939,4 +946,117 @@ test("two identical completions in flight finish the run once", async () => {
   expect(
     runEvents(runId).filter((event) => event.type === "run.finished")
   ).toHaveLength(1);
+});
+
+const slackGateway = (download: Gateway["downloadPendingFiles"]): Gateway => ({
+  deliver: () => Promise.resolve(),
+  downloadPendingFiles: download,
+  kind: "slack",
+});
+
+const SLACK_REPLY: StartRunInput["reply"] = {
+  channel: "C",
+  kind: "slack",
+  teamId: "T",
+  threadTs: "1.1",
+};
+
+test("startRun with pending files stores them, holds the run back and runs the extra writes in the same atomic write", async () => {
+  runs = buildRuns({ gateways: [slackGateway(() => Promise.resolve([]))] });
+  const seen = (forRun: string | null) =>
+    db.insert(slackEventsSeen).values({
+      eventHash: "h1",
+      id: "seen1",
+      receivedAt: START,
+      runId: forRun,
+      workspaceId: WORKSPACE,
+    });
+
+  const { runId } = await start(
+    user,
+    spyAgentId,
+    { reply: SLACK_REPLY },
+    "hello",
+    { alongside: (ids) => [seen(ids.runId)], pendingFiles: [{ id: "F1" }] }
+  );
+
+  expect(runRow(runId)).toMatchObject({
+    pendingFiles: '[{"id":"F1"}]',
+    status: "queued",
+  });
+  expect(dispatched).toEqual([]);
+  expect(db.select().from(slackEventsSeen).all()).toMatchObject([
+    { eventHash: "h1", runId },
+  ]);
+  const blocked = await failure(runs.claimRun(SYSTEM_PRINCIPAL, runId));
+  expect(blocked).toMatchObject({ code: "conflict" });
+
+  // The same extra write again fails on the unique hash, and the run with it.
+  const before = runRowCount();
+  await failure(
+    start(user, spyAgentId, { reply: SLACK_REPLY }, "again", {
+      alongside: (ids) => [seen(ids.runId)],
+    })
+  );
+  expect(runRowCount()).toBe(before);
+});
+
+test("fetchPendingFiles stores the files, clears the descriptors and offers the run", async () => {
+  runs = buildRuns({
+    gateways: [slackGateway(() => Promise.resolve(["file_1"]))],
+  });
+  const { runId } = await start(
+    user,
+    spyAgentId,
+    { reply: SLACK_REPLY },
+    "hello",
+    { pendingFiles: [{ id: "F1" }] }
+  );
+
+  expect(await runs.fetchPendingFiles(SYSTEM_PRINCIPAL, runId)).toBe(
+    "downloaded"
+  );
+  expect(dispatched).toEqual([runId]);
+  expect(runRow(runId)).toMatchObject({
+    inputFileIds: '["file_1"]',
+    pendingFiles: null,
+  });
+  expect(await runs.fetchPendingFiles(SYSTEM_PRINCIPAL, runId)).toBe("skipped");
+  const notSystem = await failure(runs.fetchPendingFiles(user, runId));
+  expect(notSystem).toBeInstanceOf(ForbiddenError);
+});
+
+test("the third failed download fails the run with an event", async () => {
+  runs = buildRuns({
+    gateways: [slackGateway(() => Promise.reject(new Error("slack is down")))],
+  });
+  const { runId } = await start(
+    user,
+    spyAgentId,
+    { reply: SLACK_REPLY },
+    "hello",
+    { pendingFiles: [{ id: "F1" }] }
+  );
+
+  const first = await failure(runs.fetchPendingFiles(SYSTEM_PRINCIPAL, runId));
+  expect(first).toMatchObject({ message: "slack is down" });
+  advance(61 * SECOND);
+  const swept = await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+  expect(swept.failed).toMatchObject([{ message: "slack is down", runId }]);
+  expect(runRow(runId)).toMatchObject({
+    pendingAttempts: 2,
+    status: "queued",
+  });
+
+  expect(await runs.fetchPendingFiles(SYSTEM_PRINCIPAL, runId)).toBe("failed");
+  expect(runRow(runId)).toMatchObject({
+    error: "Could not download the attached files",
+    pendingAttempts: 3,
+    status: "failed",
+  });
+  expect(runEvents(runId).map((event) => event.type)).toContain("run.failed");
+  dispatched.length = 0;
+  advance(61 * SECOND);
+  await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+  expect(dispatched).toEqual([]);
 });

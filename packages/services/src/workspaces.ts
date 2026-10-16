@@ -24,7 +24,7 @@ export type Principal =
       oauthClient?: { access: ApiKeyAccess; clientId: string };
       workspaceId: string;
       userId: string;
-      via: "session" | "api_key" | "oauth";
+      via: "session" | "api_key" | "oauth" | "slack";
     }
   | { kind: "run"; workspaceId: string; runId: string; agentId: string }
   | { kind: "machine"; workspaceId: string; machineId: string }

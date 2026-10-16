@@ -11,7 +11,18 @@ import type { Atomic, Statement } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
-import { and, asc, eq, exists, inArray, isNull, lt, max } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  exists,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  max,
+  sql,
+} from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -53,11 +64,12 @@ import {
   type RunSummary,
   type RuntimeAdapter,
   type StartRunInput,
+  type StartRunOptions,
   startRunInputSchema,
   TERMINAL_STATUSES,
   usageSchema,
 } from "./runs/types.ts";
-import type { Principal } from "./workspaces.ts";
+import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 /** A claimed run is `running` until this long after the last heartbeat. */
 export const LEASE_MS = 90_000;
@@ -67,6 +79,9 @@ export const WAIT_MAX_MS = 120_000;
 const WAIT_POLL_MS = 500;
 /** Rows one tick job handles; the next minute takes the rest. */
 const SWEEP_BATCH = 100;
+/** Failed downloads of a run's pending files before the run is failed. */
+export const MAX_PENDING_ATTEMPTS = 3;
+const PENDING_FILES_ERROR = "Could not download the attached files";
 
 const STARTING: RunRecord["status"][] = ["queued", "offered"];
 const ACTIVE: RunRecord["status"][] = ["queued", "offered", "running"];
@@ -293,7 +308,8 @@ export const createRunsService = ({
    */
   const insertOnce = async (
     prepared: Prepared,
-    input: ParsedInput
+    input: ParsedInput,
+    options: StartRunOptions
   ): Promise<StartResult & { inserted: boolean }> => {
     const { agent, fileIds, subject } = prepared;
     const { workspaceId } = agent;
@@ -340,6 +356,9 @@ export const createRunsService = ({
       onBehalfOfUserId: subject.onBehalfOfUserId,
       outputFileIds: "[]",
       parentRunId: subject.parentRunId,
+      pendingFiles: options.pendingFiles?.length
+        ? JSON.stringify(options.pendingFiles)
+        : null,
       reply: JSON.stringify(input.reply),
       requestId: input.requestId ?? null,
       sessionId,
@@ -347,7 +366,11 @@ export const createRunsService = ({
       workspaceId,
     });
     try {
-      await atomic([sessionWrite, runWrite]);
+      await atomic([
+        sessionWrite,
+        runWrite,
+        ...(options.alongside?.({ runId, sessionId }) ?? []),
+      ]);
       return { inserted: true, runId, sessionId, status: "queued" };
     } catch (error) {
       const existing =
@@ -371,24 +394,34 @@ export const createRunsService = ({
    * Two first messages with one session key race on the session index. The
    * loser finds the session on a second try.
    */
-  const insertRun = async (prepared: Prepared, input: ParsedInput) => {
+  const insertRun = async (
+    prepared: Prepared,
+    input: ParsedInput,
+    options: StartRunOptions
+  ) => {
     try {
-      return await insertOnce(prepared, input);
+      return await insertOnce(prepared, input, options);
     } catch (error) {
       if (!isUniqueViolation(error)) {
         throw error;
       }
-      return await insertOnce(prepared, input);
+      return await insertOnce(prepared, input, options);
     }
   };
 
+  /**
+   * `options` is for trusted callers inside the Worker, never the request:
+   * the Slack route passes the file descriptors that are still to be fetched
+   * and the rows that must land in the same atomic write as the run.
+   */
   const startRun = async (
     principal: Principal,
-    rawInput: StartRunInput
+    rawInput: StartRunInput,
+    options: StartRunOptions = {}
   ): Promise<StartResult> => {
     const input = startRunInputSchema.parse(rawInput);
     const prepared = await prepareStart(principal, input);
-    const { inserted, ...started } = await insertRun(prepared, input);
+    const { inserted, ...started } = await insertRun(prepared, input, options);
     if (!inserted) {
       return started;
     }
@@ -405,7 +438,10 @@ export const createRunsService = ({
       fileIds: prepared.fileIds,
       text: input.input.text,
     });
-    await prepared.adapter.dispatch(db, run, prepared.agent, adapterDeps);
+    // A run with pending files is offered once they are fetched.
+    if (!run.pendingFiles) {
+      await prepared.adapter.dispatch(db, run, prepared.agent, adapterDeps);
+    }
     return started;
   };
 
@@ -763,18 +799,66 @@ export const createRunsService = ({
     await adapter?.cancel(db, run, adapterDeps);
   };
 
-  /** Fetches a run's leftover Slack files through its reply gateway. */
-  const downloadPendingFiles = async (run: RunRecord): Promise<boolean> => {
-    const gateway = gatewayByKind.get(run.reply.kind);
-    if (!(run.pendingFiles && gateway?.downloadPendingFiles)) {
+  /**
+   * Counts a failed download. The third failure fails the run, with an event,
+   * and returns true; before that the caller rethrows and a later attempt
+   * tries again.
+   */
+  const recordFailedDownload = async (run: RunRecord): Promise<boolean> => {
+    const waiting = and(
+      eq(runs.id, run.id),
+      inArray(runs.status, STARTING),
+      isNotNull(runs.pendingFiles)
+    );
+    const [counted] = await db
+      .update(runs)
+      .set({ pendingAttempts: sql`${runs.pendingAttempts} + 1` })
+      .where(waiting)
+      .returning({ attempts: runs.pendingAttempts });
+    if (!counted || counted.attempts < MAX_PENDING_ATTEMPTS) {
       return false;
     }
-    const fileIds = await gateway.downloadPendingFiles(run.pendingFiles, {
-      agentId: run.agentId,
-      onBehalfOfUserId: run.onBehalfOfUserId,
-      runId: run.id,
-      workspaceId: run.workspaceId,
-    });
+    const failed = await db
+      .update(runs)
+      .set({
+        error: PENDING_FILES_ERROR,
+        finishedAt: nowIso(),
+        status: "failed",
+      })
+      .where(waiting)
+      .returning({ id: runs.id });
+    if (failed.length > 0) {
+      await appendRunEvent(run, "run.failed", eventActor(SYSTEM_PRINCIPAL), {
+        error: PENDING_FILES_ERROR,
+      });
+    }
+    return true;
+  };
+
+  type DownloadOutcome = "downloaded" | "failed" | "skipped";
+
+  /** Fetches a run's leftover Slack files through its reply gateway. */
+  const downloadPendingFiles = async (
+    run: RunRecord
+  ): Promise<DownloadOutcome> => {
+    const gateway = gatewayByKind.get(run.reply.kind);
+    if (!(run.pendingFiles && gateway?.downloadPendingFiles)) {
+      return "skipped";
+    }
+    let fileIds: string[];
+    try {
+      fileIds = await gateway.downloadPendingFiles(run.pendingFiles, {
+        agentId: run.agentId,
+        onBehalfOfUserId: run.onBehalfOfUserId,
+        runId: run.id,
+        workspaceId: run.workspaceId,
+      });
+    } catch (error) {
+      if (await recordFailedDownload(run)) {
+        return "failed";
+      }
+      throw error;
+    }
     await db
       .update(runs)
       .set({
@@ -782,7 +866,41 @@ export const createRunsService = ({
         pendingFiles: null,
       })
       .where(and(eq(runs.id, run.id), inArray(runs.status, STARTING)));
+    return "downloaded";
+  };
+
+  const offerRun = async (run: RunRecord): Promise<boolean> => {
+    const { adapter, agent } = await adapterFor(run);
+    if (!(agent && adapter)) {
+      return false;
+    }
+    await adapter.dispatch(db, run, agent, adapterDeps);
     return true;
+  };
+
+  /**
+   * Fetches the pending files of one run and offers it, for the Slack route's
+   * `waitUntil` job (the sweep does the same for a job that did not finish).
+   * A failed attempt throws; the third one fails the run and returns
+   * "failed".
+   */
+  const fetchPendingFiles = async (
+    principal: Principal,
+    runId: string
+  ): Promise<DownloadOutcome> => {
+    requireSystem(principal, "runs.fetch_pending");
+    const run = await loadRun(db, runId);
+    if (!(run?.pendingFiles && STARTING.includes(run.status))) {
+      return "skipped";
+    }
+    const outcome = await downloadPendingFiles(run);
+    if (outcome === "downloaded") {
+      const fetched = await loadRun(db, runId);
+      if (fetched && STARTING.includes(fetched.status)) {
+        await offerRun(fetched);
+      }
+    }
+    return outcome;
   };
 
   interface SweepResult {
@@ -794,17 +912,22 @@ export const createRunsService = ({
   /** One stale run: fetch its files, then offer it again if it is claimable. */
   const sweepRun = async (row: RunRow, result: SweepResult) => {
     let run = toRecord(row);
-    if (run.pendingFiles && (await downloadPendingFiles(run))) {
-      result.downloaded.push(run.id);
-      run = (await loadRun(db, run.id)) ?? run;
+    if (run.pendingFiles) {
+      const outcome = await downloadPendingFiles(run);
+      if (outcome === "failed") {
+        result.failed.push({ message: PENDING_FILES_ERROR, runId: run.id });
+        return;
+      }
+      if (outcome === "downloaded") {
+        result.downloaded.push(run.id);
+        run = (await loadRun(db, run.id)) ?? run;
+      }
     }
     if (run.pendingFiles) {
       // Still downloading, so the run cannot be claimed yet.
       return;
     }
-    const { adapter, agent } = await adapterFor(run);
-    if (agent && adapter) {
-      await adapter.dispatch(db, run, agent, adapterDeps);
+    if (await offerRun(run)) {
       result.offered.push(run.id);
     }
   };
@@ -884,6 +1007,7 @@ export const createRunsService = ({
     claimRun,
     claimRunForMachine,
     completeRun,
+    fetchPendingFiles,
     getRun,
     heartbeatRun,
     ingestRunEvents,
