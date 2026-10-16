@@ -1,5 +1,6 @@
 // The per-agent work directory that Claude Code runs in. Before each run the
-// daemon makes sure it exists and empties its `.claude/` and `.mcp.json`. In
+// daemon makes sure it exists and empties its `.claude/` and `.mcp.json`, and,
+// in single-user mode, `inbox/`, where the run's input files are downloaded. In
 // multi-user mode hm-agent owns the directory, so the daemon reaches it through
 // sudo. In single-user mode it is a plain directory under the daemon's home.
 
@@ -8,6 +9,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { AGENT_HOME, AGENT_MKDIR, AGENT_RM, AGENT_USER } from "./agent-user.ts";
 import type { CommandRunner } from "./command.ts";
+
+/** Where a run's input files are downloaded, relative to the work directory. */
+export const INBOX_DIR = "inbox";
 
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 
@@ -50,7 +54,7 @@ const runStep = async (
   }
 };
 
-/** Ensures the work dir exists and empties `.claude/` and `.mcp.json` inside it. Returns the dir. Throws an Error naming the failed step. */
+/** Ensures the work dir exists and empties `.claude/` and `.mcp.json` inside it (and `inbox/` in single-user mode). Returns the dir. Throws an Error naming the failed step. */
 export const prepareWorkDir = async (
   options: PrepareWorkDirOptions
 ): Promise<string> => {
@@ -61,6 +65,7 @@ export const prepareWorkDir = async (
     mkdirSync(dir, { recursive: true });
     rmSync(join(dir, ".claude"), { force: true, recursive: true });
     rmSync(join(dir, ".mcp.json"), { force: true, recursive: true });
+    rmSync(join(dir, INBOX_DIR), { force: true, recursive: true });
     return dir;
   }
 

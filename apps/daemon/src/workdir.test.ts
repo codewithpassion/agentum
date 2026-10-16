@@ -89,12 +89,14 @@ test("a failing mkdir throws with the step and stderr, and skips the rm", async 
   expect(calls[0]?.[4]).toBe("/bin/mkdir");
 });
 
-test("single-user creates the dir and empties .claude and .mcp.json only", async () => {
+test("single-user creates the dir and empties .claude, .mcp.json and inbox only", async () => {
   const home = tempDirectory();
   const dir = workDirPath(home, "w1", "a1");
   mkdirSync(join(dir, ".claude"), { recursive: true });
   writeFileSync(join(dir, ".claude", "settings.json"), "{}");
   writeFileSync(join(dir, ".mcp.json"), "{}");
+  mkdirSync(join(dir, "inbox"));
+  writeFileSync(join(dir, "inbox", "old.txt"), "from an earlier run");
   writeFileSync(join(dir, "keep.txt"), "kept");
   const { calls, run } = fakeRun();
 
@@ -109,6 +111,7 @@ test("single-user creates the dir and empties .claude and .mcp.json only", async
   expect(returned).toBe(dir);
   expect(existsSync(join(dir, ".claude"))).toBe(false);
   expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
+  expect(existsSync(join(dir, "inbox"))).toBe(false);
   expect(existsSync(join(dir, "keep.txt"))).toBe(true);
   expect(calls).toEqual([]);
 });
