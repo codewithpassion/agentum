@@ -511,9 +511,12 @@
           <tr>
             <td>Shared wiki and knowledge base</td>
             <td>
-              Connect The Brain as an MCP connector (it is live, Clerk-authed,
-              has <code>wiki_*</code> and <code>memory_*</code> tools). No wiki
-              code in this repo. See <a href="#q4">open question 4</a>.
+              The workspace library lives in Harbourmaster on R2, with a D1 path
+              index (see <code>docs/reviews/spike-just-bash.md</code>). The
+              Brain stays the knowledge connector: an MCP connector with its
+              <code>wiki_*</code>
+              and <code>memory_*</code> tools. No wiki code in this repo. See
+              <a href="#q4">open question 4</a>.
             </td>
           </tr>
           <tr>
@@ -586,10 +589,16 @@
           <tr>
             <td>Skills bundles per agent</td>
             <td>
-              Instructions are one text field passed per run through
-              <code>systemPrompt.append</code>. A
+              Skills now live in the workspace library on R2, under
+              <code>/skills/&lt;agentId&gt;/</code>
+              and
+              <code>/skills/_shared/</code>
+              (see
+              <code>docs/reviews/spike-just-bash.md</code>). A daemon sync into
               <code>.claude/skills/</code>
-              sync into the agent directory is a later addition.
+              before each run is the next step. Instructions stay one text field
+              passed through
+              <code>systemPrompt.append</code>.
             </td>
           </tr>
           <tr>

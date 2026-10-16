@@ -43,6 +43,15 @@ export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 /** Errors in a row that switch a routine off. */
 export const ROUTINE_ERROR_LIMIT = 5;
 
+/** Most bytes in one library file: 10 MB. */
+export const LIBRARY_FILE_MAX_BYTES = 10 * 1024 * 1024;
+
+/** Most bytes in one workspace's library: 1 GB. */
+export const LIBRARY_MAX_BYTES = 1024 * 1024 * 1024;
+
+export const LIBRARY_ENTRY_KINDS = ["file", "dir"] as const;
+export type LibraryEntryKind = (typeof LIBRARY_ENTRY_KINDS)[number];
+
 export const FILE_SOURCES = ["upload", "slack", "run"] as const;
 export type FileSource = (typeof FILE_SOURCES)[number];
 
@@ -75,6 +84,8 @@ export const EVENT_TYPES = [
   "credential.created",
   "credential.revoked",
   "api_key.created",
+  "library.write",
+  "library.delete",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
