@@ -26,6 +26,12 @@
     "./machines": "./src/machines.ts",
     "./machines/runtime": "./src/machines/runtime.ts",
     "./machines/types": "./src/machines/types.ts",
+    "./managed/config": "./src/managed/config.ts",
+    "./managed/gateway": "./src/managed/gateway.ts",
+    "./managed/keys": "./src/managed/keys.ts",
+    "./managed/runtime": "./src/managed/runtime.ts",
+    "./managed/service": "./src/managed/service.ts",
+    "./managed/types": "./src/managed/types.ts",
     "./oauth-clients": "./src/oauth-clients.ts",
     "./run-tokens": "./src/run-tokens.ts",
     "./routines": "./src/routines.ts",
@@ -47,6 +53,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.118.0",
     "@repo/db": "workspace:*",
     "drizzle-orm": "^0.44.7",
     "ulidx": "^2.4.1",

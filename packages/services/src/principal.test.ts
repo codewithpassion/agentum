@@ -2,6 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { agents } from "@repo/db/schema/agents";
 import { apiKeys } from "@repo/db/schema/api-keys";
 import { machines } from "@repo/db/schema/machines";
+import { managedSessions } from "@repo/db/schema/managed";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
@@ -9,7 +10,11 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { hashedToken } from "./crypto.ts";
-import { importRunTokenKey, signRunToken } from "./run-tokens.ts";
+import {
+  importRunTokenKey,
+  signRunToken,
+  signSessionToken,
+} from "./run-tokens.ts";
 import {
   createPrincipalResolver,
   type VerifiedOAuthClaim,
@@ -251,6 +256,49 @@ test("a run token resolves to a run principal", async () => {
     runId: "run_1",
     workspaceId: "ws_a",
   });
+});
+
+test("a managed session token resolves to a run principal for the session's running run", async () => {
+  const issuedAt = Date.now();
+  db.update(runs)
+    .set({ claimedBy: "managed" })
+    .where(eq(runs.id, "run_1"))
+    .run();
+  db.insert(managedSessions)
+    .values({
+      agentFingerprint: "fp",
+      anthropicSessionId: "sesn_1",
+      createdAt: new Date().toISOString(),
+      currentRunId: "run_1",
+      sessionId: "session_1",
+      tokenIssuedAt: issuedAt,
+      vaultId: "vlt_1",
+      workspaceId: "ws_a",
+    })
+    .run();
+  const token = await signSessionToken(runKey, {
+    agentId: "agent_1",
+    issuedAt,
+    sessionId: "session_1",
+    workspaceId: "ws_a",
+  });
+
+  expect(await resolverFor().resolve(bearer(token))).toEqual({
+    agentId: "agent_1",
+    kind: "run",
+    runId: "run_1",
+    workspaceId: "ws_a",
+  });
+  // The same token with a session that has no managed row resolves to nothing.
+  const stranger = await signSessionToken(runKey, {
+    agentId: "agent_9",
+    issuedAt,
+    sessionId: "session_9",
+    workspaceId: "ws_x",
+  });
+  expect(await resolverFor(["org_a", "org_x"]).resolve(bearer(stranger))).toBe(
+    null
+  );
 });
 
 test("a machine token resolves to a machine principal", async () => {

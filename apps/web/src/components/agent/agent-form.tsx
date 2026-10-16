@@ -17,7 +17,7 @@ export interface AgentFormValues {
   machineId: string;
   model: string;
   name: string;
-  runtime: "fake" | "machine";
+  runtime: "fake" | "machine" | "managed";
 }
 
 const defaultValues: AgentFormValues = {
@@ -37,7 +37,10 @@ interface AgentFormProps {
 }
 
 function toRuntime(value: string): AgentFormValues["runtime"] {
-  return value === "fake" ? "fake" : "machine";
+  if (value === "fake" || value === "managed") {
+    return value;
+  }
+  return "machine";
 }
 
 export function AgentForm({
@@ -126,6 +129,9 @@ export function AgentForm({
         <Field>
           <FieldLabel htmlFor="agent-model">Model</FieldLabel>
           <Input id="agent-model" onChange={handleModel} value={values.model} />
+          {values.runtime === "managed" && (
+            <FieldDescription>Use opus, sonnet or haiku.</FieldDescription>
+          )}
         </Field>
         <Field>
           <FieldLabel htmlFor="agent-runtime">Runtime</FieldLabel>
@@ -136,8 +142,19 @@ export function AgentForm({
             value={values.runtime}
           >
             <option value="machine">machine</option>
+            <option value="managed">managed (Anthropic cloud)</option>
             {import.meta.env.DEV ? <option value="fake">fake</option> : null}
           </NativeSelect>
+          {values.runtime === "managed" && (
+            <FieldDescription>
+              Runs on Anthropic's cloud, not on one of your machines. It needs
+              the workspace's Anthropic API key (Settings, Managed Agents). It
+              cannot read attached files, does not get this workspace's skills,
+              and [ATTACHMENT:path] in its answers stays plain text. Images
+              returned by connector tools never reach the model. A session stops
+              at $10 of spend.
+            </FieldDescription>
+          )}
         </Field>
         {values.runtime === "machine" && (
           <Field>

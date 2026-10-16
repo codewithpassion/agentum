@@ -51,6 +51,22 @@ import {
 } from "@repo/services/machines";
 import { createMachineRuntime } from "@repo/services/machines/runtime";
 import type { MachineRelayPort } from "@repo/services/machines/types";
+import { ENVIRONMENT_NAME } from "@repo/services/managed/config";
+import {
+  connectManagedGateway,
+  validateAnthropicKey,
+} from "@repo/services/managed/gateway";
+import {
+  createManagedKeysService,
+  type ManagedKeysService,
+} from "@repo/services/managed/keys";
+import { createManagedRuntime } from "@repo/services/managed/runtime";
+import {
+  createManagedService,
+  type ManagedService,
+  type ManagedServiceOptions,
+} from "@repo/services/managed/service";
+import type { ManagedPollerPort } from "@repo/services/managed/types";
 import {
   createOAuthClientsService,
   type OAuthClientsService,
@@ -87,6 +103,7 @@ import {
 } from "@repo/services/triggers";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
+import { durablePollerPort } from "./managed-poller-port.ts";
 import { r2Blobs } from "./r2-blobs.ts";
 import { r2FileBlobs } from "./r2-files.ts";
 import { r2LibraryBlobs } from "./r2-library.ts";
@@ -107,6 +124,10 @@ export interface Infra {
   fileBlobs: FileBlobs;
   /** Where the workspace library keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
   libraryBlobs?: LibraryBlobs;
+  /** The Managed Agents gateway on a workspace's key. Without it, managed runs fail their step. */
+  managedGatewayFor?: ManagedServiceOptions["gatewayFor"];
+  /** Wakes the poller of a managed run. Without it, `managed` agents cannot run. */
+  managedPoller?: ManagedPollerPort;
   /** `PUBLIC_BASE_URL`. A Connect path posted to Slack becomes a link under it. */
   publicBaseUrl?: string;
   relay: MachineRelayPort;
@@ -116,6 +137,8 @@ export interface Infra {
   secretsKey?: string;
   /** Finds the Clerk user behind a Slack email. Without one, nobody is linked. */
   slackDirectory?: SlackDirectory;
+  /** Asks Anthropic whether a key works. Without it, `managedKeys` checks only the key's shape. */
+  validateAnthropicKey?: (apiKey: string) => Promise<boolean>;
 }
 
 export interface Services {
@@ -130,6 +153,8 @@ export interface Services {
   library: LibraryService;
   libraryLinks: LibraryLinksService;
   machines: MachinesService;
+  managed: ManagedService;
+  managedKeys: ManagedKeysService;
   oauthClients: OAuthClientsService;
   routines: RoutinesService;
   runs: RunsService;
@@ -156,6 +181,7 @@ export type ComposeEnv = Pick<
   | "DB"
   | "FILES"
   | "MACHINE_RELAY"
+  | "MANAGED_POLLER"
   | "PUBLIC_BASE_URL"
   | "RUN_TOKEN_KEY"
   | "SECRETS_KEY"
@@ -167,6 +193,15 @@ export const parseOrgIds = (raw: string | undefined): string[] =>
     .split(",")
     .map((id) => id.trim())
     .filter((id) => id.length > 0);
+
+const noGateway: ManagedServiceOptions["gatewayFor"] = () => {
+  throw new Error("No Managed Agents gateway is configured.");
+};
+
+const noopPoller: ManagedPollerPort = {
+  cancel: () => Promise.resolve(),
+  kick: () => Promise.resolve(),
+};
 
 /** A directory that knows nobody: every unknown Slack sender stays unlinked. */
 const unlinkedDirectory: SlackDirectory = {
@@ -187,6 +222,9 @@ export const composeWith = ({
   // Lanes register here, by injection.
   const adapters: RuntimeAdapter[] = [
     createMachineRuntime({ relay: infra.relay }),
+    ...(infra.managedPoller
+      ? [createManagedRuntime({ poller: infra.managedPoller })]
+      : []),
   ];
 
   const workspaces = createWorkspacesService({ allowedOrgIds, db });
@@ -248,6 +286,13 @@ export const composeWith = ({
     events,
     relay: infra.relay,
   });
+  const managedKeys = createManagedKeysService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    secretsKey: infra.secretsKey,
+    validate: infra.validateAnthropicKey,
+  });
   const oauthClients = createOAuthClientsService({ clock: infra.clock, db });
   const slackGateway = createSlackGateway({
     clock: infra.clock,
@@ -270,6 +315,18 @@ export const composeWith = ({
     db,
     devFakeRuntime: infra.devFakeRuntime,
     gateways,
+    runTokenKey: infra.runTokenKey,
+  });
+  const managed = createManagedService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    gatewayFor: infra.managedGatewayFor ?? noGateway,
+    keys: managedKeys,
+    poller: infra.managedPoller ?? noopPoller,
+    publicBaseUrl: infra.publicBaseUrl,
+    runs,
     runTokenKey: infra.runTokenKey,
   });
   const routines = createRoutinesService({
@@ -322,6 +379,8 @@ export const composeWith = ({
       library,
       libraryLinks,
       machines,
+      managed,
+      managedKeys,
       oauthClients,
       routines,
       runs,
@@ -356,11 +415,18 @@ export const compose = (
       devFakeRuntime,
       fileBlobs: r2FileBlobs(env.FILES),
       libraryBlobs: r2LibraryBlobs(env.FILES),
+      managedGatewayFor: ({ apiKey, environment }) =>
+        connectManagedGateway(apiKey, {
+          cache: environment,
+          environmentName: ENVIRONMENT_NAME,
+        }),
+      managedPoller: durablePollerPort(env.MANAGED_POLLER),
       publicBaseUrl: env.PUBLIC_BASE_URL,
       relay: durableRelayPort(env.MACHINE_RELAY),
       runTokenKey: env.RUN_TOKEN_KEY,
       secretsKey: env.SECRETS_KEY,
       slackDirectory: clerkSlackDirectory(env.CLERK_SECRET_KEY),
+      validateAnthropicKey,
     },
   });
 };

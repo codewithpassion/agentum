@@ -8,6 +8,7 @@
   "durable_objects": {
     "bindings": [
       { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
+      { "name": "MANAGED_POLLER", "class_name": "ManagedPoller" },
       { "name": "PI_RUN", "class_name": "PiRun" }
     ]
   },
@@ -15,7 +16,8 @@
   // Never edit a tag that has shipped, add the next one.
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["MachineRelay"] },
-    { "tag": "v2", "new_sqlite_classes": ["PiRun"] }
+    { "tag": "v2", "new_sqlite_classes": ["PiRun"] },
+    { "tag": "v3", "new_sqlite_classes": ["ManagedPoller"] }
   ],
   // The minute tick (src/server/tick). Crons are not per environment either:
   // only the production Worker runs them.
@@ -53,6 +55,7 @@
       "durable_objects": {
         "bindings": [
           { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
+          { "name": "MANAGED_POLLER", "class_name": "ManagedPoller" },
           { "name": "PI_RUN", "class_name": "PiRun" }
         ]
       },
@@ -78,6 +81,7 @@
         "durable_objects": {
           "bindings": [
             { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
+            { "name": "MANAGED_POLLER", "class_name": "ManagedPoller" },
             { "name": "PI_RUN", "class_name": "PiRun" }
           ]
         },

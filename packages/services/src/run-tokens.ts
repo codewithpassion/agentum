@@ -13,12 +13,24 @@
  * Pure Web Crypto, so it runs in workerd and in bun alike.
  */
 import type { Database } from "@repo/db";
+import { managedSessions } from "@repo/db/schema/managed";
 import { runs } from "@repo/db/schema/runs";
-import { and, eq, gt } from "drizzle-orm";
+import { sessions } from "@repo/db/schema/sessions";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { CryptoError, fromBase64Url, toBase64Url } from "./crypto.ts";
+import { MANAGED_CLAIMER } from "./managed/types.ts";
 
 export const RUN_TOKEN_PREFIX = "hm_run_";
+/**
+ * `hm_ses_<payload>.<signature>`: one token per managed session, signed like a
+ * run token over `[sessionId, agentId, workspaceId, issuedAtMs]`. A managed
+ * agent's MCP servers are fixed when the Anthropic agent is registered, so a
+ * run cannot hand it a token. The token rides in the session's own vault
+ * instead, and each request resolves to the session's `running` run. It has
+ * no age limit: the `managed_sessions` row says whether it is still good.
+ */
+export const SESSION_TOKEN_PREFIX = "hm_ses_";
 export const RUN_TOKEN_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 /** How far ahead of `now` an issue time may be, for clock drift between Workers. */
@@ -72,22 +84,13 @@ export const importRunTokenKey = async (base64: string): Promise<CryptoKey> => {
   ]);
 };
 
-/** A token for `claims`. Mint it once, when the run is claimed. */
-export const signRunToken = async (
+const signFields = async (
   key: CryptoKey,
-  claims: RunTokenClaims
+  prefix: string,
+  fields: readonly [string, string, string, number]
 ): Promise<string> => {
-  const payload = toBase64Url(
-    encoder.encode(
-      JSON.stringify([
-        claims.runId,
-        claims.agentId,
-        claims.workspaceId,
-        claims.issuedAt,
-      ])
-    )
-  );
-  const signed = `${RUN_TOKEN_PREFIX}${payload}`;
+  const payload = toBase64Url(encoder.encode(JSON.stringify(fields)));
+  const signed = `${prefix}${payload}`;
   const signature = await crypto.subtle.sign(
     ALGORITHM.name,
     key,
@@ -96,12 +99,45 @@ export const signRunToken = async (
   return `${signed}.${toBase64Url(new Uint8Array(signature))}`;
 };
 
-/** The claims of a token whose signature checks, else null. */
-const openToken = async (
+/** A token for `claims`. Mint it once, when the run is claimed. */
+export const signRunToken = (
   key: CryptoKey,
+  claims: RunTokenClaims
+): Promise<string> =>
+  signFields(key, RUN_TOKEN_PREFIX, [
+    claims.runId,
+    claims.agentId,
+    claims.workspaceId,
+    claims.issuedAt,
+  ]);
+
+export interface SessionTokenClaims {
+  agentId: string;
+  /** Epoch milliseconds. The `managed_sessions` row holds the one that counts. */
+  issuedAt: number;
+  sessionId: string;
+  workspaceId: string;
+}
+
+/** A token for a managed session. Mint it when its Anthropic session is made. */
+export const signSessionToken = (
+  key: CryptoKey,
+  claims: SessionTokenClaims
+): Promise<string> =>
+  signFields(key, SESSION_TOKEN_PREFIX, [
+    claims.sessionId,
+    claims.agentId,
+    claims.workspaceId,
+    claims.issuedAt,
+  ]);
+
+/** The payload of a token whose prefix and signature check, else null. */
+const openFields = async (
+  key: CryptoKey,
+  prefix: string,
   token: string
-): Promise<RunTokenClaims | null> => {
-  if (!token.startsWith(RUN_TOKEN_PREFIX)) {
+): Promise<z.infer<typeof payloadSchema> | null> => {
+  if (!token.startsWith(prefix)) {
     return null;
   }
   const parts = token.split(".");
@@ -110,7 +146,7 @@ const openToken = async (
     return null;
   }
   const signature = fromBase64Url(signatureText);
-  const payload = fromBase64Url(signed.slice(RUN_TOKEN_PREFIX.length));
+  const payload = fromBase64Url(signed.slice(prefix.length));
   if (!(signature && payload)) {
     return null;
   }
@@ -126,14 +162,23 @@ const openToken = async (
   }
   try {
     const parsed = payloadSchema.safeParse(JSON.parse(decoder.decode(payload)));
-    if (!parsed.success) {
-      return null;
-    }
-    const [runId, agentId, workspaceId, issuedAt] = parsed.data;
-    return { agentId, issuedAt, runId, workspaceId };
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
+};
+
+/** The claims of a run token whose signature checks, else null. */
+const openToken = async (
+  key: CryptoKey,
+  token: string
+): Promise<RunTokenClaims | null> => {
+  const fields = await openFields(key, RUN_TOKEN_PREFIX, token);
+  if (!fields) {
+    return null;
+  }
+  const [runId, agentId, workspaceId, issuedAt] = fields;
+  return { agentId, issuedAt, runId, workspaceId };
 };
 
 /**
@@ -181,3 +226,81 @@ export const verifyRunToken = async ({
     ? { claims, ok: true }
     : { ok: false, reason: "not_running" };
 };
+
+/**
+ * Whether a session token may act now, and as which run. The signature checks,
+ * the session's `managed_sessions` row is open and was made for exactly this
+ * token (a newer session replaces it), and the run the session is serving
+ * (`current_run_id`, set before its message is sent) is `running` with a live
+ * lease. A run that is merely claimed, or an older run of the session whose
+ * Anthropic session lingers, resolves to nothing. The claims are that run's, so everything downstream of a
+ * run token (the platform MCP, the connector proxy, credentials) works on
+ * them unchanged, and a session whose next run is for another person resolves
+ * that person's credentials.
+ */
+export const verifySessionToken = async ({
+  db,
+  key,
+  now = new Date(),
+  token,
+}: {
+  db: Database;
+  key: CryptoKey;
+  now?: Date;
+  token: string;
+}): Promise<RunTokenResult> => {
+  const fields = await openFields(key, SESSION_TOKEN_PREFIX, token);
+  if (!fields) {
+    return { ok: false, reason: "invalid" };
+  }
+  const [sessionId, agentId, workspaceId, issuedAt] = fields;
+  if (issuedAt - now.getTime() > CLOCK_SKEW_MS) {
+    return { ok: false, reason: "invalid" };
+  }
+  const [open] = await db
+    .select({ currentRunId: managedSessions.currentRunId })
+    .from(managedSessions)
+    .innerJoin(sessions, eq(sessions.id, managedSessions.sessionId))
+    .where(
+      and(
+        eq(managedSessions.sessionId, sessionId),
+        eq(managedSessions.workspaceId, workspaceId),
+        eq(managedSessions.tokenIssuedAt, issuedAt),
+        isNull(managedSessions.closedAt),
+        eq(sessions.agentId, agentId)
+      )
+    )
+    .limit(1);
+  if (!open?.currentRunId) {
+    return { ok: false, reason: "invalid" };
+  }
+  const [live] = await db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.id, open.currentRunId),
+        eq(runs.sessionId, sessionId),
+        eq(runs.workspaceId, workspaceId),
+        eq(runs.agentId, agentId),
+        eq(runs.claimedBy, MANAGED_CLAIMER),
+        eq(runs.status, "running"),
+        gt(runs.leaseUntil, now.toISOString())
+      )
+    )
+    .limit(1);
+  return live
+    ? { claims: { agentId, issuedAt, runId: live.id, workspaceId }, ok: true }
+    : { ok: false, reason: "not_running" };
+};
+
+/** `verifyRunToken` or `verifySessionToken`, by the token's prefix. */
+export const verifyAgentToken = (args: {
+  db: Database;
+  key: CryptoKey;
+  now?: Date;
+  token: string;
+}): Promise<RunTokenResult> =>
+  args.token.startsWith(SESSION_TOKEN_PREFIX)
+    ? verifySessionToken(args)
+    : verifyRunToken(args);

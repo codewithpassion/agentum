@@ -1,5 +1,6 @@
 import {
   Bot,
+  Cloud,
   FolderOpen,
   MessagesSquare,
   ScrollText,
@@ -11,6 +12,12 @@ export const runtimeNav: readonly NavItem[] = [
   { icon: Bot, id: "agents", label: "Agents", to: "/agents" },
   { icon: MessagesSquare, id: "sessions", label: "Sessions", to: "/sessions" },
   { icon: Server, id: "machines", label: "Machines", to: "/machines" },
+  {
+    icon: Cloud,
+    id: "managed-agents",
+    label: "Managed Agents",
+    to: "/settings/managed-agents",
+  },
   { icon: FolderOpen, id: "library", label: "Library", to: "/library" },
   { icon: ScrollText, id: "log", label: "Log", to: "/log" },
 ];

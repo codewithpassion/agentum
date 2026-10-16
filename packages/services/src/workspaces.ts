@@ -12,7 +12,11 @@ import type { ApiKeyAccess } from "@repo/db/shared";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hashToken } from "./crypto.ts";
-import { RUN_TOKEN_PREFIX, verifyRunToken } from "./run-tokens.ts";
+import {
+  RUN_TOKEN_PREFIX,
+  SESSION_TOKEN_PREFIX,
+  verifyAgentToken,
+} from "./run-tokens.ts";
 
 /** Who is calling. `system` is the minute tick, in-process only. */
 export type Principal =
@@ -254,7 +258,7 @@ export const createPrincipalResolver = ({
   };
 
   const lookupRun = async (token: string) => {
-    const result = await verifyRunToken({ db, key: runTokenKey, token });
+    const result = await verifyAgentToken({ db, key: runTokenKey, token });
     if (!result.ok) {
       return null;
     }
@@ -294,6 +298,7 @@ export const createPrincipalResolver = ({
     readonly [string, (token: string) => Promise<WorkspacePrincipal | null>]
   > = [
     [RUN_TOKEN_PREFIX, lookupRun],
+    [SESSION_TOKEN_PREFIX, lookupRun],
     ["hm_mach_", (token) => findMachineByCredential(db, token)],
     ["hm_trg_", (token) => findTriggerByToken(db, token)],
     ["hm_key_", lookupApiKey],

@@ -34,6 +34,25 @@ const freeKey = (base: string, taken: Set<string>): string => {
 };
 
 /**
+ * The MCP servers an agent reaches, as name and URL: the platform's own
+ * endpoint first, then one proxy URL per connector, in the order given.
+ */
+export const mcpServerUrls = (input: {
+  connectors: readonly McpServerConnector[];
+  platformUrl: string;
+}): { name: string; url: string }[] => {
+  const base = input.platformUrl.replace(TRAILING_SLASHES, "");
+  const servers = [{ name: PLATFORM_KEY, url: `${base}/mcp` }];
+  const taken = new Set<string>([PLATFORM_KEY]);
+  for (const connector of input.connectors) {
+    const name = freeKey(slugify(connector.name), taken);
+    taken.add(name);
+    servers.push({ name, url: `${base}/api/proxy/${connector.id}` });
+  }
+  return servers;
+};
+
+/**
  * The `mcpServers` map a run gets at claim time. The platform's own MCP
  * endpoint comes first, then one proxy entry per connector, in the order given.
  */
@@ -41,21 +60,14 @@ export const buildMcpServers = (input: {
   connectors: readonly McpServerConnector[];
   platformUrl: string;
   runToken: string;
-}): Record<string, McpServerEntry> => {
-  const base = input.platformUrl.replace(TRAILING_SLASHES, "");
-  const entry = (url: string): McpServerEntry => ({
-    headers: { Authorization: `Bearer ${input.runToken}` },
-    type: "http",
-    url,
-  });
-  const servers: Record<string, McpServerEntry> = {
-    [PLATFORM_KEY]: entry(`${base}/mcp`),
-  };
-  const taken = new Set<string>([PLATFORM_KEY]);
-  for (const connector of input.connectors) {
-    const key = freeKey(slugify(connector.name), taken);
-    taken.add(key);
-    servers[key] = entry(`${base}/api/proxy/${connector.id}`);
-  }
-  return servers;
-};
+}): Record<string, McpServerEntry> =>
+  Object.fromEntries(
+    mcpServerUrls(input).map(({ name, url }): [string, McpServerEntry] => [
+      name,
+      {
+        headers: { Authorization: `Bearer ${input.runToken}` },
+        type: "http",
+        url,
+      },
+    ])
+  );
