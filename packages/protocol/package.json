@@ -4,7 +4,8 @@
   "type": "module",
   "exports": {
     "./attachments": "./src/attachments.ts",
-    "./machine": "./src/machine.ts"
+    "./machine": "./src/machine.ts",
+    "./skills": "./src/skills.ts"
   },
   "scripts": {
     "test": "bun test",
