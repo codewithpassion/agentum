@@ -1,0 +1,571 @@
+// The connector proxy, `/api/proxy/:connectorId`. Bearer authenticated with a
+// run token. Claude Code reaches every assigned connector through here, and
+// the Worker puts the real credential on the call, so a connector secret never
+// leaves it. Per request, in this order: verify the run token (signature, age,
+// and the run is `running` with a live lease), find the agent's assignment of
+// the connector (403 when there is none), resolve the credential, forward, cap
+// the wait, and append one event. A refused credential is refreshed once and
+// the call is tried again.
+// Mount with `accessRoutes.route("/api/proxy", proxyRoutes())`.
+
+import type { Fetcher } from "@repo/services/connectors/mcp";
+import { assertSafeUrl } from "@repo/services/connectors/url";
+import type {
+  CredentialsService,
+  DecryptedCredential,
+  NeedsAuth,
+} from "@repo/services/credentials";
+import type { EventInput, EventsService } from "@repo/services/events";
+import type { RunTokenClaims } from "@repo/services/run-tokens";
+import { importRunTokenKey, verifyRunToken } from "@repo/services/run-tokens";
+import type { Context } from "hono";
+import { readCappedBody } from "../mcp/body.ts";
+import { type AppEnv, bearerGroup } from "./groups.ts";
+
+/** Largest JSON-RPC request body forwarded; a real one is a few KB. */
+export const MAX_PROXY_BODY_BYTES = 1024 * 1024;
+/** Longest a forwarded call may take: Dom's answer to open question 9. */
+export const PROXY_CAP_MS = 5 * 60 * 1000;
+
+const RETRY_AFTER_SECONDS = "30";
+const UNAUTHORIZED = 401;
+const FORBIDDEN = 403;
+const REDIRECT_MIN = 300;
+const REDIRECT_MAX = 399;
+const RPC_ERROR = -32_000;
+const DEFAULT_ACCEPT = "application/json, text/event-stream";
+/** What the model client sends that the upstream server may see. */
+const FORWARDED_REQUEST_HEADERS = [
+  "accept",
+  "content-type",
+  "last-event-id",
+  "mcp-protocol-version",
+  "mcp-session-id",
+] as const;
+const FORWARDED_RESPONSE_HEADERS = [
+  "content-type",
+  "mcp-protocol-version",
+  "mcp-session-id",
+] as const;
+
+type LogEntry = Record<string, unknown>;
+type RouteContext = Context<AppEnv>;
+
+export interface ProxyRouteOptions {
+  /** Wall-clock cap on one forwarded call. */
+  capMs?: number;
+  /** How calls reach the connector. The global `fetch` by default. */
+  fetch?: Fetcher;
+  /** Structured log line. `console.log` of JSON by default (`wrangler tail`). */
+  log?: (entry: LogEntry) => void;
+}
+
+const defaultLog = (entry: LogEntry) => {
+  console.log(JSON.stringify(entry));
+};
+
+const unauthorized = (): Response =>
+  Response.json(
+    { error: "unauthorized" },
+    {
+      headers: { "WWW-Authenticate": 'Bearer realm="harbourmaster"' },
+      status: UNAUTHORIZED,
+    }
+  );
+
+const unavailable = (): Response =>
+  Response.json(
+    { error: "temporarily_unavailable" },
+    { headers: { "Retry-After": RETRY_AFTER_SECONDS }, status: 503 }
+  );
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+interface RpcCall {
+  id: string | number | null;
+  method: string | null;
+  tool: string | null;
+}
+
+/** The JSON-RPC id, method and (for `tools/call`) tool name, for the answer and the event. */
+const describeCall = (bytes: Uint8Array): RpcCall => {
+  let body: unknown = null;
+  try {
+    body = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    // Not JSON: the connector answers the parse error itself.
+  }
+  if (!isRecord(body)) {
+    return { id: null, method: null, tool: null };
+  }
+  const { id, method, params } = body;
+  const name = isRecord(params) ? params.name : undefined;
+  return {
+    id: typeof id === "string" || typeof id === "number" ? id : null,
+    method: typeof method === "string" ? method : null,
+    tool: method === "tools/call" && typeof name === "string" ? name : null,
+  };
+};
+
+/** An MCP error the model reads. HTTP 200, because the transport worked. */
+const rpcError = (
+  call: RpcCall,
+  message: string,
+  data: Record<string, unknown> = {}
+): Response =>
+  Response.json({
+    error: { code: RPC_ERROR, data, message },
+    id: call.id,
+    jsonrpc: "2.0",
+  });
+
+const needsAuthText = (refusal: NeedsAuth, origin: string): string => {
+  const link = refusal.connectPath ? `${origin}${refusal.connectPath}` : null;
+  switch (refusal.cause) {
+    case "no_person":
+      return "This connector uses a person's login, and this run is not for a person, so there is nothing to connect.";
+    case "single_user_machine":
+      return `This machine runs every agent as one user, so another person's login cannot be used here.${link ? ` Connect it to the agent instead: ${link}` : ""}`;
+    default:
+      return refusal.ownerKind === "agent"
+        ? `This connector needs a login for the agent. Open ${link} while signed in to Harbourmaster to connect it.`
+        : `This connector needs your login. Open ${link} while signed in to Harbourmaster to connect it.`;
+  }
+};
+
+const retryText =
+  "The connector's login is being renewed. Try the call again in a moment.";
+
+const upstreamHeaders = (
+  request: Request,
+  credential: { name: string; value: string } | null
+): Headers => {
+  const headers = new Headers();
+  for (const name of FORWARDED_REQUEST_HEADERS) {
+    const value = request.headers.get(name);
+    if (value !== null) {
+      headers.set(name, value);
+    }
+  }
+  if (!headers.has("accept")) {
+    headers.set("accept", DEFAULT_ACCEPT);
+  }
+  if (credential) {
+    headers.set(credential.name, credential.value);
+  }
+  return headers;
+};
+
+const relay = (
+  upstream: Response,
+  bytes: Uint8Array<ArrayBuffer>
+): Response => {
+  const headers = new Headers();
+  for (const name of FORWARDED_RESPONSE_HEADERS) {
+    const value = upstream.headers.get(name);
+    if (value !== null) {
+      headers.set(name, value);
+    }
+  }
+  const empty = upstream.status === 204 || upstream.status === 202;
+  return new Response(empty ? null : bytes, {
+    headers,
+    status: upstream.status,
+  });
+};
+
+const BEARER = /^Bearer\s+(.+)$/i;
+
+type Credential = { name: string; value: string } | null;
+type Sent =
+  | { bytes: Uint8Array<ArrayBuffer>; ok: true; response: Response }
+  | { kind: "timeout" | "unreachable"; ok: false };
+
+/** One try at the connector. A timeout and a dead connection are results, not throws. */
+const sendUpstream = async ({
+  body,
+  credential,
+  fetchImpl,
+  request,
+  signal,
+  url,
+}: {
+  body: Uint8Array<ArrayBuffer>;
+  credential: Credential;
+  fetchImpl: Fetcher;
+  request: Request;
+  signal: AbortSignal;
+  url: string;
+}): Promise<Sent> => {
+  try {
+    const response = await fetchImpl(url, {
+      body: request.method === "POST" ? body : undefined,
+      headers: upstreamHeaders(request, credential),
+      method: request.method,
+      redirect: "manual",
+      signal,
+    });
+    // Read inside the cap too: a server can hold the body open.
+    return {
+      bytes: new Uint8Array(await response.arrayBuffer()),
+      ok: true,
+      response,
+    };
+  } catch (error: unknown) {
+    const timedOut =
+      error instanceof DOMException && error.name === "TimeoutError";
+    return { kind: timedOut ? "timeout" : "unreachable", ok: false };
+  }
+};
+
+type Recorder = (
+  type: EventInput["type"],
+  payload: Record<string, string | number | boolean | null>
+) => Promise<void>;
+
+/** Appends the request's one event. A log failure must not undo the call. */
+const recorder =
+  ({
+    claims,
+    connectorId,
+    events,
+    log,
+    sessionId,
+  }: {
+    claims: RunTokenClaims;
+    connectorId: string;
+    events: EventsService;
+    log: (entry: LogEntry) => void;
+    sessionId: string;
+  }): Recorder =>
+  async (type, payload) => {
+    try {
+      await events.append({
+        actor: { id: claims.agentId, kind: "agent" },
+        agentId: claims.agentId,
+        payload: { connectorId, ...payload },
+        runId: claims.runId,
+        sessionId,
+        type,
+        workspaceId: claims.workspaceId,
+      });
+    } catch (error: unknown) {
+      log({
+        event: "proxy.event_failed",
+        message: error instanceof Error ? error.message : String(error),
+        type,
+      });
+    }
+  };
+
+/** The answer for a call that got through, with its event. */
+const answer = async ({
+  call,
+  note,
+  ownerKind,
+  record,
+  sent,
+  started,
+}: {
+  call: RpcCall;
+  note: string | null;
+  ownerKind: string | null;
+  record: Recorder;
+  sent: { bytes: Uint8Array<ArrayBuffer>; response: Response };
+  started: number;
+}): Promise<Response> => {
+  const { bytes, response } = sent;
+  const { status } = response;
+  await record("connector.call", {
+    httpStatus: status,
+    method: call.method,
+    ms: Date.now() - started,
+    note,
+    outcome: "ok",
+    ownerKind,
+    tool: call.tool,
+  });
+  if (status === UNAUTHORIZED || status === FORBIDDEN) {
+    // Never hand the client a 401: it would start an OAuth flow of its own.
+    return rpcError(call, `The connector answered ${status} for this call.`, {
+      code: "upstream_refused",
+      status,
+    });
+  }
+  if (status >= REDIRECT_MIN && status <= REDIRECT_MAX) {
+    return rpcError(
+      call,
+      "The connector answered with a redirect, which the proxy does not follow."
+    );
+  }
+  return relay(response, bytes);
+};
+
+/** The connector's URL if the SSRF guard still allows it, else null. */
+const allowedUrl = (raw: string): string | null => {
+  try {
+    return assertSafeUrl(raw).toString();
+  } catch {
+    return null;
+  }
+};
+
+/** A sender for one call. Its single deadline covers a refresh and the second try too. */
+const upstreamSender = ({
+  capMs,
+  ...rest
+}: {
+  body: Uint8Array<ArrayBuffer>;
+  capMs: number;
+  fetchImpl: Fetcher;
+  request: Request;
+  url: string;
+}) => {
+  const signal = AbortSignal.timeout(capMs);
+  return (credential: Credential) =>
+    sendUpstream({ ...rest, credential, signal });
+};
+
+/** A login that cannot be used now: it needs a person, or a refresh is under way. */
+type Declined = NeedsAuth | { ok: false; reason: "retry" };
+
+type Attempt =
+  | { declined: Declined; kind: "declined" }
+  | { kind: "sent"; sent: Sent; used: DecryptedCredential | null };
+
+/**
+ * One try, and when the connector refuses the login with a 401, one refresh
+ * and a second try. Only one caller at a time reaches the token endpoint.
+ */
+const sendWithRefresh = async ({
+  credential,
+  credentials,
+  send,
+  workspaceId,
+}: {
+  credential: DecryptedCredential | null;
+  credentials: CredentialsService;
+  send: (credential: Credential) => Promise<Sent>;
+  workspaceId: string;
+}): Promise<Attempt> => {
+  const first = await send(credential ? credential.header : null);
+  if (!(credential && first.ok && first.response.status === UNAUTHORIZED)) {
+    return { kind: "sent", sent: first, used: credential };
+  }
+  const refreshed = await credentials.refresh({
+    credentialId: credential.id,
+    seenVersion: credential.version,
+    workspaceId,
+  });
+  if (refreshed.ok) {
+    return {
+      kind: "sent",
+      sent: await send(refreshed.credential.header),
+      used: refreshed.credential,
+    };
+  }
+  return { declined: refreshed, kind: "declined" };
+};
+
+/** The answers for a call that did not reach the connector, each with its event. */
+const responders = ({
+  call,
+  capMs,
+  origin,
+  record,
+}: {
+  call: RpcCall;
+  capMs: number;
+  origin: string;
+  record: Recorder;
+}) => {
+  const askAgain = async (): Promise<Response> => {
+    await record("connector.call", {
+      method: call.method,
+      outcome: "retry",
+      tool: call.tool,
+    });
+    return rpcError(call, retryText, { code: "retry" });
+  };
+
+  const refuse = async (refusal: NeedsAuth): Promise<Response> => {
+    await record("connector.needs_auth", {
+      cause: refusal.cause,
+      connectPath: refusal.connectPath,
+      method: call.method,
+      ownerId: refusal.ownerId,
+      ownerKind: refusal.ownerKind,
+      tool: call.tool,
+    });
+    return rpcError(call, needsAuthText(refusal, origin), {
+      code: "needs_auth",
+      connectPath: refusal.connectPath,
+    });
+  };
+
+  return {
+    declined: (result: Declined): Promise<Response> =>
+      result.reason === "needs_auth" ? refuse(result) : askAgain(),
+    failed: async (kind: "timeout" | "unreachable"): Promise<Response> => {
+      if (kind === "timeout") {
+        await record("connector.timeout", {
+          capMs,
+          method: call.method,
+          tool: call.tool,
+        });
+        return rpcError(
+          call,
+          `The connector did not answer within ${Math.round(capMs / 1000)} seconds, so the call was stopped.`,
+          { code: "timeout" }
+        );
+      }
+      await record("connector.call", {
+        method: call.method,
+        outcome: "unreachable",
+        tool: call.tool,
+      });
+      return rpcError(call, "The connector could not be reached.");
+    },
+  };
+};
+
+export const proxyRoutes = ({
+  capMs = PROXY_CAP_MS,
+  fetch: fetchImpl = (input, init) => fetch(input, init),
+  log = defaultLog,
+}: ProxyRouteOptions = {}) => {
+  const routes = bearerGroup();
+
+  /** The run behind the token, null for a bad one. Throws when auth cannot run. */
+  const authenticate = async (
+    c: RouteContext
+  ): Promise<RunTokenClaims | null> => {
+    const token = BEARER.exec(c.req.header("Authorization") ?? "")?.[1];
+    if (!token) {
+      return null;
+    }
+    const { clock, db } = c.get("composed");
+    const result = await verifyRunToken({
+      db,
+      key: await importRunTokenKey(c.env.RUN_TOKEN_KEY),
+      now: clock.now(),
+      token,
+    });
+    return result.ok ? result.claims : null;
+  };
+
+  /** Everything after the token: assignment, credential, forward, answer. */
+  const forward = async (
+    c: RouteContext,
+    claims: RunTokenClaims,
+    connectorId: string
+  ): Promise<Response> => {
+    const { credentials, events } = c.get("composed").services;
+    const context = await credentials.runContext(claims);
+    if (!context) {
+      return unauthorized();
+    }
+    const resolution = await credentials.resolve({
+      agentId: claims.agentId,
+      connectorId,
+      machineId: context.machineId,
+      onBehalfOfUserId: context.onBehalfOfUserId,
+      workspaceId: claims.workspaceId,
+    });
+    if (!resolution.ok && resolution.reason === "not_assigned") {
+      return Response.json({ error: "forbidden" }, { status: FORBIDDEN });
+    }
+
+    const body = await readCappedBody(c.req.raw, MAX_PROXY_BODY_BYTES);
+    if (!body.ok) {
+      return Response.json({ error: body.error }, { status: body.status });
+    }
+    const call = describeCall(body.bytes);
+    const record = recorder({
+      claims,
+      connectorId,
+      events,
+      log,
+      sessionId: context.sessionId,
+    });
+    const { declined, failed } = responders({
+      call,
+      capMs,
+      origin: new URL(c.req.url).origin,
+      record,
+    });
+
+    if (!resolution.ok) {
+      return await declined(resolution);
+    }
+    const url = allowedUrl(resolution.connector.url);
+    if (url === null) {
+      await record("connector.call", {
+        method: call.method,
+        outcome: "blocked",
+        tool: call.tool,
+      });
+      return rpcError(call, "That connector's address is no longer allowed.");
+    }
+
+    const started = Date.now();
+    const send = upstreamSender({
+      body: body.bytes,
+      capMs,
+      fetchImpl,
+      request: c.req.raw,
+      url,
+    });
+
+    const tried = await sendWithRefresh({
+      credential: resolution.credential,
+      credentials,
+      send,
+      workspaceId: claims.workspaceId,
+    });
+    if (tried.kind === "declined") {
+      return await declined(tried.declined);
+    }
+    const { sent, used } = tried;
+    if (!sent.ok) {
+      return await failed(sent.kind);
+    }
+    return await answer({
+      call,
+      note: resolution.note,
+      ownerKind: used ? used.ownerKind : null,
+      record,
+      sent,
+      started,
+    });
+  };
+
+  routes.all("/:connectorId", async (c) => {
+    if (c.req.method !== "POST" && c.req.method !== "DELETE") {
+      // No server-initiated stream through the proxy: the client carries on without one.
+      return new Response(null, {
+        headers: { Allow: "POST, DELETE" },
+        status: 405,
+      });
+    }
+    let claims: RunTokenClaims | null;
+    try {
+      claims = await authenticate(c);
+    } catch (error: unknown) {
+      log({
+        event: "proxy.error",
+        message: error instanceof Error ? error.message : String(error),
+        phase: "authenticate",
+      });
+      return unavailable();
+    }
+    if (!claims) {
+      return unauthorized();
+    }
+
+    return await forward(c, claims, c.req.param("connectorId"));
+  });
+
+  return routes;
+};

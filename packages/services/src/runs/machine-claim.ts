@@ -1,5 +1,6 @@
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
+import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import {
@@ -15,6 +16,7 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 import { findAgent } from "../agents.ts";
 import { authorize, ForbiddenError } from "../authz.ts";
+import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { ServiceError } from "../errors.ts";
 import type { RunTokenClaims } from "../run-tokens.ts";
 import type { Principal } from "../workspaces.ts";
@@ -23,7 +25,6 @@ import type { MachineClaim, RunRecord } from "./types.ts";
 
 const CLAIM_ACTION = "runs.claim";
 const STARTING: RunRecord["status"][] = ["queued", "offered"];
-const TRAILING_SLASHES = /\/+$/;
 
 export interface MachineClaimDeps {
   /** Appends `run.started` once the claim has won. */
@@ -143,9 +144,20 @@ export const claimForMachine = async (
     throw new ServiceError("conflict", "Run cannot be claimed");
   }
 
-  const [claimedRun, [session]] = await Promise.all([
+  const [claimedRun, [session], assigned] = await Promise.all([
     loadRun(db, run.id),
     db.select().from(sessions).where(eq(sessions.id, run.sessionId)).limit(1),
+    db
+      .select({ id: connectors.id, name: connectors.name })
+      .from(agentConnectors)
+      .innerJoin(connectors, eq(connectors.id, agentConnectors.connectorId))
+      .where(
+        and(
+          eq(agentConnectors.agentId, run.agentId),
+          eq(agentConnectors.workspaceId, run.workspaceId)
+        )
+      )
+      .orderBy(agentConnectors.createdAt, agentConnectors.connectorId),
   ]);
   if (!(claimedRun && session)) {
     throw new ServiceError("not_found", "Run not found");
@@ -162,13 +174,11 @@ export const claimForMachine = async (
     },
     inputFileIds: claimedRun.inputFileIds,
     instructions: agent.instructions,
-    mcpServers: {
-      harbourmaster: {
-        headers: { Authorization: `Bearer ${runToken}` },
-        type: "http",
-        url: `${options.platformUrl.replace(TRAILING_SLASHES, "")}/mcp`,
-      },
-    },
+    mcpServers: buildMcpServers({
+      connectors: assigned,
+      platformUrl: options.platformUrl,
+      runToken,
+    }),
     run: {
       agentId: claimedRun.agentId,
       id: claimedRun.id,

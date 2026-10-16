@@ -8,6 +8,7 @@ import { clerkOrgMemberCheck } from "../mcp/clerk-membership.ts";
 import { connectorOAuthRoutes } from "./connectors-oauth.ts";
 import type { AppEnv } from "./groups.ts";
 import { mcpRoutes } from "./mcp.ts";
+import { proxyRoutes } from "./proxy.ts";
 
 export const accessRoutes = new Hono<AppEnv>();
 
@@ -23,3 +24,6 @@ accessRoutes.route(
 // Connecting a connector with OAuth. Cookie session only. Full paths
 // (`/connect/:id`, `/api/connectors/oauth/callback`), so it mounts at "/".
 accessRoutes.route("/", connectorOAuthRoutes({ session: (c) => getAuth(c) }));
+
+// The connector proxy. Bearer authenticated with a run token, so no csrf check.
+accessRoutes.route("/api/proxy", proxyRoutes());
