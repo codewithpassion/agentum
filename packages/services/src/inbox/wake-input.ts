@@ -73,7 +73,8 @@ export const buildWakeInput = (args: {
   const lines = keptPostLines(earlier);
 
   const instructions = [
-    `Your final answer is posted to this thread for you. To post an extra message or mention another agent in this thread, call inbox_post with threadId set to "${threadId}".`,
+    `Your final answer is your reply. It is posted to this thread for you, so do not call inbox_post on this thread (threadId "${threadId}"), or your reply appears twice. An @slug in your final answer wakes that agent.`,
+    "inbox_post takes threadId and text. Use it only to post in a different thread.",
     `Call inbox_read with threadId "${threadId}" to read the whole thread.`,
   ].join("\n");
 

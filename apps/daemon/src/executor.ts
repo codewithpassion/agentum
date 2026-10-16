@@ -20,6 +20,7 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
+import { attachmentInstructions } from "@repo/protocol/attachments";
 import {
   type ClaimResponse,
   type CompleteRequest,
@@ -260,7 +261,7 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       spawnClaudeCodeProcess: spawnProcess,
       strictMcpConfig: true,
       systemPrompt: {
-        append: claim.instructions,
+        append: `${claim.instructions}\n\n${attachmentInstructions(workDir)}`,
         preset: "claude_code",
         type: "preset",
       },
