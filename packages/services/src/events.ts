@@ -1,15 +1,29 @@
 import type { Database } from "@repo/db";
 import type { Statement } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
+import { sessions } from "@repo/db/schema/sessions";
 import {
   EVENT_ACTOR_KINDS,
   EVENT_TYPES,
   type EventActorKind,
   type EventType,
 } from "@repo/db/shared";
-import { and, asc, eq, gt, inArray, like, or, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  like,
+  lt,
+  or,
+  type SQL,
+} from "drizzle-orm";
 import { z } from "zod";
-import { authorize } from "./authz.ts";
+import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import { newEventId } from "./events/ids.ts";
 import {
@@ -19,6 +33,8 @@ import {
   payloadSchema,
 } from "./events/payload.ts";
 import { stripSecrets } from "./events/redact.ts";
+import { summarize } from "./events/summary.ts";
+import { visibleSessions } from "./sessions.ts";
 import type { Principal } from "./workspaces.ts";
 
 const EVENT_READ = "events.read";
@@ -58,6 +74,37 @@ export const eventFiltersSchema = z.strictObject({
   types: z.array(z.enum(EVENT_TYPES)).min(1).optional(),
 });
 export type EventFilters = z.input<typeof eventFiltersSchema>;
+
+export const EVENT_LOG_MAX_LIMIT = 100;
+
+/** Filters of the workspace event log. `from` is inclusive and `to` exclusive, both ISO timestamps. */
+export const eventLogFiltersSchema = z.strictObject({
+  agentId: idString.optional(),
+  from: z.iso.datetime().optional(),
+  limit: z.number().int().min(1).max(EVENT_LOG_MAX_LIMIT).default(25),
+  // Zero-based page number, newest events first.
+  page: z.number().int().min(0).default(0),
+  to: z.iso.datetime().optional(),
+  types: z.array(z.enum(EVENT_TYPES)).min(1).optional(),
+});
+export type EventLogFilters = z.input<typeof eventLogFiltersSchema>;
+
+/** One row of the event log. The payload stays out, only a short summary of it goes along. */
+export interface EventLogEntry {
+  actor: { id: string; kind: EventActorKind };
+  agentId: string | null;
+  createdAt: string;
+  id: string;
+  runId: string | null;
+  sessionId: string | null;
+  summary: string;
+  type: EventType;
+}
+
+export interface EventLogPage {
+  entries: EventLogEntry[];
+  hasMore: boolean;
+}
 
 /** Where oversized payloads go: R2 in the app, a Map in tests. */
 export interface Blobs {
@@ -256,6 +303,72 @@ export const createEventsService = ({
     return rows.map(toRecord);
   };
 
+  /**
+   * One page of the workspace's events, newest first, for the log page. Events
+   * of a session follow the sessions rules: a UI session or private session
+   * (a Slack DM) shows only to the user who opened it. Events outside any
+   * session show to the whole workspace.
+   */
+  const list = async (
+    principal: Principal,
+    filters: EventLogFilters = {}
+  ): Promise<EventLogPage> => {
+    if (principal.kind !== "user" && principal.kind !== "run") {
+      throw new ForbiddenError(EVENT_READ);
+    }
+    authorize(principal, EVENT_READ, {
+      kind: EVENT_KIND,
+      workspaceId: principal.workspaceId,
+    });
+    const f = eventLogFiltersSchema.parse(filters);
+    const visible = await visibleSessions(db, principal);
+    const conditions: SQL[] = [
+      eq(events.workspaceId, principal.workspaceId),
+      or(
+        isNull(events.sessionId),
+        inArray(
+          events.sessionId,
+          db.select({ id: sessions.id }).from(sessions).where(visible)
+        )
+      ) as SQL,
+    ];
+    if (f.agentId) {
+      conditions.push(eq(events.agentId, f.agentId));
+    }
+    if (f.from) {
+      conditions.push(gte(events.createdAt, f.from));
+    }
+    if (f.to) {
+      conditions.push(lt(events.createdAt, f.to));
+    }
+    if (f.types) {
+      conditions.push(inArray(events.type, f.types));
+    }
+    const rows = await db
+      .select()
+      .from(events)
+      .where(and(...conditions))
+      .orderBy(desc(events.id))
+      .limit(f.limit + 1)
+      .offset(f.page * f.limit);
+    return {
+      entries: rows.slice(0, f.limit).map((row) => {
+        const record = toRecord(row);
+        return {
+          actor: record.actor,
+          agentId: record.agentId,
+          createdAt: record.createdAt,
+          id: record.id,
+          runId: record.runId,
+          sessionId: record.sessionId,
+          summary: summarize(record.payload),
+          type: record.type,
+        };
+      }),
+      hasMore: rows.length > f.limit,
+    };
+  };
+
   /** The payload of an event, fetched from the blob store when it overflowed. */
   const readPayload = async (
     principal: Principal,
@@ -279,6 +392,7 @@ export const createEventsService = ({
   return {
     append,
     insertStatement,
+    list,
     onAppend,
     query,
     readPayload,

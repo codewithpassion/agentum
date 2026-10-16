@@ -11,6 +11,7 @@
     "create-dev-user": "bun scripts/create-dev-user.ts",
     "deploy": "bun run build && wrangler deploy",
     "dev": "wrangler d1 migrations apply DB --local && vite dev --port 3000",
+    "e2e:log": "bun e2e/log.ts",
     "e2e:sessions": "bun e2e/sessions.ts",
     "generate-routes": "tsr generate",
     "preview": "vite preview",
