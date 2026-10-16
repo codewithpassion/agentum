@@ -9,15 +9,14 @@
 import type { Database } from "@repo/db";
 import { files } from "@repo/db/schema/files";
 import { runs } from "@repo/db/schema/runs";
-import type { FileSource } from "@repo/db/shared";
+import { type FileSource, MAX_FILE_BYTES } from "@repo/db/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
+import { type Clock, systemClock } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
-
-export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
 const UPLOAD_ACTION = "files.upload";
 const DESCRIBE_ACTION = "files.describe";
@@ -129,9 +128,11 @@ const requireUser = (principal: Principal): UserPrincipal => {
 
 export const createFilesService = ({
   blobs,
+  clock = systemClock,
   db,
 }: {
   blobs: FileBlobs;
+  clock?: Clock;
   db: Database;
 }) => {
   const fileInWorkspace = async (
@@ -201,7 +202,7 @@ export const createFilesService = ({
     }
     const id = ulid();
     const row: FileRow = {
-      createdAt: new Date().toISOString(),
+      createdAt: clock.now().toISOString(),
       createdById: scope.createdById,
       createdByKind: scope.createdByKind,
       id,

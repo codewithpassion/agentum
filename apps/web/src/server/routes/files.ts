@@ -5,10 +5,10 @@
 // statuses. Mount with `runtimeRoutes.route("/", filesRoutes({ session }))`,
 // because the paths are full, not prefixed.
 
+import { MAX_FILE_BYTES } from "@repo/db/shared";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import type { FileRecord } from "@repo/services/files";
-import { MAX_FILE_BYTES } from "@repo/services/files";
 import {
   importRunTokenKey,
   RUN_TOKEN_PREFIX,
@@ -66,6 +66,8 @@ const PDF_CONTENT_TYPE = "application/pdf";
 
 /** Anything outside printable ASCII, plus the two characters a quoted string cannot hold. */
 const NON_ASCII_OR_QUOTE = /[^\x20-\x7E]|["\\]/g;
+/** What `encodeURIComponent` leaves raw but an RFC 5987 ext-value does not allow. */
+const EXT_VALUE_RESERVED = /['()*]/g;
 
 export interface FilesRouteDeps {
   /** The Clerk session of the request: its user and active org, or null. */
@@ -75,6 +77,12 @@ export interface FilesRouteDeps {
 }
 
 type RouteContext = Context<AppEnv>;
+
+const extValue = (name: string): string =>
+  encodeURIComponent(name).replace(
+    EXT_VALUE_RESERVED,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  );
 
 /**
  * Headers for a stored file: safe disposition, no sniffing, sandboxing CSP,
@@ -90,7 +98,7 @@ export const fileResponseHeaders = (
   const fallback = file.name.replace(NON_ASCII_OR_QUOTE, "_");
   return {
     "Cache-Control": "private, max-age=300",
-    "Content-Disposition": `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    "Content-Disposition": `${disposition}; filename="${fallback}"; filename*=UTF-8''${extValue(file.name)}`,
     "Content-Length": String(file.size),
     "Content-Security-Policy":
       contentType === PDF_CONTENT_TYPE ? FILE_CSP_RULES : FILE_CSP,

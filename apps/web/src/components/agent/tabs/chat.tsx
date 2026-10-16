@@ -1,3 +1,4 @@
+import { MAX_FILE_BYTES } from "@repo/db/shared";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -221,11 +222,16 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
   const attachFiles = useCallback(
     (picked: File[]) => {
       const room = Math.max(MAX_ATTACHMENTS - attachments.length, 0);
-      const accepted = picked.slice(0, room);
-      const excess =
-        picked.length > accepted.length
-          ? `You can attach up to ${MAX_ATTACHMENTS} files.`
-          : null;
+      const withinCount = picked.slice(0, room);
+      const accepted = withinCount.filter(
+        (file) => file.size <= MAX_FILE_BYTES
+      );
+      let excess: string | null = null;
+      if (picked.length > withinCount.length) {
+        excess = `You can attach up to ${MAX_ATTACHMENTS} files.`;
+      } else if (accepted.length < withinCount.length) {
+        excess = "Files are limited to 50 MB.";
+      }
       setUploading(true);
       setError(null);
       uploadInOrder(accepted, (info) => {

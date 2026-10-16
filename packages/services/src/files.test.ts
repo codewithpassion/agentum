@@ -4,11 +4,12 @@ import { files as fileRows } from "@repo/db/schema/files";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
+import { MAX_FILE_BYTES } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { ForbiddenError } from "./authz.ts";
 import { type MemoryFileBlobs, memoryFileBlobs } from "./files/memory.ts";
-import { createFilesService, MAX_FILE_BYTES } from "./files.ts";
+import { createFilesService } from "./files.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
@@ -374,4 +375,21 @@ test("describe refuses non-user principals and more than 100 ids", async () => {
     )
   );
   expect(error).toMatchObject({ code: "invalid" });
+});
+
+test("createdAt comes from the injected clock", async () => {
+  const fixed = new Date("2030-01-02T03:04:05.000Z");
+  const timed = createFilesService({
+    blobs,
+    clock: { now: () => fixed, sleep: () => Promise.resolve() },
+    db,
+  });
+
+  const record = await timed.upload(user, {
+    body: text("abc"),
+    mime: null,
+    name: "a.txt",
+  });
+
+  expect(record.createdAt).toBe("2030-01-02T03:04:05.000Z");
 });

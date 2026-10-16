@@ -1,5 +1,4 @@
-import type { RunStatus } from "@repo/db/shared";
-import { INPUT_FILES_MAX } from "@repo/services/runs/types";
+import { INPUT_FILES_MAX, type RunStatus } from "@repo/db/shared";
 import type { SessionTranscript } from "#/integrations/trpc/types";
 
 type Entry = SessionTranscript["entries"][number];
@@ -8,7 +7,7 @@ type Run = NonNullable<SessionTranscript["latestRun"]>;
 export const POLL_MS = 1500;
 export const RETRY_AFTER_MS = 10 * 60 * 1000;
 
-/** Same limit as `INPUT_FILES_MAX` in `@repo/services/runs/types`, which the server enforces. */
+/** What the composer allows: the limit `startRun` enforces. */
 export const MAX_ATTACHMENTS = INPUT_FILES_MAX;
 
 const TOO_LARGE = "(content too large to show)";

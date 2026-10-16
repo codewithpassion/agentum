@@ -427,3 +427,13 @@ test("a non-ASCII file name gets an ASCII fallback and a UTF-8 filename*", async
     `inline; filename="R_sum_ 2026.txt"; filename*=UTF-8''R%C3%A9sum%C3%A9%202026.txt`
   );
 });
+
+test("a file name with an apostrophe or parentheses stays a valid filename*", async () => {
+  const id = await uploadedId(textFile("Dom's (draft).txt", "x"));
+
+  const res = await download(id);
+
+  expect(res.headers.get("Content-Disposition")).toBe(
+    `inline; filename="Dom's (draft).txt"; filename*=UTF-8''Dom%27s%20%28draft%29.txt`
+  );
+});
