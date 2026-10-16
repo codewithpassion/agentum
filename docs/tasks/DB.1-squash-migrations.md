@@ -3,7 +3,7 @@ id: DB.1
 title: Squash all migrations into one
 milestone: DB
 size: S
-status: in_progress
+status: done
 depends_on: [F.4]
 branch: task/DB.1-squash-migrations
 ---
@@ -34,3 +34,4 @@ Local databases created from the old files no longer match. Document the reset i
 
 ## Log
 - 2026-10-16: added at Dom's request; dispatched on task/DB.1-squash-migrations.
+- 2026-10-16: review clean after 0 fix rounds at bb291a5 (docs/reviews/tasks/DB.1.md). Merged. One migration, 0000_init.sql; main's local DB reset and re-applied; generate shows no changes. First remote apply needs a fresh or emptied D1.
