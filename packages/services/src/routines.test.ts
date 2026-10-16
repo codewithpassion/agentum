@@ -13,7 +13,11 @@ import { ServiceError } from "./errors.ts";
 import { createEventsService } from "./events.ts";
 import { createRoutinesService, type RoutinesService } from "./routines.ts";
 import type { Clock, RuntimeAdapter } from "./runs/types.ts";
-import { createRunsService, type RunsService } from "./runs.ts";
+import {
+  createRunsService,
+  type RunsService,
+  UNCLAIMED_EXPIRY_MS,
+} from "./runs.ts";
 import { createTriggersService } from "./triggers.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
@@ -503,6 +507,45 @@ test("five failed runs in a row switch the routine off", async () => {
   advance(MINUTE_MS);
   expect((await tick()).fired).toEqual([]);
   expect(allRuns()).toHaveLength(ROUTINE_ERROR_LIMIT);
+});
+
+test("a routine whose machine never claims switches itself off after five expired runs", async () => {
+  const routine = await makeRoutine("* * * * *");
+  const firstSlot = Date.parse(START) + MINUTE_MS;
+
+  // Nothing claims a run, so each one fails only once it is an hour old.
+  for (let minute = 0; minute < 120; minute += 1) {
+    advance(MINUTE_MS);
+    // biome-ignore lint/performance/noAwaitInLoops: minutes pass in order
+    await tick();
+    await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+    await service.settleRuns(SYSTEM_PRINCIPAL);
+
+    const row = routineRow(routine.id);
+    if (nowMs - firstSlot < UNCLAIMED_EXPIRY_MS) {
+      expect(row?.disabledAt).toBeNull();
+      expect(row?.consecutiveErrors).toBe(0);
+    }
+    if (row?.disabledAt) {
+      break;
+    }
+  }
+
+  const off = routineRow(routine.id);
+  expect(off?.consecutiveErrors).toBe(ROUTINE_ERROR_LIMIT);
+  expect(off?.lastError).toBe("Never claimed");
+  const minutesToDisable =
+    (Date.parse(off?.disabledAt ?? "") - firstSlot) / MINUTE_MS;
+  expect(minutesToDisable).toBeGreaterThanOrEqual(60);
+  expect(minutesToDisable).toBeLessThanOrEqual(70);
+
+  const staleCutoff = nowMs - 61 * MINUTE_MS;
+  const unfinished = allRuns().filter(
+    (run) =>
+      (run.status === "queued" || run.status === "offered") &&
+      Date.parse(run.createdAt) < staleCutoff
+  );
+  expect(unfinished).toEqual([]);
 });
 
 test("slots missed while the tick was down collapse into one run", async () => {
