@@ -73,7 +73,7 @@ export const buildWakeInput = (args: {
   const lines = keptPostLines(earlier);
 
   const instructions = [
-    `Reply in this thread by calling inbox_post with threadId set to "${threadId}".`,
+    `Your final answer is posted to this thread for you. To post an extra message or mention another agent in this thread, call inbox_post with threadId set to "${threadId}".`,
     `Call inbox_read with threadId "${threadId}" to read the whole thread.`,
   ].join("\n");
 

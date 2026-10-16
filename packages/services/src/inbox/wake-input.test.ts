@@ -26,7 +26,6 @@ const postsIn = (output: string): { author: string; text: string }[] => {
   const end = all.indexOf(CLOSE);
   return all
     .slice(start + 1, end)
-    .filter((line) => !line.startsWith("The lines between"))
     .map((line) => JSON.parse(line) as { author: string; text: string });
 };
 
