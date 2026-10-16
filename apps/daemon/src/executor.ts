@@ -6,7 +6,7 @@
 //
 // Input files are downloaded between preparing the work directory and the first
 // message. Output files are uploaded after the process has exited and before
-// the completion; heartbeats go on until the completion is posted, so a slow
+// the completion; heartbeats go on until the completion body is built, so a slow
 // upload does not cost the run its lease.
 //
 // The local slot belongs to the caller. `finished` resolves after the

@@ -139,7 +139,9 @@ export const uploadOutputs = async (
       text: [
         extracted.text,
         ...refusedAsUnsupported(extracted.paths).map(rejectionNote),
-      ].join("\n"),
+      ]
+        .join("\n")
+        .trim(),
     };
   }
   const { files, rejected } = resolveOutboundFiles(extracted.paths, {
