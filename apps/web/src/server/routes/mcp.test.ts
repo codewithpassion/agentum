@@ -684,6 +684,9 @@ describe("Clerk OAuth and the client gate", () => {
     const response = await post(oauthToken("u1"), list);
     expect(response.status).toBe(503);
     expect(response.headers.get("Retry-After")).not.toBeNull();
+    expect(logs).toContainEqual(
+      expect.objectContaining({ misconfigured: false, phase: "authenticate" })
+    );
   });
 
   test("an OAuth client use is recorded in last_used_at", async () => {

@@ -15,7 +15,10 @@ import type { Context } from "hono";
 import { parseOrgIds } from "../compose.ts";
 import { readCappedBody } from "../mcp/body.ts";
 import type { OrgMemberCheck } from "../mcp/clerk-membership.ts";
-import type { VerifiedOAuthToken } from "../mcp/clerk-oauth.ts";
+import {
+  OAuthVerificationUnavailableError,
+  type VerifiedOAuthToken,
+} from "../mcp/clerk-oauth.ts";
 import {
   LOCAL_HOSTNAMES,
   mcpOrigin,
@@ -344,6 +347,10 @@ export const mcpRoutes = ({
       log({
         event: "mcp.error",
         message: error instanceof Error ? error.message : String(error),
+        // Clerk refused our secret key: a configuration error, not an outage.
+        misconfigured:
+          error instanceof OAuthVerificationUnavailableError &&
+          error.misconfigured,
         phase: "authenticate",
       });
       return unavailable();
