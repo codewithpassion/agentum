@@ -45,8 +45,14 @@ export interface WorkFilesOptions {
   workDir: string;
 }
 
-const STAT_FORMAT = "%s %F";
-const STAT_REGULAR_FILE = /^(\d+) regular (?:empty )?file$/;
+// Size and raw mode in hex. `%F` would print a translated type name on a
+// machine with a non-English locale, which sudo passes through.
+const HEX = 16;
+const STAT_FORMAT = "%s %f";
+const STAT_ANSWER = /^(\d+) ([0-9a-f]+)$/;
+// The file type is the top four bits of the 16-bit mode: 8 is a regular file.
+const MODE_TYPE_DIVISOR = 0x10_00;
+const REGULAR_FILE_TYPE = 8;
 
 /** The absolute path of `relPath` under `workDir`; throws when it lands outside. */
 const insideWorkDir = (workDir: string, relPath: string): string => {
@@ -118,9 +124,13 @@ const sudoFiles = (run: CommandRunner, workDir: string): WorkFiles => {
       "--",
       real,
     ]);
-    const match = STAT_REGULAR_FILE.exec(stat.stdout.trim());
+    const match = STAT_ANSWER.exec(stat.stdout.trim());
     if (stat.exitCode !== 0 || match === null) {
-      return { reason: stat.exitCode === 0 ? "not_a_file" : "missing" };
+      return { reason: "missing" };
+    }
+    const mode = Number.parseInt(match[2] ?? "", HEX);
+    if (Math.trunc(mode / MODE_TYPE_DIVISOR) !== REGULAR_FILE_TYPE) {
+      return { reason: "not_a_file" };
     }
     const size = Number(match[1]);
     if (size > maxBytes) {

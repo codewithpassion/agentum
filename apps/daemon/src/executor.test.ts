@@ -406,7 +406,7 @@ const setup = (setupOptions: SetupOptions) => {
             ? missing
             : {
                 ...ok,
-                stdout: `${new TextEncoder().encode(text).length} regular file\n`,
+                stdout: `${new TextEncoder().encode(text).length} 81a4\n`,
               }
         );
       }

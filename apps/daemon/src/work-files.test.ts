@@ -40,7 +40,7 @@ const answerAsFiles: Answer = (binary, args) => {
     case "/usr/bin/realpath":
       return reply(`${args.at(-1) ?? ""}\n`);
     case "/usr/bin/stat":
-      return reply("12 regular file\n");
+      return reply("12 81a4\n");
     case "/usr/bin/head":
       return { ...reply(""), stdoutBytes: BYTES };
     default:
@@ -158,7 +158,7 @@ test("multi-user resolveOutbound vets a regular file with realpath, then the wor
   expect(commandsOf(calls)).toEqual([
     [...AS_AGENT, "/usr/bin/realpath", "-e", "--", TARGET],
     [...AS_AGENT, "/usr/bin/realpath", "-e", "--", WORK_DIR],
-    [...AS_AGENT, "/usr/bin/stat", "-c", "%s %F", "--", TARGET],
+    [...AS_AGENT, "/usr/bin/stat", "-c", "%s %f", "--", TARGET],
   ]);
   expect(result).toEqual({
     files: [
@@ -175,7 +175,7 @@ test("multi-user resolveOutbound vets a regular file with realpath, then the wor
 
 test("multi-user resolveOutbound accepts an empty regular file", async () => {
   const { run } = recordingRunner(
-    replacing("/usr/bin/stat", reply("0 regular empty file\n"))
+    replacing("/usr/bin/stat", reply("0 81a4\n"))
   );
   const files = createWorkFiles({ run, singleUser: false, workDir: WORK_DIR });
 
@@ -267,7 +267,7 @@ test("multi-user resolveOutbound reports a path realpath cannot find as missing"
 
 test("multi-user resolveOutbound reports a directory as not_a_file", async () => {
   const { run } = recordingRunner(
-    replacing("/usr/bin/stat", reply("4096 directory\n"))
+    replacing("/usr/bin/stat", reply("4096 41ed\n"))
   );
   const files = createWorkFiles({ run, singleUser: false, workDir: WORK_DIR });
 
@@ -278,7 +278,7 @@ test("multi-user resolveOutbound reports a directory as not_a_file", async () =>
 
 test("multi-user resolveOutbound refuses a file above maxBytes without reading it", async () => {
   const { calls, run } = recordingRunner(
-    replacing("/usr/bin/stat", reply("100 regular file\n"))
+    replacing("/usr/bin/stat", reply("100 81a4\n"))
   );
   const files = createWorkFiles({ run, singleUser: false, workDir: WORK_DIR });
 
