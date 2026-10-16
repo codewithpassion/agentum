@@ -128,7 +128,12 @@ const runEvents = (runId: string) =>
 const sessionEvents = (sessionId: string) =>
   db.select().from(eventRows).where(eq(eventRows.sessionId, sessionId)).all();
 
-const insertFile = (id: string, workspaceId: string, createdById: string) =>
+const insertFile = (
+  id: string,
+  workspaceId: string,
+  createdById: string,
+  runId: string | null = null
+) =>
   db
     .insert(fileRows)
     .values({
@@ -139,6 +144,7 @@ const insertFile = (id: string, workspaceId: string, createdById: string) =>
       mime: "text/plain",
       name: id,
       r2Key: `${workspaceId}/files/${id}`,
+      runId,
       size: 1,
       source: "upload",
       workspaceId,
@@ -544,6 +550,66 @@ test("completeRun hands the reply target's gateway the trusted context", async (
 
   const none = await start(user, fakeAgentId);
   expect(none.status).toBe("queued");
+});
+
+test("completeRun accepts only files of its own run", async () => {
+  const delivered: unknown[] = [];
+  const inbox: Gateway = {
+    deliver: (target, message) => {
+      delivered.push({ message, target });
+      return Promise.resolve();
+    },
+    kind: "inbox",
+  };
+  runs = buildRuns({ gateways: [inbox] });
+  const reply = { kind: "inbox" as const, threadId: "th1" };
+
+  const run1 = await start(user, spyAgentId, { reply });
+  const run2 = await start(user, spyAgentId, { reply });
+  await runs.claimRun(SYSTEM_PRINCIPAL, run1.runId);
+
+  insertFile("own", WORKSPACE, "u1", run1.runId);
+  insertFile("upload", WORKSPACE, "u2");
+  insertFile("other-run", WORKSPACE, "u1", run2.runId);
+  insertFile("other-ws", "w2", "u1", run1.runId);
+
+  const before = delivered.length;
+  const attempts = ["upload", "other-run", "other-ws"].flatMap((foreign) => [
+    [foreign],
+    ["own", foreign],
+  ]);
+  const errors = await Promise.all(
+    attempts.map((fileIds) =>
+      failure(
+        runs.completeRun(SYSTEM_PRINCIPAL, run1.runId, {
+          fileIds,
+          status: "done",
+          text: "x",
+        })
+      )
+    )
+  );
+  for (const error of errors) {
+    expect(error).toMatchObject({ code: "not_found" });
+  }
+  expect(runRow(run1.runId)?.status).toBe("running");
+  expect(delivered).toHaveLength(before);
+
+  await runs.completeRun(SYSTEM_PRINCIPAL, run1.runId, {
+    fileIds: ["own"],
+    status: "done",
+    text: "ok",
+  });
+  expect(runRow(run1.runId)).toMatchObject({
+    outputFileIds: '["own"]',
+    status: "done",
+  });
+  expect(delivered.slice(before)).toEqual([
+    {
+      message: { fileIds: ["own"], text: "ok" },
+      target: { kind: "inbox", threadId: "th1" },
+    },
+  ]);
 });
 
 test("the fake runtime exists only when devFakeRuntime is true", async () => {
