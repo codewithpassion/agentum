@@ -3,7 +3,7 @@ id: U.3
 title: Clerk sign-in UI readable in dark mode
 milestone: U
 size: S
-status: in_progress
+status: done
 depends_on: [U.1]
 branch: task/U.3-clerk-dark-mode
 ---
@@ -22,3 +22,4 @@ Browser, dev login on a local dev server, plus a signed-out `/login`: screenshot
 
 ## Log
 - 2026-10-17: added from Dom's dark-mode screenshot; dispatched on task/U.3-clerk-dark-mode.
+- 2026-10-17: review clean after 1 fix round at f6a187d (docs/reviews/tasks/U.3.md). Merged.
