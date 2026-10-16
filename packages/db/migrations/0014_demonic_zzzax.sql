@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `private` integer DEFAULT false NOT NULL;

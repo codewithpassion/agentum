@@ -42,8 +42,8 @@ export const loadRunByRequest = async (
 };
 
 /**
- * The session for a key, or null. A `ui` session belongs to whoever opened it:
- * another actor with the same key gets "not found".
+ * The session for a key, or null. A `ui` or private session belongs to whoever
+ * opened it: another actor with the same key gets "not found".
  */
 export const findSession = async (
   db: Database,
@@ -72,7 +72,7 @@ export const findSession = async (
   }
   const foreign =
     session.actorKind !== key.actor.kind || session.actorId !== key.actor.id;
-  if (key.origin === "ui" && foreign) {
+  if ((key.origin === "ui" || session.private) && foreign) {
     throw new ServiceError("not_found", "Session not found");
   }
   return session;

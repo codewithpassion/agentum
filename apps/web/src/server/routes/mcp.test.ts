@@ -472,6 +472,39 @@ describe("tools with a run token", () => {
     expect(foreign.structuredContent).toMatchObject({ code: "not_found" });
   });
 
+  test("a private Slack DM is not_found for a run on behalf of another user, and readable by its own user's run", async () => {
+    db.insert(sessions)
+      .values({
+        actorId: "u2",
+        actorKind: "user",
+        agentId: agentA,
+        createdAt: new Date().toISOString(),
+        externalKey: "dm_u2",
+        id: "session_dm_u2",
+        origin: "slack",
+        private: true,
+        workspaceId,
+      })
+      .run();
+    addRun({ agentId: agentA, id: "run_u1", onBehalfOfUserId: "u1" });
+    addRun({ agentId: agentA, id: "run_u2", onBehalfOfUserId: "u2" });
+
+    const foreign = await callTool(
+      await runToken("run_u1", agentA),
+      "read_session",
+      { sessionId: "session_dm_u2" }
+    );
+    expect(foreign.isError).toBe(true);
+    expect(foreign.structuredContent).toMatchObject({ code: "not_found" });
+
+    const own = await callTool(
+      await runToken("run_u2", agentA),
+      "read_session",
+      { sessionId: "session_dm_u2" }
+    );
+    expect(own.isError).toBeFalsy();
+  });
+
   test("send_message from a run on behalf of U creates a run on behalf of U with parent_run_id", async () => {
     addRun({ agentId: agentA, id: "run_a", onBehalfOfUserId: "u2" });
     const token = await runToken("run_a", agentA);

@@ -16,6 +16,7 @@ import {
   asc,
   eq,
   exists,
+  gte,
   inArray,
   isNotNull,
   isNull,
@@ -77,6 +78,9 @@ import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 export const LEASE_MS = 90_000;
 /** A run still `queued` or `offered` after this long is offered again. */
 export const STALE_QUEUE_MS = 60_000;
+/** A run still `queued` or `offered` after this long, from `created_at`, is failed. */
+export const UNCLAIMED_EXPIRY_MS = 60 * 60_000;
+const NEVER_CLAIMED_ERROR = "Never claimed";
 export const WAIT_MAX_MS = 120_000;
 const WAIT_POLL_MS = 500;
 /** Rows one tick job handles; the next minute takes the rest. */
@@ -429,6 +433,7 @@ export const createRunsService = ({
           id: sessionId,
           lastRunAt: created,
           origin: input.session.origin,
+          private: input.session.private ?? false,
           workspaceId,
         });
     const runWrite = db.insert(runs).values({
@@ -1083,27 +1088,82 @@ export const createRunsService = ({
   };
 
   /**
-   * The minute tick's queue job: offers again every run that has sat `queued`
-   * or `offered` for over 60 seconds, after fetching its leftover files. An
+   * Fails every run that nobody claimed within `UNCLAIMED_EXPIRY_MS`. The
+   * write is conditional on the starting statuses, so a claim that wins is
+   * kept.
+   */
+  const expireUnclaimedRuns = async (
+    expiryCutoff: string,
+    result: SweepResult
+  ) => {
+    const expired = await db
+      .select()
+      .from(runs)
+      .where(
+        and(inArray(runs.status, STARTING), lt(runs.createdAt, expiryCutoff))
+      )
+      .orderBy(asc(runs.createdAt), asc(runs.id))
+      .limit(SWEEP_BATCH);
+    for (const row of expired) {
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: compare-and-set per run, so a claim that wins is respected
+        const moved = await db
+          .update(runs)
+          .set({
+            error: NEVER_CLAIMED_ERROR,
+            finishedAt: nowIso(),
+            status: "failed",
+          })
+          .where(and(eq(runs.id, row.id), inArray(runs.status, STARTING)))
+          .returning({ id: runs.id });
+        if (moved.length > 0) {
+          await appendRunEvent(
+            toRecord(row),
+            "run.failed",
+            eventActor(SYSTEM_PRINCIPAL),
+            { error: NEVER_CLAIMED_ERROR }
+          );
+          result.failed.push({ message: NEVER_CLAIMED_ERROR, runId: row.id });
+        }
+      } catch (error) {
+        result.failed.push({
+          message: error instanceof Error ? error.message : String(error),
+          runId: row.id,
+        });
+      }
+    }
+  };
+
+  /**
+   * The minute tick's queue job: fails every run nobody claimed within an
+   * hour, then offers again every younger run that has sat `queued` or
+   * `offered` for over 60 seconds, after fetching its leftover files. An
    * offer is idempotent because the claim is a conditional write. It looks at
    * the least recently swept runs first, so runs it cannot move on do not hold
    * the window.
    */
   const sweepQueuedRuns = async (principal: Principal) => {
     requireSystem(principal, "runs.sweep");
-    const cutoff = new Date(
-      clock.now().getTime() - STALE_QUEUE_MS
-    ).toISOString();
+    const nowMs = clock.now().getTime();
+    const cutoff = new Date(nowMs - STALE_QUEUE_MS).toISOString();
+    const expiryCutoff = new Date(nowMs - UNCLAIMED_EXPIRY_MS).toISOString();
+    const result: SweepResult = { downloaded: [], failed: [], offered: [] };
+    await expireUnclaimedRuns(expiryCutoff, result);
     const stale = await db
       .select()
       .from(runs)
-      .where(and(inArray(runs.status, STARTING), lt(runs.createdAt, cutoff)))
+      .where(
+        and(
+          inArray(runs.status, STARTING),
+          lt(runs.createdAt, cutoff),
+          gte(runs.createdAt, expiryCutoff)
+        )
+      )
       .orderBy(
         asc(sql`coalesce(${runs.sweptAt}, ${runs.createdAt})`),
         asc(runs.id)
       )
       .limit(SWEEP_BATCH);
-    const result: SweepResult = { downloaded: [], failed: [], offered: [] };
     for (const row of stale) {
       try {
         // biome-ignore lint/performance/noAwaitInLoops: one update per row, since D1 caps bound parameters at 100
