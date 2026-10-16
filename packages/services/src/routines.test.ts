@@ -752,3 +752,33 @@ test("routines stuck behind an unfinished run cannot take every candidate slot",
   expect(routineRow(healthy.id)?.consecutiveErrors).toBe(1);
   expect(routineRow(stuck[0] ?? "")?.consecutiveErrors).toBe(0);
 });
+
+test("with more routines than one settle call takes, the one that waited longest goes first", async () => {
+  const ids: string[] = [];
+  for (let index = 0; index < 101; index += 1) {
+    advance(SECOND_MS);
+    // biome-ignore lint/performance/noAwaitInLoops: ids sort by creation time
+    ids.push((await makeRoutine("* * * * *")).id);
+  }
+  const lastId = ids.at(-1) ?? "";
+
+  // Every minute all 101 routines fire and every run fails at once.
+  for (let minute = 0; minute < 3; minute += 1) {
+    advance(MINUTE_MS);
+    for (;;) {
+      // biome-ignore lint/performance/noAwaitInLoops: ticks run in order
+      const result = await tick();
+      if (result.fired.length === 0) {
+        break;
+      }
+    }
+    db.update(runRows)
+      .set({ error: "no machine", status: "failed" })
+      .where(eq(runRows.status, "queued"))
+      .run();
+    await service.settleRuns(SYSTEM_PRINCIPAL);
+  }
+
+  // Sorted by id, the first 100 would take every slot and this one stay at 0.
+  expect(routineRow(lastId)?.consecutiveErrors).toBeGreaterThan(0);
+});

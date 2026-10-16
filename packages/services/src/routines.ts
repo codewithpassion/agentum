@@ -522,6 +522,16 @@ export const createRoutinesService = ({
     // has ended. One behind a run that has not ended is left out, however
     // many later runs ended, so it cannot take a slot from the others.
     const later = alias(runs, "later");
+    const firstUnjudged = db
+      .select({ id: min(later.id) })
+      .from(later)
+      .where(
+        and(
+          eq(later.actorId, triggers.id),
+          eq(later.actorKind, "trigger"),
+          gt(later.id, sql`coalesce(${triggers.settledRunId}, '')`)
+        )
+      );
     const candidates = await db
       .select({
         disabledAt: triggers.disabledAt,
@@ -544,28 +554,15 @@ export const createRoutinesService = ({
                   eq(runs.actorId, triggers.id),
                   eq(runs.actorKind, "trigger"),
                   inArray(runs.status, ENDED),
-                  eq(
-                    runs.id,
-                    db
-                      .select({ id: min(later.id) })
-                      .from(later)
-                      .where(
-                        and(
-                          eq(later.actorId, triggers.id),
-                          eq(later.actorKind, "trigger"),
-                          gt(
-                            later.id,
-                            sql`coalesce(${triggers.settledRunId}, '')`
-                          )
-                        )
-                      )
-                  )
+                  eq(runs.id, firstUnjudged)
                 )
               )
           )
         )
       )
-      .orderBy(asc(triggers.id))
+      // The routine that has waited longest goes first. Run ids sort by time,
+      // so with more candidates than the limit nobody waits for ever.
+      .orderBy(asc(sql`${firstUnjudged}`), asc(triggers.id))
       .limit(TICK_BATCH);
     let settled = 0;
     for (const routine of candidates) {
