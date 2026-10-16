@@ -3,7 +3,7 @@ id: U.1
 title: UI polish from the first screenshots
 milestone: U
 size: S
-status: in_progress
+status: done
 depends_on: [F.4, S.2]
 branch: task/U.1-ui-polish
 ---
@@ -24,3 +24,4 @@ Unit tests: the markdown renderer turns `**a**` into bold and drops a `<script>`
 ## Log
 - 2026-10-16: added from the UI screenshots (Dom: yes). Starts after F.4 and S.2.
 - 2026-10-16: dispatched on task/U.1-ui-polish.
+- 2026-10-16: review clean after 0 fix rounds at 7b5997a (docs/reviews/tasks/U.1.md). Merged. Open nits: non-UI sessions titled from first message, not channel/subject/routine; markdown images load from any URL.
