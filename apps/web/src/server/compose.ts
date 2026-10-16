@@ -41,6 +41,8 @@ export interface Infra {
   clock: Clock;
   devFakeRuntime: boolean;
   relay: MachineRelayPort;
+  /** `RUN_TOKEN_KEY`. Machine claims mint run tokens with it. */
+  runTokenKey?: string;
 }
 
 export interface Services {
@@ -62,7 +64,7 @@ export interface Composed {
 /** The bindings and secrets `compose` reads. */
 export type ComposeEnv = Pick<
   Env,
-  "ALLOWED_ORG_IDS" | "DB" | "FILES" | "MACHINE_RELAY"
+  "ALLOWED_ORG_IDS" | "DB" | "FILES" | "MACHINE_RELAY" | "RUN_TOKEN_KEY"
 >;
 
 /** Splits a comma separated list of ids, trimmed, dropping empty entries. */
@@ -106,6 +108,7 @@ export const composeWith = ({
     db,
     devFakeRuntime: infra.devFakeRuntime,
     gateways,
+    runTokenKey: infra.runTokenKey,
   });
   const sessions = createSessionsService({ db, events });
   return {
@@ -131,6 +134,7 @@ export const compose = (env: ComposeEnv, devFakeRuntime: boolean): Composed => {
       clock: systemClock,
       devFakeRuntime,
       relay: durableRelayPort(env.MACHINE_RELAY),
+      runTokenKey: env.RUN_TOKEN_KEY,
     },
   });
 };

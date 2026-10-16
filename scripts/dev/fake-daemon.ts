@@ -2,15 +2,19 @@
 // Stands in for the Harbourmaster machine daemon so the Worker can be tested by
 // hand. With `--code` it enrolls and stores the credential in a state file. It
 // then opens one relay connection and prints every frame it receives as a JSON
-// line on stdout. Errors go to stderr. Run from the repo root.
+// line on stdout. Errors go to stderr. Run from the repo root. With `--echo` it
+// also claims each offered run and finishes it with an echo of the input text.
 import { existsSync } from "node:fs";
 import { chmod, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
   CLOSE_CODES,
+  type CompleteRequest,
+  claimResponseSchema,
   type DaemonHello,
   type DaemonPing,
+  type EventsRequest,
   enrollResponseSchema,
   HEARTBEAT_SECONDS,
   relayFrameSchema,
@@ -53,6 +57,7 @@ const parseCli = (argv: string[]) =>
     args: argv,
     options: {
       code: { type: "string" },
+      echo: { type: "boolean" },
       server: { type: "string" },
       "single-user": { type: "boolean" },
       state: { type: "string" },
@@ -134,12 +139,79 @@ const enroll = async ({
   return state;
 };
 
+interface RunTarget {
+  credential: string;
+  err: Output;
+  out: Output;
+  server: string;
+}
+
+const postRun = (
+  credential: string,
+  url: string,
+  body?: EventsRequest | CompleteRequest
+) =>
+  fetch(url, {
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: {
+      authorization: `Bearer ${credential}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
+    method: "POST",
+  });
+
+const echoRun = async (
+  { credential, err, out, server }: RunTarget,
+  runId: string
+): Promise<void> => {
+  const runUrl = (action: string) =>
+    `${server.replace(TRAILING_SLASHES, "")}/api/machines/runs/${runId}/${action}`;
+  const claim = await postRun(credential, runUrl("claim"));
+  if (!claim.ok) {
+    err(`claim ${runId} failed: ${claim.status}\n`);
+    return;
+  }
+  const parsed = claimResponseSchema.safeParse(
+    await claim.json().catch(() => undefined)
+  );
+  if (!parsed.success) {
+    err(`claim ${runId} answer does not match the protocol.\n`);
+    return;
+  }
+  out(`claimed ${runId}\n`);
+  const text = `Echo: ${parsed.data.run.inputText}`;
+  const events: EventsRequest = {
+    events: [{ payload: { text }, seq: 1, type: "message.assistant" }],
+  };
+  const eventsResponse = await postRun(credential, runUrl("events"), events);
+  if (!eventsResponse.ok) {
+    err(`events ${runId} failed: ${eventsResponse.status}\n`);
+    return;
+  }
+  const complete: CompleteRequest = { status: "done", text };
+  const completeResponse = await postRun(
+    credential,
+    runUrl("complete"),
+    complete
+  );
+  if (!completeResponse.ok) {
+    err(`complete ${runId} failed: ${completeResponse.status}\n`);
+    return;
+  }
+  out(`completed ${runId}\n`);
+};
+
 const connect = ({
   credential,
+  echo,
   server,
   out,
   err,
-}: StoredState & { out: Output; err: Output }): Promise<number> =>
+}: StoredState & {
+  echo: boolean;
+  out: Output;
+  err: Output;
+}): Promise<number> =>
   new Promise((resolveExit) => {
     const base = server
       .replace(TRAILING_SLASHES, "")
@@ -150,6 +222,8 @@ const connect = ({
     });
     let stopping = false;
     let heartbeat: ReturnType<typeof setInterval> | undefined;
+    // Offers are echoed one after another, so each waits for the previous one.
+    let echoing: Promise<void> = Promise.resolve();
 
     const stop = () => {
       stopping = true;
@@ -177,6 +251,16 @@ const connect = ({
       const frame = relayFrameSchema.safeParse(parseJson(text));
       if (frame.success) {
         out(`${JSON.stringify(frame.data)}\n`);
+        if (echo && frame.data.type === "offer") {
+          const { runId } = frame.data;
+          echoing = echoing
+            .then(() => echoRun({ credential, err, out, server }, runId))
+            .catch((error: unknown) => {
+              const message =
+                error instanceof Error ? error.message : String(error);
+              err(`offer ${runId} failed: ${message}\n`);
+            });
+        }
       } else {
         err(`unparseable message: ${text}\n`);
       }
@@ -187,18 +271,21 @@ const connect = ({
     });
 
     socket.addEventListener("close", (event) => {
-      out(`closed ${event.code} ${event.reason}\n`);
-      if (stopping) {
-        finish(0);
-      } else if (event.code === CLOSE_CODES.credentialRejected) {
-        err("credential rejected, stopping\n");
-        finish(1);
-      } else {
-        if (event.code === CLOSE_CODES.replaced) {
-          out("replaced by a newer connection\n");
+      // Let echoes that are still running finish before the daemon exits.
+      echoing.then(() => {
+        out(`closed ${event.code} ${event.reason}\n`);
+        if (stopping) {
+          finish(0);
+        } else if (event.code === CLOSE_CODES.credentialRejected) {
+          err("credential rejected, stopping\n");
+          finish(1);
+        } else {
+          if (event.code === CLOSE_CODES.replaced) {
+            out("replaced by a newer connection\n");
+          }
+          finish(0);
         }
-        finish(0);
-      }
+      });
     });
   });
 
@@ -226,7 +313,7 @@ export const runFakeDaemon = async ({
         singleUser: flags["single-user"] === true,
       });
     }
-    return await connect({ ...state, err, out });
+    return await connect({ ...state, echo: flags.echo === true, err, out });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     err(`${message}\n`);

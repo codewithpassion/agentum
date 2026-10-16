@@ -5,9 +5,10 @@ import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
-import { createAgentsService } from "../agents.ts";
+import { createAgentsService, findAgent } from "../agents.ts";
 import { createEventsService } from "../events.ts";
-import type { Clock } from "../runs/types.ts";
+import { toRecord } from "../runs/records.ts";
+import type { AdapterDeps, Clock } from "../runs/types.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { createMachineRuntime } from "./runtime.ts";
@@ -124,7 +125,7 @@ beforeEach(async () => {
   });
 });
 
-test("startRun offers the new run to the machine and leaves it queued", async () => {
+test("startRun offers the new run to the machine and marks it offered", async () => {
   const started = await runs.startRun(user, {
     agentId,
     input: { text: "hello" },
@@ -137,10 +138,10 @@ test("startRun offers the new run to the machine and leaves it queued", async ()
       offer: { agentId, runId: started.runId },
     },
   ]);
-  expect(runRow(started.runId)?.status).toBe("queued");
+  expect(runRow(started.runId)?.status).toBe("offered");
 });
 
-test("startRun still resolves and leaves the run queued when the relay fails", async () => {
+test("startRun still resolves and leaves the run offered when the relay fails", async () => {
   offerError = new Error("relay down");
   const logged = spyOn(console, "error").mockImplementation(() => undefined);
   try {
@@ -151,11 +152,44 @@ test("startRun still resolves and leaves the run queued when the relay fails", a
     });
 
     expect(offers).toHaveLength(1);
-    expect(runRow(started.runId)?.status).toBe("queued");
+    expect(runRow(started.runId)?.status).toBe("offered");
     expect(logged).toHaveBeenCalled();
   } finally {
     logged.mockRestore();
   }
+});
+
+test("dispatch leaves a run that is already running as running", async () => {
+  const started = await runs.startRun(user, {
+    agentId,
+    input: { text: "hello" },
+    session: { origin: "ui" },
+  });
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, started.runId))
+    .run();
+  const row = runRow(started.runId);
+  const agent = await findAgent(db, { id: agentId });
+  if (!(row && agent)) {
+    throw new Error("the run and its agent should exist");
+  }
+  const unused = () => Promise.reject(new Error("dispatch does not use this"));
+  const deps: AdapterDeps = {
+    claimRun: unused,
+    clock,
+    completeRun: unused,
+    ingestRunEvents: unused,
+  };
+
+  await createMachineRuntime({ relay }).dispatch(
+    db,
+    toRecord(row),
+    agent,
+    deps
+  );
+
+  expect(runRow(started.runId)?.status).toBe("running");
 });
 
 test("cancelRun tells the machine to stop the run", async () => {
