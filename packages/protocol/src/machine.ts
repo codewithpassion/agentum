@@ -95,6 +95,7 @@ export type ClaimResponse = z.infer<typeof claimResponseSchema>;
 
 export const runEventInputSchema = z.strictObject({
   payload: jsonRecordSchema,
+  seq: z.int().min(1),
   type: z.enum(["message.assistant", "tool.call", "tool.result"]),
 });
 export type RunEventInput = z.infer<typeof runEventInputSchema>;

@@ -4,7 +4,8 @@
       "type": "message.assistant",
       "payload": {
         "text": "I will read the meeting notes first."
-      }
+      },
+      "seq": 1
     },
     {
       "type": "tool.call",
@@ -13,14 +14,16 @@
         "input": {
           "fileId": "01HZXA5T7V9W1X3Y5Z7A9B1C3D"
         }
-      }
+      },
+      "seq": 2
     },
     {
       "type": "tool.result",
       "payload": {
         "ok": true,
         "output": "Owner Anna to send the pricing draft by Friday."
-      }
+      },
+      "seq": 3
     }
   ]
 }

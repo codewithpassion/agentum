@@ -6,6 +6,8 @@ import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { migrated } from "@repo/db/test-db";
+import { eventsRequestSchema } from "@repo/protocol/machine";
+import { file } from "bun";
 import { eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
@@ -608,6 +610,32 @@ test("ingestRunEvents stores a batch once", async () => {
     ])
   );
   expect(error).toBeInstanceOf(ForbiddenError);
+});
+
+test("ingestRunEvents stores the protocol fixture once", async () => {
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  const request = eventsRequestSchema.parse(
+    await file(
+      new URL("../../protocol/fixtures/events-request.json", import.meta.url)
+    ).json()
+  );
+  expect(
+    await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, request.events)
+  ).toEqual({ lastSeq: 3 });
+  expect(
+    await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, request.events)
+  ).toEqual({ lastSeq: 3 });
+
+  const fixtureTypes = ["message.assistant", "tool.call", "tool.result"];
+  const stored = runEvents(runId).filter((event) =>
+    fixtureTypes.includes(event.type)
+  );
+  expect(stored.map((event) => [event.type, event.seq])).toEqual([
+    ["message.assistant", 1],
+    ["tool.call", 2],
+    ["tool.result", 3],
+  ]);
 });
 
 test("workspaces are isolated", async () => {
