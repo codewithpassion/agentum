@@ -35,11 +35,15 @@
     // Previews never touch production. See README "Pull request previews".
     "staging": {
       "preview_urls": true,
+      // Routes are inherited: without this, staging takes the production domain.
+      "routes": [],
+      "workers_dev": true,
       "durable_objects": {
         "bindings": [{ "name": "MACHINE_RELAY", "class_name": "MachineRelay" }]
       },
-      // Filled in when staging gets its URL (task O.1).
-      "vars": { "PUBLIC_BASE_URL": "" },
+      "vars": {
+        "PUBLIC_BASE_URL": "https://harbourmaster-staging.dominik-fretz.workers.dev"
+      },
       "r2_buckets": [
         { "binding": "FILES", "bucket_name": "harbourmaster-staging-files" }
       ],
@@ -48,7 +52,7 @@
           "binding": "DB",
           "database_name": "harbourmaster-staging",
           // Filled in by the setup-previews skill.
-          "database_id": "local",
+          "database_id": "dadd800c-8151-4878-bb14-e25e1f345c0a",
           "migrations_dir": "../../packages/db/migrations"
         }
       ],
