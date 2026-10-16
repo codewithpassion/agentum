@@ -5,9 +5,7 @@ The build runs as an Opus controller session with Sonnet dispatchers and Haiku w
 
 ## Bun
 
-Bun is the package manager, test runner and script runner: `bun install`, `bun test`, `bun run <script>`, `bunx <package>`. `apps/web` is TanStack Start built with Vite and runs on Cloudflare Workers, so Bun runtime APIs (`Bun.file`, `Bun.$`, `bun:sqlite`) stay in scripts and tests and never ship in the Worker. `apps/daemon`, from M1, runs on Bun itself. Run tests with `bun run test` from the root,
-not a bare `bun test`, so each package's `bunfig.toml` applies (`apps/web` preloads a
-`cloudflare:workers` shim).
+Bun is the package manager, test runner and script runner: `bun install`, `bun test`, `bun run <script>`, `bunx <package>`. `apps/web` is TanStack Start built with Vite and runs on Cloudflare Workers, so Bun runtime APIs (`Bun.file`, `Bun.$`, `bun:sqlite`) stay in scripts and tests and never ship in the Worker. `apps/daemon`, from M1, runs on Bun itself. Run tests with `bun run test` from the root, not a bare `bun test`, so each package's `bunfig.toml` applies (`apps/web` preloads a `cloudflare:workers` shim).
 
 ## shadcn components
 
@@ -48,9 +46,9 @@ break:
 - Layers: route component -> tRPC router (`apps/web/src/server/trpc/`) ->
   service (`@repo/services/<module>`) -> query functions (`@repo/db/<module>`).
   Routers stay thin: input schema plus one service call. Validation and rules
-  go in the service. A service is a factory taking `{ db, atomic, ... }` (the
-  infra it needs, built by the caller) and never reads `env`. It writes more
-  than one row only through `atomic`.
+  go in the service. A service is a factory taking `{ db, ... }` plus the infra it
+  needs (`atomic`, `blobs`, `clock`), built by the caller, and never reads
+  `env`. Rows that must land together are written through `atomic`.
 - No `createServerFn`. Route loaders and components call
   `getTrpc()` from `#/integrations/trpc/client`. It calls the router in-process
   during SSR and over HTTP in the browser, so it works in both.
@@ -76,7 +74,8 @@ break:
 ## CI
 
 `.github/workflows/ci.yml` runs `bun install --frozen-lockfile`, `bun run check`,
-`bun run test`, `bun run build` and the bundle grep, in that order. Dom is on the
+`bun run test`, `bun run build` and the bundle grep, in that order, after copying
+`apps/web/.env.example` to `apps/web/.env` so `wrangler types` knows the secrets. Dom is on the
 free GitHub plan, so its only trigger is `workflow_dispatch`. Add `push` and
 `pull_request` triggers only when Dom says so (see `docs/workflow.md`).
 

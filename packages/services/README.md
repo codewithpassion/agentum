@@ -60,7 +60,7 @@ Add a module as `src/x.ts` and an entry for it in `exports`. Then follow these r
 - Export the input schema (zod). The tRPC router passes it to `.input()`, and the service parses with it again, so a caller that skips tRPC still gets validated input.
 - Methods are `async`, so a validation error rejects the promise rather than throwing synchronously.
 - Take `{ db, ... }` with `db` typed as `Database` from `@repo/db`. Never read `env`, bindings or the request; the caller passes in what the service needs, including the user id when a rule depends on it.
-- Write more than one row only through the `atomic` parameter, never `db.batch` or `db.transaction`.
+- Rows that must land together go through the `atomic` parameter, never `db.batch` or `db.transaction`.
 - Return the plain JSON shapes from `@repo/db/shared`.
 
 A new service also needs a factory call in `composeWith` and a field on `Services` in `apps/web/src/server/compose.ts`.

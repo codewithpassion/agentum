@@ -58,12 +58,12 @@ After M0, the solo order is O.1 (staging, half a day), M1 (walking skeleton, use
 ## Rules that are easy to break
 
 - Services are factories that take `{ db, atomic, ... }` and never read `env`. `apps/web/src/server/compose.ts` builds them.
-- Multi-statement writes go through `atomic` from `@repo/db`. It wraps `db.batch` on D1 and `db.transaction` on `bun:sqlite`, because drizzle 0.44.7 has `batch` only on D1.
+- Multi-statement writes go through `atomic` from `@repo/db/atomic`. It wraps `db.batch` on D1 and `db.transaction` on `bun:sqlite`, because drizzle 0.44.7 has `batch` only on D1.
 - Every table except `workspaces` has `workspace_id TEXT NOT NULL` with no default.
 - Each module exposes one `exports` subpath, such as `@repo/services/runs`. No barrel files. Biome's `noBarrelFile` is an error, and that repo rule wins over the global "index.ts barrel" rule.
 - Every new binding goes in three places in `wrangler.jsonc`: top level, `env.staging` and `env.staging.previews`. DO `migrations` and `triggers.crons` stay top level only.
 - A release that creates or renames a DO class goes out with `wrangler deploy`. Cloudflare refuses `versions upload` for those.
-- A new service goes in `context.ts` and in the add-clerk template copy under `.claude/skills/add-clerk/templates/`. Otherwise running add-clerk later drops it.
+- A new service is built in `composeWith` in `apps/web/src/server/compose.ts`. A change to `context.ts` itself also goes in the add-clerk template copy under `.claude/skills/add-clerk/templates/`.
 - Do not use Agentum's UI as a source or example. Its backend modules and protocols are fine to copy.
 - A copied file comes in with its tests, or it doesn't come in.
 
