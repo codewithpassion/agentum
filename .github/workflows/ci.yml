@@ -1,0 +1,48 @@
+name: CI
+
+# Manual only. Dom is on the free GitHub plan, so this workflow has no
+# automatic trigger until he says so (docs/workflow.md, "GitHub"). The steps
+# run in the same order as the local checks.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Check, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      # wrangler types (run by `bun install` and typecheck) reads apps/web/.env*
+      # to type the secrets in Env. A fresh runner has none, so use the example.
+      - name: Create the env file
+        run: cp apps/web/.env.example apps/web/.env
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check
+        run: bun run check
+
+      # Through turbo, so each package's bunfig applies.
+      - name: Test
+        run: bun run test
+
+      - name: Build
+        run: bun run build
+
+      # Server code must not reach the browser bundle. An explicit if, because
+      # bash -e ignores a failing `! grep`, and a missing folder must fail too.
+      - name: Bundle grep
+        run: |
+          test -d apps/web/dist/client
+          if grep -rl drizzle apps/web/dist/client; then
+            echo "::error::drizzle reached the browser bundle"
+            exit 1
+          fi

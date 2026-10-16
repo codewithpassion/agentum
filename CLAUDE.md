@@ -5,7 +5,7 @@ The build runs as an Opus controller session with Sonnet dispatchers and Haiku w
 
 ## Bun
 
-Bun is the package manager, test runner and script runner: `bun install`, `bun test`, `bun run <script>`, `bunx <package>`. `apps/web` is TanStack Start built with Vite and runs on Cloudflare Workers, so Bun runtime APIs (`Bun.file`, `Bun.$`, `bun:sqlite`) stay in scripts and tests and never ship in the Worker. `apps/daemon`, from M1, runs on Bun itself.
+Bun is the package manager, test runner and script runner: `bun install`, `bun test`, `bun run <script>`, `bunx <package>`. `apps/web` is TanStack Start built with Vite and runs on Cloudflare Workers, so Bun runtime APIs (`Bun.file`, `Bun.$`, `bun:sqlite`) stay in scripts and tests and never ship in the Worker. `apps/daemon`, from M1, runs on Bun itself. Run tests with `bun run test` from the root, not a bare `bun test`, so each package's `bunfig.toml` applies (`apps/web` preloads a `cloudflare:workers` shim).
 
 ## shadcn components
 
@@ -39,13 +39,16 @@ are easy to break:
 ## Services and tRPC
 
 Business logic lives in `packages/services` (`@repo/services`), see its README.
-The app reaches it only through tRPC, mounted in Hono at `/api/trpc`. Rules
-that are easy to break:
+The app reaches it only through tRPC, mounted in Hono at `/api/trpc`, with one
+exception for bearer-authenticated Hono routes (below). Rules that are easy to
+break:
 
 - Layers: route component -> tRPC router (`apps/web/src/server/trpc/`) ->
   service (`@repo/services/<module>`) -> query functions (`@repo/db/<module>`).
   Routers stay thin: input schema plus one service call. Validation and rules
-  go in the service, which takes a `Database` and never reads `env`.
+  go in the service. A service is a factory taking `{ db, ... }` plus the infra it
+  needs (`atomic`, `blobs`, `clock`), built by the caller, and never reads
+  `env`. Rows that must land together are written through `atomic`.
 - No `createServerFn`. Route loaders and components call
   `getTrpc()` from `#/integrations/trpc/client`. It calls the router in-process
   during SSR and over HTTP in the browser, so it works in both.
@@ -59,12 +62,22 @@ that are easy to break:
   "the app reaches it only through tRPC".
 - A service method that reads workspace data takes the calling principal and
   calls `authorize()` from `@repo/services/authz` first, as the events reads do.
-- A new service goes in the context in `context.ts`, and add-clerk keeps a copy
-  of that file in `.claude/skills/add-clerk/templates/apps/web/src/server/trpc/`.
-  Change both, or running add-clerk later drops the new service.
+- A new service is built in `composeWith` in `apps/web/src/server/compose.ts`
+  and added to `Services`. `context.ts` only passes `Services` on as
+  `ctx.services`. add-clerk keeps a copy of `context.ts` in
+  `.claude/skills/add-clerk/templates/apps/web/src/server/trpc/`, so a change to
+  `context.ts` itself goes into both.
 - Server code (`#/server/**`, drizzle, `cloudflare:workers`) must not reach the
   browser bundle. After touching the client, `bun run build` and grep
-  `apps/web/dist/client` for `drizzle` to check.
+  `apps/web/dist/client` for `drizzle` to check. CI runs the same grep.
+
+## CI
+
+`.github/workflows/ci.yml` runs `bun install --frozen-lockfile`, `bun run check`,
+`bun run test`, `bun run build` and the bundle grep, in that order, after copying
+`apps/web/.env.example` to `apps/web/.env` so `wrangler types` knows the secrets. Dom is on the
+free GitHub plan, so its only trigger is `workflow_dispatch`. Add `push` and
+`pull_request` triggers only when Dom says so (see `docs/workflow.md`).
 
 ## Starting a new project
 
