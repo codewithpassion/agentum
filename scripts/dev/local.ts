@@ -91,9 +91,21 @@ export const findLocalD1 = (dir: string): string | null => {
   return candidates[0] ?? null;
 };
 
+/** How long a write waits for the Worker's write lock before it fails. */
+export const BUSY_TIMEOUT_MS = 5000;
+
+/** Opens a SQLite file with foreign keys on and a busy timeout. */
+export const openSqlite = (file: string): Sqlite => {
+  const client = new Sqlite(file);
+  client.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+  client.run("PRAGMA foreign_keys = ON");
+  return client;
+};
+
 /**
- * Opens the local database with foreign keys on, as D1 has them. The caller
- * calls `close` when done. Throws a LocalError when there is no database yet.
+ * Opens the local database with foreign keys on, as D1 has them, and waits for
+ * a locked database instead of failing. The caller calls `close` when done.
+ * Throws a LocalError when there is no database yet.
  */
 export const openLocalDatabase = (): {
   close: () => void;
@@ -106,8 +118,7 @@ export const openLocalDatabase = (): {
       `No local D1 database in ${D1_DIR}. Run \`bunx wrangler d1 migrations apply DB --local\` in apps/web first.`
     );
   }
-  const client = new Sqlite(file);
-  client.run("PRAGMA foreign_keys = ON");
+  const client = openSqlite(file);
   return {
     close: () => client.close(),
     db: drizzle(client),
