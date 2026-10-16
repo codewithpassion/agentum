@@ -39,8 +39,11 @@ let composed: Composed;
 let session: Session;
 let connectorId: string;
 let agentId: string;
+// Every URL the server asked the stub for, so a test can see a registration.
+let requested: string[];
 
 const toStub: Fetcher = (input, init) => {
+  requested.push(String(input));
   const headers = new Headers(init?.headers);
   headers.set("x-forwarded-host", PUBLIC_HOST);
   headers.set("x-forwarded-proto", "https");
@@ -80,6 +83,7 @@ app.route("/", connectorOAuthRoutes({ session: () => session }));
 beforeEach(async () => {
   db = migrated();
   stub = startStubMcp({ oauth: true });
+  requested = [];
   session = USER_A;
   composed = composeWith({
     allowedOrgIds: ["org_a", "org_b"],
@@ -125,12 +129,23 @@ const principalOf = async (who: Session) => {
   return principal;
 };
 
-const connectAt = (path: string): Promise<Response> =>
-  Promise.resolve(app.request(`${APP}${path}`));
+const connectAt = (
+  path: string,
+  headers?: Record<string, string>
+): Promise<Response> =>
+  Promise.resolve(app.request(`${APP}${path}`, { headers }));
+
+const registrations = (): string[] =>
+  requested.filter((url) => new URL(url).pathname === "/oauth/register");
+
+const SAME_ORIGIN = { "Sec-Fetch-Site": "same-origin" };
 
 /** `/connect/:id`, then the click on Approve. Returns the callback path. */
 const approvedCallback = async (query: string): Promise<string> => {
-  const started = await connectAt(`/connect/${connectorId}${query}`);
+  const started = await connectAt(
+    `/connect/${connectorId}${query}`,
+    SAME_ORIGIN
+  );
   if (started.status !== 302) {
     throw new Error(`/connect answered ${started.status}`);
   }
@@ -219,15 +234,83 @@ test("an off-site return_to is refused at /connect and starts nothing", async ()
 test("?as=agent from a non-member is refused", async () => {
   session = OUTSIDER;
   const outsiderAgent = await connectAt(
-    `/connect/${connectorId}?as=agent:${agentId}`
+    `/connect/${connectorId}?as=agent:${agentId}`,
+    SAME_ORIGIN
   );
   expect(outsiderAgent.status).toBe(404);
 
   session = NO_ORG;
-  const lonely = await connectAt(`/connect/${connectorId}?as=agent:${agentId}`);
+  const lonely = await connectAt(
+    `/connect/${connectorId}?as=agent:${agentId}`,
+    SAME_ORIGIN
+  );
   expect(lonely.status).toBe(403);
 
   expect(stateRows()).toHaveLength(0);
+});
+
+test("?as=agent without fetch metadata goes to the agent page and starts nothing", async () => {
+  const res = await connectAt(`/connect/${connectorId}?as=agent:${agentId}`);
+
+  expect(res.status).toBe(302);
+  expect(res.headers.get("location")).toBe(`/agents/${agentId}?tab=connectors`);
+  expect(stateRows()).toHaveLength(0);
+  expect(registrations()).toHaveLength(0);
+});
+
+test("?as=agent with Sec-Fetch-Site same-origin starts the flow for that agent", async () => {
+  const res = await connectAt(
+    `/connect/${connectorId}?as=agent:${agentId}`,
+    SAME_ORIGIN
+  );
+
+  expect(res.status).toBe(302);
+  expect(res.headers.get("location")).toStartWith(
+    `${PUBLIC_ORIGIN}/oauth/authorize`
+  );
+  expect(stateRows()).toMatchObject([{ ownerId: agentId, ownerKind: "agent" }]);
+});
+
+test("without Sec-Fetch-Site, a Referer from this origin starts the agent flow", async () => {
+  const res = await connectAt(`/connect/${connectorId}?as=agent:${agentId}`, {
+    Referer: `${APP}/agents/${agentId}?tab=connectors`,
+  });
+
+  expect(res.headers.get("location")).toStartWith(
+    `${PUBLIC_ORIGIN}/oauth/authorize`
+  );
+  expect(stateRows()).toHaveLength(1);
+});
+
+test("a foreign Referer or a cross-site navigation to ?as=agent goes to the agent page and starts nothing", async () => {
+  const refused: Record<string, string>[] = [
+    { Referer: "https://evil.example/x" },
+    { "Sec-Fetch-Site": "cross-site" },
+  ];
+  const responses = await Promise.all(
+    refused.map((headers) =>
+      connectAt(`/connect/${connectorId}?as=agent:${agentId}`, headers)
+    )
+  );
+
+  for (const res of responses) {
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(
+      `/agents/${agentId}?tab=connectors`
+    );
+  }
+  expect(stateRows()).toHaveLength(0);
+  expect(registrations()).toHaveLength(0);
+});
+
+test("?as=user needs no fetch metadata and starts the flow", async () => {
+  const res = await connectAt(`/connect/${connectorId}?as=user`);
+
+  expect(res.status).toBe(302);
+  expect(res.headers.get("location")).toStartWith(
+    `${PUBLIC_ORIGIN}/oauth/authorize`
+  );
+  expect(stateRows()).toMatchObject([{ ownerId: "user_a", ownerKind: "user" }]);
 });
 
 test("a signed-out visitor to /connect is sent to the login page", async () => {
