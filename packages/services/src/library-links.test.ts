@@ -1,7 +1,10 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { files as fileRows } from "@repo/db/schema/files";
+import { runs as runRows } from "@repo/db/schema/runs";
+import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { and, eq } from "drizzle-orm";
@@ -106,6 +109,63 @@ beforeEach(() => {
   links = createLibraryLinksService({ files, library });
   insertWorkspace(A);
   insertWorkspace(B);
+});
+
+/** An agent, a session and a run `r1` that lists `inputFileIds` as input. */
+const insertRunWithInputs = (inputFileIds: string[]) => {
+  db.insert(agentRows)
+    .values({
+      createdAt: START,
+      createdBy: "u1",
+      id: "a1",
+      instructions: "",
+      model: "m",
+      name: "Agent",
+      runtime: "fake",
+      runtimeConfig: "{}",
+      slug: "agent",
+      status: "active",
+      workspaceId: A,
+    })
+    .run();
+  db.insert(sessionRows)
+    .values({
+      actorId: "u1",
+      actorKind: "user",
+      agentId: "a1",
+      createdAt: START,
+      id: "s1",
+      origin: "ui",
+      workspaceId: A,
+    })
+    .run();
+  db.insert(runRows)
+    .values({
+      actorId: "u1",
+      actorKind: "user",
+      agentId: "a1",
+      createdAt: START,
+      id: "r1",
+      inputFileIds: JSON.stringify(inputFileIds),
+      inputText: "hi",
+      outputFileIds: "[]",
+      sessionId: "s1",
+      status: "queued",
+      workspaceId: A,
+    })
+    .run();
+};
+
+test("a run that lists an attached library file as input downloads it, unchanged by later library edits", async () => {
+  await library.write(user(), "notes/a.md", bytes("v1"));
+  const record = await links.attach(user(), "notes/a.md");
+  insertRunWithInputs([record.id]);
+  await library.write(user(), "notes/a.md", bytes("v2 longer"));
+
+  const downloaded = await files.download(runPrincipal, record.id);
+
+  expect(await readBody(downloaded.body)).toBe("v1");
+  expect(downloaded.file.source).toBe("library");
 });
 
 test("attach copies a library file into a files row a run can list", async () => {
