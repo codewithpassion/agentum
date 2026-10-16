@@ -135,6 +135,18 @@ export const createEventsService = ({
   blobs: Blobs;
   db: Database;
 }) => {
+  const listeners: Array<(event: EventRecord) => Promise<void>> = [];
+
+  /**
+   * Runs after each `append`, for side effects that follow an event, such as
+   * the Slack gateway telling a person to connect an account. A listener runs
+   * inside the request that appended, so it must be quick and must not throw.
+   * A listener that fails is logged and does not fail the append.
+   */
+  const onAppend = (listener: (event: EventRecord) => Promise<void>): void => {
+    listeners.push(listener);
+  };
+
   const append = async (input: EventInput): Promise<EventRecord> => {
     const parsed = eventInputSchema.parse(input);
     const now = new Date();
@@ -153,13 +165,23 @@ export const createEventsService = ({
       capped.payload_ref?.key ?? null
     );
     await db.insert(events).values(row);
-    return toRecord(row);
+    const record = toRecord(row);
+    for (const listener of listeners) {
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: listeners run one at a time, in registration order
+        await listener(record);
+      } catch (error) {
+        console.error("Event listener failed", error);
+      }
+    }
+    return record;
   };
 
   /**
    * An unexecuted insert for `atomic`, for a write that must land with others.
    * Like `append` it strips secrets, but it has no blob store, so a payload
-   * over 64 KB is refused instead of moved.
+   * over 64 KB is refused instead of moved. It does not notify `onAppend`
+   * listeners, because the row is not written yet when this returns.
    */
   const insertStatement = (input: EventInput): Statement => {
     const parsed = eventInputSchema.parse(input);
@@ -254,7 +276,14 @@ export const createEventsService = ({
     return payloadSchema.parse(JSON.parse(body));
   };
 
-  return { append, insertStatement, query, readPayload, transcript };
+  return {
+    append,
+    insertStatement,
+    onAppend,
+    query,
+    readPayload,
+    transcript,
+  };
 };
 
 export type EventsService = ReturnType<typeof createEventsService>;

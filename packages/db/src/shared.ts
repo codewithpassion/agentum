@@ -64,6 +64,8 @@ export const EVENT_TYPES = [
   "slack.received",
   "slack.unlinked_sender",
   "slack.delivered",
+  "slack.app_installed",
+  "slack.app_revoked",
   "inbox.posted",
   "inbox.loop_stopped",
   "machine.online",
@@ -107,3 +109,6 @@ export const TOKEN_ENDPOINT_AUTH_METHODS = [
 ] as const;
 export type TokenEndpointAuthMethod =
   (typeof TOKEN_ENDPOINT_AUTH_METHODS)[number];
+
+export const INBOX_AUTHOR_KINDS = ["user", "agent"] as const;
+export type InboxAuthorKind = (typeof INBOX_AUTHOR_KINDS)[number];

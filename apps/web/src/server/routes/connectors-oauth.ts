@@ -65,6 +65,28 @@ const refusal = (c: RouteContext, error: unknown): Response => {
   throw error;
 };
 
+const AGENT_PREFIX = "agent:";
+
+/**
+ * True when the navigation came from a Harbourmaster page. Browsers send
+ * `Sec-Fetch-Site`; when it is missing, the `Referer` origin has to match.
+ */
+const isSameOrigin = (c: RouteContext): boolean => {
+  const site = c.req.header("Sec-Fetch-Site");
+  if (site) {
+    return site === "same-origin";
+  }
+  const referer = c.req.header("Referer");
+  if (!referer) {
+    return false;
+  }
+  try {
+    return new URL(referer).origin === new URL(c.req.url).origin;
+  } catch {
+    return false;
+  }
+};
+
 const noStore = (c: RouteContext): void => {
   c.header("Cache-Control", "no-store");
 };
@@ -83,11 +105,18 @@ export const connectorOAuthRoutes = (
     if (who.kind === "no_workspace") {
       return c.text("Not allowed.", FORBIDDEN);
     }
+    // Binding an agent's login is only offered by the agent's own page, so a
+    // link from elsewhere (a Slack message, say) lands there instead.
+    const as = c.req.query("as") ?? "user";
+    if (as.startsWith(AGENT_PREFIX) && !isSameOrigin(c)) {
+      const agentId = encodeURIComponent(as.slice(AGENT_PREFIX.length));
+      return c.redirect(`/agents/${agentId}?tab=connectors`, FOUND);
+    }
     try {
       const { authorizeUrl } = await c
         .get("composed")
         .services.connectorOAuth.start(who.principal, {
-          as: c.req.query("as") ?? "user",
+          as,
           connectorId: c.req.param("connectorId"),
           origin: new URL(c.req.url).origin,
           returnTo: c.req.query("return_to"),

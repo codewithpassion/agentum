@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ec2bde71-46cf-4601-b120-9fea1db829fe",
+  "id": "1ffe3a78-59b7-4a7d-95cc-7ca13b4e9264",
   "prevId": "11b7fe84-20bf-4a65-890e-4a1c72a34897",
   "tables": {
     "agents": {
@@ -909,6 +909,182 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "inbox_posts": {
+      "name": "inbox_posts",
+      "columns": {
+        "author_id": {
+          "name": "author_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "author_kind": {
+          "name": "author_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "file_ids": {
+          "name": "file_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "thread_id": {
+          "name": "thread_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "inbox_posts_thread_idx": {
+          "name": "inbox_posts_thread_idx",
+          "columns": ["thread_id", "id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "inbox_posts_run_id_runs_id_fk": {
+          "name": "inbox_posts_run_id_runs_id_fk",
+          "tableFrom": "inbox_posts",
+          "tableTo": "runs",
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "inbox_posts_thread_id_inbox_threads_id_fk": {
+          "name": "inbox_posts_thread_id_inbox_threads_id_fk",
+          "tableFrom": "inbox_posts",
+          "tableTo": "inbox_threads",
+          "columnsFrom": ["thread_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "inbox_posts_workspace_id_workspaces_id_fk": {
+          "name": "inbox_posts_workspace_id_workspaces_id_fk",
+          "tableFrom": "inbox_posts",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "inbox_threads": {
+      "name": "inbox_threads",
+      "columns": {
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_post_at": {
+          "name": "last_post_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "inbox_threads_recent_idx": {
+          "name": "inbox_threads_recent_idx",
+          "columns": ["workspace_id", "last_post_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "inbox_threads_workspace_id_workspaces_id_fk": {
+          "name": "inbox_threads_workspace_id_workspaces_id_fk",
+          "tableFrom": "inbox_threads",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "machine_enroll_tokens": {
       "name": "machine_enroll_tokens",
       "columns": {
@@ -1372,11 +1548,6 @@
           "name": "runs_request_unique",
           "columns": ["workspace_id", "request_id"],
           "isUnique": true
-        },
-        "runs_actor_idx": {
-          "name": "runs_actor_idx",
-          "columns": ["actor_id", "id"],
-          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -1751,14 +1922,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "consecutive_errors": {
-          "name": "consecutive_errors",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -1771,20 +1934,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "cron": {
-          "name": "cron",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "disabled_at": {
-          "name": "disabled_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "id": {
@@ -1801,13 +1950,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "last_error": {
-          "name": "last_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "last_fired_at": {
           "name": "last_fired_at",
           "type": "text",
@@ -1822,36 +1964,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "next_run_at": {
-          "name": "next_run_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "prompt": {
-          "name": "prompt",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "revoked_at": {
           "name": "revoked_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "settled_run_id": {
-          "name": "settled_run_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "timezone": {
-          "name": "timezone",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1861,14 +1975,14 @@
           "name": "token_hash",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "token_prefix": {
           "name": "token_prefix",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "workspace_id": {
@@ -1884,11 +1998,6 @@
           "name": "triggers_token_hash_unique",
           "columns": ["token_hash"],
           "isUnique": true
-        },
-        "triggers_due_idx": {
-          "name": "triggers_due_idx",
-          "columns": ["next_run_at"],
-          "isUnique": false
         }
       },
       "foreignKeys": {

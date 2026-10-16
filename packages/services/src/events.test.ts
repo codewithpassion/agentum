@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from "bun:test";
+import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { events } from "@repo/db/schema/events";
@@ -7,7 +7,7 @@ import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { ServiceError } from "./errors.ts";
-import { createEventsService } from "./events.ts";
+import { createEventsService, type EventRecord } from "./events.ts";
 import { importRunTokenKey, signRunToken } from "./run-tokens.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -336,4 +336,76 @@ test("insertStatement throws for a payload over 64 KB and writes nothing", () =>
     })
   ).toThrow(ServiceError);
   expect(db.select().from(events).all()).toHaveLength(0);
+});
+
+test("onAppend listeners get the appended record", async () => {
+  const seen: EventRecord[] = [];
+  service.onAppend((recorded) => {
+    seen.push(recorded);
+    return Promise.resolve();
+  });
+  const event = await service.append({
+    ...base,
+    payload: { text: "hi" },
+    type: "message.user",
+  });
+  expect(seen).toEqual([event]);
+  expect(seen[0]?.id).toBe(event.id);
+  expect(seen[0]?.type).toBe("message.user");
+  expect(seen[0]?.payload).toEqual({ text: "hi" });
+});
+
+test("onAppend listeners run in registration order", async () => {
+  const order: string[] = [];
+  service.onAppend(async () => {
+    order.push("first");
+    await Promise.resolve();
+    order.push("first done");
+  });
+  service.onAppend(() => {
+    order.push("second");
+    return Promise.resolve();
+  });
+  await service.append({ ...base, type: "run.queued" });
+  expect(order).toEqual(["first", "first done", "second"]);
+});
+
+test("a throwing onAppend listener does not fail append", async () => {
+  const logged = spyOn(console, "error").mockImplementation(() => undefined);
+  const after: string[] = [];
+  service.onAppend(() => {
+    throw new Error("boom");
+  });
+  service.onAppend(() => {
+    after.push("ran");
+    return Promise.resolve();
+  });
+  const event = await service.append({ ...base, type: "run.queued" });
+  expect(event.id).toMatch(ULID);
+  expect(
+    db
+      .select()
+      .from(events)
+      .all()
+      .map((row) => row.id)
+  ).toEqual([event.id]);
+  expect(after).toEqual(["ran"]);
+  expect(logged).toHaveBeenCalledWith(
+    "Event listener failed",
+    expect.any(Error)
+  );
+  logged.mockRestore();
+});
+
+test("insertStatement does not notify onAppend listeners", async () => {
+  const seen: EventRecord[] = [];
+  service.onAppend((recorded) => {
+    seen.push(recorded);
+    return Promise.resolve();
+  });
+  await sqliteAtomic(db)([
+    service.insertStatement({ ...base, type: "run.queued" }),
+  ]);
+  expect(db.select().from(events).all()).toHaveLength(1);
+  expect(seen).toEqual([]);
 });
