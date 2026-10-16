@@ -12,6 +12,10 @@ import {
   createApiKeysService,
 } from "@repo/services/api-keys";
 import {
+  type ConnectorOAuthService,
+  createConnectorOAuthService,
+} from "@repo/services/connector-oauth";
+import {
   type ConnectorsService,
   createConnectorsService,
 } from "@repo/services/connectors";
@@ -69,6 +73,7 @@ export interface Infra {
 export interface Services {
   agents: AgentsService;
   apiKeys: ApiKeysService;
+  connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
   events: EventsService;
   files: FilesService;
@@ -123,13 +128,23 @@ export const composeWith = ({
   const events = createEventsService({ blobs: infra.blobs, db });
   const agents = createAgentsService({ db, events });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
+  // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
+  const connectorFetch: Fetcher =
+    infra.fetch ?? ((input, init) => fetch(input, init));
   const connectors = createConnectorsService({
     atomic: infra.atomic,
     clock: infra.clock,
     db,
     events,
-    // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
-    fetch: infra.fetch ?? ((input, init) => fetch(input, init)),
+    fetch: connectorFetch,
+    secretsKey: infra.secretsKey,
+  });
+  const connectorOAuth = createConnectorOAuthService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    fetch: connectorFetch,
     secretsKey: infra.secretsKey,
   });
   const files = createFilesService({
@@ -162,6 +177,7 @@ export const composeWith = ({
     services: {
       agents,
       apiKeys,
+      connectorOAuth,
       connectors,
       events,
       files,

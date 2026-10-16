@@ -34,6 +34,8 @@ app.use("/api/*", composeServices);
 app.use("/mcp", composeServices);
 // `/files/:id` is outside `/api` but reads files too.
 app.use("/files/*", composeServices);
+// `/connect/:id` starts an OAuth connection and reads the services too.
+app.use("/connect/*", composeServices);
 
 app.get("/api/health", (c) => {
   const auth = getAuth(c);

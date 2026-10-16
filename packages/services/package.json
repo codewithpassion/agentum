@@ -6,6 +6,7 @@
     "./agents": "./src/agents.ts",
     "./api-keys": "./src/api-keys.ts",
     "./authz": "./src/authz.ts",
+    "./connector-oauth": "./src/connector-oauth.ts",
     "./connectors": "./src/connectors.ts",
     "./connectors/mcp": "./src/connectors/mcp.ts",
     "./crypto": "./src/crypto.ts",

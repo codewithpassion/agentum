@@ -1,7 +1,10 @@
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useState } from "react";
+import { z } from "zod";
 import { AddConnectorDialog } from "#/components/connectors/add-connector-dialog";
+import { connectHref } from "#/components/connectors/connect-link";
+import { OAuthClientDialog } from "#/components/connectors/oauth-client-dialog";
 import { PasteCredentialDialog } from "#/components/connectors/paste-credential-dialog";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -14,9 +17,19 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { getTrpc } from "#/integrations/trpc/client";
-import type { ConnectorRecord } from "#/integrations/trpc/types";
+import type {
+  ConnectorRecord,
+  CredentialRecord,
+} from "#/integrations/trpc/types";
+
+const searchSchema = z.object({
+  // The router parses a bare `1` in the query into a number.
+  connect_error: z.union([z.string(), z.number()]).optional().catch(undefined),
+  connected: z.union([z.string(), z.number()]).optional().catch(undefined),
+});
 
 export const Route = createFileRoute("/_app/connectors")({
+  validateSearch: (search) => searchSchema.parse(search),
   loader: async () => {
     try {
       return await getTrpc().connectors.list.query();
@@ -44,6 +57,12 @@ const STATUS_LABEL: Record<ConnectorRecord["status"], string> = {
   ok: "ok",
 };
 
+const OAUTH_CREDENTIAL_LABEL: Record<CredentialRecord["status"], string> = {
+  needs_auth: "needs auth",
+  ok: "connected",
+  revoked: "revoked",
+};
+
 function addedMessage(connector: ConnectorRecord): string {
   switch (connector.authKind) {
     case "header":
@@ -64,12 +83,61 @@ function credentialLabel(connector: ConnectorRecord): string {
   return connector.myCredential === null ? "none" : "pasted";
 }
 
+function OAuthCredential({ connector }: { connector: ConnectorRecord }) {
+  const credential = connector.myCredential;
+  if (credential === null) {
+    return <span>none</span>;
+  }
+  return (
+    <Badge variant={credential.status === "ok" ? "default" : "secondary"}>
+      {OAUTH_CREDENTIAL_LABEL[credential.status]}
+    </Badge>
+  );
+}
+
+function OAuthActions({
+  connector,
+  onSetClient,
+}: {
+  connector: ConnectorRecord;
+  onSetClient: (connector: ConnectorRecord) => void;
+}) {
+  const setClient = useCallback(
+    () => onSetClient(connector),
+    [connector, onSetClient]
+  );
+  const { oauth } = connector;
+
+  if (oauth === null || !(oauth.clientConfigured || oauth.canRegister)) {
+    return (
+      <Button onClick={setClient} size="sm" variant="outline">
+        Set client
+      </Button>
+    );
+  }
+
+  const href = connectHref({
+    as: "user",
+    connectorId: connector.id,
+    returnTo: "/connectors",
+  });
+  return (
+    <Button asChild size="sm" variant="outline">
+      <a href={href}>
+        {connector.myCredential === null ? "Connect" : "Re-authorise"}
+      </a>
+    </Button>
+  );
+}
+
 function ConnectorRow({
   connector,
   onPaste,
+  onSetClient,
 }: {
   connector: ConnectorRecord;
   onPaste: (connector: ConnectorRecord) => void;
+  onSetClient: (connector: ConnectorRecord) => void;
 }) {
   const paste = useCallback(() => onPaste(connector), [connector, onPaste]);
   const toolNames = connector.tools.map((tool) => tool.name).join(", ");
@@ -105,7 +173,11 @@ function ConnectorRow({
         </div>
       </TableCell>
       <TableCell className="text-muted-foreground">
-        {credentialLabel(connector)}
+        {connector.authKind === "oauth" ? (
+          <OAuthCredential connector={connector} />
+        ) : (
+          credentialLabel(connector)
+        )}
       </TableCell>
       <TableCell className="text-right">
         {connector.authKind === "header" ? (
@@ -114,9 +186,7 @@ function ConnectorRow({
           </Button>
         ) : null}
         {connector.authKind === "oauth" ? (
-          <span className="text-muted-foreground text-xs">
-            OAuth connect arrives in a later release.
-          </span>
+          <OAuthActions connector={connector} onSetClient={onSetClient} />
         ) : null}
       </TableCell>
     </TableRow>
@@ -125,10 +195,18 @@ function ConnectorRow({
 
 function ConnectorsPage() {
   const connectors = Route.useLoaderData();
+  const search = Route.useSearch();
   const router = useRouter();
   const [adding, setAdding] = useState(false);
   const [pasting, setPasting] = useState<ConnectorRecord | null>(null);
+  const [settingClient, setSettingClient] = useState<ConnectorRecord | null>(
+    null
+  );
   const [notice, setNotice] = useState<string | null>(null);
+
+  const connectNotice =
+    search.connect_error ??
+    (search.connected === undefined ? null : "Connected.");
 
   const openAdd = useCallback(() => setAdding(true), []);
 
@@ -155,12 +233,27 @@ function ConnectorsPage() {
     await router.invalidate();
   }, [router]);
 
+  const openSetClient = useCallback(
+    (connector: ConnectorRecord) => setSettingClient(connector),
+    []
+  );
+
+  const closeSetClient = useCallback(() => setSettingClient(null), []);
+
+  const handleClientSaved = useCallback(async () => {
+    setSettingClient(null);
+    await router.invalidate();
+  }, [router]);
+
   return (
     <section className="mx-auto max-w-5xl">
       <div className="mb-6 flex items-center justify-between gap-4">
         <h1 className="font-heading text-3xl text-foreground">Connectors</h1>
         <Button onClick={openAdd}>Add connector</Button>
       </div>
+      {connectNotice !== null && (
+        <p className="mb-4 text-muted-foreground text-sm">{connectNotice}</p>
+      )}
       {notice !== null && (
         <p className="mb-4 text-muted-foreground text-sm">{notice}</p>
       )}
@@ -189,6 +282,7 @@ function ConnectorsPage() {
                 connector={connector}
                 key={connector.id}
                 onPaste={openPaste}
+                onSetClient={openSetClient}
               />
             ))}
           </TableBody>
@@ -209,6 +303,13 @@ function ConnectorsPage() {
           }}
           onClose={closePaste}
           onSaved={handleSaved}
+        />
+      )}
+      {settingClient === null ? null : (
+        <OAuthClientDialog
+          connector={{ id: settingClient.id, name: settingClient.name }}
+          onClose={closeSetClient}
+          onSaved={handleClientSaved}
         />
       )}
     </section>

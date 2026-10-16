@@ -34,6 +34,10 @@ import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import {
+  findCredentialSlot,
+  writeCredential,
+} from "./connectors/credential-write.ts";
+import {
   type CachedTool,
   type Fetcher,
   McpError,
@@ -41,11 +45,21 @@ import {
   probeMcpServer,
 } from "./connectors/mcp.ts";
 import {
+  discoverAuthorization,
+  OAuthDiscoveryError,
+  scopeFor,
+} from "./connectors/oauth.ts";
+import {
+  configFromDiscovery,
+  type OAuthConfig,
+  parseOAuthConfig,
+} from "./connectors/oauth-config.ts";
+import {
   canonicalizeConnectorUrl,
   InvalidConnectorUrlError,
 } from "./connectors/url.ts";
 import { encryptSecret, importSecretsKey } from "./crypto.ts";
-import { isUniqueViolation, ServiceError } from "./errors.ts";
+import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
@@ -62,7 +76,6 @@ const DEFAULT_HEADER_NAME = "Authorization";
 const HEADER_NAME_PATTERN = /^[A-Za-z0-9-]+$/;
 /** Visible ASCII and spaces: a header value cannot carry control characters. */
 const HEADER_VALUE_PATTERN = /^[ -~]+$/;
-const RESOURCE_METADATA = "resource_metadata";
 /** Headers the MCP client sets itself. A connector cannot override them. */
 const RESERVED_HEADERS = new Set([
   "accept",
@@ -143,6 +156,8 @@ export interface ConnectorSummary {
   /** The calling user's own credential, if they pasted one. */
   myCredential: CredentialSummary | null;
   name: string;
+  /** For an OAuth connector: whether Connect can run now. Never the client itself. */
+  oauth: { canRegister: boolean; clientConfigured: boolean } | null;
   status: ConnectorStatus;
   tools: CachedTool[];
   toolsFetchedAt: string | null;
@@ -188,6 +203,16 @@ const toCredentialSummary = (row: CredentialRow): CredentialSummary => ({
   version: row.version,
 });
 
+const oauthSummary = (row: ConnectorRow): ConnectorSummary["oauth"] => {
+  const config = row.authKind === "oauth" ? parseOAuthConfig(row.oauth) : null;
+  return config
+    ? {
+        canRegister: config.registrationEndpoint !== null,
+        clientConfigured: config.client !== null,
+      }
+    : null;
+};
+
 const toSummary = (
   row: ConnectorRow,
   owned: readonly CredentialRow[],
@@ -207,6 +232,7 @@ const toSummary = (
     id: row.id,
     myCredential: mine ? toCredentialSummary(mine) : null,
     name: row.name,
+    oauth: oauthSummary(row),
     status: row.status,
     tools: toolSchema.parse(JSON.parse(row.tools)),
     toolsFetchedAt: row.toolsFetchedAt,
@@ -217,14 +243,11 @@ const toSummary = (
 const invalid = (message: string): ServiceError =>
   new ServiceError("invalid", message);
 
-const conflictOnSave = (): ServiceError =>
-  new ServiceError(
-    "conflict",
-    "A credential was just saved for this owner, try again"
-  );
-
 /** Keys and connectors are managed from a signed-in session. */
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
+export const requireUser = (
+  principal: Principal,
+  action: string
+): UserPrincipal => {
   if (principal.kind !== "user" || principal.via !== "session") {
     throw new ForbiddenError(action);
   }
@@ -234,6 +257,42 @@ const requireUser = (principal: Principal, action: string): UserPrincipal => {
 type ProbeOutcome =
   | { kind: "ok"; tools: CachedTool[] }
   | { kind: "unauthorized"; wwwAuthenticate: string | null };
+
+export const loadConnector = async (
+  db: Database,
+  connectorId: string,
+  workspaceId: string
+): Promise<ConnectorRow> => {
+  const [row] = await db
+    .select()
+    .from(connectors)
+    .where(
+      and(
+        eq(connectors.id, connectorId),
+        eq(connectors.workspaceId, workspaceId)
+      )
+    )
+    .limit(1);
+  if (!row) {
+    throw new ServiceError("not_found", "Connector not found");
+  }
+  return row;
+};
+
+export const loadActiveAgent = async (
+  db: Database,
+  agentId: string,
+  workspaceId: string
+) => {
+  const agent = await findAgent(db, { id: agentId, workspaceId });
+  if (!agent) {
+    throw new ServiceError("not_found", "Agent not found");
+  }
+  if (agent.status !== "active") {
+    throw new ServiceError("invalid", "That agent is archived");
+  }
+  return agent;
+};
 
 export const createConnectorsService = ({
   atomic,
@@ -284,6 +343,32 @@ export const createConnectorsService = ({
     }
   };
 
+  /**
+   * The OAuth server a 401 points at, found through the server's own metadata
+   * (RFC 9728, then RFC 8414). Null when it publishes none, which makes the
+   * connector a header connector.
+   */
+  const discoverOAuth = async (
+    url: string,
+    wwwAuthenticate: string | null
+  ): Promise<OAuthConfig | null> => {
+    try {
+      const found = await discoverAuthorization(url, wwwAuthenticate, {
+        fetchImpl,
+      });
+      return configFromDiscovery(
+        found,
+        url,
+        scopeFor(found.resource, found.metadata)
+      );
+    } catch (error: unknown) {
+      if (error instanceof OAuthDiscoveryError) {
+        return null;
+      }
+      throw error;
+    }
+  };
+
   const credentialsOf = async (
     workspaceId: string,
     userId: string,
@@ -309,37 +394,6 @@ export const createConnectorsService = ({
         )
       )
       .orderBy(asc(credentials.createdAt), asc(credentials.id));
-
-  const loadConnector = async (
-    connectorId: string,
-    workspaceId: string
-  ): Promise<ConnectorRow> => {
-    const [row] = await db
-      .select()
-      .from(connectors)
-      .where(
-        and(
-          eq(connectors.id, connectorId),
-          eq(connectors.workspaceId, workspaceId)
-        )
-      )
-      .limit(1);
-    if (!row) {
-      throw new ServiceError("not_found", "Connector not found");
-    }
-    return row;
-  };
-
-  const loadActiveAgent = async (agentId: string, workspaceId: string) => {
-    const agent = await findAgent(db, { id: agentId, workspaceId });
-    if (!agent) {
-      throw new ServiceError("not_found", "Agent not found");
-    }
-    if (agent.status !== "active") {
-      throw new ServiceError("invalid", "That agent is archived");
-    }
-    return agent;
-  };
 
   /** Adds a connector by URL: guard, probe, then store what the probe found. */
   const create = async (
@@ -367,15 +421,13 @@ export const createConnectorsService = ({
     let authKind: ConnectorAuthKind = "none";
     let status: ConnectorStatus = "ok";
     let tools: CachedTool[] = [];
+    let oauth: OAuthConfig | null = null;
     if (outcome.kind === "ok") {
       ({ tools } = outcome);
     } else {
-      // Only a server that points at its OAuth metadata is called OAuth here.
-      // The discovery that makes it connectable is M3.2.
-      authKind = outcome.wwwAuthenticate?.includes(RESOURCE_METADATA)
-        ? "oauth"
-        : "header";
       status = "needs_auth";
+      oauth = await discoverOAuth(url, outcome.wwwAuthenticate);
+      authKind = oauth ? "oauth" : "header";
     }
     const row: ConnectorRow = {
       authKind,
@@ -387,7 +439,7 @@ export const createConnectorsService = ({
           : null,
       id: ulid(now.getTime()),
       name: parsed.name,
-      oauth: null,
+      oauth: oauth ? JSON.stringify(oauth) : null,
       status,
       tools: JSON.stringify(tools),
       toolsFetchedAt: outcome.kind === "ok" ? now.toISOString() : null,
@@ -438,7 +490,7 @@ export const createConnectorsService = ({
       kind: CONNECTOR_KIND,
       workspaceId,
     });
-    const connector = await loadConnector(parsed.connectorId, workspaceId);
+    const connector = await loadConnector(db, parsed.connectorId, workspaceId);
     if (connector.authKind !== "header") {
       throw new ServiceError(
         "invalid",
@@ -447,7 +499,7 @@ export const createConnectorsService = ({
     }
     const owner: { id: string; kind: CredentialOwnerKind } = parsed.agentId
       ? {
-          id: (await loadActiveAgent(parsed.agentId, workspaceId)).id,
+          id: (await loadActiveAgent(db, parsed.agentId, workspaceId)).id,
           kind: "agent",
         }
       : { id: user.userId, kind: "user" };
@@ -464,79 +516,39 @@ export const createConnectorsService = ({
       throw new ServiceError("invalid", "The server rejected that value");
     }
 
-    const [existing] = await db
-      .select({ id: credentials.id, version: credentials.version })
-      .from(credentials)
-      .where(
-        and(
-          eq(credentials.connectorId, connector.id),
-          eq(credentials.ownerKind, owner.kind),
-          eq(credentials.ownerId, owner.id)
-        )
-      )
-      .limit(1);
-    const rowId = existing?.id ?? ulid(nowDate.getTime());
+    const slot = await findCredentialSlot(
+      db,
+      connector.id,
+      owner,
+      nowDate.getTime()
+    );
     const secret = await encryptSecret(
       key,
-      { field: "secret", rowId, table: "credentials", workspaceId },
+      { field: "secret", rowId: slot.id, table: "credentials", workspaceId },
       parsed.value
     );
-    const refreshTools = db
-      .update(connectors)
-      .set({
-        status: "ok",
-        tools: JSON.stringify(outcome.tools),
-        toolsFetchedAt: now,
-      })
-      .where(eq(connectors.id, connector.id));
-    try {
-      if (existing) {
-        // The version fence: a paste that read an older version writes nothing.
-        const replaced = await db
-          .update(credentials)
+    await writeCredential(
+      { atomic, db },
+      {
+        alongside: db
+          .update(connectors)
           .set({
-            expiresAt: null,
-            refreshingUntil: null,
-            secret,
             status: "ok",
-            updatedAt: now,
-            version: existing.version + 1,
+            tools: JSON.stringify(outcome.tools),
+            toolsFetchedAt: now,
           })
-          .where(
-            and(
-              eq(credentials.id, rowId),
-              eq(credentials.version, existing.version)
-            )
-          )
-          .returning({ id: credentials.id });
-        if (replaced.length === 0) {
-          throw conflictOnSave();
-        }
-        await refreshTools;
-      } else {
-        await atomic([
-          db.insert(credentials).values({
-            connectorId: connector.id,
-            createdAt: now,
-            createdBy: user.userId,
-            id: rowId,
-            ownerId: owner.id,
-            ownerKind: owner.kind,
-            secret,
-            status: "ok",
-            updatedAt: now,
-            version: 1,
-            workspaceId,
-          }),
-          refreshTools,
-        ]);
+          .where(eq(connectors.id, connector.id)),
+        connectorId: connector.id,
+        createdBy: user.userId,
+        expiresAt: null,
+        now,
+        owner,
+        scopes: null,
+        secret,
+        slot,
+        workspaceId,
       }
-    } catch (error: unknown) {
-      if (isUniqueViolation(error)) {
-        throw conflictOnSave();
-      }
-      throw error;
-    }
+    );
     await events.append({
       actor: { id: user.userId, kind: "user" },
       agentId: owner.kind === "agent" ? owner.id : null,
@@ -544,7 +556,7 @@ export const createConnectorsService = ({
         connectorId: connector.id,
         ownerId: owner.id,
         ownerKind: owner.kind,
-        replaced: existing !== undefined,
+        replaced: slot.version !== null,
       },
       type: "credential.created",
       workspaceId,
@@ -552,7 +564,7 @@ export const createConnectorsService = ({
     const [saved] = await db
       .select(credentialColumns)
       .from(credentials)
-      .where(eq(credentials.id, rowId))
+      .where(eq(credentials.id, slot.id))
       .limit(1);
     if (!saved) {
       throw new ServiceError("not_found", "Credential not found");
@@ -573,8 +585,8 @@ export const createConnectorsService = ({
       kind: CONNECTOR_KIND,
       workspaceId,
     });
-    await loadActiveAgent(parsed.agentId, workspaceId);
-    await loadConnector(parsed.connectorId, workspaceId);
+    await loadActiveAgent(db, parsed.agentId, workspaceId);
+    await loadConnector(db, parsed.connectorId, workspaceId);
     const createdAt = clock.now().toISOString();
     await db
       .insert(agentConnectors)

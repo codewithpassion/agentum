@@ -2,8 +2,10 @@
 // `accessRoutes.route("/api/<prefix>", cookieGroup() | bearerGroup())` and
 // nothing else in this app. Never call `use("*")` here: this app is mounted at
 // "/", so that would apply to every request.
+import { getAuth } from "@clerk/hono";
 import { Hono } from "hono";
 import { clerkOrgMemberCheck } from "../mcp/clerk-membership.ts";
+import { connectorOAuthRoutes } from "./connectors-oauth.ts";
 import type { AppEnv } from "./groups.ts";
 import { mcpRoutes } from "./mcp.ts";
 
@@ -17,3 +19,7 @@ accessRoutes.route(
     isOrgMember: (env) => clerkOrgMemberCheck(env.CLERK_SECRET_KEY),
   })
 );
+
+// Connecting a connector with OAuth. Cookie session only. Full paths
+// (`/connect/:id`, `/api/connectors/oauth/callback`), so it mounts at "/".
+accessRoutes.route("/", connectorOAuthRoutes({ session: (c) => getAuth(c) }));

@@ -167,34 +167,73 @@ test("a server with no auth is probed straight away and lists echo", async () =>
   ).not.toContain("Bearer");
 });
 
-test("a server that points at OAuth metadata is an OAuth connector", async () => {
-  const oauthFetch: Fetcher = () =>
-    Promise.resolve(
-      new Response("", {
-        headers: {
-          "www-authenticate":
-            'Bearer resource_metadata="https://mcp.stub-test.com/.well-known/oauth-protected-resource"',
-        },
-        status: 401,
-      })
-    );
+test("a server that publishes OAuth metadata is an OAuth connector", async () => {
+  const oauthStub = startStubMcp({ oauth: true });
   const oauthService = createConnectorsService({
     atomic: sqliteAtomic(db),
     clock,
     db,
     events,
-    fetch: oauthFetch,
+    fetch: (input, init) => {
+      const headers = new Headers(init?.headers);
+      headers.set("x-forwarded-host", new URL(PUBLIC_ORIGIN).host);
+      headers.set("x-forwarded-proto", "https");
+      return fetch(
+        String(input).replace(PUBLIC_ORIGIN, new URL(oauthStub.url).origin),
+        { ...init, headers }
+      );
+    },
     secretsKey: SECRETS_KEY,
   });
 
-  const connector = await oauthService.create(dom, {
+  try {
+    const connector = await oauthService.create(dom, {
+      name: "Notion",
+      url: `${PUBLIC_ORIGIN}/mcp`,
+    });
+
+    expect(connector).toMatchObject({
+      authKind: "oauth",
+      headerName: null,
+      oauth: { canRegister: true, clientConfigured: false },
+      status: "needs_auth",
+    });
+  } finally {
+    oauthStub.stop();
+  }
+});
+
+test("a 401 that points at metadata nobody serves is a header connector", async () => {
+  const unreachableFetch: Fetcher = (input) =>
+    Promise.resolve(
+      String(input).includes("/.well-known/")
+        ? new Response("", { status: 404 })
+        : new Response("", {
+            headers: {
+              "www-authenticate":
+                'Bearer resource_metadata="https://mcp.stub-test.com/.well-known/oauth-protected-resource"',
+            },
+            status: 401,
+          })
+    );
+  const headerService = createConnectorsService({
+    atomic: sqliteAtomic(db),
+    clock,
+    db,
+    events,
+    fetch: unreachableFetch,
+    secretsKey: SECRETS_KEY,
+  });
+
+  const connector = await headerService.create(dom, {
     name: "Notion",
     url: `${PUBLIC_ORIGIN}/mcp`,
   });
 
   expect(connector).toMatchObject({
-    authKind: "oauth",
-    headerName: null,
+    authKind: "header",
+    headerName: "Authorization",
+    oauth: null,
     status: "needs_auth",
   });
 });
