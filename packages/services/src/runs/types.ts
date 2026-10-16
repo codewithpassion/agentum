@@ -64,6 +64,7 @@ export const startRunInputSchema = z.strictObject({
   session: z.strictObject({
     externalKey: idString.optional(),
     origin: z.enum(SESSION_ORIGINS),
+    private: z.boolean().optional(),
   }),
 });
 export type StartRunInput = z.input<typeof startRunInputSchema>;

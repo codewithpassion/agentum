@@ -257,6 +257,7 @@ export const createSlackService = ({
       session: {
         externalKey: `${app.teamId}:${event.channelId}:${threadTs}`,
         origin: "slack",
+        private: event.trigger === "dm",
       },
     };
     const started = await runs.startRun(
