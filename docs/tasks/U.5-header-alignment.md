@@ -3,7 +3,7 @@ id: U.5
 title: Align the top header with the app shell
 milestone: U
 size: S
-status: in_progress
+status: done
 depends_on: [U.1]
 branch: task/U.5-header-alignment
 ---
@@ -20,3 +20,4 @@ Browser, dev login on a local dev server: screenshots of `/agents` at desktop (s
 
 ## Log
 - 2026-10-17: added from Dom's screenshot (align, don't hide); dispatched on task/U.5-header-alignment.
+- 2026-10-17: review clean after 0 fix rounds at ef49a66 (docs/reviews/tasks/U.5.md). Merged.
