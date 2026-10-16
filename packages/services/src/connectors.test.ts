@@ -408,6 +408,7 @@ test("pasting again for the same owner replaces the value and bumps the version"
 test("two pastes at once never report a value that was not stored", async () => {
   const connector = await addHeaderConnector();
   await service.setCredential(dom, {
+    agentId: agent.id,
     connectorId: connector.id,
     value: `Bearer ${TOKEN}`,
   });
