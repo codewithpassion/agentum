@@ -161,7 +161,7 @@ const jsonError = (
  * The principal a `hm_run_` token names, or null. A missing key, a bad key or
  * a token that does not verify are all null, never a 500.
  */
-const runPrincipal = async (
+export const runPrincipal = async (
   c: RouteContext,
   token: string
 ): Promise<Principal | null> => {
