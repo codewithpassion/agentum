@@ -321,6 +321,11 @@ test("an expired lease interrupts the run, and the run then refuses every write 
   });
   expect(aborted.status).toBe(200);
   expect(row(started.runId)?.processEndedAt).not.toBeNull();
+
+  const again = await call("complete", started.runId, credential, {
+    status: "aborted",
+  });
+  expect(again.status).toBe(409);
 });
 
 test("each run route answers 401 without an Authorization header", async () => {

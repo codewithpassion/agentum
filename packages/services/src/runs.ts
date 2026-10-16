@@ -520,7 +520,7 @@ export const createRunsService = ({
         `Run is ${run.status}, not interrupted`
       );
     }
-    await db
+    const recorded = await db
       .update(runs)
       .set({ processEndedAt: nowIso() })
       .where(
@@ -529,7 +529,12 @@ export const createRunsService = ({
           eq(runs.status, "interrupted"),
           isNull(runs.processEndedAt)
         )
-      );
+      )
+      .returning({ id: runs.id });
+    // Accepted once: the first call records it, a repeat is refused.
+    if (recorded.length === 0) {
+      throw new ServiceError("conflict", "The process end is already recorded");
+    }
   };
 
   const deliverReply = async (
