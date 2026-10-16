@@ -46,6 +46,7 @@ let dispatched: string[];
 let crashDispatches: number;
 let failWrites: number;
 let allowedOrgIds: string[];
+let onClockRead: (() => void) | null;
 let agents: AgentsService;
 let runs: RunsService;
 let service: RoutinesService;
@@ -125,8 +126,15 @@ const tickMinutes = async (from: string, to: string): Promise<string[]> => {
 beforeEach(async () => {
   db = migrated();
   setNow(START);
+  onClockRead = null;
   clock = {
-    now: () => new Date(nowMs),
+    now: () => {
+      // A test hook: runs once, to change a row mid-call.
+      const hook = onClockRead;
+      onClockRead = null;
+      hook?.();
+      return new Date(nowMs);
+    },
     sleep: (ms) => {
       advance(ms);
       return Promise.resolve();
@@ -642,6 +650,63 @@ test("failures that a done run interrupts do not add up to five", async () => {
     // biome-ignore lint/performance/noAwaitInLoops: slots pass in order
     endRun((await tick()).fired[0], status);
   }
+  await service.settleRuns(SYSTEM_PRINCIPAL);
+
+  expect(routineRow(routine.id)?.consecutiveErrors).toBe(1);
+  expect(routineRow(routine.id)?.disabledAt).toBeNull();
+});
+
+test("a routine with a backlog of unfinished runs does not starve the others", async () => {
+  const backlogged = await makeRoutine("* * * * *");
+  advance(SECOND_MS);
+  const other = await makeRoutine("* * * * *");
+  let otherRun: string | undefined;
+  // 600 slots: the first routine's runs stay queued, so they outnumber any row limit.
+  for (let slot = 0; slot < 600; slot += 1) {
+    advance(MINUTE_MS);
+    // biome-ignore lint/performance/noAwaitInLoops: slots pass in order
+    const result = await tick();
+    otherRun ??= result.fired
+      .map((runId) => allRuns().find((run) => run.id === runId))
+      .find((run) => run?.actorId === other.id)?.id;
+  }
+  endRun(otherRun, "failed");
+
+  expect(await service.settleRuns(SYSTEM_PRINCIPAL)).toEqual({ settled: 1 });
+  expect(routineRow(other.id)?.consecutiveErrors).toBe(1);
+  expect(routineRow(backlogged.id)?.consecutiveErrors).toBe(0);
+});
+
+test("settle keeps a pause that lands between its read and its write", async () => {
+  const routine = await makeRoutine("* * * * *");
+  advance(MINUTE_MS);
+  endRun((await tick()).fired[0], "failed");
+  // The clock is read after the verdict is worked out and before the write.
+  onClockRead = () =>
+    db
+      .update(triggerRows)
+      .set({ disabledAt: "2026-10-16T10:01:30.000Z" })
+      .where(eq(triggerRows.id, routine.id))
+      .run();
+
+  await service.settleRuns(SYSTEM_PRINCIPAL);
+
+  expect(routineRow(routine.id)?.consecutiveErrors).toBe(1);
+  expect(routineRow(routine.id)?.disabledAt).toBe("2026-10-16T10:01:30.000Z");
+});
+
+test("settle keeps a resume that lands between its read and its write", async () => {
+  const routine = await makeRoutine("* * * * *");
+  advance(MINUTE_MS);
+  endRun((await tick()).fired[0], "failed");
+  await service.setEnabled(user, { enabled: false, routineId: routine.id });
+  onClockRead = () =>
+    db
+      .update(triggerRows)
+      .set({ disabledAt: null })
+      .where(eq(triggerRows.id, routine.id))
+      .run();
+
   await service.settleRuns(SYSTEM_PRINCIPAL);
 
   expect(routineRow(routine.id)?.consecutiveErrors).toBe(1);

@@ -29,6 +29,7 @@ import {
   asc,
   desc,
   eq,
+  exists,
   gt,
   inArray,
   isNotNull,
@@ -53,8 +54,8 @@ import type { Principal } from "./workspaces.ts";
 
 /** Routines one tick fires or settles; the next minute takes the rest. */
 const TICK_BATCH = 100;
-/** Run rows one `settleRuns` call reads. */
-const SETTLE_BATCH = 500;
+/** Runs of one routine that one `settleRuns` call counts. */
+const SETTLE_RUNS_PER_ROUTINE = 100;
 const ERROR_MESSAGE_MAX = 500;
 
 const ROUTINE_KIND = "routine";
@@ -162,7 +163,7 @@ const nextSlot = (cron: string, timezone: string, after: Date) => {
   return next === null ? null : new Date(next).toISOString();
 };
 
-const ENDED: readonly string[] = ["done", "failed", "interrupted", "cancelled"];
+const ENDED = ["done", "failed", "interrupted", "cancelled"] as const;
 
 /**
  * Folds the ended runs at the front of `runList` into an error count. Null
@@ -183,7 +184,7 @@ const judge = (
   let { errors, lastError } = before;
   let settledRunId: string | null = null;
   for (const run of runList) {
-    if (!ENDED.includes(run.status)) {
+    if (!(ENDED as readonly string[]).includes(run.status)) {
       break;
     }
     settledRunId = run.runId;
@@ -507,68 +508,88 @@ export const createRoutinesService = ({
    * The minute tick's judging job. Each routine's runs after `settled_run_id`
    * are counted in order, up to the first one that has not ended: `done`
    * clears the error count, `failed` and `interrupted` add one (the fifth
-   * switches the routine off), `cancelled` counts for nothing. One guarded
-   * update per routine moves the count and `settled_run_id` together, so a
-   * run is counted once however the jobs overlap.
+   * switches the routine off), `cancelled` counts for nothing. Each routine
+   * is read on its own, so one with a backlog cannot hold up the others. One
+   * guarded update per routine moves the count and `settled_run_id` together,
+   * so a run is counted once however the jobs overlap, and `disabled_at` is
+   * decided in SQL so a concurrent pause or resume is never undone.
    */
   const settleRuns = async (principal: Principal): Promise<SettleResult> => {
     requireSystem(principal, SETTLE_ACTION);
-    const rows = await db
+    // Routines with at least one ended run still to count. One that is stuck
+    // behind a run that never ends drops out until a later run ends.
+    const candidates = await db
       .select({
         disabledAt: triggers.disabledAt,
         errors: triggers.consecutiveErrors,
         id: triggers.id,
         lastError: triggers.lastError,
-        runError: runs.error,
-        runId: runs.id,
         settledRunId: triggers.settledRunId,
-        status: runs.status,
       })
       .from(triggers)
-      .innerJoin(
-        runs,
+      .where(
         and(
-          eq(runs.actorId, triggers.id),
-          eq(runs.actorKind, "trigger"),
-          gt(runs.id, sql`coalesce(${triggers.settledRunId}, '')`)
+          eq(triggers.kind, ROUTINE_KIND),
+          isNull(triggers.revokedAt),
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(runs)
+              .where(
+                and(
+                  eq(runs.actorId, triggers.id),
+                  eq(runs.actorKind, "trigger"),
+                  gt(runs.id, sql`coalesce(${triggers.settledRunId}, '')`),
+                  inArray(runs.status, ENDED)
+                )
+              )
+          )
         )
       )
-      .where(and(eq(triggers.kind, ROUTINE_KIND), isNull(triggers.revokedAt)))
-      .orderBy(asc(triggers.id), asc(runs.id))
-      .limit(SETTLE_BATCH);
-    const byRoutine = Map.groupBy(rows, (row) => row.id);
+      .orderBy(asc(triggers.id))
+      .limit(TICK_BATCH);
     let settled = 0;
-    for (const [id, routineRuns] of byRoutine) {
-      const [first] = routineRuns;
-      if (!first) {
-        continue;
-      }
-      const verdict = judge(routineRuns, {
-        errors: first.errors,
-        lastError: first.lastError,
-      });
+    for (const routine of candidates) {
+      // biome-ignore lint/performance/noAwaitInLoops: one routine at a time, each with its own run limit
+      const routineRuns = await db
+        .select({
+          runError: runs.error,
+          runId: runs.id,
+          status: runs.status,
+        })
+        .from(runs)
+        .where(
+          and(
+            eq(runs.actorId, routine.id),
+            eq(runs.actorKind, "trigger"),
+            gt(runs.id, routine.settledRunId ?? "")
+          )
+        )
+        .orderBy(asc(runs.id))
+        .limit(SETTLE_RUNS_PER_ROUTINE);
+      const verdict = judge(routineRuns, routine);
       if (verdict === null) {
         continue;
       }
       const now = clock.now().toISOString();
-      // biome-ignore lint/performance/noAwaitInLoops: each update is guarded by its own watermark
+      const switchOff = verdict.errors >= ROUTINE_ERROR_LIMIT ? now : null;
       const updated = await db
         .update(triggers)
         .set({
           consecutiveErrors: verdict.errors,
-          disabledAt:
-            first.disabledAt ??
-            (verdict.errors >= ROUTINE_ERROR_LIMIT ? now : null),
+          // Decided by the row as it is now, so a pause or resume that landed
+          // since the read stays.
+          disabledAt: sql`coalesce(${triggers.disabledAt}, ${switchOff})`,
           lastError: verdict.lastError,
           settledRunId: verdict.settledRunId,
         })
         .where(
           and(
-            eq(triggers.id, id),
-            eq(triggers.consecutiveErrors, first.errors),
-            first.settledRunId === null
+            eq(triggers.id, routine.id),
+            eq(triggers.consecutiveErrors, routine.errors),
+            routine.settledRunId === null
               ? isNull(triggers.settledRunId)
-              : eq(triggers.settledRunId, first.settledRunId)
+              : eq(triggers.settledRunId, routine.settledRunId)
           )
         )
         .returning({ id: triggers.id });
