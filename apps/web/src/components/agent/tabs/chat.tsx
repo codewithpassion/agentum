@@ -43,8 +43,13 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
   const status = statusLine(latestRun);
   const readOnly = transcript !== null && transcript.session.origin !== "ui";
   const running = latestRun !== null && isRunActive(latestRun.status);
-  const sendDisabled = sending || input.trim() === "" || running;
-  const polling = shouldPoll(latestRun, Date.now());
+  // A new message waits for an interrupted run's process to end, like Retry.
+  const blocked =
+    running ||
+    (sessionId !== undefined && transcript === null) ||
+    (latestRun?.status === "interrupted" && !canRetry(latestRun, nowMs));
+  const sendDisabled = sending || input.trim() === "" || blocked;
+  const polling = shouldPoll(latestRun, nowMs);
 
   const load = useCallback(async () => {
     if (sessionId === undefined) {
@@ -120,12 +125,15 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
     if (latestRun === null) {
       return;
     }
+    setSending(true);
     setError(null);
     try {
       await startRun(latestRun.inputText);
       await load();
     } catch (cause) {
       setError(messageOf(cause));
+    } finally {
+      setSending(false);
     }
   }, [latestRun, load, startRun]);
 
@@ -157,7 +165,7 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
         )}
         {retryable ? (
           <Button
-            disabled={!allowed}
+            disabled={!allowed || sending}
             onClick={retry}
             size="sm"
             type="button"

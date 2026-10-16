@@ -43,7 +43,8 @@ function AgentPage() {
   const navigate = Route.useNavigate();
 
   const selectTab = useCallback(
-    (next: string) => navigate({ search: { tab: next } }),
+    (next: string) =>
+      navigate({ search: (previous) => ({ ...previous, tab: next }) }),
     [navigate]
   );
 
