@@ -812,6 +812,17 @@ test("cancelRun", async () => {
   expect(doneError).toMatchObject({ code: "conflict" });
 });
 
+test("cancelRun hides a run of another user's private session as not found", async () => {
+  const { runId } = await start(user, spyAgentId);
+
+  const hidden = await failure(runs.cancelRun(colleague, runId));
+  expect(hidden).toMatchObject({ code: "not_found" });
+  expect(runRow(runId)).toMatchObject({ status: "queued" });
+
+  await runs.cancelRun(user, runId);
+  expect(runRow(runId)).toMatchObject({ status: "cancelled" });
+});
+
 test("ingestRunEvents stores a batch once", async () => {
   const { runId } = await start(user, spyAgentId);
   await runs.claimRun(SYSTEM_PRINCIPAL, runId);

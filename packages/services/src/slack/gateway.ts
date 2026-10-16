@@ -10,6 +10,7 @@ import { events as eventRows } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { identityLinks } from "@repo/db/schema/workspaces";
 import { MAX_FILE_BYTES } from "@repo/db/shared";
+import { stripAttachmentMarkers } from "@repo/protocol/attachments";
 import { and, eq, lt } from "drizzle-orm";
 import { z } from "zod";
 import { type Payload, payloadSchema } from "../events/payload.ts";
@@ -17,10 +18,12 @@ import type { EventRecord, EventsService } from "../events.ts";
 import type { FilesService } from "../files.ts";
 import {
   type Clock,
+  type DeliveryContext,
   type Gateway,
   type ReplyTarget,
   replyTargetSchema,
 } from "../runs/types.ts";
+import type { Principal } from "../workspaces.ts";
 import { createSecretReader, findInstalledApp } from "./apps.ts";
 import {
   createSlackClient,
@@ -32,6 +35,8 @@ import { describeFailure, withRetry } from "./post.ts";
 export interface SlackGatewayOptions {
   clock: Clock;
   db: Database;
+  /** Runs work after the response (`waitUntil`). Without it, uploads are awaited. */
+  defer?: (work: Promise<void>) => void;
   events: EventsService;
   fetch: SlackFetch;
   files: FilesService;
@@ -71,6 +76,11 @@ export const isAllowedMime = (mime: string): boolean =>
 const CONNECT_LINK = /(?:https?:\/\/[^\s/<>|]+)?\/connect\/[^\s<>|)\]]+/g;
 const PRIVATE_NOTE = "(the link was sent to you privately)";
 const EMPTY_REPLY = "(no reply)";
+/**
+ * How long a delivery may start new uploads. `waitUntil` gives the work 30 s
+ * after the response, so a file not started by then is reported, not cut off.
+ */
+const UPLOAD_BUDGET_MS = 20_000;
 
 /**
  * The first Connect link in the text that points at this app: a path, or a
@@ -108,6 +118,7 @@ export type SlackGateway = Gateway & {
 export const createSlackGateway = ({
   clock,
   db,
+  defer,
   events,
   fetch: slackFetch,
   files,
@@ -167,28 +178,84 @@ export const createSlackGateway = ({
     );
   };
 
-  /** Posts the answer, and the Connect link it carries to its requester alone. */
+  /**
+   * Uploads one output file to the thread. A failure comes back as a
+   * `name: reason` string, so one bad file does not stop the others.
+   */
+  const uploadOutput = async (
+    client: SlackClient,
+    slack: Extract<ReplyTarget, { kind: "slack" }>,
+    principal: Extract<Principal, { kind: "run" }>,
+    fileId: string
+  ): Promise<string | null> => {
+    let label = fileId;
+    try {
+      const { body, file } = await files.download(principal, fileId);
+      label = file.name;
+      const bytes = new Uint8Array(await new Response(body).arrayBuffer());
+      const uploaded = await withRetry(clock, () =>
+        client.uploadFile({
+          bytes,
+          channel: slack.channel,
+          filename: file.name,
+          threadTs: slack.threadTs,
+        })
+      );
+      return uploaded.kind === "ok"
+        ? null
+        : `${label}: ${describeFailure(uploaded)}`;
+    } catch (error) {
+      return `${label}: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  };
+
+  /** Uploads the run's output files in order, one at a time, and returns the failures. */
+  const uploadOutputs = async (
+    client: SlackClient,
+    slack: Extract<ReplyTarget, { kind: "slack" }>,
+    fileIds: string[],
+    run: { agentId: string; runId: string; workspaceId: string },
+    deadline: number
+  ): Promise<string[]> => {
+    const principal = { ...run, kind: "run" } as const;
+    const failures: string[] = [];
+    for (const fileId of fileIds) {
+      if (clock.now().getTime() >= deadline) {
+        failures.push(`${fileId}: not uploaded, out of time`);
+        continue;
+      }
+      // biome-ignore lint/performance/noAwaitInLoops: one file in memory at a time
+      const failure = await uploadOutput(client, slack, principal, fileId);
+      if (failure) {
+        failures.push(failure);
+      }
+    }
+    return failures;
+  };
+
+  /** Posts the answer, the Connect link it carries to its requester alone, then its files. */
   const post = async (
     slack: Extract<ReplyTarget, { kind: "slack" }>,
-    message: { text: string },
-    context: { agentId: string; onBehalfOfUserId: string | null },
+    message: { fileIds: string[]; text: string },
+    context: DeliveryContext,
     workspaceId: string
   ): Promise<{ error?: string; ok: boolean }> => {
+    const deadline = clock.now().getTime() + UPLOAD_BUDGET_MS;
     const client = await clientFor({
       agentId: context.agentId,
       teamId: slack.teamId,
       workspaceId,
     });
-    const link = findConnectLink(message.text, publicBaseUrl);
+    // The agent's file markers are paths on its machine, not something to show.
+    const text = stripAttachmentMarkers(message.text);
+    const link = findConnectLink(text, publicBaseUrl);
     const requester =
       link && context.onBehalfOfUserId
         ? await slackUserOf(workspaceId, slack.teamId, context.onBehalfOfUserId)
         : null;
     // The link leaves the thread only when there is someone to send it to.
     const visible =
-      link && requester
-        ? message.text.replaceAll(link, PRIVATE_NOTE)
-        : message.text;
+      link && requester ? text.replaceAll(link, PRIVATE_NOTE) : text;
     const posted = await withRetry(clock, () =>
       client.postMessage({
         channel: slack.channel,
@@ -199,13 +266,29 @@ export const createSlackGateway = ({
     if (posted.kind !== "ok") {
       return { error: describeFailure(posted), ok: false };
     }
+    const failures: string[] = [];
     if (link && requester) {
       const sent = await sendConnectLink(client, slack, requester, link);
       if (sent.kind !== "ok") {
-        return { error: `connect link: ${describeFailure(sent)}`, ok: true };
+        failures.push(`connect link: ${describeFailure(sent)}`);
       }
     }
-    return { ok: true };
+    failures.push(
+      ...(await uploadOutputs(
+        client,
+        slack,
+        message.fileIds,
+        {
+          agentId: context.agentId,
+          runId: context.runId,
+          workspaceId,
+        },
+        deadline
+      ))
+    );
+    return failures.length > 0
+      ? { error: failures.join("; "), ok: true }
+      : { ok: true };
   };
 
   const deliver: Gateway["deliver"] = async (target, message, context) => {
@@ -221,30 +304,43 @@ export const createSlackGateway = ({
     if (!run) {
       return;
     }
-    let delivered: { error?: string; ok: boolean };
-    try {
-      delivered = await post(slack, message, context, run.workspaceId);
-    } catch (error) {
-      delivered = {
-        error: error instanceof Error ? error.message : String(error),
-        ok: false,
-      };
+    const finish = async () => {
+      let delivered: { error?: string; ok: boolean };
+      try {
+        delivered = await post(slack, message, context, run.workspaceId);
+      } catch (error) {
+        delivered = {
+          error: error instanceof Error ? error.message : String(error),
+          ok: false,
+        };
+      }
+      // A Slack outage must not undo a finished run, so the outcome is an event.
+      await events.append({
+        actor: { id: "slack", kind: "system" },
+        agentId: context.agentId,
+        payload: {
+          channel: slack.channel,
+          delivered: delivered.ok,
+          threadTs: slack.threadTs,
+          ...(delivered.error ? { error: delivered.error } : {}),
+        },
+        runId: context.runId,
+        sessionId: run.sessionId,
+        type: "slack.delivered",
+        workspaceId: run.workspaceId,
+      });
+    };
+    // Uploads can take longer than the request that completed the run is
+    // allowed to, so with files the whole delivery runs after the response.
+    if (defer && message.fileIds.length > 0) {
+      defer(
+        finish().catch((error: unknown) => {
+          console.error("Slack delivery failed", error);
+        })
+      );
+      return;
     }
-    // A Slack outage must not undo a finished run, so the outcome is an event.
-    await events.append({
-      actor: { id: "slack", kind: "system" },
-      agentId: context.agentId,
-      payload: {
-        channel: slack.channel,
-        delivered: delivered.ok,
-        threadTs: slack.threadTs,
-        ...(delivered.error ? { error: delivered.error } : {}),
-      },
-      runId: context.runId,
-      sessionId: run.sessionId,
-      type: "slack.delivered",
-      workspaceId: run.workspaceId,
-    });
+    await finish();
   };
 
   const downloadPendingFiles: NonNullable<
