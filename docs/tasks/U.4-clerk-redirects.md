@@ -3,7 +3,7 @@ id: U.4
 title: Keep Clerk sign-in flows inside the app
 milestone: U
 size: S
-status: in_progress
+status: done
 depends_on: [U.3]
 branch: task/U.4-clerk-redirects
 ---
@@ -25,3 +25,4 @@ Browser on a local dev server against the Clerk dev instance. Sign in with email
 ## Log
 - 2026-10-17: added from Dom's report; waits for U.3 (same files).
 - 2026-10-17: dispatched on task/U.4-clerk-redirects.
+- 2026-10-17: review clean after 0 fix rounds at e28b9a5 (docs/reviews/tasks/U.4.md). Merged. Dom checks Google sign-in on staging.
