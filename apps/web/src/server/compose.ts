@@ -36,6 +36,12 @@ import {
 } from "@repo/services/files";
 import { createInboxService, type InboxService } from "@repo/services/inbox";
 import {
+  createLibraryService,
+  type LibraryBlobs,
+  type LibraryService,
+} from "@repo/services/library";
+import { memoryLibraryBlobs } from "@repo/services/library/memory";
+import {
   createMachinesService,
   type MachinesService,
 } from "@repo/services/machines";
@@ -78,6 +84,7 @@ import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { r2Blobs } from "./r2-blobs.ts";
 import { r2FileBlobs } from "./r2-files.ts";
+import { r2LibraryBlobs } from "./r2-library.ts";
 import { durableRelayPort } from "./relay-port.ts";
 import { clerkSlackDirectory } from "./slack-directory.ts";
 
@@ -93,6 +100,8 @@ export interface Infra {
   fetch?: Fetcher;
   /** Where uploaded files live: R2 in the app. */
   fileBlobs: FileBlobs;
+  /** Where the workspace library keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
+  libraryBlobs?: LibraryBlobs;
   /** `PUBLIC_BASE_URL`. A Connect path posted to Slack becomes a link under it. */
   publicBaseUrl?: string;
   relay: MachineRelayPort;
@@ -113,6 +122,7 @@ export interface Services {
   events: EventsService;
   files: FilesService;
   inbox: InboxService;
+  library: LibraryService;
   machines: MachinesService;
   oauthClients: OAuthClientsService;
   routines: RoutinesService;
@@ -215,6 +225,13 @@ export const composeWith = ({
     events,
     runs: { startRun: (principal, input) => runs.startRun(principal, input) },
   });
+  const library = createLibraryService({
+    atomic: infra.atomic,
+    blobs: infra.libraryBlobs ?? memoryLibraryBlobs(),
+    clock: infra.clock,
+    db,
+    events,
+  });
   const machines = createMachinesService({
     allowedOrgIds,
     clock: infra.clock,
@@ -293,6 +310,7 @@ export const composeWith = ({
       events,
       files,
       inbox,
+      library,
       machines,
       oauthClients,
       routines,
@@ -326,6 +344,7 @@ export const compose = (
       defer,
       devFakeRuntime,
       fileBlobs: r2FileBlobs(env.FILES),
+      libraryBlobs: r2LibraryBlobs(env.FILES),
       publicBaseUrl: env.PUBLIC_BASE_URL,
       relay: durableRelayPort(env.MACHINE_RELAY),
       runTokenKey: env.RUN_TOKEN_KEY,

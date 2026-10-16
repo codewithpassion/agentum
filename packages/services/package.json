@@ -19,6 +19,8 @@
     "./files/memory": "./src/files/memory.ts",
     "./inbox": "./src/inbox.ts",
     "./inbox/wake-input": "./src/inbox/wake-input.ts",
+    "./library": "./src/library.ts",
+    "./library/memory": "./src/library/memory.ts",
     "./machines": "./src/machines.ts",
     "./machines/runtime": "./src/machines/runtime.ts",
     "./machines/types": "./src/machines/types.ts",
