@@ -2,6 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
 import { migrated } from "@repo/db/test-db";
+import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import type { Clock } from "@repo/services/runs/types";
 import { composeWith } from "../compose.ts";
@@ -31,6 +32,7 @@ beforeEach(() => {
       },
       clock,
       devFakeRuntime: false,
+      fileBlobs: memoryFileBlobs(),
       relay: noopRelay,
     },
   });

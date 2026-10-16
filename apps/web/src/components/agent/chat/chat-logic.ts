@@ -1,4 +1,4 @@
-import type { RunStatus } from "@repo/db/shared";
+import { INPUT_FILES_MAX, type RunStatus } from "@repo/db/shared";
 import type { SessionTranscript } from "#/integrations/trpc/types";
 
 type Entry = SessionTranscript["entries"][number];
@@ -7,10 +7,13 @@ type Run = NonNullable<SessionTranscript["latestRun"]>;
 export const POLL_MS = 1500;
 export const RETRY_AFTER_MS = 10 * 60 * 1000;
 
+/** What the composer allows: the limit `startRun` enforces. */
+export const MAX_ATTACHMENTS = INPUT_FILES_MAX;
+
 const TOO_LARGE = "(content too large to show)";
 
 export type ChatItem =
-  | { id: string; kind: "user" | "assistant"; text: string }
+  | { fileIds: string[]; id: string; kind: "user" | "assistant"; text: string }
   | { detail: string; id: string; kind: "tool"; label: string };
 
 export const isRunActive = (status: RunStatus): boolean =>
@@ -71,6 +74,13 @@ const textOf = (entry: Entry): string => {
   return typeof text === "string" ? text : "";
 };
 
+const fileIdsOf = (entry: Entry): string[] => {
+  const { fileIds } = entry.payload;
+  return Array.isArray(fileIds)
+    ? fileIds.filter((id): id is string => typeof id === "string")
+    : [];
+};
+
 const toolLabel = (entry: Entry): string => {
   const { name, tool } = entry.payload;
   if (typeof name === "string") {
@@ -91,9 +101,18 @@ export const toChatItems = (entries: Entry[]): ChatItem[] =>
   entries.flatMap((entry): ChatItem[] => {
     switch (entry.type) {
       case "message.user":
-        return [{ id: entry.id, kind: "user", text: textOf(entry) }];
+        return [
+          {
+            fileIds: fileIdsOf(entry),
+            id: entry.id,
+            kind: "user",
+            text: textOf(entry),
+          },
+        ];
       case "message.assistant":
-        return [{ id: entry.id, kind: "assistant", text: textOf(entry) }];
+        return [
+          { fileIds: [], id: entry.id, kind: "assistant", text: textOf(entry) },
+        ];
       case "tool.call":
       case "tool.result":
         return [
@@ -108,3 +127,24 @@ export const toChatItems = (entries: Entry[]): ChatItem[] =>
         return [];
     }
   });
+
+/** The files a run's user message carried, so Retry can send them again. */
+export const fileIdsOfRun = (entries: Entry[], runId: string): string[] => {
+  const entry = entries.find(
+    (candidate) =>
+      candidate.type === "message.user" && candidate.runId === runId
+  );
+  return entry ? fileIdsOf(entry) : [];
+};
+
+/** Every file id the chat shows, in first-seen order, without repeats. */
+export const collectFileIds = (
+  items: ChatItem[],
+  outputFileIds: readonly string[]
+): string[] => {
+  const ids = [
+    ...items.flatMap((item) => (item.kind === "tool" ? [] : item.fileIds)),
+    ...outputFileIds,
+  ];
+  return [...new Set(ids)];
+};

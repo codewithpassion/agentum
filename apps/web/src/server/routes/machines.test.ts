@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { migrated } from "@repo/db/test-db";
 import { enrollResponseSchema } from "@repo/protocol/machine";
+import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import { Hono } from "hono";
@@ -92,6 +93,7 @@ const infra = (): Infra => {
     },
     clock: systemClock,
     devFakeRuntime: true,
+    fileBlobs: memoryFileBlobs(),
     relay: noopRelay,
   };
 };

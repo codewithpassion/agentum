@@ -3,8 +3,9 @@ import { clerkMiddleware, getAuth } from "@clerk/hono";
 import { trpcServer } from "@hono/trpc-server";
 import { systemClock } from "@repo/services/runs/types";
 import handler from "@tanstack/react-start/server-entry";
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono } from "hono";
 import { csrf } from "hono/csrf";
+import type { MiddlewareHandler } from "hono/types";
 import { compose } from "./server/compose.ts";
 import { accessRoutes } from "./server/routes/access.ts";
 import { automationRoutes } from "./server/routes/automation.ts";
@@ -31,6 +32,8 @@ const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
 };
 app.use("/api/*", composeServices);
 app.use("/mcp", composeServices);
+// `/files/:id` is outside `/api` but reads files too.
+app.use("/files/*", composeServices);
 
 app.get("/api/health", (c) => {
   const auth = getAuth(c);

@@ -1,6 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { migrated } from "@repo/db/test-db";
+import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import { type Composed, composeWith, type Infra } from "../compose.ts";
@@ -28,6 +29,7 @@ const infra = (): Infra => {
     },
     clock: systemClock,
     devFakeRuntime: true,
+    fileBlobs: memoryFileBlobs(),
     relay: noopRelay,
   };
 };

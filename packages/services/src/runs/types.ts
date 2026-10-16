@@ -1,5 +1,10 @@
 import type { Database } from "@repo/db";
-import type { AgentRuntime, EventActorKind, RunStatus } from "@repo/db/shared";
+import {
+  type AgentRuntime,
+  type EventActorKind,
+  INPUT_FILES_MAX,
+  type RunStatus,
+} from "@repo/db/shared";
 import { z } from "zod";
 import type { AgentRecord } from "../agents.ts";
 import type { Payload } from "../events/payload.ts";
@@ -45,7 +50,6 @@ export const replyTargetSchema = z.discriminatedUnion("kind", [
 export type ReplyTarget = z.infer<typeof replyTargetSchema>;
 
 export const INPUT_TEXT_MAX = 100_000;
-export const INPUT_FILES_MAX = 20;
 
 /** There is no actor field: `startRun` derives it from the principal. */
 export const startRunInputSchema = z.strictObject({
