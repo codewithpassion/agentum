@@ -10,7 +10,7 @@ import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eventsRequestSchema } from "@repo/protocol/machine";
 import { file } from "bun";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
@@ -129,6 +129,13 @@ const runRow = (runId: string) =>
   db.select().from(runRows).where(eq(runRows.id, runId)).get();
 
 const runRowCount = () => db.select().from(runRows).all().length;
+
+const unclaimedRunCount = () =>
+  db
+    .select({ id: runRows.id })
+    .from(runRows)
+    .where(inArray(runRows.status, ["queued", "offered"]))
+    .all().length;
 
 const runEvents = (runId: string) =>
   db.select().from(eventRows).where(eq(eventRows.runId, runId)).all();
@@ -666,6 +673,85 @@ test("the sweep reaches a crash-left run behind more than 100 runs nobody claims
   await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
   expect(dispatched).toContain(crashed.runId);
 });
+
+test("the sweep fails a run nobody claimed for an hour and keeps a younger one", async () => {
+  const { runId } = await start(user, spyAgentId, {}, "hello", {
+    offerLater: true,
+  });
+  advance(59 * 60 * SECOND);
+  const young = await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+  expect(young.failed).toEqual([]);
+  expect(runRow(runId)?.status).toBe("queued");
+
+  advance(2 * 60 * SECOND);
+  dispatched.length = 0;
+  const expired = await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+  expect(expired.failed).toEqual([{ message: "Never claimed", runId }]);
+  expect(runRow(runId)).toMatchObject({
+    error: "Never claimed",
+    status: "failed",
+  });
+  expect(runRow(runId)?.finishedAt).not.toBeNull();
+  expect(
+    runEvents(runId).find((event) => event.type === "run.failed")
+  ).toMatchObject({ actorKind: "system" });
+  expect(dispatched).not.toContain(runId);
+});
+
+test("a claim that lands before expiry keeps the run past the sweep", async () => {
+  const { runId } = await start(user, spyAgentId);
+  advance(59 * 60 * SECOND);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+
+  advance(2 * 60 * SECOND);
+  await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+  expect(runRow(runId)?.status).toBe("running");
+  expect(runEvents(runId).map((event) => event.type)).not.toContain(
+    "run.failed"
+  );
+});
+
+/**
+ * Runs `minutes` minutes of never-claimed traffic, one run a minute, each
+ * swept a minute after it starts. Then starts a crash-left run and sweeps
+ * until it is offered. Returns the most runs queued or offered at once and
+ * the passes the crash-left run took.
+ */
+const unclaimedBacklog = async (minutes: number) => {
+  const maxPasses = 10;
+  let peak = 0;
+  for (let minute = 0; minute < minutes; minute += 1) {
+    // biome-ignore lint/performance/noAwaitInLoops: each minute's run is created and swept before the next
+    await start(user, spyAgentId, {}, "hello", { offerLater: true });
+    advance(60 * SECOND);
+    await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+    peak = Math.max(peak, unclaimedRunCount());
+  }
+  const crashed = await start(user, spyAgentId, {}, "hello", {
+    offerLater: true,
+  });
+  advance(61 * SECOND);
+
+  dispatched.length = 0;
+  let passes = 0;
+  do {
+    passes += 1;
+    // biome-ignore lint/performance/noAwaitInLoops: each pass must finish before the next one advances the clock
+    await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+    advance(60 * SECOND);
+  } while (!dispatched.includes(crashed.runId) && passes < maxPasses);
+  return { passes, peak };
+};
+
+test("an hour of never-claimed runs stays bounded and the sweep still reaches a crash-left run", async () => {
+  const short = await unclaimedBacklog(200);
+  const long = await unclaimedBacklog(3000);
+
+  expect(short.peak).toBeLessThan(100);
+  expect(long.peak).toBeLessThan(100);
+  expect(short.passes).toBeLessThanOrEqual(3);
+  expect(long.passes).toBe(short.passes);
+}, 60_000);
 
 test("the sweep fetches pending files first", async () => {
   const downloads: unknown[] = [];
