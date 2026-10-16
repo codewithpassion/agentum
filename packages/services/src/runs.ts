@@ -1085,7 +1085,9 @@ export const createRunsService = ({
   /**
    * The minute tick's queue job: offers again every run that has sat `queued`
    * or `offered` for over 60 seconds, after fetching its leftover files. An
-   * offer is idempotent because the claim is a conditional write.
+   * offer is idempotent because the claim is a conditional write. It looks at
+   * the least recently swept runs first, so runs it cannot move on do not hold
+   * the window.
    */
   const sweepQueuedRuns = async (principal: Principal) => {
     requireSystem(principal, "runs.sweep");
@@ -1096,12 +1098,19 @@ export const createRunsService = ({
       .select()
       .from(runs)
       .where(and(inArray(runs.status, STARTING), lt(runs.createdAt, cutoff)))
-      .orderBy(asc(runs.createdAt))
+      .orderBy(
+        asc(sql`coalesce(${runs.sweptAt}, ${runs.createdAt})`),
+        asc(runs.id)
+      )
       .limit(SWEEP_BATCH);
     const result: SweepResult = { downloaded: [], failed: [], offered: [] };
     for (const row of stale) {
       try {
-        // biome-ignore lint/performance/noAwaitInLoops: one run at a time keeps a failure to that run
+        // biome-ignore lint/performance/noAwaitInLoops: one update per row, since D1 caps bound parameters at 100
+        await db
+          .update(runs)
+          .set({ sweptAt: nowIso() })
+          .where(and(eq(runs.id, row.id), inArray(runs.status, STARTING)));
         await sweepRun(row, result);
       } catch (error) {
         result.failed.push({
