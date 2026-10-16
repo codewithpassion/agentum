@@ -35,8 +35,10 @@ import {
   isNotNull,
   isNull,
   lte,
+  min,
   sql,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -516,8 +518,10 @@ export const createRoutinesService = ({
    */
   const settleRuns = async (principal: Principal): Promise<SettleResult> => {
     requireSystem(principal, SETTLE_ACTION);
-    // Routines with at least one ended run still to count. One that is stuck
-    // behind a run that never ends drops out until a later run ends.
+    // Routines whose next run to count, the first one after the watermark,
+    // has ended. One behind a run that has not ended is left out, however
+    // many later runs ended, so it cannot take a slot from the others.
+    const later = alias(runs, "later");
     const candidates = await db
       .select({
         disabledAt: triggers.disabledAt,
@@ -539,8 +543,23 @@ export const createRoutinesService = ({
                 and(
                   eq(runs.actorId, triggers.id),
                   eq(runs.actorKind, "trigger"),
-                  gt(runs.id, sql`coalesce(${triggers.settledRunId}, '')`),
-                  inArray(runs.status, ENDED)
+                  inArray(runs.status, ENDED),
+                  eq(
+                    runs.id,
+                    db
+                      .select({ id: min(later.id) })
+                      .from(later)
+                      .where(
+                        and(
+                          eq(later.actorId, triggers.id),
+                          eq(later.actorKind, "trigger"),
+                          gt(
+                            later.id,
+                            sql`coalesce(${triggers.settledRunId}, '')`
+                          )
+                        )
+                      )
+                  )
                 )
               )
           )

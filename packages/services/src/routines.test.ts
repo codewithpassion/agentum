@@ -712,3 +712,43 @@ test("settle keeps a resume that lands between its read and its write", async ()
   expect(routineRow(routine.id)?.consecutiveErrors).toBe(1);
   expect(routineRow(routine.id)?.disabledAt).toBeNull();
 });
+
+test("routines stuck behind an unfinished run cannot take every candidate slot", async () => {
+  // More stuck routines than one settle call takes: each has an oldest run
+  // that never ends and a later run that failed. Then a healthy routine,
+  // which sorts after all of them.
+  const stuck: string[] = [];
+  for (let index = 0; index < 105; index += 1) {
+    advance(SECOND_MS);
+    // biome-ignore lint/performance/noAwaitInLoops: ids sort by creation time
+    stuck.push((await makeRoutine("* * * * *")).id);
+  }
+  advance(SECOND_MS);
+  const healthy = await makeRoutine("* * * * *");
+  const runsOf = (routineId: string) =>
+    allRuns()
+      .filter((run) => run.actorId === routineId)
+      .map((run) => run.id)
+      .toSorted();
+
+  for (let slot = 0; slot < 2; slot += 1) {
+    advance(MINUTE_MS);
+    // One tick takes at most 100 routines; tick until the slot is spent.
+    for (;;) {
+      // biome-ignore lint/performance/noAwaitInLoops: ticks run in order
+      const result = await tick();
+      if (result.fired.length === 0) {
+        break;
+      }
+    }
+  }
+  for (const routineId of stuck) {
+    endRun(runsOf(routineId)[1], "failed");
+  }
+  endRun(runsOf(healthy.id)[0], "failed");
+
+  await service.settleRuns(SYSTEM_PRINCIPAL);
+
+  expect(routineRow(healthy.id)?.consecutiveErrors).toBe(1);
+  expect(routineRow(stuck[0] ?? "")?.consecutiveErrors).toBe(0);
+});
