@@ -58,10 +58,12 @@ test("a post that mentions the fake agent gets its reply in the thread", async (
   });
 
   const view = await caller.inbox.readThread({ threadId: thread.id });
+  // The fake agent echoes its whole wake input, which names the thread.
   expect(view.posts.map((post) => [post.authorKind, post.text])).toEqual([
     ["user", "@pelican hi"],
-    ["agent", "Echo: @pelican hi"],
+    ["agent", expect.stringContaining("Echo: @pelican hi\n")],
   ]);
+  expect(view.posts[1]?.text).toContain(thread.id);
   expect(view.posts[1]?.runId).toBe(runs[0]?.runId);
   const listed = await caller.inbox.listThreads();
   expect(listed.map((item) => item.id)).toEqual([thread.id]);
