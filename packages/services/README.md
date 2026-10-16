@@ -1,6 +1,6 @@
 # @repo/services
 
-The service layer: business rules and input validation, on top of the query functions in [`@repo/db`](../db). The web app calls it through tRPC (`apps/web/src/server/trpc/`), but nothing here knows about tRPC, Hono or Cloudflare. A script or a test can use a service the same way.
+The service layer: business rules and input validation, on top of the query functions in [`@repo/db`](../db). The web app calls it through tRPC (`apps/web/src/server/trpc/`, where `workspaceProcedure` admits a signed-in user in an allowed workspace). The bearer-authenticated Hono routes (`/mcp`, `/api/proxy`, and the machine, Slack, trigger and file routes) resolve a principal with `createPrincipalResolver` and call services directly. They are the one exception to "the app reaches it only through tRPC". Nothing here knows about tRPC, Hono or Cloudflare, so a script or a test can use a service the same way.
 
 ## Entry points
 
@@ -39,17 +39,19 @@ A workspace is one Clerk organisation, created on its first request by `forOrg`.
 
 ## Using it
 
-A service is a factory that takes a drizzle instance. A service that writes more than one row also takes `atomic` from `@repo/db/atomic`, as `{ db, atomic }`. A new module would be used like this (`createXService` is a placeholder):
+A service is a factory that takes one object, `{ db, atomic, ... }`, and never `env`. `db` is a drizzle instance. A service that writes more than one row also takes `atomic` from `@repo/db/atomic`, and the others take what they need from the caller, such as `blobs`, `clock` or `adapters`. A new module would be used like this (`createXService` is a placeholder):
 
 ```ts
+import { d1Atomic } from "@repo/db/atomic";
 import { createXService } from "@repo/services/x";
 import { drizzle } from "drizzle-orm/d1";
 
-const x = createXService(drizzle(env.DB));
-await x.list();
+const db = drizzle(env.DB);
+const x = createXService({ atomic: d1Atomic(db), db });
+await x.list(principal);
 ```
 
-In the app, `apps/web/src/server/trpc/context.ts` builds the services once per call and puts them on `ctx.services`.
+In the app, `compose` in `apps/web/src/server/compose.ts` builds the services from the Worker's bindings, once per request and once per minute tick. `apps/web/src/server/trpc/context.ts` puts them on `ctx.services`, and the bearer routes read them from the same composed object.
 
 ## Writing a service
 
@@ -57,10 +59,11 @@ Add a module as `src/x.ts` and an entry for it in `exports`. Then follow these r
 
 - Export the input schema (zod). The tRPC router passes it to `.input()`, and the service parses with it again, so a caller that skips tRPC still gets validated input.
 - Methods are `async`, so a validation error rejects the promise rather than throwing synchronously.
-- Take a `Database` from `@repo/db`. Never read `env`, bindings or the request; the caller passes in what the service needs, including the user id when a rule depends on it.
+- Take `{ db, ... }` with `db` typed as `Database` from `@repo/db`. Never read `env`, bindings or the request; the caller passes in what the service needs, including the user id when a rule depends on it.
+- Write more than one row only through the `atomic` parameter, never `db.batch` or `db.transaction`.
 - Return the plain JSON shapes from `@repo/db/shared`.
 
-A new service also needs a line in `apps/web/src/server/trpc/context.ts` and in the add-clerk skill's copy of that file (`.claude/skills/add-clerk/templates/apps/web/src/server/trpc/context.ts`).
+A new service also needs a factory call in `composeWith` and a field on `Services` in `apps/web/src/server/compose.ts`.
 
 ## Scripts
 

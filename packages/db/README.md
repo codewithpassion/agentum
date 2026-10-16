@@ -20,7 +20,7 @@ The nine foundation tables are `workspaces`, `identity_links`, `agents`, `machin
 
 ## Query functions
 
-Query functions take a drizzle instance rather than making one, so the same code runs against D1 on the Worker and against `bun:sqlite` in the tests. The parameter type is `Database` from `@repo/db`, which is any drizzle SQLite instance, sync or async. This package never reads environment variables or bindings. Return plain JSON shapes, not row types, and leave validation to the service in `@repo/services`.
+Query functions take a drizzle instance rather than making one, so the same code runs against D1 on the Worker and against `bun:sqlite` in the tests. Only `@repo/services` imports them. The app reaches the data through the services, over tRPC or, for the bearer-authenticated Hono routes, by calling the services directly. The parameter type is `Database` from `@repo/db`, which is any drizzle SQLite instance, sync or async. This package never reads environment variables or bindings. Return plain JSON shapes, not row types, and leave validation to the service in `@repo/services`.
 
 ```ts
 import { drizzle } from "drizzle-orm/d1";
@@ -32,7 +32,7 @@ const db = drizzle(env.DB); // cheap, nothing to cache between requests
 
 Any write that must succeed or fail as a whole goes through `atomic`. Never call `db.batch` or `db.transaction` directly, and never run two writes in a row and hope.
 
-drizzle 0.44 has `batch` only on the D1 driver and interactive transactions only on the SQLite drivers, and D1 has no interactive transactions at all. So `@repo/db/atomic` has one type, `Atomic`, and two adapters: `d1Atomic(drizzle(env.DB))` runs one `db.batch`, and `sqliteAtomic(db)` runs one `db.transaction` on `bun:sqlite`. The app builds the D1 one, tests build the SQLite one, and services take an `atomic` parameter next to `db`.
+drizzle 0.44 has `batch` only on the D1 driver and interactive transactions only on the SQLite drivers, and D1 has no interactive transactions at all. So `@repo/db/atomic` has one type, `Atomic`, and two adapters: `d1Atomic(drizzle(env.DB))` runs one `db.batch`, and `sqliteAtomic(db)` runs one `db.transaction` on `bun:sqlite`. The app builds the D1 one, tests build the SQLite one, and services take `atomic` next to `db`, as `{ db, atomic, ... }`.
 
 ```ts
 await atomic([
