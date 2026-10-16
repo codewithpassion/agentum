@@ -6,6 +6,7 @@ import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { createEventsService } from "./events.ts";
+import { importRunTokenKey, signRunToken } from "./run-tokens.ts";
 import type { Principal } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
@@ -268,4 +269,23 @@ test("ids from concurrent appends sort in call order", async () => {
   );
   const queried = await service.query(principal, WORKSPACE);
   expect(queried.map((e) => e.id)).toEqual(appended.map((e) => e.id));
+});
+
+test("a run token under a non-secret key is redacted", async () => {
+  const key = await importRunTokenKey(
+    Buffer.from(new Uint8Array(32).fill(1)).toString("base64")
+  );
+  const output = await signRunToken(key, {
+    agentId: "a1",
+    issuedAt: 1_700_000_000_000,
+    runId: "r1",
+    workspaceId: WORKSPACE,
+  });
+  await service.append({
+    ...base,
+    payload: { output },
+    type: "message.assistant",
+  });
+  const [row] = db.select().from(events).all();
+  expect(JSON.parse(row?.payload ?? "null")).toEqual({ output: "[redacted]" });
 });

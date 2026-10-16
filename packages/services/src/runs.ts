@@ -524,7 +524,11 @@ export const createRunsService = ({
       throw new ServiceError("conflict", `Run is ${run.status}, not running`);
     }
     const fileIds = [...new Set(result.fileIds ?? [])];
-    await requireFiles(db, { fileIds, workspaceId: run.workspaceId });
+    await requireFiles(db, {
+      fileIds,
+      runId: run.id,
+      workspaceId: run.workspaceId,
+    });
     const failed = result.status === "failed";
     const error = failed ? (result.error ?? "Run failed") : null;
     const finishedAt = nowIso();

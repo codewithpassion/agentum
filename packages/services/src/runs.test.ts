@@ -7,6 +7,8 @@ import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
+import { eventsRequestSchema } from "@repo/protocol/machine";
+import { file } from "bun";
 import { eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
@@ -127,7 +129,12 @@ const runEvents = (runId: string) =>
 const sessionEvents = (sessionId: string) =>
   db.select().from(eventRows).where(eq(eventRows.sessionId, sessionId)).all();
 
-const insertFile = (id: string, workspaceId: string, createdById: string) =>
+const insertFile = (
+  id: string,
+  workspaceId: string,
+  createdById: string,
+  runId: string | null = null
+) =>
   db
     .insert(fileRows)
     .values({
@@ -138,6 +145,7 @@ const insertFile = (id: string, workspaceId: string, createdById: string) =>
       mime: "text/plain",
       name: id,
       r2Key: `${workspaceId}/files/${id}`,
+      runId,
       size: 1,
       source: "upload",
       workspaceId,
@@ -559,6 +567,66 @@ test("completeRun hands the reply target's gateway the trusted context", async (
   expect(none.status).toBe("queued");
 });
 
+test("completeRun accepts only files of its own run", async () => {
+  const delivered: unknown[] = [];
+  const inbox: Gateway = {
+    deliver: (target, message) => {
+      delivered.push({ message, target });
+      return Promise.resolve();
+    },
+    kind: "inbox",
+  };
+  runs = buildRuns({ gateways: [inbox] });
+  const reply = { kind: "inbox" as const, threadId: "th1" };
+
+  const run1 = await start(user, spyAgentId, { reply });
+  const run2 = await start(user, spyAgentId, { reply });
+  await runs.claimRun(SYSTEM_PRINCIPAL, run1.runId);
+
+  insertFile("own", WORKSPACE, "u1", run1.runId);
+  insertFile("upload", WORKSPACE, "u2");
+  insertFile("other-run", WORKSPACE, "u1", run2.runId);
+  insertFile("other-ws", "w2", "u1", run1.runId);
+
+  const before = delivered.length;
+  const attempts = ["upload", "other-run", "other-ws"].flatMap((foreign) => [
+    [foreign],
+    ["own", foreign],
+  ]);
+  const errors = await Promise.all(
+    attempts.map((fileIds) =>
+      failure(
+        runs.completeRun(SYSTEM_PRINCIPAL, run1.runId, {
+          fileIds,
+          status: "done",
+          text: "x",
+        })
+      )
+    )
+  );
+  for (const error of errors) {
+    expect(error).toMatchObject({ code: "not_found" });
+  }
+  expect(runRow(run1.runId)?.status).toBe("running");
+  expect(delivered).toHaveLength(before);
+
+  await runs.completeRun(SYSTEM_PRINCIPAL, run1.runId, {
+    fileIds: ["own"],
+    status: "done",
+    text: "ok",
+  });
+  expect(runRow(run1.runId)).toMatchObject({
+    outputFileIds: '["own"]',
+    status: "done",
+  });
+  expect(delivered.slice(before)).toEqual([
+    {
+      message: { fileIds: ["own"], text: "ok" },
+      target: { kind: "inbox", threadId: "th1" },
+    },
+  ]);
+});
+
 test("the fake runtime exists only when devFakeRuntime is true", async () => {
   const withoutFake = buildRuns({ devFakeRuntime: false });
   const before = runRowCount();
@@ -623,6 +691,32 @@ test("ingestRunEvents stores a batch once", async () => {
     ])
   );
   expect(error).toBeInstanceOf(ForbiddenError);
+});
+
+test("ingestRunEvents stores the protocol fixture once", async () => {
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  const request = eventsRequestSchema.parse(
+    await file(
+      new URL("../../protocol/fixtures/events-request.json", import.meta.url)
+    ).json()
+  );
+  expect(
+    await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, request.events)
+  ).toEqual({ lastSeq: 3 });
+  expect(
+    await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, request.events)
+  ).toEqual({ lastSeq: 3 });
+
+  const fixtureTypes = ["message.assistant", "tool.call", "tool.result"];
+  const stored = runEvents(runId).filter((event) =>
+    fixtureTypes.includes(event.type)
+  );
+  expect(stored.map((event) => [event.type, event.seq])).toEqual([
+    ["message.assistant", 1],
+    ["tool.call", 2],
+    ["tool.result", 3],
+  ]);
 });
 
 test("workspaces are isolated", async () => {
