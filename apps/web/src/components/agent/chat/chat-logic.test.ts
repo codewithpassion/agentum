@@ -2,8 +2,12 @@ import { describe, expect, test } from "bun:test";
 import type { RunStatus } from "@repo/db/shared";
 import type { SessionTranscript } from "#/integrations/trpc/types";
 import {
+  type ChatItem,
   canRetry,
+  collectFileIds,
+  fileIdsOfRun,
   isRunActive,
+  MAX_ATTACHMENTS,
   RETRY_AFTER_MS,
   shouldPoll,
   statusLine,
@@ -215,8 +219,8 @@ describe("toChatItems", () => {
       makeEntry({ id: "d", payload: {}, type: "run.finished" }),
     ]);
     expect(items).toEqual([
-      { id: "a", kind: "user", text: "hi" },
-      { id: "c", kind: "assistant", text: "hello" },
+      { fileIds: [], id: "a", kind: "user", text: "hi" },
+      { fileIds: [], id: "c", kind: "assistant", text: "hello" },
     ]);
   });
 
@@ -227,9 +231,62 @@ describe("toChatItems", () => {
         makeEntry({ id: "b", payload: {}, type: "message.assistant" }),
       ])
     ).toEqual([
-      { id: "a", kind: "user", text: "" },
-      { id: "b", kind: "assistant", text: "" },
+      { fileIds: [], id: "a", kind: "user", text: "" },
+      { fileIds: [], id: "b", kind: "assistant", text: "" },
     ]);
+  });
+
+  test("takes fileIds from a user message", () => {
+    expect(
+      toChatItems([
+        makeEntry({
+          id: "a",
+          payload: { fileIds: ["file-1", "file-2"], text: "see" },
+          type: "message.user",
+        }),
+      ])
+    ).toEqual([
+      { fileIds: ["file-1", "file-2"], id: "a", kind: "user", text: "see" },
+    ]);
+  });
+
+  test("gives an empty fileIds when the user payload's fileIds is not an array", () => {
+    expect(
+      toChatItems([
+        makeEntry({
+          id: "a",
+          payload: { fileIds: "file-1", text: "x" },
+          type: "message.user",
+        }),
+        makeEntry({ id: "b", payload: { text: "y" }, type: "message.user" }),
+      ]).map((item) => ("fileIds" in item ? item.fileIds : null))
+    ).toEqual([[], []]);
+  });
+
+  test("keeps only the string elements of fileIds", () => {
+    expect(
+      toChatItems([
+        makeEntry({
+          id: "a",
+          payload: { fileIds: ["file-1", 2, null, { id: "x" }, "file-3"] },
+          type: "message.user",
+        }),
+      ])
+    ).toEqual([
+      { fileIds: ["file-1", "file-3"], id: "a", kind: "user", text: "" },
+    ]);
+  });
+
+  test("gives assistant messages no fileIds even if the payload has some", () => {
+    expect(
+      toChatItems([
+        makeEntry({
+          id: "a",
+          payload: { fileIds: ["file-1"], text: "done" },
+          type: "message.assistant",
+        }),
+      ])
+    ).toEqual([{ fileIds: [], id: "a", kind: "assistant", text: "done" }]);
   });
 
   test("labels tool entries with name, then tool, then the entry type", () => {
@@ -278,7 +335,14 @@ describe("toChatItems", () => {
           type: "message.user",
         }),
       ])
-    ).toEqual([{ id: "a", kind: "user", text: "(content too large to show)" }]);
+    ).toEqual([
+      {
+        fileIds: [],
+        id: "a",
+        kind: "user",
+        text: "(content too large to show)",
+      },
+    ]);
   });
 
   test("shows a marker instead of detail when a tool payload is oversized", () => {
@@ -299,5 +363,114 @@ describe("toChatItems", () => {
         label: "tool.result",
       },
     ]);
+  });
+});
+
+describe("fileIdsOfRun", () => {
+  test("returns the fileIds of the user message for that run", () => {
+    const entries = [
+      makeEntry({
+        id: "a",
+        payload: { fileIds: ["file-1"], text: "first" },
+        runId: "run-1",
+        type: "message.user",
+      }),
+      makeEntry({
+        id: "b",
+        payload: { fileIds: ["file-2", "file-3"], text: "second" },
+        runId: "run-2",
+        type: "message.user",
+      }),
+    ];
+    expect(fileIdsOfRun(entries, "run-2")).toEqual(["file-2", "file-3"]);
+  });
+
+  test("ignores the assistant reply and tool entries of the run", () => {
+    const entries = [
+      makeEntry({
+        id: "a",
+        payload: { fileIds: ["file-9"] },
+        runId: "run-1",
+        type: "tool.call",
+      }),
+      makeEntry({
+        id: "b",
+        payload: { fileIds: ["file-8"] },
+        runId: "run-1",
+        type: "message.assistant",
+      }),
+      makeEntry({
+        id: "c",
+        payload: { fileIds: ["file-1"] },
+        runId: "run-1",
+        type: "message.user",
+      }),
+    ];
+    expect(fileIdsOfRun(entries, "run-1")).toEqual(["file-1"]);
+  });
+
+  test("keeps only string elements, and gives [] for a non-array fileIds", () => {
+    const entries = [
+      makeEntry({
+        id: "a",
+        payload: { fileIds: ["file-1", 7, true, null] },
+        runId: "run-1",
+        type: "message.user",
+      }),
+      makeEntry({
+        id: "b",
+        payload: { fileIds: "file-2" },
+        runId: "run-2",
+        type: "message.user",
+      }),
+    ];
+    expect(fileIdsOfRun(entries, "run-1")).toEqual(["file-1"]);
+    expect(fileIdsOfRun(entries, "run-2")).toEqual([]);
+  });
+
+  test("returns [] when the run has no user message", () => {
+    expect(fileIdsOfRun([], "run-1")).toEqual([]);
+  });
+});
+
+describe("collectFileIds", () => {
+  test("gathers user and assistant file ids, then the output files, without repeats", () => {
+    const items = toChatItems([
+      makeEntry({
+        id: "a",
+        payload: { fileIds: ["file-2", "file-1"] },
+        type: "message.user",
+      }),
+      makeEntry({
+        id: "b",
+        payload: { fileIds: ["file-1"] },
+        type: "message.user",
+      }),
+      makeEntry({ id: "c", payload: {}, type: "message.assistant" }),
+    ]);
+    expect(collectFileIds(items, ["file-3", "file-2", "file-4"])).toEqual([
+      "file-2",
+      "file-1",
+      "file-3",
+      "file-4",
+    ]);
+  });
+
+  test("skips tool items", () => {
+    const items: ChatItem[] = [
+      { detail: "{}", id: "t", kind: "tool", label: "shell" },
+      { fileIds: ["file-1"], id: "u", kind: "user", text: "" },
+    ];
+    expect(collectFileIds(items, [])).toEqual(["file-1"]);
+  });
+
+  test("returns [] when nothing is shown", () => {
+    expect(collectFileIds([], [])).toEqual([]);
+  });
+});
+
+describe("MAX_ATTACHMENTS", () => {
+  test("is 20, the server's input file limit", () => {
+    expect(MAX_ATTACHMENTS).toBe(20);
   });
 });

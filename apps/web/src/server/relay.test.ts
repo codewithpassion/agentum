@@ -4,6 +4,7 @@ import { events } from "@repo/db/schema/events";
 import { machines } from "@repo/db/schema/machines";
 import { migrated } from "@repo/db/test-db";
 import { relayFrameSchema } from "@repo/protocol/machine";
+import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import type { Clock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
@@ -161,6 +162,7 @@ beforeEach(async () => {
       },
       clock,
       devFakeRuntime: false,
+      fileBlobs: memoryFileBlobs(),
       relay: noopRelay,
     },
   }));

@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { Bubble, BubbleContent } from "#/components/ui/bubble.tsx";
 import { Message, MessageContent } from "#/components/ui/message.tsx";
+import type { FileInfo } from "#/integrations/trpc/types.ts";
 import type { ChatItem } from "./chat-logic.ts";
+import { FileChips } from "./file-chips.tsx";
 
 function ToolItem({ item }: { item: Extract<ChatItem, { kind: "tool" }> }) {
   return (
@@ -16,8 +18,10 @@ function ToolItem({ item }: { item: Extract<ChatItem, { kind: "tool" }> }) {
 
 function MessageItem({
   item,
+  files,
 }: {
   item: Extract<ChatItem, { kind: "user" | "assistant" }>;
+  files: ReadonlyMap<string, FileInfo>;
 }) {
   const align = item.kind === "user" ? "end" : "start";
   return (
@@ -31,12 +35,27 @@ function MessageItem({
             {item.text}
           </BubbleContent>
         </Bubble>
+        {item.fileIds.length === 0 ? null : (
+          <div
+            className={
+              item.kind === "user" ? "flex justify-end" : "flex justify-start"
+            }
+          >
+            <FileChips fileIds={item.fileIds} files={files} />
+          </div>
+        )}
       </MessageContent>
     </Message>
   );
 }
 
-export function TranscriptView({ items }: { items: ChatItem[] }) {
+export function TranscriptView({
+  items,
+  files,
+}: {
+  items: ChatItem[];
+  files: ReadonlyMap<string, FileInfo>;
+}) {
   const endRef = useRef<HTMLDivElement>(null);
   const count = items.length;
 
@@ -58,7 +77,7 @@ export function TranscriptView({ items }: { items: ChatItem[] }) {
         item.kind === "tool" ? (
           <ToolItem item={item} key={item.id} />
         ) : (
-          <MessageItem item={item} key={item.id} />
+          <MessageItem files={files} item={item} key={item.id} />
         )
       )}
       <div ref={endRef} />
