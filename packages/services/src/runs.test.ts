@@ -1293,3 +1293,84 @@ test("two downloads of one run's files never overlap", async () => {
   }
   await Promise.all([lost, retry]);
 });
+
+test("a second queued run of an agent waits while its first run is running", async () => {
+  const first = await start(user, spyAgentId);
+  const second = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, first.runId);
+
+  const blocked = await failure(runs.claimRun(SYSTEM_PRINCIPAL, second.runId));
+  expect(blocked).toMatchObject({ code: "conflict" });
+  expect(runRow(second.runId)).toMatchObject({ status: "queued" });
+
+  await runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
+    status: "done",
+    text: "ok",
+  });
+  await runs.claimRun(SYSTEM_PRINCIPAL, second.runId);
+  expect(runRow(second.runId)).toMatchObject({ status: "running" });
+});
+
+test("a younger run of a session waits for its older queued run", async () => {
+  const session = { externalKey: "S1", origin: "slack" as const };
+  const older = await start(user, spyAgentId, { session });
+  advance(SECOND);
+  const younger = await start(user, spyAgentId, { session });
+  expect(younger.sessionId).toBe(older.sessionId);
+
+  const blocked = await failure(runs.claimRun(SYSTEM_PRINCIPAL, younger.runId));
+  expect(blocked).toMatchObject({ code: "conflict" });
+  expect(runRow(younger.runId)).toMatchObject({ status: "queued" });
+
+  await runs.claimRun(SYSTEM_PRINCIPAL, older.runId);
+  expect(runRow(older.runId)).toMatchObject({ status: "running" });
+});
+
+test("two simultaneous claims of one run have one winner", async () => {
+  const { runId } = await start(user, spyAgentId);
+
+  const outcomes = await Promise.allSettled([
+    runs.claimRun(SYSTEM_PRINCIPAL, runId),
+    runs.claimRun(SYSTEM_PRINCIPAL, runId),
+  ]);
+
+  expect(outcomes.map((outcome) => outcome.status).sort()).toEqual([
+    "fulfilled",
+    "rejected",
+  ]);
+  const loser = outcomes.find((outcome) => outcome.status === "rejected");
+  expect(loser?.status === "rejected" && loser.reason).toMatchObject({
+    code: "conflict",
+  });
+  expect(
+    runEvents(runId).filter((event) => event.type === "run.started")
+  ).toHaveLength(1);
+});
+
+test("releaseRun puts a claimed run back to offered and lets it be claimed again", async () => {
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+
+  await runs.releaseRun(SYSTEM_PRINCIPAL, runId);
+  expect(runRow(runId)).toMatchObject({
+    claimedBy: null,
+    leaseUntil: null,
+    startedAt: null,
+    status: "offered",
+  });
+
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  expect(runRow(runId)).toMatchObject({
+    claimedBy: "system",
+    status: "running",
+  });
+});
+
+test("releaseRun leaves a cancelled run cancelled", async () => {
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.cancelRun(user, runId);
+
+  await runs.releaseRun(SYSTEM_PRINCIPAL, runId);
+  expect(runRow(runId)).toMatchObject({ status: "cancelled" });
+});

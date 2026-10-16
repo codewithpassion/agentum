@@ -11,6 +11,8 @@ import {
   type ApiKeysService,
   createApiKeysService,
 } from "@repo/services/api-keys";
+import { createCloudRuntime } from "@repo/services/cloud/runtime";
+import type { CloudRunnerPort } from "@repo/services/cloud/types";
 import {
   type ConnectorOAuthService,
   createConnectorOAuthService,
@@ -115,6 +117,8 @@ export interface Infra {
   atomic: Atomic;
   blobs: Blobs;
   clock: Clock;
+  /** Starts and stops the work of a cloud run. Without it, `cloud` agents cannot run. */
+  cloudRunner?: CloudRunnerPort;
   /** Runs work after the response: `waitUntil` in a request. Without it, work is awaited. */
   defer?: (work: Promise<void>) => void;
   devFakeRuntime: boolean;
@@ -224,6 +228,15 @@ export const composeWith = ({
     createMachineRuntime({ relay: infra.relay }),
     ...(infra.managedPoller
       ? [createManagedRuntime({ poller: infra.managedPoller })]
+      : []),
+    ...(infra.cloudRunner && infra.runTokenKey && infra.publicBaseUrl
+      ? [
+          createCloudRuntime({
+            platformUrl: infra.publicBaseUrl,
+            runner: infra.cloudRunner,
+            runTokenKey: infra.runTokenKey,
+          }),
+        ]
       : []),
   ];
 

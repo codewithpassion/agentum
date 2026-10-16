@@ -17,7 +17,7 @@ export interface AgentFormValues {
   machineId: string;
   model: string;
   name: string;
-  runtime: "fake" | "machine" | "managed";
+  runtime: "cloud" | "fake" | "machine" | "managed";
 }
 
 const defaultValues: AgentFormValues = {
@@ -37,7 +37,7 @@ interface AgentFormProps {
 }
 
 function toRuntime(value: string): AgentFormValues["runtime"] {
-  if (value === "fake" || value === "managed") {
+  if (value === "cloud" || value === "fake" || value === "managed") {
     return value;
   }
   return "machine";
@@ -132,6 +132,11 @@ export function AgentForm({
           {values.runtime === "managed" && (
             <FieldDescription>Use opus, sonnet or haiku.</FieldDescription>
           )}
+          {values.runtime === "cloud" && (
+            <FieldDescription>
+              Use a Claude model id, for example claude-sonnet-5-5.
+            </FieldDescription>
+          )}
         </Field>
         <Field>
           <FieldLabel htmlFor="agent-runtime">Runtime</FieldLabel>
@@ -143,6 +148,7 @@ export function AgentForm({
           >
             <option value="machine">machine</option>
             <option value="managed">managed (Anthropic cloud)</option>
+            <option value="cloud">cloud (Cloudflare)</option>
             {import.meta.env.DEV ? <option value="fake">fake</option> : null}
           </NativeSelect>
           {values.runtime === "managed" && (
@@ -153,6 +159,14 @@ export function AgentForm({
               and [ATTACHMENT:path] in its answers stays plain text. Images
               returned by connector tools never reach the model. A session stops
               at $10 of spend.
+            </FieldDescription>
+          )}
+          {values.runtime === "cloud" && (
+            <FieldDescription>
+              Runs on Cloudflare, not on one of your machines. It has no shell
+              and no local files, but it can use library bash and connectors. It
+              does not get this workspace's skills or attached files yet, and
+              [ATTACHMENT:path] in its answers stays plain text for now.
             </FieldDescription>
           )}
         </Field>

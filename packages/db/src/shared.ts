@@ -8,7 +8,7 @@ export type IdentityProvider = (typeof IDENTITY_PROVIDERS)[number];
 export const SLACK_APP_STATUSES = ["created", "installed", "revoked"] as const;
 export type SlackAppStatus = (typeof SLACK_APP_STATUSES)[number];
 
-export const AGENT_RUNTIMES = ["machine", "managed", "fake"] as const;
+export const AGENT_RUNTIMES = ["machine", "managed", "cloud", "fake"] as const;
 export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
 
 export const AGENT_STATUSES = ["active", "archived"] as const;
