@@ -1,5 +1,6 @@
 // Test helper: a throwaway in-memory SQLite database with the same migrations
-// D1 gets, so no server and no network are involved.
+// D1 gets, so no server and no network are involved. Foreign keys are on, as
+// they always are in D1.
 import { Database as Sqlite } from "bun:sqlite";
 import { resolve } from "node:path";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -11,6 +12,7 @@ const MIGRATIONS_FOLDER = resolve(import.meta.dir, "../migrations");
 
 export const migrated = () => {
   const client = new Sqlite(":memory:");
+  client.run("PRAGMA foreign_keys = ON");
   const db = drizzle(client);
   migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
   return Object.assign(db, { client });

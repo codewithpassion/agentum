@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { count } from "drizzle-orm";
 import { sqliteAtomic } from "./atomic.ts";
 import { files } from "./schema/files.ts";
+import { workspaces } from "./schema/workspaces.ts";
 import { migrated } from "./test-db.ts";
 
 const file = (id: string) => ({
@@ -21,6 +22,15 @@ let db: ReturnType<typeof migrated>;
 
 beforeEach(() => {
   db = migrated();
+  db.insert(workspaces)
+    .values({
+      clerkOrgId: "org_w1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      id: "w1",
+      name: "w1",
+      timezone: "UTC",
+    })
+    .run();
 });
 
 const rowCount = () => db.select({ n: count() }).from(files).get()?.n;

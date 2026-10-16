@@ -5,6 +5,7 @@ import { files as fileRows } from "@repo/db/schema/files";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
+import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "./agents.ts";
@@ -143,6 +144,18 @@ const insertFile = (id: string, workspaceId: string, createdById: string) =>
     })
     .run();
 
+const insertWorkspace = (id: string) =>
+  db
+    .insert(workspaceRows)
+    .values({
+      clerkOrgId: `org_${id}`,
+      createdAt: START,
+      id,
+      name: id,
+      timezone: "UTC",
+    })
+    .run();
+
 const runPrincipal = (
   runId: string,
   agentId: string,
@@ -171,6 +184,8 @@ beforeEach(async () => {
   };
   events = createEventsService({ blobs, db });
   agents = createAgentsService({ db, events });
+  insertWorkspace(WORKSPACE);
+  insertWorkspace("w2");
   db.insert(machines)
     .values({
       capabilities: "{}",

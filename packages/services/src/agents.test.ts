@@ -1,6 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { agents } from "@repo/db/schema/agents";
 import { machines } from "@repo/db/schema/machines";
+import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { createAgentsService } from "./agents.ts";
 import { createEventsService } from "./events.ts";
@@ -26,6 +27,18 @@ let db: ReturnType<typeof migrated>;
 let service: ReturnType<typeof createAgentsService>;
 let events: ReturnType<typeof createEventsService>;
 
+const seedWorkspace = (conn: ReturnType<typeof migrated>, id: string) =>
+  conn
+    .insert(workspaces)
+    .values({
+      clerkOrgId: `org_${id}`,
+      createdAt: NOW,
+      id,
+      name: id,
+      timezone: "UTC",
+    })
+    .run();
+
 const insertMachine = (id: string, workspaceId: string) =>
   db
     .insert(machines)
@@ -44,6 +57,8 @@ const insertMachine = (id: string, workspaceId: string) =>
 
 beforeEach(() => {
   db = migrated();
+  seedWorkspace(db, WORKSPACE);
+  seedWorkspace(db, OTHER_WORKSPACE);
   const store = new Map<string, string>();
   events = createEventsService({
     blobs: {
