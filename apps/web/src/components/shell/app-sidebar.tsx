@@ -4,7 +4,6 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -14,11 +13,6 @@ import { navItems } from "./nav-registry.ts";
 export function AppSidebar() {
   return (
     <Sidebar className="top-(--app-header-h) h-[calc(100svh-var(--app-header-h))]">
-      <SidebarHeader>
-        <p className="px-2 font-heading text-lg text-sidebar-foreground">
-          Harbourmaster
-        </p>
-      </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>

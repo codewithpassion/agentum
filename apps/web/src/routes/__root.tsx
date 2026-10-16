@@ -2,6 +2,8 @@ import { TanStackDevtools } from "@tanstack/react-devtools";
 import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TooltipProvider } from "#/components/ui/tooltip";
+import { useIsAppShell } from "#/hooks/use-app-shell";
+import { cn } from "#/lib/utils";
 import Footer from "../components/footer";
 import Header from "../components/header";
 import ThemedToaster from "../components/themed-toaster";
@@ -37,6 +39,8 @@ export const Route = createRootRoute({
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const inAppShell = useIsAppShell();
+
   return (
     <html className="light" lang="en" suppressHydrationWarning>
       <head>
@@ -48,8 +52,11 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <ClerkProvider>
           <TooltipProvider>
             <Header />
-            {/* flex-1 pushes the footer to the bottom on short pages. */}
-            <div className="flex-1 pb-20">{children}</div>
+            {/* flex-1 pushes the footer to the bottom on short pages. The app
+                shell carries its own footer inside the sidebar inset. */}
+            <div className={cn("flex-1", !inAppShell && "pb-20")}>
+              {children}
+            </div>
             <Footer />
             <ThemedToaster />
             <TanStackDevtools
