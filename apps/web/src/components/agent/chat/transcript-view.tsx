@@ -43,9 +43,11 @@ function ToolItem({ item }: { item: Extract<ChatItem, { kind: "tool" }> }) {
 function MessageItem({
   item,
   files,
+  agentName,
 }: {
   item: Extract<ChatItem, { kind: "user" | "assistant" }>;
   files: ReadonlyMap<string, FileInfo>;
+  agentName?: string;
 }) {
   const align = item.kind === "user" ? "end" : "start";
   return (
@@ -67,7 +69,11 @@ function MessageItem({
               item.kind === "user" ? "flex justify-end" : "flex justify-start"
             }
           >
-            <FileChips fileIds={item.fileIds} files={files} />
+            <FileChips
+              agentName={item.kind === "assistant" ? agentName : undefined}
+              fileIds={item.fileIds}
+              files={files}
+            />
           </div>
         )}
       </MessageContent>
@@ -78,10 +84,13 @@ function MessageItem({
 export function TranscriptView({
   items,
   files,
+  agentName,
   empty = "Send a message to start.",
 }: {
   items: ChatItem[];
   files: ReadonlyMap<string, FileInfo>;
+  /** The agent whose output the assistant items show. Enables "Save to library" on their files. */
+  agentName?: string;
   empty?: string;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -103,7 +112,12 @@ export function TranscriptView({
         item.kind === "tool" ? (
           <ToolItem item={item} key={item.id} />
         ) : (
-          <MessageItem files={files} item={item} key={item.id} />
+          <MessageItem
+            agentName={agentName}
+            files={files}
+            item={item}
+            key={item.id}
+          />
         )
       )}
       <div ref={endRef} />
