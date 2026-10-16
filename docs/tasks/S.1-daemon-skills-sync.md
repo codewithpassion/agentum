@@ -3,9 +3,9 @@ id: S.1
 title: Daemon syncs an agent's skills into its work directory
 milestone: S
 size: S
-status: todo
+status: in_progress
 depends_on: [F.1, M1.6, M1.9]
-branch: null
+branch: task/S.1-daemon-skills-sync
 ---
 
 From the just-bash spike (`harbourmaster-wt/tmp/spike-just-bash/REPORT.md`). Draft, not approved.
@@ -25,3 +25,4 @@ A daemon test with a fake run API: two agent skills and one shared skill land un
 ## Log
 - 2026-10-16: drafted from the just-bash spike.
 - 2026-10-16: added from the just-bash spike (docs/reviews/spike-just-bash.md). Dom accepted the defaults: library in Harbourmaster on R2, agents write anywhere, agents may edit their own skills, paid Workers plan, 10 MB per file and 1 GB per workspace, just-bash beta with network, Python and JS off.
+- 2026-10-16: dispatched on task/S.1-daemon-skills-sync.

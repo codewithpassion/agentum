@@ -3,9 +3,9 @@ id: F.2
 title: MCP bash tool over the workspace library
 milestone: F
 size: M
-status: todo
+status: in_progress
 depends_on: [F.1, M2.1]
-branch: null
+branch: task/F.2-mcp-bash-tool
 ---
 
 From the just-bash spike (`harbourmaster-wt/tmp/spike-just-bash/REPORT.md`). Draft, not approved.
@@ -36,3 +36,4 @@ Live in local dev: an agent with only the platform MCP writes a note with `bash`
 ## Log
 - 2026-10-16: drafted from the just-bash spike.
 - 2026-10-16: added from the just-bash spike (docs/reviews/spike-just-bash.md). Dom accepted the defaults: library in Harbourmaster on R2, agents write anywhere, agents may edit their own skills, paid Workers plan, 10 MB per file and 1 GB per workspace, just-bash beta with network, Python and JS off.
+- 2026-10-16: dispatched on task/F.2-mcp-bash-tool.

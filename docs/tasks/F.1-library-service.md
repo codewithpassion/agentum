@@ -3,7 +3,7 @@ id: F.1
 title: Workspace library service over R2 with a D1 path index
 milestone: F
 size: M
-status: in_progress
+status: done
 depends_on: [M7.1]
 branch: task/F.1-library-service
 ---
@@ -39,3 +39,4 @@ Also update the "Shared wiki and knowledge base" and "Skills bundles per agent" 
 - 2026-10-16: drafted from the just-bash spike.
 - 2026-10-16: added from the just-bash spike (docs/reviews/spike-just-bash.md). Dom accepted the defaults: library in Harbourmaster on R2, agents write anywhere, agents may edit their own skills, paid Workers plan, 10 MB per file and 1 GB per workspace, just-bash beta with network, Python and JS off.
 - 2026-10-16: dispatched on task/F.1-library-service.
+- 2026-10-16: review clean after 1 fix round at b1d2e74 (docs/reviews/tasks/F.1.md). Merged. Migration 0015.
