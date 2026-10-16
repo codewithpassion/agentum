@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "build": "turbo run build",
-    "check": "ultracite check && turbo run typecheck",
+    "check": "ultracite check && turbo run typecheck && bun scripts/boundary-lint.ts",
     "clean": "bun scripts/clean.ts",
     "deploy": "turbo run deploy",
     "dev": "turbo run dev",
@@ -17,7 +17,7 @@
     "prepare": "husky && turbo run cf-typegen",
     "preview": "turbo run preview",
     "tasks": "bun scripts/tasks.ts",
-    "test": "turbo run test"
+    "test": "turbo run test && bun test scripts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.6",

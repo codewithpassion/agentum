@@ -5,7 +5,8 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { systemClock } from "@repo/services/runs/types";
 import { eq } from "drizzle-orm";
-import { buildContext, type Infra, parseOrgIds } from "./build-context.ts";
+import { composeWith, type Infra, parseOrgIds } from "../compose.ts";
+import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
 
 const ALLOWED_ORG_IDS = ["org_a"];
@@ -38,9 +39,11 @@ const callerFor = async (session: {
 }) =>
   appRouter.createCaller(
     await buildContext({
-      allowedOrgIds: ALLOWED_ORG_IDS,
-      db,
-      infra: infra(),
+      composed: composeWith({
+        allowedOrgIds: ALLOWED_ORG_IDS,
+        db,
+        infra: infra(),
+      }),
       session,
     })
   );

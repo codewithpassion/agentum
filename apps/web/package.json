@@ -17,7 +17,7 @@
     "preview:deploy": "bun run staging:build && bun scripts/preview.ts deploy --name",
     "staging:build": "CLOUDFLARE_ENV=staging vite build",
     "staging:deploy": "bun run staging:build && wrangler d1 migrations apply DB --remote --env staging && wrangler deploy --env staging",
-    "test": "bun test scripts src",
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
