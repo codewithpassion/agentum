@@ -1,0 +1,41 @@
+import { EVENT_TYPES, type EventType } from "@repo/db/shared";
+
+export const LOG_PAGE_SIZE = 25;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+export const isEventType = (value: string): value is EventType =>
+  EVENT_TYPES.some((type) => type === value);
+
+const startOfDay = (day: string): Date | undefined => {
+  if (!DAY.test(day)) {
+    return;
+  }
+  const date = new Date(`${day}T00:00:00.000Z`);
+  // A day that rolls over (2026-02-31 becomes March 3) is not a date.
+  if (Number.isNaN(date.getTime())) {
+    return;
+  }
+  return date.toISOString().startsWith(day) ? date : undefined;
+};
+
+/**
+ * The service filters for a range of days picked as `YYYY-MM-DD` dates, in UTC.
+ * Both days are included: `from` is the start of its day and `to` is the start
+ * of the day after. A value that is not a date is left out.
+ */
+export const dayRangeFilters = (
+  from: string | undefined,
+  to: string | undefined
+): { from?: string; to?: string } => {
+  const start = from === undefined ? undefined : startOfDay(from);
+  const last = to === undefined ? undefined : startOfDay(to);
+  return {
+    from: start?.toISOString(),
+    to:
+      last === undefined
+        ? undefined
+        : new Date(last.getTime() + DAY_MS).toISOString(),
+  };
+};
