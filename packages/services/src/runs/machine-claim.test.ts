@@ -1,5 +1,9 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import {
+  agentConnectors as agentConnectorRows,
+  connectors as connectorRows,
+} from "@repo/db/schema/connectors";
 import { events as eventRows } from "@repo/db/schema/events";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
@@ -52,6 +56,27 @@ const start = async (agent: string, externalKey?: string) => {
     input: { text: "hi" },
     session: { externalKey, origin: "ui" },
   });
+};
+
+const addConnector = (id: string, name: string) => {
+  db.insert(connectorRows)
+    .values({
+      authKind: "none",
+      createdAt: START,
+      createdBy: "u1",
+      id,
+      name,
+      status: "ok",
+      url: `https://${id}.example/mcp`,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+};
+
+const assign = (agent: string, connectorId: string, createdAt: string) => {
+  db.insert(agentConnectorRows)
+    .values({ agentId: agent, connectorId, createdAt, workspaceId: WORKSPACE })
+    .run();
 };
 
 const claim = (machineId: string, runId: string) =>
@@ -167,6 +192,45 @@ test("a claim returns the run, agent, session, token and platform entry", async 
   expect(row?.status).toBe("running");
   expect(row?.claimedBy).toBe("m1");
   expect(row?.leaseUntil).toBe(new Date(nowMs + 90_000).toISOString());
+});
+
+test("a claim adds a proxy entry for each connector the agent has", async () => {
+  addConnector("c-github", "GitHub");
+  addConnector("c-linear", "Linear");
+  assign(agentId, "c-linear", "2026-10-16T10:00:01.000Z");
+  assign(agentId, "c-github", "2026-10-16T10:00:02.000Z");
+  const started = await start(agentId);
+
+  const claimed = await claim("m1", started.runId);
+
+  expect(Object.keys(claimed.mcpServers)).toEqual([
+    "harbourmaster",
+    "linear",
+    "github",
+  ]);
+  const headers = { Authorization: `Bearer ${claimed.runToken}` };
+  expect(claimed.mcpServers.linear).toEqual({
+    headers,
+    type: "http",
+    url: "https://hm.example/api/proxy/c-linear",
+  });
+  expect(claimed.mcpServers.github).toEqual({
+    headers,
+    type: "http",
+    url: "https://hm.example/api/proxy/c-github",
+  });
+});
+
+test("a connector assigned to another agent is not in the claim", async () => {
+  addConnector("c-mine", "Mine");
+  addConnector("c-theirs", "Theirs");
+  assign(agentId, "c-mine", START);
+  assign(otherAgentId, "c-theirs", START);
+  const started = await start(agentId);
+
+  const claimed = await claim("m1", started.runId);
+
+  expect(Object.keys(claimed.mcpServers)).toEqual(["harbourmaster", "mine"]);
 });
 
 test("a second claim of the same run conflicts", async () => {

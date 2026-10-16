@@ -7,9 +7,10 @@
  *
  * Limitation, accepted: a Worker cannot resolve DNS, so the guard blocks
  * literal private addresses and internal names, not a public hostname with an
- * `A` record pointing at 127.0.0.1. The deeper mitigation is that connector
- * tools run on Anthropic's side, never in our Worker - what reaches these
- * endpoints from here is a metadata GET and a token POST.
+ * `A` record pointing at 127.0.0.1. The proxy (`/api/proxy/:connectorId`)
+ * forwards tool calls from the Worker to these URLs, so this limit applies to
+ * them too. The proxy runs the guard again on every call, and never follows a
+ * redirect.
  */
 
 import { checkUrl } from "./safe-url.ts";

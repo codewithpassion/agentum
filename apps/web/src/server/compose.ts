@@ -21,6 +21,10 @@ import {
 } from "@repo/services/connectors";
 import type { Fetcher } from "@repo/services/connectors/mcp";
 import {
+  type CredentialsService,
+  createCredentialsService,
+} from "@repo/services/credentials";
+import {
   type Blobs,
   createEventsService,
   type EventsService,
@@ -83,6 +87,7 @@ export interface Services {
   apiKeys: ApiKeysService;
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
+  credentials: CredentialsService;
   events: EventsService;
   files: FilesService;
   machines: MachinesService;
@@ -157,6 +162,12 @@ export const composeWith = ({
     fetch: connectorFetch,
     secretsKey: infra.secretsKey,
   });
+  const credentials = createCredentialsService({
+    clock: infra.clock,
+    db,
+    fetch: connectorFetch,
+    secretsKey: infra.secretsKey,
+  });
   const files = createFilesService({
     blobs: infra.fileBlobs,
     clock: infra.clock,
@@ -197,6 +208,7 @@ export const composeWith = ({
       apiKeys,
       connectorOAuth,
       connectors,
+      credentials,
       events,
       files,
       machines,
