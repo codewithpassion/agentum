@@ -4,8 +4,13 @@
 // "/", so that would apply to every request.
 import { Hono } from "hono";
 import { clerkOrgMemberCheck } from "../mcp/clerk-membership.ts";
+import {
+  clerkOAuthClientName,
+  clerkOAuthTokenVerifier,
+} from "../mcp/clerk-oauth-client.ts";
 import type { AppEnv } from "./groups.ts";
 import { mcpRoutes } from "./mcp.ts";
+import { wellKnownRoutes } from "./well-known.ts";
 
 export const accessRoutes = new Hono<AppEnv>();
 
@@ -13,7 +18,15 @@ export const accessRoutes = new Hono<AppEnv>();
 accessRoutes.route(
   "/mcp",
   mcpRoutes({
+    clientName: (env) => clerkOAuthClientName(env.CLERK_SECRET_KEY),
     dev: import.meta.env.DEV,
     isOrgMember: (env) => clerkOrgMemberCheck(env.CLERK_SECRET_KEY),
+    verifyOAuthToken: (env) => clerkOAuthTokenVerifier(env.CLERK_SECRET_KEY),
   })
+);
+
+// OAuth discovery for /mcp: Clerk is the authorization server.
+accessRoutes.route(
+  "/.well-known",
+  wellKnownRoutes({ dev: import.meta.env.DEV })
 );

@@ -13,7 +13,7 @@ const DEFAULT_AGENT = "fake-echo";
 const TRAILING_SLASHES = /\/+$/;
 const WAIT_MS = 5000;
 const MESSAGE = "ping from smoke-mcp";
-const EXPECTED_TOOLS = [
+export const EXPECTED_TOOLS = [
   "get_run",
   "list_agents",
   "list_sessions",

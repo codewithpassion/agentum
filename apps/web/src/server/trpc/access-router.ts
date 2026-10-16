@@ -2,7 +2,9 @@
 
 import { apiKeysRouter } from "./api-keys-router.ts";
 import { router } from "./init.ts";
+import { oauthClientsRouter } from "./oauth-clients-router.ts";
 
 export const accessRouter = router({
   apiKeys: apiKeysRouter,
+  oauthClients: oauthClientsRouter,
 });

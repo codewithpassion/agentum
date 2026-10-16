@@ -18,6 +18,7 @@ import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppAgentsNewRouteImport } from './routes/_app/agents.new'
 import { Route as AppSettingsApiKeysRouteImport } from './routes/_app/settings.api-keys'
+import { Route as AppSettingsConnectedAppsRouteImport } from './routes/_app/settings.connected-apps'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -63,6 +64,12 @@ const AppSettingsApiKeysRoute = AppSettingsApiKeysRouteImport.update({
   path: '/settings/api-keys',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsConnectedAppsRoute =
+  AppSettingsConnectedAppsRouteImport.update({
+    id: '/settings/connected-apps',
+    path: '/settings/connected-apps',
+    getParentRoute: () => AppRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -72,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
   '/settings/api-keys': typeof AppSettingsApiKeysRoute
+  '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/agents/': typeof AppAgentsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -82,6 +90,7 @@ export interface FileRoutesByTo {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
   '/settings/api-keys': typeof AppSettingsApiKeysRoute
+  '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/agents': typeof AppAgentsIndexRoute
 }
 export interface FileRoutesById {
@@ -94,6 +103,7 @@ export interface FileRoutesById {
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/agents/new': typeof AppAgentsNewRoute
   '/_app/settings/api-keys': typeof AppSettingsApiKeysRoute
+  '/_app/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
 }
 export interface FileRouteTypes {
@@ -106,6 +116,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/agents/new'
     | '/settings/api-keys'
+    | '/settings/connected-apps'
     | '/agents/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -116,6 +127,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/agents/new'
     | '/settings/api-keys'
+    | '/settings/connected-apps'
     | '/agents'
   id:
     | '__root__'
@@ -127,6 +139,7 @@ export interface FileRouteTypes {
     | '/_app/agents/$agentId'
     | '/_app/agents/new'
     | '/_app/settings/api-keys'
+    | '/_app/settings/connected-apps'
     | '/_app/agents/'
   fileRoutesById: FileRoutesById
 }
@@ -202,6 +215,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsApiKeysRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/connected-apps': {
+      id: '/_app/settings/connected-apps'
+      path: '/settings/connected-apps'
+      fullPath: '/settings/connected-apps'
+      preLoaderRoute: typeof AppSettingsConnectedAppsRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -210,6 +230,7 @@ interface AppRouteChildren {
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
   AppAgentsNewRoute: typeof AppAgentsNewRoute
   AppSettingsApiKeysRoute: typeof AppSettingsApiKeysRoute
+  AppSettingsConnectedAppsRoute: typeof AppSettingsConnectedAppsRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
 }
 
@@ -218,6 +239,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
   AppAgentsNewRoute: AppAgentsNewRoute,
   AppSettingsApiKeysRoute: AppSettingsApiKeysRoute,
+  AppSettingsConnectedAppsRoute: AppSettingsConnectedAppsRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
 }
 

@@ -2,7 +2,8 @@
 // key, or the `hm_run_` token of a running agent. Per request it resolves the
 // principal, builds the tool ports bound to it and hands the request to an
 // MCP handler made for that request alone, so nothing is shared between
-// callers. Mount with `accessRoutes.route("/mcp", mcpRoutes({ ... }))`.
+// callers. A Clerk OAuth token is accepted too, once its client is approved
+// (`oauth-auth.ts`). Mount with `accessRoutes.route("/mcp", mcpRoutes({ ... }))`.
 import { createHarbourmasterMcpServer } from "@repo/mcp/server";
 import { importRunTokenKey } from "@repo/services/run-tokens";
 import {
@@ -14,6 +15,13 @@ import type { Context } from "hono";
 import { parseOrgIds } from "../compose.ts";
 import { readCappedBody } from "../mcp/body.ts";
 import type { OrgMemberCheck } from "../mcp/clerk-membership.ts";
+import type { VerifiedOAuthToken } from "../mcp/clerk-oauth.ts";
+import {
+  LOCAL_HOSTNAMES,
+  mcpOrigin,
+  resourceMetadataUrl,
+} from "../mcp/metadata.ts";
+import { OAuthDeniedError, oauthClaimVerifier } from "../mcp/oauth-auth.ts";
 import { createMcpPorts } from "../mcp/ports.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
 
@@ -23,12 +31,14 @@ export const MAX_MCP_BODY_BYTES = 1024 * 1024;
 /** Seconds a client waits after a 503 before trying again. */
 const RETRY_AFTER_SECONDS = "30";
 
-const DEV_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"];
+const MCP_ROUTE = "/mcp";
 
 type LogEntry = Record<string, unknown>;
 type RouteContext = Context<AppEnv>;
 
 export interface McpRouteOptions {
+  /** The name of an OAuth application, asked when its client is first seen. */
+  clientName: (env: Env) => (clientId: string) => Promise<string | null>;
   /** Runs work after the response. `executionCtx.waitUntil` by default. */
   defer?: (c: RouteContext, work: Promise<unknown>) => void;
   /** A dev build: the local hostnames are accepted besides `PUBLIC_BASE_URL`'s. */
@@ -37,6 +47,10 @@ export interface McpRouteOptions {
   isOrgMember: (env: Env) => OrgMemberCheck;
   /** Structured log line. `console.log` of JSON by default (`wrangler tail`). */
   log?: (entry: LogEntry) => void;
+  /** Clerk's verdict on an OAuth access token for the bindings of this request. */
+  verifyOAuthToken: (
+    env: Env
+  ) => (token: string) => Promise<VerifiedOAuthToken | null>;
 }
 
 /**
@@ -48,7 +62,7 @@ export const mcpAllowedHostnames = (
   publicBaseUrl: string | undefined,
   dev: boolean
 ): string[] => {
-  const names = new Set(dev ? DEV_HOSTNAMES : []);
+  const names = new Set(dev ? LOCAL_HOSTNAMES : []);
   if (publicBaseUrl) {
     names.add(new URL(publicBaseUrl).hostname);
   }
@@ -74,14 +88,31 @@ const defaultDefer = (c: RouteContext, work: Promise<unknown>) => {
   executionContext(c)?.waitUntil(work);
 };
 
-const unauthorized = (): Response =>
-  Response.json(
-    { error: "unauthorized" },
+/**
+ * The 401 (RFC 6750, RFC 9728 5.1). The challenge names the protected resource
+ * metadata so an OAuth client can find Clerk and start consent; without a
+ * trusted origin the parameter is left out rather than guessed. A request
+ * with no token gets the bare challenge, one with a bad token `invalid_token`.
+ */
+const unauthorized = (
+  metadataUrl: string | null,
+  hadToken: boolean
+): Response => {
+  const params = ['realm="harbourmaster"'];
+  if (metadataUrl) {
+    params.push(`resource_metadata="${metadataUrl}"`);
+  }
+  if (hadToken) {
+    params.push('error="invalid_token"');
+  }
+  return Response.json(
+    { error: hadToken ? "invalid_token" : "unauthorized" },
     {
-      headers: { "WWW-Authenticate": 'Bearer realm="harbourmaster"' },
+      headers: { "WWW-Authenticate": `Bearer ${params.join(", ")}` },
       status: 401,
     }
   );
+};
 
 const forbidden = (): Response =>
   Response.json({ error: "forbidden" }, { status: 403 });
@@ -163,6 +194,7 @@ const describePrincipal = (principal: Principal): LogEntry => {
   switch (principal.kind) {
     case "user":
       return {
+        clientId: principal.oauthClient ? principal.oauthClient.clientId : null,
         keyId: principal.apiKey ? principal.apiKey.id : null,
         userId: principal.userId,
         via: principal.via,
@@ -180,26 +212,155 @@ const describePrincipal = (principal: Principal): LogEntry => {
   }
 };
 
+/** The 403 for an OAuth client nobody approved yet: the token is fine, so no challenge. */
+const clientNotApproved = (
+  error: OAuthDeniedError,
+  origin: string | null
+): Response => {
+  const where = origin
+    ? `Open ${origin}/settings/connected-apps`
+    : "Open Harbourmaster, then Settings > Connected apps";
+  const state =
+    error.reason === "revoked" ? "was revoked" : "is not approved yet";
+  return Response.json(
+    {
+      error: "client_not_approved",
+      // By client id: the app's own name is chosen by whoever registered it.
+      message: `This app ${state}. ${where}, approve the app with client id ${error.clientId}, then reconnect.`,
+    },
+    { status: 403 }
+  );
+};
+
 export const mcpRoutes = ({
+  clientName,
   defer = defaultDefer,
   dev,
   isOrgMember,
   log = defaultLog,
+  verifyOAuthToken,
 }: McpRouteOptions) => {
   const routes = bearerGroup();
+
+  /** The origin the client connected to, as far as it may be trusted. */
+  const originOf = (c: RouteContext): string | null =>
+    mcpOrigin(c.req.url, {
+      dev,
+      forwardedProto: c.req.header("X-Forwarded-Proto"),
+      publicBaseUrl: c.env.PUBLIC_BASE_URL,
+    });
 
   /** The principal for the request, null for a bad credential. Throws when auth cannot run. */
   const authenticate = async (c: RouteContext): Promise<Principal | null> => {
     const { env } = c;
+    const composed = c.get("composed");
+    const allowedOrgIds = parseOrgIds(env.ALLOWED_ORG_IDS);
     const resolver = createPrincipalResolver({
-      allowedOrgIds: parseOrgIds(env.ALLOWED_ORG_IDS),
-      db: c.get("composed").db,
+      allowedOrgIds,
+      db: composed.db,
       isOrgMember: isOrgMember(env),
       runTokenKey: await importRunTokenKey(env.RUN_TOKEN_KEY),
-      // Clerk OAuth tokens arrive with the OAuth client gate (M2.2).
-      verifyClerkOAuthToken: () => Promise.resolve(null),
+      // Only a token that is not an `hm_` credential gets here.
+      verifyClerkOAuthToken: oauthClaimVerifier({
+        allowedOrgIds,
+        clientName: (clientId) => clientName(env)(clientId),
+        isOrgMember: (userId, clerkOrgId) =>
+          isOrgMember(env)(userId, clerkOrgId),
+        oauthClients: composed.services.oauthClients,
+        verify: (token) => verifyOAuthToken(env)(token),
+        workspaces: composed.services.workspaces,
+      }),
     });
     return await resolver.resolve(c.req.header("Authorization") ?? null);
+  };
+
+  /** Runs a last-used stamp after the response. A failure is only logged. */
+  const deferTouch = (
+    c: RouteContext,
+    credential: Record<string, string>,
+    work: Promise<unknown>
+  ) => {
+    defer(
+      c,
+      work.catch((error: unknown) =>
+        log({
+          event: "mcp.touch_failed",
+          ...credential,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      )
+    );
+  };
+
+  /** After a successful call: stamp the key or OAuth client last used. */
+  const recordUse = (
+    c: RouteContext,
+    principal: Extract<Principal, { kind: "user" }>
+  ) => {
+    const { services } = c.get("composed");
+    const { apiKey, oauthClient, workspaceId } = principal;
+    if (apiKey) {
+      deferTouch(
+        c,
+        { keyId: apiKey.id },
+        services.apiKeys.touch(apiKey.id, workspaceId)
+      );
+    }
+    if (oauthClient) {
+      deferTouch(
+        c,
+        { clientId: oauthClient.clientId },
+        services.oauthClients.touch(oauthClient.clientId, workspaceId)
+      );
+    }
+  };
+
+  /** A refused OAuth token: its client is not approved, or its user has no workspace here. */
+  const oauthRefusal = (c: RouteContext, error: OAuthDeniedError): Response => {
+    log({
+      clientId: error.clientId,
+      event: "mcp.denied",
+      reason: error.reason,
+      userId: error.userId,
+      via: "oauth",
+    });
+    return error.reason === "no_workspace"
+      ? forbidden()
+      : clientNotApproved(error, originOf(c));
+  };
+
+  /** The principal that may use `/mcp`, or the response that refuses the request. */
+  const principalOrRefusal = async (
+    c: RouteContext
+  ): Promise<Extract<Principal, { kind: "run" | "user" }> | Response> => {
+    let principal: Principal | null;
+    try {
+      principal = await authenticate(c);
+    } catch (error: unknown) {
+      if (error instanceof OAuthDeniedError) {
+        return oauthRefusal(c, error);
+      }
+      // D1 or Clerk failed, or a key is not configured: an outage, not a bad token.
+      log({
+        event: "mcp.error",
+        message: error instanceof Error ? error.message : String(error),
+        phase: "authenticate",
+      });
+      return unavailable();
+    }
+    if (!principal) {
+      log({ event: "mcp.denied", reason: "credential" });
+      const origin = originOf(c);
+      return unauthorized(
+        origin ? resourceMetadataUrl(origin, MCP_ROUTE) : null,
+        c.req.header("Authorization") !== undefined
+      );
+    }
+    if (principal.kind !== "user" && principal.kind !== "run") {
+      log({ event: "mcp.denied", kind: principal.kind, reason: "kind" });
+      return forbidden();
+    }
+    return principal;
   };
 
   routes.all("/", async (c) => {
@@ -213,32 +374,16 @@ export const mcpRoutes = ({
       maxSubscriptions: 0,
       onerror: (error: Error) =>
         log({ event: "mcp.error", message: error.message }),
-      route: "/mcp",
+      route: MCP_ROUTE,
     };
     // A CORS preflight carries no Authorization header.
     if (c.req.method === "OPTIONS") {
       return createMcpHandler(noServerForPreflight, options).fetch(c.req.raw);
     }
 
-    let principal: Principal | null;
-    try {
-      principal = await authenticate(c);
-    } catch (error: unknown) {
-      // D1 or Clerk failed, or a key is not configured: an outage, not a bad token.
-      log({
-        event: "mcp.error",
-        message: error instanceof Error ? error.message : String(error),
-        phase: "authenticate",
-      });
-      return unavailable();
-    }
-    if (!principal) {
-      log({ event: "mcp.denied", reason: "credential" });
-      return unauthorized();
-    }
-    if (principal.kind !== "user" && principal.kind !== "run") {
-      log({ event: "mcp.denied", kind: principal.kind, reason: "kind" });
-      return forbidden();
+    const principal = await principalOrRefusal(c);
+    if (principal instanceof Response) {
+      return principal;
     }
 
     const body = await readRpcBody(c.req.raw);
@@ -268,20 +413,8 @@ export const mcpRoutes = ({
       status: response.status,
       ...describePrincipal(principal),
     });
-    if (response.ok && principal.kind === "user" && principal.apiKey) {
-      const { id } = principal.apiKey;
-      defer(
-        c,
-        composed.services.apiKeys
-          .touch(id, principal.workspaceId)
-          .catch((error: unknown) =>
-            log({
-              event: "mcp.touch_failed",
-              keyId: id,
-              message: error instanceof Error ? error.message : String(error),
-            })
-          )
-      );
+    if (response.ok && principal.kind === "user") {
+      recordUse(c, principal);
     }
     return response;
   });
