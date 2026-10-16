@@ -3,7 +3,7 @@ id: C.2
 title: CloudRuntime adapter
 milestone: C
 size: M
-status: todo
+status: in_progress
 depends_on: [C.1, M8.1]
 branch: task/C.2-cloud-runtime
 ---
@@ -20,3 +20,4 @@ Unit tests against a fake runner: dispatch, claim race, a failed start releases 
 
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
+- 2026-10-17: dispatched on task/C.2-cloud-runtime.
