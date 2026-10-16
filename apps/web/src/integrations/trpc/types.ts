@@ -16,3 +16,4 @@ export type CredentialRecord = ConnectorRecord["agentCredentials"][number];
 export type AssignmentRecord =
   RouterOutputs["connectors"]["assignments"][number];
 export type TriggerRecord = RouterOutputs["triggers"]["list"][number];
+export type SlackAppRecord = RouterOutputs["slackApps"]["list"][number];

@@ -61,6 +61,8 @@ export const EVENT_TYPES = [
   "slack.received",
   "slack.unlinked_sender",
   "slack.delivered",
+  "slack.app_installed",
+  "slack.app_revoked",
   "inbox.posted",
   "inbox.loop_stopped",
   "machine.online",

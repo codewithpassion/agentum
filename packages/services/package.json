@@ -26,6 +26,7 @@
     "./runs/types": "./src/runs/types.ts",
     "./sessions": "./src/sessions.ts",
     "./slack": "./src/slack.ts",
+    "./slack-apps": "./src/slack-apps.ts",
     "./slack/apps": "./src/slack/apps.ts",
     "./slack/gateway": "./src/slack/gateway.ts",
     "./slack/signature": "./src/slack/signature.ts",
