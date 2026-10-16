@@ -3,7 +3,7 @@ id: U.4
 title: Keep Clerk sign-in flows inside the app
 milestone: U
 size: S
-status: in_progress
+status: todo
 depends_on: [U.3]
 branch: task/U.4-clerk-redirects
 ---
