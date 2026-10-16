@@ -1,7 +1,7 @@
 import type { AgentTab } from "../agent-tabs.ts";
 
 function ChatPanel() {
-  return <p className="text-muted-foreground text-sm">Chat arrives in M1.</p>;
+  return <p className="text-muted-foreground text-sm">Chat.</p>;
 }
 
 export const chatTab: AgentTab = {
