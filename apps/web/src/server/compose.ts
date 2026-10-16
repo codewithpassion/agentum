@@ -12,6 +12,12 @@ import {
   createEventsService,
   type EventsService,
 } from "@repo/services/events";
+import {
+  createMachinesService,
+  type MachinesService,
+} from "@repo/services/machines";
+import { createMachineRuntime } from "@repo/services/machines/runtime";
+import type { MachineRelayPort } from "@repo/services/machines/types";
 import { createRunsService, type RunsService } from "@repo/services/runs";
 import {
   type Clock,
@@ -22,6 +28,7 @@ import {
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { r2Blobs } from "./r2-blobs.ts";
+import { durableRelayPort } from "./relay-port.ts";
 
 /** What the runs service needs besides a database. */
 export interface Infra {
@@ -29,11 +36,13 @@ export interface Infra {
   blobs: Blobs;
   clock: Clock;
   devFakeRuntime: boolean;
+  relay: MachineRelayPort;
 }
 
 export interface Services {
   agents: AgentsService;
   events: EventsService;
+  machines: MachinesService;
   runs: RunsService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
@@ -46,7 +55,10 @@ export interface Composed {
 }
 
 /** The bindings and secrets `compose` reads. */
-export type ComposeEnv = Pick<Env, "ALLOWED_ORG_IDS" | "DB" | "FILES">;
+export type ComposeEnv = Pick<
+  Env,
+  "ALLOWED_ORG_IDS" | "DB" | "FILES" | "MACHINE_RELAY"
+>;
 
 /** Splits a comma separated list of ids, trimmed, dropping empty entries. */
 export const parseOrgIds = (raw: string | undefined): string[] =>
@@ -66,12 +78,21 @@ export const composeWith = ({
   infra: Infra;
 }): Composed => {
   // Lanes register here, by injection.
-  const adapters: RuntimeAdapter[] = [];
+  const adapters: RuntimeAdapter[] = [
+    createMachineRuntime({ relay: infra.relay }),
+  ];
   const gateways: Gateway[] = [];
 
   const workspaces = createWorkspacesService({ allowedOrgIds, db });
   const events = createEventsService({ blobs: infra.blobs, db });
   const agents = createAgentsService({ db, events });
+  const machines = createMachinesService({
+    allowedOrgIds,
+    clock: infra.clock,
+    db,
+    events,
+    relay: infra.relay,
+  });
   const runs = createRunsService({
     adapters,
     atomic: infra.atomic,
@@ -85,7 +106,7 @@ export const composeWith = ({
     atomic: infra.atomic,
     clock: infra.clock,
     db,
-    services: { agents, events, runs, workspaces },
+    services: { agents, events, machines, runs, workspaces },
   };
 };
 
@@ -103,6 +124,7 @@ export const compose = (env: ComposeEnv, devFakeRuntime: boolean): Composed => {
       blobs: r2Blobs(env.FILES),
       clock: systemClock,
       devFakeRuntime,
+      relay: durableRelayPort(env.MACHINE_RELAY),
     },
   });
 };

@@ -4,5 +4,8 @@
 // "/", so that would apply to every request.
 import { Hono } from "hono";
 import type { AppEnv } from "./groups.ts";
+import { machineRoutes } from "./machines.ts";
 
 export const runtimeRoutes = new Hono<AppEnv>();
+
+runtimeRoutes.route("/api/machines", machineRoutes());

@@ -10,6 +10,8 @@ import {
   daemonFrameSchema,
   daemonHelloSchema,
   daemonPingSchema,
+  enrollRequestSchema,
+  enrollResponseSchema,
   eventsRequestSchema,
   eventsResponseSchema,
   heartbeatResponseSchema,
@@ -21,6 +23,8 @@ import {
 const JSON_SUFFIX = /\.json$/;
 
 const cases: ReadonlyArray<readonly [string, z.ZodType]> = [
+  ["enroll-request", enrollRequestSchema],
+  ["enroll-response", enrollResponseSchema],
   ["hello", daemonHelloSchema],
   ["ping", daemonPingSchema],
   ["hello-ack", relayHelloAckSchema],

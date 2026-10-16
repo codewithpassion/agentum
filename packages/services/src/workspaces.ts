@@ -126,6 +126,26 @@ export const createWorkspacesService = ({
   return { forOrg, sessionPrincipal };
 };
 
+/** The machine principal for an `hm_mach_` credential, or null if unknown or revoked. */
+export const findMachineByCredential = async (
+  db: Database,
+  token: string
+): Promise<Extract<Principal, { kind: "machine" }> | null> => {
+  const [row] = await db
+    .select({ id: machines.id, workspaceId: machines.workspaceId })
+    .from(machines)
+    .where(
+      and(
+        eq(machines.credentialHash, await hashToken(token)),
+        ne(machines.status, "revoked")
+      )
+    )
+    .limit(1);
+  return row
+    ? { kind: "machine", machineId: row.id, workspaceId: row.workspaceId }
+    : null;
+};
+
 export interface PrincipalResolverOptions {
   allowedOrgIds: readonly string[];
   db: Database;
@@ -152,7 +172,7 @@ const HM_PREFIX = "hm_";
  * insensitive. Exactly one space separates it from the token, and the token
  * has no spaces.
  */
-const bearerToken = (authorization: string | null): string | null => {
+export const bearerToken = (authorization: string | null): string | null => {
   if (!authorization) {
     return null;
   }
@@ -199,26 +219,6 @@ export const createPrincipalResolver = ({
     }
     const { agentId, runId, workspaceId } = result.claims;
     return { agentId, kind: "run", runId, workspaceId } as const;
-  };
-
-  const lookupMachine = async (token: string) => {
-    const [row] = await db
-      .select({ id: machines.id, workspaceId: machines.workspaceId })
-      .from(machines)
-      .where(
-        and(
-          eq(machines.credentialHash, await hashToken(token)),
-          ne(machines.status, "revoked")
-        )
-      )
-      .limit(1);
-    return row
-      ? {
-          kind: "machine" as const,
-          machineId: row.id,
-          workspaceId: row.workspaceId,
-        }
-      : null;
   };
 
   const lookupTrigger = async (token: string) => {
@@ -270,7 +270,7 @@ export const createPrincipalResolver = ({
     readonly [string, (token: string) => Promise<WorkspacePrincipal | null>]
   > = [
     [RUN_TOKEN_PREFIX, lookupRun],
-    ["hm_mach_", lookupMachine],
+    ["hm_mach_", (token) => findMachineByCredential(db, token)],
     ["hm_trg_", lookupTrigger],
     ["hm_key_", lookupApiKey],
   ];

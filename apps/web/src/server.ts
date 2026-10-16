@@ -105,7 +105,7 @@ app.route("/", runtimeRoutes);
 app.route("/", accessRoutes);
 app.route("/", automationRoutes);
 
-// Local checks (the Durable Object ping, the atomic probe). Dev builds only.
+// Local checks (the atomic probe). Dev builds only.
 if (import.meta.env.DEV) {
   app.route("/", devRoutes);
 }
