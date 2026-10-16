@@ -301,6 +301,28 @@ test("a ui session belongs to the user who opened it", async () => {
   expect(error).toMatchObject({ code: "not_found" });
 });
 
+test("a private session belongs to the user who opened it, a channel thread is shared", async () => {
+  const dm = await start(user, spyAgentId, {
+    session: { externalKey: "dm-1", origin: "slack", private: true },
+  });
+  const thread = await start(user, spyAgentId, {
+    session: { externalKey: "thread-1", origin: "slack" },
+  });
+
+  const error = await failure(
+    start(colleague, spyAgentId, {
+      session: { externalKey: "dm-1", origin: "slack" },
+    })
+  );
+  const joined = await start(colleague, spyAgentId, {
+    session: { externalKey: "thread-1", origin: "slack" },
+  });
+
+  expect(error).toMatchObject({ code: "not_found" });
+  expect(dm.sessionId).not.toBe(thread.sessionId);
+  expect(joined.sessionId).toBe(thread.sessionId);
+});
+
 test("a run started with a run principal inherits the subject", async () => {
   const parent = await start(user, spyAgentId);
   const child = await start(
