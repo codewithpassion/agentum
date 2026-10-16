@@ -73,6 +73,8 @@ export type SessionRun = RunSummary & { inputText: string };
 export interface SessionTranscript {
   entries: EventRecord[];
   latestRun: SessionRun | null;
+  /** Output file ids of every run in the session, keyed by run id. Runs with no outputs are absent. */
+  outputFileIds: Record<string, string[]>;
   session: SessionRecord;
 }
 
@@ -232,18 +234,26 @@ export const createSessionsService = ({
       kind: SESSION_KIND,
       workspaceId: row.workspaceId,
     });
-    const [latest] = await db
+    const sessionRuns = await db
       .select()
       .from(runs)
       .where(eq(runs.sessionId, row.id))
-      .orderBy(desc(runs.createdAt), desc(runs.id))
-      .limit(1);
+      .orderBy(asc(runs.createdAt), asc(runs.id));
+    const latest = sessionRuns.at(-1);
+    const outputFileIds: Record<string, string[]> = {};
+    for (const run of sessionRuns) {
+      const { outputFileIds: fileIds } = toRecord(run);
+      if (fileIds.length > 0) {
+        outputFileIds[run.id] = fileIds;
+      }
+    }
     const entries = await events.transcript(reader, row.workspaceId, row.id);
     return {
       entries,
       latestRun: latest
         ? { ...toSummary(toRecord(latest)), inputText: latest.inputText }
         : null,
+      outputFileIds,
       session: toSession(row),
     };
   };

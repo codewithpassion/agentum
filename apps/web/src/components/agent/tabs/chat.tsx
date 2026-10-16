@@ -110,13 +110,10 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
 
   const latestRun = transcript?.latestRun ?? null;
   const items = useMemo(
-    () => toChatItems(transcript?.entries ?? []),
+    () => toChatItems(transcript?.entries ?? [], transcript?.outputFileIds),
     [transcript]
   );
-  const shownFileIds = useMemo(
-    () => collectFileIds(items, latestRun?.outputFileIds ?? []),
-    [items, latestRun]
-  );
+  const shownFileIds = useMemo(() => collectFileIds(items), [items]);
   const { files, remember } = useFileInfos(shownFileIds);
   const readOnly = transcript !== null && transcript.session.origin !== "ui";
   const running = latestRun !== null && isRunActive(latestRun.status);
@@ -285,16 +282,6 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
     [send]
   );
 
-  let outputFiles: ReactNode = null;
-  if (latestRun !== null && latestRun.outputFileIds.length > 0) {
-    outputFiles = (
-      <div className="flex flex-col gap-2">
-        <p className="text-muted-foreground text-sm">Files from the agent</p>
-        <FileChips fileIds={latestRun.outputFileIds} files={files} />
-      </div>
-    );
-  }
-
   let composer: ReactNode;
   if (readOnly) {
     composer = (
@@ -350,7 +337,6 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
         </div>
       )}
       <TranscriptView files={files} items={items} />
-      {outputFiles}
       {latestRun === null ? null : (
         <StatusRow
           nowMs={nowMs}

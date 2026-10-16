@@ -366,6 +366,119 @@ describe("toChatItems", () => {
   });
 });
 
+describe("toChatItems with output files", () => {
+  test("puts each run's output files on its own assistant message only", () => {
+    const entries = [
+      makeEntry({ id: "u1", payload: { text: "one" }, runId: "run-1" }),
+      makeEntry({
+        id: "a1",
+        payload: { text: "Here [ATTACHMENT:/w/report.md]" },
+        runId: "run-1",
+        type: "message.assistant",
+      }),
+      makeEntry({
+        id: "u2",
+        payload: { text: "two" },
+        runId: "run-2",
+      }),
+      makeEntry({
+        id: "a2",
+        payload: { text: "done" },
+        runId: "run-2",
+        type: "message.assistant",
+      }),
+    ];
+    const items = toChatItems(entries, {
+      "run-1": ["file-1"],
+      "run-2": ["file-2"],
+    });
+    expect(items).toEqual([
+      { fileIds: [], id: "u1", kind: "user", text: "one" },
+      { fileIds: ["file-1"], id: "a1", kind: "assistant", text: "Here" },
+      { fileIds: [], id: "u2", kind: "user", text: "two" },
+      { fileIds: ["file-2"], id: "a2", kind: "assistant", text: "done" },
+    ]);
+  });
+
+  test("puts a run's output files on its last assistant message", () => {
+    const entries = [
+      makeEntry({
+        id: "a1",
+        payload: { text: "first" },
+        type: "message.assistant",
+      }),
+      makeEntry({
+        id: "t1",
+        payload: { name: "shell" },
+        type: "tool.call",
+      }),
+      makeEntry({
+        id: "a2",
+        payload: { text: "second" },
+        type: "message.assistant",
+      }),
+    ];
+    expect(toChatItems(entries, { "run-1": ["file-1"] })).toEqual([
+      { fileIds: [], id: "a1", kind: "assistant", text: "first" },
+      {
+        detail: JSON.stringify({ name: "shell" }, null, 2),
+        id: "t1",
+        kind: "tool",
+        label: "shell",
+      },
+      { fileIds: ["file-1"], id: "a2", kind: "assistant", text: "second" },
+    ]);
+  });
+
+  test("adds an empty assistant item after the last entry of a run with no assistant message", () => {
+    const entries = [
+      makeEntry({ id: "u1", payload: { text: "make it" }, runId: "run-1" }),
+      makeEntry({
+        id: "t1",
+        payload: { name: "write" },
+        runId: "run-1",
+        type: "tool.result",
+      }),
+      makeEntry({ id: "u2", payload: { text: "next" }, runId: "run-2" }),
+    ];
+    expect(toChatItems(entries, { "run-1": ["file-1"] })).toEqual([
+      { fileIds: [], id: "u1", kind: "user", text: "make it" },
+      {
+        detail: JSON.stringify({ name: "write" }, null, 2),
+        id: "t1",
+        kind: "tool",
+        label: "write",
+      },
+      {
+        fileIds: ["file-1"],
+        id: "run-1-files",
+        kind: "assistant",
+        text: "",
+      },
+      { fileIds: [], id: "u2", kind: "user", text: "next" },
+    ]);
+  });
+
+  test("emits nothing for a run in the map that has no entries", () => {
+    expect(toChatItems([], { "run-9": ["file-9"] })).toEqual([]);
+  });
+
+  test("keeps the default behaviour when no output files are given", () => {
+    const entries = [
+      makeEntry({ id: "u1", payload: { text: "hi" } }),
+      makeEntry({
+        id: "a1",
+        payload: { fileIds: ["file-1"], text: "Look" },
+        type: "message.assistant",
+      }),
+    ];
+    expect(toChatItems(entries)).toEqual([
+      { fileIds: [], id: "u1", kind: "user", text: "hi" },
+      { fileIds: [], id: "a1", kind: "assistant", text: "Look" },
+    ]);
+  });
+});
+
 describe("fileIdsOfRun", () => {
   test("returns the fileIds of the user message for that run", () => {
     const entries = [
@@ -434,21 +547,13 @@ describe("fileIdsOfRun", () => {
 });
 
 describe("collectFileIds", () => {
-  test("gathers user and assistant file ids, then the output files, without repeats", () => {
-    const items = toChatItems([
-      makeEntry({
-        id: "a",
-        payload: { fileIds: ["file-2", "file-1"] },
-        type: "message.user",
-      }),
-      makeEntry({
-        id: "b",
-        payload: { fileIds: ["file-1"] },
-        type: "message.user",
-      }),
-      makeEntry({ id: "c", payload: {}, type: "message.assistant" }),
-    ]);
-    expect(collectFileIds(items, ["file-3", "file-2", "file-4"])).toEqual([
+  test("gathers user then assistant file ids, without repeats", () => {
+    const items: ChatItem[] = [
+      { fileIds: ["file-2", "file-1"], id: "a", kind: "user", text: "" },
+      { fileIds: ["file-1", "file-3"], id: "b", kind: "user", text: "" },
+      { fileIds: ["file-3", "file-4"], id: "c", kind: "assistant", text: "" },
+    ];
+    expect(collectFileIds(items)).toEqual([
       "file-2",
       "file-1",
       "file-3",
@@ -461,11 +566,11 @@ describe("collectFileIds", () => {
       { detail: "{}", id: "t", kind: "tool", label: "shell" },
       { fileIds: ["file-1"], id: "u", kind: "user", text: "" },
     ];
-    expect(collectFileIds(items, [])).toEqual(["file-1"]);
+    expect(collectFileIds(items)).toEqual(["file-1"]);
   });
 
   test("returns [] when nothing is shown", () => {
-    expect(collectFileIds([], [])).toEqual([]);
+    expect(collectFileIds([])).toEqual([]);
   });
 });
 

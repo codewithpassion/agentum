@@ -173,6 +173,29 @@ test("transcript returns the messages and the latest run with its input text", a
   expect(result.session).toMatchObject({ agentId, id: first.sessionId });
 });
 
+test("transcript lists the output files of every run that has any", async () => {
+  const first = await send(user("u1"), "hello");
+  const second = await send(user("u1"), "again", first.sessionId);
+  const third = await send(user("u1"), "no files", first.sessionId);
+  db.update(runRows)
+    .set({ outputFileIds: JSON.stringify(["file-a"]) })
+    .where(eq(runRows.id, first.runId))
+    .run();
+  db.update(runRows)
+    .set({ outputFileIds: JSON.stringify(["file-b"]) })
+    .where(eq(runRows.id, second.runId))
+    .run();
+
+  const result = await sessions.transcript(user("u1"), first.sessionId);
+
+  expect(result.outputFileIds).toEqual({
+    [first.runId]: ["file-a"],
+    [second.runId]: ["file-b"],
+  });
+  expect(result.outputFileIds).not.toHaveProperty(third.runId);
+  expect(result.latestRun).toMatchObject({ id: third.runId });
+});
+
 test("transcript refuses a session of another user or another workspace", async () => {
   const started = await send(user("u1"), "hello");
 

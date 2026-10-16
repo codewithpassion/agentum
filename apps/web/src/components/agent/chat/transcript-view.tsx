@@ -27,14 +27,16 @@ function MessageItem({
   return (
     <Message align={align}>
       <MessageContent>
-        <Bubble
-          align={align}
-          variant={item.kind === "user" ? "default" : "muted"}
-        >
-          <BubbleContent className="whitespace-pre-wrap">
-            {item.text}
-          </BubbleContent>
-        </Bubble>
+        {item.text === "" ? null : (
+          <Bubble
+            align={align}
+            variant={item.kind === "user" ? "default" : "muted"}
+          >
+            <BubbleContent className="whitespace-pre-wrap">
+              {item.text}
+            </BubbleContent>
+          </Bubble>
+        )}
         {item.fileIds.length === 0 ? null : (
           <div
             className={
