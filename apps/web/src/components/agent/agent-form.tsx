@@ -164,9 +164,9 @@ export function AgentForm({
           {values.runtime === "cloud" && (
             <FieldDescription>
               Runs on Cloudflare, not on one of your machines. It has no shell
-              and no local files, but it can use library bash, connectors and
-              skills. It cannot read attached files yet, and [ATTACHMENT:path]
-              in its answers stays plain text for now.
+              and no local files, but it can use library bash and connectors. It
+              does not get this workspace's skills or attached files yet, and
+              [ATTACHMENT:path] in its answers stays plain text for now.
             </FieldDescription>
           )}
         </Field>
