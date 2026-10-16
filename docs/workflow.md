@@ -58,7 +58,7 @@ Merge one branch at a time. A merge that conflicts is aborted with `git merge --
 
 A dispatcher that cannot finish reports blocked. Set `status: blocked` with a one-line reason and bring it to Dom if it needs a decision. When Dom says stop, start nothing new; running tasks finish to merged or blocked.
 
-Milestone gate. Before dispatching a milestone's first task, tag `main` with `<milestone>-start` (for example `m1-start`) and push the tag. When every task in the milestone is done, start one reviewer with the milestone variant of the reviewer brief. The controller records its findings in `docs/reviews/<milestone>-<n>.md` with a verdict and a findings table (severity, finding, area, resolution). Each must-fix finding becomes a new task in that milestone. After two gate rounds, open findings stay recorded in the review file and the milestone closes.
+Milestone gate. Before dispatching a milestone's first task, tag `main` with `<milestone>-start` (for example `m1-start`) and push the tag. When every task in the milestone is done, start one reviewer with the milestone variant of the reviewer brief. The reviewer writes its findings to `tmp/<milestone>-gate/<milestone>-<n>.md` with a verdict, a findings table (severity, finding, area, resolution) and a task-ready scope and check per must-fix, and reports three lines; the controller copies the file to `docs/reviews/`. Each must-fix finding becomes a new task in that milestone. After two gate rounds, open findings stay recorded in the review file and the milestone closes.
 
 ## Briefs
 
