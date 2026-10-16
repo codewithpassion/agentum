@@ -34,14 +34,36 @@ const infra = (): Infra => {
   };
 };
 
-const callerFor = async (
-  session: { orgId?: string | null; userId: string | null },
-  composed: Composed = composeWith({
+const newComposed = (): Composed =>
+  composeWith({
     allowedOrgIds: ALLOWED_ORG_IDS,
     db,
     infra: infra(),
-  })
+  });
+
+const callerFor = async (
+  session: { orgId?: string | null; userId: string | null },
+  composed: Composed = newComposed()
 ) => appRouter.createCaller(await buildContext({ composed, session }));
+
+/**
+ * Starts a run as a user without going through the browser schema, which
+ * accepts only `ui` sessions. Slack, the inbox and routines start runs the same way.
+ */
+const startOutsideBrowser = async (
+  composed: Composed,
+  userId: string,
+  input: Parameters<Composed["services"]["runs"]["startRun"]>[1]
+) => {
+  const principal = await composed.services.workspaces.sessionPrincipal({
+    orgId: "org_a",
+    userId,
+  });
+  if (!principal) {
+    throw new Error("user_1 has no workspace principal");
+  }
+  return composed.services.runs.startRun(principal, input);
+};
 
 test("a chat on a fake agent shows in the session list and the transcript", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
@@ -69,10 +91,107 @@ test("a chat on a fake agent shows in the session list and the transcript", asyn
   expect(transcript.latestRun?.status).toBe("done");
 });
 
+test("a list without an agent returns sessions of every agent, newest first", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const first = await caller.agents.create({
+    model: "fake",
+    name: "Pelican",
+    runtime: "fake",
+  });
+  const second = await caller.agents.create({
+    model: "fake",
+    name: "Heron",
+    runtime: "fake",
+  });
+
+  await caller.runs.start({
+    agentId: first.id,
+    input: { text: "first" },
+    session: { origin: "ui" },
+  });
+  // Session ids sort by creation time to the millisecond, so keep the two apart.
+  await systemClock.sleep(5);
+  await caller.runs.start({
+    agentId: second.id,
+    input: { text: "second" },
+    session: { origin: "ui" },
+  });
+
+  const items = await caller.sessions.list({});
+  expect(items.map((item) => item.agentId)).toEqual([second.id, first.id]);
+  expect(items.map((item) => item.title)).toEqual(["second", "first"]);
+});
+
+test("the origin filter returns only sessions with that origin", async () => {
+  const composed = newComposed();
+  const caller = await callerFor(
+    { orgId: "org_a", userId: "user_1" },
+    composed
+  );
+  const agent = await caller.agents.create({
+    model: "fake",
+    name: "Pelican",
+    runtime: "fake",
+  });
+
+  await caller.runs.start({
+    agentId: agent.id,
+    input: { text: "typed" },
+    session: { origin: "ui" },
+  });
+  // The browser schema refuses a "trigger" origin, so this run starts in-process
+  // with "routine", the way a routine does.
+  const routine = await startOutsideBrowser(composed, "user_1", {
+    agentId: agent.id,
+    input: { text: "nightly" },
+    session: { origin: "routine" },
+  });
+
+  const items = await caller.sessions.list({ origin: "routine" });
+  expect(items.map((item) => item.id)).toEqual([routine.sessionId]);
+  expect(items[0]?.origin).toBe("routine");
+});
+
+test("a user sees the shared sessions of a colleague but not their UI chats", async () => {
+  const composed = newComposed();
+  const owner = await callerFor({ orgId: "org_a", userId: "user_1" }, composed);
+  const colleague = await callerFor(
+    { orgId: "org_a", userId: "user_2" },
+    composed
+  );
+  const agent = await owner.agents.create({
+    model: "fake",
+    name: "Pelican",
+    runtime: "fake",
+  });
+
+  const chat = await owner.runs.start({
+    agentId: agent.id,
+    input: { text: "private chat" },
+    session: { origin: "ui" },
+  });
+  const shared = await startOutsideBrowser(composed, "user_1", {
+    agentId: agent.id,
+    input: { text: "shared note" },
+    session: { origin: "routine" },
+  });
+
+  const seenByColleague = await colleague.sessions.list({});
+  expect(seenByColleague.map((item) => item.id)).toEqual([shared.sessionId]);
+
+  const seenByOwner = await owner.sessions.list({});
+  expect(seenByOwner.map((item) => item.id).sort()).toEqual(
+    [chat.sessionId, shared.sessionId].sort()
+  );
+});
+
 test("a caller without a session gets UNAUTHORIZED", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: null });
 
   await expect(caller.sessions.list({ agentId: "x" })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(caller.sessions.list({})).rejects.toMatchObject({
     code: "UNAUTHORIZED",
   });
   await expect(
