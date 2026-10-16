@@ -1,0 +1,64 @@
+import type { SessionListItem } from "#/integrations/trpc/types";
+
+export const ORIGIN_VALUES = [
+  "ui",
+  "slack",
+  "inbox",
+  "trigger",
+  "routine",
+  "mcp",
+] as const;
+export type OriginValue = (typeof ORIGIN_VALUES)[number];
+
+export const ORIGIN_LABELS: Record<OriginValue, string> = {
+  inbox: "Inbox",
+  mcp: "MCP",
+  routine: "Routine",
+  slack: "Slack",
+  trigger: "Trigger",
+  ui: "UI",
+};
+
+const isOriginValue = (origin: string): origin is OriginValue =>
+  ORIGIN_VALUES.some((value) => value === origin);
+
+/** A Slack session reads as a DM or a thread. Unknown origins show as stored. */
+export const originLabel = (item: {
+  origin: string;
+  private: boolean;
+}): string => {
+  if (item.origin === "slack") {
+    return item.private ? "Slack DM" : "Slack thread";
+  }
+  return isOriginValue(item.origin) ? ORIGIN_LABELS[item.origin] : item.origin;
+};
+
+export const statusLabel = (status: SessionListItem["status"]): string => {
+  switch (status) {
+    case null:
+      return "No runs";
+    case "queued":
+    case "offered":
+      return "Queued";
+    case "running":
+      return "Running";
+    case "done":
+      return "Done";
+    case "failed":
+      return "Failed";
+    case "cancelled":
+      return "Cancelled";
+    case "interrupted":
+      return "Interrupted";
+    default: {
+      const unreachable: never = status;
+      return unreachable;
+    }
+  }
+};
+
+/** The time of the last run, or the session's creation when it has no run yet. */
+export const lastActivity = (item: {
+  createdAt: string;
+  lastRunAt: string | null;
+}): string => item.lastRunAt ?? item.createdAt;

@@ -1,7 +1,8 @@
 /**
- * Sessions as the UI and the platform MCP server read them: a list per agent,
- * one session's transcript with the status of its latest run, and a search
- * over the messages. Writes happen in `runs`.
+ * Sessions as the UI and the platform MCP server read them: a list of sessions
+ * optionally filtered by agent and origin, one session's transcript with the
+ * status of its latest run, and a search over the messages. Writes happen in
+ * `runs`.
  */
 import type { Database } from "@repo/db";
 import { events as eventRows } from "@repo/db/schema/events";
@@ -27,7 +28,7 @@ import { payloadSchema } from "./events/payload.ts";
 import type { EventRecord, EventsService } from "./events.ts";
 import { loadRun } from "./runs/queries.ts";
 import { toRecord, toSummary } from "./runs/records.ts";
-import type { RunSummary } from "./runs/types.ts";
+import type { RunSummary, SessionOrigin } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
 
 const READ_ACTION = "sessions.read";
@@ -53,6 +54,7 @@ export interface SessionRecord {
   id: string;
   lastRunAt: string | null;
   origin: string;
+  private: boolean;
 }
 
 /** A listed session with the first message and the state of its latest run. */
@@ -85,6 +87,7 @@ const toSession = (row: SessionRow): SessionRecord => ({
   id: row.id,
   lastRunAt: row.lastRunAt,
   origin: row.origin,
+  private: row.private,
 });
 
 const requireReader = (principal: Principal): Reader => {
@@ -203,7 +206,7 @@ export const createSessionsService = ({
 
   const list = async (
     principal: Principal,
-    { agentId }: { agentId: string }
+    { agentId, origin }: { agentId?: string; origin?: SessionOrigin } = {}
   ): Promise<SessionListItem[]> => {
     const reader = requireReader(principal);
     authorize(reader, READ_ACTION, {
@@ -213,7 +216,13 @@ export const createSessionsService = ({
     const rows = await db
       .select()
       .from(sessions)
-      .where(and(await visibleTo(reader), eq(sessions.agentId, agentId)))
+      .where(
+        and(
+          await visibleTo(reader),
+          agentId === undefined ? undefined : eq(sessions.agentId, agentId),
+          origin === undefined ? undefined : eq(sessions.origin, origin)
+        )
+      )
       .orderBy(desc(sessions.createdAt), desc(sessions.id))
       .limit(SESSION_LIST_LIMIT);
     return withRuns(rows);

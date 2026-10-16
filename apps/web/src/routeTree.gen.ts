@@ -17,6 +17,7 @@ import { Route as AppConnectorsRouteImport } from './routes/_app/connectors'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
 import { Route as AppMachinesRouteImport } from './routes/_app/machines'
 import { Route as AppRoutinesRouteImport } from './routes/_app/routines'
+import { Route as AppSessionsRouteImport } from './routes/_app/sessions'
 import { Route as AppTriggersRouteImport } from './routes/_app/triggers'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
@@ -63,6 +64,11 @@ const AppRoutinesRoute = AppRoutinesRouteImport.update({
   path: '/routines',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSessionsRoute = AppSessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTriggersRoute = AppTriggersRouteImport.update({
   id: '/triggers',
   path: '/triggers',
@@ -103,6 +109,7 @@ export interface FileRoutesByFullPath {
   '/inbox': typeof AppInboxRoute
   '/machines': typeof AppMachinesRoute
   '/routines': typeof AppRoutinesRoute
+  '/sessions': typeof AppSessionsRoute
   '/triggers': typeof AppTriggersRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
@@ -118,6 +125,7 @@ export interface FileRoutesByTo {
   '/inbox': typeof AppInboxRoute
   '/machines': typeof AppMachinesRoute
   '/routines': typeof AppRoutinesRoute
+  '/sessions': typeof AppSessionsRoute
   '/triggers': typeof AppTriggersRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
@@ -135,6 +143,7 @@ export interface FileRoutesById {
   '/_app/inbox': typeof AppInboxRoute
   '/_app/machines': typeof AppMachinesRoute
   '/_app/routines': typeof AppRoutinesRoute
+  '/_app/sessions': typeof AppSessionsRoute
   '/_app/triggers': typeof AppTriggersRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/agents/new': typeof AppAgentsNewRoute
@@ -152,6 +161,7 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/machines'
     | '/routines'
+    | '/sessions'
     | '/triggers'
     | '/agents/$agentId'
     | '/agents/new'
@@ -167,6 +177,7 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/machines'
     | '/routines'
+    | '/sessions'
     | '/triggers'
     | '/agents/$agentId'
     | '/agents/new'
@@ -183,6 +194,7 @@ export interface FileRouteTypes {
     | '/_app/inbox'
     | '/_app/machines'
     | '/_app/routines'
+    | '/_app/sessions'
     | '/_app/triggers'
     | '/_app/agents/$agentId'
     | '/_app/agents/new'
@@ -256,6 +268,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRoutinesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/sessions': {
+      id: '/_app/sessions'
+      path: '/sessions'
+      fullPath: '/sessions'
+      preLoaderRoute: typeof AppSessionsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/triggers': {
       id: '/_app/triggers'
       path: '/triggers'
@@ -306,6 +325,7 @@ interface AppRouteChildren {
   AppInboxRoute: typeof AppInboxRoute
   AppMachinesRoute: typeof AppMachinesRoute
   AppRoutinesRoute: typeof AppRoutinesRoute
+  AppSessionsRoute: typeof AppSessionsRoute
   AppTriggersRoute: typeof AppTriggersRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
   AppAgentsNewRoute: typeof AppAgentsNewRoute
@@ -319,6 +339,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppInboxRoute: AppInboxRoute,
   AppMachinesRoute: AppMachinesRoute,
   AppRoutinesRoute: AppRoutinesRoute,
+  AppSessionsRoute: AppSessionsRoute,
   AppTriggersRoute: AppTriggersRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
   AppAgentsNewRoute: AppAgentsNewRoute,

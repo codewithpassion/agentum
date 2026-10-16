@@ -153,6 +153,79 @@ test("list hides another user's ui session and other workspaces' sessions", asyn
   expect(await sessions.list(user("u1", "w2"), { agentId })).toEqual([]);
 });
 
+test("list without agentId returns the sessions of every agent, newest first", async () => {
+  const first = await send(user("u1"), "first agent");
+  const second = await startIn(user("u1"), otherAgentId, "second agent", {
+    origin: "ui",
+  });
+
+  const items = await sessions.list(user("u1"));
+
+  expect(items.map((item) => item.id)).toEqual([
+    second.sessionId,
+    first.sessionId,
+  ]);
+  expect(items.map((item) => item.agentId)).toEqual([otherAgentId, agentId]);
+});
+
+test("list with agentId returns only that agent's sessions", async () => {
+  const mine = await send(user("u1"), "mine");
+  await startIn(user("u1"), otherAgentId, "elsewhere", { origin: "ui" });
+
+  const items = await sessions.list(user("u1"), { agentId });
+
+  expect(items.map((item) => item.id)).toEqual([mine.sessionId]);
+});
+
+test("list with origin returns only sessions of that origin", async () => {
+  const ui = await send(user("u1"), "from the ui");
+  const slack = await startIn(user("u1"), agentId, "from slack", {
+    externalKey: "thread-1",
+    origin: "slack",
+  });
+
+  const items = await sessions.list(user("u1"), { origin: "slack" });
+
+  expect(items.map((item) => item.id)).toEqual([slack.sessionId]);
+  expect(items.map((item) => item.id)).not.toContain(ui.sessionId);
+});
+
+test("list without agentId keeps another user's ui and private sessions out", async () => {
+  const mine = await send(user("u1"), "mine");
+  await send(user("u2"), "theirs in the ui");
+  await startIn(user("u2"), otherAgentId, "theirs in a DM", {
+    externalKey: "dm-1",
+    origin: "slack",
+    private: true,
+  });
+
+  const items = await sessions.list(user("u1"));
+
+  expect(items.map((item) => item.id)).toEqual([mine.sessionId]);
+});
+
+test("a private Slack DM record is marked private, a thread is not", async () => {
+  const dm = await startIn(user("u1"), agentId, "dm text", {
+    externalKey: "dm-1",
+    origin: "slack",
+    private: true,
+  });
+  const thread = await startIn(user("u1"), agentId, "thread text", {
+    externalKey: "thread-1",
+    origin: "slack",
+  });
+
+  const items = await sessions.list(user("u1"), { origin: "slack" });
+
+  expect(items.find((item) => item.id === dm.sessionId)?.private).toBe(true);
+  expect(items.find((item) => item.id === thread.sessionId)?.private).toBe(
+    false
+  );
+  expect(
+    (await sessions.transcript(user("u1"), dm.sessionId)).session.private
+  ).toBe(true);
+});
+
 test("transcript returns the messages and the latest run with its input text", async () => {
   const first = await send(user("u1"), "hello");
   await send(user("u1"), "again", first.sessionId);

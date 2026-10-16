@@ -1,9 +1,15 @@
+import { SESSION_ORIGINS } from "@repo/services/runs/types";
 import { z } from "zod";
 import { router, workspaceProcedure } from "./init.ts";
 
 export const sessionsRouter = router({
   list: workspaceProcedure
-    .input(z.strictObject({ agentId: z.string().min(1) }))
+    .input(
+      z.strictObject({
+        agentId: z.string().min(1).optional(),
+        origin: z.enum(SESSION_ORIGINS).optional(),
+      })
+    )
     .query(({ ctx, input }) =>
       ctx.services.sessions.list(ctx.principal, input)
     ),

@@ -5,13 +5,37 @@ import type { FileInfo } from "#/integrations/trpc/types.ts";
 import type { ChatItem } from "./chat-logic.ts";
 import { FileChips } from "./file-chips.tsx";
 
-function ToolItem({ item }: { item: Extract<ChatItem, { kind: "tool" }> }) {
+function ToolSection({ label, text }: { label: string; text: string }) {
   return (
-    <details className="text-muted-foreground text-xs">
+    <div>
+      <p className="font-medium">{label}</p>
+      <pre className="overflow-x-auto whitespace-pre-wrap">{text}</pre>
+    </div>
+  );
+}
+
+function ToolItem({ item }: { item: Extract<ChatItem, { kind: "tool" }> }) {
+  const hasSections = item.input !== null || item.output !== null;
+  return (
+    <details
+      className="rounded-md border border-border px-3 py-2 text-muted-foreground text-xs"
+      data-testid="tool-card"
+    >
       <summary className="cursor-pointer">{item.label}</summary>
-      <pre className="mt-1 overflow-x-auto whitespace-pre-wrap">
-        {item.detail}
-      </pre>
+      {hasSections ? (
+        <div className="mt-2 flex flex-col gap-2">
+          {item.input === null ? null : (
+            <ToolSection label="Input" text={item.input} />
+          )}
+          {item.output === null ? null : (
+            <ToolSection label="Output" text={item.output} />
+          )}
+        </div>
+      ) : (
+        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap">
+          {item.detail}
+        </pre>
+      )}
     </details>
   );
 }
@@ -54,9 +78,11 @@ function MessageItem({
 export function TranscriptView({
   items,
   files,
+  empty = "Send a message to start.",
 }: {
   items: ChatItem[];
   files: ReadonlyMap<string, FileInfo>;
+  empty?: string;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const count = items.length;
@@ -68,9 +94,7 @@ export function TranscriptView({
   }, [count]);
 
   if (items.length === 0) {
-    return (
-      <p className="text-muted-foreground text-sm">Send a message to start.</p>
-    );
+    return <p className="text-muted-foreground text-sm">{empty}</p>;
   }
 
   return (

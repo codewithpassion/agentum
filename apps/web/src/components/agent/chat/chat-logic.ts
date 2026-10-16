@@ -15,7 +15,14 @@ const TOO_LARGE = "(content too large to show)";
 
 export type ChatItem =
   | { fileIds: string[]; id: string; kind: "user" | "assistant"; text: string }
-  | { detail: string; id: string; kind: "tool"; label: string };
+  | {
+      detail: string;
+      id: string;
+      input: string | null;
+      kind: "tool";
+      label: string;
+      output: string | null;
+    };
 
 export const isRunActive = (status: RunStatus): boolean =>
   status === "queued" || status === "offered" || status === "running";
@@ -98,6 +105,69 @@ const toolDetail = (entry: Entry): string =>
     ? JSON.stringify(entry.payload, null, 2)
     : TOO_LARGE;
 
+const toolInputOf = (entry: Entry): string | null => {
+  if (entry.payloadRef !== null) {
+    return null;
+  }
+  const { input } = entry.payload;
+  return input === undefined ? null : JSON.stringify(input, null, 2);
+};
+
+/** The output of a call's paired result. */
+const pairedOutputOf = (entry: Entry): string | null => {
+  if (entry.payloadRef !== null) {
+    return TOO_LARGE;
+  }
+  const { output } = entry.payload;
+  if (output === undefined) {
+    return null;
+  }
+  return typeof output === "string" ? output : JSON.stringify(output, null, 2);
+};
+
+/** The output of a result that has no call to pair with. */
+const loneOutputOf = (entry: Entry): string | null => {
+  if (entry.payloadRef !== null) {
+    return null;
+  }
+  const { output } = entry.payload;
+  return typeof output === "string" ? output : null;
+};
+
+const toolUseIdOf = (entry: Entry): string | null => {
+  const { toolUseId } = entry.payload;
+  return typeof toolUseId === "string" ? toolUseId : null;
+};
+
+/**
+ * Maps the index of each tool call to the index of its result. Calls with the
+ * same toolUseId take results in order, and a result pairs with one call only.
+ */
+const pairToolResults = (entries: Entry[]): Map<number, number> => {
+  const openCallsById = new Map<string, number[]>();
+  const resultByCall = new Map<number, number>();
+  for (const [index, entry] of entries.entries()) {
+    if (entry.type !== "tool.call" && entry.type !== "tool.result") {
+      continue;
+    }
+    const toolUseId = toolUseIdOf(entry);
+    if (toolUseId === null) {
+      continue;
+    }
+    if (entry.type === "tool.call") {
+      const open = openCallsById.get(toolUseId) ?? [];
+      open.push(index);
+      openCallsById.set(toolUseId, open);
+    } else {
+      const callIndex = openCallsById.get(toolUseId)?.shift();
+      if (callIndex !== undefined) {
+        resultByCall.set(callIndex, index);
+      }
+    }
+  }
+  return resultByCall;
+};
+
 /** Index of the last assistant message of each run, by run id. */
 const lastAssistantIndexByRun = (entries: Entry[]): Map<string, number> => {
   const indexes = new Map<string, number>();
@@ -154,8 +224,15 @@ export const toChatItems = (
     outputFileIds,
     assistantIndexes
   );
+  const resultByCall = pairToolResults(entries);
+  const pairedResults = new Set(resultByCall.values());
   return entries.flatMap((entry, index): ChatItem[] => {
-    const items = entryItems(entry, index, assistantIndexes, outputFileIds);
+    const resultIndex = resultByCall.get(index);
+    const toolResult =
+      resultIndex === undefined ? undefined : entries[resultIndex];
+    const items = pairedResults.has(index)
+      ? []
+      : entryItems(entry, index, assistantIndexes, outputFileIds, toolResult);
     const orphan = orphanItems.get(index);
     return orphan ? [...items, orphan] : items;
   });
@@ -165,7 +242,8 @@ const entryItems = (
   entry: Entry,
   index: number,
   assistantIndexes: Map<string, number>,
-  outputFileIds: Record<string, string[]>
+  outputFileIds: Record<string, string[]>,
+  toolResult: Entry | undefined
 ): ChatItem[] => {
   switch (entry.type) {
     case "message.user":
@@ -194,13 +272,25 @@ const entryItems = (
       ];
     }
     case "tool.call":
+      return [
+        {
+          detail: toolDetail(entry),
+          id: entry.id,
+          input: toolInputOf(entry),
+          kind: "tool",
+          label: toolLabel(entry),
+          output: toolResult === undefined ? null : pairedOutputOf(toolResult),
+        },
+      ];
     case "tool.result":
       return [
         {
           detail: toolDetail(entry),
           id: entry.id,
+          input: null,
           kind: "tool",
           label: toolLabel(entry),
+          output: loneOutputOf(entry),
         },
       ];
     default:

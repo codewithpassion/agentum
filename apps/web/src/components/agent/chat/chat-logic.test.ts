@@ -307,20 +307,26 @@ describe("toChatItems", () => {
       {
         detail: JSON.stringify({ name: "read_file", path: "x" }, null, 2),
         id: "a",
+        input: null,
         kind: "tool",
         label: "read_file",
+        output: null,
       },
       {
         detail: JSON.stringify({ ok: true, tool: "shell" }, null, 2),
         id: "b",
+        input: null,
         kind: "tool",
         label: "shell",
+        output: null,
       },
       {
         detail: "{}",
         id: "c",
+        input: null,
         kind: "tool",
         label: "tool.call",
+        output: null,
       },
     ]);
   });
@@ -359,10 +365,296 @@ describe("toChatItems", () => {
       {
         detail: "(content too large to show)",
         id: "a",
+        input: null,
         kind: "tool",
         label: "tool.result",
+        output: null,
       },
     ]);
+  });
+});
+
+describe("toChatItems tool input and output", () => {
+  test("joins a call and its result into one item", () => {
+    const callPayload = {
+      input: { path: "a.md" },
+      name: "read",
+      toolUseId: "t1",
+    };
+    expect(
+      toChatItems([
+        makeEntry({ id: "call", payload: callPayload, type: "tool.call" }),
+        makeEntry({
+          id: "result",
+          payload: { ok: true, output: "file body", toolUseId: "t1" },
+          type: "tool.result",
+        }),
+      ])
+    ).toEqual([
+      {
+        detail: JSON.stringify(callPayload, null, 2),
+        id: "call",
+        input: JSON.stringify({ path: "a.md" }, null, 2),
+        kind: "tool",
+        label: "read",
+        output: "file body",
+      },
+    ]);
+  });
+
+  test("gives a call with no result a null output", () => {
+    expect(
+      toChatItems([
+        makeEntry({
+          id: "call",
+          payload: { input: "ls", name: "shell", toolUseId: "t1" },
+          type: "tool.call",
+        }),
+      ])
+    ).toEqual([
+      {
+        detail: JSON.stringify(
+          { input: "ls", name: "shell", toolUseId: "t1" },
+          null,
+          2
+        ),
+        id: "call",
+        input: '"ls"',
+        kind: "tool",
+        label: "shell",
+        output: null,
+      },
+    ]);
+  });
+
+  test("gives a null input when the call payload has no input", () => {
+    expect(
+      toChatItems([
+        makeEntry({
+          id: "call",
+          payload: { name: "shell" },
+          type: "tool.call",
+        }),
+      ])[0]
+    ).toMatchObject({ input: null, output: null });
+  });
+
+  test("stringifies a paired output that is not a string", () => {
+    expect(
+      toChatItems([
+        makeEntry({
+          id: "call",
+          payload: { name: "shell", toolUseId: "t1" },
+          type: "tool.call",
+        }),
+        makeEntry({
+          id: "result",
+          payload: { output: { lines: 2 }, toolUseId: "t1" },
+          type: "tool.result",
+        }),
+      ])
+    ).toEqual([
+      {
+        detail: JSON.stringify({ name: "shell", toolUseId: "t1" }, null, 2),
+        id: "call",
+        input: null,
+        kind: "tool",
+        label: "shell",
+        output: JSON.stringify({ lines: 2 }, null, 2),
+      },
+    ]);
+  });
+
+  test("gives a paired result with no output a null output", () => {
+    expect(
+      toChatItems([
+        makeEntry({
+          id: "call",
+          payload: { name: "shell", toolUseId: "t1" },
+          type: "tool.call",
+        }),
+        makeEntry({
+          id: "result",
+          payload: { ok: true, toolUseId: "t1" },
+          type: "tool.result",
+        }),
+      ]).map((item) => (item.kind === "tool" ? item.output : null))
+    ).toEqual([null]);
+  });
+
+  test("gives the first call the result when two calls share a toolUseId", () => {
+    const items = toChatItems([
+      makeEntry({
+        id: "a",
+        payload: { name: "shell", toolUseId: "t1" },
+        type: "tool.call",
+      }),
+      makeEntry({
+        id: "b",
+        payload: { name: "shell", toolUseId: "t1" },
+        type: "tool.call",
+      }),
+      makeEntry({
+        id: "r",
+        payload: { output: "x", toolUseId: "t1" },
+        type: "tool.result",
+      }),
+    ]);
+    expect(
+      items.map((item) => (item.kind === "tool" ? [item.id, item.output] : []))
+    ).toEqual([
+      ["a", "x"],
+      ["b", null],
+    ]);
+  });
+
+  test("pairs each result with one call, in order", () => {
+    const items = toChatItems([
+      makeEntry({
+        id: "a",
+        payload: { name: "shell", toolUseId: "t1" },
+        type: "tool.call",
+      }),
+      makeEntry({
+        id: "ra",
+        payload: { output: "1", toolUseId: "t1" },
+        type: "tool.result",
+      }),
+      makeEntry({
+        id: "b",
+        payload: { name: "shell", toolUseId: "t1" },
+        type: "tool.call",
+      }),
+      makeEntry({
+        id: "rb",
+        payload: { output: "2", toolUseId: "t1" },
+        type: "tool.result",
+      }),
+    ]);
+    expect(
+      items.map((item) => (item.kind === "tool" ? [item.id, item.output] : []))
+    ).toEqual([
+      ["a", "1"],
+      ["b", "2"],
+    ]);
+  });
+
+  test("does not pair a result that comes before its call", () => {
+    expect(
+      toChatItems([
+        makeEntry({
+          id: "result",
+          payload: { output: "early", toolUseId: "t1" },
+          type: "tool.result",
+        }),
+        makeEntry({
+          id: "call",
+          payload: { name: "shell", toolUseId: "t1" },
+          type: "tool.call",
+        }),
+      ])
+    ).toEqual([
+      {
+        detail: JSON.stringify({ output: "early", toolUseId: "t1" }, null, 2),
+        id: "result",
+        input: null,
+        kind: "tool",
+        label: "tool.result",
+        output: "early",
+      },
+      {
+        detail: JSON.stringify({ name: "shell", toolUseId: "t1" }, null, 2),
+        id: "call",
+        input: null,
+        kind: "tool",
+        label: "shell",
+        output: null,
+      },
+    ]);
+  });
+
+  test("keeps a lone result as its own item, with its string output", () => {
+    expect(
+      toChatItems([
+        makeEntry({
+          id: "r1",
+          payload: { output: "done", toolUseId: "t9" },
+          type: "tool.result",
+        }),
+        makeEntry({
+          id: "r2",
+          payload: { output: 5 },
+          type: "tool.result",
+        }),
+      ]).map((item) =>
+        item.kind === "tool" ? [item.id, item.input, item.output] : []
+      )
+    ).toEqual([
+      ["r1", null, "done"],
+      ["r2", null, null],
+    ]);
+  });
+
+  test("shows the marker instead of input and output when a call is oversized", () => {
+    expect(
+      toChatItems([
+        makeEntry({
+          id: "call",
+          payload: {},
+          payloadRef: "blob/key",
+          type: "tool.call",
+        }),
+      ])
+    ).toEqual([
+      {
+        detail: "(content too large to show)",
+        id: "call",
+        input: null,
+        kind: "tool",
+        label: "tool.call",
+        output: null,
+      },
+    ]);
+  });
+
+  test("shows the marker as output when the paired result is oversized", () => {
+    expect(
+      toChatItems([
+        makeEntry({
+          id: "call",
+          payload: { name: "shell", toolUseId: "t1" },
+          type: "tool.call",
+        }),
+        makeEntry({
+          id: "result",
+          payload: { toolUseId: "t1" },
+          payloadRef: "blob/key",
+          type: "tool.result",
+        }),
+      ]).map((item) => (item.kind === "tool" ? item.output : null))
+    ).toEqual(["(content too large to show)"]);
+  });
+
+  test("keeps collectFileIds the same when tool items are paired", () => {
+    const items = toChatItems([
+      makeEntry({
+        id: "u",
+        payload: { fileIds: ["file-1"], text: "see" },
+        type: "message.user",
+      }),
+      makeEntry({
+        id: "call",
+        payload: { name: "shell", toolUseId: "t1" },
+        type: "tool.call",
+      }),
+      makeEntry({
+        id: "result",
+        payload: { output: "x", toolUseId: "t1" },
+        type: "tool.result",
+      }),
+    ]);
+    expect(items).toHaveLength(2);
+    expect(collectFileIds(items)).toEqual(["file-1"]);
   });
 });
 
@@ -423,8 +715,10 @@ describe("toChatItems with output files", () => {
       {
         detail: JSON.stringify({ name: "shell" }, null, 2),
         id: "t1",
+        input: null,
         kind: "tool",
         label: "shell",
+        output: null,
       },
       { fileIds: ["file-1"], id: "a2", kind: "assistant", text: "second" },
     ]);
@@ -446,8 +740,10 @@ describe("toChatItems with output files", () => {
       {
         detail: JSON.stringify({ name: "write" }, null, 2),
         id: "t1",
+        input: null,
         kind: "tool",
         label: "write",
+        output: null,
       },
       {
         fileIds: ["file-1"],
@@ -563,7 +859,14 @@ describe("collectFileIds", () => {
 
   test("skips tool items", () => {
     const items: ChatItem[] = [
-      { detail: "{}", id: "t", kind: "tool", label: "shell" },
+      {
+        detail: "{}",
+        id: "t",
+        input: null,
+        kind: "tool",
+        label: "shell",
+        output: null,
+      },
       { fileIds: ["file-1"], id: "u", kind: "user", text: "" },
     ];
     expect(collectFileIds(items)).toEqual(["file-1"]);
