@@ -27,13 +27,14 @@ const READ_NAMES = [
   "search_sessions",
 ].sort();
 
-const INBOX_NAMES = ["inbox_list", "inbox_post", "inbox_read"];
-
 const uncalled = (): Promise<never> =>
   Promise.reject(new Error("this port should not be called"));
 
 const fakePorts: McpPorts = {
   getRun: uncalled,
+  inboxList: uncalled,
+  inboxPost: uncalled,
+  inboxRead: uncalled,
   listAgents: uncalled,
   listSessions: uncalled,
   readSession: uncalled,
@@ -86,17 +87,6 @@ describe("tools/list", () => {
 });
 
 describe("tools/call", () => {
-  test("answers each inbox placeholder with not implemented", () =>
-    withClient(async (client) => {
-      const results = await Promise.all(
-        INBOX_NAMES.map((name) => client.callTool({ arguments: {}, name }))
-      );
-      for (const result of results) {
-        expect(result.isError).toBe(true);
-        expect(textOf(result)).toContain("not implemented");
-      }
-    }));
-
   test("refuses an argument the schema does not declare", () =>
     withClient(async (client) => {
       const result = await client.callTool({

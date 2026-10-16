@@ -2,10 +2,14 @@ import { describe, expect, test } from "bun:test";
 import type {
   AgentInfo,
   McpPorts,
+  PostedInfo,
+  PostInfo,
   RunInfo,
   SearchHit,
   SessionInfo,
   SessionTranscript,
+  ThreadInfo,
+  ThreadTranscript,
 } from "../ports";
 import { ToolError } from "../result";
 import { createHarbourmasterMcpServer } from "../server";
@@ -62,12 +66,50 @@ const HITS: SearchHit[] = [
   { passages: ["the deploy failed on step 2"], session: SESSION },
 ];
 
+const THREAD: ThreadInfo = {
+  createdAt: "2026-10-01T09:00:00.000Z",
+  id: "thr_1",
+  lastPostAt: "2026-10-01T10:10:00.000Z",
+  title: "Deploy thread",
+};
+
+const USER_POST: PostInfo = {
+  authorId: "usr_1",
+  authorKind: "user",
+  createdAt: "2026-10-01T10:00:00.000Z",
+  id: "post_1",
+  runId: null,
+  text: "@ops-bot status?",
+};
+
+const AGENT_POST: PostInfo = {
+  authorId: "agt_1",
+  authorKind: "agent",
+  createdAt: "2026-10-01T10:10:00.000Z",
+  id: "post_2",
+  runId: "run_2",
+  text: "All green.",
+};
+
+const THREAD_TRANSCRIPT: ThreadTranscript = {
+  posts: [USER_POST, AGENT_POST],
+  thread: THREAD,
+};
+
+const POSTED: PostedInfo = {
+  post: { ...USER_POST, id: "post_3", text: "@ops-bot hi" },
+  runs: [{ agentId: "agt_1", runId: "run_3" }],
+};
+
 const uncalled = (name: string) => (): Promise<never> =>
   Promise.reject(new Error(`${name} should not be called`));
 
 /** Ports where every method rejects with `error`, to test failures. */
 const failingPorts = (error: Error): McpPorts => ({
   getRun: () => Promise.reject(error),
+  inboxList: () => Promise.reject(error),
+  inboxPost: () => Promise.reject(error),
+  inboxRead: () => Promise.reject(error),
   listAgents: () => Promise.reject(error),
   listSessions: () => Promise.reject(error),
   readSession: () => Promise.reject(error),
@@ -78,6 +120,9 @@ const failingPorts = (error: Error): McpPorts => ({
 /** Ports that answer what a test needs and reject any other call. */
 const fakePorts = (overrides: Partial<McpPorts>): McpPorts => ({
   getRun: uncalled("getRun"),
+  inboxList: uncalled("inboxList"),
+  inboxPost: uncalled("inboxPost"),
+  inboxRead: uncalled("inboxRead"),
   listAgents: uncalled("listAgents"),
   listSessions: uncalled("listSessions"),
   readSession: uncalled("readSession"),
@@ -112,13 +157,16 @@ const listTools = async (ports: McpPorts) => {
   }
 };
 
-const SIX_TOOLS = [
+const ALL_TOOLS = [
   "list_agents",
   "send_message",
   "get_run",
   "list_sessions",
   "read_session",
   "search_sessions",
+  "inbox_list",
+  "inbox_read",
+  "inbox_post",
 ];
 
 /** One valid call per real tool, used by the failure tests. */
@@ -129,12 +177,15 @@ const CALLS: [string, Record<string, unknown>][] = [
   ["list_sessions", { agent: "ops-bot" }],
   ["read_session", { sessionId: "ses_1" }],
   ["search_sessions", { agent: "ops-bot", query: "deploy" }],
+  ["inbox_list", {}],
+  ["inbox_read", { threadId: "thr_1" }],
+  ["inbox_post", { text: "hi", threadId: "thr_1" }],
 ];
 
 describe("tools/list", () => {
   test("lists each real tool with a JSON input schema and described fields", async () => {
     const tools = await listTools(fakePorts({}));
-    for (const name of SIX_TOOLS) {
+    for (const name of ALL_TOOLS) {
       const tool = tools.find((candidate) => candidate.name === name);
       expect(tool).toBeDefined();
       expect(tool?.inputSchema.type).toBe("object");
@@ -163,6 +214,9 @@ describe("tools/list", () => {
     expect(fieldsOf("list_sessions")).toEqual(["agent"]);
     expect(fieldsOf("read_session")).toEqual(["sessionId"]);
     expect(fieldsOf("search_sessions")).toEqual(["agent", "query"]);
+    expect(fieldsOf("inbox_list")).toEqual([]);
+    expect(fieldsOf("inbox_read")).toEqual(["threadId"]);
+    expect(fieldsOf("inbox_post")).toEqual(["text", "threadId"]);
   });
 });
 
@@ -395,6 +449,95 @@ describe("search_sessions", () => {
   });
 });
 
+describe("inbox_list", () => {
+  test("returns the threads as data and one line each as text", async () => {
+    const result = await callTool(
+      fakePorts({ inboxList: () => Promise.resolve([THREAD]) }),
+      "inbox_list",
+      {}
+    );
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual({ threads: [THREAD] });
+    expect(textOf(result)).toBe("thr_1 2026-10-01T10:10:00.000Z Deploy thread");
+  });
+
+  test("says so when there are no threads", async () => {
+    const result = await callTool(
+      fakePorts({ inboxList: () => Promise.resolve([]) }),
+      "inbox_list",
+      {}
+    );
+    expect(textOf(result)).toBe("No threads.");
+  });
+});
+
+describe("inbox_read", () => {
+  test("passes the threadId and returns the thread and posts with the notice", async () => {
+    const received: unknown[] = [];
+    const result = await callTool(
+      fakePorts({
+        inboxRead: (input) => {
+          received.push(input);
+          return Promise.resolve(THREAD_TRANSCRIPT);
+        },
+      }),
+      "inbox_read",
+      { threadId: "thr_1" }
+    );
+    expect(received).toEqual([{ threadId: "thr_1" }]);
+    expect(result.structuredContent).toEqual({
+      notice: UNTRUSTED,
+      posts: [USER_POST, AGENT_POST],
+      thread: THREAD,
+    });
+  });
+
+  test("renders the notice first, then the thread and one line per post", async () => {
+    const result = await callTool(
+      fakePorts({ inboxRead: () => Promise.resolve(THREAD_TRANSCRIPT) }),
+      "inbox_read",
+      { threadId: "thr_1" }
+    );
+    expect(textOf(result).split("\n")).toEqual([
+      UNTRUSTED,
+      "Thread thr_1: Deploy thread",
+      "[2026-10-01T10:00:00.000Z] user usr_1: @ops-bot status?",
+      "[2026-10-01T10:10:00.000Z] agent agt_1 (run run_2): All green.",
+    ]);
+  });
+});
+
+describe("inbox_post", () => {
+  test("passes the trimmed text and threadId to the port and lists the started runs", async () => {
+    const received: unknown[] = [];
+    const result = await callTool(
+      fakePorts({
+        inboxPost: (input) => {
+          received.push(input);
+          return Promise.resolve(POSTED);
+        },
+      }),
+      "inbox_post",
+      { text: "  @ops-bot hi  ", threadId: "thr_1" }
+    );
+    expect(received).toEqual([{ text: "@ops-bot hi", threadId: "thr_1" }]);
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual(POSTED);
+    expect(textOf(result)).toBe("Posted post_3. Started runs: agt_1=run_3");
+  });
+
+  test("says so when no run starts", async () => {
+    const result = await callTool(
+      fakePorts({
+        inboxPost: () => Promise.resolve({ post: USER_POST, runs: [] }),
+      }),
+      "inbox_post",
+      { text: "thanks", threadId: "thr_1" }
+    );
+    expect(textOf(result)).toBe("Posted post_1. Started no runs.");
+  });
+});
+
 describe("failures", () => {
   test.each(CALLS)(
     "%s turns a ToolError into an error result with its code and message",
@@ -454,6 +597,39 @@ describe("invalid arguments", () => {
       };
       const result = await callTool(
         fakePorts({ getRun: count, sendMessage: count }),
+        name,
+        args
+      );
+      expect(result.isError).toBe(true);
+      expect(calls).toBe(0);
+    }
+  );
+
+  const invalidInbox: [string, string, Record<string, unknown>][] = [
+    [
+      "whitespace-only text",
+      "inbox_post",
+      { text: "   \n ", threadId: "thr_1" },
+    ],
+    [
+      "an unknown field on inbox_post",
+      "inbox_post",
+      { extra: 1, text: "hi", threadId: "thr_1" },
+    ],
+    ["an empty threadId", "inbox_read", { threadId: "" }],
+    ["an unknown field on inbox_list", "inbox_list", { extra: 1 }],
+  ];
+
+  test.each(invalidInbox)(
+    "refuses %s before the port runs",
+    async (_label, name, args) => {
+      let calls = 0;
+      const count = () => {
+        calls += 1;
+        return Promise.reject(new Error("should not be called"));
+      };
+      const result = await callTool(
+        fakePorts({ inboxList: count, inboxPost: count, inboxRead: count }),
         name,
         args
       );
