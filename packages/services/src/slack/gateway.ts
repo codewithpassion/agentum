@@ -241,7 +241,6 @@ export const createSlackGateway = ({
       if (download.kind !== "ok") {
         continue;
       }
-      // biome-ignore lint/performance/noAwaitInLoops: one file in memory at a time
       const stored = await files.upload(owner, {
         body: new Blob([download.bytes], { type: file.mimetype }),
         mime: file.mimetype,
