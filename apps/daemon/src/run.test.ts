@@ -133,7 +133,8 @@ const fakeSignals = () => {
   };
 };
 
-// These tests run on a multi-user machine, which cannot take input files.
+// These tests run on a multi-user machine with no input files: their fake runner
+// answers no sudo call, so a claim with files would fail to download them.
 const CLAIM_FIXTURE = readFileSync(
   join(
     import.meta.dir,

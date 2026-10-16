@@ -69,6 +69,7 @@ test("multi-user runs mkdir then rm as hm-agent under the agent home", async () 
       "-rf",
       `${workDir}/.claude`,
       `${workDir}/.mcp.json`,
+      `${workDir}/inbox`,
     ],
   ]);
 });

@@ -42,10 +42,10 @@ import {
 import type { RunApi } from "./run-api.ts";
 import {
   fetchInputFiles,
-  MULTI_USER_FILES_MESSAGE,
   messageWithFiles,
   uploadOutputs,
 } from "./run-files.ts";
+import { createWorkFiles, type WorkFiles } from "./work-files.ts";
 import { prepareWorkDir } from "./workdir.ts";
 
 export type QueryFn = (params: {
@@ -336,16 +336,12 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   };
 
   let failure: string | undefined;
-  let preparedDir: string | undefined;
+  let preparedFiles: WorkFiles | undefined;
 
   const work = async (): Promise<void> => {
     if (config.claudeBinary === null) {
       failure =
         "No claude binary is configured for this machine. Enroll again with --claude <path>.";
-      return;
-    }
-    if (claim.inputFileIds.length > 0 && !config.singleUser) {
-      failure = MULTI_USER_FILES_MESSAGE;
       return;
     }
     const prepared = await prepareWorkDir({
@@ -355,15 +351,20 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       singleUser: config.singleUser,
       workspaceId: claim.run.workspaceId,
     });
-    preparedDir = prepared;
+    const files = createWorkFiles({
+      run: deps.run,
+      singleUser: config.singleUser,
+      workDir: prepared,
+    });
+    preparedFiles = files;
     if (abortReason !== undefined) {
       return;
     }
     const inputPaths = await fetchInputFiles({
       api: filesApi,
       fileIds: claim.inputFileIds,
+      files,
       signal: abortController.signal,
-      workDir: prepared,
     });
     if (abortReason !== undefined) {
       return;
@@ -376,17 +377,16 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
 
   /** The completion for a run that ended without an abort. */
   const completionBody = async (): Promise<CompleteRequest> => {
-    if (result === undefined || result.isError || preparedDir === undefined) {
+    if (result === undefined || result.isError || preparedFiles === undefined) {
       return completionOf(result, failureDetail(), sessionId);
     }
     try {
       const outputs = await uploadOutputs({
         api: filesApi,
+        files: preparedFiles,
         log: runLog,
         signal: abortController.signal,
-        singleUser: config.singleUser,
         text: result.text,
-        workDir: preparedDir,
       });
       return completionOf(
         { ...result, text: outputs.text },
