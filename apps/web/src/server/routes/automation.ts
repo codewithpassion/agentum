@@ -4,5 +4,8 @@
 // "/", so that would apply to every request.
 import { Hono } from "hono";
 import type { AppEnv } from "./groups.ts";
+import { triggerRoutes } from "./triggers.ts";
 
 export const automationRoutes = new Hono<AppEnv>();
+
+automationRoutes.route("/api/triggers", triggerRoutes());
