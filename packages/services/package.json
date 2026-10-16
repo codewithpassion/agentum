@@ -24,6 +24,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@repo/protocol": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^5.9.2"
   }
