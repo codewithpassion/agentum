@@ -29,7 +29,6 @@ import { runs } from "@repo/db/schema/runs";
 import {
   and,
   asc,
-  desc,
   eq,
   inArray,
   isNull,
@@ -457,6 +456,7 @@ export const createManagedService = ({
         anthropicSessionId: null,
         closedAt: null,
         createdAt: nowIso(),
+        currentRunId: run.id,
         cursorEventId: null,
         cursorProcessedAt: null,
         tokenIssuedAt: issuedAt,
@@ -544,6 +544,11 @@ export const createManagedService = ({
       isReusable(session, fingerprint) &&
       (await gateway.getSession(session.anthropicSessionId)) === "idle"
     ) {
+      // Before the message: the session's token acts as this run from now on.
+      await db
+        .update(managedSessions)
+        .set({ currentRunId: run.id })
+        .where(eq(managedSessions.sessionId, session.sessionId));
       await skipUnreadEvents(gateway, session, session.anthropicSessionId);
       await gateway.sendMessage(session.anthropicSessionId, text);
     } else {
@@ -642,11 +647,7 @@ export const createManagedService = ({
     const outcome = reduceEvents(polled.events, "running");
     const stopped =
       outcome.status === "terminated" ||
-      (outcome.status === "idle" &&
-        // Nothing here answers an approval or a tool result, so a session
-        // waiting on one would wait for ever.
-        (isAbnormalStop(outcome.stopReason) ||
-          outcome.stopReason === "requires_action"));
+      (outcome.status === "idle" && isAbnormalStop(outcome.stopReason));
     if (stopped) {
       const reason =
         outcome.status === "terminated" ? "terminated" : outcome.stopReason;
@@ -754,7 +755,8 @@ export const createManagedService = ({
       .from(managedSessions)
       .where(eq(managedSessions.sessionId, run.sessionId))
       .limit(1);
-    if (!session || session.closedAt) {
+    // A session that has moved on to another run is not this run's to stop.
+    if (!session || session.closedAt || session.currentRunId !== run.id) {
       return;
     }
     let gateway: ManagedGateway | null = null;
@@ -773,33 +775,6 @@ export const createManagedService = ({
       } catch (error) {
         console.error(`Stopping a session failed: ${describeError(error)}`);
       }
-    }
-  };
-
-  /**
-   * A run that ended without a clean turn (the reaper interrupted it, polls
-   * kept failing) leaves its Anthropic session behind, and that session still
-   * holds the session token. Before the next run of the session is claimed,
-   * the session is closed, so those calls can never act as the new run.
-   */
-  const closeBrokenSession = async (run: RunRecord): Promise<void> => {
-    const [previous] = await db
-      .select({ sentAt: managedRuns.sentAt, status: runs.status })
-      .from(runs)
-      .leftJoin(managedRuns, eq(managedRuns.runId, runs.id))
-      .where(
-        and(
-          eq(runs.sessionId, run.sessionId),
-          or(
-            lt(runs.createdAt, run.createdAt),
-            and(eq(runs.createdAt, run.createdAt), lt(runs.id, run.id))
-          )
-        )
-      )
-      .orderBy(desc(runs.createdAt), desc(runs.id))
-      .limit(1);
-    if (previous?.sentAt && previous.status !== "done") {
-      await abandon(run);
     }
   };
 
@@ -828,7 +803,6 @@ export const createManagedService = ({
       })
       .onConflictDoNothing();
     if (STARTING.includes(run.status)) {
-      await closeBrokenSession(run);
       await claim(run);
       // Reloaded either way: a claim that lost may still find the run running.
       run = await loadRun(db, runId);

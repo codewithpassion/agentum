@@ -16,7 +16,7 @@ import type { Database } from "@repo/db";
 import { managedSessions } from "@repo/db/schema/managed";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { CryptoError, fromBase64Url, toBase64Url } from "./crypto.ts";
 import { MANAGED_CLAIMER } from "./managed/types.ts";
@@ -230,8 +230,10 @@ export const verifyRunToken = async ({
 /**
  * Whether a session token may act now, and as which run. The signature checks,
  * the session's `managed_sessions` row is open and was made for exactly this
- * token (a newer session replaces it), and the session has a `running` run
- * with a live lease. The claims are that run's, so everything downstream of a
+ * token (a newer session replaces it), and the run the session is serving
+ * (`current_run_id`, set before its message is sent) is `running` with a live
+ * lease. A run that is merely claimed, or an older run of the session whose
+ * Anthropic session lingers, resolves to nothing. The claims are that run's, so everything downstream of a
  * run token (the platform MCP, the connector proxy, credentials) works on
  * them unchanged, and a session whose next run is for another person resolves
  * that person's credentials.
@@ -256,7 +258,7 @@ export const verifySessionToken = async ({
     return { ok: false, reason: "invalid" };
   }
   const [open] = await db
-    .select({ id: managedSessions.sessionId })
+    .select({ currentRunId: managedSessions.currentRunId })
     .from(managedSessions)
     .innerJoin(sessions, eq(sessions.id, managedSessions.sessionId))
     .where(
@@ -269,7 +271,7 @@ export const verifySessionToken = async ({
       )
     )
     .limit(1);
-  if (!open) {
+  if (!open?.currentRunId) {
     return { ok: false, reason: "invalid" };
   }
   const [live] = await db
@@ -277,6 +279,7 @@ export const verifySessionToken = async ({
     .from(runs)
     .where(
       and(
+        eq(runs.id, open.currentRunId),
         eq(runs.sessionId, sessionId),
         eq(runs.workspaceId, workspaceId),
         eq(runs.agentId, agentId),
@@ -285,7 +288,6 @@ export const verifySessionToken = async ({
         gt(runs.leaseUntil, now.toISOString())
       )
     )
-    .orderBy(desc(runs.createdAt), desc(runs.id))
     .limit(1);
   return live
     ? { claims: { agentId, issuedAt, runId: live.id, workspaceId }, ok: true }

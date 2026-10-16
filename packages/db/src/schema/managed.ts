@@ -51,6 +51,9 @@ export const managedSessions = sqliteTable("managed_sessions", {
   anthropicSessionId: text("anthropic_session_id"),
   closedAt: text("closed_at"),
   createdAt: createdAt(),
+  // The run this session is serving. Its session token acts as this run and
+  // no other, and the id is set before the run's first message is sent.
+  currentRunId: text("current_run_id"),
   cursorEventId: text("cursor_event_id"),
   cursorProcessedAt: text("cursor_processed_at"),
   sessionId: text("session_id")

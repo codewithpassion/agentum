@@ -614,7 +614,7 @@ describe("sessions", () => {
     expect(runRow(second.runId)?.status).toBe("running");
   });
 
-  test("a run the reaper interrupted has its session closed before the next run is claimed", async () => {
+  test("a run the reaper interrupted leaves a session whose old events do not finish the next run", async () => {
     const first = await start(dom, "one");
     gateway.turns = [[gateway.running()]];
     await managed.step(first.runId);
@@ -631,13 +631,40 @@ describe("sessions", () => {
     await managed.step(second.runId);
 
     expect(runRow(second.runId)?.status).toBe("running");
-    // Fresh session: the old one is stopped and its vault dropped.
-    expect(gateway.sessions.size).toBe(2);
-    expect(gateway.interrupted).toEqual(["sesn_1"]);
-    expect(gateway.deletedVaults).toEqual(["vlt_1"]);
     expect(
       runEvents(second.runId).filter((e) => e.type === "message.assistant")
     ).toEqual([]);
+  });
+
+  test("a run that is only claimed does not inherit the token of an older run's lingering session", async () => {
+    const first = await start(dom, "one");
+    gateway.turns = [[gateway.running()]];
+    await managed.step(first.runId);
+    const token = tokenOf("vlt_1");
+    db.update(runRows)
+      .set({ status: "interrupted" })
+      .where(eq(runRows.id, first.runId))
+      .run();
+    const second = await start(sam, "two");
+    // Claimed, not yet launched: the session still serves the first run.
+    db.update(runRows)
+      .set({
+        claimedBy: "managed",
+        leaseUntil: new Date(nowMs + 60 * SECOND).toISOString(),
+        status: "running",
+      })
+      .where(eq(runRows.id, second.runId))
+      .run();
+
+    expect((await verify(token)).ok).toBe(false);
+
+    gateway.turns = [[gateway.running()]];
+    await managed.step(second.runId);
+
+    expect(await verify(token)).toMatchObject({
+      claims: { runId: second.runId },
+      ok: true,
+    });
   });
 
   test("a PUBLIC_BASE_URL that only this machine can reach fails the run with the fix", async () => {
@@ -675,6 +702,10 @@ describe("sessions", () => {
     const answer = await managed.step(second.runId);
 
     expect(answer).toEqual({ next: BUSY_RETRY_MS });
+    // Waiting must not disturb the session that is working.
+    expect(gateway.interrupted).toEqual([]);
+    expect(gateway.deletedVaults).toEqual([]);
+    expect((await verify(tokenOf("vlt_1"))).ok).toBe(true);
     expect(runRow(second.runId)?.status).toBe("offered");
     expect(gateway.sessions.get("sesn_1")?.messages).toEqual(["one"]);
   });

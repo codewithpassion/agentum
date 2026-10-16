@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "647d0b49-b7ee-4bae-b3cb-becf5ba1db77",
+  "id": "2c24b0f8-f783-43eb-ba37-dd8d8ed574e0",
   "prevId": "c58ca127-a6be-42af-a10d-c04131a7e44a",
   "tables": {
     "agents": {
@@ -1524,6 +1524,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "current_run_id": {
+          "name": "current_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "cursor_event_id": {

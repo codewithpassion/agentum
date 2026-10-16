@@ -431,6 +431,7 @@ describe("a managed session's token", () => {
         agentFingerprint: "fp",
         anthropicSessionId: "sesn_1",
         createdAt: new Date(nowMs).toISOString(),
+        currentRunId: runId,
         sessionId: `session_${runId}`,
         tokenIssuedAt: issuedAt,
         vaultId: "vlt_1",

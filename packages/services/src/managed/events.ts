@@ -157,6 +157,6 @@ export const isSessionReusable = (status: SessionStatus): boolean =>
  */
 export const isAbnormalStop = (stopReason: string | null): boolean =>
   stopReason !== null &&
-  stopReason !== "end_turn" &&
-  // Waiting on a client-run tool result, which the pump supplies.
-  stopReason !== "requires_action";
+  // `requires_action` counts too: it waits on an approval or a client-run tool
+  // result, and nothing here supplies either.
+  stopReason !== "end_turn";

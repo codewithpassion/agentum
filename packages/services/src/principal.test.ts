@@ -269,6 +269,7 @@ test("a managed session token resolves to a run principal for the session's runn
       agentFingerprint: "fp",
       anthropicSessionId: "sesn_1",
       createdAt: new Date().toISOString(),
+      currentRunId: "run_1",
       sessionId: "session_1",
       tokenIssuedAt: issuedAt,
       vaultId: "vlt_1",

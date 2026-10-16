@@ -25,6 +25,7 @@ CREATE TABLE `managed_sessions` (
 	`anthropic_session_id` text,
 	`closed_at` text,
 	`created_at` text NOT NULL,
+	`current_run_id` text,
 	`cursor_event_id` text,
 	`cursor_processed_at` text,
 	`session_id` text PRIMARY KEY NOT NULL,

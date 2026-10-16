@@ -172,8 +172,8 @@ describe("custom tool calls", () => {
     expect(outcome.stopReason).toBe("requires_action");
   });
 
-  test("waiting on a tool result is not an abnormal stop", () => {
-    expect(isAbnormalStop("requires_action")).toBe(false);
+  test("waiting on a tool result counts as an abnormal stop, since nothing answers it", () => {
+    expect(isAbnormalStop("requires_action")).toBe(true);
   });
 });
 
