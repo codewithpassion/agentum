@@ -1,0 +1,152 @@
+import { beforeEach, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
+import { migrated } from "@repo/db/test-db";
+import { memoryFileBlobs } from "@repo/services/files/memory";
+import { noopRelay } from "@repo/services/machines/types";
+import { systemClock } from "@repo/services/runs/types";
+import { bytesToBase64 } from "#/lib/library-content.ts";
+import { type Composed, composeWith, type Infra } from "../compose.ts";
+import { buildContext } from "./build-context.ts";
+import { appRouter } from "./router.ts";
+
+const ALLOWED_ORG_IDS = ["org_a", "org_b"];
+const MB = 1024 * 1024;
+
+let db: ReturnType<typeof migrated>;
+
+beforeEach(() => {
+  db = migrated();
+});
+
+const infra = (): Infra => {
+  const store = new Map<string, string>();
+  return {
+    atomic: sqliteAtomic(db),
+    blobs: {
+      get: (key) => Promise.resolve(store.get(key) ?? null),
+      put: (key, body) => {
+        store.set(key, body);
+        return Promise.resolve();
+      },
+    },
+    clock: systemClock,
+    devFakeRuntime: true,
+    fileBlobs: memoryFileBlobs(),
+    relay: noopRelay,
+  };
+};
+
+const servicesFor = (): Composed =>
+  composeWith({ allowedOrgIds: ALLOWED_ORG_IDS, db, infra: infra() });
+
+const callerFor = async (
+  session: { orgId?: string | null; userId: string | null },
+  composed: Composed = servicesFor()
+) => appRouter.createCaller(await buildContext({ composed, session }));
+
+test("a user writes a text file in a new folder and reads it back", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  const written = await caller.library.write({
+    data: "# Notes",
+    encoding: "text",
+    path: "docs/notes/a.md",
+  });
+  expect(written.path).toBe("docs/notes/a.md");
+
+  const root = await caller.library.list({});
+  expect(root.map((entry) => [entry.path, entry.kind])).toEqual([
+    ["docs", "dir"],
+  ]);
+  const inside = await caller.library.list({ dir: "docs/notes" });
+  expect(inside.map((entry) => [entry.path, entry.kind])).toEqual([
+    ["docs/notes/a.md", "file"],
+  ]);
+
+  const file = await caller.library.read({ path: "docs/notes/a.md" });
+  expect(file.text).toBe("# Notes");
+  expect(file.entry.etag).toEqual(expect.any(String));
+});
+
+test("bytes that are not UTF-8 read back with no text", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  await caller.library.write({
+    data: bytesToBase64(new Uint8Array([0xff, 0xfe, 0x00, 0x01])),
+    encoding: "base64",
+    path: "blob.bin",
+  });
+
+  const file = await caller.library.read({ path: "blob.bin" });
+  expect(file.text).toBeNull();
+  expect(file.entry.size).toBe(4);
+});
+
+test("a file over 1 MB reads back with no text and its real size", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  await caller.library.write({
+    data: "a".repeat(MB + 1),
+    encoding: "text",
+    path: "big.txt",
+  });
+
+  const file = await caller.library.read({ path: "big.txt" });
+  expect(file.text).toBeNull();
+  expect(file.entry.size).toBe(MB + 1);
+});
+
+test("a write with a stale etag is a CONFLICT", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  await caller.library.write({
+    data: "v1",
+    encoding: "text",
+    path: "draft.txt",
+  });
+
+  await expect(
+    caller.library.write({
+      data: "v2",
+      encoding: "text",
+      ifEtag: "stale-etag",
+      path: "draft.txt",
+    })
+  ).rejects.toMatchObject({ code: "CONFLICT" });
+});
+
+test("a folder removed with recursive true leaves the library empty", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  await caller.library.mkdir({ path: "old" });
+  await caller.library.write({
+    data: "x",
+    encoding: "text",
+    path: "old/a.txt",
+  });
+
+  await caller.library.remove({ path: "old", recursive: true });
+
+  expect(await caller.library.list({})).toEqual([]);
+});
+
+test("another workspace cannot read the file", async () => {
+  const owner = await callerFor({ orgId: "org_a", userId: "user_1" });
+  await owner.library.write({
+    data: "secret",
+    encoding: "text",
+    path: "plan.txt",
+  });
+  const other = await callerFor({ orgId: "org_b", userId: "user_2" });
+
+  await expect(other.library.read({ path: "plan.txt" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+});
+
+test("a caller without a session gets UNAUTHORIZED", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: null });
+
+  await expect(caller.library.list({})).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(caller.library.read({ path: "a.txt" })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+});
