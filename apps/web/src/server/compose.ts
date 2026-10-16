@@ -240,7 +240,7 @@ export const composeWith = ({
     events,
   });
   const libraryLinks = createLibraryLinksService({ files, library });
-  const skills = createSkillsService({ library });
+  const skills = createSkillsService({ agents, library });
   const machines = createMachinesService({
     allowedOrgIds,
     clock: infra.clock,

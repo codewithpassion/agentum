@@ -9,17 +9,51 @@ import {
   SKILLS_MAX_FILES,
   type SkillFile,
 } from "@repo/protocol/skills";
+import type { AgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { isServiceError, ServiceError } from "./errors.ts";
+import { readSkillMeta } from "./library/skill-file.ts";
 import type { LibraryService } from "./library.ts";
 import type { Principal } from "./workspaces.ts";
 
 type RunPrincipal = Extract<Principal, { kind: "run" }>;
 
-export type SkillsLibrary = Pick<LibraryService, "list" | "read" | "stat">;
+export type SkillsLibrary = Pick<
+  LibraryService,
+  "list" | "read" | "stat" | "write"
+>;
+
+export type SkillScope = "agent" | "shared";
+
+/** One skill folder for the Skills tab. Name and description are null when the file has a problem. */
+export interface SkillCatalogEntry {
+  description: string | null;
+  folder: string;
+  name: string | null;
+  path: string;
+  problem: string | null;
+  scope: SkillScope;
+}
 
 const SKILLS_DIR = "skills";
 const SHARED_DIR = "_shared";
+const SKILL_FILE = "SKILL.md";
+const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const SKILL_NAME_MAX = 64;
+const BAD_NAME =
+  "Skill names use lowercase letters, digits and single hyphens, up to 64 characters";
+const NAME_TAKEN = "A skill with this name already exists";
+const MISSING = "SKILL.md is missing";
+const NOT_UTF8 = "SKILL.md is not valid UTF-8 text";
+const TEMPLATE = (name: string) => `---
+name: ${name}
+description: Describe what this skill does and when the agent should use it.
+---
+
+# ${name}
+
+Write the instructions for the agent here.
+`;
 const CONTROL_CHARS = /\p{Cc}/u;
 const TOO_BIG = "Skills are limited to 200 files and 5 MB";
 
@@ -77,6 +111,23 @@ const listOrEmpty = async (
   }
 };
 
+/** Whether anything is at `path`. A missing path is free. */
+const exists = async (
+  library: SkillsLibrary,
+  principal: Principal,
+  path: string
+): Promise<boolean> => {
+  try {
+    await library.stat(principal, path);
+    return true;
+  } catch (error) {
+    if (isServiceError(error) && error.code === "not_found") {
+      return false;
+    }
+    throw error;
+  }
+};
+
 const isFolder = async (
   library: SkillsLibrary,
   principal: Principal,
@@ -95,6 +146,46 @@ const isFolder = async (
 const lastSegment = (path: string): string =>
   path.slice(path.lastIndexOf("/") + 1);
 
+const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
+
+/** The catalog entry for one skill folder, with its problem when the file breaks a rule. */
+const catalogEntry = async (
+  library: SkillsLibrary,
+  principal: Principal,
+  scope: SkillScope,
+  root: string,
+  folder: string
+): Promise<SkillCatalogEntry> => {
+  const path = `${root}/${folder}/${SKILL_FILE}`;
+  const base = { description: null, folder, name: null, path, scope };
+  let bytes: Uint8Array;
+  try {
+    ({ bytes } = await library.read(principal, path));
+  } catch (error) {
+    if (isServiceError(error)) {
+      const problem = error.code === "not_found" ? MISSING : error.message;
+      return { ...base, problem };
+    }
+    throw error;
+  }
+  let text: string;
+  try {
+    text = strictUtf8.decode(bytes);
+  } catch {
+    return { ...base, problem: NOT_UTF8 };
+  }
+  const result = readSkillMeta(text, folder);
+  if ("error" in result) {
+    return { ...base, problem: result.error };
+  }
+  return {
+    ...base,
+    description: result.meta.description,
+    name: result.meta.name,
+    problem: null,
+  };
+};
+
 /** Code unit order, so the same files always sort the same way. */
 const byPath = (left: SkillFile, right: SkillFile): number => {
   if (left.path === right.path) {
@@ -104,8 +195,10 @@ const byPath = (left: SkillFile, right: SkillFile): number => {
 };
 
 export const createSkillsService = ({
+  agents,
   library,
 }: {
+  agents: Pick<AgentsService, "get">;
   library: SkillsLibrary;
 }) => {
   /** The skill names each root holds, mapped to the root that wins for that name. */
@@ -175,7 +268,56 @@ export const createSkillsService = ({
     return bytes;
   };
 
-  return { list, read };
+  /** The skills an agent sees on the Skills tab: its own first, then the shared ones, each by folder. */
+  const catalog = async (
+    principal: Principal,
+    agentId: string
+  ): Promise<SkillCatalogEntry[]> => {
+    await agents.get(principal, agentId);
+    const roots: { root: string; scope: SkillScope }[] = [
+      { root: `${SKILLS_DIR}/${agentId}`, scope: "agent" },
+      { root: `${SKILLS_DIR}/${SHARED_DIR}`, scope: "shared" },
+    ];
+    const groups = await Promise.all(
+      roots.map(async ({ root, scope }) => {
+        const folders = (await listOrEmpty(library, principal, root))
+          .filter((entry) => entry.kind === "dir")
+          .map((entry) => lastSegment(entry.path))
+          .sort();
+        return Promise.all(
+          folders.map((folder) =>
+            catalogEntry(library, principal, scope, root, folder)
+          )
+        );
+      })
+    );
+    return groups.flat();
+  };
+
+  /** A new skill folder for the agent, with the template SKILL.md. Nothing is written when the name is refused. */
+  const create = async (
+    principal: Principal,
+    agentId: string,
+    name: string
+  ): Promise<{ path: string }> => {
+    await agents.get(principal, agentId);
+    if (name.length > SKILL_NAME_MAX || !SKILL_NAME.test(name)) {
+      throw invalid(BAD_NAME);
+    }
+    const folder = `${SKILLS_DIR}/${agentId}/${name}`;
+    if (await exists(library, principal, folder)) {
+      throw new ServiceError("conflict", NAME_TAKEN);
+    }
+    const path = `${folder}/${SKILL_FILE}`;
+    await library.write(
+      principal,
+      path,
+      new TextEncoder().encode(TEMPLATE(name))
+    );
+    return { path };
+  };
+
+  return { catalog, create, list, read };
 };
 
 export type SkillsService = ReturnType<typeof createSkillsService>;

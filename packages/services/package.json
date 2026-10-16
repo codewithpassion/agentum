@@ -22,6 +22,7 @@
     "./library": "./src/library.ts",
     "./library-links": "./src/library-links.ts",
     "./library/memory": "./src/library/memory.ts",
+    "./library/skill-file": "./src/library/skill-file.ts",
     "./machines": "./src/machines.ts",
     "./machines/runtime": "./src/machines/runtime.ts",
     "./machines/types": "./src/machines/types.ts",

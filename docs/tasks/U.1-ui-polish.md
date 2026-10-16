@@ -3,9 +3,9 @@ id: U.1
 title: UI polish from the first screenshots
 milestone: U
 size: S
-status: todo
+status: in_progress
 depends_on: [F.4, S.2]
-branch: null
+branch: task/U.1-ui-polish
 ---
 
 From the signed-in UI screenshots taken on 16 Oct 2026, approved by Dom. Four problems showed on local main.
@@ -23,3 +23,4 @@ Unit tests: the markdown renderer turns `**a**` into bold and drops a `<script>`
 
 ## Log
 - 2026-10-16: added from the UI screenshots (Dom: yes). Starts after F.4 and S.2.
+- 2026-10-16: dispatched on task/U.1-ui-polish.
