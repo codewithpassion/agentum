@@ -90,7 +90,7 @@ test("a ui start can continue a session by its external key", async () => {
   expect(second.sessionId).toBe(first.sessionId);
 });
 
-test("a browser caller cannot pick a slack or inbox origin", async () => {
+test("a browser caller cannot pick a non-ui origin", async () => {
   const { agent, caller } = await setup();
 
   const attempts = ["slack", "inbox", "routine", "trigger", "mcp"].map(
@@ -121,6 +121,20 @@ test("a browser caller cannot make a session private", async () => {
       input: { text: "hello" },
       session: { origin: "ui", private: true } as never,
     })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  expect(await caller.sessions.list({ agentId: agent.id })).toEqual([]);
+});
+
+test("a browser caller cannot set a reply target", async () => {
+  const { agent, caller } = await setup();
+
+  await expect(
+    caller.runs.start({
+      agentId: agent.id,
+      input: { text: "hello" },
+      reply: { kind: "inbox", threadId: "thread_1" },
+      session: { origin: "ui" },
+    } as never)
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   expect(await caller.sessions.list({ agentId: agent.id })).toEqual([]);
 });
