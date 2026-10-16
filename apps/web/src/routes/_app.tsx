@@ -1,4 +1,5 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
+import Footer from "#/components/footer";
 import { AppSidebar } from "#/components/shell/app-sidebar";
 import {
   SidebarInset,
@@ -21,6 +22,7 @@ function AppLayout() {
         <div className="flex-1 px-4 py-6 sm:px-6">
           <Outlet />
         </div>
+        <Footer shell />
       </SidebarInset>
     </SidebarProvider>
   );
