@@ -35,14 +35,19 @@
     // Previews never touch production. See README "Pull request previews".
     "staging": {
       "preview_urls": true,
-      // Routes are inherited: without this, staging takes the production domain.
-      "routes": [],
+      // Routes are inherited: staging must name its own, or it takes production's domain.
+      "routes": [
+        {
+          "pattern": "harbourmaster-staging.rockyshoreslabs.io",
+          "custom_domain": true
+        }
+      ],
       "workers_dev": true,
       "durable_objects": {
         "bindings": [{ "name": "MACHINE_RELAY", "class_name": "MachineRelay" }]
       },
       "vars": {
-        "PUBLIC_BASE_URL": "https://harbourmaster-staging.dominik-fretz.workers.dev"
+        "PUBLIC_BASE_URL": "https://harbourmaster-staging.rockyshoreslabs.io"
       },
       "r2_buckets": [
         { "binding": "FILES", "bucket_name": "harbourmaster-staging-files" }
