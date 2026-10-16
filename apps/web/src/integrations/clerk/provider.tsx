@@ -13,6 +13,18 @@ import { useResolvedTheme } from "#/hooks/use-resolved-theme";
 // footer is only 2.7:1. The light theme darkens those links (5.1:1 there). In dark
 // mode terracotta already passes, and colorModalBackdrop is set because it
 // would otherwise follow colorNeutral and turn the backdrop near-white.
+// Every sign-in, sign-up and session-task URL points at the app. Without them
+// Clerk falls back to the instance's hosted Account Portal, which is where
+// Google OAuth callbacks and pending organisation tasks used to end up.
+const routing = {
+  afterSignOutUrl: "/",
+  signInFallbackRedirectUrl: "/",
+  signInUrl: "/login",
+  signUpFallbackRedirectUrl: "/",
+  signUpUrl: "/sign-up",
+  taskUrls: { "choose-organization": "/choose-organization" },
+};
+
 const shared = {
   borderRadius: "0.75rem",
   colorPrimary: "#d97757",
@@ -62,6 +74,7 @@ export default function AppClerkProvider({
 
   return (
     <ClerkProvider
+      {...routing}
       appearance={
         theme === "dark"
           ? { variables: dark }

@@ -1,3 +1,8 @@
+import {
+  OrganizationSwitcher,
+  Show,
+  SignOutButton,
+} from "@clerk/tanstack-react-start";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { Button } from "#/components/ui/button";
@@ -33,10 +38,35 @@ function Landing() {
         <p className="mb-8 max-w-2xl text-base text-muted-foreground sm:text-lg">
           An agent platform.
         </p>
-        <Button asChild>
-          <a href="/login">Sign in</a>
-        </Button>
+        <Show when="signed-out">
+          <Button asChild>
+            <a href="/login">Sign in</a>
+          </Button>
+        </Show>
+        <Show when="signed-in">
+          <NoAccess />
+        </Show>
       </section>
     </main>
+  );
+}
+
+// A signed-in user reaches the landing page only when `me` answered 401: the
+// active organisation is missing or not in ALLOWED_ORG_IDS.
+function NoAccess() {
+  return (
+    <div className="max-w-md space-y-4">
+      <p className="font-medium">This organisation can't use Harbourmaster.</p>
+      <p className="text-muted-foreground text-sm">
+        Switch to an organisation that has access, or sign out and use another
+        account.
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <OrganizationSwitcher afterSelectOrganizationUrl="/" hidePersonal />
+        <SignOutButton>
+          <Button variant="outline">Sign out</Button>
+        </SignOutButton>
+      </div>
+    </div>
   );
 }

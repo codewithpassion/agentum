@@ -11,8 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as ChooseOrganizationRouteImport } from './routes/choose-organization'
 import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as AppConnectorsRouteImport } from './routes/_app/connectors'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
 import { Route as AppLibraryRouteImport } from './routes/_app/library'
@@ -36,6 +38,11 @@ const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChooseOrganizationRoute = ChooseOrganizationRouteImport.update({
+  id: '/choose-organization',
+  path: '/choose-organization',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DevLoginRoute = DevLoginRouteImport.update({
   id: '/dev-login',
   path: '/dev-login',
@@ -44,6 +51,11 @@ const DevLoginRoute = DevLoginRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignUpRoute = SignUpRouteImport.update({
+  id: '/sign-up',
+  path: '/sign-up',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppConnectorsRoute = AppConnectorsRouteImport.update({
@@ -115,8 +127,10 @@ const AppSettingsConnectedAppsRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/choose-organization': typeof ChooseOrganizationRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
+  '/sign-up': typeof SignUpRoute
   '/connectors': typeof AppConnectorsRoute
   '/inbox': typeof AppInboxRoute
   '/library': typeof AppLibraryRoute
@@ -133,8 +147,10 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/choose-organization': typeof ChooseOrganizationRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
+  '/sign-up': typeof SignUpRoute
   '/connectors': typeof AppConnectorsRoute
   '/inbox': typeof AppInboxRoute
   '/library': typeof AppLibraryRoute
@@ -153,8 +169,10 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
+  '/choose-organization': typeof ChooseOrganizationRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
+  '/sign-up': typeof SignUpRoute
   '/_app/connectors': typeof AppConnectorsRoute
   '/_app/inbox': typeof AppInboxRoute
   '/_app/library': typeof AppLibraryRoute
@@ -173,8 +191,10 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/choose-organization'
     | '/dev-login'
     | '/login'
+    | '/sign-up'
     | '/connectors'
     | '/inbox'
     | '/library'
@@ -191,8 +211,10 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/choose-organization'
     | '/dev-login'
     | '/login'
+    | '/sign-up'
     | '/connectors'
     | '/inbox'
     | '/library'
@@ -210,8 +232,10 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_app'
+    | '/choose-organization'
     | '/dev-login'
     | '/login'
+    | '/sign-up'
     | '/_app/connectors'
     | '/_app/inbox'
     | '/_app/library'
@@ -230,8 +254,10 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
+  ChooseOrganizationRoute: typeof ChooseOrganizationRoute
   DevLoginRoute: typeof DevLoginRoute
   LoginRoute: typeof LoginRoute
+  SignUpRoute: typeof SignUpRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -250,6 +276,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/choose-organization': {
+      id: '/choose-organization'
+      path: '/choose-organization'
+      fullPath: '/choose-organization'
+      preLoaderRoute: typeof ChooseOrganizationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dev-login': {
       id: '/dev-login'
       path: '/dev-login'
@@ -262,6 +295,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sign-up': {
+      id: '/sign-up'
+      path: '/sign-up'
+      fullPath: '/sign-up'
+      preLoaderRoute: typeof SignUpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/connectors': {
@@ -395,8 +435,10 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
+  ChooseOrganizationRoute: ChooseOrganizationRoute,
   DevLoginRoute: DevLoginRoute,
   LoginRoute: LoginRoute,
+  SignUpRoute: SignUpRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
