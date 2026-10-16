@@ -4,17 +4,14 @@ import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { triggers as triggerRows } from "@repo/db/schema/triggers";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
+import { ROUTINE_ERROR_LIMIT } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import { createEventsService } from "./events.ts";
-import {
-  createRoutinesService,
-  ROUTINE_ERROR_LIMIT,
-  type RoutinesService,
-} from "./routines.ts";
+import { createRoutinesService, type RoutinesService } from "./routines.ts";
 import type { Clock, RuntimeAdapter } from "./runs/types.ts";
 import { createRunsService, type RunsService } from "./runs.ts";
 import { createTriggersService } from "./triggers.ts";
@@ -48,6 +45,7 @@ let clock: Clock;
 let dispatched: string[];
 let crashDispatches: number;
 let failWrites: number;
+let allowedOrgIds: string[];
 let agents: AgentsService;
 let runs: RunsService;
 let service: RoutinesService;
@@ -137,6 +135,7 @@ beforeEach(async () => {
   dispatched = [];
   crashDispatches = 0;
   failWrites = 0;
+  allowedOrgIds = [`org_${WORKSPACE}`, `org_${OTHER_WORKSPACE}`];
   const store = new Map<string, string>();
   const blobs = {
     get: (key: string) => Promise.resolve(store.get(key) ?? null),
@@ -187,7 +186,13 @@ beforeEach(async () => {
     devFakeRuntime: false,
     gateways: [],
   });
-  service = createRoutinesService({ clock, db, events, runs });
+  service = createRoutinesService({
+    allowedOrgIds,
+    clock,
+    db,
+    events,
+    runs,
+  });
 });
 
 test("create takes the workspace timezone and the next slot after now", async () => {
@@ -562,4 +567,38 @@ test("a half-hourly Sydney routine keeps real time across both changes", async (
       )
     );
   }
+});
+
+test("a routine whose organisation is no longer allowed stops firing", async () => {
+  await makeRoutine("* * * * *");
+  advance(MINUTE_MS);
+  allowedOrgIds.splice(0);
+
+  expect((await tick()).fired).toEqual([]);
+  expect(allRuns()).toEqual([]);
+
+  allowedOrgIds.push(`org_${WORKSPACE}`);
+  expect((await tick()).fired).toHaveLength(1);
+});
+
+test("a run that outlives its slot is still judged, and a later run is tracked after it", async () => {
+  const routine = await makeRoutine("* * * * *");
+  advance(MINUTE_MS);
+  const [first] = (await tick()).fired;
+  advance(MINUTE_MS);
+  const [second] = (await tick()).fired;
+
+  // The first run is still running when the second slot fires, so it stays tracked.
+  expect(routineRow(routine.id)?.lastRunId).toBe(first ?? "");
+  db.update(runRows)
+    .set({ error: "late failure", status: "failed" })
+    .where(eq(runRows.id, first ?? ""))
+    .run();
+  // A tick that fires and settles together does not lose the ended run.
+  advance(MINUTE_MS);
+  await Promise.all([tick(), service.settleRuns(SYSTEM_PRINCIPAL)]);
+
+  expect(routineRow(routine.id)?.consecutiveErrors).toBe(1);
+  expect(routineRow(routine.id)?.lastError).toBe("late failure");
+  expect(second).toBeDefined();
 });

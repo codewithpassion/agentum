@@ -1,3 +1,4 @@
+import { ROUTINE_ERROR_LIMIT } from "@repo/db/shared";
 import { formatDistanceToNow } from "date-fns";
 import { useCallback } from "react";
 import { Badge } from "#/components/ui/badge";
@@ -13,8 +14,6 @@ import {
 import type { RoutineRecord } from "#/integrations/trpc/types";
 import { lastFiredLabel } from "../triggers/format.ts";
 
-const OFF_AFTER_ERRORS = 5;
-
 function nextRunLabel(routine: RoutineRecord): string {
   if (routine.disabledAt !== null) {
     return "paused";
@@ -28,7 +27,7 @@ function statusLabel(routine: RoutineRecord): string {
   if (routine.disabledAt === null) {
     return "active";
   }
-  return routine.consecutiveErrors >= OFF_AFTER_ERRORS
+  return routine.consecutiveErrors >= ROUTINE_ERROR_LIMIT
     ? "off after errors"
     : "paused";
 }

@@ -186,6 +186,7 @@ export const composeWith = ({
     runTokenKey: infra.runTokenKey,
   });
   const routines = createRoutinesService({
+    allowedOrgIds,
     clock: infra.clock,
     db,
     events,

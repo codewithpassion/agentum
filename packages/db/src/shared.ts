@@ -37,6 +37,9 @@ export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const TRIGGER_KINDS = ["http", "routine"] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
+/** Errors in a row that switch a routine off. */
+export const ROUTINE_ERROR_LIMIT = 5;
+
 export const FILE_SOURCES = ["upload", "slack", "run"] as const;
 export type FileSource = (typeof FILE_SOURCES)[number];
 

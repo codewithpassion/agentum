@@ -54,14 +54,19 @@ const itemBounds = (
   head: string,
   spec: string,
   lo: number,
-  hi: number
+  hi: number,
+  stepped: boolean
 ): [number, number] => {
   if (head === "*") {
     return [lo, hi];
   }
   const [from = "", to] = head.split("-", 2);
   const start = parseNumber(from, spec);
-  return [start, to === undefined ? start : parseNumber(to, spec)];
+  if (to === undefined) {
+    // `5/15` runs from 5 to the end of the range, as in standard cron.
+    return [start, stepped ? hi : start];
+  }
+  return [start, parseNumber(to, spec)];
 };
 
 const parseField = (spec: string, lo: number, hi: number): Set<number> => {
@@ -76,7 +81,7 @@ const parseField = (spec: string, lo: number, hi: number): Set<number> => {
     if (step <= 0) {
       throw new Error(`bad cron step in '${spec}'`);
     }
-    const [from, to] = itemBounds(head, spec, lo, hi);
+    const [from, to] = itemBounds(head, spec, lo, hi, stepText !== undefined);
     if (from < lo || to > hi || from > to) {
       throw new Error(`bad cron field '${spec}' (range ${lo}-${hi})`);
     }

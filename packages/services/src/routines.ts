@@ -21,6 +21,7 @@ import { agents } from "@repo/db/schema/agents";
 import { runs } from "@repo/db/schema/runs";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
+import { ROUTINE_ERROR_LIMIT } from "@repo/db/shared";
 import {
   and,
   asc,
@@ -48,8 +49,6 @@ import { type Clock, INPUT_TEXT_MAX } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
 import type { Principal } from "./workspaces.ts";
 
-/** Errors in a row that switch a routine off. */
-export const ROUTINE_ERROR_LIMIT = 5;
 /** Routines one tick fires or settles; the next minute takes the rest. */
 const TICK_BATCH = 100;
 const ERROR_MESSAGE_MAX = 500;
@@ -99,7 +98,7 @@ export interface RoutineSummary {
   lastError: string | null;
   lastFiredAt: string | null;
   name: string;
-  /** The slot the tick fires next; null when the routine is off. */
+  /** The slot the tick fires next. Pausing keeps it; resuming picks a new one. */
   nextRunAt: string | null;
   prompt: string;
   timezone: string;
@@ -160,11 +159,14 @@ const nextSlot = (cron: string, timezone: string, after: Date) => {
 };
 
 export const createRoutinesService = ({
+  allowedOrgIds,
   clock,
   db,
   events,
   runs: runsService,
 }: {
+  /** Routines of a workspace outside this list stop firing, like its triggers. */
+  allowedOrgIds: readonly string[];
   clock: Clock;
   db: Database;
   events: EventsService;
@@ -368,7 +370,12 @@ export const createRoutinesService = ({
     const advance = (runId: string, fields: { lastFiredAt?: string }) =>
       db
         .update(triggers)
-        .set({ ...fields, lastRunId: runId, nextRunAt })
+        // Keep a run still waiting to be judged; `settleRuns` clears it.
+        .set({
+          ...fields,
+          lastRunId: sql`coalesce(${triggers.lastRunId}, ${runId})`,
+          nextRunAt,
+        })
         .where(and(eq(triggers.id, row.id), eq(triggers.nextRunAt, due)));
     const requestId = `trigger:${row.id}:${due}`;
     const started = await runsService.startRunWith(
@@ -411,21 +418,28 @@ export const createRoutinesService = ({
    */
   const fireDue = async (principal: Principal): Promise<FireDueResult> => {
     requireSystem(principal, FIRE_ACTION);
-    const due = await db
-      .select()
-      .from(triggers)
-      .where(
-        and(
-          eq(triggers.kind, ROUTINE_KIND),
-          isNull(triggers.revokedAt),
-          isNull(triggers.disabledAt),
-          isNotNull(triggers.nextRunAt),
-          lte(triggers.nextRunAt, clock.now().toISOString())
-        )
-      )
-      .orderBy(asc(triggers.nextRunAt))
-      .limit(TICK_BATCH);
     const result: FireDueResult = { failed: [], fired: [], readBack: [] };
+    if (allowedOrgIds.length === 0) {
+      return result;
+    }
+    const due = (
+      await db
+        .select({ routine: triggers })
+        .from(triggers)
+        .innerJoin(workspaces, eq(workspaces.id, triggers.workspaceId))
+        .where(
+          and(
+            inArray(workspaces.clerkOrgId, [...allowedOrgIds]),
+            eq(triggers.kind, ROUTINE_KIND),
+            isNull(triggers.revokedAt),
+            isNull(triggers.disabledAt),
+            isNotNull(triggers.nextRunAt),
+            lte(triggers.nextRunAt, clock.now().toISOString())
+          )
+        )
+        .orderBy(asc(triggers.nextRunAt))
+        .limit(TICK_BATCH)
+    ).map(({ routine }) => routine);
     for (const row of due) {
       const slot = row.nextRunAt ?? "";
       try {
@@ -434,7 +448,11 @@ export const createRoutinesService = ({
       } catch (error) {
         const message = messageOf(error);
         result.failed.push({ message, routineId: row.id });
-        await recordFailure(row, slot, message);
+        try {
+          await recordFailure(row, slot, message);
+        } catch {
+          // The failure is in the result already; the next tick counts again.
+        }
       }
     }
     return result;
@@ -485,8 +503,12 @@ export const createRoutinesService = ({
         };
       }
       // biome-ignore lint/performance/noAwaitInLoops: each update is guarded by its own run id
-      await db.update(triggers).set(changes).where(guard);
-      settled += 1;
+      const updated = await db
+        .update(triggers)
+        .set(changes)
+        .where(guard)
+        .returning({ id: triggers.id });
+      settled += updated.length;
     }
     return { settled };
   };

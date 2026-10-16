@@ -4,6 +4,7 @@ import {
   datePartsInTz,
   isValidTimeZone,
   nextFireTime,
+  parseCron,
   validateCron,
 } from "./cron.ts";
 
@@ -45,6 +46,31 @@ describe("validateCron", () => {
     expect(validateCron("0 8 32 * *")).not.toBeNull();
     expect(validateCron("0 8 * 13 *")).not.toBeNull();
     expect(validateCron("0 8 * * 7")).not.toBeNull();
+  });
+});
+
+describe("parseCron", () => {
+  const sorted = (values: Set<number>) => [...values].sort((a, b) => a - b);
+
+  test("literal, step, range and list", () => {
+    expect(sorted(parseCron("5 4 * * *").minute)).toEqual([5]);
+    expect(sorted(parseCron("*/15 * * * *").minute)).toEqual([0, 15, 30, 45]);
+    expect(sorted(parseCron("1-3 * * * *").minute)).toEqual([1, 2, 3]);
+    expect(sorted(parseCron("0,15,30,45 * * * *").minute)).toEqual([
+      0, 15, 30, 45,
+    ]);
+    expect(sorted(parseCron("1-10/3 * * * *").minute)).toEqual([1, 4, 7, 10]);
+  });
+
+  test("a stepped single value runs to the end of the range", () => {
+    expect(sorted(parseCron("5/15 * * * *").minute)).toEqual([5, 20, 35, 50]);
+  });
+
+  test("rejects a bad field count, out-of-range values and a zero step", () => {
+    expect(() => parseCron("* * *")).toThrow();
+    expect(() => parseCron("60 * * * *")).toThrow();
+    expect(() => parseCron("*/0 * * * *")).toThrow();
+    expect(() => parseCron("a * * * *")).toThrow();
   });
 });
 
