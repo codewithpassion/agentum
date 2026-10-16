@@ -19,6 +19,10 @@ import type {
   SDKUserMessage,
   SpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
+import {
+  ATTACHMENT_MARKER_RE,
+  formatAttachmentMarker,
+} from "@repo/protocol/attachments";
 import type {
   ClaimResponse,
   CompleteRequest,
@@ -34,6 +38,7 @@ import {
   AGENT_STAT,
   AS_AGENT,
 } from "./agent-user.ts";
+import { extractAttachmentMarkers } from "./attachments.ts";
 import type { Timers } from "./client.ts";
 import type { CommandRunner } from "./command.ts";
 import { type ExecuteRunDeps, executeRun, type QueryFn } from "./executor.ts";
@@ -545,7 +550,7 @@ describe("the options passed to query", () => {
     expect(options?.strictMcpConfig).toBe(true);
     expect(options?.settingSources).toEqual(["project"]);
     expect(options?.systemPrompt).toEqual({
-      append: run.claim.instructions,
+      append: expect.stringContaining(run.claim.instructions),
       preset: "claude_code",
       type: "preset",
     });
@@ -553,6 +558,26 @@ describe("the options passed to query", () => {
     expect(options?.pathToClaudeCodeExecutable).toBe("/usr/local/bin/claude");
     expect(options?.canUseTool).toBeUndefined();
     expect(options && "mcpServers" in options).toBe(false);
+  });
+
+  test("the system prompt ends with the attachment sentence, after the agent's instructions", async () => {
+    const run = setup({ script: toolRunScript() });
+    await run.execution.finished;
+    const [options] = run.optionsSeen;
+    const prompt = options?.systemPrompt;
+    const append =
+      typeof prompt === "object" && prompt !== null && "append" in prompt
+        ? (prompt.append ?? "")
+        : "";
+    expect(append.startsWith(run.claim.instructions)).toBe(true);
+    const sentence = append.slice(run.claim.instructions.length).trim();
+    expect(sentence).toContain("on its own line in your final answer");
+    // The marker in the sentence is one the parser accepts, with a path slot.
+    const [marker] = sentence.match(ATTACHMENT_MARKER_RE) ?? [];
+    expect(marker).toBe(formatAttachmentMarker("<absolute path>"));
+    expect(extractAttachmentMarkers(`ok\n${marker}`).paths).toEqual([
+      "<absolute path>",
+    ]);
   });
 
   test("the env is filtered and holds no run token", async () => {
