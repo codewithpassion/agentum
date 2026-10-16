@@ -190,7 +190,18 @@ export const createFilesService = ({
 
   const upload = async (
     principal: Principal,
-    { body, mime, name }: { body: Blob; mime: string | null; name: string }
+    {
+      body,
+      mime,
+      name,
+      source,
+    }: {
+      body: Blob;
+      mime: string | null;
+      name: string;
+      /** Overrides where the file came from, for copies of library files. */
+      source?: "library";
+    }
   ): Promise<FileRecord> => {
     const scope = uploadScope(principal);
     authorize(principal, UPLOAD_ACTION, {
@@ -211,7 +222,7 @@ export const createFilesService = ({
       r2Key: `${scope.workspaceId}/files/${id}`,
       runId: scope.runId,
       size: body.size,
-      source: scope.source,
+      source: source ?? scope.source,
       workspaceId: scope.workspaceId,
     };
     await blobs.put(row.r2Key, body, row.mime);

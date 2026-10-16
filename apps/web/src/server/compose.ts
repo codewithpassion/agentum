@@ -42,6 +42,10 @@ import {
 } from "@repo/services/library";
 import { memoryLibraryBlobs } from "@repo/services/library/memory";
 import {
+  createLibraryLinksService,
+  type LibraryLinksService,
+} from "@repo/services/library-links";
+import {
   createMachinesService,
   type MachinesService,
 } from "@repo/services/machines";
@@ -124,6 +128,7 @@ export interface Services {
   files: FilesService;
   inbox: InboxService;
   library: LibraryService;
+  libraryLinks: LibraryLinksService;
   machines: MachinesService;
   oauthClients: OAuthClientsService;
   routines: RoutinesService;
@@ -234,6 +239,7 @@ export const composeWith = ({
     db,
     events,
   });
+  const libraryLinks = createLibraryLinksService({ files, library });
   const skills = createSkillsService({ library });
   const machines = createMachinesService({
     allowedOrgIds,
@@ -314,6 +320,7 @@ export const composeWith = ({
       files,
       inbox,
       library,
+      libraryLinks,
       machines,
       oauthClients,
       routines,

@@ -27,6 +27,7 @@ import {
   toChatItems,
 } from "../chat/chat-logic.ts";
 import { FileChips } from "../chat/file-chips.tsx";
+import { LibraryPicker } from "../chat/library-picker.tsx";
 import { TranscriptView } from "../chat/transcript-view.tsx";
 import { uploadFile } from "../chat/upload-file.ts";
 import { useFileInfos } from "../chat/use-file-infos.ts";
@@ -105,6 +106,8 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [attaching, setAttaching] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -122,7 +125,8 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
     running ||
     (sessionId !== undefined && transcript === null) ||
     (latestRun?.status === "interrupted" && !canRetry(latestRun, nowMs));
-  const sendDisabled = sending || uploading || input.trim() === "" || blocked;
+  const sendDisabled =
+    sending || uploading || attaching || input.trim() === "" || blocked;
   const polling = shouldPoll(latestRun, nowMs);
 
   const load = useCallback(async () => {
@@ -249,6 +253,32 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
 
   const openPicker = useCallback(() => fileInputRef.current?.click(), []);
 
+  const openLibrary = useCallback(() => setPickerOpen(true), []);
+
+  const closeLibrary = useCallback(() => setPickerOpen(false), []);
+
+  const attachFromLibrary = useCallback(
+    async (path: string) => {
+      setPickerOpen(false);
+      if (attachments.length >= MAX_ATTACHMENTS) {
+        setError(`You can attach up to ${MAX_ATTACHMENTS} files.`);
+        return;
+      }
+      setAttaching(true);
+      setError(null);
+      try {
+        const info = await getTrpc().files.attachFromLibrary.mutate({ path });
+        remember([info]);
+        setAttachments((current) => [...current, info.id]);
+      } catch (cause) {
+        setError(messageOf(cause));
+      } finally {
+        setAttaching(false);
+      }
+    },
+    [attachments.length, remember]
+  );
+
   const handleFiles = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const picked = Array.from(event.target.files ?? []);
@@ -319,6 +349,15 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
           >
             Attach files
           </Button>
+          <Button
+            data-testid="library-picker-open"
+            disabled={uploading || attaching}
+            onClick={openLibrary}
+            type="button"
+            variant="outline"
+          >
+            From library
+          </Button>
           <Button disabled={sendDisabled} type="submit">
             Send
           </Button>
@@ -336,7 +375,7 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
           </Button>
         </div>
       )}
-      <TranscriptView files={files} items={items} />
+      <TranscriptView agentName={agent.name} files={files} items={items} />
       {latestRun === null ? null : (
         <StatusRow
           nowMs={nowMs}
@@ -351,6 +390,9 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
         </p>
       )}
       {composer}
+      {pickerOpen ? (
+        <LibraryPicker onClose={closeLibrary} onPick={attachFromLibrary} />
+      ) : null}
     </section>
   );
 }
