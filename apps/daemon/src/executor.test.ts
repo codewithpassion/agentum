@@ -19,6 +19,7 @@ import type { Timers } from "./client.ts";
 import type { CommandRunner } from "./command.ts";
 import { type ExecuteRunDeps, executeRun, type QueryFn } from "./executor.ts";
 import type { Logger } from "./log.ts";
+import type { Masker } from "./masker.ts";
 import type { RunApi } from "./run-api.ts";
 
 const FIXTURES = join(import.meta.dir, "..", "fixtures");
@@ -108,6 +109,7 @@ interface Harness {
   events: RunEventInput[][];
   heartbeat: { reject: unknown };
   lines: string[];
+  maskerSeen: Masker[];
   optionsSeen: Options[];
   order: string[];
   proc: FakeProcess;
@@ -128,6 +130,8 @@ interface SetupOptions {
   mcpHangsUntilClose?: boolean;
   script: Step[];
   singleUser?: boolean;
+  /** The process fails to start: `error` and no `exit`, as Bun reports it. */
+  spawnFails?: boolean;
   /** Written to stderr once the process has started. */
   stderr?: string;
 }
@@ -158,6 +162,7 @@ const setup = (setupOptions: SetupOptions) => {
   const heartbeat: Harness["heartbeat"] = { reject: undefined };
   let stderr: (text: string) => void = () => undefined;
   let closeQuery: () => void = () => undefined;
+  const maskerSeen: Masker[] = [];
 
   const api: RunApi = {
     claim: () => Promise.reject(new Error("not used")),
@@ -197,6 +202,9 @@ const setup = (setupOptions: SetupOptions) => {
     if (setupOptions.stderr !== undefined) {
       stderr(setupOptions.stderr);
     }
+    if (setupOptions.spawnFails) {
+      proc.emit("error", new Error("spawn /usr/local/bin/claude EACCES"));
+    }
     signal?.addEventListener("abort", () => {
       proc.kill("SIGTERM");
       if (!setupOptions.holdExit) {
@@ -205,6 +213,9 @@ const setup = (setupOptions: SetupOptions) => {
     });
 
     async function* stream(): AsyncGenerator<SDKMessage> {
+      if (setupOptions.spawnFails) {
+        throw new Error("Failed to spawn Claude Code process: EACCES");
+      }
       const first = await (prompt as AsyncIterable<SDKUserMessage>)
         [Symbol.asyncIterator]()
         .next();
@@ -282,7 +293,10 @@ const setup = (setupOptions: SetupOptions) => {
       machineId: MACHINE_ID,
       singleUser: setupOptions.singleUser ?? true,
     },
-    createApi: () => api,
+    createApi: (masker) => {
+      maskerSeen.push(masker);
+      return api;
+    },
     daemonHome: home,
     env: {
       ANTHROPIC_API_KEY: "sk-ant-should-not-pass",
@@ -305,6 +319,7 @@ const setup = (setupOptions: SetupOptions) => {
     events,
     heartbeat,
     lines,
+    maskerSeen,
     optionsSeen,
     order,
     proc,
@@ -563,6 +578,24 @@ describe("aborting", () => {
 });
 
 describe("failures", () => {
+  test("a process that cannot start posts failed instead of waiting for an exit", async () => {
+    const run = setup({ script: [], spawnFails: true });
+    await run.execution.finished;
+    const body = run.completions[0]?.body;
+    expect(body?.status).toBe("failed");
+    expect(body && "error" in body ? body.error : "").toContain("EACCES");
+    expect(run.proc.signals).toEqual([]);
+  });
+
+  test("the run's masker hides the run token and the machine credential", async () => {
+    const run = setup({ script: toolRunScript() });
+    await run.execution.finished;
+    const [masker] = run.maskerSeen;
+    expect(masker?.mask(`a ${RUN_TOKEN} b ${CREDENTIAL}`)).toBe(
+      "a [secret:run_token] b [secret:machine_credential]"
+    );
+  });
+
   test("an error result posts failed with the error and the session", async () => {
     const result = {
       ...(toolRun.at(-1) as object),

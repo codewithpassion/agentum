@@ -118,6 +118,18 @@ test("abortAll aborts every running run and forgets the queue", async () => {
   expect(started.map((run) => run.runId)).toEqual(["r1", "r3"]);
 });
 
+test("after stop no offer starts a run", async () => {
+  const { claimed, manager, started } = harness();
+  manager.offer({ agentId: "a1", runId: "r1" });
+  await flush();
+  manager.stop("daemon stopping");
+  expect(started[0]?.aborts).toEqual(["daemon stopping"]);
+  manager.offer({ agentId: "a2", runId: "r2" });
+  started[0]?.finish();
+  await manager.idle();
+  expect(claimed).toEqual(["r1"]);
+});
+
 test("idle waits for the slots to be released", async () => {
   const { manager, started } = harness();
   manager.offer({ agentId: "a1", runId: "r1" });

@@ -24,6 +24,8 @@ export interface RunManager {
   /** Resolves when no run is running or being claimed. */
   idle: () => Promise<void>;
   offer: (frame: Pick<Offer, "agentId" | "runId">) => void;
+  /** Like abortAll, and every later offer is refused: the daemon is going down. */
+  stop: (reason: string) => void;
 }
 
 interface Slot {
@@ -41,6 +43,7 @@ export const createRunManager = (options: RunManagerOptions): RunManager => {
   const settled = new Set<Promise<void>>();
   // A cancel or an abort that arrives while the claim is in flight.
   const abortedBeforeStart = new Map<string, string>();
+  let stopped = false;
 
   const isKnown = (runId: string): boolean =>
     [...slots.values()].some((slot) => slot.runId === runId) ||
@@ -86,6 +89,10 @@ export const createRunManager = (options: RunManagerOptions): RunManager => {
   };
 
   const offer: RunManager["offer"] = ({ agentId, runId }) => {
+    if (stopped) {
+      log.info(`not starting run ${runId}: the daemon is stopping`);
+      return;
+    }
     if (isKnown(runId)) {
       log.info(`ignoring a repeated offer for run ${runId}`);
       return;
@@ -126,6 +133,11 @@ export const createRunManager = (options: RunManagerOptions): RunManager => {
     }
   };
 
+  const stop: RunManager["stop"] = (reason) => {
+    stopped = true;
+    abortAll(reason);
+  };
+
   const idle = async (): Promise<void> => {
     if (settled.size === 0) {
       return;
@@ -135,5 +147,5 @@ export const createRunManager = (options: RunManagerOptions): RunManager => {
     await idle();
   };
 
-  return { abortAll, cancel, idle, offer };
+  return { abortAll, cancel, idle, offer, stop };
 };

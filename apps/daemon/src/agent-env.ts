@@ -37,8 +37,9 @@ export const DENY_EXACT: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Secret-shaped names, denied whatever the allow list says. It applies under
- * `CLAUDE_` too, so `CLAUDE_CODE_OAUTH_TOKEN` never reaches the child.
+ * Secret-shaped names, denied whatever the allow list says. Only
+ * `CLAUDE_CONFIG_DIR` passes of the `CLAUDE_` names, and the pattern is the
+ * backstop for any name added to the allow list later.
  */
 export const DENY_PATTERN = /TOKEN|KEY|SECRET|CREDENTIAL|PASSWORD|PASSWD/i;
 

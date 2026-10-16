@@ -169,7 +169,9 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   };
 
   // The exit is watched from the moment the process exists. A process killed by
-  // a signal keeps `exitCode` null, and its `exit` event fires only once.
+  // a signal keeps `exitCode` null, and its `exit` event fires only once. A
+  // process that could not start (no such file, no permission, no sudo) emits
+  // `error` and never `exit`, so that ends the wait too.
   let exited: Promise<void> | undefined;
   let hasExited = false;
   const startProcess = deps.spawnProcessFor(rememberStderr);
@@ -177,10 +179,12 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
     const started = startProcess(options);
     child = started;
     exited = new Promise<void>((resolve) => {
-      started.once("exit", () => {
+      const gone = () => {
         hasExited = true;
         resolve();
-      });
+      };
+      started.once("exit", gone);
+      started.once("error", gone);
     });
     return started;
   };

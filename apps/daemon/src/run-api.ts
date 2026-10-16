@@ -18,6 +18,9 @@ const ERROR_TEXT_LIMIT = 200;
 const CREDENTIAL_PLACEHOLDER = "[secret:machine_credential]";
 const TRAILING_SLASHES = /\/+$/;
 
+/** How long one call to the Worker may take. */
+export const REQUEST_TIMEOUT_MS = 30_000;
+
 export class RunApiError extends Error {
   readonly status: number;
 
@@ -90,7 +93,13 @@ export const createRunApi = (options: RunApiOptions): RunApi => {
     const headers: Record<string, string> = {
       authorization: `Bearer ${credential}`,
     };
-    const init: RequestInit = { headers, method: "POST" };
+    // A relay that never answers must not hold a run's slot, or the daemon's
+    // shutdown, for longer than this.
+    const init: RequestInit = {
+      headers,
+      method: "POST",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    };
     if (body !== undefined) {
       headers["content-type"] = "application/json";
       init.body = JSON.stringify(masker.maskDeep(body));
