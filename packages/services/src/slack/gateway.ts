@@ -6,14 +6,21 @@
  * bot token and never read the environment.
  */
 import type { Database } from "@repo/db";
+import { events as eventRows } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { identityLinks } from "@repo/db/schema/workspaces";
 import { MAX_FILE_BYTES } from "@repo/db/shared";
-import { and, eq } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import { z } from "zod";
-import type { EventsService } from "../events.ts";
+import { type Payload, payloadSchema } from "../events/payload.ts";
+import type { EventRecord, EventsService } from "../events.ts";
 import type { FilesService } from "../files.ts";
-import type { Clock, Gateway, ReplyTarget } from "../runs/types.ts";
+import {
+  type Clock,
+  type Gateway,
+  type ReplyTarget,
+  replyTargetSchema,
+} from "../runs/types.ts";
 import { createSecretReader, findInstalledApp } from "./apps.ts";
 import {
   createSlackClient,
@@ -88,6 +95,16 @@ const slackTarget = (
 ): Extract<ReplyTarget, { kind: "slack" }> | null =>
   target.kind === "slack" ? target : null;
 
+export type SlackGateway = Gateway & {
+  /**
+   * Tells the person a connector needs a login, in a private Slack message.
+   * The composition root registers it with `events.onAppend`. It sends at most
+   * one private message per run and connector, and it is best effort: it logs
+   * a failure and never throws.
+   */
+  notifyNeedsAuth: (event: EventRecord) => Promise<void>;
+};
+
 export const createSlackGateway = ({
   clock,
   db,
@@ -96,7 +113,7 @@ export const createSlackGateway = ({
   files,
   publicBaseUrl,
   secretsKey,
-}: SlackGatewayOptions): Gateway => {
+}: SlackGatewayOptions): SlackGateway => {
   const secrets = createSecretReader(secretsKey);
 
   const clientFor = async (query: {
@@ -275,5 +292,104 @@ export const createSlackGateway = ({
     return fileIds;
   };
 
-  return { deliver, downloadPendingFiles, kind: "slack" };
+  /** True when an earlier needs_auth event of the run already named this connector. */
+  const noticeSentBefore = async (
+    runId: string,
+    eventId: string,
+    connectorId: string
+  ): Promise<boolean> => {
+    const earlier = await db
+      .select({ payload: eventRows.payload })
+      .from(eventRows)
+      .where(
+        and(
+          eq(eventRows.runId, runId),
+          eq(eventRows.type, "connector.needs_auth"),
+          lt(eventRows.id, eventId)
+        )
+      );
+    return earlier.some((row) => {
+      const parsed = payloadSchema.safeParse(JSON.parse(row.payload ?? "{}"));
+      return parsed.success && parsed.data.connectorId === connectorId;
+    });
+  };
+
+  /** The owner of a user login, otherwise the person the run is for. */
+  const connectingUserOf = (
+    payload: Payload,
+    onBehalfOfUserId: string | null
+  ): string | null => {
+    const { ownerId, ownerKind } = payload;
+    return ownerKind === "user" && typeof ownerId === "string"
+      ? ownerId
+      : onBehalfOfUserId;
+  };
+
+  const notifyNeedsAuth: SlackGateway["notifyNeedsAuth"] = async (event) => {
+    try {
+      const { connectPath, connectorId } = event.payload;
+      if (
+        event.type !== "connector.needs_auth" ||
+        !event.runId ||
+        typeof connectPath !== "string" ||
+        connectPath === "" ||
+        typeof connectorId !== "string"
+      ) {
+        return;
+      }
+      const [run] = await db
+        .select({
+          agentId: runs.agentId,
+          onBehalfOfUserId: runs.onBehalfOfUserId,
+          reply: runs.reply,
+          workspaceId: runs.workspaceId,
+        })
+        .from(runs)
+        .where(eq(runs.id, event.runId))
+        .limit(1);
+      if (!run) {
+        return;
+      }
+      const slack =
+        run.reply === null
+          ? null
+          : slackTarget(replyTargetSchema.parse(JSON.parse(run.reply)));
+      if (!slack) {
+        return;
+      }
+      if (await noticeSentBefore(event.runId, event.id, connectorId)) {
+        return;
+      }
+      const clerkUserId = connectingUserOf(event.payload, run.onBehalfOfUserId);
+      if (!clerkUserId) {
+        return;
+      }
+      const slackUserId = await slackUserOf(
+        run.workspaceId,
+        slack.teamId,
+        clerkUserId
+      );
+      if (!slackUserId) {
+        return;
+      }
+      const client = await clientFor({
+        agentId: run.agentId,
+        teamId: slack.teamId,
+        workspaceId: run.workspaceId,
+      });
+      const sent = await sendConnectLink(
+        client,
+        slack,
+        slackUserId,
+        connectPath
+      );
+      if (sent.kind !== "ok") {
+        console.warn("Slack needs-auth notice not sent", describeFailure(sent));
+      }
+    } catch (error) {
+      console.error("Slack needs-auth notice failed", error);
+    }
+  };
+
+  return { deliver, downloadPendingFiles, kind: "slack", notifyNeedsAuth };
 };

@@ -63,6 +63,10 @@ import {
 } from "@repo/services/slack";
 import { createSlackGateway } from "@repo/services/slack/gateway";
 import {
+  createSlackAppsService,
+  type SlackAppsService,
+} from "@repo/services/slack-apps";
+import {
   createTriggersService,
   type TriggersService,
 } from "@repo/services/triggers";
@@ -108,6 +112,7 @@ export interface Services {
   runs: RunsService;
   sessions: SessionsService;
   slack: SlackService;
+  slackApps: SlackAppsService;
   triggers: TriggersService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
@@ -211,18 +216,18 @@ export const composeWith = ({
     relay: infra.relay,
   });
   const oauthClients = createOAuthClientsService({ clock: infra.clock, db });
-  const gateways: Gateway[] = [
-    inbox.gateway,
-    createSlackGateway({
-      clock: infra.clock,
-      db,
-      events,
-      fetch: connectorFetch,
-      files,
-      publicBaseUrl: infra.publicBaseUrl,
-      secretsKey: infra.secretsKey,
-    }),
-  ];
+  const slackGateway = createSlackGateway({
+    clock: infra.clock,
+    db,
+    events,
+    fetch: connectorFetch,
+    files,
+    publicBaseUrl: infra.publicBaseUrl,
+    secretsKey: infra.secretsKey,
+  });
+  // A connector that needs a login tells the person in Slack, privately.
+  events.onAppend(slackGateway.notifyNeedsAuth);
+  const gateways: Gateway[] = [inbox.gateway, slackGateway];
   const runs = createRunsService({
     adapters,
     atomic: infra.atomic,
@@ -242,6 +247,15 @@ export const composeWith = ({
     events,
     fetch: connectorFetch,
     runs,
+    secretsKey: infra.secretsKey,
+  });
+  const slackApps = createSlackAppsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    fetch: connectorFetch,
+    publicBaseUrl: infra.publicBaseUrl,
     secretsKey: infra.secretsKey,
   });
   const triggers = createTriggersService({
@@ -269,6 +283,7 @@ export const composeWith = ({
       runs,
       sessions,
       slack,
+      slackApps,
       triggers,
       workspaces,
     },
