@@ -29,10 +29,12 @@ test("drops CLAUDECODE and CLAUDE_CODE_ENTRYPOINT", () => {
   expect(env).toEqual({ PATH: "/usr/bin" });
 });
 
-test("passes a CLAUDE_ name unless it matches the deny pattern", () => {
+test("passes CLAUDE_CONFIG_DIR and no other CLAUDE_ name", () => {
   const env = buildAgentEnv({
+    CLAUDE_CODE_BRIDGE_SESSION_ID: "bridge",
     CLAUDE_CODE_OAUTH_TOKEN: "secret",
     CLAUDE_CONFIG_DIR: "/home/hm/.claude",
+    CLAUDE_PID: "42",
   });
   expect(env).toEqual({ CLAUDE_CONFIG_DIR: "/home/hm/.claude" });
 });

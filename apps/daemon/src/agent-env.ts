@@ -7,6 +7,7 @@
  * the locale, the terminal, and the user identity a shell expects.
  */
 export const ALLOW_EXACT: ReadonlySet<string> = new Set([
+  "CLAUDE_CONFIG_DIR",
   "HOME",
   "LANG",
   "LC_ALL",
@@ -19,10 +20,12 @@ export const ALLOW_EXACT: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Name prefixes passed through: Claude Code's own settings and the XDG base
- * directories that hold its sign-in and config.
+ * Name prefixes passed through: the XDG base directories that hold Claude
+ * Code's sign-in and config. `CLAUDE_*` is not here as a prefix, because a
+ * daemon started from inside a Claude Code session inherits that session's
+ * bridge and child-session variables, and the child must not.
  */
-export const ALLOW_PREFIXES: readonly string[] = ["CLAUDE_", "XDG_"];
+export const ALLOW_PREFIXES: readonly string[] = ["XDG_"];
 
 /**
  * Denied whatever the allow list says. These two mark a Claude Code session,
