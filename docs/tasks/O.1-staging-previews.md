@@ -3,7 +3,7 @@ id: O.1
 title: Staging and previews
 milestone: O
 size: S
-status: blocked
+status: in_progress
 depends_on: [M0.7, M0.8]
 branch: null
 ---
@@ -22,3 +22,4 @@ A PR gets a preview URL whose `/api/health` answers; `https://<staging>/api/heal
 
 ## Log
 - 2026-10-16: blocked, staging is deferred until Dom says deploy.
+- 2026-10-17: staging live at https://harbourmaster-staging.dominik-fretz.workers.dev (D1 harbourmaster-staging, R2 harbourmaster-staging-files, secrets set incl. preview base config, dev-login off). First deploy inherited prod routes and took the prod custom domain for ~2 min; domain moved back to the prod Worker via API, staging now has routes: []. Smoke test blocked at sign-in: Clerk dev instance asks for an emailed new-device code. PR previews (token, test PR) not set up.
