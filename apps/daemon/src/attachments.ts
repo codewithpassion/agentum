@@ -97,7 +97,7 @@ const realpathOrNull = (path: string): string | null => {
   }
 };
 
-const isWithin = (root: string, target: string): boolean => {
+export const isWithin = (root: string, target: string): boolean => {
   const rel = relative(root, target);
   return (
     rel === "" ||
@@ -105,7 +105,7 @@ const isWithin = (root: string, target: string): boolean => {
   );
 };
 
-const mimeOf = (realPath: string): string => {
+export const mimeOf = (realPath: string): string => {
   const type = bunFile(realPath).type.split(";")[0]?.trim() ?? "";
   return type === "" ? FALLBACK_MIME : type;
 };

@@ -24,6 +24,16 @@ import type {
   CompleteRequest,
   RunEventInput,
 } from "@repo/protocol/machine";
+import {
+  AGENT_DD,
+  AGENT_HEAD,
+  AGENT_HOME,
+  AGENT_MKDIR,
+  AGENT_REALPATH,
+  AGENT_RM,
+  AGENT_STAT,
+  AS_AGENT,
+} from "./agent-user.ts";
 import type { Timers } from "./client.ts";
 import type { CommandRunner } from "./command.ts";
 import { type ExecuteRunDeps, executeRun, type QueryFn } from "./executor.ts";
@@ -132,6 +142,8 @@ interface Harness {
   optionsSeen: Options[];
   order: string[];
   proc: FakeProcess;
+  /** What the fake hm-agent work directory holds (path to text), as the sudo calls left it. */
+  remoteFiles: Map<string, string>;
   run: CommandRunner;
   runCommands: string[][];
   sendStderr: (text: string) => void;
@@ -151,6 +163,8 @@ interface SetupOptions {
   holdExit?: boolean;
   /** `setMcpServers` answers only once the query is closed. */
   mcpHangsUntilClose?: boolean;
+  /** Files already in the fake hm-agent work directory, by absolute path. */
+  remoteFiles?: Record<string, string>;
   script: Step[];
   singleUser?: boolean;
   /** The process fails to start: `error` and no `exit`, as Bun reports it. */
@@ -350,9 +364,55 @@ const setup = (setupOptions: SetupOptions) => {
     return fakeQuery as unknown as Query;
   };
 
-  const run: CommandRunner = (command) => {
+  // The fake hm-agent work directory: `dd` writes its stdin, `head` reads a
+  // file back, `realpath` and `stat` answer for the paths that exist.
+  const remoteFiles = new Map(Object.entries(setupOptions.remoteFiles ?? {}));
+  const remoteWorkDir = remoteWorkDirOf(claim);
+  const ok = { exitCode: 0, stderr: "", stdout: "" };
+  const missing = { exitCode: 1, stderr: "no such file", stdout: "" };
+  const run: CommandRunner = (command, stdin) => {
     runCommands.push(command);
-    return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
+    const [tool, ...args] = command.slice(AS_AGENT.length);
+    const path = args.at(-1) ?? "";
+    switch (tool) {
+      case AGENT_DD: {
+        const target = args.find((arg) => arg.startsWith("of="))?.slice(3);
+        order.push(`write:${target}`);
+        remoteFiles.set(target ?? "", new TextDecoder().decode(stdin));
+        return Promise.resolve(ok);
+      }
+      case AGENT_HEAD: {
+        const text = remoteFiles.get(path);
+        return Promise.resolve(
+          text === undefined
+            ? missing
+            : {
+                ...ok,
+                stdout: text,
+                stdoutBytes: new TextEncoder().encode(text),
+              }
+        );
+      }
+      case AGENT_REALPATH:
+        return Promise.resolve(
+          path === remoteWorkDir || remoteFiles.has(path)
+            ? { ...ok, stdout: `${path}\n` }
+            : missing
+        );
+      case AGENT_STAT: {
+        const text = remoteFiles.get(path);
+        return Promise.resolve(
+          text === undefined
+            ? missing
+            : {
+                ...ok,
+                stdout: `${new TextEncoder().encode(text).length} regular file\n`,
+              }
+        );
+      }
+      default:
+        return Promise.resolve(ok);
+    }
   };
   const log: Logger = {
     error: (message) => lines.push(message),
@@ -402,6 +462,7 @@ const setup = (setupOptions: SetupOptions) => {
     optionsSeen,
     order,
     proc,
+    remoteFiles,
     run,
     runCommands,
     sendStderr: (text) => stderr(text),
@@ -665,6 +726,10 @@ const answer = (text: string): SDKMessage =>
 const workDirOf = (claim: ClaimResponse): string =>
   workDirPath(home, claim.run.workspaceId, claim.run.agentId);
 
+/** The work directory of a multi-user run: hm-agent's home. */
+const remoteWorkDirOf = (claim: ClaimResponse): string =>
+  workDirPath(AGENT_HOME, claim.run.workspaceId, claim.run.agentId);
+
 const doneBody = (run: { completions: Harness["completions"] }) => {
   const body = run.completions[0]?.body;
   if (body?.status !== "done") {
@@ -737,20 +802,75 @@ describe("input files", () => {
     expect(body && "error" in body ? body.error : "").toContain("file-b");
     expect(run.optionsSeen).toHaveLength(0);
   });
+});
 
-  test("a multi-user machine fails a run with input files before touching the work directory", async () => {
+describe("files on a multi-user machine", () => {
+  test("each input file is written through sudo before Claude Code starts, and the first message names it", async () => {
+    const claim = claimWith((c) => {
+      c.inputFileIds = ["file-a", "file-b"];
+    });
     const run = setup({
-      claim: twoFiles(),
+      claim,
+      downloads: {
+        "file-a": { name: "notes.txt", text: "alpha" },
+        "file-b": { name: "data.csv", text: "beta" },
+      },
       script: toolRunScript(),
       singleUser: false,
     });
     await run.execution.finished;
-    const body = run.completions[0]?.body;
-    expect(body?.status).toBe("failed");
-    expect(body && "error" in body ? body.error : "").toContain("multi-user");
-    expect(run.downloaded).toEqual([]);
-    expect(run.runCommands).toEqual([]);
-    expect(run.optionsSeen).toHaveLength(0);
+    const inbox = `${remoteWorkDirOf(claim)}/inbox`;
+    // The first two commands prepare the work directory.
+    expect(run.runCommands.slice(2)).toEqual([
+      [...AS_AGENT, AGENT_MKDIR, "-p", inbox],
+      [...AS_AGENT, AGENT_DD, `of=${inbox}/notes.txt`, "status=none"],
+      [...AS_AGENT, AGENT_MKDIR, "-p", inbox],
+      [...AS_AGENT, AGENT_DD, `of=${inbox}/data.csv`, "status=none"],
+    ]);
+    expect(Object.fromEntries(run.remoteFiles)).toEqual({
+      [`${inbox}/data.csv`]: "beta",
+      [`${inbox}/notes.txt`]: "alpha",
+    });
+    const first = run.order.find((entry) => entry.startsWith("first-message:"));
+    expect(first).toContain("- inbox/notes.txt");
+    expect(first).toContain("- inbox/data.csv");
+    expect(run.order.indexOf(`write:${inbox}/data.csv`)).toBeLessThan(
+      run.order.indexOf(first ?? "")
+    );
+    expect(doneBody(run).status).toBe("done");
+  });
+
+  test("an attachment is read back through sudo and its id goes into the completion", async () => {
+    const claim = claimWith();
+    const run = setup({
+      claim,
+      remoteFiles: { [`${remoteWorkDirOf(claim)}/report.txt`]: "the report" },
+      script: [INIT, answer("Done. [ATTACHMENT:report.txt]")],
+      singleUser: false,
+    });
+    await run.execution.finished;
+    expect(run.uploaded).toEqual([{ name: "report.txt", text: "the report" }]);
+    const body = doneBody(run);
+    expect(body.fileIds).toEqual(["file-1"]);
+    expect(body.text).toBe("Done.");
+  });
+
+  test("a marker outside the work directory is refused with no sudo call for it", async () => {
+    const run = setup({
+      script: [INIT, answer("Here [ATTACHMENT:/etc/passwd]")],
+      singleUser: false,
+    });
+    await run.execution.finished;
+    expect(run.uploaded).toEqual([]);
+    // Only the two commands that prepare the work directory ran.
+    expect(run.runCommands.map((command) => command[AS_AGENT.length])).toEqual([
+      AGENT_MKDIR,
+      AGENT_RM,
+    ]);
+    const body = doneBody(run);
+    expect(body.fileIds).toBeUndefined();
+    expect(body.text).toContain("[attachment refused: passwd]");
+    expect(body.text).not.toContain("[ATTACHMENT:");
   });
 });
 
@@ -841,18 +961,6 @@ describe("output files", () => {
     const body = doneBody(run);
     expect(body.fileIds).toBeUndefined();
     expect(body.text).toContain("[attachment failed: report.txt]");
-  });
-
-  test("a multi-user machine uploads nothing and says so", async () => {
-    const run = setup({
-      script: [INIT, answer("[ATTACHMENT:report.txt]")],
-      singleUser: false,
-    });
-    await run.execution.finished;
-    expect(run.uploaded).toEqual([]);
-    const body = doneBody(run);
-    expect(body.fileIds).toBeUndefined();
-    expect(body.text).toContain("[attachment refused: report.txt]");
   });
 
   test("an error result is never scanned for markers", async () => {
