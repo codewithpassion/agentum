@@ -40,6 +40,8 @@ export const runs = sqliteTable(
     parentRunId: text("parent_run_id").references(
       (): AnySQLiteColumn => runs.id
     ),
+    // Downloads of pending_files that failed. Three failures fail the run.
+    pendingAttempts: integer("pending_attempts").notNull().default(0),
     // Slack file descriptors not yet in R2. A run with pending files is not
     // claimable. JSON.
     pendingFiles: text("pending_files"),
