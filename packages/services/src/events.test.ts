@@ -1,11 +1,16 @@
 import { beforeEach, expect, test } from "bun:test";
+import { agents } from "@repo/db/schema/agents";
 import { events } from "@repo/db/schema/events";
+import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
+import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { createEventsService } from "./events.ts";
 import { importRunTokenKey, signRunToken } from "./run-tokens.ts";
 import type { Principal } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
+const NOW = "2026-01-01T00:00:00.000Z";
 const principal: Principal = {
   kind: "user",
   userId: "u1",
@@ -24,8 +29,76 @@ const base = {
   workspaceId: WORKSPACE,
 } as const;
 
+/**
+ * Workspaces w1 and w2, then agent a1, sessions s1 and s2, and run r1 and r2,
+ * so event rows pass their foreign keys.
+ */
+const seedParents = (database: ReturnType<typeof migrated>) => {
+  for (const id of [WORKSPACE, "w2"]) {
+    database
+      .insert(workspaces)
+      .values({
+        clerkOrgId: `org_${id}`,
+        createdAt: NOW,
+        id,
+        name: id,
+        timezone: "UTC",
+      })
+      .run();
+  }
+  database
+    .insert(agents)
+    .values({
+      createdAt: NOW,
+      createdBy: "u1",
+      id: "a1",
+      instructions: "",
+      model: "m",
+      name: "a1",
+      runtime: "fake",
+      runtimeConfig: "{}",
+      slug: "a1",
+      status: "active",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  database
+    .insert(sessions)
+    .values(
+      [
+        { id: "s1", origin: "test" },
+        { id: "s2", origin: "test" },
+      ].map((session) => ({
+        actorId: "u1",
+        actorKind: "user",
+        agentId: "a1",
+        createdAt: NOW,
+        workspaceId: WORKSPACE,
+        ...session,
+      }))
+    )
+    .run();
+  database
+    .insert(runs)
+    .values(
+      ["r1", "r2"].map((id) => ({
+        actorId: "u1",
+        actorKind: "user",
+        agentId: "a1",
+        createdAt: NOW,
+        id,
+        inputText: "",
+        sessionId: "s1",
+        status: "queued" as const,
+        workspaceId: WORKSPACE,
+      }))
+    )
+    .run();
+};
+
 beforeEach(() => {
   db = migrated();
+  seedParents(db);
   store = new Map();
   service = createEventsService({
     blobs: {

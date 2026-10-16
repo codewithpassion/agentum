@@ -1,7 +1,9 @@
 import { beforeEach, expect, test } from "bun:test";
+import { agents } from "@repo/db/schema/agents";
 import { apiKeys } from "@repo/db/schema/api-keys";
 import { machines } from "@repo/db/schema/machines";
 import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
@@ -60,6 +62,38 @@ const addWorkspace = (id: string, clerkOrgId: string) =>
       id,
       name: clerkOrgId,
       timezone: "UTC",
+    })
+    .run();
+
+const addAgent = (id: string, workspaceId: string) =>
+  db
+    .insert(agents)
+    .values({
+      createdAt: new Date().toISOString(),
+      createdBy: "user_1",
+      id,
+      instructions: "",
+      model: "test-model",
+      name: id,
+      runtime: "managed",
+      runtimeConfig: "{}",
+      slug: id,
+      status: "active",
+      workspaceId,
+    })
+    .run();
+
+const addSession = (id: string, workspaceId: string, agentId: string) =>
+  db
+    .insert(sessions)
+    .values({
+      actorId: "user_1",
+      actorKind: "user",
+      agentId,
+      createdAt: new Date().toISOString(),
+      id,
+      origin: "test",
+      workspaceId,
     })
     .run();
 
@@ -123,7 +157,12 @@ const addApiKey = async (
 };
 
 /** A live run, so a token minted now is accepted now. */
-const addRun = (id: string, workspaceId: string, agentId: string) => {
+const addRun = (
+  id: string,
+  workspaceId: string,
+  agentId: string,
+  sessionId: string
+) => {
   const now = Date.now();
   db.insert(runs)
     .values({
@@ -134,7 +173,7 @@ const addRun = (id: string, workspaceId: string, agentId: string) => {
       id,
       inputText: "hello",
       leaseUntil: new Date(now + 5 * MINUTE_MS).toISOString(),
-      sessionId: "session_1",
+      sessionId,
       status: "running",
       workspaceId,
     })
@@ -173,6 +212,10 @@ beforeEach(async () => {
 
   addWorkspace("ws_a", "org_a");
   addWorkspace("ws_x", "org_x");
+  addAgent("agent_1", "ws_a");
+  addAgent("agent_9", "ws_x");
+  addSession("session_1", "ws_a", "agent_1");
+  addSession("session_9", "ws_x", "agent_9");
   tokens = {
     apiKey: await addApiKey("key_a", "ws_a", "user_1", false),
     apiKeyRevoked: await addApiKey("key_a_revoked", "ws_a", "user_1", true),
@@ -185,8 +228,8 @@ beforeEach(async () => {
     machine: await addMachine("mach_x", "ws_x", "online"),
     trigger: await addTrigger("trg_x", "ws_x", "agent_9"),
   };
-  addRun("run_1", "ws_a", "agent_1");
-  addRun("run_x", "ws_x", "agent_9");
+  addRun("run_1", "ws_a", "agent_1", "session_1");
+  addRun("run_x", "ws_x", "agent_9", "session_9");
   runToken = await runTokenFor("run_1", "ws_a", "agent_1");
   otherOrgRunToken = await runTokenFor("run_x", "ws_x", "agent_9");
 });

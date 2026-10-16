@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { agents } from "@repo/db/schema/agents";
+import { sessions } from "@repo/db/schema/sessions";
+import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import {
   authorize,
@@ -14,6 +17,52 @@ const resource = (workspaceId: string): Resource => ({
   kind: "event",
   workspaceId,
 });
+
+const NOW = "2026-01-01T00:00:00.000Z";
+
+/**
+ * Workspaces A and B, plus the agent and session that B's event points at,
+ * so the event insert passes its foreign keys.
+ */
+const seedWorkspaces = (db: ReturnType<typeof migrated>) => {
+  for (const id of ["wA", "wB"]) {
+    db.insert(workspaces)
+      .values({
+        clerkOrgId: `org_${id}`,
+        createdAt: NOW,
+        id,
+        name: id,
+        timezone: "UTC",
+      })
+      .run();
+  }
+  db.insert(agents)
+    .values({
+      createdAt: NOW,
+      createdBy: "u-b",
+      id: "a-b",
+      instructions: "",
+      model: "m",
+      name: "B agent",
+      runtime: "fake",
+      runtimeConfig: "{}",
+      slug: "b-agent",
+      status: "active",
+      workspaceId: "wB",
+    })
+    .run();
+  db.insert(sessions)
+    .values({
+      actorId: "u-b",
+      actorKind: "user",
+      agentId: "a-b",
+      createdAt: NOW,
+      id: "s-b",
+      origin: "test",
+      workspaceId: "wB",
+    })
+    .run();
+};
 
 const workspacePrincipals = (workspaceId: string): WorkspacePrincipal[] => [
   { kind: "user", userId: "u1", via: "session", workspaceId },
@@ -94,6 +143,8 @@ describe("a member of A cannot read B's row through any service", () => {
   let bEvent: Awaited<ReturnType<typeof service.append>>;
 
   beforeEach(async () => {
+    const db = migrated();
+    seedWorkspaces(db);
     const store = new Map<string, string>();
     service = createEventsService({
       blobs: {
@@ -103,7 +154,7 @@ describe("a member of A cannot read B's row through any service", () => {
           return Promise.resolve();
         },
       },
-      db: migrated(),
+      db,
     });
     bEvent = await service.append({
       actor: { id: "u-b", kind: "user" },

@@ -23,7 +23,9 @@ export const identityLinks = sqliteTable(
     id: id(),
     provider: text("provider", { enum: IDENTITY_PROVIDERS }).notNull(),
     teamId: text("team_id").notNull(),
-    workspaceId: workspaceId(),
+    workspaceId: workspaceId().references(() => workspaces.id, {
+      onDelete: "cascade",
+    }),
   },
   (t) => [
     uniqueIndex("identity_links_identity_unique").on(

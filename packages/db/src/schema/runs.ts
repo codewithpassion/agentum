@@ -1,4 +1,5 @@
 import {
+  type AnySQLiteColumn,
   integer,
   sqliteTable,
   text,
@@ -6,6 +7,9 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
 import { RUN_STATUSES } from "../shared.ts";
+import { agents } from "./agents.ts";
+import { sessions } from "./sessions.ts";
+import { workspaces } from "./workspaces.ts";
 
 /**
  * Claim, heartbeat and complete are compare-and-set updates (WHERE status = ?).
@@ -17,7 +21,9 @@ export const runs = sqliteTable(
   {
     actorId: text("actor_id").notNull(),
     actorKind: text("actor_kind").notNull(),
-    agentId: text("agent_id").notNull(),
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id),
     claimedBy: text("claimed_by"),
     createdAt: createdAt(),
     depth: integer("depth").notNull().default(0),
@@ -31,7 +37,9 @@ export const runs = sqliteTable(
     onBehalfOfUserId: text("on_behalf_of_user_id"),
     // JSON array of output file ids.
     outputFileIds: text("output_file_ids").notNull().default("[]"),
-    parentRunId: text("parent_run_id"),
+    parentRunId: text("parent_run_id").references(
+      (): AnySQLiteColumn => runs.id
+    ),
     // Slack file descriptors not yet in R2. A run with pending files is not
     // claimable. JSON.
     pendingFiles: text("pending_files"),
@@ -40,12 +48,14 @@ export const runs = sqliteTable(
     reply: text("reply"),
     requestId: text("request_id"),
     resultText: text("result_text"),
-    sessionId: text("session_id").notNull(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id),
     startedAt: text("started_at"),
     status: text("status", { enum: RUN_STATUSES }).notNull(),
     // JSON.
     usage: text("usage"),
-    workspaceId: workspaceId(),
+    workspaceId: workspaceId().references(() => workspaces.id),
   },
   (t) => [uniqueIndex("runs_request_unique").on(t.workspaceId, t.requestId)]
 );

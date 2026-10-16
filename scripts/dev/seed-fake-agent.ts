@@ -145,6 +145,8 @@ export const main = async (): Promise<void> => {
 
   process.stderr.write(`Seeding ${dbFile}.\n`);
   const client = new Sqlite(dbFile);
+  // D1 enforces foreign keys, so the seed does too.
+  client.run("PRAGMA foreign_keys = ON");
   try {
     const agentId = await seedFakeAgent({ db: drizzle(client), orgId });
     process.stdout.write(`${agentId}\n`);

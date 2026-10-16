@@ -1,5 +1,8 @@
 import { beforeAll, beforeEach, expect, test } from "bun:test";
+import { agents } from "@repo/db/schema/agents";
 import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
+import { workspaces } from "@repo/db/schema/workspaces";
 import { RUN_STATUSES, type RunStatus } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
@@ -36,6 +39,60 @@ beforeAll(async () => {
   key = await importRunTokenKey(keyBase64(1));
 });
 
+const NOW = "2026-03-01T00:00:00.000Z";
+
+/**
+ * Workspaces ws_1 and ws_2, agents agent_1 and agent_2 in ws_1 and ws_2, and
+ * session s1 under agent_1, so run rows pass their foreign keys.
+ */
+const seedParents = (database: ReturnType<typeof migrated>) => {
+  for (const id of ["ws_1", "ws_2"]) {
+    database
+      .insert(workspaces)
+      .values({
+        clerkOrgId: `org_${id}`,
+        createdAt: NOW,
+        id,
+        name: id,
+        timezone: "UTC",
+      })
+      .run();
+  }
+  for (const [id, workspaceId] of [
+    ["agent_1", "ws_1"],
+    ["agent_2", "ws_2"],
+  ] as const) {
+    database
+      .insert(agents)
+      .values({
+        createdAt: NOW,
+        createdBy: "u1",
+        id,
+        instructions: "",
+        model: "m",
+        name: id,
+        runtime: "fake",
+        runtimeConfig: "{}",
+        slug: id,
+        status: "active",
+        workspaceId,
+      })
+      .run();
+  }
+  database
+    .insert(sessions)
+    .values({
+      actorId: "u1",
+      actorKind: "user",
+      agentId: "agent_1",
+      createdAt: NOW,
+      id: "s1",
+      origin: "test",
+      workspaceId: "ws_1",
+    })
+    .run();
+};
+
 const insertRun = (
   id: string,
   status: RunStatus,
@@ -66,6 +123,7 @@ const verify = (token: string, now: Date, withKey = key) =>
 
 beforeEach(() => {
   db = migrated();
+  seedParents(db);
   insertRun("run_1", "running", leaseAfter(CLAIMED_AT, 5 * 60 * 1000));
 });
 

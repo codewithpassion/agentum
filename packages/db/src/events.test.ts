@@ -1,12 +1,22 @@
 import { beforeEach, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { events } from "./schema/events.ts";
+import { workspaces } from "./schema/workspaces.ts";
 import { migrated } from "./test-db.ts";
 
 let db: ReturnType<typeof migrated>;
 
 beforeEach(() => {
   db = migrated();
+  db.insert(workspaces)
+    .values({
+      clerkOrgId: "org_w1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      id: "w1",
+      name: "w1",
+      timezone: "UTC",
+    })
+    .run();
   db.insert(events)
     .values({
       actorId: "u1",

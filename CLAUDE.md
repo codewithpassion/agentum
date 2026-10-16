@@ -30,7 +30,11 @@ are easy to break:
   committing `migrations/` including `migrations/meta/`.
 - Multi-statement writes go through `atomic` from `@repo/db/atomic`, never
   raw `db.batch` or `db.transaction`. The `events` triggers are hand-written at
-  the end of `0002_foundation.sql`; keep them if that migration is regenerated.
+  the end of `0002_foundation.sql` and again at the end of `0004_*.sql`; a
+  migration that recreates `events` must add them back.
+- Foreign keys are on (D1 enforces them, and `migrated()` turns them on in
+  tests). Insert parents before children. A migration that recreates tables
+  rebuilds parents first, because D1 cannot switch `foreign_keys` off.
 - Migrations are applied by wrangler, not drizzle-kit: `wrangler d1 migrations
   apply DB --local` (which `bun run dev` does for you) or `--remote`.
 - Local database: SQLite via Miniflare, in `apps/web/.wrangler`. No account, no
