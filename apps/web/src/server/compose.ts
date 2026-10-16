@@ -36,6 +36,10 @@ import {
 } from "@repo/services/machines";
 import { createMachineRuntime } from "@repo/services/machines/runtime";
 import type { MachineRelayPort } from "@repo/services/machines/types";
+import {
+  createOAuthClientsService,
+  type OAuthClientsService,
+} from "@repo/services/oauth-clients";
 import { createRunsService, type RunsService } from "@repo/services/runs";
 import {
   type Clock,
@@ -78,6 +82,7 @@ export interface Services {
   events: EventsService;
   files: FilesService;
   machines: MachinesService;
+  oauthClients: OAuthClientsService;
   runs: RunsService;
   sessions: SessionsService;
   workspaces: ReturnType<typeof createWorkspacesService>;
@@ -159,6 +164,7 @@ export const composeWith = ({
     events,
     relay: infra.relay,
   });
+  const oauthClients = createOAuthClientsService({ clock: infra.clock, db });
   const runs = createRunsService({
     adapters,
     atomic: infra.atomic,
@@ -182,6 +188,7 @@ export const composeWith = ({
       events,
       files,
       machines,
+      oauthClients,
       runs,
       sessions,
       workspaces,

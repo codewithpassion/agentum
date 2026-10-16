@@ -9,7 +9,7 @@ interface Column {
 
 const NO_WORKSPACE_ID = new Set(["workspaces", "__drizzle_migrations"]);
 
-test("the foundation and connector tables exist", () => {
+test("the foundation, connector and OAuth client tables exist", () => {
   const { client } = migrated();
   const names = client
     .query<{ name: string }, []>(
@@ -29,6 +29,7 @@ test("the foundation and connector tables exist", () => {
     "identity_links",
     "machine_enroll_tokens",
     "machines",
+    "oauth_clients",
     "oauth_states",
     "runs",
     "sessions",
@@ -46,7 +47,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(14);
+  expect(tables.length).toBe(15);
 
   for (const table of tables) {
     const column = client

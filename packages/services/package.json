@@ -17,6 +17,7 @@
     "./machines": "./src/machines.ts",
     "./machines/runtime": "./src/machines/runtime.ts",
     "./machines/types": "./src/machines/types.ts",
+    "./oauth-clients": "./src/oauth-clients.ts",
     "./run-tokens": "./src/run-tokens.ts",
     "./runs": "./src/runs.ts",
     "./runs/types": "./src/runs/types.ts",

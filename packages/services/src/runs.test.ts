@@ -394,6 +394,22 @@ test("a read-only api key cannot start a run", async () => {
   expect((await start(writeKey, fakeAgentId)).runId).toBeString();
 });
 
+test("a read-only OAuth client cannot start a run", async () => {
+  const readClient: Principal = {
+    ...user,
+    oauthClient: { access: "read", clientId: "c1" },
+    via: "oauth",
+  };
+  const error = await failure(start(readClient, fakeAgentId));
+  expect(error).toBeInstanceOf(ForbiddenError);
+  const writeClient: Principal = {
+    ...user,
+    oauthClient: { access: "write", clientId: "c2" },
+    via: "oauth",
+  };
+  expect((await start(writeClient, fakeAgentId)).runId).toBeString();
+});
+
 test("a requestId is handed back only to the caller that used it", async () => {
   const first = await start(user, fakeAgentId, { requestId: "msg-1" });
   const again = await start(user, fakeAgentId, { requestId: "msg-1" });

@@ -20,6 +20,8 @@ export type Principal =
       /** Set when `via` is `api_key`: which key, and what it may do. */
       apiKey?: { access: ApiKeyAccess; id: string };
       kind: "user";
+      /** Set when `via` is `oauth`: which client, and what it may do. */
+      oauthClient?: { access: ApiKeyAccess; clientId: string };
       workspaceId: string;
       userId: string;
       via: "session" | "api_key" | "oauth";
@@ -149,6 +151,14 @@ export const findMachineByCredential = async (
     : null;
 };
 
+/** What the app's Clerk OAuth check hands the resolver for a token it accepts. */
+export interface VerifiedOAuthClaim {
+  access: ApiKeyAccess;
+  clientId: string;
+  userId: string;
+  workspaceId: string;
+}
+
 export interface PrincipalResolverOptions {
   allowedOrgIds: readonly string[];
   db: Database;
@@ -158,13 +168,12 @@ export interface PrincipalResolverOptions {
   now?: () => number;
   runTokenKey: CryptoKey;
   /**
-   * Verifies a Clerk OAuth token and returns the user and the workspace named
-   * by the approved oauth_clients row. The app's implementation does that
-   * lookup. The workspace never comes from the request. Errors propagate.
+   * Verifies a Clerk OAuth token and returns the user, and the client's
+   * access and workspace from its approved oauth_clients row. The app's
+   * implementation does that lookup. The workspace never comes from the
+   * request. Errors propagate.
    */
-  verifyClerkOAuthToken: (
-    token: string
-  ) => Promise<{ userId: string; workspaceId: string } | null>;
+  verifyClerkOAuthToken: (token: string) => Promise<VerifiedOAuthClaim | null>;
 }
 
 const BEARER_SCHEME = "bearer";
@@ -291,6 +300,7 @@ export const createPrincipalResolver = ({
     return claim
       ? {
           kind: "user" as const,
+          oauthClient: { access: claim.access, clientId: claim.clientId },
           userId: claim.userId,
           via: "oauth" as const,
           workspaceId: claim.workspaceId,

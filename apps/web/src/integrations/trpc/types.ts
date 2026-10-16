@@ -9,6 +9,7 @@ export type MachineRecord = RouterOutputs["machines"]["list"][number];
 export type SessionListItem = RouterOutputs["sessions"]["list"][number];
 export type SessionTranscript = RouterOutputs["sessions"]["transcript"];
 export type ApiKeyRecord = RouterOutputs["apiKeys"]["list"][number];
+export type OAuthClientRecord = RouterOutputs["oauthClients"]["list"][number];
 export type FileInfo = RouterOutputs["files"]["describe"][number];
 export type ConnectorRecord = RouterOutputs["connectors"]["list"][number];
 export type CredentialRecord = ConnectorRecord["agentCredentials"][number];
