@@ -4,6 +4,11 @@
 // channel with `setMcpServers`, and only then send the first user message. The
 // run token reaches Claude Code through that control channel and nowhere else.
 //
+// Input files are downloaded between preparing the work directory and the first
+// message. Output files are uploaded after the process has exited and before
+// the completion; heartbeats go on until the completion is posted, so a slow
+// upload does not cost the run its lease.
+//
 // The local slot belongs to the caller. `finished` resolves after the
 // completion was posted, and the completion is posted after the Claude Code
 // process has exited, so a slot released on `finished` is really free.
@@ -25,6 +30,7 @@ import type { Timers } from "./client.ts";
 import type { CommandRunner } from "./command.ts";
 import type { DaemonConfig } from "./config.ts";
 import { createEventBatcher } from "./event-batcher.ts";
+import type { FilesApi } from "./files-api.ts";
 import type { Logger } from "./log.ts";
 import { createMasker, type Masker } from "./masker.ts";
 import {
@@ -34,6 +40,12 @@ import {
   summariseResult,
 } from "./normalize.ts";
 import type { RunApi } from "./run-api.ts";
+import {
+  fetchInputFiles,
+  MULTI_USER_FILES_MESSAGE,
+  messageWithFiles,
+  uploadOutputs,
+} from "./run-files.ts";
 import { prepareWorkDir } from "./workdir.ts";
 
 export type QueryFn = (params: {
@@ -51,6 +63,8 @@ export interface ExecuteRunDeps {
   >;
   /** Builds the run's HTTP client once the run token is known. */
   createApi: (masker: Masker) => RunApi;
+  /** Builds the client for the file routes, which take the run token. */
+  createFilesApi: (masker: Masker) => FilesApi;
   /** The daemon user's home, for the work directory of a single_user machine. */
   daemonHome?: string;
   /** The daemon's own environment, filtered before it reaches Claude Code. */
@@ -106,7 +120,7 @@ const resumeOf = (
     ? (claim.session.runtimeRef ?? undefined)
     : undefined;
 
-const firstMessage = (text: string): SDKUserMessage => ({
+const userMessage = (text: string): SDKUserMessage => ({
   message: { content: text, role: "user" },
   parent_tool_use_id: null,
   type: "user",
@@ -115,7 +129,8 @@ const firstMessage = (text: string): SDKUserMessage => ({
 const completionOf = (
   result: RunResult | undefined,
   failure: string | undefined,
-  sessionId: string | undefined
+  sessionId: string | undefined,
+  fileIds: string[] = []
 ): CompleteRequest => {
   if (result && !result.isError) {
     return {
@@ -123,6 +138,7 @@ const completionOf = (
       status: "done",
       text: result.text,
       usage: result.usage,
+      ...(fileIds.length > 0 ? { fileIds } : {}),
     };
   }
   if (result) {
@@ -147,6 +163,7 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
     run_token: claim.runToken,
   });
   const api = deps.createApi(masker);
+  const filesApi = deps.createFilesApi(masker);
   const abortController = new AbortController();
   const runLog = (message: string) =>
     log.info(masker.mask(`run ${claim.run.id}: ${message}`));
@@ -255,7 +272,10 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   let result: RunResult | undefined;
   let sessionId: string | undefined;
 
-  const converse = async (options: Options): Promise<void> => {
+  const converse = async (
+    options: Options,
+    firstText: string
+  ): Promise<void> => {
     let openGate: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => {
       openGate = resolve;
@@ -274,7 +294,7 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       if (abortController.signal.aborted) {
         return;
       }
-      yield firstMessage(claim.run.inputText);
+      yield userMessage(firstText);
       // Closing stdin after the answer lets Claude Code exit by itself.
       await turnOver;
     }
@@ -316,6 +336,7 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   };
 
   let failure: string | undefined;
+  let preparedDir: string | undefined;
 
   const work = async (): Promise<void> => {
     if (config.claudeBinary === null) {
@@ -323,17 +344,63 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
         "No claude binary is configured for this machine. Enroll again with --claude <path>.";
       return;
     }
-    const workDir = await prepareWorkDir({
+    if (claim.inputFileIds.length > 0 && !config.singleUser) {
+      failure = MULTI_USER_FILES_MESSAGE;
+      return;
+    }
+    const prepared = await prepareWorkDir({
       agentId: claim.run.agentId,
       daemonHome: deps.daemonHome,
       run: deps.run,
       singleUser: config.singleUser,
       workspaceId: claim.run.workspaceId,
     });
+    preparedDir = prepared;
     if (abortReason !== undefined) {
       return;
     }
-    await converse(buildOptions(workDir, config.claudeBinary));
+    const inputPaths = await fetchInputFiles({
+      api: filesApi,
+      fileIds: claim.inputFileIds,
+      signal: abortController.signal,
+      workDir: prepared,
+    });
+    if (abortReason !== undefined) {
+      return;
+    }
+    await converse(
+      buildOptions(prepared, config.claudeBinary),
+      messageWithFiles(claim.run.inputText, inputPaths)
+    );
+  };
+
+  /** The completion for a run that ended without an abort. */
+  const completionBody = async (): Promise<CompleteRequest> => {
+    if (result === undefined || result.isError || preparedDir === undefined) {
+      return completionOf(result, failureDetail(), sessionId);
+    }
+    try {
+      const outputs = await uploadOutputs({
+        api: filesApi,
+        log: runLog,
+        signal: abortController.signal,
+        singleUser: config.singleUser,
+        text: result.text,
+        workDir: preparedDir,
+      });
+      return completionOf(
+        { ...result, text: outputs.text },
+        undefined,
+        sessionId,
+        outputs.fileIds
+      );
+    } catch (error) {
+      if (abortReason === undefined) {
+        runLog(`attachments failed: ${messageOf(error)}`);
+        return completionOf(result, undefined, sessionId);
+      }
+      return { status: "aborted" };
+    }
   };
 
   /** Why a run without a result failed, with what the process said last. */
@@ -354,17 +421,19 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
         failure = messageOf(error);
       }
     } finally {
-      cancelBeat();
       batcher.stop();
     }
     await processExited();
     await batcher.flush();
 
     let body: CompleteRequest;
-    if (abortReason === undefined) {
-      body = completionOf(result, failureDetail(), sessionId);
-    } else {
-      body = { status: "aborted" };
+    try {
+      body =
+        abortReason === undefined
+          ? await completionBody()
+          : { status: "aborted" };
+    } finally {
+      cancelBeat();
     }
     try {
       await api.complete(body);
