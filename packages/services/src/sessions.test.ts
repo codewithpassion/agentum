@@ -146,6 +146,18 @@ test("list takes the title from the first message and the status from the last r
   expect(item).toMatchObject({ status: "interrupted", title: "opening" });
 });
 
+test("the title is the first message trimmed to 60 characters, in the list and the transcript", async () => {
+  const long = `  ${"word ".repeat(30)}`;
+  const started = await send(user("u1"), long);
+
+  const [item] = await sessions.list(user("u1"), { agentId });
+  const { session } = await sessions.transcript(user("u1"), started.sessionId);
+
+  const expected = `${long.trim().slice(0, 60)}...`;
+  expect(item?.title).toBe(expected);
+  expect(session.title).toBe(expected);
+});
+
 test("list hides another user's ui session and other workspaces' sessions", async () => {
   await send(user("u1"), "private");
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Markdown } from "#/components/markdown/markdown.tsx";
 import { Bubble, BubbleContent } from "#/components/ui/bubble.tsx";
 import { Message, MessageContent } from "#/components/ui/message.tsx";
 import type { FileInfo } from "#/integrations/trpc/types.ts";
@@ -58,8 +59,16 @@ function MessageItem({
             align={align}
             variant={item.kind === "user" ? "default" : "muted"}
           >
-            <BubbleContent className="whitespace-pre-wrap">
-              {item.text}
+            <BubbleContent
+              className={
+                item.kind === "user" ? "whitespace-pre-wrap" : undefined
+              }
+            >
+              {item.kind === "user" ? (
+                item.text
+              ) : (
+                <Markdown>{item.text}</Markdown>
+              )}
             </BubbleContent>
           </Bubble>
         )}

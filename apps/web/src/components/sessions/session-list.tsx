@@ -4,7 +4,12 @@ import { useCallback } from "react";
 import { Badge } from "#/components/ui/badge.tsx";
 import type { SessionListItem } from "#/integrations/trpc/types";
 import { cn } from "#/lib/utils.ts";
-import { lastActivity, originLabel, statusLabel } from "./sessions-logic.ts";
+import {
+  lastActivity,
+  originLabel,
+  sessionTitle,
+  statusLabel,
+} from "./sessions-logic.ts";
 
 interface SessionListProps {
   activeId: string | undefined;
@@ -39,7 +44,11 @@ function SessionItem({ active, agentName, session }: SessionItemProps) {
         to="/sessions"
       >
         <span className="truncate font-medium text-sm">
-          {session.title || "(no message)"}
+          {sessionTitle({
+            agentName,
+            createdAt: session.createdAt,
+            title: session.title,
+          })}
         </span>
         <span className="flex min-w-0 items-center gap-2 text-muted-foreground text-xs">
           <span className="truncate">{agentName}</span>

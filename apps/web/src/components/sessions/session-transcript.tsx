@@ -8,7 +8,10 @@ import {
 } from "#/components/agent/chat/chat-logic.ts";
 import { TranscriptView } from "#/components/agent/chat/transcript-view.tsx";
 import { useFileInfos } from "#/components/agent/chat/use-file-infos.ts";
-import { originLabel } from "#/components/sessions/sessions-logic.ts";
+import {
+  originLabel,
+  sessionTitle,
+} from "#/components/sessions/sessions-logic.ts";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { SessionTranscript } from "#/integrations/trpc/types";
 
@@ -16,7 +19,13 @@ const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
 /** A read-only view of one session's transcript, kept fresh while a run is active. */
-export function SessionTranscriptPanel({ sessionId }: { sessionId: string }) {
+export function SessionTranscriptPanel({
+  agentNames,
+  sessionId,
+}: {
+  agentNames: ReadonlyMap<string, string>;
+  sessionId: string;
+}) {
   const [transcript, setTranscript] = useState<SessionTranscript | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The session this panel shows. Null after unmount, so a late response is dropped.
@@ -71,7 +80,16 @@ export function SessionTranscriptPanel({ sessionId }: { sessionId: string }) {
     <section className="flex flex-col gap-4">
       {transcript === null ? null : (
         <div className="flex flex-col gap-1">
-          <p className="font-medium">{originLabel(transcript.session)}</p>
+          <h2 className="font-medium text-foreground text-lg">
+            {sessionTitle({
+              agentName: agentNames.get(transcript.session.agentId) ?? "Agent",
+              createdAt: transcript.session.createdAt,
+              title: transcript.session.title,
+            })}
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            {originLabel(transcript.session)}
+          </p>
           {latestRun === null ? null : (
             <p className="text-muted-foreground text-sm" role="status">
               {statusLine(latestRun)}

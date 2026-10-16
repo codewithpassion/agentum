@@ -4,8 +4,8 @@ import ThemeToggle from "./theme-toggle";
 
 export default function Header() {
   return (
-    <header className="sticky top-0 z-50 border-border border-b bg-background/90 px-4 backdrop-blur-lg">
-      <nav className="page-wrap flex flex-wrap items-center gap-x-3 gap-y-2 py-3 sm:py-4">
+    <header className="sticky top-0 z-50 border-border border-b bg-background/90 px-4 backdrop-blur-lg md:h-(--app-header-h)">
+      <nav className="page-wrap flex flex-wrap items-center gap-x-3 gap-y-2 py-3 sm:py-4 md:h-full md:py-0">
         <h2 className="m-0 flex-shrink-0 text-base">
           <Link
             className="inline-flex items-center gap-2.5 font-heading text-foreground text-xl no-underline"
