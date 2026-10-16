@@ -15,6 +15,7 @@ The service layer: business rules and input validation, on top of the query func
 | `@repo/services/runs` | `createRunsService({ db, atomic, adapters, gateways, blobs, clock, devFakeRuntime, runTokenKey? })`: `startRun`, `waitForRun`, `getRun`, `cancelRun`, `claimRun` (system only), `claimRunForMachine` (a daemon's claim, mints the run token with `runTokenKey`), `heartbeatRun`, `ingestRunEvents`, `completeRun`, and the two tick jobs `sweepQueuedRuns` and `reapExpiredLeases`. Its types (`RuntimeAdapter`, `Gateway`, `StartRunInput`, `Clock`) are in `@repo/services/runs/types` |
 | `@repo/services/sessions` | `createSessionsService({ db, events })`: `list(principal, { agentId })` (newest first, with the first message as title and the latest run's status) and `transcript(principal, sessionId)` (the `message.*` and `tool.*` events plus the latest run). A `ui` session is visible only to the user who opened it |
 | `@repo/services/files` | `createFilesService({ db, blobs })`: `upload(principal, { body, mime, name })` (a user, or a run which stamps `run_id`; 50 MB cap; the bytes go to `blobs` under `<workspaceId>/files/<id>`), `download(principal, fileId)` (a user of the workspace, or a run whose `input_file_ids` or `output_file_ids` list the id; every refusal is `not_found`) and `describe(principal, fileIds)` (a user, for the chat chips). `FileBlobs` is `{ get, put, delete }`: R2 in the app, `memoryFileBlobs()` from `@repo/services/files/memory` in tests. The routes are `POST /api/files` and `GET /files/:id` in `apps/web/src/server/routes/files.ts` |
+| `@repo/services/inbox` | `createInboxService({ db, atomic, clock, events, runs })`: `createThread`, `listThreads`, `readThread` (the newest 500 posts, oldest first), `post` (returns the runs its mentions started) and `gateway`, the `inbox` reply gateway. `runs` needs only `startRun`; the composition root passes it lazily because the runs service is built with `gateway` |
 | `@repo/services/events` | `createEventsService({ db, blobs })`, the event input and filter schemas |
 
 One entry per module, no barrel file, same as `@repo/db`. Everything here is server-only: services import drizzle-backed modules.
@@ -32,6 +33,12 @@ One entry per module, no barrel file, same as `@repo/db`. Everything here is ser
 The tick calls `sweepQueuedRuns(SYSTEM_PRINCIPAL)`, which offers again every run that has been `queued` or `offered` for over 60 seconds (after the reply gateway's `downloadPendingFiles` fetched leftover `pending_files`), and `reapExpiredLeases(SYSTEM_PRINCIPAL)`, which makes a run with an expired lease `interrupted`. An interrupted run is never queued again.
 
 `bun scripts/dev/seed-fake-agent.ts` seeds the local D1 database with a fake-runtime agent in the dev workspace and prints its id.
+
+### Inbox
+
+Threads and posts belong to a workspace and every user in it reads and posts to all of them. A post's `@slug` mentions (`inbox/mentions.ts`, at most 10 distinct per post) wake the named active agents, except the agent that wrote the post. A person's post starts each run with the person's principal (`origin: "inbox"`, `externalKey` = the thread id, reply target the thread). `completeRun` hands an agent's reply to `gateway`, which loads the run row, writes the reply post with that `run_id`, and wakes its mentions with a run principal for that run, so `on_behalf_of_user_id`, `parent_run_id` and `depth` come from the run table. Nothing in a post's text can change them.
+
+The loop guard (`inbox/loop-guard.ts`, borrowed from Agentum) has two rules. When the newest 3 posts of a thread are all from agents, no mention wakes anyone until a person posts. An agent also has a budget of 10 wakes per hour, counted from its `inbox` runs. A stopped wake appends `inbox.loop_stopped` with `reason` `streak` or `budget`. A wake that `startRun` refuses (a busy ancestor, the depth limit) is recorded the same way with `reason` `refused`, so the reply post is kept and the other mentions still run. An error from a wake that is not a `ServiceError` reaches the caller, after the run is saved as `done`.
 
 ### Workspaces and principals
 

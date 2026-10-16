@@ -71,6 +71,13 @@
       "when": 1792128826351,
       "tag": "0009_mushy_captain_america",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792130989510,
+      "tag": "0010_aberrant_stryfe",
+      "breakpoints": true
     }
   ]
 }
