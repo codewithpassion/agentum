@@ -405,6 +405,39 @@ test("pasting again for the same owner replaces the value and bumps the version"
   expect(rows[0]?.secret).not.toBe(before.secret);
 });
 
+test("two pastes at once never report a value that was not stored", async () => {
+  const connector = await addHeaderConnector();
+  await service.setCredential(dom, {
+    connectorId: connector.id,
+    value: `Bearer ${TOKEN}`,
+  });
+
+  const results = await Promise.allSettled(
+    [dom, sam, dom].map((caller) =>
+      service.setCredential(caller, {
+        agentId: agent.id,
+        connectorId: connector.id,
+        value: `Bearer ${TOKEN}`,
+      })
+    )
+  );
+
+  const saved = results.filter((result) => result.status === "fulfilled");
+  const refused = results.filter((result) => result.status === "rejected");
+  for (const result of refused) {
+    expect(result.reason).toMatchObject({ code: "conflict" });
+  }
+  const agentRow = only(
+    await db
+      .select()
+      .from(credentials)
+      .where(eq(credentials.ownerKind, "agent"))
+  );
+  // Every success is one version step, so none was silently dropped.
+  expect(agentRow.version).toBe(saved.length);
+  expect(saved.length).toBeGreaterThan(0);
+});
+
 test("a credential cannot be pasted for a connector that needs no header", async () => {
   stub.stop();
   stub = startStubMcp({ token: null });

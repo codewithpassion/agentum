@@ -211,6 +211,8 @@ export const startStubMcp = (options: StubMcpOptions = {}): StubMcp => {
   const server = serve({
     fetch: route,
     hostname: "127.0.0.1",
+    // A `--sleep` call can outlast Bun's default idle timeout.
+    idleTimeout: 0,
     port: options.port ?? 0,
   });
 

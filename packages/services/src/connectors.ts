@@ -452,6 +452,10 @@ export const createConnectorsService = ({
         }
       : { id: user.userId, kind: "user" };
 
+    // Before the value leaves for the server: a missing key fails here.
+    const key = await cryptoKey();
+    const nowDate = clock.now();
+    const now = nowDate.toISOString();
     const outcome = await probe(connector.url, {
       name: connector.headerName ?? DEFAULT_HEADER_NAME,
       value: parsed.value,
@@ -471,15 +475,24 @@ export const createConnectorsService = ({
         )
       )
       .limit(1);
-    const now = clock.now().toISOString();
-    const rowId = existing?.id ?? ulid(clock.now().getTime());
+    const rowId = existing?.id ?? ulid(nowDate.getTime());
     const secret = await encryptSecret(
-      await cryptoKey(),
+      key,
       { field: "secret", rowId, table: "credentials", workspaceId },
       parsed.value
     );
-    const write = existing
-      ? db
+    const refreshTools = db
+      .update(connectors)
+      .set({
+        status: "ok",
+        tools: JSON.stringify(outcome.tools),
+        toolsFetchedAt: now,
+      })
+      .where(eq(connectors.id, connector.id));
+    try {
+      if (existing) {
+        // The version fence: a paste that read an older version writes nothing.
+        const replaced = await db
           .update(credentials)
           .set({
             expiresAt: null,
@@ -495,31 +508,29 @@ export const createConnectorsService = ({
               eq(credentials.version, existing.version)
             )
           )
-      : db.insert(credentials).values({
-          connectorId: connector.id,
-          createdAt: now,
-          createdBy: user.userId,
-          id: rowId,
-          ownerId: owner.id,
-          ownerKind: owner.kind,
-          secret,
-          status: "ok",
-          updatedAt: now,
-          version: 1,
-          workspaceId,
-        });
-    try {
-      await atomic([
-        write,
-        db
-          .update(connectors)
-          .set({
+          .returning({ id: credentials.id });
+        if (replaced.length === 0) {
+          throw conflictOnSave();
+        }
+        await refreshTools;
+      } else {
+        await atomic([
+          db.insert(credentials).values({
+            connectorId: connector.id,
+            createdAt: now,
+            createdBy: user.userId,
+            id: rowId,
+            ownerId: owner.id,
+            ownerKind: owner.kind,
+            secret,
             status: "ok",
-            tools: JSON.stringify(outcome.tools),
-            toolsFetchedAt: now,
-          })
-          .where(eq(connectors.id, connector.id)),
-      ]);
+            updatedAt: now,
+            version: 1,
+            workspaceId,
+          }),
+          refreshTools,
+        ]);
+      }
     } catch (error: unknown) {
       if (isUniqueViolation(error)) {
         throw conflictOnSave();
