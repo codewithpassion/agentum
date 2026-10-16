@@ -8,6 +8,8 @@ import {
   useMemo,
   useState,
 } from "react";
+import { connectHref } from "#/components/connectors/connect-link";
+import { OAuthClientDialog } from "#/components/connectors/oauth-client-dialog";
 import { PasteCredentialDialog } from "#/components/connectors/paste-credential-dialog";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -50,8 +52,10 @@ const errorMessage = (error: unknown): string =>
 const parseMode = (value: string): CredentialMode =>
   CREDENTIAL_MODES.find((mode) => mode === value) ?? "user_or_agent";
 
-const credentialStatus = (credential: CredentialRecord | undefined | null) =>
-  credential ? credential.status : "not pasted";
+const credentialStatus = (
+  credential: CredentialRecord | undefined | null,
+  missing = "not pasted"
+) => (credential ? credential.status : missing);
 
 function AssignedConnectorRow({
   agentId,
@@ -60,6 +64,7 @@ function AssignedConnectorRow({
   onChangeMode,
   onPaste,
   onRemove,
+  onSetClient,
 }: {
   agentId: string;
   assignment: AssignmentRecord;
@@ -67,6 +72,7 @@ function AssignedConnectorRow({
   onChangeMode: (connectorId: string, mode: CredentialMode) => void;
   onPaste: (connectorId: string, as: PasteAs) => void;
   onRemove: (connectorId: string) => void;
+  onSetClient: (connectorId: string) => void;
 }) {
   const connectorId = connector.id;
   const agentCredential = connector.agentCredentials.find(
@@ -90,6 +96,10 @@ function AssignedConnectorRow({
     () => onPaste(connectorId, "agent"),
     [connectorId, onPaste]
   );
+  const setClient = useCallback(
+    () => onSetClient(connectorId),
+    [connectorId, onSetClient]
+  );
 
   let credentials: ReactNode;
   if (connector.authKind === "header") {
@@ -110,10 +120,49 @@ function AssignedConnectorRow({
       </div>
     );
   } else if (connector.authKind === "oauth") {
+    const { oauth } = connector;
+    const canConnect =
+      oauth !== null && (oauth.clientConfigured || oauth.canRegister);
+    const meHref = connectHref({
+      as: "user",
+      connectorId,
+      returnTo: `/agents/${agentId}?tab=connectors`,
+    });
+    const agentHref = connectHref({
+      as: `agent:${agentId}`,
+      connectorId,
+      returnTo: `/agents/${agentId}?tab=connectors`,
+    });
     credentials = (
-      <p className="text-muted-foreground text-xs">
-        OAuth connect arrives in a later release.
-      </p>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-muted-foreground">
+          You: {credentialStatus(connector.myCredential, "not connected")}
+        </span>
+        <span className="text-muted-foreground">
+          Agent: {credentialStatus(agentCredential, "not connected")}
+        </span>
+        {canConnect ? (
+          <>
+            <Button asChild size="sm" variant="outline">
+              <a href={meHref}>
+                {connector.myCredential
+                  ? "Re-authorise as me"
+                  : "Connect as me"}
+              </a>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <a href={agentHref}>
+                {agentCredential
+                  ? "Re-authorise as this agent"
+                  : "Connect as this agent"}
+              </a>
+            </Button>
+          </>
+        ) : null}
+        <Button onClick={setClient} size="sm" variant="outline">
+          Set client
+        </Button>
+      </div>
     );
   }
 
@@ -166,6 +215,7 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
   const [state, setState] = useState<ConnectorsState | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [addId, setAddId] = useState("");
+  const [oauthId, setOauthId] = useState<string | null>(null);
   const [paste, setPaste] = useState<{
     connectorId: string;
     as: PasteAs;
@@ -265,6 +315,18 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
     reload();
   }, [reload]);
 
+  const openSetClient = useCallback(
+    (connectorId: string) => setOauthId(connectorId),
+    []
+  );
+
+  const closeSetClient = useCallback(() => setOauthId(null), []);
+
+  const clientSaved = useCallback(() => {
+    setOauthId(null);
+    reload();
+  }, [reload]);
+
   if (state === undefined) {
     return error === undefined ? (
       <p className="text-muted-foreground text-sm">Loading connectors.</p>
@@ -287,6 +349,11 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
     paste === null
       ? undefined
       : connectors.find((item) => item.id === paste.connectorId);
+
+  const oauthConnector =
+    oauthId === null
+      ? undefined
+      : connectors.find((item) => item.id === oauthId);
 
   return (
     <section className="flex max-w-3xl flex-col gap-4">
@@ -318,6 +385,7 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
                 onChangeMode={changeMode}
                 onPaste={openPaste}
                 onRemove={removeConnector}
+                onSetClient={openSetClient}
               />
             ))}
           </TableBody>
@@ -358,6 +426,13 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
           connector={pasteConnector}
           onClose={closePaste}
           onSaved={pasteSaved}
+        />
+      )}
+      {oauthConnector !== undefined && (
+        <OAuthClientDialog
+          connector={oauthConnector}
+          onClose={closeSetClient}
+          onSaved={clientSaved}
         />
       )}
     </section>

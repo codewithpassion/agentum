@@ -19,7 +19,8 @@ import { workspaces } from "./workspaces.ts";
 
 /**
  * An MCP server the access lane can call. `tools` is a JSON array of
- * `{ name, description }`. `oauth` is JSON, filled by the OAuth task.
+ * `{ name, description }`. `oauth` is JSON (the discovered endpoints, scope and
+ * client), written by the OAuth connect flow.
  */
 export const connectors = sqliteTable(
   "connectors",
@@ -31,7 +32,7 @@ export const connectors = sqliteTable(
     headerName: text("header_name"),
     id: id(),
     name: text("name").notNull(),
-    // JSON, owned by the OAuth task.
+    // JSON, see `OAuthConfig` in the connectors service.
     oauth: text("oauth"),
     status: text("status", { enum: CONNECTOR_STATUSES }).notNull(),
     // JSON array of `{ name, description }`.
@@ -98,4 +99,35 @@ export const agentConnectors = sqliteTable(
     workspaceId: workspaceId().references(() => workspaces.id),
   },
   (t) => [primaryKey({ columns: [t.agentId, t.connectorId] })]
+);
+
+/**
+ * An OAuth authorisation in flight: PKCE, bound to the signed-in user who
+ * clicked Connect. `state` is the one-shot value sent to the provider. The
+ * callback deletes the row before it does anything else, so a state works once.
+ * The minute tick purges rows past `expires_at`.
+ */
+export const oauthStates = sqliteTable(
+  "oauth_states",
+  {
+    connectorId: text("connector_id")
+      .notNull()
+      .references(() => connectors.id),
+    createdAt: createdAt(),
+    expiresAt: text("expires_at").notNull(),
+    // Clerk user id of the person who clicked Connect.
+    initiatorUserId: text("initiator_user_id").notNull(),
+    // The credential owner: the initiator for `user`, an agent id for `agent`.
+    ownerId: text("owner_id").notNull(),
+    ownerKind: text("owner_kind", { enum: CREDENTIAL_OWNER_KINDS }).notNull(),
+    // Sent to the provider; must be sent again byte for byte at the token call.
+    redirectUri: text("redirect_uri").notNull(),
+    // A same-origin path.
+    returnTo: text("return_to").notNull(),
+    state: text("state").primaryKey(),
+    // The PKCE verifier. Single use, minutes long, useless without the state.
+    verifier: text("verifier").notNull(),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [index("oauth_states_expires_idx").on(t.expiresAt)]
 );
