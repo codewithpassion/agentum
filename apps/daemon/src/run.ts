@@ -17,6 +17,7 @@ import { spawnCommand } from "./command.ts";
 import type { DaemonConfig } from "./config.ts";
 import { executeRun, type QueryFn } from "./executor.ts";
 import { EXIT_OK } from "./exit-codes.ts";
+import { createFilesApi } from "./files-api.ts";
 import type { Logger } from "./log.ts";
 import { createMasker } from "./masker.ts";
 import { createRunApi } from "./run-api.ts";
@@ -85,6 +86,13 @@ export const runCommand = async (options: RunOptions): Promise<number> => {
             fetch: doFetch,
             masker,
             runId: claim.run.id,
+            server: config.server,
+          }),
+        createFilesApi: (masker) =>
+          createFilesApi({
+            fetch: doFetch,
+            masker,
+            runToken: claim.runToken,
             server: config.server,
           }),
         env,

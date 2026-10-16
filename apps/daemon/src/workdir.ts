@@ -1,13 +1,17 @@
 // The per-agent work directory that Claude Code runs in. Before each run the
-// daemon makes sure it exists and empties its `.claude/` and `.mcp.json`. In
+// daemon makes sure it exists and empties its `.claude/`, `.mcp.json` and
+// `inbox/`, where the run's input files are downloaded, in both modes. In
 // multi-user mode hm-agent owns the directory, so the daemon reaches it through
 // sudo. In single-user mode it is a plain directory under the daemon's home.
 
 import { mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { AGENT_HOME, AGENT_MKDIR, AGENT_RM, AGENT_USER } from "./agent-user.ts";
+import { AGENT_HOME, AGENT_MKDIR, AGENT_RM, AS_AGENT } from "./agent-user.ts";
 import type { CommandRunner } from "./command.ts";
+
+/** Where a run's input files are downloaded, relative to the work directory. */
+export const INBOX_DIR = "inbox";
 
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 
@@ -50,7 +54,7 @@ const runStep = async (
   }
 };
 
-/** Ensures the work dir exists and empties `.claude/` and `.mcp.json` inside it. Returns the dir. Throws an Error naming the failed step. */
+/** Ensures the work dir exists and empties `.claude/`, `.mcp.json` and `inbox/` inside it, in both modes. Returns the dir. Throws an Error naming the failed step. */
 export const prepareWorkDir = async (
   options: PrepareWorkDirOptions
 ): Promise<string> => {
@@ -61,18 +65,19 @@ export const prepareWorkDir = async (
     mkdirSync(dir, { recursive: true });
     rmSync(join(dir, ".claude"), { force: true, recursive: true });
     rmSync(join(dir, ".mcp.json"), { force: true, recursive: true });
+    rmSync(join(dir, INBOX_DIR), { force: true, recursive: true });
     return dir;
   }
 
   const dir = workDirPath(AGENT_HOME, workspaceId, agentId);
-  const asAgent = ["sudo", "-n", "-u", AGENT_USER];
-  await runStep(run, "mkdir", [...asAgent, AGENT_MKDIR, "-p", dir]);
+  await runStep(run, "mkdir", [...AS_AGENT, AGENT_MKDIR, "-p", dir]);
   await runStep(run, "rm", [
-    ...asAgent,
+    ...AS_AGENT,
     AGENT_RM,
     "-rf",
     `${dir}/.claude`,
     `${dir}/.mcp.json`,
+    `${dir}/${INBOX_DIR}`,
   ]);
   return dir;
 };

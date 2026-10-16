@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as AppConnectorsRouteImport } from './routes/_app/connectors'
 import { Route as AppMachinesRouteImport } from './routes/_app/machines'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
@@ -38,6 +39,11 @@ const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppConnectorsRoute = AppConnectorsRouteImport.update({
+  id: '/connectors',
+  path: '/connectors',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppMachinesRoute = AppMachinesRouteImport.update({
   id: '/machines',
@@ -75,6 +81,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
+  '/connectors': typeof AppConnectorsRoute
   '/machines': typeof AppMachinesRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
@@ -86,6 +93,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
+  '/connectors': typeof AppConnectorsRoute
   '/machines': typeof AppMachinesRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
@@ -99,6 +107,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
+  '/_app/connectors': typeof AppConnectorsRoute
   '/_app/machines': typeof AppMachinesRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/agents/new': typeof AppAgentsNewRoute
@@ -112,6 +121,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dev-login'
     | '/login'
+    | '/connectors'
     | '/machines'
     | '/agents/$agentId'
     | '/agents/new'
@@ -123,6 +133,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dev-login'
     | '/login'
+    | '/connectors'
     | '/machines'
     | '/agents/$agentId'
     | '/agents/new'
@@ -135,6 +146,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/dev-login'
     | '/login'
+    | '/_app/connectors'
     | '/_app/machines'
     | '/_app/agents/$agentId'
     | '/_app/agents/new'
@@ -179,6 +191,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/connectors': {
+      id: '/_app/connectors'
+      path: '/connectors'
+      fullPath: '/connectors'
+      preLoaderRoute: typeof AppConnectorsRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/machines': {
       id: '/_app/machines'
@@ -226,6 +245,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppConnectorsRoute: typeof AppConnectorsRoute
   AppMachinesRoute: typeof AppMachinesRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
   AppAgentsNewRoute: typeof AppAgentsNewRoute
@@ -235,6 +255,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppConnectorsRoute: AppConnectorsRoute,
   AppMachinesRoute: AppMachinesRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
   AppAgentsNewRoute: AppAgentsNewRoute,

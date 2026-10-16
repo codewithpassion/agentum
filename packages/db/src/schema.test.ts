@@ -9,7 +9,7 @@ interface Column {
 
 const NO_WORKSPACE_ID = new Set(["workspaces", "__drizzle_migrations"]);
 
-test("the foundation tables, the M0.1 stubs and the access lane tables exist", () => {
+test("the foundation, connector and OAuth client tables exist", () => {
   const { client } = migrated();
   const names = client
     .query<{ name: string }, []>(
@@ -19,14 +19,18 @@ test("the foundation tables, the M0.1 stubs and the access lane tables exist", (
     .map((row) => row.name)
     .filter((name) => name !== "__drizzle_migrations");
   expect(names).toEqual([
+    "agent_connectors",
     "agents",
     "api_keys",
+    "connectors",
+    "credentials",
     "events",
     "files",
     "identity_links",
     "machine_enroll_tokens",
     "machines",
     "oauth_clients",
+    "oauth_states",
     "runs",
     "sessions",
     "triggers",
@@ -43,7 +47,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(11);
+  expect(tables.length).toBe(15);
 
   for (const table of tables) {
     const column = client

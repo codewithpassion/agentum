@@ -12,6 +12,15 @@ import {
   createApiKeysService,
 } from "@repo/services/api-keys";
 import {
+  type ConnectorOAuthService,
+  createConnectorOAuthService,
+} from "@repo/services/connector-oauth";
+import {
+  type ConnectorsService,
+  createConnectorsService,
+} from "@repo/services/connectors";
+import type { Fetcher } from "@repo/services/connectors/mcp";
+import {
   type Blobs,
   createEventsService,
   type EventsService,
@@ -54,16 +63,22 @@ export interface Infra {
   blobs: Blobs;
   clock: Clock;
   devFakeRuntime: boolean;
+  /** How connector probes reach the network. Defaults to the global `fetch`. */
+  fetch?: Fetcher;
   /** Where uploaded files live: R2 in the app. */
   fileBlobs: FileBlobs;
   relay: MachineRelayPort;
   /** `RUN_TOKEN_KEY`. Machine claims mint run tokens with it. */
   runTokenKey?: string;
+  /** `SECRETS_KEY`. Storing a connector credential encrypts with it. */
+  secretsKey?: string;
 }
 
 export interface Services {
   agents: AgentsService;
   apiKeys: ApiKeysService;
+  connectorOAuth: ConnectorOAuthService;
+  connectors: ConnectorsService;
   events: EventsService;
   files: FilesService;
   machines: MachinesService;
@@ -83,7 +98,12 @@ export interface Composed {
 /** The bindings and secrets `compose` reads. */
 export type ComposeEnv = Pick<
   Env,
-  "ALLOWED_ORG_IDS" | "DB" | "FILES" | "MACHINE_RELAY" | "RUN_TOKEN_KEY"
+  | "ALLOWED_ORG_IDS"
+  | "DB"
+  | "FILES"
+  | "MACHINE_RELAY"
+  | "RUN_TOKEN_KEY"
+  | "SECRETS_KEY"
 >;
 
 /** Splits a comma separated list of ids, trimmed, dropping empty entries. */
@@ -113,6 +133,25 @@ export const composeWith = ({
   const events = createEventsService({ blobs: infra.blobs, db });
   const agents = createAgentsService({ db, events });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
+  // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
+  const connectorFetch: Fetcher =
+    infra.fetch ?? ((input, init) => fetch(input, init));
+  const connectors = createConnectorsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    fetch: connectorFetch,
+    secretsKey: infra.secretsKey,
+  });
+  const connectorOAuth = createConnectorOAuthService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    fetch: connectorFetch,
+    secretsKey: infra.secretsKey,
+  });
   const files = createFilesService({
     blobs: infra.fileBlobs,
     clock: infra.clock,
@@ -144,6 +183,8 @@ export const composeWith = ({
     services: {
       agents,
       apiKeys,
+      connectorOAuth,
+      connectors,
       events,
       files,
       machines,
@@ -172,6 +213,7 @@ export const compose = (env: ComposeEnv, devFakeRuntime: boolean): Composed => {
       fileBlobs: r2FileBlobs(env.FILES),
       relay: durableRelayPort(env.MACHINE_RELAY),
       runTokenKey: env.RUN_TOKEN_KEY,
+      secretsKey: env.SECRETS_KEY,
     },
   });
 };

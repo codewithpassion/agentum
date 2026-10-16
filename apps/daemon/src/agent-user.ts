@@ -8,6 +8,23 @@ export const AGENT_USER = "hm-agent";
 export const AGENT_HOME = `/home/${AGENT_USER}`;
 export const AGENT_MKDIR = "/bin/mkdir";
 export const AGENT_RM = "/bin/rm";
+// The four commands that move a run's files in and out of hm-agent's work
+// directory: `dd` writes stdin to a file, `realpath` and `stat` vet a path, and
+// `head` reads a file back.
+export const AGENT_DD = "/usr/bin/dd";
+export const AGENT_HEAD = "/usr/bin/head";
+export const AGENT_REALPATH = "/usr/bin/realpath";
+export const AGENT_STAT = "/usr/bin/stat";
+/** The `sudo` prefix that runs a command as `hm-agent` without a password prompt. */
+export const AS_AGENT: readonly string[] = ["sudo", "-n", "-u", AGENT_USER];
+const AGENT_COMMANDS = [
+  AGENT_MKDIR,
+  AGENT_RM,
+  AGENT_DD,
+  AGENT_HEAD,
+  AGENT_REALPATH,
+  AGENT_STAT,
+];
 export const SUDOERS_DIR = "/etc/sudoers.d";
 
 // Characters that end a command in a sudoers rule unless a backslash precedes
@@ -16,15 +33,18 @@ const SUDOERS_SPECIAL = /[ ,:=\\]/g;
 const FILE_NAME_UNSAFE = /[^A-Za-z0-9_-]/g;
 
 /**
- * The line that lets `user` run `claudeBinary` as `hm-agent`, and `mkdir` and
- * `rm` too, with no password. `CWD=*` lets the daemon pass `sudo -D <dir>`,
- * since its own user cannot enter the agent's home. `mkdir` and `rm` add no
- * privilege: claude under bypassPermissions already runs arbitrary commands as
- * `hm-agent`. They let the daemon create and reset directories that `hm-agent`
- * owns.
+ * The line that lets `user` run `claudeBinary` as `hm-agent`, and `mkdir`, `rm`,
+ * `dd`, `head`, `realpath` and `stat` too, with no password. `CWD=*` lets the
+ * daemon pass `sudo -D <dir>`, since its own user cannot enter the agent's
+ * home. The helpers add no privilege: claude under bypassPermissions already
+ * runs arbitrary commands as `hm-agent`. They let the daemon create and reset
+ * directories that `hm-agent` owns, write a run's input files there and read
+ * its attachments back, and every file they touch stays `hm-agent`'s. They
+ * run as `hm-agent`, so the daemon's own config, which `hm-agent` cannot read,
+ * stays out of reach.
  */
 export const sudoersLine = (user: string, claudeBinary: string): string =>
-  `${user} ALL=(${AGENT_USER}) CWD=* NOPASSWD: ${claudeBinary.replace(SUDOERS_SPECIAL, "\\$&")}, ${AGENT_MKDIR}, ${AGENT_RM}`;
+  `${user} ALL=(${AGENT_USER}) CWD=* NOPASSWD: ${[claudeBinary.replace(SUDOERS_SPECIAL, "\\$&"), ...AGENT_COMMANDS].join(", ")}`;
 
 /** The whole drop-in file for `user`. */
 export const sudoersFile = (user: string, claudeBinary: string): string =>

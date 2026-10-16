@@ -1,0 +1,135 @@
+import { type ChangeEvent, useCallback, useState } from "react";
+import { Button } from "#/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "#/components/ui/dialog";
+import { Input } from "#/components/ui/input";
+import { Label } from "#/components/ui/label";
+import { getTrpc } from "#/integrations/trpc/client";
+import type { ConnectorRecord } from "#/integrations/trpc/types";
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Something went wrong.";
+
+export function AddConnectorDialog({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (connector: ConnectorRecord) => void;
+}) {
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [headerName, setHeaderName] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        onClose();
+      }
+    },
+    [onClose]
+  );
+
+  const handleNameChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setName(event.target.value);
+    },
+    []
+  );
+
+  const handleUrlChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setUrl(event.target.value);
+    },
+    []
+  );
+
+  const handleHeaderNameChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setHeaderName(event.target.value);
+    },
+    []
+  );
+
+  const createConnector = useCallback(async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const trimmedHeader = headerName.trim();
+      const connector = await getTrpc().connectors.create.mutate({
+        name,
+        url,
+        ...(trimmedHeader === "" ? {} : { headerName: trimmedHeader }),
+      });
+      onCreated(connector);
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setPending(false);
+    }
+  }, [headerName, name, onCreated, url]);
+
+  return (
+    <Dialog onOpenChange={handleOpenChange} open>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add connector</DialogTitle>
+          <DialogDescription>
+            A connector is a remote MCP server that agents can call.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="connector-name">Name</Label>
+            <Input
+              id="connector-name"
+              onChange={handleNameChange}
+              value={name}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="connector-url">URL</Label>
+            <Input
+              id="connector-url"
+              onChange={handleUrlChange}
+              placeholder="https://mcp.example.com/mcp"
+              value={url}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="connector-header-name">Header name</Label>
+            <Input
+              id="connector-header-name"
+              onChange={handleHeaderNameChange}
+              placeholder="Authorization"
+              value={headerName}
+            />
+            <p className="text-muted-foreground text-xs">
+              Only used when the server asks for a header.
+            </p>
+          </div>
+          {error !== null && (
+            <p className="text-destructive text-sm">{error}</p>
+          )}
+          <DialogFooter>
+            <Button
+              disabled={
+                pending || name.trim().length === 0 || url.trim().length === 0
+              }
+              onClick={createConnector}
+            >
+              Add connector
+            </Button>
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

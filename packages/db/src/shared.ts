@@ -74,3 +74,27 @@ export const EVENT_ACTOR_KINDS = [
   "system",
 ] as const;
 export type EventActorKind = (typeof EVENT_ACTOR_KINDS)[number];
+
+export const CONNECTOR_AUTH_KINDS = ["none", "header", "oauth"] as const;
+export type ConnectorAuthKind = (typeof CONNECTOR_AUTH_KINDS)[number];
+
+export const CONNECTOR_STATUSES = ["ok", "needs_auth"] as const;
+export type ConnectorStatus = (typeof CONNECTOR_STATUSES)[number];
+
+export const CREDENTIAL_OWNER_KINDS = ["user", "agent"] as const;
+export type CredentialOwnerKind = (typeof CREDENTIAL_OWNER_KINDS)[number];
+
+export const CREDENTIAL_STATUSES = ["ok", "needs_auth", "revoked"] as const;
+export type CredentialStatus = (typeof CREDENTIAL_STATUSES)[number];
+
+export const CREDENTIAL_MODES = ["user_or_agent", "agent", "user"] as const;
+export type CredentialMode = (typeof CREDENTIAL_MODES)[number];
+
+/** How the token endpoint wants the client to identify itself (RFC 6749 section 2.3). */
+export const TOKEN_ENDPOINT_AUTH_METHODS = [
+  "none",
+  "client_secret_basic",
+  "client_secret_post",
+] as const;
+export type TokenEndpointAuthMethod =
+  (typeof TOKEN_ENDPOINT_AUTH_METHODS)[number];
