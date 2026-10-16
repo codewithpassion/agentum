@@ -17,6 +17,7 @@ import { Route as AppMachinesRouteImport } from './routes/_app/machines'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppAgentsNewRouteImport } from './routes/_app/agents.new'
+import { Route as AppSettingsApiKeysRouteImport } from './routes/_app/settings.api-keys'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -57,6 +58,11 @@ const AppAgentsNewRoute = AppAgentsNewRouteImport.update({
   path: '/agents/new',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsApiKeysRoute = AppSettingsApiKeysRouteImport.update({
+  id: '/settings/api-keys',
+  path: '/settings/api-keys',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -65,6 +71,7 @@ export interface FileRoutesByFullPath {
   '/machines': typeof AppMachinesRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
+  '/settings/api-keys': typeof AppSettingsApiKeysRoute
   '/agents/': typeof AppAgentsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -74,6 +81,7 @@ export interface FileRoutesByTo {
   '/machines': typeof AppMachinesRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
+  '/settings/api-keys': typeof AppSettingsApiKeysRoute
   '/agents': typeof AppAgentsIndexRoute
 }
 export interface FileRoutesById {
@@ -85,6 +93,7 @@ export interface FileRoutesById {
   '/_app/machines': typeof AppMachinesRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/agents/new': typeof AppAgentsNewRoute
+  '/_app/settings/api-keys': typeof AppSettingsApiKeysRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
 }
 export interface FileRouteTypes {
@@ -96,6 +105,7 @@ export interface FileRouteTypes {
     | '/machines'
     | '/agents/$agentId'
     | '/agents/new'
+    | '/settings/api-keys'
     | '/agents/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -105,6 +115,7 @@ export interface FileRouteTypes {
     | '/machines'
     | '/agents/$agentId'
     | '/agents/new'
+    | '/settings/api-keys'
     | '/agents'
   id:
     | '__root__'
@@ -115,6 +126,7 @@ export interface FileRouteTypes {
     | '/_app/machines'
     | '/_app/agents/$agentId'
     | '/_app/agents/new'
+    | '/_app/settings/api-keys'
     | '/_app/agents/'
   fileRoutesById: FileRoutesById
 }
@@ -183,6 +195,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsNewRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/api-keys': {
+      id: '/_app/settings/api-keys'
+      path: '/settings/api-keys'
+      fullPath: '/settings/api-keys'
+      preLoaderRoute: typeof AppSettingsApiKeysRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -190,6 +209,7 @@ interface AppRouteChildren {
   AppMachinesRoute: typeof AppMachinesRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
   AppAgentsNewRoute: typeof AppAgentsNewRoute
+  AppSettingsApiKeysRoute: typeof AppSettingsApiKeysRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
 }
 
@@ -197,6 +217,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppMachinesRoute: AppMachinesRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
   AppAgentsNewRoute: AppAgentsNewRoute,
+  AppSettingsApiKeysRoute: AppSettingsApiKeysRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
 }
 

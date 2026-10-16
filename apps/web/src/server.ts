@@ -26,12 +26,13 @@ const app = new Hono<AppEnv>();
 app.use("*", clerkMiddleware());
 
 // Every service, built once for the request from the bindings and secrets.
-// `/files/:id` is outside `/api` but reads files too.
 const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
   c.set("composed", compose(c.env, import.meta.env.DEV));
   await next();
 };
 app.use("/api/*", composeServices);
+app.use("/mcp", composeServices);
+// `/files/:id` is outside `/api` but reads files too.
 app.use("/files/*", composeServices);
 
 app.get("/api/health", (c) => {

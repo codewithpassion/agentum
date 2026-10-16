@@ -4,7 +4,7 @@ import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
-import { createAgentsService } from "./agents.ts";
+import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import { createEventsService } from "./events.ts";
@@ -23,13 +23,22 @@ const user = (userId: string, workspaceId = WORKSPACE): Principal => ({
   workspaceId,
 });
 
+const runAs = (runId: string, agent: string): Principal => ({
+  agentId: agent,
+  kind: "run",
+  runId,
+  workspaceId: WORKSPACE,
+});
+
 type Db = ReturnType<typeof migrated>;
 
 let db: Db;
 let nowMs: number;
+let agents: AgentsService;
 let runs: RunsService;
 let sessions: SessionsService;
 let agentId: string;
+let otherAgentId: string;
 
 const insertWorkspace = (id: string) =>
   db
@@ -43,12 +52,20 @@ const insertWorkspace = (id: string) =>
     })
     .run();
 
-const send = (principal: Principal, text: string, externalKey?: string) =>
+const startIn = (
+  principal: Principal,
+  agent: string,
+  text: string,
+  session: { externalKey?: string; origin: "ui" | "slack" }
+) =>
   runs.startRun(principal, {
-    agentId,
+    agentId: agent,
     input: { text },
-    session: { externalKey, origin: "ui" },
+    session,
   });
+
+const send = (principal: Principal, text: string, externalKey?: string) =>
+  startIn(principal, agentId, text, { externalKey, origin: "ui" });
 
 beforeEach(async () => {
   db = migrated();
@@ -70,13 +87,20 @@ beforeEach(async () => {
     },
   };
   const events = createEventsService({ blobs, db });
-  const agents = createAgentsService({ db, events });
+  agents = createAgentsService({ db, events });
   insertWorkspace(WORKSPACE);
   insertWorkspace("w2");
   agentId = (
     await agents.create(user("u1"), {
       model: "m",
       name: "Fake",
+      runtime: "fake",
+    })
+  ).id;
+  otherAgentId = (
+    await agents.create(user("u1"), {
+      model: "m",
+      name: "Other",
       runtime: "fake",
     })
   ).id;
@@ -171,4 +195,173 @@ test("the system principal cannot read sessions", async () => {
     .list({ kind: "system" }, { agentId })
     .catch((caught: unknown) => caught);
   expect(error).toBeInstanceOf(ForbiddenError);
+});
+
+test("a run lists its own agent's sessions and none of another agent's", async () => {
+  const mine = await send(user("u1"), "mine");
+  const principal = runAs(mine.runId, agentId);
+
+  const own = await sessions.list(principal, { agentId });
+  const other = await sessions.list(principal, { agentId: otherAgentId });
+
+  expect(own.map((item) => item.id)).toEqual([mine.sessionId]);
+  expect(other).toEqual([]);
+});
+
+test("a run sees the ui sessions of the user it runs for, not another user's", async () => {
+  const mine = await send(user("u1"), "mine");
+  const theirs = await send(user("u2"), "theirs");
+  const shared = await startIn(user("u2"), agentId, "shared", {
+    externalKey: "thread-1",
+    origin: "slack",
+  });
+  const principal = runAs(mine.runId, agentId);
+
+  const visible = await sessions.list(principal, { agentId });
+
+  expect(visible.map((item) => item.id).sort()).toEqual(
+    [mine.sessionId, shared.sessionId].sort()
+  );
+  expect(
+    await sessions
+      .transcript(principal, theirs.sessionId)
+      .catch((caught: unknown) => caught)
+  ).toMatchObject({ code: "not_found" });
+});
+
+test("a run with no user behind it, or a missing run, sees no ui session", async () => {
+  const mine = await send(user("u1"), "mine");
+  const shared = await startIn(user("u2"), agentId, "shared", {
+    externalKey: "thread-1",
+    origin: "slack",
+  });
+  db.update(runRows)
+    .set({ onBehalfOfUserId: null })
+    .where(eq(runRows.id, mine.runId))
+    .run();
+
+  const orphan = await sessions.list(runAs(mine.runId, agentId), { agentId });
+  const missing = await sessions.list(runAs("no-such-run", agentId), {
+    agentId,
+  });
+
+  expect(orphan.map((item) => item.id)).toEqual([shared.sessionId]);
+  expect(missing.map((item) => item.id)).toEqual([shared.sessionId]);
+});
+
+test("a run cannot read a session of another agent", async () => {
+  const mine = await send(user("u1"), "mine");
+  const elsewhere = await startIn(user("u1"), otherAgentId, "elsewhere", {
+    origin: "ui",
+  });
+
+  const error = await sessions
+    .transcript(runAs(mine.runId, agentId), elsewhere.sessionId)
+    .catch((caught: unknown) => caught);
+
+  expect(error).toBeInstanceOf(ServiceError);
+  expect(error).toMatchObject({
+    code: "not_found",
+    message: "Session not found",
+  });
+});
+
+test("search finds a message by a case-insensitive substring", async () => {
+  const started = await send(user("u1"), "The quick brown fox");
+  await send(user("u1"), "unrelated words");
+
+  const found = await sessions.search(user("u1"), {
+    agentId,
+    query: "BROWN",
+  });
+
+  expect(found.map((hit) => hit.session)).toMatchObject([
+    { id: started.sessionId, status: "done", title: "The quick brown fox" },
+  ]);
+  const passages = found.flatMap((hit) => hit.passages);
+  expect(passages.length).toBeGreaterThan(0);
+  for (const passage of passages) {
+    expect(passage.toLowerCase()).toContain("brown");
+  }
+});
+
+test("search only looks at the agent it is asked about", async () => {
+  await send(user("u1"), "needle here");
+  await startIn(user("u1"), otherAgentId, "needle elsewhere", { origin: "ui" });
+
+  const own = await sessions.search(user("u1"), { agentId, query: "needle" });
+  const other = await sessions.search(user("u1"), {
+    agentId: otherAgentId,
+    query: "needle",
+  });
+
+  expect(own.map((hit) => hit.session.agentId)).toEqual([agentId]);
+  expect(other.map((hit) => hit.session.agentId)).toEqual([otherAgentId]);
+});
+
+test("search matches % and _ in the query literally", async () => {
+  const percent = await send(user("u1"), "up 100% today");
+  await send(user("u1"), "up 1000 today");
+  const underscore = await send(user("u1"), "file a_b here");
+  await send(user("u1"), "file axb here");
+
+  const byPercent = await sessions.search(user("u1"), {
+    agentId,
+    query: "100%",
+  });
+  const byUnderscore = await sessions.search(user("u1"), {
+    agentId,
+    query: "a_b",
+  });
+
+  expect(byPercent.map((hit) => hit.session.id)).toEqual([percent.sessionId]);
+  expect(byUnderscore.map((hit) => hit.session.id)).toEqual([
+    underscore.sessionId,
+  ]);
+});
+
+test("search cuts a passage to a window around the match, with ellipses", async () => {
+  const long = `${"a".repeat(300)} needle ${"b".repeat(300)}`;
+  await send(user("u1"), long);
+
+  const [hit] = await sessions.search(user("u1"), {
+    agentId,
+    query: "needle",
+  });
+  const passage = hit?.passages[0] ?? "";
+
+  expect(passage).toContain("needle");
+  expect(passage.startsWith("...")).toBe(true);
+  expect(passage.endsWith("...")).toBe(true);
+  expect(passage.length).toBeLessThanOrEqual(166);
+});
+
+test("a run searches only its own agent, and only the sessions it may see", async () => {
+  const mine = await send(user("u1"), "shared word");
+  await send(user("u2"), "shared word");
+  await startIn(user("u1"), otherAgentId, "shared word", { origin: "ui" });
+  const principal = runAs(mine.runId, agentId);
+
+  const own = await sessions.search(principal, { agentId, query: "shared" });
+  const other = await sessions.search(principal, {
+    agentId: otherAgentId,
+    query: "shared",
+  });
+
+  expect(own.map((hit) => hit.session.id)).toEqual([mine.sessionId]);
+  expect(other).toEqual([]);
+});
+
+test("search rejects an empty or over-long query", async () => {
+  const errors = await Promise.all(
+    ["   ", "x".repeat(201)].map((query) =>
+      sessions
+        .search(user("u1"), { agentId, query })
+        .catch((caught: unknown) => caught)
+    )
+  );
+  for (const error of errors) {
+    expect(error).toBeInstanceOf(ServiceError);
+    expect(error).toMatchObject({ code: "invalid" });
+  }
 });

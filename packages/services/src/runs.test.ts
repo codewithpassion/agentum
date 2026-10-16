@@ -338,6 +338,116 @@ test("a run started with a run principal inherits the subject", async () => {
   expect(runRowCount()).toBe(countBefore);
 });
 
+test("a run cannot message an agent that is its running ancestor", async () => {
+  const parent = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, parent.runId);
+  const child = await start(
+    runPrincipal(parent.runId, spyAgentId),
+    fakeAgentId,
+    { session: { origin: "mcp" } }
+  );
+  // The fake runtime already finished the child; put it back to running.
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, child.runId))
+    .run();
+  const countBefore = runRowCount();
+
+  // The child answers back to the agent that is waiting on it, and to itself.
+  const toParent = await failure(
+    start(runPrincipal(child.runId, fakeAgentId), spyAgentId, {
+      session: { origin: "mcp" },
+    })
+  );
+  expect(toParent).toMatchObject({ code: "conflict" });
+  const toSelf = await failure(
+    start(runPrincipal(child.runId, fakeAgentId), fakeAgentId, {
+      session: { origin: "mcp" },
+    })
+  );
+  expect(toSelf).toMatchObject({ code: "conflict" });
+  expect(runRowCount()).toBe(countBefore);
+
+  // Once the parent is no longer running it is an ordinary target.
+  await runs.completeRun(SYSTEM_PRINCIPAL, parent.runId, { status: "done" });
+  const later = await start(
+    runPrincipal(child.runId, fakeAgentId),
+    spyAgentId,
+    { session: { origin: "mcp" } }
+  );
+  expect(runRow(later.runId)).toMatchObject({ depth: 2 });
+});
+
+test("a read-only api key cannot start a run", async () => {
+  const readKey: Principal = {
+    ...user,
+    apiKey: { access: "read", id: "k1" },
+    via: "api_key",
+  };
+  const error = await failure(start(readKey, fakeAgentId));
+  expect(error).toBeInstanceOf(ForbiddenError);
+  const writeKey: Principal = {
+    ...user,
+    apiKey: { access: "write", id: "k2" },
+    via: "api_key",
+  };
+  expect((await start(writeKey, fakeAgentId)).runId).toBeString();
+});
+
+test("a requestId is handed back only to the caller that used it", async () => {
+  const first = await start(user, fakeAgentId, { requestId: "msg-1" });
+  const again = await start(user, fakeAgentId, { requestId: "msg-1" });
+  expect(again.runId).toBe(first.runId);
+
+  const other = await failure(
+    start(colleague, fakeAgentId, { requestId: "msg-1" })
+  );
+  expect(other).toMatchObject({ code: "conflict" });
+  const otherAgent = await failure(
+    start(user, spyAgentId, { requestId: "msg-1" })
+  );
+  expect(otherAgent).toMatchObject({ code: "conflict" });
+});
+
+test("two runs of one agent do not share a requestId", async () => {
+  const parentOne = await start(user, spyAgentId);
+  const parentTwo = await start(colleague, spyAgentId);
+  const first = await start(
+    runPrincipal(parentOne.runId, spyAgentId),
+    fakeAgentId,
+    { requestId: "msg-1", session: { origin: "mcp" } }
+  );
+  const retry = await start(
+    runPrincipal(parentOne.runId, spyAgentId),
+    fakeAgentId,
+    { requestId: "msg-1", session: { origin: "mcp" } }
+  );
+  expect(retry.runId).toBe(first.runId);
+
+  const sibling = await failure(
+    start(runPrincipal(parentTwo.runId, spyAgentId), fakeAgentId, {
+      requestId: "msg-1",
+      session: { origin: "mcp" },
+    })
+  );
+  expect(sibling).toMatchObject({ code: "conflict" });
+});
+
+test("a run reads its own agent's runs and the runs it started, not others", async () => {
+  const mine = await start(user, spyAgentId);
+  const theirs = await start(user, fakeAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, mine.runId);
+  const principal = runPrincipal(mine.runId, spyAgentId);
+  const child = await start(principal, fakeAgentId, {
+    session: { origin: "mcp" },
+  });
+
+  expect((await runs.getRun(principal, mine.runId)).id).toBe(mine.runId);
+  expect((await runs.getRun(principal, child.runId)).id).toBe(child.runId);
+  const error = await failure(runs.getRun(principal, theirs.runId));
+  expect(error).toMatchObject({ code: "not_found" });
+});
+
 test("a trigger-started run has a null subject", async () => {
   const trigger: Principal = {
     agentId: spyAgentId,

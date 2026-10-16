@@ -8,6 +8,10 @@ import type { Database } from "@repo/db";
 import { type Atomic, d1Atomic } from "@repo/db/atomic";
 import { type AgentsService, createAgentsService } from "@repo/services/agents";
 import {
+  type ApiKeysService,
+  createApiKeysService,
+} from "@repo/services/api-keys";
+import {
   type Blobs,
   createEventsService,
   type EventsService,
@@ -55,6 +59,7 @@ export interface Infra {
 
 export interface Services {
   agents: AgentsService;
+  apiKeys: ApiKeysService;
   events: EventsService;
   files: FilesService;
   machines: MachinesService;
@@ -102,6 +107,7 @@ export const composeWith = ({
   const workspaces = createWorkspacesService({ allowedOrgIds, db });
   const events = createEventsService({ blobs: infra.blobs, db });
   const agents = createAgentsService({ db, events });
+  const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
   const files = createFilesService({
     blobs: infra.fileBlobs,
     clock: infra.clock,
@@ -129,7 +135,16 @@ export const composeWith = ({
     atomic: infra.atomic,
     clock: infra.clock,
     db,
-    services: { agents, events, files, machines, runs, sessions, workspaces },
+    services: {
+      agents,
+      apiKeys,
+      events,
+      files,
+      machines,
+      runs,
+      sessions,
+      workspaces,
+    },
   };
 };
 
