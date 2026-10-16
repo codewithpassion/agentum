@@ -35,3 +35,5 @@ None for Dom. The controller does these after merge:
 - Deploy to staging, check Worker startup under 1 s and that `/mcp` still answers on `agents` 0.28.1.
 - Write the `v3` decision into the task file. It still says `v2`.
 - Merge order with M8.1, as in the first nit.
+
+Controller note (17 Oct 2026): the PiRun migration tag was renamed to `v2` on main before any deploy. M8.1's ManagedPoller takes `v3`, appended after it.

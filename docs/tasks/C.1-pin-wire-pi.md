@@ -3,7 +3,7 @@ id: C.1
 title: Pin and wire Pi Durable
 milestone: C
 size: S
-status: in_progress
+status: done
 depends_on: [C.0]
 branch: task/C.1-pin-wire-pi
 ---
@@ -21,3 +21,4 @@ Dry-run bundle (`wrangler deploy --dry-run`) well under the 64 MiB limit, with t
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
 - 2026-10-17: dispatched on task/C.1-pin-wire-pi.
+- 2026-10-17: review clean after 0 fix rounds at 79513d6 (docs/reviews/tasks/C.1.md). Merged. Dispatcher used tag v3 (M8.1 branch held v2); controller renamed it to v2 on main before deploy, M8.1 takes v3.
