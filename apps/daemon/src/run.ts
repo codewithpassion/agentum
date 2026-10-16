@@ -131,8 +131,9 @@ export const runCommand = async (options: RunOptions): Promise<number> => {
 
   const unsubscribe = signals(() => {
     log.info("stopping");
-    // Runs end as `aborted` before the daemon goes, so the lease does not have
-    // to expire. The completions are plain HTTP and need no socket.
+    // Runs end as `aborted` before the daemon goes. The server turns a running
+    // run into `interrupted` at once, so the lease does not have to expire.
+    // The completions are plain HTTP and need no socket.
     manager.stop("the daemon is stopping");
     manager.idle().then(() => finish(EXIT_OK));
   });
