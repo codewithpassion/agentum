@@ -17,7 +17,7 @@ import type {
 } from "@repo/services/credentials";
 import type { EventInput, EventsService } from "@repo/services/events";
 import type { RunTokenClaims } from "@repo/services/run-tokens";
-import { importRunTokenKey, verifyRunToken } from "@repo/services/run-tokens";
+import { importRunTokenKey, verifyAgentToken } from "@repo/services/run-tokens";
 import type { Context } from "hono";
 import { readCappedBody } from "../mcp/body.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
@@ -477,7 +477,7 @@ export const proxyRoutes = ({
       return null;
     }
     const { clock, db } = c.get("composed");
-    const result = await verifyRunToken({
+    const result = await verifyAgentToken({
       db,
       key: await importRunTokenKey(c.env.RUN_TOKEN_KEY),
       now: clock.now(),

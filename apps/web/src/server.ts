@@ -19,6 +19,7 @@ import { appRouter } from "./server/trpc/router.ts";
 
 // Durable Object classes are exported from the Worker entry.
 // biome-ignore lint/performance/noBarrelFile: the Worker entry must export the Durable Object class; the class lives in its own module so bun can test it
+export { ManagedPoller } from "./server/managed-poller.ts";
 export { MachineRelay } from "./server/relay.ts";
 
 const app = new Hono<AppEnv>();

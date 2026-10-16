@@ -3,6 +3,7 @@ import { sqliteAtomic } from "@repo/db/atomic";
 import { agentConnectors, credentials } from "@repo/db/schema/connectors";
 import { events } from "@repo/db/schema/events";
 import { machines } from "@repo/db/schema/machines";
+import { managedSessions } from "@repo/db/schema/managed";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -17,7 +18,11 @@ import {
 import { encryptSecret, importSecretsKey } from "@repo/services/crypto";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
-import { importRunTokenKey, signRunToken } from "@repo/services/run-tokens";
+import {
+  importRunTokenKey,
+  signRunToken,
+  signSessionToken,
+} from "@repo/services/run-tokens";
 import type { Clock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
 import { eq } from "drizzle-orm";
@@ -407,6 +412,70 @@ describe("the gate", () => {
     );
 
     expect(response.status).toBe(405);
+  });
+});
+
+describe("a managed session's token", () => {
+  const sessionTokenFor = async (runId: string, issuedAt = nowMs) =>
+    signSessionToken(await importRunTokenKey(RUN_TOKEN_KEY), {
+      agentId,
+      issuedAt,
+      sessionId: `session_${runId}`,
+      workspaceId: WORKSPACE,
+    });
+
+  const openManagedSession = (runId: string, issuedAt = nowMs) =>
+    db
+      .insert(managedSessions)
+      .values({
+        agentFingerprint: "fp",
+        anthropicSessionId: "sesn_1",
+        createdAt: new Date(nowMs).toISOString(),
+        sessionId: `session_${runId}`,
+        tokenIssuedAt: issuedAt,
+        vaultId: "vlt_1",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+
+  test("reaches the connector as the session's running run, and logs the call under it", async () => {
+    startStub();
+    await seedHeaderCredential();
+    addRun("run_1", "running", "managed");
+    openManagedSession("run_1");
+
+    const response = await call(await sessionTokenFor("run_1"));
+
+    expect(await echoed(response)).toBe("hello");
+    const logged = await eventsOf("run_1");
+    expect(logged.map((row) => row.type)).toEqual(["connector.call"]);
+  });
+
+  test("is refused once the session is closed, replaced or without a running run", async () => {
+    startStub();
+    await seedHeaderCredential();
+    addRun("run_1", "running", "managed");
+    openManagedSession("run_1");
+    const token = await sessionTokenFor("run_1");
+
+    expect((await call(await sessionTokenFor("run_1", nowMs - 1))).status).toBe(
+      401
+    );
+
+    db.update(runs).set({ status: "done" }).where(eq(runs.id, "run_1")).run();
+    expect((await call(token)).status).toBe(401);
+
+    db.update(runs)
+      .set({ status: "running" })
+      .where(eq(runs.id, "run_1"))
+      .run();
+    expect((await call(token)).status).toBe(200);
+
+    db.update(managedSessions)
+      .set({ closedAt: new Date(nowMs).toISOString() })
+      .run();
+    expect((await call(token)).status).toBe(401);
+    expect(stubOf().stats().calls).toHaveLength(1);
   });
 });
 

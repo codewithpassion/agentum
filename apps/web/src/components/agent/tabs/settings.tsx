@@ -62,7 +62,7 @@ function SettingsPanel({ agent }: AgentTabProps) {
           machineId: agent.machineId ?? "",
           model: agent.model,
           name: agent.name,
-          runtime: agent.runtime === "fake" ? "fake" : "machine",
+          runtime: agent.runtime,
         }}
         key={agent.id}
         lockRuntime
