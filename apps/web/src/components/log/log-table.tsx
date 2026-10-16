@@ -1,5 +1,4 @@
 import { Link } from "@tanstack/react-router";
-import { format } from "date-fns";
 import { Badge } from "#/components/ui/badge.tsx";
 import {
   Table,
@@ -21,6 +20,10 @@ interface LogRowProps {
   entry: EventLogEntry;
 }
 
+/** The stored UTC time as `2026-02-02 12:00:00 UTC`, the same on the server and in the browser, and in the day the date filter uses. */
+const formatUtc = (iso: string): string =>
+  `${iso.slice(0, 19).replace("T", " ")} UTC`;
+
 function agentLabel(
   entry: EventLogEntry,
   agentNames: ReadonlyMap<string, string>
@@ -36,9 +39,7 @@ function LogRow({ agentName, entry }: LogRowProps) {
   return (
     <TableRow data-testid="log-row">
       <TableCell className="whitespace-nowrap">
-        <time dateTime={entry.createdAt}>
-          {format(new Date(entry.createdAt), "yyyy-MM-dd HH:mm:ss")}
-        </time>
+        <time dateTime={entry.createdAt}>{formatUtc(entry.createdAt)}</time>
       </TableCell>
       <TableCell>
         <Badge variant="secondary">{entry.type}</Badge>

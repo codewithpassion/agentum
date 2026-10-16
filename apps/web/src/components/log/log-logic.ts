@@ -13,7 +13,11 @@ const startOfDay = (day: string): Date | undefined => {
     return;
   }
   const date = new Date(`${day}T00:00:00.000Z`);
-  return Number.isNaN(date.getTime()) ? undefined : date;
+  // A day that rolls over (2026-02-31 becomes March 3) is not a date.
+  if (Number.isNaN(date.getTime())) {
+    return;
+  }
+  return date.toISOString().startsWith(day) ? date : undefined;
 };
 
 /**

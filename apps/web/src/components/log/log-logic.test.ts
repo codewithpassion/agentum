@@ -30,3 +30,10 @@ test("isEventType accepts known types only", () => {
   expect(isEventType("run.failed")).toBe(true);
   expect(isEventType("run.exploded")).toBe(false);
 });
+
+test("a day that rolls over is dropped", () => {
+  expect(dayRangeFilters("2026-02-31", undefined)).toEqual({
+    from: undefined,
+    to: undefined,
+  });
+});

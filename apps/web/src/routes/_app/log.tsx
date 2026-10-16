@@ -15,7 +15,7 @@ const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 type FilterPatch = Parameters<ComponentProps<typeof LogFilters>["onChange"]>[0];
 
 const searchSchema = z.object({
-  agent: z.string().min(1).optional().catch(undefined),
+  agent: z.string().min(1).max(200).optional().catch(undefined),
   from: z.string().regex(DAY_PATTERN).optional().catch(undefined),
   page: z.number().int().min(0).optional().catch(undefined),
   to: z.string().regex(DAY_PATTERN).optional().catch(undefined),
