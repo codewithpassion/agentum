@@ -15,6 +15,7 @@ import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppConnectorsRouteImport } from './routes/_app/connectors'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
+import { Route as AppLibraryRouteImport } from './routes/_app/library'
 import { Route as AppLogRouteImport } from './routes/_app/log'
 import { Route as AppMachinesRouteImport } from './routes/_app/machines'
 import { Route as AppRoutinesRouteImport } from './routes/_app/routines'
@@ -53,6 +54,11 @@ const AppConnectorsRoute = AppConnectorsRouteImport.update({
 const AppInboxRoute = AppInboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppLibraryRoute = AppLibraryRouteImport.update({
+  id: '/library',
+  path: '/library',
   getParentRoute: () => AppRoute,
 } as any)
 const AppLogRoute = AppLogRouteImport.update({
@@ -113,6 +119,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/connectors': typeof AppConnectorsRoute
   '/inbox': typeof AppInboxRoute
+  '/library': typeof AppLibraryRoute
   '/log': typeof AppLogRoute
   '/machines': typeof AppMachinesRoute
   '/routines': typeof AppRoutinesRoute
@@ -130,6 +137,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/connectors': typeof AppConnectorsRoute
   '/inbox': typeof AppInboxRoute
+  '/library': typeof AppLibraryRoute
   '/log': typeof AppLogRoute
   '/machines': typeof AppMachinesRoute
   '/routines': typeof AppRoutinesRoute
@@ -149,6 +157,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_app/connectors': typeof AppConnectorsRoute
   '/_app/inbox': typeof AppInboxRoute
+  '/_app/library': typeof AppLibraryRoute
   '/_app/log': typeof AppLogRoute
   '/_app/machines': typeof AppMachinesRoute
   '/_app/routines': typeof AppRoutinesRoute
@@ -168,6 +177,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/connectors'
     | '/inbox'
+    | '/library'
     | '/log'
     | '/machines'
     | '/routines'
@@ -185,6 +195,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/connectors'
     | '/inbox'
+    | '/library'
     | '/log'
     | '/machines'
     | '/routines'
@@ -203,6 +214,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/_app/connectors'
     | '/_app/inbox'
+    | '/_app/library'
     | '/_app/log'
     | '/_app/machines'
     | '/_app/routines'
@@ -264,6 +276,13 @@ declare module '@tanstack/react-router' {
       path: '/inbox'
       fullPath: '/inbox'
       preLoaderRoute: typeof AppInboxRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/library': {
+      id: '/_app/library'
+      path: '/library'
+      fullPath: '/library'
+      preLoaderRoute: typeof AppLibraryRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/log': {
@@ -342,6 +361,7 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppConnectorsRoute: typeof AppConnectorsRoute
   AppInboxRoute: typeof AppInboxRoute
+  AppLibraryRoute: typeof AppLibraryRoute
   AppLogRoute: typeof AppLogRoute
   AppMachinesRoute: typeof AppMachinesRoute
   AppRoutinesRoute: typeof AppRoutinesRoute
@@ -357,6 +377,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppConnectorsRoute: AppConnectorsRoute,
   AppInboxRoute: AppInboxRoute,
+  AppLibraryRoute: AppLibraryRoute,
   AppLogRoute: AppLogRoute,
   AppMachinesRoute: AppMachinesRoute,
   AppRoutinesRoute: AppRoutinesRoute,
