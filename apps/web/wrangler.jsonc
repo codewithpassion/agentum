@@ -6,10 +6,17 @@
   "main": "src/server.ts",
   "observability": { "enabled": true },
   "durable_objects": {
-    "bindings": [{ "name": "MACHINE_RELAY", "class_name": "MachineRelay" }]
+    "bindings": [
+      { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
+      { "name": "PI_RUN", "class_name": "PiRun" }
+    ]
   },
   // Migrations are not per environment, so they live at the top level only.
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MachineRelay"] }],
+  // Never edit a tag that has shipped, add the next one.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["MachineRelay"] },
+    { "tag": "v3", "new_sqlite_classes": ["PiRun"] }
+  ],
   // The minute tick (src/server/tick). Crons are not per environment either:
   // only the production Worker runs them.
   "triggers": { "crons": ["* * * * *"] },
@@ -44,7 +51,10 @@
       ],
       "workers_dev": true,
       "durable_objects": {
-        "bindings": [{ "name": "MACHINE_RELAY", "class_name": "MachineRelay" }]
+        "bindings": [
+          { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
+          { "name": "PI_RUN", "class_name": "PiRun" }
+        ]
       },
       "vars": {
         "PUBLIC_BASE_URL": "https://harbourmaster-staging.rockyshoreslabs.io"
@@ -67,7 +77,8 @@
       "previews": {
         "durable_objects": {
           "bindings": [
-            { "name": "MACHINE_RELAY", "class_name": "MachineRelay" }
+            { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
+            { "name": "PI_RUN", "class_name": "PiRun" }
           ]
         },
         "vars": { "PUBLIC_BASE_URL": "" },
