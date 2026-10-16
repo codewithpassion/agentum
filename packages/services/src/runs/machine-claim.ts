@@ -174,6 +174,7 @@ export const claimForMachine = async (
       id: claimedRun.id,
       inputText: claimedRun.inputText,
       sessionId: claimedRun.sessionId,
+      workspaceId: claimedRun.workspaceId,
     },
     runToken,
     session: {

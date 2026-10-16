@@ -15,6 +15,7 @@ import {
 import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import {
+  AGENT_HOME,
   AGENT_USER,
   canRunAsAgent,
   resolveClaudeBinary,
@@ -29,7 +30,6 @@ import type { Logger } from "./log.ts";
 export const SERVICE_NAME = "harbourmaster";
 
 const ROOT_UID = 0;
-const AGENT_HOME = `/home/${AGENT_USER}`;
 const SUDOERS_FILE_MODE = 0o600;
 
 export const serviceUnitPath = (home: string = homedir()): string =>

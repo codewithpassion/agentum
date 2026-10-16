@@ -98,6 +98,8 @@ export const claimResponseSchema = z.strictObject({
     id: z.string(),
     inputText: z.string(),
     sessionId: z.string(),
+    // The daemon lays out its work directories by workspace and agent.
+    workspaceId: z.string(),
   }),
   runToken: z.string().startsWith("hm_run_"),
   session: z.strictObject({

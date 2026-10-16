@@ -105,7 +105,8 @@ app.route("/", runtimeRoutes);
 app.route("/", accessRoutes);
 app.route("/", automationRoutes);
 
-// Local checks (the atomic probe). Dev builds only.
+// Local checks (the atomic probe, and the offer nudge the e2e script uses).
+// Dev builds only.
 if (import.meta.env.DEV) {
   app.route("/", devRoutes);
 }

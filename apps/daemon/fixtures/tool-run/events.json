@@ -1,0 +1,74 @@
+[
+  [
+    {
+      "payload": {
+        "input": {
+          "query": "select:mcp__harbourmaster__pelican_word",
+          "max_results": 1
+        },
+        "name": "ToolSearch",
+        "toolUseId": "toolu_1"
+      },
+      "seq": 1,
+      "type": "tool.call"
+    }
+  ],
+  [
+    {
+      "payload": {
+        "ok": true,
+        "output": "[tool_reference]",
+        "toolUseId": "toolu_1"
+      },
+      "seq": 2,
+      "type": "tool.result"
+    },
+    {
+      "payload": {
+        "input": {},
+        "name": "mcp__harbourmaster__pelican_word",
+        "toolUseId": "toolu_2"
+      },
+      "seq": 3,
+      "type": "tool.call"
+    },
+    {
+      "payload": {
+        "ok": true,
+        "output": "the secret word is heron",
+        "toolUseId": "toolu_2"
+      },
+      "seq": 4,
+      "type": "tool.result"
+    }
+  ],
+  [
+    {
+      "payload": {
+        "input": {
+          "file_path": "/home/hm-agent/harbourmaster/01HW0RKSPACE00000000000001/01HAGENT0PELICAN000000001/work/hello.txt"
+        },
+        "name": "Read",
+        "toolUseId": "toolu_3"
+      },
+      "seq": 5,
+      "type": "tool.call"
+    },
+    {
+      "payload": {
+        "ok": true,
+        "output": "1\tThe word in this file is pelican-feather.\n2\t",
+        "toolUseId": "toolu_3"
+      },
+      "seq": 6,
+      "type": "tool.result"
+    },
+    {
+      "payload": {
+        "text": "The pelican_word tool returned \"heron\" as the secret word, and hello.txt says \"pelican-feather.\""
+      },
+      "seq": 7,
+      "type": "message.assistant"
+    }
+  ]
+]

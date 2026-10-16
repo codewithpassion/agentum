@@ -1,0 +1,12 @@
+[
+  {
+    "runtimeRef": "0b9e4c5a-6f1d-4d6e-9a53-2c8e1f7a4b10",
+    "status": "done",
+    "text": "The pelican_word tool returned \"heron\" as the secret word, and hello.txt says \"pelican-feather.\"",
+    "usage": {
+      "costUsd": 0.00240455,
+      "inputTokens": 6,
+      "outputTokens": 249
+    }
+  }
+]

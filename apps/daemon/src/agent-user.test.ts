@@ -26,22 +26,24 @@ const fakeRun =
     return Promise.resolve(answers[command[0] ?? ""] ?? failed);
   };
 
-test("the sudoers line names the exact binary path", () => {
+test("the sudoers line names the exact binary path, plus mkdir and rm", () => {
   expect(sudoersLine("dom", "/home/dom/.local/bin/claude")).toBe(
-    "dom ALL=(hm-agent) NOPASSWD: /home/dom/.local/bin/claude"
+    "dom ALL=(hm-agent) CWD=* NOPASSWD: /home/dom/.local/bin/claude, /bin/mkdir, /bin/rm"
   );
 });
 
 test("the sudoers line escapes characters sudoers would split on", () => {
   expect(sudoersLine("dom", "/opt/my tools/claude,v2")).toBe(
-    "dom ALL=(hm-agent) NOPASSWD: /opt/my\\ tools/claude\\,v2"
+    "dom ALL=(hm-agent) CWD=* NOPASSWD: /opt/my\\ tools/claude\\,v2, /bin/mkdir, /bin/rm"
   );
 });
 
 test("the drop-in file ends with a newline and holds the one rule", () => {
   const file = sudoersFile("dom", "/usr/bin/claude");
   expect(file.endsWith("\n")).toBe(true);
-  expect(file).toContain("dom ALL=(hm-agent) NOPASSWD: /usr/bin/claude\n");
+  expect(file).toContain(
+    "dom ALL=(hm-agent) CWD=* NOPASSWD: /usr/bin/claude, /bin/mkdir, /bin/rm\n"
+  );
 });
 
 test("the drop-in path has no dot, which sudo would skip", () => {
