@@ -37,6 +37,10 @@ export interface SlackClient {
   >;
   /** Gives the app id of a bot. Needs the users:read scope. */
   botInfo: (botId: string) => Promise<SlackCallResult<{ appId: string }>>;
+  /** Gives the name of a channel. Needs the channels:read and groups:read scopes. */
+  channelName: (
+    channelId: string
+  ) => Promise<SlackCallResult<{ name: string | null }>>;
   downloadFile: (url: string, maxBytes: number) => Promise<SlackDownload>;
   postEphemeral: (request: {
     channel: string;
@@ -58,6 +62,10 @@ export interface SlackClient {
   userEmail: (
     userId: string
   ) => Promise<SlackCallResult<{ email: string | null }>>;
+  /** Gives the display name of a user. Needs the users:read scope. */
+  userName: (
+    userId: string
+  ) => Promise<SlackCallResult<{ name: string | null }>>;
 }
 
 type Body = Record<string, unknown>;
@@ -250,6 +258,21 @@ export const createSlackClient = (deps: {
       );
     },
 
+    channelName(channelId) {
+      return callSlack(
+        {
+          method: "GET",
+          url: apiUrl("conversations.info", { channel: channelId }),
+        },
+        (body) => {
+          const { name } = asBody(body.channel);
+          return {
+            name: typeof name === "string" && name !== "" ? name : null,
+          };
+        }
+      );
+    },
+
     async downloadFile(url, maxBytes) {
       if (!isSlackFileUrl(url)) {
         return { error: "bad_host", kind: "rejected" };
@@ -385,6 +408,25 @@ export const createSlackClient = (deps: {
           return {
             email: typeof email === "string" && email !== "" ? email : null,
           };
+        }
+      );
+    },
+
+    userName(userId) {
+      return callSlack(
+        { method: "GET", url: apiUrl("users.info", { user: userId }) },
+        (body) => {
+          const user = asBody(body.user);
+          const profile = asBody(user.profile);
+          const name = [
+            profile.display_name,
+            profile.real_name,
+            user.real_name,
+            user.name,
+          ].find(
+            (candidate) => typeof candidate === "string" && candidate !== ""
+          );
+          return { name: typeof name === "string" ? name : null };
         }
       );
     },

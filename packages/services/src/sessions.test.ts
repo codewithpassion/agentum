@@ -1,6 +1,9 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { events as eventRows } from "@repo/db/schema/events";
+import { inboxThreads } from "@repo/db/schema/inbox";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { triggers as triggerRows } from "@repo/db/schema/triggers";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
@@ -56,7 +59,11 @@ const startIn = (
   principal: Principal,
   agent: string,
   text: string,
-  session: { externalKey?: string; origin: "ui" | "slack"; private?: boolean }
+  session: {
+    externalKey?: string;
+    origin: "ui" | "slack" | "inbox" | "trigger";
+    private?: boolean;
+  }
 ) =>
   runs.startRun(principal, {
     agentId: agent,
@@ -156,6 +163,177 @@ test("the title is the first message trimmed to 60 characters, in the list and t
   const expected = `${long.trim().slice(0, 60)}...`;
   expect(item?.title).toBe(expected);
   expect(session.title).toBe(expected);
+});
+
+const insertTrigger = (id: string, kind: "http" | "routine", name: string) =>
+  db
+    .insert(triggerRows)
+    .values({
+      agentId,
+      createdAt: START,
+      createdBy: "u1",
+      id,
+      kind,
+      name,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+
+const insertThread = (id: string, title: string) =>
+  db
+    .insert(inboxThreads)
+    .values({
+      createdAt: START,
+      createdBy: "u1",
+      id,
+      lastPostAt: START,
+      title,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+
+const insertSlackName = (sessionId: string, eventId: string, label: string) =>
+  db
+    .insert(eventRows)
+    .values({
+      actorId: "slack",
+      actorKind: "system",
+      agentId,
+      createdAt: START,
+      id: eventId,
+      payload: JSON.stringify({ label }),
+      sessionId,
+      type: "slack.named",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+
+const triggerPrincipal = (triggerId: string): Principal => ({
+  agentId,
+  kind: "trigger",
+  triggerId,
+  workspaceId: WORKSPACE,
+});
+
+test("a trigger session is titled by the trigger's name, in the list and the transcript", async () => {
+  insertTrigger("trg-deploy", "http", "Deploy hook");
+  const started = await startIn(
+    triggerPrincipal("trg-deploy"),
+    agentId,
+    "build the site",
+    { origin: "trigger" }
+  );
+
+  const [item] = await sessions.list(user("u1"), { origin: "trigger" });
+  const { session } = await sessions.transcript(user("u1"), started.sessionId);
+
+  expect(item).toMatchObject({ id: started.sessionId, title: "Deploy hook" });
+  expect(session.title).toBe("Deploy hook");
+});
+
+test("a routine session is titled by the routine's name", async () => {
+  insertTrigger("trg-digest", "routine", "Daily digest");
+  const started = await startIn(
+    triggerPrincipal("trg-digest"),
+    agentId,
+    "summarise the day",
+    { origin: "trigger" }
+  );
+
+  const [item] = await sessions.list(user("u1"), { origin: "trigger" });
+
+  expect(item).toMatchObject({ id: started.sessionId, title: "Daily digest" });
+});
+
+test("a trigger with a blank name, or no row, is titled by the first message", async () => {
+  insertTrigger("trg-blank", "http", "   ");
+  const blank = await startIn(
+    triggerPrincipal("trg-blank"),
+    agentId,
+    "blank name",
+    {
+      origin: "trigger",
+    }
+  );
+  const gone = await startIn(
+    triggerPrincipal("trg-gone"),
+    agentId,
+    "row deleted",
+    {
+      origin: "trigger",
+    }
+  );
+
+  const items = await sessions.list(user("u1"), { origin: "trigger" });
+
+  expect(items.find((item) => item.id === blank.sessionId)?.title).toBe(
+    "blank name"
+  );
+  expect(items.find((item) => item.id === gone.sessionId)?.title).toBe(
+    "row deleted"
+  );
+});
+
+test("an inbox session is titled by its thread's title", async () => {
+  insertThread("thr-1", "Quarterly review");
+  const started = await startIn(user("u1"), agentId, "draft the agenda", {
+    externalKey: "thr-1",
+    origin: "inbox",
+  });
+
+  const [item] = await sessions.list(user("u1"), { origin: "inbox" });
+
+  expect(item).toMatchObject({
+    id: started.sessionId,
+    title: "Quarterly review",
+  });
+});
+
+test("an inbox session whose thread is gone is titled by the first message", async () => {
+  const started = await startIn(user("u1"), agentId, "draft the agenda", {
+    externalKey: "thr-missing",
+    origin: "inbox",
+  });
+
+  const [item] = await sessions.list(user("u1"), { origin: "inbox" });
+
+  expect(item).toMatchObject({
+    id: started.sessionId,
+    title: "draft the agenda",
+  });
+});
+
+test("a Slack session is titled with its label and the first message", async () => {
+  const started = await startIn(user("u1"), agentId, "Hello team", {
+    externalKey: "thread-1",
+    origin: "slack",
+  });
+  insertSlackName(started.sessionId, "01AAAAAAAAAAAAAAAAAAAAAAAA", "#old");
+  insertSlackName(started.sessionId, "01BBBBBBBBBBBBBBBBBBBBBBBB", "#launch");
+
+  const [item] = await sessions.list(user("u1"), { origin: "slack" });
+
+  expect(item?.title).toBe("#launch: Hello team");
+});
+
+test("a Slack session with no label event is titled by the first message", async () => {
+  await startIn(user("u1"), agentId, "Hello team", {
+    externalKey: "thread-1",
+    origin: "slack",
+  });
+
+  const [item] = await sessions.list(user("u1"), { origin: "slack" });
+
+  expect(item?.title).toBe("Hello team");
+});
+
+test("a ui session ignores a Slack label event", async () => {
+  const started = await send(user("u1"), "from the ui");
+  insertSlackName(started.sessionId, "01CCCCCCCCCCCCCCCCCCCCCCCC", "#launch");
+
+  const [item] = await sessions.list(user("u1"), { origin: "ui" });
+
+  expect(item?.title).toBe("from the ui");
 });
 
 test("list hides another user's ui session and other workspaces' sessions", async () => {

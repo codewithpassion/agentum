@@ -227,6 +227,102 @@ test("userEmail returns null when the user has no email", async () => {
   expect(result).toEqual({ email: null, kind: "ok" });
 });
 
+test("userName returns the display name and requests users.info", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({
+      ok: true,
+      user: {
+        name: "ada",
+        profile: { display_name: "Ada D", real_name: "Ada Duke" },
+        real_name: "Ada Duke Top",
+      },
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.userName("U1");
+
+  expect(result).toEqual({ kind: "ok", name: "Ada D" });
+  const url = new URL(firstCall(calls).url);
+  expect(url.origin + url.pathname).toBe("https://slack.com/api/users.info");
+  expect(url.searchParams.get("user")).toBe("U1");
+  expect(firstCall(calls).init.method).toBe("GET");
+  expect(new Headers(firstCall(calls).init.headers).get("authorization")).toBe(
+    `Bearer ${TOKEN}`
+  );
+});
+
+test("userName falls back to real_name when the display name is empty", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({
+      ok: true,
+      user: {
+        name: "ada",
+        profile: { display_name: "", real_name: "Ada Duke" },
+        real_name: "Other",
+      },
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.userName("U1");
+
+  expect(result).toEqual({ kind: "ok", name: "Ada Duke" });
+});
+
+test("userName returns null when the user has no name", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ ok: true, user: { profile: {} } })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.userName("U1");
+
+  expect(result).toEqual({ kind: "ok", name: null });
+});
+
+test("channelName returns the channel name and requests conversations.info", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({ channel: { id: "C1", name: "general" }, ok: true })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.channelName("C1");
+
+  expect(result).toEqual({ kind: "ok", name: "general" });
+  const url = new URL(firstCall(calls).url);
+  expect(url.origin + url.pathname).toBe(
+    "https://slack.com/api/conversations.info"
+  );
+  expect(url.searchParams.get("channel")).toBe("C1");
+  expect(firstCall(calls).init.method).toBe("GET");
+  expect(new Headers(firstCall(calls).init.headers).get("authorization")).toBe(
+    `Bearer ${TOKEN}`
+  );
+});
+
+test("channelName returns null when the channel has no name", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ channel: { id: "D1" }, ok: true })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.channelName("D1");
+
+  expect(result).toEqual({ kind: "ok", name: null });
+});
+
+test("channelName classifies missing_scope as config", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "missing_scope", ok: false })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.channelName("C1");
+
+  expect(result).toEqual({ error: "missing_scope", kind: "config" });
+});
+
 test("downloadFile returns the bytes with the bearer token and no redirects", async () => {
   const { calls, fetch } = fakeFetch(
     () =>

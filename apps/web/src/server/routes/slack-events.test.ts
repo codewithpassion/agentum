@@ -122,6 +122,10 @@ const fakeSlack = async (
   const answers: Record<string, unknown> = {
     "chat.postEphemeral": { ok: true },
     "chat.postMessage": { ok: true, ts: "1789171300.000100" },
+    "conversations.info":
+      address.searchParams.get("channel") === "C0GONE"
+        ? { error: "channel_not_found", ok: false }
+        : { channel: { id: "C0CHAN", name: "launch" }, ok: true },
     "files.completeUploadExternal": { ok: true },
     "files.getUploadURLExternal": {
       file_id: OUTPUT_FILE_ID,
@@ -130,7 +134,10 @@ const fakeSlack = async (
     },
     "users.info": {
       ok: true,
-      user: { id: "U0NEW", profile: { email: "newcomer@example.com" } },
+      user: {
+        id: "U0NEW",
+        profile: { email: "newcomer@example.com", real_name: "Newcomer" },
+      },
     },
   };
   return Response.json(answers[method] ?? { ok: false });
@@ -354,6 +361,44 @@ test("a DM is keyed by its own timestamp and a threaded mention by its thread", 
     "T0TEAM:C0CHAN:1789171100.000050",
     "T0TEAM:D0DM:1789171202.000200",
   ]);
+});
+
+const namedLabels = () =>
+  db
+    .select({ payload: eventRows.payload })
+    .from(eventRows)
+    .where(eq(eventRows.type, "slack.named"))
+    .all()
+    .map(
+      (row) => (JSON.parse(row.payload ?? "{}") as { label?: string }).label
+    );
+
+test("a channel mention records the channel name for the session title after the answer", async () => {
+  await send(await fixture("mention"));
+  expect(namedLabels()).toEqual([]);
+
+  await runAfterJobs();
+
+  expect(namedLabels()).toEqual(["#launch"]);
+});
+
+test("a DM records who it is with", async () => {
+  await send(await fixture("dm"));
+
+  await runAfterJobs();
+
+  expect(namedLabels()).toEqual(["DM with Newcomer"]);
+});
+
+test("a failed name lookup writes no name and does not stop the run being offered", async () => {
+  const gone = await fixture("mention");
+  gone.event.channel = "C0GONE";
+  await send(gone);
+
+  await runAfterJobs();
+
+  expect(namedLabels()).toEqual([]);
+  expect(allRuns()[0]?.status).toBe("offered");
 });
 
 test("a DM starts a private session and a channel mention does not", async () => {
