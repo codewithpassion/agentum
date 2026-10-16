@@ -4,8 +4,10 @@ import { agents as agentRows } from "@repo/db/schema/agents";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { SKILLS_MAX_BYTES, SKILLS_MAX_FILES } from "@repo/protocol/skills";
+import { createAgentsService } from "./agents.ts";
 import { createEventsService } from "./events.ts";
 import { memoryLibraryBlobs } from "./library/memory.ts";
+import { readSkillMeta, skillFileAt } from "./library/skill-file.ts";
 import { createLibraryService } from "./library.ts";
 import { systemClock } from "./runs/types.ts";
 import { createSkillsService } from "./skills.ts";
@@ -16,6 +18,7 @@ const B = "w2";
 const START = "2026-10-16T10:00:00.000Z";
 const AGENT = "a1";
 const OTHER_AGENT = "a2";
+const OTHER_WORKSPACE_AGENT = "a3";
 const RUN = "r1";
 
 const user = (workspaceId = A): Principal => ({
@@ -34,6 +37,18 @@ const run = (agentId = AGENT, workspaceId = A, runId = RUN): Principal => ({
 const bytes = (value: string) => new TextEncoder().encode(value);
 const decode = (value: Uint8Array) => new TextDecoder().decode(value);
 
+/**
+ * The content a file gets. A SKILL.md gets valid frontmatter for its folder,
+ * since the library refuses any other, and `body` after it.
+ */
+const contentFor = (path: string, body: string = path): string => {
+  const skill = skillFileAt(path);
+  if (skill === null) {
+    return body;
+  }
+  return `---\nname: ${skill.skill}\ndescription: A test skill.\n---\n${body}`;
+};
+
 /** The error a promise rejects with, or null when it resolves. */
 const errorOf = (promise: Promise<unknown>): Promise<unknown> =>
   promise.then(
@@ -41,30 +56,38 @@ const errorOf = (promise: Promise<unknown>): Promise<unknown> =>
     (caught: unknown) => caught
   );
 
+let blobs: ReturnType<typeof memoryLibraryBlobs>;
+let events: ReturnType<typeof createEventsService>;
 let library: ReturnType<typeof createLibraryService>;
 let skills: ReturnType<typeof createSkillsService>;
 
 /** Writes each file with its own path as content, as the user. */
 const writeAll = (list: string[]) =>
-  Promise.all(list.map((path) => library.write(user(), path, bytes(path))));
+  Promise.all(
+    list.map((path) => library.write(user(), path, bytes(contentFor(path))))
+  );
 
 const listed = async (principal: Principal = run(), runId = RUN) =>
   (await skills.list(principal, runId)).map((file) => file.path);
 
 beforeEach(() => {
   const db = migrated();
-  const blobs = memoryLibraryBlobs();
+  blobs = memoryLibraryBlobs();
+  events = createEventsService({
+    blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+    db,
+  });
   library = createLibraryService({
     atomic: sqliteAtomic(db),
     blobs,
     clock: systemClock,
     db,
-    events: createEventsService({
-      blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
-      db,
-    }),
+    events,
   });
-  skills = createSkillsService({ library });
+  skills = createSkillsService({
+    agents: createAgentsService({ db, events }),
+    library,
+  });
   for (const id of [A, B]) {
     db.insert(workspaceRows)
       .values({
@@ -76,7 +99,11 @@ beforeEach(() => {
       })
       .run();
   }
-  for (const id of [AGENT, OTHER_AGENT]) {
+  for (const [id, workspaceId] of [
+    [AGENT, A],
+    [OTHER_AGENT, A],
+    [OTHER_WORKSPACE_AGENT, B],
+  ] as const) {
     db.insert(agentRows)
       .values({
         createdAt: START,
@@ -89,7 +116,7 @@ beforeEach(() => {
         runtimeConfig: "{}",
         slug: id,
         status: "active",
-        workspaceId: A,
+        workspaceId,
       })
       .run();
   }
@@ -114,7 +141,7 @@ test("own and shared skills are listed with skill-relative paths, sorted", async
   const [first] = await skills.list(run(), RUN);
   expect(first).toMatchObject({
     path: "alpha/SKILL.md",
-    size: bytes(`skills/${AGENT}/alpha/SKILL.md`).byteLength,
+    size: bytes(contentFor(`skills/${AGENT}/alpha/SKILL.md`)).byteLength,
   });
   expect(first?.etag).toBeString();
 });
@@ -128,7 +155,7 @@ test("an own skill with the same name as a shared one replaces it whole", async 
 
   expect(await listed()).toEqual(["shout/SKILL.md"]);
   expect(decode(await skills.read(run(), RUN, "shout/SKILL.md"))).toBe(
-    `skills/${AGENT}/shout/SKILL.md`
+    contentFor(`skills/${AGENT}/shout/SKILL.md`)
   );
   expect(
     await errorOf(skills.read(run(), RUN, "shout/extra.md"))
@@ -152,8 +179,16 @@ test("another agent's skills and another workspace's skills never show up or rea
     `skills/${OTHER_AGENT}/only-theirs/SKILL.md`,
     "skills/_shared/common/SKILL.md",
   ]);
-  await library.write(user(B), `skills/${AGENT}/theirs/SKILL.md`, bytes("b"));
-  await library.write(user(B), "skills/_shared/elsewhere/SKILL.md", bytes("b"));
+  await library.write(
+    user(B),
+    `skills/${AGENT}/theirs/SKILL.md`,
+    bytes(contentFor(`skills/${AGENT}/theirs/SKILL.md`, "b"))
+  );
+  await library.write(
+    user(B),
+    "skills/_shared/elsewhere/SKILL.md",
+    bytes(contentFor("skills/_shared/elsewhere/SKILL.md", "b"))
+  );
 
   expect(await listed()).toEqual(["common/SKILL.md"]);
   expect(await listed(run(AGENT, B), RUN)).toEqual([
@@ -282,4 +317,145 @@ test("nested helper files are listed and readable", async () => {
   expect(
     decode(await skills.read(run(), RUN, "shout/lib/deep/helper.ts"))
   ).toBe("skills/_shared/shout/lib/deep/helper.ts");
+});
+
+test("the catalog lists own then shared skills with name and description", async () => {
+  await writeAll([
+    "skills/_shared/shout/SKILL.md",
+    "skills/_shared/analyse/SKILL.md",
+    `skills/${AGENT}/zeta/SKILL.md`,
+    `skills/${AGENT}/alpha/SKILL.md`,
+  ]);
+
+  const entries = await skills.catalog(user(), AGENT);
+  expect(entries.map((entry) => [entry.scope, entry.folder])).toEqual([
+    ["agent", "alpha"],
+    ["agent", "zeta"],
+    ["shared", "analyse"],
+    ["shared", "shout"],
+  ]);
+  expect(entries[0]).toEqual({
+    description: "A test skill.",
+    folder: "alpha",
+    name: "alpha",
+    path: `skills/${AGENT}/alpha/SKILL.md`,
+    problem: null,
+    scope: "agent",
+  });
+});
+
+test("the catalog lists a same-named skill in both scopes", async () => {
+  await writeAll([
+    "skills/_shared/shout/SKILL.md",
+    `skills/${AGENT}/shout/SKILL.md`,
+  ]);
+
+  const entries = await skills.catalog(user(), AGENT);
+  expect(entries.map((entry) => entry.scope)).toEqual(["agent", "shared"]);
+  expect(entries.every((entry) => entry.problem === null)).toBe(true);
+});
+
+test("a SKILL.md that breaks a rule is listed with its problem", async () => {
+  await writeAll([`skills/${AGENT}/shout/SKILL.md`]);
+  // Written straight into the store, past the library's check.
+  const key = `${A}/library/skills/${AGENT}/shout/SKILL.md`;
+  const stored = blobs.objects.get(key);
+  if (stored === undefined) {
+    throw new Error("the skill file was not stored");
+  }
+  blobs.objects.set(key, {
+    bytes: bytes("no frontmatter here"),
+    etag: stored.etag,
+  });
+
+  expect(await skills.catalog(user(), AGENT)).toEqual([
+    {
+      description: null,
+      folder: "shout",
+      name: null,
+      path: `skills/${AGENT}/shout/SKILL.md`,
+      problem: "SKILL.md must start with a --- frontmatter block",
+      scope: "agent",
+    },
+  ]);
+});
+
+test("a folder without SKILL.md is listed as missing", async () => {
+  await writeAll([`skills/${AGENT}/helper-only/lib.ts`]);
+
+  expect(await skills.catalog(user(), AGENT)).toEqual([
+    {
+      description: null,
+      folder: "helper-only",
+      name: null,
+      path: `skills/${AGENT}/helper-only/SKILL.md`,
+      problem: "SKILL.md is missing",
+      scope: "agent",
+    },
+  ]);
+});
+
+test("the catalog of an agent of another workspace is not_found", async () => {
+  await writeAll(["skills/_shared/shout/SKILL.md"]);
+
+  expect(
+    await errorOf(skills.catalog(user(), OTHER_WORKSPACE_AGENT))
+  ).toMatchObject({ code: "not_found" });
+  expect(
+    await errorOf(skills.create(user(), OTHER_WORKSPACE_AGENT, "fresh"))
+  ).toMatchObject({ code: "not_found" });
+});
+
+test("a new skill is written from the template and the catalog lists it", async () => {
+  const created = await skills.create(user(), AGENT, "draft-report");
+  expect(created).toEqual({ path: `skills/${AGENT}/draft-report/SKILL.md` });
+
+  const [entry] = await skills.catalog(user(), AGENT);
+  expect(entry).toEqual({
+    description:
+      "Describe what this skill does and when the agent should use it.",
+    folder: "draft-report",
+    name: "draft-report",
+    path: `skills/${AGENT}/draft-report/SKILL.md`,
+    problem: null,
+    scope: "agent",
+  });
+  const text = decode(await skills.read(run(), RUN, "draft-report/SKILL.md"));
+  expect(readSkillMeta(text, "draft-report")).toMatchObject({
+    meta: { name: "draft-report" },
+  });
+});
+
+test("a name of 64 characters is accepted", async () => {
+  const name = "a".repeat(64);
+  await expect(skills.create(user(), AGENT, name)).resolves.toEqual({
+    path: `skills/${AGENT}/${name}/SKILL.md`,
+  });
+});
+
+test("creating a skill twice is a conflict", async () => {
+  await skills.create(user(), AGENT, "draft-report");
+
+  expect(
+    await errorOf(skills.create(user(), AGENT, "draft-report"))
+  ).toMatchObject({
+    code: "conflict",
+    message: "A skill with this name already exists",
+  });
+});
+
+test("a name that is not a lowercase slug is refused and writes nothing", async () => {
+  const bad = ["Bad Name", "-x", "a--b", "", "a".repeat(65), "../x"];
+  const failures = await Promise.all(
+    bad.map((name) => errorOf(skills.create(user(), AGENT, name)))
+  );
+  for (const failure of failures) {
+    expect(failure).toMatchObject({
+      code: "invalid",
+      message:
+        "Skill names use lowercase letters, digits and single hyphens, up to 64 characters",
+    });
+  }
+  expect(await skills.catalog(user(), AGENT)).toEqual([]);
+  expect(blobs.objects.size).toBe(0);
 });

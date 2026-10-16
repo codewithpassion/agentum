@@ -25,3 +25,4 @@ export type InboxPost = InboxThreadView["posts"][number];
 export type SlackAppRecord = RouterOutputs["slackApps"]["list"][number];
 export type LibraryEntryRecord = RouterOutputs["library"]["list"][number];
 export type LibraryFileView = RouterOutputs["library"]["read"];
+export type SkillEntry = RouterOutputs["skills"]["list"][number];
