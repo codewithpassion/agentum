@@ -3,7 +3,7 @@ id: U.4
 title: Keep Clerk sign-in flows inside the app
 milestone: U
 size: S
-status: todo
+status: in_progress
 depends_on: [U.3]
 branch: task/U.4-clerk-redirects
 ---
@@ -24,3 +24,4 @@ Browser on a local dev server against the Clerk dev instance. Sign in with email
 
 ## Log
 - 2026-10-17: added from Dom's report; waits for U.3 (same files).
+- 2026-10-17: dispatched on task/U.4-clerk-redirects.
