@@ -13,7 +13,11 @@ import { MAX_FILE_BYTES } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { and, eq } from "drizzle-orm";
 import { encryptSecret, importSecretsKey } from "../crypto.ts";
-import { type Blobs, createEventsService } from "../events.ts";
+import {
+  type Blobs,
+  createEventsService,
+  type EventsService,
+} from "../events.ts";
 import { type MemoryFileBlobs, memoryFileBlobs } from "../files/memory.ts";
 import { createFilesService, type FilesService } from "../files.ts";
 import type {
@@ -74,6 +78,7 @@ let calls: Recorded[];
 let respond: Responder;
 let gateway: Gateway;
 let files: FilesService;
+let events: EventsService;
 
 const json = (body: unknown, init?: ResponseInit) =>
   new Response(JSON.stringify(body), {
@@ -220,7 +225,7 @@ beforeEach(async () => {
     })
     .run();
 
-  const events = createEventsService({
+  events = createEventsService({
     blobs: {
       get: (blobKey) => Promise.resolve(eventBlobs.get(blobKey) ?? null),
       put: (blobKey, body) => {
@@ -653,4 +658,61 @@ test("deliver uploads no files when the text post fails", async () => {
       threadTs: THREAD,
     },
   ]);
+});
+
+test("deliver with files and a defer hook returns before uploading, and the deferred work uploads and records the event", async () => {
+  const id = await storeOutput("report.pdf", "report body");
+  listOutputs([id]);
+  const deferred: Promise<void>[] = [];
+  const deferring = createSlackGateway({
+    clock,
+    db,
+    defer: (work) => {
+      deferred.push(work);
+    },
+    events,
+    fetch: slackFetch,
+    files,
+    publicBaseUrl: PUBLIC_BASE_URL,
+    secretsKey: SECRETS_KEY,
+  });
+
+  await deferring.deliver(
+    slackTarget,
+    { fileIds: [id], text: "Done." },
+    context
+  );
+
+  expect(calls).toHaveLength(0);
+  expect(deliveredEvents()).toEqual([]);
+  expect(deferred).toHaveLength(1);
+
+  await Promise.all(deferred);
+
+  expect(callsTo("chat.postMessage")).toHaveLength(1);
+  expect(callsTo("files.completeUploadExternal")).toHaveLength(1);
+  expect(deliveredEvents()).toEqual([
+    { channel: CHANNEL, delivered: true, threadTs: THREAD },
+  ]);
+});
+
+test("deliver without files does not use the defer hook", async () => {
+  const deferred: Promise<void>[] = [];
+  const deferring = createSlackGateway({
+    clock,
+    db,
+    defer: (work) => {
+      deferred.push(work);
+    },
+    events,
+    fetch: slackFetch,
+    files,
+    publicBaseUrl: PUBLIC_BASE_URL,
+    secretsKey: SECRETS_KEY,
+  });
+
+  await deferring.deliver(slackTarget, { fileIds: [], text: "Done." }, context);
+
+  expect(deferred).toHaveLength(0);
+  expect(callsTo("chat.postMessage")).toHaveLength(1);
 });

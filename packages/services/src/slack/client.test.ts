@@ -483,6 +483,21 @@ test("uploadFile returns transient on a 500 from the upload and skips complete",
   );
 });
 
+test("uploadFile returns the error when files.completeUploadExternal fails", async () => {
+  const { fetch } = uploadFetch({
+    complete: jsonResponse({ error: "channel_not_found", ok: false }),
+  });
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.uploadFile({
+    bytes: new Uint8Array([1]),
+    channel: "C1",
+    filename: "a.txt",
+  });
+
+  expect(result).toEqual({ error: "channel_not_found", kind: "config" });
+});
+
 test("uploadFile returns rejected on a 404 from the upload", async () => {
   const { fetch } = uploadFetch({
     upload: new Response("gone", { status: 404 }),

@@ -31,6 +31,8 @@ import { describeFailure, withRetry } from "./post.ts";
 export interface SlackGatewayOptions {
   clock: Clock;
   db: Database;
+  /** Runs work after the response (`waitUntil`). Without it, uploads are awaited. */
+  defer?: (work: Promise<void>) => void;
   events: EventsService;
   fetch: SlackFetch;
   files: FilesService;
@@ -97,6 +99,7 @@ const slackTarget = (
 export const createSlackGateway = ({
   clock,
   db,
+  defer,
   events,
   fetch: slackFetch,
   files,
@@ -270,30 +273,43 @@ export const createSlackGateway = ({
     if (!run) {
       return;
     }
-    let delivered: { error?: string; ok: boolean };
-    try {
-      delivered = await post(slack, message, context, run.workspaceId);
-    } catch (error) {
-      delivered = {
-        error: error instanceof Error ? error.message : String(error),
-        ok: false,
-      };
+    const finish = async () => {
+      let delivered: { error?: string; ok: boolean };
+      try {
+        delivered = await post(slack, message, context, run.workspaceId);
+      } catch (error) {
+        delivered = {
+          error: error instanceof Error ? error.message : String(error),
+          ok: false,
+        };
+      }
+      // A Slack outage must not undo a finished run, so the outcome is an event.
+      await events.append({
+        actor: { id: "slack", kind: "system" },
+        agentId: context.agentId,
+        payload: {
+          channel: slack.channel,
+          delivered: delivered.ok,
+          threadTs: slack.threadTs,
+          ...(delivered.error ? { error: delivered.error } : {}),
+        },
+        runId: context.runId,
+        sessionId: run.sessionId,
+        type: "slack.delivered",
+        workspaceId: run.workspaceId,
+      });
+    };
+    // Uploads can take longer than the request that completed the run is
+    // allowed to, so with files the whole delivery runs after the response.
+    if (defer && message.fileIds.length > 0) {
+      defer(
+        finish().catch((error: unknown) => {
+          console.error("Slack delivery failed", error);
+        })
+      );
+      return;
     }
-    // A Slack outage must not undo a finished run, so the outcome is an event.
-    await events.append({
-      actor: { id: "slack", kind: "system" },
-      agentId: context.agentId,
-      payload: {
-        channel: slack.channel,
-        delivered: delivered.ok,
-        threadTs: slack.threadTs,
-        ...(delivered.error ? { error: delivered.error } : {}),
-      },
-      runId: context.runId,
-      sessionId: run.sessionId,
-      type: "slack.delivered",
-      workspaceId: run.workspaceId,
-    });
+    await finish();
   };
 
   const downloadPendingFiles: NonNullable<

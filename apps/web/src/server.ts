@@ -27,7 +27,12 @@ app.use("*", clerkMiddleware());
 
 // Every service, built once for the request from the bindings and secrets.
 const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
-  c.set("composed", compose(c.env, import.meta.env.DEV));
+  c.set(
+    "composed",
+    compose(c.env, import.meta.env.DEV, (work) => {
+      c.executionCtx.waitUntil(work);
+    })
+  );
   await next();
 };
 app.use("/api/*", composeServices);
