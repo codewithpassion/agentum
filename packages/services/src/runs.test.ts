@@ -338,6 +338,46 @@ test("a run started with a run principal inherits the subject", async () => {
   expect(runRowCount()).toBe(countBefore);
 });
 
+test("a run cannot message an agent that is its running ancestor", async () => {
+  const parent = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, parent.runId);
+  const child = await start(
+    runPrincipal(parent.runId, spyAgentId),
+    fakeAgentId,
+    { session: { origin: "mcp" } }
+  );
+  // The fake runtime already finished the child; put it back to running.
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, child.runId))
+    .run();
+  const countBefore = runRowCount();
+
+  // The child answers back to the agent that is waiting on it, and to itself.
+  const toParent = await failure(
+    start(runPrincipal(child.runId, fakeAgentId), spyAgentId, {
+      session: { origin: "mcp" },
+    })
+  );
+  expect(toParent).toMatchObject({ code: "conflict" });
+  const toSelf = await failure(
+    start(runPrincipal(child.runId, fakeAgentId), fakeAgentId, {
+      session: { origin: "mcp" },
+    })
+  );
+  expect(toSelf).toMatchObject({ code: "conflict" });
+  expect(runRowCount()).toBe(countBefore);
+
+  // Once the parent is no longer running it is an ordinary target.
+  await runs.completeRun(SYSTEM_PRINCIPAL, parent.runId, { status: "done" });
+  const later = await start(
+    runPrincipal(child.runId, fakeAgentId),
+    spyAgentId,
+    { session: { origin: "mcp" } }
+  );
+  expect(runRow(later.runId)).toMatchObject({ depth: 2 });
+});
+
 test("a trigger-started run has a null subject", async () => {
   const trigger: Principal = {
     agentId: spyAgentId,

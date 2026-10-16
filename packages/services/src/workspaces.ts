@@ -8,6 +8,7 @@ import { apiKeys } from "@repo/db/schema/api-keys";
 import { machines } from "@repo/db/schema/machines";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
+import type { ApiKeyAccess } from "@repo/db/shared";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hashToken } from "./crypto.ts";
@@ -16,6 +17,8 @@ import { RUN_TOKEN_PREFIX, verifyRunToken } from "./run-tokens.ts";
 /** Who is calling. `system` is the minute tick, in-process only. */
 export type Principal =
   | {
+      /** Set when `via` is `api_key`: which key, and what it may do. */
+      apiKey?: { access: ApiKeyAccess; id: string };
       kind: "user";
       workspaceId: string;
       userId: string;
@@ -244,7 +247,9 @@ export const createPrincipalResolver = ({
   const lookupApiKey = async (token: string) => {
     const [row] = await db
       .select({
+        access: apiKeys.access,
         createdBy: apiKeys.createdBy,
+        id: apiKeys.id,
         workspaceId: apiKeys.workspaceId,
       })
       .from(apiKeys)
@@ -257,6 +262,7 @@ export const createPrincipalResolver = ({
       .limit(1);
     return row
       ? {
+          apiKey: { access: row.access, id: row.id },
           kind: "user" as const,
           userId: row.createdBy,
           via: "api_key" as const,

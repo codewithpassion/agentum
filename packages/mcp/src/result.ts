@@ -15,6 +15,7 @@ export interface ToolPayload {
 
 export type ToolErrorCode =
   | "not_implemented"
+  | "forbidden"
   | "validation"
   | "not_found"
   | "conflict";

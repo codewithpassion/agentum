@@ -45,7 +45,7 @@ export const WRITE_CREATE: ToolAnnotations = {
 };
 
 /*
- * Real input schemas land with M2.1 and M2.3. Until then a placeholder takes
+ * Real input schemas land with M2.3. Until then a placeholder takes
  * no arguments and every call answers `not_implemented`.
  */
 export const placeholderTool = (

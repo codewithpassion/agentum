@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     "./agents": "./src/agents.ts",
+    "./api-keys": "./src/api-keys.ts",
     "./authz": "./src/authz.ts",
     "./crypto": "./src/crypto.ts",
     "./errors": "./src/errors.ts",
