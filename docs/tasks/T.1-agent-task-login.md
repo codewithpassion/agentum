@@ -3,7 +3,7 @@ id: T.1
 title: Agent Task sign-in script per environment
 milestone: T
 size: S
-status: in_progress
+status: done
 depends_on: [O.1]
 branch: task/T.1-agent-task-login
 ---
@@ -30,3 +30,4 @@ A script in `apps/web/scripts/`, run as `bun run agent-login` from `apps/web`, t
 
 ## Log
 - 2026-10-17: added at Dom's request; dispatched on task/T.1-agent-task-login.
+- 2026-10-17: review clean after 0 fix rounds at 780c8e2 (docs/reviews/tasks/T.1.md). Merged. Staging sign-in via Agent Task landed on /agents with no device code. Production and preview not tried live.
