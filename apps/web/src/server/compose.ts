@@ -40,6 +40,10 @@ import {
   createOAuthClientsService,
   type OAuthClientsService,
 } from "@repo/services/oauth-clients";
+import {
+  createRoutinesService,
+  type RoutinesService,
+} from "@repo/services/routines";
 import { createRunsService, type RunsService } from "@repo/services/runs";
 import {
   type Clock,
@@ -87,6 +91,7 @@ export interface Services {
   files: FilesService;
   machines: MachinesService;
   oauthClients: OAuthClientsService;
+  routines: RoutinesService;
   runs: RunsService;
   sessions: SessionsService;
   triggers: TriggersService;
@@ -180,6 +185,12 @@ export const composeWith = ({
     gateways,
     runTokenKey: infra.runTokenKey,
   });
+  const routines = createRoutinesService({
+    clock: infra.clock,
+    db,
+    events,
+    runs,
+  });
   const sessions = createSessionsService({ db, events });
   const triggers = createTriggersService({
     allowedOrgIds,
@@ -201,6 +212,7 @@ export const composeWith = ({
       files,
       machines,
       oauthClients,
+      routines,
       runs,
       sessions,
       triggers,

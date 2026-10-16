@@ -118,6 +118,16 @@ interface StartResult {
 }
 
 /**
+ * Statements to write in the same atomic write as the session and the run,
+ * given their ids. They are skipped when a duplicate `requestId` hands back
+ * the run that won.
+ */
+export type CompanionWrites = (ids: {
+  runId: string;
+  sessionId: string;
+}) => Statement[];
+
+/**
  * A requestId is a retry key for one caller on one agent. Another caller's
  * run is not handed back, whatever id they picked.
  */
@@ -293,7 +303,8 @@ export const createRunsService = ({
    */
   const insertOnce = async (
     prepared: Prepared,
-    input: ParsedInput
+    input: ParsedInput,
+    companions?: CompanionWrites
   ): Promise<StartResult & { inserted: boolean }> => {
     const { agent, fileIds, subject } = prepared;
     const { workspaceId } = agent;
@@ -347,7 +358,11 @@ export const createRunsService = ({
       workspaceId,
     });
     try {
-      await atomic([sessionWrite, runWrite]);
+      await atomic([
+        sessionWrite,
+        runWrite,
+        ...(companions?.({ runId, sessionId }) ?? []),
+      ]);
       return { inserted: true, runId, sessionId, status: "queued" };
     } catch (error) {
       const existing =
@@ -371,26 +386,40 @@ export const createRunsService = ({
    * Two first messages with one session key race on the session index. The
    * loser finds the session on a second try.
    */
-  const insertRun = async (prepared: Prepared, input: ParsedInput) => {
+  const insertRun = async (
+    prepared: Prepared,
+    input: ParsedInput,
+    companions?: CompanionWrites
+  ) => {
     try {
-      return await insertOnce(prepared, input);
+      return await insertOnce(prepared, input, companions);
     } catch (error) {
       if (!isUniqueViolation(error)) {
         throw error;
       }
-      return await insertOnce(prepared, input);
+      return await insertOnce(prepared, input, companions);
     }
   };
 
-  const startRun = async (
+  /**
+   * `startRun` with `companions` written in the same atomic write, and
+   * `inserted` telling a new run from one handed back for a repeated
+   * `requestId`. A new run is dispatched; a handed-back one is not.
+   */
+  const startRunWith = async (
     principal: Principal,
-    rawInput: StartRunInput
-  ): Promise<StartResult> => {
+    rawInput: StartRunInput,
+    companions?: CompanionWrites
+  ): Promise<StartResult & { inserted: boolean }> => {
     const input = startRunInputSchema.parse(rawInput);
     const prepared = await prepareStart(principal, input);
-    const { inserted, ...started } = await insertRun(prepared, input);
+    const { inserted, ...started } = await insertRun(
+      prepared,
+      input,
+      companions
+    );
     if (!inserted) {
-      return started;
+      return { ...started, inserted };
     }
     const run = await loadRun(db, started.runId, prepared.agent.workspaceId);
     if (!run) {
@@ -406,7 +435,18 @@ export const createRunsService = ({
       text: input.input.text,
     });
     await prepared.adapter.dispatch(db, run, prepared.agent, adapterDeps);
-    return started;
+    return { ...started, inserted };
+  };
+
+  const startRun = async (
+    principal: Principal,
+    rawInput: StartRunInput
+  ): Promise<StartResult> => {
+    const { runId, sessionId, status } = await startRunWith(
+      principal,
+      rawInput
+    );
+    return { runId, sessionId, status };
   };
 
   let importedTokenKey: Promise<CryptoKey> | undefined;
@@ -889,6 +929,7 @@ export const createRunsService = ({
     ingestRunEvents,
     reapExpiredLeases,
     startRun,
+    startRunWith,
     sweepQueuedRuns,
     waitForRun,
   };

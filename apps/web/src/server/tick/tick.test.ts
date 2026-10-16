@@ -98,6 +98,12 @@ test("the sweep and the reaper are registered", () => {
   );
 });
 
+test("the routine jobs are registered", () => {
+  expect(tickJobs.map((job) => job.name)).toEqual(
+    expect.arrayContaining(["routines.fire", "routines.settle"])
+  );
+});
+
 test("the registered jobs append nothing to events when none has work", async () => {
   const report = await runTick(tickJobs, deps);
 
