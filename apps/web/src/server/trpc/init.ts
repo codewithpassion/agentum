@@ -32,7 +32,7 @@ const t = initTRPC.context<Context>().create({
   isDev: import.meta.env.DEV,
 });
 
-export const { router } = t;
+export const { mergeRouters, router } = t;
 
 const TRPC_CODE_FOR: Record<ServiceErrorCode, TRPCError["code"]> = {
   conflict: "CONFLICT",

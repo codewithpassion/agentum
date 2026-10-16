@@ -10,9 +10,16 @@
   },
   // Migrations are not per environment, so they live at the top level only.
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MachineRelay"] }],
+  // The minute tick (src/server/tick). Crons are not per environment either:
+  // only the production Worker runs them.
+  "triggers": { "crons": ["* * * * *"] },
+  // The public origin of the deployed app, used to build links back to it.
+  // Local dev overrides it from .env.local (see .env.example).
+  "vars": { "PUBLIC_BASE_URL": "https://harbourmaster.rockyshoreslabs.io" },
   "routes": [
     { "pattern": "harbourmaster.rockyshoreslabs.io", "custom_domain": true }
   ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "harbourmaster-files" }],
   "d1_databases": [
     {
       "binding": "DB",
@@ -31,6 +38,11 @@
       "durable_objects": {
         "bindings": [{ "name": "MACHINE_RELAY", "class_name": "MachineRelay" }]
       },
+      // Filled in when staging gets its URL (task O.1).
+      "vars": { "PUBLIC_BASE_URL": "" },
+      "r2_buckets": [
+        { "binding": "FILES", "bucket_name": "harbourmaster-staging-files" }
+      ],
       "d1_databases": [
         {
           "binding": "DB",
@@ -49,6 +61,11 @@
             { "name": "MACHINE_RELAY", "class_name": "MachineRelay" }
           ]
         },
+        "vars": { "PUBLIC_BASE_URL": "" },
+        // Previews share the staging bucket; keys are per workspace.
+        "r2_buckets": [
+          { "binding": "FILES", "bucket_name": "harbourmaster-staging-files" }
+        ],
         "d1_databases": [
           {
             "binding": "DB",

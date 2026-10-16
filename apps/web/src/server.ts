@@ -1,33 +1,38 @@
-import { DurableObject } from "cloudflare:workers";
 import { createClerkClient } from "@clerk/backend";
 import { clerkMiddleware, getAuth } from "@clerk/hono";
 import { trpcServer } from "@hono/trpc-server";
+import { systemClock } from "@repo/services/runs/types";
 import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
+import { compose } from "./server/compose.ts";
+import { accessRoutes } from "./server/routes/access.ts";
+import { automationRoutes } from "./server/routes/automation.ts";
+import { devRoutes } from "./server/routes/dev.ts";
+import type { AppEnv } from "./server/routes/groups.ts";
+import { runtimeRoutes } from "./server/routes/runtime.ts";
+import { tickJobs } from "./server/tick/jobs.ts";
+import { runTick } from "./server/tick/registry.ts";
 import { createHonoContext } from "./server/trpc/context.ts";
 import { appRouter } from "./server/trpc/router.ts";
 
-// Placeholder for the per-machine relay (M0.0 spike): answers a ping from
-// inside the Durable Object.
-export class MachineRelay extends DurableObject<Env> {
-  ping() {
-    return { pong: true };
-  }
-}
+// Durable Object classes are exported from the Worker entry.
+// biome-ignore lint/performance/noBarrelFile: the Worker entry must export the Durable Object class; the class lives in its own module so bun can test it
+export { MachineRelay } from "./server/relay.ts";
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<AppEnv>();
 
 app.use("*", clerkMiddleware());
+
+// Every service, built once for the request from the bindings and secrets.
+app.use("/api/*", async (c, next) => {
+  c.set("composed", compose(c.env, import.meta.env.DEV));
+  await next();
+});
 
 app.get("/api/health", (c) => {
   const auth = getAuth(c);
   return c.json({ status: "ok", userId: auth?.userId ?? null });
-});
-
-app.get("/api/machines/ping-do", async (c) => {
-  const stub = c.env.MACHINE_RELAY.get(c.env.MACHINE_RELAY.idFromName("ping"));
-  return c.json(await stub.ping());
 });
 
 // One-click dev login: mints a one-time Clerk sign-in token for the dev user
@@ -95,7 +100,35 @@ app.use(
   })
 );
 
+// One route app per lane, each mounted once here. Lanes edit their own file.
+app.route("/", runtimeRoutes);
+app.route("/", accessRoutes);
+app.route("/", automationRoutes);
+
+// Local checks (the Durable Object ping, the atomic probe). Dev builds only.
+if (import.meta.env.DEV) {
+  app.route("/", devRoutes);
+}
+
 // Everything else is handled by TanStack Start (SSR pages and assets).
 app.all("*", (c) => handler.fetch(c.req.raw));
 
-export default app;
+/**
+ * The minute tick (cron `* * * * *`). Runs every registered job once. Awaited,
+ * so the dev scheduled-handler probe answers after the jobs finish.
+ */
+const scheduled: ExportedHandlerScheduledHandler<Env> = async (
+  _controller,
+  env
+) => {
+  const { services } = compose(env, import.meta.env.DEV);
+  const report = await runTick(tickJobs, { clock: systemClock, services });
+  console.log(JSON.stringify({ event: "tick", ...report }));
+  for (const job of report.jobs) {
+    if (!job.ok) {
+      console.error(`Tick job ${job.name} failed: ${job.error}`);
+    }
+  }
+};
+
+export default { fetch: app.fetch, scheduled } satisfies ExportedHandler<Env>;

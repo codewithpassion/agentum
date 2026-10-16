@@ -1,0 +1,3 @@
+[test]
+# workerd provides `cloudflare:workers`; bun test does not.
+preload = ["./tests/cloudflare-workers-shim.ts"]
