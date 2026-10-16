@@ -1,5 +1,6 @@
 import { formatDistanceToNow } from "date-fns";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { sessionTitle } from "#/components/sessions/sessions-logic.ts";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
@@ -7,9 +8,11 @@ import type { SessionListItem } from "#/integrations/trpc/types";
 import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
 
 function SessionRow({
+  agentName,
   item,
   onOpen,
 }: {
+  agentName: string;
   item: SessionListItem;
   onOpen: (sessionId: string) => void;
 }) {
@@ -23,7 +26,11 @@ function SessionRow({
         type="button"
       >
         <span className="min-w-0 truncate font-medium">
-          {item.title || "(no message)"}
+          {sessionTitle({
+            agentName,
+            createdAt: item.createdAt,
+            title: item.title,
+          })}
         </span>
         <span className="flex shrink-0 items-center gap-2 text-muted-foreground text-sm">
           <span>{item.origin}</span>
@@ -75,7 +82,12 @@ function SessionsPanel({ agent, openSession }: AgentTabProps) {
     body = (
       <ul className="divide-y divide-border border-border border-y">
         {sessions.map((item) => (
-          <SessionRow item={item} key={item.id} onOpen={openSession} />
+          <SessionRow
+            agentName={agent.name}
+            item={item}
+            key={item.id}
+            onOpen={openSession}
+          />
         ))}
       </ul>
     );

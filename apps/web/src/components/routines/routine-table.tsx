@@ -13,6 +13,7 @@ import {
 } from "#/components/ui/table";
 import type { RoutineRecord } from "#/integrations/trpc/types";
 import { lastFiredLabel } from "../triggers/format.ts";
+import { describeCron } from "./describe-cron.ts";
 
 function nextRunLabel(routine: RoutineRecord): string {
   if (routine.disabledAt !== null) {
@@ -58,8 +59,12 @@ function RoutineRow({
       <TableCell className="font-medium">{routine.name}</TableCell>
       {showAgent ? <TableCell>{routine.agentName}</TableCell> : null}
       <TableCell>
-        <div className="font-mono text-xs">{routine.cron}</div>
-        <div className="text-muted-foreground text-xs">{routine.timezone}</div>
+        <div title={routine.cron}>
+          {describeCron(routine.cron, routine.timezone)}
+        </div>
+        <div className="font-mono text-muted-foreground text-xs">
+          {routine.cron} {routine.timezone}
+        </div>
       </TableCell>
       <TableCell className="text-muted-foreground">
         {nextRunLabel(routine)}

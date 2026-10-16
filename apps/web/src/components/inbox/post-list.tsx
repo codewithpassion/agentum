@@ -1,5 +1,6 @@
 import { formatDistanceToNow } from "date-fns";
 import { authorLabel } from "#/components/inbox/inbox-logic";
+import { Markdown } from "#/components/markdown/markdown.tsx";
 import type { InboxPost } from "#/integrations/trpc/types";
 
 interface PostListProps {
@@ -29,9 +30,15 @@ export function PostList({ agentNames, posts, userId }: PostListProps) {
               })}
             </time>
           </p>
-          <p className="whitespace-pre-wrap text-foreground text-sm">
-            {post.text}
-          </p>
+          {post.authorKind === "agent" ? (
+            <div className="text-foreground text-sm">
+              <Markdown>{post.text}</Markdown>
+            </div>
+          ) : (
+            <p className="whitespace-pre-wrap text-foreground text-sm">
+              {post.text}
+            </p>
+          )}
         </li>
       ))}
     </ol>

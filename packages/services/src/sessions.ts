@@ -35,7 +35,7 @@ const READ_ACTION = "sessions.read";
 const SESSION_KIND = "session";
 /** Sessions one list call returns, newest first. */
 export const SESSION_LIST_LIMIT = 50;
-const TITLE_MAX = 80;
+const TITLE_MAX = 60;
 /** Matching message events one search reads, newest first. */
 const SEARCH_EVENT_LIMIT = 200;
 const SEARCH_SESSION_LIMIT = 20;
@@ -77,7 +77,8 @@ export interface SessionTranscript {
   latestRun: SessionRun | null;
   /** Output file ids of every run in the session, keyed by run id. Runs with no outputs are absent. */
   outputFileIds: Record<string, string[]>;
-  session: SessionRecord;
+  /** The session with its title, the first message trimmed. Empty when it has no run. */
+  session: SessionRecord & { title: string };
 }
 
 const toSession = (row: SessionRow): SessionRecord => ({
@@ -97,8 +98,10 @@ const requireReader = (principal: Principal): Reader => {
   return principal;
 };
 
-const truncate = (text: string): string =>
-  text.length > TITLE_MAX ? `${text.slice(0, TITLE_MAX)}...` : text;
+const truncate = (raw: string): string => {
+  const text = raw.trim();
+  return text.length > TITLE_MAX ? `${text.slice(0, TITLE_MAX)}...` : text;
+};
 
 const escapeRegExp = (text: string): string =>
   text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -266,7 +269,10 @@ export const createSessionsService = ({
         ? { ...toSummary(toRecord(latest)), inputText: latest.inputText }
         : null,
       outputFileIds,
-      session: toSession(row),
+      session: {
+        ...toSession(row),
+        title: truncate(sessionRuns[0]?.inputText ?? ""),
+      },
     };
   };
 

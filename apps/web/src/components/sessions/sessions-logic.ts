@@ -1,3 +1,4 @@
+import { format } from "date-fns";
 import type { SessionListItem } from "#/integrations/trpc/types";
 
 export const ORIGIN_VALUES = [
@@ -62,3 +63,20 @@ export const lastActivity = (item: {
   createdAt: string;
   lastRunAt: string | null;
 }): string => item.lastRunAt ?? item.createdAt;
+
+/** The trimmed first message, or "agent name, creation time" when it is empty. */
+export const sessionTitle = ({
+  title,
+  agentName,
+  createdAt,
+}: {
+  title: string;
+  agentName: string;
+  createdAt: string;
+}): string => {
+  const trimmed = title.trim();
+  if (trimmed !== "") {
+    return trimmed;
+  }
+  return `${agentName}, ${format(new Date(createdAt), "yyyy-MM-dd HH:mm")}`;
+};

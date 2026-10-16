@@ -4,6 +4,7 @@ import {
   ORIGIN_LABELS,
   ORIGIN_VALUES,
   originLabel,
+  sessionTitle,
   statusLabel,
 } from "./sessions-logic.ts";
 
@@ -62,4 +63,24 @@ test("last activity is the last run when there is one, else the creation time", 
   expect(
     lastActivity({ createdAt: "2026-10-01T09:00:00.000Z", lastRunAt: null })
   ).toBe("2026-10-01T09:00:00.000Z");
+});
+
+test("the session title is the trimmed first message", () => {
+  expect(
+    sessionTitle({
+      agentName: "Ops",
+      createdAt: "2026-10-01T09:00:00.000Z",
+      title: "  Plan the rollout  ",
+    })
+  ).toBe("Plan the rollout");
+});
+
+test("an empty or blank title falls back to the agent name and the creation time", () => {
+  const createdAt = new Date(2026, 9, 1, 9, 5).toISOString();
+  expect(sessionTitle({ agentName: "Ops", createdAt, title: "" })).toBe(
+    "Ops, 2026-10-01 09:05"
+  );
+  expect(sessionTitle({ agentName: "Ops", createdAt, title: " \t\n " })).toBe(
+    "Ops, 2026-10-01 09:05"
+  );
 });

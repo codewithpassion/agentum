@@ -93,7 +93,11 @@ function SessionsPage() {
             Pick a session to read its transcript.
           </p>
         ) : (
-          <SessionTranscriptPanel key={session} sessionId={session} />
+          <SessionTranscriptPanel
+            agentNames={agentNameMap(agents)}
+            key={session}
+            sessionId={session}
+          />
         )}
       </div>
     </section>
