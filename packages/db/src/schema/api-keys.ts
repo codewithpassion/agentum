@@ -4,8 +4,9 @@ import { API_KEY_ACCESS } from "../shared.ts";
 import { workspaces } from "./workspaces.ts";
 
 /**
- * Stub from M0.1 so the principal resolver can read hm_key_ tokens. M2.1 adds
- * the service and the settings page on top of it.
+ * Keys for the platform MCP server (`hm_key_`). Created in M0.1 for the
+ * principal resolver; the service is `@repo/services/api-keys`. Only the
+ * SHA-256 of the secret is stored.
  */
 export const apiKeys = sqliteTable(
   "api_keys",

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { Client } from "@modelcontextprotocol/client";
+import type { McpPorts } from "./ports";
 import { errorResult } from "./result";
-import { createHarbourmasterMcpServer } from "./server";
+import { createHarbourmasterMcpServer, TOOL_NAMES } from "./server";
 import { connectClient, textOf } from "./testing";
 
 const EXPECTED_NAMES = [
@@ -26,8 +27,24 @@ const READ_NAMES = [
   "search_sessions",
 ].sort();
 
+const INBOX_NAMES = ["inbox_list", "inbox_post", "inbox_read"];
+
+const uncalled = (): Promise<never> =>
+  Promise.reject(new Error("this port should not be called"));
+
+const fakePorts: McpPorts = {
+  getRun: uncalled,
+  listAgents: uncalled,
+  listSessions: uncalled,
+  readSession: uncalled,
+  searchSessions: uncalled,
+  sendMessage: uncalled,
+};
+
 const withClient = async (run: (client: Client) => Promise<void>) => {
-  const { client, close } = await connectClient(createHarbourmasterMcpServer());
+  const { client, close } = await connectClient(
+    createHarbourmasterMcpServer(fakePorts)
+  );
   try {
     await run(client);
   } finally {
@@ -36,7 +53,12 @@ const withClient = async (run: (client: Client) => Promise<void>) => {
 };
 
 describe("tools/list", () => {
-  test("serves exactly the nine placeholder tools", () =>
+  test("TOOL_NAMES lists the nine tool names", () => {
+    expect([...TOOL_NAMES].sort()).toEqual(EXPECTED_NAMES);
+    expect(TOOL_NAMES).toHaveLength(9);
+  });
+
+  test("serves exactly the nine tools", () =>
     withClient(async (client) => {
       const { tools } = await client.listTools();
       expect(tools.map((tool) => tool.name).sort()).toEqual(EXPECTED_NAMES);
@@ -64,11 +86,10 @@ describe("tools/list", () => {
 });
 
 describe("tools/call", () => {
-  test("answers every placeholder with not implemented", () =>
+  test("answers each inbox placeholder with not implemented", () =>
     withClient(async (client) => {
-      const { tools } = await client.listTools();
       const results = await Promise.all(
-        tools.map((tool) => client.callTool({ arguments: {}, name: tool.name }))
+        INBOX_NAMES.map((name) => client.callTool({ arguments: {}, name }))
       );
       for (const result of results) {
         expect(result.isError).toBe(true);
@@ -79,7 +100,7 @@ describe("tools/call", () => {
   test("refuses an argument the schema does not declare", () =>
     withClient(async (client) => {
       const result = await client.callTool({
-        arguments: { unexpected: 1 },
+        arguments: { runId: "run_1", unexpected: 1 },
         name: "get_run",
       });
       expect(result.isError).toBe(true);
