@@ -9,6 +9,7 @@ import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { LIBRARY_FILE_MAX_BYTES, LIBRARY_MAX_BYTES } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { asc, eq } from "drizzle-orm";
+import { ForbiddenError } from "./authz.ts";
 import { createEventsService } from "./events.ts";
 import {
   type MemoryLibraryBlobs,
@@ -789,4 +790,71 @@ test("a move that renames a skill folder is refused because the name no longer m
     "skills/u1/shout",
     "skills/u1/shout/SKILL.md",
   ]);
+});
+
+test("recordCommand logs one library.command event with the actor, and refuses a machine", async () => {
+  await service.recordCommand(user(A, "u7"), {
+    exitCode: 0,
+    script: "ls",
+    storageCalls: 3,
+    wallMs: 12,
+  });
+  await service.recordCommand(runPrincipal, {
+    exitCode: 1,
+    script: "cat nope",
+    storageCalls: 1,
+    wallMs: 2,
+  });
+  const log = libraryEvents().map((event) => ({
+    actorId: event.actorId,
+    actorKind: event.actorKind,
+    agentId: event.agentId,
+    payload: JSON.parse(event.payload ?? "null"),
+    runId: event.runId,
+    type: event.type,
+  }));
+  expect(log).toEqual([
+    {
+      actorId: "u7",
+      actorKind: "user",
+      agentId: null,
+      payload: { exitCode: 0, script: "ls", storageCalls: 3, wallMs: 12 },
+      runId: null,
+      type: "library.command",
+    },
+    {
+      actorId: AGENT,
+      actorKind: "agent",
+      agentId: AGENT,
+      payload: { exitCode: 1, script: "cat nope", storageCalls: 1, wallMs: 2 },
+      runId: RUN,
+      type: "library.command",
+    },
+  ]);
+  const machine: Principal = {
+    kind: "machine",
+    machineId: "m1",
+    workspaceId: A,
+  };
+  expect(
+    await errorOf(
+      service.recordCommand(machine, {
+        exitCode: 0,
+        script: "ls",
+        storageCalls: 0,
+        wallMs: 0,
+      })
+    )
+  ).toBeInstanceOf(ForbiddenError);
+});
+
+test("recordCommand strips secrets from the script", async () => {
+  await service.recordCommand(user(), {
+    exitCode: 0,
+    script: "curl https://bob:hunter2@example.com/x",
+    storageCalls: 0,
+    wallMs: 1,
+  });
+  const [event] = libraryEvents();
+  expect(event?.payload).not.toContain("hunter2");
 });

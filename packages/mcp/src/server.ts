@@ -5,6 +5,7 @@ import { registerTools } from "./register";
 import { agentTools } from "./tools/agents";
 import type { ToolDefinition } from "./tools/define";
 import { inboxTools } from "./tools/inbox";
+import { libraryTools } from "./tools/library";
 import { sessionTools } from "./tools/sessions";
 
 /** Every tool this server offers, bound to the ports it calls. */
@@ -14,6 +15,7 @@ export const harbourmasterTools = (
   ...agentTools(ports),
   ...sessionTools(ports),
   ...inboxTools(ports),
+  ...libraryTools(ports),
 ];
 
 /** Ports for reading tool names: the names do not depend on them, so none is ever called. */
@@ -26,6 +28,7 @@ export const TOOL_NAMES = harbourmasterTools({
   inboxList: unusedPort,
   inboxPost: unusedPort,
   inboxRead: unusedPort,
+  libraryBash: unusedPort,
   listAgents: unusedPort,
   listSessions: unusedPort,
   readSession: unusedPort,

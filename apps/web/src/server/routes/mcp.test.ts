@@ -336,13 +336,14 @@ describe("authentication", () => {
 });
 
 describe("tools with an api key", () => {
-  test("lists the nine tools", async () => {
+  test("lists the ten tools", async () => {
     const key = await mintKey("u1", "read");
     const response = await post(key, rpcBody("tools/list", {}));
     const rpc = (await readRpc(response)) as {
       result: { tools: { name: string }[] };
     };
     expect(rpc.result.tools.map((tool) => tool.name).sort()).toEqual([
+      "bash",
       "get_run",
       "inbox_list",
       "inbox_post",
@@ -561,6 +562,33 @@ describe("tools with a run token", () => {
     });
     const token = await runToken("run_a", agentA);
     expect((await post(token, rpcBody("tools/list", {}))).status).toBe(401);
+  });
+});
+
+describe("the bash tool", () => {
+  test("an api key and a run token share the workspace library, and a read-only key cannot write", async () => {
+    const writeKey = await mintKey("u1", "write");
+    const wrote = await callTool(writeKey, "bash", {
+      script: "mkdir -p notes && echo from-key > notes/a.md",
+    });
+    expect(wrote.structuredContent).toMatchObject({ exitCode: 0 });
+
+    addRun({ agentId: agentA, id: "run_bash", onBehalfOfUserId: "u1" });
+    const token = await runToken("run_bash", agentA);
+    const found = await callTool(token, "bash", {
+      script: "grep -r from-key .",
+    });
+    expect(found.structuredContent).toMatchObject({
+      exitCode: 0,
+      stdout: "notes/a.md:from-key\n",
+    });
+
+    const readKey = await mintKey("u2", "read");
+    const refused = await callTool(readKey, "bash", {
+      script: "echo no > notes/b.md",
+    });
+    expect(refused.structuredContent).toMatchObject({ exitCode: 1 });
+    expect(JSON.stringify(refused.structuredContent)).toContain("EACCES");
   });
 });
 

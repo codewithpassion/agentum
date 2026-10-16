@@ -596,7 +596,39 @@ export const createLibraryService = ({
     return toEntry(head);
   };
 
-  return { list, mkdir, move, read, remove, stat, write };
+  /**
+   * Logs one `bash` tool call: the script (the event log strips secrets from
+   * it), how it ended and what it cost. Any member may log, because a script
+   * that only reads is still a command. The writes inside the script log their
+   * own events.
+   */
+  const recordCommand = async (
+    principal: Principal,
+    command: {
+      exitCode: number;
+      script: string;
+      storageCalls: number;
+      wallMs: number;
+    }
+  ): Promise<void> => {
+    const member = requireMember(principal, "library.command");
+    authorize(member, "library.command", {
+      kind: LIBRARY_KIND,
+      workspaceId: member.workspaceId,
+    });
+    await atomic([
+      events.insertStatement({
+        actor: actorOf(member),
+        agentId: member.kind === "run" ? member.agentId : undefined,
+        payload: command,
+        runId: member.kind === "run" ? member.runId : undefined,
+        type: "library.command",
+        workspaceId: member.workspaceId,
+      }),
+    ]);
+  };
+
+  return { list, mkdir, move, read, recordCommand, remove, stat, write };
 };
 
 export type LibraryService = ReturnType<typeof createLibraryService>;

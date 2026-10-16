@@ -52,7 +52,7 @@ export const LIBRARY_MAX_BYTES = 1024 * 1024 * 1024;
 export const LIBRARY_ENTRY_KINDS = ["file", "dir"] as const;
 export type LibraryEntryKind = (typeof LIBRARY_ENTRY_KINDS)[number];
 
-export const FILE_SOURCES = ["upload", "slack", "run"] as const;
+export const FILE_SOURCES = ["upload", "slack", "run", "library"] as const;
 export type FileSource = (typeof FILE_SOURCES)[number];
 
 export const EVENT_TYPES = [
@@ -86,6 +86,7 @@ export const EVENT_TYPES = [
   "api_key.created",
   "library.write",
   "library.delete",
+  "library.command",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
