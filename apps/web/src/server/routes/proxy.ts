@@ -126,7 +126,7 @@ const needsAuthText = (refusal: NeedsAuth, origin: string): string => {
     case "no_person":
       return "This connector uses a person's login, and this run is not for a person, so there is nothing to connect.";
     case "single_user_machine":
-      return `This machine runs every agent as one user, so another person's login cannot be used here.${link ? ` Connect it to the agent instead: ${link}` : ""}`;
+      return "This machine runs every agent as one user, so another person's login cannot be used on it, and this connector takes only people's logins.";
     default:
       return refusal.ownerKind === "agent"
         ? `This connector needs a login for the agent. Open ${link} while signed in to Harbourmaster to connect it.`
@@ -283,6 +283,13 @@ const recorder =
     }
   };
 
+const outcomeOf = (status: number): "ok" | "redirect" | "refused" => {
+  if (status === UNAUTHORIZED || status === FORBIDDEN) {
+    return "refused";
+  }
+  return status >= REDIRECT_MIN && status <= REDIRECT_MAX ? "redirect" : "ok";
+};
+
 /** The answer for a call that got through, with its event. */
 const answer = async ({
   call,
@@ -306,7 +313,7 @@ const answer = async ({
     method: call.method,
     ms: Date.now() - started,
     note,
-    outcome: "ok",
+    outcome: outcomeOf(status),
     ownerKind,
     tool: call.tool,
   });
@@ -498,6 +505,13 @@ export const proxyRoutes = ({
       workspaceId: claims.workspaceId,
     });
     if (!resolution.ok && resolution.reason === "not_assigned") {
+      log({
+        agentId: claims.agentId,
+        connectorId,
+        event: "proxy.denied",
+        reason: "not_assigned",
+        runId: claims.runId,
+      });
       return Response.json({ error: "forbidden" }, { status: FORBIDDEN });
     }
 
@@ -588,7 +602,18 @@ export const proxyRoutes = ({
       return unauthorized();
     }
 
-    return await forward(c, claims, c.req.param("connectorId"));
+    try {
+      return await forward(c, claims, c.req.param("connectorId"));
+    } catch (error: unknown) {
+      // D1 failed, or a stored secret cannot be read: an outage, not the caller's fault.
+      log({
+        event: "proxy.error",
+        message: error instanceof Error ? error.message : String(error),
+        phase: "forward",
+        runId: claims.runId,
+      });
+      return unavailable();
+    }
   });
 
   return routes;

@@ -496,6 +496,7 @@ describe("a single_user machine", () => {
 
     expect(await resolve(sam, { machineId: "m_single" })).toMatchObject({
       cause: "single_user_machine",
+      connectPath: null,
       ok: false,
       reason: "needs_auth",
     });

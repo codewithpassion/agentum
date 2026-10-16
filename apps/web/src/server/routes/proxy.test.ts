@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agentConnectors, credentials } from "@repo/db/schema/connectors";
 import { events } from "@repo/db/schema/events";
+import { machines } from "@repo/db/schema/machines";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -101,7 +102,8 @@ const startStub = (options: Parameters<typeof startStubMcp>[0] = {}) => {
 
 const addRun = (
   id: string,
-  status: "done" | "interrupted" | "running" = "running"
+  status: "done" | "interrupted" | "running" = "running",
+  claimedBy: string | null = null
 ) => {
   const now = new Date(nowMs).toISOString();
   db.insert(sessions)
@@ -122,6 +124,7 @@ const addRun = (
       actorKind: "user",
       agentId,
       createdAt: now,
+      claimedBy,
       id,
       inputText: "work",
       leaseUntil: new Date(nowMs + 30 * MINUTE_MS).toISOString(),
@@ -452,6 +455,50 @@ describe("forwarding", () => {
     );
 
     expect(await echoed(response)).toBe("key is [redacted]");
+  });
+
+  test("a run on a single_user machine for someone who did not enrol it uses the agent's login, and the event says so", async () => {
+    startStub();
+    await seedHeaderCredential();
+    await db.update(agentConnectors).set({ credentialMode: "user_or_agent" });
+    db.insert(machines)
+      .values({
+        capabilities: "{}",
+        createdAt: new Date(nowMs).toISOString(),
+        credentialHash: "m_single",
+        enrolledBy: "someone_else",
+        id: "m_single",
+        lastSeenAt: null,
+        name: "m_single",
+        singleUser: true,
+        status: "online",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    addRun("run_1", "running", "m_single");
+
+    expect(await echoed(await call(await tokenFor("run_1")))).toBe("hello");
+
+    const [logged] = await eventsOf("run_1");
+    expect(JSON.parse(logged?.payload ?? "{}")).toMatchObject({
+      note: "single_user_machine",
+      ownerKind: "agent",
+    });
+  });
+
+  test("a login the connector refuses outright becomes needs_auth", async () => {
+    // The pasted value is not the one this server wants.
+    startStub({ token: "another-token" });
+    const id = await seedHeaderCredential();
+    addRun("run_1");
+
+    const rpc = (await (await call(await tokenFor("run_1"))).json()) as Rpc;
+
+    expect(rpc.error?.data?.code).toBe("needs_auth");
+    expect((await credentialRow(id)).status).toBe("needs_auth");
+    expect((await eventsOf("run_1")).map((row) => row.type)).toEqual([
+      "connector.needs_auth",
+    ]);
   });
 
   test("every request that gets through logs exactly one event", async () => {

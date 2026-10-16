@@ -157,7 +157,11 @@ const needsAuth = (
   cause: NeedsAuthCause
 ): NeedsAuth => ({
   cause,
-  connectPath: owner.id === null ? null : connectPathFor(connectorId, owner),
+  // Connecting would not help when the machine, not the login, is the problem.
+  connectPath:
+    owner.id === null || cause === "single_user_machine"
+      ? null
+      : connectPathFor(connectorId, owner),
   ok: false,
   ownerId: owner.id,
   ownerKind: owner.kind,
