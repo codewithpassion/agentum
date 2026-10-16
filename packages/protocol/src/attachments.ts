@@ -4,6 +4,17 @@
 // reply. Skills rely on this exact syntax, so the pattern below is the contract.
 
 export const ATTACHMENT_MARKER_RE = /\[ATTACHMENT:([^\]]+)\]/g;
+/** Write a marker for `path`, the inverse of what `ATTACHMENT_MARKER_RE` reads. */
+export const formatAttachmentMarker = (path: string): string =>
+  `[ATTACHMENT:${path}]`;
+
+/**
+ * The sentences that tell an agent how to return a file. Built from
+ * `formatAttachmentMarker` so the wording and the parser cannot drift.
+ */
+export const attachmentInstructions = (workDir: string): string =>
+  `To give the user a file, write it inside your work directory (${workDir}) and put ${formatAttachmentMarker("<absolute path>")} on its own line in your final answer.`;
+
 const MARKER_WITH_LEADING_SPACE_RE = new RegExp(
   ` ?${ATTACHMENT_MARKER_RE.source}`,
   "g"
