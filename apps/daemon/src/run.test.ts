@@ -133,7 +133,9 @@ const fakeSignals = () => {
   };
 };
 
-const CLAIM = readFileSync(
+// These tests run on a multi-user machine with no input files: their fake runner
+// answers no sudo call, so a claim with files would fail to download them.
+const CLAIM_FIXTURE = readFileSync(
   join(
     import.meta.dir,
     "..",
@@ -146,6 +148,10 @@ const CLAIM = readFileSync(
   ),
   "utf8"
 );
+const CLAIM = JSON.stringify({
+  ...JSON.parse(CLAIM_FIXTURE),
+  inputFileIds: [],
+});
 
 /** A Worker that serves the four run routes, and a Claude Code that answers or waits. */
 const fakeRuns = (mode: "answer" | "hang") => {

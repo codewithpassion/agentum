@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -15,12 +24,24 @@ import type {
   CompleteRequest,
   RunEventInput,
 } from "@repo/protocol/machine";
+import {
+  AGENT_DD,
+  AGENT_HEAD,
+  AGENT_HOME,
+  AGENT_MKDIR,
+  AGENT_REALPATH,
+  AGENT_RM,
+  AGENT_STAT,
+  AS_AGENT,
+} from "./agent-user.ts";
 import type { Timers } from "./client.ts";
 import type { CommandRunner } from "./command.ts";
 import { type ExecuteRunDeps, executeRun, type QueryFn } from "./executor.ts";
+import type { FilesApi } from "./files-api.ts";
 import type { Logger } from "./log.ts";
 import type { Masker } from "./masker.ts";
-import type { RunApi } from "./run-api.ts";
+import { type RunApi, RunApiError } from "./run-api.ts";
+import { workDirPath } from "./workdir.ts";
 
 const FIXTURES = join(import.meta.dir, "..", "fixtures");
 const CLAIM_FIXTURE = join(
@@ -49,6 +70,8 @@ const claimWith = (
     runtimeMachineId: null,
     runtimeRef: null,
   };
+  // The fixture lists one input file; most tests run without any.
+  claim.inputFileIds = [];
   change(claim);
   return claim;
 };
@@ -104,36 +127,52 @@ const fakeTimers = () => {
   };
 };
 
+/** What the fake files API serves: a name and text per file id, or a status to answer instead. */
+type FakeDownloads = Record<string, { name: string; text: string } | number>;
+
 interface Harness {
   completions: { body: CompleteRequest; processExited: boolean }[];
+  downloaded: string[];
   events: RunEventInput[][];
+  /** The files in `inbox/` (name to text) when the first message was read. */
+  firstMessage: { inbox: Record<string, string> | undefined };
   heartbeat: { reject: unknown };
   lines: string[];
   maskerSeen: Masker[];
   optionsSeen: Options[];
   order: string[];
   proc: FakeProcess;
+  /** What the fake hm-agent work directory holds (path to text), as the sudo calls left it. */
+  remoteFiles: Map<string, string>;
   run: CommandRunner;
   runCommands: string[][];
   sendStderr: (text: string) => void;
   timers: ReturnType<typeof fakeTimers>;
+  /** What the fake files API received. */
+  uploaded: { name: string; text: string }[];
 }
 
 interface SetupOptions {
   claim?: ClaimResponse;
   claudeBinary?: string | null;
+  /** Files the fake files API serves. */
+  downloads?: FakeDownloads;
   /** Keeps the stream open after the script until an abort. */
   hang?: boolean;
   /** Keeps the process alive after an abort until the test lets it go. */
   holdExit?: boolean;
   /** `setMcpServers` answers only once the query is closed. */
   mcpHangsUntilClose?: boolean;
+  /** Files already in the fake hm-agent work directory, by absolute path. */
+  remoteFiles?: Record<string, string>;
   script: Step[];
   singleUser?: boolean;
   /** The process fails to start: `error` and no `exit`, as Bun reports it. */
   spawnFails?: boolean;
   /** Written to stderr once the process has started. */
   stderr?: string;
+  /** Uploads answer with this status instead of 201. */
+  uploadStatus?: number;
 }
 
 let home: string;
@@ -143,6 +182,22 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(home, { force: true, recursive: true });
 });
+
+/** The files in `<cwd>/inbox`, name to text; undefined when there is no such directory. */
+const readInbox = (
+  cwd: string | undefined
+): Record<string, string> | undefined => {
+  const inbox = join(cwd ?? "", "inbox");
+  if (cwd === undefined || !existsSync(inbox)) {
+    return;
+  }
+  return Object.fromEntries(
+    readdirSync(inbox).map((name) => [
+      name,
+      readFileSync(join(inbox, name), "utf8"),
+    ])
+  );
+};
 
 const abortError = () =>
   Object.assign(new Error("Claude Code process aborted by user"), {
@@ -160,6 +215,9 @@ const setup = (setupOptions: SetupOptions) => {
   const lines: string[] = [];
   const runCommands: string[][] = [];
   const heartbeat: Harness["heartbeat"] = { reject: undefined };
+  const downloaded: string[] = [];
+  const uploaded: Harness["uploaded"] = [];
+  const firstMessage: Harness["firstMessage"] = { inbox: undefined };
   let stderr: (text: string) => void = () => undefined;
   let closeQuery: () => void = () => undefined;
   const maskerSeen: Masker[] = [];
@@ -181,11 +239,42 @@ const setup = (setupOptions: SetupOptions) => {
         : Promise.reject(heartbeat.reject),
   };
 
+  const filesApi: FilesApi = {
+    download: (fileId) => {
+      downloaded.push(fileId);
+      const served = setupOptions.downloads?.[fileId];
+      if (served === undefined || typeof served === "number") {
+        return Promise.reject(
+          new RunApiError(
+            `files download answered HTTP ${served ?? 404}`,
+            served ?? 404
+          )
+        );
+      }
+      return Promise.resolve({
+        body: new Blob([served.text]),
+        name: served.name,
+      });
+    },
+    upload: async (file) => {
+      const text = await file.body.text();
+      uploaded.push({ name: file.name, text });
+      if (setupOptions.uploadStatus !== undefined) {
+        throw new RunApiError(
+          `files upload answered HTTP ${setupOptions.uploadStatus}`,
+          setupOptions.uploadStatus
+        );
+      }
+      return { id: `file-${uploaded.length}` };
+    },
+  };
+
   const queryFn: QueryFn = ({ options, prompt }) => {
     if (options === undefined) {
       throw new Error("the executor must pass options");
     }
     optionsSeen.push(options);
+    const { cwd } = options;
     const signal = options.abortController?.signal;
     const spawned = options.spawnClaudeCodeProcess?.({
       args: [],
@@ -221,6 +310,7 @@ const setup = (setupOptions: SetupOptions) => {
         .next();
       const content = first.done ? "(none)" : first.value.message.content;
       order.push(`first-message:${String(content)}`);
+      firstMessage.inbox = readInbox(cwd);
       for (const step of setupOptions.script) {
         if (signal?.aborted) {
           throw abortError();
@@ -274,9 +364,55 @@ const setup = (setupOptions: SetupOptions) => {
     return fakeQuery as unknown as Query;
   };
 
-  const run: CommandRunner = (command) => {
+  // The fake hm-agent work directory: `dd` writes its stdin, `head` reads a
+  // file back, `realpath` and `stat` answer for the paths that exist.
+  const remoteFiles = new Map(Object.entries(setupOptions.remoteFiles ?? {}));
+  const remoteWorkDir = remoteWorkDirOf(claim);
+  const ok = { exitCode: 0, stderr: "", stdout: "" };
+  const missing = { exitCode: 1, stderr: "no such file", stdout: "" };
+  const run: CommandRunner = (command, stdin) => {
     runCommands.push(command);
-    return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
+    const [tool, ...args] = command.slice(AS_AGENT.length);
+    const path = args.at(-1) ?? "";
+    switch (tool) {
+      case AGENT_DD: {
+        const target = args.find((arg) => arg.startsWith("of="))?.slice(3);
+        order.push(`write:${target}`);
+        remoteFiles.set(target ?? "", new TextDecoder().decode(stdin));
+        return Promise.resolve(ok);
+      }
+      case AGENT_HEAD: {
+        const text = remoteFiles.get(path);
+        return Promise.resolve(
+          text === undefined
+            ? missing
+            : {
+                ...ok,
+                stdout: text,
+                stdoutBytes: new TextEncoder().encode(text),
+              }
+        );
+      }
+      case AGENT_REALPATH:
+        return Promise.resolve(
+          path === remoteWorkDir || remoteFiles.has(path)
+            ? { ...ok, stdout: `${path}\n` }
+            : missing
+        );
+      case AGENT_STAT: {
+        const text = remoteFiles.get(path);
+        return Promise.resolve(
+          text === undefined
+            ? missing
+            : {
+                ...ok,
+                stdout: `${new TextEncoder().encode(text).length} 81a4\n`,
+              }
+        );
+      }
+      default:
+        return Promise.resolve(ok);
+    }
   };
   const log: Logger = {
     error: (message) => lines.push(message),
@@ -297,6 +433,7 @@ const setup = (setupOptions: SetupOptions) => {
       maskerSeen.push(masker);
       return api;
     },
+    createFilesApi: () => filesApi,
     daemonHome: home,
     env: {
       ANTHROPIC_API_KEY: "sk-ant-should-not-pass",
@@ -316,17 +453,21 @@ const setup = (setupOptions: SetupOptions) => {
   const execution = executeRun(deps);
   const harness: Harness = {
     completions,
+    downloaded,
     events,
+    firstMessage,
     heartbeat,
     lines,
     maskerSeen,
     optionsSeen,
     order,
     proc,
+    remoteFiles,
     run,
     runCommands,
     sendStderr: (text) => stderr(text),
     timers,
+    uploaded,
   };
   return { ...harness, claim, execution };
 };
@@ -574,6 +715,266 @@ describe("aborting", () => {
       { status: "aborted" },
     ]);
     expect(run.order).not.toContain(`first-message:${run.claim.run.inputText}`);
+  });
+});
+
+/** A successful result whose answer is `text`. */
+const answer = (text: string): SDKMessage =>
+  ({ ...(toolRun.at(-1) as object), result: text }) as unknown as SDKMessage;
+
+/** The work directory of the claim `setup` uses by default (single-user, under `home`). */
+const workDirOf = (claim: ClaimResponse): string =>
+  workDirPath(home, claim.run.workspaceId, claim.run.agentId);
+
+/** The work directory of a multi-user run: hm-agent's home. */
+const remoteWorkDirOf = (claim: ClaimResponse): string =>
+  workDirPath(AGENT_HOME, claim.run.workspaceId, claim.run.agentId);
+
+const doneBody = (run: { completions: Harness["completions"] }) => {
+  const body = run.completions[0]?.body;
+  if (body?.status !== "done") {
+    throw new Error(`expected a done completion, got ${body?.status}`);
+  }
+  return body;
+};
+
+describe("input files", () => {
+  const twoFiles = () =>
+    claimWith((c) => {
+      c.inputFileIds = ["file-a", "file-b"];
+    });
+
+  test("both are on disk before the first message, which names their paths", async () => {
+    const run = setup({
+      claim: twoFiles(),
+      downloads: {
+        "file-a": { name: "notes.txt", text: "alpha" },
+        "file-b": { name: "data.csv", text: "beta" },
+      },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+    expect(run.downloaded.sort()).toEqual(["file-a", "file-b"]);
+    expect(run.firstMessage.inbox).toEqual({
+      "data.csv": "beta",
+      "notes.txt": "alpha",
+    });
+    const first = run.order.find((entry) => entry.startsWith("first-message:"));
+    expect(first).toContain(run.claim.run.inputText);
+    expect(first).toContain("- inbox/notes.txt");
+    expect(first).toContain("- inbox/data.csv");
+    expect(doneBody(run).status).toBe("done");
+  });
+
+  test("two files with one name both land, the second under its id", async () => {
+    const run = setup({
+      claim: twoFiles(),
+      downloads: {
+        "file-a": { name: "same.txt", text: "one" },
+        "file-b": { name: "same.txt", text: "two" },
+      },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+    expect(run.firstMessage.inbox).toEqual({
+      "file-b-same.txt": "two",
+      "same.txt": "one",
+    });
+  });
+
+  test("a run without input files gets its text unchanged and no inbox", async () => {
+    const run = setup({ script: toolRunScript() });
+    await run.execution.finished;
+    expect(run.downloaded).toEqual([]);
+    expect(run.firstMessage.inbox).toBeUndefined();
+    expect(run.order).toContain(`first-message:${run.claim.run.inputText}`);
+  });
+
+  test("a file the Worker refuses (404) fails the run before Claude Code starts, naming the id", async () => {
+    const run = setup({
+      claim: twoFiles(),
+      downloads: { "file-a": { name: "notes.txt", text: "alpha" } },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+    const body = run.completions[0]?.body;
+    expect(body?.status).toBe("failed");
+    expect(body && "error" in body ? body.error : "").toContain("file-b");
+    expect(run.optionsSeen).toHaveLength(0);
+  });
+});
+
+describe("files on a multi-user machine", () => {
+  test("each input file is written through sudo before Claude Code starts, and the first message names it", async () => {
+    const claim = claimWith((c) => {
+      c.inputFileIds = ["file-a", "file-b"];
+    });
+    const run = setup({
+      claim,
+      downloads: {
+        "file-a": { name: "notes.txt", text: "alpha" },
+        "file-b": { name: "data.csv", text: "beta" },
+      },
+      script: toolRunScript(),
+      singleUser: false,
+    });
+    await run.execution.finished;
+    const inbox = `${remoteWorkDirOf(claim)}/inbox`;
+    // The first two commands prepare the work directory.
+    expect(run.runCommands.slice(2)).toEqual([
+      [...AS_AGENT, AGENT_MKDIR, "-p", inbox],
+      [...AS_AGENT, AGENT_DD, `of=${inbox}/notes.txt`, "status=none"],
+      [...AS_AGENT, AGENT_MKDIR, "-p", inbox],
+      [...AS_AGENT, AGENT_DD, `of=${inbox}/data.csv`, "status=none"],
+    ]);
+    expect(Object.fromEntries(run.remoteFiles)).toEqual({
+      [`${inbox}/data.csv`]: "beta",
+      [`${inbox}/notes.txt`]: "alpha",
+    });
+    const first = run.order.find((entry) => entry.startsWith("first-message:"));
+    expect(first).toContain("- inbox/notes.txt");
+    expect(first).toContain("- inbox/data.csv");
+    expect(run.order.indexOf(`write:${inbox}/data.csv`)).toBeLessThan(
+      run.order.indexOf(first ?? "")
+    );
+    expect(doneBody(run).status).toBe("done");
+  });
+
+  test("an attachment is read back through sudo and its id goes into the completion", async () => {
+    const claim = claimWith();
+    const run = setup({
+      claim,
+      remoteFiles: { [`${remoteWorkDirOf(claim)}/report.txt`]: "the report" },
+      script: [INIT, answer("Done. [ATTACHMENT:report.txt]")],
+      singleUser: false,
+    });
+    await run.execution.finished;
+    expect(run.uploaded).toEqual([{ name: "report.txt", text: "the report" }]);
+    const body = doneBody(run);
+    expect(body.fileIds).toEqual(["file-1"]);
+    expect(body.text).toBe("Done.");
+  });
+
+  test("a marker outside the work directory is refused with no sudo call for it", async () => {
+    const run = setup({
+      script: [INIT, answer("Here [ATTACHMENT:/etc/passwd]")],
+      singleUser: false,
+    });
+    await run.execution.finished;
+    expect(run.uploaded).toEqual([]);
+    // Only the two commands that prepare the work directory ran.
+    expect(run.runCommands.map((command) => command[AS_AGENT.length])).toEqual([
+      AGENT_MKDIR,
+      AGENT_RM,
+    ]);
+    const body = doneBody(run);
+    expect(body.fileIds).toBeUndefined();
+    expect(body.text).toContain("[attachment refused: passwd]");
+    expect(body.text).not.toContain("[ATTACHMENT:");
+  });
+});
+
+describe("output files", () => {
+  /** Puts `files` into the claim's work directory before the run starts. */
+  const withWorkFiles = (files: Record<string, string>) => {
+    const claim = claimWith();
+    const workDir = workDirOf(claim);
+    mkdirSync(workDir, { recursive: true });
+    for (const [name, text] of Object.entries(files)) {
+      writeFileSync(join(workDir, name), text);
+    }
+    return claim;
+  };
+
+  test("a marker inside work/ is uploaded and its id goes into the completion", async () => {
+    const claim = withWorkFiles({ "report.txt": "the report" });
+    const run = setup({
+      claim,
+      script: [INIT, answer("Done. [ATTACHMENT:report.txt]")],
+    });
+    await run.execution.finished;
+    expect(run.uploaded).toEqual([{ name: "report.txt", text: "the report" }]);
+    const body = doneBody(run);
+    expect(body.fileIds).toEqual(["file-1"]);
+    expect(body.text).toBe("Done.");
+  });
+
+  test("an absolute path inside work/ works too", async () => {
+    const claim = withWorkFiles({ "report.txt": "the report" });
+    const path = join(workDirOf(claim), "report.txt");
+    const run = setup({
+      claim,
+      script: [INIT, answer(`See [ATTACHMENT:${path}]`)],
+    });
+    await run.execution.finished;
+    expect(doneBody(run).fileIds).toEqual(["file-1"]);
+  });
+
+  test("a marker outside work/ is refused: nothing is uploaded and the completion says so", async () => {
+    const claim = withWorkFiles({});
+    const outside = join(home, "secret.txt");
+    writeFileSync(outside, "do not send");
+    const run = setup({
+      claim,
+      script: [INIT, answer(`Here [ATTACHMENT:${outside}]`)],
+    });
+    await run.execution.finished;
+    expect(run.uploaded).toEqual([]);
+    const body = doneBody(run);
+    expect(body.status).toBe("done");
+    expect(body.fileIds).toBeUndefined();
+    expect(body.text).toContain("[attachment refused: secret.txt]");
+    expect(body.text).not.toContain("[ATTACHMENT:");
+  });
+
+  test("a symlink in work/ that points outside is refused", async () => {
+    const claim = withWorkFiles({});
+    const outside = join(home, "secret.txt");
+    writeFileSync(outside, "do not send");
+    symlinkSync(outside, join(workDirOf(claim), "link.txt"));
+    const run = setup({
+      claim,
+      script: [INIT, answer("[ATTACHMENT:link.txt]")],
+    });
+    await run.execution.finished;
+    expect(run.uploaded).toEqual([]);
+    expect(doneBody(run).text).toContain("[attachment refused: link.txt]");
+  });
+
+  test("a missing file is reported and the run still completes", async () => {
+    const run = setup({
+      claim: withWorkFiles({}),
+      script: [INIT, answer("[ATTACHMENT:nope.txt]")],
+    });
+    await run.execution.finished;
+    expect(run.uploaded).toEqual([]);
+    expect(doneBody(run).text).toContain("[attachment missing: nope.txt]");
+  });
+
+  test("a failed upload leaves the id out, notes it, and the run still completes", async () => {
+    const run = setup({
+      claim: withWorkFiles({ "report.txt": "the report" }),
+      script: [INIT, answer("[ATTACHMENT:report.txt]")],
+      uploadStatus: 413,
+    });
+    await run.execution.finished;
+    const body = doneBody(run);
+    expect(body.fileIds).toBeUndefined();
+    expect(body.text).toContain("[attachment failed: report.txt]");
+  });
+
+  test("an error result is never scanned for markers", async () => {
+    const claim = withWorkFiles({ "report.txt": "the report" });
+    const result = {
+      ...(toolRun.at(-1) as object),
+      errors: ["[ATTACHMENT:report.txt]"],
+      is_error: true,
+      subtype: "error_max_budget_usd",
+    } as unknown as SDKMessage;
+    const run = setup({ claim, script: [INIT, result] });
+    await run.execution.finished;
+    expect(run.uploaded).toEqual([]);
+    expect(run.completions[0]?.body.status).toBe("failed");
   });
 });
 
