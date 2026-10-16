@@ -15,7 +15,7 @@ import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
-import { type Clock, systemClock } from "./runs/types.ts";
+import type { Clock } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
 
 const UPLOAD_ACTION = "files.upload";
@@ -128,11 +128,11 @@ const requireUser = (principal: Principal): UserPrincipal => {
 
 export const createFilesService = ({
   blobs,
-  clock = systemClock,
+  clock,
   db,
 }: {
   blobs: FileBlobs;
-  clock?: Clock;
+  clock: Clock;
   db: Database;
 }) => {
   const fileInWorkspace = async (

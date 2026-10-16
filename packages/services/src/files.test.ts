@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import { ForbiddenError } from "./authz.ts";
 import { type MemoryFileBlobs, memoryFileBlobs } from "./files/memory.ts";
 import { createFilesService } from "./files.ts";
+import { systemClock } from "./runs/types.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
@@ -127,7 +128,7 @@ const readBody = (body: ReadableStream<Uint8Array>) =>
 beforeEach(() => {
   db = migrated();
   blobs = memoryFileBlobs();
-  service = createFilesService({ blobs, db });
+  service = createFilesService({ blobs, clock: systemClock, db });
   insertWorkspace(WORKSPACE);
   insertWorkspace(OTHER_WORKSPACE);
   db.insert(agentRows)

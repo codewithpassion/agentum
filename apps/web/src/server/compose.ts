@@ -102,7 +102,11 @@ export const composeWith = ({
   const workspaces = createWorkspacesService({ allowedOrgIds, db });
   const events = createEventsService({ blobs: infra.blobs, db });
   const agents = createAgentsService({ db, events });
-  const files = createFilesService({ blobs: infra.fileBlobs, db });
+  const files = createFilesService({
+    blobs: infra.fileBlobs,
+    clock: infra.clock,
+    db,
+  });
   const machines = createMachinesService({
     allowedOrgIds,
     clock: infra.clock,

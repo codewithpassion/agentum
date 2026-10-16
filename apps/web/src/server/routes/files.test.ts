@@ -2,6 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { files as fileRows } from "@repo/db/schema/files";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { MAX_FILE_BYTES } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import {
   type MemoryFileBlobs,
@@ -25,7 +26,6 @@ const KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
 const ORIGIN = "http://localhost";
 const WORKER_ENV = { RUN_TOKEN_KEY: KEY };
 const SAME_SITE = { "Sec-Fetch-Site": "same-origin" };
-const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
 const BOUNDARY = "harbourmaster-test-boundary";
 

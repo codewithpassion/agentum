@@ -32,6 +32,7 @@ import { uploadFile } from "../chat/upload-file.ts";
 import { useFileInfos } from "../chat/use-file-infos.ts";
 
 const CLOCK_MS = 15_000;
+const BYTES_PER_MB = 1024 * 1024;
 
 const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
@@ -226,12 +227,16 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
       const accepted = withinCount.filter(
         (file) => file.size <= MAX_FILE_BYTES
       );
-      let excess: string | null = null;
+      const problems: string[] = [];
       if (picked.length > withinCount.length) {
-        excess = `You can attach up to ${MAX_ATTACHMENTS} files.`;
-      } else if (accepted.length < withinCount.length) {
-        excess = "Files are limited to 50 MB.";
+        problems.push(`You can attach up to ${MAX_ATTACHMENTS} files.`);
       }
+      if (accepted.length < withinCount.length) {
+        problems.push(
+          `Files are limited to ${MAX_FILE_BYTES / BYTES_PER_MB} MB.`
+        );
+      }
+      const excess = problems.length > 0 ? problems.join(" ") : null;
       setUploading(true);
       setError(null);
       uploadInOrder(accepted, (info) => {
