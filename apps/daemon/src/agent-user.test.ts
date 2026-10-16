@@ -49,34 +49,37 @@ test("the drop-in path has no dot, which sudo would skip", () => {
   expect(sudoersPath("john.doe")).toBe("/etc/sudoers.d/harbourmaster-john_doe");
 });
 
-test("resolveClaudeBinary follows which and realpath", async () => {
-  const run = fakeRun({
-    realpath: ok("/opt/claude/bin/claude\n"),
-    which: ok("/usr/local/bin/claude\n"),
-  });
-  expect(await resolveClaudeBinary(run)).toBe("/opt/claude/bin/claude");
+test("resolveClaudeBinary keeps the path which finds, symlinks included", async () => {
+  const run = fakeRun({ which: ok("/home/dom/.local/bin/claude\n") });
+  expect(await resolveClaudeBinary(run)).toBe("/home/dom/.local/bin/claude");
 });
 
 test("resolveClaudeBinary is undefined when claude is not on the PATH", async () => {
   expect(await resolveClaudeBinary(fakeRun({}))).toBeUndefined();
 });
 
-test("resolveClaudeBinary keeps the override when realpath fails", async () => {
+test("resolveClaudeBinary is undefined for a relative answer", async () => {
+  expect(
+    await resolveClaudeBinary(fakeRun({ which: ok("bin/claude\n") }))
+  ).toBeUndefined();
+});
+
+test("resolveClaudeBinary takes the override without looking at the PATH", async () => {
   const calls: string[][] = [];
   const run = fakeRun({}, calls);
   expect(await resolveClaudeBinary(run, "/x/claude")).toBe("/x/claude");
-  expect(calls.some((call) => call[0] === "which")).toBe(false);
+  expect(calls).toEqual([]);
 });
 
-test("canRunAsAgent asks sudo to list the exact binary", async () => {
+test("canRunAsAgent runs the binary through sudo with no cached credentials", async () => {
   const calls: string[][] = [];
-  const run = fakeRun({ sudo: ok("/usr/bin/claude\n") }, calls);
+  const run = fakeRun({ sudo: ok("2.1.0\n") }, calls);
   expect(await canRunAsAgent(run, "/usr/bin/claude")).toBe(true);
   expect(calls).toEqual([
-    ["sudo", "-n", "-u", "hm-agent", "-l", "/usr/bin/claude"],
+    ["sudo", "-k", "-n", "-u", "hm-agent", "/usr/bin/claude", "--version"],
   ]);
 });
 
-test("canRunAsAgent is false when sudo refuses", async () => {
+test("canRunAsAgent is false when sudo or the binary fails", async () => {
   expect(await canRunAsAgent(fakeRun({}), "/usr/bin/claude")).toBe(false);
 });

@@ -37,7 +37,8 @@ const DEFAULT_DEPS: MainDeps = {
 const USAGE = `Usage: harbourmaster <command> [options]
 
 Commands:
-  enroll <code> --server <url>       Enroll this machine with a Harbourmaster server.
+  enroll <code> --server <url> [--claude <path>]
+                                     Enroll this machine with a Harbourmaster server.
   run                                Run the daemon in the foreground.
   status                             Show the daemon's config and service state.
   install-service [--claude <path>]  Install the systemd user service and the hm-agent user.
@@ -46,6 +47,8 @@ Run install-service before enroll, so that enroll reports single_user false on a
 machine where hm-agent is set up.
 
 Options:
+  --claude <path>  The claude binary, when it is not on the PATH. Give the same path to
+                   install-service and enroll.
   -h, --help       Show this usage.
   -v, --version    Print the daemon version.`;
 
@@ -120,6 +123,7 @@ export const main = async (
         );
       }
       return await enrollCommand({
+        claudeBinary: values.claude,
         code,
         configPath,
         fetch: doFetch,

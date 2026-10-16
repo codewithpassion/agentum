@@ -35,7 +35,6 @@ const fakeRun =
 
 /** Claude on the PATH and hm-agent able to run it. */
 const claudeAndAgent: Record<string, CommandResult> = {
-  realpath: ok(`${CLAUDE}\n`),
   sudo: ok(`${CLAUDE}\n`),
   which: ok(`${CLAUDE}\n`),
 };
@@ -142,7 +141,7 @@ test("single_user is true when the sudo probe fails", async () => {
     configPath,
     fetch: fakeFetch(enrolResponse, requests),
     log: collectingLogger(lines),
-    run: fakeRun({ realpath: ok(`${CLAUDE}\n`), which: ok(`${CLAUDE}\n`) }),
+    run: fakeRun({ which: ok(`${CLAUDE}\n`) }),
     server: SERVER,
   });
 

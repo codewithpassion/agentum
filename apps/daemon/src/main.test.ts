@@ -112,6 +112,31 @@ test("enroll with a code and --server posts to the server and writes the config"
   expect(config.server).toBe(SERVER);
 });
 
+test("enroll --claude names the binary it probes and stores", async () => {
+  const commands: string[][] = [];
+  const run: CommandRunner = (command) => {
+    commands.push(command);
+    return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
+  };
+  const code = await main(
+    ["enroll", CODE, "--server", SERVER, "--claude", "/opt/bin/claude"],
+    { ...deps(), run }
+  );
+
+  expect(code).toBe(EXIT_OK);
+  expect(commands).toContainEqual([
+    "sudo",
+    "-k",
+    "-n",
+    "-u",
+    "hm-agent",
+    "/opt/bin/claude",
+    "--version",
+  ]);
+  expect(readConfig(configPath).claudeBinary).toBe("/opt/bin/claude");
+  expect(readConfig(configPath).singleUser).toBe(false);
+});
+
 test("run with no config returns 1 and says to enroll first", async () => {
   expect(await main(["run"], deps())).toBe(EXIT_FAILURE);
   expect(lines.join("\n")).toContain("enroll");

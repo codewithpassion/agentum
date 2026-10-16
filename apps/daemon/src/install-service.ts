@@ -176,7 +176,7 @@ const provisionAgentUser = async (
     return sudoersError;
   }
   if (!(await canRunAsAgent(run, claude))) {
-    return `sudo will not let ${username} run ${claude} as ${AGENT_USER}`;
+    return `${username} could not run ${claude} as ${AGENT_USER}. The binary must be executable by ${AGENT_USER}, so it cannot sit in a private home directory. Install it system-wide, then run install-service again with --claude <path>`;
   }
   log.info(
     `Claude Code will run as ${AGENT_USER}; enroll will report single_user false`
