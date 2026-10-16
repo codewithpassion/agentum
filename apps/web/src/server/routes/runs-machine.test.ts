@@ -3,6 +3,7 @@ import { sqliteAtomic } from "@repo/db/atomic";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { migrated } from "@repo/db/test-db";
 import { claimResponseSchema } from "@repo/protocol/machine";
+import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { importRunTokenKey } from "@repo/services/run-tokens";
 import type { Clock } from "@repo/services/runs/types";
@@ -67,6 +68,7 @@ const infra = (): Infra => {
     },
     clock,
     devFakeRuntime: false,
+    fileBlobs: memoryFileBlobs(),
     relay: noopRelay,
     runTokenKey: KEY,
   };

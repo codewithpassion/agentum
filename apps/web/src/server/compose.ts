@@ -13,6 +13,11 @@ import {
   type EventsService,
 } from "@repo/services/events";
 import {
+  createFilesService,
+  type FileBlobs,
+  type FilesService,
+} from "@repo/services/files";
+import {
   createMachinesService,
   type MachinesService,
 } from "@repo/services/machines";
@@ -32,6 +37,7 @@ import {
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { r2Blobs } from "./r2-blobs.ts";
+import { r2FileBlobs } from "./r2-files.ts";
 import { durableRelayPort } from "./relay-port.ts";
 
 /** What the runs service needs besides a database. */
@@ -40,6 +46,8 @@ export interface Infra {
   blobs: Blobs;
   clock: Clock;
   devFakeRuntime: boolean;
+  /** Where uploaded files live: R2 in the app. */
+  fileBlobs: FileBlobs;
   relay: MachineRelayPort;
   /** `RUN_TOKEN_KEY`. Machine claims mint run tokens with it. */
   runTokenKey?: string;
@@ -48,6 +56,7 @@ export interface Infra {
 export interface Services {
   agents: AgentsService;
   events: EventsService;
+  files: FilesService;
   machines: MachinesService;
   runs: RunsService;
   sessions: SessionsService;
@@ -93,6 +102,11 @@ export const composeWith = ({
   const workspaces = createWorkspacesService({ allowedOrgIds, db });
   const events = createEventsService({ blobs: infra.blobs, db });
   const agents = createAgentsService({ db, events });
+  const files = createFilesService({
+    blobs: infra.fileBlobs,
+    clock: infra.clock,
+    db,
+  });
   const machines = createMachinesService({
     allowedOrgIds,
     clock: infra.clock,
@@ -115,7 +129,7 @@ export const composeWith = ({
     atomic: infra.atomic,
     clock: infra.clock,
     db,
-    services: { agents, events, machines, runs, sessions, workspaces },
+    services: { agents, events, files, machines, runs, sessions, workspaces },
   };
 };
 
@@ -133,6 +147,7 @@ export const compose = (env: ComposeEnv, devFakeRuntime: boolean): Composed => {
       blobs: r2Blobs(env.FILES),
       clock: systemClock,
       devFakeRuntime,
+      fileBlobs: r2FileBlobs(env.FILES),
       relay: durableRelayPort(env.MACHINE_RELAY),
       runTokenKey: env.RUN_TOKEN_KEY,
     },

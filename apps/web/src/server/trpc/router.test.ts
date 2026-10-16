@@ -3,6 +3,7 @@ import { sqliteAtomic } from "@repo/db/atomic";
 import { runs } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
+import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import { eq } from "drizzle-orm";
@@ -31,6 +32,7 @@ const infra = (): Infra => {
     },
     clock: systemClock,
     devFakeRuntime: true,
+    fileBlobs: memoryFileBlobs(),
     relay: noopRelay,
   };
 };

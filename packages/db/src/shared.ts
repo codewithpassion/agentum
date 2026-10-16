@@ -28,6 +28,12 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
 export const API_KEY_ACCESS = ["read", "write"] as const;
 export type ApiKeyAccess = (typeof API_KEY_ACCESS)[number];
 
+/** Most files one run can take as input. The composer and `startRun` both enforce it. */
+export const INPUT_FILES_MAX = 20;
+
+/** Largest file the upload route and the files service accept: 50 MB. */
+export const MAX_FILE_BYTES = 50 * 1024 * 1024;
+
 export const FILE_SOURCES = ["upload", "slack", "run"] as const;
 export type FileSource = (typeof FILE_SOURCES)[number];
 

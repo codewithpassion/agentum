@@ -5,6 +5,7 @@ import { systemClock } from "@repo/services/runs/types";
 import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
+import type { MiddlewareHandler } from "hono/types";
 import { compose } from "./server/compose.ts";
 import { accessRoutes } from "./server/routes/access.ts";
 import { automationRoutes } from "./server/routes/automation.ts";
@@ -25,10 +26,13 @@ const app = new Hono<AppEnv>();
 app.use("*", clerkMiddleware());
 
 // Every service, built once for the request from the bindings and secrets.
-app.use("/api/*", async (c, next) => {
+// `/files/:id` is outside `/api` but reads files too.
+const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
   c.set("composed", compose(c.env, import.meta.env.DEV));
   await next();
-});
+};
+app.use("/api/*", composeServices);
+app.use("/files/*", composeServices);
 
 app.get("/api/health", (c) => {
   const auth = getAuth(c);
