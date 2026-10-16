@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "69d54655-331b-41a7-b879-d51a8c0c74a0",
+  "id": "11b7fe84-20bf-4a65-890e-4a1c72a34897",
   "prevId": "538872ed-c6d0-46ae-ad2b-61e0e01a4358",
   "tables": {
     "agents": {
@@ -909,182 +909,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "inbox_posts": {
-      "name": "inbox_posts",
-      "columns": {
-        "author_id": {
-          "name": "author_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "author_kind": {
-          "name": "author_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "file_ids": {
-          "name": "file_ids",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "run_id": {
-          "name": "run_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "text": {
-          "name": "text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "thread_id": {
-          "name": "thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "inbox_posts_thread_idx": {
-          "name": "inbox_posts_thread_idx",
-          "columns": ["thread_id", "id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "inbox_posts_run_id_runs_id_fk": {
-          "name": "inbox_posts_run_id_runs_id_fk",
-          "tableFrom": "inbox_posts",
-          "tableTo": "runs",
-          "columnsFrom": ["run_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "inbox_posts_thread_id_inbox_threads_id_fk": {
-          "name": "inbox_posts_thread_id_inbox_threads_id_fk",
-          "tableFrom": "inbox_posts",
-          "tableTo": "inbox_threads",
-          "columnsFrom": ["thread_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "inbox_posts_workspace_id_workspaces_id_fk": {
-          "name": "inbox_posts_workspace_id_workspaces_id_fk",
-          "tableFrom": "inbox_posts",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "inbox_threads": {
-      "name": "inbox_threads",
-      "columns": {
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "last_post_at": {
-          "name": "last_post_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "inbox_threads_recent_idx": {
-          "name": "inbox_threads_recent_idx",
-          "columns": ["workspace_id", "last_post_at"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "inbox_threads_workspace_id_workspaces_id_fk": {
-          "name": "inbox_threads_workspace_id_workspaces_id_fk",
-          "tableFrom": "inbox_threads",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "machine_enroll_tokens": {
       "name": "machine_enroll_tokens",
       "columns": {
@@ -1464,6 +1288,14 @@
           "notNull": false,
           "autoincrement": false
         },
+        "pending_attempts": {
+          "name": "pending_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
         "pending_files": {
           "name": "pending_files",
           "type": "text",
@@ -1694,6 +1526,205 @@
         "sessions_workspace_id_workspaces_id_fk": {
           "name": "sessions_workspace_id_workspaces_id_fk",
           "tableFrom": "sessions",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "slack_apps": {
+      "name": "slack_apps",
+      "columns": {
+        "agent_id": {
+          "name": "agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "app_id": {
+          "name": "app_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "bot_token": {
+          "name": "bot_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "bot_user_id": {
+          "name": "bot_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "client_secret": {
+          "name": "client_secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "signing_secret": {
+          "name": "signing_secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "slack_apps_app_unique": {
+          "name": "slack_apps_app_unique",
+          "columns": ["app_id"],
+          "isUnique": true
+        },
+        "slack_apps_agent_team_unique": {
+          "name": "slack_apps_agent_team_unique",
+          "columns": ["agent_id", "team_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "slack_apps_agent_id_agents_id_fk": {
+          "name": "slack_apps_agent_id_agents_id_fk",
+          "tableFrom": "slack_apps",
+          "tableTo": "agents",
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "slack_apps_workspace_id_workspaces_id_fk": {
+          "name": "slack_apps_workspace_id_workspaces_id_fk",
+          "tableFrom": "slack_apps",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "slack_events_seen": {
+      "name": "slack_events_seen",
+      "columns": {
+        "event_hash": {
+          "name": "event_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "slack_events_seen_hash_unique": {
+          "name": "slack_events_seen_hash_unique",
+          "columns": ["event_hash"],
+          "isUnique": true
+        },
+        "slack_events_seen_received_idx": {
+          "name": "slack_events_seen_received_idx",
+          "columns": ["received_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "slack_events_seen_run_id_runs_id_fk": {
+          "name": "slack_events_seen_run_id_runs_id_fk",
+          "tableFrom": "slack_events_seen",
+          "tableTo": "runs",
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "slack_events_seen_workspace_id_workspaces_id_fk": {
+          "name": "slack_events_seen_workspace_id_workspaces_id_fk",
+          "tableFrom": "slack_events_seen",
           "tableTo": "workspaces",
           "columnsFrom": ["workspace_id"],
           "columnsTo": ["id"],

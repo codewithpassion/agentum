@@ -1,4 +1,5 @@
 import type { Database } from "@repo/db";
+import type { Statement } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
 import {
   EVENT_ACTOR_KINDS,
@@ -9,8 +10,14 @@ import {
 import { and, asc, eq, gt, inArray, like, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { authorize } from "./authz.ts";
+import { ServiceError } from "./errors.ts";
 import { newEventId } from "./events/ids.ts";
-import { capPayload, type Payload, payloadSchema } from "./events/payload.ts";
+import {
+  capPayload,
+  PAYLOAD_MAX_BYTES,
+  type Payload,
+  payloadSchema,
+} from "./events/payload.ts";
 import { stripSecrets } from "./events/redact.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -75,9 +82,32 @@ export interface EventRecord {
 }
 
 type EventRow = typeof events.$inferSelect;
+type ParsedEventInput = z.output<typeof eventInputSchema>;
 
 const actorKindSchema = z.enum(EVENT_ACTOR_KINDS);
 const typeSchema = z.enum(EVENT_TYPES);
+
+/** The row for a parsed input, with the id and time the caller minted. */
+const toRow = (
+  parsed: ParsedEventInput,
+  id: string,
+  now: Date,
+  payload: Record<string, unknown>,
+  payloadRef: string | null
+): EventRow => ({
+  actorId: parsed.actor.id,
+  actorKind: parsed.actor.kind,
+  agentId: parsed.agentId ?? null,
+  createdAt: now.toISOString(),
+  id,
+  payload: JSON.stringify(payload),
+  payloadRef,
+  runId: parsed.runId ?? null,
+  seq: parsed.seq ?? null,
+  sessionId: parsed.sessionId ?? null,
+  type: parsed.type,
+  workspaceId: parsed.workspaceId,
+});
 
 const toRecord = (row: EventRow): EventRecord => ({
   actor: { id: row.actorId, kind: actorKindSchema.parse(row.actorKind) },
@@ -115,22 +145,35 @@ export const createEventsService = ({
       key: `payloads/${parsed.workspaceId}/${id}.json`,
       store: blobs.put,
     });
-    const row: EventRow = {
-      actorId: parsed.actor.id,
-      actorKind: parsed.actor.kind,
-      agentId: parsed.agentId ?? null,
-      createdAt: now.toISOString(),
+    const row = toRow(
+      parsed,
       id,
-      payload: JSON.stringify(capped.payload),
-      payloadRef: capped.payload_ref?.key ?? null,
-      runId: parsed.runId ?? null,
-      seq: parsed.seq ?? null,
-      sessionId: parsed.sessionId ?? null,
-      type: parsed.type,
-      workspaceId: parsed.workspaceId,
-    };
+      now,
+      capped.payload,
+      capped.payload_ref?.key ?? null
+    );
     await db.insert(events).values(row);
     return toRecord(row);
+  };
+
+  /**
+   * An unexecuted insert for `atomic`, for a write that must land with others.
+   * Like `append` it strips secrets, but it has no blob store, so a payload
+   * over 64 KB is refused instead of moved.
+   */
+  const insertStatement = (input: EventInput): Statement => {
+    const parsed = eventInputSchema.parse(input);
+    const now = new Date();
+    const id = newEventId(now);
+    const redacted = payloadSchema.parse(stripSecrets(parsed.payload));
+    const size = new TextEncoder().encode(JSON.stringify(redacted)).byteLength;
+    if (size > PAYLOAD_MAX_BYTES) {
+      throw new ServiceError(
+        "invalid",
+        "Payload too large for an atomic write"
+      );
+    }
+    return db.insert(events).values(toRow(parsed, id, now, redacted, null));
   };
 
   /**
@@ -211,7 +254,7 @@ export const createEventsService = ({
     return payloadSchema.parse(JSON.parse(body));
   };
 
-  return { append, query, readPayload, transcript };
+  return { append, insertStatement, query, readPayload, transcript };
 };
 
 export type EventsService = ReturnType<typeof createEventsService>;

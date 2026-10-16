@@ -1,10 +1,12 @@
 import { beforeEach, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { events } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
+import { ServiceError } from "./errors.ts";
 import { createEventsService } from "./events.ts";
 import { importRunTokenKey, signRunToken } from "./run-tokens.ts";
 import type { Principal } from "./workspaces.ts";
@@ -288,4 +290,50 @@ test("a run token under a non-secret key is redacted", async () => {
   });
   const [row] = db.select().from(events).all();
   expect(JSON.parse(row?.payload ?? "null")).toEqual({ output: "[redacted]" });
+});
+
+test("insertStatement writes its row when atomic runs it", async () => {
+  const atomic = sqliteAtomic(db);
+  await atomic([
+    service.insertStatement({
+      ...base,
+      payload: { text: "hi" },
+      runId: "r1",
+      sessionId: "s1",
+      type: "message.user",
+    }),
+  ]);
+  const [row] = db.select().from(events).all();
+  expect(row?.id).toMatch(ULID);
+  expect(row?.payload).toBe('{"text":"hi"}');
+  expect(row?.payloadRef).toBeNull();
+  expect(row?.runId).toBe("r1");
+  expect(row?.actorKind).toBe("user");
+  expect(store.size).toBe(0);
+});
+
+test("insertStatement redacts secrets as append does", async () => {
+  await sqliteAtomic(db)([
+    service.insertStatement({
+      ...base,
+      payload: { note: "keep", password: "hunter2" },
+      type: "connector.call",
+    }),
+  ]);
+  const [row] = db.select().from(events).all();
+  expect(JSON.parse(row?.payload ?? "")).toEqual({
+    note: "keep",
+    password: "[redacted]",
+  });
+});
+
+test("insertStatement throws for a payload over 64 KB and writes nothing", () => {
+  expect(() =>
+    service.insertStatement({
+      ...base,
+      payload: { text: "x".repeat(100 * KB) },
+      type: "tool.result",
+    })
+  ).toThrow(ServiceError);
+  expect(db.select().from(events).all()).toHaveLength(0);
 });

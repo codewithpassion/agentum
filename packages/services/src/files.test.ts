@@ -194,6 +194,32 @@ test("a user upload stamps the workspace, creator and source, and stores the byt
   });
 });
 
+test("a Slack user upload is stamped with source slack", async () => {
+  const slackUser: Principal = { ...user, via: "slack" };
+  const record = await service.upload(slackUser, {
+    body: text("abc"),
+    mime: "text/plain",
+    name: "from-slack.txt",
+  });
+
+  expect(record).toMatchObject({
+    runId: null,
+    source: "slack",
+  });
+  const [row] = db
+    .select()
+    .from(fileRows)
+    .where(eq(fileRows.id, record.id))
+    .all();
+  expect(row).toMatchObject({
+    createdById: "u1",
+    createdByKind: "user",
+    runId: null,
+    source: "slack",
+    workspaceId: WORKSPACE,
+  });
+});
+
 test("a run upload stamps the run and the agent as creator", async () => {
   const record = await service.upload(run("r1"), {
     body: text("out"),

@@ -75,8 +75,15 @@
     {
       "idx": 10,
       "version": "6",
-      "when": 1792130989510,
-      "tag": "0010_aberrant_stryfe",
+      "when": 1792130626157,
+      "tag": "0010_spooky_dragon_lord",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1792132256216,
+      "tag": "0011_broad_namora",
       "breakpoints": true
     }
   ]
