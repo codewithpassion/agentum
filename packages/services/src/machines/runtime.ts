@@ -1,13 +1,15 @@
+import { runs } from "@repo/db/schema/runs";
+import { and, eq } from "drizzle-orm";
 import { findAgent } from "../agents.ts";
 import type { RuntimeAdapter } from "../runs/types.ts";
 import type { MachineRelayPort } from "./types.ts";
 
 /**
- * Runs on the machine its agent is assigned to. Dispatch only tells the relay
- * to offer the run: the run stays in D1 and the daemon claims it over HTTP. A
- * relay that cannot be reached loses nothing, because the minute sweep offers
- * every run that stays `queued` or `offered` for over 60 seconds, so the error
- * is logged and the run is left to the sweep.
+ * Runs on the machine its agent is assigned to. Dispatch marks a queued run
+ * `offered` in D1, then tells the relay to offer it: the daemon claims it over
+ * HTTP. A relay that cannot be reached loses nothing, because the minute sweep
+ * offers every run that stays `queued` or `offered` for over 60 seconds, so the
+ * error is logged and the run is left to the sweep.
  */
 export const createMachineRuntime = ({
   relay,
@@ -23,10 +25,14 @@ export const createMachineRuntime = ({
       await relay.cancel(agent.machineId, run.id);
     }
   },
-  dispatch: async (_db, run, agent) => {
+  dispatch: async (db, run, agent) => {
     if (!agent.machineId) {
       return;
     }
+    await db
+      .update(runs)
+      .set({ status: "offered" })
+      .where(and(eq(runs.id, run.id), eq(runs.status, "queued")));
     try {
       await relay.offer(agent.machineId, {
         agentId: agent.id,

@@ -25,6 +25,10 @@ import {
   type RuntimeAdapter,
   systemClock,
 } from "@repo/services/runs/types";
+import {
+  createSessionsService,
+  type SessionsService,
+} from "@repo/services/sessions";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { r2Blobs } from "./r2-blobs.ts";
@@ -37,6 +41,8 @@ export interface Infra {
   clock: Clock;
   devFakeRuntime: boolean;
   relay: MachineRelayPort;
+  /** `RUN_TOKEN_KEY`. Machine claims mint run tokens with it. */
+  runTokenKey?: string;
 }
 
 export interface Services {
@@ -44,6 +50,7 @@ export interface Services {
   events: EventsService;
   machines: MachinesService;
   runs: RunsService;
+  sessions: SessionsService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
 
@@ -57,7 +64,7 @@ export interface Composed {
 /** The bindings and secrets `compose` reads. */
 export type ComposeEnv = Pick<
   Env,
-  "ALLOWED_ORG_IDS" | "DB" | "FILES" | "MACHINE_RELAY"
+  "ALLOWED_ORG_IDS" | "DB" | "FILES" | "MACHINE_RELAY" | "RUN_TOKEN_KEY"
 >;
 
 /** Splits a comma separated list of ids, trimmed, dropping empty entries. */
@@ -101,12 +108,14 @@ export const composeWith = ({
     db,
     devFakeRuntime: infra.devFakeRuntime,
     gateways,
+    runTokenKey: infra.runTokenKey,
   });
+  const sessions = createSessionsService({ db, events });
   return {
     atomic: infra.atomic,
     clock: infra.clock,
     db,
-    services: { agents, events, machines, runs, workspaces },
+    services: { agents, events, machines, runs, sessions, workspaces },
   };
 };
 
@@ -125,6 +134,7 @@ export const compose = (env: ComposeEnv, devFakeRuntime: boolean): Composed => {
       clock: systemClock,
       devFakeRuntime,
       relay: durableRelayPort(env.MACHINE_RELAY),
+      runTokenKey: env.RUN_TOKEN_KEY,
     },
   });
 };

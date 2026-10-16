@@ -78,7 +78,7 @@ export type RelayFrame = z.infer<typeof relayFrameSchema>;
 export const claimResponseSchema = z.strictObject({
   agent: z.strictObject({
     id: z.string(),
-    model: z.string().nullable(),
+    model: z.string(),
     name: z.string(),
     runtimeConfig: jsonRecordSchema,
     slug: z.string(),
@@ -130,8 +130,8 @@ export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;
 
 export const usageSchema = z.strictObject({
   costUsd: z.number().nonnegative().optional(),
-  inputTokens: z.int().nonnegative(),
-  outputTokens: z.int().nonnegative(),
+  inputTokens: z.int().nonnegative().optional(),
+  outputTokens: z.int().nonnegative().optional(),
 });
 export type Usage = z.infer<typeof usageSchema>;
 

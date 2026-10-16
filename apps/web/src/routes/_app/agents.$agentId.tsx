@@ -15,6 +15,7 @@ const searchSchema = z.object({
     .refine((id) => tabIds.includes(id))
     .optional()
     .catch(undefined),
+  session: z.string().min(1).optional().catch(undefined),
 });
 
 export const Route = createFileRoute("/_app/agents/$agentId")({
@@ -37,11 +38,19 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
 
 function AgentPage() {
   const agent = Route.useLoaderData();
-  const active = Route.useSearch().tab ?? defaultTab;
+  const search = Route.useSearch();
+  const active = search.tab ?? defaultTab;
   const navigate = Route.useNavigate();
 
   const selectTab = useCallback(
-    (next: string) => navigate({ search: { tab: next } }),
+    (next: string) =>
+      navigate({ search: (previous) => ({ ...previous, tab: next }) }),
+    [navigate]
+  );
+
+  const openSession = useCallback(
+    (sessionId: string | undefined) =>
+      navigate({ search: { session: sessionId, tab: "chat" } }),
     [navigate]
   );
 
@@ -63,7 +72,11 @@ function AgentPage() {
         </TabsList>
         {agentTabs.map((agentTab) => (
           <TabsContent className="pt-6" key={agentTab.id} value={agentTab.id}>
-            <agentTab.Panel />
+            <agentTab.Panel
+              agent={agent}
+              openSession={openSession}
+              sessionId={search.session}
+            />
           </TabsContent>
         ))}
       </Tabs>

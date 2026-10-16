@@ -98,7 +98,7 @@ test("describeMachines shows only the 20 newest presence events", async () => {
   expect(eventLines.at(-1)).toContain("machine.offline");
 });
 
-test("startMachineRun leaves the run queued and reuses the agent", async () => {
+test("startMachineRun marks the run offered and reuses the agent", async () => {
   const db = migrated();
   const machineId = await enrollMachine(db);
   const principal = await devUserPrincipal(db, ORG);
@@ -112,7 +112,7 @@ test("startMachineRun leaves the run queued and reuses the agent", async () => {
   expect(first.agentId).toBeString();
   expect(first.runId).toBeString();
   const summary = await localRuns(db).getRun(principal, first.runId);
-  expect(summary.status).toBe("queued");
+  expect(summary.status).toBe("offered");
   expect(summary.agentId).toBe(first.agentId);
 
   const second = await startMachineRun({

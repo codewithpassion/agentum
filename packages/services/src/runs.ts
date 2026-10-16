@@ -19,8 +19,14 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
 import { type Blobs, createEventsService } from "./events.ts";
+import {
+  importRunTokenKey,
+  type RunTokenClaims,
+  signRunToken,
+} from "./run-tokens.ts";
 import { createFakeRuntime } from "./runs/fake-runtime.ts";
 import { noneGateway } from "./runs/gateways.ts";
+import { claimForMachine } from "./runs/machine-claim.ts";
 import {
   findSession,
   loadRun,
@@ -38,6 +44,7 @@ import {
   type AdapterDeps,
   type Clock,
   type Gateway,
+  type MachineClaim,
   RUN_EVENT_TYPES,
   type RunEventInput,
   type RunRecord,
@@ -94,6 +101,11 @@ export interface RunsServiceOptions {
   /** Registers the echo runtime for agents whose runtime is `fake`. */
   devFakeRuntime: boolean;
   gateways: readonly Gateway[];
+  /**
+   * `RUN_TOKEN_KEY` (base64, 32 bytes). Only the machine claim needs it, which
+   * mints the run token; leave it out where no machine claims runs.
+   */
+  runTokenKey?: string;
 }
 
 type ParsedInput = ReturnType<typeof startRunInputSchema.parse>;
@@ -112,6 +124,7 @@ export const createRunsService = ({
   db,
   devFakeRuntime,
   gateways,
+  runTokenKey,
 }: RunsServiceOptions) => {
   const eventsService = createEventsService({ blobs, db });
   const adapterByKind = new Map<string, RuntimeAdapter>(
@@ -369,6 +382,40 @@ export const createRunsService = ({
     return started;
   };
 
+  let importedTokenKey: Promise<CryptoKey> | undefined;
+  const signToken = async (claims: RunTokenClaims) => {
+    if (!runTokenKey) {
+      throw new Error("Machine claims need runTokenKey (RUN_TOKEN_KEY).");
+    }
+    importedTokenKey ??= importRunTokenKey(runTokenKey);
+    return await signRunToken(await importedTokenKey, claims);
+  };
+
+  /**
+   * A machine's daemon claims a run over HTTP (seam 3). The conditional write
+   * is in `claimForMachine`. 403 when the run's agent is on another machine,
+   * 409 when the run cannot be claimed now.
+   */
+  const claimRunForMachine = (
+    principal: Principal,
+    runId: string,
+    options: { platformUrl: string }
+  ): Promise<MachineClaim> =>
+    claimForMachine(
+      {
+        announceStarted: async (run) => {
+          await appendRunEvent(run, "run.started", agentActor(run));
+        },
+        db,
+        leaseMs: LEASE_MS,
+        now: () => clock.now(),
+        signToken,
+      },
+      principal,
+      runId,
+      options
+    );
+
   const claimRun = async (
     principal: Principal,
     runId: string
@@ -441,6 +488,30 @@ export const createRunsService = ({
     return { lastSeq };
   };
 
+  /**
+   * The daemon is still working: the lease moves to 90 seconds from now.
+   * Refused with 409 unless the run is `running`. The write is conditional, so
+   * a run the reaper just interrupted stays interrupted.
+   */
+  const heartbeatRun = async (
+    principal: Principal,
+    runId: string
+  ): Promise<void> => {
+    const run = await requireRun(principal, runId);
+    authorizeRunWrite(principal, run, "runs.heartbeat");
+    const extended = await db
+      .update(runs)
+      .set({
+        // ISO 8601: the run token check compares lease_until as text.
+        leaseUntil: new Date(clock.now().getTime() + LEASE_MS).toISOString(),
+      })
+      .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+      .returning({ id: runs.id });
+    if (extended.length === 0) {
+      throw new ServiceError("conflict", `Run is ${run.status}, not running`);
+    }
+  };
+
   /** The daemon says the local process of an interrupted run has exited. */
   const recordProcessEnded = async (run: RunRecord) => {
     if (run.status !== "interrupted") {
@@ -449,7 +520,7 @@ export const createRunsService = ({
         `Run is ${run.status}, not interrupted`
       );
     }
-    await db
+    const recorded = await db
       .update(runs)
       .set({ processEndedAt: nowIso() })
       .where(
@@ -458,7 +529,12 @@ export const createRunsService = ({
           eq(runs.status, "interrupted"),
           isNull(runs.processEndedAt)
         )
-      );
+      )
+      .returning({ id: runs.id });
+    // Accepted once: the first call records it, a repeat is refused.
+    if (recorded.length === 0) {
+      throw new ServiceError("conflict", "The process end is already recorded");
+    }
   };
 
   const deliverReply = async (
@@ -744,8 +820,10 @@ export const createRunsService = ({
   return {
     cancelRun,
     claimRun,
+    claimRunForMachine,
     completeRun,
     getRun,
+    heartbeatRun,
     ingestRunEvents,
     reapExpiredLeases,
     startRun,

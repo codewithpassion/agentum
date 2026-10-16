@@ -107,6 +107,35 @@ describe("machine protocol fixtures", () => {
     expect(claimResponseSchema.safeParse(wrongToken).success).toBe(false);
   });
 
+  test("claim-response rejects a null agent model", async () => {
+    const parsed = claimResponseSchema.parse(
+      await loadFixture("claim-response")
+    );
+    const nullModel = { ...parsed, agent: { ...parsed.agent, model: null } };
+    expect(claimResponseSchema.safeParse(nullModel).success).toBe(false);
+  });
+
+  test("complete-request accepts a usage with only costUsd", async () => {
+    const raw = (await loadFixture("complete-request-done")) as Record<
+      string,
+      unknown
+    >;
+    const withCostOnly = { ...raw, usage: { costUsd: 0.0123 } };
+    expect(completeRequestSchema.safeParse(withCostOnly).success).toBe(true);
+  });
+
+  test("complete-request rejects an unknown field in usage", async () => {
+    const raw = (await loadFixture("complete-request-done")) as Record<
+      string,
+      unknown
+    >;
+    const withExtra = {
+      ...raw,
+      usage: { costUsd: 0.0123, unexpected: 1 },
+    };
+    expect(completeRequestSchema.safeParse(withExtra).success).toBe(false);
+  });
+
   test("daemonFrameSchema accepts daemon frames and rejects relay frames", async () => {
     const daemonResults = (await loadFixtures(daemonFixtures)).map(
       (raw) => daemonFrameSchema.safeParse(raw).success
