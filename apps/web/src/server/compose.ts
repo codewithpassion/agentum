@@ -287,6 +287,7 @@ export const composeWith = ({
     relay: infra.relay,
   });
   const managedKeys = createManagedKeysService({
+    atomic: infra.atomic,
     clock: infra.clock,
     db,
     secretsKey: infra.secretsKey,

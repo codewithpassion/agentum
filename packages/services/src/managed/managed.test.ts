@@ -26,7 +26,7 @@ import {
 } from "../run-tokens.ts";
 import type { Clock, StartRunInput } from "../runs/types.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
-import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
+import type { Principal } from "../workspaces.ts";
 import { advanceCursor, eventsAfter, type SessionEvent } from "./events.ts";
 import type { ManagedGateway } from "./gateway.ts";
 import { createManagedKeysService } from "./keys.ts";
@@ -365,6 +365,7 @@ beforeEach(async () => {
     })
   ).id;
   keys = createManagedKeysService({
+    atomic: sqliteAtomic(db),
     clock,
     db,
     secretsKey: SECRETS_KEY,
@@ -548,10 +549,37 @@ describe("a run that stops early", () => {
     expect(run?.status).toBe("failed");
     expect(run?.error).toStartWith("Anthropic could not be reached");
     expect(run?.error).not.toContain(FAKE_API_KEY);
+    expect(sessionRow(run?.sessionId ?? "")?.closedAt).not.toBeNull();
+    expect(gateway.interrupted).toEqual(["sesn_1"]);
     expect(
       db.select().from(managedRuns).where(eq(managedRuns.runId, runId)).get()
         ?.failures
     ).toBe(FAILURE_LIMIT);
+  });
+
+  test("an idle that waits on an approval fails the run, since nothing answers it", async () => {
+    const { runId } = await start(dom);
+    gateway.turns = [[gateway.running(), gateway.idle("requires_action")]];
+
+    await drive(runId);
+
+    expect(runRow(runId)?.status).toBe("failed");
+    expect(runRow(runId)?.error).toContain("requires_action");
+  });
+
+  test("cancelling a run that never reached the session leaves the running run's session alone", async () => {
+    const first = await start(dom, "one");
+    gateway.turns = [[gateway.running()]];
+    await managed.step(first.runId);
+    const second = await start(dom, "two");
+
+    await runs.cancelRun(dom, second.runId);
+    await managed.interrupt(second.runId);
+
+    expect(gateway.interrupted).toEqual([]);
+    expect(gateway.deletedVaults).toEqual([]);
+    expect(sessionRow(first.sessionId)?.closedAt).toBeNull();
+    expect((await verify(tokenOf("vlt_1"))).ok).toBe(true);
   });
 
   test("cancelling stops the session and closes it", async () => {
@@ -586,7 +614,7 @@ describe("sessions", () => {
     expect(runRow(second.runId)?.status).toBe("running");
   });
 
-  test("events nobody read, such as an interrupted run's end, do not finish the next run", async () => {
+  test("a run the reaper interrupted has its session closed before the next run is claimed", async () => {
     const first = await start(dom, "one");
     gateway.turns = [[gateway.running()]];
     await managed.step(first.runId);
@@ -603,6 +631,10 @@ describe("sessions", () => {
     await managed.step(second.runId);
 
     expect(runRow(second.runId)?.status).toBe("running");
+    // Fresh session: the old one is stopped and its vault dropped.
+    expect(gateway.sessions.size).toBe(2);
+    expect(gateway.interrupted).toEqual(["sesn_1"]);
+    expect(gateway.deletedVaults).toEqual(["vlt_1"]);
     expect(
       runEvents(second.runId).filter((e) => e.type === "message.assistant")
     ).toEqual([]);
@@ -739,6 +771,26 @@ describe("session tokens", () => {
     expect(await verify(token)).toEqual({ ok: false, reason: "invalid" });
   });
 
+  test("a token of a replaced session is refused", async () => {
+    const first = await start(dom, "one");
+    gateway.turns = [[gateway.running()]];
+    await managed.step(first.runId);
+    const oldToken = tokenOf("vlt_1");
+    await agents.update(dom, agentId, { instructions: "Different now." });
+    gateway.sessions.get("sesn_1")?.events.push(gateway.idle());
+    await managed.step(first.runId);
+    nowMs += SECOND;
+    const second = await start(dom, "two");
+    gateway.turns = [[gateway.running()]];
+
+    await managed.step(second.runId);
+
+    const newToken = tokenOf("vlt_2");
+    expect(newToken).not.toBe(oldToken);
+    expect(await verify(oldToken)).toEqual({ ok: false, reason: "invalid" });
+    expect((await verify(newToken)).ok).toBe(true);
+  });
+
   test("a run token is not a session token and the reverse", async () => {
     const { runId } = await start(dom);
     gateway.turns = [[gateway.running()]];
@@ -848,8 +900,4 @@ describe("session tokens", () => {
       ok: true,
     });
   });
-});
-
-test("the system principal can cancel nothing it did not start", () => {
-  expect(SYSTEM_PRINCIPAL.kind).toBe("system");
 });

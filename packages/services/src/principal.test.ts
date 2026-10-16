@@ -260,6 +260,10 @@ test("a run token resolves to a run principal", async () => {
 
 test("a managed session token resolves to a run principal for the session's running run", async () => {
   const issuedAt = Date.now();
+  db.update(runs)
+    .set({ claimedBy: "managed" })
+    .where(eq(runs.id, "run_1"))
+    .run();
   db.insert(managedSessions)
     .values({
       agentFingerprint: "fp",

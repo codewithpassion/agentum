@@ -11,6 +11,7 @@
  * refused without echoing it, and a failed live check is a no, not its reason.
  */
 import type { Database } from "@repo/db";
+import type { Atomic, Statement } from "@repo/db/atomic";
 import {
   managedAgents,
   managedSessions,
@@ -96,11 +97,13 @@ const checkShape = (apiKey: string): void => {
 };
 
 export const createManagedKeysService = ({
+  atomic,
   clock,
   db,
   secretsKey,
   validate,
 }: {
+  atomic: Atomic;
   clock: Clock;
   db: Database;
   /** `SECRETS_KEY`, base64. Needed to store or read the key. */
@@ -147,15 +150,13 @@ export const createManagedKeysService = ({
     }
   };
 
-  /** Ids made under the old key, cleared. A failure leaves stale ids the runtime recreates. */
-  const forgetAnthropicIds = async (workspaceId: string): Promise<void> => {
-    await db
+  /** Deletes of the Anthropic ids made under the old key, to land in the same atomic write as the key change. */
+  const forgetAnthropicIds = (workspaceId: string): Statement[] => [
+    db
       .delete(managedSessions)
-      .where(eq(managedSessions.workspaceId, workspaceId));
-    await db
-      .delete(managedAgents)
-      .where(eq(managedAgents.workspaceId, workspaceId));
-  };
+      .where(eq(managedSessions.workspaceId, workspaceId)),
+    db.delete(managedAgents).where(eq(managedAgents.workspaceId, workspaceId)),
+  ];
 
   /** The status the caller may see: its own workspace's, never the key. */
   const status = async (principal: Principal): Promise<ManagedKeyStatus> => {
@@ -183,28 +184,32 @@ export const createManagedKeysService = ({
 
     const now = clock.now().toISOString();
     const apiKeyEnc = await encryptSecret(key, binding(workspaceId), apiKey);
-    await db
-      .insert(workspaceAnthropicKeys)
-      .values({
-        apiKeyEnc,
-        createdAt: now,
-        environmentId: null,
-        keyHint: apiKey.slice(-HINT_LENGTH),
-        setBy: user.userId,
-        updatedAt: now,
-        workspaceId,
-      })
-      .onConflictDoUpdate({
-        set: {
+    // One write: a key change that left the old ids behind would make every
+    // later run reuse an agent that belongs to the old key.
+    await atomic([
+      db
+        .insert(workspaceAnthropicKeys)
+        .values({
           apiKeyEnc,
+          createdAt: now,
           environmentId: null,
           keyHint: apiKey.slice(-HINT_LENGTH),
           setBy: user.userId,
           updatedAt: now,
-        },
-        target: workspaceAnthropicKeys.workspaceId,
-      });
-    await forgetAnthropicIds(workspaceId);
+          workspaceId,
+        })
+        .onConflictDoUpdate({
+          set: {
+            apiKeyEnc,
+            environmentId: null,
+            keyHint: apiKey.slice(-HINT_LENGTH),
+            setBy: user.userId,
+            updatedAt: now,
+          },
+          target: workspaceAnthropicKeys.workspaceId,
+        }),
+      ...forgetAnthropicIds(workspaceId),
+    ]);
     return await statusOf(workspaceId);
   };
 
@@ -214,13 +219,12 @@ export const createManagedKeysService = ({
     const { workspaceId } = user;
     authorize(user, WRITE_ACTION, { kind: KEY_KIND, workspaceId });
 
-    const deleted = await db
-      .delete(workspaceAnthropicKeys)
-      .where(eq(workspaceAnthropicKeys.workspaceId, workspaceId))
-      .returning({ workspaceId: workspaceAnthropicKeys.workspaceId });
-    if (deleted.length > 0) {
-      await forgetAnthropicIds(workspaceId);
-    }
+    await atomic([
+      db
+        .delete(workspaceAnthropicKeys)
+        .where(eq(workspaceAnthropicKeys.workspaceId, workspaceId)),
+      ...forgetAnthropicIds(workspaceId),
+    ]);
     return NOT_CONFIGURED;
   };
 

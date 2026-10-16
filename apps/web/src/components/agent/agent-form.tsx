@@ -130,9 +130,7 @@ export function AgentForm({
           <FieldLabel htmlFor="agent-model">Model</FieldLabel>
           <Input id="agent-model" onChange={handleModel} value={values.model} />
           {values.runtime === "managed" && (
-            <FieldDescription>
-              Use opus, sonnet or haiku, or a Claude model id.
-            </FieldDescription>
+            <FieldDescription>Use opus, sonnet or haiku.</FieldDescription>
           )}
         </Field>
         <Field>

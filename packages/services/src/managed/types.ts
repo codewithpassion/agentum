@@ -10,3 +10,6 @@ export interface ManagedPollerPort {
 export interface ManagedStepResult {
   next: number | null;
 }
+
+/** `runs.claimed_by` of a run that Managed Agents is working on. */
+export const MANAGED_CLAIMER = "managed";

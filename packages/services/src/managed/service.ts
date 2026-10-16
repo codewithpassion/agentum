@@ -29,6 +29,7 @@ import { runs } from "@repo/db/schema/runs";
 import {
   and,
   asc,
+  desc,
   eq,
   inArray,
   isNull,
@@ -59,7 +60,11 @@ import type {
 } from "./gateway.ts";
 import type { ManagedKeysService } from "./keys.ts";
 import { finalReply, toRunEvents } from "./run-events.ts";
-import type { ManagedPollerPort, ManagedStepResult } from "./types.ts";
+import {
+  MANAGED_CLAIMER,
+  type ManagedPollerPort,
+  type ManagedStepResult,
+} from "./types.ts";
 
 /** How often a running run's session is read. */
 export const POLL_MS = 2000;
@@ -74,8 +79,6 @@ export const RUN_MAX_MS = 60 * 60_000;
 export const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 /** Anthropic holds 20 credentials per vault: the platform server and the connectors. */
 export const MAX_SERVERS = 20;
-/** `runs.claimed_by` of a run that Managed Agents is working on. */
-export const MANAGED_CLAIMER = "managed";
 const PAGE_SIZE = 500;
 
 export const NO_KEY_ERROR =
@@ -360,7 +363,7 @@ export const createManagedService = ({
     session: Pick<SessionRow, "sessionId" | "vaultId">,
     gateway: ManagedGateway | null
   ) => {
-    await db
+    const closed = await db
       .update(managedSessions)
       .set({ closedAt: nowIso() })
       .where(
@@ -368,8 +371,10 @@ export const createManagedService = ({
           eq(managedSessions.sessionId, session.sessionId),
           isNull(managedSessions.closedAt)
         )
-      );
-    if (gateway) {
+      )
+      .returning({ id: managedSessions.sessionId });
+    // A session closed earlier has had its vault dropped already.
+    if (gateway && closed.length > 0) {
       await dropVault(gateway, session.vaultId);
     }
   };
@@ -637,7 +642,11 @@ export const createManagedService = ({
     const outcome = reduceEvents(polled.events, "running");
     const stopped =
       outcome.status === "terminated" ||
-      (outcome.status === "idle" && isAbnormalStop(outcome.stopReason));
+      (outcome.status === "idle" &&
+        // Nothing here answers an approval or a tool result, so a session
+        // waiting on one would wait for ever.
+        (isAbnormalStop(outcome.stopReason) ||
+          outcome.stopReason === "requires_action"));
     if (stopped) {
       const reason =
         outcome.status === "terminated" ? "terminated" : outcome.stopReason;
@@ -724,10 +733,74 @@ export const createManagedService = ({
       .from(managedRuns)
       .where(eq(managedRuns.runId, run.id))
       .limit(1);
-    if (!(managedRun?.sentAt || (await launch(run, agent)))) {
-      return DONE;
+    if (!managedRun?.sentAt) {
+      // Launching takes many calls to Anthropic. The lease must outlast them.
+      await runsApi.heartbeatRun(SYSTEM_PRINCIPAL, run.id);
+      if (!(await launch(run, agent))) {
+        return DONE;
+      }
     }
     return await poll(run);
+  };
+
+  /**
+   * Ends the run's session for good: it is never reused, its token stops
+   * working, and Anthropic is told to stop whatever it is doing. Nothing here
+   * throws: it runs on paths that are already failing.
+   */
+  const abandon = async (run: RunRecord): Promise<void> => {
+    const [session] = await db
+      .select()
+      .from(managedSessions)
+      .where(eq(managedSessions.sessionId, run.sessionId))
+      .limit(1);
+    if (!session || session.closedAt) {
+      return;
+    }
+    let gateway: ManagedGateway | null = null;
+    try {
+      const key = await keys.resolve(run.workspaceId);
+      gateway = key ? gatewayOf(run.workspaceId, key) : null;
+    } catch (error) {
+      console.error(
+        `Reading the key to stop a session failed: ${describeError(error)}`
+      );
+    }
+    await closeSession(session, gateway);
+    if (gateway && session.anthropicSessionId) {
+      try {
+        await gateway.interrupt(session.anthropicSessionId);
+      } catch (error) {
+        console.error(`Stopping a session failed: ${describeError(error)}`);
+      }
+    }
+  };
+
+  /**
+   * A run that ended without a clean turn (the reaper interrupted it, polls
+   * kept failing) leaves its Anthropic session behind, and that session still
+   * holds the session token. Before the next run of the session is claimed,
+   * the session is closed, so those calls can never act as the new run.
+   */
+  const closeBrokenSession = async (run: RunRecord): Promise<void> => {
+    const [previous] = await db
+      .select({ sentAt: managedRuns.sentAt, status: runs.status })
+      .from(runs)
+      .leftJoin(managedRuns, eq(managedRuns.runId, runs.id))
+      .where(
+        and(
+          eq(runs.sessionId, run.sessionId),
+          or(
+            lt(runs.createdAt, run.createdAt),
+            and(eq(runs.createdAt, run.createdAt), lt(runs.id, run.id))
+          )
+        )
+      )
+      .orderBy(desc(runs.createdAt), desc(runs.id))
+      .limit(1);
+    if (previous?.sentAt && previous.status !== "done") {
+      await abandon(run);
+    }
   };
 
   /**
@@ -755,6 +828,7 @@ export const createManagedService = ({
       })
       .onConflictDoNothing();
     if (STARTING.includes(run.status)) {
+      await closeBrokenSession(run);
       await claim(run);
       // Reloaded either way: a claim that lost may still find the run running.
       run = await loadRun(db, runId);
@@ -786,6 +860,7 @@ export const createManagedService = ({
       );
       const result = await countFailure(run);
       if (result.next === null) {
+        await abandon(run);
         await failRun(
           run,
           `Anthropic could not be reached: ${describeError(error)}`
@@ -797,28 +872,24 @@ export const createManagedService = ({
   };
 
   /**
-   * A run was cancelled: its session is closed so the stale idle it leaves
-   * behind is never taken for the next run's, and Anthropic is told to stop.
+   * A run was cancelled. If its input reached the session, the session is
+   * closed so the stale idle it leaves behind is never taken for the next
+   * run's, and Anthropic is told to stop. A run that was still waiting (its
+   * session may be busy with another run) touches nothing.
    */
   const interrupt = async (runId: string): Promise<void> => {
     const run = await loadRun(db, runId);
     if (!run) {
       return;
     }
-    const [[session], key] = await Promise.all([
-      db
-        .select()
-        .from(managedSessions)
-        .where(eq(managedSessions.sessionId, run.sessionId))
-        .limit(1),
-      keys.resolve(run.workspaceId),
-    ]);
-    if (!(session?.anthropicSessionId && key) || session.closedAt) {
-      return;
+    const [sent] = await db
+      .select({ sentAt: managedRuns.sentAt })
+      .from(managedRuns)
+      .where(eq(managedRuns.runId, runId))
+      .limit(1);
+    if (sent?.sentAt) {
+      await abandon(run);
     }
-    const gateway = gatewayOf(run.workspaceId, key);
-    await closeSession(session, gateway);
-    await gateway.interrupt(session.anthropicSessionId);
   };
 
   /**

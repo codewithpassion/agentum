@@ -19,6 +19,7 @@ import { sessions } from "@repo/db/schema/sessions";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { CryptoError, fromBase64Url, toBase64Url } from "./crypto.ts";
+import { MANAGED_CLAIMER } from "./managed/types.ts";
 
 export const RUN_TOKEN_PREFIX = "hm_run_";
 /**
@@ -279,6 +280,7 @@ export const verifySessionToken = async ({
         eq(runs.sessionId, sessionId),
         eq(runs.workspaceId, workspaceId),
         eq(runs.agentId, agentId),
+        eq(runs.claimedBy, MANAGED_CLAIMER),
         eq(runs.status, "running"),
         gt(runs.leaseUntil, now.toISOString())
       )

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import {
   managedAgents,
@@ -139,6 +140,7 @@ const rowOf = (workspaceId: string) =>
 
 const build = (validate?: (apiKey: string) => Promise<boolean>) =>
   createManagedKeysService({
+    atomic: sqliteAtomic(db),
     clock,
     db,
     secretsKey: SECRETS_KEY,
@@ -252,7 +254,11 @@ describe("set and status", () => {
   });
 
   test("throws a plain Error when secretsKey is missing", async () => {
-    const service = createManagedKeysService({ clock, db });
+    const service = createManagedKeysService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+    });
 
     const error = await service.set(user, { apiKey: KEY }).catch((e) => e);
 
@@ -336,7 +342,11 @@ describe("resolve and rememberEnvironment", () => {
 
   test("resolve throws a plain Error when secretsKey is missing", async () => {
     await build().set(user, { apiKey: KEY });
-    const service = createManagedKeysService({ clock, db });
+    const service = createManagedKeysService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+    });
 
     const error = await service.resolve(WORKSPACE).catch((e) => e);
 
