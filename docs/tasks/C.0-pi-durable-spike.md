@@ -3,7 +3,7 @@ id: C.0
 title: Spike - Pi Durable agents on Cloudflare
 milestone: C
 size: M
-status: in_progress
+status: done
 depends_on: [O.1]
 branch: null
 ---
@@ -28,3 +28,4 @@ This is a spike. The prototype lives in `/home/roboto/devel/harbourmaster-wt/tmp
 
 ## Log
 - 2026-10-17: added at Dom's request; dispatched.
+- 2026-10-17: report at b970264 (docs/reviews/spike-pi-durable.md): conditional go. PiHarness ran in the Harbourmaster Worker (+1.7 MiB), finished a run via /mcp, /api/proxy and skills, resumed after kill -9. Live Anthropic not run (no key). Waits for Dom's go/no-go.
