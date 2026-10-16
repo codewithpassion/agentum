@@ -64,6 +64,20 @@
       "when": 1792128550189,
       "tag": "0008_harsh_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792128826351,
+      "tag": "0009_mushy_captain_america",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792130626157,
+      "tag": "0010_spooky_dragon_lord",
+      "breakpoints": true
     }
   ]
 }

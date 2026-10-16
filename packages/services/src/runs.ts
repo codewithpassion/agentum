@@ -501,7 +501,10 @@ export const createRunsService = ({
       fileIds: prepared.fileIds,
       text: input.input.text,
     });
-    await prepared.adapter.dispatch(db, run, prepared.agent, adapterDeps);
+    // A run with pending files is offered once they are fetched.
+    if (!run.pendingFiles) {
+      await prepared.adapter.dispatch(db, run, prepared.agent, adapterDeps);
+    }
     return started;
   };
 

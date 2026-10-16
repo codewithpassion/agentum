@@ -67,8 +67,12 @@ test("deleting an agent cascades to its triggers", () => {
     .values({
       agentId: "a1",
       createdAt: NOW,
+      createdBy: "u1",
       id: "t1",
+      kind: "http",
+      name: "t",
       tokenHash: "h",
+      tokenPrefix: "hm_trg_abcd",
       workspaceId: "w1",
     })
     .run();

@@ -57,6 +57,10 @@ import {
   type SlackService,
 } from "@repo/services/slack";
 import { createSlackGateway } from "@repo/services/slack/gateway";
+import {
+  createTriggersService,
+  type TriggersService,
+} from "@repo/services/triggers";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { r2Blobs } from "./r2-blobs.ts";
@@ -97,6 +101,7 @@ export interface Services {
   runs: RunsService;
   sessions: SessionsService;
   slack: SlackService;
+  triggers: TriggersService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
 
@@ -216,6 +221,13 @@ export const composeWith = ({
     runs,
     secretsKey: infra.secretsKey,
   });
+  const triggers = createTriggersService({
+    allowedOrgIds,
+    clock: infra.clock,
+    db,
+    events,
+    runs,
+  });
   return {
     atomic: infra.atomic,
     clock: infra.clock,
@@ -232,6 +244,7 @@ export const composeWith = ({
       runs,
       sessions,
       slack,
+      triggers,
       workspaces,
     },
   };

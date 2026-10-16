@@ -26,6 +26,7 @@
     "./slack/apps": "./src/slack/apps.ts",
     "./slack/gateway": "./src/slack/gateway.ts",
     "./slack/signature": "./src/slack/signature.ts",
+    "./triggers": "./src/triggers.ts",
     "./workspaces": "./src/workspaces.ts"
   },
   "scripts": {

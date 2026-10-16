@@ -282,7 +282,7 @@ test("a mention from a linked user creates the run with its session key and requ
     agentId,
     onBehalfOfUserId: DOM,
     pendingFiles: null,
-    status: "offered",
+    status: "queued",
   });
   expect(JSON.parse(run?.reply ?? "null")).toEqual({
     channel: "C0CHAN",
@@ -300,7 +300,10 @@ test("a mention from a linked user creates the run with its session key and requ
   expect(eventTypes()).toEqual(
     expect.arrayContaining(["message.user", "run.queued", "slack.received"])
   );
-  expect(deferred).toHaveLength(0);
+  // The run and its events are written; offering it comes after the answer.
+  expect(deferred).toHaveLength(1);
+  await runAfterJobs();
+  expect(allRuns()[0]?.status).toBe("offered");
 });
 
 test("a DM is keyed by its own timestamp and a threaded mention by its thread", async () => {
@@ -331,6 +334,22 @@ test("a retry with the same body creates nothing and still answers 200", async (
   expect(retry.status).toBe(OK);
   expect(allRuns()).toHaveLength(1);
   expect(allSeen()).toHaveLength(1);
+});
+
+test("two events for one message create one run", async () => {
+  const first = await fixture("dm");
+  const second = await fixture("dm");
+  second.event_id = "Ev0SECONDONE";
+  await send(first);
+  await send(second);
+
+  expect(allRuns()).toHaveLength(1);
+});
+
+test("an app that is not installed yet is 401", async () => {
+  await db.update(slackApps).set({ status: "created" });
+
+  expect((await send(await fixture("mention"))).status).toBe(UNAUTHORIZED);
 });
 
 test("a bad signature is 401 and creates nothing", async () => {
@@ -454,6 +473,7 @@ test("an email match for an org member creates the link and asks them to send ag
   const again = await fixture("dm");
   again.event.user = "U0NEW";
   again.event_id = "Ev0AGAIN0001";
+  again.event.ts = "1789171400.000100";
   await send(again);
   expect(allRuns()).toMatchObject([{ onBehalfOfUserId: "user_new" }]);
 });
@@ -569,6 +589,7 @@ test("the answer of a finished run is posted in the thread", async () => {
   );
   await installApp(fake.id);
   await send(await fixture("mention"));
+  await runAfterJobs();
 
   const post = slackCalls.find((call) => call.method === "chat.postMessage");
   expect(post?.body).toMatchObject({

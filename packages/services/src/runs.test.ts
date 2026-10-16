@@ -1060,3 +1060,99 @@ test("the third failed download fails the run with an event", async () => {
   await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
   expect(dispatched).toEqual([]);
 });
+
+test("offerLater puts the run's events in the atomic write and offers nothing until offerQueuedRun", async () => {
+  const { runId } = await start(user, spyAgentId, {}, "hello", {
+    offerLater: true,
+  });
+
+  expect(dispatched).toEqual([]);
+  expect(runEvents(runId).map((event) => event.type)).toEqual([
+    "run.queued",
+    "message.user",
+  ]);
+  const notSystem = await failure(runs.offerQueuedRun(user, runId));
+  expect(notSystem).toBeInstanceOf(ForbiddenError);
+
+  await runs.offerQueuedRun(SYSTEM_PRINCIPAL, runId);
+  expect(dispatched).toEqual([runId]);
+});
+
+test("a failing extra write rolls back the run's events too", async () => {
+  const bad = () =>
+    db.insert(slackEventsSeen).values({
+      eventHash: "h2",
+      id: "seen2",
+      receivedAt: START,
+      runId: "no-such-run",
+      workspaceId: WORKSPACE,
+    });
+
+  const before = runRowCount();
+  await failure(
+    start(user, spyAgentId, {}, "hello", {
+      alongside: () => [bad()],
+      offerLater: true,
+    })
+  );
+
+  expect(runRowCount()).toBe(before);
+  expect(
+    db
+      .select()
+      .from(eventRows)
+      .all()
+      .filter((event) => event.runId !== null)
+  ).toEqual([]);
+});
+
+test("two downloads of one run's files never overlap", async () => {
+  const releases: ((ids: string[]) => void)[] = [];
+  runs = buildRuns({
+    gateways: [
+      slackGateway(
+        () =>
+          new Promise<string[]>((resolve) => {
+            releases.push(resolve);
+          })
+      ),
+    ],
+  });
+  const settle = () =>
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+  const { runId } = await start(
+    user,
+    spyAgentId,
+    { reply: SLACK_REPLY },
+    "hello",
+    { pendingFiles: [{ id: "F1" }] }
+  );
+
+  const first = runs.fetchPendingFiles(SYSTEM_PRINCIPAL, runId);
+  await settle();
+  expect(await runs.fetchPendingFiles(SYSTEM_PRINCIPAL, runId)).toBe("skipped");
+  expect(releases).toHaveLength(1);
+
+  releases[0]?.(["file_1"]);
+  expect(await first).toBe("downloaded");
+  expect(dispatched).toEqual([runId]);
+  expect(runRow(runId)).toMatchObject({ leaseUntil: null, pendingFiles: null });
+
+  // A holder that died frees the run once its lease has passed.
+  db.update(runRows)
+    .set({ pendingFiles: '[{"id":"F2"}]' })
+    .where(eq(runRows.id, runId))
+    .run();
+  const lost = runs.fetchPendingFiles(SYSTEM_PRINCIPAL, runId);
+  await settle();
+  advance(6 * 60 * SECOND);
+  const retry = runs.fetchPendingFiles(SYSTEM_PRINCIPAL, runId);
+  await settle();
+  expect(releases).toHaveLength(3);
+  for (const release of releases.slice(1)) {
+    release([]);
+  }
+  await Promise.all([lost, retry]);
+});

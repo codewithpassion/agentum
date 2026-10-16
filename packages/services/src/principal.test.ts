@@ -7,6 +7,7 @@ import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
+import { eq } from "drizzle-orm";
 import { hashedToken } from "./crypto.ts";
 import { importRunTokenKey, signRunToken } from "./run-tokens.ts";
 import {
@@ -130,8 +131,12 @@ const addTrigger = async (id: string, workspaceId: string, agentId: string) => {
     .values({
       agentId,
       createdAt: new Date().toISOString(),
+      createdBy: "u1",
       id,
+      kind: "http",
+      name: "t",
       tokenHash: hash,
+      tokenPrefix: token.slice(0, 11),
       workspaceId,
     })
     .run();
@@ -254,6 +259,14 @@ test("a machine token resolves to a machine principal", async () => {
     machineId: "mach_a",
     workspaceId: "ws_a",
   });
+});
+
+test("a revoked trigger's token resolves to null", async () => {
+  db.update(triggers)
+    .set({ revokedAt: new Date().toISOString() })
+    .where(eq(triggers.id, "trg_a"))
+    .run();
+  expect(await resolverFor().resolve(bearer(tokens.trigger))).toBeNull();
 });
 
 test("a trigger token resolves to a trigger principal", async () => {
