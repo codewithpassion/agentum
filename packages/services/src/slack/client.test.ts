@@ -360,3 +360,189 @@ test("downloadFile rejects an HTML login page", async () => {
 
   expect(result).toEqual({ error: "html_response", kind: "rejected" });
 });
+
+const UPLOAD_URL = "https://files.slack.com/upload/v1/abc123";
+
+/** Answers the three upload steps. `upload` replies to the raw POST to the upload URL. */
+function uploadFetch(options: {
+  start?: Response;
+  upload?: Response;
+  complete?: Response;
+}): { calls: Recorded[]; fetch: SlackFetch } {
+  return fakeFetch((url) => {
+    if (url.startsWith("https://slack.com/api/files.getUploadURLExternal")) {
+      return (
+        options.start ??
+        jsonResponse({ file_id: "F1", ok: true, upload_url: UPLOAD_URL })
+      );
+    }
+    if (url === UPLOAD_URL) {
+      return options.upload ?? new Response("OK - 3", { status: 200 });
+    }
+    return (
+      options.complete ?? jsonResponse({ files: [{ id: "F1" }], ok: true })
+    );
+  });
+}
+
+test("uploadFile runs the three-step flow and returns the file id", async () => {
+  const { calls, fetch } = uploadFetch({});
+  const client = createSlackClient({ fetch, token: TOKEN });
+  const bytes = new Uint8Array([1, 2, 3]);
+
+  const result = await client.uploadFile({
+    bytes,
+    channel: "C1",
+    filename: "report.csv",
+    threadTs: "1.2",
+  });
+
+  expect(result).toEqual({ fileId: "F1", kind: "ok" });
+  expect(calls.map((call) => call.init.method)).toEqual([
+    "GET",
+    "POST",
+    "POST",
+  ]);
+  expect(calls.map((call) => call.url.split("?")[0])).toEqual([
+    "https://slack.com/api/files.getUploadURLExternal",
+    UPLOAD_URL,
+    "https://slack.com/api/files.completeUploadExternal",
+  ]);
+  const start = new URL(firstCall(calls).url);
+  expect(start.searchParams.get("filename")).toBe("report.csv");
+  expect(start.searchParams.get("length")).toBe("3");
+  expect(new Headers(firstCall(calls).init.headers).get("authorization")).toBe(
+    `Bearer ${TOKEN}`
+  );
+
+  const upload = firstCall(calls.slice(1));
+  expect(upload.init.body).toEqual(bytes);
+  expect(new Headers(upload.init.headers).get("content-type")).toBe(
+    "application/octet-stream"
+  );
+  expect(new Headers(upload.init.headers).get("authorization")).toBeNull();
+  expect(upload.init.redirect).toBe("error");
+
+  expect(sentBody(firstCall(calls.slice(2)))).toEqual({
+    channel_id: "C1",
+    files: [{ id: "F1", title: "report.csv" }],
+    thread_ts: "1.2",
+  });
+});
+
+test("uploadFile leaves thread_ts out of the complete body when there is no thread", async () => {
+  const { calls, fetch } = uploadFetch({});
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  await client.uploadFile({
+    bytes: new Uint8Array([1]),
+    channel: "C1",
+    filename: "a.txt",
+  });
+
+  expect(Object.keys(sentBody(firstCall(calls.slice(2))))).not.toContain(
+    "thread_ts"
+  );
+});
+
+test("uploadFile sends nothing to an upload URL off Slack's file hosts", async () => {
+  const { calls, fetch } = uploadFetch({
+    start: jsonResponse({
+      file_id: "F1",
+      ok: true,
+      upload_url: "https://evil.example.com/upload",
+    }),
+  });
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.uploadFile({
+    bytes: new Uint8Array([1]),
+    channel: "C1",
+    filename: "a.txt",
+  });
+
+  expect(result).toEqual({ error: "bad_host", kind: "rejected" });
+  expect(calls).toHaveLength(1);
+});
+
+test("uploadFile returns transient on a 500 from the upload and skips complete", async () => {
+  const { calls, fetch } = uploadFetch({
+    upload: new Response("oops", { status: 500 }),
+  });
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.uploadFile({
+    bytes: new Uint8Array([1]),
+    channel: "C1",
+    filename: "a.txt",
+  });
+
+  expect(result).toEqual({ error: "http_500", kind: "transient" });
+  expect(calls.map((call) => call.url)).not.toContain(
+    "https://slack.com/api/files.completeUploadExternal"
+  );
+});
+
+test("uploadFile returns rejected on a 404 from the upload", async () => {
+  const { fetch } = uploadFetch({
+    upload: new Response("gone", { status: 404 }),
+  });
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.uploadFile({
+    bytes: new Uint8Array([1]),
+    channel: "C1",
+    filename: "a.txt",
+  });
+
+  expect(result).toEqual({ error: "http_404", kind: "rejected" });
+});
+
+test("uploadFile returns rate_limited when getUploadURLExternal is throttled", async () => {
+  const { fetch } = uploadFetch({
+    start: jsonResponse({ error: "ratelimited", ok: false }, 200, {
+      "Retry-After": "5",
+    }),
+  });
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.uploadFile({
+    bytes: new Uint8Array([1]),
+    channel: "C1",
+    filename: "a.txt",
+  });
+
+  expect(result).toEqual({ kind: "rate_limited", retryAfterSeconds: 5 });
+});
+
+test("uploadFile classifies missing_scope as config", async () => {
+  const { calls, fetch } = uploadFetch({
+    start: jsonResponse({ error: "missing_scope", ok: false }),
+  });
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.uploadFile({
+    bytes: new Uint8Array([1]),
+    channel: "C1",
+    filename: "a.txt",
+  });
+
+  expect(result).toEqual({ error: "missing_scope", kind: "config" });
+  expect(calls).toHaveLength(1);
+});
+
+test("uploadFile rejects a getUploadURLExternal answer without a file id", async () => {
+  const { calls, fetch } = uploadFetch({
+    start: jsonResponse({ ok: true, upload_url: UPLOAD_URL }),
+  });
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.uploadFile({
+    bytes: new Uint8Array([1]),
+    channel: "C1",
+    filename: "a.txt",
+  });
+
+  expect(result.kind).toBe("rejected");
+  expect(calls).toHaveLength(1);
+});

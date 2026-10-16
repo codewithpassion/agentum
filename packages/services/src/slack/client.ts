@@ -10,6 +10,7 @@ const CONFIG_ERRORS = new Set([
   "channel_not_found",
   "invalid_auth",
   "is_archived",
+  "missing_scope",
   "not_authed",
   "not_in_channel",
   "token_revoked",
@@ -42,6 +43,12 @@ export interface SlackClient {
     text: string;
     threadTs?: string;
   }) => Promise<SlackCallResult<{ ts: string }>>;
+  uploadFile: (request: {
+    bytes: Uint8Array<ArrayBuffer>;
+    channel: string;
+    filename: string;
+    threadTs?: string;
+  }) => Promise<SlackCallResult<{ fileId: string }>>;
   userEmail: (
     userId: string
   ) => Promise<SlackCallResult<{ email: string | null }>>;
@@ -273,6 +280,64 @@ export const createSlackClient = (deps: {
           const { ts } = body;
           return typeof ts === "string" ? { ts } : null;
         }
+      );
+    },
+
+    async uploadFile(request) {
+      const started = await callSlack(
+        {
+          method: "GET",
+          url: apiUrl("files.getUploadURLExternal", {
+            filename: request.filename,
+            length: String(request.bytes.byteLength),
+          }),
+        },
+        (body) => {
+          const { file_id: fileId, upload_url: uploadUrl } = body;
+          return typeof fileId === "string" &&
+            fileId !== "" &&
+            typeof uploadUrl === "string" &&
+            uploadUrl !== ""
+            ? { fileId, uploadUrl }
+            : null;
+        }
+      );
+      if (started.kind !== "ok") {
+        return started;
+      }
+      const { fileId, uploadUrl } = started;
+      if (!isSlackFileUrl(uploadUrl)) {
+        return { error: "bad_host", kind: "rejected" };
+      }
+      let upload: Response;
+      try {
+        upload = await deps.fetch(uploadUrl, {
+          body: request.bytes,
+          headers: { "Content-Type": "application/octet-stream" },
+          method: "POST",
+          redirect: "error",
+          signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+        });
+      } catch (error) {
+        return { error: errorName(error), kind: "transient" };
+      }
+      if (upload.status === 429 || upload.status >= 500) {
+        return { error: `http_${upload.status}`, kind: "transient" };
+      }
+      if (!upload.ok) {
+        return { error: `http_${upload.status}`, kind: "rejected" };
+      }
+      return callSlack(
+        {
+          body: {
+            channel_id: request.channel,
+            files: [{ id: fileId, title: request.filename }],
+            thread_ts: request.threadTs,
+          },
+          method: "POST",
+          url: apiUrl("files.completeUploadExternal"),
+        },
+        () => ({ fileId })
       );
     },
 

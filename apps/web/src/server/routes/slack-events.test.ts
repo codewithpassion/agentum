@@ -37,6 +37,12 @@ const FIXTURES = new URL(
 );
 const PDF_URL =
   "https://files.slack.com/files-pri/T0TEAM-F0PDF/download/plan.pdf";
+const UPLOAD_URL = "https://files.slack.com/upload/v1/abc";
+const OUTPUT_FILE_ID = "F0OUT";
+const SUMMARY_NAME = "summary.txt";
+const SUMMARY_CONTENT = "Launch is on track.";
+const SUMMARY_TEXT = "Here is the summary.";
+const DM_FILE_THREAD_TS = "1789171203.000300";
 
 type Fixture = Record<string, unknown> & { event: Record<string, unknown> };
 
@@ -44,6 +50,8 @@ interface SlackCall {
   auth: string | null;
   body: Record<string, unknown>;
   method: string;
+  query?: Record<string, string>;
+  text?: string;
 }
 
 let db: ReturnType<typeof migrated>;
@@ -74,36 +82,58 @@ const fixture = async (name: string): Promise<Fixture> =>
   (await bunFile(new URL(`${name}.json`, FIXTURES)).json()) as Fixture;
 
 /** Answers like Slack and records what the app sent. */
-const fakeSlack = (url: string | URL | Request, init?: RequestInit) => {
+const fakeSlack = async (
+  url: string | URL | Request,
+  init?: RequestInit
+): Promise<Response> => {
   const address = new URL(typeof url === "string" ? url : String(url));
   const headers = new Headers(init?.headers);
-  if (address.host === "files.slack.com") {
+  const verb = (init?.method ?? "GET").toUpperCase();
+  if (address.host === "files.slack.com" && verb === "GET") {
     slackCalls.push({
       auth: headers.get("Authorization"),
       body: {},
       method: "download",
     });
-    return Promise.resolve(
-      downloadStatus === OK
-        ? new Response("%PDF-1.4 plan", {
-            headers: { "Content-Type": "application/pdf" },
-          })
-        : new Response("nope", { status: downloadStatus })
-    );
+    return downloadStatus === OK
+      ? new Response("%PDF-1.4 plan", {
+          headers: { "Content-Type": "application/pdf" },
+        })
+      : new Response("nope", { status: downloadStatus });
+  }
+  if (address.host === "files.slack.com") {
+    slackCalls.push({
+      auth: headers.get("Authorization"),
+      body: {},
+      method: "upload",
+      text: await new Response(init?.body ?? null).text(),
+    });
+    return new Response("OK");
   }
   const method = address.pathname.replace("/api/", "");
   const body: Record<string, unknown> =
     typeof init?.body === "string" ? JSON.parse(init.body) : {};
-  slackCalls.push({ auth: headers.get("Authorization"), body, method });
+  slackCalls.push({
+    auth: headers.get("Authorization"),
+    body,
+    method,
+    query: Object.fromEntries(address.searchParams),
+  });
   const answers: Record<string, unknown> = {
     "chat.postEphemeral": { ok: true },
     "chat.postMessage": { ok: true, ts: "1789171300.000100" },
+    "files.completeUploadExternal": { ok: true },
+    "files.getUploadURLExternal": {
+      file_id: OUTPUT_FILE_ID,
+      ok: true,
+      upload_url: UPLOAD_URL,
+    },
     "users.info": {
       ok: true,
       user: { id: "U0NEW", profile: { email: "newcomer@example.com" } },
     },
   };
-  return Promise.resolve(Response.json(answers[method] ?? { ok: false }));
+  return Response.json(answers[method] ?? { ok: false });
 };
 
 const clerk: SlackDirectory = {
@@ -530,6 +560,71 @@ test("a message with a file is not claimable until the download job has run", as
   expect(
     await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId)
   ).toMatchObject({ status: "running" });
+});
+
+test("an output file of a finished run is uploaded to the thread after the answer", async () => {
+  const { runId } = (await (await send(await fixture("dm-file"))).json()) as {
+    runId: string;
+  };
+  await runAfterJobs();
+  await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+
+  const runPrincipal = {
+    agentId,
+    kind: "run",
+    runId,
+    workspaceId,
+  } as const;
+  const file = await composed.services.files.upload(runPrincipal, {
+    body: new Blob([SUMMARY_CONTENT]),
+    mime: "text/plain",
+    name: SUMMARY_NAME,
+  });
+  await composed.services.runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    fileIds: [file.id],
+    status: "done",
+    text: SUMMARY_TEXT,
+  });
+  await runAfterJobs();
+
+  const outbound = slackCalls.filter((call) =>
+    [
+      "chat.postMessage",
+      "files.getUploadURLExternal",
+      "upload",
+      "files.completeUploadExternal",
+    ].includes(call.method)
+  );
+  expect(outbound.map((call) => call.method)).toEqual([
+    "chat.postMessage",
+    "files.getUploadURLExternal",
+    "upload",
+    "files.completeUploadExternal",
+  ]);
+  const [post, getUploadUrl, upload, complete] = outbound;
+  expect(post?.body).toMatchObject({
+    channel: "D0DM",
+    text: SUMMARY_TEXT,
+    thread_ts: DM_FILE_THREAD_TS,
+  });
+  expect(getUploadUrl?.query).toMatchObject({
+    filename: SUMMARY_NAME,
+    length: String(new TextEncoder().encode(SUMMARY_CONTENT).byteLength),
+  });
+  expect(upload).toMatchObject({ auth: null, text: SUMMARY_CONTENT });
+  expect(complete?.body).toMatchObject({
+    channel_id: "D0DM",
+    files: [{ id: OUTPUT_FILE_ID, title: SUMMARY_NAME }],
+    thread_ts: DM_FILE_THREAD_TS,
+  });
+
+  const delivered = db
+    .select({ payload: eventRows.payload })
+    .from(eventRows)
+    .where(eq(eventRows.type, "slack.delivered"))
+    .all()
+    .map((row) => JSON.parse(row.payload ?? "null"));
+  expect(delivered).toEqual([expect.objectContaining({ delivered: true })]);
 });
 
 test("a process lost between the 200 and the download leaves the files for the sweep", async () => {

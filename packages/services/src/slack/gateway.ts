@@ -13,7 +13,13 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { EventsService } from "../events.ts";
 import type { FilesService } from "../files.ts";
-import type { Clock, Gateway, ReplyTarget } from "../runs/types.ts";
+import type {
+  Clock,
+  DeliveryContext,
+  Gateway,
+  ReplyTarget,
+} from "../runs/types.ts";
+import type { Principal } from "../workspaces.ts";
 import { createSecretReader, findInstalledApp } from "./apps.ts";
 import {
   createSlackClient,
@@ -150,11 +156,61 @@ export const createSlackGateway = ({
     );
   };
 
-  /** Posts the answer, and the Connect link it carries to its requester alone. */
+  /**
+   * Uploads one output file to the thread. A failure comes back as a
+   * `name: reason` string, so one bad file does not stop the others.
+   */
+  const uploadOutput = async (
+    client: SlackClient,
+    slack: Extract<ReplyTarget, { kind: "slack" }>,
+    principal: Extract<Principal, { kind: "run" }>,
+    fileId: string
+  ): Promise<string | null> => {
+    let label = fileId;
+    try {
+      const { body, file } = await files.download(principal, fileId);
+      label = file.name;
+      const bytes = new Uint8Array(await new Response(body).arrayBuffer());
+      const uploaded = await withRetry(clock, () =>
+        client.uploadFile({
+          bytes,
+          channel: slack.channel,
+          filename: file.name,
+          threadTs: slack.threadTs,
+        })
+      );
+      return uploaded.kind === "ok"
+        ? null
+        : `${label}: ${describeFailure(uploaded)}`;
+    } catch (error) {
+      return `${label}: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  };
+
+  /** Uploads the run's output files in order, one at a time, and returns the failures. */
+  const uploadOutputs = async (
+    client: SlackClient,
+    slack: Extract<ReplyTarget, { kind: "slack" }>,
+    fileIds: string[],
+    run: { agentId: string; runId: string; workspaceId: string }
+  ): Promise<string[]> => {
+    const principal = { ...run, kind: "run" } as const;
+    const failures: string[] = [];
+    for (const fileId of fileIds) {
+      // biome-ignore lint/performance/noAwaitInLoops: one file in memory at a time
+      const failure = await uploadOutput(client, slack, principal, fileId);
+      if (failure) {
+        failures.push(failure);
+      }
+    }
+    return failures;
+  };
+
+  /** Posts the answer, the Connect link it carries to its requester alone, then its files. */
   const post = async (
     slack: Extract<ReplyTarget, { kind: "slack" }>,
-    message: { text: string },
-    context: { agentId: string; onBehalfOfUserId: string | null },
+    message: { fileIds: string[]; text: string },
+    context: DeliveryContext,
     workspaceId: string
   ): Promise<{ error?: string; ok: boolean }> => {
     const client = await clientFor({
@@ -182,13 +238,23 @@ export const createSlackGateway = ({
     if (posted.kind !== "ok") {
       return { error: describeFailure(posted), ok: false };
     }
+    const failures: string[] = [];
     if (link && requester) {
       const sent = await sendConnectLink(client, slack, requester, link);
       if (sent.kind !== "ok") {
-        return { error: `connect link: ${describeFailure(sent)}`, ok: true };
+        failures.push(`connect link: ${describeFailure(sent)}`);
       }
     }
-    return { ok: true };
+    failures.push(
+      ...(await uploadOutputs(client, slack, message.fileIds, {
+        agentId: context.agentId,
+        runId: context.runId,
+        workspaceId,
+      }))
+    );
+    return failures.length > 0
+      ? { error: failures.join("; "), ok: true }
+      : { ok: true };
   };
 
   const deliver: Gateway["deliver"] = async (target, message, context) => {
