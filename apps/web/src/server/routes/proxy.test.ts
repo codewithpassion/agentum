@@ -436,6 +436,24 @@ describe("forwarding", () => {
     expect(logged[0]?.agentId).toBe(agentId);
   });
 
+  test("a connector that echoes the login back does not hand it to the model", async () => {
+    startStub();
+    await seedHeaderCredential();
+    addRun("run_1");
+
+    const response = await call(
+      await tokenFor("run_1"),
+      JSON.stringify({
+        id: 9,
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: { arguments: { text: `key is ${STUB_TOKEN}` }, name: "echo" },
+      })
+    );
+
+    expect(await echoed(response)).toBe("key is [redacted]");
+  });
+
   test("every request that gets through logs exactly one event", async () => {
     startStub();
     await seedHeaderCredential();

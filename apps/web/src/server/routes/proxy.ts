@@ -178,6 +178,33 @@ const relay = (
 const BEARER = /^Bearer\s+(.+)$/i;
 
 type Credential = { name: string; value: string } | null;
+
+const BEARER_PREFIX = /^Bearer\s+/i;
+const MIN_SECRET_LENGTH = 8;
+const REDACTED = "[redacted]";
+
+/** The body with the login blanked out, in case a connector echoes it back to the model. */
+const scrub = (
+  bytes: Uint8Array<ArrayBuffer>,
+  credential: Credential
+): Uint8Array<ArrayBuffer> => {
+  if (!credential) {
+    return bytes;
+  }
+  const secrets = [
+    credential.value,
+    credential.value.replace(BEARER_PREFIX, ""),
+  ].filter((secret) => secret.length >= MIN_SECRET_LENGTH);
+  let text = new TextDecoder().decode(bytes);
+  const found = secrets.some((secret) => text.includes(secret));
+  if (!found) {
+    return bytes;
+  }
+  for (const secret of secrets) {
+    text = text.replaceAll(secret, REDACTED);
+  }
+  return new TextEncoder().encode(text);
+};
 type Sent =
   | { bytes: Uint8Array<ArrayBuffer>; ok: true; response: Response }
   | { kind: "timeout" | "unreachable"; ok: false };
@@ -207,11 +234,8 @@ const sendUpstream = async ({
       signal,
     });
     // Read inside the cap too: a server can hold the body open.
-    return {
-      bytes: new Uint8Array(await response.arrayBuffer()),
-      ok: true,
-      response,
-    };
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return { bytes: scrub(bytes, credential), ok: true, response };
   } catch (error: unknown) {
     const timedOut =
       error instanceof DOMException && error.name === "TimeoutError";
