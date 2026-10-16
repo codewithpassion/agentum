@@ -25,6 +25,10 @@ import {
   type RuntimeAdapter,
   systemClock,
 } from "@repo/services/runs/types";
+import {
+  createSessionsService,
+  type SessionsService,
+} from "@repo/services/sessions";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { r2Blobs } from "./r2-blobs.ts";
@@ -44,6 +48,7 @@ export interface Services {
   events: EventsService;
   machines: MachinesService;
   runs: RunsService;
+  sessions: SessionsService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
 
@@ -102,11 +107,12 @@ export const composeWith = ({
     devFakeRuntime: infra.devFakeRuntime,
     gateways,
   });
+  const sessions = createSessionsService({ db, events });
   return {
     atomic: infra.atomic,
     clock: infra.clock,
     db,
-    services: { agents, events, machines, runs, workspaces },
+    services: { agents, events, machines, runs, sessions, workspaces },
   };
 };
 

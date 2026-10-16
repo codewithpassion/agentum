@@ -13,6 +13,7 @@ The service layer: business rules and input validation, on top of the query func
 | `@repo/services/agents` | `createAgentsService({ db, events })` (`create`, `get`, `list`, `update`, `archive`), the slug rules, `findAgent` |
 | `@repo/services/errors` | `ServiceError` (`conflict` 409, `invalid` 400, `not_found` 404), `isUniqueViolation` |
 | `@repo/services/runs` | `createRunsService({ db, atomic, adapters, gateways, blobs, clock, devFakeRuntime })`: `startRun`, `waitForRun`, `getRun`, `cancelRun`, `claimRun`, `ingestRunEvents`, `completeRun`, and the two tick jobs `sweepQueuedRuns` and `reapExpiredLeases`. Its types (`RuntimeAdapter`, `Gateway`, `StartRunInput`, `Clock`) are in `@repo/services/runs/types` |
+| `@repo/services/sessions` | `createSessionsService({ db, events })`: `list(principal, { agentId })` (newest first, with the first message as title and the latest run's status) and `transcript(principal, sessionId)` (the `message.*` and `tool.*` events plus the latest run). A `ui` session is visible only to the user who opened it |
 | `@repo/services/events` | `createEventsService({ db, blobs })`, the event input and filter schemas |
 
 One entry per module, no barrel file, same as `@repo/db`. Everything here is server-only: services import drizzle-backed modules.

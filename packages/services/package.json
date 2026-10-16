@@ -14,6 +14,7 @@
     "./run-tokens": "./src/run-tokens.ts",
     "./runs": "./src/runs.ts",
     "./runs/types": "./src/runs/types.ts",
+    "./sessions": "./src/sessions.ts",
     "./workspaces": "./src/workspaces.ts"
   },
   "scripts": {

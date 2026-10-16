@@ -13,8 +13,10 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as AppMachinesRouteImport } from './routes/_app/machines'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
+import { Route as AppAgentsNewRouteImport } from './routes/_app/agents.new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -35,6 +37,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppMachinesRoute = AppMachinesRouteImport.update({
+  id: '/machines',
+  path: '/machines',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
   id: '/agents/',
   path: '/agents/',
@@ -45,19 +52,28 @@ const AppAgentsAgentIdRoute = AppAgentsAgentIdRouteImport.update({
   path: '/agents/$agentId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAgentsNewRoute = AppAgentsNewRouteImport.update({
+  id: '/agents/new',
+  path: '/agents/new',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
+  '/machines': typeof AppMachinesRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
+  '/agents/new': typeof AppAgentsNewRoute
   '/agents/': typeof AppAgentsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
+  '/machines': typeof AppMachinesRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
+  '/agents/new': typeof AppAgentsNewRoute
   '/agents': typeof AppAgentsIndexRoute
 }
 export interface FileRoutesById {
@@ -66,21 +82,39 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
+  '/_app/machines': typeof AppMachinesRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
+  '/_app/agents/new': typeof AppAgentsNewRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/dev-login' | '/login' | '/agents/$agentId' | '/agents/'
+  fullPaths:
+    | '/'
+    | '/dev-login'
+    | '/login'
+    | '/machines'
+    | '/agents/$agentId'
+    | '/agents/new'
+    | '/agents/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dev-login' | '/login' | '/agents/$agentId' | '/agents'
+  to:
+    | '/'
+    | '/dev-login'
+    | '/login'
+    | '/machines'
+    | '/agents/$agentId'
+    | '/agents/new'
+    | '/agents'
   id:
     | '__root__'
     | '/'
     | '/_app'
     | '/dev-login'
     | '/login'
+    | '/_app/machines'
     | '/_app/agents/$agentId'
+    | '/_app/agents/new'
     | '/_app/agents/'
   fileRoutesById: FileRoutesById
 }
@@ -121,6 +155,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/machines': {
+      id: '/_app/machines'
+      path: '/machines'
+      fullPath: '/machines'
+      preLoaderRoute: typeof AppMachinesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/agents/': {
       id: '/_app/agents/'
       path: '/agents'
@@ -135,16 +176,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsAgentIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/agents/new': {
+      id: '/_app/agents/new'
+      path: '/agents/new'
+      fullPath: '/agents/new'
+      preLoaderRoute: typeof AppAgentsNewRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
+  AppMachinesRoute: typeof AppMachinesRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
+  AppAgentsNewRoute: typeof AppAgentsNewRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppMachinesRoute: AppMachinesRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
+  AppAgentsNewRoute: AppAgentsNewRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
 }
 
