@@ -14,7 +14,7 @@ import { inboxPosts, inboxThreads } from "@repo/db/schema/inbox";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import type { InboxAuthorKind } from "@repo/db/shared";
-import { and, desc, eq, gt, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
 import { monotonicFactory } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -27,6 +27,7 @@ import {
   WAKE_LIMIT_WINDOW_MS,
 } from "./inbox/loop-guard.ts";
 import { parseMentions } from "./inbox/mentions.ts";
+import { buildWakeInput, WAKE_CONTEXT_POSTS } from "./inbox/wake-input.ts";
 import { loadRun } from "./runs/queries.ts";
 import {
   type Clock,
@@ -368,6 +369,23 @@ export const createInboxService = ({
     ).allowed;
   };
 
+  /** The posts before `entry`, oldest first, as many as a wake input can show. */
+  const earlierPosts = async (thread: ThreadRow, entry: PostRecord) => {
+    const rows = await db
+      .select({
+        authorId: inboxPosts.authorId,
+        authorKind: inboxPosts.authorKind,
+        text: inboxPosts.text,
+      })
+      .from(inboxPosts)
+      .where(
+        and(eq(inboxPosts.threadId, thread.id), lt(inboxPosts.id, entry.id))
+      )
+      .orderBy(desc(inboxPosts.id))
+      .limit(WAKE_CONTEXT_POSTS);
+    return rows.reverse();
+  };
+
   const recordStop = (
     waker: Member,
     thread: ThreadRow,
@@ -413,7 +431,13 @@ export const createInboxService = ({
     try {
       const result = await runs.startRun(waker, {
         agentId: target.id,
-        input: { text: entry.text.slice(0, INPUT_TEXT_MAX) },
+        input: {
+          text: buildWakeInput({
+            earlier: await earlierPosts(thread, entry),
+            text: entry.text,
+            threadId: thread.id,
+          }),
+        },
         reply: { kind: "inbox", threadId: thread.id },
         session: { externalKey: thread.id, origin: "inbox" },
       });
