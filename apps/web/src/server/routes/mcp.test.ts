@@ -71,6 +71,7 @@ const addRun = ({
   depth = 0,
   id,
   onBehalfOfUserId,
+  origin = "mcp",
   parentRunId = null,
   status = "running",
 }: {
@@ -78,6 +79,7 @@ const addRun = ({
   depth?: number;
   id: string;
   onBehalfOfUserId: string | null;
+  origin?: "mcp" | "ui";
   parentRunId?: string | null;
   status?: "running" | "done";
 }) => {
@@ -91,7 +93,7 @@ const addRun = ({
       createdAt: now.toISOString(),
       externalKey: sessionId,
       id: sessionId,
-      origin: "mcp",
+      origin,
       workspaceId,
     })
     .run();
@@ -417,6 +419,25 @@ describe("tools with an api key", () => {
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toMatchObject({ code: "not_found" });
   });
+
+  test("a user's private ui session run is not_found for another user, and still readable by its opener", async () => {
+    addRun({
+      agentId: agentA,
+      id: "run_ui",
+      onBehalfOfUserId: "u1",
+      origin: "ui",
+    });
+    const owner = await mintKey("u1", "read");
+    const other = await mintKey("u2", "read");
+
+    const own = await callTool(owner, "get_run", { runId: "run_ui" });
+    expect(own.isError).toBeFalsy();
+    expect(JSON.stringify(own.structuredContent)).toContain("run_ui");
+
+    const foreign = await callTool(other, "get_run", { runId: "run_ui" });
+    expect(foreign.isError).toBe(true);
+    expect(foreign.structuredContent).toMatchObject({ code: "not_found" });
+  });
 });
 
 describe("tools with a run token", () => {
@@ -507,6 +528,107 @@ describe("tools with a run token", () => {
     });
     const token = await runToken("run_a", agentA);
     expect((await post(token, rpcBody("tools/list", {}))).status).toBe(401);
+  });
+});
+
+describe("inbox tools", () => {
+  test("a write key posts a mention that wakes agent-a, and the thread shows the reply", async () => {
+    const key = await mintKey("u1", "write");
+    const thread = await composed.services.inbox.createThread(
+      sessionUser("u1"),
+      {
+        title: "Standup",
+      }
+    );
+
+    const posted = await callTool(key, "inbox_post", {
+      text: "@agent-a hi",
+      threadId: thread.id,
+    });
+    expect(posted.isError).toBeFalsy();
+    const { runs: woken } = posted.structuredContent as {
+      runs: { agentId: string; runId: string }[];
+    };
+    expect(woken).toHaveLength(1);
+    expect(woken[0]?.agentId).toBe(agentA);
+
+    const read = await callTool(key, "inbox_read", { threadId: thread.id });
+    expect(read.structuredContent).toMatchObject({
+      posts: expect.arrayContaining([
+        expect.objectContaining({ authorKind: "user", text: "@agent-a hi" }),
+        expect.objectContaining({
+          authorKind: "agent",
+          runId: woken[0]?.runId,
+        }),
+      ]),
+    });
+  });
+
+  test("inbox_list returns the thread", async () => {
+    const key = await mintKey("u1", "read");
+    const thread = await composed.services.inbox.createThread(
+      sessionUser("u1"),
+      {
+        title: "Standup",
+      }
+    );
+    const listed = await callTool(key, "inbox_list", {});
+    expect(listed.structuredContent).toMatchObject({
+      threads: [expect.objectContaining({ id: thread.id, title: "Standup" })],
+    });
+  });
+
+  test("a read-only key can list and read but posting is forbidden", async () => {
+    const thread = await composed.services.inbox.createThread(
+      sessionUser("u1"),
+      {
+        title: "Standup",
+      }
+    );
+    const key = await mintKey("u1", "read");
+
+    const read = await callTool(key, "inbox_read", { threadId: thread.id });
+    expect(read.isError).toBeFalsy();
+
+    const posted = await callTool(key, "inbox_post", {
+      text: "hello",
+      threadId: thread.id,
+    });
+    expect(posted.isError).toBe(true);
+    expect(posted.structuredContent).toMatchObject({ code: "forbidden" });
+    expect(JSON.stringify(posted)).toContain("forbidden");
+  });
+
+  test("a run token posts as its agent, with its run id", async () => {
+    const thread = await composed.services.inbox.createThread(
+      sessionUser("u1"),
+      {
+        title: "Standup",
+      }
+    );
+    addRun({ agentId: agentA, id: "run_a", onBehalfOfUserId: "u1" });
+    const token = await runToken("run_a", agentA);
+
+    const posted = await callTool(token, "inbox_post", {
+      text: "a note",
+      threadId: thread.id,
+    });
+    expect(posted.isError).toBeFalsy();
+    expect(posted.structuredContent).toMatchObject({
+      post: {
+        authorId: agentA,
+        authorKind: "agent",
+        runId: "run_a",
+        text: "a note",
+      },
+    });
+  });
+
+  test("reading an unknown thread is a not_found error", async () => {
+    const key = await mintKey("u1", "read");
+    const result = await callTool(key, "inbox_read", { threadId: "nope" });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({ code: "not_found" });
   });
 });
 

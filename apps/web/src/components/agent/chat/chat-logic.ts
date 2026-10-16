@@ -1,4 +1,5 @@
 import { INPUT_FILES_MAX, type RunStatus } from "@repo/db/shared";
+import { stripAttachmentMarkers } from "@repo/protocol/attachments";
 import type { SessionTranscript } from "#/integrations/trpc/types";
 
 type Entry = SessionTranscript["entries"][number];
@@ -97,36 +98,115 @@ const toolDetail = (entry: Entry): string =>
     ? JSON.stringify(entry.payload, null, 2)
     : TOO_LARGE;
 
-export const toChatItems = (entries: Entry[]): ChatItem[] =>
-  entries.flatMap((entry): ChatItem[] => {
-    switch (entry.type) {
-      case "message.user":
-        return [
-          {
-            fileIds: fileIdsOf(entry),
-            id: entry.id,
-            kind: "user",
-            text: textOf(entry),
-          },
-        ];
-      case "message.assistant":
-        return [
-          { fileIds: [], id: entry.id, kind: "assistant", text: textOf(entry) },
-        ];
-      case "tool.call":
-      case "tool.result":
-        return [
-          {
-            detail: toolDetail(entry),
-            id: entry.id,
-            kind: "tool",
-            label: toolLabel(entry),
-          },
-        ];
-      default:
-        return [];
+/** Index of the last assistant message of each run, by run id. */
+const lastAssistantIndexByRun = (entries: Entry[]): Map<string, number> => {
+  const indexes = new Map<string, number>();
+  for (const [index, entry] of entries.entries()) {
+    if (entry.type === "message.assistant" && entry.runId !== null) {
+      indexes.set(entry.runId, index);
     }
+  }
+  return indexes;
+};
+
+/**
+ * Output files of runs that have no assistant message, placed after the last
+ * entry of their run so they still show up in the chat.
+ */
+const orphanOutputItemsByIndex = (
+  entries: Entry[],
+  outputFileIds: Record<string, string[]>,
+  assistantIndexes: Map<string, number>
+): Map<number, ChatItem> => {
+  const lastEntryIndexes = new Map<string, number>();
+  for (const [index, entry] of entries.entries()) {
+    if (entry.runId !== null) {
+      lastEntryIndexes.set(entry.runId, index);
+    }
+  }
+  const items = new Map<number, ChatItem>();
+  for (const [runId, fileIds] of Object.entries(outputFileIds)) {
+    const index = lastEntryIndexes.get(runId);
+    if (
+      index === undefined ||
+      fileIds.length === 0 ||
+      assistantIndexes.has(runId)
+    ) {
+      continue;
+    }
+    items.set(index, {
+      fileIds,
+      id: `${runId}-files`,
+      kind: "assistant",
+      text: "",
+    });
+  }
+  return items;
+};
+
+export const toChatItems = (
+  entries: Entry[],
+  outputFileIds: Record<string, string[]> = {}
+): ChatItem[] => {
+  const assistantIndexes = lastAssistantIndexByRun(entries);
+  const orphanItems = orphanOutputItemsByIndex(
+    entries,
+    outputFileIds,
+    assistantIndexes
+  );
+  return entries.flatMap((entry, index): ChatItem[] => {
+    const items = entryItems(entry, index, assistantIndexes, outputFileIds);
+    const orphan = orphanItems.get(index);
+    return orphan ? [...items, orphan] : items;
   });
+};
+
+const entryItems = (
+  entry: Entry,
+  index: number,
+  assistantIndexes: Map<string, number>,
+  outputFileIds: Record<string, string[]>
+): ChatItem[] => {
+  switch (entry.type) {
+    case "message.user":
+      return [
+        {
+          fileIds: fileIdsOf(entry),
+          id: entry.id,
+          kind: "user",
+          text: textOf(entry),
+        },
+      ];
+    case "message.assistant": {
+      const isLastOfRun =
+        entry.runId !== null && assistantIndexes.get(entry.runId) === index;
+      const fileIds =
+        isLastOfRun && entry.runId !== null
+          ? (outputFileIds[entry.runId] ?? [])
+          : [];
+      return [
+        {
+          fileIds,
+          id: entry.id,
+          kind: "assistant",
+          text: stripAttachmentMarkers(textOf(entry)),
+        },
+      ];
+    }
+    case "tool.call":
+    case "tool.result":
+      return [
+        {
+          detail: toolDetail(entry),
+          id: entry.id,
+          kind: "tool",
+          label: toolLabel(entry),
+        },
+      ];
+    default:
+      return [];
+  }
+};
 
 /** The files a run's user message carried, so Retry can send them again. */
 export const fileIdsOfRun = (entries: Entry[], runId: string): string[] => {
@@ -138,13 +218,8 @@ export const fileIdsOfRun = (entries: Entry[], runId: string): string[] => {
 };
 
 /** Every file id the chat shows, in first-seen order, without repeats. */
-export const collectFileIds = (
-  items: ChatItem[],
-  outputFileIds: readonly string[]
-): string[] => {
-  const ids = [
-    ...items.flatMap((item) => (item.kind === "tool" ? [] : item.fileIds)),
-    ...outputFileIds,
-  ];
-  return [...new Set(ids)];
-};
+export const collectFileIds = (items: ChatItem[]): string[] => [
+  ...new Set(
+    items.flatMap((item) => (item.kind === "tool" ? [] : item.fileIds))
+  ),
+];

@@ -173,6 +173,29 @@ test("transcript returns the messages and the latest run with its input text", a
   expect(result.session).toMatchObject({ agentId, id: first.sessionId });
 });
 
+test("transcript lists the output files of every run that has any", async () => {
+  const first = await send(user("u1"), "hello");
+  const second = await send(user("u1"), "again", first.sessionId);
+  const third = await send(user("u1"), "no files", first.sessionId);
+  db.update(runRows)
+    .set({ outputFileIds: JSON.stringify(["file-a"]) })
+    .where(eq(runRows.id, first.runId))
+    .run();
+  db.update(runRows)
+    .set({ outputFileIds: JSON.stringify(["file-b"]) })
+    .where(eq(runRows.id, second.runId))
+    .run();
+
+  const result = await sessions.transcript(user("u1"), first.sessionId);
+
+  expect(result.outputFileIds).toEqual({
+    [first.runId]: ["file-a"],
+    [second.runId]: ["file-b"],
+  });
+  expect(result.outputFileIds).not.toHaveProperty(third.runId);
+  expect(result.latestRun).toMatchObject({ id: third.runId });
+});
+
 test("transcript refuses a session of another user or another workspace", async () => {
   const started = await send(user("u1"), "hello");
 
@@ -364,4 +387,31 @@ test("search rejects an empty or over-long query", async () => {
     expect(error).toBeInstanceOf(ServiceError);
     expect(error).toMatchObject({ code: "invalid" });
   }
+});
+
+test("getRun hides a run of another user's private session as not found", async () => {
+  const mine = await send(user("u1"), "private question");
+  const unknownId = "01UNKNOWNRUNID000000000000";
+
+  const hidden = await runs
+    .getRun(user("u2"), mine.runId)
+    .catch((caught: unknown) => caught);
+  const missing = await runs
+    .getRun(user("u2"), unknownId)
+    .catch((caught: unknown) => caught);
+
+  expect(hidden).toBeInstanceOf(ServiceError);
+  expect(hidden).toMatchObject({ code: "not_found" });
+  expect(hidden).toMatchObject({ message: (missing as ServiceError).message });
+  expect((await runs.getRun(user("u1"), mine.runId)).id).toBe(mine.runId);
+});
+
+test("getRun finds a run of a shared session for every user", async () => {
+  const shared = await startIn(user("u1"), agentId, "text", {
+    externalKey: "k",
+    origin: "slack",
+  });
+
+  expect((await runs.getRun(user("u1"), shared.runId)).id).toBe(shared.runId);
+  expect((await runs.getRun(user("u2"), shared.runId)).id).toBe(shared.runId);
 });

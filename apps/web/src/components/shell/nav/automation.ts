@@ -1,4 +1,4 @@
-import { Inbox, Webhook } from "lucide-react";
+import { CalendarClock, Inbox, Webhook } from "lucide-react";
 import type { NavItem } from "../nav-registry.ts";
 
 // The automation lane appends its entries to this array and nowhere else.
@@ -8,6 +8,12 @@ export const automationNav: readonly NavItem[] = [
     id: "triggers",
     label: "Triggers",
     to: "/triggers",
+  },
+  {
+    icon: CalendarClock,
+    id: "routines",
+    label: "Routines",
+    to: "/routines",
   },
   {
     icon: Inbox,

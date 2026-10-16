@@ -561,3 +561,94 @@ test("uploadFile rejects a getUploadURLExternal answer without a file id", async
   expect(result.kind).toBe("rejected");
   expect(calls).toHaveLength(1);
 });
+
+test("authTest returns the team, user and bot ids of a bot token", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({
+      bot_id: "B1",
+      ok: true,
+      team_id: "T1",
+      user_id: "U1",
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.authTest();
+
+  expect(result).toEqual({
+    botId: "B1",
+    kind: "ok",
+    teamId: "T1",
+    userId: "U1",
+  });
+  const url = new URL(firstCall(calls).url);
+  expect(url.origin + url.pathname).toBe("https://slack.com/api/auth.test");
+  expect(firstCall(calls).init.method).toBe("GET");
+  expect(new Headers(firstCall(calls).init.headers).get("authorization")).toBe(
+    `Bearer ${TOKEN}`
+  );
+  expect(JSON.stringify(result)).not.toContain(TOKEN);
+});
+
+test("authTest returns a null botId when the token has no bot", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ ok: true, team_id: "T1", user_id: "U1" })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.authTest();
+
+  expect(result).toEqual({
+    botId: null,
+    kind: "ok",
+    teamId: "T1",
+    userId: "U1",
+  });
+});
+
+test("authTest classifies invalid_auth as config", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "invalid_auth", ok: false })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.authTest();
+
+  expect(result).toEqual({ error: "invalid_auth", kind: "config" });
+});
+
+test("authTest rejects a response that has no team_id", async () => {
+  const { fetch } = fakeFetch(() => jsonResponse({ ok: true, user_id: "U1" }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.authTest();
+
+  expect(result.kind).toBe("rejected");
+});
+
+test("botInfo sends the bot id in the query and returns the app id", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({ bot: { app_id: "A1", id: "B1" }, ok: true })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.botInfo("B1");
+
+  expect(result).toEqual({ appId: "A1", kind: "ok" });
+  const url = new URL(firstCall(calls).url);
+  expect(url.origin + url.pathname).toBe("https://slack.com/api/bots.info");
+  expect(url.searchParams.get("bot")).toBe("B1");
+  expect(firstCall(calls).init.method).toBe("GET");
+  expect(new Headers(firstCall(calls).init.headers).get("authorization")).toBe(
+    `Bearer ${TOKEN}`
+  );
+});
+
+test("botInfo rejects a bot with no app_id", async () => {
+  const { fetch } = fakeFetch(() => jsonResponse({ bot: {}, ok: true }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.botInfo("B1");
+
+  expect(result.kind).toBe("rejected");
+});

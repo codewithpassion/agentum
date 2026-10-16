@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./attachments": "./src/attachments.ts",
     "./machine": "./src/machine.ts"
   },
   "scripts": {

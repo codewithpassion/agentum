@@ -5,6 +5,7 @@ import { router } from "./init.ts";
 import { machinesRouter } from "./machines-router.ts";
 import { runsRouter } from "./runs-router.ts";
 import { sessionsRouter } from "./sessions-router.ts";
+import { slackAppsRouter } from "./slack-apps-router.ts";
 
 export const runtimeRouter = router({
   agents: agentsRouter,
@@ -12,4 +13,5 @@ export const runtimeRouter = router({
   machines: machinesRouter,
   runs: runsRouter,
   sessions: sessionsRouter,
+  slackApps: slackAppsRouter,
 });

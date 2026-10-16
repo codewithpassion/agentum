@@ -31,6 +31,12 @@ export type SlackDownload =
   | { error: string; kind: "rejected" | "transient" };
 
 export interface SlackClient {
+  /** Checks a bot token and tells which workspace and bot user it belongs to. */
+  authTest: () => Promise<
+    SlackCallResult<{ botId: string | null; teamId: string; userId: string }>
+  >;
+  /** Gives the app id of a bot. Needs the users:read scope. */
+  botInfo: (botId: string) => Promise<SlackCallResult<{ appId: string }>>;
   downloadFile: (url: string, maxBytes: number) => Promise<SlackDownload>;
   postEphemeral: (request: {
     channel: string;
@@ -215,6 +221,35 @@ export const createSlackClient = (deps: {
   }
 
   return {
+    authTest() {
+      return callSlack({ method: "GET", url: apiUrl("auth.test") }, (body) => {
+        const { bot_id: botId, team_id: teamId, user_id: userId } = body;
+        if (
+          typeof teamId !== "string" ||
+          teamId === "" ||
+          typeof userId !== "string" ||
+          userId === ""
+        ) {
+          return null;
+        }
+        return {
+          botId: typeof botId === "string" && botId !== "" ? botId : null,
+          teamId,
+          userId,
+        };
+      });
+    },
+
+    botInfo(botId) {
+      return callSlack(
+        { method: "GET", url: apiUrl("bots.info", { bot: botId }) },
+        (body) => {
+          const { app_id: appId } = asBody(body.bot);
+          return typeof appId === "string" && appId !== "" ? { appId } : null;
+        }
+      );
+    },
+
     async downloadFile(url, maxBytes) {
       if (!isSlackFileUrl(url)) {
         return { error: "bad_host", kind: "rejected" };
