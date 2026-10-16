@@ -140,7 +140,7 @@ export interface RunResult {
   fileIds?: string[];
   /** The Claude Code session id, stored on the session. */
   runtimeRef?: string;
-  /** `aborted` is only accepted for an `interrupted` run. */
+  /** `aborted` is accepted for a `running` run (it becomes `interrupted`) and for an `interrupted` one. */
   status: "done" | "failed" | "aborted";
   text?: string;
   usage?: Usage;
