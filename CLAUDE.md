@@ -155,3 +155,19 @@ route). Create/refresh the dev user with `bun run create-dev-user` from
 adds its id to `ALLOWED_ORG_IDS` in `.env.local`; `/dev-login` makes that
 organisation active, so the login lands on the app and not on Clerk's
 create-organization screen.
+
+## Agent Task login
+
+`bun run agent-login` from `apps/web` prints one Clerk Agent Task URL that signs
+a user in on a deployed environment with no sign-in screen or device code. It is
+how agents and browser tests sign in on staging, preview and production, where
+dev login is off. Flags: `--env local|staging|preview|production` (default
+`local`), `--pr <n>` (required for preview), `--email <address>` (default
+`DEV_LOGIN_EMAIL` from `.env.local`), `--redirect <path>` (default `/`),
+`--base-url <url>` (overrides the environment's base URL). Local, staging and
+preview use `CLERK_SECRET_KEY` from `apps/web/.env.local` (the Clerk dev
+instance). Production reads it from `apps/web/.env.production.local` or the
+process environment. The URL is a one-time credential: open it in a fresh
+browser session and don't paste it into logs or reports. The key is never
+printed. Code: `apps/web/scripts/agent-login.ts`, pure helpers in
+`agent-login-helpers.ts`.

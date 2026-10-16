@@ -44,6 +44,16 @@ bun run dev
 
 The database needs no configuration for local work.
 
+### Sign in on a deployed environment
+
+`bun run agent-login --env staging` prints a one-time Clerk Agent Task URL that
+signs the dev user in without the sign-in screen. Open it in a fresh browser
+session. Other flags: `--env local|staging|preview|production`, `--pr <n>` for
+preview, `--email`, `--redirect <path>`, `--base-url`. Local, staging and
+preview read `CLERK_SECRET_KEY` from `.env.local`. Production reads it from
+`.env.production.local` or the process environment. Treat the URL as a
+password. Local development also has the one-click dev login on `/login`.
+
 ## Build & deploy
 
 The local database only exists on your machine, so the deployed Worker needs a real D1 database. Create one, put the id it prints into `d1_databases[0].database_id` in `wrangler.jsonc`, and create the tables:
