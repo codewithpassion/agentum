@@ -378,6 +378,52 @@ test("a run cannot message an agent that is its running ancestor", async () => {
   expect(runRow(later.runId)).toMatchObject({ depth: 2 });
 });
 
+test("a read-only api key cannot start a run", async () => {
+  const readKey: Principal = {
+    ...user,
+    apiKey: { access: "read", id: "k1" },
+    via: "api_key",
+  };
+  const error = await failure(start(readKey, fakeAgentId));
+  expect(error).toBeInstanceOf(ForbiddenError);
+  const writeKey: Principal = {
+    ...user,
+    apiKey: { access: "write", id: "k2" },
+    via: "api_key",
+  };
+  expect((await start(writeKey, fakeAgentId)).runId).toBeString();
+});
+
+test("a requestId is handed back only to the caller that used it", async () => {
+  const first = await start(user, fakeAgentId, { requestId: "msg-1" });
+  const again = await start(user, fakeAgentId, { requestId: "msg-1" });
+  expect(again.runId).toBe(first.runId);
+
+  const other = await failure(
+    start(colleague, fakeAgentId, { requestId: "msg-1" })
+  );
+  expect(other).toMatchObject({ code: "conflict" });
+  const otherAgent = await failure(
+    start(user, spyAgentId, { requestId: "msg-1" })
+  );
+  expect(otherAgent).toMatchObject({ code: "conflict" });
+});
+
+test("a run reads its own agent's runs and the runs it started, not others", async () => {
+  const mine = await start(user, spyAgentId);
+  const theirs = await start(user, fakeAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, mine.runId);
+  const principal = runPrincipal(mine.runId, spyAgentId);
+  const child = await start(principal, fakeAgentId, {
+    session: { origin: "mcp" },
+  });
+
+  expect((await runs.getRun(principal, mine.runId)).id).toBe(mine.runId);
+  expect((await runs.getRun(principal, child.runId)).id).toBe(child.runId);
+  const error = await failure(runs.getRun(principal, theirs.runId));
+  expect(error).toMatchObject({ code: "not_found" });
+});
+
 test("a trigger-started run has a null subject", async () => {
   const trigger: Principal = {
     agentId: spyAgentId,

@@ -24,7 +24,10 @@ const TITLE_MAX = 80;
 /** The service errors an agent can act on, as tool errors. Anything else passes through. */
 const toToolError = (error: unknown): unknown => {
   if (isForbiddenError(error)) {
-    return new ToolError("forbidden", "This credential may not do that.");
+    return new ToolError(
+      "forbidden",
+      "This credential may not do that. A read-only API key cannot send messages."
+    );
   }
   if (isServiceError(error)) {
     const code = error.code === "invalid" ? "validation" : error.code;
@@ -72,10 +75,6 @@ const toTranscriptSession = (transcript: SessionTranscript): SessionInfo => {
     title: first.length > TITLE_MAX ? `${first.slice(0, TITLE_MAX)}...` : first,
   };
 };
-
-/** Whether `principal` is a read-only API key. */
-const isReadOnly = (principal: Principal): boolean =>
-  principal.kind === "user" && principal.apiKey?.access === "read";
 
 export const createMcpPorts = ({
   principal,
@@ -154,12 +153,6 @@ export const createMcpPorts = ({
 
     sendMessage: ({ agent, requestId, text, waitMs }) =>
       guarded(async () => {
-        if (isReadOnly(principal)) {
-          throw new ToolError(
-            "forbidden",
-            "This API key is read-only. Create a key with write access to send messages."
-          );
-        }
         const target = await findAgent(agent);
         const started = await services.runs.startRun(principal, {
           agentId: target.id,

@@ -104,6 +104,10 @@ export const deriveSubject = async (
 ): Promise<Subject> => {
   switch (principal.kind) {
     case "user":
+      // A read-only API key looks and does not start work.
+      if (principal.apiKey?.access === "read") {
+        throw new ForbiddenError(START_ACTION);
+      }
       return {
         actor: { id: principal.userId, kind: "user" },
         depth: 0,

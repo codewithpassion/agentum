@@ -116,6 +116,27 @@ interface StartResult {
   status: RunRecord["status"];
 }
 
+/**
+ * A requestId is a retry key for one caller on one agent. Another caller's
+ * run is not handed back, whatever id they picked.
+ */
+const refuseForeignRequest = (
+  existing: RunRecord,
+  agentId: string,
+  actor: Actor
+): void => {
+  if (
+    existing.agentId !== agentId ||
+    existing.actor.id !== actor.id ||
+    existing.actor.kind !== actor.kind
+  ) {
+    throw new ServiceError(
+      "conflict",
+      "That requestId is already used by another request"
+    );
+  }
+};
+
 export const createRunsService = ({
   adapters,
   atomic,
@@ -331,6 +352,7 @@ export const createRunsService = ({
       if (!existing) {
         throw error;
       }
+      refuseForeignRequest(existing, agent.id, subject.actor);
       return {
         inserted: false,
         runId: existing.id,
@@ -680,6 +702,14 @@ export const createRunsService = ({
       kind: RUN_KIND,
       workspaceId: run.workspaceId,
     });
+    // A run reads its own agent's runs and the runs it started.
+    if (
+      principal.kind === "run" &&
+      run.agentId !== principal.agentId &&
+      run.parentRunId !== principal.runId
+    ) {
+      throw new ServiceError("not_found", "Run not found");
+    }
     return toSummary(run);
   };
 
