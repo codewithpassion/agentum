@@ -3,7 +3,7 @@ id: C.2
 title: CloudRuntime adapter
 milestone: C
 size: M
-status: in_progress
+status: done
 depends_on: [C.1, M8.1]
 branch: task/C.2-cloud-runtime
 ---
@@ -21,3 +21,4 @@ Unit tests against a fake runner: dispatch, claim race, a failed start releases 
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
 - 2026-10-17: dispatched on task/C.2-cloud-runtime.
+- 2026-10-17: review clean after 0 fix rounds at 3d77058 (docs/reviews/tasks/C.2.md). Merged. Cloud option shows in the form; runs fail with 'No runtime is registered for cloud agents' until C.3.
