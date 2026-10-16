@@ -45,6 +45,10 @@ import {
   createOAuthClientsService,
   type OAuthClientsService,
 } from "@repo/services/oauth-clients";
+import {
+  createRoutinesService,
+  type RoutinesService,
+} from "@repo/services/routines";
 import { createRunsService, type RunsService } from "@repo/services/runs";
 import {
   type Clock,
@@ -109,6 +113,7 @@ export interface Services {
   inbox: InboxService;
   machines: MachinesService;
   oauthClients: OAuthClientsService;
+  routines: RoutinesService;
   runs: RunsService;
   sessions: SessionsService;
   slack: SlackService;
@@ -238,6 +243,13 @@ export const composeWith = ({
     gateways,
     runTokenKey: infra.runTokenKey,
   });
+  const routines = createRoutinesService({
+    allowedOrgIds,
+    clock: infra.clock,
+    db,
+    events,
+    runs,
+  });
   const sessions = createSessionsService({ db, events });
   const slack = createSlackService({
     atomic: infra.atomic,
@@ -280,6 +292,7 @@ export const composeWith = ({
       inbox,
       machines,
       oauthClients,
+      routines,
       runs,
       sessions,
       slack,

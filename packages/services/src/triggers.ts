@@ -11,7 +11,7 @@ import { events } from "@repo/db/schema/events";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import type { TriggerKind } from "@repo/db/shared";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -98,7 +98,8 @@ const summaryColumns = {
   lastFiredAt: triggers.lastFiredAt,
   name: triggers.name,
   revokedAt: triggers.revokedAt,
-  tokenPrefix: triggers.tokenPrefix,
+  // Only `http` rows are read through these columns, and they always have one.
+  tokenPrefix: sql<string>`coalesce(${triggers.tokenPrefix}, '')`,
 };
 
 /** Triggers are managed from a signed-in session: a trigger cannot make triggers. */
@@ -211,6 +212,7 @@ export const createTriggersService = ({
       .where(
         and(
           eq(triggers.workspaceId, user.workspaceId),
+          eq(triggers.kind, "http"),
           agentId === undefined ? undefined : eq(triggers.agentId, agentId)
         )
       )
@@ -226,7 +228,11 @@ export const createTriggersService = ({
       .from(triggers)
       .innerJoin(agents, eq(agents.id, triggers.agentId))
       .where(
-        and(eq(triggers.id, triggerId), eq(triggers.workspaceId, workspaceId))
+        and(
+          eq(triggers.id, triggerId),
+          eq(triggers.workspaceId, workspaceId),
+          eq(triggers.kind, "http")
+        )
       )
       .limit(1);
     return row ?? null;
@@ -253,6 +259,7 @@ export const createTriggersService = ({
         and(
           eq(triggers.id, triggerId),
           eq(triggers.workspaceId, user.workspaceId),
+          eq(triggers.kind, "http"),
           isNull(triggers.revokedAt)
         )
       );

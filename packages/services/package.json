@@ -23,6 +23,8 @@
     "./machines/types": "./src/machines/types.ts",
     "./oauth-clients": "./src/oauth-clients.ts",
     "./run-tokens": "./src/run-tokens.ts",
+    "./routines": "./src/routines.ts",
+    "./routines/cron": "./src/routines/cron.ts",
     "./runs": "./src/runs.ts",
     "./runs/types": "./src/runs/types.ts",
     "./sessions": "./src/sessions.ts",
