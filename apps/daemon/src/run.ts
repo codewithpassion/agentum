@@ -22,6 +22,7 @@ import type { Logger } from "./log.ts";
 import { createMasker } from "./masker.ts";
 import { createRunApi } from "./run-api.ts";
 import { createRunManager } from "./run-manager.ts";
+import { createSkillsApi } from "./skills-api.ts";
 import { AGENT_SDK } from "./version.ts";
 
 /** Registers `handler` for SIGINT and SIGTERM and returns the unsubscribe. */
@@ -92,6 +93,14 @@ export const runCommand = async (options: RunOptions): Promise<number> => {
           createFilesApi({
             fetch: doFetch,
             masker,
+            runToken: claim.runToken,
+            server: config.server,
+          }),
+        createSkillsApi: (masker) =>
+          createSkillsApi({
+            fetch: doFetch,
+            masker,
+            runId: claim.run.id,
             runToken: claim.runToken,
             server: config.server,
           }),

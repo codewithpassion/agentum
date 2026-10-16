@@ -66,6 +66,7 @@ import {
   createSessionsService,
   type SessionsService,
 } from "@repo/services/sessions";
+import { createSkillsService, type SkillsService } from "@repo/services/skills";
 import {
   createSlackService,
   type SlackDirectory,
@@ -128,6 +129,7 @@ export interface Services {
   routines: RoutinesService;
   runs: RunsService;
   sessions: SessionsService;
+  skills: SkillsService;
   slack: SlackService;
   slackApps: SlackAppsService;
   triggers: TriggersService;
@@ -232,6 +234,7 @@ export const composeWith = ({
     db,
     events,
   });
+  const skills = createSkillsService({ library });
   const machines = createMachinesService({
     allowedOrgIds,
     clock: infra.clock,
@@ -316,6 +319,7 @@ export const composeWith = ({
       routines,
       runs,
       sessions,
+      skills,
       slack,
       slackApps,
       triggers,

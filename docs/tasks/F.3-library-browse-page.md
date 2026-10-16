@@ -3,7 +3,7 @@ id: F.3
 title: Library browse page
 milestone: F
 size: S
-status: in_progress
+status: done
 depends_on: [F.1]
 branch: task/F.3-library-browse-page
 ---
@@ -22,3 +22,4 @@ A router test: a signed-in user lists and reads their workspace's library and ge
 - 2026-10-16: drafted from the just-bash spike.
 - 2026-10-16: added from the just-bash spike (docs/reviews/spike-just-bash.md). Dom accepted the defaults: library in Harbourmaster on R2, agents write anywhere, agents may edit their own skills, paid Workers plan, 10 MB per file and 1 GB per workspace, just-bash beta with network, Python and JS off.
 - 2026-10-16: dispatched on task/F.3-library-browse-page.
+- 2026-10-16: review clean after 0 fix rounds at da15592 (docs/reviews/tasks/F.3.md). Merged. The cat-through-bash step moves to F.2's check.

@@ -153,7 +153,7 @@ const CLAIM = JSON.stringify({
   inputFileIds: [],
 });
 
-/** A Worker that serves the four run routes, and a Claude Code that answers or waits. */
+/** A Worker that serves the four run routes and the skills list, and a Claude Code that answers or waits. */
 const fakeRuns = (mode: "answer" | "hang") => {
   const calls: { body: unknown; route: string }[] = [];
   const doFetch = (input: string | URL | Request, init?: RequestInit) => {
@@ -165,7 +165,12 @@ const fakeRuns = (mode: "answer" | "hang") => {
         ? new Response(CLAIM, {
             headers: { "content-type": "application/json" },
           })
-        : Response.json(route === "events" ? { lastSeq: 1 } : {})
+        : Response.json(
+            {
+              events: { lastSeq: 1 },
+              skills: { files: [] },
+            }[route] ?? {}
+          )
     );
   };
   const queryFn: QueryFn = ({ options, prompt }) => {
@@ -312,7 +317,11 @@ describe("runCommand", () => {
     );
     await until(() => runs.calls.some((call) => call.route === "complete"));
 
-    expect(runs.calls.map((call) => call.route)).toEqual(["claim", "complete"]);
+    expect(runs.calls.map((call) => call.route)).toEqual([
+      "claim",
+      "skills",
+      "complete",
+    ]);
     expect(runs.calls.at(-1)?.body).toMatchObject({
       runtimeRef: "sess-new",
       status: "done",

@@ -3,9 +3,9 @@ id: S.2
 title: Skills tab on the agent page
 milestone: S
 size: S
-status: todo
+status: in_progress
 depends_on: [S.1, F.3]
-branch: null
+branch: task/S.2-skills-editing
 ---
 
 From the just-bash spike (`harbourmaster-wt/tmp/spike-just-bash/REPORT.md`). Draft, not approved.
@@ -23,3 +23,4 @@ Service tests: a valid `SKILL.md` saves, one without `description` or with a mis
 ## Log
 - 2026-10-16: drafted from the just-bash spike.
 - 2026-10-16: added from the just-bash spike (docs/reviews/spike-just-bash.md). Dom accepted the defaults: library in Harbourmaster on R2, agents write anywhere, agents may edit their own skills, paid Workers plan, 10 MB per file and 1 GB per workspace, just-bash beta with network, Python and JS off.
+- 2026-10-16: dispatched on task/S.2-skills-editing.

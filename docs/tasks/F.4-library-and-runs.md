@@ -3,9 +3,9 @@ id: F.4
 title: Attach from the library, save outputs to the library
 milestone: F
 size: S
-status: todo
+status: in_progress
 depends_on: [F.1, F.3, M7.2]
-branch: null
+branch: task/F.4-library-and-runs
 ---
 
 From the just-bash spike (`harbourmaster-wt/tmp/spike-just-bash/REPORT.md`). Draft, not approved.
@@ -25,3 +25,4 @@ Service tests: attaching a library file creates a `files` row the run can downlo
 ## Log
 - 2026-10-16: drafted from the just-bash spike.
 - 2026-10-16: added from the just-bash spike (docs/reviews/spike-just-bash.md). Dom accepted the defaults: library in Harbourmaster on R2, agents write anywhere, agents may edit their own skills, paid Workers plan, 10 MB per file and 1 GB per workspace, just-bash beta with network, Python and JS off.
+- 2026-10-16: dispatched on task/F.4-library-and-runs.

@@ -84,6 +84,15 @@ const extValue = (name: string): string =>
     (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
   );
 
+/** A Content-Disposition value: an ASCII fallback name plus the UTF-8 name. */
+export const contentDisposition = (
+  disposition: "inline" | "attachment",
+  name: string
+): string => {
+  const fallback = name.replace(NON_ASCII_OR_QUOTE, "_");
+  return `${disposition}; filename="${fallback}"; filename*=UTF-8''${extValue(name)}`;
+};
+
 /**
  * Headers for a stored file: safe disposition, no sniffing, sandboxing CSP,
  * private cache. No Range support: files are sent whole (200).
@@ -95,10 +104,9 @@ export const fileResponseHeaders = (
   const disposition = INLINE_CONTENT_TYPES.has(contentType)
     ? "inline"
     : "attachment";
-  const fallback = file.name.replace(NON_ASCII_OR_QUOTE, "_");
   return {
     "Cache-Control": "private, max-age=300",
-    "Content-Disposition": `${disposition}; filename="${fallback}"; filename*=UTF-8''${extValue(file.name)}`,
+    "Content-Disposition": contentDisposition(disposition, file.name),
     "Content-Length": String(file.size),
     "Content-Security-Policy":
       contentType === PDF_CONTENT_TYPE ? FILE_CSP_RULES : FILE_CSP,
@@ -153,7 +161,7 @@ const jsonError = (
  * The principal a `hm_run_` token names, or null. A missing key, a bad key or
  * a token that does not verify are all null, never a 500.
  */
-const runPrincipal = async (
+export const runPrincipal = async (
   c: RouteContext,
   token: string
 ): Promise<Principal | null> => {

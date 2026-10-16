@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -46,6 +47,7 @@ import type { FilesApi } from "./files-api.ts";
 import type { Logger } from "./log.ts";
 import type { Masker } from "./masker.ts";
 import { type RunApi, RunApiError } from "./run-api.ts";
+import type { SkillsApi } from "./skills-api.ts";
 import { workDirPath } from "./workdir.ts";
 
 const FIXTURES = join(import.meta.dir, "..", "fixtures");
@@ -139,8 +141,11 @@ interface Harness {
   completions: { body: CompleteRequest; processExited: boolean }[];
   downloaded: string[];
   events: RunEventInput[][];
-  /** The files in `inbox/` (name to text) when the first message was read. */
-  firstMessage: { inbox: Record<string, string> | undefined };
+  /** The files in `inbox/` and `.claude/skills/` (name to text) when the first message was read. */
+  firstMessage: {
+    inbox: Record<string, string> | undefined;
+    skills: Record<string, string> | undefined;
+  };
   heartbeat: { reject: unknown };
   lines: string[];
   maskerSeen: Masker[];
@@ -172,6 +177,8 @@ interface SetupOptions {
   remoteFiles?: Record<string, string>;
   script: Step[];
   singleUser?: boolean;
+  /** The skills the fake Worker lists, or `listFails`: the HTTP status the list answers with. */
+  skills?: { files: { path: string; text: string }[]; listFails?: number };
   /** The process fails to start: `error` and no `exit`, as Bun reports it. */
   spawnFails?: boolean;
   /** Written to stderr once the process has started. */
@@ -204,6 +211,22 @@ const readInbox = (
   );
 };
 
+/** The files under `<cwd>/.claude/skills`, relative path to text; undefined when there is no such directory. */
+const readSkills = (
+  cwd: string | undefined
+): Record<string, string> | undefined => {
+  const skills = join(cwd ?? "", ".claude", "skills");
+  if (cwd === undefined || !existsSync(skills)) {
+    return;
+  }
+  return Object.fromEntries(
+    readdirSync(skills, { recursive: true })
+      .map(String)
+      .filter((name) => statSync(join(skills, name)).isFile())
+      .map((name) => [name, readFileSync(join(skills, name), "utf8")])
+  );
+};
+
 const abortError = () =>
   Object.assign(new Error("Claude Code process aborted by user"), {
     name: "AbortError",
@@ -222,7 +245,10 @@ const setup = (setupOptions: SetupOptions) => {
   const heartbeat: Harness["heartbeat"] = { reject: undefined };
   const downloaded: string[] = [];
   const uploaded: Harness["uploaded"] = [];
-  const firstMessage: Harness["firstMessage"] = { inbox: undefined };
+  const firstMessage: Harness["firstMessage"] = {
+    inbox: undefined,
+    skills: undefined,
+  };
   let stderr: (text: string) => void = () => undefined;
   let closeQuery: () => void = () => undefined;
   const maskerSeen: Masker[] = [];
@@ -316,6 +342,7 @@ const setup = (setupOptions: SetupOptions) => {
       const content = first.done ? "(none)" : first.value.message.content;
       order.push(`first-message:${String(content)}`);
       firstMessage.inbox = readInbox(cwd);
+      firstMessage.skills = readSkills(cwd);
       for (const step of setupOptions.script) {
         if (signal?.aborted) {
           throw abortError();
@@ -419,6 +446,31 @@ const setup = (setupOptions: SetupOptions) => {
         return Promise.resolve(ok);
     }
   };
+  const encoder = new TextEncoder();
+  const skills = setupOptions.skills ?? { files: [] };
+  const skillsApi: SkillsApi = {
+    file: (path) => {
+      const found = skills.files.find((file) => file.path === path);
+      return found === undefined
+        ? Promise.reject(new RunApiError("skills file answered HTTP 404", 404))
+        : Promise.resolve(encoder.encode(found.text));
+    },
+    list: () => {
+      const { listFails } = skills;
+      if (listFails !== undefined) {
+        return Promise.reject(
+          new RunApiError(`skills list answered HTTP ${listFails}`, listFails)
+        );
+      }
+      return Promise.resolve(
+        skills.files.map((file) => ({
+          etag: `"${file.path}"`,
+          path: file.path,
+          size: encoder.encode(file.text).length,
+        }))
+      );
+    },
+  };
   const log: Logger = {
     error: (message) => lines.push(message),
     info: (message) => lines.push(message),
@@ -439,6 +491,7 @@ const setup = (setupOptions: SetupOptions) => {
       return api;
     },
     createFilesApi: () => filesApi,
+    createSkillsApi: () => skillsApi,
     daemonHome: home,
     env: {
       ANTHROPIC_API_KEY: "sk-ant-should-not-pass",
@@ -1063,5 +1116,102 @@ describe("failures", () => {
       "claude binary"
     );
     expect(run.optionsSeen).toHaveLength(0);
+  });
+});
+
+describe("skills", () => {
+  const SKILLS = [
+    { path: "a/SKILL.md", text: "# a" },
+    { path: "b/SKILL.md", text: "# b" },
+    { path: "b/helper.sh", text: "echo b" },
+    { path: "shared/SKILL.md", text: "# shared" },
+  ];
+  const skillsText = Object.fromEntries(
+    SKILLS.map((file) => [file.path, file.text])
+  );
+
+  test("a single-user run has the skills on disk before the first message", async () => {
+    const run = setup({ script: toolRunScript(), skills: { files: SKILLS } });
+    await run.execution.finished;
+    expect(run.firstMessage.skills).toEqual(skillsText);
+    expect(run.lines).toContain(
+      `run ${run.claim.run.id}: skills synced: 4 files`
+    );
+    expect(doneBody(run).status).toBe("done");
+  });
+
+  test("leftover skills in the work directory are gone when the run starts", async () => {
+    const claim = claimWith();
+    const workDir = workDirOf(claim);
+    mkdirSync(join(workDir, ".claude", "skills", "old"), { recursive: true });
+    writeFileSync(join(workDir, ".claude", "skills", "old", "SKILL.md"), "old");
+    const run = setup({
+      claim,
+      script: toolRunScript(),
+      skills: { files: SKILLS },
+    });
+    await run.execution.finished;
+    expect(run.firstMessage.skills).toEqual(skillsText);
+    expect(existsSync(join(workDir, ".claude", "skills", "old"))).toBe(false);
+  });
+
+  test("a multi-user run writes each skill file through sudo dd with its text on stdin", async () => {
+    const claim = claimWith();
+    const skillsDir = `${remoteWorkDirOf(claim)}/.claude/skills`;
+    const run = setup({
+      claim,
+      script: toolRunScript(),
+      singleUser: false,
+      skills: { files: SKILLS },
+    });
+    await run.execution.finished;
+    expect(run.runCommands).toContainEqual([
+      ...AS_AGENT,
+      AGENT_DD,
+      `of=${skillsDir}/a/SKILL.md`,
+      "status=none",
+    ]);
+    expect(run.remoteFiles.get(`${skillsDir}/a/SKILL.md`)).toBe("# a");
+    expect(run.remoteFiles.get(`${skillsDir}/b/helper.sh`)).toBe("echo b");
+    expect(doneBody(run).status).toBe("done");
+  });
+
+  test("a failed list logs a warning, the run still completes, and no skills directory is made", async () => {
+    const claim = claimWith();
+    const run = setup({
+      claim,
+      script: toolRunScript(),
+      skills: { files: SKILLS, listFails: 500 },
+    });
+    await run.execution.finished;
+    expect(run.lines.join("\n")).toContain("skills sync failed");
+    expect(run.firstMessage.skills).toBeUndefined();
+    expect(existsSync(join(workDirOf(claim), ".claude"))).toBe(false);
+    expect(doneBody(run).status).toBe("done");
+  });
+
+  test("a path with '..' is refused: nothing is written, the warning is logged, the run still completes", async () => {
+    const claim = claimWith();
+    const run = setup({
+      claim,
+      script: toolRunScript(),
+      skills: {
+        files: [
+          { path: "a/SKILL.md", text: "# a" },
+          { path: "a/../../evil/SKILL.md", text: "evil" },
+        ],
+      },
+    });
+    await run.execution.finished;
+    expect(run.lines.join("\n")).toContain("skills sync failed");
+    expect(run.firstMessage.skills).toBeUndefined();
+    expect(existsSync(join(workDirOf(claim), ".claude"))).toBe(false);
+    expect(doneBody(run).status).toBe("done");
+  });
+
+  test('buildOptions is unchanged: settingSources stays ["project"]', async () => {
+    const run = setup({ script: toolRunScript(), skills: { files: SKILLS } });
+    await run.execution.finished;
+    expect(run.optionsSeen[0]?.settingSources).toEqual(["project"]);
   });
 });

@@ -46,6 +46,8 @@ import {
   messageWithFiles,
   uploadOutputs,
 } from "./run-files.ts";
+import type { SkillsApi } from "./skills-api.ts";
+import { syncSkills } from "./skills-sync.ts";
 import { createWorkFiles, type WorkFiles } from "./work-files.ts";
 import { prepareWorkDir } from "./workdir.ts";
 
@@ -66,6 +68,8 @@ export interface ExecuteRunDeps {
   createApi: (masker: Masker) => RunApi;
   /** Builds the client for the file routes, which take the run token. */
   createFilesApi: (masker: Masker) => FilesApi;
+  /** Builds the client for the skills routes, which take the run token. */
+  createSkillsApi: (masker: Masker) => SkillsApi;
   /** The daemon user's home, for the work directory of a single_user machine. */
   daemonHome?: string;
   /** The daemon's own environment, filtered before it reaches Claude Code. */
@@ -165,6 +169,7 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   });
   const api = deps.createApi(masker);
   const filesApi = deps.createFilesApi(masker);
+  const skillsApi = deps.createSkillsApi(masker);
   const abortController = new AbortController();
   const runLog = (message: string) =>
     log.info(masker.mask(`run ${claim.run.id}: ${message}`));
@@ -339,6 +344,25 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   let failure: string | undefined;
   let preparedFiles: WorkFiles | undefined;
 
+  /** Copies the agent's skills in. A failure is a warning: the run goes ahead without them. */
+  const syncSkillsInto = async (files: WorkFiles): Promise<void> => {
+    try {
+      const count = await syncSkills({
+        api: skillsApi,
+        files,
+        signal: abortController.signal,
+      });
+      runLog(`skills synced: ${count} files`);
+    } catch (error) {
+      if (abortReason !== undefined) {
+        return;
+      }
+      runLog(
+        `warning: skills sync failed, the run goes ahead without skills: ${messageOf(error)}`
+      );
+    }
+  };
+
   const work = async (): Promise<void> => {
     if (config.claudeBinary === null) {
       failure =
@@ -358,6 +382,10 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       workDir: prepared,
     });
     preparedFiles = files;
+    if (abortReason !== undefined) {
+      return;
+    }
+    await syncSkillsInto(files);
     if (abortReason !== undefined) {
       return;
     }
