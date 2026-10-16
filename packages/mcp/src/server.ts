@@ -13,7 +13,7 @@ export const harbourmasterTools = (
 ): readonly ToolDefinition[] => [
   ...agentTools(ports),
   ...sessionTools(ports),
-  ...inboxTools,
+  ...inboxTools(ports),
 ];
 
 /** Ports for reading tool names: the names do not depend on them, so none is ever called. */
@@ -23,6 +23,9 @@ const unusedPort = (): Promise<never> =>
 /** The name of every tool, in the order they are registered. */
 export const TOOL_NAMES = harbourmasterTools({
   getRun: unusedPort,
+  inboxList: unusedPort,
+  inboxPost: unusedPort,
+  inboxRead: unusedPort,
   listAgents: unusedPort,
   listSessions: unusedPort,
   readSession: unusedPort,

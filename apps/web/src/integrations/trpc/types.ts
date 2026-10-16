@@ -16,4 +16,7 @@ export type CredentialRecord = ConnectorRecord["agentCredentials"][number];
 export type AssignmentRecord =
   RouterOutputs["connectors"]["assignments"][number];
 export type TriggerRecord = RouterOutputs["triggers"]["list"][number];
+export type InboxThread = RouterOutputs["inbox"]["listThreads"][number];
+export type InboxThreadView = RouterOutputs["inbox"]["readThread"];
+export type InboxPost = InboxThreadView["posts"][number];
 export type SlackAppRecord = RouterOutputs["slackApps"]["list"][number];
