@@ -6,6 +6,7 @@
     "#/*": "./src/*"
   },
   "scripts": {
+    "agent-login": "bun scripts/agent-login.ts",
     "build": "vite build",
     "cf-typegen": "wrangler types",
     "create-dev-user": "bun scripts/create-dev-user.ts",
