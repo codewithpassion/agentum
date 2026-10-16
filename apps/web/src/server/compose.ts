@@ -86,6 +86,8 @@ export interface Infra {
   atomic: Atomic;
   blobs: Blobs;
   clock: Clock;
+  /** Runs work after the response: `waitUntil` in a request. Without it, work is awaited. */
+  defer?: (work: Promise<void>) => void;
   devFakeRuntime: boolean;
   /** How connector probes reach the network. Defaults to the global `fetch`. */
   fetch?: Fetcher;
@@ -224,6 +226,7 @@ export const composeWith = ({
   const slackGateway = createSlackGateway({
     clock: infra.clock,
     db,
+    defer: infra.defer,
     events,
     fetch: connectorFetch,
     files,
@@ -307,7 +310,11 @@ export const composeWith = ({
  * The app's services on D1 and R2. The fake runtime is on in dev builds only,
  * so the caller passes `import.meta.env.DEV`.
  */
-export const compose = (env: ComposeEnv, devFakeRuntime: boolean): Composed => {
+export const compose = (
+  env: ComposeEnv,
+  devFakeRuntime: boolean,
+  defer?: (work: Promise<void>) => void
+): Composed => {
   const db = drizzle(env.DB);
   return composeWith({
     allowedOrgIds: parseOrgIds(env.ALLOWED_ORG_IDS),
@@ -316,6 +323,7 @@ export const compose = (env: ComposeEnv, devFakeRuntime: boolean): Composed => {
       atomic: d1Atomic(db),
       blobs: r2Blobs(env.FILES),
       clock: systemClock,
+      defer,
       devFakeRuntime,
       fileBlobs: r2FileBlobs(env.FILES),
       publicBaseUrl: env.PUBLIC_BASE_URL,

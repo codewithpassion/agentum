@@ -19,7 +19,7 @@ import {
   type EventsService,
 } from "../events.ts";
 import { type MemoryFileBlobs, memoryFileBlobs } from "../files/memory.ts";
-import { createFilesService } from "../files.ts";
+import { createFilesService, type FilesService } from "../files.ts";
 import type { Clock, DeliveryContext, ReplyTarget } from "../runs/types.ts";
 import { slackSecretBinding } from "./apps.ts";
 import type { SlackFetch } from "./client.ts";
@@ -38,6 +38,8 @@ const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString("base64");
 
 const SLACK_API = "https://slack.com/api/";
 const FILE_URL = "https://files.slack.com/files-pri/T0TEAM-F1/report.pdf";
+const UPLOAD_URL = "https://files.slack.com/upload/v1/abc";
+const FAILING_UPLOAD_URL = "https://files.slack.com/upload/v1/broken";
 
 const slackTarget: ReplyTarget = {
   channel: CHANNEL,
@@ -55,6 +57,7 @@ const context: DeliveryContext = {
 interface Recorded {
   authorization: string | null;
   body: Record<string, unknown> | null;
+  bytes: Uint8Array | null;
   method: string;
   url: string;
 }
@@ -70,6 +73,7 @@ let sleeps: number[];
 let calls: Recorded[];
 let respond: Responder;
 let gateway: SlackGateway;
+let files: FilesService;
 
 const json = (body: unknown, init?: ResponseInit) =>
   new Response(JSON.stringify(body), {
@@ -83,6 +87,15 @@ const defaultResponder: Responder = (call) => {
     return json({ ok: true, ts: "1.5" });
   }
   if (call.url === `${SLACK_API}chat.postEphemeral`) {
+    return json({ ok: true });
+  }
+  if (call.url.startsWith(`${SLACK_API}files.getUploadURLExternal?`)) {
+    return json({ file_id: "F9", ok: true, upload_url: UPLOAD_URL });
+  }
+  if (call.url === UPLOAD_URL) {
+    return new Response("OK");
+  }
+  if (call.url === `${SLACK_API}files.completeUploadExternal`) {
     return json({ ok: true });
   }
   return new Response(new Uint8Array(10), {
@@ -100,6 +113,7 @@ const slackFetch: SlackFetch = (url, init) => {
       typeof body === "object" && body !== null
         ? (body as Record<string, unknown>)
         : null,
+    bytes: init.body instanceof Uint8Array ? init.body : null,
     method: init.method ?? "GET",
     url,
   };
@@ -107,9 +121,9 @@ const slackFetch: SlackFetch = (url, init) => {
   return Promise.resolve(respond(call));
 };
 
-/** The calls made to one Slack method, in order. */
+/** The calls made to one Slack method, in order. Query strings are ignored. */
 const callsTo = (method: string) =>
-  calls.filter((call) => call.url === `${SLACK_API}${method}`);
+  calls.filter((call) => call.url.split("?")[0] === `${SLACK_API}${method}`);
 
 const insertWorkspace = () =>
   db
@@ -217,7 +231,7 @@ beforeEach(async () => {
     } satisfies Blobs,
     db,
   });
-  const files = createFilesService({ blobs: fileBlobs, clock, db });
+  files = createFilesService({ blobs: fileBlobs, clock, db });
   gateway = createSlackGateway({
     clock,
     db,
@@ -522,6 +536,243 @@ test("downloadPendingFiles skips a URL that is not on a Slack host", async () =>
   expect(calls).toHaveLength(0);
 });
 
+const runPrincipal = {
+  agentId: AGENT,
+  kind: "run",
+  runId: RUN,
+  workspaceId: WORKSPACE,
+} as const;
+
+/** Stores a file the way a run writes an output. The run lists it only if asked to. */
+const storeOutput = async (name: string, text: string) => {
+  const stored = await files.upload(runPrincipal, {
+    body: new Blob([text]),
+    mime: "application/pdf",
+    name,
+  });
+  return stored.id;
+};
+
+/** Sets the run row's output file ids, which is what a run may read. */
+const listOutputs = (ids: string[]) =>
+  db
+    .update(runRows)
+    .set({ outputFileIds: JSON.stringify(ids) })
+    .where(eq(runRows.id, RUN))
+    .run();
+
+const deliverWithFiles = (fileIds: string[], text = "Done.") =>
+  gateway.deliver(slackTarget, { fileIds, text }, context);
+
+test("deliver posts the text first, then uploads each output file to the thread", async () => {
+  const id = await storeOutput("report.pdf", "report body");
+  listOutputs([id]);
+
+  await deliverWithFiles([id]);
+
+  const urls = calls.map((call) => call.url);
+  expect(urls.indexOf(`${SLACK_API}chat.postMessage`)).toBeLessThan(
+    urls.indexOf(UPLOAD_URL)
+  );
+  const [upload] = calls.filter((call) => call.url === UPLOAD_URL);
+  expect(upload?.method).toBe("POST");
+  expect(upload?.bytes ? new TextDecoder().decode(upload.bytes) : null).toBe(
+    "report body"
+  );
+  const [complete] = callsTo("files.completeUploadExternal");
+  expect(complete?.body).toEqual({
+    channel_id: CHANNEL,
+    files: [{ id: "F9", title: "report.pdf" }],
+    thread_ts: THREAD,
+  });
+  expect(deliveredEvents()).toEqual([
+    { channel: CHANNEL, delivered: true, threadTs: THREAD },
+  ]);
+});
+
+test("deliver sends the file bytes to the upload URL without the bot token", async () => {
+  const id = await storeOutput("report.pdf", "report body");
+  listOutputs([id]);
+
+  await deliverWithFiles([id]);
+
+  const [upload] = calls.filter((call) => call.url === UPLOAD_URL);
+  expect(upload?.authorization).toBeNull();
+});
+
+test("deliver keeps uploading after one file fails and names that file in the event", async () => {
+  const failing = `${SLACK_API}files.getUploadURLExternal?filename=broken.pdf`;
+  respond = (call) => {
+    if (call.url.startsWith(failing)) {
+      return json({ file_id: "F8", ok: true, upload_url: FAILING_UPLOAD_URL });
+    }
+    if (call.url === FAILING_UPLOAD_URL) {
+      return new Response("oops", { status: 500 });
+    }
+    return defaultResponder(call);
+  };
+  const broken = await storeOutput("broken.pdf", "broken");
+  const good = await storeOutput("ok.pdf", "fine");
+  listOutputs([broken, good]);
+
+  await deliverWithFiles([broken, good]);
+
+  expect(calls.filter((call) => call.url === FAILING_UPLOAD_URL)).toHaveLength(
+    3
+  );
+  expect(callsTo("files.completeUploadExternal")).toHaveLength(1);
+  expect(callsTo("files.completeUploadExternal")[0]?.body).toMatchObject({
+    files: [{ title: "ok.pdf" }],
+  });
+  expect(deliveredEvents()).toEqual([
+    {
+      channel: CHANNEL,
+      delivered: true,
+      error: "broken.pdf: http_500",
+      threadTs: THREAD,
+    },
+  ]);
+});
+
+test("deliver does not upload a file the run does not list and reports it", async () => {
+  const unlisted = await storeOutput("secret.pdf", "not yours");
+
+  await deliverWithFiles([unlisted]);
+
+  expect(calls.map((call) => call.url)).toEqual([
+    `${SLACK_API}chat.postMessage`,
+  ]);
+  expect(deliveredEvents()).toEqual([
+    {
+      channel: CHANNEL,
+      delivered: true,
+      error: `${unlisted}: File not found`,
+      threadTs: THREAD,
+    },
+  ]);
+});
+
+test("deliver uploads no files when the text post fails", async () => {
+  respond = (call) =>
+    call.url === `${SLACK_API}chat.postMessage`
+      ? json({ error: "internal_error", ok: false }, { status: 500 })
+      : defaultResponder(call);
+  const id = await storeOutput("report.pdf", "report body");
+  listOutputs([id]);
+
+  await deliverWithFiles([id]);
+
+  expect(calls.map((call) => call.url)).toEqual([
+    `${SLACK_API}chat.postMessage`,
+    `${SLACK_API}chat.postMessage`,
+    `${SLACK_API}chat.postMessage`,
+  ]);
+  expect(deliveredEvents()).toEqual([
+    {
+      channel: CHANNEL,
+      delivered: false,
+      error: "http_500",
+      threadTs: THREAD,
+    },
+  ]);
+});
+
+test("deliver with files and a defer hook returns before uploading, and the deferred work uploads and records the event", async () => {
+  const id = await storeOutput("report.pdf", "report body");
+  listOutputs([id]);
+  const deferred: Promise<void>[] = [];
+  const deferring = createSlackGateway({
+    clock,
+    db,
+    defer: (work) => {
+      deferred.push(work);
+    },
+    events,
+    fetch: slackFetch,
+    files,
+    publicBaseUrl: PUBLIC_BASE_URL,
+    secretsKey: SECRETS_KEY,
+  });
+
+  await deferring.deliver(
+    slackTarget,
+    { fileIds: [id], text: "Done." },
+    context
+  );
+
+  expect(calls).toHaveLength(0);
+  expect(deliveredEvents()).toEqual([]);
+  expect(deferred).toHaveLength(1);
+
+  await Promise.all(deferred);
+
+  expect(callsTo("chat.postMessage")).toHaveLength(1);
+  expect(callsTo("files.completeUploadExternal")).toHaveLength(1);
+  expect(deliveredEvents()).toEqual([
+    { channel: CHANNEL, delivered: true, threadTs: THREAD },
+  ]);
+});
+
+test("deliver without files does not use the defer hook", async () => {
+  const deferred: Promise<void>[] = [];
+  const deferring = createSlackGateway({
+    clock,
+    db,
+    defer: (work) => {
+      deferred.push(work);
+    },
+    events,
+    fetch: slackFetch,
+    files,
+    publicBaseUrl: PUBLIC_BASE_URL,
+    secretsKey: SECRETS_KEY,
+  });
+
+  await deferring.deliver(slackTarget, { fileIds: [], text: "Done." }, context);
+
+  expect(deferred).toHaveLength(0);
+  expect(callsTo("chat.postMessage")).toHaveLength(1);
+});
+
+test("deliver reports the files it had no time to upload and still records the event", async () => {
+  const first = await storeOutput("a.pdf", "a");
+  const second = await storeOutput("b.pdf", "b");
+  listOutputs([first, second]);
+  // Every look at the clock is ten seconds later than the one before.
+  let ticks = 0;
+  const slow = createSlackGateway({
+    clock: {
+      now: () => {
+        ticks += 1;
+        return new Date(Date.parse(START) + 10_000 * (ticks - 1));
+      },
+      sleep: () => Promise.resolve(),
+    },
+    db,
+    events,
+    fetch: slackFetch,
+    files,
+    publicBaseUrl: PUBLIC_BASE_URL,
+    secretsKey: SECRETS_KEY,
+  });
+
+  await slow.deliver(
+    slackTarget,
+    { fileIds: [first, second], text: "Done." },
+    context
+  );
+
+  expect(callsTo("files.completeUploadExternal")).toHaveLength(1);
+  expect(deliveredEvents()).toEqual([
+    {
+      channel: CHANNEL,
+      delivered: true,
+      error: `${second}: not uploaded, out of time`,
+      threadTs: THREAD,
+    },
+  ]);
+});
+
 test("notifyNeedsAuth sends the connect link privately to the owner, in the run's thread", async () => {
   insertIdentityLink("U0DOM");
 
@@ -602,4 +853,18 @@ test("notifyNeedsAuth does not throw when Slack refuses the notice", async () =>
     gateway.notifyNeedsAuth(await appendNeedsAuth())
   ).resolves.toBeUndefined();
   expect(callsTo("chat.postEphemeral")).toHaveLength(1);
+});
+
+test("deliver strips the agent's attachment markers from the posted text", async () => {
+  await deliver("Here it is [ATTACHMENT:/home/agent/work/report.md] ok.");
+
+  const [post] = callsTo("chat.postMessage");
+  expect(post?.body).toMatchObject({ text: "Here it is ok." });
+});
+
+test("deliver posts (no reply) when the text was only attachment markers", async () => {
+  await deliver("[ATTACHMENT:/home/agent/work/report.md]");
+
+  const [post] = callsTo("chat.postMessage");
+  expect(post?.body).toMatchObject({ text: "(no reply)" });
 });
