@@ -16,9 +16,9 @@ One entry per module, no barrel file. A new lane adds `src/schema/<module>.ts` (
 
 ## The tables
 
-The nine foundation tables are `workspaces`, `identity_links`, `agents`, `machines`, `machine_enroll_tokens`, `sessions`, `runs`, `events` and `files`, grouped into `src/schema/` modules by area. Two stub tables sit beside them so the principal resolver can read bearer tokens: `api_keys` (M2.1 builds the service and settings page on it) and `triggers` (M4.1 replaces it with the full table). Ids are ULIDs as text, timestamps are ISO text, JSON columns are text. Every table except `workspaces` has `workspace_id TEXT NOT NULL` with no default, so a forgotten scope fails at insert; `src/columns.ts` holds the shared builder. `events` is append-only: its migration ends with `BEFORE UPDATE` and `BEFORE DELETE` triggers that abort. drizzle-kit does not emit triggers, so they are hand-written, first at the end of `migrations/0002_foundation.sql` and again at the end of `migrations/0004_*.sql`, which recreated `events` and dropped them. Any migration that recreates `events` must add them back.
+The nine foundation tables are `workspaces`, `identity_links`, `agents`, `machines`, `machine_enroll_tokens`, `sessions`, `runs`, `events` and `files`, grouped into `src/schema/` modules by area. Two stub tables sit beside them so the principal resolver can read bearer tokens: `api_keys` (M2.1 builds the service and settings page on it) and `triggers` (M4.1 replaces it with the full table). Ids are ULIDs as text, timestamps are ISO text, JSON columns are text. Every table except `workspaces` has `workspace_id TEXT NOT NULL` with no default, so a forgotten scope fails at insert; `src/columns.ts` holds the shared builder. `events` is append-only: its migration ends with `BEFORE UPDATE` and `BEFORE DELETE` triggers that abort. drizzle-kit does not emit triggers, so they are hand-written at the end of `migrations/0000_init.sql`. Any migration that recreates `events` must add them back.
 
-Every `workspace_id` references `workspaces.id`, and every other `*_id` that names a foundation table (`agent_id`, `session_id`, `run_id`, `parent_run_id`, `machine_id`, `runtime_machine_id`) references that table's id. The default is `ON DELETE` restrict. Four things cascade because they have no meaning without their parent: `api_keys`, `triggers`, `identity_links` and `machine_enroll_tokens` with their workspace, and `triggers` with their agent. D1 enforces foreign keys, so `migrated()` in `src/test-db.ts` turns on `PRAGMA foreign_keys` and tests insert parents first. SQLite cannot add a foreign key in place, so drizzle-kit recreates each table. D1 cannot turn `foreign_keys` off inside a migration, so such a migration must rebuild parents before children (see the header of `0004_*.sql`).
+Every `workspace_id` references `workspaces.id`, and every other `*_id` that names a foundation table (`agent_id`, `session_id`, `run_id`, `parent_run_id`, `machine_id`, `runtime_machine_id`) references that table's id. The default is `ON DELETE` restrict. Four things cascade because they have no meaning without their parent: `api_keys`, `triggers`, `identity_links` and `machine_enroll_tokens` with their workspace, and `triggers` with their agent. D1 enforces foreign keys, so `migrated()` in `src/test-db.ts` turns on `PRAGMA foreign_keys` and tests insert parents first. SQLite cannot add a foreign key in place, so drizzle-kit recreates each table. D1 cannot turn `foreign_keys` off inside a migration, so such a migration must rebuild parents before children.
 
 ## Query functions
 
@@ -61,6 +61,13 @@ wrangler d1 migrations apply DB --remote    # the real D1 database
 ```
 
 `bun run dev` in `apps/web` (and at the repo root) runs the `--local` one before starting the dev server, so a fresh clone has an up-to-date local database.
+
+On 16 October 2026 the 16 migrations written until then were squashed into `0000_init.sql`, before anything was deployed. A local database created from the old files no longer matches the migration names, so reset it from `apps/web`:
+
+```bash
+rm -rf .wrangler/state/v3/d1
+wrangler d1 migrations apply DB --local
+```
 
 Commit `migrations/`, including `migrations/meta/`. Drizzle diffs the schema against the snapshot in there, so without it the next `generate` would try to create the tables again.
 
