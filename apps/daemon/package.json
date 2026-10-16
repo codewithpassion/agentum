@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.2.119",
     "@repo/protocol": "workspace:*",
     "zod": "^4.6.5"
   },

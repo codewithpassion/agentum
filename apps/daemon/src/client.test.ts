@@ -153,6 +153,53 @@ const connectAndAck = (sockets: FakeSocket[]) => {
   return socket;
 };
 
+describe("replacement and capabilities", () => {
+  const withOptions = (extra: {
+    agentSdk?: string;
+    onReplaced?: () => void;
+  }) => {
+    const sockets = fakeSockets();
+    const timers = fakeTimers();
+    const client = createDaemonClient({
+      credential: CREDENTIAL,
+      daemonVersion: DAEMON_VERSION,
+      log: collectingLogger([]),
+      onStop: () => undefined,
+      random: () => 0.5,
+      server: SERVER,
+      timers: timers.timers,
+      wsFactory: sockets.factory,
+      ...extra,
+    });
+    return { client, sockets, timers };
+  };
+
+  test("hello reports the agent SDK it was given", () => {
+    const { client, sockets } = withOptions({
+      agentSdk: "claude-agent-sdk@0.2.119",
+    });
+    client.start();
+    latest(sockets.created).fireOpen();
+    const hello = JSON.parse(latest(sockets.created).sent[0] ?? "null");
+    expect(hello.capabilities.agentSdk).toBe("claude-agent-sdk@0.2.119");
+  });
+
+  test("onReplaced fires on a 1012 close and on no other close", () => {
+    let replaced = 0;
+    const { client, sockets, timers } = withOptions({
+      onReplaced: () => {
+        replaced += 1;
+      },
+    });
+    client.start();
+    connectAndAck(sockets.created).fireClose(1006);
+    expect(replaced).toBe(0);
+    timers.fire("reconnect");
+    connectAndAck(sockets.created).fireClose(1012, "Replaced");
+    expect(replaced).toBe(1);
+  });
+});
+
 describe("buildConnectUrl", () => {
   test("switches http to ws and https to wss, with the connect path", () => {
     expect(buildConnectUrl("https://harbour.example.com/")).toBe(

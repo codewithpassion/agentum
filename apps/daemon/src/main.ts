@@ -144,7 +144,9 @@ export const main = async (
       return await runCommand({
         config,
         daemonVersion: DAEMON_VERSION,
+        fetch: doFetch,
         log,
+        run,
         wsFactory,
       });
     }

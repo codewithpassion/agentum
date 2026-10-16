@@ -146,6 +146,7 @@ test("a claim returns the run, agent, session, token and platform entry", async 
     id: started.runId,
     inputText: "hi",
     sessionId: started.sessionId,
+    workspaceId: WORKSPACE,
   });
   expect(claimed.agent.name).toBe("Box");
   expect(claimed.instructions).toBe("Be brief.");

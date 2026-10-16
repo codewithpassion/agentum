@@ -166,6 +166,7 @@ export interface MachineClaim {
     id: string;
     inputText: string;
     sessionId: string;
+    workspaceId: string;
   };
   runToken: string;
   session: {

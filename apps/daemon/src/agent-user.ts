@@ -5,6 +5,9 @@
 import type { CommandRunner } from "./command.ts";
 
 export const AGENT_USER = "hm-agent";
+export const AGENT_HOME = `/home/${AGENT_USER}`;
+export const AGENT_MKDIR = "/bin/mkdir";
+export const AGENT_RM = "/bin/rm";
 export const SUDOERS_DIR = "/etc/sudoers.d";
 
 // Characters that end a command in a sudoers rule unless a backslash precedes
@@ -13,11 +16,15 @@ const SUDOERS_SPECIAL = /[ ,:=\\]/g;
 const FILE_NAME_UNSAFE = /[^A-Za-z0-9_-]/g;
 
 /**
- * The line that lets `user` run exactly `claudeBinary` as `hm-agent`, with
- * any arguments and no password.
+ * The line that lets `user` run `claudeBinary` as `hm-agent`, and `mkdir` and
+ * `rm` too, with no password. `CWD=*` lets the daemon pass `sudo -D <dir>`,
+ * since its own user cannot enter the agent's home. `mkdir` and `rm` add no
+ * privilege: claude under bypassPermissions already runs arbitrary commands as
+ * `hm-agent`. They let the daemon create and reset directories that `hm-agent`
+ * owns.
  */
 export const sudoersLine = (user: string, claudeBinary: string): string =>
-  `${user} ALL=(${AGENT_USER}) NOPASSWD: ${claudeBinary.replace(SUDOERS_SPECIAL, "\\$&")}`;
+  `${user} ALL=(${AGENT_USER}) CWD=* NOPASSWD: ${claudeBinary.replace(SUDOERS_SPECIAL, "\\$&")}, ${AGENT_MKDIR}, ${AGENT_RM}`;
 
 /** The whole drop-in file for `user`. */
 export const sudoersFile = (user: string, claudeBinary: string): string =>

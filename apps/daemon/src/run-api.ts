@@ -1,0 +1,161 @@
+// The daemon's HTTP client for the four run routes under
+// `/api/machines/runs/<runId>`. Each JSON body is masked before it is sent, and
+// each error message is masked before it is thrown, so the machine credential
+// and any secret a run carries never leave the machine in a request or a log.
+
+import {
+  type ClaimResponse,
+  type CompleteRequest,
+  claimResponseSchema,
+  type RunEventInput,
+} from "@repo/protocol/machine";
+import type { Masker } from "./masker.ts";
+
+const CONFLICT = 409;
+/** The status a RunApiError carries when no HTTP answer was usable. */
+const NO_ANSWER = 0;
+const ERROR_TEXT_LIMIT = 200;
+const CREDENTIAL_PLACEHOLDER = "[secret:machine_credential]";
+const TRAILING_SLASHES = /\/+$/;
+
+export class RunApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "RunApiError";
+    this.status = status;
+  }
+}
+
+export interface RunApi {
+  /** Throws RunApiError on a non-2xx answer or an answer that fails claimResponseSchema. */
+  claim: () => Promise<ClaimResponse>;
+  /** Throws RunApiError, except that a 409 on `{ status: "aborted" }` resolves: the run already ended, and an aborted completion is accepted once. */
+  complete: (body: CompleteRequest) => Promise<void>;
+  /** Throws RunApiError on a non-2xx answer. */
+  events: (events: RunEventInput[]) => Promise<void>;
+  heartbeat: () => Promise<void>;
+}
+
+export interface RunApiOptions {
+  /** The machine credential, `hm_mach_...`. */
+  credential: string;
+  fetch: typeof fetch;
+  masker: Masker;
+  runId: string;
+  /** Worker origin; trailing slashes are tolerated. */
+  server: string;
+}
+
+/** The parsed body, or null when the body is not JSON. */
+const parseJson = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
+
+/** The `error` string of a JSON answer, or undefined for any other body. */
+const errorField = (text: string): string | undefined => {
+  const value = parseJson(text);
+  return typeof value === "object" &&
+    value !== null &&
+    "error" in value &&
+    typeof value.error === "string"
+    ? value.error
+    : undefined;
+};
+
+/** Built outside a catch block, so the cause is passed on in one place. */
+const noAnswerError = (message: string, cause: unknown): RunApiError =>
+  new RunApiError(message, NO_ANSWER, { cause });
+
+export const createRunApi = (options: RunApiOptions): RunApi => {
+  const { credential, masker, runId } = options;
+  const doFetch = options.fetch;
+  const base = `${options.server.replace(TRAILING_SLASHES, "")}/api/machines/runs/${encodeURIComponent(runId)}`;
+
+  // Masks, then removes the credential itself, so a server that echoes the
+  // credential back cannot put it in an error message.
+  const scrub = (text: string): string => {
+    const masked = masker.mask(text);
+    return credential === ""
+      ? masked
+      : masked.split(credential).join(CREDENTIAL_PLACEHOLDER);
+  };
+
+  const send = async (route: string, body?: unknown): Promise<Response> => {
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${credential}`,
+    };
+    const init: RequestInit = { headers, method: "POST" };
+    if (body !== undefined) {
+      headers["content-type"] = "application/json";
+      init.body = JSON.stringify(masker.maskDeep(body));
+    }
+    try {
+      return await doFetch(`${base}/${route}`, init);
+    } catch (error) {
+      throw noAnswerError(
+        scrub(`run ${route} request failed before an answer`),
+        error
+      );
+    }
+  };
+
+  const failure = async (
+    route: string,
+    response: Response
+  ): Promise<RunApiError> => {
+    const text = await response.text().catch(() => "");
+    const error = errorField(text);
+    const detail =
+      error === undefined ? "" : `: ${scrub(error).slice(0, ERROR_TEXT_LIMIT)}`;
+    return new RunApiError(
+      scrub(`run ${route} answered HTTP ${response.status}${detail}`),
+      response.status
+    );
+  };
+
+  const expectOk = async (route: string, response: Response): Promise<void> => {
+    if (!response.ok) {
+      throw await failure(route, response);
+    }
+  };
+
+  const claim = async (): Promise<ClaimResponse> => {
+    const response = await send("claim");
+    await expectOk("claim", response);
+    const parsed = claimResponseSchema.safeParse(
+      parseJson(await response.text())
+    );
+    if (!parsed.success) {
+      throw new RunApiError(
+        scrub("run claim answer does not match the protocol"),
+        NO_ANSWER,
+        { cause: parsed.error }
+      );
+    }
+    return parsed.data;
+  };
+
+  const events = async (runEvents: RunEventInput[]): Promise<void> => {
+    await expectOk("events", await send("events", { events: runEvents }));
+  };
+
+  const heartbeat = async (): Promise<void> => {
+    await expectOk("heartbeat", await send("heartbeat"));
+  };
+
+  const complete = async (body: CompleteRequest): Promise<void> => {
+    const response = await send("complete", body);
+    if (response.status === CONFLICT && body.status === "aborted") {
+      return;
+    }
+    await expectOk("complete", response);
+  };
+
+  return { claim, complete, events, heartbeat };
+};

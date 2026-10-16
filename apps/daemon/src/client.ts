@@ -70,10 +70,14 @@ export const buildConnectUrl = (server: string): string => {
 };
 
 export interface DaemonClientOptions {
+  /** What `hello` reports as the agent SDK this daemon runs. */
+  agentSdk?: string;
   credential: string;
   daemonVersion: string;
   log: Logger;
   onFrame?: (frame: RelayFrame) => void;
+  /** Called when another connection with the same credential replaced this one (1012). */
+  onReplaced?: () => void;
   /** Called once when the relay ends the connection for good. */
   onStop: (exitCode: number) => void;
   random?: () => number;
@@ -101,8 +105,16 @@ const parseRelayFrame = (text: string): RelayFrame | null => {
 export const createDaemonClient = (
   options: DaemonClientOptions
 ): DaemonClient => {
-  const { credential, daemonVersion, log, onFrame, onStop, wsFactory } =
-    options;
+  const {
+    agentSdk = "none",
+    credential,
+    daemonVersion,
+    log,
+    onFrame,
+    onReplaced,
+    onStop,
+    wsFactory,
+  } = options;
   const timers = options.timers ?? realTimers;
   const random = options.random ?? Math.random;
   const url = buildConnectUrl(options.server);
@@ -167,6 +179,9 @@ export const createDaemonClient = (
       onStop(EXIT_CREDENTIAL_REJECTED);
       return;
     }
+    if (code === CLOSE_CODES.replaced) {
+      onReplaced?.();
+    }
     scheduleReconnect();
   };
 
@@ -228,7 +243,7 @@ export const createDaemonClient = (
     log.info("connected");
     send({
       agents: [],
-      capabilities: { agentSdk: "none", container: false },
+      capabilities: { agentSdk, container: false },
       daemonVersion,
       type: "hello",
     });

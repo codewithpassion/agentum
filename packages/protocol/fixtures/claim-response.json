@@ -3,7 +3,8 @@
     "id": "01HZXA3N5P7Q9R1S3T5V7W9X1Y",
     "sessionId": "01HZXA4Q6R8S0T2V4W6X8Y0Z2A",
     "agentId": "01HZX9B6C8D0E2F4G6H8J0K2M4",
-    "inputText": "Summarise the attached meeting notes into three action items."
+    "inputText": "Summarise the attached meeting notes into three action items.",
+    "workspaceId": "01HZX8A1B2C3D4E5F6G7H8J9K0"
   },
   "agent": {
     "id": "01HZX9B6C8D0E2F4G6H8J0K2M4",

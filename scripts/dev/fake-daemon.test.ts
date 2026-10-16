@@ -39,6 +39,7 @@ const CLAIM: ClaimResponse = {
     id: RUN_ID,
     inputText: INPUT_TEXT,
     sessionId: SESSION_ID,
+    workspaceId: "01HZX8A1B2C3D4E5F6G7H8J9K0",
   },
   runToken: "hm_run_3Jk8PqWz2NtR5vYb7Lm4Xs9D",
   session: { id: SESSION_ID, runtimeMachineId: null, runtimeRef: null },
