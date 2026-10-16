@@ -5,7 +5,8 @@
 -- DROP TABLE from tripping a constraint when the tables hold rows. The
 -- PRAGMA foreign_keys lines drizzle-kit emitted are dropped for the same reason.
 -- A runs row with parent_run_id set would still fail the DROP of runs, which
--- is fine only because the tables are empty (M0.11 runs before any writer).
+-- is fine only because the tables are empty (M0.11 runs before M1). Nothing
+-- reaches the code that writes parent_run_id yet.
 CREATE TABLE `__new_machines` (
 	`capabilities` text NOT NULL,
 	`created_at` text NOT NULL,
