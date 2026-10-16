@@ -135,17 +135,17 @@ test("postMessage treats a thrown fetch as transient and keeps the token out", a
   expect(JSON.stringify(result)).not.toContain(TOKEN);
 });
 
-test("postMessage neutralises broadcast mentions and keeps user and link mentions", async () => {
+test("postMessage escapes mentions, links and ampersands so agent text cannot ping or phish", async () => {
   const { calls, fetch } = fakeFetch(() => jsonResponse({ ok: true, ts: "1" }));
   const client = createSlackClient({ fetch, token: TOKEN });
 
   await client.postMessage({
     channel: "C1",
-    text: "<!channel> <!here> <!everyone> <@U123> <https://example.com|label>",
+    text: "<!channel> <!here> <!everyone> <@U123> <#C1> <https://example.com|label> a & b",
   });
 
   expect(sentBody(firstCall(calls)).text).toBe(
-    "&lt;!channel> &lt;!here> &lt;!everyone> <@U123> <https://example.com|label>"
+    "&lt;!channel&gt; &lt;!here&gt; &lt;!everyone&gt; &lt;@U123&gt; &lt;#C1&gt; &lt;https://example.com|label&gt; a &amp; b"
   );
 });
 
@@ -162,7 +162,7 @@ test("postMessage sends thread_ts and turns off unfurling", async () => {
   expect(body.channel).toBe("C1");
 });
 
-test("postEphemeral neutralises broadcast mentions and sends user and thread_ts", async () => {
+test("postEphemeral escapes the text and sends user and thread_ts", async () => {
   const { calls, fetch } = fakeFetch(() =>
     jsonResponse({ message_ts: "2.3", ok: true })
   );
@@ -180,7 +180,7 @@ test("postEphemeral neutralises broadcast mentions and sends user and thread_ts"
   const body = sentBody(firstCall(calls));
   expect(body.user).toBe("U9");
   expect(body.thread_ts).toBe("1.2");
-  expect(body.text).toBe("&lt;!here> ping <@U1>");
+  expect(body.text).toBe("&lt;!here&gt; ping &lt;@U1&gt;");
 });
 
 test("postEphemeral classifies a Slack error body", async () => {

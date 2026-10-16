@@ -80,9 +80,17 @@ function retryAfter(response: Response): number {
     : DEFAULT_RATE_LIMIT_SECONDS;
 }
 
-/** Broadcast mentions such as <!channel> would ping the whole channel. */
-function neutraliseBroadcasts(text: string): string {
-  return text.replaceAll("<!", "&lt;!");
+/**
+ * `&`, `<` and `>` are the only characters Slack reads as control syntax, so
+ * escaping them leaves no way to write a mention (`<!channel>`, `<@U123>`), a
+ * channel link or a masked link (`<https://evil|label>`) in text an agent
+ * wrote.
+ */
+function escapeSlack(text: string): string {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function classify<T extends object>(
@@ -237,7 +245,7 @@ export const createSlackClient = (deps: {
         {
           body: {
             channel: request.channel,
-            text: neutraliseBroadcasts(request.text),
+            text: escapeSlack(request.text),
             thread_ts: request.threadTs,
             user: request.user,
           },
@@ -253,7 +261,7 @@ export const createSlackClient = (deps: {
         {
           body: {
             channel: request.channel,
-            text: neutraliseBroadcasts(request.text),
+            text: escapeSlack(request.text),
             thread_ts: request.threadTs,
             unfurl_links: false,
             unfurl_media: false,

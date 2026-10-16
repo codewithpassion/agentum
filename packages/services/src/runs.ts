@@ -21,6 +21,7 @@ import {
   isNull,
   lt,
   max,
+  or,
   sql,
 } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -82,6 +83,10 @@ const SWEEP_BATCH = 100;
 /** Failed downloads of a run's pending files before the run is failed. */
 export const MAX_PENDING_ATTEMPTS = 3;
 const PENDING_FILES_ERROR = "Could not download the attached files";
+/** One download of a run's pending files at a time; a lost holder frees it after this. */
+const DOWNLOAD_LEASE_MS = 5 * 60_000;
+/** The `message.user` event of a run started with `offerLater` keeps this much of the text. */
+const EVENT_TEXT_CHARS = 20_000;
 
 const STARTING: RunRecord["status"][] = ["queued", "offered"];
 const ACTIVE: RunRecord["status"][] = ["queued", "offered", "running"];
@@ -302,6 +307,61 @@ export const createRunsService = ({
   };
 
   /**
+   * The `run.queued` and `message.user` events of a new run as statements, for
+   * a caller that wants them in the same atomic write as the run.
+   */
+  const queuedEvents = ({
+    agent,
+    fileIds,
+    input,
+    runId,
+    sessionId,
+    subject,
+  }: {
+    agent: Prepared["agent"];
+    fileIds: string[];
+    input: ParsedInput;
+    runId: string;
+    sessionId: string;
+    subject: Subject;
+  }): Statement[] => {
+    const base = {
+      actor: subject.actor,
+      agentId: agent.id,
+      runId,
+      sessionId,
+      workspaceId: agent.workspaceId,
+    };
+    return [
+      eventsService.insertStatement({
+        ...base,
+        payload: { depth: subject.depth, origin: input.session.origin },
+        type: "run.queued",
+      }),
+      eventsService.insertStatement({
+        ...base,
+        payload: {
+          fileIds,
+          text: input.input.text.slice(0, EVENT_TEXT_CHARS),
+        },
+        type: "message.user",
+      }),
+    ];
+  };
+
+  /** What a trusted caller wants in the same atomic write as the run. */
+  const extraWrites = (
+    queued: Parameters<typeof queuedEvents>[0],
+    options: StartRunOptions
+  ): Statement[] => [
+    ...(options.offerLater ? queuedEvents(queued) : []),
+    ...(options.alongside?.({
+      runId: queued.runId,
+      sessionId: queued.sessionId,
+    }) ?? []),
+  ];
+
+  /**
    * Writes the session (new, or its last-run time) and the run in one atomic
    * write. A duplicate `requestId` fails the unique index; the run that won is
    * read back and returned instead.
@@ -369,7 +429,10 @@ export const createRunsService = ({
       await atomic([
         sessionWrite,
         runWrite,
-        ...(options.alongside?.({ runId, sessionId }) ?? []),
+        ...extraWrites(
+          { agent, fileIds, input, runId, sessionId, subject },
+          options
+        ),
       ]);
       return { inserted: true, runId, sessionId, status: "queued" };
     } catch (error) {
@@ -422,7 +485,7 @@ export const createRunsService = ({
     const input = startRunInputSchema.parse(rawInput);
     const prepared = await prepareStart(principal, input);
     const { inserted, ...started } = await insertRun(prepared, input, options);
-    if (!inserted) {
+    if (!inserted || options.offerLater) {
       return started;
     }
     const run = await loadRun(db, started.runId, prepared.agent.workspaceId);
@@ -438,10 +501,7 @@ export const createRunsService = ({
       fileIds: prepared.fileIds,
       text: input.input.text,
     });
-    // A run with pending files is offered once they are fetched.
-    if (!run.pendingFiles) {
-      await prepared.adapter.dispatch(db, run, prepared.agent, adapterDeps);
-    }
+    await prepared.adapter.dispatch(db, run, prepared.agent, adapterDeps);
     return started;
   };
 
@@ -800,9 +860,9 @@ export const createRunsService = ({
   };
 
   /**
-   * Counts a failed download. The third failure fails the run, with an event,
-   * and returns true; before that the caller rethrows and a later attempt
-   * tries again.
+   * Counts a failed download and frees the run for the next try. The third
+   * failure fails the run, with an event, and returns true; before that the
+   * caller rethrows and a later attempt tries again.
    */
   const recordFailedDownload = async (run: RunRecord): Promise<boolean> => {
     const waiting = and(
@@ -812,7 +872,10 @@ export const createRunsService = ({
     );
     const [counted] = await db
       .update(runs)
-      .set({ pendingAttempts: sql`${runs.pendingAttempts} + 1` })
+      .set({
+        leaseUntil: null,
+        pendingAttempts: sql`${runs.pendingAttempts} + 1`,
+      })
       .where(waiting)
       .returning({ attempts: runs.pendingAttempts });
     if (!counted || counted.attempts < MAX_PENDING_ATTEMPTS) {
@@ -837,12 +900,43 @@ export const createRunsService = ({
 
   type DownloadOutcome = "downloaded" | "failed" | "skipped";
 
+  /**
+   * Takes the run's download lease, or says someone else holds it. The lease
+   * rides on `lease_until`, which a queued run does not otherwise use.
+   */
+  const claimDownload = async (run: RunRecord): Promise<boolean> => {
+    const now = nowIso();
+    const claimed = await db
+      .update(runs)
+      .set({
+        leaseUntil: new Date(
+          clock.now().getTime() + DOWNLOAD_LEASE_MS
+        ).toISOString(),
+      })
+      .where(
+        and(
+          eq(runs.id, run.id),
+          inArray(runs.status, STARTING),
+          isNotNull(runs.pendingFiles),
+          or(isNull(runs.leaseUntil), lt(runs.leaseUntil, now))
+        )
+      )
+      .returning({ id: runs.id });
+    return claimed.length > 0;
+  };
+
   /** Fetches a run's leftover Slack files through its reply gateway. */
   const downloadPendingFiles = async (
     run: RunRecord
   ): Promise<DownloadOutcome> => {
     const gateway = gatewayByKind.get(run.reply.kind);
-    if (!(run.pendingFiles && gateway?.downloadPendingFiles)) {
+    if (
+      !(
+        run.pendingFiles &&
+        gateway?.downloadPendingFiles &&
+        (await claimDownload(run))
+      )
+    ) {
       return "skipped";
     }
     let fileIds: string[];
@@ -859,14 +953,22 @@ export const createRunsService = ({
       }
       throw error;
     }
-    await db
+    const stored = await db
       .update(runs)
       .set({
         inputFileIds: JSON.stringify([...run.inputFileIds, ...fileIds]),
+        leaseUntil: null,
         pendingFiles: null,
       })
-      .where(and(eq(runs.id, run.id), inArray(runs.status, STARTING)));
-    return "downloaded";
+      .where(
+        and(
+          eq(runs.id, run.id),
+          inArray(runs.status, STARTING),
+          isNotNull(runs.pendingFiles)
+        )
+      )
+      .returning({ id: runs.id });
+    return stored.length > 0 ? "downloaded" : "skipped";
   };
 
   const offerRun = async (run: RunRecord): Promise<boolean> => {
@@ -876,6 +978,22 @@ export const createRunsService = ({
     }
     await adapter.dispatch(db, run, agent, adapterDeps);
     return true;
+  };
+
+  /**
+   * Offers one queued run to its agent's runtime, for the job a caller
+   * defers until after it has answered (the sweep does it for a job that did
+   * not run). A run still waiting on files is left alone.
+   */
+  const offerQueuedRun = async (
+    principal: Principal,
+    runId: string
+  ): Promise<void> => {
+    requireSystem(principal, "runs.offer");
+    const run = await loadRun(db, runId);
+    if (run && STARTING.includes(run.status) && !run.pendingFiles) {
+      await offerRun(run);
+    }
   };
 
   /**
@@ -1011,6 +1129,7 @@ export const createRunsService = ({
     getRun,
     heartbeatRun,
     ingestRunEvents,
+    offerQueuedRun,
     reapExpiredLeases,
     startRun,
     sweepQueuedRuns,

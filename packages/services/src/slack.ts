@@ -83,7 +83,7 @@ export const createSlackService = ({
   directory: SlackDirectory;
   events: EventsService;
   fetch: SlackFetch;
-  runs: Pick<RunsService, "fetchPendingFiles" | "startRun">;
+  runs: Pick<RunsService, "fetchPendingFiles" | "offerQueuedRun" | "startRun">;
   /** `SECRETS_KEY`, base64. */
   secretsKey?: string;
 }) => {
@@ -285,21 +285,22 @@ export const createSlackService = ({
             workspaceId: app.workspaceId,
           }),
         ],
+        offerLater: true,
         pendingFiles: pendingFiles.length > 0 ? pendingFiles : undefined,
       }
     );
-    const download =
-      pendingFiles.length > 0
-        ? async () => {
-            try {
-              await runs.fetchPendingFiles(SYSTEM_PRINCIPAL, started.runId);
-            } catch (error) {
-              // The minute tick tries again, up to three attempts in all.
-              console.error("Slack file download failed", error);
-            }
-          }
-        : undefined;
-    return { after: download, kind: "accepted", runId: started.runId };
+    // Offering the run and fetching its files come after the answer. If the
+    // job is lost, the minute tick does the same for a run nobody offered.
+    const afterAnswer = async () => {
+      try {
+        await (pendingFiles.length > 0
+          ? runs.fetchPendingFiles(SYSTEM_PRINCIPAL, started.runId)
+          : runs.offerQueuedRun(SYSTEM_PRINCIPAL, started.runId));
+      } catch (error) {
+        console.error("Slack run follow-up failed", error);
+      }
+    };
+    return { after: afterAnswer, kind: "accepted", runId: started.runId };
   };
 
   /** A message that passed the signature check and is for the app to answer. */
@@ -311,7 +312,11 @@ export const createSlackService = ({
     if (text === "" && event.files.length === 0) {
       return accepted;
     }
-    const eventHash = await hashToken(`${app.appId}:${event.eventId}`);
+    // One message, however Slack delivers it: a retry has the same event id, and
+    // a DM that also mentions the app arrives as two events with the same ts.
+    const eventHash = await hashToken(
+      `${app.appId}:${event.channelId}:${event.ts}`
+    );
     if (await alreadySeen(eventHash)) {
       return accepted;
     }

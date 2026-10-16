@@ -1,4 +1,4 @@
-import { sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
 import { SLACK_APP_STATUSES } from "../shared.ts";
 import { agents } from "./agents.ts";
@@ -38,7 +38,7 @@ export const slackApps = sqliteTable(
 /**
  * Dedupe of Slack retries. A row is written in the same atomic write as the
  * run it admitted (`run_id` null when the sender was unlinked), before the
- * 200. `event_hash` is a SHA-256 of the app id and event id. The minute tick
+ * 200. `event_hash` is a SHA-256 of the app id, channel and message timestamp, so a retry and a second event for one message both hit it. The minute tick
  * trims old rows.
  */
 export const slackEventsSeen = sqliteTable(
@@ -50,5 +50,9 @@ export const slackEventsSeen = sqliteTable(
     runId: text("run_id").references(() => runs.id),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
-  (t) => [uniqueIndex("slack_events_seen_hash_unique").on(t.eventHash)]
+  (t) => [
+    uniqueIndex("slack_events_seen_hash_unique").on(t.eventHash),
+    // The minute tick trims by this column.
+    index("slack_events_seen_received_idx").on(t.receivedAt),
+  ]
 );

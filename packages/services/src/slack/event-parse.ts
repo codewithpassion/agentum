@@ -314,7 +314,7 @@ function skipReason(
 ): IgnoredReason | null {
   // A null `bot_profile` is not a bot: Slack sends null bot fields on a
   // person's message, and an echo that carries none of the three is still
-  // stopped by the `is_bot` check before any reply.
+  // stopped in the service, which drops anything sent by the app's own bot user.
   const fromThisApp = apiAppId !== undefined && event.app_id === apiAppId;
   if (
     event.bot_id ||

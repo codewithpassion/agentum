@@ -344,11 +344,63 @@ test("deliver sends no ephemeral Connect message when the user has no identity l
   ]);
 });
 
-test("deliver neutralises broadcast mentions before the text reaches Slack", async () => {
-  await deliver("Heads up <!channel> the build is done.");
+test("deliver sends only a Connect link under this app's own address, and every copy of it", async () => {
+  insertIdentityLink("U0DOM");
+  const own = `${PUBLIC_BASE_URL}/connect/conn_1?as=user`;
+
+  await deliver(`First ${own} then again ${own}`);
 
   const [post] = callsTo("chat.postMessage");
-  expect(post?.body?.text).toBe("Heads up &lt;!channel> the build is done.");
+  expect(post?.body?.text).toBe(
+    "First (the link was sent to you privately) then again (the link was sent to you privately)"
+  );
+  expect(callsTo("chat.postEphemeral")).toHaveLength(1);
+});
+
+test("deliver leaves a Connect link to another host in the thread and sends nothing privately", async () => {
+  insertIdentityLink("U0DOM");
+  const evil = "https://evil.example/connect/conn_1";
+
+  await deliver(`Sign in at ${evil} please`);
+
+  const [post] = callsTo("chat.postMessage");
+  expect(post?.body?.text).toBe(`Sign in at ${evil} please`);
+  expect(callsTo("chat.postEphemeral")).toHaveLength(0);
+});
+
+test("deliver keeps the Connect link visible when there is nobody to send it to", async () => {
+  await deliver(CONNECT_TEXT);
+
+  const [post] = callsTo("chat.postMessage");
+  expect(post?.body?.text).toBe(CONNECT_TEXT);
+});
+
+test("deliver records a Connect link that could not be sent privately", async () => {
+  insertIdentityLink("U0DOM");
+  respond = (call) =>
+    call.url === `${SLACK_API}chat.postEphemeral`
+      ? json({ error: "user_not_in_channel", ok: false })
+      : defaultResponder(call);
+
+  await deliver(CONNECT_TEXT);
+
+  expect(deliveredEvents()).toEqual([
+    {
+      channel: CHANNEL,
+      delivered: true,
+      error: "connect link: user_not_in_channel",
+      threadTs: THREAD,
+    },
+  ]);
+});
+
+test("deliver escapes control syntax before the text reaches Slack", async () => {
+  await deliver("Heads up <!channel> <@U9> the build is done & tested.");
+
+  const [post] = callsTo("chat.postMessage");
+  expect(post?.body?.text).toBe(
+    "Heads up &lt;!channel&gt; &lt;@U9&gt; the build is done &amp; tested."
+  );
 });
 
 test("deliver posts (no reply) for an empty answer", async () => {

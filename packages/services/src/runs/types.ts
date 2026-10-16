@@ -85,6 +85,13 @@ export interface StartRunOptions {
    * after them. A failing one (a duplicate row) rolls the run back too.
    */
   alongside?: (ids: { runId: string; sessionId: string }) => Statement[];
+  /**
+   * Answer as soon as the atomic write is done: the `run.queued` and
+   * `message.user` events join it, and the run is not offered to its runtime.
+   * The caller does that afterwards with `offerQueuedRun` (the minute sweep
+   * does it for a run nobody offered).
+   */
+  offerLater?: boolean;
   /** File descriptors still to be fetched. The run is not claimable until they are. */
   pendingFiles?: unknown[];
 }

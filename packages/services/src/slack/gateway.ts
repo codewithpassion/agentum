@@ -61,9 +61,27 @@ export const isAllowedMime = (mime: string): boolean =>
   ALLOWED_MIME_PREFIXES.some((prefix) => mime.toLowerCase().startsWith(prefix));
 
 /** A link to the signed-in Connect page, relative or absolute. */
-const CONNECT_LINK = /(?:https?:\/\/[^\s/<>|]+)?\/connect\/[^\s<>|)\]]+/;
+const CONNECT_LINK = /(?:https?:\/\/[^\s/<>|]+)?\/connect\/[^\s<>|)\]]+/g;
 const PRIVATE_NOTE = "(the link was sent to you privately)";
 const EMPTY_REPLY = "(no reply)";
+
+/**
+ * The first Connect link in the text that points at this app: a path, or a
+ * URL under `publicBaseUrl`. A link to any other host is only text, so an
+ * agent cannot use the private message to hand someone a phishing address.
+ */
+export const findConnectLink = (
+  text: string,
+  publicBaseUrl: string | undefined
+): string | undefined => {
+  const origin = publicBaseUrl ? new URL(publicBaseUrl).origin : undefined;
+  return text
+    .match(CONNECT_LINK)
+    ?.find(
+      (link) =>
+        link.startsWith("/") || (origin && link.startsWith(`${origin}/`))
+    );
+};
 
 const slackTarget = (
   target: ReplyTarget
@@ -118,21 +136,11 @@ export const createSlackGateway = ({
   const sendConnectLink = async (
     client: SlackClient,
     slack: Extract<ReplyTarget, { kind: "slack" }>,
-    run: { workspaceId: string },
-    link: { clerkUserId: string; path: string }
+    user: string,
+    link: string
   ) => {
-    const user = await slackUserOf(
-      run.workspaceId,
-      slack.teamId,
-      link.clerkUserId
-    );
-    if (!user) {
-      return;
-    }
-    const url = link.path.startsWith("/")
-      ? `${publicBaseUrl ?? ""}${link.path}`
-      : link.path;
-    await withRetry(clock, () =>
+    const url = link.startsWith("/") ? `${publicBaseUrl ?? ""}${link}` : link;
+    return await withRetry(clock, () =>
       client.postEphemeral({
         channel: slack.channel,
         text: `Connect your account: ${url}`,
@@ -140,6 +148,47 @@ export const createSlackGateway = ({
         user,
       })
     );
+  };
+
+  /** Posts the answer, and the Connect link it carries to its requester alone. */
+  const post = async (
+    slack: Extract<ReplyTarget, { kind: "slack" }>,
+    message: { text: string },
+    context: { agentId: string; onBehalfOfUserId: string | null },
+    workspaceId: string
+  ): Promise<{ error?: string; ok: boolean }> => {
+    const client = await clientFor({
+      agentId: context.agentId,
+      teamId: slack.teamId,
+      workspaceId,
+    });
+    const link = findConnectLink(message.text, publicBaseUrl);
+    const requester =
+      link && context.onBehalfOfUserId
+        ? await slackUserOf(workspaceId, slack.teamId, context.onBehalfOfUserId)
+        : null;
+    // The link leaves the thread only when there is someone to send it to.
+    const visible =
+      link && requester
+        ? message.text.replaceAll(link, PRIVATE_NOTE)
+        : message.text;
+    const posted = await withRetry(clock, () =>
+      client.postMessage({
+        channel: slack.channel,
+        text: visible.trim() === "" ? EMPTY_REPLY : visible,
+        threadTs: slack.threadTs,
+      })
+    );
+    if (posted.kind !== "ok") {
+      return { error: describeFailure(posted), ok: false };
+    }
+    if (link && requester) {
+      const sent = await sendConnectLink(client, slack, requester, link);
+      if (sent.kind !== "ok") {
+        return { error: `connect link: ${describeFailure(sent)}`, ok: true };
+      }
+    }
+    return { ok: true };
   };
 
   const deliver: Gateway["deliver"] = async (target, message, context) => {
@@ -155,34 +204,9 @@ export const createSlackGateway = ({
     if (!run) {
       return;
     }
-    const connect = CONNECT_LINK.exec(message.text)?.[0];
-    const visible = connect
-      ? message.text.replace(connect, PRIVATE_NOTE)
-      : message.text;
     let delivered: { error?: string; ok: boolean };
     try {
-      const client = await clientFor({
-        agentId: context.agentId,
-        teamId: slack.teamId,
-        workspaceId: run.workspaceId,
-      });
-      const posted = await withRetry(clock, () =>
-        client.postMessage({
-          channel: slack.channel,
-          text: visible.trim() === "" ? EMPTY_REPLY : visible,
-          threadTs: slack.threadTs,
-        })
-      );
-      delivered =
-        posted.kind === "ok"
-          ? { ok: true }
-          : { error: describeFailure(posted), ok: false };
-      if (connect && context.onBehalfOfUserId) {
-        await sendConnectLink(client, slack, run, {
-          clerkUserId: context.onBehalfOfUserId,
-          path: connect,
-        });
-      }
+      delivered = await post(slack, message, context, run.workspaceId);
     } catch (error) {
       delivered = {
         error: error instanceof Error ? error.message : String(error),

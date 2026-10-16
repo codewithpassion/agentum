@@ -6,7 +6,7 @@
  */
 import type { Database } from "@repo/db";
 import { slackApps } from "@repo/db/schema/slack";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   decryptSecret,
   importSecretsKey,
@@ -27,7 +27,7 @@ export const slackSecretBinding = (
   workspaceId: app.workspaceId,
 });
 
-/** The row for Slack's `api_app_id`, unless it was revoked. */
+/** The installed app for Slack's `api_app_id`. */
 export const findAppByApiId = async (
   db: Database,
   appId: string
@@ -35,7 +35,7 @@ export const findAppByApiId = async (
   const [row] = await db
     .select()
     .from(slackApps)
-    .where(and(eq(slackApps.appId, appId), ne(slackApps.status, "revoked")))
+    .where(and(eq(slackApps.appId, appId), eq(slackApps.status, "installed")))
     .limit(1);
   return row ?? null;
 };
