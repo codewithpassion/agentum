@@ -169,5 +169,7 @@ preview use `CLERK_SECRET_KEY` from `apps/web/.env.local` (the Clerk dev
 instance). Production reads it from `apps/web/.env.production.local` or the
 process environment. The URL is a one-time credential: open it in a fresh
 browser session and don't paste it into logs or reports. The key is never
-printed. Code: `apps/web/scripts/agent-login.ts`, pure helpers in
-`agent-login-helpers.ts`.
+printed. The session lands on the signed-in pages only when the user has an
+allowed organisation active. The dev user has one, and Clerk activates it for
+the Agent Task session, so nothing extra is set. Code: `apps/web/scripts/agent-login.ts`,
+pure helpers in `agent-login-helpers.ts`.
