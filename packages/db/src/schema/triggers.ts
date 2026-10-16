@@ -38,14 +38,15 @@ export const triggers = sqliteTable(
     kind: text("kind", { enum: TRIGGER_KINDS }).notNull(),
     lastError: text("last_error"),
     lastFiredAt: text("last_fired_at"),
-    // Routine only. The run the next tick judges: done clears the error count.
-    lastRunId: text("last_run_id"),
     name: text("name").notNull(),
     // Routine only. The slot the tick fires next.
     nextRunAt: text("next_run_at"),
     // Routine only. The run's input text.
     prompt: text("prompt"),
     revokedAt: text("revoked_at"),
+    // Routine only. The last run counted into `consecutive_errors`. Run ids
+    // sort by time, so the runs after it are the ones still to judge.
+    settledRunId: text("settled_run_id"),
     // Routine only. IANA zone, copied from the workspace when not given.
     timezone: text("timezone"),
     // Null for a routine.

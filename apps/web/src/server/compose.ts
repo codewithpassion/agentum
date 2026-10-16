@@ -21,6 +21,10 @@ import {
 } from "@repo/services/connectors";
 import type { Fetcher } from "@repo/services/connectors/mcp";
 import {
+  type CredentialsService,
+  createCredentialsService,
+} from "@repo/services/credentials";
+import {
   type Blobs,
   createEventsService,
   type EventsService,
@@ -56,6 +60,12 @@ import {
   type SessionsService,
 } from "@repo/services/sessions";
 import {
+  createSlackService,
+  type SlackDirectory,
+  type SlackService,
+} from "@repo/services/slack";
+import { createSlackGateway } from "@repo/services/slack/gateway";
+import {
   createTriggersService,
   type TriggersService,
 } from "@repo/services/triggers";
@@ -64,6 +74,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { r2Blobs } from "./r2-blobs.ts";
 import { r2FileBlobs } from "./r2-files.ts";
 import { durableRelayPort } from "./relay-port.ts";
+import { clerkSlackDirectory } from "./slack-directory.ts";
 
 /** What the runs service needs besides a database. */
 export interface Infra {
@@ -75,11 +86,15 @@ export interface Infra {
   fetch?: Fetcher;
   /** Where uploaded files live: R2 in the app. */
   fileBlobs: FileBlobs;
+  /** `PUBLIC_BASE_URL`. A Connect path posted to Slack becomes a link under it. */
+  publicBaseUrl?: string;
   relay: MachineRelayPort;
   /** `RUN_TOKEN_KEY`. Machine claims mint run tokens with it. */
   runTokenKey?: string;
   /** `SECRETS_KEY`. Storing a connector credential encrypts with it. */
   secretsKey?: string;
+  /** Finds the Clerk user behind a Slack email. Without one, nobody is linked. */
+  slackDirectory?: SlackDirectory;
 }
 
 export interface Services {
@@ -87,6 +102,7 @@ export interface Services {
   apiKeys: ApiKeysService;
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
+  credentials: CredentialsService;
   events: EventsService;
   files: FilesService;
   machines: MachinesService;
@@ -94,6 +110,7 @@ export interface Services {
   routines: RoutinesService;
   runs: RunsService;
   sessions: SessionsService;
+  slack: SlackService;
   triggers: TriggersService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
@@ -109,9 +126,11 @@ export interface Composed {
 export type ComposeEnv = Pick<
   Env,
   | "ALLOWED_ORG_IDS"
+  | "CLERK_SECRET_KEY"
   | "DB"
   | "FILES"
   | "MACHINE_RELAY"
+  | "PUBLIC_BASE_URL"
   | "RUN_TOKEN_KEY"
   | "SECRETS_KEY"
 >;
@@ -122,6 +141,12 @@ export const parseOrgIds = (raw: string | undefined): string[] =>
     .split(",")
     .map((id) => id.trim())
     .filter((id) => id.length > 0);
+
+/** A directory that knows nobody: every unknown Slack sender stays unlinked. */
+const unlinkedDirectory: SlackDirectory = {
+  findUserIdByEmail: () => Promise.resolve(null),
+  isOrgMember: () => Promise.resolve(false),
+};
 
 /** The services over a database and infra. Tests call this with fakes. */
 export const composeWith = ({
@@ -137,7 +162,6 @@ export const composeWith = ({
   const adapters: RuntimeAdapter[] = [
     createMachineRuntime({ relay: infra.relay }),
   ];
-  const gateways: Gateway[] = [];
 
   const workspaces = createWorkspacesService({ allowedOrgIds, db });
   const events = createEventsService({ blobs: infra.blobs, db });
@@ -162,6 +186,12 @@ export const composeWith = ({
     fetch: connectorFetch,
     secretsKey: infra.secretsKey,
   });
+  const credentials = createCredentialsService({
+    clock: infra.clock,
+    db,
+    fetch: connectorFetch,
+    secretsKey: infra.secretsKey,
+  });
   const files = createFilesService({
     blobs: infra.fileBlobs,
     clock: infra.clock,
@@ -175,6 +205,17 @@ export const composeWith = ({
     relay: infra.relay,
   });
   const oauthClients = createOAuthClientsService({ clock: infra.clock, db });
+  const gateways: Gateway[] = [
+    createSlackGateway({
+      clock: infra.clock,
+      db,
+      events,
+      fetch: connectorFetch,
+      files,
+      publicBaseUrl: infra.publicBaseUrl,
+      secretsKey: infra.secretsKey,
+    }),
+  ];
   const runs = createRunsService({
     adapters,
     atomic: infra.atomic,
@@ -193,6 +234,16 @@ export const composeWith = ({
     runs,
   });
   const sessions = createSessionsService({ db, events });
+  const slack = createSlackService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    directory: infra.slackDirectory ?? unlinkedDirectory,
+    events,
+    fetch: connectorFetch,
+    runs,
+    secretsKey: infra.secretsKey,
+  });
   const triggers = createTriggersService({
     allowedOrgIds,
     clock: infra.clock,
@@ -209,6 +260,7 @@ export const composeWith = ({
       apiKeys,
       connectorOAuth,
       connectors,
+      credentials,
       events,
       files,
       machines,
@@ -216,6 +268,7 @@ export const composeWith = ({
       routines,
       runs,
       sessions,
+      slack,
       triggers,
       workspaces,
     },
@@ -237,9 +290,11 @@ export const compose = (env: ComposeEnv, devFakeRuntime: boolean): Composed => {
       clock: systemClock,
       devFakeRuntime,
       fileBlobs: r2FileBlobs(env.FILES),
+      publicBaseUrl: env.PUBLIC_BASE_URL,
       relay: durableRelayPort(env.MACHINE_RELAY),
       runTokenKey: env.RUN_TOKEN_KEY,
       secretsKey: env.SECRETS_KEY,
+      slackDirectory: clerkSlackDirectory(env.CLERK_SECRET_KEY),
     },
   });
 };

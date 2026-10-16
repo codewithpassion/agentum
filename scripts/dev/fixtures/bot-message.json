@@ -1,0 +1,37 @@
+{
+  "token": "legacy-verification-token",
+  "team_id": "T0TEAM",
+  "api_app_id": "A0APP",
+  "event": {
+    "type": "message",
+    "channel": "D0DM",
+    "channel_type": "im",
+    "bot_id": "B0BOT",
+    "app_id": "A0APP",
+    "user": "U0BOT",
+    "text": "Echo: hello there",
+    "ts": "1789171204.000400",
+    "event_ts": "1789171204.000400",
+    "team": "T0TEAM",
+    "bot_profile": {
+      "id": "B0BOT",
+      "app_id": "A0APP",
+      "name": "Harbourmaster",
+      "team_id": "T0TEAM"
+    }
+  },
+  "type": "event_callback",
+  "event_id": "Ev0BOTMSG01",
+  "event_time": 1789171200,
+  "authorizations": [
+    {
+      "enterprise_id": null,
+      "team_id": "T0TEAM",
+      "user_id": "U0BOT",
+      "is_bot": true,
+      "is_enterprise_install": false
+    }
+  ],
+  "is_ext_shared_channel": false,
+  "event_context": "4-eyJldCI6ImFwcF9tZW50aW9uIiwidGlkIjoiVDBURUFNIiwiYWlkIjoiQTBBUFAifQ"
+}

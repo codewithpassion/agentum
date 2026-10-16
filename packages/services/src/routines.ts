@@ -14,7 +14,9 @@
  *
  * `consecutive_errors` counts slots that could not be written and runs that
  * ended `failed` or `interrupted`. The fifth in a row switches the routine
- * off (`disabled_at`); a `done` run resets the count.
+ * off (`disabled_at`); a `done` run resets the count. `settleRuns` reads the
+ * routine's runs (`runs.actor_id` is the routine id) in order from
+ * `settled_run_id` on, so every run is counted once, however long it takes.
  */
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
@@ -27,13 +29,13 @@ import {
   asc,
   desc,
   eq,
+  gt,
   inArray,
   isNotNull,
   isNull,
   lte,
   sql,
 } from "drizzle-orm";
-import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -51,6 +53,8 @@ import type { Principal } from "./workspaces.ts";
 
 /** Routines one tick fires or settles; the next minute takes the rest. */
 const TICK_BATCH = 100;
+/** Run rows one `settleRuns` call reads. */
+const SETTLE_BATCH = 500;
 const ERROR_MESSAGE_MAX = 500;
 
 const ROUTINE_KIND = "routine";
@@ -156,6 +160,45 @@ const messageOf = (error: unknown): string =>
 const nextSlot = (cron: string, timezone: string, after: Date) => {
   const next = nextFireTime(cron, timezone, after);
   return next === null ? null : new Date(next).toISOString();
+};
+
+const ENDED: readonly string[] = ["done", "failed", "interrupted", "cancelled"];
+
+/**
+ * Folds the ended runs at the front of `runList` into an error count. Null
+ * when the first run has not ended, so there is nothing to judge yet.
+ */
+const judge = (
+  runList: readonly {
+    runError: string | null;
+    runId: string;
+    status: string;
+  }[],
+  before: { errors: number; lastError: string | null }
+): {
+  errors: number;
+  lastError: string | null;
+  settledRunId: string;
+} | null => {
+  let { errors, lastError } = before;
+  let settledRunId: string | null = null;
+  for (const run of runList) {
+    if (!ENDED.includes(run.status)) {
+      break;
+    }
+    settledRunId = run.runId;
+    if (run.status === "done") {
+      errors = 0;
+      lastError = null;
+    } else if (run.status !== "cancelled") {
+      errors += 1;
+      lastError = (run.runError ?? `Run ${run.status}`).slice(
+        0,
+        ERROR_MESSAGE_MAX
+      );
+    }
+  }
+  return settledRunId === null ? null : { errors, lastError, settledRunId };
 };
 
 export const createRoutinesService = ({
@@ -367,18 +410,15 @@ export const createRoutinesService = ({
   const fireOne = async (row: DueRow, due: string, result: FireDueResult) => {
     const now = clock.now();
     const nextRunAt = nextSlot(row.cron ?? "", row.timezone ?? "", now);
-    const advance = (runId: string, fields: { lastFiredAt?: string }) =>
+    const advance = (fields: { lastFiredAt?: string }) =>
       db
         .update(triggers)
-        // Keep a run still waiting to be judged; `settleRuns` clears it.
-        .set({
-          ...fields,
-          lastRunId: sql`coalesce(${triggers.lastRunId}, ${runId})`,
-          nextRunAt,
-        })
+        .set({ ...fields, nextRunAt })
         .where(and(eq(triggers.id, row.id), eq(triggers.nextRunAt, due)));
-    const requestId = `trigger:${row.id}:${due}`;
-    const started = await runsService.startRunWith(
+    // The id of the run this call tries to write. A started run with another
+    // id is the one a duplicate slot handed back.
+    let attempted = "";
+    const started = await runsService.startRun(
       {
         agentId: row.agentId,
         kind: "trigger",
@@ -388,12 +428,17 @@ export const createRoutinesService = ({
       {
         agentId: row.agentId,
         input: { text: row.prompt ?? "" },
-        requestId,
+        requestId: `trigger:${row.id}:${due}`,
         session: { origin: "trigger" },
       },
-      ({ runId }) => [advance(runId, { lastFiredAt: now.toISOString() })]
+      {
+        alongside: ({ runId }) => {
+          attempted = runId;
+          return [advance({ lastFiredAt: now.toISOString() })];
+        },
+      }
     );
-    if (started.inserted) {
+    if (started.runId === attempted) {
       await events.append({
         actor: { id: row.id, kind: "trigger" },
         agentId: row.agentId,
@@ -408,7 +453,7 @@ export const createRoutinesService = ({
     }
     // Another tick wrote this slot. Its write moved `next_run_at`, unless that
     // write was undone since; moving it here is a no-op in the usual case.
-    await advance(started.runId, {});
+    await advance({});
     result.readBack.push(started.runId);
   };
 
@@ -459,54 +504,73 @@ export const createRoutinesService = ({
   };
 
   /**
-   * The minute tick's judging job. A routine whose last run ended is updated
-   * once: `done` clears the error count, `failed` and `interrupted` add one
-   * (the fifth switches the routine off), `cancelled` counts for nothing.
+   * The minute tick's judging job. Each routine's runs after `settled_run_id`
+   * are counted in order, up to the first one that has not ended: `done`
+   * clears the error count, `failed` and `interrupted` add one (the fifth
+   * switches the routine off), `cancelled` counts for nothing. One guarded
+   * update per routine moves the count and `settled_run_id` together, so a
+   * run is counted once however the jobs overlap.
    */
   const settleRuns = async (principal: Principal): Promise<SettleResult> => {
     requireSystem(principal, SETTLE_ACTION);
-    const ended = await db
+    const rows = await db
       .select({
-        error: runs.error,
+        disabledAt: triggers.disabledAt,
+        errors: triggers.consecutiveErrors,
         id: triggers.id,
+        lastError: triggers.lastError,
+        runError: runs.error,
         runId: runs.id,
+        settledRunId: triggers.settledRunId,
         status: runs.status,
       })
       .from(triggers)
-      .innerJoin(runs, eq(runs.id, triggers.lastRunId))
-      .where(
+      .innerJoin(
+        runs,
         and(
-          eq(triggers.kind, ROUTINE_KIND),
-          inArray(runs.status, ["done", "failed", "interrupted", "cancelled"])
+          eq(runs.actorId, triggers.id),
+          eq(runs.actorKind, "trigger"),
+          gt(runs.id, sql`coalesce(${triggers.settledRunId}, '')`)
         )
       )
-      .limit(TICK_BATCH);
+      .where(and(eq(triggers.kind, ROUTINE_KIND), isNull(triggers.revokedAt)))
+      .orderBy(asc(triggers.id), asc(runs.id))
+      .limit(SETTLE_BATCH);
+    const byRoutine = Map.groupBy(rows, (row) => row.id);
     let settled = 0;
-    for (const row of ended) {
-      const guard = and(
-        eq(triggers.id, row.id),
-        eq(triggers.lastRunId, row.runId)
-      );
-      const errors = sql`${triggers.consecutiveErrors} + 1`;
-      let changes: SQLiteUpdateSetSource<typeof triggers> = { lastRunId: null };
-      if (row.status === "done") {
-        changes = { consecutiveErrors: 0, lastError: null, lastRunId: null };
-      } else if (row.status !== "cancelled") {
-        changes = {
-          consecutiveErrors: errors,
-          disabledAt: sql`CASE WHEN ${errors} >= ${ROUTINE_ERROR_LIMIT} THEN ${clock.now().toISOString()} ELSE ${triggers.disabledAt} END`,
-          lastError: (row.error ?? `Run ${row.status}`).slice(
-            0,
-            ERROR_MESSAGE_MAX
-          ),
-          lastRunId: null,
-        };
+    for (const [id, routineRuns] of byRoutine) {
+      const [first] = routineRuns;
+      if (!first) {
+        continue;
       }
-      // biome-ignore lint/performance/noAwaitInLoops: each update is guarded by its own run id
+      const verdict = judge(routineRuns, {
+        errors: first.errors,
+        lastError: first.lastError,
+      });
+      if (verdict === null) {
+        continue;
+      }
+      const now = clock.now().toISOString();
+      // biome-ignore lint/performance/noAwaitInLoops: each update is guarded by its own watermark
       const updated = await db
         .update(triggers)
-        .set(changes)
-        .where(guard)
+        .set({
+          consecutiveErrors: verdict.errors,
+          disabledAt:
+            first.disabledAt ??
+            (verdict.errors >= ROUTINE_ERROR_LIMIT ? now : null),
+          lastError: verdict.lastError,
+          settledRunId: verdict.settledRunId,
+        })
+        .where(
+          and(
+            eq(triggers.id, id),
+            eq(triggers.consecutiveErrors, first.errors),
+            first.settledRunId === null
+              ? isNull(triggers.settledRunId)
+              : eq(triggers.settledRunId, first.settledRunId)
+          )
+        )
         .returning({ id: triggers.id });
       settled += updated.length;
     }

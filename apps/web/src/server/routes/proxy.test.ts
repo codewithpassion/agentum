@@ -1,0 +1,837 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
+import { agentConnectors, credentials } from "@repo/db/schema/connectors";
+import { events } from "@repo/db/schema/events";
+import { machines } from "@repo/db/schema/machines";
+import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
+import { workspaces } from "@repo/db/schema/workspaces";
+import { migrated } from "@repo/db/test-db";
+import type { Fetcher } from "@repo/services/connectors/mcp";
+import {
+  seedAssignment,
+  seedConnector,
+  seedCredential,
+  testOAuthConfig,
+} from "@repo/services/connectors/test-seed";
+import { encryptSecret, importSecretsKey } from "@repo/services/crypto";
+import { memoryFileBlobs } from "@repo/services/files/memory";
+import { noopRelay } from "@repo/services/machines/types";
+import { importRunTokenKey, signRunToken } from "@repo/services/run-tokens";
+import type { Clock } from "@repo/services/runs/types";
+import type { Principal } from "@repo/services/workspaces";
+import { eq } from "drizzle-orm";
+import { Hono } from "hono";
+import {
+  type StubMcp,
+  startStubMcp,
+} from "../../../../../scripts/dev/stub-mcp.ts";
+import { type Composed, composeWith } from "../compose.ts";
+import type { AppEnv } from "./groups.ts";
+import { PROXY_CAP_MS, proxyRoutes } from "./proxy.ts";
+
+const WORKSPACE = "w1";
+const START_MS = Date.parse("2026-10-16T10:00:00.000Z");
+const MINUTE_MS = 60_000;
+const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(3)).toString("base64");
+const RUN_TOKEN_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString(
+  "base64"
+);
+const env = { RUN_TOKEN_KEY } as unknown as Env;
+const PUBLIC_ORIGIN = "https://mcp.stub-test.com";
+const STUB_TOKEN = "stub-token";
+const CONNECTOR = "con_stub";
+const PROXY_URL = `https://hm.example/api/proxy/${CONNECTOR}`;
+const DOM = "user_dom";
+
+const dom: Principal = {
+  kind: "user",
+  userId: DOM,
+  via: "session",
+  workspaceId: WORKSPACE,
+};
+
+let db: ReturnType<typeof migrated>;
+let composed: Composed;
+let stub: StubMcp | undefined;
+let nowMs: number;
+let agentId: string;
+let secretsKey: CryptoKey;
+let app: Hono<AppEnv>;
+/** Called with each token endpoint request, before it goes on. */
+let onTokenRequest: (() => Promise<void> | void) | undefined;
+
+const clock: Clock = {
+  now: () => new Date(nowMs),
+  // Real, short waits: the loser of a refresh polls while the winner does I/O.
+  sleep: (ms) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, Math.min(ms, 5));
+    }),
+};
+
+const stubOf = (): StubMcp => {
+  if (!stub) {
+    throw new Error("start the stub first");
+  }
+  return stub;
+};
+
+/** Carries calls for the public-looking host to the stub. */
+const urlOf = (input: string | URL | Request): string => {
+  if (typeof input === "string") {
+    return input;
+  }
+  return input instanceof URL ? input.toString() : input.url;
+};
+
+const toStub: Fetcher = async (input, init) => {
+  const raw = urlOf(input);
+  if (raw.endsWith("/token")) {
+    await onTokenRequest?.();
+  }
+  return await fetch(
+    raw.replace(PUBLIC_ORIGIN, new URL(stubOf().url).origin),
+    init
+  );
+};
+
+const startStub = (options: Parameters<typeof startStubMcp>[0] = {}) => {
+  stub = startStubMcp({ token: STUB_TOKEN, ...options });
+};
+
+const addRun = (
+  id: string,
+  status: "done" | "interrupted" | "running" = "running",
+  claimedBy: string | null = null
+) => {
+  const now = new Date(nowMs).toISOString();
+  db.insert(sessions)
+    .values({
+      actorId: DOM,
+      actorKind: "user",
+      agentId,
+      createdAt: now,
+      externalKey: `session_${id}`,
+      id: `session_${id}`,
+      origin: "mcp",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(runs)
+    .values({
+      actorId: DOM,
+      actorKind: "user",
+      agentId,
+      createdAt: now,
+      claimedBy,
+      id,
+      inputText: "work",
+      leaseUntil: new Date(nowMs + 30 * MINUTE_MS).toISOString(),
+      onBehalfOfUserId: DOM,
+      sessionId: `session_${id}`,
+      status,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+};
+
+const tokenFor = async (runId: string) =>
+  signRunToken(await importRunTokenKey(RUN_TOKEN_KEY), {
+    agentId,
+    issuedAt: nowMs,
+    runId,
+    workspaceId: WORKSPACE,
+  });
+
+const echoBody = JSON.stringify({
+  id: 7,
+  jsonrpc: "2.0",
+  method: "tools/call",
+  params: { arguments: { text: "hello" }, name: "echo" },
+});
+
+const call = (token: string | null, body = echoBody, connector = CONNECTOR) =>
+  app.request(
+    `https://hm.example/api/proxy/${connector}`,
+    {
+      body,
+      headers: {
+        Accept: "application/json, text/event-stream",
+        "Content-Type": "application/json",
+        ...(token === null ? {} : { Authorization: `Bearer ${token}` }),
+      },
+      method: "POST",
+    },
+    env
+  );
+
+interface Rpc {
+  error?: { data?: { code?: string }; message: string };
+  result?: { content: { text: string }[] };
+}
+
+/** The echoed text of a successful call, or null for any error. */
+const echoed = async (response: Response): Promise<string | null> => {
+  const rpc = (await response.json()) as Rpc;
+  if (response.status !== 200 || rpc.error || !rpc.result) {
+    return null;
+  }
+  return rpc.result.content.at(0)?.text ?? null;
+};
+
+const eventsOf = async (runId: string) =>
+  (await db.select().from(events).where(eq(events.runId, runId))).filter(
+    (row) => row.type.startsWith("connector.")
+  );
+
+const credentialRow = async (id: string) => {
+  const [row] = await db
+    .select()
+    .from(credentials)
+    .where(eq(credentials.id, id));
+  if (!row) {
+    throw new Error("no credential row");
+  }
+  return row;
+};
+
+/** A stub-token header credential for the agent, assigned in `mode`. */
+const seedHeaderCredential = async () => {
+  await seedConnector(db, {
+    authKind: "header",
+    id: CONNECTOR,
+    now: new Date(nowMs).toISOString(),
+    url: `${PUBLIC_ORIGIN}/mcp`,
+    workspaceId: WORKSPACE,
+  });
+  await seedAssignment(db, {
+    agentId,
+    connectorId: CONNECTOR,
+    credentialMode: "agent",
+    now: new Date(nowMs).toISOString(),
+    workspaceId: WORKSPACE,
+  });
+  return await seedCredential(db, secretsKey, {
+    connectorId: CONNECTOR,
+    now: new Date(nowMs).toISOString(),
+    ownerId: agentId,
+    ownerKind: "agent",
+    secret: `Bearer ${STUB_TOKEN}`,
+    workspaceId: WORKSPACE,
+  });
+};
+
+/** An OAuth connector whose token endpoint is the stub's `/token`. */
+const seedOAuthCredential = async (
+  secret = {
+    accessToken: STUB_TOKEN,
+    refreshToken: "stub-refresh" as string | null,
+  }
+) => {
+  const now = new Date(nowMs).toISOString();
+  await seedConnector(db, {
+    authKind: "oauth",
+    id: CONNECTOR,
+    now,
+    oauth: testOAuthConfig(PUBLIC_ORIGIN),
+    url: `${PUBLIC_ORIGIN}/mcp`,
+    workspaceId: WORKSPACE,
+  });
+  await seedAssignment(db, {
+    agentId,
+    connectorId: CONNECTOR,
+    credentialMode: "agent",
+    now,
+    workspaceId: WORKSPACE,
+  });
+  return await seedCredential(db, secretsKey, {
+    connectorId: CONNECTOR,
+    expiresAt: new Date(nowMs + 60 * MINUTE_MS).toISOString(),
+    now,
+    ownerId: agentId,
+    ownerKind: "agent",
+    secret: JSON.stringify(secret),
+    workspaceId: WORKSPACE,
+  });
+};
+
+/** The proxy on an app that supplies `composed` the way server.ts does. */
+const mount = (capMs = PROXY_CAP_MS) => {
+  app = new Hono<AppEnv>();
+  app.use("*", async (c, next) => {
+    c.set("composed", composed);
+    await next();
+  });
+  app.route(
+    "/api/proxy",
+    proxyRoutes({ capMs, fetch: toStub, log: () => undefined })
+  );
+};
+
+beforeEach(async () => {
+  db = migrated();
+  nowMs = START_MS;
+  onTokenRequest = undefined;
+  secretsKey = await importSecretsKey(SECRETS_KEY);
+  db.insert(workspaces)
+    .values({
+      clerkOrgId: "org_w1",
+      createdAt: new Date(nowMs).toISOString(),
+      id: WORKSPACE,
+      name: "w1",
+      timezone: "UTC",
+    })
+    .run();
+  const store = new Map<string, string>();
+  composed = composeWith({
+    allowedOrgIds: ["org_w1"],
+    db,
+    infra: {
+      atomic: sqliteAtomic(db),
+      blobs: {
+        get: (key) => Promise.resolve(store.get(key) ?? null),
+        put: (key, body) => {
+          store.set(key, body);
+          return Promise.resolve();
+        },
+      },
+      clock,
+      devFakeRuntime: true,
+      fetch: toStub,
+      fileBlobs: memoryFileBlobs(),
+      relay: noopRelay,
+      runTokenKey: RUN_TOKEN_KEY,
+      secretsKey: SECRETS_KEY,
+    },
+  });
+  agentId = (
+    await composed.services.agents.create(dom, {
+      model: "fake",
+      name: "Bruce",
+      runtime: "fake",
+      slug: "bruce",
+    })
+  ).id;
+  mount();
+});
+
+afterEach(() => {
+  stub?.stop();
+  stub = undefined;
+});
+
+describe("the gate", () => {
+  test("the cap is five minutes", () => {
+    expect(PROXY_CAP_MS).toBe(5 * MINUTE_MS);
+  });
+
+  test("a missing, forged or unknown token gets 401", async () => {
+    startStub();
+    await seedHeaderCredential();
+    addRun("run_1");
+
+    expect((await call(null)).status).toBe(401);
+    expect((await call("hm_run_forged.sig")).status).toBe(401);
+    expect((await call("not-a-token")).status).toBe(401);
+    expect(stubOf().stats().calls).toHaveLength(0);
+  });
+
+  test("a run token for a finished or interrupted run gets 401", async () => {
+    startStub();
+    await seedHeaderCredential();
+    addRun("run_done", "done");
+    addRun("run_interrupted", "interrupted");
+
+    expect((await call(await tokenFor("run_done"))).status).toBe(401);
+    expect((await call(await tokenFor("run_interrupted"))).status).toBe(401);
+    expect(stubOf().stats().calls).toHaveLength(0);
+  });
+
+  test("a run whose lease has passed gets 401", async () => {
+    startStub();
+    await seedHeaderCredential();
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+
+    nowMs += 31 * MINUTE_MS;
+
+    expect((await call(token)).status).toBe(401);
+  });
+
+  test("a connector not assigned to the run's agent gets 403 before any credential is read", async () => {
+    startStub();
+    await seedConnector(db, {
+      authKind: "header",
+      id: CONNECTOR,
+      now: new Date(nowMs).toISOString(),
+      url: `${PUBLIC_ORIGIN}/mcp`,
+      workspaceId: WORKSPACE,
+    });
+    // A credential exists, so a lookup that ran first would have found it.
+    await seedCredential(db, secretsKey, {
+      connectorId: CONNECTOR,
+      now: new Date(nowMs).toISOString(),
+      ownerId: agentId,
+      ownerKind: "agent",
+      secret: `Bearer ${STUB_TOKEN}`,
+      workspaceId: WORKSPACE,
+    });
+    addRun("run_1");
+
+    const response = await call(await tokenFor("run_1"));
+
+    expect(response.status).toBe(403);
+    expect(stubOf().stats().calls).toHaveLength(0);
+    expect(await eventsOf("run_1")).toHaveLength(0);
+  });
+
+  test("a connector id that does not exist gets 403 too", async () => {
+    startStub();
+    addRun("run_1");
+
+    expect((await call(await tokenFor("run_1"), echoBody, "nope")).status).toBe(
+      403
+    );
+  });
+
+  test("a GET is refused with 405: there is no server stream through the proxy", async () => {
+    startStub();
+    await seedHeaderCredential();
+    addRun("run_1");
+
+    const response = await app.request(
+      PROXY_URL,
+      { headers: { Authorization: `Bearer ${await tokenFor("run_1")}` } },
+      env
+    );
+
+    expect(response.status).toBe(405);
+  });
+});
+
+describe("forwarding", () => {
+  test("the stub sees the real header and never the run token, and one connector.call is logged without arguments", async () => {
+    startStub();
+    await seedHeaderCredential();
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+
+    expect(await echoed(await call(token))).toBe("hello");
+
+    const seen = stubOf().stats().calls.at(0);
+    expect(seen?.headers.authorization).toBe(`Bearer ${STUB_TOKEN}`);
+    expect(JSON.stringify(stubOf().stats().calls)).not.toContain(token);
+    const logged = await eventsOf("run_1");
+    expect(logged.map((row) => row.type)).toEqual(["connector.call"]);
+    const payload = JSON.parse(logged[0]?.payload ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    expect(payload).toMatchObject({
+      connectorId: CONNECTOR,
+      method: "tools/call",
+      ownerKind: "agent",
+      tool: "echo",
+    });
+    expect(JSON.stringify(payload)).not.toContain("hello");
+    expect(logged[0]?.sessionId).toBe("session_run_1");
+    expect(logged[0]?.agentId).toBe(agentId);
+  });
+
+  test("a connector that echoes the login back does not hand it to the model", async () => {
+    startStub();
+    await seedHeaderCredential();
+    addRun("run_1");
+
+    const response = await call(
+      await tokenFor("run_1"),
+      JSON.stringify({
+        id: 9,
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: { arguments: { text: `key is ${STUB_TOKEN}` }, name: "echo" },
+      })
+    );
+
+    expect(await echoed(response)).toBe("key is [redacted]");
+  });
+
+  test("a run on a single_user machine for someone who did not enrol it uses the agent's login, and the event says so", async () => {
+    startStub();
+    await seedHeaderCredential();
+    await db.update(agentConnectors).set({ credentialMode: "user_or_agent" });
+    db.insert(machines)
+      .values({
+        capabilities: "{}",
+        createdAt: new Date(nowMs).toISOString(),
+        credentialHash: "m_single",
+        enrolledBy: "someone_else",
+        id: "m_single",
+        lastSeenAt: null,
+        name: "m_single",
+        singleUser: true,
+        status: "online",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    addRun("run_1", "running", "m_single");
+
+    expect(await echoed(await call(await tokenFor("run_1")))).toBe("hello");
+
+    const [logged] = await eventsOf("run_1");
+    expect(JSON.parse(logged?.payload ?? "{}")).toMatchObject({
+      note: "single_user_machine",
+      ownerKind: "agent",
+    });
+  });
+
+  test("a login the connector refuses outright becomes needs_auth", async () => {
+    // The pasted value is not the one this server wants.
+    startStub({ token: "another-token" });
+    const id = await seedHeaderCredential();
+    addRun("run_1");
+
+    const rpc = (await (await call(await tokenFor("run_1"))).json()) as Rpc;
+
+    expect(rpc.error?.data?.code).toBe("needs_auth");
+    expect((await credentialRow(id)).status).toBe("needs_auth");
+    expect((await eventsOf("run_1")).map((row) => row.type)).toEqual([
+      "connector.needs_auth",
+    ]);
+  });
+
+  test("every request that gets through logs exactly one event", async () => {
+    startStub();
+    await seedHeaderCredential();
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+
+    await call(
+      token,
+      JSON.stringify({
+        id: 1,
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: {},
+      })
+    );
+    await call(
+      token,
+      JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })
+    );
+    await call(token);
+
+    const logged = await eventsOf("run_1");
+    expect(logged).toHaveLength(3);
+    expect(logged.every((row) => row.type === "connector.call")).toBe(true);
+  });
+
+  test("a revoked credential gets the needs_auth error with the Connect path, and nothing is forwarded", async () => {
+    startStub();
+    const id = await seedHeaderCredential();
+    await db
+      .update(credentials)
+      .set({ status: "revoked" })
+      .where(eq(credentials.id, id));
+    addRun("run_1");
+
+    const response = await call(await tokenFor("run_1"));
+
+    expect(response.status).toBe(200);
+    const rpc = (await response.json()) as Rpc;
+    expect(rpc.error?.data?.code).toBe("needs_auth");
+    expect(rpc.error?.message).toContain(
+      `/connect/${CONNECTOR}?as=agent:${agentId}`
+    );
+    expect(stubOf().stats().calls).toHaveLength(0);
+    const logged = await eventsOf("run_1");
+    expect(logged.map((row) => row.type)).toEqual(["connector.needs_auth"]);
+  });
+
+  test("a run for a person without a credential is told to connect as that person", async () => {
+    startStub();
+    await seedHeaderCredential();
+    await db.update(agentConnectors).set({ credentialMode: "user" });
+    addRun("run_1");
+
+    const rpc = (await (await call(await tokenFor("run_1"))).json()) as Rpc;
+
+    expect(rpc.error?.data?.code).toBe("needs_auth");
+    expect(rpc.error?.message).toContain(`/connect/${CONNECTOR}?as=user`);
+  });
+});
+
+describe("refreshing", () => {
+  test("--fail-once makes the next call refresh and succeed with version = 2", async () => {
+    startStub({ failOnce: true });
+    const id = await seedOAuthCredential();
+    addRun("run_1");
+
+    expect(await echoed(await call(await tokenFor("run_1")))).toBe("hello");
+
+    expect(stubOf().stats().tokenCalls).toBe(1);
+    const row = await credentialRow(id);
+    expect(row.version).toBe(2);
+    expect(row.status).toBe("ok");
+    expect(row.refreshingUntil).toBeNull();
+    const headers = stubOf()
+      .stats()
+      .calls.map((c) => c.headers.authorization);
+    // The stub does not record the call it refuses.
+    expect(headers).toEqual([`Bearer ${STUB_TOKEN}-refreshed-1`]);
+    // The next call uses the stored token and needs no refresh.
+    expect(await echoed(await call(await tokenFor("run_1")))).toBe("hello");
+    expect(stubOf().stats().tokenCalls).toBe(1);
+  });
+
+  test("two concurrent calls that both see a 401 make exactly one token-endpoint call and both succeed", async () => {
+    startStub({ failOnce: true });
+    await seedOAuthCredential();
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+
+    const [first, second] = await Promise.all([call(token), call(token)]);
+
+    expect(await echoed(first)).toBe("hello");
+    expect(await echoed(second)).toBe("hello");
+    expect(stubOf().stats().tokenCalls).toBe(1);
+  });
+
+  test("a refresh racing a revocation leaves the row revoked and the stale write is rejected", async () => {
+    startStub({ failOnce: true });
+    const id = await seedOAuthCredential();
+    addRun("run_1");
+    const before = await credentialRow(id);
+    let release: () => void = () => undefined;
+    let inFlight: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      inFlight = resolve;
+    });
+    onTokenRequest = async () => {
+      inFlight();
+      await held;
+    };
+
+    const pending = call(await tokenFor("run_1"));
+    await started;
+    // The person revokes while the token endpoint is being called.
+    await db
+      .update(credentials)
+      .set({ refreshingUntil: null, status: "revoked", version: 2 })
+      .where(eq(credentials.id, id));
+    release();
+    const rpc = (await (await pending).json()) as Rpc;
+
+    expect(rpc.error?.data?.code).toBe("needs_auth");
+    const after = await credentialRow(id);
+    expect(after.status).toBe("revoked");
+    expect(after.version).toBe(2);
+    expect(after.secret).toBe(before.secret);
+    expect(stubOf().stats().tokenCalls).toBe(1);
+  });
+
+  test("a refresh racing a re-authorisation leaves the newer grant", async () => {
+    startStub({ failOnce: true });
+    const id = await seedOAuthCredential();
+    addRun("run_1");
+    let release: () => void = () => undefined;
+    let inFlight: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      inFlight = resolve;
+    });
+    onTokenRequest = async () => {
+      inFlight();
+      await held;
+    };
+
+    const pending = call(await tokenFor("run_1"));
+    await started;
+    // The person connects again while the token endpoint is being called. The
+    // grant is one the stub accepts after its own refresh.
+    const regranted = await encryptSecret(
+      secretsKey,
+      {
+        field: "secret",
+        rowId: id,
+        table: "credentials",
+        workspaceId: WORKSPACE,
+      },
+      JSON.stringify({
+        accessToken: `${STUB_TOKEN}-refreshed-1`,
+        refreshToken: "regranted-refresh",
+      })
+    );
+    await db
+      .update(credentials)
+      .set({
+        refreshingUntil: null,
+        secret: regranted,
+        status: "ok",
+        version: 2,
+      })
+      .where(eq(credentials.id, id));
+    release();
+
+    expect(await echoed(await pending)).toBe("hello");
+    const after = await credentialRow(id);
+    expect(after.version).toBe(2);
+    expect(after.secret).toBe(regranted);
+  });
+
+  test("a lease holder that dies leaves a lease that expires in 30 s, and the next caller takes it", async () => {
+    startStub({ failOnce: true });
+    const id = await seedOAuthCredential();
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+    // The first caller takes the lease and never comes back.
+    onTokenRequest = () => new Promise<void>(() => undefined);
+    Promise.resolve(call(token)).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const leased = await credentialRow(id);
+    expect(Date.parse(leased.refreshingUntil ?? "")).toBe(nowMs + 30_000);
+
+    // Inside the lease the caller waits, finds nothing new, and is told to retry.
+    onTokenRequest = undefined;
+    const waiting = (await (await call(token)).json()) as Rpc;
+    expect(waiting.error?.data?.code).toBe("retry");
+    expect(stubOf().stats().tokenCalls).toBe(0);
+
+    nowMs += 31_000;
+
+    expect(await echoed(await call(token))).toBe("hello");
+    expect(stubOf().stats().tokenCalls).toBe(1);
+    expect((await credentialRow(id)).version).toBe(2);
+  });
+
+  test("--fail-once with no refresh token sets needs_auth and appends connector.needs_auth", async () => {
+    startStub({ failOnce: true });
+    const id = await seedOAuthCredential({
+      accessToken: STUB_TOKEN,
+      refreshToken: null,
+    });
+    addRun("run_1");
+
+    const rpc = (await (await call(await tokenFor("run_1"))).json()) as Rpc;
+
+    expect(rpc.error?.data?.code).toBe("needs_auth");
+    expect(rpc.error?.message).toContain(
+      `/connect/${CONNECTOR}?as=agent:${agentId}`
+    );
+    const row = await credentialRow(id);
+    expect(row.status).toBe("needs_auth");
+    expect(row.refreshingUntil).toBeNull();
+    expect(stubOf().stats().tokenCalls).toBe(0);
+    expect((await eventsOf("run_1")).map((e) => e.type)).toEqual([
+      "connector.needs_auth",
+    ]);
+    // The next call does not even reach the server.
+    const calls = stubOf().stats().calls.length;
+    await call(await tokenFor("run_1"));
+    expect(stubOf().stats().calls).toHaveLength(calls);
+  });
+
+  test("a token endpoint that refuses the refresh token sets needs_auth", async () => {
+    startStub({ failOnce: true });
+    const id = await seedOAuthCredential();
+    addRun("run_1");
+    // A 400 from the token endpoint is the provider saying no.
+    const refusing: Fetcher = (input, init) =>
+      String(input).endsWith("/token")
+        ? Promise.resolve(
+            Response.json({ error: "invalid_grant" }, { status: 400 })
+          )
+        : toStub(input, init);
+    composed = composeWith({
+      allowedOrgIds: ["org_w1"],
+      db,
+      infra: {
+        atomic: sqliteAtomic(db),
+        blobs: {
+          get: () => Promise.resolve(null),
+          put: () => Promise.resolve(),
+        },
+        clock,
+        devFakeRuntime: true,
+        fetch: refusing,
+        fileBlobs: memoryFileBlobs(),
+        relay: noopRelay,
+        runTokenKey: RUN_TOKEN_KEY,
+        secretsKey: SECRETS_KEY,
+      },
+    });
+
+    const rpc = (await (await call(await tokenFor("run_1"))).json()) as Rpc;
+
+    expect(rpc.error?.data?.code).toBe("needs_auth");
+    expect((await credentialRow(id)).status).toBe("needs_auth");
+  });
+
+  test("a token endpoint that is down leaves the credential alone and asks the model to retry", async () => {
+    startStub({ failOnce: true });
+    const id = await seedOAuthCredential();
+    addRun("run_1");
+    const down: Fetcher = (input, init) =>
+      String(input).endsWith("/token")
+        ? Promise.resolve(new Response("busy", { status: 503 }))
+        : toStub(input, init);
+    composed = composeWith({
+      allowedOrgIds: ["org_w1"],
+      db,
+      infra: {
+        atomic: sqliteAtomic(db),
+        blobs: {
+          get: () => Promise.resolve(null),
+          put: () => Promise.resolve(),
+        },
+        clock,
+        devFakeRuntime: true,
+        fetch: down,
+        fileBlobs: memoryFileBlobs(),
+        relay: noopRelay,
+        runTokenKey: RUN_TOKEN_KEY,
+        secretsKey: SECRETS_KEY,
+      },
+    });
+
+    const rpc = (await (await call(await tokenFor("run_1"))).json()) as Rpc;
+
+    expect(rpc.error?.data?.code).toBe("retry");
+    const row = await credentialRow(id);
+    expect(row.status).toBe("ok");
+    expect(row.refreshingUntil).toBeNull();
+    expect(row.version).toBe(1);
+  });
+});
+
+describe("the cap", () => {
+  test("a call that outlasts the cap produces connector.timeout", async () => {
+    // The stub's --sleep 310 against a 5 minute cap, scaled down: 1 s against 300 ms.
+    startStub({ sleepSeconds: 1 });
+    await seedHeaderCredential();
+    addRun("run_1");
+    mount(300);
+
+    const rpc = (await (await call(await tokenFor("run_1"))).json()) as Rpc;
+
+    expect(rpc.error?.data?.code).toBe("timeout");
+    expect((await eventsOf("run_1")).map((row) => row.type)).toEqual([
+      "connector.timeout",
+    ]);
+  });
+
+  test("a call that finishes inside the cap is not stopped", async () => {
+    startStub({ sleepSeconds: 0.1 });
+    await seedHeaderCredential();
+    addRun("run_1");
+    mount(2000);
+
+    expect(await echoed(await call(await tokenFor("run_1")))).toBe("hello");
+  });
+});

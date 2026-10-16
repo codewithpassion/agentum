@@ -29,7 +29,15 @@ const DEFAULT_EXPIRES_IN_SECONDS = 3600;
 const ERROR_SNIPPET_LENGTH = 300;
 
 export class OAuthDiscoveryError extends Error {}
-export class OAuthTokenError extends Error {}
+export class OAuthTokenError extends Error {
+  /** The HTTP status of the token endpoint's answer. */
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
 
 export interface OAuthFetchOptions {
   fetchImpl?: Fetcher;
@@ -453,14 +461,16 @@ const postToken = async (
       (payload ? stringField(payload, "error") : null) ??
       `HTTP ${response.status}`;
     throw new OAuthTokenError(
-      `The authorization server refused the request: ${detail.slice(0, ERROR_SNIPPET_LENGTH)}`
+      `The authorization server refused the request: ${detail.slice(0, ERROR_SNIPPET_LENGTH)}`,
+      response.status
     );
   }
 
   const accessToken = payload ? stringField(payload, "access_token") : null;
   if (!accessToken) {
     throw new OAuthTokenError(
-      "The authorization server returned no access token."
+      "The authorization server returned no access token.",
+      response.status
     );
   }
 

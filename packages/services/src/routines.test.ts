@@ -465,7 +465,7 @@ test("failed and interrupted runs count, done clears, cancelled counts for nothi
   expect(await finish("failed")).toEqual({ settled: 1 });
   expect(routineRow(routine.id)?.consecutiveErrors).toBe(1);
   expect(routineRow(routine.id)?.lastError).toBe("boom");
-  expect(routineRow(routine.id)?.lastRunId).toBeNull();
+  expect(routineRow(routine.id)?.settledRunId).not.toBeNull();
   await finish("interrupted");
   expect(routineRow(routine.id)?.consecutiveErrors).toBe(2);
   await finish("cancelled");
@@ -581,24 +581,69 @@ test("a routine whose organisation is no longer allowed stops firing", async () 
   expect((await tick()).fired).toHaveLength(1);
 });
 
-test("a run that outlives its slot is still judged, and a later run is tracked after it", async () => {
+const endRun = (runId: string | undefined, status: "done" | "failed") =>
+  db
+    .update(runRows)
+    .set({ error: status === "failed" ? "late failure" : null, status })
+    .where(eq(runRows.id, runId ?? ""))
+    .run();
+
+test("a run that outlives its slot holds back the later ones, and every run is counted once", async () => {
+  const routine = await makeRoutine("* * * * *");
+  const fired: (string | undefined)[] = [];
+  for (let slot = 0; slot < 3; slot += 1) {
+    advance(MINUTE_MS);
+    // biome-ignore lint/performance/noAwaitInLoops: slots pass in order
+    fired.push((await tick()).fired[0]);
+  }
+
+  // The newest two ended; the first is still running, so nothing is judged yet.
+  endRun(fired[1], "failed");
+  endRun(fired[2], "failed");
+  expect(await service.settleRuns(SYSTEM_PRINCIPAL)).toEqual({ settled: 0 });
+  expect(routineRow(routine.id)?.consecutiveErrors).toBe(0);
+
+  endRun(fired[0], "done");
+  expect(await service.settleRuns(SYSTEM_PRINCIPAL)).toEqual({ settled: 1 });
+  expect(routineRow(routine.id)?.consecutiveErrors).toBe(2);
+  expect(routineRow(routine.id)?.lastError).toBe("late failure");
+  expect(routineRow(routine.id)?.settledRunId).toBe(fired[2] ?? "");
+  expect(await service.settleRuns(SYSTEM_PRINCIPAL)).toEqual({ settled: 0 });
+});
+
+test("a run fired while the settle job runs is judged by the next one", async () => {
   const routine = await makeRoutine("* * * * *");
   advance(MINUTE_MS);
   const [first] = (await tick()).fired;
+  endRun(first, "failed");
   advance(MINUTE_MS);
-  const [second] = (await tick()).fired;
+  const [second] = (
+    await Promise.all([tick(), service.settleRuns(SYSTEM_PRINCIPAL)])
+  )[0].fired;
+  endRun(second, "failed");
+  await service.settleRuns(SYSTEM_PRINCIPAL);
 
-  // The first run is still running when the second slot fires, so it stays tracked.
-  expect(routineRow(routine.id)?.lastRunId).toBe(first ?? "");
-  db.update(runRows)
-    .set({ error: "late failure", status: "failed" })
-    .where(eq(runRows.id, first ?? ""))
-    .run();
-  // A tick that fires and settles together does not lose the ended run.
-  advance(MINUTE_MS);
-  await Promise.all([tick(), service.settleRuns(SYSTEM_PRINCIPAL)]);
+  expect(routineRow(routine.id)?.consecutiveErrors).toBe(2);
+  expect(routineRow(routine.id)?.settledRunId).toBe(second ?? "");
+});
+
+test("failures that a done run interrupts do not add up to five", async () => {
+  const routine = await makeRoutine("* * * * *");
+  const sequence = [
+    "failed",
+    "failed",
+    "failed",
+    "failed",
+    "done",
+    "failed",
+  ] as const;
+  for (const status of sequence) {
+    advance(MINUTE_MS);
+    // biome-ignore lint/performance/noAwaitInLoops: slots pass in order
+    endRun((await tick()).fired[0], status);
+  }
+  await service.settleRuns(SYSTEM_PRINCIPAL);
 
   expect(routineRow(routine.id)?.consecutiveErrors).toBe(1);
-  expect(routineRow(routine.id)?.lastError).toBe("late failure");
-  expect(second).toBeDefined();
+  expect(routineRow(routine.id)?.disabledAt).toBeNull();
 });

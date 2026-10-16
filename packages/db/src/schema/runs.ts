@@ -1,5 +1,6 @@
 import {
   type AnySQLiteColumn,
+  index,
   integer,
   sqliteTable,
   text,
@@ -40,6 +41,8 @@ export const runs = sqliteTable(
     parentRunId: text("parent_run_id").references(
       (): AnySQLiteColumn => runs.id
     ),
+    // Downloads of pending_files that failed. Three failures fail the run.
+    pendingAttempts: integer("pending_attempts").notNull().default(0),
     // Slack file descriptors not yet in R2. A run with pending files is not
     // claimable. JSON.
     pendingFiles: text("pending_files"),
@@ -57,5 +60,9 @@ export const runs = sqliteTable(
     usage: text("usage"),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
-  (t) => [uniqueIndex("runs_request_unique").on(t.workspaceId, t.requestId)]
+  (t) => [
+    uniqueIndex("runs_request_unique").on(t.workspaceId, t.requestId),
+    // The runs of one actor in time order, which is how a routine's runs are found.
+    index("runs_actor_idx").on(t.actorId, t.id),
+  ]
 );

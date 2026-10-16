@@ -11,7 +11,19 @@ import type { Atomic, Statement } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
-import { and, asc, eq, exists, inArray, isNull, lt, max } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  exists,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  max,
+  or,
+  sql,
+} from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -53,11 +65,12 @@ import {
   type RunSummary,
   type RuntimeAdapter,
   type StartRunInput,
+  type StartRunOptions,
   startRunInputSchema,
   TERMINAL_STATUSES,
   usageSchema,
 } from "./runs/types.ts";
-import type { Principal } from "./workspaces.ts";
+import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 /** A claimed run is `running` until this long after the last heartbeat. */
 export const LEASE_MS = 90_000;
@@ -67,6 +80,13 @@ export const WAIT_MAX_MS = 120_000;
 const WAIT_POLL_MS = 500;
 /** Rows one tick job handles; the next minute takes the rest. */
 const SWEEP_BATCH = 100;
+/** Failed downloads of a run's pending files before the run is failed. */
+export const MAX_PENDING_ATTEMPTS = 3;
+const PENDING_FILES_ERROR = "Could not download the attached files";
+/** One download of a run's pending files at a time; a lost holder frees it after this. */
+const DOWNLOAD_LEASE_MS = 5 * 60_000;
+/** The `message.user` event of a run started with `offerLater` keeps this much of the text. */
+const EVENT_TEXT_CHARS = 20_000;
 
 const STARTING: RunRecord["status"][] = ["queued", "offered"];
 const ACTIVE: RunRecord["status"][] = ["queued", "offered", "running"];
@@ -116,16 +136,6 @@ interface StartResult {
   sessionId: string;
   status: RunRecord["status"];
 }
-
-/**
- * Statements to write in the same atomic write as the session and the run,
- * given their ids. They are skipped when a duplicate `requestId` hands back
- * the run that won.
- */
-export type CompanionWrites = (ids: {
-  runId: string;
-  sessionId: string;
-}) => Statement[];
 
 /**
  * A requestId is a retry key for one caller on one agent. Another caller's
@@ -297,6 +307,61 @@ export const createRunsService = ({
   };
 
   /**
+   * The `run.queued` and `message.user` events of a new run as statements, for
+   * a caller that wants them in the same atomic write as the run.
+   */
+  const queuedEvents = ({
+    agent,
+    fileIds,
+    input,
+    runId,
+    sessionId,
+    subject,
+  }: {
+    agent: Prepared["agent"];
+    fileIds: string[];
+    input: ParsedInput;
+    runId: string;
+    sessionId: string;
+    subject: Subject;
+  }): Statement[] => {
+    const base = {
+      actor: subject.actor,
+      agentId: agent.id,
+      runId,
+      sessionId,
+      workspaceId: agent.workspaceId,
+    };
+    return [
+      eventsService.insertStatement({
+        ...base,
+        payload: { depth: subject.depth, origin: input.session.origin },
+        type: "run.queued",
+      }),
+      eventsService.insertStatement({
+        ...base,
+        payload: {
+          fileIds,
+          text: input.input.text.slice(0, EVENT_TEXT_CHARS),
+        },
+        type: "message.user",
+      }),
+    ];
+  };
+
+  /** What a trusted caller wants in the same atomic write as the run. */
+  const extraWrites = (
+    queued: Parameters<typeof queuedEvents>[0],
+    options: StartRunOptions
+  ): Statement[] => [
+    ...(options.offerLater ? queuedEvents(queued) : []),
+    ...(options.alongside?.({
+      runId: queued.runId,
+      sessionId: queued.sessionId,
+    }) ?? []),
+  ];
+
+  /**
    * Writes the session (new, or its last-run time) and the run in one atomic
    * write. A duplicate `requestId` fails the unique index; the run that won is
    * read back and returned instead.
@@ -304,7 +369,7 @@ export const createRunsService = ({
   const insertOnce = async (
     prepared: Prepared,
     input: ParsedInput,
-    companions?: CompanionWrites
+    options: StartRunOptions
   ): Promise<StartResult & { inserted: boolean }> => {
     const { agent, fileIds, subject } = prepared;
     const { workspaceId } = agent;
@@ -351,6 +416,9 @@ export const createRunsService = ({
       onBehalfOfUserId: subject.onBehalfOfUserId,
       outputFileIds: "[]",
       parentRunId: subject.parentRunId,
+      pendingFiles: options.pendingFiles?.length
+        ? JSON.stringify(options.pendingFiles)
+        : null,
       reply: JSON.stringify(input.reply),
       requestId: input.requestId ?? null,
       sessionId,
@@ -361,7 +429,10 @@ export const createRunsService = ({
       await atomic([
         sessionWrite,
         runWrite,
-        ...(companions?.({ runId, sessionId }) ?? []),
+        ...extraWrites(
+          { agent, fileIds, input, runId, sessionId, subject },
+          options
+        ),
       ]);
       return { inserted: true, runId, sessionId, status: "queued" };
     } catch (error) {
@@ -389,37 +460,33 @@ export const createRunsService = ({
   const insertRun = async (
     prepared: Prepared,
     input: ParsedInput,
-    companions?: CompanionWrites
+    options: StartRunOptions
   ) => {
     try {
-      return await insertOnce(prepared, input, companions);
+      return await insertOnce(prepared, input, options);
     } catch (error) {
       if (!isUniqueViolation(error)) {
         throw error;
       }
-      return await insertOnce(prepared, input, companions);
+      return await insertOnce(prepared, input, options);
     }
   };
 
   /**
-   * `startRun` with `companions` written in the same atomic write, and
-   * `inserted` telling a new run from one handed back for a repeated
-   * `requestId`. A new run is dispatched; a handed-back one is not.
+   * `options` is for trusted callers inside the Worker, never the request:
+   * the Slack route passes the file descriptors that are still to be fetched
+   * and the rows that must land in the same atomic write as the run.
    */
-  const startRunWith = async (
+  const startRun = async (
     principal: Principal,
     rawInput: StartRunInput,
-    companions?: CompanionWrites
-  ): Promise<StartResult & { inserted: boolean }> => {
+    options: StartRunOptions = {}
+  ): Promise<StartResult> => {
     const input = startRunInputSchema.parse(rawInput);
     const prepared = await prepareStart(principal, input);
-    const { inserted, ...started } = await insertRun(
-      prepared,
-      input,
-      companions
-    );
-    if (!inserted) {
-      return { ...started, inserted };
+    const { inserted, ...started } = await insertRun(prepared, input, options);
+    if (!inserted || options.offerLater) {
+      return started;
     }
     const run = await loadRun(db, started.runId, prepared.agent.workspaceId);
     if (!run) {
@@ -434,19 +501,11 @@ export const createRunsService = ({
       fileIds: prepared.fileIds,
       text: input.input.text,
     });
-    await prepared.adapter.dispatch(db, run, prepared.agent, adapterDeps);
-    return { ...started, inserted };
-  };
-
-  const startRun = async (
-    principal: Principal,
-    rawInput: StartRunInput
-  ): Promise<StartResult> => {
-    const { runId, sessionId, status } = await startRunWith(
-      principal,
-      rawInput
-    );
-    return { runId, sessionId, status };
+    // A run with pending files is offered once they are fetched.
+    if (!run.pendingFiles) {
+      await prepared.adapter.dispatch(db, run, prepared.agent, adapterDeps);
+    }
+    return started;
   };
 
   let importedTokenKey: Promise<CryptoKey> | undefined;
@@ -803,26 +862,166 @@ export const createRunsService = ({
     await adapter?.cancel(db, run, adapterDeps);
   };
 
-  /** Fetches a run's leftover Slack files through its reply gateway. */
-  const downloadPendingFiles = async (run: RunRecord): Promise<boolean> => {
-    const gateway = gatewayByKind.get(run.reply.kind);
-    if (!(run.pendingFiles && gateway?.downloadPendingFiles)) {
+  /**
+   * Counts a failed download and frees the run for the next try. The third
+   * failure fails the run, with an event, and returns true; before that the
+   * caller rethrows and a later attempt tries again.
+   */
+  const recordFailedDownload = async (run: RunRecord): Promise<boolean> => {
+    const waiting = and(
+      eq(runs.id, run.id),
+      inArray(runs.status, STARTING),
+      isNotNull(runs.pendingFiles)
+    );
+    const [counted] = await db
+      .update(runs)
+      .set({
+        leaseUntil: null,
+        pendingAttempts: sql`${runs.pendingAttempts} + 1`,
+      })
+      .where(waiting)
+      .returning({ attempts: runs.pendingAttempts });
+    if (!counted || counted.attempts < MAX_PENDING_ATTEMPTS) {
       return false;
     }
-    const fileIds = await gateway.downloadPendingFiles(run.pendingFiles, {
-      agentId: run.agentId,
-      onBehalfOfUserId: run.onBehalfOfUserId,
-      runId: run.id,
-      workspaceId: run.workspaceId,
-    });
-    await db
+    const failed = await db
+      .update(runs)
+      .set({
+        error: PENDING_FILES_ERROR,
+        finishedAt: nowIso(),
+        status: "failed",
+      })
+      .where(waiting)
+      .returning({ id: runs.id });
+    if (failed.length > 0) {
+      await appendRunEvent(run, "run.failed", eventActor(SYSTEM_PRINCIPAL), {
+        error: PENDING_FILES_ERROR,
+      });
+    }
+    return true;
+  };
+
+  type DownloadOutcome = "downloaded" | "failed" | "skipped";
+
+  /**
+   * Takes the run's download lease, or says someone else holds it. The lease
+   * rides on `lease_until`, which a queued run does not otherwise use.
+   */
+  const claimDownload = async (run: RunRecord): Promise<boolean> => {
+    const now = nowIso();
+    const claimed = await db
+      .update(runs)
+      .set({
+        leaseUntil: new Date(
+          clock.now().getTime() + DOWNLOAD_LEASE_MS
+        ).toISOString(),
+      })
+      .where(
+        and(
+          eq(runs.id, run.id),
+          inArray(runs.status, STARTING),
+          isNotNull(runs.pendingFiles),
+          or(isNull(runs.leaseUntil), lt(runs.leaseUntil, now))
+        )
+      )
+      .returning({ id: runs.id });
+    return claimed.length > 0;
+  };
+
+  /** Fetches a run's leftover Slack files through its reply gateway. */
+  const downloadPendingFiles = async (
+    run: RunRecord
+  ): Promise<DownloadOutcome> => {
+    const gateway = gatewayByKind.get(run.reply.kind);
+    if (
+      !(
+        run.pendingFiles &&
+        gateway?.downloadPendingFiles &&
+        (await claimDownload(run))
+      )
+    ) {
+      return "skipped";
+    }
+    let fileIds: string[];
+    try {
+      fileIds = await gateway.downloadPendingFiles(run.pendingFiles, {
+        agentId: run.agentId,
+        onBehalfOfUserId: run.onBehalfOfUserId,
+        runId: run.id,
+        workspaceId: run.workspaceId,
+      });
+    } catch (error) {
+      if (await recordFailedDownload(run)) {
+        return "failed";
+      }
+      throw error;
+    }
+    const stored = await db
       .update(runs)
       .set({
         inputFileIds: JSON.stringify([...run.inputFileIds, ...fileIds]),
+        leaseUntil: null,
         pendingFiles: null,
       })
-      .where(and(eq(runs.id, run.id), inArray(runs.status, STARTING)));
+      .where(
+        and(
+          eq(runs.id, run.id),
+          inArray(runs.status, STARTING),
+          isNotNull(runs.pendingFiles)
+        )
+      )
+      .returning({ id: runs.id });
+    return stored.length > 0 ? "downloaded" : "skipped";
+  };
+
+  const offerRun = async (run: RunRecord): Promise<boolean> => {
+    const { adapter, agent } = await adapterFor(run);
+    if (!(agent && adapter)) {
+      return false;
+    }
+    await adapter.dispatch(db, run, agent, adapterDeps);
     return true;
+  };
+
+  /**
+   * Offers one queued run to its agent's runtime, for the job a caller
+   * defers until after it has answered (the sweep does it for a job that did
+   * not run). A run still waiting on files is left alone.
+   */
+  const offerQueuedRun = async (
+    principal: Principal,
+    runId: string
+  ): Promise<void> => {
+    requireSystem(principal, "runs.offer");
+    const run = await loadRun(db, runId);
+    if (run && STARTING.includes(run.status) && !run.pendingFiles) {
+      await offerRun(run);
+    }
+  };
+
+  /**
+   * Fetches the pending files of one run and offers it, for the Slack route's
+   * `waitUntil` job (the sweep does the same for a job that did not finish).
+   * A failed attempt throws; the third one fails the run and returns
+   * "failed".
+   */
+  const fetchPendingFiles = async (
+    principal: Principal,
+    runId: string
+  ): Promise<DownloadOutcome> => {
+    requireSystem(principal, "runs.fetch_pending");
+    const run = await loadRun(db, runId);
+    if (!(run?.pendingFiles && STARTING.includes(run.status))) {
+      return "skipped";
+    }
+    const outcome = await downloadPendingFiles(run);
+    if (outcome === "downloaded") {
+      const fetched = await loadRun(db, runId);
+      if (fetched && STARTING.includes(fetched.status)) {
+        await offerRun(fetched);
+      }
+    }
+    return outcome;
   };
 
   interface SweepResult {
@@ -834,17 +1033,22 @@ export const createRunsService = ({
   /** One stale run: fetch its files, then offer it again if it is claimable. */
   const sweepRun = async (row: RunRow, result: SweepResult) => {
     let run = toRecord(row);
-    if (run.pendingFiles && (await downloadPendingFiles(run))) {
-      result.downloaded.push(run.id);
-      run = (await loadRun(db, run.id)) ?? run;
+    if (run.pendingFiles) {
+      const outcome = await downloadPendingFiles(run);
+      if (outcome === "failed") {
+        result.failed.push({ message: PENDING_FILES_ERROR, runId: run.id });
+        return;
+      }
+      if (outcome === "downloaded") {
+        result.downloaded.push(run.id);
+        run = (await loadRun(db, run.id)) ?? run;
+      }
     }
     if (run.pendingFiles) {
       // Still downloading, so the run cannot be claimed yet.
       return;
     }
-    const { adapter, agent } = await adapterFor(run);
-    if (agent && adapter) {
-      await adapter.dispatch(db, run, agent, adapterDeps);
+    if (await offerRun(run)) {
       result.offered.push(run.id);
     }
   };
@@ -924,12 +1128,13 @@ export const createRunsService = ({
     claimRun,
     claimRunForMachine,
     completeRun,
+    fetchPendingFiles,
     getRun,
     heartbeatRun,
     ingestRunEvents,
+    offerQueuedRun,
     reapExpiredLeases,
     startRun,
-    startRunWith,
     sweepQueuedRuns,
     waitForRun,
   };

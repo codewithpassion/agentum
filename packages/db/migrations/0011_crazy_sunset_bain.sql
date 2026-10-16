@@ -13,11 +13,11 @@ CREATE TABLE `__new_triggers` (
 	`kind` text NOT NULL,
 	`last_error` text,
 	`last_fired_at` text,
-	`last_run_id` text,
 	`name` text NOT NULL,
 	`next_run_at` text,
 	`prompt` text,
 	`revoked_at` text,
+	`settled_run_id` text,
 	`timezone` text,
 	`token_hash` text,
 	`token_prefix` text,
@@ -30,4 +30,5 @@ INSERT INTO `__new_triggers`("agent_id", "created_at", "created_by", "id", "kind
 DROP TABLE `triggers`;--> statement-breakpoint
 ALTER TABLE `__new_triggers` RENAME TO `triggers`;--> statement-breakpoint
 CREATE UNIQUE INDEX `triggers_token_hash_unique` ON `triggers` (`token_hash`);--> statement-breakpoint
-CREATE INDEX `triggers_due_idx` ON `triggers` (`next_run_at`);
+CREATE INDEX `triggers_due_idx` ON `triggers` (`next_run_at`);--> statement-breakpoint
+CREATE INDEX `runs_actor_idx` ON `runs` (`actor_id`,`id`);
