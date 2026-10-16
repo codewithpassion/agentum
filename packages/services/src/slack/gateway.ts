@@ -72,6 +72,11 @@ export const isAllowedMime = (mime: string): boolean =>
 const CONNECT_LINK = /(?:https?:\/\/[^\s/<>|]+)?\/connect\/[^\s<>|)\]]+/g;
 const PRIVATE_NOTE = "(the link was sent to you privately)";
 const EMPTY_REPLY = "(no reply)";
+/**
+ * How long a delivery may start new uploads. `waitUntil` gives the work 30 s
+ * after the response, so a file not started by then is reported, not cut off.
+ */
+const UPLOAD_BUDGET_MS = 20_000;
 
 /**
  * The first Connect link in the text that points at this app: a path, or a
@@ -195,11 +200,16 @@ export const createSlackGateway = ({
     client: SlackClient,
     slack: Extract<ReplyTarget, { kind: "slack" }>,
     fileIds: string[],
-    run: { agentId: string; runId: string; workspaceId: string }
+    run: { agentId: string; runId: string; workspaceId: string },
+    deadline: number
   ): Promise<string[]> => {
     const principal = { ...run, kind: "run" } as const;
     const failures: string[] = [];
     for (const fileId of fileIds) {
+      if (clock.now().getTime() >= deadline) {
+        failures.push(`${fileId}: not uploaded, out of time`);
+        continue;
+      }
       // biome-ignore lint/performance/noAwaitInLoops: one file in memory at a time
       const failure = await uploadOutput(client, slack, principal, fileId);
       if (failure) {
@@ -216,6 +226,7 @@ export const createSlackGateway = ({
     context: DeliveryContext,
     workspaceId: string
   ): Promise<{ error?: string; ok: boolean }> => {
+    const deadline = clock.now().getTime() + UPLOAD_BUDGET_MS;
     const client = await clientFor({
       agentId: context.agentId,
       teamId: slack.teamId,
@@ -249,11 +260,17 @@ export const createSlackGateway = ({
       }
     }
     failures.push(
-      ...(await uploadOutputs(client, slack, message.fileIds, {
-        agentId: context.agentId,
-        runId: context.runId,
-        workspaceId,
-      }))
+      ...(await uploadOutputs(
+        client,
+        slack,
+        message.fileIds,
+        {
+          agentId: context.agentId,
+          runId: context.runId,
+          workspaceId,
+        },
+        deadline
+      ))
     );
     return failures.length > 0
       ? { error: failures.join("; "), ok: true }

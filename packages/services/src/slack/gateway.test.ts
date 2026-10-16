@@ -716,3 +716,42 @@ test("deliver without files does not use the defer hook", async () => {
   expect(deferred).toHaveLength(0);
   expect(callsTo("chat.postMessage")).toHaveLength(1);
 });
+
+test("deliver reports the files it had no time to upload and still records the event", async () => {
+  const first = await storeOutput("a.pdf", "a");
+  const second = await storeOutput("b.pdf", "b");
+  listOutputs([first, second]);
+  // Every look at the clock is ten seconds later than the one before.
+  let ticks = 0;
+  const slow = createSlackGateway({
+    clock: {
+      now: () => {
+        ticks += 1;
+        return new Date(Date.parse(START) + 10_000 * (ticks - 1));
+      },
+      sleep: () => Promise.resolve(),
+    },
+    db,
+    events,
+    fetch: slackFetch,
+    files,
+    publicBaseUrl: PUBLIC_BASE_URL,
+    secretsKey: SECRETS_KEY,
+  });
+
+  await slow.deliver(
+    slackTarget,
+    { fileIds: [first, second], text: "Done." },
+    context
+  );
+
+  expect(callsTo("files.completeUploadExternal")).toHaveLength(1);
+  expect(deliveredEvents()).toEqual([
+    {
+      channel: CHANNEL,
+      delivered: true,
+      error: `${second}: not uploaded, out of time`,
+      threadTs: THREAD,
+    },
+  ]);
+});
