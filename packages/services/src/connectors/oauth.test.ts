@@ -601,3 +601,38 @@ describe("refreshTokens", () => {
     ).rejects.toThrow(INVALID_GRANT);
   });
 });
+
+describe("redirects", () => {
+  test("no request follows a redirect, so a 3xx cannot reach past the guard", async () => {
+    const inits: (RequestInit | undefined)[] = [];
+    const fetchImpl = ((_input: unknown, init?: RequestInit) => {
+      inits.push(init);
+      return Promise.resolve(Response.json({}, { status: 307 }));
+    }) as unknown as typeof fetch;
+
+    await discoverProtectedResource(MCP_URL, null, { fetchImpl });
+    await registerClient(
+      "https://auth.example.com/register",
+      { clientName: "x", redirectUri: REDIRECT_URI },
+      { fetchImpl }
+    ).catch(() => null);
+    await exchangeCode(
+      "https://auth.example.com/token",
+      {
+        clientId: "c",
+        clientSecret: "s",
+        tokenEndpointAuth: "client_secret_post",
+      },
+      {
+        code: "c",
+        redirectUri: REDIRECT_URI,
+        resource: MCP_URL,
+        verifier: "v",
+      },
+      { fetchImpl }
+    ).catch(() => null);
+
+    expect(inits.length).toBeGreaterThanOrEqual(3);
+    expect(inits.every((init) => init?.redirect === "manual")).toBe(true);
+  });
+});

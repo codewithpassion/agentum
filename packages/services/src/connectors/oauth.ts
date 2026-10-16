@@ -72,6 +72,8 @@ const getJson = async (
   const fetchImpl = options.fetchImpl ?? fetch;
   const response = await fetchImpl(assertSafeUrl(url).toString(), {
     headers: { accept: "application/json" },
+    // A redirect could point past the SSRF guard, so it is never followed.
+    redirect: "manual",
     signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
   }).catch(() => null);
 
@@ -316,6 +318,7 @@ export const registerClient = async (
       }),
       headers: { "content-type": "application/json" },
       method: "POST",
+      redirect: "manual",
       signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     }
   );
@@ -435,6 +438,8 @@ const postToken = async (
     body: body.toString(),
     headers,
     method: "POST",
+    // A 307 would resend the code, verifier and client secret to its target.
+    redirect: "manual",
     signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
   });
 

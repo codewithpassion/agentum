@@ -158,11 +158,10 @@ function AssignedConnectorRow({
               </a>
             </Button>
           </>
-        ) : (
-          <Button onClick={setClient} size="sm" variant="outline">
-            Set client
-          </Button>
-        )}
+        ) : null}
+        <Button onClick={setClient} size="sm" variant="outline">
+          Set client
+        </Button>
       </div>
     );
   }

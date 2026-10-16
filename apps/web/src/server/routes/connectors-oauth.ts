@@ -12,8 +12,10 @@ import type { Principal } from "@repo/services/workspaces";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { ZodError } from "zod";
 import type { AppEnv } from "./groups.ts";
 
+const BAD_REQUEST = 400;
 const FOUND = 302;
 const FORBIDDEN = 403;
 const UNAUTHORIZED = 401;
@@ -53,6 +55,9 @@ const caller = async (
 const refusal = (c: RouteContext, error: unknown): Response => {
   if (isForbiddenError(error)) {
     return c.text("Not allowed.", FORBIDDEN);
+  }
+  if (error instanceof ZodError) {
+    return c.text("That request is malformed.", BAD_REQUEST);
   }
   if (isServiceError(error)) {
     return c.text(error.message, error.status as ContentfulStatusCode);
@@ -101,7 +106,7 @@ export const connectorOAuthRoutes = (
     }
     const state = c.req.query("state");
     if (!state) {
-      return c.text("The provider sent no state.", 400);
+      return c.text("The provider sent no state.", BAD_REQUEST);
     }
     try {
       const result = await c

@@ -108,25 +108,26 @@ function OAuthActions({
   );
   const { oauth } = connector;
 
-  if (oauth === null || !(oauth.clientConfigured || oauth.canRegister)) {
-    return (
-      <Button onClick={setClient} size="sm" variant="outline">
-        Set client
-      </Button>
-    );
-  }
-
+  const canConnect =
+    oauth !== null && (oauth.clientConfigured || oauth.canRegister);
   const href = connectHref({
     as: "user",
     connectorId: connector.id,
     returnTo: "/connectors",
   });
   return (
-    <Button asChild size="sm" variant="outline">
-      <a href={href}>
-        {connector.myCredential === null ? "Connect" : "Re-authorise"}
-      </a>
-    </Button>
+    <div className="flex justify-end gap-2">
+      {canConnect ? (
+        <Button asChild size="sm" variant="outline">
+          <a href={href}>
+            {connector.myCredential === null ? "Connect" : "Re-authorise"}
+          </a>
+        </Button>
+      ) : null}
+      <Button onClick={setClient} size="sm" variant="outline">
+        Set client
+      </Button>
+    </div>
   );
 }
 

@@ -529,7 +529,10 @@ export const createConnectorOAuthService = ({
       await store(user, row, parsed.code);
       return finish(null);
     } catch (error: unknown) {
-      if (error instanceof ServiceError && error.code === "invalid") {
+      if (
+        error instanceof ServiceError &&
+        (error.code === "invalid" || error.code === "conflict")
+      ) {
         return finish(error.message);
       }
       throw error;
