@@ -2,6 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
 import { migrated } from "@repo/db/test-db";
+import { noopRelay } from "@repo/services/machines/types";
 import type { Clock } from "@repo/services/runs/types";
 import { composeWith } from "../compose.ts";
 import { tickJobs } from "./jobs.ts";
@@ -30,6 +31,7 @@ beforeEach(() => {
       },
       clock,
       devFakeRuntime: false,
+      relay: noopRelay,
     },
   });
   deps = { clock, services };

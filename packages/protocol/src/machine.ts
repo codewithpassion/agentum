@@ -10,7 +10,22 @@ export const CLOSE_CODES = {
 const isoTimestampSchema = z.iso.datetime({ offset: true });
 const jsonRecordSchema = z.record(z.string(), z.json());
 
+export const enrollRequestSchema = z.strictObject({
+  code: z.string().startsWith("hm_enr_").max(200),
+  singleUser: z.boolean(),
+});
+export type EnrollRequest = z.infer<typeof enrollRequestSchema>;
+
+export const enrollResponseSchema = z.strictObject({
+  credential: z.string().startsWith("hm_mach_"),
+  machineId: z.string(),
+});
+export type EnrollResponse = z.infer<typeof enrollResponseSchema>;
+
 export const daemonHelloSchema = z.strictObject({
+  // Agent ULIDs, the same ids as `offer.agentId` and `claim.agent.id`, for the
+  // agents the daemon has a working directory for. Informational: the relay
+  // offers runs by the agents assigned to the machine in D1, never by this list.
   agents: z.array(z.string()),
   capabilities: z.strictObject({
     agentSdk: z.string(),

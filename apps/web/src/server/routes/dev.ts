@@ -38,13 +38,6 @@ export const runAtomicProbe = async (db: Database, atomic: Atomic) => {
 
 export const devRoutes = new Hono<AppEnv>();
 
-// Proves the Durable Object runs under the Vite plugin: the answer comes from
-// inside MachineRelay.
-devRoutes.get("/api/machines/ping-do", async (c) => {
-  const stub = c.env.MACHINE_RELAY.get(c.env.MACHINE_RELAY.idFromName("ping"));
-  return c.json(await stub.ping());
-});
-
 devRoutes.get("/api/dev/atomic-probe", async (c) => {
   const { atomic, db } = c.get("composed");
   return c.json(await runAtomicProbe(db, atomic));

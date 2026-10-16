@@ -30,6 +30,8 @@ export const machineEnrollTokens = sqliteTable(
   "machine_enroll_tokens",
   {
     createdAt: createdAt(),
+    // Clerk user who minted the token. Becomes `machines.enrolled_by`.
+    createdBy: text("created_by").notNull(),
     expiresAt: text("expires_at").notNull(),
     id: id(),
     machineName: text("machine_name").notNull(),
