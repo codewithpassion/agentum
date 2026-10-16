@@ -24,10 +24,7 @@ const TITLE_MAX = 80;
 /** The service errors an agent can act on, as tool errors. Anything else passes through. */
 const toToolError = (error: unknown): unknown => {
   if (isForbiddenError(error)) {
-    return new ToolError(
-      "forbidden",
-      "This credential may not do that. A read-only API key cannot send messages."
-    );
+    return new ToolError("forbidden", "This credential may not do that.");
   }
   if (isServiceError(error)) {
     const code = error.code === "invalid" ? "validation" : error.code;

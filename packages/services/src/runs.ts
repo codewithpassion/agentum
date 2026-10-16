@@ -39,6 +39,7 @@ import {
   deriveSubject,
   eventActor,
   START_ACTION,
+  type Subject,
 } from "./runs/subject.ts";
 import {
   type AdapterDeps,
@@ -123,12 +124,16 @@ interface StartResult {
 const refuseForeignRequest = (
   existing: RunRecord,
   agentId: string,
-  actor: Actor
+  subject: Subject
 ): void => {
+  // Two runs of one agent share an actor, so the run tree and the person
+  // behind it tell them apart.
   if (
     existing.agentId !== agentId ||
-    existing.actor.id !== actor.id ||
-    existing.actor.kind !== actor.kind
+    existing.actor.id !== subject.actor.id ||
+    existing.actor.kind !== subject.actor.kind ||
+    existing.parentRunId !== subject.parentRunId ||
+    existing.onBehalfOfUserId !== subject.onBehalfOfUserId
   ) {
     throw new ServiceError(
       "conflict",
@@ -352,7 +357,7 @@ export const createRunsService = ({
       if (!existing) {
         throw error;
       }
-      refuseForeignRequest(existing, agent.id, subject.actor);
+      refuseForeignRequest(existing, agent.id, subject);
       return {
         inserted: false,
         runId: existing.id,

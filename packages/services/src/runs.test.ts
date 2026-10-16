@@ -409,6 +409,30 @@ test("a requestId is handed back only to the caller that used it", async () => {
   expect(otherAgent).toMatchObject({ code: "conflict" });
 });
 
+test("two runs of one agent do not share a requestId", async () => {
+  const parentOne = await start(user, spyAgentId);
+  const parentTwo = await start(colleague, spyAgentId);
+  const first = await start(
+    runPrincipal(parentOne.runId, spyAgentId),
+    fakeAgentId,
+    { requestId: "msg-1", session: { origin: "mcp" } }
+  );
+  const retry = await start(
+    runPrincipal(parentOne.runId, spyAgentId),
+    fakeAgentId,
+    { requestId: "msg-1", session: { origin: "mcp" } }
+  );
+  expect(retry.runId).toBe(first.runId);
+
+  const sibling = await failure(
+    start(runPrincipal(parentTwo.runId, spyAgentId), fakeAgentId, {
+      requestId: "msg-1",
+      session: { origin: "mcp" },
+    })
+  );
+  expect(sibling).toMatchObject({ code: "conflict" });
+});
+
 test("a run reads its own agent's runs and the runs it started, not others", async () => {
   const mine = await start(user, spyAgentId);
   const theirs = await start(user, fakeAgentId);
