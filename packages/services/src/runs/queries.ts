@@ -80,13 +80,15 @@ export const findSession = async (
 
 /**
  * Throws "not found" for the first file id that is missing from the
- * workspace, or, when `ownerUserId` is given, not that user's own upload.
+ * workspace, or, when `ownerUserId` is given, not that user's own upload, or,
+ * when `runId` is given, not an output of that run.
  */
 export const requireFiles = async (
   db: Database,
   query: {
     fileIds: readonly string[];
     ownerUserId?: string;
+    runId?: string;
     workspaceId: string;
   }
 ) => {
@@ -97,6 +99,9 @@ export const requireFiles = async (
     inArray(files.id, [...query.fileIds]),
     eq(files.workspaceId, query.workspaceId),
   ];
+  if (query.runId !== undefined) {
+    conditions.push(eq(files.runId, query.runId));
+  }
   if (query.ownerUserId !== undefined) {
     conditions.push(
       eq(files.createdByKind, "user"),
