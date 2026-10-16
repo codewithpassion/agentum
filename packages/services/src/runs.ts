@@ -537,6 +537,33 @@ export const createRunsService = ({
     }
   };
 
+  /**
+   * The claiming machine stopped a running run on its own (SIGTERM, a 1012
+   * close). The process has already exited, so the run ends `interrupted` with
+   * `process_ended_at` set, and Retry is offered at once.
+   */
+  const abortedCompletion = async (principal: Principal, run: RunRecord) => {
+    if (run.status !== "running") {
+      await recordProcessEnded(run);
+      return;
+    }
+    const now = nowIso();
+    const moved = await db
+      .update(runs)
+      .set({
+        error: "Aborted by the machine",
+        finishedAt: now,
+        processEndedAt: now,
+        status: "interrupted",
+      })
+      .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+      .returning({ id: runs.id });
+    if (moved.length === 0) {
+      throw new ServiceError("conflict", "Run is no longer running");
+    }
+    await appendRunEvent(run, "run.interrupted", eventActor(principal));
+  };
+
   const deliverReply = async (
     run: RunRecord,
     message: { fileIds: string[]; text: string }
@@ -593,7 +620,7 @@ export const createRunsService = ({
     const run = await requireRun(principal, runId);
     authorizeRunWrite(principal, run, "runs.complete");
     if (result.status === "aborted") {
-      await recordProcessEnded(run);
+      await abortedCompletion(principal, run);
       return;
     }
     if (run.status !== "running") {

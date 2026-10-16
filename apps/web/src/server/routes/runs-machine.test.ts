@@ -329,6 +329,36 @@ test("an expired lease interrupts the run, and the run then refuses every write 
   expect(again.status).toBe(409);
 });
 
+test("an aborted completion of a running run drops the run token and frees the agent's next run", async () => {
+  const { credential, machineId } = await enrol("laptop");
+  const agentId = await agentOn(machineId, "Box");
+  const first = await start(agentId, "a");
+  const next = await start(agentId, "b");
+  const claimed = claimResponseSchema.parse(
+    await (await claim(credential, first.runId)).json()
+  );
+  const resolver = createPrincipalResolver({
+    allowedOrgIds: ALLOWED_ORG_IDS,
+    db,
+    isOrgMember: () => Promise.resolve(false),
+    runTokenKey: await importRunTokenKey(KEY),
+    verifyClerkOAuthToken: () => Promise.resolve(null),
+  });
+  const resolve = () => resolver.resolve(`Bearer ${claimed.runToken}`);
+  expect(await resolve()).not.toBeNull();
+  expect((await claim(credential, next.runId)).status).toBe(409);
+
+  const aborted = await call("complete", first.runId, credential, {
+    status: "aborted",
+  });
+
+  expect(aborted.status).toBe(200);
+  expect(row(first.runId)).toMatchObject({ status: "interrupted" });
+  expect(row(first.runId)?.processEndedAt).not.toBeNull();
+  expect(await resolve()).toBeNull();
+  expect((await claim(credential, next.runId)).status).toBe(200);
+});
+
 test("each run route answers 401 without an Authorization header", async () => {
   const { machineId } = await enrol("laptop");
   const agentId = await agentOn(machineId, "Box");

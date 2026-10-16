@@ -1485,8 +1485,10 @@ ingestRunEvents(db, principal: RunPrincipal, events: RunEventInput[]): Promise&l
 completeRun(db, principal: RunPrincipal, result: { status: "done" | "failed"; text?: string; fileIds?: string[]; error?: string; usage?: Usage; runtimeRef?: string }): Promise&lt;void&gt;
 // Both refuse with 409 unless runs.status is "running". That is the fence against a
 // late event or completion from an execution whose lease already expired.
-// One exception: completeRun({ status: "aborted" }) is accepted for an "interrupted" run and
-// records process_ended_at, which is the daemon saying "the local process has exited".</code></pre>
+// One exception: completeRun({ status: "aborted" }) is accepted from the machine that claimed the
+// run, for a "running" run (it becomes "interrupted" with process_ended_at set) and for an
+// "interrupted" run (it records process_ended_at). Both are the daemon saying "the local process
+// has exited"; a repeat gets 409.</code></pre>
       <p>
         The <code>fake</code> adapter answers with an echo. It is registered
         only when <code>devFakeRuntime</code> is set, and
@@ -1496,11 +1498,12 @@ completeRun(db, principal: RunPrincipal, result: { status: "done" | "failed"; te
         exists. A run whose lease expires becomes <code>interrupted</code>,
         never re-queued, because a lost heartbeat does not prove the Claude Code
         process stopped before it sent an email. The daemon, on a 409 from
-        heartbeat or a 1012 close, aborts its local process and posts
-        <code>aborted</code>
-        once it has exited. The UI offers Retry (a new run) only after that, or
-        after ten minutes, so two processes never work on the same files on
-        purpose.
+        heartbeat or a 1012 close, or when it stops itself, aborts its local
+        process and posts <code>aborted</code>
+        once it has exited. The server accepts it for a running run, which
+        becomes <code>interrupted</code> at once, and for an interrupted one.
+        The UI offers Retry (a new run) only after that, or after ten minutes,
+        so two processes never work on the same files on purpose.
       </p>
 
       <h3>3. Machine protocol (daemon and relay)</h3>
@@ -1535,7 +1538,7 @@ POST /api/machines/runs/:runId/claim     -&gt; { run, agent, session, runToken, 
    // The run token is minted here, once, and nowhere else.
 POST /api/machines/runs/:runId/events    -&gt; { events: RunEventInput[] }      // batched every 500 ms, 409 unless running
 POST /api/machines/runs/:runId/heartbeat -&gt; {}                               // extends lease_until by 90 s, 409 unless running
-POST /api/machines/runs/:runId/complete  -&gt; { status, text, fileIds, usage, runtimeRef }   // or { status: "aborted" } for an interrupted run</code></pre>
+POST /api/machines/runs/:runId/complete  -&gt; { status, text, fileIds, usage, runtimeRef }   // or { status: "aborted" } for a running or interrupted run, from the claiming machine</code></pre>
       <p>
         The claim answer carries everything the daemon needs for the run,
         including the generated <code>mcpServers</code> map (seam 4), so the

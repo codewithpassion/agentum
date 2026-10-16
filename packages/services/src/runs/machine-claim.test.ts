@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { events as eventRows } from "@repo/db/schema/events";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -249,4 +250,47 @@ test("only the machine that claimed a run may heartbeat it", async () => {
   );
 
   expect(error.code).toBe("forbidden");
+});
+
+test("the claiming machine's aborted completion interrupts a running run", async () => {
+  const started = await start(agentId);
+  await claim("m1", started.runId);
+
+  nowMs += 5000;
+  await runs.completeRun(machine("m1"), started.runId, { status: "aborted" });
+
+  const endedAt = new Date(nowMs).toISOString();
+  expect(status(started.runId)).toMatchObject({
+    error: "Aborted by the machine",
+    finishedAt: endedAt,
+    processEndedAt: endedAt,
+    status: "interrupted",
+  });
+  const interrupted = db
+    .select()
+    .from(eventRows)
+    .where(eq(eventRows.runId, started.runId))
+    .all()
+    .filter((event) => event.type === "run.interrupted");
+  expect(interrupted).toHaveLength(1);
+
+  const repeated = await rejection(
+    runs.completeRun(machine("m1"), started.runId, { status: "aborted" })
+  );
+  expect(repeated.code).toBe("conflict");
+});
+
+test("another machine's aborted completion is forbidden and leaves the run running", async () => {
+  const started = await start(agentId);
+  await claim("m1", started.runId);
+
+  const error = await rejection(
+    runs.completeRun(machine("m2"), started.runId, { status: "aborted" })
+  );
+
+  expect(error.code).toBe("forbidden");
+  expect(status(started.runId)).toMatchObject({
+    processEndedAt: null,
+    status: "running",
+  });
 });
