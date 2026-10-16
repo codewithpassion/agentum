@@ -221,6 +221,12 @@ export interface AdapterDeps {
     runId: string,
     events: readonly RunEventInput[]
   ) => Promise<{ lastSeq: number }>;
+  /**
+   * Undoes a `claimRun` whose runtime could not start the work: a `running`
+   * run claimed by the system goes back to `offered`, so the sweep offers it
+   * again. Does nothing to a run in any other state.
+   */
+  releaseRun: (principal: Principal, runId: string) => Promise<void>;
 }
 
 export interface RuntimeAdapter {

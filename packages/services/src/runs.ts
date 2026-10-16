@@ -22,9 +22,11 @@ import {
   isNull,
   lt,
   max,
+  notExists,
   or,
   sql,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -293,6 +295,7 @@ export const createRunsService = ({
       completeRun(principal, runId, result),
     ingestRunEvents: (principal, runId, batch) =>
       ingestRunEvents(principal, runId, batch),
+    releaseRun: (principal, runId) => releaseRun(principal, runId),
   };
 
   type Prepared = Awaited<ReturnType<typeof prepareStart>>;
@@ -579,6 +582,8 @@ export const createRunsService = ({
     runId: string
   ): Promise<RunRecord> => {
     requireSystem(principal, "runs.claim");
+    const sibling = alias(runs, "sibling");
+    const older = alias(runs, "older");
     const claimed = await db
       .update(runs)
       .set({
@@ -592,7 +597,38 @@ export const createRunsService = ({
           eq(runs.id, runId),
           inArray(runs.status, STARTING),
           // A run with pending Slack files is not claimable.
-          isNull(runs.pendingFiles)
+          isNull(runs.pendingFiles),
+          // One running run per agent.
+          notExists(
+            db
+              .select({ id: sibling.id })
+              .from(sibling)
+              .where(
+                and(
+                  eq(sibling.agentId, runs.agentId),
+                  eq(sibling.status, "running")
+                )
+              )
+          ),
+          // A session's runs run in order: no older one may still be waiting.
+          notExists(
+            db
+              .select({ id: older.id })
+              .from(older)
+              .where(
+                and(
+                  eq(older.sessionId, runs.sessionId),
+                  inArray(older.status, STARTING),
+                  or(
+                    lt(older.createdAt, runs.createdAt),
+                    and(
+                      eq(older.createdAt, runs.createdAt),
+                      lt(older.id, runs.id)
+                    )
+                  )
+                )
+              )
+          )
         )
       )
       .returning({ id: runs.id });
@@ -605,6 +641,33 @@ export const createRunsService = ({
     }
     await appendRunEvent(run, "run.started", agentActor(run));
     return run;
+  };
+
+  /**
+   * Undoes a system claim whose runtime could not start the work. Only a
+   * `running` run claimed by the system moves back to `offered`. A run in any
+   * other state, such as one cancelled meanwhile, is left as it is.
+   */
+  const releaseRun = async (
+    principal: Principal,
+    runId: string
+  ): Promise<void> => {
+    requireSystem(principal, "runs.release");
+    await db
+      .update(runs)
+      .set({
+        claimedBy: null,
+        leaseUntil: null,
+        startedAt: null,
+        status: "offered",
+      })
+      .where(
+        and(
+          eq(runs.id, runId),
+          eq(runs.status, "running"),
+          eq(runs.claimedBy, "system")
+        )
+      );
   };
 
   const ingestRunEvents = async (
@@ -1232,6 +1295,7 @@ export const createRunsService = ({
     ingestRunEvents,
     offerQueuedRun,
     reapExpiredLeases,
+    releaseRun,
     startRun,
     sweepQueuedRuns,
     waitForRun,
