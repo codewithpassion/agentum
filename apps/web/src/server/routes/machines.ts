@@ -1,5 +1,6 @@
-// Machine HTTP routes: the one-time enrol, and the socket a daemon dials. Both
-// are bearer-authenticated, so the group has no csrf check. Mount with
+// Machine HTTP routes: the one-time enrol, the socket a daemon dials and the
+// run calls (machine-runs.ts). All are bearer-authenticated, so the group has
+// no csrf check. Mount with
 // `runtimeRoutes.route("/api/machines", machineRoutes())`.
 import {
   CLOSE_CODES,
@@ -11,6 +12,7 @@ import {
   RELAY_HEADER_WORKSPACE_ID,
 } from "../relay-core.ts";
 import { bearerGroup } from "./groups.ts";
+import { machineRunRoutes } from "./machine-runs.ts";
 
 const UPGRADE_REQUIRED = 426;
 
@@ -94,6 +96,8 @@ export const machineRoutes = () => {
     );
     return stub.fetch(new Request(c.req.url, { headers, method: "GET" }));
   });
+
+  machines.route("/runs", machineRunRoutes());
 
   return machines;
 };

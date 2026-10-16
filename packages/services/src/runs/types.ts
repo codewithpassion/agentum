@@ -146,6 +146,35 @@ export interface RunResult {
   usage?: Usage;
 }
 
+/** What a machine's daemon gets for the run it just claimed (contract C4). */
+export interface MachineClaim {
+  agent: {
+    id: string;
+    model: string;
+    name: string;
+    runtimeConfig: Record<string, unknown>;
+    slug: string;
+  };
+  inputFileIds: string[];
+  instructions: string;
+  mcpServers: Record<
+    string,
+    { headers: Record<string, string>; type: "http"; url: string }
+  >;
+  run: {
+    agentId: string;
+    id: string;
+    inputText: string;
+    sessionId: string;
+  };
+  runToken: string;
+  session: {
+    id: string;
+    runtimeMachineId: string | null;
+    runtimeRef: string | null;
+  };
+}
+
 /**
  * What the service lends an adapter. Adapters that run in-process (fake,
  * later managed) use these; the machine adapter's daemon reaches the same
