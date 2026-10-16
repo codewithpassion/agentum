@@ -52,8 +52,49 @@ export interface SearchHit {
   session: SessionInfo;
 }
 
+/** An inbox thread as the tools show it. */
+export interface ThreadInfo {
+  createdAt: string;
+  id: string;
+  lastPostAt: string;
+  title: string;
+}
+
+export interface PostInfo {
+  /** The user id, or the agent id. */
+  authorId: string;
+  /** `user` or `agent`. */
+  authorKind: string;
+  createdAt: string;
+  id: string;
+  /** Set on an agent's post: the run that wrote it. */
+  runId: string | null;
+  text: string;
+}
+
+/** A thread with its newest posts, oldest first. */
+export interface ThreadTranscript {
+  posts: PostInfo[];
+  thread: ThreadInfo;
+}
+
+/** A run that a post's mention started. */
+export interface WokenRunInfo {
+  agentId: string;
+  runId: string;
+}
+
+export interface PostedInfo {
+  post: PostInfo;
+  /** The runs the post's `@slug` mentions started. Empty when none did. */
+  runs: WokenRunInfo[];
+}
+
 export interface McpPorts {
   getRun: (input: { runId: string }) => Promise<RunInfo>;
+  inboxList: () => Promise<ThreadInfo[]>;
+  inboxPost: (input: { text: string; threadId: string }) => Promise<PostedInfo>;
+  inboxRead: (input: { threadId: string }) => Promise<ThreadTranscript>;
   listAgents: () => Promise<AgentInfo[]>;
   listSessions: (input: { agent: string }) => Promise<SessionInfo[]>;
   readSession: (input: { sessionId: string }) => Promise<SessionTranscript>;

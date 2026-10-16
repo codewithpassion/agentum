@@ -5,12 +5,15 @@
 import type {
   AgentInfo,
   McpPorts,
+  PostInfo,
   RunInfo,
   SessionInfo,
+  ThreadInfo,
 } from "@repo/mcp/ports";
 import { ToolError } from "@repo/mcp/result";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
+import type { PostRecord, ThreadRecord } from "@repo/services/inbox";
 import type { RunSummary } from "@repo/services/runs/types";
 import type {
   SessionListItem,
@@ -49,6 +52,22 @@ const toRunInfo = (run: RunSummary): RunInfo => ({
   runId: run.id,
   sessionId: run.sessionId,
   status: run.status,
+});
+
+const toThreadInfo = (thread: ThreadRecord): ThreadInfo => ({
+  createdAt: thread.createdAt,
+  id: thread.id,
+  lastPostAt: thread.lastPostAt,
+  title: thread.title,
+});
+
+const toPostInfo = (post: PostRecord): PostInfo => ({
+  authorId: post.authorId,
+  authorKind: post.authorKind,
+  createdAt: post.createdAt,
+  id: post.id,
+  runId: post.runId,
+  text: post.text,
 });
 
 const toSessionInfo = (item: SessionListItem): SessionInfo => ({
@@ -100,6 +119,26 @@ export const createMcpPorts = ({
       guarded(async () =>
         toRunInfo(await services.runs.getRun(principal, runId))
       ),
+
+    inboxList: () =>
+      guarded(async () =>
+        (await services.inbox.listThreads(principal)).map(toThreadInfo)
+      ),
+
+    inboxPost: ({ text, threadId }) =>
+      guarded(async () => {
+        const posted = await services.inbox.post(principal, { text, threadId });
+        return { post: toPostInfo(posted.post), runs: posted.runs };
+      }),
+
+    inboxRead: ({ threadId }) =>
+      guarded(async () => {
+        const view = await services.inbox.readThread(principal, { threadId });
+        return {
+          posts: view.posts.map(toPostInfo),
+          thread: toThreadInfo(view.thread),
+        };
+      }),
 
     listAgents: () =>
       guarded(async () =>
