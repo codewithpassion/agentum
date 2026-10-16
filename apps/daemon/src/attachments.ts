@@ -7,6 +7,10 @@
 
 import { realpathSync, type Stats, statSync } from "node:fs";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import {
+  ATTACHMENT_MARKER_RE,
+  stripAttachmentMarkers,
+} from "@repo/protocol/attachments";
 import { file as bunFile } from "bun";
 
 /**
@@ -16,10 +20,6 @@ import { file as bunFile } from "bun";
 export const MAX_OUTBOUND_BYTES = 50 * 1024 * 1024;
 
 const FALLBACK_MIME = "application/octet-stream";
-const MARKER_RE = /\[ATTACHMENT:([^\]]+)\]/g;
-const MARKER_WITH_LEADING_SPACE_RE = / ?\[ATTACHMENT:[^\]]+\]/g;
-const TRAILING_SPACE_RE = /[ \t]+\n/g;
-const BLANK_RUN_RE = /\n\s*\n\s*\n/g;
 const MISSING_REASONS = new Set<RejectedFile["reason"]>([
   "missing",
   "not_a_file",
@@ -42,7 +42,7 @@ export const extractAttachmentMarkers = (text: string): ExtractedMarkers => {
   }
   const paths: string[] = [];
   const seen = new Set<string>();
-  for (const match of text.matchAll(MARKER_RE)) {
+  for (const match of text.matchAll(ATTACHMENT_MARKER_RE)) {
     const path = (match[1] ?? "").trim();
     if (path.length === 0 || seen.has(path)) {
       continue;
@@ -50,15 +50,7 @@ export const extractAttachmentMarkers = (text: string): ExtractedMarkers => {
     seen.add(path);
     paths.push(path);
   }
-  // Drop one preceding space with an inline marker so "a [ATTACHMENT:x] b"
-  // becomes "a b". Then tidy trailing whitespace and blank-line runs left by
-  // markers that sat on their own line.
-  const cleaned = text
-    .replace(MARKER_WITH_LEADING_SPACE_RE, "")
-    .replace(TRAILING_SPACE_RE, "\n")
-    .replace(BLANK_RUN_RE, "\n\n")
-    .trim();
-  return { paths, text: cleaned };
+  return { paths, text: stripAttachmentMarkers(text) };
 };
 
 export interface OutboundPolicy {
