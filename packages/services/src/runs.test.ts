@@ -395,7 +395,7 @@ test("files must belong to the starting user", async () => {
   expect(error).toMatchObject({ code: "invalid" });
 });
 
-test("an interrupted run refuses events and completion but accepts aborted", async () => {
+test("an interrupted run refuses events and completion but accepts aborted once", async () => {
   const { runId } = await start(user, spyAgentId);
   await runs.claimRun(SYSTEM_PRINCIPAL, runId);
   advance(91 * SECOND);
@@ -429,7 +429,10 @@ test("an interrupted run refuses events and completion but accepts aborted", asy
   });
 
   advance(5 * SECOND);
-  await runs.completeRun(SYSTEM_PRINCIPAL, runId, { status: "aborted" });
+  const repeated = await failure(
+    runs.completeRun(SYSTEM_PRINCIPAL, runId, { status: "aborted" })
+  );
+  expect(repeated).toMatchObject({ code: "conflict" });
   expect(runRow(runId)).toMatchObject({
     processEndedAt: endedAt,
     status: "interrupted",
