@@ -70,6 +70,7 @@ import {
   TERMINAL_STATUSES,
   usageSchema,
 } from "./runs/types.ts";
+import { visibleSessions } from "./sessions.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 /** A claimed run is `running` until this long after the last heartbeat. */
@@ -199,6 +200,32 @@ export const createRunsService = ({
       throw new ServiceError("not_found", "Run not found");
     }
     return run;
+  };
+
+  /**
+   * A user reaches the runs of the sessions it can see. A run of a hidden
+   * session answers the same not-found as an unknown id.
+   */
+  const requireVisibleSession = async (
+    principal: Principal,
+    run: RunRecord
+  ): Promise<void> => {
+    if (principal.kind !== "user") {
+      return;
+    }
+    const [visible] = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          await visibleSessions(db, principal),
+          eq(sessions.id, run.sessionId)
+        )
+      )
+      .limit(1);
+    if (!visible) {
+      throw new ServiceError("not_found", "Run not found");
+    }
   };
 
   const appendRunEvent = (
@@ -806,6 +833,7 @@ export const createRunsService = ({
       kind: RUN_KIND,
       workspaceId: run.workspaceId,
     });
+    await requireVisibleSession(principal, run);
     // A run reads its own agent's runs and the runs it started.
     if (
       principal.kind === "run" &&
@@ -844,6 +872,7 @@ export const createRunsService = ({
     runId: string
   ): Promise<void> => {
     const run = await requireRun(principal, runId);
+    await requireVisibleSession(principal, run);
     authorize(principal, "runs.cancel", {
       id: run.id,
       kind: RUN_KIND,
