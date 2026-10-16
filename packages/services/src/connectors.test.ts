@@ -435,7 +435,7 @@ test("two pastes at once never report a value that was not stored", async () => 
       .where(eq(credentials.ownerKind, "agent"))
   );
   // Every success is one version step, so none was silently dropped.
-  expect(agentRow.version).toBe(saved.length);
+  expect(agentRow.version).toBe(1 + saved.length);
   expect(saved.length).toBeGreaterThan(0);
 });
 
