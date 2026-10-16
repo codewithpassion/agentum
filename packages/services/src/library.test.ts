@@ -193,6 +193,7 @@ test("overwriting a file changes its etag and size, not the row count", async ()
 
 test("paths with .. past the root or control characters are refused and no key outside the workspace prefix is touched", async () => {
   await service.write(user(B), "secret.md", bytes("b"));
+  blobs.touched.length = 0;
   const bad = [
     "../x",
     "..",
@@ -224,7 +225,7 @@ test("paths with .. past the root or control characters are refused and no key o
   await service.write(user(), "/./d.md", bytes("x"));
   expect(paths()).toEqual(["b", "b/c.md", "d.md"]);
   expect(blobs.touched.length).toBeGreaterThan(0);
-  for (const key of blobs.touched.filter((k) => !k.startsWith("w2/"))) {
+  for (const key of blobs.touched) {
     expect(key.startsWith("w1/library/")).toBe(true);
   }
   expect(blobs.objects.get("w2/library/secret.md")?.bytes).toEqual(bytes("b"));
