@@ -429,6 +429,7 @@ export const createRunsService = ({
           id: sessionId,
           lastRunAt: created,
           origin: input.session.origin,
+          private: input.session.private ?? false,
           workspaceId,
         });
     const runWrite = db.insert(runs).values({

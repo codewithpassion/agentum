@@ -139,9 +139,9 @@ const openerOf = async (
 };
 
 /**
- * Sessions the reader may see. UI sessions belong to the user who opened
- * them, so only that user sees them; other origins are shared. A run sees
- * only its own agent's sessions.
+ * Sessions the reader may see. UI sessions and private ones (a Slack DM)
+ * belong to the user who opened them, so only that user sees them; other
+ * sessions are shared. A run sees only its own agent's sessions.
  */
 export const visibleSessions = async (
   db: Database,
@@ -152,8 +152,11 @@ export const visibleSessions = async (
     eq(sessions.workspaceId, reader.workspaceId),
     reader.kind === "run" ? eq(sessions.agentId, reader.agentId) : undefined,
     opener === null
-      ? ne(sessions.origin, "ui")
-      : or(ne(sessions.origin, "ui"), eq(sessions.actorId, opener))
+      ? and(ne(sessions.origin, "ui"), eq(sessions.private, false))
+      : or(
+          and(ne(sessions.origin, "ui"), eq(sessions.private, false)),
+          eq(sessions.actorId, opener)
+        )
   );
 };
 

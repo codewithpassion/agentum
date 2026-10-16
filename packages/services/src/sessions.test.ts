@@ -56,7 +56,7 @@ const startIn = (
   principal: Principal,
   agent: string,
   text: string,
-  session: { externalKey?: string; origin: "ui" | "slack" }
+  session: { externalKey?: string; origin: "ui" | "slack"; private?: boolean }
 ) =>
   runs.startRun(principal, {
     agentId: agent,
@@ -234,6 +234,7 @@ test("a run lists its own agent's sessions and none of another agent's", async (
 test("a run sees the ui sessions of the user it runs for, not another user's", async () => {
   const mine = await send(user("u1"), "mine");
   const theirs = await send(user("u2"), "theirs");
+  // A Slack channel thread: not private, so every user sees it.
   const shared = await startIn(user("u2"), agentId, "shared", {
     externalKey: "thread-1",
     origin: "slack",
@@ -270,6 +271,44 @@ test("a run with no user behind it, or a missing run, sees no ui session", async
 
   expect(orphan.map((item) => item.id)).toEqual([shared.sessionId]);
   expect(missing.map((item) => item.id)).toEqual([shared.sessionId]);
+});
+
+test("a private Slack DM is visible only to the user who started it, and to runs for that user", async () => {
+  const mine = await send(user("u1"), "mine");
+  const dm = await startIn(user("u2"), agentId, "dm text", {
+    externalKey: "dm-1",
+    origin: "slack",
+    private: true,
+  });
+  const thread = await startIn(user("u2"), agentId, "thread text", {
+    externalKey: "thread-1",
+    origin: "slack",
+  });
+  const principal = runAs(mine.runId, agentId);
+  const listIds = async (reader: Principal) =>
+    (await sessions.list(reader, { agentId })).map((item) => item.id).sort();
+  const hidden = (reader: Principal) =>
+    sessions
+      .transcript(reader, dm.sessionId)
+      .catch((caught: unknown) => caught);
+
+  expect(await listIds(user("u1"))).toEqual(
+    [mine.sessionId, thread.sessionId].sort()
+  );
+  expect(await listIds(principal)).toEqual(
+    [mine.sessionId, thread.sessionId].sort()
+  );
+  expect(await listIds(user("u2"))).toEqual(
+    [dm.sessionId, thread.sessionId].sort()
+  );
+  expect(await hidden(user("u1"))).toMatchObject({ code: "not_found" });
+  expect(await hidden(principal)).toMatchObject({ code: "not_found" });
+  expect((await sessions.transcript(user("u2"), dm.sessionId)).session.id).toBe(
+    dm.sessionId
+  );
+  expect(
+    (await sessions.transcript(user("u1"), thread.sessionId)).session.id
+  ).toBe(thread.sessionId);
 });
 
 test("a run cannot read a session of another agent", async () => {

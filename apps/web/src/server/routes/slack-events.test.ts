@@ -356,6 +356,23 @@ test("a DM is keyed by its own timestamp and a threaded mention by its thread", 
   ]);
 });
 
+test("a DM starts a private session and a channel mention does not", async () => {
+  await send(await fixture("dm"));
+  await send(await fixture("mention"));
+
+  const privacy = Object.fromEntries(
+    db
+      .select()
+      .from(sessionRows)
+      .all()
+      .map((s) => [s.externalKey, s.private])
+  );
+  expect(privacy).toEqual({
+    "T0TEAM:C0CHAN:1789171201.000100": false,
+    "T0TEAM:D0DM:1789171202.000200": true,
+  });
+});
+
 test("a retry with the same body creates nothing and still answers 200", async () => {
   const body = await fixture("mention");
   await send(body);
