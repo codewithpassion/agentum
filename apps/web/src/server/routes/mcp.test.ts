@@ -3,6 +3,7 @@ import { sqliteAtomic } from "@repo/db/atomic";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { migrated } from "@repo/db/test-db";
+import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { importRunTokenKey, signRunToken } from "@repo/services/run-tokens";
 import { systemClock } from "@repo/services/runs/types";
@@ -188,6 +189,7 @@ beforeEach(async () => {
       },
       clock: systemClock,
       devFakeRuntime: true,
+      fileBlobs: memoryFileBlobs(),
       relay: noopRelay,
       runTokenKey: RUN_TOKEN_KEY,
     },
