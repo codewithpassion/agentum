@@ -79,6 +79,8 @@ class FakeGateway implements ManagedGateway {
   credentials: { token: string; url: string; vaultId: string }[] = [];
   deletedVaults: string[] = [];
   interrupted: string[] = [];
+  /** Runs when a session's status is read, to put a write between two steps of a launch. */
+  onGetSession: (() => void) | null = null;
   pollFailure: Error | null = null;
   registered: { instructions: string; name: string; urls: string[] }[] = [];
   readonly sessions = new Map<string, FakeSession>();
@@ -178,6 +180,7 @@ class FakeGateway implements ManagedGateway {
   }
 
   getSession() {
+    this.onGetSession?.();
     return Promise.resolve(this.sessionStatus);
   }
 
@@ -241,6 +244,8 @@ let cancels: string[];
 let agentId: string;
 let tokenKey: CryptoKey;
 let hasKey: boolean;
+/** Runs when the runtime reads the key, to put a write between two steps of a stop. */
+let onResolveKey: (() => void) | null;
 let events: ReturnType<typeof createEventsService>;
 let keys: ReturnType<typeof createManagedKeysService>;
 
@@ -253,8 +258,10 @@ const buildManaged = (publicBaseUrl: string) =>
     gatewayFor: () => gateway,
     keys: {
       rememberEnvironment: keys.rememberEnvironment,
-      resolve: (workspaceId) =>
-        hasKey ? keys.resolve(workspaceId) : Promise.resolve(null),
+      resolve: (workspaceId) => {
+        onResolveKey?.();
+        return hasKey ? keys.resolve(workspaceId) : Promise.resolve(null);
+      },
     },
     poller,
     publicBaseUrl,
@@ -336,6 +343,7 @@ beforeEach(async () => {
   kicks = [];
   cancels = [];
   hasKey = true;
+  onResolveKey = null;
   tokenKey = await importRunTokenKey(RUN_TOKEN_KEY);
   db.insert(workspaces)
     .values({
@@ -580,6 +588,49 @@ describe("a run that stops early", () => {
     expect(gateway.deletedVaults).toEqual([]);
     expect(sessionRow(first.sessionId)?.closedAt).toBeNull();
     expect((await verify(tokenOf("vlt_1"))).ok).toBe(true);
+  });
+
+  test("a cancel that lands while the next run takes the session over leaves the session alone", async () => {
+    const first = await start(dom, "one");
+    gateway.turns = [[gateway.running()]];
+    await managed.step(first.runId);
+    await runs.cancelRun(dom, first.runId);
+    const second = await start(dom, "two");
+    // The next run's launch points the session at itself between the cancel's
+    // read of the session and its close.
+    onResolveKey = () => {
+      db.update(managedSessions)
+        .set({ currentRunId: second.runId })
+        .where(eq(managedSessions.sessionId, first.sessionId))
+        .run();
+    };
+
+    await managed.interrupt(first.runId);
+
+    expect(sessionRow(first.sessionId)?.closedAt).toBeNull();
+    expect(gateway.interrupted).toEqual([]);
+    expect(gateway.deletedVaults).toEqual([]);
+  });
+
+  test("a session closed by a cancel while the next run launches is replaced, not reused", async () => {
+    const first = await start(dom, "one");
+    await drive(first.runId);
+    const second = await start(dom, "two");
+    gateway.turns = [[gateway.running()]];
+    gateway.onGetSession = () => {
+      db.update(managedSessions)
+        .set({ closedAt: START })
+        .where(eq(managedSessions.sessionId, first.sessionId))
+        .run();
+    };
+
+    await managed.step(second.runId);
+
+    expect(gateway.sessions.size).toBe(2);
+    expect(gateway.sessions.get("sesn_1")?.messages).toEqual(["one"]);
+    expect(gateway.sessions.get("sesn_2")?.messages).toEqual(["two"]);
+    expect(sessionRow(first.sessionId)?.closedAt).toBeNull();
+    expect((await verify(tokenOf("vlt_2"))).ok).toBe(true);
   });
 
   test("cancelling stops the session and closes it", async () => {

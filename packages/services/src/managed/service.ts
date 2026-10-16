@@ -357,14 +357,49 @@ export const createManagedService = ({
     }
   };
 
-  /** Ends a session's life: it is never reused, and its token stops working. */
+  /**
+   * Ends a session's life: it is never reused, and its token stops working.
+   * With `onlyRun`, it closes only a session still serving that run, in the
+   * same write that checks it, so a run that has moved on is never cut off.
+   * Returns whether this call closed it.
+   */
   const closeSession = async (
     session: Pick<SessionRow, "sessionId" | "vaultId">,
-    gateway: ManagedGateway | null
-  ) => {
+    gateway: ManagedGateway | null,
+    onlyRun?: string
+  ): Promise<boolean> => {
     const closed = await db
       .update(managedSessions)
       .set({ closedAt: nowIso() })
+      .where(
+        and(
+          eq(managedSessions.sessionId, session.sessionId),
+          isNull(managedSessions.closedAt),
+          onlyRun === undefined
+            ? undefined
+            : eq(managedSessions.currentRunId, onlyRun)
+        )
+      )
+      .returning({ id: managedSessions.sessionId });
+    // A session closed earlier has had its vault dropped already.
+    if (gateway && closed.length > 0) {
+      await dropVault(gateway, session.vaultId);
+    }
+    return closed.length > 0;
+  };
+
+  /**
+   * Points an open session at this run, before its message is sent: the
+   * session's token acts as this run from now on. False when the session was
+   * closed meanwhile, such as by a cancel, and a new one is needed.
+   */
+  const takeOver = async (
+    session: Pick<SessionRow, "sessionId">,
+    run: RunRecord
+  ): Promise<boolean> => {
+    const taken = await db
+      .update(managedSessions)
+      .set({ currentRunId: run.id })
       .where(
         and(
           eq(managedSessions.sessionId, session.sessionId),
@@ -372,9 +407,21 @@ export const createManagedService = ({
         )
       )
       .returning({ id: managedSessions.sessionId });
-    // A session closed earlier has had its vault dropped already.
-    if (gateway && closed.length > 0) {
-      await dropVault(gateway, session.vaultId);
+    return taken.length > 0;
+  };
+
+  /** Tells Anthropic to stop a session. Best effort: it runs on paths that are already failing. */
+  const stopSession = async (
+    gateway: ManagedGateway,
+    session: Pick<SessionRow, "anthropicSessionId">
+  ) => {
+    if (!session.anthropicSessionId) {
+      return;
+    }
+    try {
+      await gateway.interrupt(session.anthropicSessionId);
+    } catch (error) {
+      console.error(`Stopping a session failed: ${describeError(error)}`);
     }
   };
 
@@ -539,21 +586,16 @@ export const createManagedService = ({
       .where(eq(managedSessions.sessionId, run.sessionId))
       .limit(1);
     const text = messageOf(run);
-    if (
+    const idle =
       session?.anthropicSessionId &&
       isReusable(session, fingerprint) &&
-      (await gateway.getSession(session.anthropicSessionId)) === "idle"
-    ) {
-      // Before the message: the session's token acts as this run from now on.
-      await db
-        .update(managedSessions)
-        .set({ currentRunId: run.id })
-        .where(eq(managedSessions.sessionId, session.sessionId));
+      (await gateway.getSession(session.anthropicSessionId)) === "idle";
+    if (session?.anthropicSessionId && idle && (await takeOver(session, run))) {
       await skipUnreadEvents(gateway, session, session.anthropicSessionId);
       await gateway.sendMessage(session.anthropicSessionId, text);
     } else {
-      if (session) {
-        await closeSession(session, gateway);
+      if (session && (await closeSession(session, gateway))) {
+        await stopSession(gateway, session);
       }
       await createSession({
         agent,
@@ -768,13 +810,10 @@ export const createManagedService = ({
         `Reading the key to stop a session failed: ${describeError(error)}`
       );
     }
-    await closeSession(session, gateway);
-    if (gateway && session.anthropicSessionId) {
-      try {
-        await gateway.interrupt(session.anthropicSessionId);
-      } catch (error) {
-        console.error(`Stopping a session failed: ${describeError(error)}`);
-      }
+    // The close checks the session still serves this run, in the same write.
+    // Another run may have taken it over since the read above.
+    if ((await closeSession(session, gateway, run.id)) && gateway) {
+      await stopSession(gateway, session);
     }
   };
 
