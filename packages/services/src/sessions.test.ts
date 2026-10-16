@@ -365,3 +365,30 @@ test("search rejects an empty or over-long query", async () => {
     expect(error).toMatchObject({ code: "invalid" });
   }
 });
+
+test("getRun hides a run of another user's private session as not found", async () => {
+  const mine = await send(user("u1"), "private question");
+  const unknownId = "01UNKNOWNRUNID000000000000";
+
+  const hidden = await runs
+    .getRun(user("u2"), mine.runId)
+    .catch((caught: unknown) => caught);
+  const missing = await runs
+    .getRun(user("u2"), unknownId)
+    .catch((caught: unknown) => caught);
+
+  expect(hidden).toBeInstanceOf(ServiceError);
+  expect(hidden).toMatchObject({ code: "not_found" });
+  expect(hidden).toMatchObject({ message: (missing as ServiceError).message });
+  expect((await runs.getRun(user("u1"), mine.runId)).id).toBe(mine.runId);
+});
+
+test("getRun finds a run of a shared session for every user", async () => {
+  const shared = await startIn(user("u1"), agentId, "text", {
+    externalKey: "k",
+    origin: "slack",
+  });
+
+  expect((await runs.getRun(user("u1"), shared.runId)).id).toBe(shared.runId);
+  expect((await runs.getRun(user("u2"), shared.runId)).id).toBe(shared.runId);
+});

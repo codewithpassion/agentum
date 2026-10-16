@@ -70,6 +70,7 @@ import {
   TERMINAL_STATUSES,
   usageSchema,
 } from "./runs/types.ts";
+import { visibleSessions } from "./sessions.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 /** A claimed run is `running` until this long after the last heartbeat. */
@@ -806,6 +807,23 @@ export const createRunsService = ({
       kind: RUN_KIND,
       workspaceId: run.workspaceId,
     });
+    // A user reads the runs of the sessions it can see, and a run of a hidden
+    // session answers the same not-found as an unknown id.
+    if (principal.kind === "user") {
+      const [visible] = await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(
+          and(
+            await visibleSessions(db, principal),
+            eq(sessions.id, run.sessionId)
+          )
+        )
+        .limit(1);
+      if (!visible) {
+        throw new ServiceError("not_found", "Run not found");
+      }
+    }
     // A run reads its own agent's runs and the runs it started.
     if (
       principal.kind === "run" &&

@@ -71,6 +71,7 @@ const addRun = ({
   depth = 0,
   id,
   onBehalfOfUserId,
+  origin = "mcp",
   parentRunId = null,
   status = "running",
 }: {
@@ -78,6 +79,7 @@ const addRun = ({
   depth?: number;
   id: string;
   onBehalfOfUserId: string | null;
+  origin?: "mcp" | "ui";
   parentRunId?: string | null;
   status?: "running" | "done";
 }) => {
@@ -91,7 +93,7 @@ const addRun = ({
       createdAt: now.toISOString(),
       externalKey: sessionId,
       id: sessionId,
-      origin: "mcp",
+      origin,
       workspaceId,
     })
     .run();
@@ -416,6 +418,25 @@ describe("tools with an api key", () => {
     const result = await callTool(key, "list_sessions", { agent: "nobody" });
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toMatchObject({ code: "not_found" });
+  });
+
+  test("a user's private ui session run is not_found for another user, and still readable by its opener", async () => {
+    addRun({
+      agentId: agentA,
+      id: "run_ui",
+      onBehalfOfUserId: "u1",
+      origin: "ui",
+    });
+    const owner = await mintKey("u1", "read");
+    const other = await mintKey("u2", "read");
+
+    const own = await callTool(owner, "get_run", { runId: "run_ui" });
+    expect(own.isError).toBeFalsy();
+    expect(JSON.stringify(own.structuredContent)).toContain("run_ui");
+
+    const foreign = await callTool(other, "get_run", { runId: "run_ui" });
+    expect(foreign.isError).toBe(true);
+    expect(foreign.structuredContent).toMatchObject({ code: "not_found" });
   });
 });
 

@@ -121,6 +121,40 @@ const passageOf = (rawPayload: string, term: string): string => {
     : cutAround(rawPayload, jsonEscape(term));
 };
 
+/**
+ * The user a reader acts for, whose UI sessions it may see. Null when a run is
+ * missing or has no user behind it.
+ */
+const openerOf = async (
+  db: Database,
+  reader: Reader
+): Promise<string | null> => {
+  if (reader.kind === "user") {
+    return reader.userId;
+  }
+  const run = await loadRun(db, reader.runId, reader.workspaceId);
+  return run?.onBehalfOfUserId ?? null;
+};
+
+/**
+ * Sessions the reader may see. UI sessions belong to the user who opened
+ * them, so only that user sees them; other origins are shared. A run sees
+ * only its own agent's sessions.
+ */
+export const visibleSessions = async (
+  db: Database,
+  reader: Reader
+): Promise<SQL | undefined> => {
+  const opener = await openerOf(db, reader);
+  return and(
+    eq(sessions.workspaceId, reader.workspaceId),
+    reader.kind === "run" ? eq(sessions.agentId, reader.agentId) : undefined,
+    opener === null
+      ? ne(sessions.origin, "ui")
+      : or(ne(sessions.origin, "ui"), eq(sessions.actorId, opener))
+  );
+};
+
 export const createSessionsService = ({
   db,
   events,
@@ -128,33 +162,7 @@ export const createSessionsService = ({
   db: Database;
   events: EventsService;
 }) => {
-  /**
-   * The user a run acts for, whose UI sessions the run may see. Null when the
-   * run is missing or has no user behind it.
-   */
-  const openerOf = async (reader: Reader): Promise<string | null> => {
-    if (reader.kind === "user") {
-      return reader.userId;
-    }
-    const run = await loadRun(db, reader.runId, reader.workspaceId);
-    return run?.onBehalfOfUserId ?? null;
-  };
-
-  /**
-   * Sessions the reader may see. UI sessions belong to the user who opened
-   * them, so only that user sees them; other origins are shared. A run sees
-   * only its own agent's sessions.
-   */
-  const visibleTo = async (reader: Reader): Promise<SQL | undefined> => {
-    const opener = await openerOf(reader);
-    return and(
-      eq(sessions.workspaceId, reader.workspaceId),
-      reader.kind === "run" ? eq(sessions.agentId, reader.agentId) : undefined,
-      opener === null
-        ? ne(sessions.origin, "ui")
-        : or(ne(sessions.origin, "ui"), eq(sessions.actorId, opener))
-    );
-  };
+  const visibleTo = (reader: Reader) => visibleSessions(db, reader);
 
   /** Pairs each session row with its latest run's status and first message. */
   const withRuns = async (rows: SessionRow[]): Promise<SessionListItem[]> => {
