@@ -123,6 +123,10 @@ test("a path that climbs out of the library fails and touches no key outside the
     // biome-ignore lint/performance/noAwaitInLoops: each attempt is a separate call
     const result = await bash(user, script);
     expect(result.stdout).not.toContain("secret");
+    // A write lands in the call's scratch memory and succeeds there; every read fails.
+    if (!script.startsWith("echo")) {
+      expect(result.exitCode).not.toBe(0);
+    }
   }
   expect((await bash(user, "cat ../../other-ws/library/x")).exitCode).not.toBe(
     0
@@ -141,12 +145,24 @@ test("a path that climbs out of the library fails and touches no key outside the
   );
 });
 
+test("cp and mv from scratch into the library work", async () => {
+  const user = userOf(workspaceA);
+  const result = await bash(
+    user,
+    "echo one > /tmp/t && cp /tmp/t ./c1 && mv /tmp/t ./m1 && chmod 600 m1 && cat c1 m1 && ls /tmp"
+  );
+  expect(result.stderr).toBe("");
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe("one\none\n");
+});
+
 test("a loop that writes 3,000 files stops at the storage call budget with a clear error", async () => {
   const user = userOf(workspaceA);
   const result = await bash(
     user,
-    "for i in $(seq 1 3000); do echo $i > f$i; done"
+    "for i in $(seq 1 3000); do echo $i > f$i; done; echo after"
   );
+  expect(result.stdout).not.toContain("after");
   expect(result.exitCode).not.toBe(0);
   expect(result.stderr).toContain("Storage call budget of 2000 exceeded");
   expect(result.storageCalls).toBeLessThanOrEqual(2000);

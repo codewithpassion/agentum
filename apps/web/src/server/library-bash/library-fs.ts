@@ -331,7 +331,8 @@ export const createLibraryFs = ({
   const fs: IFileSystem = {
     appendFile: (path, content) => appendOnce(clamp(path), toBytes(content), 1),
 
-    chmod: (path) => notSupported("chmod", clamp(path)),
+    // Files have one mode here. cp and mv from scratch call chmod, so it must not fail.
+    chmod: () => Promise.resolve(),
 
     cp: async (src, dest, options?: CpOptions) => {
       const from = clamp(src);
