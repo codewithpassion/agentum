@@ -90,11 +90,26 @@ export interface PostedInfo {
   runs: WokenRunInfo[];
 }
 
+/** What a `bash` call returns. A non-zero exit code is a normal result, not an error. */
+export interface LibraryBashResult {
+  exitCode: number;
+  stderr: string;
+  /** True when the library cut stderr at 64 KB. The text then ends with a truncation note. */
+  stderrTruncated: boolean;
+  stdout: string;
+  stdoutTruncated: boolean;
+  /** Library storage calls the script made. */
+  storageCalls: number;
+  wallMs: number;
+}
+
 export interface McpPorts {
   getRun: (input: { runId: string }) => Promise<RunInfo>;
   inboxList: () => Promise<ThreadInfo[]>;
   inboxPost: (input: { text: string; threadId: string }) => Promise<PostedInfo>;
   inboxRead: (input: { threadId: string }) => Promise<ThreadTranscript>;
+  /** Runs a bash script over the workspace file library. */
+  libraryBash: (input: { script: string }) => Promise<LibraryBashResult>;
   listAgents: () => Promise<AgentInfo[]>;
   listSessions: (input: { agent: string }) => Promise<SessionInfo[]>;
   readSession: (input: { sessionId: string }) => Promise<SessionTranscript>;

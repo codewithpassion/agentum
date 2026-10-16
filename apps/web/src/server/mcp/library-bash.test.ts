@@ -1,0 +1,261 @@
+import { beforeEach, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
+import { migrated } from "@repo/db/test-db";
+import type { McpPorts } from "@repo/mcp/ports";
+import { memoryFileBlobs } from "@repo/services/files/memory";
+import {
+  type MemoryLibraryBlobs,
+  memoryLibraryBlobs,
+} from "@repo/services/library/memory";
+import { noopRelay } from "@repo/services/machines/types";
+import { systemClock } from "@repo/services/runs/types";
+import type { Principal } from "@repo/services/workspaces";
+import { type Composed, composeWith } from "../compose.ts";
+import { createMcpPorts } from "./ports.ts";
+
+let composed: Composed;
+let blobs: MemoryLibraryBlobs;
+let workspaceA: string;
+let workspaceB: string;
+
+const userOf = (workspaceId: string, userId = "u1"): Principal => ({
+  kind: "user",
+  userId,
+  via: "session",
+  workspaceId,
+});
+
+const portsFor = (principal: Principal): McpPorts =>
+  createMcpPorts({ principal, services: composed.services });
+
+const bash = (principal: Principal, script: string) =>
+  portsFor(principal).libraryBash({ script });
+
+const commandEvents = async (workspaceId: string) =>
+  (
+    await composed.services.events.query(userOf(workspaceId), workspaceId, {
+      types: ["library.command"],
+    })
+  ).map((event) => event);
+
+beforeEach(async () => {
+  const db = migrated();
+  blobs = memoryLibraryBlobs();
+  composed = composeWith({
+    allowedOrgIds: ["org_a", "org_b"],
+    db,
+    infra: {
+      atomic: sqliteAtomic(db),
+      blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+      clock: systemClock,
+      devFakeRuntime: true,
+      fileBlobs: memoryFileBlobs(),
+      libraryBlobs: blobs,
+      relay: noopRelay,
+    },
+  });
+  const [a, b] = await Promise.all([
+    composed.services.workspaces.forOrg({ clerkOrgId: "org_a" }),
+    composed.services.workspaces.forOrg({ clerkOrgId: "org_b" }),
+  ]);
+  if (!(a && b)) {
+    throw new Error("the test organisations are not allowed");
+  }
+  workspaceA = a.id;
+  workspaceB = b.id;
+});
+
+test("files written by one call are there for the next call", async () => {
+  const user = userOf(workspaceA);
+  const first = await bash(user, "mkdir -p a && echo hi > a/x.md");
+  expect(first.exitCode).toBe(0);
+  expect(first.stderr).toBe("");
+
+  const cat = await bash(user, "cat a/x.md");
+  expect(cat.stdout).toBe("hi\n");
+
+  const grep = await bash(user, "grep -rn hi .");
+  expect(grep.exitCode).toBe(0);
+  expect(grep.stdout).toBe("a/x.md:1:hi\n");
+
+  const sed = await bash(user, "sed -i s/hi/ho/ a/x.md && cat a/x.md");
+  expect(sed.exitCode).toBe(0);
+  expect(sed.stdout).toBe("ho\n");
+
+  const count = await bash(user, "ls -R | wc -l");
+  expect(count.exitCode).toBe(0);
+  expect(count.stdout.trim()).toBe("5");
+});
+
+test("a script starts in /library, and files outside it are gone after the call", async () => {
+  const user = userOf(workspaceA);
+  const first = await bash(
+    user,
+    "pwd; echo scratch > /tmp/note.txt; cat /tmp/note.txt"
+  );
+  expect(first.stdout).toBe("/library\nscratch\n");
+  const second = await bash(user, "cat /tmp/note.txt");
+  expect(second.exitCode).not.toBe(0);
+  expect(second.stderr).toContain("No such file");
+});
+
+test("a heredoc keeps its leading whitespace", async () => {
+  const user = userOf(workspaceA);
+  await bash(user, "cat > note.md <<'EOF'\n  indented\n    more\nEOF");
+  const read = await bash(user, "cat note.md");
+  expect(read.stdout).toBe("  indented\n    more\n");
+});
+
+test("a path that climbs out of the library fails and touches no key outside the workspace", async () => {
+  await bash(userOf(workspaceB), "echo secret > x");
+  const user = userOf(workspaceA);
+  await bash(user, "echo mine > mine.md");
+  const before = blobs.touched.length;
+  const attempts = [
+    "cat ../../other-ws/library/x",
+    "cat /library/../../other-ws/library/x",
+    `cat ../../${workspaceB}/library/x`,
+    `ls ../../${workspaceB}/library`,
+    "cat ../../../../x",
+    `echo owned > ../../${workspaceB}/library/x`,
+  ];
+  for (const script of attempts) {
+    // biome-ignore lint/performance/noAwaitInLoops: each attempt is a separate call
+    const result = await bash(user, script);
+    expect(result.stdout).not.toContain("secret");
+    // A write lands in the call's scratch memory and succeeds there; every read fails.
+    if (!script.startsWith("echo")) {
+      expect(result.exitCode).not.toBe(0);
+    }
+  }
+  expect((await bash(user, "cat ../../other-ws/library/x")).exitCode).not.toBe(
+    0
+  );
+  // Those paths resolve in the call's scratch memory, so no key was read or written.
+  expect(blobs.touched.slice(before)).toEqual([]);
+  // A real read touches only this workspace's prefix.
+  await bash(user, "cat mine.md");
+  expect(
+    blobs.touched
+      .slice(before)
+      .every((key) => key.startsWith(`${workspaceA}/library/`))
+  ).toBe(true);
+  expect((await blobs.get(`${workspaceB}/library/x`))?.bytes).toEqual(
+    new TextEncoder().encode("secret\n")
+  );
+});
+
+test("cp and mv from scratch into the library work", async () => {
+  const user = userOf(workspaceA);
+  const result = await bash(
+    user,
+    "echo one > /tmp/t && cp /tmp/t ./c1 && mv /tmp/t ./m1 && chmod 600 m1 && cat c1 m1 && ls /tmp"
+  );
+  expect(result.stderr).toBe("");
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe("one\none\n");
+});
+
+test("a loop that writes 3,000 files stops at the storage call budget with a clear error", async () => {
+  const user = userOf(workspaceA);
+  const result = await bash(
+    user,
+    "for i in $(seq 1 3000); do echo $i > f$i; done; echo after"
+  );
+  expect(result.stdout).not.toContain("after");
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stderr).toContain("Storage call budget of 2000 exceeded");
+  expect(result.storageCalls).toBeLessThanOrEqual(2000);
+  const listed = await composed.services.library.list(user, "");
+  expect(listed.length).toBeGreaterThan(0);
+  expect(listed.length).toBeLessThan(3000);
+});
+
+test("every call adds one library.command event, and the writes add their own", async () => {
+  const user = userOf(workspaceA, "u7");
+  await bash(user, "echo one > a.md");
+  await bash(user, "cat missing.md");
+  await bash(user, "ls");
+
+  const commands = await commandEvents(workspaceA);
+  expect(commands).toHaveLength(3);
+  expect(commands.map((event) => event.payload.script)).toEqual([
+    "echo one > a.md",
+    "cat missing.md",
+    "ls",
+  ]);
+  expect(commands.map((event) => event.payload.exitCode)).toEqual([0, 1, 0]);
+  for (const event of commands) {
+    expect(event.actor).toEqual({ id: "u7", kind: "user" });
+    expect(typeof event.payload.wallMs).toBe("number");
+    expect(typeof event.payload.storageCalls).toBe("number");
+  }
+  const writes = await composed.services.events.query(user, workspaceA, {
+    types: ["library.write"],
+  });
+  expect(writes.length).toBeGreaterThan(0);
+});
+
+test("a run logs its command as the agent, and a script's secrets are stripped", async () => {
+  const agent = await composed.services.agents.create(userOf(workspaceA), {
+    model: "fake",
+    name: "writer",
+    runtime: "fake",
+    slug: "writer",
+  });
+  const started = await composed.services.runs.startRun(userOf(workspaceA), {
+    agentId: agent.id,
+    input: { text: "hi" },
+    session: { origin: "mcp" },
+  });
+  const run: Principal = {
+    agentId: agent.id,
+    kind: "run",
+    runId: started.runId,
+    workspaceId: workspaceA,
+  };
+  await bash(run, "echo https://bob:hunter2@example.com/x > link.txt");
+  const [event] = await commandEvents(workspaceA);
+  expect(event?.actor).toEqual({ id: agent.id, kind: "agent" });
+  expect(event?.runId).toBe(started.runId);
+  expect(JSON.stringify(event?.payload)).not.toContain("hunter2");
+});
+
+test("a read-only api key can read the library but not write it", async () => {
+  await bash(userOf(workspaceA), "echo hi > a.md");
+  const readOnly: Principal = {
+    apiKey: { access: "read", id: "k1" },
+    kind: "user",
+    userId: "u1",
+    via: "api_key",
+    workspaceId: workspaceA,
+  };
+  const read = await bash(readOnly, "cat a.md");
+  expect(read.stdout).toBe("hi\n");
+  const write = await bash(readOnly, "echo no > b.md");
+  expect(write.exitCode).not.toBe(0);
+  expect(write.stderr).toContain("EACCES");
+  expect((await bash(readOnly, "ls")).stdout).toBe("a.md\n");
+});
+
+test("stdout over 64 KB is cut and says so", async () => {
+  const result = await bash(
+    userOf(workspaceA),
+    'for i in $(seq 1 5000); do echo "line number $i with some padding text"; done'
+  );
+  expect(result.stdoutTruncated).toBe(true);
+  expect(result.stdout).toContain("[truncated:");
+  expect(new TextEncoder().encode(result.stdout).byteLength).toBeLessThan(
+    64 * 1024 + 200
+  );
+  expect(result.stderrTruncated).toBe(false);
+});
+
+test("a script cannot reach the network or the removed commands", async () => {
+  const result = await bash(
+    userOf(workspaceA),
+    "curl https://example.com; python3 -c 1; sqlite3 x; tar t; js-exec 1"
+  );
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stderr).toContain("command not found");
+});

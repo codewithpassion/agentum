@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type {
   AgentInfo,
+  LibraryBashResult,
   McpPorts,
   PostedInfo,
   PostInfo,
@@ -110,6 +111,7 @@ const failingPorts = (error: Error): McpPorts => ({
   inboxList: () => Promise.reject(error),
   inboxPost: () => Promise.reject(error),
   inboxRead: () => Promise.reject(error),
+  libraryBash: () => Promise.reject(error),
   listAgents: () => Promise.reject(error),
   listSessions: () => Promise.reject(error),
   readSession: () => Promise.reject(error),
@@ -123,6 +125,7 @@ const fakePorts = (overrides: Partial<McpPorts>): McpPorts => ({
   inboxList: uncalled("inboxList"),
   inboxPost: uncalled("inboxPost"),
   inboxRead: uncalled("inboxRead"),
+  libraryBash: uncalled("libraryBash"),
   listAgents: uncalled("listAgents"),
   listSessions: uncalled("listSessions"),
   readSession: uncalled("readSession"),
@@ -167,6 +170,7 @@ const ALL_TOOLS = [
   "inbox_list",
   "inbox_read",
   "inbox_post",
+  "bash",
 ];
 
 /** One valid call per real tool, used by the failure tests. */
@@ -180,6 +184,7 @@ const CALLS: [string, Record<string, unknown>][] = [
   ["inbox_list", {}],
   ["inbox_read", { threadId: "thr_1" }],
   ["inbox_post", { text: "hi", threadId: "thr_1" }],
+  ["bash", { script: "ls" }],
 ];
 
 describe("tools/list", () => {
@@ -217,6 +222,7 @@ describe("tools/list", () => {
     expect(fieldsOf("inbox_list")).toEqual([]);
     expect(fieldsOf("inbox_read")).toEqual(["threadId"]);
     expect(fieldsOf("inbox_post")).toEqual(["text", "threadId"]);
+    expect(fieldsOf("bash")).toEqual(["script"]);
   });
 });
 
@@ -535,6 +541,142 @@ describe("inbox_post", () => {
       { text: "thanks", threadId: "thr_1" }
     );
     expect(textOf(result)).toBe("Posted post_1. Started no runs.");
+  });
+});
+
+const SCRIPT_RESULT: LibraryBashResult = {
+  exitCode: 0,
+  stderr: "",
+  stderrTruncated: false,
+  stdout: "a.txt",
+  stdoutTruncated: false,
+  storageCalls: 2,
+  wallMs: 14,
+};
+
+describe("bash", () => {
+  test("returns the result as data and stdout, stderr and exit code as text", async () => {
+    const received: unknown[] = [];
+    const result = await callTool(
+      fakePorts({
+        libraryBash: (input) => {
+          received.push(input);
+          return Promise.resolve({
+            ...SCRIPT_RESULT,
+            exitCode: 0,
+            stderr: "warn",
+            stdout: "partial",
+          });
+        },
+      }),
+      "bash",
+      { script: "ls /library" }
+    );
+    expect(received).toEqual([{ script: "ls /library" }]);
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual({
+      exitCode: 0,
+      stderr: "warn",
+      stderrTruncated: false,
+      stdout: "partial",
+      stdoutTruncated: false,
+      storageCalls: 2,
+      wallMs: 14,
+    });
+    expect(textOf(result)).toBe("partial\nstderr:\nwarn\nexit code 0");
+  });
+
+  test("leaves out the stderr lines when stderr is empty", async () => {
+    const result = await callTool(
+      fakePorts({ libraryBash: () => Promise.resolve(SCRIPT_RESULT) }),
+      "bash",
+      { script: "ls" }
+    );
+    expect(textOf(result)).toBe("a.txt\nexit code 0");
+  });
+
+  test("a non-zero exit code is a normal result, not an error", async () => {
+    const result = await callTool(
+      fakePorts({
+        libraryBash: () =>
+          Promise.resolve({ ...SCRIPT_RESULT, exitCode: 2, stdout: "" }),
+      }),
+      "bash",
+      { script: "grep x missing.txt" }
+    );
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ exitCode: 2 });
+    expect(textOf(result)).toBe("exit code 2");
+  });
+
+  test("a failing port's ToolError comes back as an error result", async () => {
+    const result = await callTool(
+      failingPorts(new ToolError("forbidden", "Not allowed here.")),
+      "bash",
+      { script: "ls" }
+    );
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual({
+      code: "forbidden",
+      message: "Not allowed here.",
+    });
+    expect(textOf(result)).toBe("forbidden: Not allowed here.");
+  });
+
+  test("a script of exactly 8 KB is passed to the port", async () => {
+    const script = "x".repeat(8 * 1024);
+    const received: unknown[] = [];
+    const result = await callTool(
+      fakePorts({
+        libraryBash: (input) => {
+          received.push(input);
+          return Promise.resolve(SCRIPT_RESULT);
+        },
+      }),
+      "bash",
+      { script }
+    );
+    expect(result.isError).toBeFalsy();
+    expect(received).toEqual([{ script }]);
+  });
+});
+
+describe("bash arguments", () => {
+  test.each([
+    ["an empty script", ""],
+    ["a script over 8 KB", "x".repeat(8 * 1024 + 1)],
+    // 8,000 characters, 16,000 UTF-8 bytes.
+    ["a multi-byte script over 8 KB in bytes", "é".repeat(8000)],
+  ])("refuses %s before the port runs", async (_label, script) => {
+    let calls = 0;
+    const result = await callTool(
+      fakePorts({
+        libraryBash: () => {
+          calls += 1;
+          return Promise.resolve(SCRIPT_RESULT);
+        },
+      }),
+      "bash",
+      { script }
+    );
+    expect(result.isError).toBe(true);
+    expect(calls).toBe(0);
+  });
+
+  test("refuses an unknown field before the port runs", async () => {
+    let calls = 0;
+    const result = await callTool(
+      fakePorts({
+        libraryBash: () => {
+          calls += 1;
+          return Promise.resolve(SCRIPT_RESULT);
+        },
+      }),
+      "bash",
+      { extra: 1, script: "ls" }
+    );
+    expect(result.isError).toBe(true);
+    expect(calls).toBe(0);
   });
 });
 
