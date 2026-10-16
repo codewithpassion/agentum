@@ -1,5 +1,6 @@
 import {
   type AnySQLiteColumn,
+  index,
   integer,
   sqliteTable,
   text,
@@ -59,5 +60,9 @@ export const runs = sqliteTable(
     usage: text("usage"),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
-  (t) => [uniqueIndex("runs_request_unique").on(t.workspaceId, t.requestId)]
+  (t) => [
+    uniqueIndex("runs_request_unique").on(t.workspaceId, t.requestId),
+    // The runs of one actor in time order, which is how a routine's runs are found.
+    index("runs_actor_idx").on(t.actorId, t.id),
+  ]
 );

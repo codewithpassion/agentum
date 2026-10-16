@@ -85,6 +85,13 @@
       "when": 1792132256216,
       "tag": "0011_broad_namora",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1792133294465,
+      "tag": "0012_late_moonstone",
+      "breakpoints": true
     }
   ]
 }

@@ -45,6 +45,10 @@ import {
   createOAuthClientsService,
   type OAuthClientsService,
 } from "@repo/services/oauth-clients";
+import {
+  createRoutinesService,
+  type RoutinesService,
+} from "@repo/services/routines";
 import { createRunsService, type RunsService } from "@repo/services/runs";
 import {
   type Clock,
@@ -62,6 +66,10 @@ import {
   type SlackService,
 } from "@repo/services/slack";
 import { createSlackGateway } from "@repo/services/slack/gateway";
+import {
+  createSlackAppsService,
+  type SlackAppsService,
+} from "@repo/services/slack-apps";
 import {
   createTriggersService,
   type TriggersService,
@@ -105,9 +113,11 @@ export interface Services {
   inbox: InboxService;
   machines: MachinesService;
   oauthClients: OAuthClientsService;
+  routines: RoutinesService;
   runs: RunsService;
   sessions: SessionsService;
   slack: SlackService;
+  slackApps: SlackAppsService;
   triggers: TriggersService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
@@ -211,18 +221,18 @@ export const composeWith = ({
     relay: infra.relay,
   });
   const oauthClients = createOAuthClientsService({ clock: infra.clock, db });
-  const gateways: Gateway[] = [
-    inbox.gateway,
-    createSlackGateway({
-      clock: infra.clock,
-      db,
-      events,
-      fetch: connectorFetch,
-      files,
-      publicBaseUrl: infra.publicBaseUrl,
-      secretsKey: infra.secretsKey,
-    }),
-  ];
+  const slackGateway = createSlackGateway({
+    clock: infra.clock,
+    db,
+    events,
+    fetch: connectorFetch,
+    files,
+    publicBaseUrl: infra.publicBaseUrl,
+    secretsKey: infra.secretsKey,
+  });
+  // A connector that needs a login tells the person in Slack, privately.
+  events.onAppend(slackGateway.notifyNeedsAuth);
+  const gateways: Gateway[] = [inbox.gateway, slackGateway];
   const runs = createRunsService({
     adapters,
     atomic: infra.atomic,
@@ -233,6 +243,13 @@ export const composeWith = ({
     gateways,
     runTokenKey: infra.runTokenKey,
   });
+  const routines = createRoutinesService({
+    allowedOrgIds,
+    clock: infra.clock,
+    db,
+    events,
+    runs,
+  });
   const sessions = createSessionsService({ db, events });
   const slack = createSlackService({
     atomic: infra.atomic,
@@ -242,6 +259,15 @@ export const composeWith = ({
     events,
     fetch: connectorFetch,
     runs,
+    secretsKey: infra.secretsKey,
+  });
+  const slackApps = createSlackAppsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    fetch: connectorFetch,
+    publicBaseUrl: infra.publicBaseUrl,
     secretsKey: infra.secretsKey,
   });
   const triggers = createTriggersService({
@@ -266,9 +292,11 @@ export const composeWith = ({
       inbox,
       machines,
       oauthClients,
+      routines,
       runs,
       sessions,
       slack,
+      slackApps,
       triggers,
       workspaces,
     },

@@ -13,18 +13,17 @@ import { MAX_FILE_BYTES } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { and, eq } from "drizzle-orm";
 import { encryptSecret, importSecretsKey } from "../crypto.ts";
-import { type Blobs, createEventsService } from "../events.ts";
+import {
+  type Blobs,
+  createEventsService,
+  type EventsService,
+} from "../events.ts";
 import { type MemoryFileBlobs, memoryFileBlobs } from "../files/memory.ts";
 import { createFilesService } from "../files.ts";
-import type {
-  Clock,
-  DeliveryContext,
-  Gateway,
-  ReplyTarget,
-} from "../runs/types.ts";
+import type { Clock, DeliveryContext, ReplyTarget } from "../runs/types.ts";
 import { slackSecretBinding } from "./apps.ts";
 import type { SlackFetch } from "./client.ts";
-import { createSlackGateway } from "./gateway.ts";
+import { createSlackGateway, type SlackGateway } from "./gateway.ts";
 
 const WORKSPACE = "w1";
 const AGENT = "a1";
@@ -66,10 +65,11 @@ let db: ReturnType<typeof migrated>;
 let fileBlobs: MemoryFileBlobs;
 let eventBlobs: Map<string, string>;
 let clock: Clock;
+let events: EventsService;
 let sleeps: number[];
 let calls: Recorded[];
 let respond: Responder;
-let gateway: Gateway;
+let gateway: SlackGateway;
 
 const json = (body: unknown, init?: ResponseInit) =>
   new Response(JSON.stringify(body), {
@@ -173,6 +173,7 @@ beforeEach(async () => {
       id: RUN,
       inputText: "hi",
       onBehalfOfUserId: "u1",
+      reply: JSON.stringify(slackTarget),
       sessionId: SESSION,
       status: "running",
       workspaceId: WORKSPACE,
@@ -206,7 +207,7 @@ beforeEach(async () => {
     })
     .run();
 
-  const events = createEventsService({
+  events = createEventsService({
     blobs: {
       get: (blobKey) => Promise.resolve(eventBlobs.get(blobKey) ?? null),
       put: (blobKey, body) => {
@@ -227,6 +228,27 @@ beforeEach(async () => {
     secretsKey: SECRETS_KEY,
   });
 });
+
+/** A connector.needs_auth event for a run, appended as the proxy appends it. */
+const appendNeedsAuth = (payload: Record<string, unknown> = {}, runId = RUN) =>
+  events.append({
+    actor: { id: "proxy", kind: "system" },
+    agentId: AGENT,
+    payload: {
+      cause: "no_connection",
+      connectorId: "c1",
+      connectPath: "/connect/c1?as=user",
+      method: "tools/call",
+      ownerId: "u1",
+      ownerKind: "user",
+      tool: "search",
+      ...payload,
+    },
+    runId,
+    sessionId: SESSION,
+    type: "connector.needs_auth",
+    workspaceId: WORKSPACE,
+  });
 
 /** The `slack.delivered` events of the test run, with parsed payloads. */
 const deliveredEvents = () =>
@@ -498,4 +520,86 @@ test("downloadPendingFiles skips a URL that is not on a Slack host", async () =>
 
   expect(ids).toEqual([]);
   expect(calls).toHaveLength(0);
+});
+
+test("notifyNeedsAuth sends the connect link privately to the owner, in the run's thread", async () => {
+  insertIdentityLink("U0DOM");
+
+  await gateway.notifyNeedsAuth(await appendNeedsAuth());
+
+  expect(callsTo("chat.postEphemeral")).toHaveLength(1);
+  const [ephemeral] = callsTo("chat.postEphemeral");
+  expect(ephemeral?.body).toMatchObject({
+    channel: CHANNEL,
+    thread_ts: THREAD,
+    user: "U0DOM",
+  });
+  expect(String(ephemeral?.body?.text)).toContain(
+    `${PUBLIC_BASE_URL}/connect/c1?as=user`
+  );
+});
+
+test("notifyNeedsAuth sends one notice per run and connector", async () => {
+  insertIdentityLink("U0DOM");
+
+  await gateway.notifyNeedsAuth(await appendNeedsAuth());
+  await gateway.notifyNeedsAuth(await appendNeedsAuth());
+  expect(callsTo("chat.postEphemeral")).toHaveLength(1);
+
+  await gateway.notifyNeedsAuth(
+    await appendNeedsAuth({ connectorId: "c2", connectPath: "/connect/c2" })
+  );
+  expect(callsTo("chat.postEphemeral")).toHaveLength(2);
+});
+
+test("notifyNeedsAuth sends nothing when nobody can connect (connectPath is null)", async () => {
+  insertIdentityLink("U0DOM");
+
+  await gateway.notifyNeedsAuth(await appendNeedsAuth({ connectPath: null }));
+
+  expect(calls).toHaveLength(0);
+});
+
+test("notifyNeedsAuth sends nothing for a run whose reply is not Slack", async () => {
+  insertIdentityLink("U0DOM");
+  db.update(runRows)
+    .set({ reply: JSON.stringify({ kind: "inbox", threadId: "t1" }) })
+    .where(eq(runRows.id, RUN))
+    .run();
+
+  await gateway.notifyNeedsAuth(await appendNeedsAuth());
+
+  expect(calls).toHaveLength(0);
+});
+
+test("notifyNeedsAuth sends an agent credential's notice to the run's user", async () => {
+  insertIdentityLink("U0DOM");
+
+  await gateway.notifyNeedsAuth(
+    await appendNeedsAuth({ ownerId: "u2", ownerKind: "agent" })
+  );
+
+  expect(callsTo("chat.postEphemeral")).toHaveLength(1);
+  expect(callsTo("chat.postEphemeral")[0]?.body).toMatchObject({
+    user: "U0DOM",
+  });
+});
+
+test("notifyNeedsAuth sends nothing when the owner has no Slack identity link", async () => {
+  await gateway.notifyNeedsAuth(await appendNeedsAuth());
+
+  expect(calls).toHaveLength(0);
+});
+
+test("notifyNeedsAuth does not throw when Slack refuses the notice", async () => {
+  insertIdentityLink("U0DOM");
+  respond = (call) =>
+    call.url === `${SLACK_API}chat.postEphemeral`
+      ? json({ error: "invalid_auth", ok: false })
+      : defaultResponder(call);
+
+  await expect(
+    gateway.notifyNeedsAuth(await appendNeedsAuth())
+  ).resolves.toBeUndefined();
+  expect(callsTo("chat.postEphemeral")).toHaveLength(1);
 });
