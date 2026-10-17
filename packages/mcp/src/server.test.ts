@@ -9,6 +9,26 @@ import {
 } from "./server";
 import { connectClient, textOf } from "./testing";
 
+const SKILL_READ_NAMES = [
+  "export_skill",
+  "list_skills",
+  "skill_diff",
+  "skill_log",
+  "skill_show",
+];
+
+const SKILL_WRITE_NAMES = [
+  "approve_skill_version",
+  "assign_skill",
+  "commit_skill",
+  "create_skill",
+  "import_skill",
+  "pin_skill",
+  "reject_skill_version",
+  "revert_skill",
+  "unassign_skill",
+];
+
 const EXPECTED_NAMES = [
   "bash",
   "create_routine",
@@ -28,6 +48,8 @@ const EXPECTED_NAMES = [
   "send_message",
   "set_routine_enabled",
   "set_trigger_enabled",
+  ...SKILL_READ_NAMES,
+  ...SKILL_WRITE_NAMES,
 ].sort();
 
 const READ_NAMES = [
@@ -40,17 +62,24 @@ const READ_NAMES = [
   "list_triggers",
   "read_session",
   "search_sessions",
+  ...SKILL_READ_NAMES,
 ].sort();
 
 const uncalled = (): Promise<never> =>
   Promise.reject(new Error("this port should not be called"));
 
 const fakePorts: McpPorts = {
+  approveSkillVersion: uncalled,
+  assignSkill: uncalled,
+  commitSkill: uncalled,
   createRoutine: uncalled,
+  createSkill: uncalled,
   createTrigger: uncalled,
   deleteRoutine: uncalled,
   deleteTrigger: uncalled,
+  exportSkill: uncalled,
   getRun: uncalled,
+  importSkill: uncalled,
   inboxList: uncalled,
   inboxPost: uncalled,
   inboxRead: uncalled,
@@ -58,12 +87,20 @@ const fakePorts: McpPorts = {
   listAgents: uncalled,
   listRoutines: uncalled,
   listSessions: uncalled,
+  listSkills: uncalled,
   listTriggers: uncalled,
+  pinSkill: uncalled,
   readSession: uncalled,
+  rejectSkillVersion: uncalled,
+  revertSkill: uncalled,
   searchSessions: uncalled,
   sendMessage: uncalled,
   setRoutineEnabled: uncalled,
   setTriggerEnabled: uncalled,
+  skillDiff: uncalled,
+  skillLog: uncalled,
+  skillShow: uncalled,
+  unassignSkill: uncalled,
 };
 
 const withClient = async (
@@ -117,6 +154,20 @@ describe("tools/list", () => {
           "set_trigger_enabled",
           "delete_trigger",
         ]) {
+          expect(names).not.toContain(name);
+        }
+      },
+      { readOnly: true }
+    ));
+
+  test("a read-only caller gets the read tools for skills and none that change them", () =>
+    withClient(
+      async (client) => {
+        const names = (await client.listTools()).tools.map((tool) => tool.name);
+        for (const name of SKILL_READ_NAMES) {
+          expect(names).toContain(name);
+        }
+        for (const name of SKILL_WRITE_NAMES) {
           expect(names).not.toContain(name);
         }
       },
