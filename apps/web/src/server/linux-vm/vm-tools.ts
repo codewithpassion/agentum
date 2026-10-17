@@ -16,12 +16,15 @@ export const LINUX_VM_TOOLS_EXTENSION = "hm-linux-vm-tools";
 const SECTION_KEY = "linux-vm";
 const SECTION_TEXT = `You have a Linux VM. The read, write, edit and bash tools work in it, and ${VM_WORKDIR} is its working folder: a relative path starts there. bun and node are installed, and bun runs a .ts file directly. Commands have network access and see none of this platform's secrets. The VM sleeps when it has been idle for a few minutes, and the files in ${VM_WORKDIR} are kept for the next message. Nothing else in the VM is. The skills of this agent are in ${VM_WORKDIR}/skills/<name>/ and the files attached to the message are in ${VM_WORKDIR}/input/. The workspace library is not in the VM: reach it through the platform's library tools.`;
 
+const PLAIN_SCRIPT_SENTENCE =
+  "The script runs with bun in the Linux VM, with network access and none of this platform's secrets, and runs for at most";
+
 /** What `run_skill_script` says when the script runs in the VM. */
 export const VM_SCRIPT_TEXTS: ScriptTexts = {
   capabilities: `bun runs the script in ${VM_WORKDIR}, so it can import its own skill files and any package bun can install, read and write the session's files, and use the network.`,
-  granted:
-    "The script runs with bun in the Linux VM, with network access. It has no secrets of its own: the environment variables the agent was granted are set in process.env. The VM adds no credential to requests, so a host the agent only has a credential rule for gets none. It runs for at most",
-  plain: `The script runs with bun in the Linux VM, with network access and none of this platform's secrets, and runs for at most`,
+  // The VM is given no granted secrets (see `secretsForEnvironment`), so the sentence for an agent with secrets is the plain one.
+  granted: PLAIN_SCRIPT_SENTENCE,
+  plain: PLAIN_SCRIPT_SENTENCE,
 };
 
 /** A read changes nothing, so it may run again after a restart. The others may not. */

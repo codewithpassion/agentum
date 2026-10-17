@@ -2,8 +2,10 @@
  * Runs a skill script in the session's Linux VM with bun. The script's files
  * go into the workdir's skills folder first (a refresh of what the run start
  * placed there), and the script runs with the workdir as its working folder, so
- * it can read and write the session's files. No `env` is passed, so it sees no
- * variable of ours. A VM that fails rejects the run, which the caller reports as a failed
+ * it can read and write the session's files. The command gets no `env` and
+ * `input.env` and `input.proxy` are ignored, so it sees no variable of ours and
+ * no granted secret. Delivering the secrets an agent was granted to a VM
+ * belongs to S.4, with the redaction of the VM's own output. A VM that fails rejects the run, which the caller reports as a failed
  * sandbox.
  */
 
@@ -47,8 +49,6 @@ export const vmSkillSandbox = (vm: LinuxVm): SkillScriptSandbox => ({
     const result = await vm.exec({
       command: commandFor(input, `${folder}/${input.entry}`),
       cwd: VM_WORKDIR,
-      // The secrets the agent was granted as environment variables, and nothing else of ours. There is no outbound proxy in the VM, so `input.proxy` has no effect.
-      ...(input.env === undefined ? {} : { env: input.env }),
       maxOutputBytes: input.maxOutputBytes,
       timeoutMs: input.timeoutMs,
     });

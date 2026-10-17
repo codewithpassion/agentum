@@ -7,7 +7,8 @@ Task: Linux VM backend for cloud agents on the Sandbox SDK. Branch task/C.14-clo
 - Round 1 at 9d22dd8 was must-fix, with 2 must-fix and 19 nits. A timed out command exited 137 and never 124, because `timeout -s KILL` kills its own group. A restarted Durable Object also lost the container's inactivity timeout.
 - Round 2 at 4e8db23 was must-fix with 1 item. Both round 1 items were fixed, but the last-resort abort fired at timeoutMs plus 3 s, before `timeout -k 2` could send KILL.
 - Round 3 at 53e3273 was must-fix with 1 item. The abort timing was right, but a new guard that skipped the abort for an exited process made `exec` hang when a command left a background child holding its output pipes.
-- The last commit on the branch removes that guard. A command that has exited now returns within 1 s (`STREAM_DRAIN_MS`) with its exit code and the output so far, and the abort stays a last resort for a command that is still running. It has a test. No reviewer has seen it, because the loop allows two fix rounds.
+- Round 4 at 41882c1, after merging main with S.3, was must-fix with 1 item. The merge made the VM pass an agent's granted env secrets to skill scripts. Only the `run_skill_script` answer is masked, so a script could leave a value in `/workspace` where `bash`, `read` and the R2 snapshot do not mask it. The fix commit passes no secrets for a VM session (`secretsForEnvironment`), so the VM sandbox gets no `env` and ignores `proxy`.
+- The commit after 53e3273 removes that guard. A command that has exited now returns within 1 s (`STREAM_DRAIN_MS`) with its exit code and the output so far, and the abort stays a last resort for a command that is still running. It has a test. No reviewer has seen it, because the loop allows two fix rounds.
 
 ## What was built
 
@@ -24,6 +25,8 @@ The agent setting is `runtimeConfig.environment`, either `isolate` (the default)
 - `vm-skill-sandbox.ts` runs `run_skill_script` through C.12's port with `bun <file>` in `/workspace`. `vm-workdir.ts` places skills in `/workspace/skills` and input files in `/workspace/input`.
 
 `PiRun` switches by the agent's `runtimeConfig` at each run start. It places skills when the run's skills load and input files when the message is built, and the message says where the input files are.
+
+A Linux VM session gets no granted secrets. Delivering the secrets an agent was granted (S.3) to a VM, together with masking the VM's own `bash` and `read` output and the snapshot, belongs to S.4. Until then `run_skill_script` in a VM gets no `env`, `proxy` has no effect, and the prompt says the script has none of this platform's secrets.
 
 The VM starts on its first call and restores the last snapshot. After `LINUX_VM_IDLE_SECONDS` (180) with no call and no running command, an alarm snapshots `/workspace` to the `FILES` bucket under `vm-snapshots/` and destroys the container. The old snapshot object is deleted once the new one is stored. Commands run under `timeout -k 2 <seconds>` with `HOME` and only the variables they are given, never one of ours. The bash tool allows 120 s by default and 600 s at most, and a skill script gets 30 s. Output is capped at 1 MiB for a shell command and 64 KB for a skill script.
 
@@ -45,7 +48,8 @@ The VM starts on its first call and restores the last snapshot. After `LINUX_VM_
 5. Snapshots under `vm-snapshots/` are not deleted when a session or workspace goes away, and they sit outside the per-workspace key layout of the bucket.
 6. `placeSkills` runs on every run start, so a Linux VM agent starts and pays for its container even for a reply that uses no tools. `placeInputFiles` makes names unique within one call only, so a later run's `a.txt` replaces the earlier one.
 7. `withPlacedPaths` adds nothing when a message is an array with no text block. The `description` fields in `CLOUD_ENVIRONMENTS` are unused, because the form has its own text.
-8. `SCRIPT_LIMITS.graceMs` is now 6 s for both backends, up from 2 s. After a cold VM start the skill-script safety net can still fire before the VM's own wall time, because file placement and the start come before the VM's clock.
+8. Round 4 nits: the abort backstop starts before `container.exec`, so its margin is thinner than the comment says; the 137 elapsed-time check reads the clock after the 1 s drain; the stream readers are not cancelled when the drain gives up; a held-open stream drops a trailing partial multibyte character; the drain test waits a real second; Bun's own environment variables (`BUN_OPTIONS`, `BUN_CONFIG_*`) are not reserved secret names, which matters when S.4 delivers secrets to the VM.
+9. `SCRIPT_LIMITS.graceMs` is now 6 s for both backends, up from 2 s. After a cold VM start the skill-script safety net can still fire before the VM's own wall time, because file placement and the start come before the VM's clock.
 
 ## Ideas beyond the scope
 

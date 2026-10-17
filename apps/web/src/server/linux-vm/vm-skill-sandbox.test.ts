@@ -160,7 +160,7 @@ describe("vmSkillSandbox", () => {
 });
 
 describe("vmSkillSandbox secrets", () => {
-  test("passes the env the agent was granted to the command and nothing else", async () => {
+  test("ignores env and proxy, so the command gets no variable at all", async () => {
     const vm = createFakeVm();
     await vmSkillSandbox(vm).run({
       args: [],
@@ -174,6 +174,8 @@ describe("vmSkillSandbox secrets", () => {
     });
 
     expect(vm.execCalls).toHaveLength(1);
-    expect(vm.execCalls[0]?.env).toEqual({ API_TOKEN: "t0ken" });
+    expect(vm.execCalls[0] !== undefined && "env" in vm.execCalls[0]).toBe(
+      false
+    );
   });
 });

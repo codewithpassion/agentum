@@ -20,7 +20,10 @@ import { createLibraryEnv } from "./library-env/library-env.ts";
 import { bindLibraryOps } from "./library-env/library-ops.ts";
 import { libraryToolsExtension } from "./library-env/library-tools.ts";
 import { durableVm } from "./linux-vm/durable-vm.ts";
-import { installEnvironmentTools } from "./linux-vm/environment-tools.ts";
+import {
+  installEnvironmentTools,
+  secretsForEnvironment,
+} from "./linux-vm/environment-tools.ts";
 import { createVmEnv } from "./linux-vm/vm-env.ts";
 import type { LinuxVm } from "./linux-vm/vm-port.ts";
 import { vmSkillSandbox } from "./linux-vm/vm-skill-sandbox.ts";
@@ -365,7 +368,10 @@ export class PiRun extends DurableObject<Env> {
         skills,
         port,
         this.#scriptSandbox(run),
-        this.#scriptSecrets(run),
+        secretsForEnvironment(
+          this.#vm ? "linux-vm" : "isolate",
+          this.#scriptSecrets(run)
+        ),
         undefined,
         this.#vm ? VM_SCRIPT_TEXTS : undefined
       )
@@ -396,12 +402,10 @@ export class PiRun extends DurableObject<Env> {
           run.workspaceId,
           run.agentId
         );
-        // The Linux VM has no outbound proxy yet, so it gets the environment secrets only.
-        const proxied = this.#vm ? [] : granted.proxy;
         try {
           await secrets.announceDelivery(run, {
             env: Object.keys(granted.env),
-            proxy: proxied,
+            proxy: granted.proxy,
             surface: "cloud",
           });
         } catch (error) {
@@ -414,7 +418,7 @@ export class PiRun extends DurableObject<Env> {
         return {
           env: granted.env,
           mask: granted.masker.mask,
-          proxy: proxied.length > 0,
+          proxy: granted.proxy.length > 0,
         };
       },
     };
