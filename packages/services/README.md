@@ -61,7 +61,7 @@ A workspace is one Clerk organisation, created on its first request by `forOrg`.
 
 ### Skills store
 
-A skill is a named file tree with a history, kept in D1 (`skills`, `skill_versions`, `skill_version_files`, `skill_assignments`) and R2 (`skill-blobs/<sha256>`, written once and shared by every version and skill). Every commit makes a new version that holds the whole tree, never a delta. The library's `skills/` folders are not read any more; the first call of any method in a workspace moves them into the store (`migrateLibrary`, recorded in `skill_library_migrations`, so it runs once).
+A skill is a named file tree with a history, kept in D1 (`skills`, `skill_versions`, `skill_version_files`, `skill_assignments`) and R2 (`skill-blobs/<sha256>`, written once and shared by every version and skill). Every commit makes a new version that holds the whole tree, never a delta. The library's `skills/` folders are moved into the store and are not the source any more (SK.2 stops the runtimes reading them); the first call of any method in a workspace moves them into the store (`migrateLibrary`, recorded in `skill_library_migrations`, so it runs once).
 
 Every method takes the calling principal first and a plain input object (the zod schemas are in `skills-store/records`). Errors are `ServiceError` (`invalid`, `conflict`, `not_found`) or `ForbiddenError`.
 

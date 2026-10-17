@@ -23,6 +23,8 @@ export interface PlannedFile extends TreeFile {
   bytes?: Uint8Array;
 }
 
+export const TOO_BIG = `Skills are limited to ${SKILLS_MAX_FILES} files and ${SKILLS_MAX_BYTES / (1024 * 1024)} MB`;
+
 const BAD_NAME =
   "Skill names use lowercase letters, digits and single hyphens, up to 64 characters";
 const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
@@ -77,20 +79,14 @@ export const assertTree = (
   }
   assertTreeShape(files.map((file) => file.path));
   if (files.length > SKILLS_MAX_FILES) {
-    throw new ServiceError(
-      "invalid",
-      `Skills are limited to ${SKILLS_MAX_FILES} files and 5 MB`
-    );
+    throw new ServiceError("invalid", TOO_BIG);
   }
   let total = 0;
   for (const file of files) {
     total += file.size;
   }
   if (total > SKILLS_MAX_BYTES) {
-    throw new ServiceError(
-      "invalid",
-      `Skills are limited to ${SKILLS_MAX_FILES} files and 5 MB`
-    );
+    throw new ServiceError("invalid", TOO_BIG);
   }
   const skillFile = files.find((file) => file.path === SKILL_FILE);
   if (!skillFile) {

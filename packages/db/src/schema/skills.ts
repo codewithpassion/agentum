@@ -23,7 +23,7 @@ export const skills = sqliteTable(
   "skills",
   {
     createdAt: createdAt(),
-    // Clerk user id or agent id, see `created_by_kind`.
+    // Clerk user id or agent id, see `created_by_kind`. "migration" for a skill moved from the library.
     createdBy: text("created_by").notNull(),
     createdByKind: text("created_by_kind", {
       enum: SKILL_AUTHOR_KINDS,
@@ -59,7 +59,7 @@ export const skillVersions = sqliteTable(
     approvedAt: text("approved_at"),
     // Clerk user id, or "migration" for the library migration.
     approvedBy: text("approved_by"),
-    // Agent id or Clerk user id, see `author_kind`.
+    // Agent id or Clerk user id, see `author_kind`. "migration" for the library migration.
     authorId: text("author_id").notNull(),
     authorKind: text("author_kind", { enum: SKILL_AUTHOR_KINDS }).notNull(),
     // Set when an agent's run wrote the version.

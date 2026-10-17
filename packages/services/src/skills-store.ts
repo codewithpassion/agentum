@@ -29,7 +29,7 @@ import {
 } from "@repo/db/schema/skills";
 import type { EventType, SkillAuthorKind } from "@repo/db/shared";
 import { SKILLS_MAX_BYTES, SKILLS_MAX_FILES } from "@repo/protocol/skills";
-import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -42,7 +42,7 @@ import {
   readLibrarySkills,
   type SkillsSourceLibrary,
 } from "./skills-store/library-source.ts";
-import { assertSafePath } from "./skills-store/paths.ts";
+import { assertSafePath, assertTreeShape } from "./skills-store/paths.ts";
 import {
   type AssignInput,
   type AssignmentRecord,
@@ -174,6 +174,29 @@ const toFileRecord = (file: TreeFile): FileRecord => ({
 /** The newest version that is not rejected: the one a commit has to be made on. */
 const headOf = (versions: readonly VersionRow[]): VersionRow | undefined =>
   versions.find((version) => version.status !== "rejected");
+
+/**
+ * The numbers of `target` and of the proposed versions made on top of it,
+ * directly or through other proposals. Rejecting a version rejects these too:
+ * they carry its changes and could never be approved.
+ */
+const proposalsBuiltOn = (
+  versions: readonly VersionRow[],
+  target: VersionRow
+): number[] => {
+  const numbers = new Set([target.number]);
+  const ascending = [...versions].sort((a, b) => a.number - b.number);
+  for (const version of ascending) {
+    if (
+      version.status === "proposed" &&
+      version.parentNumber !== null &&
+      numbers.has(version.parentNumber)
+    ) {
+      numbers.add(version.number);
+    }
+  }
+  return [...numbers];
+};
 
 /** Refuses to settle a version that is not proposed, or to approve one whose base is no longer the latest approved version. */
 const assertCanSettle = (
@@ -499,7 +522,7 @@ export const createSkillsStoreService = ({
   const publish = async (p: Publication): Promise<VersionRecord> => {
     assertTree(p.skill.name, p.files);
     if (p.previous && sameTree(p.previous, p.files)) {
-      throw invalid(`Nothing changed from version ${p.parentNumber}`);
+      throw invalid(`Nothing changed from version ${p.parentNumber ?? "none"}`);
     }
     await storeBlobs(p.files);
     const now = clock.now().toISOString();
@@ -879,15 +902,27 @@ export const createSkillsStoreService = ({
 
   // --- committing ---
 
-  /** The skill a commit goes to, with its versions and the head tree. */
+  /**
+   * The skill a commit goes to, with its versions and the head tree. The head
+   * is the newest version that is not rejected. When every version was
+   * rejected the newest one is the head, and the next version starts afresh
+   * (`parent` null), so a person can approve it.
+   */
   const headFor = async (c: Caller, skillId: string, action: string) => {
     const skill = await writableSkill(c, skillId, action);
     const versions = await versionsOf(skill.id);
-    const head = headOf(versions);
+    const open = headOf(versions);
+    const head = open ?? versions[0];
     if (!head) {
       throw notFound();
     }
-    return { head, previous: await treeOf(head.id), skill, versions };
+    return {
+      head,
+      parent: open ? open.number : null,
+      previous: await treeOf(head.id),
+      skill,
+      versions,
+    };
   };
 
   const staleBase = (base: number, head: VersionRow) =>
@@ -948,7 +983,7 @@ export const createSkillsStoreService = ({
     const c = memberOf(principal, "skills.commit", true);
     await ensureMigrated(principal);
     const parsed = commitInputSchema.parse(input);
-    const { head, previous, skill, versions } = await headFor(
+    const { head, parent, previous, skill, versions } = await headFor(
       c,
       parsed.skillId,
       "skills.commit"
@@ -965,6 +1000,7 @@ export const createSkillsStoreService = ({
         );
       }
     }
+    assertTreeShape(parsed.writes.map((write) => write.path));
     const written = await planWrites(parsed.writes, before);
     const deleted = new Set(parsed.deletes.map((entry) => entry.path));
     for (const file of written) {
@@ -981,7 +1017,7 @@ export const createSkillsStoreService = ({
       id: ulid(),
       message: parsed.message,
       number: (versions[0]?.number ?? 0) + 1,
-      parentNumber: head.number,
+      parentNumber: parent,
       previous,
       skill: { id: skill.id, name: skill.name },
     });
@@ -995,7 +1031,7 @@ export const createSkillsStoreService = ({
     const c = memberOf(principal, "skills.commit", true);
     await ensureMigrated(principal);
     const parsed = revertInputSchema.parse(input);
-    const { head, previous, skill, versions } = await headFor(
+    const { parent, previous, skill, versions } = await headFor(
       c,
       parsed.skillId,
       "skills.commit"
@@ -1014,7 +1050,7 @@ export const createSkillsStoreService = ({
       id: ulid(),
       message: parsed.message ?? `Revert to version ${target.number}`,
       number: (versions[0]?.number ?? 0) + 1,
-      parentNumber: head.number,
+      parentNumber: parent,
       previous,
       skill: { id: skill.id, name: skill.name },
     });
@@ -1052,7 +1088,13 @@ export const createSkillsStoreService = ({
         )
         .where(
           and(
-            eq(skillVersions.id, target.id),
+            eq(skillVersions.skillId, skill.id),
+            inArray(
+              skillVersions.number,
+              outcome === "approved"
+                ? [target.number]
+                : proposalsBuiltOn(versions, target)
+            ),
             eq(skillVersions.status, "proposed")
           )
         ),
@@ -1357,7 +1399,7 @@ export const createSkillsStoreService = ({
     skillId: string,
     files: PlannedFile[]
   ): Promise<VersionRecord> => {
-    const { head, previous, skill, versions } = await headFor(
+    const { parent, previous, skill, versions } = await headFor(
       c,
       skillId,
       "skills.import"
@@ -1376,7 +1418,7 @@ export const createSkillsStoreService = ({
       id: ulid(),
       message: IMPORT_MESSAGE,
       number: (versions[0]?.number ?? 0) + 1,
-      parentNumber: head.number,
+      parentNumber: parent,
       previous,
       skill: { id: skill.id, name: skill.name },
     });

@@ -13,6 +13,7 @@ import {
   assertTree,
   type PlannedFile,
   sha256Hex,
+  TOO_BIG,
 } from "./tree.ts";
 
 export type SkillsSourceLibrary = Pick<LibraryService, "list" | "read">;
@@ -58,11 +59,7 @@ const listOrEmpty = async (
   }
 };
 
-const tooBig = () =>
-  new ServiceError(
-    "invalid",
-    `Skills are limited to ${SKILLS_MAX_FILES} files and 5 MB`
-  );
+const tooBig = () => new ServiceError("invalid", TOO_BIG);
 
 /** The files under `root`, one folder level at a time. Stops at the caps, before any bytes are read. */
 const filesUnder = async (
