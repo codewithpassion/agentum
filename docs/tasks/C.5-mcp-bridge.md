@@ -3,7 +3,7 @@ id: C.5
 title: MCP bridge hardening
 milestone: C
 size: M
-status: in_progress
+status: done
 depends_on: [C.4]
 branch: task/C.5-mcp-bridge
 ---
@@ -21,3 +21,4 @@ Tool calls through `/mcp` and `/api/proxy` work locally. The controller confirms
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
 - 2026-10-17: dispatched on task/C.5-mcp-bridge.
+- 2026-10-17: review clean after 1 fix round at 5ff92f8 (docs/reviews/tasks/C.5.md). Merged. Decision: DO fetches its own public origin (custom domain), loopback via ctx.exports as fallback. Staging self-fetch check still open: needs a workspace model key on staging.
