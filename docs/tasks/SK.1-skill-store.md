@@ -3,7 +3,7 @@ id: SK.1
 title: Central versioned skill store with commits, assignments and .skill import
 milestone: SK
 size: L
-status: todo
+status: in_progress
 depends_on: [R.1]
 branch: task/SK.1-skill-store
 ---
@@ -41,3 +41,4 @@ This task builds the store and its service. Runtimes (SK.2), MCP tools (SK.3) an
 
 ## Log
 - 2026-10-17: added at Dom's request.
+- 2026-10-17: Dom: start. Dispatched on task/SK.1-skill-store.
