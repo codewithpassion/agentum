@@ -457,3 +457,31 @@ test("an agent with a proxy secret only gets the relay token, and one with no gr
       .some((event) => event.type === "secret.delivered")
   ).toBe(false);
 });
+
+test("a claim still succeeds when recording the delivery fails", async () => {
+  await grantBoth(agentId);
+  const failing = createRunsService({
+    adapters: [createMachineRuntime({ relay: noopRelay })],
+    atomic: sqliteAtomic(db),
+    blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+    clock,
+    db,
+    devFakeRuntime: false,
+    gateways: [],
+    runTokenKey: KEY,
+    secrets: {
+      announceDelivery: () => Promise.reject(new Error("log down")),
+      maskerFor: (workspaceId, agent) => secrets.maskerFor(workspaceId, agent),
+      resolveForAgent: (workspaceId, agent) =>
+        secrets.resolveForAgent(workspaceId, agent),
+    },
+  });
+  const started = await start(agentId);
+  const claimed = await failing.claimRunForMachine(
+    machine("m1"),
+    started.runId,
+    { platformUrl: PLATFORM }
+  );
+  expect(claimed.env?.PLAIN_KEY).toBe(ENV_VALUE);
+  expect(status(started.runId)?.status).toBe("running");
+});

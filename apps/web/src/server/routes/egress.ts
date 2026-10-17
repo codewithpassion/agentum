@@ -307,7 +307,12 @@ export const egressRoutes = ({
     }
     let url: string;
     try {
-      url = assertSafeUrl(`https://${host}${target.path}${search}`).toString();
+      const safe = assertSafeUrl(`https://${host}${target.path}${search}`);
+      // The credential goes to the host the rule matched, whatever else the segment held.
+      if (safe.hostname !== host) {
+        return denied(claims, host, "host_not_allowed");
+      }
+      url = safe.toString();
     } catch {
       return denied(claims, host, "host_not_allowed");
     }

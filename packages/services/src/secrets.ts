@@ -56,18 +56,29 @@ export const VALUE_MAX = 4096;
 const NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** Names the Worker, Claude Code or the OS read, which a secret must not set. */
 const RESERVED_NAMES = new Set([
+  "ALL_PROXY",
   "ALLOWED_ORG_IDS",
+  "BASH_ENV",
+  "CURL_CA_BUNDLE",
+  "ENV",
   "HOME",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
   "LD_LIBRARY_PATH",
   "LD_PRELOAD",
   "LOGNAME",
+  "NODE_EXTRA_CA_CERTS",
   "NODE_OPTIONS",
   "NODE_PATH",
+  "NO_PROXY",
   "PATH",
   "PUBLIC_BASE_URL",
   "RUN_TOKEN_KEY",
+  "REQUESTS_CA_BUNDLE",
   "SECRETS_KEY",
   "SHELL",
+  "SSL_CERT_DIR",
+  "SSL_CERT_FILE",
   "TMPDIR",
   "USER",
 ]);
@@ -579,11 +590,14 @@ export const createSecretsService = ({
       );
   };
 
-  const sessionOf = async (runId: string): Promise<string | null> => {
+  const sessionOf = async (
+    workspaceId: string,
+    runId: string
+  ): Promise<string | null> => {
     const [run] = await db
       .select({ sessionId: runs.sessionId })
       .from(runs)
-      .where(eq(runs.id, runId))
+      .where(and(eq(runs.id, runId), eq(runs.workspaceId, workspaceId)))
       .limit(1);
     return run?.sessionId ?? null;
   };
@@ -601,7 +615,7 @@ export const createSecretsService = ({
       agentId: run.agentId,
       payload,
       runId: run.runId,
-      sessionId: await sessionOf(run.runId),
+      sessionId: await sessionOf(run.workspaceId, run.runId),
       type,
       workspaceId: run.workspaceId,
     });

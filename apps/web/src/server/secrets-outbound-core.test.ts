@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { ProxyMatch } from "@repo/services/secrets";
-import { type OutboundDeps, outboundFetch } from "./secrets-outbound-core.ts";
+import {
+  MAX_OUTBOUND_BODY_BYTES,
+  type OutboundDeps,
+  outboundFetch,
+} from "./secrets-outbound-core.ts";
 
 const VALUE = "outbound-secret-value-01";
 const bearer: ProxyMatch = {
@@ -137,6 +141,21 @@ describe("outboundFetch", () => {
     );
     expect(response.status).toBe(502);
     expect(h.sent).toEqual([]);
+  });
+
+  test("an answer over the cap is refused, not read into memory", async () => {
+    const h = harness(
+      [bearer],
+      () =>
+        new Response(new Uint8Array(MAX_OUTBOUND_BODY_BYTES + 1), {
+          headers: { "content-type": "application/octet-stream" },
+        })
+    );
+    const response = await outboundFetch(
+      new Request("https://api.openai.com/"),
+      h.deps
+    );
+    expect(response.status).toBe(502);
   });
 
   test("a failed event does not stop the call", async () => {

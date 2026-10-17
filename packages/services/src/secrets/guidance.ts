@@ -13,7 +13,7 @@ export interface GuidedProxy {
 
 const hostLine = (base: string, host: string): string =>
   host.startsWith(WILDCARD)
-    ? `- ${host}: ${relayUrl(base, "<subdomain>", "/<path>")}, with the real subdomain in place of <subdomain>`
+    ? `- ${host}: ${relayUrl(base, "<full-host>", "/<path>")}, with the complete host in place of <full-host>, for example a.${host.slice(WILDCARD.length)}`
     : `- ${host}: ${relayUrl(base, host, "/<path>")}`;
 
 /**

@@ -8,9 +8,12 @@
  */
 import type { ProxyMatch } from "@repo/services/secrets";
 import { scrubBody, scrubText } from "@repo/services/secrets/scrub";
+import { readCappedBody } from "./mcp/body.ts";
 
 const BAD_GATEWAY = 502;
 const FORBIDDEN = 403;
+/** The most of an answer the entrypoint reads to scrub it. A larger one is refused. */
+export const MAX_OUTBOUND_BODY_BYTES = 10 * 1024 * 1024;
 const BODYLESS = new Set([204, 205, 304]);
 /** Headers whose value could echo a credential back to the script. */
 const SCRUBBED_RESPONSE_HEADERS = ["location", "www-authenticate"];
@@ -44,8 +47,15 @@ const scrubbed = async (
   if (BODYLESS.has(response.status) || response.body === null) {
     return new Response(null, { headers, status: response.status });
   }
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  const body = scrubBody(bytes, headers.get("content-type"), matches);
+  // Empty headers: the declared length is not trusted, the bytes are counted.
+  const read = await readCappedBody(
+    { body: response.body, headers: new Headers() },
+    MAX_OUTBOUND_BODY_BYTES
+  );
+  if (!read.ok) {
+    return refuse(BAD_GATEWAY, "The answer is too large to pass through.");
+  }
+  const body = scrubBody(read.bytes, headers.get("content-type"), matches);
   // The length of the scrubbed body is recomputed by the runtime.
   headers.delete("content-length");
   headers.delete("content-encoding");

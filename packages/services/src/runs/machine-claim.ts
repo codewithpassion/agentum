@@ -189,18 +189,25 @@ export const claimForMachine = async (
       })
     : "";
   if (granted) {
-    await deps.secrets?.announceDelivery(
-      {
-        agentId: claimedRun.agentId,
-        runId: claimedRun.id,
-        workspaceId: claimedRun.workspaceId,
-      },
-      {
-        env: Object.keys(granted.env),
-        proxy: granted.proxy,
-        surface: "machine",
-      }
-    );
+    try {
+      await deps.secrets?.announceDelivery(
+        {
+          agentId: claimedRun.agentId,
+          runId: claimedRun.id,
+          workspaceId: claimedRun.workspaceId,
+        },
+        {
+          env: Object.keys(granted.env),
+          proxy: granted.proxy,
+          surface: "machine",
+        }
+      );
+    } catch (error) {
+      // The claim is committed: a log that failed must not fail the daemon's call.
+      console.error(
+        `Recording the secrets delivery for run ${claimedRun.id} failed: ${error instanceof Error ? error.name : "unknown error"}`
+      );
+    }
   }
 
   return {
