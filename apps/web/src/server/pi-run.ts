@@ -49,7 +49,10 @@ import {
 } from "./pi-run-skills.ts";
 
 import { dynamicWorkerSandbox } from "./skill-scripts/dynamic-worker-sandbox.ts";
-import { skillScriptsExtension } from "./skill-scripts/run-skill-script.ts";
+import {
+  type ScriptSecrets,
+  skillScriptsExtension,
+} from "./skill-scripts/run-skill-script.ts";
 
 const TOOLS_KEY = "mcp-tools";
 /** The workspace of the session. An id, not a secret: the model key is read again for each model request. */
@@ -316,8 +319,52 @@ export class PiRun extends DurableObject<Env> {
     const port = this.#skillsPort(run);
     this.registry.install(skillsExtension(skills, port));
     this.registry.install(
-      skillScriptsExtension(skills, port, dynamicWorkerSandbox(this.env.LOADER))
+      skillScriptsExtension(
+        skills,
+        port,
+        dynamicWorkerSandbox(this.env.LOADER, () =>
+          // The isolate's requests go through here, where the rules add the credentials. Ids only: the entrypoint reads the secrets itself.
+          this.ctx.exports.SecretsOutbound({ props: run })
+        ),
+        this.#scriptSecrets(run)
+      )
     );
+  }
+
+  /**
+   * The agent's secrets for one script call, read fresh each time so a grant
+   * that changed between two calls applies. `env` secrets go into the isolate,
+   * `proxy` ones are added by the outbound entrypoint, and the answer is
+   * masked so a value a script printed never reaches the model.
+   */
+  #scriptSecrets(run: RunRef): ScriptSecrets {
+    return {
+      forRun: async () => {
+        const { secrets } = this.#services();
+        const granted = await secrets.resolveForAgent(
+          run.workspaceId,
+          run.agentId
+        );
+        try {
+          await secrets.announceDelivery(run, {
+            env: Object.keys(granted.env),
+            proxy: granted.proxy,
+            surface: "cloud",
+          });
+        } catch (error) {
+          // A log that failed must not stop the script.
+          console.warn(
+            `PiRun: recording the secrets delivery for run ${run.runId} failed`,
+            error instanceof Error ? error.name : "unknown error"
+          );
+        }
+        return {
+          env: granted.env,
+          mask: granted.masker.mask,
+          proxy: granted.proxy.length > 0,
+        };
+      },
+    };
   }
 
   async #loadAndInstallSkills(input: CloudStart) {

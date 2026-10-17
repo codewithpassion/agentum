@@ -1,8 +1,11 @@
 /**
  * Runs a skill script in a Dynamic Worker (Worker Loader): a fresh isolate for
- * each call, gone when the call returns. It is given no `env`, so it holds no
- * binding, secret or token of ours, and no `globalOutbound`, so it has the
- * network. The choice is in `docs/reviews/tasks/C.12.md`.
+ * each call, gone when the call returns. It gets only the `env` the run names,
+ * so it holds no binding or token of ours. It has the network. When the run
+ * asks for `proxy`, `outbound` supplies the `globalOutbound` that adds the
+ * agent's credentials to requests, so the isolate never holds them. Without
+ * `proxy` it has no `globalOutbound`. The choice is in
+ * `docs/reviews/tasks/C.12.md`.
  */
 
 import {
@@ -106,7 +109,8 @@ const timer = (ms: number) => {
 };
 
 export const dynamicWorkerSandbox = (
-  loader: WorkerLoader
+  loader: WorkerLoader,
+  outbound?: () => Fetcher
 ): SkillScriptSandbox => ({
   run: async (input: SandboxRunInput): Promise<SandboxRunResult> => {
     let modules: ReturnType<typeof buildModules>;
@@ -117,9 +121,13 @@ export const dynamicWorkerSandbox = (
     }
     const worker = loader.load({
       compatibilityDate: COMPATIBILITY_DATE,
+      env: input.env ?? {},
       limits: { cpuMs: input.timeoutMs, subRequests: MAX_SUBREQUESTS },
       mainModule: HARNESS,
       modules: { ...modules, [HARNESS]: { js: HARNESS_SOURCE } },
+      ...(input.proxy === true && outbound !== undefined
+        ? { globalOutbound: outbound() }
+        : {}),
     });
     const runner = worker.getEntrypoint("Runner") as unknown as {
       run: (

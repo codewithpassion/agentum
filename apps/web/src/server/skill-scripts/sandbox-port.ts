@@ -9,10 +9,14 @@ export interface SandboxRunInput {
   args: string[];
   /** The script to run: one of `files`, by path. */
   entry: string;
+  /** Variables to set for the script, read as `process.env.NAME`. */
+  env?: Record<string, string>;
   /** Every file of the skill. */
   files: SandboxFile[];
   /** What the caller shows of each of stdout and stderr. A backend keeps at least this much of each, and may cap far above it to protect its own memory. */
   maxOutputBytes: number;
+  /** When true, the backend routes the script's outgoing requests through the platform's outbound proxy, which adds credentials for hosts the agent has rules for. */
+  proxy?: boolean;
   /** Wall time for the run. When it passes, a backend gives up on the script and reports exit code 124. */
   timeoutMs: number;
 }
@@ -25,9 +29,10 @@ export interface SandboxRunResult {
 
 /**
  * Where a skill script runs. One call is one short-lived sandbox: it starts
- * clean, holds only `files`, sees no Harbourmaster secret, and is gone when the
- * call returns. Network is on. A failure of the script is an `exitCode`, not a
- * rejection. A rejection means the sandbox itself failed.
+ * clean, holds only `files`, and is gone when the
+ * call returns. Network is on. A run holds no secret except what `env` gives
+ * it. A failure of the script is an `exitCode`, not a rejection. A rejection
+ * means the sandbox itself failed.
  */
 export interface SkillScriptSandbox {
   run: (input: SandboxRunInput) => Promise<SandboxRunResult>;

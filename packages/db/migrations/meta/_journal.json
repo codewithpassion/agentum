@@ -22,6 +22,13 @@
       "when": 1792206329486,
       "tag": "0002_melted_cannonball",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792210110724,
+      "tag": "0003_naive_mister_sinister",
+      "breakpoints": true
     }
   ]
 }

@@ -85,6 +85,10 @@ import {
   systemClock,
 } from "@repo/services/runs/types";
 import {
+  createSecretsService,
+  type SecretsService,
+} from "@repo/services/secrets";
+import {
   createSessionsService,
   type SessionsService,
 } from "@repo/services/sessions";
@@ -138,7 +142,7 @@ export interface Infra {
   relay: MachineRelayPort;
   /** `RUN_TOKEN_KEY`. Machine claims mint run tokens with it. */
   runTokenKey?: string;
-  /** `SECRETS_KEY`. Storing a connector credential encrypts with it. */
+  /** `SECRETS_KEY`. Storing a connector credential or a workspace secret encrypts with it. */
   secretsKey?: string;
   /** Finds the Clerk user behind a Slack email. Without one, nobody is linked. */
   slackDirectory?: SlackDirectory;
@@ -163,6 +167,7 @@ export interface Services {
   oauthClients: OAuthClientsService;
   routines: RoutinesService;
   runs: RunsService;
+  secrets: SecretsService;
   sessions: SessionsService;
   skills: SkillsService;
   slack: SlackService;
@@ -315,6 +320,13 @@ export const composeWith = ({
     validate: infra.validateAnthropicKey,
   });
   const oauthClients = createOAuthClientsService({ clock: infra.clock, db });
+  const secrets = createSecretsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    secretsKey: infra.secretsKey,
+  });
   const slackGateway = createSlackGateway({
     clock: infra.clock,
     db,
@@ -337,6 +349,7 @@ export const composeWith = ({
     devFakeRuntime: infra.devFakeRuntime,
     gateways,
     runTokenKey: infra.runTokenKey,
+    secrets,
   });
   const managed = createManagedService({
     atomic: infra.atomic,
@@ -349,6 +362,7 @@ export const composeWith = ({
     publicBaseUrl: infra.publicBaseUrl,
     runs,
     runTokenKey: infra.runTokenKey,
+    secrets,
     skills: (run) => {
       const principal = {
         agentId: run.agentId,
@@ -417,6 +431,7 @@ export const composeWith = ({
       oauthClients,
       routines,
       runs,
+      secrets,
       sessions,
       skills,
       slack,

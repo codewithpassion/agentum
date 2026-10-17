@@ -26,6 +26,8 @@ export type SpawnFn = (
 export interface AgentSpawnerOptions {
   /** Receives Claude Code's stderr as it arrives. */
   onStderr?: (text: string) => void;
+  /** Variables sudo must keep, by name. Their values travel in the spawn's env. */
+  preserveEnv?: readonly string[];
   singleUser: boolean;
   spawn?: SpawnFn;
 }
@@ -36,18 +38,22 @@ const ROOT = "/";
 /** The command and arguments that start Claude Code for these SDK options. */
 export const agentCommand = (
   options: Pick<SpawnOptions, "args" | "command" | "cwd">,
-  singleUser: boolean
+  singleUser: boolean,
+  preserveEnv: readonly string[] = []
 ): { args: string[]; command: string } => {
   if (singleUser) {
     return { args: options.args, command: options.command };
   }
   const chdir = options.cwd === undefined ? [] : ["-D", options.cwd];
+  const preserve =
+    preserveEnv.length === 0 ? [] : [`--preserve-env=${preserveEnv.join(",")}`];
   return {
     args: [
       "-n",
       "-u",
       AGENT_USER,
       "-H",
+      ...preserve,
       ...chdir,
       options.command,
       ...options.args,
@@ -59,9 +65,9 @@ export const agentCommand = (
 export const createAgentSpawner =
   (spawnOptions: AgentSpawnerOptions) =>
   (options: SpawnOptions): SpawnedProcess => {
-    const { onStderr, singleUser } = spawnOptions;
+    const { onStderr, preserveEnv, singleUser } = spawnOptions;
     const spawn: SpawnFn = spawnOptions.spawn ?? nodeSpawn;
-    const { args, command } = agentCommand(options, singleUser);
+    const { args, command } = agentCommand(options, singleUser, preserveEnv);
     const child = spawn(command, args, {
       cwd: singleUser ? (options.cwd ?? ROOT) : ROOT,
       env: options.env,

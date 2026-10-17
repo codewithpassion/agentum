@@ -28,13 +28,25 @@ const fakeRun =
 
 test("the sudoers line names the exact binary path, plus the file helpers", () => {
   expect(sudoersLine("dom", "/home/dom/.local/bin/claude")).toBe(
-    "dom ALL=(hm-agent) CWD=* NOPASSWD: /home/dom/.local/bin/claude, /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat"
+    "dom ALL=(hm-agent) CWD=* NOPASSWD: SETENV: /home/dom/.local/bin/claude, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat"
   );
+});
+
+test("SETENV covers only the claude binary, and every helper is NOSETENV", () => {
+  const line = sudoersLine("dom", "/usr/bin/claude");
+  const [claudeEntry, helperEntry] = line.split(", NOSETENV: ");
+  expect(claudeEntry).toBe(
+    "dom ALL=(hm-agent) CWD=* NOPASSWD: SETENV: /usr/bin/claude"
+  );
+  expect(helperEntry).toBe(
+    "/bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat"
+  );
+  expect(line.match(/ SETENV:/g)).toHaveLength(1);
 });
 
 test("the sudoers line escapes characters sudoers would split on", () => {
   expect(sudoersLine("dom", "/opt/my tools/claude,v2")).toBe(
-    "dom ALL=(hm-agent) CWD=* NOPASSWD: /opt/my\\ tools/claude\\,v2, /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat"
+    "dom ALL=(hm-agent) CWD=* NOPASSWD: SETENV: /opt/my\\ tools/claude\\,v2, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat"
   );
 });
 
@@ -42,7 +54,7 @@ test("the drop-in file ends with a newline and holds the one rule", () => {
   const file = sudoersFile("dom", "/usr/bin/claude");
   expect(file.endsWith("\n")).toBe(true);
   expect(file).toContain(
-    "dom ALL=(hm-agent) CWD=* NOPASSWD: /usr/bin/claude, /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat\n"
+    "dom ALL=(hm-agent) CWD=* NOPASSWD: SETENV: /usr/bin/claude, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat\n"
   );
 });
 

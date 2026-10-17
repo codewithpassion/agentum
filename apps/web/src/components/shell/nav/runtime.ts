@@ -2,6 +2,7 @@ import {
   Bot,
   Cloud,
   FolderOpen,
+  KeyRound,
   MessagesSquare,
   ScrollText,
   Server,
@@ -18,6 +19,7 @@ export const runtimeNav: readonly NavItem[] = [
     label: "Managed Agents",
     to: "/settings/managed-agents",
   },
+  { icon: KeyRound, id: "secrets", label: "Secrets", to: "/settings/secrets" },
   { icon: FolderOpen, id: "library", label: "Library", to: "/library" },
   { icon: ScrollText, id: "log", label: "Log", to: "/log" },
 ];

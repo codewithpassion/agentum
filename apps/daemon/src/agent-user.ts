@@ -42,9 +42,13 @@ const FILE_NAME_UNSAFE = /[^A-Za-z0-9_-]/g;
  * its attachments back, and every file they touch stays `hm-agent`'s. They
  * run as `hm-agent`, so the daemon's own config, which `hm-agent` cannot read,
  * stays out of reach.
+ *
+ * `SETENV` lets claude keep the agent's secrets through `sudo --preserve-env`
+ * (agent-process.ts). The helpers get `NOSETENV`, so they keep their
+ * environment reset as before.
  */
 export const sudoersLine = (user: string, claudeBinary: string): string =>
-  `${user} ALL=(${AGENT_USER}) CWD=* NOPASSWD: ${[claudeBinary.replace(SUDOERS_SPECIAL, "\\$&"), ...AGENT_COMMANDS].join(", ")}`;
+  `${user} ALL=(${AGENT_USER}) CWD=* NOPASSWD: SETENV: ${claudeBinary.replace(SUDOERS_SPECIAL, "\\$&")}, NOSETENV: ${AGENT_COMMANDS.join(", ")}`;
 
 /** The whole drop-in file for `user`. */
 export const sudoersFile = (user: string, claudeBinary: string): string =>

@@ -10,6 +10,7 @@ import type {
 import { loadSkills, type SkillsPort } from "../pi-run-skills.ts";
 import {
   type ScriptLimits,
+  type ScriptSecrets,
   SKILL_SCRIPTS_EXTENSION,
   skillScriptsExtension,
 } from "./run-skill-script.ts";
@@ -118,15 +119,43 @@ const LIMITS: ScriptLimits = {
 const extensionFor = async (
   files: Record<string, string>,
   sandbox: SkillScriptSandbox,
-  limits: ScriptLimits = LIMITS
+  limits: ScriptLimits = LIMITS,
+  secrets?: ScriptSecrets
 ): Promise<Extension> => {
   const port = portOver(files);
-  return skillScriptsExtension(await loadSkills(port), port, sandbox, limits);
+  return skillScriptsExtension(
+    await loadSkills(port),
+    port,
+    sandbox,
+    secrets,
+    limits
+  );
 };
+
+const SECRET_VALUE = "fake-secret-value-123";
+const GRANT_ENV = { FAKE_TOKEN: SECRET_VALUE };
+/** A grant that masks the granted value the way the platform does. */
+const grantedSecrets = (proxy = true): ScriptSecrets => ({
+  forRun: () =>
+    Promise.resolve({
+      env: GRANT_ENV,
+      mask: (text) => text.replaceAll(SECRET_VALUE, "[redacted]"),
+      proxy,
+    }),
+});
+const PLAIN_SENTENCE =
+  "The script sees only the skill's own files, has network access and no secrets, and runs for at most 30 seconds.";
+const GRANTED_SENTENCE =
+  "The script sees only the skill's own files and has network access. It has no secrets of its own: the environment variables the agent was granted are set in process.env, and requests to hosts the agent has a credential for get that credential added for it. It runs for at most 30 seconds.";
 
 describe("skillScriptsExtension", () => {
   test("with no skills it adds no tools and no sections", () => {
-    const extension = skillScriptsExtension([], portOver({}), fakeSandbox());
+    const extension = skillScriptsExtension(
+      [],
+      portOver({}),
+      fakeSandbox(),
+      undefined
+    );
     expect(extension.name).toBe(SKILL_SCRIPTS_EXTENSION);
     expect(extension.tools ?? []).toEqual([]);
     expect(extension.sections ?? []).toEqual([]);
@@ -142,6 +171,113 @@ describe("skillScriptsExtension", () => {
     expect(await section?.render(NO_INPUT, CONTEXT)).toBe(
       "Scripts written in TypeScript or JavaScript in a skill are run with run_skill_script, not read and imitated. The script sees only the skill's own files, has network access and no secrets, and runs for at most 30 seconds."
     );
+  });
+
+  test("with no secrets the input has no env and the prompt is the old sentence", async () => {
+    const sandbox = fakeSandbox();
+    const extension = await extensionFor(SKILL_FILES, sandbox);
+    await execute(extension, { path: "scripts/hello.ts", skill: "shout" });
+    const call = onlyCall(sandbox);
+    expect(call.env).toBeUndefined();
+    expect(call.proxy).toBeUndefined();
+    expect(await extension.sections?.[0]?.render(NO_INPUT, CONTEXT)).toContain(
+      PLAIN_SENTENCE
+    );
+  });
+
+  test("with secrets the prompt names the granted environment and the proxy", async () => {
+    const extension = await extensionFor(
+      SKILL_FILES,
+      fakeSandbox(),
+      LIMITS,
+      grantedSecrets()
+    );
+    expect(await extension.sections?.[0]?.render(NO_INPUT, CONTEXT)).toContain(
+      GRANTED_SENTENCE
+    );
+  });
+
+  test("granted env and proxy reach the sandbox run", async () => {
+    const sandbox = fakeSandbox();
+    const extension = await extensionFor(
+      SKILL_FILES,
+      sandbox,
+      LIMITS,
+      grantedSecrets(true)
+    );
+    await execute(extension, { path: "scripts/hello.ts", skill: "shout" });
+    const call = onlyCall(sandbox);
+    expect(call.env).toEqual(GRANT_ENV);
+    expect(call.proxy).toBe(true);
+  });
+
+  test("a grant with proxy off passes proxy false", async () => {
+    const sandbox = fakeSandbox();
+    const extension = await extensionFor(
+      SKILL_FILES,
+      sandbox,
+      LIMITS,
+      grantedSecrets(false)
+    );
+    await execute(extension, { path: "scripts/hello.ts", skill: "shout" });
+    expect(onlyCall(sandbox).proxy).toBe(false);
+  });
+
+  test("a granted value printed to stdout and stderr is masked in the answer", async () => {
+    const sandbox = fakeSandbox({
+      exitCode: 0,
+      stderr: `warn ${SECRET_VALUE}`,
+      stdout: `token is ${SECRET_VALUE}`,
+    });
+    const extension = await extensionFor(
+      SKILL_FILES,
+      sandbox,
+      LIMITS,
+      grantedSecrets()
+    );
+    const result = await execute(extension, {
+      path: "scripts/hello.ts",
+      skill: "shout",
+    });
+    expect(textOf(result)).toBe(
+      "exit code: 0\n\nstdout:\ntoken is [redacted]\n\nstderr:\nwarn [redacted]"
+    );
+    expect(textOf(result)).not.toContain(SECRET_VALUE);
+  });
+
+  test("a value split by the output cap is still masked, because masking runs first", async () => {
+    const sandbox = fakeSandbox({
+      exitCode: 0,
+      stderr: "",
+      stdout: `${"x".repeat(4)}${SECRET_VALUE}`,
+    });
+    const extension = await extensionFor(
+      SKILL_FILES,
+      sandbox,
+      { ...LIMITS, maxOutputBytes: 10 },
+      grantedSecrets()
+    );
+    const result = await execute(extension, {
+      path: "scripts/hello.ts",
+      skill: "shout",
+    });
+    // Cap-then-mask would keep "fake-s" of the value, which no mask finds.
+    expect(textOf(result)).not.toContain("fake-");
+    expect(textOf(result)).toContain("xxxx[redac");
+  });
+
+  test("a failing forRun is an error result and the sandbox is not called", async () => {
+    const sandbox = fakeSandbox();
+    const extension = await extensionFor(SKILL_FILES, sandbox, LIMITS, {
+      forRun: () => Promise.reject(new Error("vault is down")),
+    });
+    const result = await execute(extension, {
+      path: "scripts/hello.ts",
+      skill: "shout",
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe("Could not read the secrets: vault is down");
+    expect(sandbox.calls).toEqual([]);
   });
 
   test("the sandbox sees every skill file at its skill-relative path", async () => {

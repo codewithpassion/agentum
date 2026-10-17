@@ -2,8 +2,8 @@
 // file names taken from download answers, the masking of error text, and the
 // status each failure carries.
 import { describe, expect, test } from "bun:test";
+import { createMasker } from "@repo/protocol/masker";
 import { createFilesApi } from "./files-api.ts";
-import { createMasker } from "./masker.ts";
 import { RunApiError } from "./run-api.ts";
 
 const RUN_TOKEN = "hm_run_token_for_tests_0123456789";

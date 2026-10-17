@@ -66,6 +66,17 @@ export interface ManagedGateway {
     token: string;
     vaultId: string;
   }) => Promise<string>;
+  /**
+   * An environment variable credential: the sandbox sees `$name` as a placeholder,
+   * and the real value goes into requests to `hosts`. No `hosts` means any host, in
+   * the header and the body.
+   */
+  createEnvironmentVariableCredential: (input: {
+    hosts?: readonly string[];
+    name: string;
+    value: string;
+    vaultId: string;
+  }) => Promise<string>;
   /** Sends `text` as the first message, under the budget. `vaultIds` hold the MCP credentials. */
   createSession: (input: {
     anthropicAgentId: string;
@@ -375,6 +386,27 @@ export const createManagedGateway = (
             type: "static_bearer",
           },
           display_name: input.displayName,
+        }
+      );
+      return credential.id;
+    },
+
+    async createEnvironmentVariableCredential(input) {
+      const { hosts } = input;
+      const credential = await client.beta.vaults.credentials.create(
+        input.vaultId,
+        {
+          auth: {
+            injection_location: { body: hosts === undefined, header: true },
+            networking:
+              hosts === undefined
+                ? { type: "unrestricted" }
+                : { allowed_hosts: [...hosts], type: "limited" },
+            secret_name: input.name,
+            secret_value: input.value,
+            type: "environment_variable",
+          },
+          display_name: input.name,
         }
       );
       return credential.id;

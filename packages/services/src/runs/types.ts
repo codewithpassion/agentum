@@ -182,6 +182,8 @@ export interface MachineClaim {
     runtimeConfig: Record<string, unknown>;
     slug: string;
   };
+  /** Secrets for the agent's process: its `env` secrets, and the relay token when it has `proxy` ones. Absent when it has none. */
+  env?: Record<string, string>;
   inputFileIds: string[];
   instructions: string;
   mcpServers: Record<

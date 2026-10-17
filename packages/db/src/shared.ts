@@ -88,6 +88,8 @@ export const EVENT_TYPES = [
   "library.write",
   "library.delete",
   "library.command",
+  "secret.delivered",
+  "secret.injected",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -98,6 +100,10 @@ export const EVENT_ACTOR_KINDS = [
   "system",
 ] as const;
 export type EventActorKind = (typeof EVENT_ACTOR_KINDS)[number];
+
+/** How a workspace secret reaches an agent: added to its outgoing requests, or set as an environment variable. */
+export const SECRET_MODES = ["env", "proxy"] as const;
+export type SecretMode = (typeof SECRET_MODES)[number];
 
 export const CONNECTOR_AUTH_KINDS = ["none", "header", "oauth"] as const;
 export type ConnectorAuthKind = (typeof CONNECTOR_AUTH_KINDS)[number];

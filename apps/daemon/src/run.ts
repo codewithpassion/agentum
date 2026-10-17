@@ -5,6 +5,7 @@
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { RelayFrame } from "@repo/protocol/machine";
+import { createMasker } from "@repo/protocol/masker";
 import { createAgentSpawner } from "./agent-process.ts";
 import {
   createDaemonClient,
@@ -19,7 +20,6 @@ import { executeRun, type QueryFn } from "./executor.ts";
 import { EXIT_OK } from "./exit-codes.ts";
 import { createFilesApi } from "./files-api.ts";
 import type { Logger } from "./log.ts";
-import { createMasker } from "./masker.ts";
 import { createRunApi } from "./run-api.ts";
 import { createRunManager } from "./run-manager.ts";
 import { createSkillsApi } from "./skills-api.ts";
@@ -108,8 +108,12 @@ export const runCommand = async (options: RunOptions): Promise<number> => {
         log,
         queryFn,
         run: runCommandFn,
-        spawnProcessFor: (onStderr) =>
-          createAgentSpawner({ onStderr, singleUser: config.singleUser }),
+        spawnProcessFor: (onStderr, preserveEnv) =>
+          createAgentSpawner({
+            onStderr,
+            preserveEnv,
+            singleUser: config.singleUser,
+          }),
         timers,
       }),
     log,
