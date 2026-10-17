@@ -46,7 +46,7 @@ import type { CommandRunner } from "./command.ts";
 import { type ExecuteRunDeps, executeRun, type QueryFn } from "./executor.ts";
 import type { FilesApi } from "./files-api.ts";
 import type { Logger } from "./log.ts";
-import { type RunApi, RunApiError } from "./run-api.ts";
+import { createRunApi, type RunApi, RunApiError } from "./run-api.ts";
 import type { SkillsApi } from "./skills-api.ts";
 import { workDirPath } from "./workdir.ts";
 
@@ -151,6 +151,8 @@ interface Harness {
   maskerSeen: Masker[];
   optionsSeen: Options[];
   order: string[];
+  /** The names the process spawner was asked to preserve, one entry per spawn. */
+  preserveEnvSeen: (readonly string[])[];
   proc: FakeProcess;
   /** What the fake hm-agent work directory holds (path to text), as the sudo calls left it. */
   remoteFiles: Map<string, string>;
@@ -185,6 +187,8 @@ interface SetupOptions {
   stderr?: string;
   /** Uploads answer with this status instead of 201. */
   uploadStatus?: number;
+  /** When set, the run talks to the relay through the real run API client over this fetch. */
+  wireFetch?: typeof fetch;
 }
 
 let home: string;
@@ -252,6 +256,7 @@ const setup = (setupOptions: SetupOptions) => {
   let stderr: (text: string) => void = () => undefined;
   let closeQuery: () => void = () => undefined;
   const maskerSeen: Masker[] = [];
+  const preserveEnvSeen: (readonly string[])[] = [];
 
   const api: RunApi = {
     claim: () => Promise.reject(new Error("not used")),
@@ -488,6 +493,15 @@ const setup = (setupOptions: SetupOptions) => {
     },
     createApi: (masker) => {
       maskerSeen.push(masker);
+      if (setupOptions.wireFetch !== undefined) {
+        return createRunApi({
+          credential: CREDENTIAL,
+          fetch: setupOptions.wireFetch,
+          masker,
+          runId: claim.run.id,
+          server: "https://harbourmaster.example.workers.dev",
+        });
+      }
       return api;
     },
     createFilesApi: () => filesApi,
@@ -502,8 +516,9 @@ const setup = (setupOptions: SetupOptions) => {
     log,
     queryFn,
     run,
-    spawnProcessFor: (onStderr) => {
+    spawnProcessFor: (onStderr, preserveEnv) => {
       stderr = onStderr;
+      preserveEnvSeen.push(preserveEnv);
       return () => proc as unknown as SpawnedProcess;
     },
     timers: timers.timers,
@@ -519,6 +534,7 @@ const setup = (setupOptions: SetupOptions) => {
     maskerSeen,
     optionsSeen,
     order,
+    preserveEnvSeen,
     proc,
     remoteFiles,
     run,
@@ -1213,5 +1229,91 @@ describe("skills", () => {
     const run = setup({ script: toolRunScript(), skills: { files: SKILLS } });
     await run.execution.finished;
     expect(run.optionsSeen[0]?.settingSources).toEqual(["project"]);
+  });
+});
+
+describe("the agent's secrets", () => {
+  const OPENAI = "fake-openai-value-0001";
+  const RELAY = "fake-relay-token-0002";
+  const MY_KEY = "fake-my-key-value-0003";
+  const secretsClaim = () =>
+    claimWith((c) => {
+      c.env = {
+        HARBOURMASTER_RELAY_TOKEN: RELAY,
+        MY_API_KEY: MY_KEY,
+        OPENAI_API_KEY: OPENAI,
+      };
+    });
+
+  test("are in the env given to query, and a name that DENY_PATTERN matches survives", async () => {
+    const run = setup({ claim: secretsClaim(), script: toolRunScript() });
+    await run.execution.finished;
+    const env = run.optionsSeen[0]?.env ?? {};
+    expect(env.OPENAI_API_KEY).toBe(OPENAI);
+    expect(env.HARBOURMASTER_RELAY_TOKEN).toBe(RELAY);
+    expect(env.MY_API_KEY).toBe(MY_KEY);
+    expect(env.HOME).toBe("/home/dom");
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  test("the spawner is told the names to preserve", async () => {
+    const run = setup({ claim: secretsClaim(), script: toolRunScript() });
+    await run.execution.finished;
+    expect(run.preserveEnvSeen).toEqual([
+      ["HARBOURMASTER_RELAY_TOKEN", "MY_API_KEY", "OPENAI_API_KEY"],
+    ]);
+  });
+
+  test("a claim without env keeps the filtered env and passes no names", async () => {
+    const run = setup({ script: toolRunScript() });
+    await run.execution.finished;
+    expect(run.optionsSeen[0]?.env).toEqual({
+      HOME: "/home/dom",
+      PATH: "/usr/bin",
+    });
+    expect(run.preserveEnvSeen).toEqual([[]]);
+    expect(doneBody(run).status).toBe("done");
+  });
+
+  test("a secret value sent to the relay, in an event or the completion, is masked by name", async () => {
+    const [first, ...rest] = toolRun;
+    const result = {
+      ...(rest.at(-1) as object),
+      result: `the key is ${OPENAI}`,
+    } as unknown as SDKMessage;
+    const assistant = {
+      message: {
+        content: [{ text: `echo ${OPENAI}`, type: "text" }],
+        id: "msg_secret",
+        model: "claude-haiku-5-5",
+        role: "assistant",
+        stop_reason: "end_turn",
+        type: "message",
+      },
+      parent_tool_use_id: null,
+      session_id: (first as { session_id: string }).session_id,
+      type: "assistant",
+      uuid: "00000000-0000-4000-8000-0000000000aa",
+    } as unknown as SDKMessage;
+    const sent: string[] = [];
+    const wireFetch = Object.assign(
+      (_input: Request | URL | string, request?: RequestInit) => {
+        sent.push(typeof request?.body === "string" ? request.body : "");
+        return Promise.resolve(new Response("{}", { status: 200 }));
+      },
+      { preconnect: () => undefined }
+    );
+    const run = setup({
+      claim: secretsClaim(),
+      script: [first as SDKMessage, assistant, TICK, result],
+      wireFetch,
+    });
+    await run.execution.finished;
+    const body = sent.join("\n");
+    expect(body).toContain("[secret:OPENAI_API_KEY]");
+    expect(body).not.toContain(OPENAI);
+    expect(body).not.toContain(RELAY);
+    expect(run.lines.join("\n")).not.toContain(OPENAI);
+    expect(run.lines.join("\n")).not.toContain(RELAY);
   });
 });

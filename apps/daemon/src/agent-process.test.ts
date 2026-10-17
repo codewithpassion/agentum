@@ -45,6 +45,58 @@ test("multi-user puts sudo -u hm-agent in front and hands the work dir to sudo",
   expect(args.slice(6)).toEqual([SDK_OPTIONS.command, ...SDK_OPTIONS.args]);
 });
 
+test("multi-user preserves the named variables right after -H and before -D", () => {
+  const { args } = agentCommand(SDK_OPTIONS, false, [
+    "OPENAI_API_KEY",
+    "HARBOURMASTER_RELAY_TOKEN",
+  ]);
+  expect(args.slice(0, 7)).toEqual([
+    "-n",
+    "-u",
+    "hm-agent",
+    "-H",
+    "--preserve-env=OPENAI_API_KEY,HARBOURMASTER_RELAY_TOKEN",
+    "-D",
+    SDK_OPTIONS.cwd,
+  ]);
+  expect(args.slice(7)).toEqual([SDK_OPTIONS.command, ...SDK_OPTIONS.args]);
+});
+
+test("no names means no --preserve-env argument", () => {
+  const { args } = agentCommand(SDK_OPTIONS, false, []);
+  expect(args.some((arg) => arg.startsWith("--preserve-env"))).toBe(false);
+});
+
+test("single user ignores the names and builds the same command", () => {
+  expect(agentCommand(SDK_OPTIONS, true, ["OPENAI_API_KEY"])).toEqual(
+    agentCommand(SDK_OPTIONS, true)
+  );
+});
+
+test("the spawner passes the names to sudo but never their values", () => {
+  const calls: { args: string[]; env: Record<string, string | undefined> }[] =
+    [];
+  const spawner = createAgentSpawner({
+    preserveEnv: ["OPENAI_API_KEY"],
+    singleUser: false,
+    spawn: (_command, args, options) => {
+      calls.push({ args, env: options.env });
+      return fakeChild();
+    },
+  });
+  spawner({
+    ...SDK_OPTIONS,
+    env: { ...SDK_OPTIONS.env, OPENAI_API_KEY: "fake-openai-value" },
+  });
+  const [call] = calls;
+  if (call === undefined) {
+    throw new Error("the spawner did not start sudo");
+  }
+  expect(call.args).toContain("--preserve-env=OPENAI_API_KEY");
+  expect(call.env.OPENAI_API_KEY).toBe("fake-openai-value");
+  expect(call.args.join(" ")).not.toContain("fake-openai-value");
+});
+
 test("multi-user spawns sudo from / so the daemon user can chdir", () => {
   const calls: { args: string[]; command: string; cwd: string }[] = [];
   const spawner = createAgentSpawner({

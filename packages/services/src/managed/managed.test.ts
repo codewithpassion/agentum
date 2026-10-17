@@ -27,6 +27,8 @@ import {
 } from "../run-tokens.ts";
 import type { Clock, StartRunInput } from "../runs/types.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
+import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
+import { createSecretsService, type SecretsService } from "../secrets.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { advanceCursor, eventsAfter, type SessionEvent } from "./events.ts";
 import type { ManagedGateway, SkillRef, SkillUploadFile } from "./gateway.ts";
@@ -78,6 +80,13 @@ interface FakeSession {
 class FakeGateway implements ManagedGateway {
   agentSeq = 0;
   credentials: { token: string; url: string; vaultId: string }[] = [];
+  /** Environment variable credentials. `value` is kept for checks, never printed. */
+  envCredentials: {
+    hosts: readonly string[] | undefined;
+    name: string;
+    value: string;
+    vaultId: string;
+  }[] = [];
   deletedVaults: string[] = [];
   interrupted: string[] = [];
   /** Runs when a session's status is read, to put a write between two steps of a launch. */
@@ -156,6 +165,21 @@ class FakeGateway implements ManagedGateway {
       vaultId: input.vaultId,
     });
     return Promise.resolve(`cred_${this.credentials.length}`);
+  }
+
+  createEnvironmentVariableCredential(input: {
+    hosts?: readonly string[];
+    name: string;
+    value: string;
+    vaultId: string;
+  }) {
+    this.envCredentials.push({
+      hosts: input.hosts,
+      name: input.name,
+      value: input.value,
+      vaultId: input.vaultId,
+    });
+    return Promise.resolve(`envcred_${this.envCredentials.length}`);
   }
 
   createSession(input: {
@@ -294,6 +318,7 @@ let hasKey: boolean;
 let onResolveKey: (() => void) | null;
 let events: ReturnType<typeof createEventsService>;
 let keys: ReturnType<typeof createManagedKeysService>;
+let secrets: SecretsService;
 /** The agent's skill files as the library has them: path (skill folder first) to text. */
 let skillFiles: Map<string, string>;
 
@@ -329,6 +354,7 @@ const buildManaged = (publicBaseUrl: string) =>
     publicBaseUrl,
     runs,
     runTokenKey: RUN_TOKEN_KEY,
+    secrets,
     skills: skillsSource,
   });
 
@@ -427,6 +453,13 @@ beforeEach(async () => {
     },
   };
   events = createEventsService({ blobs, db });
+  secrets = createSecretsService({
+    atomic: sqliteAtomic(db),
+    clock,
+    db,
+    events,
+    secretsKey: SECRETS_KEY,
+  });
   agents = createAgentsService({ db, events });
   agentId = (
     await agents.create(dom, {
@@ -1266,5 +1299,156 @@ describe("a poller outage and the reaper", () => {
     expect(runRow(second.runId)?.status).toBe("failed");
     expect(gateway.interrupted).toEqual([]);
     expect(sessionRow(first.sessionId)?.closedAt).toBeNull();
+  });
+});
+
+describe("secrets", () => {
+  const ENV_VALUE = "env-secret-value-0123";
+  const PROXY_VALUE = "proxy-secret-value-0123";
+
+  const envSecret = (name: string, value = ENV_VALUE) =>
+    secrets.create(dom, { mode: "env", name, value });
+
+  const proxySecret = () =>
+    secrets.create(dom, {
+      mode: "proxy",
+      name: "OPENAI_API_KEY",
+      rules: [
+        {
+          header: "Authorization",
+          host: "api.openai.com",
+          template: "Bearer {value}",
+        },
+      ],
+      value: PROXY_VALUE,
+    });
+
+  /** The environment credentials without their values, for printing and comparing. */
+  const envCredentialsOf = (vaultId?: string) =>
+    gateway.envCredentials
+      .filter(
+        (credential) => vaultId === undefined || credential.vaultId === vaultId
+      )
+      .map(({ hosts, name, vaultId: vault }) => ({
+        hosts,
+        name,
+        vaultId: vault,
+      }));
+
+  test("an env secret becomes an environment variable credential with no hosts in the session vault", async () => {
+    const env = await envSecret("PLAIN_KEY");
+    await secrets.setGrants(dom, agentId, [env.id]);
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(runRow(runId)?.status).toBe("done");
+    expect(envCredentialsOf()).toEqual([
+      { hosts: undefined, name: "PLAIN_KEY", vaultId: "vlt_1" },
+    ]);
+    expect(gateway.envCredentials[0]?.value === ENV_VALUE).toBe(true);
+  });
+
+  test("a proxy secret gets a relay token limited to the platform host, and the guidance names the relay", async () => {
+    const proxied = await proxySecret();
+    await secrets.setGrants(dom, agentId, [proxied.id]);
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(envCredentialsOf()).toEqual([
+      { hosts: ["hm.example"], name: RELAY_TOKEN_ENV, vaultId: "vlt_1" },
+    ]);
+    const relay = gateway.envCredentials.at(0);
+    expect(relay?.value.startsWith(SESSION_TOKEN_PREFIX)).toBe(true);
+    expect(relay?.value === tokenOf("vlt_1")).toBe(true);
+    const system = gateway.registered.at(0)?.system;
+    expect(system).toContain(`${BASE}/api/egress/api.openai.com/<path>`);
+    expect(system?.includes(PROXY_VALUE)).toBe(false);
+  });
+
+  test("replacing a granted secret's value starts a fresh session and vault", async () => {
+    const env = await envSecret("PLAIN_KEY");
+    await secrets.setGrants(dom, agentId, [env.id]);
+    const first = await start(dom, "one");
+    await drive(first.runId);
+    await secrets.update(dom, env.id, { value: "env-secret-value-4567" });
+    const second = await start(dom, "two");
+
+    await managed.step(second.runId);
+
+    expect(gateway.sessions.size).toBe(2);
+    expect(gateway.sessions.get("sesn_2")?.messages).toEqual(["two"]);
+    expect(gateway.deletedVaults).toEqual(["vlt_1"]);
+    expect(envCredentialsOf("vlt_2")).toEqual([
+      { hosts: undefined, name: "PLAIN_KEY", vaultId: "vlt_2" },
+    ]);
+  });
+
+  test("revoking the grant starts a fresh session with no secret credentials", async () => {
+    const env = await envSecret("PLAIN_KEY");
+    await secrets.setGrants(dom, agentId, [env.id]);
+    const first = await start(dom, "one");
+    await drive(first.runId);
+    await secrets.setGrants(dom, agentId, []);
+    const second = await start(dom, "two");
+
+    await managed.step(second.runId);
+
+    expect(gateway.sessions.size).toBe(2);
+    expect(gateway.deletedVaults).toEqual(["vlt_1"]);
+    expect(envCredentialsOf("vlt_2")).toEqual([]);
+  });
+
+  test("an agent with no grant creates no secret credentials", async () => {
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(runRow(runId)?.status).toBe("done");
+    expect(gateway.envCredentials).toEqual([]);
+    expect(gateway.vaults).toEqual(["vlt_1"]);
+  });
+
+  test("more credentials than the vault holds fails the run before anything is created", async () => {
+    const ids: string[] = [];
+    for (let index = 1; index <= 20; index += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: each secret is created in order
+      const secret = await envSecret(`SECRET_${index}`);
+      ids.push(secret.id);
+    }
+    await secrets.setGrants(dom, agentId, ids);
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(runRow(runId)?.status).toBe("failed");
+    expect(runRow(runId)?.error).toBe(
+      "A managed agent needs 21 credentials, and the limit is 20."
+    );
+    expect(gateway.registered).toEqual([]);
+    expect(gateway.vaults).toEqual([]);
+  });
+
+  test("the run records that secrets were delivered, with names and hosts and no value", async () => {
+    const env = await envSecret("PLAIN_KEY");
+    const proxied = await proxySecret();
+    await secrets.setGrants(dom, agentId, [env.id, proxied.id]);
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    const delivered = runEvents(runId).filter(
+      (event) => event.type === "secret.delivered"
+    );
+    expect(delivered).toHaveLength(1);
+    expect(JSON.parse(delivered[0]?.payload ?? "{}")).toMatchObject({
+      env: ["PLAIN_KEY"],
+      proxy: [{ hosts: ["api.openai.com"], name: "OPENAI_API_KEY" }],
+      surface: "managed",
+    });
+    const everything = JSON.stringify(runEvents(runId));
+    expect(everything.includes(ENV_VALUE)).toBe(false);
+    expect(everything.includes(PROXY_VALUE)).toBe(false);
   });
 });

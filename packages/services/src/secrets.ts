@@ -619,6 +619,12 @@ export const createSecretsService = ({
     if (delivery.env.length === 0 && delivery.proxy.length === 0) {
       return;
     }
+    const given = [
+      ...delivery.env.map((name) => `${name} (env)`),
+      ...delivery.proxy.map(
+        (entry) => `${entry.name} (proxy: ${entry.hosts.join(", ")})`
+      ),
+    ];
     await runEvent("secret.delivered", run, {
       env: [...delivery.env],
       proxy: delivery.proxy.map((entry) => ({
@@ -626,6 +632,7 @@ export const createSecretsService = ({
         name: entry.name,
       })),
       surface: delivery.surface,
+      text: `Run received ${given.join(", ")}`,
     });
   };
 
@@ -641,6 +648,7 @@ export const createSecretsService = ({
     await runEvent("secret.injected", run, {
       host: injection.host,
       names: [...injection.names],
+      text: `Added ${injection.names.join(", ")} to a request to ${injection.host}`,
       via: injection.via,
     });
   };

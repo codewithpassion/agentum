@@ -7,6 +7,7 @@ import {
 import type { SkillSummary, SkillsPort } from "../pi-run-skills.ts";
 import {
   type SandboxFile,
+  type SandboxRunInput,
   type SandboxRunResult,
   type SkillScriptSandbox,
   TIMEOUT_EXIT_CODE,
@@ -33,6 +34,15 @@ export const SCRIPT_LIMITS: ScriptLimits = {
   maxOutputBytes: 64 * 1024,
   timeoutMs: 30_000,
 };
+
+/** What one run of a script is granted. `mask` replaces every granted value in a text, so none reaches the model. */
+export interface ScriptSecrets {
+  forRun: () => Promise<{
+    env: Record<string, string>;
+    mask: (text: string) => string;
+    proxy: boolean;
+  }>;
+}
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -148,18 +158,49 @@ const runWithSafetyNet = async (
   }
 };
 
+const PLAIN_SANDBOX_SENTENCE =
+  "The script sees only the skill's own files, has network access and no secrets, and runs for at most";
+const GRANTED_SANDBOX_SENTENCE =
+  "The script sees only the skill's own files and has network access. It has no secrets of its own: the environment variables the agent was granted are set in process.env, and requests to hosts the agent has a credential for get that credential added for it. It runs for at most";
+
+/** Runs the script and describes what it printed. `mask`, when set, hides granted values before the output is capped. */
+const runInSandbox = async (
+  sandbox: SkillScriptSandbox,
+  input: SandboxRunInput,
+  mask: ((text: string) => string) | undefined,
+  limits: ScriptLimits
+): Promise<ToolExecutionResult> => {
+  try {
+    const result = await runWithSafetyNet(sandbox.run(input), limits);
+    const shown =
+      mask === undefined
+        ? result
+        : {
+            exitCode: result.exitCode,
+            stderr: mask(result.stderr),
+            stdout: mask(result.stdout),
+          };
+    return describeResult(shown, limits.maxOutputBytes);
+  } catch (error) {
+    return textResult(`The sandbox failed: ${errorText(error)}`, true);
+  }
+};
+
 /** The run_skill_script tool and its prompt section. With no skills, the extension adds nothing. */
 export const skillScriptsExtension = (
   skills: readonly SkillSummary[],
   port: SkillsPort,
   sandbox: SkillScriptSandbox,
+  secrets: ScriptSecrets | undefined,
   limits: ScriptLimits = SCRIPT_LIMITS
 ): Extension => {
   if (skills.length === 0) {
     return { name: SKILL_SCRIPTS_EXTENSION };
   }
   const skillsByName = new Map(skills.map((skill) => [skill.name, skill]));
-  const prompt = `Scripts written in TypeScript or JavaScript in a skill are run with ${TOOL_NAME}, not read and imitated. The script sees only the skill's own files, has network access and no secrets, and runs for at most ${limits.timeoutMs / 1000} seconds.`;
+  const sandboxSentence =
+    secrets === undefined ? PLAIN_SANDBOX_SENTENCE : GRANTED_SANDBOX_SENTENCE;
+  const prompt = `Scripts written in TypeScript or JavaScript in a skill are run with ${TOOL_NAME}, not read and imitated. ${sandboxSentence} ${limits.timeoutMs / 1000} seconds.`;
 
   const run = defineTool({
     description:
@@ -191,21 +232,32 @@ export const skillScriptsExtension = (
           true
         );
       }
-      try {
-        const result = await runWithSafetyNet(
-          sandbox.run({
-            args: args.args ?? [],
-            entry,
-            files,
-            maxOutputBytes: limits.maxOutputBytes,
-            timeoutMs: limits.timeoutMs,
-          }),
-          limits
-        );
-        return describeResult(result, limits.maxOutputBytes);
-      } catch (error) {
-        return textResult(`The sandbox failed: ${errorText(error)}`, true);
+      let granted: Awaited<ReturnType<ScriptSecrets["forRun"]>> | undefined;
+      if (secrets !== undefined) {
+        try {
+          granted = await secrets.forRun();
+        } catch (error) {
+          return textResult(
+            `Could not read the secrets: ${errorText(error)}`,
+            true
+          );
+        }
       }
+      return runInSandbox(
+        sandbox,
+        {
+          args: args.args ?? [],
+          entry,
+          files,
+          maxOutputBytes: limits.maxOutputBytes,
+          ...(granted === undefined
+            ? {}
+            : { env: granted.env, proxy: granted.proxy }),
+          timeoutMs: limits.timeoutMs,
+        },
+        granted?.mask,
+        limits
+      );
     },
     name: TOOL_NAME,
     parameters: Type.Object({

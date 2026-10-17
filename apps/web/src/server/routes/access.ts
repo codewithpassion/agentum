@@ -10,6 +10,7 @@ import {
   clerkOAuthTokenVerifier,
 } from "../mcp/clerk-oauth-client.ts";
 import { connectorOAuthRoutes } from "./connectors-oauth.ts";
+import { egressRoutes } from "./egress.ts";
 import type { AppEnv } from "./groups.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { proxyRoutes } from "./proxy.ts";
@@ -40,3 +41,6 @@ accessRoutes.route("/", connectorOAuthRoutes({ session: (c) => getAuth(c) }));
 
 // The connector proxy. Bearer authenticated with a run token, so no csrf check.
 accessRoutes.route("/api/proxy", proxyRoutes());
+
+// The explicit egress relay. Bearer authenticated with a run token, so no csrf check.
+accessRoutes.route("/api/egress", egressRoutes());

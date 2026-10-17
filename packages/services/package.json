@@ -46,6 +46,7 @@
     "./secrets/guidance": "./src/secrets/guidance.ts",
     "./secrets/relay": "./src/secrets/relay.ts",
     "./secrets/rules": "./src/secrets/rules.ts",
+    "./secrets/scrub": "./src/secrets/scrub.ts",
     "./sessions": "./src/sessions.ts",
     "./skills": "./src/skills.ts",
     "./slack": "./src/slack.ts",

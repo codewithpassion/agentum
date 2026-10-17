@@ -362,6 +362,7 @@ export const composeWith = ({
     publicBaseUrl: infra.publicBaseUrl,
     runs,
     runTokenKey: infra.runTokenKey,
+    secrets,
     skills: (run) => {
       const principal = {
         agentId: run.agentId,

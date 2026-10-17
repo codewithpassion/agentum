@@ -108,8 +108,12 @@ export const runCommand = async (options: RunOptions): Promise<number> => {
         log,
         queryFn,
         run: runCommandFn,
-        spawnProcessFor: (onStderr) =>
-          createAgentSpawner({ onStderr, singleUser: config.singleUser }),
+        spawnProcessFor: (onStderr, preserveEnv) =>
+          createAgentSpawner({
+            onStderr,
+            preserveEnv,
+            singleUser: config.singleUser,
+          }),
         timers,
       }),
     log,
