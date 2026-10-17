@@ -24,6 +24,7 @@ export const durableVm = (
     readFile: (path) => unwrap(stub.readFile(path)),
     remove: (path, options) => unwrap(stub.remove(path, options)),
     rename: (from, to) => unwrap(stub.rename(from, to)),
+    setEgress: (egress) => stub.setEgress(egress),
     stat: (path) => unwrap(stub.stat(path)),
     writeFile: (path, bytes) => unwrap(stub.writeFile(path, bytes)),
   };

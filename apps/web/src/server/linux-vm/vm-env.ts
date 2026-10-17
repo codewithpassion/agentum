@@ -2,7 +2,8 @@
  * An `ExecutionEnv` over the Linux VM of one session, so Pi's `read`, `write`,
  * `edit` and `bash` tools work in the VM. Every absolute path is allowed, and a
  * relative path resolves against `cwd`. Files go through `LinuxVm`; the readers
- * and line helpers are the ones `library-env.ts` uses.
+ * and line helpers are the ones `library-env.ts` uses. When `secrets` is given,
+ * each command gets the granted env and its output is masked before the model sees it.
  */
 import type { Context } from "@earendil-works/chord";
 import {
@@ -31,6 +32,7 @@ import {
   readLines,
   refuse,
 } from "../library-env/library-env.ts";
+import type { ScriptSecrets } from "../skill-scripts/run-skill-script.ts";
 import {
   type LinuxVm,
   VM_WORKDIR,
@@ -208,10 +210,12 @@ export const createVmEnv = ({
   vm,
   sessionId,
   cwd = VM_WORKDIR,
+  secrets,
 }: {
   vm: LinuxVm;
   sessionId: string;
   cwd?: string;
+  secrets?: ScriptSecrets;
 }): ExecutionEnv => {
   /** Makes `/tmp` if it is missing, then runs `task`. */
   const withTmp = async <T>(
@@ -293,11 +297,13 @@ export const createVmEnv = ({
       }
       const timeoutMs = timeoutMsOf(options?.timeout);
       let result: VmExecResult;
+      let granted: Awaited<ReturnType<ScriptSecrets["forRun"]>> | undefined;
       try {
+        granted = await secrets?.forRun();
         result = await vm.exec({
           command: commandLine(command),
           cwd: options?.cwd ?? env.cwd,
-          env: options?.env,
+          env: granted ? { ...options?.env, ...granted.env } : options?.env,
           maxOutputBytes: EXEC_OUTPUT_BYTES,
           timeoutMs,
         });
@@ -306,8 +312,10 @@ export const createVmEnv = ({
           new ExecutionError("spawn_error", toError(error).message)
         );
       }
-      deliver(result.stdout, "stdout", options, context);
-      deliver(result.stderr, "stderr", options, context);
+      const mask =
+        granted === undefined ? (text: string) => text : granted.mask;
+      deliver(mask(result.stdout), "stdout", options, context);
+      deliver(mask(result.stderr), "stderr", options, context);
       if (result.timedOut) {
         return err<ShellExecResult, ExecutionError>(
           new ExecutionError(

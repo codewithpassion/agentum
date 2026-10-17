@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { Context } from "@earendil-works/chord/context";
 import type {
   Extension,
-  PromptInput,
   ToolExecutionApi,
   ToolExecutionResult,
 } from "@earendil-works/pi-durable";
@@ -11,19 +10,18 @@ import {
   type ScriptSecrets,
   skillScriptsExtension,
 } from "../skill-scripts/run-skill-script.ts";
-import { secretsForEnvironment } from "./environment-tools.ts";
-import { createFakeVm } from "./fake-vm.ts";
+import { createFakeVm, type FakeVm } from "./fake-vm.ts";
 import { vmSkillSandbox } from "./vm-skill-sandbox.ts";
 import { VM_SCRIPT_TEXTS } from "./vm-tools.ts";
 
 const NO_API = {} as ToolExecutionApi;
-const NO_INPUT = {} as PromptInput;
 const CONTEXT: Context = {
   abortSignal: undefined,
   toString: () => "test-context",
   value: () => undefined,
 };
 const SECRET_VALUE = "fake-secret-value-123";
+const MASK = "[secret:FAKE_TOKEN]";
 const SKILL_MD =
   "---\nname: shout\ndescription: Shouts the answer.\n---\nAnswer in capitals.\n";
 
@@ -41,28 +39,35 @@ const port: SkillsPort = {
     ),
 };
 
-/** What the platform would grant this agent. The VM session must never ask for it. */
-const grantedSecrets = (asked: { count: number }): ScriptSecrets => ({
-  forRun: () => {
-    asked.count += 1;
-    return Promise.resolve({
+/** A grant with one env secret and its mask. */
+const grant = (): ScriptSecrets => ({
+  forRun: () =>
+    Promise.resolve({
       env: { FAKE_TOKEN: SECRET_VALUE },
-      mask: (text) => text.replaceAll(SECRET_VALUE, "***"),
+      mask: (text) => text.replaceAll(SECRET_VALUE, MASK),
       proxy: true,
-    });
-  },
+    }),
+});
+
+/** A grant that only sends the proxy: no env, the mask does nothing. */
+const proxyOnlyGrant = (): ScriptSecrets => ({
+  forRun: () =>
+    Promise.resolve({
+      env: {},
+      mask: (text) => text,
+      proxy: true,
+    }),
 });
 
 const extensionFor = async (
-  environment: "isolate" | "linux-vm",
-  asked: { count: number },
-  vm: ReturnType<typeof createFakeVm>
+  vm: FakeVm,
+  secrets: ScriptSecrets | undefined
 ): Promise<Extension> =>
   skillScriptsExtension(
     await loadSkills(port),
     port,
     vmSkillSandbox(vm),
-    secretsForEnvironment(environment, grantedSecrets(asked)),
+    secrets,
     undefined,
     VM_SCRIPT_TEXTS
   );
@@ -79,27 +84,48 @@ const run = async (extension: Extension): Promise<ToolExecutionResult> => {
   )) as ToolExecutionResult;
 };
 
-describe("secrets for a Linux VM session", () => {
-  test("secretsForEnvironment passes the secrets to the isolate and none to the VM", () => {
-    const secrets = grantedSecrets({ count: 0 });
-    expect(secretsForEnvironment("isolate", secrets)).toBe(secrets);
-    expect(secretsForEnvironment("linux-vm", secrets)).toBeUndefined();
+const resultText = (result: ToolExecutionResult): string =>
+  (result.output ?? [])
+    .map((part) => ("text" in part ? part.text : ""))
+    .join("\n");
+
+describe("secrets in a Linux VM session", () => {
+  test("a granted env secret is set in the vm.exec env of run_skill_script", async () => {
+    const vm = createFakeVm();
+    await run(await extensionFor(vm, grant()));
+
+    expect(vm.execCalls).toHaveLength(1);
+    expect(vm.execCalls[0]?.env).toEqual({ FAKE_TOKEN: SECRET_VALUE });
   });
 
-  test("a script in a VM session gets no granted secret: no lookup, no env, the plain prompt", async () => {
+  test("a script's output that holds the secret comes back masked", async () => {
     const vm = createFakeVm();
-    const asked = { count: 0 };
-    const extension = await extensionFor("linux-vm", asked, vm);
+    vm.onExec = () => ({
+      exitCode: 0,
+      stderr: `warn ${SECRET_VALUE}`,
+      stdout: `token is ${SECRET_VALUE}`,
+      timedOut: false,
+      truncated: false,
+    });
+    const result = await run(await extensionFor(vm, grant()));
 
-    await run(extension);
+    expect(resultText(result)).toContain(MASK);
+    expect(resultText(result)).not.toContain(SECRET_VALUE);
+  });
 
-    expect(asked.count).toBe(0);
+  test("a grant with proxy and no env passes no env key", async () => {
+    const vm = createFakeVm();
+    await run(await extensionFor(vm, proxyOnlyGrant()));
+
     expect(vm.execCalls).toHaveLength(1);
-    expect(vm.execCalls[0] !== undefined && "env" in vm.execCalls[0]).toBe(
-      false
-    );
-    const prompt = await extension.sections?.[0]?.render(NO_INPUT, CONTEXT);
-    expect(String(prompt)).toContain("none of this platform's secrets");
-    expect(JSON.stringify(vm.execCalls)).not.toContain(SECRET_VALUE);
+    expect(vm.execCalls[0]).not.toHaveProperty("env");
+  });
+
+  test("an agent without a grant gets no env", async () => {
+    const vm = createFakeVm();
+    await run(await extensionFor(vm, undefined));
+
+    expect(vm.execCalls).toHaveLength(1);
+    expect(vm.execCalls[0]).not.toHaveProperty("env");
   });
 });

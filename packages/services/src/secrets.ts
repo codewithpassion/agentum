@@ -84,6 +84,7 @@ const RESERVED_NAMES = new Set([
 ]);
 const RESERVED_PREFIXES = [
   "ANTHROPIC_",
+  "BUN_",
   "CLAUDE",
   "CLERK_",
   "DYLD_",

@@ -22,7 +22,11 @@ import {
   EXEC_OUTPUT_BYTES,
 } from "./vm-env.ts";
 import { VM_WORKDIR } from "./vm-port.ts";
-import { LINUX_VM_TOOLS_EXTENSION, linuxVmToolsExtension } from "./vm-tools.ts";
+import {
+  LINUX_VM_TOOLS_EXTENSION,
+  linuxVmToolsExtension,
+  VM_SCRIPT_TEXTS,
+} from "./vm-tools.ts";
 
 const NOTE = "notes/a.md";
 const NOTE_PATH = `${VM_WORKDIR}/${NOTE}`;
@@ -112,6 +116,27 @@ describe("linuxVmToolsExtension", () => {
     const [section] = linuxVmToolsExtension().sections ?? [];
     const text = section?.render(undefined as never, BACKGROUND_CONTEXT);
     expect(text).toContain(VM_WORKDIR);
+  });
+
+  test("its prompt section says granted secrets are variables read as $NAME and shown as [secret:NAME]", () => {
+    const [section] = linuxVmToolsExtension().sections ?? [];
+    const text = section?.render(undefined as never, BACKGROUND_CONTEXT);
+    expect(text).toContain("network access");
+    expect(text).toContain("$NAME");
+    expect(text).toContain("[secret:NAME]");
+    expect(text).not.toContain("none of this platform's secrets");
+  });
+});
+
+describe("VM_SCRIPT_TEXTS", () => {
+  test("a script with granted secrets reads them from process.env and has no plain-only wording", () => {
+    expect(VM_SCRIPT_TEXTS.granted).toContain("process.env");
+    expect(VM_SCRIPT_TEXTS.granted).toContain("network access");
+    expect(VM_SCRIPT_TEXTS.granted).not.toContain("no secrets");
+  });
+
+  test("a script with no secrets says so", () => {
+    expect(VM_SCRIPT_TEXTS.plain).toContain("no secrets");
   });
 });
 
