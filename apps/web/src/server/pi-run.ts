@@ -8,7 +8,7 @@ import {
   Harness,
 } from "@earendil-works/pi-durable";
 import { CLOUD_LEASE_MS } from "@repo/services/cloud/lease";
-import { cloudModelFor } from "@repo/services/cloud/models";
+import { cloudModelError, cloudModelFor } from "@repo/services/cloud/models";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { isServiceError } from "@repo/services/errors";
 import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
@@ -367,6 +367,14 @@ export class PiRun extends DurableObject<Env> {
           ? String(record.entry)
           : undefined;
       },
+      setInstructions: async (instructions) => {
+        // `configure` follows the same rule as `setModel`: a change applies from the next request.
+        const root = await (await this.harness.pi()).root(BACKGROUND_CONTEXT);
+        await root.configure(
+          { instructions: instructions || null },
+          BACKGROUND_CONTEXT
+        );
+      },
       setModel: async (model) => {
         // The scripted model exists only once the harness has opened.
         await this.harness.pi();
@@ -418,6 +426,11 @@ export class PiRun extends DurableObject<Env> {
         },
         installSkills: (input) => this.#loadAndInstallSkills(input),
         installTools: (input) => this.#syncTools(input.mcpServers),
+        // The scripted model exists only in dev, and not yet when a run starts, so `#faux` cannot be asked.
+        modelError: (model) =>
+          import.meta.env.DEV && model === "faux"
+            ? undefined
+            : cloudModelError(model),
         outputsOf: (run, text) =>
           uploadOutputs(
             text,

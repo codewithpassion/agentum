@@ -39,6 +39,8 @@ export interface PiPort {
   entriesFrom: (start: string) => Promise<readonly EntryRecord[]>;
   /** The id of the user entry an operation's input was placed as (as a string), once it is placed. */
   entryOf: (operationId: string) => Promise<string | undefined>;
+  /** Sets the session's system prompt section for the agent's instructions; applies from the next request. */
+  setInstructions: (instructions: string) => Promise<void>;
   setModel: (model: string) => Promise<void>;
   submit: (
     input: PiInput,
@@ -84,6 +86,8 @@ export interface RunCoreDeps {
   installSkills: (input: CloudStart) => Promise<void>;
   /** Lists the run's MCP tools and installs them. Throws when a server cannot be reached. */
   installTools: (input: CloudStart) => Promise<void>;
+  /** A message when the agent's model cannot run, undefined when it can. */
+  modelError: (model: string) => string | undefined;
   /** Epoch milliseconds. A run older than its run token is not heartbeated. */
   now?: () => number;
   /** Uploads the files the final answer names and returns their ids with the answer cleaned of its markers. */
@@ -101,6 +105,8 @@ interface StoredRun {
   entry?: string;
   /** The input files, so a run submitted again after a wake sends them again. */
   fileIds: string[];
+  /** The agent's instructions, so a run submitted again after a wake uses them. */
+  instructions: string;
   /** The agent's model, so a run submitted again after a wake uses it. */
   model: string;
   /** The uploaded output files, kept so a completion that is tried again does not upload them twice. */
@@ -148,6 +154,7 @@ export const createRunCore = ({
   inputOf,
   installSkills,
   installTools,
+  modelError,
   now = Date.now,
   outputsOf,
   pi,
@@ -424,6 +431,12 @@ export const createRunCore = ({
       return;
     }
     if (!existing) {
+      // A run that cannot start ends failed: a throw here would make the platform release it and retry it for ever.
+      const modelIssue = modelError(input.agent.model);
+      if (modelIssue) {
+        await completeRun(run.id, { error: modelIssue, status: "failed" });
+        return;
+      }
       await installTools(input);
       // A skill list that cannot be read (over the cap, storage down) must not hold the run back: the sweep would offer it again for ever.
       await installSkills(input).catch((error: unknown) => {
@@ -431,11 +444,10 @@ export const createRunCore = ({
           `PiRun: skills for run ${run.id} not loaded: ${describe(error)}`
         );
       });
-    }
-    if (!existing) {
       await save(run.id, {
         agentId: run.agentId,
         fileIds: input.inputFileIds,
+        instructions: input.agent.instructions,
         model: input.agent.model,
         startedAt: now(),
         state: "active",
@@ -449,6 +461,7 @@ export const createRunCore = ({
     const busy = await pi.busy();
     if (!busy) {
       await pi.setModel(input.agent.model);
+      await pi.setInstructions(input.agent.instructions);
     }
     await pi.submit(
       await inputOf(
@@ -486,6 +499,7 @@ export const createRunCore = ({
   const resumeRun = async (runId: string, run: StoredRun): Promise<void> => {
     if (!(await pi.busy())) {
       await pi.setModel(run.model);
+      await pi.setInstructions(run.instructions);
     }
     await pi.submit(await inputOf(refOf(runId, run), run.text, run.fileIds), {
       operationId: runId,
