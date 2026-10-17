@@ -354,7 +354,7 @@ export class PiRun extends DurableObject<Env> {
         } catch (error) {
           // A log that failed must not stop the script.
           console.warn(
-            "PiRun: recording the secrets delivery failed",
+            `PiRun: recording the secrets delivery for run ${run.runId} failed`,
             error instanceof Error ? error.name : "unknown error"
           );
         }

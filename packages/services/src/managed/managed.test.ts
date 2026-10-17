@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import {
@@ -1450,5 +1450,23 @@ describe("secrets", () => {
     const everything = JSON.stringify(runEvents(runId));
     expect(everything.includes(ENV_VALUE)).toBe(false);
     expect(everything.includes(PROXY_VALUE)).toBe(false);
+  });
+
+  test("a delivery event that fails to record does not fail the launch", async () => {
+    const env = await envSecret("PLAIN_KEY");
+    await secrets.setGrants(dom, agentId, [env.id]);
+    const failing = spyOn(secrets, "announceDelivery").mockRejectedValue(
+      new Error("log down")
+    );
+    const quiet = spyOn(console, "error").mockImplementation(() => undefined);
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(failing).toHaveBeenCalled();
+    expect(runRow(runId)?.status).toBe("done");
+    expect(gateway.sessions.size).toBe(1);
+    failing.mockRestore();
+    quiet.mockRestore();
   });
 });
