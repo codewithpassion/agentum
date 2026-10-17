@@ -395,6 +395,27 @@ describe("forwarding", () => {
     expect(sent).toHaveLength(1);
   });
 
+  test("a host segment that parses to another host is refused, and nothing is sent", async () => {
+    const created = await composed.services.secrets.create(dom, {
+      mode: "proxy",
+      name: "WILD_KEY",
+      rules: [
+        { header: "X-Api-Key", host: "*.example.com", template: "{value}" },
+      ],
+      value: SECRET_VALUE,
+    });
+    await composed.services.secrets.setGrants(dom, agentId, [created.id]);
+    addRun("run_1", agentId);
+    const token = await tokenFor("run_1");
+
+    // The matcher reads the segment as a subdomain of example.com, the URL parser as userinfo before evil.example.com.
+    const response = await relay(token, { host: "x@evil.example.com" });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: "host_not_allowed" });
+    expect(sent).toHaveLength(0);
+  });
+
   test("a granted address the SSRF guard refuses gets 403 host_not_allowed and no upstream call", async () => {
     const created = await composed.services.secrets.create(dom, {
       mode: "proxy",

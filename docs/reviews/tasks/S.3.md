@@ -5,7 +5,7 @@ Workspace secrets for agents. Branch task/S.3-agent-secrets.
 ## Verdicts
 
 - Round 1 (d4ced96): must-fix, two items. This file was missing, and the sudoers rule that lets secrets reach Claude Code in multi-user mode needs `install-service` to run again, which nothing said. Both are dealt with in the fix commit, with eight of the nits.
-- Round 2: see the end of this file.
+- Round 2 (13e77d5): must-fix, two items. The relay's host re-check had no test, and a failed `secret.delivered` event could fail a managed launch after its message was sent. Both fixed, with the cloud script path made the same, and more environment names that can inject code refused.
 
 ## What was built
 

@@ -217,6 +217,8 @@ describe("storing", () => {
     ["a proxy variable", { name: "https_proxy" }],
     ["a CA bundle variable", { name: "NODE_EXTRA_CA_CERTS" }],
     ["BASH_ENV", { name: "BASH_ENV" }],
+    ["PYTHONSTARTUP", { name: "PYTHONSTARTUP" }],
+    ["GIT_SSH_COMMAND", { name: "GIT_SSH_COMMAND" }],
     ["a short value", { value: "short" }],
     ["a Harbourmaster token", { value: "hm_run_abcdefghijklmnop" }],
     ["a value with a NUL", { value: "abcdefgh\0ij" }],

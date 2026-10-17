@@ -345,11 +345,19 @@ export class PiRun extends DurableObject<Env> {
           run.workspaceId,
           run.agentId
         );
-        await secrets.announceDelivery(run, {
-          env: Object.keys(granted.env),
-          proxy: granted.proxy,
-          surface: "cloud",
-        });
+        try {
+          await secrets.announceDelivery(run, {
+            env: Object.keys(granted.env),
+            proxy: granted.proxy,
+            surface: "cloud",
+          });
+        } catch (error) {
+          // A log that failed must not stop the script.
+          console.warn(
+            "PiRun: recording the secrets delivery failed",
+            error instanceof Error ? error.name : "unknown error"
+          );
+        }
         return {
           env: granted.env,
           mask: granted.masker.mask,

@@ -72,6 +72,7 @@ const RESERVED_NAMES = new Set([
   "NODE_PATH",
   "NO_PROXY",
   "PATH",
+  "PROMPT_COMMAND",
   "PUBLIC_BASE_URL",
   "RUN_TOKEN_KEY",
   "REQUESTS_CA_BUNDLE",
@@ -84,6 +85,12 @@ const RESERVED_NAMES = new Set([
 ]);
 const RESERVED_PREFIXES = [
   "ANTHROPIC_",
+  "DYLD_",
+  "GIT_",
+  "LD_",
+  "PERL",
+  "PYTHON",
+  "RUBY",
   "CLAUDE",
   "CLERK_",
   "HARBOURMASTER_",

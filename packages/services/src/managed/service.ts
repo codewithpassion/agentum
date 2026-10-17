@@ -754,7 +754,14 @@ export const createManagedService = ({
       .update(managedRuns)
       .set({ sentAt: nowIso() })
       .where(eq(managedRuns.runId, run.id));
-    await grants.deliver();
+    try {
+      await grants.deliver();
+    } catch (error) {
+      // The message is sent: a log that failed must not fail the launch.
+      console.error(
+        `Recording the secrets delivery failed: ${describeError(error)}`
+      );
+    }
     return true;
   };
 
