@@ -65,6 +65,7 @@ import {
   type ScriptSecrets,
   skillScriptsExtension,
 } from "./skill-scripts/run-skill-script.ts";
+import { skillVersionFiles } from "./skill-scripts/skill-version-files.ts";
 
 const TOOLS_KEY = "mcp-tools";
 /** The workspace of the session. An id, not a secret: the model key is read again for each model request. */
@@ -372,7 +373,8 @@ export class PiRun extends DurableObject<Env> {
         this.#scriptSandbox(run),
         this.#scriptSecrets(run),
         undefined,
-        this.#vm ? VM_SCRIPT_TEXTS : undefined
+        this.#vm ? VM_SCRIPT_TEXTS : undefined,
+        skillVersionFiles(this.#services().skillsStore, principalOf(run))
       )
     );
   }

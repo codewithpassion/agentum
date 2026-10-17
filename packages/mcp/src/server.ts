@@ -8,12 +8,15 @@ import { inboxTools } from "./tools/inbox";
 import { libraryTools } from "./tools/library";
 import { routineTools } from "./tools/routines";
 import { sessionTools } from "./tools/sessions";
+import { skillReadTools } from "./tools/skills-read";
+import { skillWriteTools } from "./tools/skills-write";
 import { triggerTools } from "./tools/triggers";
 
 export interface ServerOptions {
   /**
    * The caller is a read-only API key or connected app. It then gets the
-   * list tools for routines and triggers and none that change them.
+   * list tools for routines and triggers and the read tools for skills, and
+   * none that change them.
    */
   readOnly?: boolean;
 }
@@ -29,6 +32,12 @@ const automationTools = (
     : tools;
 };
 
+/** The tools that read and change skills; a read-only caller gets the read ones. */
+const skillTools = (ports: McpPorts, readOnly: boolean): ToolDefinition[] =>
+  readOnly
+    ? skillReadTools(ports)
+    : [...skillReadTools(ports), ...skillWriteTools(ports)];
+
 /** Every tool this server offers, bound to the ports it calls. */
 export const harbourmasterTools = (
   ports: McpPorts,
@@ -39,6 +48,7 @@ export const harbourmasterTools = (
   ...inboxTools(ports),
   ...libraryTools(ports),
   ...automationTools(ports, readOnly),
+  ...skillTools(ports, readOnly),
 ];
 
 /** Ports for reading tool names: the names do not depend on them, so none is ever called. */
@@ -47,11 +57,17 @@ const unusedPort = (): Promise<never> =>
 
 /** The name of every tool, in the order they are registered. */
 export const TOOL_NAMES = harbourmasterTools({
+  approveSkillVersion: unusedPort,
+  assignSkill: unusedPort,
+  commitSkill: unusedPort,
   createRoutine: unusedPort,
+  createSkill: unusedPort,
   createTrigger: unusedPort,
   deleteRoutine: unusedPort,
   deleteTrigger: unusedPort,
+  exportSkill: unusedPort,
   getRun: unusedPort,
+  importSkill: unusedPort,
   inboxList: unusedPort,
   inboxPost: unusedPort,
   inboxRead: unusedPort,
@@ -59,12 +75,20 @@ export const TOOL_NAMES = harbourmasterTools({
   listAgents: unusedPort,
   listRoutines: unusedPort,
   listSessions: unusedPort,
+  listSkills: unusedPort,
   listTriggers: unusedPort,
+  pinSkill: unusedPort,
   readSession: unusedPort,
+  rejectSkillVersion: unusedPort,
+  revertSkill: unusedPort,
   searchSessions: unusedPort,
   sendMessage: unusedPort,
   setRoutineEnabled: unusedPort,
   setTriggerEnabled: unusedPort,
+  skillDiff: unusedPort,
+  skillLog: unusedPort,
+  skillShow: unusedPort,
+  unassignSkill: unusedPort,
 }).map((tool) => tool.name);
 
 /**

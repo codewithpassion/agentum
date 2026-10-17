@@ -9,12 +9,15 @@ import type {
 } from "@earendil-works/pi-durable";
 import { loadSkills, type SkillsPort } from "../pi-run-skills.ts";
 import {
+  ISOLATE_SCRIPT_TEXTS,
   type ScriptLimits,
   type ScriptSecrets,
   SKILL_SCRIPTS_EXTENSION,
+  type SkillVersionFiles,
   skillScriptsExtension,
 } from "./run-skill-script.ts";
 import type {
+  SandboxFile,
   SandboxRunInput,
   SandboxRunResult,
   SkillScriptSandbox,
@@ -486,5 +489,193 @@ describe("skillScriptsExtension", () => {
     });
     expect(result.isError).toBe(true);
     expect(textOf(result)).toBe("The sandbox failed: kaboom");
+  });
+});
+
+const PROPOSED_SCRIPT = "console.log('proposed');";
+const PROPOSED_FILES: SandboxFile[] = [
+  { bytes: encode(SHOUT_MD), path: "SKILL.md" },
+  { bytes: encode(PROPOSED_SCRIPT), path: "scripts/hello.ts" },
+];
+
+/** A version reader that returns `files`, or rejects with `failure`, and records each call. */
+const versionReader = (
+  files: SandboxFile[],
+  failure?: Error
+): { calls: [string, number][]; read: SkillVersionFiles } => {
+  const calls: [string, number][] = [];
+  return {
+    calls,
+    read: (skill, version) => {
+      calls.push([skill, version]);
+      return failure === undefined
+        ? Promise.resolve(files)
+        : Promise.reject(failure);
+    },
+  };
+};
+
+const extensionWithVersions = (
+  files: Record<string, string>,
+  sandbox: SkillScriptSandbox,
+  versions: SkillVersionFiles
+): Promise<Extension> => {
+  const port = portOver(files);
+  return loadSkills(port).then((skills) =>
+    skillScriptsExtension(
+      skills,
+      port,
+      sandbox,
+      undefined,
+      LIMITS,
+      ISOLATE_SCRIPT_TEXTS,
+      versions
+    )
+  );
+};
+
+describe("skillScriptsExtension with versions", () => {
+  test("a call with version runs the files the callback returned, not the port's", async () => {
+    const sandbox = fakeSandbox();
+    const reader = versionReader(PROPOSED_FILES);
+    const extension = await extensionWithVersions(
+      SKILL_FILES,
+      sandbox,
+      reader.read
+    );
+    const result = await execute(extension, {
+      path: "scripts/hello.ts",
+      skill: "shout",
+      version: 2,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(reader.calls).toEqual([["shout", 2]]);
+    const call = onlyCall(sandbox);
+    expect(call.skill).toBe("shout");
+    expect(call.entry).toBe("scripts/hello.ts");
+    expect(
+      Object.fromEntries(
+        call.files.map((file) => [file.path, decode(file.bytes)])
+      )
+    ).toEqual({
+      "SKILL.md": SHOUT_MD,
+      "scripts/hello.ts": PROPOSED_SCRIPT,
+    });
+  });
+
+  test("a skill not in the catalog runs with a version", async () => {
+    const sandbox = fakeSandbox();
+    const reader = versionReader(PROPOSED_FILES);
+    const extension = await extensionWithVersions({}, sandbox, reader.read);
+    const result = await execute(extension, {
+      path: "scripts/hello.ts",
+      skill: "shout",
+      version: 2,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(onlyCall(sandbox).skill).toBe("shout");
+  });
+
+  test("a rejecting callback is an error result and the sandbox is not called", async () => {
+    const sandbox = fakeSandbox();
+    const reader = versionReader([], new Error("no such version"));
+    const extension = await extensionWithVersions(
+      SKILL_FILES,
+      sandbox,
+      reader.read
+    );
+    const result = await execute(extension, {
+      path: "scripts/hello.ts",
+      skill: "shout",
+      version: 3,
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(
+      "Could not read version 3 of shout: no such version"
+    );
+    expect(sandbox.calls).toEqual([]);
+  });
+
+  test("a path with .. or a non-script path is refused with a version too", async () => {
+    const sandbox = fakeSandbox();
+    const reader = versionReader(PROPOSED_FILES);
+    const extension = await extensionWithVersions(
+      SKILL_FILES,
+      sandbox,
+      reader.read
+    );
+    const escaping = await execute(extension, {
+      path: "scripts/../scripts/hello.ts",
+      skill: "shout",
+      version: 2,
+    });
+    const notScript = await execute(extension, {
+      path: "SKILL.md",
+      skill: "shout",
+      version: 2,
+    });
+    expect(escaping.isError).toBe(true);
+    expect(notScript.isError).toBe(true);
+    expect(sandbox.calls).toEqual([]);
+  });
+
+  test("a call without version still uses the catalog and the port", async () => {
+    const sandbox = fakeSandbox();
+    const reader = versionReader(PROPOSED_FILES);
+    const extension = await extensionWithVersions(
+      SKILL_FILES,
+      sandbox,
+      reader.read
+    );
+    await execute(extension, { path: "scripts/hello.ts", skill: "shout" });
+    const call = onlyCall(sandbox);
+    expect(reader.calls).toEqual([]);
+    expect(
+      Object.fromEntries(
+        call.files.map((file) => [file.path, decode(file.bytes)])
+      )
+    ).toEqual({
+      "notes/a.md": NOTE_TEXT,
+      "SKILL.md": SHOUT_MD,
+      "scripts/hello.ts": SCRIPT_TEXT,
+    });
+  });
+
+  test("without versions the tool has no version parameter", async () => {
+    const extension = await extensionFor(SKILL_FILES, fakeSandbox());
+    const schema = toolNamed(extension, TOOL).parameters as {
+      properties: Record<string, unknown>;
+    };
+    expect(Object.keys(schema.properties)).not.toContain("version");
+  });
+
+  test("with versions the tool takes an optional integer version and any skill name", async () => {
+    const extension = await extensionWithVersions(
+      SKILL_FILES,
+      fakeSandbox(),
+      versionReader(PROPOSED_FILES).read
+    );
+    const schema = toolNamed(extension, TOOL).parameters as {
+      properties: Record<string, { type?: string; minimum?: number }>;
+      required?: string[];
+    };
+    expect(schema.properties).toMatchObject({
+      skill: { type: "string" },
+      version: { minimum: 1, type: "integer" },
+    });
+    expect(schema.required ?? []).not.toContain("version");
+  });
+
+  test("with versions and no skills the extension still has the tool", () => {
+    const extension = skillScriptsExtension(
+      [],
+      portOver({}),
+      fakeSandbox(),
+      undefined,
+      LIMITS,
+      ISOLATE_SCRIPT_TEXTS,
+      versionReader(PROPOSED_FILES).read
+    );
+    expect(extension.tools?.map((tool) => tool.name)).toEqual([TOOL]);
   });
 });
