@@ -100,6 +100,15 @@ export const EVENT_TYPES = [
   "library.command",
   "secret.delivered",
   "secret.injected",
+  "skill.created",
+  "skill.committed",
+  "skill.approved",
+  "skill.rejected",
+  "skill.reverted",
+  "skill.assigned",
+  "skill.unassigned",
+  "skill.pinned",
+  "skill.imported",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -141,3 +150,15 @@ export type TokenEndpointAuthMethod =
 
 export const INBOX_AUTHOR_KINDS = ["user", "agent"] as const;
 export type InboxAuthorKind = (typeof INBOX_AUTHOR_KINDS)[number];
+
+/** Who wrote a skill version: a person, an agent's run, or the one-off library migration. */
+export const SKILL_AUTHOR_KINDS = ["user", "agent", "system"] as const;
+export type SkillAuthorKind = (typeof SKILL_AUTHOR_KINDS)[number];
+
+/** A person's version is `approved` at once, an agent's starts `proposed` and a person decides. */
+export const SKILL_VERSION_STATUSES = [
+  "approved",
+  "proposed",
+  "rejected",
+] as const;
+export type SkillVersionStatus = (typeof SKILL_VERSION_STATUSES)[number];

@@ -51,6 +51,9 @@
     "./secrets/scrub": "./src/secrets/scrub.ts",
     "./sessions": "./src/sessions.ts",
     "./skills": "./src/skills.ts",
+    "./skills-store": "./src/skills-store.ts",
+    "./skills-store/memory": "./src/skills-store/memory.ts",
+    "./skills-store/records": "./src/skills-store/records.ts",
     "./slack": "./src/slack.ts",
     "./slack-apps": "./src/slack-apps.ts",
     "./slack/apps": "./src/slack/apps.ts",
@@ -68,6 +71,7 @@
     "@repo/db": "workspace:*",
     "@repo/protocol": "workspace:*",
     "drizzle-orm": "^0.44.7",
+    "fflate": "0.8.3",
     "ulidx": "^2.4.1",
     "zod": "^4.6.5"
   },
