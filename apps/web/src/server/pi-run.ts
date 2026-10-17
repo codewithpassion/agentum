@@ -55,6 +55,8 @@ export class PiRun extends DurableObject<Env> {
   #core: ReturnType<typeof createRunCore> | undefined;
   /** The tool lists now in the registry, by server key. */
   #installed: ServerTools = {};
+  /** The servers of the newest run that reached a sync. A start syncs before it stores them, so storage can lag. */
+  #servers: Servers | undefined;
   /** Syncs take turns: two that overlap could install an older list over a newer one. */
   #syncing: Promise<unknown> = Promise.resolve();
   #faux: Faux | undefined;
@@ -128,11 +130,19 @@ export class PiRun extends DurableObject<Env> {
   /**
    * Lists the servers and installs what changed. A server that cannot be
    * listed keeps the tools it had, so one down connector does not stop the run.
+   * Without `servers` it uses the newest ones, read when its turn comes, so a
+   * refresh queued behind a start never installs the run before it.
    */
-  #syncTools(servers: Servers): Promise<void> {
+  #syncTools(servers?: Servers): Promise<void> {
     const sync = this.#syncing.then(async () => {
+      this.#servers = servers ?? this.#servers;
+      const current =
+        this.#servers ?? (await this.ctx.storage.get<Servers>(SERVERS_KEY));
+      if (!current) {
+        return;
+      }
       const tools = await syncMcpTools(
-        servers,
+        current,
         this.#installed,
         undefined,
         (serverKey, error) =>
@@ -149,15 +159,9 @@ export class PiRun extends DurableObject<Env> {
   }
 
   /** Looks at the newest run's servers again, at most once per REFRESH_GAP_MS and never twice at a time. */
-  readonly #refreshTools = throttled(
-    async () => {
-      const servers = await this.ctx.storage.get<Servers>(SERVERS_KEY);
-      if (servers) {
-        await this.#syncTools(servers);
-      }
-    },
-    { minGapMs: REFRESH_GAP_MS }
-  );
+  readonly #refreshTools = throttled(() => this.#syncTools(), {
+    minGapMs: REFRESH_GAP_MS,
+  });
 
   #modelRef(model: string): { id: string; provider: string } {
     if (this.#faux && model === "faux") {
@@ -255,8 +259,10 @@ export class PiRun extends DurableObject<Env> {
       .resume()
       .then(async () => {
         await this.lease.schedule();
-        // The lists stored before this wake may be old.
-        this.#refreshTools();
+        // The lists stored before this wake may be old. With no active run there is nothing to look at.
+        if (await this.ctx.storage.get(SERVERS_KEY)) {
+          this.#refreshTools();
+        }
       })
       .catch((error: unknown) => {
         console.error("PiRun: resuming runs failed", error);

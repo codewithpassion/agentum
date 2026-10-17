@@ -145,7 +145,7 @@ export const syncMcpTools = async (
     }
   }
 
-  // Only a run with no usable server fails, and it fails with the first failure in key order.
+  // Only a run with no usable server fails, and it fails with the first failure, in the order of `servers`.
   const firstFailure = listings.find(
     (listing): listing is Failure => "error" in listing
   );
