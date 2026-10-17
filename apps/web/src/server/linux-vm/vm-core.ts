@@ -44,9 +44,9 @@ const EGRESS_KEY = "egress";
 const TRUSTED_KEY = "trusted";
 /** Written by the platform once the container has an HTTPS intercept. */
 const CA_PATH = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
-/** Waits for the CA file, up to 10 s, then trusts it. Exits 1 when the file never appears. */
+/** Waits for the CA file to exist and not be empty, up to 10 s, then trusts it. Exits 1 when the file never appears. */
 const TRUST_SCRIPT = `i=0
-while [ ! -f ${CA_PATH} ]; do
+while [ ! -s ${CA_PATH} ]; do
   [ "$i" -ge 100 ] && exit 1
   i=$((i + 1))
   sleep 0.1

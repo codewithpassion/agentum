@@ -2,8 +2,9 @@
  * Runs a skill script in the session's Linux VM with bun. The script's files
  * go into the workdir's skills folder first (a refresh of what the run start
  * placed there), and the script runs with the workdir as its working folder, so
- * it can read and write the session's files. Besides a minimal PATH, the
- * command sees only the variables in `input.env`.
+ * it can read and write the session's files. Besides HOME, the CA
+ * variable once the platform CA is trusted (set by the VM) and a minimal PATH,
+ * the command sees only the variables in `input.env`.
  * `input.proxy` needs no action here: the platform routes the VM's HTTPS
  * requests through the proxy for the whole session, so the script never sees
  * a proxy secret. Output is masked by the caller, not here. A VM that fails

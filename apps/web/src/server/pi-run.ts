@@ -481,7 +481,7 @@ export class PiRun extends DurableObject<Env> {
     } catch (error) {
       console.warn(
         `PiRun: routing the VM's proxied hosts for run ${run.runId} failed`,
-        error instanceof Error ? error.message : "unknown error"
+        error instanceof Error ? error.name : "unknown error"
       );
     }
   }
