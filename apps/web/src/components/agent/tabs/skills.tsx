@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { LibraryFilePanel } from "#/components/library/library-file-panel";
 import { errorMessage } from "#/components/library/library-logic.ts";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -16,15 +15,18 @@ import { Label } from "#/components/ui/label.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { SkillEntry } from "#/integrations/trpc/types";
 import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
+import { SkillFilesPanel } from "./skill-files-panel.tsx";
+
+type SkillTarget = Pick<SkillEntry, "folder" | "scope">;
 
 function SkillRow({
   skill,
   onOpen,
 }: {
   skill: SkillEntry;
-  onOpen: (path: string) => void;
+  onOpen: (skill: SkillEntry) => void;
 }) {
-  const open = useCallback(() => onOpen(skill.path), [skill.path, onOpen]);
+  const open = useCallback(() => onOpen(skill), [skill, onOpen]);
   const name = skill.name ?? skill.folder;
 
   let detail: ReactNode = null;
@@ -63,7 +65,7 @@ function SkillsList({
   onOpen,
 }: {
   skills: SkillEntry[];
-  onOpen: (path: string) => void;
+  onOpen: (skill: SkillEntry) => void;
 }) {
   if (skills.length === 0) {
     return <p className="text-muted-foreground text-sm">No skills yet.</p>;
@@ -83,7 +85,7 @@ function SkillsPanel({ agent }: AgentTabProps) {
   const [error, setError] = useState<string | undefined>();
   const [name, setName] = useState("");
   const [createError, setCreateError] = useState<string | undefined>();
-  const [openPath, setOpenPath] = useState<string | undefined>();
+  const [openSkill, setOpenSkill] = useState<SkillTarget | undefined>();
   // The agent this panel shows. Null after unmount, so a late response is dropped.
   const shownAgent = useRef<string | null>(null);
 
@@ -122,27 +124,28 @@ function SkillsPanel({ agent }: AgentTabProps) {
   const createSkill = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      let created: { path: string };
+      const folder = name.trim();
       try {
-        created = await getTrpc().skills.create.mutate({
-          agentId,
-          name: name.trim(),
-        });
+        await getTrpc().skills.create.mutate({ agentId, name: folder });
       } catch (cause) {
         setCreateError(errorMessage(cause));
         return;
       }
       setName("");
       setCreateError(undefined);
-      setOpenPath(created.path);
+      setOpenSkill({ folder, scope: "agent" });
       reload();
     },
     [agentId, name, reload]
   );
 
-  const openSkill = useCallback((path: string) => setOpenPath(path), []);
+  const openSkillFiles = useCallback(
+    (skill: SkillEntry) =>
+      setOpenSkill({ folder: skill.folder, scope: skill.scope }),
+    []
+  );
 
-  const closeEditor = useCallback(() => setOpenPath(undefined), []);
+  const closeEditor = useCallback(() => setOpenSkill(undefined), []);
 
   let body: ReactNode;
   if (skills === undefined) {
@@ -158,7 +161,7 @@ function SkillsPanel({ agent }: AgentTabProps) {
         {error === undefined ? null : (
           <p className="text-destructive text-sm">{error}</p>
         )}
-        <SkillsList onOpen={openSkill} skills={skills} />
+        <SkillsList onOpen={openSkillFiles} skills={skills} />
       </>
     );
   }
@@ -189,12 +192,14 @@ function SkillsPanel({ agent }: AgentTabProps) {
         )}
       </form>
       {body}
-      {openPath === undefined ? null : (
-        <LibraryFilePanel
-          key={openPath}
+      {openSkill === undefined ? null : (
+        <SkillFilesPanel
+          agentId={agentId}
+          key={`${openSkill.scope}/${openSkill.folder}`}
           onChanged={reload}
           onClosed={closeEditor}
-          path={openPath}
+          scope={openSkill.scope}
+          skill={openSkill.folder}
         />
       )}
     </section>
