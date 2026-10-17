@@ -22,6 +22,7 @@ import type {
 import type { Principal } from "@repo/services/workspaces";
 import type { Services } from "../compose.ts";
 import { runLibraryBash } from "../library-bash/run.ts";
+import { bindLibraryOps } from "../library-env/library-ops.ts";
 
 const TITLE_MAX = 80;
 
@@ -145,16 +146,7 @@ export const createMcpPorts = ({
       guarded(async () => {
         const { library } = services;
         const result = await runLibraryBash({
-          ops: {
-            list: (dir) => library.list(principal, dir),
-            mkdir: (path) => library.mkdir(principal, path),
-            move: (from, to) => library.move(principal, from, to),
-            read: (path) => library.read(principal, path),
-            remove: (path, options) => library.remove(principal, path, options),
-            stat: (path) => library.stat(principal, path),
-            write: (path, bytes, options) =>
-              library.write(principal, path, bytes, options),
-          },
+          ops: bindLibraryOps(library, principal),
           script,
         });
         await library.recordCommand(principal, {

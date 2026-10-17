@@ -11,7 +11,7 @@ import {
   STORAGE_BUDGET_MESSAGE,
 } from "./library-fs.ts";
 
-const LIBRARY_MOUNT = "/library";
+export const LIBRARY_MOUNT = "/library";
 
 /** The hardened profile caps loops and command counts. These are on top of it. */
 export const BASH_LIMITS = {
