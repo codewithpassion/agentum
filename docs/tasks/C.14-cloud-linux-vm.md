@@ -37,3 +37,4 @@ An isolate agent still works as before. The controller repeats the check on stag
 - 2026-10-17: added at Dom's request; dispatched on task/C.14-cloud-linux-vm.
 - 2026-10-17: review clean after 3 fix rounds (extra rounds allowed by controller) at c453291 (docs/reviews/tasks/C.14.md). Merged. VM live check not run locally (workerd container sidecar fails on this host); staging check pending. No secrets reach the VM until S.4.
 - 2026-10-17: deployed to staging (Containers worked, image pushed, VmSession v4). R2 lifecycle rule vm-snapshots-30d on harbourmaster-staging-files. Staging VM live check running.
+- 2026-10-17: staging VM check 8/8: uname (cloudflare microvm), bun 1.3.11, ts-hello codeword, /workspace file survived 4.5 min idle, example.com 200, isolate agent unaffected. Cold start 16 s to first tool output, 21 s first reply; later replies 6-7 s. Sleep/restore not directly observed (no Log entries for it).
