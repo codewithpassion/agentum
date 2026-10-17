@@ -3,7 +3,7 @@ id: S.3
 title: Workspace secrets for agents (proxy or env var)
 milestone: S
 size: L
-status: in_progress
+status: done
 depends_on: [C.12, M8.3]
 branch: task/S.3-agent-secrets
 ---
@@ -51,3 +51,4 @@ Live on a local dev server, with the workspace key from `apps/web/.env.local` an
 
 ## Log
 - 2026-10-17: rewritten after Dom chose the hybrid (proxy where we control egress, env vars elsewhere, all surfaces); dispatched on task/S.3-agent-secrets. The VM part is S.4, after C.14.
+- 2026-10-17: review clean after 3 fix rounds (fourth review allowed by controller) at d85692a (docs/reviews/tasks/S.3.md). Merged. Managed env secrets are vault credentials: placeholder in the sandbox, swapped on outbound; reachable via an echoing host. Machines need install-service re-run (SETENV).
