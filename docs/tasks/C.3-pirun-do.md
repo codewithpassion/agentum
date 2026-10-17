@@ -3,7 +3,7 @@ id: C.3
 title: PiRun Durable Object
 milestone: C
 size: L
-status: in_progress
+status: done
 depends_on: [C.2]
 branch: task/C.3-pirun-do
 ---
@@ -21,3 +21,4 @@ Faux-provider tests under `wrangler dev`: two runs in one session, duplicate dis
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
 - 2026-10-17: dispatched on task/C.3-pirun-do.
+- 2026-10-17: review clean after 2 fix rounds at 695b40f (docs/reviews/tasks/C.3.md). Merged.
