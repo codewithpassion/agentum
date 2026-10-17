@@ -10,12 +10,24 @@ import {
 import { CLOUD_LEASE_MS } from "@repo/services/cloud/lease";
 import { cloudModelFor } from "@repo/services/cloud/models";
 import type { CloudStart } from "@repo/services/cloud/types";
-import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
+import { isServiceError } from "@repo/services/errors";
+import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { compose } from "./compose.ts";
-import { createRunCore, type PiPort, SERVERS_KEY } from "./pi-run-core.ts";
+import {
+  createRunCore,
+  type PiPort,
+  type RunRef,
+  SERVERS_KEY,
+} from "./pi-run-core.ts";
 import { workspaceKeyStore } from "./pi-run-credentials.ts";
+import {
+  filesExtension,
+  inputContent,
+  type RunFilesPort,
+  uploadOutputs,
+} from "./pi-run-files.ts";
 import { RunLeaseAlarm } from "./pi-run-lease.ts";
 import {
   mcpToolRegistrations,
@@ -25,10 +37,20 @@ import {
   toolChanges,
 } from "./pi-run-mcp.ts";
 import { createCloudModels } from "./pi-run-models.ts";
+import {
+  loadSkills,
+  type SkillSummary,
+  type SkillsPort,
+  skillsExtension,
+} from "./pi-run-skills.ts";
 
 const TOOLS_KEY = "mcp-tools";
 /** The workspace of the session. An id, not a secret: the model key is read again for each model request. */
 const WORKSPACE_KEY = "workspace";
+/** The skills of the run that loaded them last, with that run: a tool call knows no run of its own. The text is read again on each call. */
+const SKILLS_KEY = "skills";
+/** The run an input file belongs to, so `read_input_file` reads it as that run. */
+const inputFileKey = (fileId: string) => `input-file:${fileId}`;
 const ENTRY_PAGE = 500;
 const ANTHROPIC = "anthropic";
 const RETRY = { baseDelayMs: 1000, enabled: true, maxRetries: 3 };
@@ -39,6 +61,19 @@ const COMMIT_EVENTS = new Set([
   "message_end",
   "tool_execution_end",
 ]);
+
+interface StoredSkills {
+  run: RunRef;
+  skills: SkillSummary[];
+}
+
+/** The services see the run as its own principal, and decide what it may read and write. */
+const principalOf = (run: RunRef): Principal => ({
+  agentId: run.agentId,
+  kind: "run",
+  runId: run.runId,
+  workspaceId: run.workspaceId,
+});
 
 type Servers = CloudStart["mcpServers"];
 type Faux = ReturnType<typeof import("./pi-run-faux.ts")["createFaux"]>;
@@ -96,6 +131,10 @@ export class PiRun extends DurableObject<Env> {
       this.#installTools(
         (await this.ctx.storage.get<ServerTools>(TOOLS_KEY)) ?? {}
       );
+      const skills = await this.ctx.storage.get<StoredSkills>(SKILLS_KEY);
+      if (skills) {
+        this.#applySkills(skills);
+      }
       return Harness.open(
         storage,
         {
@@ -120,6 +159,12 @@ export class PiRun extends DurableObject<Env> {
   readonly lifecycle = Lifecycle.install(this)
     .use(this.harness)
     .use(this.lease);
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // The attachment instructions and `read_input_file` are the same for every run.
+    this.registry.install(filesExtension((fileId) => this.#readInput(fileId)));
+  }
 
   /** Installs the servers whose list differs from the registry's, and removes the ones that are gone. */
   #installTools(tools: ServerTools) {
@@ -179,6 +224,75 @@ export class PiRun extends DurableObject<Env> {
     });
     this.#syncing = sync.catch(() => undefined);
     return sync;
+  }
+
+  /** An input file, read as the run that has it. */
+  async #readInput(fileId: string) {
+    const run = await this.ctx.storage.get<RunRef>(inputFileKey(fileId));
+    if (!run) {
+      throw new Error(`${fileId} is not an input file of this session`);
+    }
+    return this.#filesPort(() => Promise.resolve(run)).download(fileId);
+  }
+
+  #skillsPort(run: RunRef): SkillsPort {
+    const { skills } = this.#services();
+    return {
+      list: () => skills.list(principalOf(run), run.runId),
+      read: (path) => skills.read(principalOf(run), run.runId, path),
+    };
+  }
+
+  #filesPort(whichRun: () => Promise<RunRef>): RunFilesPort {
+    const { files, library } = this.#services();
+    return {
+      download: async (fileId) => {
+        const principal = principalOf(await whichRun());
+        const { body, file } = await files.download(principal, fileId);
+        return {
+          bytes: new Uint8Array(await new Response(body).arrayBuffer()),
+          mime: file.mime,
+          name: file.name,
+        };
+      },
+      readLibrary: async (path) => {
+        const principal = principalOf(await whichRun());
+        try {
+          return (await library.read(principal, path)).bytes;
+        } catch (error) {
+          if (isServiceError(error) && error.code === "not_found") {
+            return null;
+          }
+          throw error;
+        }
+      },
+      upload: async ({ bytes, mime, name }) => {
+        const principal = principalOf(await whichRun());
+        const record = await files.upload(principal, {
+          body: new Blob([bytes as Uint8Array<ArrayBuffer>], { type: mime }),
+          mime,
+          name,
+        });
+        return { id: record.id };
+      },
+    };
+  }
+
+  /** Installs the skills extension for these skills, in place of the one before. */
+  #applySkills({ run, skills }: StoredSkills) {
+    this.registry.install(skillsExtension(skills, this.#skillsPort(run)));
+  }
+
+  async #loadAndInstallSkills(input: CloudStart) {
+    const run: RunRef = {
+      agentId: input.run.agentId,
+      runId: input.run.id,
+      workspaceId: input.run.workspaceId,
+    };
+    const skills = await loadSkills(this.#skillsPort(run));
+    const stored: StoredSkills = { run, skills };
+    await this.ctx.storage.put(SKILLS_KEY, stored);
+    this.#applySkills(stored);
   }
 
   /** Looks at the newest run's servers again, at most once per REFRESH_GAP_MS and never twice at a time. */
@@ -271,7 +385,23 @@ export class PiRun extends DurableObject<Env> {
           }),
         ingest: (runId, events) =>
           runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, events),
+        inputOf: async (run, text, fileIds) => {
+          await Promise.all(
+            fileIds.map((id) => this.ctx.storage.put(inputFileKey(id), run))
+          );
+          return inputContent(
+            text,
+            fileIds,
+            this.#filesPort(() => Promise.resolve(run))
+          );
+        },
+        installSkills: (input) => this.#loadAndInstallSkills(input),
         installTools: (input) => this.#syncTools(input.mcpServers),
+        outputsOf: (run, text) =>
+          uploadOutputs(
+            text,
+            this.#filesPort(() => Promise.resolve(run))
+          ),
         pi: this.#port(),
         statusOf: async (runId) =>
           (await runs.getRun(SYSTEM_PRINCIPAL, runId)).status,

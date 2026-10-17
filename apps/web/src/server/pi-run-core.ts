@@ -22,6 +22,7 @@ import {
   toRunEvents,
   usageOf,
 } from "./pi-run-events.ts";
+import type { PiInput } from "./pi-run-files.ts";
 
 /** How Pi ended one operation. */
 export interface PiOutcome {
@@ -40,7 +41,7 @@ export interface PiPort {
   entryOf: (operationId: string) => Promise<string | undefined>;
   setModel: (model: string) => Promise<void>;
   submit: (
-    text: string,
+    input: PiInput,
     options: { operationId: string; whenBusy: "followUp" | "steer" }
   ) => Promise<{ accepted: boolean }>;
   wait: (operationId: string) => Promise<PiOutcome>;
@@ -55,15 +56,38 @@ export interface RunStorage {
   put: <T>(key: string, value: T) => Promise<void>;
 }
 
+/** The run a file call is made for. The services decide what that run may read and write. */
+export interface RunRef {
+  agentId: string;
+  runId: string;
+  workspaceId: string;
+}
+
+/** The answer after its `[ATTACHMENT:path]` markers became uploaded files. */
+export interface RunOutputs {
+  fileIds: string[];
+  text: string;
+}
+
 export interface RunCoreDeps {
   complete: (runId: string, result: RunResult) => Promise<void>;
   /** Extends a run's lease. Called by `beat`. */
   heartbeat: (runId: string) => Promise<void>;
   ingest: (runId: string, events: RunEventInput[]) => Promise<unknown>;
+  /** The run's message as Pi takes it: its text, and its input files as image blocks or a list. */
+  inputOf: (
+    run: RunRef,
+    text: string,
+    fileIds: readonly string[]
+  ) => Promise<PiInput>;
+  /** Loads the run's skills and installs them. A throw is logged and the run goes on without them. */
+  installSkills: (input: CloudStart) => Promise<void>;
   /** Lists the run's MCP tools and installs them. Throws when a server cannot be reached. */
   installTools: (input: CloudStart) => Promise<void>;
   /** Epoch milliseconds. A run older than its run token is not heartbeated. */
   now?: () => number;
+  /** Uploads the files the final answer names and returns their ids with the answer cleaned of its markers. */
+  outputsOf: (run: RunRef, text: string) => Promise<RunOutputs>;
   pi: PiPort;
   sleep?: (ms: number) => Promise<void>;
   /** The run's status on the platform. */
@@ -72,15 +96,21 @@ export interface RunCoreDeps {
 }
 
 interface StoredRun {
+  agentId: string;
   /** The user entry Pi placed the input as. Known once placed. */
   entry?: string;
+  /** The input files, so a run submitted again after a wake sends them again. */
+  fileIds: string[];
   /** The agent's model, so a run submitted again after a wake uses it. */
   model: string;
+  /** The uploaded output files, kept so a completion that is tried again does not upload them twice. */
+  outputs?: RunOutputs;
   /** When the run was first started, from `now()`. */
   startedAt: number;
   state: "active" | "finished";
   /** The input, so a run whose submission never reached Pi can be submitted again. */
   text: string;
+  workspaceId: string;
 }
 
 /** The newest run's MCP servers, with the run token. Tools read it on every call. */
@@ -105,12 +135,21 @@ const describe = (error: unknown): string =>
 const isRunGone = (error: unknown): boolean =>
   isServiceError(error) && error.code === "conflict";
 
+const refOf = (runId: string, run: StoredRun): RunRef => ({
+  agentId: run.agentId,
+  runId,
+  workspaceId: run.workspaceId,
+});
+
 export const createRunCore = ({
   complete,
   heartbeat,
   ingest,
+  inputOf,
+  installSkills,
   installTools,
   now = Date.now,
+  outputsOf,
   pi,
   sleep = defaultSleep,
   statusOf,
@@ -219,6 +258,23 @@ export const createRunCore = ({
     };
   };
 
+  /** A finished run's result with its output files uploaded once, however often the completion is tried. */
+  const withOutputs = async (
+    runId: string,
+    result: RunResult
+  ): Promise<RunResult> => {
+    const run = await load(runId);
+    if (result.status !== "done" || !run) {
+      return result;
+    }
+    const outputs =
+      run.outputs ?? (await outputsOf(refOf(runId, run), result.text ?? ""));
+    if (!run.outputs) {
+      await save(runId, { ...run, outputs });
+    }
+    return { ...result, fileIds: outputs.fileIds, text: outputs.text };
+  };
+
   const completeWithRetry = async (runId: string, result: RunResult) => {
     for (let attempt = 1; ; attempt += 1) {
       try {
@@ -320,7 +376,10 @@ export const createRunCore = ({
         return;
       }
       if (!gone) {
-        const done = await completeRun(runId, resultOf(outcome, slice));
+        const done = await completeRun(
+          runId,
+          await withOutputs(runId, resultOf(outcome, slice))
+        );
         if (done === "waiting") {
           return;
         }
@@ -366,13 +425,22 @@ export const createRunCore = ({
     }
     if (!existing) {
       await installTools(input);
+      // A skill list that cannot be read (over the cap, storage down) must not hold the run back: the sweep would offer it again for ever.
+      await installSkills(input).catch((error: unknown) => {
+        console.warn(
+          `PiRun: skills for run ${run.id} not loaded: ${describe(error)}`
+        );
+      });
     }
     if (!existing) {
       await save(run.id, {
+        agentId: run.agentId,
+        fileIds: input.inputFileIds,
         model: input.agent.model,
         startedAt: now(),
         state: "active",
         text: run.inputText,
+        workspaceId: run.workspaceId,
       });
       await storage.put(RUNS_KEY, [...(await knownRuns()), run.id]);
     }
@@ -382,10 +450,17 @@ export const createRunCore = ({
     if (!busy) {
       await pi.setModel(input.agent.model);
     }
-    await pi.submit(run.inputText, {
-      operationId: run.id,
-      whenBusy: busy ? "steer" : "followUp",
-    });
+    await pi.submit(
+      await inputOf(
+        { agentId: run.agentId, runId: run.id, workspaceId: run.workspaceId },
+        run.inputText,
+        input.inputFileIds
+      ),
+      {
+        operationId: run.id,
+        whenBusy: busy ? "steer" : "followUp",
+      }
+    );
     follow(run.id);
   };
 
@@ -412,7 +487,10 @@ export const createRunCore = ({
     if (!(await pi.busy())) {
       await pi.setModel(run.model);
     }
-    await pi.submit(run.text, { operationId: runId, whenBusy: "followUp" });
+    await pi.submit(await inputOf(refOf(runId, run), run.text, run.fileIds), {
+      operationId: runId,
+      whenBusy: "followUp",
+    });
     follow(runId);
   };
 

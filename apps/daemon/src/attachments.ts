@@ -7,10 +7,6 @@
 
 import { realpathSync, type Stats, statSync } from "node:fs";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
-import {
-  ATTACHMENT_MARKER_RE,
-  stripAttachmentMarkers,
-} from "@repo/protocol/attachments";
 import { file as bunFile } from "bun";
 
 /**
@@ -24,34 +20,6 @@ const MISSING_REASONS = new Set<RejectedFile["reason"]>([
   "missing",
   "not_a_file",
 ]);
-
-export interface ExtractedMarkers {
-  /** Marker paths in order of first appearance, trimmed and de-duplicated. */
-  paths: string[];
-  /** `text` with every marker removed and leftover blank runs collapsed. */
-  text: string;
-}
-
-/**
- * Pull `[ATTACHMENT:...]` markers out of `text`. Paths may contain spaces:
- * anything up to the closing `]` is the path.
- */
-export const extractAttachmentMarkers = (text: string): ExtractedMarkers => {
-  if (!text.includes("[ATTACHMENT:")) {
-    return { paths: [], text };
-  }
-  const paths: string[] = [];
-  const seen = new Set<string>();
-  for (const match of text.matchAll(ATTACHMENT_MARKER_RE)) {
-    const path = (match[1] ?? "").trim();
-    if (path.length === 0 || seen.has(path)) {
-      continue;
-    }
-    seen.add(path);
-    paths.push(path);
-  }
-  return { paths, text: stripAttachmentMarkers(text) };
-};
 
 export interface OutboundPolicy {
   /** Largest file in bytes that may be attached. */

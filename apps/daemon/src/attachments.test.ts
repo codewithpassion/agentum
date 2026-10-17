@@ -9,7 +9,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  extractAttachmentMarkers,
   MAX_OUTBOUND_BYTES,
   rejectionNote,
   resolveOutboundFiles,
@@ -31,33 +30,6 @@ afterEach(() => {
 });
 
 const policy = (maxBytes = MAX_OUTBOUND_BYTES) => ({ maxBytes, workDir });
-
-describe("extractAttachmentMarkers", () => {
-  test("returns text unchanged when there is no marker", () => {
-    const text = "plain reply\n\nwith   spacing ";
-    expect(extractAttachmentMarkers(text)).toEqual({ paths: [], text });
-  });
-
-  test("collects paths in order and de-duplicates them", () => {
-    const result = extractAttachmentMarkers(
-      "[ATTACHMENT:a.png] and [ATTACHMENT:b.txt] then [ATTACHMENT:a.png]"
-    );
-    expect(result.paths).toEqual(["a.png", "b.txt"]);
-  });
-
-  test("keeps spaces inside a path and trims the edges", () => {
-    const result = extractAttachmentMarkers(
-      "see [ATTACHMENT:  my docs/report 1.pdf ]"
-    );
-    expect(result.paths).toEqual(["my docs/report 1.pdf"]);
-  });
-
-  test("removes markers and tidies the text around them", () => {
-    const text =
-      "Here it is [ATTACHMENT:x.png] ok\n[ATTACHMENT:y.png]\n\n\n\nDone  \n";
-    expect(extractAttachmentMarkers(text).text).toBe("Here it is ok\n\nDone");
-  });
-});
 
 describe("resolveOutboundFiles", () => {
   test("accepts a file inside workDir with its name, size and mime", () => {
