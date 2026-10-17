@@ -3,7 +3,7 @@ id: U.6
 title: Edit a skill's other files on the Skills tab
 milestone: U
 size: S
-status: in_progress
+status: done
 depends_on: [S.2]
 branch: task/U.6-skill-files
 ---
@@ -20,3 +20,4 @@ Service or router tests: a file added under a skill shows up in its tree, an edi
 
 ## Log
 - 2026-10-17: added from the C.12 staging check (Dom: yes); dispatched on task/U.6-skill-files.
+- 2026-10-17: review clean after 2 fix rounds at 1213b8f (docs/reviews/tasks/U.6.md). Merged.
