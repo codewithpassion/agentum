@@ -38,4 +38,33 @@ Checks: unit tests for the tool with a fake sandbox (file placement, time cap, o
 
 ## Verdicts
 
-(filled in below)
+Round 1 at b624a7c: must-fix. One item. A script that starts its work with `main();` and no `await` returned exit 0 and empty output, because the harness returned when the wrapped entry function resolved. Bun waits for that work, so skill authors will write it.
+
+Fix at 61cea41. A top-level call statement in the entry is awaited. The fix commit also dropped `.tsx` (sucrase ran no JSX transform), moved `TIMEOUT_EXIT_CODE` into the port, made `process.exit` ignore a non-integer code, and wrote the remaining limits into this file.
+
+Round 2 at 61cea41: clean.
+
+## Nits left
+
+- A wall-time timeout reports 124 but does not abort the Dynamic Worker. A script waiting on the network can keep making requests (up to 50) after the model has its answer. Whether a hung run counts against the in-flight cap (4 for each request, 10 for each Durable Object) is not checked. Cloudflare's `cpuMs` ends a runaway script.
+- `process.exit` edges: a script's own `try/catch` can swallow it, `process.exitCode` is ignored, and `true`, `null`, `1.5`, `256` and `-1` differ from Node.
+- Top-level calls run one after another, so `a(); b();` is sequential where Bun runs both at once, and output order can change. A call that returns a promise that never settles hangs until 124. `void main();`, `a(), b();` and `main?.()` in plain `.js` are not awaited.
+- The harness cuts a stream by UTF-16 units against a byte budget, so the 1 MiB cap can overshoot on multi-byte text. After that cut the truncation note shows the capped size, not the real total.
+- Only `console.log`, `info`, `debug`, `warn` and `error` are captured. `console.table`, `dir`, `trace` and `group` go to the Durable Object logs. `process.stdout.write` of a `Uint8Array` prints "1,2,3".
+- Imports move to the top of the entry and a wrapper line is added, so line numbers in entry-script stack traces differ from the source.
+- `import.meta.main` is undefined in workerd, so Bun's `if (import.meta.main) main()` does nothing. A non-entry module that does top-level I/O fails, since only the entry is wrapped.
+- Every skill file, SKILL.md and binary assets included, is read and loaded as a module on each run, with no cap on total bytes.
+- The compatibility date in `dynamic-worker-sandbox.ts` is hard-coded apart from `wrangler.jsonc`. The harness needs it to be 2026-08-04 or later.
+- Nothing runs a script through the real harness in a test. The harness only runs in workerd, so it was checked by hand against a dev server and a plain wrangler spike.
+
+## Ideas beyond the scope
+
+- Cache the Worker with `LOADER.get(hash of the modules)` so repeated runs of the same skill version count as one billable Dynamic Worker. Each `load()` with no id counts as one, and every one past 1,000 a month costs $0.002.
+- A Sandbox SDK backend behind `SkillScriptSandbox` for skills that need npm packages or binaries. The port is already the seam.
+- A test that runs the harness in workerd (for example through `@cloudflare/vitest-pool-workers`), so the harness has coverage beyond the live check.
+- Give a skill an explicit secret on request, through a per-skill env passed to the load. The task allows it, and nothing builds it yet.
+
+## Steps for Dom
+
+- Dynamic Workers needs the Workers Paid plan on the account the Worker deploys to. Nothing else changes for deploy: no migration, no container, no secret.
+- Staging check after deploy: make a cloud agent with a skill that holds a script (the live check used `ts-hello` with `scripts/hello.ts`, `scripts/lib.ts` and `scripts/probe.ts`, written under `skills/<agentId>/ts-hello/` in the library), ask it for the codeword, and ask it to run the script that calls `fetch("https://example.com")`.
