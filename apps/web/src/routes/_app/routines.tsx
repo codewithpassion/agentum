@@ -69,6 +69,32 @@ function RoutinesPage() {
     [router]
   );
 
+  const approveRoutine = useCallback(
+    async (routineId: string) => {
+      setError(null);
+      try {
+        await getTrpc().routines.approve.mutate({ routineId });
+        await router.invalidate();
+      } catch (caught) {
+        setError(errorMessage(caught));
+      }
+    },
+    [router]
+  );
+
+  const rejectRoutine = useCallback(
+    async (routineId: string) => {
+      setError(null);
+      try {
+        await getTrpc().routines.reject.mutate({ routineId });
+        await router.invalidate();
+      } catch (caught) {
+        setError(errorMessage(caught));
+      }
+    },
+    [router]
+  );
+
   return (
     <section className="mx-auto max-w-4xl">
       <div className="mb-6 flex items-center justify-between gap-4">
@@ -84,6 +110,8 @@ function RoutinesPage() {
         </p>
       ) : (
         <RoutineTable
+          onApprove={approveRoutine}
+          onReject={rejectRoutine}
           onRemove={removeRoutine}
           onToggle={toggleRoutine}
           routines={routines}

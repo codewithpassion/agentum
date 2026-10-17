@@ -15,6 +15,7 @@ function TriggersPanel({ agent }: AgentTabProps) {
   const [error, setError] = useState<string | undefined>();
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreatedTrigger | null>(null);
+  const [secretTitle, setSecretTitle] = useState("Trigger created");
 
   const fetchTriggers = useCallback(
     () => getTrpc().triggers.list.query({ agentId }),
@@ -55,6 +56,7 @@ function TriggersPanel({ agent }: AgentTabProps) {
 
   const showSecret = useCallback((next: CreatedTrigger) => {
     setCreating(false);
+    setSecretTitle("Trigger created");
     setCreated(next);
   }, []);
 
@@ -62,6 +64,33 @@ function TriggersPanel({ agent }: AgentTabProps) {
     setCreated(null);
     reload();
   }, [reload]);
+
+  const approveTrigger = useCallback(async (triggerId: string) => {
+    try {
+      const approved = await getTrpc().triggers.approve.mutate({ triggerId });
+      if (approved.secret === null) {
+        setError("The approved trigger came back without a secret.");
+        return;
+      }
+      setSecretTitle("Trigger approved");
+      setCreated({ secret: approved.secret, trigger: approved.trigger });
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  }, []);
+
+  const rejectTrigger = useCallback(
+    async (triggerId: string) => {
+      try {
+        await getTrpc().triggers.reject.mutate({ triggerId });
+      } catch (cause) {
+        setError(errorMessage(cause));
+        return;
+      }
+      reload();
+    },
+    [reload]
+  );
 
   const revokeTrigger = useCallback(
     async (triggerId: string) => {
@@ -96,6 +125,8 @@ function TriggersPanel({ agent }: AgentTabProps) {
           </p>
         ) : (
           <TriggerTable
+            onApprove={approveTrigger}
+            onReject={rejectTrigger}
             onRevoke={revokeTrigger}
             showAgent={false}
             triggers={triggers}
@@ -122,6 +153,7 @@ function TriggersPanel({ agent }: AgentTabProps) {
         <TriggerSecretDialog
           onDone={closeSecret}
           secret={created.secret}
+          title={secretTitle}
           triggerId={created.trigger.id}
         />
       )}

@@ -2,20 +2,32 @@ import { describe, expect, test } from "bun:test";
 import type { Client } from "@modelcontextprotocol/client";
 import type { McpPorts } from "./ports";
 import { errorResult } from "./result";
-import { createHarbourmasterMcpServer, TOOL_NAMES } from "./server";
+import {
+  createHarbourmasterMcpServer,
+  type ServerOptions,
+  TOOL_NAMES,
+} from "./server";
 import { connectClient, textOf } from "./testing";
 
 const EXPECTED_NAMES = [
   "bash",
+  "create_routine",
+  "create_trigger",
+  "delete_routine",
+  "delete_trigger",
   "get_run",
   "inbox_list",
   "inbox_post",
   "inbox_read",
   "list_agents",
+  "list_routines",
   "list_sessions",
+  "list_triggers",
   "read_session",
   "search_sessions",
   "send_message",
+  "set_routine_enabled",
+  "set_trigger_enabled",
 ].sort();
 
 const READ_NAMES = [
@@ -23,7 +35,9 @@ const READ_NAMES = [
   "inbox_list",
   "inbox_read",
   "list_agents",
+  "list_routines",
   "list_sessions",
+  "list_triggers",
   "read_session",
   "search_sessions",
 ].sort();
@@ -32,21 +46,32 @@ const uncalled = (): Promise<never> =>
   Promise.reject(new Error("this port should not be called"));
 
 const fakePorts: McpPorts = {
+  createRoutine: uncalled,
+  createTrigger: uncalled,
+  deleteRoutine: uncalled,
+  deleteTrigger: uncalled,
   getRun: uncalled,
   inboxList: uncalled,
   inboxPost: uncalled,
   inboxRead: uncalled,
   libraryBash: uncalled,
   listAgents: uncalled,
+  listRoutines: uncalled,
   listSessions: uncalled,
+  listTriggers: uncalled,
   readSession: uncalled,
   searchSessions: uncalled,
   sendMessage: uncalled,
+  setRoutineEnabled: uncalled,
+  setTriggerEnabled: uncalled,
 };
 
-const withClient = async (run: (client: Client) => Promise<void>) => {
+const withClient = async (
+  run: (client: Client) => Promise<void>,
+  options: ServerOptions = {}
+) => {
   const { client, close } = await connectClient(
-    createHarbourmasterMcpServer(fakePorts)
+    createHarbourmasterMcpServer(fakePorts, options)
   );
   try {
     await run(client);
@@ -56,18 +81,18 @@ const withClient = async (run: (client: Client) => Promise<void>) => {
 };
 
 describe("tools/list", () => {
-  test("TOOL_NAMES lists the ten tool names", () => {
+  test("TOOL_NAMES lists every tool name", () => {
     expect([...TOOL_NAMES].sort()).toEqual(EXPECTED_NAMES);
-    expect(TOOL_NAMES).toHaveLength(10);
+    expect(TOOL_NAMES).toHaveLength(EXPECTED_NAMES.length);
   });
 
-  test("serves exactly the ten tools", () =>
+  test("serves exactly the expected tools", () =>
     withClient(async (client) => {
       const { tools } = await client.listTools();
       expect(tools.map((tool) => tool.name).sort()).toEqual(EXPECTED_NAMES);
     }));
 
-  test("marks only the seven read tools as read-only", () =>
+  test("marks only the read tools as read-only", () =>
     withClient(async (client) => {
       const { tools } = await client.listTools();
       const readOnly = tools
@@ -76,6 +101,27 @@ describe("tools/list", () => {
         .sort();
       expect(readOnly).toEqual(READ_NAMES);
     }));
+
+  test("a read-only caller gets the list tools for routines and triggers and no tool that changes them", () =>
+    withClient(
+      async (client) => {
+        const { tools } = await client.listTools();
+        const names = tools.map((tool) => tool.name);
+        expect(names).toContain("list_routines");
+        expect(names).toContain("list_triggers");
+        for (const name of [
+          "create_routine",
+          "set_routine_enabled",
+          "delete_routine",
+          "create_trigger",
+          "set_trigger_enabled",
+          "delete_trigger",
+        ]) {
+          expect(names).not.toContain(name);
+        }
+      },
+      { readOnly: true }
+    ));
 
   test("gives the write tools a non-destructive hint", () =>
     withClient(async (client) => {

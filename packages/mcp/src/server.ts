@@ -6,16 +6,39 @@ import { agentTools } from "./tools/agents";
 import type { ToolDefinition } from "./tools/define";
 import { inboxTools } from "./tools/inbox";
 import { libraryTools } from "./tools/library";
+import { routineTools } from "./tools/routines";
 import { sessionTools } from "./tools/sessions";
+import { triggerTools } from "./tools/triggers";
+
+export interface ServerOptions {
+  /**
+   * The caller is a read-only API key or connected app. It then gets the
+   * list tools for routines and triggers and none that change them.
+   */
+  readOnly?: boolean;
+}
+
+/** The tools that manage routines and triggers; a read-only caller gets the read ones. */
+const automationTools = (
+  ports: McpPorts,
+  readOnly: boolean
+): ToolDefinition[] => {
+  const tools = [...routineTools(ports), ...triggerTools(ports)];
+  return readOnly
+    ? tools.filter((tool) => tool.annotations.readOnlyHint === true)
+    : tools;
+};
 
 /** Every tool this server offers, bound to the ports it calls. */
 export const harbourmasterTools = (
-  ports: McpPorts
+  ports: McpPorts,
+  { readOnly = false }: ServerOptions = {}
 ): readonly ToolDefinition[] => [
   ...agentTools(ports),
   ...sessionTools(ports),
   ...inboxTools(ports),
   ...libraryTools(ports),
+  ...automationTools(ports, readOnly),
 ];
 
 /** Ports for reading tool names: the names do not depend on them, so none is ever called. */
@@ -24,16 +47,24 @@ const unusedPort = (): Promise<never> =>
 
 /** The name of every tool, in the order they are registered. */
 export const TOOL_NAMES = harbourmasterTools({
+  createRoutine: unusedPort,
+  createTrigger: unusedPort,
+  deleteRoutine: unusedPort,
+  deleteTrigger: unusedPort,
   getRun: unusedPort,
   inboxList: unusedPort,
   inboxPost: unusedPort,
   inboxRead: unusedPort,
   libraryBash: unusedPort,
   listAgents: unusedPort,
+  listRoutines: unusedPort,
   listSessions: unusedPort,
+  listTriggers: unusedPort,
   readSession: unusedPort,
   searchSessions: unusedPort,
   sendMessage: unusedPort,
+  setRoutineEnabled: unusedPort,
+  setTriggerEnabled: unusedPort,
 }).map((tool) => tool.name);
 
 /**
@@ -41,7 +72,10 @@ export const TOOL_NAMES = harbourmasterTools({
  * Clerk; the web app owns HTTP and authentication, and passes the ports the
  * tools call.
  */
-export const createHarbourmasterMcpServer = (ports: McpPorts): McpServer => {
+export const createHarbourmasterMcpServer = (
+  ports: McpPorts,
+  options: ServerOptions = {}
+): McpServer => {
   // The tool list never changes after the server starts, so do not advertise
   // list changes: a client then never opens a `subscriptions/listen` stream
   // that could not receive an event anyway.
@@ -49,6 +83,6 @@ export const createHarbourmasterMcpServer = (ports: McpPorts): McpServer => {
     { name: "harbourmaster", version: packageJson.version },
     { capabilities: { tools: { listChanged: false } } }
   );
-  registerTools(server, harbourmasterTools(ports));
+  registerTools(server, harbourmasterTools(ports, options));
   return server;
 };

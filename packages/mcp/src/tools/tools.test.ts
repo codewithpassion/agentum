@@ -107,30 +107,46 @@ const uncalled = (name: string) => (): Promise<never> =>
 
 /** Ports where every method rejects with `error`, to test failures. */
 const failingPorts = (error: Error): McpPorts => ({
+  createRoutine: () => Promise.reject(error),
+  createTrigger: () => Promise.reject(error),
+  deleteRoutine: () => Promise.reject(error),
+  deleteTrigger: () => Promise.reject(error),
   getRun: () => Promise.reject(error),
   inboxList: () => Promise.reject(error),
   inboxPost: () => Promise.reject(error),
   inboxRead: () => Promise.reject(error),
   libraryBash: () => Promise.reject(error),
   listAgents: () => Promise.reject(error),
+  listRoutines: () => Promise.reject(error),
   listSessions: () => Promise.reject(error),
+  listTriggers: () => Promise.reject(error),
   readSession: () => Promise.reject(error),
   searchSessions: () => Promise.reject(error),
   sendMessage: () => Promise.reject(error),
+  setRoutineEnabled: () => Promise.reject(error),
+  setTriggerEnabled: () => Promise.reject(error),
 });
 
 /** Ports that answer what a test needs and reject any other call. */
 const fakePorts = (overrides: Partial<McpPorts>): McpPorts => ({
+  createRoutine: uncalled("createRoutine"),
+  createTrigger: uncalled("createTrigger"),
+  deleteRoutine: uncalled("deleteRoutine"),
+  deleteTrigger: uncalled("deleteTrigger"),
   getRun: uncalled("getRun"),
   inboxList: uncalled("inboxList"),
   inboxPost: uncalled("inboxPost"),
   inboxRead: uncalled("inboxRead"),
   libraryBash: uncalled("libraryBash"),
   listAgents: uncalled("listAgents"),
+  listRoutines: uncalled("listRoutines"),
   listSessions: uncalled("listSessions"),
+  listTriggers: uncalled("listTriggers"),
   readSession: uncalled("readSession"),
   searchSessions: uncalled("searchSessions"),
   sendMessage: uncalled("sendMessage"),
+  setRoutineEnabled: uncalled("setRoutineEnabled"),
+  setTriggerEnabled: uncalled("setTriggerEnabled"),
   ...overrides,
 });
 
