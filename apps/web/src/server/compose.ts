@@ -343,6 +343,18 @@ export const composeWith = ({
     publicBaseUrl: infra.publicBaseUrl,
     runs,
     runTokenKey: infra.runTokenKey,
+    skills: (run) => {
+      const principal = {
+        agentId: run.agentId,
+        kind: "run",
+        runId: run.id,
+        workspaceId: run.workspaceId,
+      } as const;
+      return {
+        list: () => skills.list(principal, run.id),
+        read: (path) => skills.read(principal, run.id, path),
+      };
+    },
   });
   const routines = createRoutinesService({
     allowedOrgIds,

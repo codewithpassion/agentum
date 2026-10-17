@@ -56,9 +56,17 @@ import type {
   ManagedGateway,
   McpServerRef,
   PolledEvents,
+  SkillRef,
 } from "./gateway.ts";
 import type { ManagedKeysService } from "./keys.ts";
 import { finalReply, toRunEvents } from "./run-events.ts";
+import {
+  createSkillsSync,
+  loadLocalSkills,
+  MAX_SKILLS,
+  type SkillsSource,
+  skillsGuidance,
+} from "./skills-sync.ts";
 import {
   MANAGED_CLAIMER,
   type ManagedPollerPort,
@@ -119,6 +127,8 @@ export interface ManagedServiceOptions {
   >;
   /** `RUN_TOKEN_KEY`. Signs the session tokens. */
   runTokenKey?: string;
+  /** The skills a run's agent has, read as that run. */
+  skills: (run: RunRecord) => SkillsSource;
 }
 
 /** What went wrong, without anything the API might have echoed back. */
@@ -154,8 +164,10 @@ export const createManagedService = ({
   publicBaseUrl,
   runs: runsApi,
   runTokenKey,
+  skills: skillsOf,
 }: ManagedServiceOptions) => {
   const nowIso = () => clock.now().toISOString();
+  const skillsSync = createSkillsSync({ db, now: nowIso });
 
   let tokenKey: Promise<CryptoKey> | undefined;
   const sessionTokenKey = () => {
@@ -286,6 +298,7 @@ export const createManagedService = ({
     gateway,
     model,
     servers,
+    skills,
     system,
   }: {
     agent: AgentRecord;
@@ -293,6 +306,7 @@ export const createManagedService = ({
     gateway: ManagedGateway;
     model: string;
     servers: McpServerRef[];
+    skills: SkillRef[];
     system: string;
   }): Promise<string> => {
     const [row] = await db
@@ -300,7 +314,13 @@ export const createManagedService = ({
       .from(managedAgents)
       .where(eq(managedAgents.agentId, agent.id))
       .limit(1);
-    const input = { mcpServers: servers, model, name: agent.name, system };
+    const input = {
+      mcpServers: servers,
+      model,
+      name: agent.name,
+      skills,
+      system,
+    };
     if (!row) {
       const { anthropicAgentId } = await gateway.registerAgent({
         ...input,
@@ -566,11 +586,37 @@ export const createManagedService = ({
       );
       return false;
     }
+    const source = skillsOf(run);
+    const local = await loadLocalSkills(source);
+    if (local.length > MAX_SKILLS) {
+      await failRun(
+        run,
+        `A managed agent has at most ${MAX_SKILLS} skills, and this one has ${local.length}.`
+      );
+      return false;
+    }
     const gateway = gatewayOf(run.workspaceId, key);
     const model = modelFor(agent.model);
-    const system = agent.instructions.trim() || `You are ${agent.name}.`;
+    const { refs, stale } = await skillsSync.sync({
+      agent,
+      gateway,
+      local,
+      source,
+    });
+    const system = [
+      agent.instructions.trim() || `You are ${agent.name}.`,
+      skillsGuidance(local.map((skill) => skill.name)),
+    ]
+      .filter((part) => part !== "")
+      .join("\n\n");
     const fingerprint = await hashToken(
-      JSON.stringify({ model, name: agent.name, servers, system })
+      JSON.stringify({
+        model,
+        name: agent.name,
+        servers,
+        skills: refs,
+        system,
+      })
     );
     const anthropicAgentId = await ensureRegistered({
       agent,
@@ -578,8 +624,10 @@ export const createManagedService = ({
       gateway,
       model,
       servers,
+      skills: refs,
       system,
     });
+    await skillsSync.removeStale(gateway, stale);
     const [session] = await db
       .select()
       .from(managedSessions)

@@ -4,6 +4,7 @@ import { agents } from "@repo/db/schema/agents";
 import {
   managedAgents,
   managedSessions,
+  managedSkills,
   workspaceAnthropicKeys,
 } from "@repo/db/schema/managed";
 import { sessions } from "@repo/db/schema/sessions";
@@ -116,6 +117,18 @@ const seedAnthropicIds = (workspaceId: string, tag: string) => {
       workspaceId,
     })
     .run();
+  db.insert(managedSkills)
+    .values({
+      agentId,
+      anthropicSkillId: `skill_${tag}`,
+      anthropicVersion: "1",
+      contentHash: "hash",
+      createdAt: START,
+      name: `skill-${tag}`,
+      syncedAt: START,
+      workspaceId,
+    })
+    .run();
 };
 
 const anthropicIdCounts = (workspaceId: string) => ({
@@ -128,6 +141,11 @@ const anthropicIdCounts = (workspaceId: string) => ({
     .select()
     .from(managedSessions)
     .where(eq(managedSessions.workspaceId, workspaceId))
+    .all().length,
+  skills: db
+    .select()
+    .from(managedSkills)
+    .where(eq(managedSkills.workspaceId, workspaceId))
     .all().length,
 });
 
@@ -286,10 +304,15 @@ describe("rotation", () => {
     expect(rowOf(WORKSPACE)?.environmentId).toBeNull();
     expect(rowOf(WORKSPACE)?.createdAt).toBe(createdAt ?? "");
     expect(rowOf(WORKSPACE)?.setBy).toBe(user.userId);
-    expect(anthropicIdCounts(WORKSPACE)).toEqual({ agents: 0, sessions: 0 });
+    expect(anthropicIdCounts(WORKSPACE)).toEqual({
+      agents: 0,
+      sessions: 0,
+      skills: 0,
+    });
     expect(anthropicIdCounts(OTHER_WORKSPACE)).toEqual({
       agents: 1,
       sessions: 1,
+      skills: 1,
     });
     expect((await service.resolve(WORKSPACE))?.apiKey).toBe(ROTATED_KEY);
   });
@@ -309,10 +332,15 @@ describe("remove", () => {
     expect(first).toEqual(notConfigured);
     expect(second).toEqual(notConfigured);
     expect(rowOf(WORKSPACE)).toBeUndefined();
-    expect(anthropicIdCounts(WORKSPACE)).toEqual({ agents: 0, sessions: 0 });
+    expect(anthropicIdCounts(WORKSPACE)).toEqual({
+      agents: 0,
+      sessions: 0,
+      skills: 0,
+    });
     expect(anthropicIdCounts(OTHER_WORKSPACE)).toEqual({
       agents: 1,
       sessions: 1,
+      skills: 1,
     });
   });
 });

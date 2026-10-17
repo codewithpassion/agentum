@@ -25,6 +25,18 @@ export interface McpServerRef {
   url: string;
 }
 
+/** A custom skill an agent loads, pinned to one of its versions. */
+export interface SkillRef {
+  skillId: string;
+  version: string;
+}
+
+/** One file of a skill. `path` is relative to the skill root, e.g. "scripts/hello.ts". */
+export interface SkillUploadFile {
+  content: Uint8Array;
+  path: string;
+}
+
 /** Where an Anthropic-side id is remembered between requests. */
 export interface IdCache {
   read: () => Promise<string | null>;
@@ -62,7 +74,20 @@ export interface ManagedGateway {
     title: string;
     vaultIds: readonly string[];
   }) => Promise<CreatedSession>;
+  createSkill: (input: {
+    displayTitle: string;
+    files: readonly SkillUploadFile[];
+    name: string;
+  }) => Promise<{ skillId: string; version: string }>;
+  /** A new version of an existing skill. `name` must equal the SKILL.md frontmatter name. */
+  createSkillVersion: (input: {
+    files: readonly SkillUploadFile[];
+    name: string;
+    skillId: string;
+  }) => Promise<string>;
   createVault: (input: { displayName: string }) => Promise<string>;
+  /** Deletes every version first, because the API refuses to delete a skill that has one. */
+  deleteSkill: (skillId: string) => Promise<void>;
   deleteVault: (vaultId: string) => Promise<void>;
   ensureEnvironment: () => Promise<string>;
   getSession: (sessionId: string) => Promise<SessionStatus>;
@@ -77,15 +102,17 @@ export interface ManagedGateway {
     mcpServers: readonly McpServerRef[];
     model: string;
     name: string;
+    skills: readonly SkillRef[];
     system: string;
   }) => Promise<{ anthropicAgentId: string }>;
   sendMessage: (sessionId: string, text: string) => Promise<void>;
-  /** Replaces model, name, system, mcp_servers and tools. Omitted fields stay. */
+  /** Replaces model, name, system, mcp_servers, skills and tools. Omitted fields stay. */
   syncAgent: (input: {
     anthropicAgentId: string;
     mcpServers: readonly McpServerRef[];
     model: string;
     name: string;
+    skills: readonly SkillRef[];
     system: string;
   }) => Promise<void>;
 }
@@ -131,6 +158,30 @@ const mcpServersFor = (mcpServers: readonly McpServerRef[]) =>
     name: server.name,
     type: "url" as const,
     url: server.url,
+  }));
+
+/**
+ * Every upload's files sit under the skill name, which is the one directory the
+ * API accepts. The directory layout travels in the file name.
+ */
+const skillFilesFor = (
+  name: string,
+  files: readonly SkillUploadFile[]
+): File[] =>
+  files.map(
+    (file) =>
+      new File([new Uint8Array(file.content)], `${name}/${file.path}`, {
+        type: file.path.endsWith(".md")
+          ? "text/markdown"
+          : "application/octet-stream",
+      })
+  );
+
+const skillsFor = (skills: readonly SkillRef[]) =>
+  skills.map((skill) => ({
+    skill_id: skill.skillId,
+    type: "custom" as const,
+    version: skill.version,
   }));
 
 const statusOf = (status: string): SessionStatus => {
@@ -362,11 +413,47 @@ export const createManagedGateway = (
       return { sessionId: session.id, status: statusOf(session.status) };
     },
 
+    async createSkill(input) {
+      const skill = await client.beta.skills.create({
+        display_title: input.displayTitle,
+        files: skillFilesFor(input.name, input.files),
+      });
+      if (!skill.latest_version) {
+        throw new Error(`Anthropic created skill ${skill.id} with no version`);
+      }
+      return { skillId: skill.id, version: skill.latest_version };
+    },
+
+    async createSkillVersion(input) {
+      // No display title here: it lives on the skill. A version carries files only.
+      const version = await client.beta.skills.versions.create(input.skillId, {
+        files: skillFilesFor(input.name, input.files),
+      });
+      return version.version;
+    },
+
     async createVault(input) {
       const vault = await client.beta.vaults.create({
         display_name: input.displayName,
       });
       return vault.id;
+    },
+
+    async deleteSkill(skillId) {
+      // Collected before deleting, so the pages are not read while they shrink.
+      const versions: string[] = [];
+      for await (const version of client.beta.skills.versions.list(skillId)) {
+        versions.push(version.version);
+      }
+      // One at a time: deleting versions concurrently left a skill that no
+      // longer listed a version but could not be deleted (verified 2026-10-17).
+      for (const version of versions) {
+        // biome-ignore lint/performance/noAwaitInLoops: concurrent deletes strand the skill
+        await client.beta.skills.versions.delete(version, {
+          skill_id: skillId,
+        });
+      }
+      await client.beta.skills.delete(skillId);
     },
 
     async deleteVault(vaultId) {
@@ -412,6 +499,7 @@ export const createManagedGateway = (
           : {}),
         model: input.model,
         name: input.name,
+        ...(input.skills.length > 0 ? { skills: skillsFor(input.skills) } : {}),
         system: input.system,
         tools: toolsFor(input.mcpServers),
       });
@@ -431,11 +519,12 @@ export const createManagedGateway = (
     },
 
     async syncAgent(input) {
-      // `tools` replaces the whole array, so it is always rebuilt from the
-      // same servers as `mcp_servers`.
+      // `tools` and `skills` replace their whole arrays, so both are always
+      // sent, even empty: an empty `skills` detaches every skill.
       await client.beta.agents.update(input.anthropicAgentId, {
         model: input.model,
         name: input.name,
+        skills: skillsFor(input.skills),
         system: input.system,
         ...(input.mcpServers.length > 0
           ? { mcp_servers: mcpServersFor(input.mcpServers) }

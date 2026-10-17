@@ -1,4 +1,9 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from "drizzle-orm/sqlite-core";
 import { createdAt, workspaceId } from "../columns.ts";
 import { agents } from "./agents.ts";
 import { runs } from "./runs.ts";
@@ -38,6 +43,29 @@ export const managedAgents = sqliteTable("managed_agents", {
   syncedAt: text("synced_at").notNull(),
   workspaceId: workspaceId().references(() => workspaces.id),
 });
+
+/**
+ * A workspace skill mirrored to Anthropic's Skills API for a managed agent, and
+ * the content it was uploaded with.
+ */
+export const managedSkills = sqliteTable(
+  "managed_skills",
+  {
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    anthropicSkillId: text("anthropic_skill_id").notNull(),
+    anthropicVersion: text("anthropic_version").notNull(),
+    // Hash of the skill's files.
+    contentHash: text("content_hash").notNull(),
+    createdAt: createdAt(),
+    // The skill folder name.
+    name: text("name").notNull(),
+    syncedAt: text("synced_at").notNull(),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [primaryKey({ columns: [t.agentId, t.name] })]
+);
 
 /**
  * The Anthropic session behind a Harbourmaster session, with the vault that
