@@ -47,7 +47,6 @@ import { importRunTokenKey, signSessionToken } from "../run-tokens.ts";
 import { loadRun } from "../runs/queries.ts";
 import type { Clock, RunRecord } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
-import { LEASE_MS } from "../runs.ts";
 import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { modelFor } from "./config.ts";
 import { type EventCursor, isAbnormalStop, reduceEvents } from "./events.ts";
@@ -69,6 +68,7 @@ import {
 } from "./skills-sync.ts";
 import {
   MANAGED_CLAIMER,
+  MANAGED_LEASE_MS,
   type ManagedPollerPort,
   type ManagedStepResult,
 } from "./types.ts";
@@ -201,7 +201,7 @@ export const createManagedService = ({
       .update(runs)
       .set({
         claimedBy: MANAGED_CLAIMER,
-        leaseUntil: new Date(now.getTime() + LEASE_MS).toISOString(),
+        leaseUntil: new Date(now.getTime() + MANAGED_LEASE_MS).toISOString(),
         startedAt: now.toISOString(),
         status: "running",
       })
@@ -724,7 +724,9 @@ export const createManagedService = ({
         })
         .where(eq(managedSessions.sessionId, session.sessionId)),
     ]);
-    await runsApi.heartbeatRun(SYSTEM_PRINCIPAL, run.id);
+    await runsApi.heartbeatRun(SYSTEM_PRINCIPAL, run.id, {
+      leaseMs: MANAGED_LEASE_MS,
+    });
   };
 
   /** Whether the session finished the turn, and how. */
@@ -826,7 +828,9 @@ export const createManagedService = ({
       .limit(1);
     if (!managedRun?.sentAt) {
       // Launching takes many calls to Anthropic. The lease must outlast them.
-      await runsApi.heartbeatRun(SYSTEM_PRINCIPAL, run.id);
+      await runsApi.heartbeatRun(SYSTEM_PRINCIPAL, run.id, {
+        leaseMs: MANAGED_LEASE_MS,
+      });
       if (!(await launch(run, agent))) {
         return DONE;
       }
@@ -837,7 +841,8 @@ export const createManagedService = ({
   /**
    * Ends the run's session for good: it is never reused, its token stops
    * working, and Anthropic is told to stop whatever it is doing. Nothing here
-   * throws: it runs on paths that are already failing.
+   * throws: it runs on paths that are already failing. Cancels, failed steps
+   * and the reaper (through the runtime's `abandon`) end up here.
    */
   const abandon = async (run: RunRecord): Promise<void> => {
     const [session] = await db
@@ -978,7 +983,7 @@ export const createManagedService = ({
     return { kicked };
   };
 
-  return { interrupt, rearm, step };
+  return { abandon, interrupt, rearm, step };
 };
 
 export type ManagedService = ReturnType<typeof createManagedService>;

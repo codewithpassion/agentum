@@ -1137,6 +1137,22 @@ export const createRunsService = ({
   };
 
   /**
+   * Tells the run's runtime that the reaper or the sweep ended the run, for a
+   * runtime that has an `abandon`. A failure is logged and never thrown, so one
+   * run cannot stop the job that is ending the others.
+   */
+  const abandonEnded = async (run: RunRecord): Promise<void> => {
+    try {
+      const { adapter } = await adapterFor(run);
+      await adapter?.abandon?.(run);
+    } catch (error) {
+      console.error(
+        `Stopping the runtime of run ${run.id} failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  };
+
+  /**
    * Offers one queued run to its agent's runtime, for the job a caller
    * defers until after it has answered (the sweep does it for a job that did
    * not run). A run still waiting on files is left alone.
@@ -1242,6 +1258,7 @@ export const createRunsService = ({
             eventActor(SYSTEM_PRINCIPAL),
             { error: NEVER_CLAIMED_ERROR }
           );
+          await abandonEnded(toRecord(row));
           result.failed.push({ message: NEVER_CLAIMED_ERROR, runId: row.id });
         }
       } catch (error) {
@@ -1334,6 +1351,7 @@ export const createRunsService = ({
           "run.interrupted",
           eventActor(principal)
         );
+        await abandonEnded(toRecord(row));
         interrupted.push(row.id);
       }
     }
