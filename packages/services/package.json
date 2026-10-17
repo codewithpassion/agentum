@@ -7,6 +7,7 @@
     "./api-keys": "./src/api-keys.ts",
     "./authz": "./src/authz.ts",
     "./cloud/lease": "./src/cloud/lease.ts",
+    "./cloud/models": "./src/cloud/models.ts",
     "./cloud/runtime": "./src/cloud/runtime.ts",
     "./cloud/types": "./src/cloud/types.ts",
     "./connector-oauth": "./src/connector-oauth.ts",
