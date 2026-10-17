@@ -3,11 +3,11 @@
 // untouched; only error text is masked, so a secret that an error answer
 // carries never reaches a thrown message or a log.
 
+import type { Masker } from "@repo/protocol/masker";
 import {
   type SkillFile,
   skillsListResponseSchema,
 } from "@repo/protocol/skills";
-import type { Masker } from "./masker.ts";
 import { RunApiError } from "./run-api.ts";
 
 /** The status a RunApiError carries when no HTTP answer was usable. */

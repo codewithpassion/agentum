@@ -2,7 +2,7 @@
 // header, the parsing of the list answer, the masking of error text, and the
 // status each failure carries.
 import { describe, expect, test } from "bun:test";
-import { createMasker } from "./masker.ts";
+import { createMasker } from "@repo/protocol/masker";
 import { RunApiError } from "./run-api.ts";
 import { createSkillsApi } from "./skills-api.ts";
 

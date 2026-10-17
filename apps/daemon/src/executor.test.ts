@@ -30,6 +30,7 @@ import type {
   CompleteRequest,
   RunEventInput,
 } from "@repo/protocol/machine";
+import type { Masker } from "@repo/protocol/masker";
 import {
   AGENT_DD,
   AGENT_HEAD,
@@ -45,7 +46,6 @@ import type { CommandRunner } from "./command.ts";
 import { type ExecuteRunDeps, executeRun, type QueryFn } from "./executor.ts";
 import type { FilesApi } from "./files-api.ts";
 import type { Logger } from "./log.ts";
-import type { Masker } from "./masker.ts";
 import { type RunApi, RunApiError } from "./run-api.ts";
 import type { SkillsApi } from "./skills-api.ts";
 import { workDirPath } from "./workdir.ts";

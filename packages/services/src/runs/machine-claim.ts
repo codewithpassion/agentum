@@ -19,6 +19,9 @@ import { authorize, ForbiddenError } from "../authz.ts";
 import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { ServiceError } from "../errors.ts";
 import type { RunTokenClaims } from "../run-tokens.ts";
+import { secretsGuidance } from "../secrets/guidance.ts";
+import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
+import type { SecretsService } from "../secrets.ts";
 import type { Principal } from "../workspaces.ts";
 import { loadRun } from "./queries.ts";
 import type { MachineClaim, RunRecord } from "./types.ts";
@@ -33,6 +36,8 @@ export interface MachineClaimDeps {
   /** Lease length in milliseconds. */
   leaseMs: number;
   now: () => Date;
+  /** The agent's granted secrets. Without it, no secret reaches the machine. */
+  secrets?: Pick<SecretsService, "announceDelivery" | "resolveForAgent">;
   /** Mints the run token. The claim is the only caller. */
   signToken: (claims: RunTokenClaims) => Promise<string>;
 }
@@ -79,6 +84,12 @@ export const claimForMachine = async (
     runId: run.id,
     workspaceId: run.workspaceId,
   });
+  // Resolved before the claim write, like the token: a secret that cannot be
+  // read leaves the run untouched.
+  const granted = await deps.secrets?.resolveForAgent(
+    run.workspaceId,
+    agent.id
+  );
 
   const sibling = alias(runs, "sibling");
   const older = alias(runs, "older");
@@ -164,6 +175,34 @@ export const claimForMachine = async (
   }
   await deps.announceStarted(claimedRun);
 
+  const env: Record<string, string> = { ...granted?.env };
+  if (granted && granted.proxy.length > 0) {
+    // The relay authenticates a call with the run's own token.
+    env[RELAY_TOKEN_ENV] = runToken;
+  }
+  const guidance = granted
+    ? secretsGuidance({
+        base: options.platformUrl,
+        env: Object.keys(granted.env),
+        proxy: granted.proxy,
+        surface: "machine",
+      })
+    : "";
+  if (granted) {
+    await deps.secrets?.announceDelivery(
+      {
+        agentId: claimedRun.agentId,
+        runId: claimedRun.id,
+        workspaceId: claimedRun.workspaceId,
+      },
+      {
+        env: Object.keys(granted.env),
+        proxy: granted.proxy,
+        surface: "machine",
+      }
+    );
+  }
+
   return {
     agent: {
       id: agent.id,
@@ -172,8 +211,12 @@ export const claimForMachine = async (
       runtimeConfig: agent.runtimeConfig,
       slug: agent.slug,
     },
+    ...(Object.keys(env).length > 0 ? { env } : {}),
     inputFileIds: claimedRun.inputFileIds,
-    instructions: agent.instructions,
+    instructions:
+      guidance === ""
+        ? agent.instructions
+        : `${agent.instructions}\n\n${guidance}`,
     mcpServers: buildMcpServers({
       connectors: assigned,
       platformUrl: options.platformUrl,

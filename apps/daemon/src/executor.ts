@@ -26,6 +26,7 @@ import {
   type CompleteRequest,
   HEARTBEAT_SECONDS,
 } from "@repo/protocol/machine";
+import { createMasker, type Masker } from "@repo/protocol/masker";
 import { buildAgentEnv } from "./agent-env.ts";
 import type { Timers } from "./client.ts";
 import type { CommandRunner } from "./command.ts";
@@ -33,7 +34,6 @@ import type { DaemonConfig } from "./config.ts";
 import { createEventBatcher } from "./event-batcher.ts";
 import type { FilesApi } from "./files-api.ts";
 import type { Logger } from "./log.ts";
-import { createMasker, type Masker } from "./masker.ts";
 import {
   normalizeMessage,
   type RunResult,

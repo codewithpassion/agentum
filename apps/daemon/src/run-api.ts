@@ -9,7 +9,7 @@ import {
   claimResponseSchema,
   type RunEventInput,
 } from "@repo/protocol/machine";
-import type { Masker } from "./masker.ts";
+import type { Masker } from "@repo/protocol/masker";
 
 const CONFLICT = 409;
 /** The status a RunApiError carries when no HTTP answer was usable. */
