@@ -1,3 +1,4 @@
+import { CLOUD_ENVIRONMENT_KEY } from "@repo/services/cloud/environment";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback } from "react";
@@ -34,6 +35,11 @@ function NewAgent() {
         runtime: values.runtime,
         ...(values.runtime === "machine"
           ? { machineId: values.machineId }
+          : {}),
+        ...(values.runtime === "cloud"
+          ? {
+              runtimeConfig: { [CLOUD_ENVIRONMENT_KEY]: values.environment },
+            }
           : {}),
       });
       await navigate({ to: "/agents/$agentId", params: { agentId: agent.id } });

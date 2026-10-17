@@ -242,6 +242,52 @@ test("update changes fields and rejects an empty patch", async () => {
   await expect(service.update(user, agent.id, {})).rejects.toThrow();
 });
 
+test("create and update keep the cloud environment and refuse an unknown one", async () => {
+  const agent = await service.create(user, {
+    model: "sonnet",
+    name: "Vm agent",
+    runtime: "cloud",
+    runtimeConfig: { environment: "linux-vm" },
+  });
+  expect(agent.runtimeConfig).toEqual({ environment: "linux-vm" });
+  const updated = await service.update(user, agent.id, {
+    runtimeConfig: { environment: "isolate" },
+  });
+  expect(updated.runtimeConfig).toEqual({ environment: "isolate" });
+
+  await expect(
+    service.create(user, {
+      model: "sonnet",
+      name: "Bad env",
+      runtime: "cloud",
+      runtimeConfig: { environment: "mainframe" },
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+  await expect(
+    service.update(user, agent.id, { runtimeConfig: { environment: 3 } })
+  ).rejects.toMatchObject({ code: "invalid" });
+
+  // Only a cloud agent has an environment.
+  await expect(
+    service.create(user, {
+      model: "m",
+      name: "Fake env",
+      runtime: "fake",
+      runtimeConfig: { environment: "linux-vm" },
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+  const fake = await service.create(user, {
+    model: "m",
+    name: "Fake plain",
+    runtime: "fake",
+  });
+  await expect(
+    service.update(user, fake.id, {
+      runtimeConfig: { environment: "isolate" },
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+});
+
 test("archive is idempotent and writes one event", async () => {
   const agent = await service.create(user, {
     model: "m",

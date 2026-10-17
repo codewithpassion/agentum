@@ -7,6 +7,7 @@ import {
   type EntryRecord,
   Harness,
 } from "@earendil-works/pi-durable";
+import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
 import { CLOUD_LEASE_MS } from "@repo/services/cloud/lease";
 import { cloudModelError, cloudModelFor } from "@repo/services/cloud/models";
 import type { CloudStart } from "@repo/services/cloud/types";
@@ -18,6 +19,20 @@ import { compose } from "./compose.ts";
 import { createLibraryEnv } from "./library-env/library-env.ts";
 import { bindLibraryOps } from "./library-env/library-ops.ts";
 import { libraryToolsExtension } from "./library-env/library-tools.ts";
+import { durableVm } from "./linux-vm/durable-vm.ts";
+import {
+  installEnvironmentTools,
+  secretsForEnvironment,
+} from "./linux-vm/environment-tools.ts";
+import { createVmEnv } from "./linux-vm/vm-env.ts";
+import type { LinuxVm } from "./linux-vm/vm-port.ts";
+import { vmSkillSandbox } from "./linux-vm/vm-skill-sandbox.ts";
+import { VM_SCRIPT_TEXTS } from "./linux-vm/vm-tools.ts";
+import {
+  placeInputFiles,
+  placeSkills,
+  withPlacedPaths,
+} from "./linux-vm/vm-workdir.ts";
 import {
   createRunCore,
   type PiPort,
@@ -61,6 +76,8 @@ const WORKSPACE_KEY = "workspace";
 const RUN_KEY = "run";
 /** The skills of the run that loaded them last, with that run: a tool call knows no run of its own. The text is read again on each call. */
 const SKILLS_KEY = "skills";
+/** The session id, stored only when the agent runs in a Linux VM: the VM is named by it. Absent means the isolate. */
+const VM_KEY = "linux-vm";
 /** The run an input file belongs to, so `read_input_file` reads it as that run. */
 const inputFileKey = (fileId: string) => `input-file:${fileId}`;
 const ENTRY_PAGE = 500;
@@ -118,6 +135,8 @@ export class PiRun extends DurableObject<Env> {
   /** Syncs take turns: two that overlap could install an older list over a newer one. */
   #syncing: Promise<unknown> = Promise.resolve();
   #faux: Faux | undefined;
+  /** The session's Linux VM, when its agent runs in one. */
+  #vm: LinuxVm | undefined;
   #composed: ReturnType<typeof compose> | undefined;
 
   /**
@@ -151,6 +170,7 @@ export class PiRun extends DurableObject<Env> {
       this.#installTools(
         (await this.ctx.storage.get<ServerTools>(TOOLS_KEY)) ?? {}
       );
+      this.#switchEnvironment(await this.ctx.storage.get<string>(VM_KEY));
       const skills = await this.ctx.storage.get<StoredSkills>(SKILLS_KEY);
       if (skills) {
         this.#applySkills(skills);
@@ -158,7 +178,7 @@ export class PiRun extends DurableObject<Env> {
       return Harness.open(
         storage,
         {
-          env: () => this.#libraryEnv(),
+          env: () => this.#executionEnv(),
           models,
           onReport: (error) =>
             console.warn(
@@ -250,8 +270,33 @@ export class PiRun extends DurableObject<Env> {
     return sync;
   }
 
-  /** The library as Pi's file tools see it, for the newest run. Without a run there is no principal, so no environment. */
-  async #libraryEnv() {
+  /**
+   * Makes the session run in its Linux VM, or in the isolate when `sessionId`
+   * is undefined: the file and shell tools, the skill script backend and the
+   * environment follow. The VM is named by the session id.
+   */
+  #switchEnvironment(sessionId: string | undefined) {
+    this.#vm = sessionId ? durableVm(this.env.LINUX_VM, sessionId) : undefined;
+    installEnvironmentTools(this.registry, this.#vm ? "linux-vm" : "isolate");
+  }
+
+  /** Stores which environment the agent of this run asks for, and switches to it. */
+  async #selectEnvironment(input: CloudStart) {
+    const inVm = cloudEnvironmentOf(input.agent.runtimeConfig) === "linux-vm";
+    if (inVm) {
+      await this.ctx.storage.put(VM_KEY, input.run.sessionId);
+    } else {
+      await this.ctx.storage.delete(VM_KEY);
+    }
+    this.#switchEnvironment(inVm ? input.run.sessionId : undefined);
+  }
+
+  /** The environment of Pi's file and shell tools: the VM, or the library for the newest run. Without a run there is no principal, so no library environment. */
+  async #executionEnv() {
+    const sessionId = await this.ctx.storage.get<string>(VM_KEY);
+    if (this.#vm && sessionId) {
+      return createVmEnv({ sessionId, vm: this.#vm });
+    }
     const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
     if (!run) {
       return;
@@ -322,13 +367,25 @@ export class PiRun extends DurableObject<Env> {
       skillScriptsExtension(
         skills,
         port,
-        dynamicWorkerSandbox(this.env.LOADER, () =>
-          // The isolate's requests go through here, where the rules add the credentials. Ids only: the entrypoint reads the secrets itself.
-          this.ctx.exports.SecretsOutbound({ props: run })
+        this.#scriptSandbox(run),
+        secretsForEnvironment(
+          this.#vm ? "linux-vm" : "isolate",
+          this.#scriptSecrets(run)
         ),
-        this.#scriptSecrets(run)
+        undefined,
+        this.#vm ? VM_SCRIPT_TEXTS : undefined
       )
     );
+  }
+
+  /** Where this session's skill scripts run: the Linux VM, or a Dynamic Worker. */
+  #scriptSandbox(run: RunRef) {
+    return this.#vm
+      ? vmSkillSandbox(this.#vm)
+      : dynamicWorkerSandbox(this.env.LOADER, () =>
+          // The isolate's requests go through here, where the rules add the credentials. Ids only: the entrypoint reads the secrets itself.
+          this.ctx.exports.SecretsOutbound({ props: run })
+        );
   }
 
   /**
@@ -367,12 +424,41 @@ export class PiRun extends DurableObject<Env> {
     };
   }
 
+  /** The message as the model receives it. With a VM, the input files are also put in its workdir. */
+  async #inputContent(run: RunRef, text: string, fileIds: readonly string[]) {
+    const port = this.#filesPort(() => Promise.resolve(run));
+    const vm = this.#vm;
+    if (!vm) {
+      return inputContent(text, fileIds, port);
+    }
+    const placed: { bytes: Uint8Array; name: string }[] = [];
+    const content = await inputContent(text, fileIds, {
+      ...port,
+      download: async (fileId) => {
+        const file = await port.download(fileId);
+        placed.push(file);
+        return file;
+      },
+    });
+    try {
+      return withPlacedPaths(content, await placeInputFiles(vm, placed));
+    } catch (error) {
+      console.warn(
+        `PiRun: input files of run ${run.runId} not placed in the VM: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return content;
+    }
+  }
+
   async #loadAndInstallSkills(input: CloudStart) {
     const run = runRefOf(input);
     const skills = await loadSkills(this.#skillsPort(run));
     const stored: StoredSkills = { run, skills };
     await this.ctx.storage.put(SKILLS_KEY, stored);
     this.#applySkills(stored);
+    if (this.#vm) {
+      await placeSkills(this.#vm, skills, this.#skillsPort(run));
+    }
   }
 
   /** Looks at the newest run's servers again, at most once per REFRESH_GAP_MS and never twice at a time. */
@@ -477,11 +563,7 @@ export class PiRun extends DurableObject<Env> {
           await Promise.all(
             fileIds.map((id) => this.ctx.storage.put(inputFileKey(id), run))
           );
-          return inputContent(
-            text,
-            fileIds,
-            this.#filesPort(() => Promise.resolve(run))
-          );
+          return await this.#inputContent(run, text, fileIds);
         },
         installSkills: (input) => this.#loadAndInstallSkills(input),
         installTools: (input) => this.#syncTools(input.mcpServers),
@@ -525,6 +607,7 @@ export class PiRun extends DurableObject<Env> {
   async startRun(input: CloudStart): Promise<void> {
     await this.ctx.storage.put(WORKSPACE_KEY, input.run.workspaceId);
     await this.ctx.storage.put(RUN_KEY, runRefOf(input));
+    await this.#selectEnvironment(input);
     await this.lifecycle.start();
     await this.#runCore().start(input);
     await this.lease.schedule();

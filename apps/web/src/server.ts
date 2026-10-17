@@ -17,8 +17,12 @@ import { runTick } from "./server/tick/registry.ts";
 import { createHonoContext } from "./server/trpc/context.ts";
 import { appRouter } from "./server/trpc/router.ts";
 
-// Durable Object classes are exported from the Worker entry.
+// Durable Object classes are exported from the Worker entry, and so is the
+// Sandbox SDK's gateway between a Linux VM and its snapshots in R2, which the
+// VM's Durable Object reaches through `ctx.exports`.
 // biome-ignore lint/performance/noBarrelFile: the Worker entry must export the Durable Object class; the class lives in its own module so bun can test it
+export { DirectoryBackupGateway } from "@cloudflare/sandbox";
+export { VmSession } from "./server/linux-vm/vm-session.ts";
 export { ManagedPoller } from "./server/managed-poller.ts";
 export { PiRun } from "./server/pi-run.ts";
 export { MachineRelay } from "./server/relay.ts";

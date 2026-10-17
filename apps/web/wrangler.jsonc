@@ -9,9 +9,20 @@
     "bindings": [
       { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
       { "name": "MANAGED_POLLER", "class_name": "ManagedPoller" },
-      { "name": "PI_RUN", "class_name": "PiRun" }
+      { "name": "PI_RUN", "class_name": "PiRun" },
+      { "name": "LINUX_VM", "class_name": "VmSession" }
     ]
   },
+  // The Linux VM of a cloud agent session (task C.14): a Sandbox SDK container,
+  // one per session, built from container/Dockerfile. Needs the Containers
+  // feature on the account and Docker on the machine that deploys.
+  "containers": [
+    {
+      "class_name": "VmSession",
+      "scheduling_policy": "durable_object",
+      "images": { "base": { "dockerfile": "./container/Dockerfile" } }
+    }
+  ],
   // The sandbox for skill scripts (run_skill_script): a Dynamic Worker made for
   // each run. Needs the Workers Paid plan.
   "worker_loaders": [{ "binding": "LOADER" }],
@@ -20,14 +31,19 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["MachineRelay"] },
     { "tag": "v2", "new_sqlite_classes": ["PiRun"] },
-    { "tag": "v3", "new_sqlite_classes": ["ManagedPoller"] }
+    { "tag": "v3", "new_sqlite_classes": ["ManagedPoller"] },
+    { "tag": "v4", "new_sqlite_classes": ["VmSession"] }
   ],
   // The minute tick (src/server/tick). Crons are not per environment either:
   // only the production Worker runs them.
   "triggers": { "crons": ["* * * * *"] },
   // The public origin of the deployed app, used to build links back to it.
   // Local dev overrides it from .env.local (see .env.example).
-  "vars": { "PUBLIC_BASE_URL": "https://harbourmaster.rockyshoreslabs.io" },
+  "vars": {
+    "PUBLIC_BASE_URL": "https://harbourmaster.rockyshoreslabs.io",
+    // How long a Linux VM sits idle before it snapshots /workspace and sleeps.
+    "LINUX_VM_IDLE_SECONDS": "180"
+  },
   "routes": [
     { "pattern": "harbourmaster.rockyshoreslabs.io", "custom_domain": true }
   ],
@@ -59,12 +75,21 @@
         "bindings": [
           { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
           { "name": "MANAGED_POLLER", "class_name": "ManagedPoller" },
-          { "name": "PI_RUN", "class_name": "PiRun" }
+          { "name": "PI_RUN", "class_name": "PiRun" },
+          { "name": "LINUX_VM", "class_name": "VmSession" }
         ]
       },
+      "containers": [
+        {
+          "class_name": "VmSession",
+          "scheduling_policy": "durable_object",
+          "images": { "base": { "dockerfile": "./container/Dockerfile" } }
+        }
+      ],
       "worker_loaders": [{ "binding": "LOADER" }],
       "vars": {
-        "PUBLIC_BASE_URL": "https://harbourmaster-staging.rockyshoreslabs.io"
+        "PUBLIC_BASE_URL": "https://harbourmaster-staging.rockyshoreslabs.io",
+        "LINUX_VM_IDLE_SECONDS": "180"
       },
       "r2_buckets": [
         { "binding": "FILES", "bucket_name": "harbourmaster-staging-files" }
@@ -86,11 +111,15 @@
           "bindings": [
             { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
             { "name": "MANAGED_POLLER", "class_name": "ManagedPoller" },
-            { "name": "PI_RUN", "class_name": "PiRun" }
+            { "name": "PI_RUN", "class_name": "PiRun" },
+            { "name": "LINUX_VM", "class_name": "VmSession" }
           ]
         },
+        // Wrangler accepts no Durable Object container for previews, so a Linux
+        // VM agent fails in a preview with "VmSession needs a container".
+        // Isolate agents are unaffected.
         "worker_loaders": [{ "binding": "LOADER" }],
-        "vars": { "PUBLIC_BASE_URL": "" },
+        "vars": { "PUBLIC_BASE_URL": "", "LINUX_VM_IDLE_SECONDS": "180" },
         // Previews share the staging bucket; keys are per workspace.
         "r2_buckets": [
           { "binding": "FILES", "bucket_name": "harbourmaster-staging-files" }

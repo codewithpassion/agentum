@@ -1,3 +1,9 @@
+import {
+  CLOUD_DEFAULT_ENVIRONMENT,
+  CLOUD_ENVIRONMENTS,
+  type CloudEnvironment,
+  isCloudEnvironment,
+} from "@repo/services/cloud/environment";
 import { CLOUD_MODELS, findCloudModel } from "@repo/services/cloud/models";
 import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, type FormEvent, useCallback, useState } from "react";
@@ -14,6 +20,7 @@ import { Textarea } from "#/components/ui/textarea";
 import type { MachineRecord } from "#/integrations/trpc/types";
 
 export interface AgentFormValues {
+  environment: CloudEnvironment;
   instructions: string;
   machineId: string;
   model: string;
@@ -22,6 +29,7 @@ export interface AgentFormValues {
 }
 
 const defaultValues: AgentFormValues = {
+  environment: CLOUD_DEFAULT_ENVIRONMENT,
   instructions: "",
   machineId: "",
   model: "sonnet",
@@ -84,6 +92,15 @@ export function AgentForm({
   const handleRuntime = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) =>
       update("runtime", toRuntime(event.target.value)),
+    [update]
+  );
+  const handleEnvironment = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      const next = event.target.value;
+      if (isCloudEnvironment(next)) {
+        update("environment", next);
+      }
+    },
     [update]
   );
   const handleMachine = useCallback(
@@ -186,18 +203,44 @@ export function AgentForm({
           )}
           {values.runtime === "cloud" && (
             <FieldDescription>
-              Runs on Cloudflare, not on one of your machines. It has no shell
-              and no local files, but it can use library bash, connectors and
-              this workspace's skills. It runs a skill's TypeScript or
-              JavaScript scripts in a short-lived sandbox with network access
-              and no secrets of yours (a script imports only its own skill
-              files, and stops after 30 seconds). It sees attached images (about
-              1 MB in total) and can read attached text files. It returns a file
-              when it writes it to the library and puts
+              Runs on Cloudflare, not on one of your machines. In the isolate
+              environment it has no shell (the Environment setting below can
+              give it a Linux VM) and no local files, but it can use library
+              bash, connectors and this workspace's skills. It runs a skill's
+              TypeScript or JavaScript scripts in a short-lived sandbox with
+              network access and no secrets of yours (a script imports only its
+              own skill files, and stops after 30 seconds). It sees attached
+              images (about 1 MB in total) and can read attached text files. It
+              returns a file when it writes it to the library and puts
               [ATTACHMENT:/library/path] in its answer.
             </FieldDescription>
           )}
         </Field>
+        {values.runtime === "cloud" && (
+          <Field>
+            <FieldLabel htmlFor="agent-environment">Environment</FieldLabel>
+            <NativeSelect
+              id="agent-environment"
+              onChange={handleEnvironment}
+              value={values.environment}
+            >
+              {CLOUD_ENVIRONMENTS.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.label}
+                </option>
+              ))}
+            </NativeSelect>
+            <FieldDescription>
+              The isolate is the default: it starts in milliseconds, costs
+              almost nothing and has no shell. A Linux VM is a real Linux
+              machine with a shell, bun and node, but it takes a few seconds to
+              start and is billed while it runs. The VM sleeps after a few
+              minutes idle, and its /workspace folder comes back on the next
+              message. Scripts and commands in the VM have network access and
+              never see this platform's secrets.
+            </FieldDescription>
+          </Field>
+        )}
         {values.runtime === "machine" && (
           <Field>
             <FieldLabel htmlFor="agent-machine">Machine</FieldLabel>

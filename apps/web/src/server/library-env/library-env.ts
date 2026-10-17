@@ -104,7 +104,10 @@ const outsideLibrary = (absolute: string): FileError =>
     absolute
   );
 
-const abortedError = (context: Context, path: string): FileError | undefined =>
+export const abortedError = (
+  context: Context,
+  path: string
+): FileError | undefined =>
   context.abortSignal?.aborted
     ? new FileError("aborted", "aborted", path)
     : undefined;
@@ -224,7 +227,10 @@ const ifUnchanged = (
 ): { ifEtag: string } | undefined =>
   entry?.etag ? { ifEtag: entry.etag } : undefined;
 
-const concatBytes = (first: Uint8Array, second: Uint8Array): Uint8Array => {
+export const concatBytes = (
+  first: Uint8Array,
+  second: Uint8Array
+): Uint8Array => {
   const joined = new Uint8Array(first.byteLength + second.byteLength);
   joined.set(first);
   joined.set(second, first.byteLength);
@@ -340,7 +346,7 @@ const readerCall = <T>(
   return Promise.resolve(failed ? err<T, FileError>(failed) : task());
 };
 
-const isCount = (value: number): boolean =>
+export const isCount = (value: number): boolean =>
   Number.isSafeInteger(value) && value >= 0;
 
 /** The bytes at a range of a snapshot. A range past its end is empty. */
@@ -375,7 +381,7 @@ const scanOf = (
   return ok(scanner.finish());
 };
 
-const createBinaryReader = (
+export const createBinaryReader = (
   path: string,
   info: FileInfo,
   bytes: Uint8Array
@@ -400,7 +406,10 @@ const createBinaryReader = (
 };
 
 /** Lines of text, split the way `NodeTextLineReader` splits them: the last one may lack its newline. */
-const createTextLineReader = (path: string, text: string): TextLineReader => {
+export const createTextLineReader = (
+  path: string,
+  text: string
+): TextLineReader => {
   let offset = 0;
   let closed = false;
   const nextLine = (): Result<TextLine | undefined, FileError> => {
@@ -424,7 +433,7 @@ const createTextLineReader = (path: string, text: string): TextLineReader => {
 };
 
 /** Decodes like `NodeTextLineReader`, which decodes through the same streaming decoder. */
-const decodeStream = (bytes: Uint8Array): string => {
+export const decodeStream = (bytes: Uint8Array): string => {
   const decoder = new StreamDecoder();
   return decoder.decode(bytes) + decoder.decode();
 };
@@ -445,7 +454,7 @@ const openTextLines = (
     );
   });
 
-const readLines = async (
+export const readLines = async (
   reader: TextLineReader,
   maxLines: number | undefined,
   context: Context
@@ -466,7 +475,10 @@ const readLines = async (
 };
 
 /** A snapshot of a folder's entries, paged out by `next`. Entries are listed once, at open. */
-const createDirReader = (path: string, entries: FileInfo[]): DirReader => {
+export const createDirReader = (
+  path: string,
+  entries: FileInfo[]
+): DirReader => {
   let position = 0;
   let closed = false;
   const page = (
@@ -498,7 +510,7 @@ const createDirReader = (path: string, entries: FileInfo[]): DirReader => {
 };
 
 /** Refuses an operation the library has no way to do, after the abort check every method starts with. */
-const refuse = <T>(
+export const refuse = <T>(
   context: Context,
   path: string,
   message: string
