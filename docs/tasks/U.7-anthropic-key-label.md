@@ -3,7 +3,7 @@ id: U.7
 title: Label the workspace Anthropic key for every agent kind
 milestone: U
 size: S
-status: in_progress
+status: done
 depends_on: [C.13]
 branch: task/U.7-anthropic-key-label
 ---
@@ -24,3 +24,4 @@ Asked for by Dom on 17 Oct 2026. Cloudflare agents and Managed Agents both read 
 
 ## Log
 - 2026-10-17: added at Dom's request; dispatched on task/U.7-anthropic-key-label.
+- 2026-10-17: review clean after 0 fix rounds at bf6162e (docs/reviews/tasks/U.7.md). Merged.
