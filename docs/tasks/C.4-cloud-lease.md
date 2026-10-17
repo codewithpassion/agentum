@@ -3,7 +3,7 @@ id: C.4
 title: Lease, heartbeat and run token for cloud runs
 milestone: C
 size: M
-status: in_progress
+status: done
 depends_on: [C.3]
 branch: task/C.4-cloud-lease
 ---
@@ -21,3 +21,4 @@ Kill test with the sweep running: the object is down for 120 s, the run ends `do
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
 - 2026-10-17: dispatched on task/C.4-cloud-lease.
+- 2026-10-17: review clean after 0 fix rounds at 7832004 (docs/reviews/tasks/C.4.md). Merged.

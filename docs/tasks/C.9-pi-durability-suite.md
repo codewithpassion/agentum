@@ -3,7 +3,7 @@ id: C.9
 title: Pi durability suite
 milestone: C
 size: S
-status: todo
+status: in_progress
 depends_on: [C.4]
 branch: task/C.9-pi-durability-suite
 ---
@@ -20,3 +20,4 @@ The script exits 0 on the pinned versions. `bun run check && bun run test && bun
 
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
+- 2026-10-17: dispatched on task/C.9-pi-durability-suite.

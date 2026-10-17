@@ -3,7 +3,7 @@ id: C.5
 title: MCP bridge hardening
 milestone: C
 size: M
-status: todo
+status: in_progress
 depends_on: [C.4]
 branch: task/C.5-mcp-bridge
 ---
@@ -20,3 +20,4 @@ Tool calls through `/mcp` and `/api/proxy` work locally. The controller confirms
 
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
+- 2026-10-17: dispatched on task/C.5-mcp-bridge.
