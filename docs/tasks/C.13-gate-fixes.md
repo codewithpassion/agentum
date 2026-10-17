@@ -3,7 +3,7 @@ id: C.13
 title: C gate fixes - MCP sessions and the next waiting run
 milestone: C
 size: M
-status: in_progress
+status: done
 depends_on: [C.11]
 branch: task/C.13-gate-fixes
 ---
@@ -21,3 +21,4 @@ A test with a fake MCP server that requires the session id: tools list and call 
 
 ## Log
 - 2026-10-17: added from the C gate round 1; dispatched on task/C.13-gate-fixes.
+- 2026-10-17: review clean after 1 fix round at 986c253 (docs/reviews/tasks/C.13.md). Merged.
