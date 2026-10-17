@@ -7,6 +7,7 @@ import {
   fauxProvider,
   fauxText,
   fauxToolCall,
+  type JsonObject,
   type Message,
   type TranscriptContext,
 } from "@earendil-works/pi-ai";
@@ -19,6 +20,21 @@ const SLOW_REPEATS = 4000;
 const BASH_PREFIX = "bash ";
 const SLOW_BASH_PREFIX = "slow-bash ";
 const FAIL_PREFIX = "fail ";
+const CALL_PREFIX = "call ";
+
+/** The arguments of a `call` prompt: a JSON object, or `{}` when it is missing or not one. */
+const argsOf = (json: string): JsonObject => {
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+      ? (parsed as JsonObject)
+      : {};
+  } catch {
+    return {};
+  }
+};
 
 const textOf = (content: Message["content"] | undefined): string => {
   if (content === undefined) {
@@ -39,7 +55,9 @@ const textOf = (content: Message["content"] | undefined): string => {
  * `slow`: an answer that takes about half a minute, to stop halfway. `bash <script>`: calls
  * the platform's library `bash` tool, then repeats what it said. `slow-bash <script>`: the
  * slow answer and then the same tool call in one message, so a run is still streaming when a
- * test stops the server in the middle.
+ * test stops the server in the middle. `call <tool> <json>`: calls the Pi tool named `<tool>`
+ * with the JSON object as its arguments (`{}` when the JSON is missing or invalid), then
+ * repeats what it said.
  */
 const script = (context: TranscriptContext): AssistantMessage => {
   const last = context.messages.at(-1);
@@ -77,6 +95,15 @@ const script = (context: TranscriptContext): AssistantMessage => {
       ],
       { stopReason: "toolUse" }
     );
+  }
+  if (prompt.startsWith(CALL_PREFIX)) {
+    const rest = prompt.slice(CALL_PREFIX.length);
+    const space = rest.indexOf(" ");
+    const name = space === -1 ? rest : rest.slice(0, space);
+    const json = space === -1 ? "" : rest.slice(space + 1);
+    return fauxAssistantMessage([fauxToolCall(name, argsOf(json))], {
+      stopReason: "toolUse",
+    });
   }
   if (prompt === "slow") {
     return fauxAssistantMessage([fauxText("tick ".repeat(SLOW_REPEATS))]);

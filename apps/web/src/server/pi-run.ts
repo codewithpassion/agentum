@@ -18,22 +18,25 @@ import { compose } from "./compose.ts";
 import { createRunCore, type PiPort, SERVERS_KEY } from "./pi-run-core.ts";
 import { RunLeaseAlarm } from "./pi-run-lease.ts";
 import {
-  listMcpTools,
-  type McpTool,
   mcpToolRegistrations,
+  type ServerTools,
+  syncMcpTools,
+  throttled,
+  toolChanges,
 } from "./pi-run-mcp.ts";
 
 const TOOLS_KEY = "mcp-tools";
 const ENTRY_PAGE = 500;
 const ANTHROPIC = "anthropic";
 const RETRY = { baseDelayMs: 1000, enabled: true, maxRetries: 3 };
+/** A failing tool call refreshes the tool lists at most this often. */
+const REFRESH_GAP_MS = 30_000;
 const COMMIT_EVENTS = new Set([
   "entry_appended",
   "message_end",
   "tool_execution_end",
 ]);
 
-type ServerTools = Record<string, McpTool[]>;
 type Servers = CloudStart["mcpServers"];
 type Faux = ReturnType<typeof import("./pi-run-faux.ts")["createFaux"]>;
 
@@ -50,7 +53,10 @@ type Faux = ReturnType<typeof import("./pi-run-faux.ts")["createFaux"]>;
 export class PiRun extends DurableObject<Env> {
   readonly registry = createRegistry();
   #core: ReturnType<typeof createRunCore> | undefined;
-  readonly #installed = new Set<string>();
+  /** The tool lists now in the registry, by server key. */
+  #installed: ServerTools = {};
+  /** Syncs take turns: two that overlap could install an older list over a newer one. */
+  #syncing: Promise<unknown> = Promise.resolve();
   #faux: Faux | undefined;
 
   readonly harness = new PiHarness({
@@ -90,41 +96,68 @@ export class PiRun extends DurableObject<Env> {
     .use(this.harness)
     .use(this.lease);
 
+  /** Installs the servers whose list differs from the registry's, and removes the ones that are gone. */
   #installTools(tools: ServerTools) {
-    // The tools are those of the newest run's agent: a server it no longer has goes.
-    for (const serverKey of this.#installed) {
-      if (!(serverKey in tools)) {
-        this.registry.uninstall({ name: `mcp-${serverKey}` });
-        this.#installed.delete(serverKey);
-      }
+    const { install, uninstall } = toolChanges(this.#installed, tools);
+    for (const serverKey of uninstall) {
+      this.registry.uninstall({ name: `mcp-${serverKey}` });
     }
-    for (const [serverKey, list] of Object.entries(tools)) {
-      this.#installed.add(serverKey);
+    for (const serverKey of install) {
       this.registry.install({
         name: `mcp-${serverKey}`,
-        tools: mcpToolRegistrations(serverKey, list, async () => {
-          const servers = await this.ctx.storage.get<Servers>(SERVERS_KEY);
-          const server = servers?.[serverKey];
-          if (!server) {
-            throw new Error(`MCP server ${serverKey} is not configured`);
-          }
-          return server;
-        }),
+        tools: mcpToolRegistrations(
+          serverKey,
+          tools[serverKey] ?? [],
+          async () => {
+            const servers = await this.ctx.storage.get<Servers>(SERVERS_KEY);
+            const server = servers?.[serverKey];
+            if (!server) {
+              throw new Error(`MCP server ${serverKey} is not configured`);
+            }
+            return server;
+          },
+          undefined,
+          // A failed call may mean the server's tools changed: look again.
+          this.#refreshTools
+        ),
       });
     }
+    this.#installed = tools;
   }
 
-  async #listAndInstallTools(input: CloudStart) {
-    const lists = await Promise.all(
-      Object.entries(input.mcpServers).map(
-        async ([serverKey, server]) =>
-          [serverKey, await listMcpTools(server)] as const
-      )
-    );
-    const tools: ServerTools = Object.fromEntries(lists);
-    await this.ctx.storage.put(TOOLS_KEY, tools);
-    this.#installTools(tools);
+  /**
+   * Lists the servers and installs what changed. A server that cannot be
+   * listed keeps the tools it had, so one down connector does not stop the run.
+   */
+  #syncTools(servers: Servers): Promise<void> {
+    const sync = this.#syncing.then(async () => {
+      const tools = await syncMcpTools(
+        servers,
+        this.#installed,
+        undefined,
+        (serverKey, error) =>
+          console.warn(
+            `PiRun: MCP server ${serverKey} did not list its tools`,
+            error instanceof Error ? error.message : String(error)
+          )
+      );
+      await this.ctx.storage.put(TOOLS_KEY, tools);
+      this.#installTools(tools);
+    });
+    this.#syncing = sync.catch(() => undefined);
+    return sync;
   }
+
+  /** Looks at the newest run's servers again, at most once per REFRESH_GAP_MS and never twice at a time. */
+  readonly #refreshTools = throttled(
+    async () => {
+      const servers = await this.ctx.storage.get<Servers>(SERVERS_KEY);
+      if (servers) {
+        await this.#syncTools(servers);
+      }
+    },
+    { minGapMs: REFRESH_GAP_MS }
+  );
 
   #modelRef(model: string): { id: string; provider: string } {
     if (this.#faux && model === "faux") {
@@ -206,7 +239,7 @@ export class PiRun extends DurableObject<Env> {
           }),
         ingest: (runId, events) =>
           runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, events),
-        installTools: (input) => this.#listAndInstallTools(input),
+        installTools: (input) => this.#syncTools(input.mcpServers),
         pi: this.#port(),
         statusOf: async (runId) =>
           (await runs.getRun(SYSTEM_PRINCIPAL, runId)).status,
@@ -220,7 +253,11 @@ export class PiRun extends DurableObject<Env> {
   onStart(): void {
     this.#runCore()
       .resume()
-      .then(() => this.lease.schedule())
+      .then(async () => {
+        await this.lease.schedule();
+        // The lists stored before this wake may be old.
+        this.#refreshTools();
+      })
       .catch((error: unknown) => {
         console.error("PiRun: resuming runs failed", error);
       });
