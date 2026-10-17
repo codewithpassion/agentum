@@ -855,6 +855,34 @@ export const createSkillsStoreService = ({
     return patch === "" ? null : patch;
   };
 
+  /** One file of a version with its bytes, or `not_found` when the version has no such path. */
+  const readFile = async (
+    principal: Principal,
+    input: { path: string; skillId: string; version: number }
+  ): Promise<FileRecord> => {
+    const c = memberOf(principal, "skills.read", false);
+    await ensureMigrated(principal);
+    const parsed = versionRefSchema.parse({
+      skillId: input.skillId,
+      version: input.version,
+    });
+    const skill = await skillFor(c, parsed.skillId);
+    const version = await versionFor(c, skill.id, parsed.version);
+    const file = (await treeOf(version.id)).find(
+      (entry) => entry.path === input.path
+    );
+    if (!file) {
+      throw new ServiceError(
+        "not_found",
+        `"${input.path}" is not in version ${parsed.version}`
+      );
+    }
+    return {
+      ...toFileRecord(file),
+      content: await contentOf(file.hash),
+    };
+  };
+
   /** What changed between two versions: added, removed and changed paths, and a unified diff of each text file. */
   const diff = async (
     principal: Principal,
@@ -1394,6 +1422,62 @@ export const createSkillsStoreService = ({
     return resolved.filter((skill) => skill !== null);
   };
 
+  /**
+   * Every assignment in the workspace, so a page can show who carries which
+   * skill. A run sees only its own agent's.
+   */
+  const assignments = async (
+    principal: Principal
+  ): Promise<AssignmentRecord[]> => {
+    const c = memberOf(principal, "skills.read", false);
+    await ensureMigrated(principal);
+    const rows = await db
+      .select({
+        agentId: skillAssignments.agentId,
+        pinnedVersion: skillVersions.number,
+        skillId: skillAssignments.skillId,
+      })
+      .from(skillAssignments)
+      .innerJoin(skills, eq(skills.id, skillAssignments.skillId))
+      .leftJoin(
+        skillVersions,
+        eq(skillVersions.id, skillAssignments.pinnedVersionId)
+      )
+      .where(
+        and(
+          eq(skillAssignments.workspaceId, c.workspaceId),
+          eq(skills.deleted, false),
+          c.agentId === null
+            ? undefined
+            : eq(skillAssignments.agentId, c.agentId)
+        )
+      )
+      .orderBy(asc(skillAssignments.agentId), asc(skillAssignments.skillId));
+    return rows;
+  };
+
+  /** The versions waiting for a decision, newest first. A run sees only its own agent's. */
+  const proposals = async (principal: Principal): Promise<VersionRecord[]> => {
+    const c = memberOf(principal, "skills.read", false);
+    await ensureMigrated(principal);
+    const rows = await db
+      .select({ version: skillVersions })
+      .from(skillVersions)
+      .innerJoin(skills, eq(skills.id, skillVersions.skillId))
+      .where(
+        and(
+          eq(skillVersions.workspaceId, c.workspaceId),
+          eq(skillVersions.status, "proposed"),
+          eq(skills.deleted, false)
+        )
+      )
+      .orderBy(desc(skillVersions.createdAt), desc(skillVersions.number));
+    return rows
+      .map((row) => row.version)
+      .filter((version) => visibleTo(c, version))
+      .map(toVersionRecord);
+  };
+
   // --- archives ---
 
   const IMPORT_MESSAGE = "Imported from a .skill file";
@@ -1529,6 +1613,7 @@ export const createSkillsStoreService = ({
   return {
     approve,
     assign,
+    assignments,
     commit,
     create,
     diff,
@@ -1539,6 +1624,8 @@ export const createSkillsStoreService = ({
     log,
     migrateLibrary,
     pin,
+    proposals,
+    readFile,
     reject,
     revert,
     show,

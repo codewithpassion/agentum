@@ -6,6 +6,7 @@ import {
   MessagesSquare,
   ScrollText,
   Server,
+  Sparkles,
 } from "lucide-react";
 import type { NavItem } from "../nav-registry.ts";
 
@@ -21,5 +22,6 @@ export const runtimeNav: readonly NavItem[] = [
   },
   { icon: KeyRound, id: "secrets", label: "Secrets", to: "/settings/secrets" },
   { icon: FolderOpen, id: "library", label: "Library", to: "/library" },
+  { icon: Sparkles, id: "skills", label: "Skills", to: "/skills" },
   { icon: ScrollText, id: "log", label: "Log", to: "/log" },
 ];
