@@ -90,7 +90,6 @@ const stagedFileIo = ({
   stage,
 }: StagedFileTarget): FilePanelIo => {
   const basePaths = new Set(base.map((file) => file.path));
-  const baseSize = base.find((file) => file.path === path)?.size ?? 0;
   return {
     read: async () => {
       const staged = currentDraft().writes.get(path);
@@ -106,8 +105,8 @@ const stagedFileIo = ({
         version: baseVersion,
       });
       return {
-        entry: fileEntry(path, shown?.size ?? baseSize),
-        text: shown?.text ?? null,
+        entry: fileEntry(path, shown.size),
+        text: shown.text,
       };
     },
     remove: () => {
