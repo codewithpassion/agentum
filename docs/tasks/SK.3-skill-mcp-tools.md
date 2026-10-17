@@ -3,7 +3,7 @@ id: SK.3
 title: MCP tools to manage, version and assign skills
 milestone: SK
 size: M
-status: todo
+status: in_progress
 depends_on: [SK.1]
 branch: task/SK.3-skill-mcp-tools
 ---
@@ -29,3 +29,4 @@ Asked for by Dom on 17 Oct 2026. The Harbourmaster MCP server (`packages/mcp/src
 
 ## Log
 - 2026-10-17: added at Dom's request.
+- 2026-10-18: dispatched. Note from SK.1: the service is `@repo/services/skills-store` (see packages/services/README.md and docs/reviews/tasks/SK.1.md); skill names are unique per owner scope, so show the owner wherever a name is shown.

@@ -3,7 +3,7 @@ id: SK.2
 title: Runtimes read skills from the central store
 milestone: SK
 size: M
-status: todo
+status: in_progress
 depends_on: [SK.1]
 branch: task/SK.2-skill-runtimes
 ---
@@ -26,3 +26,4 @@ Asked for by Dom on 17 Oct 2026. After SK.1, skills live in the store, but every
 
 ## Log
 - 2026-10-17: added at Dom's request.
+- 2026-10-18: dispatched. Note from SK.1: the service is `@repo/services/skills-store` (see packages/services/README.md and docs/reviews/tasks/SK.1.md); skill names are unique per owner scope, so show the owner wherever a name is shown.

@@ -3,7 +3,7 @@ id: SK.1
 title: Central versioned skill store with commits, assignments and .skill import
 milestone: SK
 size: L
-status: in_progress
+status: done
 depends_on: [R.1]
 branch: task/SK.1-skill-store
 ---
@@ -42,3 +42,4 @@ This task builds the store and its service. Runtimes (SK.2), MCP tools (SK.3) an
 ## Log
 - 2026-10-17: added at Dom's request.
 - 2026-10-17: Dom: start. Dispatched on task/SK.1-skill-store.
+- 2026-10-18: review clean after 2 fix rounds at ac7f04c (docs/reviews/tasks/SK.1.md). Merged. Skill names are unique per owner scope (people, or one agent), not per workspace, so an own and a shared skill of one name coexist. skills.ts left for SK.2 to remove.
