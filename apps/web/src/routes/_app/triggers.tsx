@@ -37,6 +37,7 @@ function TriggersPage() {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreatedTrigger | null>(null);
+  const [secretTitle, setSecretTitle] = useState("Trigger created");
   const [error, setError] = useState<string | null>(null);
 
   const openCreate = useCallback(() => setCreating(true), []);
@@ -45,6 +46,7 @@ function TriggersPage() {
 
   const showSecret = useCallback((next: CreatedTrigger) => {
     setCreating(false);
+    setSecretTitle("Trigger created");
     setCreated(next);
   }, []);
 
@@ -53,11 +55,52 @@ function TriggersPage() {
     router.invalidate();
   }, [router]);
 
+  const approveTrigger = useCallback(async (triggerId: string) => {
+    setError(null);
+    try {
+      const approved = await getTrpc().triggers.approve.mutate({ triggerId });
+      if (approved.secret === null) {
+        setError("The approved trigger came back without a secret.");
+        return;
+      }
+      setSecretTitle("Trigger approved");
+      setCreated({ secret: approved.secret, trigger: approved.trigger });
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }, []);
+
+  const rejectTrigger = useCallback(
+    async (triggerId: string) => {
+      setError(null);
+      try {
+        await getTrpc().triggers.reject.mutate({ triggerId });
+        await router.invalidate();
+      } catch (caught) {
+        setError(errorMessage(caught));
+      }
+    },
+    [router]
+  );
+
   const revokeTrigger = useCallback(
     async (triggerId: string) => {
       setError(null);
       try {
         await getTrpc().triggers.revoke.mutate({ triggerId });
+        await router.invalidate();
+      } catch (caught) {
+        setError(errorMessage(caught));
+      }
+    },
+    [router]
+  );
+
+  const toggleTrigger = useCallback(
+    async (triggerId: string, enabled: boolean) => {
+      setError(null);
+      try {
+        await getTrpc().triggers.setEnabled.mutate({ enabled, triggerId });
         await router.invalidate();
       } catch (caught) {
         setError(errorMessage(caught));
@@ -81,7 +124,14 @@ function TriggersPage() {
           run over HTTP.
         </p>
       ) : (
-        <TriggerTable onRevoke={revokeTrigger} showAgent triggers={triggers} />
+        <TriggerTable
+          onApprove={approveTrigger}
+          onReject={rejectTrigger}
+          onRevoke={revokeTrigger}
+          onToggle={toggleTrigger}
+          showAgent
+          triggers={triggers}
+        />
       )}
       {creating ? (
         <CreateTriggerDialog
@@ -94,6 +144,7 @@ function TriggersPage() {
         <TriggerSecretDialog
           onDone={closeSecret}
           secret={created.secret}
+          title={secretTitle}
           triggerId={created.trigger.id}
         />
       )}

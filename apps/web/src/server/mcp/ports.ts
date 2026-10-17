@@ -2,23 +2,33 @@
 // bound to the caller's principal: a tool never sees who is asking, and every
 // call goes through the same service methods, and so the same `authorize()`,
 // as the UI.
+import { isPendingProposal } from "@repo/db/shared";
 import type {
   AgentInfo,
+  AutomationStatus,
   McpPorts,
   PostInfo,
+  RoutineInfo,
   RunInfo,
   SessionInfo,
   ThreadInfo,
+  TriggerChange,
+  TriggerInfo,
 } from "@repo/mcp/ports";
 import { ToolError } from "@repo/mcp/result";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import type { PostRecord, ThreadRecord } from "@repo/services/inbox";
+import type { RoutineSummary } from "@repo/services/routines";
 import type { RunSummary } from "@repo/services/runs/types";
 import type {
   SessionListItem,
   SessionTranscript,
 } from "@repo/services/sessions";
+import type {
+  TriggerSummary,
+  TriggerWithSecret,
+} from "@repo/services/triggers";
 import type { Principal } from "@repo/services/workspaces";
 import type { Services } from "../compose.ts";
 import { runLibraryBash } from "../library-bash/run.ts";
@@ -94,6 +104,46 @@ const toTranscriptSession = (transcript: SessionTranscript): SessionInfo => {
   };
 };
 
+/** Awaiting approval until a person approves a proposal, then paused or active. */
+const statusOf = (row: {
+  approvedAt: string | null;
+  disabledAt: string | null;
+  proposedByAgentId: string | null;
+}): AutomationStatus => {
+  if (isPendingProposal(row)) {
+    return "awaiting_approval";
+  }
+  return row.disabledAt === null ? "active" : "paused";
+};
+
+const toRoutineInfo = (routine: RoutineSummary): RoutineInfo => ({
+  agentId: routine.agentId,
+  agentName: routine.agentName,
+  cron: routine.cron,
+  id: routine.id,
+  lastFiredAt: routine.lastFiredAt,
+  name: routine.name,
+  nextRunAt: routine.nextRunAt,
+  prompt: routine.prompt,
+  status: statusOf(routine),
+  timezone: routine.timezone,
+});
+
+const toTriggerInfo = (trigger: TriggerSummary): TriggerInfo => ({
+  agentId: trigger.agentId,
+  agentName: trigger.agentName,
+  id: trigger.id,
+  lastFiredAt: trigger.lastFiredAt,
+  name: trigger.name,
+  status: statusOf(trigger),
+  tokenPrefix: trigger.tokenPrefix,
+});
+
+const toTriggerChange = (change: TriggerWithSecret): TriggerChange => ({
+  secret: change.secret,
+  trigger: toTriggerInfo(change.trigger),
+});
+
 export const createMcpPorts = ({
   principal,
   services,
@@ -116,7 +166,39 @@ export const createMcpPorts = ({
     return { id: found.id, name: found.name, slug: found.slug };
   };
 
+  /** An agent id for `reference`, an id or a slug. Left out stays left out. */
+  const agentIdOf = async (reference: string | undefined) =>
+    reference === undefined ? undefined : (await findAgent(reference)).id;
+
   return {
+    createRoutine: ({ agentId, ...input }) =>
+      guarded(async () =>
+        toRoutineInfo(
+          await services.routines.create(principal, {
+            ...input,
+            agentId: (await findAgent(agentId)).id,
+          })
+        )
+      ),
+
+    createTrigger: ({ agentId, name }) =>
+      guarded(async () =>
+        toTriggerChange(
+          await services.triggers.create(principal, {
+            agentId: (await findAgent(agentId)).id,
+            name,
+          })
+        )
+      ),
+
+    deleteRoutine: ({ routineId }) =>
+      guarded(() => services.routines.remove(principal, routineId)),
+
+    deleteTrigger: ({ triggerId }) =>
+      guarded(async () => {
+        await services.triggers.revoke(principal, triggerId);
+      }),
+
     getRun: ({ runId }) =>
       guarded(async () =>
         toRunInfo(await services.runs.getRun(principal, runId))
@@ -167,6 +249,15 @@ export const createMcpPorts = ({
         }))
       ),
 
+    listRoutines: ({ agentId }) =>
+      guarded(async () =>
+        (
+          await services.routines.list(principal, {
+            agentId: await agentIdOf(agentId),
+          })
+        ).map(toRoutineInfo)
+      ),
+
     listSessions: ({ agent }) =>
       guarded(async () => {
         const target = await findAgent(agent);
@@ -175,6 +266,18 @@ export const createMcpPorts = ({
         });
         return sessions.map(toSessionInfo);
       }),
+
+    listTriggers: ({ agentId }) =>
+      guarded(async () =>
+        (
+          await services.triggers.list(principal, {
+            agentId: await agentIdOf(agentId),
+          })
+        )
+          // A revoked trigger is gone; the UI keeps it only as history.
+          .filter((trigger) => trigger.revokedAt === null)
+          .map(toTriggerInfo)
+      ),
 
     readSession: ({ sessionId }) =>
       guarded(async () => {
@@ -220,5 +323,19 @@ export const createMcpPorts = ({
             : await services.runs.getRun(principal, started.runId);
         return toRunInfo(run);
       }),
+
+    setRoutineEnabled: ({ enabled, routineId }) =>
+      guarded(async () =>
+        toRoutineInfo(
+          await services.routines.setEnabled(principal, { enabled, routineId })
+        )
+      ),
+
+    setTriggerEnabled: ({ enabled, triggerId }) =>
+      guarded(async () =>
+        toTriggerChange(
+          await services.triggers.setEnabled(principal, { enabled, triggerId })
+        )
+      ),
   };
 };

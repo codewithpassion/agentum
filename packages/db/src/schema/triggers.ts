@@ -25,14 +25,18 @@ export const triggers = sqliteTable(
     agentId: text("agent_id")
       .notNull()
       .references(() => agents.id, { onDelete: "cascade" }),
+    // When a person approved the proposal. A proposal with this null is
+    // pending: it is disabled, and an `http` one has no token yet.
+    approvedAt: text("approved_at"),
     // Routine only. Consecutive failures since the last good run.
     consecutiveErrors: integer("consecutive_errors").notNull().default(0),
     createdAt: createdAt(),
-    // Clerk user id who made the trigger.
+    // Clerk user id who made the trigger, or the run id when a run proposed it.
     createdBy: text("created_by").notNull(),
     // Routine only. Five-field cron, read in `timezone`.
     cron: text("cron"),
-    // Routine only. Set when the routine is paused or switched off by errors.
+    // Set when the trigger is paused, switched off by errors (routine) or still
+    // waiting for approval. A disabled trigger never fires.
     disabledAt: text("disabled_at"),
     id: id(),
     kind: text("kind", { enum: TRIGGER_KINDS }).notNull(),
@@ -43,13 +47,16 @@ export const triggers = sqliteTable(
     nextRunAt: text("next_run_at"),
     // Routine only. The run's input text.
     prompt: text("prompt"),
+    // Set when an agent's run proposed this trigger. Null for one a person made.
+    proposedByAgentId: text("proposed_by_agent_id"),
+    proposedByRunId: text("proposed_by_run_id"),
     revokedAt: text("revoked_at"),
     // Routine only. The last run counted into `consecutive_errors`. Run ids
     // sort by time, so the runs after it are the ones still to judge.
     settledRunId: text("settled_run_id"),
     // Routine only. IANA zone, copied from the workspace when not given.
     timezone: text("timezone"),
-    // Null for a routine.
+    // Null for a routine, and for an `http` proposal until it is approved.
     tokenHash: text("token_hash"),
     // The start of the token, so triggers can be told apart in a list.
     tokenPrefix: text("token_prefix"),

@@ -5,6 +5,7 @@
 // callers. A Clerk OAuth token is accepted too, once its client is approved
 // (`oauth-auth.ts`). Mount with `accessRoutes.route("/mcp", mcpRoutes({ ... }))`.
 import { createHarbourmasterMcpServer } from "@repo/mcp/server";
+import { isReadOnly } from "@repo/services/automation-access";
 import { importRunTokenKey } from "@repo/services/run-tokens";
 import {
   createPrincipalResolver,
@@ -403,7 +404,10 @@ export const mcpRoutes = ({
     const composed = c.get("composed");
     const ports = createMcpPorts({ principal, services: composed.services });
     const handler = createMcpHandler(
-      () => createHarbourmasterMcpServer(ports),
+      () =>
+        createHarbourmasterMcpServer(ports, {
+          readOnly: isReadOnly(principal),
+        }),
       options
     );
     const started = Date.now();

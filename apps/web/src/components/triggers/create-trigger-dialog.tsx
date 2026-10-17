@@ -15,10 +15,13 @@ import {
   NativeSelectOption,
 } from "#/components/ui/native-select";
 import { getTrpc } from "#/integrations/trpc/client";
-import type { RouterOutputs } from "#/integrations/trpc/types";
+import type { TriggerRecord } from "#/integrations/trpc/types";
 import { errorMessage } from "./format.ts";
 
-export type CreatedTrigger = RouterOutputs["triggers"]["create"];
+export interface CreatedTrigger {
+  secret: string;
+  trigger: TriggerRecord;
+}
 
 export interface AgentOption {
   id: string;
@@ -75,7 +78,12 @@ export function CreateTriggerDialog({
         agentId: targetAgentId,
         name,
       });
-      onCreated(created);
+      if (created.secret === null) {
+        setError("The trigger was created without a secret.");
+        setPending(false);
+        return;
+      }
+      onCreated({ secret: created.secret, trigger: created.trigger });
     } catch (caught) {
       setError(errorMessage(caught));
       setPending(false);

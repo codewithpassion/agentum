@@ -336,7 +336,7 @@ describe("authentication", () => {
 });
 
 describe("tools with an api key", () => {
-  test("lists the ten tools", async () => {
+  test("lists the ten platform tools and the list tools for a read key", async () => {
     const key = await mintKey("u1", "read");
     const response = await post(key, rpcBody("tools/list", {}));
     const rpc = (await readRpc(response)) as {
@@ -349,11 +349,32 @@ describe("tools with an api key", () => {
       "inbox_post",
       "inbox_read",
       "list_agents",
+      "list_routines",
       "list_sessions",
+      "list_triggers",
       "read_session",
       "search_sessions",
       "send_message",
     ]);
+  });
+
+  test("a write key also gets the tools that change routines and triggers", async () => {
+    const key = await mintKey("u1", "write");
+    const response = await post(key, rpcBody("tools/list", {}));
+    const rpc = (await readRpc(response)) as {
+      result: { tools: { name: string }[] };
+    };
+    const names = rpc.result.tools.map((tool) => tool.name);
+    for (const name of [
+      "create_routine",
+      "set_routine_enabled",
+      "delete_routine",
+      "create_trigger",
+      "set_trigger_enabled",
+      "delete_trigger",
+    ]) {
+      expect(names).toContain(name);
+    }
   });
 
   test("sends a message with waitMs, gets the echo, and reads the session", async () => {

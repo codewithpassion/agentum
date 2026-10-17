@@ -6,6 +6,7 @@ import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { triggers as triggerRows } from "@repo/db/schema/triggers";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
+import { isPendingProposal } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { and, eq } from "drizzle-orm";
 import { ZodError } from "zod";
@@ -46,6 +47,7 @@ const outsider: Principal = {
 };
 
 type Db = ReturnType<typeof migrated>;
+type EventRow = typeof eventRows.$inferSelect;
 
 let db: Db;
 let nowMs: number;
@@ -101,6 +103,32 @@ const firedEvents = (runId: string) =>
     .where(and(eq(eventRows.runId, runId), eq(eventRows.type, "trigger.fired")))
     .all();
 
+const eventsOfType = (type: string) =>
+  db.select().from(eventRows).where(eq(eventRows.type, type)).all();
+
+/** Every `trigger.*` event, whatever its type. */
+const triggerEventCount = () =>
+  db
+    .select()
+    .from(eventRows)
+    .all()
+    .filter((event) => event.type.startsWith("trigger.")).length;
+
+/** The event of one type that names this trigger in its payload. */
+const eventFor = (type: string, triggerId: string): EventRow | undefined =>
+  eventsOfType(type).find((event) => payloadOf(event).triggerId === triggerId);
+
+const payloadOf = (event: EventRow | undefined): Record<string, unknown> =>
+  JSON.parse(event?.payload ?? "{}") as Record<string, unknown>;
+
+/** The secret a creation or approval handed back. Fails the test when there is none. */
+const secretOf = (result: { secret: string | null }): string => {
+  if (result.secret === null) {
+    throw new Error("Expected a secret");
+  }
+  return result.secret;
+};
+
 /** The bearer principal a secret resolves to. Fails the test if it does not resolve. */
 const authed = async (secret: string): Promise<TriggerPrincipal> => {
   const principal = await service.authenticate(`Bearer ${secret}`);
@@ -112,9 +140,39 @@ const authed = async (secret: string): Promise<TriggerPrincipal> => {
 
 /** Creates a trigger for `agentId` and resolves its secret to a principal. */
 const makeTrigger = async (agentId: string, name = "Hook") => {
-  const { secret, trigger } = await service.create(user, { agentId, name });
-  return { principal: await authed(secret), secret, trigger };
+  const created = await service.create(user, { agentId, name });
+  return {
+    principal: await authed(secretOf(created)),
+    trigger: created.trigger,
+  };
 };
+
+/** The principal of a run of `agentId`. */
+const runAs = (agentId: string, runId: string): Principal => ({
+  agentId,
+  kind: "run",
+  runId,
+  workspaceId: WORKSPACE,
+});
+
+/** Starts a real run of the fake agent, so events can name it. */
+const startFakeRun = async (): Promise<string> => {
+  const started = await runs.startRun(user, {
+    agentId: fakeAgentId,
+    input: { text: "x" },
+    session: { origin: "mcp" },
+  });
+  return started.runId;
+};
+
+/** A run of the fake agent proposes a trigger for it. */
+const propose = async (runId: string, name = "Proposed") =>
+  (
+    await service.create(runAs(fakeAgentId, runId), {
+      agentId: fakeAgentId,
+      name,
+    })
+  ).trigger;
 
 beforeEach(async () => {
   db = migrated();
@@ -183,21 +241,27 @@ beforeEach(async () => {
 });
 
 test("create returns an hm_trg_ secret and a summary without hash fields", async () => {
-  const { secret, trigger } = await service.create(user, {
+  const created = await service.create(user, {
     agentId: fakeAgentId,
     name: "  Ping  ",
   });
+  const secret = secretOf(created);
+  const { trigger } = created;
 
   expect(secret.startsWith("hm_trg_")).toBe(true);
   expect(trigger.id.startsWith("trg_")).toBe(true);
   expect(trigger).toEqual({
     agentId: fakeAgentId,
     agentName: "Fake",
+    approvedAt: null,
     createdAt: START,
+    disabledAt: null,
     id: trigger.id,
     kind: "http",
     lastFiredAt: null,
     name: "Ping",
+    proposedByAgentId: null,
+    proposedByRunId: null,
     revokedAt: null,
     tokenPrefix: secret.slice(0, "hm_trg_".length + 4),
   });
@@ -205,12 +269,13 @@ test("create returns an hm_trg_ secret and a summary without hash fields", async
 });
 
 test("create stores the SHA-256 of the secret, never the secret", async () => {
-  const { secret, trigger } = await service.create(user, {
+  const created = await service.create(user, {
     agentId: fakeAgentId,
     name: "Hook",
   });
+  const secret = secretOf(created);
 
-  const row = triggerRow(trigger.id);
+  const row = triggerRow(created.trigger.id);
   expect(row?.tokenHash).toBe(await hashToken(secret));
   expect(row?.tokenHash).not.toBe(secret);
   expect(row?.createdBy).toBe("u1");
@@ -218,11 +283,28 @@ test("create stores the SHA-256 of the secret, never the secret", async () => {
   expect(JSON.stringify(row)).not.toContain(secret);
 });
 
-test("create refuses a principal that is not a signed-in user", async () => {
-  const apiKeyUser: Principal = { ...user, via: "api_key" };
+test("create refuses Slack, machine and trigger principals, and allows an API-key user", async () => {
+  const slackUser: Principal = {
+    kind: "user",
+    userId: "u1",
+    via: "slack",
+    workspaceId: WORKSPACE,
+  };
+  const apiKeyUser: Principal = {
+    kind: "user",
+    userId: "u1",
+    via: "api_key",
+    workspaceId: WORKSPACE,
+  };
+  const triggerPrincipal: Principal = {
+    agentId: fakeAgentId,
+    kind: "trigger",
+    triggerId: "trg_other",
+    workspaceId: WORKSPACE,
+  };
 
   await expect(
-    service.create(apiKeyUser, { agentId: fakeAgentId, name: "Hook" })
+    service.create(slackUser, { agentId: fakeAgentId, name: "Hook" })
   ).rejects.toBeInstanceOf(ForbiddenError);
   await expect(
     service.create(
@@ -230,7 +312,130 @@ test("create refuses a principal that is not a signed-in user", async () => {
       { agentId: fakeAgentId, name: "Hook" }
     )
   ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    service.create(triggerPrincipal, { agentId: fakeAgentId, name: "Hook" })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  const created = await service.create(apiKeyUser, {
+    agentId: fakeAgentId,
+    name: "Hook",
+  });
+  expect(secretOf(created).startsWith("hm_trg_")).toBe(true);
 });
+
+test("a signed-in user's create is logged as the user, with the session named", async () => {
+  const created = await service.create(user, {
+    agentId: fakeAgentId,
+    name: "Hook",
+  });
+  const secret = secretOf(created);
+
+  const row = triggerRow(created.trigger.id);
+  expect(row?.tokenHash).toBe(await hashToken(secret));
+  expect(row?.disabledAt).toBeNull();
+  expect(row?.proposedByAgentId).toBeNull();
+  expect(row?.proposedByRunId).toBeNull();
+
+  const event = eventFor("trigger.created", created.trigger.id);
+  expect(event).toMatchObject({
+    actorId: "u1",
+    actorKind: "user",
+    agentId: fakeAgentId,
+    runId: null,
+  });
+  expect(payloadOf(event)).toMatchObject({
+    kind: "http",
+    principal: { userId: "u1", via: "session" },
+    proposed: false,
+  });
+});
+
+test("an API-key or OAuth user with write access can create, and the log names the key or client", async () => {
+  const apiKeyUser: Principal = {
+    apiKey: { access: "write", id: "key1" },
+    kind: "user",
+    userId: "u1",
+    via: "api_key",
+    workspaceId: WORKSPACE,
+  };
+  const oauthUser: Principal = {
+    kind: "user",
+    oauthClient: { access: "write", clientId: "c1" },
+    userId: "u1",
+    via: "oauth",
+    workspaceId: WORKSPACE,
+  };
+
+  const byKey = await service.create(apiKeyUser, {
+    agentId: fakeAgentId,
+    name: "Key",
+  });
+  const byClient = await service.create(oauthUser, {
+    agentId: fakeAgentId,
+    name: "Client",
+  });
+
+  expect(secretOf(byKey).startsWith("hm_trg_")).toBe(true);
+  expect(secretOf(byClient).startsWith("hm_trg_")).toBe(true);
+  expect(
+    payloadOf(eventFor("trigger.created", byKey.trigger.id))
+  ).toMatchObject({ principal: { keyId: "key1", via: "api_key" } });
+  expect(
+    payloadOf(eventFor("trigger.created", byClient.trigger.id))
+  ).toMatchObject({ principal: { clientId: "c1", via: "oauth" } });
+});
+
+const readOnlyReaders: [string, Principal][] = [
+  [
+    "API key",
+    {
+      apiKey: { access: "read", id: "key2" },
+      kind: "user",
+      userId: "u1",
+      via: "api_key",
+      workspaceId: WORKSPACE,
+    },
+  ],
+  [
+    "OAuth client",
+    {
+      kind: "user",
+      oauthClient: { access: "read", clientId: "c2" },
+      userId: "u1",
+      via: "oauth",
+      workspaceId: WORKSPACE,
+    },
+  ],
+];
+
+test.each(readOnlyReaders)(
+  "a read-only %s can list but not create, pause, revoke, approve or reject",
+  async (_label, reader) => {
+    const { trigger } = await service.create(user, {
+      agentId: fakeAgentId,
+      name: "Hook",
+    });
+
+    expect(await service.list(reader)).toHaveLength(1);
+    await expect(
+      service.create(reader, { agentId: fakeAgentId, name: "Nope" })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      service.setEnabled(reader, { enabled: false, triggerId: trigger.id })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(service.revoke(reader, trigger.id)).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+    await expect(service.approve(reader, trigger.id)).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+    await expect(service.reject(reader, trigger.id)).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+
+    expect(triggerRow(trigger.id)?.revokedAt).toBeNull();
+    expect(triggerRow(trigger.id)?.disabledAt).toBeNull();
+  }
+);
 
 test("create gives not_found for an agent in another workspace", async () => {
   const otherAgent = await agents.create(outsider, {
@@ -339,35 +544,35 @@ test("revoke gives not_found for another workspace's trigger", async () => {
 });
 
 test("authenticate maps a valid secret to the trigger principal", async () => {
-  const { secret, trigger } = await service.create(user, {
+  const created = await service.create(user, {
     agentId: fakeAgentId,
     name: "Hook",
   });
 
-  expect(await service.authenticate(`Bearer ${secret}`)).toEqual({
+  expect(await service.authenticate(`Bearer ${secretOf(created)}`)).toEqual({
     agentId: fakeAgentId,
     kind: "trigger",
-    triggerId: trigger.id,
+    triggerId: created.trigger.id,
     workspaceId: WORKSPACE,
   });
 });
 
 test("authenticate gives null for a revoked trigger", async () => {
-  const { secret, trigger } = await service.create(user, {
+  const created = await service.create(user, {
     agentId: fakeAgentId,
     name: "Hook",
   });
-  await service.revoke(user, trigger.id);
+  await service.revoke(user, created.trigger.id);
 
-  expect(await service.authenticate(`Bearer ${secret}`)).toBeNull();
+  expect(await service.authenticate(`Bearer ${secretOf(created)}`)).toBeNull();
 });
 
 test("authenticate gives null for an unknown token, a wrong prefix, or no header", async () => {
-  const { secret } = await service.create(user, {
+  const created = await service.create(user, {
     agentId: fakeAgentId,
     name: "Hook",
   });
-  const wrongPrefix = `hm_key_${secret.slice("hm_trg_".length)}`;
+  const wrongPrefix = `hm_key_${secretOf(created).slice("hm_trg_".length)}`;
 
   expect(await service.authenticate("Bearer hm_trg_unknownsecret")).toBeNull();
   expect(await service.authenticate(`Bearer ${wrongPrefix}`)).toBeNull();
@@ -375,7 +580,7 @@ test("authenticate gives null for an unknown token, a wrong prefix, or no header
 });
 
 test("authenticate gives null when the workspace's org is not allowed", async () => {
-  const { secret } = await service.create(user, {
+  const created = await service.create(user, {
     agentId: fakeAgentId,
     name: "Hook",
   });
@@ -387,7 +592,9 @@ test("authenticate gives null when the workspace's org is not allowed", async ()
     runs,
   });
 
-  expect(await onlyOther.authenticate(`Bearer ${secret}`)).toBeNull();
+  expect(
+    await onlyOther.authenticate(`Bearer ${secretOf(created)}`)
+  ).toBeNull();
 });
 
 test("fire with waitMs returns the finished echo run", async () => {
@@ -538,4 +745,256 @@ test("fire with waitMs gives finished false when the run does not end in time", 
   expect(result.finished).toBe(false);
   expect(result.run.status).toBe("queued");
   expect(dispatched).toEqual([result.run.id]);
+});
+
+test("a run's create is a tokenless proposal, paused and logged as the agent", async () => {
+  const runId = await startFakeRun();
+
+  const created = await service.create(runAs(fakeAgentId, runId), {
+    agentId: fakeAgentId,
+    name: "Proposed",
+  });
+
+  expect(created.secret).toBeNull();
+  expect(JSON.stringify(created)).not.toContain("hm_trg_");
+  expect(created.trigger).toMatchObject({
+    approvedAt: null,
+    disabledAt: new Date(nowMs).toISOString(),
+    proposedByAgentId: fakeAgentId,
+    proposedByRunId: runId,
+  });
+  const row = triggerRow(created.trigger.id);
+  expect(row).toMatchObject({
+    approvedAt: null,
+    disabledAt: new Date(nowMs).toISOString(),
+    proposedByAgentId: fakeAgentId,
+    proposedByRunId: runId,
+    tokenHash: null,
+    tokenPrefix: null,
+  });
+  expect(JSON.stringify(row)).not.toContain("hm_trg_");
+  expect(await service.authenticate("Bearer hm_trg_anything")).toBeNull();
+
+  const event = eventFor("trigger.created", created.trigger.id);
+  expect(event).toMatchObject({
+    actorId: fakeAgentId,
+    actorKind: "agent",
+    agentId: fakeAgentId,
+    runId,
+  });
+  expect(payloadOf(event)).toMatchObject({
+    principal: { agentId: fakeAgentId, runId, via: "run" },
+    proposed: true,
+  });
+});
+
+test("a run cannot propose a trigger for another agent", async () => {
+  const runId = await startFakeRun();
+
+  await expect(
+    service.create(runAs(fakeAgentId, runId), {
+      agentId: spyAgentId,
+      name: "Other",
+    })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("a run may pause its own agent's triggers, never resume them, and revoke only its own proposals", async () => {
+  const runId = await startFakeRun();
+  const runner = runAs(fakeAgentId, runId);
+  const proposal = await propose(runId);
+  const made = (
+    await service.create(user, { agentId: fakeAgentId, name: "Made" })
+  ).trigger;
+  const elsewhere = (
+    await service.create(user, { agentId: spyAgentId, name: "Elsewhere" })
+  ).trigger;
+
+  await expect(
+    service.setEnabled(runner, { enabled: true, triggerId: proposal.id })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    service.setEnabled(runner, { enabled: true, triggerId: made.id })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    service.setEnabled(runner, { enabled: false, triggerId: elsewhere.id })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  const paused = await service.setEnabled(runner, {
+    enabled: false,
+    triggerId: made.id,
+  });
+  expect(paused.secret).toBeNull();
+  expect(paused.trigger.disabledAt).toBe(new Date(nowMs).toISOString());
+
+  const revoked = await service.revoke(runner, proposal.id);
+  expect(revoked.revokedAt).toBe(new Date(nowMs).toISOString());
+  expect(eventFor("trigger.deleted", proposal.id)).toMatchObject({
+    actorId: fakeAgentId,
+    actorKind: "agent",
+    runId,
+  });
+  await expect(service.revoke(runner, made.id)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  expect(triggerRow(made.id)?.revokedAt).toBeNull();
+
+  const listed = await service.list(runner);
+  expect(listed.map((trigger) => trigger.id).sort()).toEqual(
+    [proposal.id, made.id].sort()
+  );
+  await expect(
+    service.list(runner, { agentId: spyAgentId })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("approving a proposal mints its one token, shows it once, and the token fires the trigger", async () => {
+  const runId = await startFakeRun();
+  const proposal = await propose(runId);
+
+  const approved = await service.approve(user, proposal.id);
+  const secret = secretOf(approved);
+  const hint = secret.slice(0, "hm_trg_".length + 4);
+
+  expect(secret.startsWith("hm_trg_")).toBe(true);
+  expect(approved.trigger).toMatchObject({
+    approvedAt: new Date(nowMs).toISOString(),
+    disabledAt: null,
+    tokenPrefix: hint,
+  });
+  expect(triggerRow(proposal.id)).toMatchObject({
+    approvedAt: new Date(nowMs).toISOString(),
+    disabledAt: null,
+    tokenHash: await hashToken(secret),
+    tokenPrefix: hint,
+  });
+  expect(eventFor("trigger.approved", proposal.id)).toMatchObject({
+    actorId: "u1",
+    actorKind: "user",
+  });
+  expect(JSON.stringify(db.select().from(eventRows).all())).not.toContain(
+    secret
+  );
+
+  const result = await service.fire(await authed(secret), proposal.id, {
+    text: "ping",
+    waitMs: 5000,
+  });
+  expect(result.finished).toBe(true);
+  expect(result.run).toMatchObject({
+    resultText: "Echo: ping",
+    status: "done",
+  });
+});
+
+test("approve refuses a run, a trigger a user made, and a second approval", async () => {
+  const runId = await startFakeRun();
+  const proposal = await propose(runId);
+  const made = (
+    await service.create(user, { agentId: fakeAgentId, name: "Made" })
+  ).trigger;
+
+  await expect(
+    service.approve(runAs(fakeAgentId, runId), proposal.id)
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(service.approve(user, made.id)).rejects.toMatchObject({
+    code: "conflict",
+  });
+
+  const first = await service.approve(user, proposal.id);
+  const hashAfterFirst = triggerRow(proposal.id)?.tokenHash;
+  await expect(service.approve(user, proposal.id)).rejects.toMatchObject({
+    code: "conflict",
+  });
+
+  expect(triggerRow(proposal.id)?.tokenHash).toBe(hashAfterFirst);
+  expect(hashAfterFirst).toBe(await hashToken(secretOf(first)));
+  expect(eventsOfType("trigger.approved")).toHaveLength(1);
+});
+
+test("setEnabled on a proposal approves it, and pausing and resuming keep the same token", async () => {
+  const runId = await startFakeRun();
+  const proposal = await propose(runId);
+
+  const approved = await service.setEnabled(user, {
+    enabled: true,
+    triggerId: proposal.id,
+  });
+  const secret = secretOf(approved);
+  const row = triggerRow(proposal.id);
+  expect(row?.tokenHash).toBe(await hashToken(secret));
+  expect(row && isPendingProposal(row)).toBe(false);
+
+  const principal = await authed(secret);
+  const eventsBefore = triggerEventCount();
+
+  const paused = await service.setEnabled(user, {
+    enabled: false,
+    triggerId: proposal.id,
+  });
+  expect(paused.secret).toBeNull();
+  expect(paused.trigger.disabledAt).toBe(new Date(nowMs).toISOString());
+  expect(await service.authenticate(`Bearer ${secret}`)).toBeNull();
+  await expect(
+    service.fire(principal, proposal.id, { text: "ping" })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  const resumed = await service.setEnabled(user, {
+    enabled: true,
+    triggerId: proposal.id,
+  });
+  expect(resumed.secret).toBeNull();
+  expect(resumed.trigger.disabledAt).toBeNull();
+  expect(await authed(secret)).toMatchObject({ triggerId: proposal.id });
+  expect(triggerEventCount()).toBe(eventsBefore);
+});
+
+test("reject revokes a proposal and logs it, and refuses a trigger a user made", async () => {
+  const runId = await startFakeRun();
+  const proposal = await propose(runId);
+  const made = (
+    await service.create(user, { agentId: fakeAgentId, name: "Made" })
+  ).trigger;
+
+  await expect(service.reject(user, made.id)).rejects.toMatchObject({
+    code: "conflict",
+  });
+
+  const rejected = await service.reject(user, proposal.id);
+  expect(rejected.revokedAt).toBe(new Date(nowMs).toISOString());
+  expect(eventFor("trigger.rejected", proposal.id)).toMatchObject({
+    actorId: "u1",
+    actorKind: "user",
+  });
+  expect(triggerRow(proposal.id)?.approvedAt).toBeNull();
+});
+
+test("a user's revoke of a pending proposal logs trigger.deleted, and a second revoke adds no event", async () => {
+  const runId = await startFakeRun();
+  const proposal = await propose(runId);
+
+  const first = await service.revoke(user, proposal.id);
+  expect(eventFor("trigger.deleted", proposal.id)).toMatchObject({
+    actorId: "u1",
+    actorKind: "user",
+  });
+
+  advance(MINUTE_MS);
+  const second = await service.revoke(user, proposal.id);
+  expect(second.revokedAt).toBe(first.revokedAt);
+  expect(eventsOfType("trigger.deleted")).toHaveLength(1);
+});
+
+test("setEnabled on a revoked trigger gives not_found", async () => {
+  const { trigger } = await service.create(user, {
+    agentId: fakeAgentId,
+    name: "Hook",
+  });
+  await service.revoke(user, trigger.id);
+
+  const error = await service
+    .setEnabled(user, { enabled: false, triggerId: trigger.id })
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(ServiceError);
+  expect(error).toMatchObject({ code: "not_found" });
 });

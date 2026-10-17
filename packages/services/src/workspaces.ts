@@ -155,7 +155,7 @@ export const findMachineByCredential = async (
     : null;
 };
 
-/** The trigger principal for an `hm_trg_` token, or null if unknown or revoked. */
+/** The trigger principal for an `hm_trg_` token, or null if unknown, revoked or paused. */
 export const findTriggerByToken = async (
   db: Database,
   token: string
@@ -170,7 +170,8 @@ export const findTriggerByToken = async (
     .where(
       and(
         eq(triggers.tokenHash, await hashToken(token)),
-        isNull(triggers.revokedAt)
+        isNull(triggers.revokedAt),
+        isNull(triggers.disabledAt)
       )
     )
     .limit(1);

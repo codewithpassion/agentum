@@ -21,10 +21,12 @@ const curlExample = (origin: string, triggerId: string, secret: string) =>
 export function TriggerSecretDialog({
   onDone,
   secret,
+  title = "Trigger created",
   triggerId,
 }: {
   onDone: () => void;
   secret: string;
+  title?: string;
   triggerId: string;
 }) {
   const [copied, setCopied] = useState(false);
@@ -59,7 +61,7 @@ export function TriggerSecretDialog({
     <Dialog onOpenChange={handleOpenChange} open>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Trigger created</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             Copy this secret now. It is not shown again.
           </DialogDescription>
