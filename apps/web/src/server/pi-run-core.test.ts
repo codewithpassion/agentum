@@ -623,6 +623,22 @@ describe("a model that cannot run", () => {
     expect(h.installed).toEqual([]);
   });
 
+  test("a completion that starts the next run of the session does not wait on its own start", async () => {
+    // The platform offers the next waiting run when a run ends, and it starts on this same object.
+    let h: Harness | undefined;
+    h = build({
+      complete: async (runId) => {
+        if (runId === "run-1") {
+          await h?.core.start(startOf("run-2"));
+        }
+      },
+      modelError: (model) => `Unknown model ${model}`,
+    });
+    await h.core.start(startOf("run-1"));
+
+    expect(h.completed.map((call) => call.runId)).toEqual(["run-2", "run-1"]);
+  });
+
   test("a valid model completes nothing at start", async () => {
     const h = build({ modelError: () => undefined });
     await h.core.start(startOf("run-1"));

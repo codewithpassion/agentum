@@ -39,6 +39,8 @@ const PROTOCOL_HEADER = "Mcp-Protocol-Version";
 const SESSION_HEADER = "Mcp-Session-Id";
 // A server refuses a request whose session is missing (400) or unknown (404).
 const LOST_SESSION_STATUSES: readonly number[] = [400, 404];
+// The shared initialize cannot carry a caller's signal, so a server that never answers is cut off here.
+const INITIALIZE_TIMEOUT_MS = 30_000;
 const REQUEST_ID = 1;
 const TOOL_NAME_MAX = 64;
 const SSE_DATA_PREFIX = "data:";
@@ -141,7 +143,8 @@ const initialize = async (
       method: "initialize",
       params: INITIALIZE_PARAMS,
     },
-    {}
+    {},
+    AbortSignal.timeout(INITIALIZE_TIMEOUT_MS)
   );
   if (!response.ok) {
     throw new McpHttpError("initialize", response.status);
@@ -149,12 +152,14 @@ const initialize = async (
   resultOf(await response.text());
   const session = response.headers.get(SESSION_HEADER) ?? undefined;
   // A notification has no reply to wait for, so a refused one is not an error.
-  await postMcp(
+  const notified = await postMcp(
     server,
     fetcher,
     { jsonrpc: "2.0", method: "notifications/initialized" },
-    session === undefined ? {} : sessionHeaders(session)
+    sessionHeaders(session),
+    AbortSignal.timeout(INITIALIZE_TIMEOUT_MS)
   );
+  await notified.body?.cancel();
   return session;
 };
 
