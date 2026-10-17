@@ -242,7 +242,7 @@ export const createSkillsService = ({
   agents,
   library,
 }: {
-  agents: Pick<AgentsService, "get">;
+  agents: Pick<AgentsService, "get" | "list">;
   library: SkillsLibrary;
 }) => {
   /** The skill names each root holds, mapped to the root that wins for that name. */
@@ -363,7 +363,7 @@ export const createSkillsService = ({
     await agents.get(principal, agentId);
     // Any folder the tab lists is reachable. Only names that could leave the skills root are refused.
     if (UNSAFE_FOLDER.test(skill) || skill === "." || skill === "..") {
-      throw invalid(BAD_NAME);
+      throw invalid("Skill folder name is not valid");
     }
     const root =
       scope === "agent"
@@ -409,7 +409,7 @@ export const createSkillsService = ({
   /**
    * S.1's caps hold for everything an agent's runs read: its winning skills together.
    * Refuses when the write would take that set over a cap. A shared skill hidden by
-   * the agent's own skill of the same name does not count toward the agent.
+   * the agent's own skill of the same name does not count toward that agent.
    */
   const checkAgentCap = async (
     principal: Principal,
@@ -453,7 +453,18 @@ export const createSkillsService = ({
   ): Promise<LibraryEntry> => {
     const folder = await skillFolder(principal, agentId, scope, skill);
     const relative = filePath(path);
-    await checkAgentCap(principal, agentId, folder, skill, relative, bytes);
+    // A shared skill counts for every agent that does not hide it, so each one is checked.
+    const owners =
+      scope === "agent"
+        ? [agentId]
+        : (await agents.list(principal, { includeArchived: true })).map(
+            (agent) => agent.id
+          );
+    await Promise.all(
+      owners.map((owner) =>
+        checkAgentCap(principal, owner, folder, skill, relative, bytes)
+      )
+    );
     return library.write(principal, `${folder}/${relative}`, bytes, options);
   };
 
