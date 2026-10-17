@@ -116,7 +116,7 @@ const runCalls = async (calls: Call[]): Promise<string[]> => {
   const harness = await Harness.open(
     new MemoryStorage(),
     {
-      env: () => createLibraryEnv({ ops: boundOps() }),
+      env: () => createLibraryEnv({ ops: boundOps(), workspaceId: WORKSPACE }),
       models,
       registry,
     },

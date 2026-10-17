@@ -37,7 +37,7 @@ import {
 } from "../library-bash/library-fs.ts";
 import { LIBRARY_MOUNT } from "../library-bash/run.ts";
 
-const ENV_ID = "harbourmaster:library";
+const ENV_ID_PREFIX = "harbourmaster:library:";
 const ENCODER = new TextEncoder();
 const UTF8 = new TextDecoder("utf-8", { ignoreBOM: true });
 
@@ -507,11 +507,17 @@ const refuse = <T>(
     abortedError(context, path) ?? new FileError("not_supported", message, path)
   );
 
+/**
+ * `workspaceId` names the file namespace: Pi serialises writes by environment
+ * id and path, so two workspaces must not share an id.
+ */
 export const createLibraryEnv = ({
   ops,
+  workspaceId,
   cwd = LIBRARY_MOUNT,
 }: {
   ops: LibraryOps;
+  workspaceId: string;
   cwd?: string;
 }): ExecutionEnv => {
   const env: ExecutionEnv = {
@@ -616,7 +622,7 @@ export const createLibraryEnv = ({
             )
           : ok(undefined);
       }),
-    id: ENV_ID,
+    id: `${ENV_ID_PREFIX}${workspaceId}`,
 
     joinPath: (parts, context) => {
       const joined = parts.join("/");

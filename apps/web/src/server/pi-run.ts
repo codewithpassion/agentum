@@ -247,6 +247,7 @@ export class PiRun extends DurableObject<Env> {
     }
     return createLibraryEnv({
       ops: bindLibraryOps(this.#services().library, principalOf(run)),
+      workspaceId: run.workspaceId,
     });
   }
 

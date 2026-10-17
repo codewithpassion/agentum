@@ -99,7 +99,7 @@ for (const conformance of createEnvConformance({
   assertions,
   symlinks: false,
   withEnv: async (use) => {
-    await use(createLibraryEnv({ ops: boundOps() }));
+    await use(createLibraryEnv({ ops: boundOps(), workspaceId: WORKSPACE }));
   },
 })) {
   const library =
@@ -137,7 +137,7 @@ beforeEach(() => {
 });
 
 test("the write tool creates the library file, and a relative path lands under /library", async () => {
-  const env = createLibraryEnv({ ops: boundOps() });
+  const env = createLibraryEnv({ ops: boundOps(), workspaceId: WORKSPACE });
   const result = await createWriteTool().execute(
     { content: "# Notes\n", path: "/library/notes/a.md" },
     apiFor(env),
@@ -157,7 +157,7 @@ test("the write tool creates the library file, and a relative path lands under /
 });
 
 test("the read tool returns the text of a library file", async () => {
-  const env = createLibraryEnv({ ops: boundOps() });
+  const env = createLibraryEnv({ ops: boundOps(), workspaceId: WORKSPACE });
   await service.write(user, "notes/a.md", bytes("alpha\nbeta\n"));
 
   const result = await createReadTool().execute(
@@ -169,7 +169,7 @@ test("the read tool returns the text of a library file", async () => {
 });
 
 test("the edit tool replaces text in the library, and a missing oldText fails and leaves the file alone", async () => {
-  const env = createLibraryEnv({ ops: boundOps() });
+  const env = createLibraryEnv({ ops: boundOps(), workspaceId: WORKSPACE });
   await service.write(user, "notes/a.md", bytes("alpha beta\n"));
 
   await createEditTool().execute(
@@ -196,7 +196,7 @@ test("the edit tool replaces text in the library, and a missing oldText fails an
 });
 
 test("a path outside /library is refused, and exists answers false for it", async () => {
-  const env = createLibraryEnv({ ops: boundOps() });
+  const env = createLibraryEnv({ ops: boundOps(), workspaceId: WORKSPACE });
 
   const write = await env.writeFile("/etc/passwd", "x", BACKGROUND_CONTEXT);
   expect(failure(write).code).toBe("permission_denied");
@@ -211,7 +211,7 @@ test("a path outside /library is refused, and exists answers false for it", asyn
 });
 
 test("exec refuses with shell_unavailable", async () => {
-  const env = createLibraryEnv({ ops: boundOps() });
+  const env = createLibraryEnv({ ops: boundOps(), workspaceId: WORKSPACE });
   const result = await env.exec("ls", undefined, BACKGROUND_CONTEXT);
   expect(result.ok).toBe(false);
   if (!result.ok) {
@@ -220,7 +220,7 @@ test("exec refuses with shell_unavailable", async () => {
 });
 
 test("appendFile appends to a file and creates a missing one", async () => {
-  const env = createLibraryEnv({ ops: boundOps() });
+  const env = createLibraryEnv({ ops: boundOps(), workspaceId: WORKSPACE });
   expect(
     (await env.appendFile("log.txt", "one\n", BACKGROUND_CONTEXT)).ok
   ).toBe(true);
@@ -231,7 +231,7 @@ test("appendFile appends to a file and creates a missing one", async () => {
 });
 
 test("a missing file fails with not_found", async () => {
-  const env = createLibraryEnv({ ops: boundOps() });
+  const env = createLibraryEnv({ ops: boundOps(), workspaceId: WORKSPACE });
   const read = await env.readTextFile(
     "/library/missing.md",
     BACKGROUND_CONTEXT
@@ -240,7 +240,7 @@ test("a missing file fails with not_found", async () => {
 });
 
 test("listDir lists the names and kinds of a folder", async () => {
-  const env = createLibraryEnv({ ops: boundOps() });
+  const env = createLibraryEnv({ ops: boundOps(), workspaceId: WORKSPACE });
   await service.write(user, "docs/a.md", bytes("a"));
   await service.write(user, "root.txt", bytes("r"));
 
@@ -254,4 +254,10 @@ test("listDir lists the names and kinds of a folder", async () => {
       { kind: "file", name: "root.txt" },
     ]);
   }
+});
+
+test("two workspaces get different environment ids", () => {
+  const first = createLibraryEnv({ ops: boundOps(), workspaceId: "w1" });
+  const second = createLibraryEnv({ ops: boundOps(), workspaceId: "w2" });
+  expect(first.id).not.toBe(second.id);
 });
