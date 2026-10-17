@@ -9,6 +9,7 @@ import { managedKeysRouter } from "./managed-keys-router.ts";
 import { runsRouter } from "./runs-router.ts";
 import { secretsRouter } from "./secrets-router.ts";
 import { sessionsRouter } from "./sessions-router.ts";
+import { skillStoreRouter } from "./skill-store-router.ts";
 import { skillsRouter } from "./skills-router.ts";
 import { slackAppsRouter } from "./slack-apps-router.ts";
 
@@ -22,6 +23,7 @@ export const runtimeRouter = router({
   runs: runsRouter,
   secrets: secretsRouter,
   sessions: sessionsRouter,
+  skillStore: skillStoreRouter,
   skills: skillsRouter,
   slackApps: slackAppsRouter,
 });

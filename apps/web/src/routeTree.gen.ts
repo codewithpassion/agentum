@@ -30,6 +30,8 @@ import { Route as AppSettingsApiKeysRouteImport } from './routes/_app/settings.a
 import { Route as AppSettingsConnectedAppsRouteImport } from './routes/_app/settings.connected-apps'
 import { Route as AppSettingsManagedAgentsRouteImport } from './routes/_app/settings.managed-agents'
 import { Route as AppSettingsSecretsRouteImport } from './routes/_app/settings.secrets'
+import { Route as AppSkillsIndexRouteImport } from './routes/_app/skills.index'
+import { Route as AppSkillsSkillIdRouteImport } from './routes/_app/skills.$skillId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -137,6 +139,16 @@ const AppSettingsSecretsRoute = AppSettingsSecretsRouteImport.update({
   path: '/settings/secrets',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSkillsIndexRoute = AppSkillsIndexRouteImport.update({
+  id: '/skills/',
+  path: '/skills/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSkillsSkillIdRoute = AppSkillsSkillIdRouteImport.update({
+  id: '/skills/$skillId',
+  path: '/skills/$skillId',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -158,7 +170,9 @@ export interface FileRoutesByFullPath {
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/settings/managed-agents': typeof AppSettingsManagedAgentsRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
+  '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/agents/': typeof AppAgentsIndexRoute
+  '/skills/': typeof AppSkillsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -180,7 +194,9 @@ export interface FileRoutesByTo {
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/settings/managed-agents': typeof AppSettingsManagedAgentsRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
+  '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/agents': typeof AppAgentsIndexRoute
+  '/skills': typeof AppSkillsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -204,7 +220,9 @@ export interface FileRoutesById {
   '/_app/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/_app/settings/managed-agents': typeof AppSettingsManagedAgentsRoute
   '/_app/settings/secrets': typeof AppSettingsSecretsRoute
+  '/_app/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
+  '/_app/skills/': typeof AppSkillsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -228,7 +246,9 @@ export interface FileRouteTypes {
     | '/settings/connected-apps'
     | '/settings/managed-agents'
     | '/settings/secrets'
+    | '/skills/$skillId'
     | '/agents/'
+    | '/skills/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -250,7 +270,9 @@ export interface FileRouteTypes {
     | '/settings/connected-apps'
     | '/settings/managed-agents'
     | '/settings/secrets'
+    | '/skills/$skillId'
     | '/agents'
+    | '/skills'
   id:
     | '__root__'
     | '/'
@@ -273,7 +295,9 @@ export interface FileRouteTypes {
     | '/_app/settings/connected-apps'
     | '/_app/settings/managed-agents'
     | '/_app/settings/secrets'
+    | '/_app/skills/$skillId'
     | '/_app/agents/'
+    | '/_app/skills/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -434,6 +458,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsSecretsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/skills/': {
+      id: '/_app/skills/'
+      path: '/skills'
+      fullPath: '/skills/'
+      preLoaderRoute: typeof AppSkillsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/skills/$skillId': {
+      id: '/_app/skills/$skillId'
+      path: '/skills/$skillId'
+      fullPath: '/skills/$skillId'
+      preLoaderRoute: typeof AppSkillsSkillIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -452,7 +490,9 @@ interface AppRouteChildren {
   AppSettingsConnectedAppsRoute: typeof AppSettingsConnectedAppsRoute
   AppSettingsManagedAgentsRoute: typeof AppSettingsManagedAgentsRoute
   AppSettingsSecretsRoute: typeof AppSettingsSecretsRoute
+  AppSkillsSkillIdRoute: typeof AppSkillsSkillIdRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
+  AppSkillsIndexRoute: typeof AppSkillsIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -470,7 +510,9 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsConnectedAppsRoute: AppSettingsConnectedAppsRoute,
   AppSettingsManagedAgentsRoute: AppSettingsManagedAgentsRoute,
   AppSettingsSecretsRoute: AppSettingsSecretsRoute,
+  AppSkillsSkillIdRoute: AppSkillsSkillIdRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
+  AppSkillsIndexRoute: AppSkillsIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
@@ -486,13 +528,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

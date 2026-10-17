@@ -1377,6 +1377,62 @@ export const createSkillsStoreService = ({
     return resolved.filter((skill) => skill !== null);
   };
 
+  /**
+   * Every assignment in the workspace, so a page can show who carries which
+   * skill. A run sees only its own agent's.
+   */
+  const assignments = async (
+    principal: Principal
+  ): Promise<AssignmentRecord[]> => {
+    const c = memberOf(principal, "skills.read", false);
+    await ensureMigrated(principal);
+    const rows = await db
+      .select({
+        agentId: skillAssignments.agentId,
+        pinnedVersion: skillVersions.number,
+        skillId: skillAssignments.skillId,
+      })
+      .from(skillAssignments)
+      .innerJoin(skills, eq(skills.id, skillAssignments.skillId))
+      .leftJoin(
+        skillVersions,
+        eq(skillVersions.id, skillAssignments.pinnedVersionId)
+      )
+      .where(
+        and(
+          eq(skillAssignments.workspaceId, c.workspaceId),
+          eq(skills.deleted, false),
+          c.agentId === null
+            ? undefined
+            : eq(skillAssignments.agentId, c.agentId)
+        )
+      )
+      .orderBy(asc(skillAssignments.agentId), asc(skillAssignments.skillId));
+    return rows;
+  };
+
+  /** The versions waiting for a decision, newest first. A run sees only its own agent's. */
+  const proposals = async (principal: Principal): Promise<VersionRecord[]> => {
+    const c = memberOf(principal, "skills.read", false);
+    await ensureMigrated(principal);
+    const rows = await db
+      .select({ version: skillVersions })
+      .from(skillVersions)
+      .innerJoin(skills, eq(skills.id, skillVersions.skillId))
+      .where(
+        and(
+          eq(skillVersions.workspaceId, c.workspaceId),
+          eq(skillVersions.status, "proposed"),
+          eq(skills.deleted, false)
+        )
+      )
+      .orderBy(desc(skillVersions.createdAt), desc(skillVersions.number));
+    return rows
+      .map((row) => row.version)
+      .filter((version) => visibleTo(c, version))
+      .map(toVersionRecord);
+  };
+
   // --- archives ---
 
   const IMPORT_MESSAGE = "Imported from a .skill file";
@@ -1512,6 +1568,7 @@ export const createSkillsStoreService = ({
   return {
     approve,
     assign,
+    assignments,
     commit,
     create,
     diff,
@@ -1522,6 +1579,7 @@ export const createSkillsStoreService = ({
     log,
     migrateLibrary,
     pin,
+    proposals,
     reject,
     revert,
     show,

@@ -28,3 +28,11 @@ export type LibraryFileView = RouterOutputs["library"]["read"];
 export type SkillEntry = RouterOutputs["skills"]["list"][number];
 export type SkillTreeFile = RouterOutputs["skills"]["files"][number];
 export type SkillFileView = RouterOutputs["skills"]["readFile"];
+export type SkillSummary = RouterOutputs["skillStore"]["list"][number];
+export type SkillVersion = RouterOutputs["skillStore"]["log"][number];
+export type SkillVersionFile =
+  RouterOutputs["skillStore"]["show"]["files"][number];
+export type SkillDiffResult = RouterOutputs["skillStore"]["diff"];
+export type SkillAssignment =
+  RouterOutputs["skillStore"]["assignments"][number];
+export type AgentSkill = RouterOutputs["skillStore"]["forAgent"][number];

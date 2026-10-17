@@ -32,7 +32,8 @@ type LibraryEntry = LibraryFileView["entry"];
 
 /** How the panel reads, writes and deletes its file. Build it once per file, since the panel reloads when it changes. */
 export interface FilePanelIo {
-  downloadHref: string;
+  /** Left out, the panel shows no download button. */
+  downloadHref?: string;
   read: () => Promise<LibraryFileView>;
   remove: () => Promise<void>;
   write: (draft: string, ifEtag: string | undefined) => Promise<LibraryEntry>;
@@ -58,8 +59,17 @@ const libraryIo = (path: string): FilePanelIo => ({
 const NOT_EDITABLE =
   "This file is too large or not text, so it opens as a download only.";
 
+/** Words for the save button and its confirmation, for callers that stage a change instead of saving it. */
+export interface SaveLabels {
+  save: string;
+  saved: string;
+}
+
+const SAVE_LABELS: SaveLabels = { save: "Save", saved: "Saved." };
+
 interface LibraryFilePanelProps {
   io?: FilePanelIo;
+  labels?: SaveLabels;
   onChanged: () => void;
   onClosed: () => void;
   path: string;
@@ -68,6 +78,7 @@ interface LibraryFilePanelProps {
 /** One file of the library: its details, a download, a delete, and a text editor. */
 export function LibraryFilePanel({
   io,
+  labels = SAVE_LABELS,
   path,
   onChanged,
   onClosed,
@@ -155,6 +166,7 @@ export function LibraryFilePanel({
         <FileBody
           file={file}
           key={generation}
+          labels={labels}
           onReload={load}
           onSave={saveText}
         />
@@ -174,7 +186,7 @@ function FileHeader({
   onDelete,
   path,
 }: {
-  downloadHref: string;
+  downloadHref: string | undefined;
   entry: LibraryEntry;
   onDelete: () => Promise<void>;
   path: string;
@@ -189,14 +201,16 @@ function FileHeader({
         </p>
       </div>
       <div className="flex items-center gap-2">
-        <a
-          className={buttonVariants({ size: "sm", variant: "outline" })}
-          data-testid="library-download"
-          download
-          href={downloadHref}
-        >
-          Download
-        </a>
+        {downloadHref === undefined ? null : (
+          <a
+            className={buttonVariants({ size: "sm", variant: "outline" })}
+            data-testid="library-download"
+            download
+            href={downloadHref}
+          >
+            Download
+          </a>
+        )}
         <DeleteFile name={name} onConfirm={onDelete} />
       </div>
     </header>
@@ -247,10 +261,12 @@ function DeleteFile({
 
 function FileBody({
   file,
+  labels,
   onReload,
   onSave,
 }: {
   file: LibraryFileView;
+  labels: SaveLabels;
   onReload: () => Promise<void>;
   onSave: (draft: string, ifEtag: string | undefined) => Promise<void>;
 }) {
@@ -260,6 +276,7 @@ function FileBody({
   return (
     <TextEditor
       entry={file.entry}
+      labels={labels}
       onReload={onReload}
       onSave={onSave}
       text={file.text}
@@ -269,11 +286,13 @@ function FileBody({
 
 function TextEditor({
   entry,
+  labels,
   onReload,
   onSave,
   text,
 }: {
   entry: LibraryEntry;
+  labels: SaveLabels;
   onReload: () => Promise<void>;
   onSave: (draft: string, ifEtag: string | undefined) => Promise<void>;
   text: string;
@@ -326,14 +345,14 @@ function TextEditor({
           onClick={save}
           type="button"
         >
-          Save
+          {labels.save}
         </Button>
         {saved ? (
           <p
             className="text-muted-foreground text-sm"
             data-testid="library-saved"
           >
-            Saved.
+            {labels.saved}
           </p>
         ) : null}
       </div>
