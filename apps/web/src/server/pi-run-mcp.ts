@@ -31,7 +31,14 @@ interface RpcReply {
   result?: unknown;
 }
 
+/** The session id of each server, by url. The value is the in-flight or finished initialize, and resolves to undefined for a stateless server. */
+export type McpSessions = Map<string, Promise<string | undefined>>;
+
 const PROTOCOL_VERSION = "2025-06-18";
+const PROTOCOL_HEADER = "Mcp-Protocol-Version";
+const SESSION_HEADER = "Mcp-Session-Id";
+// A server refuses a request whose session is missing (400) or unknown (404).
+const LOST_SESSION_STATUSES: readonly number[] = [400, 404];
 const REQUEST_ID = 1;
 const TOOL_NAME_MAX = 64;
 const SSE_DATA_PREFIX = "data:";
@@ -55,27 +62,43 @@ const replyText = (text: string): string => {
   return last === undefined ? text : last.slice(SSE_DATA_PREFIX_LENGTH).trim();
 };
 
-const rpc = async <T>(
+/** A reply with a non-ok status. The status tells a lost session apart from other failures. */
+class McpHttpError extends Error {
+  readonly status: number;
+
+  constructor(method: string, status: number) {
+    super(`MCP ${method} failed: ${status}`);
+    this.status = status;
+  }
+}
+
+const postMcp = (
   server: McpServerEntry,
   fetcher: McpFetch,
-  method: string,
-  params: unknown,
+  body: unknown,
+  extra: Record<string, string>,
   signal?: AbortSignal
-): Promise<T> => {
-  const response = await fetcher(server.url, {
-    body: JSON.stringify({ id: REQUEST_ID, jsonrpc: "2.0", method, params }),
+): Promise<Response> =>
+  fetcher(server.url, {
+    body: JSON.stringify(body),
     headers: {
       Accept: "application/json, text/event-stream",
       ...server.headers,
       "Content-Type": "application/json",
+      ...extra,
     },
     method: "POST",
     signal,
   });
-  if (!response.ok) {
-    throw new Error(`MCP ${method} failed: ${response.status}`);
-  }
-  const reply: RpcReply = JSON.parse(replyText(await response.text()));
+
+/** The headers of a request after initialize: the protocol version, and the session id when there is one. */
+const sessionHeaders = (session: string | undefined): Record<string, string> =>
+  session === undefined
+    ? { [PROTOCOL_HEADER]: PROTOCOL_VERSION }
+    : { [PROTOCOL_HEADER]: PROTOCOL_VERSION, [SESSION_HEADER]: session };
+
+const resultOf = <T>(text: string): T => {
+  const reply: RpcReply = JSON.parse(replyText(text));
   if (reply.error) {
     throw new Error(reply.error.message);
   }
@@ -83,15 +106,131 @@ const rpc = async <T>(
   return reply.result as T;
 };
 
-/** initialize, then tools/list. The servers are stateless, so no session id is kept. */
-export const listMcpTools = async (
+const rpc = async <T>(
   server: McpServerEntry,
-  fetcher: McpFetch = defaultFetch
-): Promise<McpTool[]> => {
-  await rpc(server, fetcher, "initialize", INITIALIZE_PARAMS);
-  const listed = await rpc<{ tools: McpTool[] }>(
+  fetcher: McpFetch,
+  method: string,
+  params: unknown,
+  session: string | undefined,
+  signal?: AbortSignal
+): Promise<T> => {
+  const response = await postMcp(
     server,
     fetcher,
+    { id: REQUEST_ID, jsonrpc: "2.0", method, params },
+    sessionHeaders(session),
+    signal
+  );
+  if (!response.ok) {
+    throw new McpHttpError(method, response.status);
+  }
+  return resultOf<T>(await response.text());
+};
+
+/** POSTs initialize, reads the session id, then sends notifications/initialized. Resolves to the session id, or undefined for a stateless server. */
+const initialize = async (
+  server: McpServerEntry,
+  fetcher: McpFetch
+): Promise<string | undefined> => {
+  const response = await postMcp(
+    server,
+    fetcher,
+    {
+      id: REQUEST_ID,
+      jsonrpc: "2.0",
+      method: "initialize",
+      params: INITIALIZE_PARAMS,
+    },
+    {}
+  );
+  if (!response.ok) {
+    throw new McpHttpError("initialize", response.status);
+  }
+  resultOf(await response.text());
+  const session = response.headers.get(SESSION_HEADER) ?? undefined;
+  // A notification has no reply to wait for, so a refused one is not an error.
+  await postMcp(
+    server,
+    fetcher,
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    session === undefined ? {} : sessionHeaders(session)
+  );
+  return session;
+};
+
+/**
+ * The session of a server. The first caller starts initialize and stores its
+ * promise, so concurrent callers share it. A failed initialize is removed, so the
+ * next call tries again.
+ */
+const sessionOf = (
+  server: McpServerEntry,
+  fetcher: McpFetch,
+  sessions: McpSessions
+): Promise<string | undefined> => {
+  const known = sessions.get(server.url);
+  if (known !== undefined) {
+    return known;
+  }
+  // The shared promise cannot carry the caller's AbortSignal, so initialize runs without one.
+  const started: Promise<string | undefined> = initialize(
+    server,
+    fetcher
+  ).catch((error: unknown) => {
+    if (sessions.get(server.url) === started) {
+      sessions.delete(server.url);
+    }
+    throw error;
+  });
+  sessions.set(server.url, started);
+  return started;
+};
+
+/**
+ * Sends a request in the server's session. A request that carried a session id
+ * and got 400 or 404 means the server lost the session. Then the session is
+ * initialized again and the request is sent once more. A request with no session
+ * never retries.
+ */
+const sessionRpc = async <T>(
+  server: McpServerEntry,
+  fetcher: McpFetch,
+  sessions: McpSessions,
+  method: string,
+  params: unknown,
+  signal?: AbortSignal
+): Promise<T> => {
+  const started = sessionOf(server, fetcher, sessions);
+  const session = await started;
+  try {
+    return await rpc<T>(server, fetcher, method, params, session, signal);
+  } catch (error) {
+    if (
+      session === undefined ||
+      !(error instanceof McpHttpError) ||
+      !LOST_SESSION_STATUSES.includes(error.status)
+    ) {
+      throw error;
+    }
+    // Another call may have initialized again already, and that session must stay.
+    if (sessions.get(server.url) === started) {
+      sessions.delete(server.url);
+    }
+    const renewed = await sessionOf(server, fetcher, sessions);
+    return await rpc<T>(server, fetcher, method, params, renewed, signal);
+  }
+};
+
+/** tools/list in the server's session, initialized first if the session is not known yet. */
+export const listMcpTools = async (
+  server: McpServerEntry,
+  fetcher: McpFetch = defaultFetch,
+  sessions: McpSessions = new Map()
+): Promise<McpTool[]> => {
+  const listed = await sessionRpc<{ tools: McpTool[] }>(
+    server,
+    fetcher,
+    sessions,
     "tools/list",
     {}
   );
@@ -117,13 +256,14 @@ export const syncMcpTools = async (
   servers: Record<string, McpServerEntry>,
   known: ServerTools,
   fetcher: McpFetch = defaultFetch,
-  onDown: (key: string, error: unknown) => void = () => undefined
+  onDown: (key: string, error: unknown) => void = () => undefined,
+  sessions: McpSessions = new Map()
 ): Promise<ServerTools> => {
   // Each listing carries its key, so a failure can be matched to its server. The
   // handlers never throw, so Promise.all waits for every server, like allSettled.
   const listings: Listing[] = await Promise.all(
     Object.entries(servers).map(([key, server]) =>
-      listMcpTools(server, fetcher).then(
+      listMcpTools(server, fetcher, sessions).then(
         (tools): Listing => ({ key, tools }),
         (error: unknown): Listing => ({ error, key })
       )
@@ -232,14 +372,16 @@ const contentText = (content: readonly ContentPart[]): string =>
 
 /**
  * One Pi tool per MCP tool. `getServer` runs on every call, so a run token that
- * changes is picked up and never baked into the tool list.
+ * changes is picked up and never baked into the tool list. The sessions are keyed
+ * by url, so a changed token still uses the same session.
  */
 export const mcpToolRegistrations = (
   serverKey: string,
   tools: readonly McpTool[],
   getServer: () => Promise<McpServerEntry>,
   fetcher: McpFetch = defaultFetch,
-  onCallError?: () => void
+  onCallError?: () => void,
+  sessions: McpSessions = new Map()
 ): ToolRegistration[] => {
   // Cutting a long name can make two tools of a server collide, and the registry refuses a repeat.
   const taken = new Set<string>();
@@ -250,9 +392,10 @@ export const mcpToolRegistrations = (
         const server = await getServer();
         let result: ToolCallResult;
         try {
-          result = await rpc<ToolCallResult>(
+          result = await sessionRpc<ToolCallResult>(
             server,
             fetcher,
+            sessions,
             "tools/call",
             { arguments: args, name: tool.name },
             context.abortSignal
