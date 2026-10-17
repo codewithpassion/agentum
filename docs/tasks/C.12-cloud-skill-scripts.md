@@ -3,7 +3,7 @@ id: C.12
 title: Run skill TypeScript scripts for cloud agents in a short-lived sandbox
 milestone: C
 size: L
-status: in_progress
+status: done
 depends_on: [C.8, C.11]
 branch: task/C.12-cloud-skill-scripts
 ---
@@ -28,3 +28,4 @@ Unit tests for the tool with the backend behind a port and a fake behind it: fil
 ## Log
 - 2026-10-17: added at Dom's request; dispatched on task/C.12-cloud-skill-scripts.
 - 2026-10-17: Dom: scripts need network; network on.
+- 2026-10-17: review clean after 1 fix round at 2c32038 (docs/reviews/tasks/C.12.md). Merged. Backend: Dynamic Worker (Worker Loader), types stripped with sucrase, network on, no secrets.
