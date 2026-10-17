@@ -146,6 +146,7 @@ describe("syncAgent", () => {
       mcpServers: MCP_SERVERS,
       model: AGENT_MODEL,
       name: "Ada",
+      skills: [],
       system: "be helpful",
     });
 
@@ -169,6 +170,7 @@ describe("syncAgent", () => {
       mcpServers: MCP_SERVERS,
       model: AGENT_MODEL,
       name: "Ada",
+      skills: [],
       system: "be helpful",
     });
 
@@ -209,6 +211,7 @@ describe("syncAgent", () => {
       mcpServers: [],
       model: "claude-opus-5-5",
       name: "Ada",
+      skills: [],
       system: "be helpful",
     });
 
@@ -221,6 +224,7 @@ describe("syncAgent", () => {
       mcpServers: [],
       model: AGENT_MODEL,
       name: "Ada",
+      skills: [],
       system: "be helpful",
     });
 
@@ -257,6 +261,7 @@ describe("registerAgent", () => {
       mcpServers: [],
       model: "claude-haiku-5-5",
       name: "Ada",
+      skills: [],
       system: "be helpful",
     });
 
@@ -270,6 +275,7 @@ describe("registerAgent", () => {
       mcpServers: MCP_SERVERS,
       model: AGENT_MODEL,
       name: "Ada",
+      skills: [],
       system: "be helpful",
     });
 
@@ -307,6 +313,7 @@ describe("registerAgent", () => {
       mcpServers: [],
       model: AGENT_MODEL,
       name: "Ada",
+      skills: [],
       system: "be helpful",
     });
 
@@ -727,6 +734,160 @@ describe("sendMessage", () => {
         },
         sessionId: "sesn_1",
       },
+    ]);
+  });
+});
+
+describe("agent skills", () => {
+  const SKILLS = [{ skillId: "skill_1", version: "3" }];
+  const created: Record<string, unknown>[] = [];
+  const updates: Record<string, unknown>[] = [];
+  const gateway = createManagedGateway(
+    client({
+      agents: {
+        create: (body: Record<string, unknown>) => {
+          created.push(body);
+          return Promise.resolve({ id: "agt_1" });
+        },
+        update: (_id: string, body: Record<string, unknown>) => {
+          updates.push(body);
+          return Promise.resolve({});
+        },
+      },
+    }),
+    { cache: memoryCache(), environmentName: "harbourmaster" }
+  );
+
+  test("registerAgent leaves skills out when there are none", async () => {
+    await gateway.registerAgent({
+      instructions: "be helpful",
+      mcpServers: [],
+      model: AGENT_MODEL,
+      name: "Ada",
+      skills: [],
+      system: "be helpful",
+    });
+
+    expect(created.at(-1)).not.toHaveProperty("skills");
+  });
+
+  test("registerAgent pins each skill to its version", async () => {
+    await gateway.registerAgent({
+      instructions: "be helpful",
+      mcpServers: [],
+      model: AGENT_MODEL,
+      name: "Ada",
+      skills: SKILLS,
+      system: "be helpful",
+    });
+
+    expect(created.at(-1)?.skills).toEqual([
+      { skill_id: "skill_1", type: "custom", version: "3" },
+    ]);
+  });
+
+  test("syncAgent always sends skills, so an empty array detaches them", async () => {
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      mcpServers: [],
+      model: AGENT_MODEL,
+      name: "Ada",
+      skills: [],
+      system: "be helpful",
+    });
+
+    expect(updates.at(-1)).toHaveProperty("skills", []);
+  });
+
+  test("syncAgent pins each skill to its version", async () => {
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      mcpServers: [],
+      model: AGENT_MODEL,
+      name: "Ada",
+      skills: SKILLS,
+      system: "be helpful",
+    });
+
+    expect(updates.at(-1)?.skills).toEqual([
+      { skill_id: "skill_1", type: "custom", version: "3" },
+    ]);
+  });
+});
+
+describe("createSkill", () => {
+  test("names every file under the skill name and keeps its path below it", async () => {
+    const created: { display_title: string; files: File[] }[] = [];
+    const gateway = createManagedGateway(
+      client({
+        skills: {
+          create: (body: { display_title: string; files: File[] }) => {
+            created.push(body);
+            return Promise.resolve({ id: "skill_1", latest_version: "1" });
+          },
+        },
+      }),
+      { cache: memoryCache(), environmentName: "harbourmaster" }
+    );
+
+    const result = await gateway.createSkill({
+      displayTitle: "Greeter",
+      files: [
+        {
+          content: new TextEncoder().encode("---\nname: greeter\n---"),
+          path: "SKILL.md",
+        },
+        {
+          content: new TextEncoder().encode("console.log('hi')"),
+          path: "scripts/hello.ts",
+        },
+      ],
+      name: "greeter",
+    });
+
+    expect(result).toEqual({ skillId: "skill_1", version: "1" });
+    expect(created.at(-1)?.display_title).toBe("Greeter");
+    expect(created.at(-1)?.files.map((file) => [file.name, file.type])).toEqual(
+      [
+        ["greeter/SKILL.md", "text/markdown"],
+        ["greeter/scripts/hello.ts", "application/octet-stream"],
+      ]
+    );
+  });
+});
+
+describe("deleteSkill", () => {
+  test("deletes every version before the skill itself", async () => {
+    const log: string[] = [];
+    const gateway = createManagedGateway(
+      client({
+        skills: {
+          delete: (skillId: string) => {
+            log.push(`skill:${skillId}`);
+            return Promise.resolve({});
+          },
+          versions: {
+            delete: (version: string, params: { skill_id: string }) => {
+              log.push(`version:${params.skill_id}:${version}`);
+              return Promise.resolve({});
+            },
+            list: (skillId: string) => {
+              log.push(`list:${skillId}`);
+              return iterate([{ version: "1" }, { version: "2" }]);
+            },
+          },
+        },
+      }),
+      { cache: memoryCache(), environmentName: "harbourmaster" }
+    );
+
+    await gateway.deleteSkill("skill_1");
+
+    expect(log).toEqual([
+      "list:skill_1",
+      "version:skill_1:1",
+      "version:skill_1:2",
+      "skill:skill_1",
     ]);
   });
 });
