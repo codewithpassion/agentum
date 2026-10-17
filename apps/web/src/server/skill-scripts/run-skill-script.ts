@@ -28,6 +28,21 @@ export interface ScriptLimits {
   timeoutMs: number;
 }
 
+/** The two sentences of the tool's guidance that depend on where the script runs. */
+export interface ScriptTexts {
+  /** The tool description's sentence on what the script can import and use. */
+  capabilities: string;
+  /** What the script sees, said in the prompt section. The time cap is added after it. */
+  surroundings: string;
+}
+
+export const ISOLATE_SCRIPT_TEXTS: ScriptTexts = {
+  capabilities:
+    "The script can import its own skill files (write the file extension, as in ./lib.ts) and use standard web APIs and fetch. No other packages.",
+  surroundings:
+    "The script sees only the skill's own files, has network access and no secrets",
+};
+
 export const SCRIPT_LIMITS: ScriptLimits = {
   graceMs: 2000,
   maxOutputBytes: 64 * 1024,
@@ -153,17 +168,17 @@ export const skillScriptsExtension = (
   skills: readonly SkillSummary[],
   port: SkillsPort,
   sandbox: SkillScriptSandbox,
-  limits: ScriptLimits = SCRIPT_LIMITS
+  limits: ScriptLimits = SCRIPT_LIMITS,
+  texts: ScriptTexts = ISOLATE_SCRIPT_TEXTS
 ): Extension => {
   if (skills.length === 0) {
     return { name: SKILL_SCRIPTS_EXTENSION };
   }
   const skillsByName = new Map(skills.map((skill) => [skill.name, skill]));
-  const prompt = `Scripts written in TypeScript or JavaScript in a skill are run with ${TOOL_NAME}, not read and imitated. The script sees only the skill's own files, has network access and no secrets, and runs for at most ${limits.timeoutMs / 1000} seconds.`;
+  const prompt = `Scripts written in TypeScript or JavaScript in a skill are run with ${TOOL_NAME}, not read and imitated. ${texts.surroundings}, and runs for at most ${limits.timeoutMs / 1000} seconds.`;
 
   const run = defineTool({
-    description:
-      "Runs a skill's TypeScript or JavaScript script and returns its exit code, stdout and stderr. Give the path relative to the skill folder, as activate_skill lists it. args become process.argv from index 2. The script can import its own skill files (write the file extension, as in ./lib.ts) and use standard web APIs and fetch. No other packages.",
+    description: `Runs a skill's TypeScript or JavaScript script and returns its exit code, stdout and stderr. Give the path relative to the skill folder, as activate_skill lists it. args become process.argv from index 2. ${texts.capabilities}`,
     execute: async (args) => {
       const skill = skillsByName.get(args.skill);
       if (skill === undefined) {
@@ -198,6 +213,7 @@ export const skillScriptsExtension = (
             entry,
             files,
             maxOutputBytes: limits.maxOutputBytes,
+            skill: skill.name,
             timeoutMs: limits.timeoutMs,
           }),
           limits

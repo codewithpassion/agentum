@@ -35,6 +35,9 @@ function NewAgent() {
         ...(values.runtime === "machine"
           ? { machineId: values.machineId }
           : {}),
+        ...(values.runtime === "cloud"
+          ? { runtimeConfig: { environment: values.environment } }
+          : {}),
       });
       await navigate({ to: "/agents/$agentId", params: { agentId: agent.id } });
     },

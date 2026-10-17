@@ -168,6 +168,13 @@ describe("skillScriptsExtension", () => {
     });
   });
 
+  test("the sandbox is told the skill's name", async () => {
+    const sandbox = fakeSandbox();
+    const extension = await extensionFor(SKILL_FILES, sandbox);
+    await execute(extension, { path: "scripts/hello.ts", skill: "shout" });
+    expect(onlyCall(sandbox).skill).toBe("shout");
+  });
+
   test("args default to none when the call leaves them out", async () => {
     const sandbox = fakeSandbox();
     const extension = await extensionFor(SKILL_FILES, sandbox);

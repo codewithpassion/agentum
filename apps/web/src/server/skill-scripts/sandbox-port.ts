@@ -13,6 +13,8 @@ export interface SandboxRunInput {
   files: SandboxFile[];
   /** What the caller shows of each of stdout and stderr. A backend keeps at least this much of each, and may cap far above it to protect its own memory. */
   maxOutputBytes: number;
+  /** The name of the skill, which is also its folder. A backend with a file system of its own places `files` in that folder. */
+  skill: string;
   /** Wall time for the run. When it passes, a backend gives up on the script and reports exit code 124. */
   timeoutMs: number;
 }

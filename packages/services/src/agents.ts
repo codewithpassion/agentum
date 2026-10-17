@@ -11,6 +11,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
+import { cloudEnvironmentError } from "./cloud/environment.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import type { Principal } from "./workspaces.ts";
@@ -32,6 +33,14 @@ const instructionsSchema = z.string().max(50_000);
 const modelSchema = z.string().min(1).max(100);
 const machineIdSchema = z.string().min(1).max(200);
 const runtimeConfigSchema = z.record(z.string(), z.json());
+
+/** Fails an agent whose `runtimeConfig` names a cloud environment that does not exist. */
+const assertRuntimeConfig = (runtimeConfig: Record<string, unknown>): void => {
+  const issue = cloudEnvironmentError(runtimeConfig);
+  if (issue !== undefined) {
+    throw new ServiceError("invalid", issue);
+  }
+};
 
 export interface AgentRecord {
   createdAt: string;
@@ -213,6 +222,7 @@ export const createAgentsService = ({
     const parsed = agentCreateSchema.parse(input);
     const { workspaceId } = user;
     authorize(user, AGENT_CREATE, { kind: AGENT_KIND, workspaceId });
+    assertRuntimeConfig(parsed.runtimeConfig);
 
     const machineId = parsed.machineId ?? null;
     if (parsed.runtime === "machine") {
@@ -348,6 +358,9 @@ export const createAgentsService = ({
     const current = await findAgent(db, { id, workspaceId });
     if (!current) {
       throw new ServiceError("not_found", "Agent not found");
+    }
+    if (parsed.runtimeConfig !== undefined) {
+      assertRuntimeConfig(parsed.runtimeConfig);
     }
     if (parsed.machineId !== undefined) {
       await assertMachinePatch(current.runtime, parsed.machineId, workspaceId);

@@ -1,3 +1,4 @@
+import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -41,12 +42,20 @@ function SettingsPanel({ agent }: AgentTabProps) {
           ...(agent.runtime === "machine"
             ? { machineId: values.machineId }
             : {}),
+          ...(agent.runtime === "cloud"
+            ? {
+                runtimeConfig: {
+                  ...agent.runtimeConfig,
+                  environment: values.environment,
+                },
+              }
+            : {}),
         },
       });
       await router.invalidate();
       toast.success("Saved");
     },
-    [agent.id, agent.runtime, router]
+    [agent.id, agent.runtime, agent.runtimeConfig, router]
   );
 
   let body: ReactNode;
@@ -58,6 +67,7 @@ function SettingsPanel({ agent }: AgentTabProps) {
     body = (
       <AgentForm
         initial={{
+          environment: cloudEnvironmentOf(agent.runtimeConfig),
           instructions: agent.instructions,
           machineId: agent.machineId ?? "",
           model: agent.model,
