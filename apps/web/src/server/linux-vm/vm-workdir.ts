@@ -1,3 +1,4 @@
+import type { PiInput } from "../pi-run-files.ts";
 import type { SkillSummary, SkillsPort } from "../pi-run-skills.ts";
 import { type LinuxVm, VM_WORKDIR } from "./vm-port.ts";
 
@@ -93,7 +94,8 @@ const claimName = (used: Set<string>, name: string): string => {
 /**
  * Writes the run's input files to `${VM_WORKDIR}/input` and returns their
  * absolute paths, in the order given. The folder is kept, so files of earlier
- * runs in the session stay.
+ * runs in the session stay. Names are made unique within one call only: a file
+ * of a later run with the same name replaces the earlier one.
  */
 export const placeInputFiles = async (
   vm: LinuxVm,
@@ -107,4 +109,26 @@ export const placeInputFiles = async (
   }));
   await Promise.all(placed.map(({ bytes, path }) => vm.writeFile(path, bytes)));
   return placed.map(({ path }) => path);
+};
+
+/** The message with a line saying where the attached files are in the VM, added to its first text. */
+export const withPlacedPaths = (
+  content: PiInput,
+  paths: readonly string[]
+): PiInput => {
+  if (paths.length === 0) {
+    return content;
+  }
+  const note = `\n\nThe attached files are also in the Linux VM at: ${paths.join(", ")}`;
+  if (typeof content === "string") {
+    return `${content}${note}`;
+  }
+  let noted = false;
+  return content.map((block) => {
+    if (noted || block.type !== "text") {
+      return block;
+    }
+    noted = true;
+    return { ...block, text: `${block.text}${note}` };
+  });
 };

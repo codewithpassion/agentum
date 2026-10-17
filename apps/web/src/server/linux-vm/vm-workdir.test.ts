@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { SkillSummary, SkillsPort } from "../pi-run-skills.ts";
 import { bytesOf, createFakeVm, textOf } from "./fake-vm.ts";
-import { placeInputFiles, placeSkills } from "./vm-workdir.ts";
+import { placeInputFiles, placeSkills, withPlacedPaths } from "./vm-workdir.ts";
 
 const SKILLS = "/workspace/skills";
 const INPUT = "/workspace/input";
@@ -185,5 +185,33 @@ describe("placeInputFiles", () => {
     expect(paths).toEqual([]);
     expect(vm.folders.has(INPUT)).toBe(true);
     expect(vm.files.size).toBe(0);
+  });
+});
+
+describe("withPlacedPaths", () => {
+  test("adds the paths to a text message", () => {
+    expect(withPlacedPaths("hello", ["/workspace/input/a.txt"])).toBe(
+      "hello\n\nThe attached files are also in the Linux VM at: /workspace/input/a.txt"
+    );
+  });
+
+  test("adds the paths to the first text block only and leaves images alone", () => {
+    const image = { data: "x", mimeType: "image/png", type: "image" } as const;
+    const result = withPlacedPaths(
+      [{ text: "see", type: "text" }, image, { text: "more", type: "text" }],
+      ["/workspace/input/a.png", "/workspace/input/b.txt"]
+    );
+    expect(result).toEqual([
+      {
+        text: "see\n\nThe attached files are also in the Linux VM at: /workspace/input/a.png, /workspace/input/b.txt",
+        type: "text",
+      },
+      image,
+      { text: "more", type: "text" },
+    ]);
+  });
+
+  test("changes nothing when no file was placed", () => {
+    expect(withPlacedPaths("hello", [])).toBe("hello");
   });
 });

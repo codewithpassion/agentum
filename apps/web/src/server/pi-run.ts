@@ -25,7 +25,11 @@ import { createVmEnv } from "./linux-vm/vm-env.ts";
 import type { LinuxVm } from "./linux-vm/vm-port.ts";
 import { vmSkillSandbox } from "./linux-vm/vm-skill-sandbox.ts";
 import { VM_SCRIPT_TEXTS } from "./linux-vm/vm-tools.ts";
-import { placeInputFiles, placeSkills } from "./linux-vm/vm-workdir.ts";
+import {
+  placeInputFiles,
+  placeSkills,
+  withPlacedPaths,
+} from "./linux-vm/vm-workdir.ts";
 import {
   createRunCore,
   type PiPort,
@@ -387,13 +391,13 @@ export class PiRun extends DurableObject<Env> {
       },
     });
     try {
-      await placeInputFiles(vm, placed);
+      return withPlacedPaths(content, await placeInputFiles(vm, placed));
     } catch (error) {
       console.warn(
         `PiRun: input files of run ${run.runId} not placed in the VM: ${error instanceof Error ? error.message : String(error)}`
       );
+      return content;
     }
-    return content;
   }
 
   async #loadAndInstallSkills(input: CloudStart) {

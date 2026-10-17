@@ -65,10 +65,13 @@ export class VmSession extends DurableObject<Env> {
         });
         // A container that dies on its own (a bad image, an out of memory kill) says why only here.
         container.monitor().catch((error: unknown) => {
-          console.error(
-            "VmSession: the container stopped",
-            error instanceof Error ? error.message : String(error)
-          );
+          // `destroy(reason)` rejects with its reason, a string: that is our own stop, not a failure.
+          if (typeof error !== "string") {
+            console.error(
+              "VmSession: the container stopped",
+              error instanceof Error ? error.message : String(error)
+            );
+          }
         });
       },
     };
@@ -86,6 +89,8 @@ export class VmSession extends DurableObject<Env> {
       setAlarm: (at) => ctx.storage.setAlarm(at),
       storage: ctx.storage,
     });
+    // A restarted object has lost the container's inactivity timeout, and the container would stop without a snapshot.
+    ctx.blockConcurrencyWhile(() => this.#core.wake());
   }
 
   /** The platform calls this when an alarm set by the core comes due. */

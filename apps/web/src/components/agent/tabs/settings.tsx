@@ -1,4 +1,7 @@
-import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
+import {
+  CLOUD_ENVIRONMENT_KEY,
+  cloudEnvironmentOf,
+} from "@repo/services/cloud/environment";
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -46,7 +49,7 @@ function SettingsPanel({ agent }: AgentTabProps) {
             ? {
                 runtimeConfig: {
                   ...agent.runtimeConfig,
-                  environment: values.environment,
+                  [CLOUD_ENVIRONMENT_KEY]: values.environment,
                 },
               }
             : {}),

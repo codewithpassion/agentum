@@ -266,6 +266,26 @@ test("create and update keep the cloud environment and refuse an unknown one", a
   await expect(
     service.update(user, agent.id, { runtimeConfig: { environment: 3 } })
   ).rejects.toMatchObject({ code: "invalid" });
+
+  // Only a cloud agent has an environment.
+  await expect(
+    service.create(user, {
+      model: "m",
+      name: "Fake env",
+      runtime: "fake",
+      runtimeConfig: { environment: "linux-vm" },
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+  const fake = await service.create(user, {
+    model: "m",
+    name: "Fake plain",
+    runtime: "fake",
+  });
+  await expect(
+    service.update(user, fake.id, {
+      runtimeConfig: { environment: "isolate" },
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
 });
 
 test("archive is idempotent and writes one event", async () => {

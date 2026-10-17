@@ -1,8 +1,9 @@
 /**
  * Runs a skill script in the session's Linux VM with bun. The script's files
- * go into the workdir's skills folder first, so the script sees its own skill
- * and nothing else of the session's. No `env` is passed, so it sees no variable
- * of ours. A VM that fails rejects the run, which the caller reports as a failed
+ * go into the workdir's skills folder first (a refresh of what the run start
+ * placed there), and the script runs with the workdir as its working folder, so
+ * it can read and write the session's files. No `env` is passed, so it sees no
+ * variable of ours. A VM that fails rejects the run, which the caller reports as a failed
  * sandbox.
  */
 

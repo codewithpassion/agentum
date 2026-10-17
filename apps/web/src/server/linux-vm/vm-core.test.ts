@@ -15,6 +15,7 @@ import { VM_WORKDIR, type VmExecInput, VmFileError } from "./vm-port.ts";
 const IDLE_MS = 300_000;
 const LABEL = "session-1";
 const SNAPSHOT_KEY = "snapshot";
+const PREPARED_KEY = "prepared";
 
 type ExecOptions = NonNullable<Parameters<VmContainer["exec"]>[1]>;
 
@@ -102,6 +103,10 @@ const createFakeContainer = () => {
     setInactivityTimeout: (ms: number) => {
       inactivity.push(ms);
       return Promise.resolve();
+    },
+    /** A container that is already up, as after a restart of the Durable Object. */
+    setRunning: (value: boolean) => {
+      running = value;
     },
     start: () => {
       running = true;
@@ -274,10 +279,11 @@ const lastCall = (
   return call;
 };
 
-const fileError = (code: string): Error =>
+const fileError = (code: string, path: string = VM_WORKDIR): Error =>
   Object.assign(new Error(`${code} from the VM`), {
     code,
     name: "SandboxFileError",
+    path,
   });
 
 const quietConsole = () => {
@@ -356,6 +362,56 @@ describe("createVmCore: starting", () => {
     expect(env.files.mkdirs).toEqual([
       { options: { recursive: true }, path: VM_WORKDIR },
     ]);
+  });
+});
+
+describe("createVmCore: a restart of the Durable Object", () => {
+  test("a container that is running without the prepared mark gets its readiness check, restore and workdir before the call runs", async () => {
+    const env = setup();
+    env.container.setRunning(true);
+    env.storage.set(SNAPSHOT_KEY, { dir: VM_WORKDIR, id: "snap-1" });
+
+    await env.core.list(VM_WORKDIR);
+
+    expect(env.container.starts).toBe(0);
+    expect(probesOf(env.container)).toHaveLength(1);
+    expect(env.backups.calls.restore).toEqual([
+      { dir: VM_WORKDIR, id: "snap-1" },
+    ]);
+    expect(env.storage.get(PREPARED_KEY)).toBe(true);
+  });
+
+  test("a container that is running with the prepared mark is used as it is", async () => {
+    const env = setup();
+    env.container.setRunning(true);
+    env.storage.set(PREPARED_KEY, true);
+
+    await env.core.list(VM_WORKDIR);
+
+    expect(env.container.starts).toBe(0);
+    expect(probesOf(env.container)).toHaveLength(0);
+    expect(env.files.mkdirs).toEqual([]);
+  });
+
+  test("wake sets the inactivity timeout again for a running container and does nothing for a stopped one", async () => {
+    const env = setup();
+    await env.core.wake();
+    expect(env.container.inactivity).toEqual([]);
+
+    env.container.setRunning(true);
+    await env.core.wake();
+    expect(env.container.inactivity).toEqual([IDLE_MS + 60_000]);
+  });
+
+  test("sleeping clears the prepared mark, so the next start prepares the workdir again", async () => {
+    const env = setup();
+    await env.core.list(VM_WORKDIR);
+    expect(env.storage.get(PREPARED_KEY)).toBe(true);
+
+    env.clock.now += IDLE_MS;
+    await env.core.alarm();
+
+    expect(env.storage.has(PREPARED_KEY)).toBe(false);
   });
 });
 
@@ -480,6 +536,19 @@ describe("createVmCore: the alarm and sleep", () => {
     expect(env.container.destroyed).toEqual(["idle"]);
   });
 
+  test("a backup that fails with ENOENT on another path counts as a failure", async () => {
+    quietConsole();
+    const env = setup();
+    await env.core.list(VM_WORKDIR);
+    env.backups.hooks.backupError = fileError("ENOENT", "/workspace/gone.txt");
+
+    env.clock.now += IDLE_MS;
+    await env.core.alarm();
+
+    expect(env.container.destroyed).toEqual([]);
+    expect(env.alarms.current).not.toBeNull();
+  });
+
   test("a backup that fails with SandboxFileError ENOENT counts as nothing to save: the VM is destroyed and no failure is counted", async () => {
     quietConsole();
     const env = setup();
@@ -496,7 +565,7 @@ describe("createVmCore: the alarm and sleep", () => {
 });
 
 describe("createVmCore: exec", () => {
-  test("runs the command through timeout(1) with the seconds rounded up, in the workdir, with no env key", async () => {
+  test("runs the command through timeout(1) with the seconds rounded up, in the workdir, with only a home folder as environment", async () => {
     const env = setup();
     env.container.answer = (command) =>
       command.at(-1) === "echo hi"
@@ -512,8 +581,8 @@ describe("createVmCore: exec", () => {
     const call = lastCall(env.container);
     expect(call.command).toEqual([
       "timeout",
-      "-s",
-      "KILL",
+      "-k",
+      "2",
       "91",
       "bash",
       "-c",
@@ -521,7 +590,7 @@ describe("createVmCore: exec", () => {
     ]);
     expect(call.options?.cwd).toBe(VM_WORKDIR);
     expect(call.options?.signal).toBeInstanceOf(AbortSignal);
-    expect(call.options !== undefined && "env" in call.options).toBe(false);
+    expect(call.options?.env).toEqual({ HOME: "/root" });
     expect(result).toEqual({
       exitCode: 3,
       stderr: "err",
@@ -543,9 +612,9 @@ describe("createVmCore: exec", () => {
     );
 
     const call = lastCall(env.container);
-    expect(call.command.slice(0, 4)).toEqual(["timeout", "-s", "KILL", "1"]);
+    expect(call.command.slice(0, 4)).toEqual(["timeout", "-k", "2", "1"]);
     expect(call.options?.cwd).toBe("/tmp");
-    expect(call.options?.env).toEqual({ A: "1" });
+    expect(call.options?.env).toEqual({ A: "1", HOME: "/root" });
   });
 
   test("output below the cap comes back whole and not truncated", async () => {
@@ -610,6 +679,24 @@ describe("createVmCore: exec", () => {
 
     expect(result.exitCode).toBe(124);
     expect(result.timedOut).toBe(true);
+  });
+
+  test("an exit code of 137 after the wall time is a timeout, and before it is a command that was killed", async () => {
+    const env = setup();
+    env.container.answer = (command) =>
+      command.length === 1 ? { exit: 0 } : { exit: 137 };
+    const early = await env.core.exec(input("kill -9 $$", { timeoutMs: 5000 }));
+    expect(early.timedOut).toBe(false);
+
+    env.container.answer = (command) => {
+      if (command.length > 1) {
+        env.clock.now += 5000;
+      }
+      return command.length === 1 ? { exit: 0 } : { exit: 137 };
+    };
+    const late = await env.core.exec(input("sleep 99", { timeoutMs: 5000 }));
+    expect(late.exitCode).toBe(137);
+    expect(late.timedOut).toBe(true);
   });
 
   test("a normal exit is not a timeout", async () => {

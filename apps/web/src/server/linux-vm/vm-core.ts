@@ -32,6 +32,14 @@ const ABORT_GRACE_MS = 3000;
 /** The exit code of `timeout(1)` when the command ran out of time. */
 const TIMEOUT_EXIT_CODE = 124;
 const SNAPSHOT_KEY = "snapshot";
+/** Set once the container has started and its workdir is ready, and cleared when it is destroyed. A Durable Object that restarts while the container runs reads it to tell a finished start from a cut-off one. */
+const PREPARED_KEY = "prepared";
+/** The exit code of a command that `timeout -k` had to kill: the signal number 9 plus 128. */
+const KILLED_EXIT_CODE = 137;
+/** `timeout` waits this many seconds after TERM before it kills the command. */
+const KILL_AFTER_SECONDS = 2;
+/** Commands see a home folder, so tools that keep a cache there (bun, npm, git) work. */
+const VM_HOME = "/root";
 
 export interface VmProcess {
   exitCode: Promise<number>;
@@ -132,7 +140,7 @@ const asErrorCode = (code: string): VmErrorCode =>
 /** The Sandbox SDK's `SandboxFileError`, recognised by name so this file imports nothing of it. */
 const isSandboxFileError = (
   error: unknown
-): error is Error & { code: string } =>
+): error is Error & { code: string; path?: string } =>
   error instanceof Error &&
   error.name === "SandboxFileError" &&
   "code" in error &&
@@ -226,14 +234,19 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
 
   /** Runs `true` in the container. Gives up on a container that takes the whole `probeTimeoutMs` to answer. */
   const probe = async (): Promise<boolean> => {
+    const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const expired = new Promise<boolean>((resolve) => {
-      timer = setTimeout(() => resolve(false), probeTimeoutMs);
+      timer = setTimeout(() => {
+        // The abort also ends an `exec` that is still waiting for the container, so slow starts do not pile probes up.
+        abort.abort();
+        resolve(false);
+      }, probeTimeoutMs);
     });
     try {
       return await Promise.race([
         container
-          .exec(["true"])
+          .exec(["true"], { signal: abort.signal })
           .then(async (process) => (await process.exitCode) === 0),
         expired,
       ]);
@@ -278,14 +291,18 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
   };
 
   const start = async (): Promise<void> => {
-    if (container.running) {
+    if (container.running && (await storage.get<boolean>(PREPARED_KEY))) {
       return;
     }
-    container.start();
     try {
+      // A container that is running without the mark was cut off by a restart of this object, before its workdir was ready.
+      if (!container.running) {
+        container.start();
+      }
       await container.setInactivityTimeout(inactivityMs);
       await waitReady();
       await prepareWorkdir();
+      await storage.put(PREPARED_KEY, true);
     } catch (error) {
       // A container left running would pass for a started one on the next call, with no restore.
       await container.destroy("start failed").catch(() => undefined);
@@ -320,12 +337,13 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
         input.timeoutMs + ABORT_GRACE_MS
       );
       try {
-        // `timeout` kills the command's whole process group, which an abort of the shell alone would not.
+        const startedAt = now();
+        // `timeout` ends the command's whole process group, which an abort of the shell alone would not. It sends TERM and, if that is ignored, KILL.
         const process = await container.exec(
           [
             "timeout",
-            "-s",
-            "KILL",
+            "-k",
+            String(KILL_AFTER_SECONDS),
             String(wallSeconds),
             "bash",
             "-c",
@@ -333,7 +351,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
           ],
           {
             cwd: input.cwd ?? VM_WORKDIR,
-            ...(input.env === undefined ? {} : { env: input.env }),
+            env: { HOME: VM_HOME, ...input.env },
             signal: abort.signal,
           }
         );
@@ -352,7 +370,12 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
             throw error;
           });
         const outcome = await Promise.race([finished, aborted]);
-        const timedOut = outcome === "aborted" || outcome === TIMEOUT_EXIT_CODE;
+        // After KILL, `timeout` ends with the command's group and exits 137 instead of 124.
+        const timedOut =
+          outcome === "aborted" ||
+          outcome === TIMEOUT_EXIT_CODE ||
+          (outcome === KILLED_EXIT_CODE &&
+            now() - startedAt >= input.timeoutMs);
         return {
           exitCode: outcome === "aborted" ? TIMEOUT_EXIT_CODE : outcome,
           stderr: err.capped.text(),
@@ -417,7 +440,11 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
       }
       return true;
     } catch (error) {
-      if (isSandboxFileError(error) && error.code === "ENOENT") {
+      if (
+        isSandboxFileError(error) &&
+        error.code === "ENOENT" &&
+        error.path === VM_WORKDIR
+      ) {
         // No workdir, so nothing was ever put in the VM.
         return true;
       }
@@ -442,6 +469,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
         return false;
       }
       snapshotFailures = 0;
+      await storage.delete(PREPARED_KEY);
       await container.destroy("idle");
       return true;
     });
@@ -463,6 +491,13 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     await deleteAlarm();
   };
 
+  /** Called when the Durable Object starts. A restarted object has lost the inactivity timeout of a container that is still running. */
+  const wake = async (): Promise<void> => {
+    if (container.running) {
+      await container.setInactivityTimeout(inactivityMs);
+    }
+  };
+
   return {
     alarm,
     exec,
@@ -473,6 +508,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     rename,
     sleepNow,
     stat,
+    wake,
     writeFile,
   };
 };
