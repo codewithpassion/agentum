@@ -4,11 +4,8 @@
 // by file ids. The work directory access goes through `WorkFiles`, which uses
 // plain `node:fs` on a single-user machine and sudo on a multi-user one.
 
-import {
-  extractAttachmentMarkers,
-  MAX_OUTBOUND_BYTES,
-  rejectionNote,
-} from "./attachments.ts";
+import { extractAttachmentMarkers } from "@repo/protocol/attachments";
+import { MAX_OUTBOUND_BYTES, rejectionNote } from "./attachments.ts";
 import type { FilesApi } from "./files-api.ts";
 import type { WorkFiles } from "./work-files.ts";
 import { INBOX_DIR } from "./workdir.ts";

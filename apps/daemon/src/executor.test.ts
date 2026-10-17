@@ -22,6 +22,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   ATTACHMENT_MARKER_RE,
+  extractAttachmentMarkers,
   formatAttachmentMarker,
 } from "@repo/protocol/attachments";
 import type {
@@ -39,7 +40,6 @@ import {
   AGENT_STAT,
   AS_AGENT,
 } from "./agent-user.ts";
-import { extractAttachmentMarkers } from "./attachments.ts";
 import type { Timers } from "./client.ts";
 import type { CommandRunner } from "./command.ts";
 import { type ExecuteRunDeps, executeRun, type QueryFn } from "./executor.ts";

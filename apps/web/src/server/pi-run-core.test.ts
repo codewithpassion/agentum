@@ -13,9 +13,12 @@ import {
   createRunCore,
   type PiOutcome,
   type PiPort,
+  type RunOutputs,
+  type RunRef,
   type RunStorage,
   SERVERS_KEY,
 } from "./pi-run-core.ts";
+import type { PiInput } from "./pi-run-files.ts";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -86,6 +89,12 @@ interface Submitted {
   whenBusy: "followUp" | "steer";
 }
 
+/** The text of an input, whatever blocks go with it. */
+const textOfInput = (input: PiInput): string =>
+  typeof input === "string"
+    ? input
+    : input.map((part) => (part.type === "text" ? part.text : "")).join("");
+
 /** Pi, reduced to what the runner sees: a transcript, submissions that settle when the test says so, and commit callbacks. */
 const createFakePi = () => {
   const entries: EntryRecord[] = [];
@@ -95,6 +104,7 @@ const createFakePi = () => {
   >();
   const watchers = new Set<() => Promise<void>>();
   const submitted: Submitted[] = [];
+  const inputs: PiInput[] = [];
   const aborted: string[] = [];
   const models: string[] = [];
   let nextId = 1;
@@ -139,8 +149,10 @@ const createFakePi = () => {
       models.push(model);
       return Promise.resolve();
     },
-    submit: async (text, options) => {
+    submit: async (input, options) => {
+      const text = textOfInput(input);
       submitted.push({ ...options, text });
+      inputs.push(input);
       if (submissions.has(options.operationId)) {
         return { accepted: false };
       }
@@ -180,6 +192,7 @@ const createFakePi = () => {
         submission.outcome.resolve(outcome);
       }
     },
+    inputs,
     models,
     pi,
     /** The model says something. */
@@ -251,8 +264,11 @@ interface Harness {
   fake: ReturnType<typeof createFakePi>;
   heartbeats: string[];
   ingested: { events: RunEventInput[]; runId: string }[];
+  inputs: { fileIds: readonly string[]; run: RunRef; text: string }[];
   installed: string[];
   maxInFlight: () => number;
+  outputs: { run: RunRef; text: string }[];
+  skillsInstalled: string[];
   storage: ReturnType<typeof memoryStorage>;
 }
 
@@ -262,7 +278,14 @@ const build = (
     fake?: ReturnType<typeof createFakePi>;
     heartbeat?: (runId: string) => Promise<void>;
     ingest?: (runId: string, events: RunEventInput[]) => Promise<void>;
+    inputOf?: (
+      run: RunRef,
+      text: string,
+      fileIds: readonly string[]
+    ) => Promise<PiInput>;
+    installSkills?: () => Promise<void>;
     now?: () => number;
+    outputsOf?: (run: RunRef, text: string) => Promise<RunOutputs>;
     status?: () => RunStatus;
     storage?: ReturnType<typeof memoryStorage>;
   } = {}
@@ -273,6 +296,9 @@ const build = (
   const ingested: Harness["ingested"] = [];
   const heartbeats: string[] = [];
   const installed: string[] = [];
+  const skillsInstalled: string[] = [];
+  const inputs: Harness["inputs"] = [];
+  const outputs: Harness["outputs"] = [];
   let inFlight = 0;
   let maxInFlight = 0;
   const core = createRunCore({
@@ -295,11 +321,25 @@ const build = (
         inFlight -= 1;
       }
     },
+    inputOf: (run, text, fileIds) => {
+      inputs.push({ fileIds, run, text });
+      return options.inputOf?.(run, text, fileIds) ?? Promise.resolve(text);
+    },
+    installSkills: async (input) => {
+      skillsInstalled.push(input.run.id);
+      await options.installSkills?.();
+    },
     installTools: (input) => {
       installed.push(input.run.id);
       return Promise.resolve();
     },
     now: options.now,
+    outputsOf: (run, text) => {
+      outputs.push({ run, text });
+      return (
+        options.outputsOf?.(run, text) ?? Promise.resolve({ fileIds: [], text })
+      );
+    },
     pi: fake.pi,
     sleep: () => Promise.resolve(),
     statusOf: async () =>
@@ -312,8 +352,11 @@ const build = (
     fake,
     heartbeats,
     ingested,
+    inputs,
     installed,
     maxInFlight: () => maxInFlight,
+    outputs,
+    skillsInstalled,
     storage,
   };
 };
@@ -403,7 +446,10 @@ describe("start", () => {
       complete: () => Promise.resolve(),
       heartbeat: () => Promise.resolve(),
       ingest: () => Promise.resolve(),
+      inputOf: (_run, text) => Promise.resolve(text),
+      installSkills: () => Promise.resolve(),
       installTools: () => Promise.reject(new Error("tools/list failed")),
+      outputsOf: (_run, text) => Promise.resolve({ fileIds: [], text }),
       pi: fake.pi,
       statusOf: () => Promise.resolve("running"),
       storage,
@@ -890,10 +936,13 @@ describe("resume", () => {
     const storage = memoryStorage();
     await storage.put("runs", ["run-1"]);
     await storage.put("run:run-1", {
+      agentId: "agent-1",
+      fileIds: [],
       model: "claude-test",
       startedAt: 0,
       state: "active",
       text: "hello",
+      workspaceId: "workspace-1",
     });
     const h = build({ storage });
     await h.core.resume();
@@ -927,5 +976,143 @@ describe("resume", () => {
     expect(
       second.fake.submitted.filter((s) => s.operationId === "run-1")
     ).toHaveLength(1);
+  });
+});
+
+const withFiles = (
+  runId: string,
+  fileIds: string[],
+  text = "look"
+): CloudStart => ({
+  ...startOf(runId, text),
+  inputFileIds: fileIds,
+});
+
+const IMAGE_INPUT: PiInput = [
+  { text: "look", type: "text" },
+  { data: "aGk=", mimeType: "image/png", type: "image" },
+];
+
+describe("skills", () => {
+  test("a run's skills are loaded once, and a repeated start does not load them again", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    await h.core.start(startOf("run-1"));
+    expect(h.skillsInstalled).toEqual(["run-1"]);
+    h.fake.finish("run-1", { status: "done", text: "ok" });
+    await settle();
+  });
+
+  test("a start whose skills cannot be loaded stores nothing and submits nothing", async () => {
+    const h = build({
+      installSkills: () => Promise.reject(new Error("skills list 500")),
+    });
+    await expect(h.core.start(startOf("run-1"))).rejects.toThrow("skills list");
+    expect(h.storage.data.size).toBe(0);
+    expect(h.fake.submitted).toEqual([]);
+  });
+});
+
+describe("input files", () => {
+  test("the message Pi gets is what inputOf builds from the run's files", async () => {
+    const h = build({ inputOf: () => Promise.resolve(IMAGE_INPUT) });
+    await h.core.start(withFiles("run-1", ["file-1", "file-2"]));
+    expect(h.inputs).toEqual([
+      {
+        fileIds: ["file-1", "file-2"],
+        run: {
+          agentId: "agent-1",
+          runId: "run-1",
+          workspaceId: "workspace-1",
+        },
+        text: "look",
+      },
+    ]);
+    expect(h.fake.inputs).toEqual([IMAGE_INPUT]);
+    h.fake.finish("run-1", { status: "done", text: "ok" });
+    await settle();
+  });
+
+  test("a run submitted again after a wake sends its files again", async () => {
+    const h = build({ inputOf: () => Promise.resolve(IMAGE_INPUT) });
+    await h.core.start(withFiles("run-1", ["file-1"]));
+    const second = build({
+      fake: h.fake,
+      inputOf: () => Promise.resolve(IMAGE_INPUT),
+      storage: h.storage,
+    });
+    await second.core.resume();
+    expect(second.inputs.map((call) => call.fileIds)).toEqual([["file-1"]]);
+    expect(h.fake.inputs.at(-1)).toEqual(IMAGE_INPUT);
+    h.fake.finish("run-1", { status: "done", text: "ok" });
+    await settle();
+  });
+});
+
+describe("output files", () => {
+  test("a finished run completes with the uploaded files and the cleaned answer", async () => {
+    const h = build({
+      outputsOf: () =>
+        Promise.resolve({ fileIds: ["out-1", "out-2"], text: "Here you go" }),
+    });
+    await h.core.start(startOf("run-1"));
+    await h.fake.say("Here you go\n[ATTACHMENT:/library/a.png]");
+    h.fake.finish("run-1", { status: "done", text: "unused" });
+    await settle();
+
+    expect(h.outputs).toEqual([
+      {
+        run: {
+          agentId: "agent-1",
+          runId: "run-1",
+          workspaceId: "workspace-1",
+        },
+        text: "Here you go\n[ATTACHMENT:/library/a.png]",
+      },
+    ]);
+    expect(h.completed[0]?.result).toMatchObject({
+      fileIds: ["out-1", "out-2"],
+      status: "done",
+      text: "Here you go",
+    });
+  });
+
+  test("a failed run uploads nothing", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    await h.fake.sayError("model down");
+    h.fake.finish("run-1", { reason: "model down", status: "unanswered" });
+    await settle();
+    expect(h.outputs).toEqual([]);
+    expect(h.completed[0]?.result.status).toBe("failed");
+  });
+
+  test("a completion that is tried again does not upload the files again", async () => {
+    let refusals = 3;
+    const h = build({
+      complete: () => {
+        if (refusals > 0) {
+          refusals -= 1;
+          return Promise.reject(new Error("D1 is down"));
+        }
+        return Promise.resolve();
+      },
+      outputsOf: () => Promise.resolve({ fileIds: ["out-1"], text: "cleaned" }),
+    });
+    const spy = spyOn(console, "error").mockImplementation(() => undefined);
+    await h.core.start(startOf("run-1"));
+    await h.fake.say("done [ATTACHMENT:/library/a.txt]");
+    h.fake.finish("run-1", { status: "done", text: "done" });
+    await settle();
+    expect(h.completed).toEqual([]);
+
+    await h.core.beat();
+    await settle();
+
+    expect(h.outputs).toHaveLength(1);
+    expect(h.completed.map((c) => c.result)).toMatchObject([
+      { fileIds: ["out-1"], text: "cleaned" },
+    ]);
+    spy.mockRestore();
   });
 });
