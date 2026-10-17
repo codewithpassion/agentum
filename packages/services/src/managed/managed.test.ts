@@ -32,14 +32,13 @@ import { createSecretsService, type SecretsService } from "../secrets.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { advanceCursor, eventsAfter, type SessionEvent } from "./events.ts";
 import type { ManagedGateway, SkillRef, SkillUploadFile } from "./gateway.ts";
-import { createManagedKeysService } from "./keys.ts";
+import { createManagedKeysService, NO_KEY_MESSAGE } from "./keys.ts";
 import { createManagedRuntime } from "./runtime.ts";
 import {
   BUSY_RETRY_MS,
   createManagedService,
   FAILURE_LIMIT,
   type ManagedService,
-  NO_KEY_ERROR,
   POLL_MS,
 } from "./service.ts";
 import { MANAGED_LEASE_MS, type ManagedPollerPort } from "./types.ts";
@@ -634,7 +633,7 @@ describe("a run that stops early", () => {
     await managed.step(runId);
 
     expect(runRow(runId)?.status).toBe("failed");
-    expect(runRow(runId)?.error).toBe(NO_KEY_ERROR);
+    expect(runRow(runId)?.error).toBe(NO_KEY_MESSAGE);
     expect(gateway.registered).toEqual([]);
   });
 

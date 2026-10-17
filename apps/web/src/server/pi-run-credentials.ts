@@ -1,7 +1,5 @@
 import type { Credential, CredentialStore } from "@earendil-works/pi-ai";
-
-export const NO_KEY_MESSAGE =
-  "This workspace has no Anthropic API key. Add one in Settings, Managed Agents.";
+import { NO_KEY_MESSAGE } from "@repo/services/managed/keys";
 
 const READ_ONLY_MESSAGE =
   "The Anthropic key is managed in Settings and cannot be changed from a run.";

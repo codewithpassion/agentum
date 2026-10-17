@@ -7,8 +7,9 @@ import {
   test,
 } from "bun:test";
 import type { AssistantMessage, Context } from "@earendil-works/pi-ai";
+import { NO_KEY_MESSAGE } from "@repo/services/managed/keys";
 import { serve } from "bun";
-import { NO_KEY_MESSAGE, workspaceKeyStore } from "./pi-run-credentials.ts";
+import { workspaceKeyStore } from "./pi-run-credentials.ts";
 import { createCloudModels } from "./pi-run-models.ts";
 
 const KEY = "sk-ant-test-key-1234";

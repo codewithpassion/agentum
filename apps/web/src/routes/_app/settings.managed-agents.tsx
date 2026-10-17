@@ -93,9 +93,12 @@ function ManagedAgentsPage() {
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-6">
-      <h1 className="font-heading text-3xl text-foreground">Managed Agents</h1>
+      <h1 className="font-heading text-3xl text-foreground">Anthropic</h1>
+      <h2 className="font-heading text-foreground text-xl">
+        Anthropic API key
+      </h2>
       <p className="text-muted-foreground text-sm">
-        Managed agents run on Anthropic's cloud with your workspace's own
+        Cloudflare agents and Managed Agents both run on your workspace's own
         Anthropic API key. The key is stored encrypted and is never shown again;
         only its last four characters are.
       </p>
