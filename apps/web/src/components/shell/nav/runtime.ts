@@ -16,7 +16,7 @@ export const runtimeNav: readonly NavItem[] = [
   {
     icon: Cloud,
     id: "managed-agents",
-    label: "Managed Agents",
+    label: "Anthropic",
     to: "/settings/managed-agents",
   },
   { icon: KeyRound, id: "secrets", label: "Secrets", to: "/settings/secrets" },

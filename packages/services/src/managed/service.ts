@@ -60,7 +60,7 @@ import type {
   PolledEvents,
   SkillRef,
 } from "./gateway.ts";
-import type { ManagedKeysService } from "./keys.ts";
+import { type ManagedKeysService, NO_KEY_MESSAGE } from "./keys.ts";
 import { finalReply, toRunEvents } from "./run-events.ts";
 import {
   createSkillsSync,
@@ -91,8 +91,6 @@ export const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 export const MAX_SERVERS = 20;
 const PAGE_SIZE = 500;
 
-export const NO_KEY_ERROR =
-  "This workspace has no Anthropic API key. Add one under Settings, Managed Agents.";
 const NO_BASE_URL_ERROR =
   "PUBLIC_BASE_URL is not set, so the managed agent has no address to reach the platform at.";
 const LOOPBACK_ERROR =
@@ -662,7 +660,7 @@ export const createManagedService = ({
   ): Promise<boolean> => {
     const key = await keys.resolve(run.workspaceId);
     if (!key) {
-      await failRun(run, NO_KEY_ERROR);
+      await failRun(run, NO_KEY_MESSAGE);
       return false;
     }
     if (!publicBaseUrl) {
@@ -888,7 +886,7 @@ export const createManagedService = ({
       keys.resolve(run.workspaceId),
     ]);
     if (!(key && managedRun)) {
-      await failRun(run, NO_KEY_ERROR);
+      await failRun(run, NO_KEY_MESSAGE);
       return DONE;
     }
     if (!session?.anthropicSessionId || session.closedAt) {
