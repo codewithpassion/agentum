@@ -12,6 +12,9 @@
       { "name": "PI_RUN", "class_name": "PiRun" }
     ]
   },
+  // The sandbox for skill scripts (run_skill_script): a Dynamic Worker made for
+  // each run. Needs the Workers Paid plan.
+  "worker_loaders": [{ "binding": "LOADER" }],
   // Migrations are not per environment, so they live at the top level only.
   // Never edit a tag that has shipped, add the next one.
   "migrations": [
@@ -59,6 +62,7 @@
           { "name": "PI_RUN", "class_name": "PiRun" }
         ]
       },
+      "worker_loaders": [{ "binding": "LOADER" }],
       "vars": {
         "PUBLIC_BASE_URL": "https://harbourmaster-staging.rockyshoreslabs.io"
       },
@@ -85,6 +89,7 @@
             { "name": "PI_RUN", "class_name": "PiRun" }
           ]
         },
+        "worker_loaders": [{ "binding": "LOADER" }],
         "vars": { "PUBLIC_BASE_URL": "" },
         // Previews share the staging bucket; keys are per workspace.
         "r2_buckets": [

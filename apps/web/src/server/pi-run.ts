@@ -48,6 +48,9 @@ import {
   skillsExtension,
 } from "./pi-run-skills.ts";
 
+import { dynamicWorkerSandbox } from "./skill-scripts/dynamic-worker-sandbox.ts";
+import { skillScriptsExtension } from "./skill-scripts/run-skill-script.ts";
+
 const TOOLS_KEY = "mcp-tools";
 /** The workspace of the session. An id, not a secret: the model key is read again for each model request. */
 const WORKSPACE_KEY = "workspace";
@@ -310,7 +313,11 @@ export class PiRun extends DurableObject<Env> {
 
   /** Installs the skills extension for these skills, in place of the one before. */
   #applySkills({ run, skills }: StoredSkills) {
-    this.registry.install(skillsExtension(skills, this.#skillsPort(run)));
+    const port = this.#skillsPort(run);
+    this.registry.install(skillsExtension(skills, port));
+    this.registry.install(
+      skillScriptsExtension(skills, port, dynamicWorkerSandbox(this.env.LOADER))
+    );
   }
 
   async #loadAndInstallSkills(input: CloudStart) {
