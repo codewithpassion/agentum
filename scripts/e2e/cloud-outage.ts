@@ -92,7 +92,7 @@ const describeError = (state: RunState): string =>
   state.error ? ` (${state.error})` : "";
 
 /** Polls until the run is running and holds a lease. */
-const waitUntilRunning = async (deps: OutageDeps, runId: string) => {
+export const waitUntilRunning = async (deps: OutageDeps, runId: string) => {
   const deadline = deps.now().getTime() + START_TIMEOUT_MS;
   for (;;) {
     // biome-ignore lint/performance/noAwaitInLoops: polling is sequential by nature
@@ -110,7 +110,7 @@ const waitUntilRunning = async (deps: OutageDeps, runId: string) => {
 };
 
 /** Polls until the run ends or the wait runs out. Also returns the largest lease seen. */
-const waitForEnd = async (
+export const waitForEnd = async (
   deps: OutageDeps,
   runId: string
 ): Promise<{ largestLease: number | null; state: RunState }> => {
@@ -355,7 +355,19 @@ const holdingCloudAdapter: RuntimeAdapter = {
   kind: "cloud",
 };
 
-export const main = async (argv: string[]): Promise<void> => {
+/** The dev server's port and where its logs go. */
+export interface HarnessOptions {
+  /** Name of the agent the harness creates, to tell the scripts apart in the dev database. */
+  agentName: string;
+  logDir: string;
+  port: number;
+}
+
+/** Reads `--port` and `--log-dir`. */
+export const parseHarnessArgs = (
+  argv: string[],
+  agentName: string
+): HarnessOptions => {
   const { values } = parseArgs({
     args: argv,
     options: {
@@ -368,7 +380,19 @@ export const main = async (argv: string[]): Promise<void> => {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new LocalError(`--port must be a port number, got ${values.port}`);
   }
-  const logDir = values["log-dir"] ?? DEFAULT_LOG_DIR;
+  return { agentName, logDir: values["log-dir"] ?? DEFAULT_LOG_DIR, port };
+};
+
+/**
+ * Starts the dev server, makes a cloud faux agent in the local database and
+ * hands `body` the deps it needs to drive runs and take the server down. The
+ * server stops when `body` ends.
+ */
+export const withHarness = async (
+  options: HarnessOptions,
+  body: (deps: OutageDeps) => Promise<void>
+): Promise<void> => {
+  const { agentName, logDir, port } = options;
   const orgId = requireOrgId();
   requireBaseUrl(originOf(port));
   const server = devServer(port, logDir);
@@ -389,19 +413,20 @@ export const main = async (argv: string[]): Promise<void> => {
         devFakeRuntime: false,
         gateways: [],
       });
+      const slug = `${agentName.toLowerCase().replaceAll(" ", "-")}-${Date.now()}`;
       const agent = await createAgentsService({
         db,
         events: localEvents(db),
       }).create(principal, {
         instructions: "Answer from the script.",
         model: AGENT_MODEL,
-        name: "Cloud outage faux",
+        name: agentName,
         runtime: "cloud",
-        slug: `cloud-outage-faux-${Date.now()}`,
+        slug,
       });
       process.stdout.write(`agent ${agent.id}\n`);
-      const sessionKey = `e2e-cloud-outage-${Date.now()}`;
-      await runOutage({
+      const sessionKey = `e2e-${slug}`;
+      await body({
         drive: async (action, runId) => {
           const response = await fetch(
             `${originOf(port)}/api/dev/cloud/${action}`,
@@ -448,7 +473,6 @@ export const main = async (argv: string[]): Promise<void> => {
         sleep: (ms) => systemClock.sleep(ms),
         startServer: server.start,
       });
-      process.stdout.write("cloud outage check passed\n");
     } finally {
       client.close();
       local.close();
@@ -456,6 +480,11 @@ export const main = async (argv: string[]): Promise<void> => {
   } finally {
     await server.kill();
   }
+};
+
+export const main = async (argv: string[]): Promise<void> => {
+  await withHarness(parseHarnessArgs(argv, "Cloud outage faux"), runOutage);
+  process.stdout.write("cloud outage check passed\n");
 };
 
 if (import.meta.main) {

@@ -13,6 +13,7 @@
     "clean": "bun scripts/clean.ts",
     "deploy": "turbo run deploy",
     "dev": "turbo run dev",
+    "e2e:pi-durability": "bun scripts/e2e/pi-durability.ts",
     "fix": "ultracite fix",
     "prepare": "husky && turbo run cf-typegen",
     "preview": "turbo run preview",
