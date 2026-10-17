@@ -174,17 +174,28 @@ describe("inputContent", () => {
     ]);
   });
 
-  test("an image over 5 MB is listed, not sent as a block", async () => {
-    const big = new Uint8Array(5 * MB + 1);
+  test("images past the total size budget are listed, not sent as blocks", async () => {
     const port = fakePort({
-      files: { huge: { bytes: big, mime: "image/jpeg", name: "huge.jpg" } },
-    });
-    expect(await inputContent("task", ["huge"], port)).toEqual([
-      {
-        text: "task\n\nFiles attached to this message:\n- huge.jpg (image/jpeg, id huge)",
-        type: "text",
+      files: {
+        a: {
+          bytes: new Uint8Array(700_000),
+          mime: "image/jpeg",
+          name: "a.jpg",
+        },
+        b: {
+          bytes: new Uint8Array(700_000),
+          mime: "image/jpeg",
+          name: "b.jpg",
+        },
       },
-    ]);
+    });
+    const content = await inputContent("task", ["a", "b"], port);
+    expect(content).toHaveLength(2);
+    expect(content[1]).toMatchObject({ mimeType: "image/jpeg", type: "image" });
+    expect(content[0]).toEqual({
+      text: "task\n\nFiles attached to this message:\n- a.jpg (image/jpeg, shown as an image below)\n- b.jpg (image/jpeg, id b)",
+      type: "text",
+    });
   });
 });
 
@@ -440,5 +451,22 @@ describe("read_input_file through a real harness", () => {
       .map((entry) => entry.model?.[0])
       .find((message) => message?.role === "toolResult");
     expect(textOf(toolResult?.content)).toBe("hello from the file");
+  });
+});
+
+describe("uploadOutputs count", () => {
+  test("at most 100 files go out and the rest are refused", async () => {
+    const library: Record<string, Uint8Array> = {};
+    const markers: string[] = [];
+    for (let n = 0; n < 101; n += 1) {
+      library[`f${n}.txt`] = new Uint8Array(1);
+      markers.push(`[ATTACHMENT:/library/f${n}.txt]`);
+    }
+    const result = await uploadOutputs(
+      markers.join("\n"),
+      fakePort({ library })
+    );
+    expect(result.fileIds).toHaveLength(100);
+    expect(result.text).toBe("[attachment refused: f100.txt]");
   });
 });

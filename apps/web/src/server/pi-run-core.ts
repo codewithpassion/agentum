@@ -80,7 +80,7 @@ export interface RunCoreDeps {
     text: string,
     fileIds: readonly string[]
   ) => Promise<PiInput>;
-  /** Loads the run's skills and installs them. Throws when they cannot be listed. */
+  /** Loads the run's skills and installs them. A throw is logged and the run goes on without them. */
   installSkills: (input: CloudStart) => Promise<void>;
   /** Lists the run's MCP tools and installs them. Throws when a server cannot be reached. */
   installTools: (input: CloudStart) => Promise<void>;
@@ -425,7 +425,12 @@ export const createRunCore = ({
     }
     if (!existing) {
       await installTools(input);
-      await installSkills(input);
+      // A skill list that cannot be read (over the cap, storage down) must not hold the run back: the sweep would offer it again for ever.
+      await installSkills(input).catch((error: unknown) => {
+        console.warn(
+          `PiRun: skills for run ${run.id} not loaded: ${describe(error)}`
+        );
+      });
     }
     if (!existing) {
       await save(run.id, {

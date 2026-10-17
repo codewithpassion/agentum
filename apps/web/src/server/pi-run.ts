@@ -47,10 +47,10 @@ import {
 const TOOLS_KEY = "mcp-tools";
 /** The workspace of the session. An id, not a secret: the model key is read again for each model request. */
 const WORKSPACE_KEY = "workspace";
-/** The newest run's skills: name, description and file paths. The text is read again on each call. */
+/** The skills of the run that loaded them last, with that run: a tool call knows no run of its own. The text is read again on each call. */
 const SKILLS_KEY = "skills";
-/** The newest run, whose skills and input files the agent's tools read. A tool call knows no run of its own. */
-const NEWEST_RUN_KEY = "newest-run";
+/** The run an input file belongs to, so `read_input_file` reads it as that run. */
+const inputFileKey = (fileId: string) => `input-file:${fileId}`;
 const ENTRY_PAGE = 500;
 const ANTHROPIC = "anthropic";
 const RETRY = { baseDelayMs: 1000, enabled: true, maxRetries: 3 };
@@ -61,6 +61,11 @@ const COMMIT_EVENTS = new Set([
   "message_end",
   "tool_execution_end",
 ]);
+
+interface StoredSkills {
+  run: RunRef;
+  skills: SkillSummary[];
+}
 
 /** The services see the run as its own principal, and decide what it may read and write. */
 const principalOf = (run: RunRef): Principal => ({
@@ -126,9 +131,10 @@ export class PiRun extends DurableObject<Env> {
       this.#installTools(
         (await this.ctx.storage.get<ServerTools>(TOOLS_KEY)) ?? {}
       );
-      this.#applySkills(
-        (await this.ctx.storage.get<SkillSummary[]>(SKILLS_KEY)) ?? []
-      );
+      const skills = await this.ctx.storage.get<StoredSkills>(SKILLS_KEY);
+      if (skills) {
+        this.#applySkills(skills);
+      }
       return Harness.open(
         storage,
         {
@@ -156,12 +162,8 @@ export class PiRun extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // The attachment instructions and `read_input_file` do not depend on the run.
-    this.registry.install(
-      filesExtension((fileId) =>
-        this.#filesPort(() => this.#newestRun()).download(fileId)
-      )
-    );
+    // The attachment instructions and `read_input_file` are the same for every run.
+    this.registry.install(filesExtension((fileId) => this.#readInput(fileId)));
   }
 
   /** Installs the servers whose list differs from the registry's, and removes the ones that are gone. */
@@ -224,25 +226,20 @@ export class PiRun extends DurableObject<Env> {
     return sync;
   }
 
-  async #newestRun(): Promise<RunRef> {
-    const run = await this.ctx.storage.get<RunRef>(NEWEST_RUN_KEY);
+  /** An input file, read as the run that has it. */
+  async #readInput(fileId: string) {
+    const run = await this.ctx.storage.get<RunRef>(inputFileKey(fileId));
     if (!run) {
-      throw new Error("No run has started in this session");
+      throw new Error(`${fileId} is not an input file of this session`);
     }
-    return run;
+    return this.#filesPort(() => Promise.resolve(run)).download(fileId);
   }
 
-  #skillsPort(whichRun: () => Promise<RunRef>): SkillsPort {
+  #skillsPort(run: RunRef): SkillsPort {
     const { skills } = this.#services();
     return {
-      list: async () => {
-        const run = await whichRun();
-        return skills.list(principalOf(run), run.runId);
-      },
-      read: async (path) => {
-        const run = await whichRun();
-        return skills.read(principalOf(run), run.runId, path);
-      },
+      list: () => skills.list(principalOf(run), run.runId),
+      read: (path) => skills.read(principalOf(run), run.runId, path),
     };
   }
 
@@ -281,14 +278,9 @@ export class PiRun extends DurableObject<Env> {
     };
   }
 
-  /** Installs the skills extension for these skills, in place of the one before. No skills, an extension that adds nothing. */
-  #applySkills(summaries: readonly SkillSummary[]) {
-    this.registry.install(
-      skillsExtension(
-        summaries,
-        this.#skillsPort(() => this.#newestRun())
-      )
-    );
+  /** Installs the skills extension for these skills, in place of the one before. */
+  #applySkills({ run, skills }: StoredSkills) {
+    this.registry.install(skillsExtension(skills, this.#skillsPort(run)));
   }
 
   async #loadAndInstallSkills(input: CloudStart) {
@@ -297,11 +289,10 @@ export class PiRun extends DurableObject<Env> {
       runId: input.run.id,
       workspaceId: input.run.workspaceId,
     };
-    const summaries = await loadSkills(
-      this.#skillsPort(() => Promise.resolve(run))
-    );
-    await this.ctx.storage.put(SKILLS_KEY, summaries);
-    this.#applySkills(summaries);
+    const skills = await loadSkills(this.#skillsPort(run));
+    const stored: StoredSkills = { run, skills };
+    await this.ctx.storage.put(SKILLS_KEY, stored);
+    this.#applySkills(stored);
   }
 
   /** Looks at the newest run's servers again, at most once per REFRESH_GAP_MS and never twice at a time. */
@@ -394,12 +385,16 @@ export class PiRun extends DurableObject<Env> {
           }),
         ingest: (runId, events) =>
           runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, events),
-        inputOf: (run, text, fileIds) =>
-          inputContent(
+        inputOf: async (run, text, fileIds) => {
+          await Promise.all(
+            fileIds.map((id) => this.ctx.storage.put(inputFileKey(id), run))
+          );
+          return inputContent(
             text,
             fileIds,
             this.#filesPort(() => Promise.resolve(run))
-          ),
+          );
+        },
         installSkills: (input) => this.#loadAndInstallSkills(input),
         installTools: (input) => this.#syncTools(input.mcpServers),
         outputsOf: (run, text) =>
@@ -436,11 +431,6 @@ export class PiRun extends DurableObject<Env> {
 
   async startRun(input: CloudStart): Promise<void> {
     await this.ctx.storage.put(WORKSPACE_KEY, input.run.workspaceId);
-    await this.ctx.storage.put(NEWEST_RUN_KEY, {
-      agentId: input.run.agentId,
-      runId: input.run.id,
-      workspaceId: input.run.workspaceId,
-    } satisfies RunRef);
     await this.lifecycle.start();
     await this.#runCore().start(input);
     await this.lease.schedule();

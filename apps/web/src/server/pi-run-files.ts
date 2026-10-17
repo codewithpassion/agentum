@@ -23,7 +23,9 @@ const PARENT_SEGMENT = "..";
 const ABSOLUTE_PREFIX = "/";
 const MIME_SEPARATOR = ";";
 const EXTENSION_SEPARATOR = ".";
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+// A Durable Object stores a message in one SQLite row of at most 2 MB, and the images go in it as base64 (a third larger). Anthropic refuses an image over 5 MB too.
+const MAX_IMAGE_TOTAL_BYTES = 1_200_000;
+const MAX_OUTPUT_FILES = 100;
 const MAX_TEXT_CHARS = 100_000;
 // String.fromCharCode takes its arguments as a list, so the bytes go in slices.
 const BASE64_CHUNK_BYTES = 0x80_00;
@@ -160,10 +162,15 @@ export const inputContent = async (
   );
   const lines: string[] = [];
   const images: ImageContent[] = [];
+  let imageBytes = 0;
   for (const { fileId, file } of fetched) {
     if (file === undefined) {
       lines.push(`- ${fileId} (could not be read)`);
-    } else if (isImage(file.mime) && file.bytes.byteLength <= MAX_IMAGE_BYTES) {
+    } else if (
+      isImage(file.mime) &&
+      imageBytes + file.bytes.byteLength <= MAX_IMAGE_TOTAL_BYTES
+    ) {
+      imageBytes += file.bytes.byteLength;
       lines.push(`- ${file.name} (${file.mime}, shown as an image below)`);
       images.push({
         data: toBase64(file.bytes),
@@ -266,6 +273,11 @@ export const uploadOutputs = async (
   const fileIds: string[] = [];
   const notes: string[] = [];
   for (const marker of extracted.paths) {
+    if (fileIds.length >= MAX_OUTPUT_FILES) {
+      // A run completes with at most MAX_OUTPUT_FILES files.
+      notes.push(`[attachment refused: ${lastSegment(marker)}]`);
+      continue;
+    }
     // biome-ignore lint/performance/noAwaitInLoops: uploads go one at a time, in the order the answer names them.
     const outcome = await sendMarker(port, marker);
     if ("id" in outcome) {

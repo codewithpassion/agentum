@@ -1003,13 +1003,17 @@ describe("skills", () => {
     await settle();
   });
 
-  test("a start whose skills cannot be loaded stores nothing and submits nothing", async () => {
+  test("a start whose skills cannot be loaded goes on without them", async () => {
+    const spy = spyOn(console, "warn").mockImplementation(() => undefined);
     const h = build({
       installSkills: () => Promise.reject(new Error("skills list 500")),
     });
-    await expect(h.core.start(startOf("run-1"))).rejects.toThrow("skills list");
-    expect(h.storage.data.size).toBe(0);
-    expect(h.fake.submitted).toEqual([]);
+    await h.core.start(startOf("run-1"));
+    expect(h.fake.submitted.map((s) => s.operationId)).toEqual(["run-1"]);
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+    h.fake.finish("run-1", { status: "done", text: "ok" });
+    await settle();
   });
 });
 
