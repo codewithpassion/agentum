@@ -64,7 +64,6 @@ import { type ManagedKeysService, NO_KEY_MESSAGE } from "./keys.ts";
 import { finalReply, toRunEvents } from "./run-events.ts";
 import {
   createSkillsSync,
-  loadLocalSkills,
   MAX_SKILLS,
   type SkillsSource,
   skillsGuidance,
@@ -130,7 +129,7 @@ export interface ManagedServiceOptions {
   runTokenKey?: string;
   /** The secrets an agent is granted: env values go into the sandbox, proxy secrets go through the relay. */
   secrets?: Pick<SecretsService, "announceDelivery" | "resolveForAgent">;
-  /** The skills a run's agent has, read as that run. */
+  /** The skills a run's agent has, as the central store resolves them for that run. */
   skills: (run: RunRecord) => SkillsSource;
 }
 
@@ -677,11 +676,11 @@ export const createManagedService = ({
       return false;
     }
     const source = skillsOf(run);
-    const local = await loadLocalSkills(source);
-    if (local.length > MAX_SKILLS) {
+    const resolved = await source.list();
+    if (resolved.length > MAX_SKILLS) {
       await failRun(
         run,
-        `A managed agent has at most ${MAX_SKILLS} skills, and this one has ${local.length}.`
+        `A managed agent has at most ${MAX_SKILLS} skills, and this one has ${resolved.length}.`
       );
       return false;
     }
@@ -690,12 +689,12 @@ export const createManagedService = ({
     const { refs, stale } = await skillsSync.sync({
       agent,
       gateway,
-      local,
+      skills: resolved,
       source,
     });
     const system = systemOf(
       agent,
-      local.map((skill) => skill.name),
+      resolved.map((skill) => skill.name),
       grants.guidance
     );
     const fingerprint = await hashToken(

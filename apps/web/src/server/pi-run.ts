@@ -319,10 +319,10 @@ export class PiRun extends DurableObject<Env> {
   }
 
   #skillsPort(run: RunRef): SkillsPort {
-    const { skills } = this.#services();
+    const { runSkills } = this.#services();
     return {
-      list: () => skills.list(principalOf(run), run.runId),
-      read: (path) => skills.read(principalOf(run), run.runId, path),
+      list: () => runSkills.list(principalOf(run), run.runId),
+      read: (path) => runSkills.read(principalOf(run), run.runId, path),
     };
   }
 

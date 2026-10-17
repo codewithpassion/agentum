@@ -68,6 +68,7 @@ import {
   type ManagedService,
   type ManagedServiceOptions,
 } from "@repo/services/managed/service";
+import { createManagedSkillsSource } from "@repo/services/managed/skills-source";
 import type { ManagedPollerPort } from "@repo/services/managed/types";
 import {
   createOAuthClientsService,
@@ -77,6 +78,10 @@ import {
   createRoutinesService,
   type RoutinesService,
 } from "@repo/services/routines";
+import {
+  createRunSkillsService,
+  type RunSkillsService,
+} from "@repo/services/run-skills";
 import { createRunsService, type RunsService } from "@repo/services/runs";
 import {
   type Clock,
@@ -175,6 +180,7 @@ export interface Services {
   managedKeys: ManagedKeysService;
   oauthClients: OAuthClientsService;
   routines: RoutinesService;
+  runSkills: RunSkillsService;
   runs: RunsService;
   secrets: SecretsService;
   sessions: SessionsService;
@@ -323,6 +329,7 @@ export const composeWith = ({
     events,
     library,
   });
+  const runSkills = createRunSkillsService({ skillsStore });
   const machines = createMachinesService({
     allowedOrgIds,
     clock: infra.clock,
@@ -381,18 +388,7 @@ export const composeWith = ({
     runs,
     runTokenKey: infra.runTokenKey,
     secrets,
-    skills: (run) => {
-      const principal = {
-        agentId: run.agentId,
-        kind: "run",
-        runId: run.id,
-        workspaceId: run.workspaceId,
-      } as const;
-      return {
-        list: () => skills.list(principal, run.id),
-        read: (path) => skills.read(principal, run.id, path),
-      };
-    },
+    skills: (run) => createManagedSkillsSource({ runSkills, skillsStore }, run),
   });
   const routines = createRoutinesService({
     allowedOrgIds,
@@ -448,6 +444,7 @@ export const composeWith = ({
       managedKeys,
       oauthClients,
       routines,
+      runSkills,
       runs,
       secrets,
       sessions,

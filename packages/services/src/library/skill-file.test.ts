@@ -1,13 +1,9 @@
 import { expect, test } from "bun:test";
-import { ServiceError } from "../errors.ts";
 import {
-  checkSkillFile,
   readSkillMeta,
   SKILL_DESCRIPTION_MAX,
   skillFileAt,
 } from "./skill-file.ts";
-
-const encoder = new TextEncoder();
 
 const errorOf = (text: string, folder = "pdf") => {
   const result = readSkillMeta(text, folder);
@@ -143,45 +139,4 @@ test("skillFileAt accepts only skills/<owner>/<skill>/SKILL.md", () => {
   expect(skillFileAt("skills/a/SKILL.md")).toBeNull();
   expect(skillFileAt("skills/a/b/skill.md")).toBeNull();
   expect(skillFileAt("docs/a/b/SKILL.md")).toBeNull();
-});
-
-test("checkSkillFile ignores paths that are not skill files", () => {
-  const garbage = new Uint8Array([0xff, 0xfe, 0x00, 0xc3]);
-  expect(() => checkSkillFile("notes/todo.md", garbage)).not.toThrow();
-  expect(() => checkSkillFile("skills/a/b/c/SKILL.md", garbage)).not.toThrow();
-});
-
-test("checkSkillFile passes a valid skill file", () => {
-  const bytes = encoder.encode(
-    "---\nname: pdf\ndescription: Reads PDFs.\n---\n"
-  );
-  expect(() => checkSkillFile("skills/acme/pdf/SKILL.md", bytes)).not.toThrow();
-});
-
-test("checkSkillFile refuses a bad skill file with an invalid error", () => {
-  const bytes = encoder.encode(
-    "---\nname: docs\ndescription: Reads PDFs.\n---\n"
-  );
-  let caught: unknown;
-  try {
-    checkSkillFile("skills/acme/pdf/SKILL.md", bytes);
-  } catch (error) {
-    caught = error;
-  }
-  expect(caught).toBeInstanceOf(ServiceError);
-  expect((caught as ServiceError).code).toBe("invalid");
-  expect((caught as ServiceError).message).toBe(
-    'The name "docs" must match the folder "pdf"'
-  );
-});
-
-test("checkSkillFile refuses bytes that are not UTF-8", () => {
-  const bytes = new Uint8Array([
-    ...encoder.encode("---\nname: pdf\ndescription: "),
-    0xff,
-    ...encoder.encode("\n---\n"),
-  ]);
-  expect(() => checkSkillFile("skills/acme/pdf/SKILL.md", bytes)).toThrow(
-    "SKILL.md is not valid UTF-8 text"
-  );
 });

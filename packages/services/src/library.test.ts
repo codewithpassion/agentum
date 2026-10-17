@@ -639,60 +639,20 @@ test("a valid SKILL.md saves for a user and for a run", async () => {
   ).toBe(text);
 });
 
-test("a SKILL.md with a broken frontmatter is refused for a user and a run, and leaves nothing", async () => {
-  const cases: { label: string; text: string; reason: string }[] = [
-    {
-      label: "no description",
-      reason: "description",
-      text: "---\nname: shout\n---\n# Body\n",
-    },
-    {
-      label: "an empty description",
-      reason: "description",
-      text: skillText("shout", "").replace("description: \n", "description:\n"),
-    },
-    {
-      label: "an empty name",
-      reason: "name",
-      text: skillText("", "Shouts."),
-    },
-    {
-      label: "no name",
-      reason: "name",
-      text: "---\ndescription: Shouts.\n---\n# Body\n",
-    },
-    {
-      label: "a name that is not the folder",
-      reason: 'must match the folder "shout"',
-      text: skillText("yell", "Shouts."),
-    },
-    {
-      label: "no frontmatter",
-      reason: "frontmatter",
-      text: "# shout\n\nNo frontmatter here.\n",
-    },
-    {
-      label: "a description over 1,024 characters",
-      reason: "1025 characters, the limit is 1,024",
-      text: skillText("shout", "x".repeat(1025)),
-    },
-  ];
-  const attempts = cases.flatMap((skill) =>
-    [
-      { owner: "u1", principal: user() },
-      { owner: "a1", principal: runPrincipal },
-    ].map(async ({ principal, owner }) => {
-      const path = `skills/${owner}/shout/SKILL.md`;
-      const error = await errorOf(
-        service.write(principal, path, bytes(skill.text))
-      );
-      expect(error, skill.label).toMatchObject({ code: "invalid" });
-      expect((error as Error).message, skill.label).toContain(skill.reason);
-    })
+test("a SKILL.md under skills/ saves like any other file, even with broken frontmatter", async () => {
+  const text = "# shout\n\nNo frontmatter here.\n";
+  const saved = await service.write(
+    user(),
+    "skills/u1/shout/SKILL.md",
+    bytes(text)
   );
-  await Promise.all(attempts);
-  expect(paths()).toEqual([]);
-  expect(keys()).toEqual([]);
+  expect(saved).toMatchObject({
+    kind: "file",
+    path: "skills/u1/shout/SKILL.md",
+  });
+  expect(
+    decode((await service.read(user(), "skills/u1/shout/SKILL.md")).bytes)
+  ).toBe(text);
 });
 
 test("a file under skills/ that is not a SKILL.md at that depth is not checked", async () => {
@@ -732,18 +692,6 @@ test("an edit of an existing skill with ifEtag saves when it is valid", async ()
   ).toContain("Shouts louder.");
 });
 
-test("a move that puts a bad SKILL.md at a skill path is refused and changes nothing", async () => {
-  await service.write(user(), "drafts/shout/SKILL.md", bytes("# shout"));
-  const before = paths();
-  const error = await errorOf(
-    service.move(user(), "drafts/shout/SKILL.md", "skills/u1/shout/SKILL.md")
-  );
-  expect(error).toMatchObject({ code: "invalid" });
-  expect((error as Error).message).toContain("frontmatter");
-  expect(paths()).toEqual(before);
-  expect(keys()).toEqual(["w1/library/drafts/shout/SKILL.md"]);
-});
-
 test("a move of a whole valid skill folder to another owner works", async () => {
   await service.write(
     user(),
@@ -770,25 +718,6 @@ test("a move of a whole valid skill folder to another owner works", async () => 
   expect(keys()).toEqual([
     "w1/library/skills/u2/shout/SKILL.md",
     "w1/library/skills/u2/shout/extra.txt",
-  ]);
-});
-
-test("a move that renames a skill folder is refused because the name no longer matches", async () => {
-  await service.write(
-    user(),
-    "skills/u1/shout/SKILL.md",
-    bytes(skillText("shout", "Shouts."))
-  );
-  const error = await errorOf(
-    service.move(user(), "skills/u1/shout", "skills/u1/yell")
-  );
-  expect(error).toMatchObject({ code: "invalid" });
-  expect((error as Error).message).toContain('must match the folder "yell"');
-  expect(paths()).toEqual([
-    "skills",
-    "skills/u1",
-    "skills/u1/shout",
-    "skills/u1/shout/SKILL.md",
   ]);
 });
 

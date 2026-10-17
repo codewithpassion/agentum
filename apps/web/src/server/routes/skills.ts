@@ -57,8 +57,13 @@ export const skillsRoutes = (): Hono<AppEnv> => {
     try {
       const files = await c
         .get("composed")
-        .services.skills.list(principal, c.req.param("id"));
-      return c.json(skillsListResponseSchema.parse({ files }));
+        .services.runSkills.list(principal, c.req.param("id"));
+      // The wire format has no executable flag, so a daemon built before SK.2 still parses it.
+      return c.json(
+        skillsListResponseSchema.parse({
+          files: files.map(({ etag, path, size }) => ({ etag, path, size })),
+        })
+      );
     } catch (error: unknown) {
       return refusal(c, error);
     }
@@ -76,7 +81,7 @@ export const skillsRoutes = (): Hono<AppEnv> => {
     try {
       const bytes = await c
         .get("composed")
-        .services.skills.read(principal, c.req.param("id"), path);
+        .services.runSkills.read(principal, c.req.param("id"), path);
       return new Response(new Uint8Array(bytes), {
         headers: {
           "Cache-Control": "private, no-store",

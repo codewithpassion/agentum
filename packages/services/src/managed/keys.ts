@@ -16,6 +16,7 @@ import {
   managedAgents,
   managedSessions,
   managedSkills,
+  managedSkillVersions,
   workspaceAnthropicKeys,
 } from "@repo/db/schema/managed";
 import { eq } from "drizzle-orm";
@@ -166,6 +167,9 @@ export const createManagedKeysService = ({
       .where(eq(managedSessions.workspaceId, workspaceId)),
     db.delete(managedAgents).where(eq(managedAgents.workspaceId, workspaceId)),
     db.delete(managedSkills).where(eq(managedSkills.workspaceId, workspaceId)),
+    db
+      .delete(managedSkillVersions)
+      .where(eq(managedSkillVersions.workspaceId, workspaceId)),
   ];
 
   /** The status the caller may see: its own workspace's, never the key. */

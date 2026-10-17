@@ -1342,7 +1342,9 @@ export const createSkillsStoreService = ({
     }
     await ensureMigrated(principal);
     await requireAgent(c, agentId);
-    const { withContents: contents } = forAgentOptionsSchema.parse(options);
+    const { paths, withContents: contents } =
+      forAgentOptionsSchema.parse(options);
+    const only = paths === undefined ? null : new Set(paths);
     const rows = await db
       .select({
         name: skills.name,
@@ -1365,8 +1367,16 @@ export const createSkillsStoreService = ({
         if (!version) {
           return null;
         }
+        const tree = await treeOf(version.id);
+        const wanted =
+          only === null
+            ? tree
+            : tree.filter((file) => only.has(`${row.name}/${file.path}`));
+        if (only !== null && wanted.length === 0) {
+          return null;
+        }
         return {
-          files: await asRecords(await treeOf(version.id), contents),
+          files: await asRecords(wanted, contents),
           name: row.name,
           pinned: row.pinnedVersionId !== null,
           skillId: row.skillId,
