@@ -188,10 +188,13 @@ export function AgentForm({
             <FieldDescription>
               Runs on Cloudflare, not on one of your machines. It has no shell
               and no local files, but it can use library bash, connectors and
-              this workspace's skills. It sees attached images (about 1 MB in
-              total) and can read attached text files. It returns a file when it
-              writes it to the library and puts [ATTACHMENT:/library/path] in
-              its answer. Skill scripts do not run.
+              this workspace's skills. It runs a skill's TypeScript or
+              JavaScript scripts in a short-lived sandbox with network access
+              and no secrets of yours (a script imports only its own skill
+              files, and stops after 30 seconds). It sees attached images (about
+              1 MB in total) and can read attached text files. It returns a file
+              when it writes it to the library and puts
+              [ATTACHMENT:/library/path] in its answer.
             </FieldDescription>
           )}
         </Field>

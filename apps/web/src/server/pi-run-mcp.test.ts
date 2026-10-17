@@ -22,6 +22,7 @@ import type { CloudStart } from "@repo/services/cloud/types";
 import {
   listMcpTools,
   type McpFetch,
+  type McpSessions,
   type McpTool,
   mcpToolRegistrations,
   type ServerTools,
@@ -33,10 +34,10 @@ import {
 type McpServerEntry = CloudStart["mcpServers"][string];
 
 interface RpcRequest {
-  id: number;
+  id?: number;
   jsonrpc: string;
   method: string;
-  params: unknown;
+  params?: unknown;
 }
 
 interface Call {
@@ -94,8 +95,15 @@ const toolsListReply = (body: RpcRequest): Response =>
     ? jsonReply({ protocolVersion: "2025-06-18" })
     : jsonReply({ tools: [SEARCH] });
 
+/** The calls with one method, in the order they were sent. */
+const callsTo = (calls: readonly Call[], method: string): Call[] =>
+  calls.filter((call) => call.body.method === method);
+
+const headerOf = (call: Call, name: string): string | null =>
+  new Headers(call.init.headers).get(name);
+
 describe("listMcpTools", () => {
-  test("sends initialize then tools/list and returns the tools", async () => {
+  test("sends initialize, notifications/initialized, then tools/list and returns the tools", async () => {
     const { calls, fetcher } = fakeFetch(toolsListReply);
 
     const tools = await listMcpTools(SERVER, fetcher);
@@ -103,6 +111,7 @@ describe("listMcpTools", () => {
     expect(tools).toEqual([SEARCH]);
     expect(calls.map((call) => call.body.method)).toEqual([
       "initialize",
+      "notifications/initialized",
       "tools/list",
     ]);
     expect(at(calls, 0).body.params).toEqual({
@@ -111,7 +120,7 @@ describe("listMcpTools", () => {
       protocolVersion: "2025-06-18",
     });
     expect(at(calls, 0).url).toBe(URL_);
-    const headers = new Headers(at(calls, 1).init.headers);
+    const headers = new Headers(at(calls, 2).init.headers);
     expect(headers.get("Accept")).toBe("application/json, text/event-stream");
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(headers.get("Authorization")).toBe("Bearer first");
@@ -153,6 +162,233 @@ describe("listMcpTools", () => {
     await expect(listMcpTools(SERVER, fetcher)).rejects.toThrow(
       "no such method"
     );
+  });
+});
+
+/**
+ * A fake stateful MCP server. `initialize` issues a session id in the
+ * `Mcp-Session-Id` header. Any other request without the header gets 400, and one
+ * with an unknown id gets 404. `forget` drops every session, as a restart would.
+ */
+const statefulServer = () => {
+  const live = new Set<string>();
+  const calls: Call[] = [];
+  let issued = 0;
+  const fetcher: McpFetch = (url, init) => {
+    const body: RpcRequest = JSON.parse(String(init.body));
+    const call: Call = { body, init, url };
+    calls.push(call);
+    if (body.method === "initialize") {
+      issued += 1;
+      const session = `session-${issued}`;
+      live.add(session);
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: 1,
+            jsonrpc: "2.0",
+            result: { protocolVersion: "2025-06-18" },
+          }),
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "Mcp-Session-Id": session,
+            },
+          }
+        )
+      );
+    }
+    const session = headerOf(call, "Mcp-Session-Id");
+    if (session === null) {
+      return Promise.resolve(new Response("no session", { status: 400 }));
+    }
+    if (!live.has(session)) {
+      return Promise.resolve(new Response("unknown session", { status: 404 }));
+    }
+    if (body.method === "notifications/initialized") {
+      return Promise.resolve(new Response(null, { status: 202 }));
+    }
+    return Promise.resolve(
+      jsonReply(
+        body.method === "tools/list"
+          ? { tools: [SEARCH] }
+          : { content: [{ text: "ok", type: "text" }] }
+      )
+    );
+  };
+  return { calls, fetcher, forget: () => live.clear() };
+};
+
+describe("stateful sessions", () => {
+  const registrationWith = (
+    fetcher: McpFetch,
+    sessions: McpSessions
+  ): ToolRegistration =>
+    at(
+      mcpToolRegistrations(
+        "s",
+        [SEARCH],
+        () => Promise.resolve(SERVER),
+        fetcher,
+        undefined,
+        sessions
+      ),
+      0
+    );
+
+  test("lists, then calls in the session that initialize issued", async () => {
+    const server = statefulServer();
+    const sessions: McpSessions = new Map();
+
+    expect(await listMcpTools(SERVER, server.fetcher, sessions)).toEqual([
+      SEARCH,
+    ]);
+    const result = await registrationWith(server.fetcher, sessions).execute(
+      {},
+      NO_API,
+      CONTEXT
+    );
+
+    expect(result.output).toEqual([{ text: "ok", type: "text" }]);
+    expect(server.calls.map((call) => call.body.method)).toEqual([
+      "initialize",
+      "notifications/initialized",
+      "tools/list",
+      "tools/call",
+    ]);
+    expect(headerOf(at(server.calls, 0), "Mcp-Session-Id")).toBeNull();
+    const notified = at(server.calls, 1);
+    expect(notified.body).toEqual({
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    });
+    expect(headerOf(notified, "Mcp-Session-Id")).toBe("session-1");
+    expect(headerOf(notified, "Mcp-Protocol-Version")).toBe("2025-06-18");
+    expect(headerOf(at(server.calls, 2), "Mcp-Session-Id")).toBe("session-1");
+    expect(headerOf(at(server.calls, 3), "Mcp-Session-Id")).toBe("session-1");
+    expect(headerOf(at(server.calls, 3), "Mcp-Protocol-Version")).toBe(
+      "2025-06-18"
+    );
+  });
+
+  test("initializes once for several calls", async () => {
+    const server = statefulServer();
+    const sessions: McpSessions = new Map();
+    const registration = registrationWith(server.fetcher, sessions);
+
+    await registration.execute({}, NO_API, CONTEXT);
+    await registration.execute({}, NO_API, CONTEXT);
+    await listMcpTools(SERVER, server.fetcher, sessions);
+
+    expect(callsTo(server.calls, "initialize")).toHaveLength(1);
+    expect(callsTo(server.calls, "tools/call")).toHaveLength(2);
+  });
+
+  test("re-initializes a lost session and the call succeeds", async () => {
+    const server = statefulServer();
+    const sessions: McpSessions = new Map();
+    const registration = registrationWith(server.fetcher, sessions);
+    await registration.execute({}, NO_API, CONTEXT);
+
+    server.forget();
+    const result = await registration.execute({}, NO_API, CONTEXT);
+
+    expect(result.output).toEqual([{ text: "ok", type: "text" }]);
+    expect(callsTo(server.calls, "initialize")).toHaveLength(2);
+    // The first call, the refused one, and the retry in the new session.
+    const toolCalls = callsTo(server.calls, "tools/call");
+    expect(toolCalls).toHaveLength(3);
+    expect(headerOf(at(toolCalls, 1), "Mcp-Session-Id")).toBe("session-1");
+    expect(headerOf(at(toolCalls, 2), "Mcp-Session-Id")).toBe("session-2");
+  });
+
+  test("throws when the request is refused again after the retry", async () => {
+    const server = statefulServer();
+    let refused = 0;
+    const refusing: McpFetch = (url, init) => {
+      if (JSON.parse(String(init.body)).method !== "tools/call") {
+        return server.fetcher(url, init);
+      }
+      refused += 1;
+      return Promise.resolve(new Response("gone", { status: 404 }));
+    };
+    const registration = registrationWith(refusing, new Map());
+
+    await expect(registration.execute({}, NO_API, CONTEXT)).rejects.toThrow(
+      "MCP tools/call failed: 404"
+    );
+    expect(refused).toBe(2);
+    expect(callsTo(server.calls, "initialize")).toHaveLength(2);
+  });
+
+  test("two parallel calls with no session initialize once", async () => {
+    const server = statefulServer();
+    const sessions: McpSessions = new Map();
+
+    const [first, second] = await Promise.all([
+      listMcpTools(SERVER, server.fetcher, sessions),
+      listMcpTools(SERVER, server.fetcher, sessions),
+    ]);
+
+    expect(first).toEqual([SEARCH]);
+    expect(second).toEqual([SEARCH]);
+    expect(callsTo(server.calls, "initialize")).toHaveLength(1);
+    expect(
+      callsTo(server.calls, "tools/list").every(
+        (call) => headerOf(call, "Mcp-Session-Id") === "session-1"
+      )
+    ).toBe(true);
+  });
+
+  test("a failed initialize is not kept, so the next call initializes again", async () => {
+    const server = statefulServer();
+    let busy = true;
+    const flaky: McpFetch = (url, init) => {
+      if (busy) {
+        busy = false;
+        return Promise.resolve(new Response("busy", { status: 503 }));
+      }
+      return server.fetcher(url, init);
+    };
+    const sessions: McpSessions = new Map();
+
+    await expect(listMcpTools(SERVER, flaky, sessions)).rejects.toThrow(
+      "MCP initialize failed: 503"
+    );
+    expect(await listMcpTools(SERVER, flaky, sessions)).toEqual([SEARCH]);
+    expect(callsTo(server.calls, "initialize")).toHaveLength(1);
+  });
+
+  test("a stateless server works and no request carries a session id", async () => {
+    const { calls, fetcher } = fakeFetch(toolsListReply);
+    const sessions: McpSessions = new Map();
+
+    expect(await listMcpTools(SERVER, fetcher, sessions)).toEqual([SEARCH]);
+
+    expect(calls.map((call) => call.body.method)).toEqual([
+      "initialize",
+      "notifications/initialized",
+      "tools/list",
+    ]);
+    expect(
+      calls.every((call) => headerOf(call, "Mcp-Session-Id") === null)
+    ).toBe(true);
+    expect(sessions.has(URL_)).toBe(true);
+    expect(await sessions.get(URL_)).toBeUndefined();
+  });
+
+  test("a 400 from a stateless server is an error, not a retry", async () => {
+    const { calls, fetcher } = fakeFetch((body) =>
+      body.method === "tools/call"
+        ? new Response("bad", { status: 400 })
+        : toolsListReply(body)
+    );
+
+    await expect(
+      registrationWith(fetcher, new Map()).execute({}, NO_API, CONTEXT)
+    ).rejects.toThrow("MCP tools/call failed: 400");
+    expect(callsTo(calls, "tools/call")).toHaveLength(1);
+    expect(callsTo(calls, "initialize")).toHaveLength(1);
   });
 });
 
@@ -218,15 +454,14 @@ describe("mcpToolRegistrations", () => {
       isError: false,
       output: [{ text: "first\n[image]", type: "text" }],
     });
-    expect(at(calls, 0).body).toEqual({
+    const toolCall = at(callsTo(calls, "tools/call"), 0);
+    expect(toolCall.body).toEqual({
       id: 1,
       jsonrpc: "2.0",
       method: "tools/call",
       params: { arguments: { q: "x" }, name: "search" },
     });
-    expect(new Headers(at(calls, 0).init.headers).get("Authorization")).toBe(
-      "Bearer first"
-    );
+    expect(headerOf(toolCall, "Authorization")).toBe("Bearer first");
   });
 
   test("execute reports isError from the result", async () => {
@@ -259,12 +494,9 @@ describe("mcpToolRegistrations", () => {
     token = "second";
     await registration.execute({}, NO_API, CONTEXT);
 
-    expect(new Headers(at(calls, 0).init.headers).get("Authorization")).toBe(
-      "Bearer first"
-    );
-    expect(new Headers(at(calls, 1).init.headers).get("Authorization")).toBe(
-      "Bearer second"
-    );
+    const toolCalls = callsTo(calls, "tools/call");
+    expect(headerOf(at(toolCalls, 0), "Authorization")).toBe("Bearer first");
+    expect(headerOf(at(toolCalls, 1), "Authorization")).toBe("Bearer second");
   });
 
   test("the abort signal of the context reaches the fetch init", async () => {
@@ -277,7 +509,9 @@ describe("mcpToolRegistrations", () => {
       abortSignal: controller.signal,
     });
 
-    expect(at(calls, 0).init.signal).toBe(controller.signal);
+    expect(at(callsTo(calls, "tools/call"), 0).init.signal).toBe(
+      controller.signal
+    );
   });
 });
 
@@ -372,7 +606,6 @@ describe("MCP tool through pi-durable", () => {
     expect(await modelSawFrom(registration)).toBe(MCP_TEXT);
   });
 });
-
 describe("tool names that collide after the cut", () => {
   test("get a number, and stay within 64 characters", () => {
     const long = "t".repeat(80);

@@ -894,12 +894,17 @@ export const createRunsService = ({
     }
     if (failed) {
       await appendRunEvent(run, "run.failed", agentActor(run), { error });
+      await offerNextWaiting(run);
       return;
     }
     await appendRunEvent(run, "run.finished", agentActor(run), {
       outputFileIds: fileIds,
     });
-    await deliverReply(run, { fileIds, text: result.text ?? "" });
+    try {
+      await deliverReply(run, { fileIds, text: result.text ?? "" });
+    } finally {
+      await offerNextWaiting(run);
+    }
   };
 
   const getRun = async (
@@ -968,6 +973,7 @@ export const createRunsService = ({
     await appendRunEvent(run, "run.cancelled", eventActor(principal));
     const { adapter } = await adapterFor(run);
     await adapter?.cancel(db, run, adapterDeps);
+    await offerNextWaiting(run);
   };
 
   /**
@@ -1089,6 +1095,45 @@ export const createRunsService = ({
     }
     await adapter.dispatch(db, run, agent, adapterDeps);
     return true;
+  };
+
+  /**
+   * Offers the agent's oldest waiting run as soon as one of its runs ends, for
+   * a runtime that sets `offerNextOnEnd`. Its claim refuses the run while
+   * another run of the agent still runs. The sweep is the backstop, so a
+   * failure is logged and never thrown.
+   */
+  const offerNextWaiting = async (run: RunRecord): Promise<void> => {
+    try {
+      const { adapter } = await adapterFor(run);
+      if (!adapter?.offerNextOnEnd) {
+        return;
+      }
+      const [next] = await db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(
+          and(
+            eq(runs.agentId, run.agentId),
+            eq(runs.workspaceId, run.workspaceId),
+            inArray(runs.status, STARTING),
+            isNull(runs.pendingFiles)
+          )
+        )
+        .orderBy(asc(runs.createdAt), asc(runs.id))
+        .limit(1);
+      if (!next) {
+        return;
+      }
+      const waiting = await loadRun(db, next.id);
+      if (waiting) {
+        await offerRun(waiting);
+      }
+    } catch (error) {
+      console.error(
+        `Offering the next run of agent ${run.agentId} failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   };
 
   /**

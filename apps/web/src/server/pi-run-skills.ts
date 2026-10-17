@@ -118,7 +118,7 @@ export const skillsExtension = (
 
   const activate = defineTool({
     description:
-      "Loads a skill. Returns its full SKILL.md text, then the paths of its other files. Skill scripts are not run. Read the other files as text with read_skill_resource.",
+      "Loads a skill. Returns its full SKILL.md text, then the paths of its other files. Read the other files as text with read_skill_resource. Run a TypeScript or JavaScript script of the skill with run_skill_script, do not read it and work out its output yourself.",
     execute: async (args) => {
       const skill = skillsByName.get(args.name);
       if (skill === undefined) {
@@ -141,7 +141,7 @@ export const skillsExtension = (
 
   const read = defineTool({
     description:
-      "Reads one file bundled with a skill, by the path that activate_skill lists. The file is returned as UTF-8 text. Skill scripts are not run.",
+      "Reads one file bundled with a skill, by the path that activate_skill lists. The file is returned as UTF-8 text. To run a script, use run_skill_script.",
     execute: async (args) => {
       try {
         return textResult(await readText(port, args.path));
