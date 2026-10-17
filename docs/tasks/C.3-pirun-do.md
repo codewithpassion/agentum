@@ -22,3 +22,4 @@ Faux-provider tests under `wrangler dev`: two runs in one session, duplicate dis
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
 - 2026-10-17: dispatched on task/C.3-pirun-do.
 - 2026-10-17: review clean after 2 fix rounds at 695b40f (docs/reviews/tasks/C.3.md). Merged.
+- 2026-10-17: C gate round 1 (docs/reviews/C-1.md): steering into a busy session is deferred; one running run per agent stays, and C.13 offers the next waiting run when a run ends.
