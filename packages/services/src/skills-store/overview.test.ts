@@ -75,7 +75,7 @@ test("proposals lists proposed versions only and drops them once decided", async
   expect(waiting.map((entry) => [entry.skillId, entry.number])).toEqual([
     [skill.id, 1],
   ]);
-  expect(waiting[0].author.kind).toBe("agent");
+  expect(waiting.map((entry) => entry.author.kind)).toEqual(["agent"]);
 
   await service.approve(user(), { skillId: skill.id, version: 1 });
   expect(await service.proposals(user())).toEqual([]);
