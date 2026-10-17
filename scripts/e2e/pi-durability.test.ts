@@ -6,6 +6,7 @@ import {
   checkPins,
   PI_PACKAGES,
   type PinDeps,
+  runSafe,
   runUnsafe,
 } from "./pi-durability.ts";
 
@@ -14,9 +15,11 @@ const START_MS = Date.parse("2026-10-17T10:00:00Z");
 const LEASE_MS = 600_000;
 const TOOL_CALL_MS = 1000;
 const RESUMED_MS = 5000;
-const INTERRUPTED_OUTPUT =
-  "Tool harbourmaster_bash was interrupted and may have partially run";
+const UNSAFE_TOOL = "harbourmaster_bash";
+const SAFE_TOOL = "dev_slow_read";
+const INTERRUPTED_OUTPUT = `Tool ${UNSAFE_TOOL} was interrupted and may have partially run`;
 const RERUN_OUTPUT = "ran-42\nexit code 0";
+const SAFE_OUTPUT = "slow read done, started 2 times";
 
 type Versions = Record<string, string | undefined>;
 
@@ -50,16 +53,18 @@ interface FakeOptions {
   callsTool?: boolean;
   /** The status the run ends in after the restart. */
   finalStatus?: RunStatus;
-  /** True: after the restart Pi runs the tool again and it prints the marker. */
-  reruns?: boolean;
+  /** The output of the tool call after the restart. Defaults to the interrupted text. */
+  output?: string;
+  /** The tool the run calls. Defaults to the unsafe bash tool. */
+  toolName?: string;
 }
 
 /**
- * A run with one `harbourmaster_bash` call in miniature. The call shows up
- * one second after the offer. The server kill leaves the run stuck until the
- * restart. After the restart it streams for a few seconds and ends.
+ * A run with one tool call in miniature. The call shows up one second after
+ * the offer. The server kill leaves the run stuck until the restart. After the
+ * restart it streams for a few seconds and ends.
  */
-const fakeUnsafe = (options: FakeOptions = {}) => {
+const fakeRun = (options: FakeOptions = {}) => {
   let clock = START_MS;
   let offeredAt: number | null = null;
   let status: RunStatus = "queued";
@@ -67,6 +72,8 @@ const fakeUnsafe = (options: FakeOptions = {}) => {
   let resumedMs = 0;
   const callsTool = options.callsTool ?? true;
   const finalStatus = options.finalStatus ?? "done";
+  const finalOutput = options.output ?? INTERRUPTED_OUTPUT;
+  const toolName = options.toolName ?? UNSAFE_TOOL;
   const calls: string[] = [];
   const out: string[] = [];
   const iso = (ms: number) => new Date(ms).toISOString();
@@ -90,7 +97,7 @@ const fakeUnsafe = (options: FakeOptions = {}) => {
         callsTool && offeredAt !== null && clock >= offeredAt + TOOL_CALL_MS;
       if (called) {
         events.push({
-          payload: { name: "harbourmaster_bash", toolUseId: "call-1" },
+          payload: { name: toolName, toolUseId: "call-1" },
           seq: 1,
           type: "tool.call",
         });
@@ -99,9 +106,7 @@ const fakeUnsafe = (options: FakeOptions = {}) => {
         events.push(toolResult("answered early", 2));
       }
       if (status === "done" && callsTool) {
-        events.push(
-          toolResult(options.reruns ? RERUN_OUTPUT : INTERRUPTED_OUTPUT, 2)
-        );
+        events.push(toolResult(finalOutput, 2));
       }
       return events;
     },
@@ -116,8 +121,7 @@ const fakeUnsafe = (options: FakeOptions = {}) => {
       Promise.resolve({
         error: status === "failed" ? "Tool crashed" : null,
         leaseUntil: offeredAt === null ? null : iso(START_MS + LEASE_MS),
-        resultText:
-          status === "done" ? `tool failed: ${INTERRUPTED_OUTPUT}` : null,
+        resultText: status === "done" ? `tool said: ${finalOutput}` : null,
         status,
       }),
     send: () => {
@@ -184,7 +188,7 @@ describe("checkPins", () => {
 
 describe("runUnsafe", () => {
   test("passes when the interrupted tool is not run again and the model sees it", async () => {
-    const { calls, deps, out } = fakeUnsafe();
+    const { calls, deps, out } = fakeRun();
     await runUnsafe(deps);
     expect(out.map((line) => line.slice(0, 4))).toEqual([
       "ok 1",
@@ -196,12 +200,12 @@ describe("runUnsafe", () => {
   });
 
   test("fails when Pi runs the tool again after the restart", async () => {
-    const { deps } = fakeUnsafe({ reruns: true });
+    const { deps } = fakeRun({ output: RERUN_OUTPUT });
     expect(await failureOf(runUnsafe(deps))).toContain("ran the tool again");
   });
 
   test("fails when the tool answers before the kill", async () => {
-    const { calls, deps } = fakeUnsafe({ answersBeforeKill: true });
+    const { calls, deps } = fakeRun({ answersBeforeKill: true });
     expect(await failureOf(runUnsafe(deps))).toContain(
       "the tool already answered"
     );
@@ -209,14 +213,74 @@ describe("runUnsafe", () => {
   });
 
   test("fails when the run never calls its tool", async () => {
-    const { deps } = fakeUnsafe({ callsTool: false });
+    const { deps } = fakeRun({ callsTool: false });
     expect(await failureOf(runUnsafe(deps))).toContain("never called its tool");
   });
 
   test("fails when the run ends failed after the restart", async () => {
-    const { deps } = fakeUnsafe({ finalStatus: "failed" });
+    const { deps } = fakeRun({ finalStatus: "failed" });
     expect(await failureOf(runUnsafe(deps))).toContain(
       "run run-1 is failed (Tool crashed) after the restart, expected done"
     );
+  });
+});
+
+describe("runSafe", () => {
+  test("passes when the tool runs again and the model answers with the second start", async () => {
+    const { calls, deps, out } = fakeRun({
+      output: SAFE_OUTPUT,
+      toolName: SAFE_TOOL,
+    });
+    await runSafe(deps);
+    expect(out.map((line) => line.slice(0, 4))).toEqual([
+      "ok 1",
+      "ok 2",
+      "ok 3",
+      "ok 4",
+    ]);
+    expect(calls).toEqual(["offer run-1", "kill", "start"]);
+  });
+
+  test("fails when the output carries the interrupted text", async () => {
+    const { deps } = fakeRun({
+      output: INTERRUPTED_OUTPUT,
+      toolName: SAFE_TOOL,
+    });
+    expect(await failureOf(runSafe(deps))).toContain(
+      "safe tool: Pi marked the tool as interrupted"
+    );
+  });
+
+  test("fails when the output says the tool started once", async () => {
+    const { deps } = fakeRun({
+      output: "slow read done, started 1 times",
+      toolName: SAFE_TOOL,
+    });
+    expect(await failureOf(runSafe(deps))).toContain(
+      'safe tool: expected the tool to run again (started 2 times), got "slow read done, started 1 times"'
+    );
+  });
+
+  test("fails when the run ends failed after the restart", async () => {
+    const { deps } = fakeRun({
+      finalStatus: "failed",
+      output: SAFE_OUTPUT,
+      toolName: SAFE_TOOL,
+    });
+    expect(await failureOf(runSafe(deps))).toContain(
+      "safe tool: run run-1 is failed (Tool crashed) after the restart, expected done"
+    );
+  });
+
+  test("fails when the tool answers before the kill", async () => {
+    const { calls, deps } = fakeRun({
+      answersBeforeKill: true,
+      output: SAFE_OUTPUT,
+      toolName: SAFE_TOOL,
+    });
+    expect(await failureOf(runSafe(deps))).toContain(
+      "safe tool: before the kill: the tool already answered"
+    );
+    expect(calls).toEqual(["offer run-1"]);
   });
 });

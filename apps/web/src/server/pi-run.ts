@@ -84,8 +84,14 @@ export class PiRun extends DurableObject<Env> {
       const models = createCloudModels(this.#credentials);
       if (import.meta.env.DEV) {
         const { createFaux } = await import("./pi-run-faux.ts");
+        // The import sits here, in the branch itself, so a production build drops the module.
+        const { devToolsExtension } = await import("./pi-run-dev-tools.ts");
+        const firstOpen = this.#faux === undefined;
         this.#faux = createFaux();
         models.setProvider(this.#faux.provider);
+        if (firstOpen) {
+          this.registry.install(devToolsExtension(this.ctx.storage));
+        }
       }
       this.#installTools(
         (await this.ctx.storage.get<ServerTools>(TOOLS_KEY)) ?? {}
