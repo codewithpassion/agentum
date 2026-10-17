@@ -3,7 +3,7 @@ id: C.14
 title: Linux VM backend for cloud agents (Sandbox SDK microVM)
 milestone: C
 size: L
-status: in_progress
+status: done
 depends_on: [C.12, C.13]
 branch: task/C.14-cloud-linux-vm
 ---
@@ -35,3 +35,4 @@ An isolate agent still works as before. The controller repeats the check on stag
 
 ## Log
 - 2026-10-17: added at Dom's request; dispatched on task/C.14-cloud-linux-vm.
+- 2026-10-17: review clean after 3 fix rounds (extra rounds allowed by controller) at c453291 (docs/reviews/tasks/C.14.md). Merged. VM live check not run locally (workerd container sidecar fails on this host); staging check pending. No secrets reach the VM until S.4.
