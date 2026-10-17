@@ -336,7 +336,7 @@ describe("authentication", () => {
 });
 
 describe("tools with an api key", () => {
-  test("lists the ten platform tools and the list tools for a read key", async () => {
+  test("lists the ten platform tools and the list tools for a read key, skill reads included", async () => {
     const key = await mintKey("u1", "read");
     const response = await post(key, rpcBody("tools/list", {}));
     const rpc = (await readRpc(response)) as {
@@ -344,6 +344,7 @@ describe("tools with an api key", () => {
     };
     expect(rpc.result.tools.map((tool) => tool.name).sort()).toEqual([
       "bash",
+      "export_skill",
       "get_run",
       "inbox_list",
       "inbox_post",
@@ -351,14 +352,18 @@ describe("tools with an api key", () => {
       "list_agents",
       "list_routines",
       "list_sessions",
+      "list_skills",
       "list_triggers",
       "read_session",
       "search_sessions",
       "send_message",
+      "skill_diff",
+      "skill_log",
+      "skill_show",
     ]);
   });
 
-  test("a write key also gets the tools that change routines and triggers", async () => {
+  test("a write key also gets the tools that change routines, triggers and skills", async () => {
     const key = await mintKey("u1", "write");
     const response = await post(key, rpcBody("tools/list", {}));
     const rpc = (await readRpc(response)) as {
@@ -372,6 +377,9 @@ describe("tools with an api key", () => {
       "create_trigger",
       "set_trigger_enabled",
       "delete_trigger",
+      "create_skill",
+      "commit_skill",
+      "approve_skill_version",
     ]) {
       expect(names).toContain(name);
     }

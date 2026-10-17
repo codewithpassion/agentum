@@ -143,7 +143,128 @@ export interface LibraryBashResult {
   wallMs: number;
 }
 
+/**
+ * The owner of a skill. Names are unique per owner, so two skills can share a
+ * name: show the owner wherever a name is shown. `agentId` is null for the people's skills.
+ */
+export interface SkillOwner {
+  agentId: string | null;
+  /** "people", or the owning agent's name. */
+  name: string;
+}
+
+/** An agent that carries a skill. `version` is the one it uses now, the pinned one when `pinned`. */
+export interface SkillAssignee {
+  agentId: string;
+  name: string;
+  pinned: boolean;
+  slug: string;
+  version: number;
+}
+
+export interface SkillInfo {
+  /** The agents that carry it with an approved version. */
+  assignedTo: SkillAssignee[];
+  id: string;
+  /** The newest approved version, or null while none is approved. */
+  latestApprovedVersion: number | null;
+  /** The newest version that is not rejected. */
+  latestVersion: number | null;
+  name: string;
+  owner: SkillOwner;
+  /** The numbers of versions that wait for a person to approve them. */
+  pendingProposals: number[];
+}
+
+/** One version of a skill. */
+export interface SkillVersionInfo {
+  /** Set once approved. */
+  approvedAt: string | null;
+  /** `user`, `agent` or `system`. */
+  authorKind: string;
+  createdAt: string;
+  message: string;
+  number: number;
+  /** The version this one was made on, null for version 1. */
+  parent: number | null;
+  skillId: string;
+  skillName: string;
+  /** One of approved, proposed, rejected. */
+  status: string;
+}
+
+export interface SkillFileInfo {
+  executable: boolean;
+  path: string;
+  size: number;
+}
+
+/** A file's content: UTF-8 text, or base64 for a file that is not text. */
+export interface SkillFileContent {
+  content: string;
+  encoding: "base64" | "utf8";
+  path: string;
+}
+
+/** A version's file tree, and one file's content when a path was asked for. */
+export interface SkillShown {
+  file: SkillFileContent | null;
+  files: SkillFileInfo[];
+  version: SkillVersionInfo;
+}
+
+export interface SkillDiffInfo {
+  added: string[];
+  changed: string[];
+  /** A unified diff of each added, removed or changed text file. */
+  patches: { patch: string; path: string }[];
+  removed: string[];
+}
+
+/** One file of a commit. `encoding` says how `content` is read. */
+export interface SkillFileWrite {
+  content: string;
+  encoding: "base64" | "utf8";
+  executable?: boolean;
+  path: string;
+}
+
+export interface SkillAssignment {
+  agentId: string;
+  /** Null: the agent follows the latest approved version. */
+  pinnedVersion: number | null;
+  skillId: string;
+}
+
+export interface SkillImported {
+  /** False when the archive made a new version of a skill the caller already owned. */
+  created: boolean;
+  name: string;
+  version: SkillVersionInfo;
+}
+
+export interface SkillArchive {
+  /** The `.skill` file, base64 encoded. */
+  archiveBase64: string;
+  filename: string;
+}
+
 export interface McpPorts {
+  approveSkillVersion: (input: {
+    skillId: string;
+    version: number;
+  }) => Promise<SkillVersionInfo>;
+  assignSkill: (input: {
+    agent: string;
+    skillId: string;
+  }) => Promise<SkillAssignment>;
+  commitSkill: (input: {
+    baseVersion: number;
+    deletes: string[];
+    message: string;
+    skillId: string;
+    writes: SkillFileWrite[];
+  }) => Promise<SkillVersionInfo>;
   createRoutine: (input: {
     agentId: string;
     cron: string;
@@ -151,13 +272,23 @@ export interface McpPorts {
     prompt: string;
     timezone?: string;
   }) => Promise<RoutineInfo>;
+  createSkill: (input: {
+    files: SkillFileWrite[];
+    message: string;
+    name: string;
+  }) => Promise<SkillVersionInfo>;
   createTrigger: (input: {
     agentId: string;
     name: string;
   }) => Promise<TriggerChange>;
   deleteRoutine: (input: { routineId: string }) => Promise<void>;
   deleteTrigger: (input: { triggerId: string }) => Promise<void>;
+  exportSkill: (input: {
+    skillId: string;
+    version: number;
+  }) => Promise<SkillArchive>;
   getRun: (input: { runId: string }) => Promise<RunInfo>;
+  importSkill: (input: { archiveBase64: string }) => Promise<SkillImported>;
   inboxList: () => Promise<ThreadInfo[]>;
   inboxPost: (input: { text: string; threadId: string }) => Promise<PostedInfo>;
   inboxRead: (input: { threadId: string }) => Promise<ThreadTranscript>;
@@ -166,8 +297,23 @@ export interface McpPorts {
   listAgents: () => Promise<AgentInfo[]>;
   listRoutines: (input: { agentId?: string }) => Promise<RoutineInfo[]>;
   listSessions: (input: { agent: string }) => Promise<SessionInfo[]>;
+  listSkills: () => Promise<SkillInfo[]>;
   listTriggers: (input: { agentId?: string }) => Promise<TriggerInfo[]>;
+  pinSkill: (input: {
+    agent: string;
+    skillId: string;
+    version: number | null;
+  }) => Promise<SkillAssignment>;
   readSession: (input: { sessionId: string }) => Promise<SessionTranscript>;
+  rejectSkillVersion: (input: {
+    skillId: string;
+    version: number;
+  }) => Promise<SkillVersionInfo>;
+  revertSkill: (input: {
+    message?: string;
+    skillId: string;
+    toVersion: number;
+  }) => Promise<SkillVersionInfo>;
   searchSessions: (input: {
     agent: string;
     query: string;
@@ -187,6 +333,19 @@ export interface McpPorts {
     enabled: boolean;
     triggerId: string;
   }) => Promise<TriggerChange>;
+  skillDiff: (input: {
+    from: number;
+    skillId: string;
+    to: number;
+  }) => Promise<SkillDiffInfo>;
+  skillLog: (input: { skillId: string }) => Promise<SkillVersionInfo[]>;
+  /** The version's tree, and the content of `path` when it is given. */
+  skillShow: (input: {
+    path?: string;
+    skillId: string;
+    version: number;
+  }) => Promise<SkillShown>;
+  unassignSkill: (input: { agent: string; skillId: string }) => Promise<void>;
 }
 
 /** The longest a send_message call waits, in milliseconds. */

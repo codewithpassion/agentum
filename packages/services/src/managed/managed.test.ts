@@ -6,6 +6,7 @@ import {
   managedRuns,
   managedSessions,
   managedSkills,
+  managedSkillVersions,
 } from "@repo/db/schema/managed";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -318,21 +319,49 @@ let onResolveKey: (() => void) | null;
 let events: ReturnType<typeof createEventsService>;
 let keys: ReturnType<typeof createManagedKeysService>;
 let secrets: SecretsService;
-/** The agent's skill files as the library has them: path (skill folder first) to text. */
-let skillFiles: Map<string, string>;
+/** A skill the agent carries, resolved to one version by the central store. */
+interface CarriedSkill {
+  files: Record<string, string>;
+  name: string;
+  skillId: string;
+  version: number;
+}
 
-const encoder = new TextEncoder();
+/** What the agent carries now. */
+let carried: CarriedSkill[];
+/** The files of every version ever carried, by `<skill id>@<version>`. */
+let versionFiles: Map<string, Record<string, string>>;
+/** The versions the managed service asked the source for, in order. */
+let fetchedVersions: string[];
 
 const skillsSource = () => ({
+  files: (skillId: string, version: number) => {
+    fetchedVersions.push(`${skillId}@${version}`);
+    const files = versionFiles.get(`${skillId}@${version}`) ?? {};
+    return Promise.resolve(
+      Object.entries(files).map(([path, text]) => ({
+        content: new TextEncoder().encode(text),
+        path,
+      }))
+    );
+  },
   list: () =>
     Promise.resolve(
-      [...skillFiles].map(([path, text]) => ({
-        etag: `etag-${text}`,
-        path,
-        size: text.length,
-      }))
+      [...carried]
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((skill) => ({
+          files: Object.entries(skill.files).map(([path, text]) => ({
+            executable: false,
+            hash: `hash-${text}`,
+            path,
+            size: text.length,
+          })),
+          name: skill.name,
+          pinned: false,
+          skillId: skill.skillId,
+          version: skill.version,
+        }))
     ),
-  read: (path: string) => Promise.resolve(encoder.encode(skillFiles.get(path))),
 });
 
 const buildManaged = (publicBaseUrl: string) =>
@@ -432,7 +461,9 @@ beforeEach(async () => {
   cancels = [];
   hasKey = true;
   onResolveKey = null;
-  skillFiles = new Map();
+  carried = [];
+  versionFiles = new Map();
+  fetchedVersions = [];
   tokenKey = await importRunTokenKey(RUN_TOKEN_KEY);
   db.insert(workspaces)
     .values({
@@ -1085,9 +1116,21 @@ describe("session tokens", () => {
 const SKILL_MD = (name: string) =>
   `---\nname: ${name}\ndescription: Says hello.\n---\n\n# ${name}\n`;
 
-const addSkill = (name: string, script = "console.log('hi')") => {
-  skillFiles.set(`${name}/SKILL.md`, SKILL_MD(name));
-  skillFiles.set(`${name}/scripts/hello.ts`, script);
+/** The agent carries `name` at `version`, as the store would resolve it: a new approved version, or a pin. */
+const carry = (
+  name: string,
+  version = 1,
+  script = "console.log('hi')"
+): CarriedSkill => {
+  const skill: CarriedSkill = {
+    files: { "SKILL.md": SKILL_MD(name), "scripts/hello.ts": script },
+    name,
+    skillId: `hm_${name}`,
+    version,
+  };
+  versionFiles.set(`${skill.skillId}@${version}`, skill.files);
+  carried = [...carried.filter((other) => other.name !== name), skill];
+  return skill;
 };
 
 /** Runs one complete run on the agent, in the same session as the last. */
@@ -1097,7 +1140,7 @@ const finishRun = async (text = "go") => {
   return runId;
 };
 
-const skillRows = () => db.select().from(managedSkills).all();
+const versionRows = () => db.select().from(managedSkillVersions).all();
 
 describe("skills", () => {
   test("an agent without skills registers none and gets no skills guidance", async () => {
@@ -1108,9 +1151,8 @@ describe("skills", () => {
     expect(gateway.skillStore.size).toBe(0);
   });
 
-  test("uploads each skill with every file and lists it on the agent, with the bun guidance", async () => {
-    addSkill("ts-hello");
-    skillFiles.set("ts-hello/notes/a.md", "# notes");
+  test("uploads each skill version with every file and lists it on the agent, with the bun guidance", async () => {
+    carry("ts-hello").files["notes/a.md"] = "# notes";
 
     await finishRun();
 
@@ -1127,36 +1169,31 @@ describe("skills", () => {
       "bun /workspace/skills/<name>/scripts/<script>.ts"
     );
     expect(gateway.registered[0]?.system).toContain("ts-hello");
-    expect(skillRows()).toMatchObject([
-      { agentId, anthropicSkillId: "skill_1", name: "ts-hello" },
+    expect(versionRows()).toMatchObject([
+      {
+        anthropicSkillId: "skill_1",
+        anthropicVersion: "1",
+        skillId: "hm_ts-hello",
+        version: 1,
+      },
     ]);
   });
 
-  test("a folder without a valid SKILL.md is left out", async () => {
-    addSkill("good");
-    skillFiles.set("bad/SKILL.md", "no frontmatter");
-    skillFiles.set("loose/readme.txt", "no skill file");
-
-    await finishRun();
-
-    expect(skillRows().map((row) => row.name)).toEqual(["good"]);
-    expect(gateway.registered[0]?.skills).toHaveLength(1);
-  });
-
-  test("an unchanged skill is not uploaded again and the agent is not synced", async () => {
-    addSkill("ts-hello");
+  test("an unchanged version is not uploaded again and the agent is not synced", async () => {
+    carry("ts-hello");
     await finishRun();
 
     await finishRun("again");
 
     expect(gateway.skillStore.get("skill_1")).toHaveLength(1);
+    expect(fetchedVersions).toEqual(["hm_ts-hello@1"]);
     expect(gateway.synced).toEqual([]);
   });
 
-  test("a changed skill gets a new version, and the agent lists it", async () => {
-    addSkill("ts-hello");
+  test("a new approved version is a new version of the same Anthropic skill, and the agent lists it", async () => {
+    carry("ts-hello");
     await finishRun();
-    addSkill("ts-hello", "console.log('changed')");
+    carry("ts-hello", 2, "console.log('changed')");
 
     await finishRun("again");
 
@@ -1164,29 +1201,49 @@ describe("skills", () => {
     expect(gateway.syncedAgents.at(-1)?.skills).toEqual([
       { skillId: "skill_1", version: "2" },
     ]);
-    expect(skillRows()[0]?.anthropicVersion).toBe("2");
+    expect(
+      versionRows().map((row) => [row.version, row.anthropicVersion])
+    ).toEqual([
+      [1, "1"],
+      [2, "2"],
+    ]);
   });
 
-  test("a removed skill is detached from the agent, then deleted", async () => {
-    addSkill("ts-hello");
-    addSkill("keep");
+  test("a pin back to an uploaded version reuses that upload", async () => {
+    carry("ts-hello");
     await finishRun();
-    skillFiles.delete("ts-hello/SKILL.md");
-    skillFiles.delete("ts-hello/scripts/hello.ts");
+    carry("ts-hello", 2, "console.log('changed')");
+    await finishRun("again");
+
+    carry("ts-hello", 1);
+    await finishRun("pinned");
+
+    expect(gateway.skillStore.get("skill_1")).toHaveLength(2);
+    expect(fetchedVersions).toEqual(["hm_ts-hello@1", "hm_ts-hello@2"]);
+    expect(gateway.syncedAgents.at(-1)?.skills).toEqual([
+      { skillId: "skill_1", version: "1" },
+    ]);
+  });
+
+  test("a removed skill is detached from the agent and its upload is kept for other agents", async () => {
+    carry("ts-hello");
+    carry("keep");
+    await finishRun();
+    carried = carried.filter((skill) => skill.name !== "ts-hello");
 
     await finishRun("again");
 
     expect(gateway.syncedAgents.at(-1)?.skills).toEqual([
       { skillId: "skill_1", version: "1" },
     ]);
-    expect(gateway.deletedSkills).toEqual(["skill_2"]);
-    expect(skillRows().map((row) => row.name)).toEqual(["keep"]);
+    expect(gateway.deletedSkills).toEqual([]);
+    expect(versionRows()).toHaveLength(2);
   });
 
   test("the last skill removed leaves the agent with no skills and no guidance", async () => {
-    addSkill("ts-hello");
+    carry("ts-hello");
     await finishRun();
-    skillFiles.clear();
+    carried = [];
 
     await finishRun("again");
 
@@ -1194,12 +1251,35 @@ describe("skills", () => {
       skills: [],
       system: "Be brief.",
     });
-    expect(skillRows()).toEqual([]);
+  });
+
+  test("the per-agent mirrors of the library era are deleted at Anthropic on the next launch", async () => {
+    carry("ts-hello");
+    db.insert(managedSkills)
+      .values({
+        agentId,
+        anthropicSkillId: "legacy_1",
+        anthropicVersion: "1",
+        contentHash: "old",
+        createdAt: START,
+        name: "ts-hello",
+        syncedAt: START,
+        workspaceId: WORKSPACE,
+      })
+      .run();
+
+    await finishRun();
+
+    expect(gateway.deletedSkills).toEqual(["legacy_1"]);
+    expect(db.select().from(managedSkills).all()).toEqual([]);
+    expect(gateway.registered[0]?.skills).toEqual([
+      { skillId: "skill_1", version: "1" },
+    ]);
   });
 
   test("more skills than Anthropic takes fail the run before anything is uploaded", async () => {
     for (let index = 0; index < 21; index += 1) {
-      addSkill(`skill-${index}`);
+      carry(`skill-${index}`);
     }
     const { runId } = await start(dom);
 

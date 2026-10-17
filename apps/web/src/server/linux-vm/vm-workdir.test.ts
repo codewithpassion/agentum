@@ -8,9 +8,16 @@ const INPUT = "/workspace/input";
 
 const portOf = (
   contents: Map<string, string>,
-  unreadable: readonly string[] = []
+  unreadable: readonly string[] = [],
+  executable: readonly string[] = []
 ): SkillsPort => ({
-  list: () => Promise.resolve([...contents.keys()].map((path) => ({ path }))),
+  list: () =>
+    Promise.resolve(
+      [...contents.keys()].map((path) => ({
+        executable: executable.includes(path),
+        path,
+      }))
+    ),
   read: (path) => {
     const text = contents.get(path);
     if (text === undefined || unreadable.includes(path)) {
@@ -73,6 +80,93 @@ describe("placeSkills", () => {
     expect(vm.files.has(`${SKILLS}/shout/SKILL.md`)).toBe(true);
     expect(vm.files.has(`${SKILLS}/shout/notes/a.md`)).toBe(true);
     expect(vm.files.has(`${SKILLS}/shout/scripts/hello.ts`)).toBe(false);
+  });
+
+  test("sets the executable flag on flagged files in one command", async () => {
+    const vm = createFakeVm();
+    const flagged = ["shout/scripts/hello.ts", "shout/SKILL.md"];
+    const executable: SkillSummary = { ...shout, executable: flagged };
+
+    await placeSkills(vm, [executable], portOf(shoutContents(), [], flagged));
+
+    expect(vm.execCalls).toEqual([
+      {
+        command: `chmod +x -- '${SKILLS}/shout/scripts/hello.ts' '${SKILLS}/shout/SKILL.md'`,
+        cwd: "/workspace",
+        maxOutputBytes: 4096,
+        timeoutMs: 30_000,
+      },
+    ]);
+  });
+
+  test("quotes a path with a single quote for the shell", async () => {
+    const vm = createFakeVm();
+    const contents = new Map([
+      ["odd/SKILL.md", "---\nname: odd\n---\nOdd."],
+      ["odd/it's.sh", "echo"],
+    ]);
+    const odd: SkillSummary = {
+      description: "Odd",
+      executable: ["odd/it's.sh"],
+      files: ["odd/it's.sh"],
+      name: "odd",
+    };
+
+    await placeSkills(vm, [odd], portOf(contents, [], ["odd/it's.sh"]));
+
+    expect(vm.execCalls[0]?.command).toBe(
+      `chmod +x -- '${SKILLS}/odd/it'\\''s.sh'`
+    );
+  });
+
+  test("runs no command when no file is flagged", async () => {
+    const vm = createFakeVm();
+
+    await placeSkills(vm, [shout], portOf(shoutContents()));
+
+    expect(vm.execCalls).toEqual([]);
+  });
+
+  test("throws with the stderr when the chmod fails", async () => {
+    const vm = createFakeVm();
+    vm.onExec = () => ({
+      exitCode: 1,
+      stderr: "chmod: cannot access 'x': No such file or directory",
+      stdout: "",
+      timedOut: false,
+      truncated: false,
+    });
+    const flagged = ["shout/scripts/hello.ts"];
+
+    await expect(
+      placeSkills(
+        vm,
+        [{ ...shout, executable: flagged }],
+        portOf(shoutContents(), [], flagged)
+      )
+    ).rejects.toThrow(
+      "Could not set the executable flag on skill files: chmod: cannot access 'x': No such file or directory"
+    );
+  });
+
+  test("throws when the chmod times out", async () => {
+    const vm = createFakeVm();
+    vm.onExec = () => ({
+      exitCode: 124,
+      stderr: "",
+      stdout: "",
+      timedOut: true,
+      truncated: false,
+    });
+    const flagged = ["shout/scripts/hello.ts"];
+
+    await expect(
+      placeSkills(
+        vm,
+        [{ ...shout, executable: flagged }],
+        portOf(shoutContents(), [], flagged)
+      )
+    ).rejects.toThrow("Could not set the executable flag on skill files");
   });
 
   test("creates the skills folder when there are no skills", async () => {

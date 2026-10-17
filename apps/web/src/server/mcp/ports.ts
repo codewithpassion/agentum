@@ -16,8 +16,6 @@ import type {
   TriggerInfo,
 } from "@repo/mcp/ports";
 import { ToolError } from "@repo/mcp/result";
-import { isForbiddenError } from "@repo/services/authz";
-import { isServiceError } from "@repo/services/errors";
 import type { PostRecord, ThreadRecord } from "@repo/services/inbox";
 import type { RoutineSummary } from "@repo/services/routines";
 import type { RunSummary } from "@repo/services/runs/types";
@@ -33,29 +31,10 @@ import type { Principal } from "@repo/services/workspaces";
 import type { Services } from "../compose.ts";
 import { runLibraryBash } from "../library-bash/run.ts";
 import { bindLibraryOps } from "../library-env/library-ops.ts";
+import { guarded } from "./guarded.ts";
+import { createSkillPorts } from "./skill-ports.ts";
 
 const TITLE_MAX = 80;
-
-/** The service errors an agent can act on, as tool errors. Anything else passes through. */
-const toToolError = (error: unknown): unknown => {
-  if (isForbiddenError(error)) {
-    return new ToolError("forbidden", "This credential may not do that.");
-  }
-  if (isServiceError(error)) {
-    const code = error.code === "invalid" ? "validation" : error.code;
-    return new ToolError(code, error.message);
-  }
-  return error;
-};
-
-/** Runs `work`, turning the errors a tool may show into `ToolError`. */
-const guarded = async <T>(work: () => Promise<T>): Promise<T> => {
-  try {
-    return await work();
-  } catch (error) {
-    throw toToolError(error);
-  }
-};
 
 const toRunInfo = (run: RunSummary): RunInfo => ({
   agentId: run.agentId,
@@ -171,6 +150,8 @@ export const createMcpPorts = ({
     reference === undefined ? undefined : (await findAgent(reference)).id;
 
   return {
+    ...createSkillPorts({ findAgent, principal, services }),
+
     createRoutine: ({ agentId, ...input }) =>
       guarded(async () =>
         toRoutineInfo(

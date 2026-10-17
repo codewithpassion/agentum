@@ -79,6 +79,8 @@ export const pinInputSchema = z.strictObject({
 export type PinInput = z.input<typeof pinInputSchema>;
 
 export const forAgentOptionsSchema = z.strictObject({
+  /** Only these files, each as `<skill name>/<path>`. Skills with none of them are left out. */
+  paths: z.array(z.string()).optional(),
   withContents: z.boolean().default(false),
 });
 export type ForAgentOptions = z.input<typeof forAgentOptionsSchema>;

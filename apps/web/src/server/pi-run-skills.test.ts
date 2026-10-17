@@ -43,9 +43,18 @@ const NOTE_TEXT = "A note bundled with the skill.";
 
 const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
 
-/** A port over a map of path to text. The map is read on every call, so a test can edit it. */
-const portOver = (files: Record<string, string>): SkillsPort => ({
-  list: () => Promise.resolve(Object.keys(files).map((path) => ({ path }))),
+/** A port over a map of path to text. The map is read on every call, so a test can edit it. Paths in `executable` are listed as executable. */
+const portOver = (
+  files: Record<string, string>,
+  executable: readonly string[] = []
+): SkillsPort => ({
+  list: () =>
+    Promise.resolve(
+      Object.keys(files).map((path) => ({
+        executable: executable.includes(path),
+        path,
+      }))
+    ),
   read: (path) => {
     const text = files[path];
     if (text === undefined) {
@@ -115,6 +124,34 @@ describe("loadSkills", () => {
         name: "shout",
       },
     ]);
+  });
+
+  test("lists the executable files, SKILL.md included", async () => {
+    const skills = await loadSkills(
+      portOver(
+        {
+          "shout/SKILL.md": SHOUT_MD,
+          "shout/scripts/notes.txt": "plain",
+          "shout/scripts/run.sh": "echo hi",
+        },
+        ["shout/scripts/run.sh", "shout/SKILL.md"]
+      )
+    );
+    expect(skills).toEqual([
+      {
+        description: "Shouts the answer.",
+        executable: ["shout/SKILL.md", "shout/scripts/run.sh"],
+        files: ["shout/scripts/notes.txt", "shout/scripts/run.sh"],
+        name: "shout",
+      },
+    ]);
+  });
+
+  test("omits the executable field when no file is flagged", async () => {
+    const skills = await loadSkills(
+      portOver({ "shout/a.txt": "a", "shout/SKILL.md": SHOUT_MD })
+    );
+    expect("executable" in (skills[0] ?? {})).toBe(false);
   });
 
   test("skips a folder without SKILL.md", async () => {

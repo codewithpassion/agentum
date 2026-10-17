@@ -1,5 +1,3 @@
-import { ServiceError } from "../errors.ts";
-
 export const SKILL_DESCRIPTION_MAX = 1024;
 export const SKILL_NAME_MAX = 64;
 
@@ -16,9 +14,6 @@ const DOUBLE_QUOTED = /^"((?:[^"\\]|\\.)*)"\s*(?:#.*)?$/;
 const LINE_BREAK = /\r?\n/;
 const PARAGRAPH_BREAK = /\n\s*\n/;
 const TRAILING_COMMENT = /(^|\s)#.*$/;
-const decoder = new TextDecoder("utf-8", { fatal: true });
-
-const invalid = (message: string) => new ServiceError("invalid", message);
 
 /** Drops a ` # comment` that follows a plain value. */
 const stripComment = (text: string): string =>
@@ -173,32 +168,4 @@ export const skillFileAt = (
     return null;
   }
   return { owner, skill };
-};
-
-/** The text of `bytes`, or null when they are not UTF-8. */
-const decodeUtf8 = (bytes: Uint8Array): string | null => {
-  try {
-    return decoder.decode(bytes);
-  } catch {
-    return null;
-  }
-};
-
-/**
- * Refuses a SKILL.md that is not UTF-8 or whose frontmatter breaks a rule.
- * Any other path passes without a look at its bytes.
- */
-export const checkSkillFile = (path: string, bytes: Uint8Array): void => {
-  const skill = skillFileAt(path);
-  if (skill === null) {
-    return;
-  }
-  const text = decodeUtf8(bytes);
-  if (text === null) {
-    throw invalid("SKILL.md is not valid UTF-8 text");
-  }
-  const result = readSkillMeta(text, skill.skill);
-  if ("error" in result) {
-    throw invalid(result.error);
-  }
 };

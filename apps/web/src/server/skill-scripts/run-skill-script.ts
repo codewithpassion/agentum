@@ -29,6 +29,12 @@ export interface ScriptLimits {
   timeoutMs: number;
 }
 
+/** Reads the files of one version of a skill, paths relative to the skill folder, SKILL.md included. Rejects when the run may not read that version. */
+export type SkillVersionFiles = (
+  skill: string,
+  version: number
+) => Promise<SandboxFile[]>;
+
 /** The sentences of the tool's guidance that depend on where the script runs. */
 export interface ScriptTexts {
   /** The tool description's sentence on what the script can import and use. */
@@ -75,11 +81,11 @@ const textResult = (text: string, isError = false): ToolExecutionResult => ({
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-const folderPrefix = (skill: SkillSummary): string => `${skill.name}/`;
+const folderPrefix = (skill: string): string => `${skill}/`;
 
 /** The skill's files relative to its folder, SKILL.md included, e.g. "scripts/hello.ts". */
 const relativePathsOf = (skill: SkillSummary): string[] => {
-  const prefix = folderPrefix(skill);
+  const prefix = folderPrefix(skill.name);
   return [
     SKILL_FILE,
     ...skill.files.map((path) =>
@@ -93,10 +99,11 @@ const hasEscape = (path: string): boolean =>
 
 /** The skill-relative file that `path` names, or undefined. A `<skill>/` prefix counts only when the path as given is not a file. */
 const resolveEntry = (
-  skill: SkillSummary,
+  skill: string,
+  relativePaths: readonly string[],
   path: string
 ): string | undefined => {
-  const files = new Set(relativePathsOf(skill));
+  const files = new Set(relativePaths);
   if (files.has(path)) {
     return path;
   }
@@ -106,13 +113,32 @@ const resolveEntry = (
   }
 };
 
+/** The entry that `path` names in a skill with these files, or the message the run answers with. */
+const entryFor = (
+  skill: string,
+  relativePaths: readonly string[],
+  path: string
+): { entry: string } | { problem: string } => {
+  if (hasEscape(path)) {
+    return { problem: `Invalid path: ${path}` };
+  }
+  const entry = resolveEntry(skill, relativePaths, path);
+  if (entry === undefined) {
+    return { problem: `Not a file of the skill: ${path}` };
+  }
+  if (!SCRIPT_PATTERN.test(entry)) {
+    return { problem: `Not a script (.ts, .mts, .js, .mjs): ${entry}` };
+  }
+  return { entry };
+};
+
 const readSkillFiles = (
   port: SkillsPort,
   skill: SkillSummary
 ): Promise<SandboxFile[]> =>
   Promise.all(
     relativePathsOf(skill).map(async (path) => ({
-      bytes: await port.read(`${folderPrefix(skill)}${path}`),
+      bytes: await port.read(`${folderPrefix(skill.name)}${path}`),
       path,
     }))
   );
@@ -201,85 +227,120 @@ const runInSandbox = async (
   }
 };
 
-/** The run_skill_script tool and its prompt section. With no skills, the extension adds nothing. */
+/** The run_skill_script tool and its prompt section. With no skills and no `versions`, the extension adds nothing. */
 export const skillScriptsExtension = (
   skills: readonly SkillSummary[],
   port: SkillsPort,
   sandbox: SkillScriptSandbox,
   secrets: ScriptSecrets | undefined,
   limits: ScriptLimits = SCRIPT_LIMITS,
-  texts: ScriptTexts = ISOLATE_SCRIPT_TEXTS
+  texts: ScriptTexts = ISOLATE_SCRIPT_TEXTS,
+  versions?: SkillVersionFiles
 ): Extension => {
-  if (skills.length === 0) {
+  if (skills.length === 0 && versions === undefined) {
     return { name: SKILL_SCRIPTS_EXTENSION };
   }
   const skillsByName = new Map(skills.map((skill) => [skill.name, skill]));
   const sandboxSentence = secrets === undefined ? texts.plain : texts.granted;
   const prompt = `Scripts written in TypeScript or JavaScript in a skill are run with ${TOOL_NAME}, not read and imitated. ${sandboxSentence} ${limits.timeoutMs / 1000} seconds.`;
+  const versionSentence =
+    versions === undefined
+      ? ""
+      : " To test a version that is not approved yet (for example one you proposed), pass its number as version; the skill need not be in the catalog. Without version the approved version runs.";
 
-  const run = defineTool({
-    description: `Runs a skill's TypeScript or JavaScript script and returns its exit code, stdout and stderr. Give the path relative to the skill folder, as activate_skill lists it. args become process.argv from index 2. ${texts.capabilities}`,
-    execute: async (args) => {
-      const skill = skillsByName.get(args.skill);
-      if (skill === undefined) {
-        return textResult(`Skill not found: ${args.skill}`, true);
-      }
-      if (hasEscape(args.path)) {
-        return textResult(`Invalid path: ${args.path}`, true);
-      }
-      const entry = resolveEntry(skill, args.path);
-      if (entry === undefined) {
-        return textResult(`Not a file of the skill: ${args.path}`, true);
-      }
-      if (!SCRIPT_PATTERN.test(entry)) {
-        return textResult(
-          `Not a script (.ts, .mts, .js, .mjs): ${entry}`,
-          true
-        );
-      }
-      let files: SandboxFile[];
+  /** Runs the entry with the granted secrets, if any, and describes the result. */
+  const runScript = async (
+    skill: string,
+    entry: string,
+    files: SandboxFile[],
+    argv: string[]
+  ): Promise<ToolExecutionResult> => {
+    let granted: Awaited<ReturnType<ScriptSecrets["forRun"]>> | undefined;
+    if (secrets !== undefined) {
       try {
-        files = await readSkillFiles(port, skill);
+        granted = await secrets.forRun();
       } catch (error) {
         return textResult(
-          `Could not read the skill files: ${errorText(error)}`,
+          `Could not read the secrets: ${errorText(error)}`,
           true
         );
       }
-      let granted: Awaited<ReturnType<ScriptSecrets["forRun"]>> | undefined;
-      if (secrets !== undefined) {
+    }
+    return runInSandbox(
+      sandbox,
+      {
+        args: argv,
+        entry,
+        files,
+        maxOutputBytes: limits.maxOutputBytes,
+        ...(granted === undefined
+          ? {}
+          : { env: granted.env, proxy: granted.proxy }),
+        skill,
+        timeoutMs: limits.timeoutMs,
+      },
+      granted?.mask,
+      limits
+    );
+  };
+
+  const run = defineTool({
+    description: `Runs a skill's TypeScript or JavaScript script and returns its exit code, stdout and stderr. Give the path relative to the skill folder, as activate_skill lists it. args become process.argv from index 2. ${texts.capabilities}${versionSentence}`,
+    execute: async (args) => {
+      const version = "version" in args ? args.version : undefined;
+      if (versions === undefined || version === undefined) {
+        const skill = skillsByName.get(args.skill);
+        if (skill === undefined) {
+          return textResult(`Skill not found: ${args.skill}`, true);
+        }
+        const checked = entryFor(skill.name, relativePathsOf(skill), args.path);
+        if ("problem" in checked) {
+          return textResult(checked.problem, true);
+        }
+        let files: SandboxFile[];
         try {
-          granted = await secrets.forRun();
+          files = await readSkillFiles(port, skill);
         } catch (error) {
           return textResult(
-            `Could not read the secrets: ${errorText(error)}`,
+            `Could not read the skill files: ${errorText(error)}`,
             true
           );
         }
+        return runScript(skill.name, checked.entry, files, args.args ?? []);
       }
-      return runInSandbox(
-        sandbox,
-        {
-          args: args.args ?? [],
-          entry,
-          files,
-          maxOutputBytes: limits.maxOutputBytes,
-          ...(granted === undefined
-            ? {}
-            : { env: granted.env, proxy: granted.proxy }),
-          skill: skill.name,
-          timeoutMs: limits.timeoutMs,
-        },
-        granted?.mask,
-        limits
+      let files: SandboxFile[];
+      try {
+        files = await versions(args.skill, version);
+      } catch (error) {
+        return textResult(
+          `Could not read version ${version} of ${args.skill}: ${errorText(error)}`,
+          true
+        );
+      }
+      const checked = entryFor(
+        args.skill,
+        files.map((file) => file.path),
+        args.path
       );
+      if ("problem" in checked) {
+        return textResult(checked.problem, true);
+      }
+      return runScript(args.skill, checked.entry, files, args.args ?? []);
     },
     name: TOOL_NAME,
-    parameters: Type.Object({
-      args: Type.Optional(Type.Array(Type.String())),
-      path: Type.String(),
-      skill: Type.Union(skills.map((skill) => Type.Literal(skill.name))),
-    }),
+    parameters:
+      versions === undefined
+        ? Type.Object({
+            args: Type.Optional(Type.Array(Type.String())),
+            path: Type.String(),
+            skill: Type.Union(skills.map((skill) => Type.Literal(skill.name))),
+          })
+        : Type.Object({
+            args: Type.Optional(Type.Array(Type.String())),
+            path: Type.String(),
+            skill: Type.String(),
+            version: Type.Optional(Type.Integer({ minimum: 1 })),
+          }),
     replay: "unsafe",
   });
 

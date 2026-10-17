@@ -19,27 +19,36 @@ const NO_FILES = "none";
 
 const decoder = new TextDecoder();
 
+/** One file the platform lists. `executable` is true when the file is flagged to run. */
+export interface SkillsListing {
+  executable?: boolean;
+  path: string;
+}
+
 /** The platform's skills for a run, as the services give them. `list` returns every file path (relative, starting with the skill folder, e.g. "shout/SKILL.md", "shout/notes/a.md"); `read` returns one file's bytes by that path. */
 export interface SkillsPort {
-  list: () => Promise<readonly { path: string }[]>;
+  list: () => Promise<readonly SkillsListing[]>;
   read: (path: string) => Promise<Uint8Array>;
 }
 
-/** What the prompt catalog needs. `name` equals the folder. `files` are the skill's other files, as listed paths. */
+/** What the prompt catalog needs. `name` equals the folder. `files` are the skill's other files, as listed paths. `executable` lists the paths flagged to run, and is set only when there is one. */
 export interface SkillSummary {
   description: string;
+  executable?: string[];
   files: string[];
   name: string;
 }
 
 const folderOf = (path: string): string => path.split("/")[0] ?? "";
 
-const groupByFolder = (paths: readonly string[]): Map<string, string[]> => {
-  const groups = new Map<string, string[]>();
-  for (const path of paths) {
-    const folder = folderOf(path);
+const groupByFolder = (
+  listed: readonly SkillsListing[]
+): Map<string, SkillsListing[]> => {
+  const groups = new Map<string, SkillsListing[]>();
+  for (const entry of listed) {
+    const folder = folderOf(entry.path);
     const group = groups.get(folder) ?? [];
-    group.push(path);
+    group.push(entry);
     groups.set(folder, group);
   }
   return groups;
@@ -52,9 +61,10 @@ const readText = async (port: SkillsPort, path: string): Promise<string> =>
 const loadSkill = async (
   port: SkillsPort,
   folder: string,
-  paths: readonly string[]
+  listed: readonly SkillsListing[]
 ): Promise<SkillSummary | undefined> => {
   const skillPath = `${folder}/${SKILL_FILE}`;
+  const paths = listed.map((entry) => entry.path);
   if (!paths.includes(skillPath)) {
     return;
   }
@@ -68,8 +78,12 @@ const loadSkill = async (
   if ("error" in result) {
     return;
   }
+  const executable = listed
+    .filter((entry) => entry.executable === true)
+    .map((entry) => entry.path);
   return {
     description: result.meta.description,
+    ...(executable.length > 0 ? { executable } : {}),
     files: paths.filter((path) => path !== skillPath),
     name: folder,
   };
@@ -85,9 +99,9 @@ const byName = (a: SkillSummary, b: SkillSummary): number => {
 /** Every valid skill in the port, sorted by name. Folders that fail to load are skipped. */
 export const loadSkills = async (port: SkillsPort): Promise<SkillSummary[]> => {
   const listed = await port.list();
-  const groups = groupByFolder(listed.map((entry) => entry.path));
+  const groups = groupByFolder(listed);
   const loaded = await Promise.all(
-    [...groups].map(([folder, paths]) => loadSkill(port, folder, paths))
+    [...groups].map(([folder, entries]) => loadSkill(port, folder, entries))
   );
   return loaded
     .filter((skill): skill is SkillSummary => skill !== undefined)

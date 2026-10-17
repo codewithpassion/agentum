@@ -10,7 +10,6 @@ import {
   type SkillFile,
 } from "@repo/protocol/skills";
 import type { AgentsService } from "./agents.ts";
-import { ForbiddenError } from "./authz.ts";
 import { isServiceError, ServiceError } from "./errors.ts";
 import {
   readSkillMeta,
@@ -19,8 +18,6 @@ import {
 } from "./library/skill-file.ts";
 import type { LibraryEntry, LibraryService } from "./library.ts";
 import type { Principal } from "./workspaces.ts";
-
-type RunPrincipal = Extract<Principal, { kind: "run" }>;
 
 export type SkillsLibrary = Pick<
   LibraryService,
@@ -62,21 +59,6 @@ const TOO_BIG = "Skills are limited to 200 files and 5 MB";
 
 const notFound = () => new ServiceError("not_found", "Not found");
 const invalid = (message: string) => new ServiceError("invalid", message);
-
-/** A run may read its own skills. Other principals are refused, and another run gets not_found. */
-const requireRun = (
-  principal: Principal,
-  action: string,
-  runId: string
-): RunPrincipal => {
-  if (principal.kind !== "run") {
-    throw new ForbiddenError(action);
-  }
-  if (principal.runId !== runId) {
-    throw notFound();
-  }
-  return principal;
-};
 
 /** Refuses anything that could climb out of the skill folder, before the library sees it. */
 const relativeSegments = (path: string, minSegments = 2): string[] => {
@@ -268,46 +250,6 @@ export const createSkillsService = ({
     return winners;
   };
 
-  const list = async (
-    principal: Principal,
-    runId: string
-  ): Promise<SkillFile[]> => {
-    const run = requireRun(principal, "skills.list", runId);
-    const start = [...(await winningRoots(run, run.agentId))].map(
-      ([skill, root]) => ({
-        dir: `${root}/${skill}`,
-        path: skill,
-      })
-    );
-    const files: SkillFile[] = [];
-    let bytes = 0;
-    await walkFiles(library, run, start, (file) => {
-      files.push(file);
-      bytes += file.size;
-      if (files.length > SKILLS_MAX_FILES || bytes > SKILLS_MAX_BYTES) {
-        throw invalid(TOO_BIG);
-      }
-    });
-    return files.sort(byPath);
-  };
-
-  const read = async (
-    principal: Principal,
-    runId: string,
-    path: string
-  ): Promise<Uint8Array> => {
-    const run = requireRun(principal, "skills.read", runId);
-    const segments = relativeSegments(path);
-    const relative = segments.join("/");
-    const own = `${SKILLS_DIR}/${run.agentId}`;
-    const ownSkill = `${own}/${segments[0]}`;
-    const root = (await isFolder(library, run, ownSkill))
-      ? own
-      : `${SKILLS_DIR}/${SHARED_DIR}`;
-    const { bytes } = await library.read(run, `${root}/${relative}`);
-    return bytes;
-  };
-
   /** The skills an agent sees on the Skills tab: its own first, then the shared ones, each by folder. */
   const catalog = async (
     principal: Principal,
@@ -487,7 +429,7 @@ export const createSkillsService = ({
     await library.remove(principal, target);
   };
 
-  return { catalog, create, list, read, readFile, removeFile, tree, writeFile };
+  return { catalog, create, readFile, removeFile, tree, writeFile };
 };
 
 export type SkillsService = ReturnType<typeof createSkillsService>;
