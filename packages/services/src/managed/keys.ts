@@ -30,6 +30,14 @@ import { ServiceError } from "../errors.ts";
 import type { Clock } from "../runs/types.ts";
 import type { Principal } from "../workspaces.ts";
 
+/**
+ * What a run says when its workspace has no Anthropic API key. The Cloudflare
+ * and Managed Agents runtimes both use it, and "Anthropic API key" is the
+ * heading of the section in Settings where the key is added.
+ */
+export const NO_KEY_MESSAGE =
+  "This workspace has no Anthropic API key. Add one in Settings, Anthropic API key.";
+
 const KEY_KIND = "workspace_anthropic_key";
 const READ_ACTION = "managed.keys.read";
 const WRITE_ACTION = "managed.keys.write";
