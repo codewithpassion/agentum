@@ -13,8 +13,11 @@ import { runCli, WEB_DIR } from "../dev/local.ts";
 //      are not read-only are `replay: "unsafe"` (pi-run-mcp.ts);
 //   3. long outage: the object is down for 120 s with the lease reaper still
 //      sweeping, and the run still ends `done` (scripts/e2e/cloud-outage.ts).
-// Not covered: a `safe` tool, which Pi runs again after a restart. No tool the
-// faux model can call is both read-only and slow enough to stop in the middle.
+// Not covered yet: a `safe` tool, which Pi runs again after a restart. The faux
+// model (apps/web/src/server/pi-run-faux.ts) only ever calls `harbourmaster_bash`,
+// and no platform tool is both read-only and slow enough to stop in the middle.
+// A safe case needs a faux prompt that calls another tool and a slow read-only
+// tool in dev builds.
 // The bridge's mapping from `readOnlyHint` to `safe` has unit tests in
 // apps/web/src/server/pi-run-mcp.test.ts.
 //
@@ -44,8 +47,6 @@ export const PI_PACKAGES = [
 const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
 // The script prints a marker that is not in the script text, so a rerun shows in the output.
 const MARKER = "ran-42";
-const UNSAFE_SCRIPT = `printf '%s\\n' ran-$((20+22)); sleep 8`;
-const UNSAFE_PROMPT = `bash ${UNSAFE_SCRIPT}`;
 const INTERRUPTED = "may have partially run";
 // Pi writes the execute checkpoint right after the tool.call entry. Wait this long
 // before the kill, so the tool is in flight and not only admitted.
@@ -54,6 +55,8 @@ const TOOL_WAIT_MS = 60_000;
 const POLL_MS = 250;
 // The library bash tool stops a script after 10 s. The sleep must be shorter.
 const TOOL_SLEEP_MS = 8000;
+const UNSAFE_SCRIPT = `printf '%s\\n' ran-$((20+22)); sleep ${TOOL_SLEEP_MS / 1000}`;
+const UNSAFE_PROMPT = `bash ${UNSAFE_SCRIPT}`;
 
 /** What the script reads from the package manifest and the install. */
 export interface PinDeps {
