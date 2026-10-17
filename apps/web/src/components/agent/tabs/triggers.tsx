@@ -66,6 +66,7 @@ function TriggersPanel({ agent }: AgentTabProps) {
   }, [reload]);
 
   const approveTrigger = useCallback(async (triggerId: string) => {
+    setError(undefined);
     try {
       const approved = await getTrpc().triggers.approve.mutate({ triggerId });
       if (approved.secret === null) {
@@ -105,6 +106,20 @@ function TriggersPanel({ agent }: AgentTabProps) {
     [reload]
   );
 
+  const toggleTrigger = useCallback(
+    async (triggerId: string, enabled: boolean) => {
+      setError(undefined);
+      try {
+        await getTrpc().triggers.setEnabled.mutate({ enabled, triggerId });
+      } catch (cause) {
+        setError(errorMessage(cause));
+        return;
+      }
+      reload();
+    },
+    [reload]
+  );
+
   let body: ReactNode;
   if (triggers === undefined) {
     body =
@@ -128,6 +143,7 @@ function TriggersPanel({ agent }: AgentTabProps) {
             onApprove={approveTrigger}
             onReject={rejectTrigger}
             onRevoke={revokeTrigger}
+            onToggle={toggleTrigger}
             showAgent={false}
             triggers={triggers}
           />

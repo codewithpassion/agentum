@@ -7,7 +7,9 @@ import {
 import { z } from "zod";
 import { router, workspaceProcedure } from "./init.ts";
 
-const triggerIdInput = z.strictObject({ triggerId: z.string().min(1) });
+const triggerIdInput = z.strictObject({
+  triggerId: z.string().min(1).max(200),
+});
 
 export const triggersRouter = router({
   approve: workspaceProcedure

@@ -367,8 +367,8 @@ export const createTriggersService = ({
   };
 
   /**
-   * Pauses a trigger, or resumes it. A paused trigger answers 403 to its
-   * token. Resuming a proposal is approving it. A run can only pause.
+   * Pauses a trigger, or resumes it. A paused trigger rejects its
+   * token (the route answers 401). Resuming a proposal is approving it. A run can only pause.
    */
   const setEnabled = async (
     principal: Principal,

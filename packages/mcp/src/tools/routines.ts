@@ -94,7 +94,7 @@ export const routineTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_UPDATE,
     description:
-      "Switches a routine on or off. Setting enabled to true turns on a routine that is off or awaiting approval. When an agent calls this, the result is a proposal that stays off until a person approves it in the Harbourmaster UI. An agent cannot enable anything.",
+      "Switches a routine on or off. Setting enabled to true turns on a routine that is off, or approves one that is awaiting approval. An agent can only switch its own agent's routines off: it cannot enable anything, and its proposals wait for a person to approve them in the Harbourmaster UI.",
     inputSchema: z.strictObject({
       enabled: z
         .boolean()

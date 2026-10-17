@@ -96,6 +96,19 @@ function TriggersPage() {
     [router]
   );
 
+  const toggleTrigger = useCallback(
+    async (triggerId: string, enabled: boolean) => {
+      setError(null);
+      try {
+        await getTrpc().triggers.setEnabled.mutate({ enabled, triggerId });
+        await router.invalidate();
+      } catch (caught) {
+        setError(errorMessage(caught));
+      }
+    },
+    [router]
+  );
+
   return (
     <section className="mx-auto max-w-3xl">
       <div className="mb-6 flex items-center justify-between gap-4">
@@ -115,6 +128,7 @@ function TriggersPage() {
           onApprove={approveTrigger}
           onReject={rejectTrigger}
           onRevoke={revokeTrigger}
+          onToggle={toggleTrigger}
           showAgent
           triggers={triggers}
         />

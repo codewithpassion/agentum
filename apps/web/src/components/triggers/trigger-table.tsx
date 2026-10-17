@@ -13,12 +13,16 @@ import {
 import type { TriggerRecord } from "#/integrations/trpc/types";
 import { lastFiredLabel } from "./format.ts";
 
+/** A proposal nobody has approved and nobody has removed. */
+const isAwaitingApproval = (trigger: TriggerRecord): boolean =>
+  trigger.revokedAt === null && isPendingProposal(trigger);
+
 function statusLabel(trigger: TriggerRecord): string {
-  if (isPendingProposal(trigger)) {
-    return "awaiting approval";
-  }
   if (trigger.revokedAt !== null) {
     return "revoked";
+  }
+  if (isPendingProposal(trigger)) {
+    return "awaiting approval";
   }
   if (trigger.disabledAt !== null) {
     return "paused";
@@ -30,12 +34,14 @@ function TriggerRow({
   onApprove,
   onReject,
   onRevoke,
+  onToggle,
   showAgent,
   trigger,
 }: {
   onApprove: (triggerId: string) => void;
   onReject: (triggerId: string) => void;
   onRevoke: (triggerId: string) => void;
+  onToggle: (triggerId: string, enabled: boolean) => void;
   showAgent: boolean;
   trigger: TriggerRecord;
 }) {
@@ -51,7 +57,12 @@ function TriggerRow({
     () => onRevoke(trigger.id),
     [onRevoke, trigger.id]
   );
-  const pending = isPendingProposal(trigger);
+  const paused = trigger.disabledAt !== null;
+  const toggle = useCallback(
+    () => onToggle(trigger.id, paused),
+    [onToggle, trigger.id, paused]
+  );
+  const pending = isAwaitingApproval(trigger);
   const label = statusLabel(trigger);
 
   let actions: ReactNode = null;
@@ -68,9 +79,14 @@ function TriggerRow({
     );
   } else if (trigger.revokedAt === null) {
     actions = (
-      <Button onClick={revoke} size="sm" variant="outline">
-        Revoke
-      </Button>
+      <>
+        <Button onClick={toggle} size="sm" variant="outline">
+          {paused ? "Resume" : "Pause"}
+        </Button>{" "}
+        <Button onClick={revoke} size="sm" variant="outline">
+          Revoke
+        </Button>
+      </>
     );
   }
 
@@ -105,12 +121,14 @@ export function TriggerTable({
   onApprove,
   onReject,
   onRevoke,
+  onToggle,
   showAgent,
   triggers,
 }: {
   onApprove: (triggerId: string) => void;
   onReject: (triggerId: string) => void;
   onRevoke: (triggerId: string) => void;
+  onToggle: (triggerId: string, enabled: boolean) => void;
   showAgent: boolean;
   triggers: readonly TriggerRecord[];
 }) {
@@ -135,6 +153,7 @@ export function TriggerTable({
             onApprove={onApprove}
             onReject={onReject}
             onRevoke={onRevoke}
+            onToggle={onToggle}
             showAgent={showAgent}
             trigger={trigger}
           />
