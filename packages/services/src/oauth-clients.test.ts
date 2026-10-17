@@ -96,7 +96,11 @@ beforeEach(() => {
   clock = { now: () => new Date(nowMs), sleep: () => Promise.resolve() };
   seedWorkspace(WORKSPACE);
   seedWorkspace(OTHER_WORKSPACE);
-  service = createOAuthClientsService({ clock, db });
+  service = createOAuthClientsService({
+    clock,
+    db,
+    nameLookupFailures: new Map(),
+  });
 });
 
 test("an unknown client is recorded pending with a sanitized name, and the name is looked up once", async () => {
@@ -521,30 +525,35 @@ describe("sanitizeOAuthClientName", () => {
   });
 });
 
-test("a failed name lookup for a nameless client is retried after five minutes, not on every request", async () => {
-  await firstSeen(CLIENT);
+test("a failed name lookup for a nameless client is retried after five minutes, across requests", async () => {
+  const nameLookupFailures = new Map<string, number>();
+  // The app builds the service per request, so each call gets its own.
+  const request = (name: () => Promise<string | null>) =>
+    createOAuthClientsService({ clock, db, nameLookupFailures }).resolve({
+      clientId: CLIENT,
+      homeWorkspaceId: () => Promise.resolve(WORKSPACE),
+      name,
+      userId: "user_1",
+    });
+  await request(() => Promise.resolve(null));
   let calls = 0;
   const failing = () => {
     calls += 1;
     return Promise.resolve(null);
   };
 
-  await firstSeen(CLIENT, WORKSPACE, failing);
-  await firstSeen(CLIENT, WORKSPACE, failing);
+  await request(failing);
+  await request(failing);
   expect(calls).toBe(1);
 
   nowMs += 5 * 60 * 1000;
-  await firstSeen(CLIENT, WORKSPACE, failing);
+  await request(failing);
   expect(calls).toBe(2);
 
-  const filled = await firstSeen(CLIENT, WORKSPACE, () =>
-    Promise.resolve("Late Name")
-  );
-  expect(filled).toEqual({ name: null, status: "pending" });
+  const throttled = await request(() => Promise.resolve("Late Name"));
+  expect(throttled).toEqual({ name: null, status: "pending" });
 
   nowMs += 5 * 60 * 1000;
-  const retried = await firstSeen(CLIENT, WORKSPACE, () =>
-    Promise.resolve("Late Name")
-  );
+  const retried = await request(() => Promise.resolve("Late Name"));
   expect(retried).toEqual({ name: "Late Name", status: "pending" });
 });

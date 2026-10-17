@@ -163,16 +163,27 @@ const lookupName = async (
   }
 };
 
+/** Most nameless clients remembered; the Clerk instance has a handful. */
+const MAX_REMEMBERED_NAME_FAILURES = 1000;
+
+/** When each nameless client's last failed name lookup ran, in epoch ms. */
+export type NameLookupFailures = Map<string, number>;
+
+/**
+ * The service is built per request, so the default store is module state: it
+ * lives as long as the Worker isolate, which is what the retry wait counts in.
+ */
+const isolateNameLookupFailures: NameLookupFailures = new Map();
+
 export const createOAuthClientsService = ({
   clock,
   db,
+  nameLookupFailures = isolateNameLookupFailures,
 }: {
   clock: Clock;
   db: Database;
+  nameLookupFailures?: NameLookupFailures;
 }) => {
-  /** When each nameless client's last failed name lookup ran, in epoch ms. */
-  const failedNameLookups = new Map<string, number>();
-
   const findByClientId = async (
     clientId: string
   ): Promise<StoredRow | null> => {
@@ -234,16 +245,19 @@ export const createOAuthClientsService = ({
       return row;
     }
     const nowMs = clock.now().getTime();
-    const failedAt = failedNameLookups.get(row.clientId);
+    const failedAt = nameLookupFailures.get(row.clientId);
     if (failedAt !== undefined && nowMs - failedAt < NAME_RETRY_INTERVAL_MS) {
       return row;
     }
     const name = await lookupName(input.name);
     if (name === null) {
-      failedNameLookups.set(row.clientId, nowMs);
+      if (nameLookupFailures.size >= MAX_REMEMBERED_NAME_FAILURES) {
+        nameLookupFailures.clear();
+      }
+      nameLookupFailures.set(row.clientId, nowMs);
       return row;
     }
-    failedNameLookups.delete(row.clientId);
+    nameLookupFailures.delete(row.clientId);
     await db
       .update(oauthClients)
       .set({ name })
