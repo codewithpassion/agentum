@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { closeSync, mkdirSync, openSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 // The cloud outage check, live. A cloud run streams for about half a minute
 // in its Durable Object under `vite dev`. This script kills the dev server
@@ -43,7 +44,7 @@ import {
 import { CloudError, type SeqEvent, seqEventsOf } from "./cloud.ts";
 
 const DEFAULT_PORT = 3917;
-const DEFAULT_LOG_DIR = "/home/roboto/devel/harbourmaster-wt/tmp/C.4";
+const DEFAULT_LOG_DIR = join(tmpdir(), "cloud-outage");
 const AGENT_MODEL = "faux";
 const PROMPT = "slow-bash echo after-the-outage";
 const RESULT_MARK = "after-the-outage";
