@@ -2,11 +2,14 @@
 // so bun can test it with a fake Pi and fake storage. `pi-run.ts` wraps it in
 // the Durable Object. A run is one Pi submission whose operation id is the run
 // id, so a second start of the same run is a no-op, and each run reads its own
-// slice of the session's transcript.
+// slice of the session's transcript. `beat` runs on the object's alarm every
+// HEARTBEAT_MS: it heartbeats the active runs and works again any run the
+// object is not following.
 import type { EntryRecord } from "@earendil-works/pi-durable";
 import type { RunStatus } from "@repo/db/shared";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { isServiceError } from "@repo/services/errors";
+import { RUN_TOKEN_MAX_AGE_MS } from "@repo/services/run-tokens";
 import {
   type RunEventInput,
   type RunResult,
@@ -54,12 +57,13 @@ export interface RunStorage {
 
 export interface RunCoreDeps {
   complete: (runId: string, result: RunResult) => Promise<void>;
+  /** Extends a run's lease. Called by `beat`. */
   heartbeat: (runId: string) => Promise<void>;
-  /** Milliseconds between lease heartbeats while a run is worked. */
-  heartbeatMs?: number;
   ingest: (runId: string, events: RunEventInput[]) => Promise<unknown>;
   /** Lists the run's MCP tools and installs them. Throws when a server cannot be reached. */
   installTools: (input: CloudStart) => Promise<void>;
+  /** Epoch milliseconds. A run older than its run token is not heartbeated. */
+  now?: () => number;
   pi: PiPort;
   sleep?: (ms: number) => Promise<void>;
   /** The run's status on the platform. */
@@ -72,6 +76,8 @@ interface StoredRun {
   entry?: string;
   /** The agent's model, so a run submitted again after a wake uses it. */
   model: string;
+  /** When the run was first started, from `now()`. */
+  startedAt: number;
   state: "active" | "finished";
   /** The input, so a run whose submission never reached Pi can be submitted again. */
   text: string;
@@ -102,9 +108,9 @@ const isRunGone = (error: unknown): boolean =>
 export const createRunCore = ({
   complete,
   heartbeat,
-  heartbeatMs = HEARTBEAT_MS,
   ingest,
   installTools,
+  now = Date.now,
   pi,
   sleep = defaultSleep,
   statusOf,
@@ -294,14 +300,6 @@ export const createRunCore = ({
       });
       return chain;
     };
-    const beat = setInterval(() => {
-      heartbeat(runId).catch((error: unknown) => {
-        // A run waiting for its second claim refuses heartbeats, and says nothing new.
-        if (!isRunGone(error)) {
-          console.error(`PiRun: heartbeat for ${runId}: ${describe(error)}`);
-        }
-      });
-    }, heartbeatMs);
     let stop: (() => Promise<unknown>) | undefined;
     try {
       stop = await pi.watch(flush);
@@ -329,7 +327,6 @@ export const createRunCore = ({
       }
       await finishRun(runId);
     } finally {
-      clearInterval(beat);
       await stop?.().catch(() => undefined);
     }
   };
@@ -344,7 +341,7 @@ export const createRunCore = ({
     }
     const job = work(runId)
       .catch((error: unknown) => {
-        // The run stays active: the next wake of the object works it again.
+        // The run stays active: the next beat of the alarm works it again.
         console.error(`PiRun: working run ${runId}: ${describe(error)}`);
       })
       .finally(() => {
@@ -373,6 +370,7 @@ export const createRunCore = ({
     if (!existing) {
       await save(run.id, {
         model: input.agent.model,
+        startedAt: now(),
         state: "active",
         text: run.inputText,
       });
@@ -409,23 +407,71 @@ export const createRunCore = ({
     follow(runId);
   };
 
+  /** Submits an active run again and works it. A no-op submit when Pi has the run covers a start that stopped before its submit. */
+  const resumeRun = async (runId: string, run: StoredRun): Promise<void> => {
+    if (!(await pi.busy())) {
+      await pi.setModel(run.model);
+    }
+    await pi.submit(run.text, { operationId: runId, whenBusy: "followUp" });
+    follow(runId);
+  };
+
   /** After a wake: works every run that has not finished. */
   const resume = async (): Promise<void> => {
     for (const runId of await knownRuns()) {
       // biome-ignore lint/performance/noAwaitInLoops: a handful of runs, read in order
       const run = await load(runId);
       if (run?.state === "active") {
-        // Submitting again is a no-op when Pi has the run, and covers a start that stopped before its submit.
-        if (!(await pi.busy())) {
-          await pi.setModel(run.model);
-        }
-        await pi.submit(run.text, { operationId: runId, whenBusy: "followUp" });
-        follow(runId);
+        await resumeRun(runId, run);
       }
     }
   };
 
-  return { cancel, resume, start };
+  /**
+   * Called by the alarm every HEARTBEAT_MS. Heartbeats each active run whose
+   * token is not yet too old, then works again each active run this object is
+   * not following, so a run whose report or completion failed is tried again.
+   * Resolves to whether any run is still active, so the caller knows whether to
+   * keep the alarm. A failure on one run does not stop the others.
+   */
+  const beat = async (): Promise<boolean> => {
+    const active: [string, StoredRun][] = [];
+    for (const runId of await knownRuns()) {
+      // biome-ignore lint/performance/noAwaitInLoops: a handful of runs, read in order
+      const run = await load(runId);
+      if (run?.state === "active") {
+        active.push([runId, run]);
+      }
+    }
+    await Promise.all(
+      active.map(async ([runId, run]) => {
+        if (now() - run.startedAt > RUN_TOKEN_MAX_AGE_MS) {
+          return;
+        }
+        try {
+          await heartbeat(runId);
+        } catch (error) {
+          // A run that the platform no longer runs refuses heartbeats, and says nothing new.
+          if (!isRunGone(error)) {
+            console.error(`PiRun: heartbeat for ${runId}: ${describe(error)}`);
+          }
+        }
+      })
+    );
+    for (const [runId, run] of active) {
+      if (!following.has(runId)) {
+        try {
+          // biome-ignore lint/performance/noAwaitInLoops: one run at a time, as on resume
+          await resumeRun(runId, run);
+        } catch (error) {
+          console.error(`PiRun: resuming run ${runId}: ${describe(error)}`);
+        }
+      }
+    }
+    return active.length > 0;
+  };
+
+  return { beat, cancel, resume, start };
 };
 
 export type RunCore = ReturnType<typeof createRunCore>;

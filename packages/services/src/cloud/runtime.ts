@@ -7,6 +7,7 @@ import { isServiceError } from "../errors.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
 import type { AdapterDeps, RunRecord, RuntimeAdapter } from "../runs/types.ts";
 import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
+import { CLOUD_LEASE_MS } from "./lease.ts";
 import type { CloudRunnerPort } from "./types.ts";
 
 const describeError = (error: unknown): string =>
@@ -16,8 +17,9 @@ const describeError = (error: unknown): string =>
  * Runs in the cloud runner, one Durable Object per session. Dispatch claims
  * the run for the system, then hands the runner what it needs to start. The
  * claim comes first because a run token is only valid while its run is
- * `running`. A start that fails releases the claim, so the minute sweep offers
- * the run again.
+ * `running`, with the cloud lease (the object's alarm extends it, see
+ * `./lease.ts`). A start that fails releases the claim, so the minute sweep
+ * offers the run again.
  */
 export const createCloudRuntime = ({
   platformUrl,
@@ -94,7 +96,9 @@ export const createCloudRuntime = ({
     },
     dispatch: async (db, run, agent, deps) => {
       try {
-        await deps.claimRun(SYSTEM_PRINCIPAL, run.id);
+        await deps.claimRun(SYSTEM_PRINCIPAL, run.id, {
+          leaseMs: CLOUD_LEASE_MS,
+        });
       } catch (error) {
         if (isServiceError(error) && error.code === "conflict") {
           return;

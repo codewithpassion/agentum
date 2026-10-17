@@ -209,7 +209,11 @@ export interface MachineClaim {
  * functions over HTTP.
  */
 export interface AdapterDeps {
-  claimRun: (principal: Principal, runId: string) => Promise<RunRecord>;
+  claimRun: (
+    principal: Principal,
+    runId: string,
+    options?: { leaseMs?: number }
+  ) => Promise<RunRecord>;
   clock: Clock;
   completeRun: (
     principal: Principal,
