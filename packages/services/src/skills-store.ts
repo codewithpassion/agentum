@@ -176,26 +176,26 @@ const headOf = (versions: readonly VersionRow[]): VersionRow | undefined =>
   versions.find((version) => version.status !== "rejected");
 
 /**
- * The numbers of `target` and of the proposed versions made on top of it,
- * directly or through other proposals. Rejecting a version rejects these too:
- * they carry its changes and could never be approved.
+ * `target` and the proposed versions made on top of it, directly or through
+ * other proposals. Rejecting a version rejects these too: they carry its
+ * changes and could never be approved.
  */
 const proposalsBuiltOn = (
   versions: readonly VersionRow[],
   target: VersionRow
-): number[] => {
-  const numbers = new Set([target.number]);
+): VersionRow[] => {
+  const settled = new Map([[target.number, target]]);
   const ascending = [...versions].sort((a, b) => a.number - b.number);
   for (const version of ascending) {
     if (
       version.status === "proposed" &&
       version.parentNumber !== null &&
-      numbers.has(version.parentNumber)
+      settled.has(version.parentNumber)
     ) {
-      numbers.add(version.number);
+      settled.set(version.number, version);
     }
   }
-  return [...numbers];
+  return [...settled.values()];
 };
 
 /** Refuses to settle a version that is not proposed, or to approve one whose base is no longer the latest approved version. */
@@ -522,7 +522,7 @@ export const createSkillsStoreService = ({
   const publish = async (p: Publication): Promise<VersionRecord> => {
     assertTree(p.skill.name, p.files);
     if (p.previous && sameTree(p.previous, p.files)) {
-      throw invalid(`Nothing changed from version ${p.parentNumber ?? "none"}`);
+      throw invalid("Nothing changed from the base version");
     }
     await storeBlobs(p.files);
     const now = clock.now().toISOString();
@@ -905,8 +905,9 @@ export const createSkillsStoreService = ({
   /**
    * The skill a commit goes to, with its versions and the head tree. The head
    * is the newest version that is not rejected. When every version was
-   * rejected the newest one is the head, and the next version starts afresh
-   * (`parent` null), so a person can approve it.
+   * rejected the newest one is the head and the next version keeps its files
+   * except for what the commit changes, but has no parent (`parent` null), so
+   * a person can approve it.
    */
   const headFor = async (c: Caller, skillId: string, action: string) => {
     const skill = await writableSkill(c, skillId, action);
@@ -973,8 +974,8 @@ export const createSkillsStoreService = ({
 
   /**
    * One commit makes one new version from the base's tree. The base must be
-   * the latest version that is not rejected, approved or proposed, else the
-   * commit is refused with a conflict, like a git non-fast-forward.
+   * the latest version that is not rejected, approved or proposed (the newest
+   * one when all were rejected), else the commit is refused with a conflict, like a git non-fast-forward.
    */
   const commit = async (
     principal: Principal,
@@ -993,6 +994,7 @@ export const createSkillsStoreService = ({
     }
     const before = new Map(previous.map((file) => [file.path, file]));
     const tree = new Map(before);
+    assertTreeShape(parsed.deletes.map((entry) => entry.path));
     for (const { path } of parsed.deletes) {
       if (!tree.delete(path)) {
         throw invalid(
@@ -1078,6 +1080,8 @@ export const createSkillsStoreService = ({
     }
     assertCanSettle(versions, target, outcome);
     const now = clock.now().toISOString();
+    const settled =
+      outcome === "approved" ? [target] : proposalsBuiltOn(versions, target);
     await atomic([
       db
         .update(skillVersions)
@@ -1091,18 +1095,23 @@ export const createSkillsStoreService = ({
             eq(skillVersions.skillId, skill.id),
             inArray(
               skillVersions.number,
-              outcome === "approved"
-                ? [target.number]
-                : proposalsBuiltOn(versions, target)
+              settled.map((version) => version.number)
             ),
             eq(skillVersions.status, "proposed")
           )
         ),
-      eventStatement(
-        c,
-        outcome === "approved" ? "skill.approved" : "skill.rejected",
-        { name: skill.name, skillId: skill.id, version: target.number },
-        target.authorKind === "agent" ? target.authorId : null
+      ...settled.map((version) =>
+        eventStatement(
+          c,
+          outcome === "approved" ? "skill.approved" : "skill.rejected",
+          {
+            name: skill.name,
+            skillId: skill.id,
+            version: version.number,
+            ...(version === target ? {} : { rejectedWith: target.number }),
+          },
+          version.authorKind === "agent" ? version.authorId : null
+        )
       ),
     ]);
     return toVersionRecord({
