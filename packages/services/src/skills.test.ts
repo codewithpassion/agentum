@@ -611,7 +611,7 @@ test("a missing skill folder is not_found and a bad skill name is invalid", asyn
     await errorOf(skills.tree(user(), AGENT, "shared", "shout"))
   ).toMatchObject({ code: "not_found" });
 
-  const bad = ["Bad Name", "../shout", "", "a".repeat(65)];
+  const bad = ["../shout", "a/b", "", "a\\b", ".."];
   const failures = await Promise.all(
     bad.map((name) => errorOf(skills.tree(user(), AGENT, "agent", name)))
   );
@@ -622,6 +622,9 @@ test("a missing skill folder is not_found and a bad skill name is invalid", asyn
         "Skill names use lowercase letters, digits and single hyphens, up to 64 characters",
     });
   }
+  // A folder the catalog lists stays reachable even when its name breaks the naming rule.
+  await writeAll([`skills/${AGENT}/Odd_Name/notes.md`]);
+  expect(await treePaths("agent", "Odd_Name")).toEqual(["notes.md"]);
 });
 
 test("the 200 file cap refuses a 201st file and writes nothing", async () => {
@@ -649,6 +652,39 @@ test("the 200 file cap refuses a 201st file and writes nothing", async () => {
     message: "Skills are limited to 200 files and 5 MB",
   });
   expect(await treePaths("shared", "big")).toHaveLength(SKILLS_MAX_FILES);
+});
+
+test("the caps hold for all of an agent's skills together, and a hidden shared skill does not count", async () => {
+  const first = Array.from(
+    { length: 150 },
+    (_, index) => `skills/${AGENT}/one/f${index}.md`
+  );
+  await writeAll([`skills/${AGENT}/one/SKILL.md`, ...first]);
+  await writeAll([
+    "skills/_shared/hidden/SKILL.md",
+    "skills/_shared/hidden/a.md",
+  ]);
+  await writeAll([`skills/${AGENT}/two/SKILL.md`]);
+
+  const fill = Array.from({ length: 46 }, (_, index) => `f${index}.md`);
+  for (const name of fill) {
+    // biome-ignore lint/performance/noAwaitInLoops: keeps the writes in order
+    await skills.writeFile(user(), AGENT, "agent", "two", name, bytes("x"));
+  }
+  // 151 + 2 (shared, not yet hidden) + 47 = 200 files across skills, though no skill has more than 151.
+  expect(
+    await errorOf(
+      skills.writeFile(user(), AGENT, "agent", "two", "over.md", bytes("x"))
+    )
+  ).toMatchObject({
+    code: "invalid",
+    message: "Skills are limited to 200 files and 5 MB",
+  });
+
+  // The agent's own skill of the same name hides the shared one, so a shared write is not counted.
+  await writeAll([`skills/${AGENT}/hidden/SKILL.md`]);
+  await skills.writeFile(user(), AGENT, "shared", "hidden", "b.md", bytes("x"));
+  expect(await treePaths("shared", "hidden")).toContain("b.md");
 });
 
 test("the 5 MB cap refuses a write that goes over and writes nothing", async () => {

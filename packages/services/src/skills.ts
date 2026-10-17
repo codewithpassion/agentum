@@ -55,6 +55,7 @@ description: Describe what this skill does and when the agent should use it.
 Write the instructions for the agent here.
 `;
 const CONTROL_CHARS = /\p{Cc}/u;
+const UNSAFE_FOLDER = /^$|[/\\\p{Cc}]/u;
 const TOO_BIG = "Skills are limited to 200 files and 5 MB";
 
 const notFound = () => new ServiceError("not_found", "Not found");
@@ -246,9 +247,10 @@ export const createSkillsService = ({
 }) => {
   /** The skill names each root holds, mapped to the root that wins for that name. */
   const winningRoots = async (
-    principal: RunPrincipal
+    principal: Principal,
+    agentId: string
   ): Promise<Map<string, string>> => {
-    const own = `${SKILLS_DIR}/${principal.agentId}`;
+    const own = `${SKILLS_DIR}/${agentId}`;
     const shared = `${SKILLS_DIR}/${SHARED_DIR}`;
     const winners = new Map<string, string>();
     for (const entry of await listOrEmpty(library, principal, shared)) {
@@ -269,10 +271,12 @@ export const createSkillsService = ({
     runId: string
   ): Promise<SkillFile[]> => {
     const run = requireRun(principal, "skills.list", runId);
-    const start = [...(await winningRoots(run))].map(([skill, root]) => ({
-      dir: `${root}/${skill}`,
-      path: skill,
-    }));
+    const start = [...(await winningRoots(run, run.agentId))].map(
+      ([skill, root]) => ({
+        dir: `${root}/${skill}`,
+        path: skill,
+      })
+    );
     const files: SkillFile[] = [];
     let bytes = 0;
     await walkFiles(library, run, start, (file) => {
@@ -357,7 +361,10 @@ export const createSkillsService = ({
     skill: string
   ): Promise<string> => {
     await agents.get(principal, agentId);
-    requireSkillName(skill);
+    // Any folder the tab lists is reachable. Only names that could leave the skills root are refused.
+    if (UNSAFE_FOLDER.test(skill) || skill === "." || skill === "..") {
+      throw invalid(BAD_NAME);
+    }
     const root =
       scope === "agent"
         ? `${SKILLS_DIR}/${agentId}/${skill}`
@@ -399,7 +406,42 @@ export const createSkillsService = ({
     return library.read(principal, `${folder}/${filePath(path)}`);
   };
 
-  /** Writes one file of a skill. Nothing is written when the skill would pass the file or byte cap. */
+  /**
+   * S.1's caps hold for everything an agent's runs read: its winning skills together.
+   * Refuses when the write would take that set over a cap. A shared skill hidden by
+   * the agent's own skill of the same name does not count toward the agent.
+   */
+  const checkAgentCap = async (
+    principal: Principal,
+    agentId: string,
+    folder: string,
+    skill: string,
+    relative: string,
+    bytes: Uint8Array
+  ): Promise<void> => {
+    const winners = await winningRoots(principal, agentId);
+    if (`${winners.get(skill)}/${skill}` !== folder) {
+      return;
+    }
+    const target = `${skill}/${relative}`;
+    let files = 1;
+    let total = bytes.byteLength;
+    const start = [...winners].map(([name, root]) => ({
+      dir: `${root}/${name}`,
+      path: name,
+    }));
+    await walkFiles(library, principal, start, (file) => {
+      if (file.path !== target) {
+        files += 1;
+        total += file.size;
+      }
+    });
+    if (files > SKILLS_MAX_FILES || total > SKILLS_MAX_BYTES) {
+      throw invalid(TOO_BIG);
+    }
+  };
+
+  /** Writes one file of a skill. Nothing is written when the agent's skills would pass the file or byte cap. */
   const writeFile = async (
     principal: Principal,
     agentId: string,
@@ -411,15 +453,7 @@ export const createSkillsService = ({
   ): Promise<LibraryEntry> => {
     const folder = await skillFolder(principal, agentId, scope, skill);
     const relative = filePath(path);
-    const others = (await treeAt(principal, folder)).filter(
-      (file) => file.path !== relative
-    );
-    const files = others.length + 1;
-    const total =
-      others.reduce((sum, file) => sum + file.size, 0) + bytes.byteLength;
-    if (files > SKILLS_MAX_FILES || total > SKILLS_MAX_BYTES) {
-      throw invalid(TOO_BIG);
-    }
+    await checkAgentCap(principal, agentId, folder, skill, relative, bytes);
     return library.write(principal, `${folder}/${relative}`, bytes, options);
   };
 

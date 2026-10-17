@@ -1,3 +1,4 @@
+import { LIBRARY_FILE_MAX_BYTES } from "@repo/db/shared";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -28,7 +29,6 @@ import {
   validNewFilePath,
 } from "./skill-tree.ts";
 
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const SKILL_FILE = "SKILL.md";
 
 type Scope = SkillEntry["scope"];
@@ -290,7 +290,7 @@ export function SkillFilesPanel({
       try {
         // Uploads run one after the other so a batch never races itself.
         for (const file of chosen) {
-          if (file.size > MAX_UPLOAD_BYTES) {
+          if (file.size > LIBRARY_FILE_MAX_BYTES) {
             problems.push(`${file.name} is larger than 10 MB and was skipped.`);
             continue;
           }
