@@ -100,8 +100,10 @@ export interface OAuthClientResolve {
   /** The workspace a first-seen client is recorded in. Null: nothing is recorded. */
   homeWorkspaceId: () => Promise<string | null>;
   /**
-   * Looks up the application's name. Called once, when the row is about to be
-   * created, never on later requests; a throw or null stores no name.
+   * Looks up the application's name. Called when the row is about to be
+   * created, and on later requests only while the stored name is null, until a
+   * lookup returns one. A stored name is never looked up again or overwritten.
+   * A throw or null stores no name.
    */
   name?: () => Promise<string | null>;
   /** Clerk user id the token was issued to. */
@@ -186,7 +188,7 @@ export const createOAuthClientsService = ({
   ): Promise<OAuthClientResolution> => {
     const existing = await findByClientId(input.clientId);
     if (existing) {
-      return answer(existing);
+      return answer(await fillMissingName(existing, input));
     }
     const workspaceId = await input.homeWorkspaceId();
     if (workspaceId === null) {
@@ -210,6 +212,31 @@ export const createOAuthClientsService = ({
       throw new Error(`OAuth client ${input.clientId} missing after insert`);
     }
     return answer(stored);
+  };
+
+  /**
+   * Gives a row stored without a name the looked-up one. The update is guarded
+   * by `name IS NULL`, so a name stored by a concurrent resolve stays, and the
+   * answer is read back from the row either way.
+   */
+  const fillMissingName = async (
+    row: StoredRow,
+    input: OAuthClientResolve
+  ): Promise<StoredRow> => {
+    if (row.name !== null || !input.name) {
+      return row;
+    }
+    const name = await lookupName(input.name);
+    if (name === null) {
+      return row;
+    }
+    await db
+      .update(oauthClients)
+      .set({ name })
+      .where(
+        and(eq(oauthClients.clientId, row.clientId), isNull(oauthClients.name))
+      );
+    return (await findByClientId(row.clientId)) ?? row;
   };
 
   const answer = (row: StoredRow): OAuthClientResolution => {
