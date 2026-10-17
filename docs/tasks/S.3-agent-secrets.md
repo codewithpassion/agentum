@@ -1,29 +1,53 @@
 ---
 id: S.3
-title: Workspace secrets passed into agent VMs
+title: Workspace secrets for agents (proxy or env var)
 milestone: S
-size: M
-status: todo
-depends_on: [C.14, M8.3]
+size: L
+status: in_progress
+depends_on: [C.12, M8.3]
 branch: task/S.3-agent-secrets
 ---
 
-Asked for by Dom on 17 Oct 2026: skills and scripts need API keys such as `OPENAI_API_KEY`, passed into the VMs. Today scripts get no secrets on purpose.
+Asked for by Dom on 17 Oct 2026: skills and scripts need API keys such as `OPENAI_API_KEY`, on every surface. Dom chose the hybrid. Each secret is delivered either by a proxy that adds it to outgoing requests, so the code never sees it (as Cloudflare's Managed Agents template does), or as an environment variable. The Linux VM backend (C.14, still being built) gets its part in S.4.
 
 ## Scope
 
-- An encrypted secrets store per workspace, encrypted with `SECRETS_KEY` like connector secrets. Secrets have a name (an env var name, validated) and a value. A secret can be replaced or deleted, and its value is never shown again after saving. There's a Settings page to manage them, and the agent page grants secrets to that agent. Use existing shadcn components only.
-- Granted secrets are passed as environment variables into the VMs:
-  - the cloud agent's Linux VM (C.14), in the environment of shell commands and skill scripts
-  - the Managed Agents sandbox (M8.1/M8.3), through whatever the API supports for session or environment variables, or a vault. Record the mechanism in the review file.
-  
-  Only secrets granted to the agent go in. Harbourmaster's own secrets, run tokens and the workspace model key never do.
-- Remove granted secret values from transcripts, tool output and Log entries before they're stored or shown, replacing each with `[secret:NAME]`. Add an event each time a run receives secrets, with the names only.
-- Out of scope: the cloud isolate backend, machine runs, per-skill grants, and a credential-adding egress proxy. List them in the review file as follow-ups.
+- **Store.** An encrypted secrets store per workspace, encrypted with `SECRETS_KEY` like connector secrets.
+  - Each secret has a name (a validated env var name), a value, and a delivery mode: `proxy` or `env`.
+  - A `proxy` secret also has one or more rules: a host (exact, or a `*.` wildcard) and a header with a template, for example `Authorization: Bearer {value}` or `x-api-key: {value}`.
+  - Values can be replaced or deleted, and are never shown again after saving.
+  - There's a Settings page to manage secrets, and the agent page grants secrets to that agent. Use existing shadcn components only.
+- **Cloud isolate (C.12 Dynamic Worker).**
+  - `proxy` secrets: point the script isolate's `globalOutbound` at a Harbourmaster outbound entrypoint. It adds the header for requests whose host matches a granted rule, and passes other requests through unchanged. The value never enters the isolate.
+  - `env` secrets: go into the isolate's `env`.
+- **Managed Agents (Anthropic's cloud environment).** We don't control its network, so:
+  - `env` secrets go in through whatever the API supports for environment or session variables, or a vault. Record which in the review file.
+  - `proxy` secrets go through an explicit relay route, `/api/egress/<host>/<path>`, authenticated with the run's token. It forwards only to hosts in the agent's granted rules and adds the header.
+  - The skill guidance tells managed agents which relay URL to use for each proxied host.
+- **Machines.** `env` secrets go into Claude Code's environment through the run. Secrets in `proxy` mode use the same explicit relay as Managed Agents, and the guidance says so. No local HTTPS proxy.
+- **Everywhere.**
+  - Remove granted secret values from transcripts, tool output and Log entries before they're stored or shown, replacing each with `[secret:NAME]`.
+  - Add an event each time a run receives secrets or the proxy or relay adds one, with names and hosts only, never values.
+  - Harbourmaster's own secrets, run tokens and the workspace model key are never delivered.
+- **Out of scope:** per-skill grants. The Linux VM is S.4.
 
 ## Check
 
-Service tests: secrets are stored encrypted, values are never returned by any read, grants are per agent, and redaction replaces values in text. Live on a local dev server with Docker and the workspace key from `apps/web/.env.local`: a secret `HM_TEST_SECRET` with a random value, granted to a Linux VM cloud agent. A skill script that prints the length of `process.env.HM_TEST_SECRET` and makes an HTTP request with it as a header to a local echo server returns the right length. The transcript and Log show `[secret:HM_TEST_SECRET]`, never the value. An agent without the grant sees the variable as unset. Repeat the env check on a managed agent. `bun run check && bun run test && bun run build` pass.
+Service tests:
+- Secrets are stored encrypted, and no read returns a value.
+- Grants are per agent.
+- Host matching works, including wildcards and a host that isn't granted.
+- Redaction works.
+- The relay refuses hosts that aren't granted, and calls without a valid run token.
+
+Live on a local dev server, with the workspace key from `apps/web/.env.local` and a local echo server exposed through a cloudflared quick tunnel (`--config /dev/null`):
+- **Cloud isolate:** a skill script calls the echo server. A `proxy` secret's header arrives at the echo server, and the script's own `process.env` doesn't have the value. An `env` secret is readable by the script.
+- **Managed agent:** an `env` secret is readable in its sandbox, and a call through the relay reaches the echo server with the header.
+- **Machine:** an `env` secret reaches the agent, using the fake agent or Claude Code as in the earlier smoke runs.
+- **Redaction:** the transcript and Log show `[secret:NAME]`, never a value.
+- **No grant:** an agent without the grant gets nothing.
+
+`bun run check && bun run test && bun run build` pass, and the bundle grep for `drizzle` passes.
 
 ## Log
-- 2026-10-17: added at Dom's request ("into the VMs"). Starts after C.14 merges.
+- 2026-10-17: rewritten after Dom chose the hybrid (proxy where we control egress, env vars elsewhere, all surfaces); dispatched on task/S.3-agent-secrets. The VM part is S.4, after C.14.
