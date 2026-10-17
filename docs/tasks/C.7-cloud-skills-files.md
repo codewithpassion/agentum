@@ -3,7 +3,7 @@ id: C.7
 title: Skills and files for cloud runs
 milestone: C
 size: M
-status: todo
+status: in_progress
 depends_on: [C.6]
 branch: task/C.7-cloud-skills-files
 ---
@@ -20,3 +20,4 @@ A run with a seeded skill and an attached image works locally with a live model.
 
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
+- 2026-10-17: dispatched on task/C.7-cloud-skills-files.

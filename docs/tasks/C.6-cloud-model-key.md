@@ -3,7 +3,7 @@ id: C.6
 title: Workspace model key for cloud agents
 milestone: C
 size: M
-status: in_progress
+status: done
 depends_on: [C.4, M8.1]
 branch: task/C.6-cloud-model-key
 ---
@@ -21,3 +21,4 @@ A test with a fake Messages server asserts `x-api-key`. Live, with `ANTHROPIC_AP
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
 - 2026-10-17: dispatched on task/C.6-cloud-model-key.
+- 2026-10-17: review clean after 0 fix rounds at 5d7e665 (docs/reviews/tasks/C.6.md). Merged. Live pelican passed locally with the workspace key. Nit: unknown model id fails with Pi's bare no_model.
