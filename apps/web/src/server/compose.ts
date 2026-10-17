@@ -94,6 +94,12 @@ import {
 } from "@repo/services/sessions";
 import { createSkillsService, type SkillsService } from "@repo/services/skills";
 import {
+  createSkillsStoreService,
+  type SkillBlobs,
+  type SkillsStoreService,
+} from "@repo/services/skills-store";
+import { memorySkillBlobs } from "@repo/services/skills-store/memory";
+import {
   createSlackService,
   type SlackDirectory,
   type SlackService,
@@ -114,6 +120,7 @@ import { durableRunnerPort } from "./pi-run-port.ts";
 import { r2Blobs } from "./r2-blobs.ts";
 import { r2FileBlobs } from "./r2-files.ts";
 import { r2LibraryBlobs } from "./r2-library.ts";
+import { r2SkillBlobs } from "./r2-skills.ts";
 import { durableRelayPort } from "./relay-port.ts";
 import { clerkSlackDirectory } from "./slack-directory.ts";
 
@@ -144,6 +151,8 @@ export interface Infra {
   runTokenKey?: string;
   /** `SECRETS_KEY`. Storing a connector credential or a workspace secret encrypts with it. */
   secretsKey?: string;
+  /** Where the skills store keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
+  skillBlobs?: SkillBlobs;
   /** Finds the Clerk user behind a Slack email. Without one, nobody is linked. */
   slackDirectory?: SlackDirectory;
   /** Asks Anthropic whether a key works. Without it, `managedKeys` checks only the key's shape. */
@@ -170,6 +179,7 @@ export interface Services {
   secrets: SecretsService;
   sessions: SessionsService;
   skills: SkillsService;
+  skillsStore: SkillsStoreService;
   slack: SlackService;
   slackApps: SlackAppsService;
   triggers: TriggersService;
@@ -305,6 +315,14 @@ export const composeWith = ({
   });
   const libraryLinks = createLibraryLinksService({ files, library });
   const skills = createSkillsService({ agents, library });
+  const skillsStore = createSkillsStoreService({
+    atomic: infra.atomic,
+    blobs: infra.skillBlobs ?? memorySkillBlobs(),
+    clock: infra.clock,
+    db,
+    events,
+    library,
+  });
   const machines = createMachinesService({
     allowedOrgIds,
     clock: infra.clock,
@@ -434,6 +452,7 @@ export const composeWith = ({
       secrets,
       sessions,
       skills,
+      skillsStore,
       slack,
       slackApps,
       triggers,
@@ -474,6 +493,7 @@ export const compose = (
       relay: durableRelayPort(env.MACHINE_RELAY),
       runTokenKey: env.RUN_TOKEN_KEY,
       secretsKey: env.SECRETS_KEY,
+      skillBlobs: r2SkillBlobs(env.FILES),
       slackDirectory: clerkSlackDirectory(env.CLERK_SECRET_KEY),
       validateAnthropicKey,
     },

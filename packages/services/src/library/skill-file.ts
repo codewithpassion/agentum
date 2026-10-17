@@ -1,6 +1,10 @@
 import { ServiceError } from "../errors.ts";
 
 export const SKILL_DESCRIPTION_MAX = 1024;
+export const SKILL_NAME_MAX = 64;
+
+/** Lower-case words of letters and digits, joined by single hyphens. */
+export const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const BOM = "\uFEFF";
 const FENCE = "---";

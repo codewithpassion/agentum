@@ -12,7 +12,11 @@ import {
 import type { AgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { isServiceError, ServiceError } from "./errors.ts";
-import { readSkillMeta } from "./library/skill-file.ts";
+import {
+  readSkillMeta,
+  SKILL_NAME_MAX,
+  SKILL_NAME_PATTERN,
+} from "./library/skill-file.ts";
 import type { LibraryEntry, LibraryService } from "./library.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -38,8 +42,6 @@ export interface SkillCatalogEntry {
 const SKILLS_DIR = "skills";
 const SHARED_DIR = "_shared";
 const SKILL_FILE = "SKILL.md";
-const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const SKILL_NAME_MAX = 64;
 const BAD_NAME =
   "Skill names use lowercase letters, digits and single hyphens, up to 64 characters";
 const NAME_TAKEN = "A skill with this name already exists";
@@ -134,7 +136,7 @@ const walkFiles = async (
 };
 
 const requireSkillName = (name: string) => {
-  if (name.length > SKILL_NAME_MAX || !SKILL_NAME.test(name)) {
+  if (name.length > SKILL_NAME_MAX || !SKILL_NAME_PATTERN.test(name)) {
     throw invalid(BAD_NAME);
   }
 };
