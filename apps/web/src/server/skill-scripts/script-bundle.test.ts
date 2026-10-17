@@ -55,6 +55,22 @@ describe("buildModules", () => {
     expect(code).not.toContain("export const");
   });
 
+  test("awaits a top-level call so a script that starts its work with main() is waited for", () => {
+    const modules = buildModules(
+      [
+        file(
+          "a.ts",
+          "async function main() { console.log(1); }\nmain().catch(console.error);\nconst x = 1;\nx;"
+        ),
+      ],
+      "a.ts"
+    );
+    const code = jsOf(modules, "a.ts");
+    expect(code).toContain("await main().catch(console.error);");
+    expect(code).not.toContain("await const");
+    expect(code).not.toContain("await x;");
+  });
+
   test("refuses a default export in the entry", () => {
     expect(() =>
       buildModules([file("a.ts", "export default 1;")], "a.ts")

@@ -5,19 +5,17 @@
  * network. The choice is in `docs/reviews/tasks/C.12.md`.
  */
 
-import type {
-  SandboxRunInput,
-  SandboxRunResult,
-  SkillScriptSandbox,
+import {
+  type SandboxRunInput,
+  type SandboxRunResult,
+  type SkillScriptSandbox,
+  TIMEOUT_EXIT_CODE,
 } from "./sandbox-port.ts";
 import { buildModules } from "./script-bundle.ts";
 
 /** From 2026-08-04 `nodejs_compat` is on by default, which `process` and `node:util` in the harness need. */
 const COMPATIBILITY_DATE = "2026-08-19";
 const HARNESS = "__harness.js";
-/** Exit code of `timeout(1)`, which models know. */
-export const TIMEOUT_EXIT_CODE = 124;
-
 /** Outbound requests per run. */
 const MAX_SUBREQUESTS = 50;
 const CPU_LIMIT_MESSAGE = /CPU time limit/i;
@@ -66,7 +64,7 @@ export class Runner extends WorkerEntrypoint {
     process.stderr.write = (text) => (err.write(String(text)), true);
     process.argv = ["bun", "/" + entry, ...args];
     process.exit = (code) => {
-      throw new Exit(typeof code === "number" ? code : 0);
+      throw new Exit(Number.isInteger(Number(code)) ? Number(code) : 0);
     };
     let exitCode = 0;
     try {

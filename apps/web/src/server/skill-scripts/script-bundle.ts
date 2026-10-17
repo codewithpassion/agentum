@@ -17,19 +17,20 @@ export type BundleModule =
 export const ENTRY_FUNCTION = "__skillMain";
 
 const decoder = new TextDecoder();
-const TYPESCRIPT = /\.(?:ts|mts|tsx)$/;
+const TYPESCRIPT = /\.(?:ts|mts)$/;
 const JAVASCRIPT = /\.(?:js|mjs)$/;
 const JSON_FILE = /\.json$/;
 
 interface Node {
   declaration?: { end: number; start: number } | null;
   end: number;
+  expression?: { type: string };
   source?: unknown;
   start: number;
   type: string;
 }
 
-/** The entry's module-level imports stay where they are. Everything else moves into one async function. */
+/** The entry's module-level imports stay where they are. Everything else moves into one async function, and a top-level call statement is awaited. */
 const wrapEntry = (code: string): string => {
   const program = parse(code, {
     ecmaVersion: "latest",
@@ -52,6 +53,12 @@ const wrapEntry = (code: string): string => {
       throw new Error(
         "The entry script cannot use `export default`, export lists or re-exports."
       );
+    } else if (
+      node.type === "ExpressionStatement" &&
+      node.expression?.type === "CallExpression"
+    ) {
+      // A script may start its work with `main();` and no `await`. Bun waits for that work and the function would not.
+      body.push(`await ${text}`);
     } else {
       body.push(text);
     }

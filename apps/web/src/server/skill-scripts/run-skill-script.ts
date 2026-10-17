@@ -5,10 +5,11 @@ import {
   type ToolExecutionResult,
 } from "@earendil-works/pi-durable";
 import type { SkillSummary, SkillsPort } from "../pi-run-skills.ts";
-import type {
-  SandboxFile,
-  SandboxRunResult,
-  SkillScriptSandbox,
+import {
+  type SandboxFile,
+  type SandboxRunResult,
+  type SkillScriptSandbox,
+  TIMEOUT_EXIT_CODE,
 } from "./sandbox-port.ts";
 
 export const SKILL_SCRIPTS_EXTENSION = "hm-skill-scripts";
@@ -16,8 +17,7 @@ export const SKILL_SCRIPTS_EXTENSION = "hm-skill-scripts";
 const SECTION_KEY = "skill-scripts";
 const TOOL_NAME = "run_skill_script";
 const SKILL_FILE = "SKILL.md";
-const SCRIPT_PATTERN = /\.(?:ts|mts|tsx|js|mjs)$/;
-const TIMED_OUT_EXIT_CODE = 124;
+const SCRIPT_PATTERN = /\.(?:ts|mts|js|mjs)$/;
 
 export interface ScriptLimits {
   /** Extra time the safety net waits after `timeoutMs` before it gives up on the sandbox. */
@@ -134,7 +134,7 @@ const runWithSafetyNet = async (
     timer = setTimeout(
       () =>
         resolve({
-          exitCode: TIMED_OUT_EXIT_CODE,
+          exitCode: TIMEOUT_EXIT_CODE,
           stderr: `timed out after ${limits.timeoutMs / 1000} s`,
           stdout: "",
         }),
@@ -178,7 +178,7 @@ export const skillScriptsExtension = (
       }
       if (!SCRIPT_PATTERN.test(entry)) {
         return textResult(
-          `Not a script (.ts, .mts, .tsx, .js, .mjs): ${entry}`,
+          `Not a script (.ts, .mts, .js, .mjs): ${entry}`,
           true
         );
       }
