@@ -24,6 +24,8 @@ const WHITESPACE = /\s+/gu;
 const CONTROL_OR_FORMAT = /\p{C}/gu;
 /** `last_used_at` is rewritten only once its stored value is this old. */
 const TOUCH_INTERVAL_MS = 5 * 60 * 1000;
+/** A nameless client's name lookup is retried at most this often per Worker isolate. */
+const NAME_RETRY_INTERVAL_MS = 5 * 60 * 1000;
 
 const OAUTH_CLIENT_KIND = "oauth_client";
 const LIST_ACTION = "oauth_clients.list";
@@ -100,8 +102,12 @@ export interface OAuthClientResolve {
   /** The workspace a first-seen client is recorded in. Null: nothing is recorded. */
   homeWorkspaceId: () => Promise<string | null>;
   /**
-   * Looks up the application's name. Called once, when the row is about to be
-   * created, never on later requests; a throw or null stores no name.
+   * Looks up the application's name. Called when the row is about to be
+   * created, and on later requests only while the stored name is null, until a
+   * lookup returns one. After a failed retry the next one waits five minutes
+   * (per Worker isolate), so an unreachable name does not slow every request.
+   * A stored name is never looked up again or overwritten.
+   * A throw or null stores no name.
    */
   name?: () => Promise<string | null>;
   /** Clerk user id the token was issued to. */
@@ -157,12 +163,26 @@ const lookupName = async (
   }
 };
 
+/** Most nameless clients remembered; the Clerk instance has a handful. */
+const MAX_REMEMBERED_NAME_FAILURES = 1000;
+
+/** When each nameless client's last failed name lookup ran, in epoch ms. */
+export type NameLookupFailures = Map<string, number>;
+
+/**
+ * The service is built per request, so the default store is module state: it
+ * lives as long as the Worker isolate, which is what the retry wait counts in.
+ */
+const isolateNameLookupFailures: NameLookupFailures = new Map();
+
 export const createOAuthClientsService = ({
   clock,
   db,
+  nameLookupFailures = isolateNameLookupFailures,
 }: {
   clock: Clock;
   db: Database;
+  nameLookupFailures?: NameLookupFailures;
 }) => {
   const findByClientId = async (
     clientId: string
@@ -186,7 +206,7 @@ export const createOAuthClientsService = ({
   ): Promise<OAuthClientResolution> => {
     const existing = await findByClientId(input.clientId);
     if (existing) {
-      return answer(existing);
+      return answer(await fillMissingName(existing, input));
     }
     const workspaceId = await input.homeWorkspaceId();
     if (workspaceId === null) {
@@ -210,6 +230,41 @@ export const createOAuthClientsService = ({
       throw new Error(`OAuth client ${input.clientId} missing after insert`);
     }
     return answer(stored);
+  };
+
+  /**
+   * Gives a row stored without a name the looked-up one. The update is guarded
+   * by `name IS NULL`, so a name stored by a concurrent resolve stays, and the
+   * answer is read back from the row either way.
+   */
+  const fillMissingName = async (
+    row: StoredRow,
+    input: OAuthClientResolve
+  ): Promise<StoredRow> => {
+    if (row.name !== null || !input.name) {
+      return row;
+    }
+    const nowMs = clock.now().getTime();
+    const failedAt = nameLookupFailures.get(row.clientId);
+    if (failedAt !== undefined && nowMs - failedAt < NAME_RETRY_INTERVAL_MS) {
+      return row;
+    }
+    const name = await lookupName(input.name);
+    if (name === null) {
+      if (nameLookupFailures.size >= MAX_REMEMBERED_NAME_FAILURES) {
+        nameLookupFailures.clear();
+      }
+      nameLookupFailures.set(row.clientId, nowMs);
+      return row;
+    }
+    nameLookupFailures.delete(row.clientId);
+    await db
+      .update(oauthClients)
+      .set({ name })
+      .where(
+        and(eq(oauthClients.clientId, row.clientId), isNull(oauthClients.name))
+      );
+    return (await findByClientId(row.clientId)) ?? row;
   };
 
   const answer = (row: StoredRow): OAuthClientResolution => {

@@ -96,7 +96,11 @@ beforeEach(() => {
   clock = { now: () => new Date(nowMs), sleep: () => Promise.resolve() };
   seedWorkspace(WORKSPACE);
   seedWorkspace(OTHER_WORKSPACE);
-  service = createOAuthClientsService({ clock, db });
+  service = createOAuthClientsService({
+    clock,
+    db,
+    nameLookupFailures: new Map(),
+  });
 });
 
 test("an unknown client is recorded pending with a sanitized name, and the name is looked up once", async () => {
@@ -158,6 +162,105 @@ test("a client whose name lookup throws is recorded with a null name", async () 
   );
 
   expect(result).toEqual({ name: null, status: "pending" });
+  expect(row(CLIENT)?.name).toBeNull();
+});
+
+test("a pending client stored without a name gets it filled on the next resolve", async () => {
+  await firstSeen(CLIENT);
+  let nameCalls = 0;
+  const lookup = () => {
+    nameCalls += 1;
+    return Promise.resolve("  Late‮   Name  ");
+  };
+
+  const filled = await service.resolve({
+    clientId: CLIENT,
+    homeWorkspaceId: () => Promise.resolve(WORKSPACE),
+    name: lookup,
+    userId: "u1",
+  });
+
+  expect(filled).toEqual({ name: "Late Name", status: "pending" });
+  expect(row(CLIENT)?.name).toBe("Late Name");
+  expect(nameCalls).toBe(1);
+
+  await service.resolve({
+    clientId: CLIENT,
+    homeWorkspaceId: () => Promise.resolve(WORKSPACE),
+    name: lookup,
+    userId: "u1",
+  });
+  expect(nameCalls).toBe(1);
+});
+
+test("an approved client stored without a name gets it filled, and is still approved", async () => {
+  await firstSeen(CLIENT);
+  await service.setAccess(user, { access: "read", clientId: CLIENT });
+
+  const result = await firstSeen(CLIENT, WORKSPACE, () =>
+    Promise.resolve("Approved App")
+  );
+
+  expect(result).toEqual({
+    access: "read",
+    status: "approved",
+    workspaceId: WORKSPACE,
+  });
+  expect(row(CLIENT)?.name).toBe("Approved App");
+});
+
+test("a revoked client stored without a name gets it filled, and is still revoked", async () => {
+  await firstSeen(CLIENT);
+  await service.revoke(user, { clientId: CLIENT });
+
+  const result = await firstSeen(CLIENT, WORKSPACE, () =>
+    Promise.resolve("Denied App")
+  );
+
+  expect(result).toEqual({ name: "Denied App", status: "revoked" });
+  expect(row(CLIENT)?.name).toBe("Denied App");
+});
+
+test("a stored name is kept and never looked up again", async () => {
+  await firstSeen(CLIENT, WORKSPACE, () => Promise.resolve("First Name"));
+  let nameCalls = 0;
+
+  const result = await firstSeen(CLIENT, WORKSPACE, () => {
+    nameCalls += 1;
+    return Promise.resolve("Other Name");
+  });
+
+  expect(result).toEqual({ name: "First Name", status: "pending" });
+  expect(row(CLIENT)?.name).toBe("First Name");
+  expect(nameCalls).toBe(0);
+});
+
+test("two concurrent resolves of a nameless client store one name and agree on it", async () => {
+  await firstSeen(CLIENT);
+
+  const [a, b] = await Promise.all([
+    firstSeen(CLIENT, WORKSPACE, () => Promise.resolve("Alpha")),
+    firstSeen(CLIENT, WORKSPACE, () => Promise.resolve("Beta")),
+  ]);
+
+  const stored = row(CLIENT)?.name ?? null;
+  expect(["Alpha", "Beta"]).toContain(stored ?? "");
+  expect(a).toEqual({ name: stored, status: "pending" });
+  expect(b).toEqual({ name: stored, status: "pending" });
+});
+
+test("a nameless client stays nameless when the lookup throws or returns null", async () => {
+  await firstSeen(CLIENT);
+
+  const thrown = await firstSeen(CLIENT, WORKSPACE, () =>
+    Promise.reject(new Error("clerk down"))
+  );
+  const missing = await firstSeen(CLIENT, WORKSPACE, () =>
+    Promise.resolve(null)
+  );
+
+  expect(thrown).toEqual({ name: null, status: "pending" });
+  expect(missing).toEqual({ name: null, status: "pending" });
   expect(row(CLIENT)?.name).toBeNull();
 });
 
@@ -420,4 +523,37 @@ describe("sanitizeOAuthClientName", () => {
     expect(sanitizeOAuthClientName(null)).toBeNull();
     expect(sanitizeOAuthClientName(undefined)).toBeNull();
   });
+});
+
+test("a failed name lookup for a nameless client is retried after five minutes, across requests", async () => {
+  const nameLookupFailures = new Map<string, number>();
+  // The app builds the service per request, so each call gets its own.
+  const request = (name: () => Promise<string | null>) =>
+    createOAuthClientsService({ clock, db, nameLookupFailures }).resolve({
+      clientId: CLIENT,
+      homeWorkspaceId: () => Promise.resolve(WORKSPACE),
+      name,
+      userId: "user_1",
+    });
+  await request(() => Promise.resolve(null));
+  let calls = 0;
+  const failing = () => {
+    calls += 1;
+    return Promise.resolve(null);
+  };
+
+  await request(failing);
+  await request(failing);
+  expect(calls).toBe(1);
+
+  nowMs += 5 * 60 * 1000;
+  await request(failing);
+  expect(calls).toBe(2);
+
+  const throttled = await request(() => Promise.resolve("Late Name"));
+  expect(throttled).toEqual({ name: null, status: "pending" });
+
+  nowMs += 5 * 60 * 1000;
+  const retried = await request(() => Promise.resolve("Late Name"));
+  expect(retried).toEqual({ name: "Late Name", status: "pending" });
 });
