@@ -13,14 +13,14 @@ import type { AgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { isServiceError, ServiceError } from "./errors.ts";
 import { readSkillMeta } from "./library/skill-file.ts";
-import type { LibraryService } from "./library.ts";
+import type { LibraryEntry, LibraryService } from "./library.ts";
 import type { Principal } from "./workspaces.ts";
 
 type RunPrincipal = Extract<Principal, { kind: "run" }>;
 
 export type SkillsLibrary = Pick<
   LibraryService,
-  "list" | "read" | "stat" | "write"
+  "list" | "read" | "remove" | "stat" | "write"
 >;
 
 export type SkillScope = "agent" | "shared";
@@ -76,7 +76,7 @@ const requireRun = (
 };
 
 /** Refuses anything that could climb out of the skill folder, before the library sees it. */
-const relativeSegments = (path: string): string[] => {
+const relativeSegments = (path: string, minSegments = 2): string[] => {
   if (path.startsWith("/") || path.startsWith("\\")) {
     throw invalid("Skill path must be relative");
   }
@@ -84,7 +84,7 @@ const relativeSegments = (path: string): string[] => {
     throw invalid("Skill path contains control characters");
   }
   const segments = path.split("/");
-  if (segments.length < 2) {
+  if (segments.length < minSegments) {
     throw invalid("Skill path needs a skill folder and a file");
   }
   for (const segment of segments) {
@@ -93,6 +93,49 @@ const relativeSegments = (path: string): string[] => {
     }
   }
   return segments;
+};
+
+/** A file path under a skill folder, checked and joined for the library. */
+const filePath = (path: string): string => {
+  if (path.includes("\\")) {
+    throw invalid("Skill path must use / and no backslashes");
+  }
+  return relativeSegments(path, 1).join("/");
+};
+
+/** A folder the walk still has to visit, and the path its entries get. */
+interface Folder {
+  dir: string;
+  path: string;
+}
+
+/** Visits the files under each folder, one folder at a time. `onFile` may throw to stop the walk. */
+const walkFiles = async (
+  library: SkillsLibrary,
+  principal: Principal,
+  start: Folder[],
+  onFile: (file: SkillFile) => void
+): Promise<void> => {
+  const pending = [...start];
+  for (let next = pending.pop(); next; next = pending.pop()) {
+    // biome-ignore lint/performance/noAwaitInLoops: one folder at a time keeps the cap exact
+    const entries = await library.list(principal, next.dir);
+    for (const entry of entries) {
+      const name = lastSegment(entry.path);
+      const path = next.path === "" ? name : `${next.path}/${name}`;
+      if (entry.kind === "dir") {
+        pending.push({ dir: entry.path, path });
+      } else if (entry.etag !== null) {
+        onFile({ etag: entry.etag, path, size: entry.size });
+      }
+    }
+  }
+};
+
+const requireSkillName = (name: string) => {
+  if (name.length > SKILL_NAME_MAX || !SKILL_NAME.test(name)) {
+    throw invalid(BAD_NAME);
+  }
 };
 
 /** The library lists a missing folder as not_found. That means an empty root. */
@@ -226,28 +269,19 @@ export const createSkillsService = ({
     runId: string
   ): Promise<SkillFile[]> => {
     const run = requireRun(principal, "skills.list", runId);
-    const pending = [...(await winningRoots(run))].map(([skill, root]) => ({
+    const start = [...(await winningRoots(run))].map(([skill, root]) => ({
       dir: `${root}/${skill}`,
       path: skill,
     }));
     const files: SkillFile[] = [];
     let bytes = 0;
-    for (let next = pending.pop(); next; next = pending.pop()) {
-      // biome-ignore lint/performance/noAwaitInLoops: one folder at a time keeps the cap exact
-      const entries = await library.list(run, next.dir);
-      for (const entry of entries) {
-        const path = `${next.path}/${lastSegment(entry.path)}`;
-        if (entry.kind === "dir") {
-          pending.push({ dir: entry.path, path });
-        } else if (entry.etag !== null) {
-          files.push({ etag: entry.etag, path, size: entry.size });
-          bytes += entry.size;
-          if (files.length > SKILLS_MAX_FILES || bytes > SKILLS_MAX_BYTES) {
-            throw invalid(TOO_BIG);
-          }
-        }
+    await walkFiles(library, run, start, (file) => {
+      files.push(file);
+      bytes += file.size;
+      if (files.length > SKILLS_MAX_FILES || bytes > SKILLS_MAX_BYTES) {
+        throw invalid(TOO_BIG);
       }
-    }
+    });
     return files.sort(byPath);
   };
 
@@ -301,9 +335,7 @@ export const createSkillsService = ({
     name: string
   ): Promise<{ path: string }> => {
     await agents.get(principal, agentId);
-    if (name.length > SKILL_NAME_MAX || !SKILL_NAME.test(name)) {
-      throw invalid(BAD_NAME);
-    }
+    requireSkillName(name);
     const folder = `${SKILLS_DIR}/${agentId}/${name}`;
     if (await exists(library, principal, folder)) {
       throw new ServiceError("conflict", NAME_TAKEN);
@@ -317,7 +349,98 @@ export const createSkillsService = ({
     return { path };
   };
 
-  return { catalog, create, list, read };
+  /** The folder of one skill on the Skills tab. The agent must be visible, the name valid and the folder present. */
+  const skillFolder = async (
+    principal: Principal,
+    agentId: string,
+    scope: SkillScope,
+    skill: string
+  ): Promise<string> => {
+    await agents.get(principal, agentId);
+    requireSkillName(skill);
+    const root =
+      scope === "agent"
+        ? `${SKILLS_DIR}/${agentId}/${skill}`
+        : `${SKILLS_DIR}/${SHARED_DIR}/${skill}`;
+    if (!(await isFolder(library, principal, root))) {
+      throw notFound();
+    }
+    return root;
+  };
+
+  const treeAt = async (
+    principal: Principal,
+    folder: string
+  ): Promise<SkillFile[]> => {
+    const files: SkillFile[] = [];
+    await walkFiles(library, principal, [{ dir: folder, path: "" }], (file) => {
+      files.push(file);
+    });
+    return files.sort(byPath);
+  };
+
+  /** Every file under a skill folder, with its path relative to that folder. Folders are not listed. */
+  const tree = async (
+    principal: Principal,
+    agentId: string,
+    scope: SkillScope,
+    skill: string
+  ): Promise<SkillFile[]> =>
+    treeAt(principal, await skillFolder(principal, agentId, scope, skill));
+
+  const readFile = async (
+    principal: Principal,
+    agentId: string,
+    scope: SkillScope,
+    skill: string,
+    path: string
+  ): Promise<{ bytes: Uint8Array; entry: LibraryEntry }> => {
+    const folder = await skillFolder(principal, agentId, scope, skill);
+    return library.read(principal, `${folder}/${filePath(path)}`);
+  };
+
+  /** Writes one file of a skill. Nothing is written when the skill would pass the file or byte cap. */
+  const writeFile = async (
+    principal: Principal,
+    agentId: string,
+    scope: SkillScope,
+    skill: string,
+    path: string,
+    bytes: Uint8Array,
+    options: { ifEtag?: string } = {}
+  ): Promise<LibraryEntry> => {
+    const folder = await skillFolder(principal, agentId, scope, skill);
+    const relative = filePath(path);
+    const others = (await treeAt(principal, folder)).filter(
+      (file) => file.path !== relative
+    );
+    const files = others.length + 1;
+    const total =
+      others.reduce((sum, file) => sum + file.size, 0) + bytes.byteLength;
+    if (files > SKILLS_MAX_FILES || total > SKILLS_MAX_BYTES) {
+      throw invalid(TOO_BIG);
+    }
+    return library.write(principal, `${folder}/${relative}`, bytes, options);
+  };
+
+  /** Removes one file of a skill. A folder is refused. */
+  const removeFile = async (
+    principal: Principal,
+    agentId: string,
+    scope: SkillScope,
+    skill: string,
+    path: string
+  ): Promise<void> => {
+    const folder = await skillFolder(principal, agentId, scope, skill);
+    const target = `${folder}/${filePath(path)}`;
+    const entry = await library.stat(principal, target);
+    if (entry.kind !== "file") {
+      throw invalid("Path is a folder");
+    }
+    await library.remove(principal, target);
+  };
+
+  return { catalog, create, list, read, readFile, removeFile, tree, writeFile };
 };
 
 export type SkillsService = ReturnType<typeof createSkillsService>;

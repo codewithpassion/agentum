@@ -2,6 +2,7 @@ import {
   type ChangeEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -29,10 +30,36 @@ import type { LibraryFileView } from "#/integrations/trpc/types";
 
 type LibraryEntry = LibraryFileView["entry"];
 
+/** How the panel reads, writes and deletes its file. Build it once per file, since the panel reloads when it changes. */
+export interface FilePanelIo {
+  downloadHref: string;
+  read: () => Promise<LibraryFileView>;
+  remove: () => Promise<void>;
+  write: (draft: string, ifEtag: string | undefined) => Promise<LibraryEntry>;
+}
+
+const libraryIo = (path: string): FilePanelIo => ({
+  downloadHref: downloadUrl(path),
+  read: () => getTrpc().library.read.query({ path }),
+  remove: async () => {
+    await getTrpc().library.remove.mutate({ path });
+  },
+  write: async (draft, ifEtag) => {
+    const entry = await getTrpc().library.write.mutate({
+      data: draft,
+      encoding: "text",
+      ifEtag,
+      path,
+    });
+    return entry;
+  },
+});
+
 const NOT_EDITABLE =
   "This file is too large or not text, so it opens as a download only.";
 
 interface LibraryFilePanelProps {
+  io?: FilePanelIo;
   onChanged: () => void;
   onClosed: () => void;
   path: string;
@@ -40,10 +67,12 @@ interface LibraryFilePanelProps {
 
 /** One file of the library: its details, a download, a delete, and a text editor. */
 export function LibraryFilePanel({
+  io,
   path,
   onChanged,
   onClosed,
 }: LibraryFilePanelProps) {
+  const source = useMemo(() => io ?? libraryIo(path), [io, path]);
   const [file, setFile] = useState<LibraryFileView | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Bumped on every load, so the body remounts with the freshly read draft.
@@ -60,7 +89,7 @@ export function LibraryFilePanel({
 
   const load = useCallback(async () => {
     try {
-      const next = await getTrpc().library.read.query({ path });
+      const next = await source.read();
       if (shownPath.current !== path) {
         return;
       }
@@ -72,7 +101,7 @@ export function LibraryFilePanel({
         setError(errorMessage(cause));
       }
     }
-  }, [path]);
+  }, [path, source]);
 
   useEffect(() => {
     load();
@@ -80,23 +109,18 @@ export function LibraryFilePanel({
 
   const saveText = useCallback(
     async (draft: string, ifEtag: string | undefined) => {
-      const entry = await getTrpc().library.write.mutate({
-        data: draft,
-        encoding: "text",
-        ifEtag,
-        path,
-      });
+      const entry = await source.write(draft, ifEtag);
       if (shownPath.current === path) {
         setFile({ entry, text: draft });
         onChanged();
       }
     },
-    [path, onChanged]
+    [path, source, onChanged]
   );
 
   const remove = useCallback(async () => {
     try {
-      await getTrpc().library.remove.mutate({ path });
+      await source.remove();
     } catch (cause) {
       if (shownPath.current === path) {
         setError(errorMessage(cause));
@@ -107,12 +131,17 @@ export function LibraryFilePanel({
       onChanged();
       onClosed();
     }
-  }, [path, onChanged, onClosed]);
+  }, [path, source, onChanged, onClosed]);
 
   return (
     <section className="flex flex-col gap-4">
       {file === null ? null : (
-        <FileHeader entry={file.entry} onDelete={remove} path={path} />
+        <FileHeader
+          downloadHref={source.downloadHref}
+          entry={file.entry}
+          onDelete={remove}
+          path={path}
+        />
       )}
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
@@ -140,10 +169,12 @@ export function LibraryFilePanel({
 }
 
 function FileHeader({
+  downloadHref,
   entry,
   onDelete,
   path,
 }: {
+  downloadHref: string;
   entry: LibraryEntry;
   onDelete: () => Promise<void>;
   path: string;
@@ -162,7 +193,7 @@ function FileHeader({
           className={buttonVariants({ size: "sm", variant: "outline" })}
           data-testid="library-download"
           download
-          href={downloadUrl(path)}
+          href={downloadHref}
         >
           Download
         </a>

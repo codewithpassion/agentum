@@ -10,7 +10,7 @@ import { memoryLibraryBlobs } from "./library/memory.ts";
 import { readSkillMeta, skillFileAt } from "./library/skill-file.ts";
 import { createLibraryService } from "./library.ts";
 import { systemClock } from "./runs/types.ts";
-import { createSkillsService } from "./skills.ts";
+import { createSkillsService, type SkillScope } from "./skills.ts";
 import type { Principal } from "./workspaces.ts";
 
 const A = "w1";
@@ -458,4 +458,330 @@ test("a name that is not a lowercase slug is refused and writes nothing", async 
   }
   expect(await skills.catalog(user(), AGENT)).toEqual([]);
   expect(blobs.objects.size).toBe(0);
+});
+
+const AGENT_SKILL = `skills/${AGENT}/shout/SKILL.md`;
+
+const treePaths = async (scope: SkillScope = "agent", skill = "shout") =>
+  (await skills.tree(user(), AGENT, scope, skill)).map((file) => file.path);
+
+test("a file written under a skill shows up in its tree", async () => {
+  await writeAll([AGENT_SKILL]);
+  await skills.writeFile(
+    user(),
+    AGENT,
+    "agent",
+    "shout",
+    "scripts/hello.ts",
+    bytes("print")
+  );
+
+  expect(await treePaths()).toEqual(["SKILL.md", "scripts/hello.ts"]);
+  const [, hello] = await skills.tree(user(), AGENT, "agent", "shout");
+  expect(hello).toEqual({
+    etag: expect.any(String),
+    path: "scripts/hello.ts",
+    size: bytes("print").byteLength,
+  });
+});
+
+test("an edit changes the bytes readFile returns, SKILL.md included", async () => {
+  await writeAll([AGENT_SKILL]);
+  await skills.writeFile(
+    user(),
+    AGENT,
+    "agent",
+    "shout",
+    "scripts/hello.ts",
+    bytes("v1")
+  );
+  await skills.writeFile(
+    user(),
+    AGENT,
+    "agent",
+    "shout",
+    "scripts/hello.ts",
+    bytes("v2")
+  );
+  await skills.writeFile(
+    user(),
+    AGENT,
+    "agent",
+    "shout",
+    "SKILL.md",
+    bytes(contentFor(AGENT_SKILL, "edited"))
+  );
+
+  const { bytes: hello } = await skills.readFile(
+    user(),
+    AGENT,
+    "agent",
+    "shout",
+    "scripts/hello.ts"
+  );
+  expect(decode(hello)).toBe("v2");
+  const { bytes: skill } = await skills.readFile(
+    user(),
+    AGENT,
+    "agent",
+    "shout",
+    "SKILL.md"
+  );
+  expect(decode(skill)).toBe(contentFor(AGENT_SKILL, "edited"));
+});
+
+test("removeFile takes the file out of the tree and refuses a folder", async () => {
+  await writeAll([AGENT_SKILL]);
+  await skills.writeFile(
+    user(),
+    AGENT,
+    "agent",
+    "shout",
+    "scripts/hello.ts",
+    bytes("v1")
+  );
+
+  await skills.removeFile(user(), AGENT, "agent", "shout", "scripts/hello.ts");
+  expect(await treePaths()).toEqual(["SKILL.md"]);
+  expect(
+    await errorOf(
+      skills.readFile(user(), AGENT, "agent", "shout", "scripts/hello.ts")
+    )
+  ).toMatchObject({ code: "not_found" });
+  expect(
+    await errorOf(skills.removeFile(user(), AGENT, "agent", "shout", "scripts"))
+  ).toMatchObject({ code: "invalid" });
+  expect(
+    await errorOf(skills.removeFile(user(), AGENT, "agent", "shout", "gone.ts"))
+  ).toMatchObject({ code: "not_found" });
+});
+
+test("a path that could leave the skill folder is refused and writes nothing", async () => {
+  await writeAll([AGENT_SKILL, `skills/${OTHER_AGENT}/private/SKILL.md`]);
+  const before = new Map(blobs.objects);
+  const bad = [
+    "",
+    "..",
+    "../private/SKILL.md",
+    "/etc/x",
+    "a/../../b",
+    "scripts//x.ts",
+    "scripts/./x.ts",
+    "scripts/",
+    "scripts\\x.ts",
+    "scripts\\..\\x.ts",
+    "scripts/a\u0000b.ts",
+  ];
+  const failures = await Promise.all(
+    bad.flatMap((path) => [
+      errorOf(
+        skills.writeFile(user(), AGENT, "agent", "shout", path, bytes("x"))
+      ),
+      errorOf(skills.readFile(user(), AGENT, "agent", "shout", path)),
+      errorOf(skills.removeFile(user(), AGENT, "agent", "shout", path)),
+    ])
+  );
+  for (const failure of failures) {
+    expect(failure).toMatchObject({ code: "invalid" });
+  }
+  expect(blobs.objects).toEqual(before);
+  expect(await treePaths()).toEqual(["SKILL.md"]);
+});
+
+test("a missing skill folder is not_found and a bad skill name is invalid", async () => {
+  await writeAll([AGENT_SKILL]);
+
+  expect(
+    await errorOf(skills.tree(user(), AGENT, "agent", "ghost"))
+  ).toMatchObject({
+    code: "not_found",
+  });
+  expect(
+    await errorOf(skills.readFile(user(), AGENT, "agent", "ghost", "a.ts"))
+  ).toMatchObject({ code: "not_found" });
+  expect(
+    await errorOf(
+      skills.writeFile(user(), AGENT, "agent", "ghost", "a.ts", bytes("x"))
+    )
+  ).toMatchObject({ code: "not_found" });
+  expect(
+    await errorOf(skills.removeFile(user(), AGENT, "agent", "ghost", "a.ts"))
+  ).toMatchObject({ code: "not_found" });
+  expect(
+    await errorOf(skills.tree(user(), AGENT, "shared", "shout"))
+  ).toMatchObject({ code: "not_found" });
+
+  const bad = ["Bad Name", "../shout", "", "a".repeat(65)];
+  const failures = await Promise.all(
+    bad.map((name) => errorOf(skills.tree(user(), AGENT, "agent", name)))
+  );
+  for (const failure of failures) {
+    expect(failure).toMatchObject({
+      code: "invalid",
+      message:
+        "Skill names use lowercase letters, digits and single hyphens, up to 64 characters",
+    });
+  }
+});
+
+test("the 200 file cap refuses a 201st file and writes nothing", async () => {
+  const names = Array.from(
+    { length: SKILLS_MAX_FILES - 1 },
+    (_, index) => `skills/_shared/big/f${index}.md`
+  );
+  await writeAll(["skills/_shared/big/SKILL.md", ...names]);
+  expect(await treePaths("shared", "big")).toHaveLength(SKILLS_MAX_FILES);
+
+  await skills.writeFile(user(), AGENT, "shared", "big", "f0.md", bytes("new"));
+  expect(
+    await errorOf(
+      skills.writeFile(
+        user(),
+        AGENT,
+        "shared",
+        "big",
+        "one-more.md",
+        bytes("x")
+      )
+    )
+  ).toMatchObject({
+    code: "invalid",
+    message: "Skills are limited to 200 files and 5 MB",
+  });
+  expect(await treePaths("shared", "big")).toHaveLength(SKILLS_MAX_FILES);
+});
+
+test("the 5 MB cap refuses a write that goes over and writes nothing", async () => {
+  const megabyte = 1024 * 1024;
+  await writeAll([`skills/${AGENT}/heavy/SKILL.md`]);
+  for (let index = 0; index < 4; index += 1) {
+    // biome-ignore lint/performance/noAwaitInLoops: keeps the writes in order
+    await library.write(
+      user(),
+      `skills/${AGENT}/heavy/part${index}.bin`,
+      new Uint8Array(megabyte)
+    );
+  }
+
+  expect(
+    await errorOf(
+      skills.writeFile(
+        user(),
+        AGENT,
+        "agent",
+        "heavy",
+        "over.bin",
+        new Uint8Array(megabyte)
+      )
+    )
+  ).toMatchObject({
+    code: "invalid",
+    message: "Skills are limited to 200 files and 5 MB",
+  });
+  expect(await treePaths("agent", "heavy")).toHaveLength(5);
+});
+
+test("a stale ifEtag gives conflict and keeps the newer bytes", async () => {
+  await writeAll([AGENT_SKILL]);
+  const first = await skills.writeFile(
+    user(),
+    AGENT,
+    "agent",
+    "shout",
+    "scripts/hello.ts",
+    bytes("v1")
+  );
+  const stale = first.etag;
+  if (stale === null) {
+    throw new Error("a written file has an etag");
+  }
+  await skills.writeFile(
+    user(),
+    AGENT,
+    "agent",
+    "shout",
+    "scripts/hello.ts",
+    bytes("v2"),
+    { ifEtag: stale }
+  );
+
+  expect(
+    await errorOf(
+      skills.writeFile(
+        user(),
+        AGENT,
+        "agent",
+        "shout",
+        "scripts/hello.ts",
+        bytes("v3"),
+        { ifEtag: stale }
+      )
+    )
+  ).toMatchObject({ code: "conflict" });
+  const { bytes: hello } = await skills.readFile(
+    user(),
+    AGENT,
+    "agent",
+    "shout",
+    "scripts/hello.ts"
+  );
+  expect(decode(hello)).toBe("v2");
+});
+
+test("another workspace's agent is refused as agents.get refuses it", async () => {
+  await writeAll([AGENT_SKILL]);
+
+  expect(
+    await errorOf(skills.tree(user(), OTHER_WORKSPACE_AGENT, "agent", "shout"))
+  ).toMatchObject({ code: "not_found" });
+  expect(
+    await errorOf(
+      skills.writeFile(
+        user(),
+        OTHER_WORKSPACE_AGENT,
+        "agent",
+        "shout",
+        "a.ts",
+        bytes("x")
+      )
+    )
+  ).toMatchObject({ code: "not_found" });
+  expect(
+    await errorOf(
+      skills.removeFile(user(), OTHER_WORKSPACE_AGENT, "agent", "shout", "a.ts")
+    )
+  ).toMatchObject({ code: "not_found" });
+});
+
+test("shared scope writes under skills/_shared/", async () => {
+  await writeAll(["skills/_shared/shout/SKILL.md"]);
+
+  await skills.writeFile(
+    user(),
+    AGENT,
+    "shared",
+    "shout",
+    "lib/helper.ts",
+    bytes("export {}")
+  );
+  expect(await treePaths("shared")).toEqual(["SKILL.md", "lib/helper.ts"]);
+  expect(
+    decode(
+      (await library.read(user(), "skills/_shared/shout/lib/helper.ts")).bytes
+    )
+  ).toBe("export {}");
+  expect(
+    decode(
+      (await skills.readFile(user(), AGENT, "shared", "shout", "lib/helper.ts"))
+        .bytes
+    )
+  ).toBe("export {}");
+
+  await skills.removeFile(user(), AGENT, "shared", "shout", "lib/helper.ts");
+  expect(await treePaths("shared")).toEqual(["SKILL.md"]);
+  expect(
+    await errorOf(skills.tree(user(), AGENT, "agent", "shout"))
+  ).toMatchObject({
+    code: "not_found",
+  });
 });
