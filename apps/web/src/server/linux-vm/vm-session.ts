@@ -38,7 +38,8 @@ const idleMsOf = (env: Env): number => {
  * session id. The logic is in `vm-core.ts`. This class is the part only a real
  * Worker can run: the container, the Sandbox SDK's file and backup classes, and
  * the alarm. Nothing of the Worker's `env` goes into the container: it starts
- * with no environment variables and commands run with the ones they are given.
+ * with no environment variables, and commands run with the ones they are given
+ * and a HOME folder.
  */
 export class VmSession extends DurableObject<Env> {
   readonly #core: ReturnType<typeof createVmCore>;
@@ -90,7 +91,17 @@ export class VmSession extends DurableObject<Env> {
       storage: ctx.storage,
     });
     // A restarted object has lost the container's inactivity timeout, and the container would stop without a snapshot.
-    ctx.blockConcurrencyWhile(() => this.#core.wake());
+    ctx.blockConcurrencyWhile(async () => {
+      try {
+        await this.#core.wake();
+      } catch (error) {
+        // A failure here would reset the object and drop the call in flight. The alarm sets the timeout again.
+        console.warn(
+          "VmSession: setting the inactivity timeout failed",
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    });
   }
 
   /** The platform calls this when an alarm set by the core comes due. */

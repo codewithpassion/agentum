@@ -27,7 +27,7 @@ const READY_POLL_MS = 250;
 const PROBE_TIMEOUT_MS = 5000;
 /** Snapshots that fail this many times in a row are given up on, so a broken bucket cannot keep a VM running. */
 export const MAX_SNAPSHOT_FAILURES = 3;
-/** After the wall time, the command's process gets this long to end by itself before it is aborted. */
+/** After the wall time and the TERM-to-KILL wait of `timeout -k`, the command's process gets this long to end before it is aborted. */
 const ABORT_GRACE_MS = 3000;
 /** The exit code of `timeout(1)` when the command ran out of time. */
 const TIMEOUT_EXIT_CODE = 124;
@@ -236,10 +236,13 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
   const probe = async (): Promise<boolean> => {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let exited = false;
     const expired = new Promise<boolean>((resolve) => {
       timer = setTimeout(() => {
-        // The abort also ends an `exec` that is still waiting for the container, so slow starts do not pile probes up.
-        abort.abort();
+        // The abort also ends an `exec` that is still waiting for the container, so slow starts do not pile probes up. A process that has exited must not be aborted.
+        if (!exited) {
+          abort.abort();
+        }
         resolve(false);
       }, probeTimeoutMs);
     });
@@ -247,7 +250,11 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
       return await Promise.race([
         container
           .exec(["true"], { signal: abort.signal })
-          .then(async (process) => (await process.exitCode) === 0),
+          .then(async (process) => {
+            const code = await process.exitCode;
+            exited = true;
+            return code === 0;
+          }),
         expired,
       ]);
     } finally {
@@ -332,9 +339,15 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     active(async () => {
       const wallSeconds = Math.max(1, Math.ceil(input.timeoutMs / 1000));
       const abort = new AbortController();
+      let exited = false;
+      // `timeout` ends the command at the wall time, or KILL_AFTER_SECONDS later when it ignores TERM. The abort is the last resort after both, and never aimed at a process that has exited.
       const backstop = setTimeout(
-        () => abort.abort(),
-        input.timeoutMs + ABORT_GRACE_MS
+        () => {
+          if (!exited) {
+            abort.abort();
+          }
+        },
+        (wallSeconds + KILL_AFTER_SECONDS) * 1000 + ABORT_GRACE_MS
       );
       try {
         const startedAt = now();
@@ -353,6 +366,14 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
             cwd: input.cwd ?? VM_WORKDIR,
             env: { HOME: VM_HOME, ...input.env },
             signal: abort.signal,
+          }
+        );
+        process.exitCode.then(
+          () => {
+            exited = true;
+          },
+          () => {
+            exited = true;
           }
         );
         const out = readCapped(process.stdout, input.maxOutputBytes);

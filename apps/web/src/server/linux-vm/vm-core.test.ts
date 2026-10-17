@@ -670,6 +670,29 @@ describe("createVmCore: exec", () => {
     }
   });
 
+  test("the last-resort abort waits for the wall time, the TERM-to-KILL wait of timeout and the grace", async () => {
+    const delays: number[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    const recorder = spyOn(globalThis, "setTimeout").mockImplementation(((
+      handler: () => void,
+      ms?: number,
+      ...rest: unknown[]
+    ) => {
+      if (ms !== undefined) {
+        delays.push(ms);
+      }
+      return realSetTimeout(handler, ms, ...rest);
+    }) as unknown as typeof setTimeout);
+    try {
+      const env = setup();
+      await env.core.exec(input("true", { timeoutMs: 1500 }));
+      // 2 s wall time (rounded up), 2 s for KILL, 3 s grace.
+      expect(delays).toContain(7000);
+    } finally {
+      recorder.mockRestore();
+    }
+  });
+
   test("an exit code of 124 from the process counts as a timeout", async () => {
     const env = setup();
     env.container.answer = (command) =>
