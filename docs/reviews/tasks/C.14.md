@@ -7,8 +7,9 @@ Task: Linux VM backend for cloud agents on the Sandbox SDK. Branch task/C.14-clo
 - Round 1 at 9d22dd8 was must-fix, with 2 must-fix and 19 nits. A timed out command exited 137 and never 124, because `timeout -s KILL` kills its own group. A restarted Durable Object also lost the container's inactivity timeout.
 - Round 2 at 4e8db23 was must-fix with 1 item. Both round 1 items were fixed, but the last-resort abort fired at timeoutMs plus 3 s, before `timeout -k 2` could send KILL.
 - Round 3 at 53e3273 was must-fix with 1 item. The abort timing was right, but a new guard that skipped the abort for an exited process made `exec` hang when a command left a background child holding its output pipes.
+- Fix 3 (557d134) removed that guard. A command that has exited now returns within 1 s (`STREAM_DRAIN_MS`) with its exit code and the output so far, and the abort stays a last resort for a command that is still running. It has a test. Round 4 reviewed it and found it correct, with nits.
 - Round 4 at 41882c1, after merging main with S.3, was must-fix with 1 item. The merge made the VM pass an agent's granted env secrets to skill scripts. Only the `run_skill_script` answer is masked, so a script could leave a value in `/workspace` where `bash`, `read` and the R2 snapshot do not mask it. The fix commit passes no secrets for a VM session (`secretsForEnvironment`), so the VM sandbox gets no `env` and ignores `proxy`.
-- The commit after 53e3273 removes that guard. A command that has exited now returns within 1 s (`STREAM_DRAIN_MS`) with its exit code and the output so far, and the abort stays a last resort for a command that is still running. It has a test. No reviewer has seen it, because the loop allows two fix rounds.
+- Round 5 at f203be2 was clean, with 6 nits that are about tests and wording and were not changed.
 
 ## What was built
 
