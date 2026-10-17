@@ -136,9 +136,9 @@ test("never fetches an https client id with no path", async () => {
 });
 
 test("gives null when the fetch rejects", async () => {
-  const { name } = await lookup(() => {
-    throw new TypeError("network down");
-  });
+  const { name } = await lookup(() =>
+    Promise.reject(new TypeError("network down"))
+  );
   expect(name).toBeNull();
 });
 

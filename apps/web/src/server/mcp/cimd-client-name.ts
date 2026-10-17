@@ -2,16 +2,16 @@
 // client's OAuth client_id is an https URL with a path, and that URL serves a
 // JSON document naming the client. The fetch is bounded: 3 seconds, no
 // redirects, and at most 64 KB of body. Any failure gives null.
-import { MAX_OAUTH_CLIENT_NAME_LENGTH } from "@repo/services/oauth-clients";
+import { sanitizeOAuthClientName } from "@repo/services/oauth-clients";
 
 const TIMEOUT_MS = 3000;
 const MAX_DOCUMENT_BYTES = 65_536;
+/** `application/json`, or a `+json` type such as `application/ld+json`. */
+const JSON_CONTENT_TYPE = /^\s*application\/(?:[\w.-]+\+)?json\s*(?:;|$)/iu;
 
 const isMetadataClientId = (clientId: string): boolean => {
   const url = new URL(clientId);
-  return (
-    url.protocol === "https:" && url.pathname !== "" && url.pathname !== "/"
-  );
+  return url.protocol === "https:" && url.pathname !== "/";
 };
 
 /** The body as text, or null when it passes the byte cap. */
@@ -42,14 +42,6 @@ const readCapped = async (response: Response): Promise<string | null> => {
   }
 };
 
-const trimmedName = (name: string): string | null => {
-  const capped = Array.from(name.trim())
-    .slice(0, MAX_OAUTH_CLIENT_NAME_LENGTH)
-    .join("")
-    .trim();
-  return capped === "" ? null : capped;
-};
-
 /**
  * The `client_name` of the metadata document at `clientId`, or null. Returns
  * null without fetching unless `clientId` is an https URL with a path.
@@ -70,7 +62,7 @@ export const cimdClientName =
         return null;
       }
       const contentType = response.headers.get("content-type") ?? "";
-      if (!contentType.toLowerCase().includes("json")) {
+      if (!JSON_CONTENT_TYPE.test(contentType)) {
         return null;
       }
       const text = await readCapped(response);
@@ -85,7 +77,7 @@ export const cimdClientName =
       if (client_id !== clientId || typeof client_name !== "string") {
         return null;
       }
-      return trimmedName(client_name);
+      return sanitizeOAuthClientName(client_name);
     } catch {
       return null;
     }

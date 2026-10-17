@@ -24,6 +24,8 @@ const WHITESPACE = /\s+/gu;
 const CONTROL_OR_FORMAT = /\p{C}/gu;
 /** `last_used_at` is rewritten only once its stored value is this old. */
 const TOUCH_INTERVAL_MS = 5 * 60 * 1000;
+/** A nameless client's name lookup is retried at most this often per Worker isolate. */
+const NAME_RETRY_INTERVAL_MS = 5 * 60 * 1000;
 
 const OAUTH_CLIENT_KIND = "oauth_client";
 const LIST_ACTION = "oauth_clients.list";
@@ -102,7 +104,9 @@ export interface OAuthClientResolve {
   /**
    * Looks up the application's name. Called when the row is about to be
    * created, and on later requests only while the stored name is null, until a
-   * lookup returns one. A stored name is never looked up again or overwritten.
+   * lookup returns one. After a failed retry the next one waits five minutes
+   * (per Worker isolate), so an unreachable name does not slow every request.
+   * A stored name is never looked up again or overwritten.
    * A throw or null stores no name.
    */
   name?: () => Promise<string | null>;
@@ -166,6 +170,9 @@ export const createOAuthClientsService = ({
   clock: Clock;
   db: Database;
 }) => {
+  /** When each nameless client's last failed name lookup ran, in epoch ms. */
+  const failedNameLookups = new Map<string, number>();
+
   const findByClientId = async (
     clientId: string
   ): Promise<StoredRow | null> => {
@@ -226,10 +233,17 @@ export const createOAuthClientsService = ({
     if (row.name !== null || !input.name) {
       return row;
     }
-    const name = await lookupName(input.name);
-    if (name === null) {
+    const nowMs = clock.now().getTime();
+    const failedAt = failedNameLookups.get(row.clientId);
+    if (failedAt !== undefined && nowMs - failedAt < NAME_RETRY_INTERVAL_MS) {
       return row;
     }
+    const name = await lookupName(input.name);
+    if (name === null) {
+      failedNameLookups.set(row.clientId, nowMs);
+      return row;
+    }
+    failedNameLookups.delete(row.clientId);
     await db
       .update(oauthClients)
       .set({ name })

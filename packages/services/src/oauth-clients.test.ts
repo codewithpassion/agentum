@@ -520,3 +520,31 @@ describe("sanitizeOAuthClientName", () => {
     expect(sanitizeOAuthClientName(undefined)).toBeNull();
   });
 });
+
+test("a failed name lookup for a nameless client is retried after five minutes, not on every request", async () => {
+  await firstSeen(CLIENT);
+  let calls = 0;
+  const failing = () => {
+    calls += 1;
+    return Promise.resolve(null);
+  };
+
+  await firstSeen(CLIENT, WORKSPACE, failing);
+  await firstSeen(CLIENT, WORKSPACE, failing);
+  expect(calls).toBe(1);
+
+  nowMs += 5 * 60 * 1000;
+  await firstSeen(CLIENT, WORKSPACE, failing);
+  expect(calls).toBe(2);
+
+  const filled = await firstSeen(CLIENT, WORKSPACE, () =>
+    Promise.resolve("Late Name")
+  );
+  expect(filled).toEqual({ name: null, status: "pending" });
+
+  nowMs += 5 * 60 * 1000;
+  const retried = await firstSeen(CLIENT, WORKSPACE, () =>
+    Promise.resolve("Late Name")
+  );
+  expect(retried).toEqual({ name: "Late Name", status: "pending" });
+});
