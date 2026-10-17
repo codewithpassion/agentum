@@ -28,3 +28,4 @@ Asked for by Dom on 17 Oct 2026. After SK.1, skills live in the store, but every
 - 2026-10-17: added at Dom's request.
 - 2026-10-18: dispatched. Note from SK.1: the service is `@repo/services/skills-store` (see packages/services/README.md and docs/reviews/tasks/SK.1.md); skill names are unique per owner scope, so show the owner wherever a name is shown.
 - 2026-10-18: review clean after 1 fix round at 47032d1 (docs/reviews/tasks/SK.2.md). Merged. Machines and Managed Agents get no executable flag (daemon wire format unchanged). Staging check pending with SK.4.
+- 2026-10-18: staging check passed 7/7 (Cloudflare and Managed: v2 latest, v1 pinned; agent proposal approve flow; Log events). managed_skill_versions upload-once not verifiable afterwards: removing the test key clears those rows by design. Gaps: agent-created skills aren't assigned to their owner; no skill delete; Log rows lack version numbers.
