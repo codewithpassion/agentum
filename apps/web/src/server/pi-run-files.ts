@@ -143,9 +143,9 @@ const listedLine = (fileId: string, file: FileBody): string => {
 };
 
 /**
- * The message as the model receives it. Images under the size cap become image
- * blocks. Other files are listed by name and id, and the ones that could not be
- * downloaded are listed as unreadable.
+ * The message as the model receives it. Every file is listed. Images under the
+ * size cap also become image blocks. Other files are listed by name and id, and
+ * the ones that could not be downloaded are listed as unreadable.
  */
 export const inputContent = async (
   text: string,
@@ -164,6 +164,7 @@ export const inputContent = async (
     if (file === undefined) {
       lines.push(`- ${fileId} (could not be read)`);
     } else if (isImage(file.mime) && file.bytes.byteLength <= MAX_IMAGE_BYTES) {
+      lines.push(`- ${file.name} (${file.mime}, shown as an image below)`);
       images.push({
         data: toBase64(file.bytes),
         mimeType: file.mime,

@@ -118,7 +118,10 @@ describe("inputContent", () => {
     });
     const content = await inputContent("look", ["img"], port);
     expect(content).toEqual([
-      { text: "look", type: "text" },
+      {
+        text: "look\n\nFiles attached to this message:\n- big.png (image/png, shown as an image below)",
+        type: "text",
+      },
       {
         data: Buffer.from(bytes).toString("base64"),
         mimeType: "image/png",
@@ -160,7 +163,7 @@ describe("inputContent", () => {
     const content = await inputContent("task", ["gone", "ok"], port);
     expect(content).toEqual([
       {
-        text: "task\n\nFiles attached to this message:\n- gone (could not be read)",
+        text: "task\n\nFiles attached to this message:\n- gone (could not be read)\n- a.png (image/png, shown as an image below)",
         type: "text",
       },
       {
