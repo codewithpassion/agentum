@@ -33,6 +33,7 @@ import {
 } from "./pi-run-files.ts";
 import { RunLeaseAlarm } from "./pi-run-lease.ts";
 import {
+  type McpSessions,
   mcpToolRegistrations,
   type ServerTools,
   syncMcpTools,
@@ -104,6 +105,8 @@ export class PiRun extends DurableObject<Env> {
   #core: ReturnType<typeof createRunCore> | undefined;
   /** The tool lists now in the registry, by server key. */
   #installed: ServerTools = {};
+  /** The MCP sessions this object holds, by server URL. Listing and tool calls share them. */
+  readonly #mcpSessions: McpSessions = new Map();
   /** The servers of the newest run that reached a sync. A start syncs before it stores them, so storage can lag. */
   #servers: Servers | undefined;
   /** Syncs take turns: two that overlap could install an older list over a newer one. */
@@ -201,7 +204,8 @@ export class PiRun extends DurableObject<Env> {
           },
           undefined,
           // A failed call may mean the server's tools changed: look again.
-          this.#refreshTools
+          this.#refreshTools,
+          this.#mcpSessions
         ),
       });
     }
@@ -230,7 +234,8 @@ export class PiRun extends DurableObject<Env> {
           console.warn(
             `PiRun: MCP server ${serverKey} did not list its tools`,
             error instanceof Error ? error.message : String(error)
-          )
+          ),
+        this.#mcpSessions
       );
       await this.ctx.storage.put(TOOLS_KEY, tools);
       this.#installTools(tools);

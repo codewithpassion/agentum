@@ -439,3 +439,125 @@ test("oauth: the refresh_token grant issues a token that works on /mcp", async (
   expect(mcp.initStatus).toBe(200);
   expect(mcp.toolNames).toEqual(["echo"]);
 });
+
+const initRequest = { id: 1, jsonrpc: "2.0", method: "initialize", params: {} };
+const SESSION_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+const withSession = (sessionId: string): Record<string, string> => ({
+  ...bearer("stub-token"),
+  "mcp-session-id": sessionId,
+});
+
+/** Calls initialize on a stateful stub and returns the session id it issued. */
+const openSession = async (stub: StubMcp): Promise<string> => {
+  const response = await post(stub.url, initRequest, bearer("stub-token"));
+  return response.headers.get("mcp-session-id") ?? "";
+};
+
+test("stateful: initialize returns a session id in the Mcp-Session-Id header", async () => {
+  const stub = start({ stateful: true });
+  const response = await post(stub.url, initRequest, bearer("stub-token"));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("mcp-session-id")).toMatch(SESSION_ID);
+  const body = await response.json();
+  expect(body.result.serverInfo.name).toBe("stub-mcp");
+});
+
+test("stateful: tools/list without the session header is 400 with a JSON-RPC error", async () => {
+  const stub = start({ stateful: true });
+  const response = await post(stub.url, listRequest, bearer("stub-token"));
+  expect(response.status).toBe(400);
+  const body = await response.json();
+  expect(body.error.code).toBe(-32_000);
+  expect(body.id).toBe(2);
+});
+
+test("stateful: an unknown session id is 404 with a JSON-RPC error", async () => {
+  const stub = start({ stateful: true });
+  await openSession(stub);
+  const response = await post(
+    stub.url,
+    listRequest,
+    withSession("not-a-session")
+  );
+  expect(response.status).toBe(404);
+  const body = await response.json();
+  expect(body.error.code).toBe(-32_001);
+});
+
+test("stateful: the session id works for list, the initialized notification and echo", async () => {
+  const stub = start({ stateful: true });
+  const sessionId = await openSession(stub);
+
+  const list = await post(stub.url, listRequest, withSession(sessionId));
+  expect(list.status).toBe(200);
+  const listBody = await list.json();
+  expect(listBody.result.tools[0].name).toBe("echo");
+
+  const notice = await post(
+    stub.url,
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    withSession(sessionId)
+  );
+  expect(notice.status).toBe(202);
+
+  const echo = await post(
+    stub.url,
+    echoRequest("with session"),
+    withSession(sessionId)
+  );
+  const echoBody = await echo.json();
+  expect(echoBody.result.content).toEqual([
+    { text: "with session", type: "text" },
+  ]);
+});
+
+test("stateful: a notification without the session header is 400", async () => {
+  const stub = start({ stateful: true });
+  const response = await post(
+    stub.url,
+    {
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    },
+    bearer("stub-token")
+  );
+  expect(response.status).toBe(400);
+});
+
+test("stateful: the bearer check runs before the session check", async () => {
+  const stub = start({ stateful: true });
+  const response = await post(stub.url, listRequest);
+  expect(response.status).toBe(401);
+});
+
+test("stateful: dropSessions makes the old id 404 and a fresh initialize gives a working id", async () => {
+  const stub = start({ stateful: true });
+  const oldId = await openSession(stub);
+
+  stub.dropSessions();
+  const stale = await post(stub.url, listRequest, withSession(oldId));
+  expect(stale.status).toBe(404);
+
+  const newId = await openSession(stub);
+  expect(newId).toMatch(SESSION_ID);
+  expect(newId).not.toBe(oldId);
+  const fresh = await post(stub.url, listRequest, withSession(newId));
+  expect(fresh.status).toBe(200);
+});
+
+test("stateless: session headers are ignored and no Mcp-Session-Id is sent", async () => {
+  const stub = start();
+  const init = await post(stub.url, initRequest, bearer("stub-token"));
+  expect(init.status).toBe(200);
+  expect(init.headers.get("mcp-session-id")).toBeNull();
+
+  stub.dropSessions();
+  const list = await post(stub.url, listRequest, withSession("unknown"));
+  expect(list.status).toBe(200);
+  const { calls } = stub.stats();
+  expect(calls.at(-1)?.headers).toEqual(
+    expect.objectContaining({ "mcp-session-id": "unknown" })
+  );
+});

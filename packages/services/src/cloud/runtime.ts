@@ -121,5 +121,6 @@ export const createCloudRuntime = ({
       }
     },
     kind: "cloud",
+    offerNextOnEnd: true,
   };
 };

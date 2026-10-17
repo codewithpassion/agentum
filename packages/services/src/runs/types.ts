@@ -244,6 +244,11 @@ export interface RuntimeAdapter {
     deps: AdapterDeps
   ) => Promise<void>;
   kind: AgentRuntime;
+  /**
+   * When true, the runs service offers the agent's next waiting run as soon
+   * as one of its runs ends. Only the cloud runtime sets it, to true.
+   */
+  offerNextOnEnd?: boolean;
 }
 
 /** The trusted context `completeRun` gives a gateway. Never read from a post body. */

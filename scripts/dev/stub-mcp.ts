@@ -6,14 +6,16 @@ import { parseArgs } from "node:util";
 // is a bearer token. `failOnce` expires the token on first use, so a client has
 // to call POST /token to get a new one. `oauth` swaps that for an OAuth 2.1
 // authorization server (PKCE, dynamic client registration), and /mcp then takes
-// only the access tokens it issued. Run it directly to start it on a port and
-// print its URL and token. Run from the repo root.
+// only the access tokens it issued. `stateful` hands out an Mcp-Session-Id on
+// initialize and requires it on later requests. Run it directly to start it on
+// a port and print its URL and token. Run from the repo root.
 import { serve, sleep } from "bun";
 
 const DEFAULT_TOKEN = "stub-token";
 const PROTOCOL_VERSION = "2025-06-18";
 const BEARER = /^Bearer\s+(.+)$/i;
 const NOTIFICATION_PREFIX = "notifications/";
+const SESSION_HEADER = "Mcp-Session-Id";
 const OAUTH_SCOPE = "read";
 const HTML_ESCAPES: Record<string, string> = {
   "'": "&#39;",
@@ -52,11 +54,18 @@ export interface StubMcpOptions {
   port?: number;
   /** Seconds that `tools/call` waits before it answers. */
   sleepSeconds?: number;
+  /**
+   * Hand out an Mcp-Session-Id on `initialize` and require it on every other
+   * /mcp request. `dropSessions` forgets them, as a server restart would.
+   */
+  stateful?: boolean;
   /** Bearer token that clients must send. `null` turns auth off. */
   token?: string | null;
 }
 
 export interface StubMcp {
+  /** Forget every session, as a server restart would. Does nothing when stateless. */
+  dropSessions: () => void;
   port: number;
   stats: () => StubStats;
   stop: () => void;
@@ -437,6 +446,7 @@ export const startStubMcp = (options: StubMcpOptions = {}): StubMcp => {
   const sleepSeconds = options.sleepSeconds ?? 0;
   const failOnce = options.failOnce ?? false;
   const countTokenCalls = options.countTokenCalls ?? false;
+  const sessions = options.stateful === true ? new Set<string>() : undefined;
 
   // Token that the server accepts right now. `null` means none is valid.
   let validToken: string | null = token;
@@ -481,6 +491,27 @@ export const startStubMcp = (options: StubMcpOptions = {}): StubMcp => {
     return authorised(request) ? undefined : unauthorised();
   };
 
+  const sessionDenied = (
+    request: Request,
+    id: string | number | null
+  ): Response | undefined => {
+    if (sessions === undefined) {
+      return;
+    }
+    const sessionId = request.headers.get(SESSION_HEADER) ?? "";
+    if (sessionId === "") {
+      return jsonRpcError(
+        id,
+        -32_000,
+        "Bad Request: Mcp-Session-Id header is required",
+        400
+      );
+    }
+    return sessions.has(sessionId)
+      ? undefined
+      : jsonRpcError(id, -32_001, "Session not found", 404);
+  };
+
   const handleMcp = async (request: Request): Promise<Response> => {
     const denied = mcpAccessDenied(request);
     if (denied !== undefined) {
@@ -501,7 +532,19 @@ export const startStubMcp = (options: StubMcpOptions = {}): StubMcp => {
         method: body.method,
       });
     }
-    return await handleRpc(body, sleepSeconds);
+    if (body.method !== "initialize") {
+      const rejected = sessionDenied(request, requestIdOf(body));
+      if (rejected !== undefined) {
+        return rejected;
+      }
+    }
+    const response = await handleRpc(body, sleepSeconds);
+    if (sessions !== undefined && body.method === "initialize" && response.ok) {
+      const sessionId = crypto.randomUUID();
+      sessions.add(sessionId);
+      response.headers.set(SESSION_HEADER, sessionId);
+    }
+    return response;
   };
 
   const issueToken = (): Response => {
@@ -552,6 +595,9 @@ export const startStubMcp = (options: StubMcpOptions = {}): StubMcp => {
   }
 
   return {
+    dropSessions: () => {
+      sessions?.clear();
+    },
     port,
     stats: snapshot,
     stop: () => {
@@ -572,6 +618,7 @@ const runCli = (argv: string[]): void => {
       oauth: { type: "boolean" },
       port: { type: "string" },
       sleep: { type: "string" },
+      stateful: { type: "boolean" },
       token: { type: "string" },
     },
     strict: true,
@@ -584,11 +631,13 @@ const runCli = (argv: string[]): void => {
     oauth: flags.oauth === true,
     port: parsePort(flags.port),
     sleepSeconds: parseSleep(flags.sleep),
+    stateful: flags.stateful === true,
     token,
   });
   const oauthLine = flags.oauth === true ? "oauth: on\n" : "";
+  const statefulLine = flags.stateful === true ? "stateful: on\n" : "";
   process.stdout.write(
-    `url: ${stub.url}\ntoken: ${token ?? "(none, no auth)"}\n${oauthLine}`
+    `url: ${stub.url}\ntoken: ${token ?? "(none, no auth)"}\n${oauthLine}${statefulLine}`
   );
 };
 
