@@ -27,7 +27,7 @@ import {
 } from "../run-tokens.ts";
 import type { Clock, StartRunInput } from "../runs/types.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
-import type { Principal } from "../workspaces.ts";
+import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { advanceCursor, eventsAfter, type SessionEvent } from "./events.ts";
 import type { ManagedGateway, SkillRef, SkillUploadFile } from "./gateway.ts";
 import { createManagedKeysService } from "./keys.ts";
@@ -40,7 +40,7 @@ import {
   NO_KEY_ERROR,
   POLL_MS,
 } from "./service.ts";
-import type { ManagedPollerPort } from "./types.ts";
+import { MANAGED_LEASE_MS, type ManagedPollerPort } from "./types.ts";
 
 const WORKSPACE = "w1";
 const START = "2026-10-17T10:00:00.000Z";
@@ -445,7 +445,9 @@ beforeEach(async () => {
   await keys.set(dom, { apiKey: FAKE_API_KEY });
   const atomic = sqliteAtomic(db);
   runs = createRunsService({
-    adapters: [createManagedRuntime({ poller })],
+    adapters: [
+      createManagedRuntime({ abandon: (run) => managed.abandon(run), poller }),
+    ],
     atomic,
     blobs,
     clock,
@@ -1174,5 +1176,95 @@ describe("skills", () => {
     expect(runRow(runId)?.status).toBe("failed");
     expect(runRow(runId)?.error).toContain("at most 20 skills");
     expect(gateway.skillStore.size).toBe(0);
+  });
+});
+
+describe("a poller outage and the reaper", () => {
+  test("a reaped managed run sends the interrupt and closes the session", async () => {
+    const { runId, sessionId } = await start(dom);
+    gateway.turns = [[gateway.running()]];
+    await managed.step(runId);
+
+    nowMs += MANAGED_LEASE_MS + SECOND;
+    await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+
+    expect(runRow(runId)?.status).toBe("interrupted");
+    expect(gateway.interrupted).toEqual(["sesn_1"]);
+    expect(gateway.deletedVaults).toEqual(["vlt_1"]);
+    expect(sessionRow(sessionId)?.closedAt).not.toBeNull();
+    expect((await verify(tokenOf("vlt_1"))).ok).toBe(false);
+  });
+
+  test("a reaped run that is no longer the session's current run leaves the session alone", async () => {
+    const first = await start(dom, "one");
+    gateway.turns = [[gateway.running()]];
+    await managed.step(first.runId);
+    const second = await start(dom, "two");
+    db.update(managedSessions)
+      .set({ currentRunId: second.runId })
+      .where(eq(managedSessions.sessionId, first.sessionId))
+      .run();
+
+    nowMs += MANAGED_LEASE_MS + SECOND;
+    await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+
+    expect(runRow(first.runId)?.status).toBe("interrupted");
+    expect(gateway.interrupted).toEqual([]);
+    expect(gateway.deletedVaults).toEqual([]);
+    expect(sessionRow(first.sessionId)?.closedAt).toBeNull();
+  });
+
+  test("a poller down for two minutes does not interrupt the run", async () => {
+    const { runId, sessionId } = await start(dom);
+    gateway.turns = [[gateway.running()]];
+    await managed.step(runId);
+
+    for (let count = 0; count < 6; count += 1) {
+      nowMs += 20 * SECOND;
+      // biome-ignore lint/performance/noAwaitInLoops: each reap follows the clock
+      await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+    }
+
+    expect(runRow(runId)?.status).toBe("running");
+    expect(gateway.interrupted).toEqual([]);
+    expect((await verify(tokenOf("vlt_1"))).ok).toBe(true);
+
+    gateway.sessions
+      .get("sesn_1")
+      ?.events.push(gateway.say("pelican"), gateway.idle());
+    nowMs += POLL_MS;
+    const answer = await managed.step(runId);
+
+    expect(answer).toEqual({ next: null });
+    expect(runRow(runId)?.status).toBe("done");
+    expect(runRow(runId)?.resultText).toBe("pelican");
+    expect(gateway.interrupted).toEqual([]);
+    expect(sessionRow(sessionId)?.closedAt).toBeNull();
+  });
+
+  test("an outage longer than the lease still ends the run", async () => {
+    const { runId } = await start(dom);
+    gateway.turns = [[gateway.running()]];
+    await managed.step(runId);
+
+    nowMs += MANAGED_LEASE_MS + SECOND;
+    await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+
+    expect(runRow(runId)?.status).toBe("interrupted");
+    expect(gateway.interrupted).toEqual(["sesn_1"]);
+  });
+
+  test("the sweep ending a run that is not the session's current run leaves the session alone", async () => {
+    const first = await start(dom, "one");
+    gateway.turns = [[gateway.running()]];
+    await managed.step(first.runId);
+    const second = await start(dom, "two");
+
+    nowMs += 61 * 60 * SECOND;
+    await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+
+    expect(runRow(second.runId)?.status).toBe("failed");
+    expect(gateway.interrupted).toEqual([]);
+    expect(sessionRow(first.sessionId)?.closedAt).toBeNull();
   });
 });
