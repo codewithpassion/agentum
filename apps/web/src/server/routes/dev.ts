@@ -3,6 +3,8 @@
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import type { MachineRelayPort } from "@repo/services/machines/types";
+import type { RunsService } from "@repo/services/runs";
+import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { eq, sql } from "drizzle-orm";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { Hono } from "hono";
@@ -81,4 +83,50 @@ devRoutes.post("/api/dev/offer", async (c) => {
   return result.ok
     ? c.json({})
     : c.json({ error: "Expected agentId, machineId and runId." }, BAD_REQUEST);
+});
+
+const CLOUD_ACTIONS = ["cancel", "offer", "redispatch"] as const;
+const cloudBodySchema = z.strictObject({ runId: z.string().min(1) });
+
+/**
+ * Drives a cloud run by hand, as the system. `offer` is what the minute sweep
+ * does for a queued run. `redispatch` puts a running run back and offers it
+ * again, which is what a start that looked failed does (the Durable Object got
+ * the run, the call to it threw), so the object sees the same run twice.
+ * `cancel` is the cancel button. `scripts/e2e/cloud.ts` uses all three.
+ */
+export const driveCloudRun = async (
+  runs: Pick<RunsService, "cancelRun" | "offerQueuedRun" | "releaseRun">,
+  action: string,
+  body: unknown
+): Promise<{ ok: boolean }> => {
+  const parsed = cloudBodySchema.safeParse(body);
+  if (!(parsed.success && CLOUD_ACTIONS.some((known) => known === action))) {
+    return { ok: false };
+  }
+  const { runId } = parsed.data;
+  if (action === "cancel") {
+    await runs.cancelRun(SYSTEM_PRINCIPAL, runId);
+  } else {
+    if (action === "redispatch") {
+      await runs.releaseRun(SYSTEM_PRINCIPAL, runId);
+    }
+    await runs.offerQueuedRun(SYSTEM_PRINCIPAL, runId);
+  }
+  return { ok: true };
+};
+
+devRoutes.post("/api/dev/cloud/:action", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const result = await driveCloudRun(
+    c.get("composed").services.runs,
+    c.req.param("action"),
+    body
+  );
+  return result.ok
+    ? c.json({})
+    : c.json(
+        { error: "Expected a runId and cancel, offer or redispatch." },
+        BAD_REQUEST
+      );
 });

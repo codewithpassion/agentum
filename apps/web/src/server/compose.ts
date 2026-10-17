@@ -106,6 +106,7 @@ import {
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { durablePollerPort } from "./managed-poller-port.ts";
+import { durableRunnerPort } from "./pi-run-port.ts";
 import { r2Blobs } from "./r2-blobs.ts";
 import { r2FileBlobs } from "./r2-files.ts";
 import { r2LibraryBlobs } from "./r2-library.ts";
@@ -186,6 +187,7 @@ export type ComposeEnv = Pick<
   | "FILES"
   | "MACHINE_RELAY"
   | "MANAGED_POLLER"
+  | "PI_RUN"
   | "PUBLIC_BASE_URL"
   | "RUN_TOKEN_KEY"
   | "SECRETS_KEY"
@@ -424,6 +426,7 @@ export const compose = (
       atomic: d1Atomic(db),
       blobs: r2Blobs(env.FILES),
       clock: systemClock,
+      cloudRunner: durableRunnerPort(env.PI_RUN),
       defer,
       devFakeRuntime,
       fileBlobs: r2FileBlobs(env.FILES),
