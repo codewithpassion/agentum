@@ -159,23 +159,42 @@ describe("vmSkillSandbox", () => {
   });
 });
 
-describe("vmSkillSandbox secrets", () => {
-  test("ignores env and proxy, so the command gets no variable at all", async () => {
-    const vm = createFakeVm();
-    await vmSkillSandbox(vm).run({
-      args: [],
-      entry: "scripts/a.ts",
-      env: { API_TOKEN: "t0ken" },
-      files: [{ bytes: new TextEncoder().encode("1"), path: "scripts/a.ts" }],
-      maxOutputBytes: 1000,
-      proxy: true,
-      skill: "demo",
-      timeoutMs: 5000,
-    });
+describe("vmSkillSandbox env", () => {
+  const SECRET = "fake-secret-value-123";
 
-    expect(vm.execCalls).toHaveLength(1);
-    expect(vm.execCalls[0] !== undefined && "env" in vm.execCalls[0]).toBe(
-      false
+  test("passes input.env to vm.exec", async () => {
+    const { sandbox, vm } = setup();
+    await sandbox.run(inputOf({ env: { FAKE_TOKEN: SECRET } }));
+    expect(vm.execCalls[0]?.env).toEqual({ FAKE_TOKEN: SECRET });
+  });
+
+  test("omits the env key when there is no env", async () => {
+    const { sandbox, vm } = setup();
+    await sandbox.run(inputOf({ env: undefined }));
+    expect(vm.execCalls[0]).not.toHaveProperty("env");
+  });
+
+  test("omits the env key when env is empty", async () => {
+    const { sandbox, vm } = setup();
+    await sandbox.run(inputOf({ env: {} }));
+    expect(vm.execCalls[0]).not.toHaveProperty("env");
+  });
+
+  test("ignores proxy: no env key and no change to the command", async () => {
+    const { sandbox, vm } = setup();
+    await sandbox.run(inputOf({ proxy: true }));
+    expect(vm.execCalls[0]).not.toHaveProperty("env");
+    expect(vm.execCalls[0]?.command).toBe(`bun '${FOLDER}/scripts/hello.ts'`);
+  });
+
+  test("the secret value never goes into the placed files or the command line", async () => {
+    const { sandbox, vm } = setup();
+    await sandbox.run(
+      inputOf({ args: ["plain"], env: { FAKE_TOKEN: SECRET } })
     );
+    expect(vm.execCalls[0]?.command).not.toContain(SECRET);
+    for (const bytes of vm.files.values()) {
+      expect(textOf(bytes)).not.toContain(SECRET);
+    }
   });
 });

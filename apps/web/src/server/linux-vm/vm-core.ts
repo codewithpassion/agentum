@@ -11,6 +11,8 @@
 import {
   type LinuxVm,
   VM_WORKDIR,
+  type VmEgress,
+  type VmEgressRun,
   type VmEntry,
   type VmErrorCode,
   VmFileError,
@@ -36,6 +38,20 @@ const TIMEOUT_EXIT_CODE = 124;
 const SNAPSHOT_KEY = "snapshot";
 /** Set once the container has started and its workdir is ready, and cleared when it is destroyed. A Durable Object that restarts while the container runs reads it to tell a finished start from a cut-off one. */
 const PREPARED_KEY = "prepared";
+/** The last `VmEgress` given to `setEgress`. A start that happens later applies it again. */
+const EGRESS_KEY = "egress";
+/** Set once the platform's CA is trusted in the current container, and cleared when the container is destroyed. */
+const TRUSTED_KEY = "trusted";
+/** Written by the platform once the container has an HTTPS intercept. */
+const CA_PATH = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
+/** Waits for the CA file to exist and not be empty, up to 10 s, then trusts it. Exits 1 when the file never appears. */
+const TRUST_SCRIPT = `i=0
+while [ ! -s ${CA_PATH} ]; do
+  [ "$i" -ge 100 ] && exit 1
+  i=$((i + 1))
+  sleep 0.1
+done
+cp ${CA_PATH} /usr/local/share/ca-certificates/cloudflare-containers-ca.crt && update-ca-certificates`;
 /** The exit code of a command that `timeout -k` had to kill: the signal number 9 plus 128. */
 const KILLED_EXIT_CODE = 137;
 /** `timeout` waits this many seconds after TERM before it kills the command. */
@@ -101,6 +117,11 @@ export interface VmStorage {
   put: <T>(key: string, value: T) => Promise<void>;
 }
 
+/** The part of the platform's outbound HTTPS routing the core uses. */
+export interface VmNetwork {
+  intercept: (hosts: readonly string[], run: VmEgressRun) => Promise<void>;
+}
+
 export interface VmCoreDeps<TSnapshot extends VmSnapshot = VmSnapshot> {
   backups: VmBackups<TSnapshot>;
   container: VmContainer;
@@ -110,6 +131,7 @@ export interface VmCoreDeps<TSnapshot extends VmSnapshot = VmSnapshot> {
   idleMs: number;
   /** A label for the snapshot, so a bucket listing says whose it is. */
   label: string;
+  network?: VmNetwork;
   now?: () => number;
   /** How long one readiness probe may take. */
   probeTimeoutMs?: number;
@@ -214,6 +236,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
   files,
   idleMs,
   label,
+  network,
   now = Date.now,
   probeTimeoutMs = PROBE_TIMEOUT_MS,
   setAlarm,
@@ -292,6 +315,26 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     await files.mkdir(VM_WORKDIR, { recursive: true });
   };
 
+  /** Trusts the platform's CA in the container. A failure means HTTPS to the intercepted hosts cannot verify. */
+  const trustCa = async (): Promise<void> => {
+    const process = await container.exec(["sh", "-c", TRUST_SCRIPT]);
+    if ((await process.exitCode) !== 0) {
+      throw new Error("The VM could not trust the platform's CA certificate");
+    }
+  };
+
+  /** Routes the egress hosts through the platform, and trusts its CA the first time in each container. */
+  const applyEgress = async (egress: VmEgress): Promise<void> => {
+    if (network === undefined || egress.hosts.length === 0) {
+      return;
+    }
+    await network.intercept(egress.hosts, egress.run);
+    if (!(await storage.get<boolean>(TRUSTED_KEY))) {
+      await trustCa();
+      await storage.put(TRUSTED_KEY, true);
+    }
+  };
+
   const start = async (): Promise<void> => {
     if (container.running && (await storage.get<boolean>(PREPARED_KEY))) {
       return;
@@ -299,11 +342,23 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     try {
       // A container that is running without the mark was cut off by a restart of this object, before its workdir was ready.
       if (!container.running) {
+        await storage.delete(TRUSTED_KEY);
         container.start();
       }
       await container.setInactivityTimeout(inactivityMs);
       await waitReady();
       await prepareWorkdir();
+      // A VM whose requests go out without the platform's headers is better than no VM, so a failure here only warns.
+      try {
+        const egress = await storage.get<VmEgress>(EGRESS_KEY);
+        if (egress !== undefined) {
+          await applyEgress(egress);
+        }
+      } catch (error) {
+        console.warn(
+          `LinuxVm ${label}: applying the outbound egress failed: ${describe(error)}`
+        );
+      }
       await storage.put(PREPARED_KEY, true);
     } catch (error) {
       // A container left running would pass for a started one on the next call, with no restore.
@@ -354,6 +409,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
       );
       try {
         const startedAt = now();
+        const trusted = await storage.get<boolean>(TRUSTED_KEY);
         // `timeout` ends the command's whole process group, which an abort of the shell alone would not. It sends TERM and, if that is ignored, KILL.
         const process = await container.exec(
           [
@@ -367,7 +423,11 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
           ],
           {
             cwd: input.cwd ?? VM_WORKDIR,
-            env: { HOME: VM_HOME, ...input.env },
+            env: {
+              HOME: VM_HOME,
+              ...(trusted ? { NODE_EXTRA_CA_CERTS: CA_PATH } : {}),
+              ...input.env,
+            },
             signal: abort.signal,
           }
         );
@@ -443,6 +503,13 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
   const rename: LinuxVm["rename"] = (from, to) =>
     active(() => files.rename(from, to));
 
+  const setEgress: LinuxVm["setEgress"] = (egress) =>
+    active(async () => {
+      // Stored inside the call, after the start: a cold start would otherwise apply this egress once more.
+      await storage.put(EGRESS_KEY, egress);
+      await applyEgress(egress);
+    });
+
   /** Saves /workspace and replaces the snapshot before it. Returns false when the save failed and the VM should stay up. */
   const snapshot = async (): Promise<boolean> => {
     try {
@@ -488,6 +555,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
       }
       snapshotFailures = 0;
       await storage.delete(PREPARED_KEY);
+      await storage.delete(TRUSTED_KEY);
       await container.destroy("idle");
       return true;
     });
@@ -524,6 +592,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     readFile,
     remove,
     rename,
+    setEgress,
     sleepNow,
     stat,
     wake,

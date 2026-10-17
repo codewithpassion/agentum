@@ -20,10 +20,7 @@ import { createLibraryEnv } from "./library-env/library-env.ts";
 import { bindLibraryOps } from "./library-env/library-ops.ts";
 import { libraryToolsExtension } from "./library-env/library-tools.ts";
 import { durableVm } from "./linux-vm/durable-vm.ts";
-import {
-  installEnvironmentTools,
-  secretsForEnvironment,
-} from "./linux-vm/environment-tools.ts";
+import { installEnvironmentTools } from "./linux-vm/environment-tools.ts";
 import { createVmEnv } from "./linux-vm/vm-env.ts";
 import type { LinuxVm } from "./linux-vm/vm-port.ts";
 import { vmSkillSandbox } from "./linux-vm/vm-skill-sandbox.ts";
@@ -294,10 +291,15 @@ export class PiRun extends DurableObject<Env> {
   /** The environment of Pi's file and shell tools: the VM, or the library for the newest run. Without a run there is no principal, so no library environment. */
   async #executionEnv() {
     const sessionId = await this.ctx.storage.get<string>(VM_KEY);
-    if (this.#vm && sessionId) {
-      return createVmEnv({ sessionId, vm: this.#vm });
-    }
     const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
+    if (this.#vm && sessionId) {
+      // The VM's commands get the agent's `env` secrets, and their output is masked.
+      return createVmEnv({
+        secrets: run ? this.#scriptSecrets(run) : undefined,
+        sessionId,
+        vm: this.#vm,
+      });
+    }
     if (!run) {
       return;
     }
@@ -368,10 +370,7 @@ export class PiRun extends DurableObject<Env> {
         skills,
         port,
         this.#scriptSandbox(run),
-        secretsForEnvironment(
-          this.#vm ? "linux-vm" : "isolate",
-          this.#scriptSecrets(run)
-        ),
+        this.#scriptSecrets(run),
         undefined,
         this.#vm ? VM_SCRIPT_TEXTS : undefined
       )
@@ -389,10 +388,11 @@ export class PiRun extends DurableObject<Env> {
   }
 
   /**
-   * The agent's secrets for one script call, read fresh each time so a grant
-   * that changed between two calls applies. `env` secrets go into the isolate,
-   * `proxy` ones are added by the outbound entrypoint, and the answer is
-   * masked so a value a script printed never reaches the model.
+   * The agent's secrets for one script or shell call, read fresh each time so a
+   * grant that changed between two calls applies. `env` secrets go into the
+   * isolate or the VM's command, `proxy` ones are added by the outbound
+   * entrypoint, and the answer is masked so a value a script printed never
+   * reaches the model.
    */
   #scriptSecrets(run: RunRef): ScriptSecrets {
     return {
@@ -458,6 +458,31 @@ export class PiRun extends DurableObject<Env> {
     this.#applySkills(stored);
     if (this.#vm) {
       await placeSkills(this.#vm, skills, this.#skillsPort(run));
+      await this.#routeVmEgress(this.#vm, run);
+    }
+  }
+
+  /**
+   * Tells the VM which hosts the agent has a `proxy` secret for, so the
+   * platform adds the header to HTTPS requests to them outside the VM. Only
+   * ids and hosts go in. The VM still works without it, and a request to such a
+   * host then goes out without the credential.
+   */
+  async #routeVmEgress(vm: LinuxVm, run: RunRef) {
+    try {
+      const { proxy } = await this.#services().secrets.resolveForAgent(
+        run.workspaceId,
+        run.agentId
+      );
+      const hosts = [...new Set(proxy.flatMap((entry) => entry.hosts))];
+      if (hosts.length > 0) {
+        await vm.setEgress({ hosts, run });
+      }
+    } catch (error) {
+      console.warn(
+        `PiRun: routing the VM's proxied hosts for run ${run.runId} failed`,
+        error instanceof Error ? error.name : "unknown error"
+      );
     }
   }
 

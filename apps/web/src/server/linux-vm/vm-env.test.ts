@@ -297,3 +297,107 @@ test("watch is refused with not_supported", async () => {
   );
   expect(errorOf(result).code).toBe("not_supported");
 });
+
+const FAKE_SECRET = "fake-secret-value-123";
+
+/** Grants one fake env secret, and masks its value as `[secret:FAKE_TOKEN]`. */
+const grantedSecrets = () => ({
+  forRun: () =>
+    Promise.resolve({
+      env: { FAKE_TOKEN: FAKE_SECRET },
+      mask: (text: string) =>
+        text.replaceAll(FAKE_SECRET, "[secret:FAKE_TOKEN]"),
+      proxy: false,
+    }),
+});
+
+test("a granted secret reaches the command's env, next to the command's own env", async () => {
+  const vm = createFakeVm();
+  const env = createVmEnv({
+    secrets: grantedSecrets(),
+    sessionId: "s1",
+    vm,
+  });
+
+  await env.exec("true", { env: { PLAIN: "1" } }, BACKGROUND_CONTEXT);
+
+  expect(vm.execCalls[0]?.env).toEqual({ FAKE_TOKEN: FAKE_SECRET, PLAIN: "1" });
+});
+
+test("output holding a granted secret reaches onOutput masked", async () => {
+  const vm = createFakeVm();
+  const env = createVmEnv({ secrets: grantedSecrets(), sessionId: "s1", vm });
+  vm.onExec = () => ({
+    exitCode: 0,
+    stderr: "",
+    stdout: `token=${FAKE_SECRET}\n`,
+    timedOut: false,
+    truncated: false,
+  });
+  const { chunks, onOutput } = recorder();
+
+  const result = await env.exec(
+    "echo $FAKE_TOKEN",
+    { onOutput },
+    BACKGROUND_CONTEXT
+  );
+
+  expect(okValue(result)).toEqual({ exitCode: 0 });
+  expect(chunks).toEqual([
+    { stream: "stdout", text: "token=[secret:FAKE_TOKEN]\n" },
+  ]);
+});
+
+test("stderr holding a granted secret is masked too", async () => {
+  const vm = createFakeVm();
+  const env = createVmEnv({ secrets: grantedSecrets(), sessionId: "s1", vm });
+  vm.onExec = () => ({
+    exitCode: 1,
+    stderr: `bad token ${FAKE_SECRET}\n`,
+    stdout: "",
+    timedOut: false,
+    truncated: false,
+  });
+  const { chunks, onOutput } = recorder();
+
+  await env.exec("false", { onOutput }, BACKGROUND_CONTEXT);
+
+  expect(chunks).toEqual([
+    { stream: "stderr", text: "bad token [secret:FAKE_TOKEN]\n" },
+  ]);
+});
+
+test("with no secrets option the env is the command's own, and output is not masked", async () => {
+  const { env, vm } = setup();
+  vm.onExec = () => ({
+    exitCode: 0,
+    stderr: "",
+    stdout: `token=${FAKE_SECRET}\n`,
+    timedOut: false,
+    truncated: false,
+  });
+  const { chunks, onOutput } = recorder();
+
+  await env.exec("true", { env: { PLAIN: "1" }, onOutput }, BACKGROUND_CONTEXT);
+
+  expect(vm.execCalls[0]?.env).toEqual({ PLAIN: "1" });
+  expect(chunks).toEqual([
+    { stream: "stdout", text: `token=${FAKE_SECRET}\n` },
+  ]);
+});
+
+test("when the secrets lookup fails, exec returns an error and the command does not run", async () => {
+  const vm = createFakeVm();
+  const env = createVmEnv({
+    secrets: { forRun: () => Promise.reject(new Error("lookup failed")) },
+    sessionId: "s1",
+    vm,
+  });
+
+  const error = errorOf(
+    await env.exec("echo hi", undefined, BACKGROUND_CONTEXT)
+  );
+
+  expect(error.code).toBe("spawn_error");
+  expect(vm.execCalls).toHaveLength(0);
+});

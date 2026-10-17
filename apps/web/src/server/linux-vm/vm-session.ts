@@ -39,7 +39,9 @@ const idleMsOf = (env: Env): number => {
  * Worker can run: the container, the Sandbox SDK's file and backup classes, and
  * the alarm. Nothing of the Worker's `env` goes into the container: it starts
  * with no environment variables, and commands run with the ones they are given
- * and a HOME folder.
+ * and a HOME folder. It has HTTPS intercepts for the hosts of a proxy secret,
+ * which the Worker's `SecretsOutbound` answers, so the secret value never enters
+ * the VM.
  */
 export class VmSession extends DurableObject<Env> {
   readonly #core: ReturnType<typeof createVmCore>;
@@ -87,6 +89,16 @@ export class VmSession extends DurableObject<Env> {
       files: new Files(container),
       idleMs: idleMsOf(env),
       label: ctx.id.name ?? ctx.id.toString(),
+      network: {
+        intercept: async (hosts, run) => {
+          const entrypoint = ctx.exports.SecretsOutbound({ props: run });
+          await Promise.all(
+            hosts.map((host) =>
+              container.interceptOutboundHttps(host, entrypoint)
+            )
+          );
+        },
+      },
       setAlarm: (at) => ctx.storage.setAlarm(at),
       storage: ctx.storage,
     });
@@ -141,5 +153,9 @@ export class VmSession extends DurableObject<Env> {
 
   writeFile(...args: Parameters<LinuxVm["writeFile"]>) {
     return reply(this.#core.writeFile(...args));
+  }
+
+  setEgress(...args: Parameters<LinuxVm["setEgress"]>) {
+    return this.#core.setEgress(...args);
   }
 }

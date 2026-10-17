@@ -5,6 +5,7 @@
 import {
   type LinuxVm,
   VM_WORKDIR,
+  type VmEgress,
   type VmEntry,
   type VmExecInput,
   type VmExecResult,
@@ -13,6 +14,8 @@ import {
 } from "./vm-port.ts";
 
 export interface FakeVm extends LinuxVm {
+  /** Every `setEgress` call, in order. */
+  egressCalls: VmEgress[];
   /** Every `exec` call, in order. */
   execCalls: VmExecInput[];
   /** Files by absolute path. */
@@ -35,6 +38,7 @@ export const createFakeVm = (): FakeVm => {
   const folders = new Set<string>(["/", VM_WORKDIR]);
   const files = new Map<string, Uint8Array>();
   const execCalls: VmExecInput[] = [];
+  const egressCalls: VmEgress[] = [];
   const missing = (path: string) =>
     new VmFileError("ENOENT", `ENOENT: no such file or directory, '${path}'`);
   const childrenOf = (path: string): VmEntry[] => {
@@ -60,6 +64,7 @@ export const createFakeVm = (): FakeVm => {
     return [...entries.values()];
   };
   const fake: FakeVm = {
+    egressCalls,
     exec: async (input) => {
       execCalls.push(input);
       return await fake.onExec(input);
@@ -158,6 +163,10 @@ export const createFakeVm = (): FakeVm => {
       }
       files.delete(from);
       files.set(to, bytes);
+      return Promise.resolve();
+    },
+    setEgress: (egress) => {
+      egressCalls.push(egress);
       return Promise.resolve();
     },
     stat: (path): Promise<VmStat> => {

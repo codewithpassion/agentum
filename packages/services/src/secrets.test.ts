@@ -219,6 +219,8 @@ describe("storing", () => {
     ["BASH_ENV", { name: "BASH_ENV" }],
     ["PYTHONSTARTUP", { name: "PYTHONSTARTUP" }],
     ["GIT_SSH_COMMAND", { name: "GIT_SSH_COMMAND" }],
+    ["BUN_OPTIONS", { name: "BUN_OPTIONS" }],
+    ["BUN_CONFIG_REGISTRY", { name: "BUN_CONFIG_REGISTRY" }],
     ["a short value", { value: "short" }],
     ["a Harbourmaster token", { value: "hm_run_abcdefghijklmnop" }],
     ["a value with a NUL", { value: "abcdefgh\0ij" }],
@@ -231,6 +233,15 @@ describe("storing", () => {
     };
     expect(await failure(service.create(user, input))).toBeDefined();
     expect(db.select().from(secretRows).all()).toHaveLength(0);
+  });
+
+  test("an ordinary name is still accepted next to the refused ones", async () => {
+    const created = await service.create(user, {
+      mode: "env",
+      name: "OPENAI_API_KEY",
+      value: OPENAI,
+    });
+    expect(created).toMatchObject({ mode: "env", name: "OPENAI_API_KEY" });
   });
 
   test("a proxy secret needs rules, an env secret takes none, and a proxy value must fit a header", async () => {

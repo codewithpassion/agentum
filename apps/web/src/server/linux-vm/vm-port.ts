@@ -65,6 +65,22 @@ export class VmFileError extends Error {
   }
 }
 
+/** Who the VM's outbound requests are for. Ids only: the platform reads the secrets itself. */
+export interface VmEgressRun {
+  agentId: string;
+  runId: string;
+  workspaceId: string;
+}
+
+/**
+ * The hosts whose HTTPS requests the platform handles for the VM, so a `proxy`
+ * secret's header is added outside the VM. A host is exact or a `*.` wildcard.
+ */
+export interface VmEgress {
+  hosts: string[];
+  run: VmEgressRun;
+}
+
 /** Paths are absolute. */
 export interface LinuxVm {
   exec: (input: VmExecInput) => Promise<VmExecResult>;
@@ -76,6 +92,12 @@ export interface LinuxVm {
     options?: { force?: boolean; recursive?: boolean }
   ) => Promise<void>;
   rename: (from: string, to: string) => Promise<void>;
+  /**
+   * Routes the VM's HTTPS requests to `egress.hosts` through the platform's
+   * outbound entrypoint for `egress.run`, and keeps doing so when the VM sleeps
+   * and wakes. A call with no hosts changes nothing. No secret value is passed.
+   */
+  setEgress: (egress: VmEgress) => Promise<void>;
   stat: (path: string) => Promise<VmStat>;
   writeFile: (path: string, bytes: Uint8Array) => Promise<void>;
 }
