@@ -24,6 +24,10 @@ import {
   type McpFetch,
   type McpTool,
   mcpToolRegistrations,
+  type ServerTools,
+  syncMcpTools,
+  throttled,
+  toolChanges,
 } from "./pi-run-mcp.ts";
 
 type McpServerEntry = CloudStart["mcpServers"][string];
@@ -385,5 +389,261 @@ describe("tool names that collide after the cut", () => {
     expect(names.every((name) => name.length <= 64)).toBe(true);
     expect(names[1]?.endsWith("_2")).toBe(true);
     expect(names[2]?.endsWith("_3")).toBe(true);
+  });
+});
+
+const UP_URL = "https://up.example.test/mcp";
+const DOWN_URL = "https://down.example.test/mcp";
+const OTHER_DOWN_URL = "https://other.example.test/mcp";
+const OLD_TOOL: McpTool = { inputSchema: {}, name: "old" };
+const GAP_MS = 1000;
+const LATER_MS = 10_000;
+
+/** A fetch that answers UP_URL and fails every other URL with its own message. */
+const routedFetch: McpFetch = (url, init) => {
+  if (url === UP_URL) {
+    return Promise.resolve(
+      toolsListReply(JSON.parse(String(init.body)) as RpcRequest)
+    );
+  }
+  const message = url === DOWN_URL ? "first down" : "second down";
+  return Promise.reject(new Error(message));
+};
+
+describe("syncMcpTools", () => {
+  const up = { ...SERVER, url: UP_URL };
+  const down = { ...SERVER, url: DOWN_URL };
+
+  test("a down server keeps its known tools and reports it", async () => {
+    const downs: [string, unknown][] = [];
+
+    const tools = await syncMcpTools(
+      { down, up },
+      { down: [OLD_TOOL] },
+      routedFetch,
+      (key, error) => downs.push([key, error])
+    );
+
+    expect(tools).toEqual({ down: [OLD_TOOL], up: [SEARCH] });
+    expect(downs.map(([key]) => key)).toEqual(["down"]);
+    expect(downs[0]?.[1]).toBeInstanceOf(Error);
+  });
+
+  test("a down server with no known tools is left out", async () => {
+    const downs: string[] = [];
+
+    const tools = await syncMcpTools({ down, up }, {}, routedFetch, (key) =>
+      downs.push(key)
+    );
+
+    expect(tools).toEqual({ up: [SEARCH] });
+    expect(downs).toEqual(["down"]);
+  });
+
+  test("a known server that is no longer configured is not in the result", async () => {
+    const tools = await syncMcpTools({ up }, { gone: [OLD_TOOL] }, routedFetch);
+
+    expect(tools).toEqual({ up: [SEARCH] });
+  });
+
+  test("throws the first failure when no server is usable", async () => {
+    const other = { ...SERVER, url: OTHER_DOWN_URL };
+
+    await expect(
+      syncMcpTools({ down, other }, {}, routedFetch)
+    ).rejects.toThrow("first down");
+  });
+
+  test("an empty server map gives an empty result", async () => {
+    expect(await syncMcpTools({}, { gone: [OLD_TOOL] }, routedFetch)).toEqual(
+      {}
+    );
+  });
+});
+
+describe("toolChanges", () => {
+  test("lists added servers to install", () => {
+    expect(toolChanges({}, { a: [SEARCH] })).toEqual({
+      install: ["a"],
+      uninstall: [],
+    });
+  });
+
+  test("lists a server whose tools changed to install", () => {
+    expect(toolChanges({ a: [SEARCH] }, { a: [OLD_TOOL] })).toEqual({
+      install: ["a"],
+      uninstall: [],
+    });
+  });
+
+  test("leaves an unchanged server out of both lists", () => {
+    const same: ServerTools = { a: [SEARCH] };
+
+    expect(toolChanges(same, { a: [{ ...SEARCH }] })).toEqual({
+      install: [],
+      uninstall: [],
+    });
+  });
+
+  test("lists removed servers to uninstall", () => {
+    expect(
+      toolChanges({ a: [SEARCH], b: [OLD_TOOL] }, { a: [SEARCH] })
+    ).toEqual({ install: [], uninstall: ["b"] });
+  });
+});
+
+describe("throttled", () => {
+  /** Lets pending promise callbacks run. */
+  const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  /** Work that stays in flight until `finish` is called. */
+  const pendingWork = () => {
+    let starts = 0;
+    let finish: () => void = () => undefined;
+    const work = (): Promise<void> => {
+      starts += 1;
+      return new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    };
+    return { finish: () => finish(), starts: () => starts, work };
+  };
+
+  test("does not start while the last work is still in flight", async () => {
+    const clock = { t: 0 };
+    const job = pendingWork();
+    const run = throttled(job.work, { minGapMs: GAP_MS, now: () => clock.t });
+
+    run();
+    clock.t = LATER_MS;
+    run();
+
+    expect(job.starts()).toBe(1);
+    job.finish();
+    await flush();
+    clock.t = LATER_MS * 2;
+    run();
+    expect(job.starts()).toBe(2);
+  });
+
+  test("does not start again before the gap has passed", async () => {
+    const clock = { t: 0 };
+    const job = pendingWork();
+    const run = throttled(job.work, { minGapMs: GAP_MS, now: () => clock.t });
+
+    run();
+    job.finish();
+    await flush();
+    clock.t = GAP_MS - 1;
+    run();
+    expect(job.starts()).toBe(1);
+
+    clock.t = GAP_MS;
+    run();
+    expect(job.starts()).toBe(2);
+  });
+
+  test("a rejecting work does not throw, is logged, and does not block later runs", async () => {
+    const clock = { t: 0 };
+    const logged: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      logged.push(args);
+    };
+    try {
+      const run = throttled(() => Promise.reject(new Error("refresh broke")), {
+        minGapMs: GAP_MS,
+        now: () => clock.t,
+      });
+
+      expect(() => run()).not.toThrow();
+      await flush();
+      expect(logged).toEqual([["MCP refresh failed", "refresh broke"]]);
+
+      clock.t = LATER_MS;
+      run();
+      await flush();
+      expect(logged).toHaveLength(2);
+    } finally {
+      console.error = original;
+    }
+  });
+});
+
+describe("onCallError", () => {
+  const failing: McpFetch = () => Promise.reject(new Error("network down"));
+
+  const registrationWith = (
+    fetcher: McpFetch,
+    onCallError: () => void
+  ): ToolRegistration =>
+    at(
+      mcpToolRegistrations(
+        "s",
+        [SEARCH],
+        () => Promise.resolve(SERVER),
+        fetcher,
+        onCallError
+      ),
+      0
+    );
+
+  test("is called when the server answers with a JSON-RPC error", async () => {
+    const { fetcher } = fakeFetch(() =>
+      Response.json({ error: { message: "gone" }, id: 1, jsonrpc: "2.0" })
+    );
+    let calls = 0;
+    const registration = registrationWith(fetcher, () => {
+      calls += 1;
+    });
+
+    await expect(registration.execute({}, NO_API, CONTEXT)).rejects.toThrow(
+      "gone"
+    );
+    expect(calls).toBe(1);
+  });
+
+  test("is called when the HTTP request fails", async () => {
+    let calls = 0;
+    const registration = registrationWith(failing, () => {
+      calls += 1;
+    });
+
+    await expect(registration.execute({}, NO_API, CONTEXT)).rejects.toThrow(
+      "network down"
+    );
+    expect(calls).toBe(1);
+  });
+
+  test("is not called when the result has isError set", async () => {
+    const { fetcher } = fakeFetch(() =>
+      jsonReply({ content: [{ text: "bad", type: "text" }], isError: true })
+    );
+    let calls = 0;
+    const registration = registrationWith(fetcher, () => {
+      calls += 1;
+    });
+
+    const result = await registration.execute({}, NO_API, CONTEXT);
+
+    expect(result.isError).toBe(true);
+    expect(calls).toBe(0);
+  });
+
+  test("is not called when the call was aborted", async () => {
+    let calls = 0;
+    const registration = registrationWith(failing, () => {
+      calls += 1;
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      registration.execute({}, NO_API, {
+        ...CONTEXT,
+        abortSignal: controller.signal,
+      })
+    ).rejects.toThrow("network down");
+    expect(calls).toBe(0);
   });
 });

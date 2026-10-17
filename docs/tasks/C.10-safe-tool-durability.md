@@ -3,7 +3,7 @@ id: C.10
 title: Safe-tool case for the Pi durability suite
 milestone: C
 size: S
-status: todo
+status: done
 depends_on: [C.9]
 branch: task/C.10-safe-tool-durability
 ---
@@ -20,3 +20,5 @@ Add what C.9 names: a dev-only faux prompt and a read-only tool that sleeps, ava
 
 ## Log
 - 2026-10-17: added from C.9's review. Starts after C.5 and C.6 merge, since it touches PiRun tool wiring.
+- 2026-10-17: dispatched on task/C.10-safe-tool-durability.
+- 2026-10-17: review clean after 0 fix rounds at 33a7a7b (docs/reviews/tasks/C.10.md). Merged.

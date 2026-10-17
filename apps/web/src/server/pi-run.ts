@@ -30,9 +30,11 @@ import {
 } from "./pi-run-files.ts";
 import { RunLeaseAlarm } from "./pi-run-lease.ts";
 import {
-  listMcpTools,
-  type McpTool,
   mcpToolRegistrations,
+  type ServerTools,
+  syncMcpTools,
+  throttled,
+  toolChanges,
 } from "./pi-run-mcp.ts";
 import { createCloudModels } from "./pi-run-models.ts";
 import {
@@ -52,6 +54,8 @@ const NEWEST_RUN_KEY = "newest-run";
 const ENTRY_PAGE = 500;
 const ANTHROPIC = "anthropic";
 const RETRY = { baseDelayMs: 1000, enabled: true, maxRetries: 3 };
+/** A failing tool call refreshes the tool lists at most this often. */
+const REFRESH_GAP_MS = 30_000;
 const COMMIT_EVENTS = new Set([
   "entry_appended",
   "message_end",
@@ -66,7 +70,6 @@ const principalOf = (run: RunRef): Principal => ({
   workspaceId: run.workspaceId,
 });
 
-type ServerTools = Record<string, McpTool[]>;
 type Servers = CloudStart["mcpServers"];
 type Faux = ReturnType<typeof import("./pi-run-faux.ts")["createFaux"]>;
 
@@ -83,7 +86,12 @@ type Faux = ReturnType<typeof import("./pi-run-faux.ts")["createFaux"]>;
 export class PiRun extends DurableObject<Env> {
   readonly registry = createRegistry();
   #core: ReturnType<typeof createRunCore> | undefined;
-  readonly #installed = new Set<string>();
+  /** The tool lists now in the registry, by server key. */
+  #installed: ServerTools = {};
+  /** The servers of the newest run that reached a sync. A start syncs before it stores them, so storage can lag. */
+  #servers: Servers | undefined;
+  /** Syncs take turns: two that overlap could install an older list over a newer one. */
+  #syncing: Promise<unknown> = Promise.resolve();
   #faux: Faux | undefined;
   #composed: ReturnType<typeof compose> | undefined;
 
@@ -106,8 +114,14 @@ export class PiRun extends DurableObject<Env> {
       const models = createCloudModels(this.#credentials);
       if (import.meta.env.DEV) {
         const { createFaux } = await import("./pi-run-faux.ts");
+        // The import sits here, in the branch itself, so a production build drops the module.
+        const { devToolsExtension } = await import("./pi-run-dev-tools.ts");
+        const firstOpen = this.#faux === undefined;
         this.#faux = createFaux();
         models.setProvider(this.#faux.provider);
+        if (firstOpen) {
+          this.registry.install(devToolsExtension(this.ctx.storage));
+        }
       }
       this.#installTools(
         (await this.ctx.storage.get<ServerTools>(TOOLS_KEY)) ?? {}
@@ -150,40 +164,64 @@ export class PiRun extends DurableObject<Env> {
     );
   }
 
+  /** Installs the servers whose list differs from the registry's, and removes the ones that are gone. */
   #installTools(tools: ServerTools) {
-    // The tools are those of the newest run's agent: a server it no longer has goes.
-    for (const serverKey of this.#installed) {
-      if (!(serverKey in tools)) {
-        this.registry.uninstall({ name: `mcp-${serverKey}` });
-        this.#installed.delete(serverKey);
-      }
+    const { install, uninstall } = toolChanges(this.#installed, tools);
+    for (const serverKey of uninstall) {
+      this.registry.uninstall({ name: `mcp-${serverKey}` });
     }
-    for (const [serverKey, list] of Object.entries(tools)) {
-      this.#installed.add(serverKey);
+    for (const serverKey of install) {
       this.registry.install({
         name: `mcp-${serverKey}`,
-        tools: mcpToolRegistrations(serverKey, list, async () => {
-          const servers = await this.ctx.storage.get<Servers>(SERVERS_KEY);
-          const server = servers?.[serverKey];
-          if (!server) {
-            throw new Error(`MCP server ${serverKey} is not configured`);
-          }
-          return server;
-        }),
+        tools: mcpToolRegistrations(
+          serverKey,
+          tools[serverKey] ?? [],
+          async () => {
+            const servers = await this.ctx.storage.get<Servers>(SERVERS_KEY);
+            const server = servers?.[serverKey];
+            if (!server) {
+              throw new Error(`MCP server ${serverKey} is not configured`);
+            }
+            return server;
+          },
+          undefined,
+          // A failed call may mean the server's tools changed: look again.
+          this.#refreshTools
+        ),
       });
     }
+    this.#installed = tools;
   }
 
-  async #listAndInstallTools(input: CloudStart) {
-    const lists = await Promise.all(
-      Object.entries(input.mcpServers).map(
-        async ([serverKey, server]) =>
-          [serverKey, await listMcpTools(server)] as const
-      )
-    );
-    const tools: ServerTools = Object.fromEntries(lists);
-    await this.ctx.storage.put(TOOLS_KEY, tools);
-    this.#installTools(tools);
+  /**
+   * Lists the servers and installs what changed. A server that cannot be
+   * listed keeps the tools it had, so one down connector does not stop the run.
+   * Without `servers` it uses the newest ones, read when its turn comes, so a
+   * refresh queued behind a start never installs the run before it.
+   */
+  #syncTools(servers?: Servers): Promise<void> {
+    const sync = this.#syncing.then(async () => {
+      this.#servers = servers ?? this.#servers;
+      const current =
+        this.#servers ?? (await this.ctx.storage.get<Servers>(SERVERS_KEY));
+      if (!current) {
+        return;
+      }
+      const tools = await syncMcpTools(
+        current,
+        this.#installed,
+        undefined,
+        (serverKey, error) =>
+          console.warn(
+            `PiRun: MCP server ${serverKey} did not list its tools`,
+            error instanceof Error ? error.message : String(error)
+          )
+      );
+      await this.ctx.storage.put(TOOLS_KEY, tools);
+      this.#installTools(tools);
+    });
+    this.#syncing = sync.catch(() => undefined);
+    return sync;
   }
 
   async #newestRun(): Promise<RunRef> {
@@ -265,6 +303,11 @@ export class PiRun extends DurableObject<Env> {
     await this.ctx.storage.put(SKILLS_KEY, summaries);
     this.#applySkills(summaries);
   }
+
+  /** Looks at the newest run's servers again, at most once per REFRESH_GAP_MS and never twice at a time. */
+  readonly #refreshTools = throttled(() => this.#syncTools(), {
+    minGapMs: REFRESH_GAP_MS,
+  });
 
   #modelRef(model: string): { id: string; provider: string } {
     if (this.#faux && model === "faux") {
@@ -358,7 +401,7 @@ export class PiRun extends DurableObject<Env> {
             this.#filesPort(() => Promise.resolve(run))
           ),
         installSkills: (input) => this.#loadAndInstallSkills(input),
-        installTools: (input) => this.#listAndInstallTools(input),
+        installTools: (input) => this.#syncTools(input.mcpServers),
         outputsOf: (run, text) =>
           uploadOutputs(
             text,
@@ -377,7 +420,13 @@ export class PiRun extends DurableObject<Env> {
   onStart(): void {
     this.#runCore()
       .resume()
-      .then(() => this.lease.schedule())
+      .then(async () => {
+        await this.lease.schedule();
+        // The lists stored before this wake may be old. With no active run there is nothing to look at.
+        if (await this.ctx.storage.get(SERVERS_KEY)) {
+          this.#refreshTools();
+        }
+      })
       .catch((error: unknown) => {
         console.error("PiRun: resuming runs failed", error);
       });
