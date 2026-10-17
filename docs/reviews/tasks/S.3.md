@@ -7,6 +7,7 @@ Workspace secrets for agents. Branch task/S.3-agent-secrets.
 - Round 1 (d4ced96): must-fix, two items. This file was missing, and the sudoers rule that lets secrets reach Claude Code in multi-user mode needs `install-service` to run again, which nothing said. Both are dealt with in the fix commit, with eight of the nits.
 - Round 2 (13e77d5): must-fix, two items. The relay's host re-check had no test, and a failed `secret.delivered` event could fail a managed launch after its message was sent. Both fixed, with the cloud script path made the same, and more environment names that can inject code refused.
 - Round 3 (ff3f100): must-fix, one item: no test for the managed launch surviving a failed delivery event. Added, with the narrower interpreter name list and run ids in the logs. Not reviewed again, because two fix rounds had already ended must-fix.
+- Round 4 (965e66e): clean. Seven nits, `PERLLIB` fixed.
 
 ## What was built
 
@@ -28,6 +29,15 @@ Anthropic's API has no environment or session variables. The environment config 
 
 So an `env` secret on a managed agent is a vault `environment_variable` credential with `networking: unrestricted` and header and body injection. Code in the sandbox can send `$NAME` anywhere, and cannot read, print, validate or sign with the raw value. The task's check says an env secret is "readable in its sandbox". The Anthropic API cannot give that, so the live check proves the useful part: the variable is set, and a request that carries it reaches a server with the real value in the header and the body. The guidance tells the agent this. The vault holds 20 credentials, shared by the MCP servers, the env secrets and the relay token, and a run over the limit fails with a message that says so. A granted secret's revision is part of the agent fingerprint, so a replaced, added or revoked secret starts a new session and vault instead of reusing the one that holds the old value.
 
+### What a managed script sees for an `env` secret
+
+Anthropic swaps the placeholder only on outbound requests, and the real value is not readable inside the sandbox by reading the variable. Measured on 17 Oct 2026 with throwaway values:
+
+- `$NAME` is a 61 character placeholder starting `ANTHROPIC_SECR`. Its SHA-256 and length differ from the secret's. `printenv`, `echo` and `env` show only the placeholder, so a script cannot read, hash, parse or sign with the real value (an API that needs the raw value, such as an HMAC signature or a JWT built in the script, will not work).
+- Where the real value appears: in a request the sandbox sends. The swap happens at Anthropic's egress, in a header, and in the body when `injection_location.body` is true (we set both for `env` secrets). With `networking: unrestricted` it happens for every host. A `limited` credential swaps only for its `allowed_hosts`, which is how the relay token is delivered (the Worker's host only).
+- It is still reachable, indirectly. A script that sends `$NAME` to a server that reflects what it receives gets the real value back in the response. This was seen live: httpbin's `/headers` returned the real value in `X-Open` to the sandbox. So an `env` secret on a managed agent hides the value from a script that only reads its environment and from the model's view of the variable, and it does not hide it from a script that sends the variable to a host it controls, or to one that echoes headers. That is the same trust as `env` mode anywhere else, where the code can read the variable. For a value the code must never be able to obtain, use `proxy` mode (the relay), where the value never enters the sandbox and the relay scrubs echoed answers.
+- Whatever comes back into the transcript is masked: the run's events and result replace the real value with `[secret:NAME]`.
+
 The model refused to send `$KEY` to an unfamiliar host until the agent's instructions said that the address was the key's intended use, so the guidance text calls the relay the platform's own approved endpoint.
 
 ## Live checks
@@ -44,6 +54,7 @@ Service tests cover storage (encrypted, no read returns a value, a ciphertext mo
 
 ## Nits left
 
+- Interpreter names: `PYTHONWARNINGS`, `PYTHONBREAKPOINT`, `PYTHONINSPECT` and similar weaker variables are not refused. The managed delivery log line has no run id in its text and prints the status from `describeError`. The managed test restores its console spy only when it passes. The refused-name test covers a few names, not the whole list.
 - `packages/services/src/secrets.ts`: `resolveForAgent`, `maskerFor` and `proxyFor` each query and decrypt every granted secret, and the outbound entrypoint and the ingest path call them for each request or batch. Fine at this scale. A per-run cache would cut the cost.
 - `apps/web/src/server/pi-run.ts`: a cloud agent with no grant still gets the "granted" prompt sentence. The plain sentence is only used where no secrets port is passed.
 - The managed credential cap reuses `MAX_SERVERS`, which now counts servers, env secrets and the relay token.

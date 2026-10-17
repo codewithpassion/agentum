@@ -70,6 +70,7 @@ const RESERVED_NAMES = new Set([
   "NODE_PATH",
   "NO_PROXY",
   "PATH",
+  "PERLLIB",
   "PROMPT_COMMAND",
   "PUBLIC_BASE_URL",
   "RUN_TOKEN_KEY",
