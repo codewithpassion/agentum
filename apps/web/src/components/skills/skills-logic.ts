@@ -44,6 +44,7 @@ export const statusLabel = (status: SkillVersion["status"]): string => {
 export const versionLabel = (version: number, pinned = false): string =>
   pinned ? `v${version} (pinned)` : `v${version}`;
 
+const REVOKE_DELAY_MS = 10_000;
 const SKILL_ARCHIVE_TYPE = "application/octet-stream";
 
 /** Starts a browser download of a base64 encoded file. */
@@ -60,5 +61,5 @@ export const saveBase64File = (filename: string, base64: string): void => {
   link.href = url;
   link.download = filename;
   link.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS);
 };

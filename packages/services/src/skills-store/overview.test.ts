@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
+import { isServiceError } from "../errors.ts";
 import {
   A1,
   A2,
   createSkill,
+  decode,
+  errorOf,
   R1,
   run,
   setup,
@@ -88,4 +91,38 @@ test("a run sees only its own agent's proposals", async () => {
   expect(await service.proposals(run(A1, R1))).toHaveLength(1);
   expect(await service.proposals(run(A2, "r2"))).toEqual([]);
   expect(await service.proposals(user(W2))).toEqual([]);
+});
+
+test("readFile returns one file with its bytes and refuses a missing path", async () => {
+  const { service } = setup();
+  const { skill } = await createSkill(service, "brief", {
+    "notes/a.txt": "alpha",
+  });
+
+  const file = await service.readFile(user(), {
+    path: "notes/a.txt",
+    skillId: skill.id,
+    version: 1,
+  });
+  expect(file.path).toBe("notes/a.txt");
+  expect(file.size).toBe(5);
+  expect(file.content ? decode(file.content) : null).toBe("alpha");
+
+  const missing = await errorOf(
+    service.readFile(user(), {
+      path: "nope.txt",
+      skillId: skill.id,
+      version: 1,
+    })
+  );
+  expect(isServiceError(missing) ? missing.code : "none").toBe("not_found");
+  expect(
+    await errorOf(
+      service.readFile(user(W2), {
+        path: "notes/a.txt",
+        skillId: skill.id,
+        version: 1,
+      })
+    )
+  ).not.toBeNull();
 });

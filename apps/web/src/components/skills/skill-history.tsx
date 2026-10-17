@@ -312,9 +312,9 @@ function VersionRow({
         >
           Download
         </Button>
-        {version.status === "rejected" ? null : (
+        {version.status === "approved" ? (
           <RestoreVersion label={versionLabel(number)} onConfirm={restore} />
-        )}
+        ) : null}
         {version.status === "proposed" ? (
           <Button
             data-testid="skill-version-review"
@@ -523,7 +523,7 @@ function ReviewPanel({
       <div className="flex flex-wrap items-center gap-3">
         <Button
           data-testid="skill-version-approve"
-          disabled={busy}
+          disabled={busy || content === undefined}
           onClick={approve}
           type="button"
         >

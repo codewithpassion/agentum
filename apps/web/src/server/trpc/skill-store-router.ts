@@ -142,15 +142,10 @@ export const skillStoreRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const shown = await ctx.services.skillsStore.show(ctx.principal, {
-        skillId: input.skillId,
-        version: input.version,
-        withContents: true,
-      });
-      const file = shown.files.find((entry) => entry.path === input.path);
-      if (!file) {
-        return null;
-      }
+      const file = await ctx.services.skillsStore.readFile(
+        ctx.principal,
+        input
+      );
       return {
         executable: file.executable,
         size: file.size,

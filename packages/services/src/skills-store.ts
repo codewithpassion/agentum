@@ -855,6 +855,34 @@ export const createSkillsStoreService = ({
     return patch === "" ? null : patch;
   };
 
+  /** One file of a version with its bytes, or `not_found` when the version has no such path. */
+  const readFile = async (
+    principal: Principal,
+    input: { path: string; skillId: string; version: number }
+  ): Promise<FileRecord> => {
+    const c = memberOf(principal, "skills.read", false);
+    await ensureMigrated(principal);
+    const parsed = versionRefSchema.parse({
+      skillId: input.skillId,
+      version: input.version,
+    });
+    const skill = await skillFor(c, parsed.skillId);
+    const version = await versionFor(c, skill.id, parsed.version);
+    const file = (await treeOf(version.id)).find(
+      (entry) => entry.path === input.path
+    );
+    if (!file) {
+      throw new ServiceError(
+        "not_found",
+        `"${input.path}" is not in version ${parsed.version}`
+      );
+    }
+    return {
+      ...toFileRecord(file),
+      content: await contentOf(file.hash),
+    };
+  };
+
   /** What changed between two versions: added, removed and changed paths, and a unified diff of each text file. */
   const diff = async (
     principal: Principal,
@@ -1580,6 +1608,7 @@ export const createSkillsStoreService = ({
     migrateLibrary,
     pin,
     proposals,
+    readFile,
     reject,
     revert,
     show,

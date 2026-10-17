@@ -13,7 +13,7 @@ export const Route = createFileRoute("/_app/skills/")({
         trpc.skillStore.list.query(),
         trpc.skillStore.assignments.query(),
         trpc.skillStore.proposals.query(),
-        trpc.agents.list.query({}),
+        trpc.agents.list.query({ includeArchived: true }),
       ]);
       return { agents, assignments, proposals, skills };
     } catch (error) {

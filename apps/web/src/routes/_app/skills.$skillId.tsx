@@ -145,6 +145,7 @@ function SkillPage() {
         <TabsContent className="pt-6" value="history">
           <SkillHistory
             agentNames={agentNames}
+            key={skill.id}
             onChanged={refresh}
             skill={skill}
             versions={versions}

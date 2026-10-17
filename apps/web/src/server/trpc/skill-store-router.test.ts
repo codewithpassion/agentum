@@ -169,13 +169,15 @@ test("a person creates a skill, which lists, logs, shows and reads back", async 
   expect(binary?.text).toBeNull();
   expect(binary?.size).toBe(ICON.byteLength);
 
-  expect(
-    await caller.skillStore.readFile({
+  const missing = await errorOf(
+    caller.skillStore.readFile({
       path: "missing.txt",
       skillId: skill.id,
       version: 1,
     })
-  ).toBeNull();
+  );
+  expect(missing).toBeInstanceOf(TRPCError);
+  expect((missing as TRPCError).code).toBe("NOT_FOUND");
 });
 
 test("a commit with a text write, a base64 write and a delete makes version 2, and a stale base version is a CONFLICT", async () => {

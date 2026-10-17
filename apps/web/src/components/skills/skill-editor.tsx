@@ -308,10 +308,8 @@ export function SkillEditor({
   const shownView = useRef<string | null>(null);
   // The draft as of the last render, read by the file panel outside of render.
   const draftRef = useRef(draft);
-
-  useEffect(() => {
-    draftRef.current = draft;
-  }, [draft]);
+  // Set during render, not in an effect: the file panel of a freshly added file reads it in its own mount effect, which runs first.
+  draftRef.current = draft;
 
   const currentDraft = useCallback(() => draftRef.current, []);
 
