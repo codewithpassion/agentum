@@ -3,7 +3,7 @@ id: C.7
 title: Skills and files for cloud runs
 milestone: C
 size: M
-status: in_progress
+status: done
 depends_on: [C.6]
 branch: task/C.7-cloud-skills-files
 ---
@@ -21,3 +21,4 @@ A run with a seeded skill and an attached image works locally with a live model.
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
 - 2026-10-17: dispatched on task/C.7-cloud-skills-files.
+- 2026-10-17: review clean after 1 fix round at e19335c (docs/reviews/tasks/C.7.md). Merged. Live check passed locally (skill, PNG, text file, output chip). Found: PiRun never passes agent.instructions to Pi.

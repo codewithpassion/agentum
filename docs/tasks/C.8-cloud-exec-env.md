@@ -3,7 +3,7 @@ id: C.8
 title: Execution environment for cloud agents
 milestone: C
 size: L
-status: todo
+status: in_progress
 depends_on: [C.7]
 branch: task/C.8-cloud-exec-env
 ---
@@ -20,3 +20,4 @@ Pi's built-in `read` and `edit` change a library file, and the change shows on `
 
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
+- 2026-10-17: dispatched on task/C.8-cloud-exec-env.
