@@ -217,7 +217,6 @@ export const createSkillsSync = ({
       } else if (row.contentHash === skill.hash) {
         current = row;
       } else {
-        // biome-ignore lint/performance/noAwaitInLoops: uploads run one at a time
         current = await update({ gateway, row, skill, source });
       }
       refs.push({
