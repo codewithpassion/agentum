@@ -229,7 +229,13 @@ export const composeWith = ({
   const adapters: RuntimeAdapter[] = [
     createMachineRuntime({ relay: infra.relay }),
     ...(infra.managedPoller
-      ? [createManagedRuntime({ poller: infra.managedPoller })]
+      ? [
+          createManagedRuntime({
+            // `managed` is built below, after `runs`, which needs this list.
+            abandon: (run) => managed.abandon(run),
+            poller: infra.managedPoller,
+          }),
+        ]
       : []),
     ...(infra.cloudRunner && infra.runTokenKey && infra.publicBaseUrl
       ? [
