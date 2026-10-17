@@ -289,7 +289,8 @@ export const createRunsService = ({
   };
 
   const adapterDeps: AdapterDeps = {
-    claimRun: (principal, runId) => claimRun(principal, runId),
+    claimRun: (principal, runId, options) =>
+      claimRun(principal, runId, options),
     clock,
     completeRun: (principal, runId, result) =>
       completeRun(principal, runId, result),
@@ -579,7 +580,8 @@ export const createRunsService = ({
 
   const claimRun = async (
     principal: Principal,
-    runId: string
+    runId: string,
+    options?: { leaseMs?: number }
   ): Promise<RunRecord> => {
     requireSystem(principal, "runs.claim");
     const sibling = alias(runs, "sibling");
@@ -588,7 +590,9 @@ export const createRunsService = ({
       .update(runs)
       .set({
         claimedBy: "system",
-        leaseUntil: new Date(clock.now().getTime() + LEASE_MS).toISOString(),
+        leaseUntil: new Date(
+          clock.now().getTime() + (options?.leaseMs ?? LEASE_MS)
+        ).toISOString(),
         startedAt: nowIso(),
         status: "running",
       })
@@ -716,15 +720,21 @@ export const createRunsService = ({
    */
   const heartbeatRun = async (
     principal: Principal,
-    runId: string
+    runId: string,
+    options?: { leaseMs?: number }
   ): Promise<void> => {
+    if (options?.leaseMs !== undefined) {
+      requireSystem(principal, "runs.heartbeat.lease");
+    }
     const run = await requireRun(principal, runId);
     authorizeRunWrite(principal, run, "runs.heartbeat");
     const extended = await db
       .update(runs)
       .set({
         // ISO 8601: the run token check compares lease_until as text.
-        leaseUntil: new Date(clock.now().getTime() + LEASE_MS).toISOString(),
+        leaseUntil: new Date(
+          clock.now().getTime() + (options?.leaseMs ?? LEASE_MS)
+        ).toISOString(),
       })
       .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
       .returning({ id: runs.id });

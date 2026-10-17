@@ -17,6 +17,7 @@ const RESPONSES = 1000;
 const TOKENS_PER_SECOND = 200;
 const SLOW_REPEATS = 4000;
 const BASH_PREFIX = "bash ";
+const SLOW_BASH_PREFIX = "slow-bash ";
 const FAIL_PREFIX = "fail ";
 
 const textOf = (content: Message["content"] | undefined): string => {
@@ -36,7 +37,9 @@ const textOf = (content: Message["content"] | undefined): string => {
 /**
  * `echo`: repeats the prompt. `fail <text>`: the model errors with that text.
  * `slow`: an answer that takes about half a minute, to stop halfway. `bash <script>`: calls
- * the platform's library `bash` tool, then repeats what it said.
+ * the platform's library `bash` tool, then repeats what it said. `slow-bash <script>`: the
+ * slow answer and then the same tool call in one message, so a run is still streaming when a
+ * test stops the server in the middle.
  */
 const script = (context: TranscriptContext): AssistantMessage => {
   const last = context.messages.at(-1);
@@ -59,6 +62,17 @@ const script = (context: TranscriptContext): AssistantMessage => {
       [
         fauxToolCall("harbourmaster_bash", {
           script: prompt.slice(BASH_PREFIX.length),
+        }),
+      ],
+      { stopReason: "toolUse" }
+    );
+  }
+  if (prompt.startsWith(SLOW_BASH_PREFIX)) {
+    return fauxAssistantMessage(
+      [
+        fauxText("tick ".repeat(SLOW_REPEATS)),
+        fauxToolCall("harbourmaster_bash", {
+          script: prompt.slice(SLOW_BASH_PREFIX.length),
         }),
       ],
       { stopReason: "toolUse" }

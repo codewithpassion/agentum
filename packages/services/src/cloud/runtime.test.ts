@@ -16,6 +16,7 @@ import {
   STALE_QUEUE_MS,
 } from "../runs.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
+import { CLOUD_LEASE_MS } from "./lease.ts";
 import { createCloudRuntime } from "./runtime.ts";
 import type { CloudRunnerPort, CloudStart } from "./types.ts";
 
@@ -243,6 +244,29 @@ describe("dispatch", () => {
       claims: { agentId, runId, workspaceId: WORKSPACE },
       ok: true,
     });
+  });
+
+  test("claims with the cloud lease, so the run token outlasts an outage of the runner", async () => {
+    const { runId } = await start();
+    const [input] = runner.startCalls;
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    const key = await importRunTokenKey(RUN_TOKEN_KEY);
+    const tokenAt = (afterMs: number) =>
+      verifyRunToken({
+        db,
+        key,
+        now: new Date(nowMs + afterMs),
+        token: input.runToken,
+      });
+
+    expect(runRow(runId)?.leaseUntil).toBe(
+      new Date(nowMs + CLOUD_LEASE_MS).toISOString()
+    );
+    // No heartbeat for two minutes: the 90 second lease would be over.
+    expect((await tokenAt(120 * SECOND)).ok).toBe(true);
+    expect((await tokenAt(CLOUD_LEASE_MS + SECOND)).ok).toBe(false);
   });
 });
 

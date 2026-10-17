@@ -9,12 +9,14 @@ import {
   type EntryRecord,
   Harness,
 } from "@earendil-works/pi-durable";
+import { CLOUD_LEASE_MS } from "@repo/services/cloud/lease";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { compose } from "./compose.ts";
 import { createRunCore, type PiPort, SERVERS_KEY } from "./pi-run-core.ts";
+import { RunLeaseAlarm } from "./pi-run-lease.ts";
 import {
   listMcpTools,
   type McpTool,
@@ -81,7 +83,12 @@ export class PiRun extends DurableObject<Env> {
     },
   });
 
-  readonly lifecycle = Lifecycle.install(this).use(this.harness);
+  /** Moves the lease of the active runs from an alarm, so it outlives this object being down. */
+  readonly lease = new RunLeaseAlarm(() => this.#runCore().beat());
+
+  readonly lifecycle = Lifecycle.install(this)
+    .use(this.harness)
+    .use(this.lease);
 
   #installTools(tools: ServerTools) {
     // The tools are those of the newest run's agent: a server it no longer has goes.
@@ -193,7 +200,10 @@ export class PiRun extends DurableObject<Env> {
       return createRunCore({
         complete: (runId, result) =>
           runs.completeRun(SYSTEM_PRINCIPAL, runId, result),
-        heartbeat: (runId) => runs.heartbeatRun(SYSTEM_PRINCIPAL, runId),
+        heartbeat: (runId) =>
+          runs.heartbeatRun(SYSTEM_PRINCIPAL, runId, {
+            leaseMs: CLOUD_LEASE_MS,
+          }),
         ingest: (runId, events) =>
           runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, events),
         installTools: (input) => this.#listAndInstallTools(input),
@@ -210,6 +220,7 @@ export class PiRun extends DurableObject<Env> {
   onStart(): void {
     this.#runCore()
       .resume()
+      .then(() => this.lease.schedule())
       .catch((error: unknown) => {
         console.error("PiRun: resuming runs failed", error);
       });
@@ -220,6 +231,7 @@ export class PiRun extends DurableObject<Env> {
   async startRun(input: CloudStart): Promise<void> {
     await this.lifecycle.start();
     await this.#runCore().start(input);
+    await this.lease.schedule();
   }
 
   async cancelRun(runId: string): Promise<void> {

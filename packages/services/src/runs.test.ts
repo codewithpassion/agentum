@@ -13,6 +13,7 @@ import { file } from "bun";
 import { eq, inArray } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
+import { CLOUD_LEASE_MS } from "./cloud/lease.ts";
 import { ServiceError } from "./errors.ts";
 import {
   type Blobs,
@@ -37,6 +38,9 @@ import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 const WORKSPACE = "w1";
 const START = "2026-10-16T10:00:00.000Z";
 const SECOND = 1000;
+const RUN_TOKEN_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString(
+  "base64"
+);
 
 const user: Principal = {
   kind: "user",
@@ -124,6 +128,17 @@ const failure = async (promise: Promise<unknown>): Promise<unknown> => {
   }
   throw new Error("Expected the call to reject");
 };
+
+/** A second machine agent, so one test can have two runs in flight. */
+const addSpyAgent = async () =>
+  (
+    await agents.create(user, {
+      machineId: "m1",
+      model: "m",
+      name: "Spy 2",
+      runtime: "machine",
+    })
+  ).id;
 
 const runRow = (runId: string) =>
   db.select().from(runRows).where(eq(runRows.id, runId)).get();
@@ -637,6 +652,89 @@ test("the reaper interrupts an expired lease and leaves it there", async () => {
   await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
   expect(dispatched).not.toContain(runId);
   expect(runRow(runId)?.status).toBe("interrupted");
+});
+
+test("a claim takes the lease length the system asks for, 90 s by default", async () => {
+  const cloud = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, cloud.runId, {
+    leaseMs: CLOUD_LEASE_MS,
+  });
+  expect(runRow(cloud.runId)?.leaseUntil).toBe(
+    new Date(nowMs + CLOUD_LEASE_MS).toISOString()
+  );
+
+  const plain = await start(user, await addSpyAgent());
+  await runs.claimRun(SYSTEM_PRINCIPAL, plain.runId);
+  expect(runRow(plain.runId)?.leaseUntil).toBe(
+    new Date(nowMs + 90 * SECOND).toISOString()
+  );
+});
+
+test("a heartbeat with a lease length extends to it, and a machine cannot choose one", async () => {
+  const machineRuns = buildRuns({ runTokenKey: RUN_TOKEN_KEY });
+  const machine: Principal = {
+    kind: "machine",
+    machineId: "m1",
+    workspaceId: WORKSPACE,
+  };
+  const { runId } = await start(user, spyAgentId);
+  await machineRuns.claimRunForMachine(machine, runId, {
+    platformUrl: "https://example.test",
+  });
+
+  await runs.heartbeatRun(SYSTEM_PRINCIPAL, runId, {
+    leaseMs: CLOUD_LEASE_MS,
+  });
+  expect(runRow(runId)?.leaseUntil).toBe(
+    new Date(nowMs + CLOUD_LEASE_MS).toISOString()
+  );
+
+  const refused = await failure(
+    machineRuns.heartbeatRun(machine, runId, { leaseMs: CLOUD_LEASE_MS })
+  );
+  expect(refused).toBeInstanceOf(ForbiddenError);
+
+  advance(SECOND);
+  await machineRuns.heartbeatRun(machine, runId);
+  expect(runRow(runId)?.leaseUntil).toBe(
+    new Date(nowMs + 90 * SECOND).toISOString()
+  );
+});
+
+test("a cloud lease rides out a daemon outage that the default lease does not", async () => {
+  const cloud = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, cloud.runId, {
+    leaseMs: CLOUD_LEASE_MS,
+  });
+  const plain = await start(user, await addSpyAgent());
+  await runs.claimRun(SYSTEM_PRINCIPAL, plain.runId);
+  await runs.heartbeatRun(SYSTEM_PRINCIPAL, cloud.runId, {
+    leaseMs: CLOUD_LEASE_MS,
+  });
+
+  advance(120 * SECOND);
+  expect(await runs.reapExpiredLeases(SYSTEM_PRINCIPAL)).toEqual({
+    interrupted: [plain.runId],
+  });
+  expect(runRow(cloud.runId)).toMatchObject({ status: "running" });
+  expect(Date.parse(runRow(cloud.runId)?.leaseUntil ?? "")).toBeGreaterThan(
+    nowMs
+  );
+});
+
+test("the reaper interrupts a cloud run once its 10 minute lease has passed", async () => {
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId, { leaseMs: CLOUD_LEASE_MS });
+
+  advance(CLOUD_LEASE_MS - SECOND);
+  expect(await runs.reapExpiredLeases(SYSTEM_PRINCIPAL)).toEqual({
+    interrupted: [],
+  });
+
+  advance(2 * SECOND);
+  expect(await runs.reapExpiredLeases(SYSTEM_PRINCIPAL)).toEqual({
+    interrupted: [runId],
+  });
 });
 
 test("the sweep offers a run queued for 61 s and ignores one queued for 30 s", async () => {

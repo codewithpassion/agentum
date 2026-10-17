@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import type {
   AssistantMessage,
   Message,
@@ -260,8 +260,9 @@ const build = (
   options: {
     complete?: (runId: string, result: RunResult) => Promise<void>;
     fake?: ReturnType<typeof createFakePi>;
-    heartbeatMs?: number;
+    heartbeat?: (runId: string) => Promise<void>;
     ingest?: (runId: string, events: RunEventInput[]) => Promise<void>;
+    now?: () => number;
     status?: () => RunStatus;
     storage?: ReturnType<typeof memoryStorage>;
   } = {}
@@ -279,11 +280,10 @@ const build = (
       await options.complete?.(runId, result);
       completed.push({ result, runId });
     },
-    heartbeat: (runId) => {
+    heartbeat: async (runId) => {
       heartbeats.push(runId);
-      return Promise.resolve();
+      await options.heartbeat?.(runId);
     },
-    heartbeatMs: options.heartbeatMs ?? 60_000,
     ingest: async (runId, events) => {
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
@@ -299,6 +299,7 @@ const build = (
       installed.push(input.run.id);
       return Promise.resolve();
     },
+    now: options.now,
     pi: fake.pi,
     sleep: () => Promise.resolve(),
     statusOf: async () =>
@@ -734,16 +735,153 @@ describe("completion", () => {
     });
   });
 
-  test("a heartbeat goes out while the run is worked", async () => {
-    const h = build({ heartbeatMs: 5 });
+  test("no heartbeat goes out on a timer while the run is worked", async () => {
+    const h = build();
     await h.core.start(startOf("run-1"));
     await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(h.heartbeats).toEqual([]);
     h.fake.finish("run-1", { status: "done", text: "ok" });
     await settle();
-    expect(h.heartbeats.length).toBeGreaterThan(0);
-    const after = h.heartbeats.length;
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(h.heartbeats.length).toBe(after);
+  });
+});
+
+describe("beat", () => {
+  test("heartbeats each active run once and none of the finished ones", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    await h.core.start(startOf("run-2", "second"));
+    h.fake.finish("run-1", { status: "done", text: "one" });
+    await settle();
+
+    await h.core.beat();
+    expect(h.heartbeats).toEqual(["run-2"]);
+    h.fake.finish("run-2", { status: "done", text: "two" });
+    await settle();
+  });
+
+  test("returns false when nothing is active and true while a run is active", async () => {
+    const h = build();
+    expect(await h.core.beat()).toBe(false);
+
+    await h.core.start(startOf("run-1"));
+    expect(await h.core.beat()).toBe(true);
+
+    h.fake.finish("run-1", { status: "done", text: "ok" });
+    await settle();
+    expect(await h.core.beat()).toBe(false);
+  });
+
+  test("a conflict from heartbeat is swallowed and the next run is still heartbeated", async () => {
+    const h = build({
+      heartbeat: (runId) =>
+        runId === "run-1" ? Promise.reject(conflict()) : Promise.resolve(),
+    });
+    const spy = spyOn(console, "error").mockImplementation(() => undefined);
+    await h.core.start(startOf("run-1"));
+    await h.core.start(startOf("run-2", "second"));
+
+    expect(await h.core.beat()).toBe(true);
+    expect(h.heartbeats).toEqual(["run-1", "run-2"]);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    h.fake.finish("run-1", { status: "done", text: "one" });
+    h.fake.finish("run-2", { status: "done", text: "two" });
+    await settle();
+  });
+
+  test("another error is logged, and the beat still resolves and heartbeats the other runs", async () => {
+    const h = build({
+      heartbeat: (runId) =>
+        runId === "run-1"
+          ? Promise.reject(new Error("network down"))
+          : Promise.resolve(),
+    });
+    const spy = spyOn(console, "error").mockImplementation(() => undefined);
+    await h.core.start(startOf("run-1"));
+    await h.core.start(startOf("run-2", "second"));
+
+    expect(await h.core.beat()).toBe(true);
+    expect(h.heartbeats).toEqual(["run-1", "run-2"]);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(String(spy.mock.calls[0]?.[0])).toContain("network down");
+    spy.mockRestore();
+    h.fake.finish("run-1", { status: "done", text: "one" });
+    h.fake.finish("run-2", { status: "done", text: "two" });
+    await settle();
+  });
+
+  test("a run older than 12 hours is not heartbeated, but is still worked again", async () => {
+    let clock = 0;
+    let refusals = 3;
+    const h = build({
+      complete: () => {
+        if (refusals > 0) {
+          refusals -= 1;
+          return Promise.reject(new Error("D1 is down"));
+        }
+        return Promise.resolve();
+      },
+      now: () => clock,
+    });
+    const spy = spyOn(console, "error").mockImplementation(() => undefined);
+    await h.core.start(startOf("run-1"));
+    h.fake.finish("run-1", { status: "done", text: "late" });
+    await settle();
+    expect(h.completed).toEqual([]);
+
+    clock = 12 * 60 * 60 * 1000 + 1;
+    expect(await h.core.beat()).toBe(true);
+    await settle();
+
+    expect(h.heartbeats).toEqual([]);
+    expect(
+      h.fake.submitted.filter((s) => s.operationId === "run-1")
+    ).toHaveLength(2);
+    expect(h.completed.map((c) => c.runId)).toEqual(["run-1"]);
+    spy.mockRestore();
+  });
+
+  test("an active run that is not followed is worked again by the next beat, then completes", async () => {
+    let refusals = 3;
+    const h = build({
+      complete: () => {
+        if (refusals > 0) {
+          refusals -= 1;
+          return Promise.reject(new Error("D1 is down"));
+        }
+        return Promise.resolve();
+      },
+    });
+    const spy = spyOn(console, "error").mockImplementation(() => undefined);
+    await h.core.start(startOf("run-1"));
+    h.fake.finish("run-1", { status: "done", text: "ok" });
+    await settle();
+    expect(h.completed).toEqual([]);
+    expect(await h.storage.get("run:run-1")).toMatchObject({
+      state: "active",
+    });
+
+    expect(await h.core.beat()).toBe(true);
+    await settle();
+    expect(h.completed.map((c) => c.result.text)).toEqual(["ok"]);
+    expect(await h.storage.get("run:run-1")).toMatchObject({
+      state: "finished",
+    });
+    expect(await h.core.beat()).toBe(false);
+    spy.mockRestore();
+  });
+
+  test("a run that is followed is not submitted again by beat", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    expect(h.fake.submitted).toHaveLength(1);
+
+    await h.core.beat();
+    await settle();
+    expect(h.heartbeats).toEqual(["run-1"]);
+    expect(h.fake.submitted).toHaveLength(1);
+    h.fake.finish("run-1", { status: "done", text: "ok" });
+    await settle();
   });
 });
 
@@ -753,6 +891,7 @@ describe("resume", () => {
     await storage.put("runs", ["run-1"]);
     await storage.put("run:run-1", {
       model: "claude-test",
+      startedAt: 0,
       state: "active",
       text: "hello",
     });
