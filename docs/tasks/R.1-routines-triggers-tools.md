@@ -3,7 +3,7 @@ id: R.1
 title: MCP tools to manage routines and triggers, approve-first for agents
 milestone: R
 size: M
-status: in_progress
+status: done
 depends_on: [M2.3]
 branch: task/R.1-routines-triggers-tools
 ---
@@ -27,3 +27,4 @@ Asked for by Dom on 17 Oct 2026. Routines (schedules, `packages/services/src/rou
 
 ## Log
 - 2026-10-17: added at Dom's request (both: MCP for people, approve-first for agents); dispatched on task/R.1-routines-triggers-tools.
+- 2026-10-17: review clean after 1 fix round at cdd4153 (docs/reviews/tasks/R.1.md). Merged. Open for Dom: connected apps can approve proposals via set_*_enabled, and a trigger approval returns its secret.
