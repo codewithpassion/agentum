@@ -1361,8 +1361,15 @@ export const createSkillsStoreService = ({
         )
       )
       .orderBy(asc(skills.name));
+    // Resolving a skill costs a version and a tree query, so skills outside `paths` are skipped first.
+    const candidates =
+      paths === undefined
+        ? rows
+        : rows.filter((row) =>
+            paths.some((path) => path.startsWith(`${row.name}/`))
+          );
     const resolved = await Promise.all(
-      rows.map(async (row): Promise<ResolvedSkill | null> => {
+      candidates.map(async (row): Promise<ResolvedSkill | null> => {
         const version = await resolvedVersion(row);
         if (!version) {
           return null;

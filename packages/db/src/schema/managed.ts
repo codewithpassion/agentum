@@ -47,9 +47,9 @@ export const managedAgents = sqliteTable("managed_agents", {
 /**
  * One version of a central skill (SK.2) uploaded to Anthropic's Skills API,
  * keyed on the Harbourmaster skill id and version number. A version is
- * uploaded once and reused by every agent that carries it. All versions of one
- * skill live under one Anthropic skill, so the rows of a skill share
- * `anthropic_skill_id`.
+ * uploaded once and reused by every agent that carries it. The versions of one
+ * skill go under one Anthropic skill, so its rows share `anthropic_skill_id`.
+ * Two launches racing to upload different first versions can leave two.
  */
 export const managedSkillVersions = sqliteTable(
   "managed_skill_versions",
