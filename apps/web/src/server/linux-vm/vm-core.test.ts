@@ -26,6 +26,8 @@ interface FakeRun {
   gate?: Promise<number>;
   /** The exit never comes unless the signal aborts, as with a command that runs forever. */
   hang?: boolean;
+  /** The output streams never end, as when a background child keeps them open after the command has exited. */
+  openStreams?: boolean;
   stderr?: Uint8Array[];
   stdout?: Uint8Array[];
 }
@@ -58,6 +60,19 @@ const chunkStream = (
   };
 };
 
+const openStream = (
+  chunks: Uint8Array[]
+): { remaining: () => number; stream: ReadableStream<Uint8Array> } => ({
+  remaining: () => 0,
+  stream: new ReadableStream<Uint8Array>({
+    start: (controller) => {
+      for (const chunk of chunks) {
+        controller.enqueue(chunk);
+      }
+    },
+  }),
+});
+
 const createFakeContainer = () => {
   let running = false;
   const calls: ExecCall[] = [];
@@ -76,8 +91,9 @@ const createFakeContainer = () => {
     exec: (command: string[], options?: ExecOptions) =>
       Promise.resolve().then(() => {
         const run = container.answer(command);
-        const out = chunkStream(run.stdout ?? []);
-        const err = chunkStream(run.stderr ?? []);
+        const make = run.openStreams ? openStream : chunkStream;
+        const out = make(run.stdout ?? []);
+        const err = make(run.stderr ?? []);
         const exitCode = run.hang
           ? new Promise<number>((_resolve, reject) => {
               options?.signal?.addEventListener("abort", () => {
@@ -642,7 +658,7 @@ describe("createVmCore: exec", () => {
     expect(lastCall(env.container).unread()).toBe(0);
   });
 
-  test("a process that never ends is aborted after timeoutMs plus the grace: timedOut true and exit 124", async () => {
+  test("a process that never ends is aborted after the wall time, the TERM-to-KILL wait and the grace: timedOut true and exit 124", async () => {
     const realSetTimeout = globalThis.setTimeout;
     // The grace is 3 s. Delays of 3 s or more fire at once so the test stays fast.
     const shortGrace = spyOn(globalThis, "setTimeout").mockImplementation(((
@@ -668,6 +684,22 @@ describe("createVmCore: exec", () => {
     } finally {
       shortGrace.mockRestore();
     }
+  });
+
+  test("a command that exits while a background child holds its output open returns the exit code and the output so far", async () => {
+    const env = setup();
+    env.container.answer = (command) =>
+      command.length === 1
+        ? { exit: 0 }
+        : { exit: 0, openStreams: true, stdout: [bytes("started")] };
+
+    const result = await env.core.exec(
+      input("server &", { timeoutMs: 60_000 })
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("started");
+    expect(result.timedOut).toBe(false);
   });
 
   test("the last-resort abort waits for the wall time, the TERM-to-KILL wait of timeout and the grace", async () => {

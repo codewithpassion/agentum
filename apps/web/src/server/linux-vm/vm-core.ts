@@ -29,6 +29,8 @@ const PROBE_TIMEOUT_MS = 5000;
 export const MAX_SNAPSHOT_FAILURES = 3;
 /** After the wall time and the TERM-to-KILL wait of `timeout -k`, the command's process gets this long to end before it is aborted. */
 const ABORT_GRACE_MS = 3000;
+/** After a command has exited, how long its output streams get to end. A background child can hold them open for ever. */
+const STREAM_DRAIN_MS = 1000;
 /** The exit code of `timeout(1)` when the command ran out of time. */
 const TIMEOUT_EXIT_CODE = 124;
 const SNAPSHOT_KEY = "snapshot";
@@ -236,13 +238,10 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
   const probe = async (): Promise<boolean> => {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let exited = false;
     const expired = new Promise<boolean>((resolve) => {
       timer = setTimeout(() => {
-        // The abort also ends an `exec` that is still waiting for the container, so slow starts do not pile probes up. A process that has exited must not be aborted.
-        if (!exited) {
-          abort.abort();
-        }
+        // The abort also ends an `exec` that is still waiting for the container, so slow starts do not pile probes up. The timer is cleared when the probe answers, so it never aims at a process that has exited.
+        abort.abort();
         resolve(false);
       }, probeTimeoutMs);
     });
@@ -250,11 +249,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
       return await Promise.race([
         container
           .exec(["true"], { signal: abort.signal })
-          .then(async (process) => {
-            const code = await process.exitCode;
-            exited = true;
-            return code === 0;
-          }),
+          .then(async (process) => (await process.exitCode) === 0),
         expired,
       ]);
     } finally {
@@ -335,18 +330,26 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     }
   };
 
+  /** Waits for `done`, but for no longer than STREAM_DRAIN_MS. */
+  const drained = async (done: Promise<unknown>): Promise<void> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, STREAM_DRAIN_MS);
+    });
+    try {
+      await Promise.race([done, expired]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   const exec: LinuxVm["exec"] = (input) =>
     active(async () => {
       const wallSeconds = Math.max(1, Math.ceil(input.timeoutMs / 1000));
       const abort = new AbortController();
-      let exited = false;
-      // `timeout` ends the command at the wall time, or KILL_AFTER_SECONDS later when it ignores TERM. The abort is the last resort after both, and never aimed at a process that has exited.
+      // `timeout` ends the command at the wall time, or KILL_AFTER_SECONDS later when it ignores TERM. The abort is the last resort after both. It cannot reach a process that has exited, because the call returns within STREAM_DRAIN_MS of the exit.
       const backstop = setTimeout(
-        () => {
-          if (!exited) {
-            abort.abort();
-          }
-        },
+        () => abort.abort(),
         (wallSeconds + KILL_AFTER_SECONDS) * 1000 + ABORT_GRACE_MS
       );
       try {
@@ -368,29 +371,23 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
             signal: abort.signal,
           }
         );
-        process.exitCode.then(
-          () => {
-            exited = true;
-          },
-          () => {
-            exited = true;
-          }
-        );
         const out = readCapped(process.stdout, input.maxOutputBytes);
         const err = readCapped(process.stderr, input.maxOutputBytes);
         const aborted = new Promise<"aborted">((resolve) => {
           abort.signal.addEventListener("abort", () => resolve("aborted"));
         });
-        const finished = Promise.all([process.exitCode, out.done, err.done])
-          .then(([code]) => code)
-          .catch((error: unknown) => {
-            // An aborted process may reject its exit code, which is the timeout and not a failure.
-            if (abort.signal.aborted) {
-              return "aborted" as const;
-            }
-            throw error;
-          });
-        const outcome = await Promise.race([finished, aborted]);
+        const exitOutcome = process.exitCode.catch((error: unknown) => {
+          // An aborted process may reject its exit code, which is the timeout and not a failure.
+          if (abort.signal.aborted) {
+            return "aborted" as const;
+          }
+          throw error;
+        });
+        const outcome = await Promise.race([exitOutcome, aborted]);
+        if (outcome !== "aborted") {
+          // The command is over. A child it left in the background can keep the output pipes open, so the rest of the output gets a moment and no more.
+          await drained(Promise.all([out.done, err.done]));
+        }
         // After KILL, `timeout` ends with the command's group and exits 137 instead of 124.
         const timedOut =
           outcome === "aborted" ||

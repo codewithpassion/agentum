@@ -44,7 +44,7 @@ export const ISOLATE_SCRIPT_TEXTS: ScriptTexts = {
 };
 
 export const SCRIPT_LIMITS: ScriptLimits = {
-  // The Linux VM stops a command at the wall time, 2 s later when it ignores TERM, and its last resort comes 3 s after that.
+  // The Linux VM stops a command at the wall time, 2 s later when it ignores TERM, and its last resort comes 3 s after that (the time to start a cold VM comes on top).(the time to start a cold VM comes on top).
   graceMs: 6000,
   maxOutputBytes: 64 * 1024,
   timeoutMs: 30_000,
