@@ -3,7 +3,7 @@ id: S.4
 title: Secrets in the cloud agent Linux VM (proxy and env)
 milestone: S
 size: M
-status: todo
+status: in_progress
 depends_on: [S.3, C.14]
 branch: task/S.4-vm-secrets
 ---
@@ -22,3 +22,4 @@ Live on a local dev server with Docker: a Linux VM cloud agent's script and a `c
 
 ## Log
 - 2026-10-17: added with the S.3 rewrite. Starts after S.3 and C.14 merge.
+- 2026-10-17: dispatched on task/S.4-vm-secrets.

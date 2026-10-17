@@ -36,3 +36,4 @@ An isolate agent still works as before. The controller repeats the check on stag
 ## Log
 - 2026-10-17: added at Dom's request; dispatched on task/C.14-cloud-linux-vm.
 - 2026-10-17: review clean after 3 fix rounds (extra rounds allowed by controller) at c453291 (docs/reviews/tasks/C.14.md). Merged. VM live check not run locally (workerd container sidecar fails on this host); staging check pending. No secrets reach the VM until S.4.
+- 2026-10-17: deployed to staging (Containers worked, image pushed, VmSession v4). R2 lifecycle rule vm-snapshots-30d on harbourmaster-staging-files. Staging VM live check running.
