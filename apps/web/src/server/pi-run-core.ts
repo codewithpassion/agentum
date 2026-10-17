@@ -267,13 +267,17 @@ export const createRunCore = ({
     // A step catches its own failures, so one failed flush cannot stop the next.
     let chain: Promise<void> = Promise.resolve();
     let gone = false;
+    // Whether the last flush put everything Pi had committed on the platform.
+    let delivered = true;
     const step = async () => {
       if (gone) {
         return;
       }
       try {
         slice = await report(runId, sent);
+        delivered = true;
       } catch (error) {
+        delivered = false;
         if (!isRunGone(error)) {
           console.error(`PiRun: reporting run ${runId}: ${describe(error)}`);
           return;
@@ -304,7 +308,19 @@ export const createRunCore = ({
       const outcome = await pi.wait(runId);
       await stop();
       stop = undefined;
-      await flush();
+      // The result is built from what was reported, so the last flush has to land.
+      for (let attempt = 1; ; attempt += 1) {
+        // biome-ignore lint/performance/noAwaitInLoops: each attempt follows the failure of the one before
+        await flush();
+        if (gone || delivered || attempt >= COMPLETE_ATTEMPTS) {
+          break;
+        }
+        await sleep(COMPLETE_BACKOFF_MS * attempt);
+      }
+      if (!(gone || delivered)) {
+        // The run stays active: the next start or wake reports it.
+        return;
+      }
       if (!gone) {
         const done = await completeRun(runId, resultOf(outcome, slice));
         if (done === "waiting") {
@@ -354,7 +370,6 @@ export const createRunCore = ({
     if (!existing) {
       await installTools(input);
     }
-    await storage.put(SERVERS_KEY, input.mcpServers);
     if (!existing) {
       await save(run.id, {
         model: input.agent.model,
@@ -363,6 +378,8 @@ export const createRunCore = ({
       });
       await storage.put(RUNS_KEY, [...(await knownRuns()), run.id]);
     }
+    // After the run is saved as active, so a run finishing at this moment keeps the token.
+    await storage.put(SERVERS_KEY, input.mcpServers);
     const busy = await pi.busy();
     if (!busy) {
       await pi.setModel(input.agent.model);

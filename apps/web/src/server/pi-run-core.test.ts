@@ -654,6 +654,40 @@ describe("a platform that fails while the runner reads the run's status", () => 
   });
 });
 
+describe("the last report", () => {
+  test("is tried again, so the result is built from everything Pi committed", async () => {
+    let calls = 0;
+    const h = build({
+      ingest: () => {
+        calls += 1;
+        return calls <= 2
+          ? Promise.reject(new Error("D1 is busy"))
+          : Promise.resolve();
+      },
+    });
+    await h.core.start(startOf("run-1"));
+    await h.fake.say("the answer");
+    h.fake.finish("run-1", { status: "done", text: "the answer" });
+    await settle();
+
+    expect(sentFor(h, "run-1").map((event) => event.seq)).toEqual([1]);
+    expect(h.completed.map((c) => c.result.text)).toEqual(["the answer"]);
+  });
+
+  test("keeps the run active, and completes nothing, when it keeps failing", async () => {
+    const h = build({ ingest: () => Promise.reject(new Error("D1 is down")) });
+    await h.core.start(startOf("run-1"));
+    await h.fake.say("the answer");
+    h.fake.finish("run-1", { status: "done", text: "the answer" });
+    await settle();
+
+    expect(h.completed).toEqual([]);
+    expect(await h.storage.get("run:run-1")).toMatchObject({
+      state: "active",
+    });
+  });
+});
+
 describe("the run token", () => {
   test("is dropped when the last active run finishes, and kept while another works", async () => {
     const h = build();
