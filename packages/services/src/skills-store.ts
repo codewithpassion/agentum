@@ -1342,7 +1342,9 @@ export const createSkillsStoreService = ({
     }
     await ensureMigrated(principal);
     await requireAgent(c, agentId);
-    const { withContents: contents } = forAgentOptionsSchema.parse(options);
+    const { paths, withContents: contents } =
+      forAgentOptionsSchema.parse(options);
+    const only = paths === undefined ? null : new Set(paths);
     const rows = await db
       .select({
         name: skills.name,
@@ -1359,14 +1361,29 @@ export const createSkillsStoreService = ({
         )
       )
       .orderBy(asc(skills.name));
+    // Resolving a skill costs a version and a tree query, so skills outside `paths` are skipped first.
+    const candidates =
+      paths === undefined
+        ? rows
+        : rows.filter((row) =>
+            paths.some((path) => path.startsWith(`${row.name}/`))
+          );
     const resolved = await Promise.all(
-      rows.map(async (row): Promise<ResolvedSkill | null> => {
+      candidates.map(async (row): Promise<ResolvedSkill | null> => {
         const version = await resolvedVersion(row);
         if (!version) {
           return null;
         }
+        const tree = await treeOf(version.id);
+        const wanted =
+          only === null
+            ? tree
+            : tree.filter((file) => only.has(`${row.name}/${file.path}`));
+        if (only !== null && wanted.length === 0) {
+          return null;
+        }
         return {
-          files: await asRecords(await treeOf(version.id), contents),
+          files: await asRecords(wanted, contents),
           name: row.name,
           pinned: row.pinnedVersionId !== null,
           skillId: row.skillId,

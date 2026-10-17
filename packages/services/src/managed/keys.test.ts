@@ -5,6 +5,7 @@ import {
   managedAgents,
   managedSessions,
   managedSkills,
+  managedSkillVersions,
   workspaceAnthropicKeys,
 } from "@repo/db/schema/managed";
 import { sessions } from "@repo/db/schema/sessions";
@@ -129,6 +130,16 @@ const seedAnthropicIds = (workspaceId: string, tag: string) => {
       workspaceId,
     })
     .run();
+  db.insert(managedSkillVersions)
+    .values({
+      anthropicSkillId: `skill_${tag}`,
+      anthropicVersion: "1",
+      createdAt: START,
+      skillId: `hm_${tag}`,
+      version: 1,
+      workspaceId,
+    })
+    .run();
 };
 
 const anthropicIdCounts = (workspaceId: string) => ({
@@ -146,6 +157,11 @@ const anthropicIdCounts = (workspaceId: string) => ({
     .select()
     .from(managedSkills)
     .where(eq(managedSkills.workspaceId, workspaceId))
+    .all().length,
+  skillVersions: db
+    .select()
+    .from(managedSkillVersions)
+    .where(eq(managedSkillVersions.workspaceId, workspaceId))
     .all().length,
 });
 
@@ -308,11 +324,13 @@ describe("rotation", () => {
       agents: 0,
       sessions: 0,
       skills: 0,
+      skillVersions: 0,
     });
     expect(anthropicIdCounts(OTHER_WORKSPACE)).toEqual({
       agents: 1,
       sessions: 1,
       skills: 1,
+      skillVersions: 1,
     });
     expect((await service.resolve(WORKSPACE))?.apiKey).toBe(ROTATED_KEY);
   });
@@ -336,11 +354,13 @@ describe("remove", () => {
       agents: 0,
       sessions: 0,
       skills: 0,
+      skillVersions: 0,
     });
     expect(anthropicIdCounts(OTHER_WORKSPACE)).toEqual({
       agents: 1,
       sessions: 1,
       skills: 1,
+      skillVersions: 1,
     });
   });
 });

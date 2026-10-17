@@ -95,31 +95,3 @@ test("an agent writes a valid skill with bash and edits it", async () => {
   expect(edited.exitCode).toBe(0);
   expect(edited.stdout).toContain("capital letters");
 });
-
-test("bash cannot write a SKILL.md without a description", async () => {
-  const result = await bash(skillScript("shout", "name: shout"));
-  expect(result.exitCode).not.toBe(0);
-  expect(result.stderr).toContain("Frontmatter needs a description");
-  expect(skillRows()).toEqual([]);
-});
-
-test("bash cannot write a SKILL.md whose name differs from its folder", async () => {
-  const result = await bash(
-    skillScript("shout", "name: yell\ndescription: Answer in capitals.")
-  );
-  expect(result.exitCode).not.toBe(0);
-  expect(result.stderr).toContain('must match the folder "shout"');
-  expect(skillRows()).toEqual([]);
-});
-
-test("a bash edit that breaks a saved skill is refused and the file stays valid", async () => {
-  await bash(VALID);
-  const result = await bash(
-    "sed -i 's/^name: shout/name: yell/' skills/a1/shout/SKILL.md"
-  );
-  expect(result.exitCode).not.toBe(0);
-  // sed -i reports every failed write the same way, so only the exit code and
-  // the untouched file show the refusal.
-  const after = await bash("cat skills/a1/shout/SKILL.md");
-  expect(after.stdout).toContain("name: shout");
-});

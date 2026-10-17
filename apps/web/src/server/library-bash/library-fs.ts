@@ -9,7 +9,6 @@
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import type { LibraryEntry } from "@repo/services/library";
-import { skillFileAt } from "@repo/services/library/skill-file";
 import type {
   CpOptions,
   FileContent,
@@ -460,13 +459,6 @@ export const createLibraryFs = ({
     writeFile: async (path, content) => {
       const absolute = clamp(path);
       const bytes = toBytes(content);
-      // `cat > SKILL.md <<EOF` first opens the file empty, then writes the
-      // text. The library refuses a SKILL.md without frontmatter, so the empty
-      // open is skipped and the real write is checked. A refused script also
-      // leaves an existing skill as it was, not emptied.
-      if (bytes.byteLength === 0 && skillFileAt(toLibraryPath(absolute))) {
-        return;
-      }
       await spend("open", absolute, () =>
         ops.write(toLibraryPath(absolute), bytes)
       );

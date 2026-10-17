@@ -110,14 +110,40 @@ const claimedRun = async (agentId: string) => {
   return { runId, runToken: claim.runToken };
 };
 
-/** A SKILL.md the library accepts: frontmatter named for its folder, then the body. */
+/** A SKILL.md the store accepts: frontmatter named for its folder, then the body. */
 const skillBody = (folder: string, body: string) =>
   `---\nname: ${folder}\ndescription: Test skill.\n---\n${body}`;
 
-const writeSkill = (path: string, text: string) => {
-  const folder = path.split("/")[2] ?? "";
-  const body = path.endsWith("/SKILL.md") ? skillBody(folder, text) : text;
-  return composed.services.library.write(userA, path, TEXT.encode(body));
+/** A skill in the store, made by a person, with extra files as path to text. */
+const makeSkill = async (
+  name: string,
+  body: string,
+  extra: Record<string, string> = {}
+) => {
+  const { skill } = await composed.services.skillsStore.create(userA, {
+    files: [
+      { content: skillBody(name, body), path: "SKILL.md" },
+      ...Object.entries(extra).map(([path, content]) => ({ content, path })),
+    ],
+    message: "First version",
+    name,
+  });
+  return skill.id;
+};
+
+/** A skill made and assigned to the agents. Returns the skill id. */
+const giveSkill = async (
+  agentIds: string[],
+  name: string,
+  body: string,
+  extra: Record<string, string> = {}
+) => {
+  const skillId = await makeSkill(name, body, extra);
+  for (const agentId of agentIds) {
+    // biome-ignore lint/performance/noAwaitInLoops: assignments land in order
+    await composed.services.skillsStore.assign(userA, { agentId, skillId });
+  }
+  return skillId;
 };
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -138,19 +164,27 @@ const readFile = (
   );
 };
 
-test("a run token lists its agent's own skill and the shared skill, and reads a file", async () => {
+test("a run token lists the skills assigned to its agent, and reads a file", async () => {
   const agentId = await newAgent("Box");
-  await writeSkill(`skills/${agentId}/shout/SKILL.md`, "# shout");
-  await writeSkill("skills/_shared/greet/SKILL.md", "# greet");
+  const otherId = await newAgent("Tower");
+  await giveSkill([agentId], "shout", "# shout", { "scripts/run.ts": "go()" });
+  await giveSkill([agentId, otherId], "greet", "# greet");
   const { runId, runToken } = await claimedRun(agentId);
 
   const res = await list(runId, bearer(runToken));
   expect(res.status).toBe(200);
-  const body = (await res.json()) as { files: { path: string }[] };
+  const body = (await res.json()) as {
+    files: { etag: string; path: string; size: number }[];
+  };
   expect(body.files.map((entry) => entry.path)).toEqual([
     "greet/SKILL.md",
     "shout/SKILL.md",
+    "shout/scripts/run.ts",
   ]);
+  // The wire format is the one daemons built before SK.2 parse: etag, path and size.
+  for (const entry of body.files) {
+    expect(Object.keys(entry).sort()).toEqual(["etag", "path", "size"]);
+  }
 
   const file = await readFile(runId, "shout/SKILL.md", bearer(runToken));
   expect(file.status).toBe(200);
@@ -162,15 +196,18 @@ test("a run token lists its agent's own skill and the shared skill, and reads a 
   expect(file.headers.get("X-Content-Type-Options")).toBe("nosniff");
   expect(await file.text()).toBe(skillBody("shout", "# shout"));
 
-  const shared = await readFile(runId, "greet/SKILL.md", bearer(runToken));
-  expect(shared.status).toBe(200);
-  expect(await shared.text()).toBe(skillBody("greet", "# greet"));
+  const script = await readFile(
+    runId,
+    "shout/scripts/run.ts",
+    bearer(runToken)
+  );
+  expect(await script.text()).toBe("go()");
 });
 
-test("another agent's skill in the same workspace is not listed and cannot be read", async () => {
+test("a skill that is not assigned to the agent is not listed and cannot be read", async () => {
   const agentId = await newAgent("Box");
   const otherAgentId = await newAgent("Tower");
-  await writeSkill(`skills/${otherAgentId}/only-other/SKILL.md`, "secret");
+  await giveSkill([otherAgentId], "only-other", "secret");
   const { runId, runToken } = await claimedRun(agentId);
 
   const res = await list(runId, bearer(runToken));
@@ -182,16 +219,50 @@ test("another agent's skill in the same workspace is not listed and cannot be re
 
   const byTraversal = await readFile(
     runId,
-    `../${otherAgentId}/only-other/SKILL.md`,
+    "../only-other/SKILL.md",
     bearer(runToken)
   );
   expect(byTraversal.status).toBe(400);
 });
 
+test("a pinned version is served over the latest, and a proposed version never is", async () => {
+  const agentId = await newAgent("Box");
+  const skillId = await giveSkill([agentId], "shout", "first");
+  const { skillsStore } = composed.services;
+  await skillsStore.commit(userA, {
+    baseVersion: 1,
+    deletes: [],
+    message: "Second",
+    skillId,
+    writes: [{ content: skillBody("shout", "second"), path: "SKILL.md" }],
+  });
+  const { runId, runToken } = await claimedRun(agentId);
+  const text = async () =>
+    (await readFile(runId, "shout/SKILL.md", bearer(runToken))).text();
+
+  expect(await text()).toContain("second");
+  await skillsStore.pin(userA, { agentId, skillId, version: 1 });
+  expect(await text()).toContain("first");
+
+  // A run of the owning agent can only propose; the proposal stays out of the set.
+  const { skill: owned } = await skillsStore.create(
+    { agentId, kind: "run", runId, workspaceId: workspaceA.id },
+    {
+      files: [{ content: skillBody("draft", "wip"), path: "SKILL.md" }],
+      message: "Draft",
+      name: "draft",
+    }
+  );
+  expect(owned.latestApprovedVersion).toBeNull();
+  const res = await list(runId, bearer(runToken));
+  const body = (await res.json()) as { files: { path: string }[] };
+  expect(body.files.map((entry) => entry.path)).toEqual(["shout/SKILL.md"]);
+});
+
 test("a run token for run A with run B's id in the URL answers 404", async () => {
   const agentA = await newAgent("Box");
   const agentB = await newAgent("Tower");
-  await writeSkill(`skills/${agentB}/other/SKILL.md`, "b");
+  await giveSkill([agentB], "other", "b");
   const runA = await claimedRun(agentA);
   const runB = await claimedRun(agentB);
 
@@ -253,7 +324,7 @@ test("a missing path answers 400", async () => {
 
 test("a path with a dot-dot segment answers 400", async () => {
   const agentId = await newAgent("Box");
-  await writeSkill(`skills/${agentId}/shout/SKILL.md`, "# shout");
+  await giveSkill([agentId], "shout", "# shout");
   const { runId, runToken } = await claimedRun(agentId);
 
   const res = await readFile(
@@ -264,12 +335,14 @@ test("a path with a dot-dot segment answers 400", async () => {
   expect(res.status).toBe(400);
 });
 
-test("a skill tree over 200 files answers 400 on the list", async () => {
+test("skills over 200 files together answer 400 on the list", async () => {
   const agentId = await newAgent("Box");
-  for (let i = 0; i < 201; i += 1) {
-    // biome-ignore lint/performance/noAwaitInLoops: writes land in order so the count is exact
-    await writeSkill(`skills/${agentId}/big/f${i}.txt`, "x");
-  }
+  const files = (prefix: string, count: number) =>
+    Object.fromEntries(
+      Array.from({ length: count }, (_, i) => [`${prefix}${i}.txt`, "x"])
+    );
+  await giveSkill([agentId], "big", "x", files("f", 150));
+  await giveSkill([agentId], "more", "x", files("g", 60));
   const { runId, runToken } = await claimedRun(agentId);
 
   const res = await list(runId, bearer(runToken));

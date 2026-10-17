@@ -6,6 +6,8 @@ const SKILLS_DIR = `${VM_WORKDIR}/skills`;
 const INPUT_DIR = `${VM_WORKDIR}/input`;
 const SKILL_FILE = "SKILL.md";
 const FALLBACK_NAME = "file";
+const CHMOD_TIMEOUT_MS = 30_000;
+const CHMOD_OUTPUT_BYTES = 4096;
 
 export interface InputFile {
   bytes: Uint8Array;
@@ -44,10 +46,35 @@ const placeSkill = async (
   return results.filter((path): path is string => path !== undefined);
 };
 
+const shellQuote = (text: string): string =>
+  `'${text.replaceAll("'", "'\\''")}'`;
+
+/** Sets the executable flag on the placed files in one command. */
+const markExecutable = async (
+  vm: LinuxVm,
+  paths: readonly string[]
+): Promise<void> => {
+  const targets = paths
+    .map((path) => shellQuote(`${SKILLS_DIR}/${path}`))
+    .join(" ");
+  const result = await vm.exec({
+    command: `chmod +x -- ${targets}`,
+    cwd: VM_WORKDIR,
+    maxOutputBytes: CHMOD_OUTPUT_BYTES,
+    timeoutMs: CHMOD_TIMEOUT_MS,
+  });
+  if (result.timedOut || result.exitCode !== 0) {
+    throw new Error(
+      `Could not set the executable flag on skill files: ${result.stderr}`
+    );
+  }
+};
+
 /**
  * Puts the run's skills in `${VM_WORKDIR}/skills`. The old folder goes first,
  * so a skill that was deleted does not stay in the VM. Files that cannot be
  * read are skipped, and an error naming them is thrown after the rest are placed.
+ * Files flagged as executable then get the executable flag, in one command.
  */
 export const placeSkills = async (
   vm: LinuxVm,
@@ -63,6 +90,10 @@ export const placeSkills = async (
     throw new Error(
       `Could not read skill files, so they were not placed: ${skipped.join(", ")}`
     );
+  }
+  const executable = skills.flatMap((skill) => skill.executable ?? []);
+  if (executable.length > 0) {
+    await markExecutable(vm, executable);
   }
 };
 

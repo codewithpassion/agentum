@@ -45,8 +45,32 @@ export const managedAgents = sqliteTable("managed_agents", {
 });
 
 /**
- * A workspace skill mirrored to Anthropic's Skills API for a managed agent, and
- * the content it was uploaded with.
+ * One version of a central skill (SK.2) uploaded to Anthropic's Skills API,
+ * keyed on the Harbourmaster skill id and version number. A version is
+ * uploaded once and reused by every agent that carries it. The versions of one
+ * skill go under one Anthropic skill, so its rows share `anthropic_skill_id`.
+ * Two launches racing to upload different first versions can leave two.
+ */
+export const managedSkillVersions = sqliteTable(
+  "managed_skill_versions",
+  {
+    anthropicSkillId: text("anthropic_skill_id").notNull(),
+    anthropicVersion: text("anthropic_version").notNull(),
+    createdAt: createdAt(),
+    // The Harbourmaster skill id.
+    skillId: text("skill_id").notNull(),
+    // The Harbourmaster version number.
+    version: integer("version").notNull(),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [primaryKey({ columns: [t.skillId, t.version] })]
+);
+
+/**
+ * The per-agent mirrors the library skills had before SK.2: one Anthropic skill
+ * per agent and skill folder. Nothing writes it any more. A launch deletes the
+ * agent's rows and their Anthropic skills, and the table can go with the next
+ * release.
  */
 export const managedSkills = sqliteTable(
   "managed_skills",
