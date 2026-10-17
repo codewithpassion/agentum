@@ -3,7 +3,7 @@ id: SK.2
 title: Runtimes read skills from the central store
 milestone: SK
 size: M
-status: in_progress
+status: done
 depends_on: [SK.1]
 branch: task/SK.2-skill-runtimes
 ---
@@ -27,3 +27,4 @@ Asked for by Dom on 17 Oct 2026. After SK.1, skills live in the store, but every
 ## Log
 - 2026-10-17: added at Dom's request.
 - 2026-10-18: dispatched. Note from SK.1: the service is `@repo/services/skills-store` (see packages/services/README.md and docs/reviews/tasks/SK.1.md); skill names are unique per owner scope, so show the owner wherever a name is shown.
+- 2026-10-18: review clean after 1 fix round at 47032d1 (docs/reviews/tasks/SK.2.md). Merged. Machines and Managed Agents get no executable flag (daemon wire format unchanged). Staging check pending with SK.4.
