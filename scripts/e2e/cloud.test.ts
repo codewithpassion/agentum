@@ -62,7 +62,11 @@ describe("seqEventsOf", () => {
 
 /** A dev server in miniature: every run answers as the faux model would. */
 const fakeDeps = (
-  options: { dupes?: { runId: string; seq: number }[]; failTool?: boolean } = {}
+  options: {
+    dupes?: { runId: string; seq: number }[];
+    failTool?: boolean;
+    staleRead?: boolean;
+  } = {}
 ) => {
   const texts = new Map<string, string>();
   const status = new Map<string, "cancelled" | "done" | "failed">();
@@ -70,6 +74,18 @@ const fakeDeps = (
   const out: string[] = [];
   let count = 0;
   const resultFor = (text: string): string => {
+    if (text.startsWith("call write ")) {
+      return "tool said: Successfully wrote to /library/e2e-env/notes.md";
+    }
+    if (text.startsWith("call edit ")) {
+      return "tool said: Successfully edited /library/e2e-env/notes.md";
+    }
+    if (text.startsWith("call read ")) {
+      return `tool said: ${options.staleRead ? "alpha beta" : "gamma beta"}`;
+    }
+    if (text === "bash cat /library/e2e-env/notes.md") {
+      return "tool said: gamma beta";
+    }
     if (!text.startsWith("bash ")) {
       return `echo: ${text}`;
     }
@@ -135,6 +151,10 @@ describe("runCloud", () => {
       "offer run-4",
       "offer run-5",
       "offer run-6",
+      "offer run-7",
+      "offer run-8",
+      "offer run-9",
+      "offer run-10",
     ]);
   });
 
@@ -146,5 +166,15 @@ describe("runCloud", () => {
   test("fails when the tool run does not return the tool's output", async () => {
     const { deps } = fakeDeps({ failTool: true });
     await expect(runCloud(deps)).rejects.toThrow("tool run");
+  });
+
+  test("fails when the library read does not return the edited text", async () => {
+    const { deps } = fakeDeps({ staleRead: true });
+    const error = await runCloud(deps).then(
+      () => null,
+      (caught: unknown) => caught
+    );
+    expect(error).toBeInstanceOf(CloudError);
+    expect((error as CloudError).message).toContain("library read");
   });
 });

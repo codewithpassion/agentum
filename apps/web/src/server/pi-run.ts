@@ -15,6 +15,9 @@ import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { compose } from "./compose.ts";
+import { createLibraryEnv } from "./library-env/library-env.ts";
+import { bindLibraryOps } from "./library-env/library-ops.ts";
+import { libraryToolsExtension } from "./library-env/library-tools.ts";
 import {
   createRunCore,
   type PiPort,
@@ -47,6 +50,8 @@ import {
 const TOOLS_KEY = "mcp-tools";
 /** The workspace of the session. An id, not a secret: the model key is read again for each model request. */
 const WORKSPACE_KEY = "workspace";
+/** The newest run of the session. Its principal reads and writes the library for Pi's file tools, which know no run of their own. */
+const RUN_KEY = "run";
 /** The skills of the run that loaded them last, with that run: a tool call knows no run of its own. The text is read again on each call. */
 const SKILLS_KEY = "skills";
 /** The run an input file belongs to, so `read_input_file` reads it as that run. */
@@ -73,6 +78,12 @@ const principalOf = (run: RunRef): Principal => ({
   kind: "run",
   runId: run.runId,
   workspaceId: run.workspaceId,
+});
+
+const runRefOf = (input: CloudStart): RunRef => ({
+  agentId: input.run.agentId,
+  runId: input.run.id,
+  workspaceId: input.run.workspaceId,
 });
 
 type Servers = CloudStart["mcpServers"];
@@ -138,6 +149,7 @@ export class PiRun extends DurableObject<Env> {
       return Harness.open(
         storage,
         {
+          env: () => this.#libraryEnv(),
           models,
           onReport: (error) =>
             console.warn(
@@ -164,6 +176,7 @@ export class PiRun extends DurableObject<Env> {
     super(ctx, env);
     // The attachment instructions and `read_input_file` are the same for every run.
     this.registry.install(filesExtension((fileId) => this.#readInput(fileId)));
+    this.registry.install(libraryToolsExtension());
   }
 
   /** Installs the servers whose list differs from the registry's, and removes the ones that are gone. */
@@ -226,6 +239,18 @@ export class PiRun extends DurableObject<Env> {
     return sync;
   }
 
+  /** The library as Pi's file tools see it, for the newest run. Without a run there is no principal, so no environment. */
+  async #libraryEnv() {
+    const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
+    if (!run) {
+      return;
+    }
+    return createLibraryEnv({
+      ops: bindLibraryOps(this.#services().library, principalOf(run)),
+      workspaceId: run.workspaceId,
+    });
+  }
+
   /** An input file, read as the run that has it. */
   async #readInput(fileId: string) {
     const run = await this.ctx.storage.get<RunRef>(inputFileKey(fileId));
@@ -284,11 +309,7 @@ export class PiRun extends DurableObject<Env> {
   }
 
   async #loadAndInstallSkills(input: CloudStart) {
-    const run: RunRef = {
-      agentId: input.run.agentId,
-      runId: input.run.id,
-      workspaceId: input.run.workspaceId,
-    };
+    const run = runRefOf(input);
     const skills = await loadSkills(this.#skillsPort(run));
     const stored: StoredSkills = { run, skills };
     await this.ctx.storage.put(SKILLS_KEY, stored);
@@ -431,6 +452,7 @@ export class PiRun extends DurableObject<Env> {
 
   async startRun(input: CloudStart): Promise<void> {
     await this.ctx.storage.put(WORKSPACE_KEY, input.run.workspaceId);
+    await this.ctx.storage.put(RUN_KEY, runRefOf(input));
     await this.lifecycle.start();
     await this.#runCore().start(input);
     await this.lease.schedule();

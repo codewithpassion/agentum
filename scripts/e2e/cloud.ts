@@ -33,6 +33,10 @@ const RUN_TIMEOUT_MS = 120_000;
 const POLL_MS = 1000;
 const BUSY_MS = 1500;
 const AGENT_MODEL = "faux";
+const NOTES_PATH = "/library/e2e-env/notes.md";
+const NOTES_BEFORE = "alpha beta";
+const NOTES_EDIT = { newText: "gamma", oldText: "alpha" };
+const NOTES_AFTER = "gamma beta";
 
 export class CloudError extends Error {}
 
@@ -85,6 +89,28 @@ const expectEqual = (label: string, actual: unknown, expected: unknown) => {
       `${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
     );
   }
+};
+
+const expectIncludes = (label: string, actual: string, expected: string) => {
+  if (!actual.includes(expected)) {
+    throw new CloudError(
+      `${label}: expected the output to include ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
+    );
+  }
+};
+
+/** The result text of a finished run whose tool did not fail. */
+const toolOutputOf = async (
+  deps: CloudDeps,
+  runId: string,
+  label: string
+): Promise<string> => {
+  const run = await expectStatus(deps, runId, label, "done");
+  const text = run.resultText ?? "";
+  if (text.startsWith("tool failed")) {
+    throw new CloudError(`${label}: the tool failed: ${text}`);
+  }
+  return text;
 };
 
 /** Runs the scenarios in order. Throws a CloudError naming the first that fails. */
@@ -155,11 +181,46 @@ export const runCloud = async (deps: CloudDeps): Promise<void> => {
   }
   deps.out("ok 7: a tool call reaches the platform's /mcp");
 
+  const write = await start(
+    `call write ${JSON.stringify({ content: NOTES_BEFORE, path: NOTES_PATH })}`
+  );
+  await deps.drive("offer", write);
+  expectIncludes(
+    "library write",
+    await toolOutputOf(deps, write, "library write"),
+    "Successfully wrote"
+  );
+
+  const edit = await start(
+    `call edit ${JSON.stringify({ edits: [NOTES_EDIT], path: NOTES_PATH })}`
+  );
+  await deps.drive("offer", edit);
+  await toolOutputOf(deps, edit, "library edit");
+
+  const read = await start(`call read ${JSON.stringify({ path: NOTES_PATH })}`);
+  await deps.drive("offer", read);
+  expectIncludes(
+    "library read",
+    await toolOutputOf(deps, read, "library read"),
+    NOTES_AFTER
+  );
+
+  const cat = await start(`bash cat ${NOTES_PATH}`);
+  await deps.drive("offer", cat);
+  expectIncludes(
+    "library cat",
+    await toolOutputOf(deps, cat, "library cat"),
+    NOTES_AFTER
+  );
+  deps.out(
+    "ok 8: Pi's write, edit and read work on the library, and the platform's bash sees the edit"
+  );
+
   const duplicates = deps.duplicateSeqs(runIds);
   if (duplicates.length > 0) {
     throw new CloudError(`duplicate seq rows: ${JSON.stringify(duplicates)}`);
   }
-  deps.out("ok 8: no duplicate seq rows");
+  deps.out("ok 9: no duplicate seq rows");
   deps.out("cloud runtime check passed");
 };
 

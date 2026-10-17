@@ -51,7 +51,7 @@ const ENCODER = new TextEncoder();
 const DECODER = new TextDecoder();
 
 /** Resolves `.` and `..` against the root, so a `..` at the root stays there. */
-const clamp = (path: string): string => {
+export const clamp = (path: string): string => {
   const parts: string[] = [];
   for (const part of path.split("/")) {
     if (part === "" || part === ".") {
@@ -139,6 +139,21 @@ const toFsError = (error: unknown, op: string, path: string): Error | null => {
   return conflictError(error.message, at);
 };
 
+/** The fs error for a library failure. One that is not ours to map is logged and reported as EIO. */
+export const libraryFsError = (
+  error: unknown,
+  op: string,
+  path: string
+): Error => {
+  const mapped = toFsError(error, op, path);
+  if (mapped) {
+    return mapped;
+  }
+  // Say nothing of the failure to the script: a database or R2 message is not for the model.
+  console.error("Library storage failed", error);
+  return fsError("EIO", `EIO: input/output error, ${op} '${path}'`);
+};
+
 const statOf = (absolute: string, entry: LibraryEntry): FsStat => ({
   identity: `library:${absolute}`,
   isDirectory: entry.kind === "dir",
@@ -201,13 +216,7 @@ export const createLibraryFs = ({
     try {
       return await task();
     } catch (error) {
-      const mapped = toFsError(error, op, path);
-      if (mapped) {
-        throw mapped;
-      }
-      // Say nothing of the failure to the script: a database or R2 message is not for the model.
-      console.error("Library storage failed", error);
-      throw fsError("EIO", `EIO: input/output error, ${op} '${path}'`);
+      throw libraryFsError(error, op, path);
     }
   };
 
