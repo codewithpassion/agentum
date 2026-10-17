@@ -90,6 +90,46 @@ export interface PostedInfo {
   runs: WokenRunInfo[];
 }
 
+/**
+ * Where a routine or trigger stands. `awaiting_approval` is a proposal from an
+ * agent's run: it is off until a person approves it in the Harbourmaster UI.
+ */
+export type AutomationStatus = "active" | "awaiting_approval" | "paused";
+
+/** A routine: an agent started on a cron schedule. */
+export interface RoutineInfo {
+  agentId: string;
+  agentName: string;
+  cron: string;
+  id: string;
+  lastFiredAt: string | null;
+  name: string;
+  /** The next time it fires. Null while it is paused or awaiting approval. */
+  nextRunAt: string | null;
+  prompt: string;
+  status: AutomationStatus;
+  /** An IANA zone, in which the cron is read. */
+  timezone: string;
+}
+
+/** An HTTP trigger: an outside system starts an agent with a secret. */
+export interface TriggerInfo {
+  agentId: string;
+  agentName: string;
+  id: string;
+  lastFiredAt: string | null;
+  name: string;
+  status: AutomationStatus;
+  /** The start of the secret, to tell triggers apart. Empty while awaiting approval. */
+  tokenPrefix: string;
+}
+
+/** A trigger after it was created or switched on. `secret` is the only copy, and null when there is none to show. */
+export interface TriggerChange {
+  secret: string | null;
+  trigger: TriggerInfo;
+}
+
 /** What a `bash` call returns. A non-zero exit code is a normal result, not an error. */
 export interface LibraryBashResult {
   exitCode: number;
@@ -104,6 +144,19 @@ export interface LibraryBashResult {
 }
 
 export interface McpPorts {
+  createRoutine: (input: {
+    agentId: string;
+    cron: string;
+    name: string;
+    prompt: string;
+    timezone?: string;
+  }) => Promise<RoutineInfo>;
+  createTrigger: (input: {
+    agentId: string;
+    name: string;
+  }) => Promise<TriggerChange>;
+  deleteRoutine: (input: { routineId: string }) => Promise<void>;
+  deleteTrigger: (input: { triggerId: string }) => Promise<void>;
   getRun: (input: { runId: string }) => Promise<RunInfo>;
   inboxList: () => Promise<ThreadInfo[]>;
   inboxPost: (input: { text: string; threadId: string }) => Promise<PostedInfo>;
@@ -111,7 +164,9 @@ export interface McpPorts {
   /** Runs a bash script over the workspace file library. */
   libraryBash: (input: { script: string }) => Promise<LibraryBashResult>;
   listAgents: () => Promise<AgentInfo[]>;
+  listRoutines: (input: { agentId?: string }) => Promise<RoutineInfo[]>;
   listSessions: (input: { agent: string }) => Promise<SessionInfo[]>;
+  listTriggers: (input: { agentId?: string }) => Promise<TriggerInfo[]>;
   readSession: (input: { sessionId: string }) => Promise<SessionTranscript>;
   searchSessions: (input: {
     agent: string;
@@ -124,6 +179,14 @@ export interface McpPorts {
     text: string;
     waitMs: number;
   }) => Promise<RunInfo>;
+  setRoutineEnabled: (input: {
+    enabled: boolean;
+    routineId: string;
+  }) => Promise<RoutineInfo>;
+  setTriggerEnabled: (input: {
+    enabled: boolean;
+    triggerId: string;
+  }) => Promise<TriggerChange>;
 }
 
 /** The longest a send_message call waits, in milliseconds. */

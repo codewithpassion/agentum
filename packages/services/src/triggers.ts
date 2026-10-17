@@ -1,21 +1,35 @@
 /**
  * HTTP triggers: a way to start one agent from outside with a per-trigger
- * bearer token (`hm_trg_`). A signed-in user makes and revokes triggers. The
+ * bearer token (`hm_trg_`). A person makes, pauses and revokes triggers. The
  * secret is shown once, at creation, and the table keeps only its SHA-256. A
  * caller with the token calls `fire`, which starts a run through `startRun`
  * as the trigger itself: the run is on behalf of nobody.
+ *
+ * An agent's run may only propose a trigger for its own agent. It is stored
+ * paused and marked as proposed, with no token at all: nobody holds a secret
+ * for it, least of all the run. A person approves it (`approve`), which
+ * mints the token and shows it once, or rejects it.
  */
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
 import { events } from "@repo/db/schema/events";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
-import type { TriggerKind } from "@repo/db/shared";
+import { isPendingProposal, type TriggerKind } from "@repo/db/shared";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
+import {
+  createdByOf,
+  proposalColumns,
+  recordChange,
+  requireApprover,
+  requireOwnAgent,
+  requireReader,
+  requireWriter,
+} from "./automation-access.ts";
 import { hashedToken } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
@@ -40,12 +54,20 @@ const HINT_LENGTH = 4;
 export const REQUEST_ID_MAX = 128;
 
 const TRIGGER_KIND = "trigger";
+
+type MintedToken = Awaited<ReturnType<typeof hashedToken>>;
+
+/** The start of a token kept next to its hash, so triggers can be told apart. */
+const tokenHint = (token: string): string =>
+  token.slice(0, TRIGGER_TOKEN_PREFIX.length + HINT_LENGTH);
 const CREATE_ACTION = "triggers.create";
 const LIST_ACTION = "triggers.list";
 const REVOKE_ACTION = "triggers.revoke";
+const ENABLE_ACTION = "triggers.setEnabled";
+const APPROVE_ACTION = "triggers.approve";
+const REJECT_ACTION = "triggers.reject";
 const FIRE_ACTION = "triggers.fire";
 
-type UserPrincipal = Extract<Principal, { kind: "user" }>;
 export type TriggerPrincipal = Extract<Principal, { kind: "trigger" }>;
 
 export const triggerCreateInputSchema = z.strictObject({
@@ -59,6 +81,14 @@ export const triggerListInputSchema = z.strictObject({
 });
 export type TriggerListInput = z.input<typeof triggerListInputSchema>;
 
+export const triggerSetEnabledInputSchema = z.strictObject({
+  enabled: z.boolean(),
+  triggerId: z.string().min(1).max(200),
+});
+export type TriggerSetEnabledInput = z.input<
+  typeof triggerSetEnabledInputSchema
+>;
+
 /** The body of `POST /api/triggers/:id`. */
 export const triggerFireInputSchema = z.strictObject({
   requestId: z.string().min(1).max(REQUEST_ID_MAX).optional(),
@@ -71,13 +101,27 @@ export type TriggerFireInput = z.input<typeof triggerFireInputSchema>;
 export interface TriggerSummary {
   agentId: string;
   agentName: string;
+  /** When a person approved a proposal. Null for one still waiting, and for one a person made. */
+  approvedAt: string | null;
   createdAt: string;
+  /** Set while the trigger is paused or waiting for approval. It cannot be fired. */
+  disabledAt: string | null;
   id: string;
   kind: TriggerKind;
   lastFiredAt: string | null;
   name: string;
+  /** Set when an agent's run proposed the trigger. */
+  proposedByAgentId: string | null;
+  proposedByRunId: string | null;
   revokedAt: string | null;
+  /** Empty for a proposal that has no token yet. */
   tokenPrefix: string;
+}
+
+/** What creating or approving a trigger hands back. `secret` is the only copy, and null when there is none to show. */
+export interface TriggerWithSecret {
+  secret: string | null;
+  trigger: TriggerSummary;
 }
 
 /**
@@ -92,22 +136,19 @@ export interface FireResult {
 const summaryColumns = {
   agentId: triggers.agentId,
   agentName: agents.name,
+  approvedAt: triggers.approvedAt,
   createdAt: triggers.createdAt,
+  disabledAt: triggers.disabledAt,
   id: triggers.id,
   kind: triggers.kind,
   lastFiredAt: triggers.lastFiredAt,
   name: triggers.name,
+  proposedByAgentId: triggers.proposedByAgentId,
+  proposedByRunId: triggers.proposedByRunId,
   revokedAt: triggers.revokedAt,
-  // Only `http` rows are read through these columns, and they always have one.
+  // Only `http` rows are read through these columns. They have one, except a
+  // proposal that nobody approved yet.
   tokenPrefix: sql<string>`coalesce(${triggers.tokenPrefix}, '')`,
-};
-
-/** Triggers are managed from a signed-in session: a trigger cannot make triggers. */
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user" || principal.via !== "session") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
 };
 
 export const createTriggersService = ({
@@ -149,76 +190,6 @@ export const createTriggersService = ({
       : null;
   };
 
-  /** A new HTTP trigger for one agent. The returned `secret` is the only copy. */
-  const create = async (
-    principal: Principal,
-    input: TriggerCreateInput
-  ): Promise<{ secret: string; trigger: TriggerSummary }> => {
-    const user = requireUser(principal, CREATE_ACTION);
-    const { agentId, name } = triggerCreateInputSchema.parse(input);
-    authorize(user, CREATE_ACTION, {
-      kind: TRIGGER_KIND,
-      workspaceId: user.workspaceId,
-    });
-    const agent = await findAgent(db, {
-      id: agentId,
-      workspaceId: user.workspaceId,
-    });
-    if (agent?.status !== "active") {
-      throw new ServiceError("not_found", "Agent not found");
-    }
-    const now = clock.now();
-    const { hash, token } = await hashedToken(TRIGGER_TOKEN_PREFIX);
-    const trigger: TriggerSummary = {
-      agentId: agent.id,
-      agentName: agent.name,
-      createdAt: now.toISOString(),
-      id: `trg_${ulid(now.getTime())}`,
-      kind: "http",
-      lastFiredAt: null,
-      name,
-      revokedAt: null,
-      tokenPrefix: token.slice(0, TRIGGER_TOKEN_PREFIX.length + HINT_LENGTH),
-    };
-    await db.insert(triggers).values({
-      agentId: trigger.agentId,
-      createdAt: trigger.createdAt,
-      createdBy: user.userId,
-      id: trigger.id,
-      kind: trigger.kind,
-      name: trigger.name,
-      tokenHash: hash,
-      tokenPrefix: trigger.tokenPrefix,
-      workspaceId: user.workspaceId,
-    });
-    return { secret: token, trigger };
-  };
-
-  /** The workspace's triggers, newest first, revoked ones included. */
-  const list = async (
-    principal: Principal,
-    input: TriggerListInput = {}
-  ): Promise<TriggerSummary[]> => {
-    const user = requireUser(principal, LIST_ACTION);
-    const { agentId } = triggerListInputSchema.parse(input);
-    authorize(user, LIST_ACTION, {
-      kind: TRIGGER_KIND,
-      workspaceId: user.workspaceId,
-    });
-    return await db
-      .select(summaryColumns)
-      .from(triggers)
-      .innerJoin(agents, eq(agents.id, triggers.agentId))
-      .where(
-        and(
-          eq(triggers.workspaceId, user.workspaceId),
-          eq(triggers.kind, "http"),
-          agentId === undefined ? undefined : eq(triggers.agentId, agentId)
-        )
-      )
-      .orderBy(desc(triggers.createdAt), desc(triggers.id));
-  };
-
   const findSummary = async (
     triggerId: string,
     workspaceId: string
@@ -238,36 +209,284 @@ export const createTriggersService = ({
     return row ?? null;
   };
 
+  const requireSummary = async (triggerId: string, workspaceId: string) => {
+    const summary = await findSummary(triggerId, workspaceId);
+    if (!summary) {
+      throw new ServiceError("not_found", "Trigger not found");
+    }
+    return summary;
+  };
+
+  /** A trigger that is live to act on: found, and not revoked. */
+  const requireLive = async (triggerId: string, workspaceId: string) => {
+    const summary = await requireSummary(triggerId, workspaceId);
+    if (summary.revokedAt !== null) {
+      throw new ServiceError("not_found", "Trigger not found");
+    }
+    return summary;
+  };
+
+  /**
+   * A new HTTP trigger for one agent. The returned `secret` is the only copy.
+   * From a run it is a proposal: stored paused, for the run's own agent only,
+   * with no token and so no secret to hand back.
+   */
+  const create = async (
+    principal: Principal,
+    input: TriggerCreateInput
+  ): Promise<TriggerWithSecret> => {
+    const actor = requireWriter(principal, CREATE_ACTION);
+    const { agentId, name } = triggerCreateInputSchema.parse(input);
+    authorize(actor, CREATE_ACTION, {
+      kind: TRIGGER_KIND,
+      workspaceId: actor.workspaceId,
+    });
+    requireOwnAgent(actor, agentId, CREATE_ACTION);
+    const agent = await findAgent(db, {
+      id: agentId,
+      workspaceId: actor.workspaceId,
+    });
+    if (agent?.status !== "active") {
+      throw new ServiceError("not_found", "Agent not found");
+    }
+    const now = clock.now();
+    const proposed = actor.kind === "run";
+    const minted: MintedToken | null = proposed
+      ? null
+      : await hashedToken(TRIGGER_TOKEN_PREFIX);
+    const id = `trg_${ulid(now.getTime())}`;
+    await db.insert(triggers).values({
+      agentId: agent.id,
+      createdAt: now.toISOString(),
+      createdBy: createdByOf(actor),
+      disabledAt: proposed ? now.toISOString() : null,
+      id,
+      kind: "http",
+      name,
+      tokenHash: minted?.hash ?? null,
+      tokenPrefix: minted ? tokenHint(minted.token) : null,
+      workspaceId: actor.workspaceId,
+      ...proposalColumns(actor),
+    });
+    await recordChange(eventsService, actor, {
+      agentId: agent.id,
+      change: "created",
+      kind: "http",
+      name,
+      proposed,
+      triggerId: id,
+      workspaceId: actor.workspaceId,
+    });
+    return {
+      secret: minted?.token ?? null,
+      trigger: await requireSummary(id, actor.workspaceId),
+    };
+  };
+
+  /** The workspace's triggers, newest first, revoked ones included. A run sees its own agent's. */
+  const list = async (
+    principal: Principal,
+    input: TriggerListInput = {}
+  ): Promise<TriggerSummary[]> => {
+    const reader = requireReader(principal, LIST_ACTION);
+    const { agentId } = triggerListInputSchema.parse(input);
+    authorize(reader, LIST_ACTION, {
+      kind: TRIGGER_KIND,
+      workspaceId: reader.workspaceId,
+    });
+    if (agentId !== undefined) {
+      requireOwnAgent(reader, agentId, LIST_ACTION);
+    }
+    const onlyAgent = reader.kind === "run" ? reader.agentId : agentId;
+    return await db
+      .select(summaryColumns)
+      .from(triggers)
+      .innerJoin(agents, eq(agents.id, triggers.agentId))
+      .where(
+        and(
+          eq(triggers.workspaceId, reader.workspaceId),
+          eq(triggers.kind, "http"),
+          onlyAgent === undefined ? undefined : eq(triggers.agentId, onlyAgent)
+        )
+      )
+      .orderBy(desc(triggers.createdAt), desc(triggers.id));
+  };
+
+  /**
+   * Approves a proposal: mints its token, which is returned once, and turns
+   * the trigger on. Approving needs the rights that creating a trigger
+   * needs, and a run has none.
+   */
+  const approve = async (
+    principal: Principal,
+    triggerId: string
+  ): Promise<TriggerWithSecret> => {
+    const user = requireApprover(principal, APPROVE_ACTION);
+    authorize(user, CREATE_ACTION, {
+      id: triggerId,
+      kind: TRIGGER_KIND,
+      workspaceId: user.workspaceId,
+    });
+    const current = await requireLive(triggerId, user.workspaceId);
+    if (!isPendingProposal(current)) {
+      throw new ServiceError("conflict", "Trigger is not waiting for approval");
+    }
+    const { hash, token } = await hashedToken(TRIGGER_TOKEN_PREFIX);
+    const approved = await db
+      .update(triggers)
+      .set({
+        approvedAt: clock.now().toISOString(),
+        disabledAt: null,
+        tokenHash: hash,
+        tokenPrefix: tokenHint(token),
+      })
+      .where(
+        and(
+          eq(triggers.id, triggerId),
+          eq(triggers.workspaceId, user.workspaceId),
+          isNull(triggers.approvedAt),
+          isNull(triggers.revokedAt)
+        )
+      )
+      .returning({ id: triggers.id });
+    if (approved.length === 0) {
+      throw new ServiceError("conflict", "Trigger is not waiting for approval");
+    }
+    await recordChange(eventsService, user, {
+      agentId: current.agentId,
+      change: "approved",
+      kind: "http",
+      name: current.name,
+      triggerId,
+      workspaceId: user.workspaceId,
+    });
+    return {
+      secret: token,
+      trigger: await requireSummary(triggerId, user.workspaceId),
+    };
+  };
+
+  /**
+   * Pauses a trigger, or resumes it. A paused trigger answers 403 to its
+   * token. Resuming a proposal is approving it. A run can only pause.
+   */
+  const setEnabled = async (
+    principal: Principal,
+    input: TriggerSetEnabledInput
+  ): Promise<TriggerWithSecret> => {
+    const actor = requireWriter(principal, ENABLE_ACTION);
+    const { enabled, triggerId } = triggerSetEnabledInputSchema.parse(input);
+    authorize(actor, ENABLE_ACTION, {
+      id: triggerId,
+      kind: TRIGGER_KIND,
+      workspaceId: actor.workspaceId,
+    });
+    if (actor.kind === "run" && enabled) {
+      throw new ForbiddenError(ENABLE_ACTION);
+    }
+    const current = await requireLive(triggerId, actor.workspaceId);
+    requireOwnAgent(actor, current.agentId, ENABLE_ACTION);
+    if (enabled && isPendingProposal(current)) {
+      return await approve(actor, triggerId);
+    }
+    await db
+      .update(triggers)
+      .set({ disabledAt: enabled ? null : clock.now().toISOString() })
+      .where(
+        and(
+          eq(triggers.id, triggerId),
+          eq(triggers.workspaceId, actor.workspaceId)
+        )
+      );
+    return {
+      secret: null,
+      trigger: await requireSummary(triggerId, actor.workspaceId),
+    };
+  };
+
   /**
    * Revokes a trigger. One already revoked keeps its first timestamp: the
-   * update only matches rows with `revoked_at` null.
+   * update only matches rows with `revoked_at` null. A run revokes only a
+   * trigger its agent proposed.
    */
   const revoke = async (
     principal: Principal,
     triggerId: string
   ): Promise<TriggerSummary> => {
-    const user = requireUser(principal, REVOKE_ACTION);
-    authorize(user, REVOKE_ACTION, {
+    const actor = requireWriter(principal, REVOKE_ACTION);
+    authorize(actor, REVOKE_ACTION, {
+      id: triggerId,
+      kind: TRIGGER_KIND,
+      workspaceId: actor.workspaceId,
+    });
+    const current = await requireSummary(triggerId, actor.workspaceId);
+    if (actor.kind === "run" && current.proposedByAgentId !== actor.agentId) {
+      throw new ForbiddenError(REVOKE_ACTION);
+    }
+    const revoked = await db
+      .update(triggers)
+      .set({ revokedAt: clock.now().toISOString() })
+      .where(
+        and(
+          eq(triggers.id, triggerId),
+          eq(triggers.workspaceId, actor.workspaceId),
+          eq(triggers.kind, "http"),
+          isNull(triggers.revokedAt)
+        )
+      )
+      .returning({ id: triggers.id });
+    if (revoked.length > 0) {
+      await recordChange(eventsService, actor, {
+        agentId: current.agentId,
+        change: "deleted",
+        kind: "http",
+        name: current.name,
+        triggerId,
+        workspaceId: actor.workspaceId,
+      });
+    }
+    return await requireSummary(triggerId, actor.workspaceId);
+  };
+
+  /** Rejects a proposal: the trigger is revoked and the log says it was rejected. */
+  const reject = async (
+    principal: Principal,
+    triggerId: string
+  ): Promise<TriggerSummary> => {
+    const user = requireApprover(principal, REJECT_ACTION);
+    authorize(user, CREATE_ACTION, {
       id: triggerId,
       kind: TRIGGER_KIND,
       workspaceId: user.workspaceId,
     });
-    await db
+    const current = await requireLive(triggerId, user.workspaceId);
+    if (!isPendingProposal(current)) {
+      throw new ServiceError("conflict", "Trigger is not waiting for approval");
+    }
+    const rejected = await db
       .update(triggers)
       .set({ revokedAt: clock.now().toISOString() })
       .where(
         and(
           eq(triggers.id, triggerId),
           eq(triggers.workspaceId, user.workspaceId),
-          eq(triggers.kind, "http"),
+          isNull(triggers.approvedAt),
           isNull(triggers.revokedAt)
         )
-      );
-    const current = await findSummary(triggerId, user.workspaceId);
-    if (!current) {
-      throw new ServiceError("not_found", "Trigger not found");
+      )
+      .returning({ id: triggers.id });
+    if (rejected.length === 0) {
+      throw new ServiceError("conflict", "Trigger is not waiting for approval");
     }
-    return current;
+    await recordChange(eventsService, user, {
+      agentId: current.agentId,
+      change: "rejected",
+      kind: "http",
+      name: current.name,
+      triggerId,
+      workspaceId: user.workspaceId,
+    });
+    return await requireSummary(triggerId, user.workspaceId);
   };
 
   /** Whether the run already has its `trigger.fired` event (a retried request). */
@@ -299,14 +518,15 @@ export const createTriggersService = ({
     const [trigger] = await db
       .select({
         agentId: triggers.agentId,
+        disabledAt: triggers.disabledAt,
         revokedAt: triggers.revokedAt,
         workspaceId: triggers.workspaceId,
       })
       .from(triggers)
       .where(eq(triggers.id, triggerId))
       .limit(1);
-    // The token was valid when the request came in; revoking since closes it.
-    if (!trigger || trigger.revokedAt !== null) {
+    // The token was valid when the request came in; revoking or pausing since closes it.
+    if (!trigger || trigger.revokedAt !== null || trigger.disabledAt !== null) {
       throw new ForbiddenError(FIRE_ACTION);
     }
     authorize(principal, FIRE_ACTION, {
@@ -346,7 +566,16 @@ export const createTriggersService = ({
     };
   };
 
-  return { authenticate, create, fire, list, revoke };
+  return {
+    approve,
+    authenticate,
+    create,
+    fire,
+    list,
+    reject,
+    revoke,
+    setEnabled,
+  };
 };
 
 export type TriggersService = ReturnType<typeof createTriggersService>;

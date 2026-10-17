@@ -1,7 +1,9 @@
 /**
  * Routines: a `triggers` row of kind `routine` that starts one agent on a cron
- * schedule. A signed-in user makes, pauses and removes them. The minute tick
- * calls `fireDue` and `settleRuns`.
+ * schedule. A person makes, pauses and removes them. An agent's run may only
+ * propose one for its own agent: it is stored paused and marked as proposed,
+ * and fires once a person approves it (`approve`) or deletes it (`reject`).
+ * The minute tick calls `fireDue` and `settleRuns`.
  *
  * `fireDue` takes each row whose `next_run_at` has passed and does one atomic
  * write: the run, keyed `trigger:<id>:<slot>`, and the move of `next_run_at`
@@ -23,7 +25,7 @@ import { agents } from "@repo/db/schema/agents";
 import { runs } from "@repo/db/schema/runs";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
-import { ROUTINE_ERROR_LIMIT } from "@repo/db/shared";
+import { isPendingProposal, ROUTINE_ERROR_LIMIT } from "@repo/db/shared";
 import {
   and,
   asc,
@@ -43,6 +45,15 @@ import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
+import {
+  createdByOf,
+  proposalColumns,
+  recordChange,
+  requireApprover,
+  requireOwnAgent,
+  requireReader,
+  requireWriter,
+} from "./automation-access.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import {
@@ -65,10 +76,10 @@ const CREATE_ACTION = "routines.create";
 const LIST_ACTION = "routines.list";
 const ENABLE_ACTION = "routines.setEnabled";
 const REMOVE_ACTION = "routines.remove";
+const APPROVE_ACTION = "routines.approve";
+const REJECT_ACTION = "routines.reject";
 const FIRE_ACTION = "routines.fire";
 const SETTLE_ACTION = "routines.settle";
-
-type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
 export const routineCreateInputSchema = z.strictObject({
   agentId: z.string().min(1).max(200),
@@ -97,6 +108,8 @@ export type RoutineSetEnabledInput = z.input<
 export interface RoutineSummary {
   agentId: string;
   agentName: string;
+  /** When a person approved a proposal. Null for one still waiting, and for one a person made. */
+  approvedAt: string | null;
   consecutiveErrors: number;
   createdAt: string;
   cron: string;
@@ -108,6 +121,9 @@ export interface RoutineSummary {
   /** The slot the tick fires next. Pausing keeps it; resuming picks a new one. */
   nextRunAt: string | null;
   prompt: string;
+  /** Set when an agent's run proposed the routine. */
+  proposedByAgentId: string | null;
+  proposedByRunId: string | null;
   timezone: string;
 }
 
@@ -127,6 +143,7 @@ export interface SettleResult {
 const summaryColumns = {
   agentId: triggers.agentId,
   agentName: agents.name,
+  approvedAt: triggers.approvedAt,
   consecutiveErrors: triggers.consecutiveErrors,
   createdAt: triggers.createdAt,
   cron: sql<string>`coalesce(${triggers.cron}, '')`,
@@ -137,14 +154,9 @@ const summaryColumns = {
   name: triggers.name,
   nextRunAt: triggers.nextRunAt,
   prompt: sql<string>`coalesce(${triggers.prompt}, '')`,
+  proposedByAgentId: triggers.proposedByAgentId,
+  proposedByRunId: triggers.proposedByRunId,
   timezone: sql<string>`coalesce(${triggers.timezone}, '')`,
-};
-
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user" || principal.via !== "session") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
 };
 
 const requireSystem = (principal: Principal, action: string): void => {
@@ -258,29 +270,34 @@ export const createRoutinesService = ({
     return workspace.timezone;
   };
 
-  /** A routine for one agent, first due at the next slot after now. */
+  /**
+   * A routine for one agent, first due at the next slot after now. From a
+   * run it is a proposal: stored paused, for the run's own agent only, and
+   * it fires once a person approves it.
+   */
   const create = async (
     principal: Principal,
     input: RoutineCreateInput
   ): Promise<RoutineSummary> => {
-    const user = requireUser(principal, CREATE_ACTION);
+    const actor = requireWriter(principal, CREATE_ACTION);
     const parsed = routineCreateInputSchema.parse(input);
-    authorize(user, CREATE_ACTION, {
+    authorize(actor, CREATE_ACTION, {
       kind: ROUTINE_KIND,
-      workspaceId: user.workspaceId,
+      workspaceId: actor.workspaceId,
     });
+    requireOwnAgent(actor, parsed.agentId, CREATE_ACTION);
     const cronError = validateCron(parsed.cron);
     if (cronError !== null) {
       throw new ServiceError("invalid", cronError);
     }
     const timezone =
-      parsed.timezone ?? (await workspaceTimezone(user.workspaceId));
+      parsed.timezone ?? (await workspaceTimezone(actor.workspaceId));
     if (!isValidTimeZone(timezone)) {
       throw new ServiceError("invalid", `Unknown timezone ${timezone}`);
     }
     const agent = await findAgent(db, {
       id: parsed.agentId,
-      workspaceId: user.workspaceId,
+      workspaceId: actor.workspaceId,
     });
     if (agent?.status !== "active") {
       throw new ServiceError("not_found", "Agent not found");
@@ -290,65 +307,141 @@ export const createRoutinesService = ({
     if (nextRunAt === null) {
       throw new ServiceError("invalid", "That schedule never fires");
     }
+    const proposed = actor.kind === "run";
     const id = `rtn_${ulid(now.getTime())}`;
     await db.insert(triggers).values({
       agentId: agent.id,
       createdAt: now.toISOString(),
-      createdBy: user.userId,
+      createdBy: createdByOf(actor),
       cron: parsed.cron,
+      // A proposal is paused with no slot; approving it picks the next one.
+      disabledAt: proposed ? now.toISOString() : null,
       id,
       kind: ROUTINE_KIND,
       name: parsed.name,
-      nextRunAt,
+      nextRunAt: proposed ? null : nextRunAt,
       prompt: parsed.prompt,
       timezone,
-      workspaceId: user.workspaceId,
+      workspaceId: actor.workspaceId,
+      ...proposalColumns(actor),
     });
-    return await requireSummary(id, user.workspaceId);
+    await recordChange(events, actor, {
+      agentId: agent.id,
+      change: "created",
+      kind: ROUTINE_KIND,
+      name: parsed.name,
+      proposed,
+      triggerId: id,
+      workspaceId: actor.workspaceId,
+    });
+    return await requireSummary(id, actor.workspaceId);
   };
 
-  /** The workspace's routines, newest first. Removed ones are left out. */
+  /** The workspace's routines, newest first. Removed ones are left out. A run sees its own agent's. */
   const list = async (
     principal: Principal,
     input: RoutineListInput = {}
   ): Promise<RoutineSummary[]> => {
-    const user = requireUser(principal, LIST_ACTION);
+    const reader = requireReader(principal, LIST_ACTION);
     const { agentId } = routineListInputSchema.parse(input);
-    authorize(user, LIST_ACTION, {
+    authorize(reader, LIST_ACTION, {
       kind: ROUTINE_KIND,
-      workspaceId: user.workspaceId,
+      workspaceId: reader.workspaceId,
     });
+    if (agentId !== undefined) {
+      requireOwnAgent(reader, agentId, LIST_ACTION);
+    }
+    const onlyAgent = reader.kind === "run" ? reader.agentId : agentId;
     return await db
       .select(summaryColumns)
       .from(triggers)
       .innerJoin(agents, eq(agents.id, triggers.agentId))
       .where(
         and(
-          eq(triggers.workspaceId, user.workspaceId),
+          eq(triggers.workspaceId, reader.workspaceId),
           eq(triggers.kind, ROUTINE_KIND),
           isNull(triggers.revokedAt),
-          agentId === undefined ? undefined : eq(triggers.agentId, agentId)
+          onlyAgent === undefined ? undefined : eq(triggers.agentId, onlyAgent)
         )
       )
       .orderBy(desc(triggers.createdAt), desc(triggers.id));
   };
 
   /**
-   * Pauses a routine, or resumes it. Resuming clears the error count and
-   * picks the next slot after now, so a long pause does not fire at once.
+   * Approves a proposal: it fires from the next slot after now. Approving
+   * needs the rights that creating a routine needs, and a run has none.
    */
-  const setEnabled = async (
+  const approve = async (
     principal: Principal,
-    input: RoutineSetEnabledInput
+    routineId: string
   ): Promise<RoutineSummary> => {
-    const user = requireUser(principal, ENABLE_ACTION);
-    const { enabled, routineId } = routineSetEnabledInputSchema.parse(input);
-    authorize(user, ENABLE_ACTION, {
+    const user = requireApprover(principal, APPROVE_ACTION);
+    authorize(user, CREATE_ACTION, {
       id: routineId,
       kind: ROUTINE_KIND,
       workspaceId: user.workspaceId,
     });
     const current = await requireSummary(routineId, user.workspaceId);
+    if (!isPendingProposal(current)) {
+      throw new ServiceError("conflict", "Routine is not waiting for approval");
+    }
+    const now = clock.now();
+    const approved = await db
+      .update(triggers)
+      .set({
+        approvedAt: now.toISOString(),
+        consecutiveErrors: 0,
+        disabledAt: null,
+        lastError: null,
+        nextRunAt: nextSlot(current.cron, current.timezone, now),
+      })
+      .where(
+        and(
+          eq(triggers.id, routineId),
+          eq(triggers.workspaceId, user.workspaceId),
+          isNull(triggers.approvedAt),
+          isNull(triggers.revokedAt)
+        )
+      )
+      .returning({ id: triggers.id });
+    if (approved.length === 0) {
+      throw new ServiceError("conflict", "Routine is not waiting for approval");
+    }
+    await recordChange(events, user, {
+      agentId: current.agentId,
+      change: "approved",
+      kind: ROUTINE_KIND,
+      name: current.name,
+      triggerId: routineId,
+      workspaceId: user.workspaceId,
+    });
+    return await requireSummary(routineId, user.workspaceId);
+  };
+
+  /**
+   * Pauses a routine, or resumes it. Resuming clears the error count and
+   * picks the next slot after now, so a long pause does not fire at once.
+   * Resuming a proposal is approving it. A run can only pause.
+   */
+  const setEnabled = async (
+    principal: Principal,
+    input: RoutineSetEnabledInput
+  ): Promise<RoutineSummary> => {
+    const actor = requireWriter(principal, ENABLE_ACTION);
+    const { enabled, routineId } = routineSetEnabledInputSchema.parse(input);
+    authorize(actor, ENABLE_ACTION, {
+      id: routineId,
+      kind: ROUTINE_KIND,
+      workspaceId: actor.workspaceId,
+    });
+    if (actor.kind === "run" && enabled) {
+      throw new ForbiddenError(ENABLE_ACTION);
+    }
+    const current = await requireSummary(routineId, actor.workspaceId);
+    requireOwnAgent(actor, current.agentId, ENABLE_ACTION);
+    if (enabled && isPendingProposal(current)) {
+      return await approve(actor, routineId);
+    }
     const now = clock.now();
     const changes = enabled
       ? {
@@ -364,34 +457,91 @@ export const createRoutinesService = ({
       .where(
         and(
           eq(triggers.id, routineId),
-          eq(triggers.workspaceId, user.workspaceId)
+          eq(triggers.workspaceId, actor.workspaceId)
         )
       );
-    return await requireSummary(routineId, user.workspaceId);
+    return await requireSummary(routineId, actor.workspaceId);
   };
 
-  /** Removes a routine. The row stays, revoked, so the log can still name it. */
+  /**
+   * Removes a routine. The row stays, revoked, so the log can still name it.
+   * A run removes only a routine its agent proposed.
+   */
   const remove = async (
     principal: Principal,
     routineId: string
   ): Promise<void> => {
-    const user = requireUser(principal, REMOVE_ACTION);
-    authorize(user, REMOVE_ACTION, {
+    const actor = requireWriter(principal, REMOVE_ACTION);
+    authorize(actor, REMOVE_ACTION, {
+      id: routineId,
+      kind: ROUTINE_KIND,
+      workspaceId: actor.workspaceId,
+    });
+    const current = await requireSummary(routineId, actor.workspaceId);
+    if (actor.kind === "run" && current.proposedByAgentId !== actor.agentId) {
+      throw new ForbiddenError(REMOVE_ACTION);
+    }
+    const removed = await db
+      .update(triggers)
+      .set({ revokedAt: clock.now().toISOString() })
+      .where(
+        and(
+          eq(triggers.id, routineId),
+          eq(triggers.workspaceId, actor.workspaceId),
+          isNull(triggers.revokedAt)
+        )
+      )
+      .returning({ id: triggers.id });
+    if (removed.length > 0) {
+      await recordChange(events, actor, {
+        agentId: current.agentId,
+        change: "deleted",
+        kind: ROUTINE_KIND,
+        name: current.name,
+        triggerId: routineId,
+        workspaceId: actor.workspaceId,
+      });
+    }
+  };
+
+  /** Rejects a proposal: the routine is removed and the log says it was rejected. */
+  const reject = async (
+    principal: Principal,
+    routineId: string
+  ): Promise<void> => {
+    const user = requireApprover(principal, REJECT_ACTION);
+    authorize(user, CREATE_ACTION, {
       id: routineId,
       kind: ROUTINE_KIND,
       workspaceId: user.workspaceId,
     });
-    await requireSummary(routineId, user.workspaceId);
-    await db
+    const current = await requireSummary(routineId, user.workspaceId);
+    if (!isPendingProposal(current)) {
+      throw new ServiceError("conflict", "Routine is not waiting for approval");
+    }
+    const rejected = await db
       .update(triggers)
       .set({ revokedAt: clock.now().toISOString() })
       .where(
         and(
           eq(triggers.id, routineId),
           eq(triggers.workspaceId, user.workspaceId),
+          isNull(triggers.approvedAt),
           isNull(triggers.revokedAt)
         )
-      );
+      )
+      .returning({ id: triggers.id });
+    if (rejected.length === 0) {
+      throw new ServiceError("conflict", "Routine is not waiting for approval");
+    }
+    await recordChange(events, user, {
+      agentId: current.agentId,
+      change: "rejected",
+      kind: ROUTINE_KIND,
+      name: current.name,
+      triggerId: routineId,
+      workspaceId: user.workspaceId,
+    });
   };
 
   type DueRow = typeof triggers.$inferSelect;
@@ -614,7 +764,16 @@ export const createRoutinesService = ({
     return { settled };
   };
 
-  return { create, fireDue, list, remove, setEnabled, settleRuns };
+  return {
+    approve,
+    create,
+    fireDue,
+    list,
+    reject,
+    remove,
+    setEnabled,
+    settleRuns,
+  };
 };
 
 export type RoutinesService = ReturnType<typeof createRoutinesService>;

@@ -40,6 +40,12 @@ export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const TRIGGER_KINDS = ["http", "routine"] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
+/** A proposal from an agent's run that no person has approved yet. */
+export const isPendingProposal = (row: {
+  approvedAt: string | null;
+  proposedByAgentId: string | null;
+}): boolean => row.proposedByAgentId !== null && row.approvedAt === null;
+
 /** Errors in a row that switch a routine off. */
 export const ROUTINE_ERROR_LIMIT = 5;
 
@@ -70,6 +76,10 @@ export const EVENT_TYPES = [
   "connector.needs_auth",
   "connector.timeout",
   "trigger.fired",
+  "trigger.created",
+  "trigger.approved",
+  "trigger.rejected",
+  "trigger.deleted",
   "slack.received",
   "slack.named",
   "slack.unlinked_sender",
