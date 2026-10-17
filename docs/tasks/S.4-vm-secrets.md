@@ -23,3 +23,4 @@ Live on a local dev server with Docker: a Linux VM cloud agent's script and a `c
 ## Log
 - 2026-10-17: added with the S.3 rewrite. Starts after S.3 and C.14 merge.
 - 2026-10-17: dispatched on task/S.4-vm-secrets.
+- 2026-10-17: review clean after 0 fix rounds at 50def93 (docs/reviews/tasks/S.4.md). Merged. Staging check pending (no local container).
