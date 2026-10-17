@@ -1,8 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Model } from "@earendil-works/pi-ai";
-import { createModels } from "@earendil-works/pi-ai/models";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import {
   type Cursor,
   createRegistry,
@@ -10,20 +8,25 @@ import {
   Harness,
 } from "@earendil-works/pi-durable";
 import { CLOUD_LEASE_MS } from "@repo/services/cloud/lease";
+import { cloudModelFor } from "@repo/services/cloud/models";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { compose } from "./compose.ts";
 import { createRunCore, type PiPort, SERVERS_KEY } from "./pi-run-core.ts";
+import { workspaceKeyStore } from "./pi-run-credentials.ts";
 import { RunLeaseAlarm } from "./pi-run-lease.ts";
 import {
   listMcpTools,
   type McpTool,
   mcpToolRegistrations,
 } from "./pi-run-mcp.ts";
+import { createCloudModels } from "./pi-run-models.ts";
 
 const TOOLS_KEY = "mcp-tools";
+/** The workspace of the session. An id, not a secret: the model key is read again for each model request. */
+const WORKSPACE_KEY = "workspace";
 const ENTRY_PAGE = 500;
 const ANTHROPIC = "anthropic";
 const RETRY = { baseDelayMs: 1000, enabled: true, maxRetries: 3 };
@@ -52,11 +55,25 @@ export class PiRun extends DurableObject<Env> {
   #core: ReturnType<typeof createRunCore> | undefined;
   readonly #installed = new Set<string>();
   #faux: Faux | undefined;
+  #composed: ReturnType<typeof compose> | undefined;
+
+  /**
+   * The workspace's Anthropic key, read from the workspace secrets store for
+   * each model request and never kept: it is not in this object's storage and
+   * not in a field.
+   */
+  readonly #credentials = workspaceKeyStore(async () => {
+    const workspaceId = await this.ctx.storage.get<string>(WORKSPACE_KEY);
+    if (!workspaceId) {
+      return null;
+    }
+    const key = await this.#services().managedKeys.resolve(workspaceId);
+    return key?.apiKey ?? null;
+  });
 
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
-      const models = createModels();
-      models.setProvider(anthropicProvider());
+      const models = createCloudModels(this.#credentials);
       if (import.meta.env.DEV) {
         const { createFaux } = await import("./pi-run-faux.ts");
         this.#faux = createFaux();
@@ -131,7 +148,7 @@ export class PiRun extends DurableObject<Env> {
       const fauxModel: Model<string> = this.#faux.getModel();
       return { id: fauxModel.id, provider: this.#faux.provider.id };
     }
-    return { id: model, provider: ANTHROPIC };
+    return { id: cloudModelFor(model), provider: ANTHROPIC };
   }
 
   #port(): PiPort {
@@ -194,9 +211,14 @@ export class PiRun extends DurableObject<Env> {
     };
   }
 
+  #services() {
+    this.#composed ??= compose(this.env, import.meta.env.DEV);
+    return this.#composed.services;
+  }
+
   #runCore() {
     this.#core ??= (() => {
-      const { runs } = compose(this.env, import.meta.env.DEV).services;
+      const { runs } = this.#services();
       return createRunCore({
         complete: (runId, result) =>
           runs.completeRun(SYSTEM_PRINCIPAL, runId, result),
@@ -229,6 +251,7 @@ export class PiRun extends DurableObject<Env> {
   // The calls below are RPC from the Worker, through `pi-run-port.ts`.
 
   async startRun(input: CloudStart): Promise<void> {
+    await this.ctx.storage.put(WORKSPACE_KEY, input.run.workspaceId);
     await this.lifecycle.start();
     await this.#runCore().start(input);
     await this.lease.schedule();

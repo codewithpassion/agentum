@@ -1,3 +1,4 @@
+import { CLOUD_DEFAULT_MODEL, CLOUD_MODELS } from "@repo/services/cloud/models";
 import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, type FormEvent, useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
@@ -11,6 +12,8 @@ import { Input } from "#/components/ui/input";
 import { NativeSelect } from "#/components/ui/native-select";
 import { Textarea } from "#/components/ui/textarea";
 import type { MachineRecord } from "#/integrations/trpc/types";
+
+const cloudAliases = CLOUD_MODELS.map((model) => model.alias).join(", ");
 
 export interface AgentFormValues {
   instructions: string;
@@ -134,7 +137,8 @@ export function AgentForm({
           )}
           {values.runtime === "cloud" && (
             <FieldDescription>
-              Use a Claude model id, for example claude-sonnet-5-5.
+              Use one of {cloudAliases}, or a Claude model id such as{" "}
+              {CLOUD_DEFAULT_MODEL}.
             </FieldDescription>
           )}
         </Field>
