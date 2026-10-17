@@ -3,7 +3,7 @@ id: C.11
 title: Cloud agents use their instructions; clear unknown-model error
 milestone: C
 size: S
-status: in_progress
+status: done
 depends_on: [C.7]
 branch: task/C.11-cloud-instructions-model
 ---
@@ -21,3 +21,4 @@ Unit tests: the instructions reach the Pi session's system prompt, an instructio
 
 ## Log
 - 2026-10-17: added from the C.6 and C.7 reviews (Dom: yes); dispatched on task/C.11-cloud-instructions-model.
+- 2026-10-17: review clean after 0 fix rounds at e9048cc (docs/reviews/tasks/C.11.md). Merged.
