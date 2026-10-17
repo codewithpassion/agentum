@@ -182,6 +182,8 @@ export interface MachineClaim {
     runtimeConfig: Record<string, unknown>;
     slug: string;
   };
+  /** Secrets for the agent's process: its `env` secrets, and the relay token when it has `proxy` ones. Absent when it has none. */
+  env?: Record<string, string>;
   inputFileIds: string[];
   instructions: string;
   mcpServers: Record<
@@ -234,6 +236,12 @@ export interface AdapterDeps {
 }
 
 export interface RuntimeAdapter {
+  /**
+   * The platform ended the run itself (the lease reaper, the unclaimed-run
+   * sweep), so the runtime never saw it end. Stops whatever still works on the
+   * run. Best effort: the caller logs a throw and goes on.
+   */
+  abandon?: (run: RunRecord) => Promise<void>;
   /** Stops the execution if there is one. Best effort. */
   cancel: (db: Database, run: RunRecord, deps: AdapterDeps) => Promise<void>;
   /** Fast: enqueue or offer. Only the fake runtime finishes the run in here. */

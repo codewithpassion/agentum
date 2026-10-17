@@ -138,12 +138,12 @@
       "dependencies": {
         "@anthropic-ai/sdk": "^0.118.0",
         "@repo/db": "workspace:*",
+        "@repo/protocol": "workspace:*",
         "drizzle-orm": "^0.44.7",
         "ulidx": "^2.4.1",
         "zod": "^4.6.5",
       },
       "devDependencies": {
-        "@repo/protocol": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^5.9.2",
       },

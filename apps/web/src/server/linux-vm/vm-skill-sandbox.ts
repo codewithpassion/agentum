@@ -47,6 +47,8 @@ export const vmSkillSandbox = (vm: LinuxVm): SkillScriptSandbox => ({
     const result = await vm.exec({
       command: commandFor(input, `${folder}/${input.entry}`),
       cwd: VM_WORKDIR,
+      // The secrets the agent was granted as environment variables, and nothing else of ours. There is no outbound proxy in the VM, so `input.proxy` has no effect.
+      ...(input.env === undefined ? {} : { env: input.env }),
       maxOutputBytes: input.maxOutputBytes,
       timeoutMs: input.timeoutMs,
     });

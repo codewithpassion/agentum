@@ -5,6 +5,7 @@
   "exports": {
     "./attachments": "./src/attachments.ts",
     "./machine": "./src/machine.ts",
+    "./masker": "./src/masker.ts",
     "./skills": "./src/skills.ts"
   },
   "scripts": {

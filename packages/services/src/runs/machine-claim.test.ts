@@ -15,6 +15,7 @@ import { createEventsService } from "../events.ts";
 import { createMachineRuntime } from "../machines/runtime.ts";
 import { noopRelay } from "../machines/types.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
+import { createSecretsService, type SecretsService } from "../secrets.ts";
 import type { Principal } from "../workspaces.ts";
 import type { Clock } from "./types.ts";
 
@@ -38,6 +39,7 @@ const machine = (machineId: string): Principal => ({
 let db: ReturnType<typeof migrated>;
 let nowMs: number;
 let runs: RunsService;
+let secrets: SecretsService;
 let agentId: string;
 let otherAgentId: string;
 
@@ -129,9 +131,14 @@ beforeEach(async () => {
       return Promise.resolve();
     },
   };
-  const agents = createAgentsService({
+  const events = createEventsService({ blobs, db });
+  const agents = createAgentsService({ db, events });
+  secrets = createSecretsService({
+    atomic: sqliteAtomic(db),
+    clock,
     db,
-    events: createEventsService({ blobs, db }),
+    events,
+    secretsKey: KEY,
   });
   agentId = (
     await agents.create(user, {
@@ -159,6 +166,7 @@ beforeEach(async () => {
     devFakeRuntime: false,
     gateways: [],
     runTokenKey: KEY,
+    secrets,
   });
 });
 
@@ -357,4 +365,123 @@ test("another machine's aborted completion is forbidden and leaves the run runni
     processEndedAt: null,
     status: "running",
   });
+});
+
+const ENV_VALUE = "env-secret-value-0123";
+const PROXY_VALUE = "proxy-secret-value-0123";
+
+/** An env secret and a proxy secret, both granted to `agent`. */
+const grantBoth = async (agent: string) => {
+  const env = await secrets.create(user, {
+    mode: "env",
+    name: "PLAIN_KEY",
+    value: ENV_VALUE,
+  });
+  const proxied = await secrets.create(user, {
+    mode: "proxy",
+    name: "OPENAI_API_KEY",
+    rules: [
+      {
+        header: "Authorization",
+        host: "api.openai.com",
+        template: "Bearer {value}",
+      },
+    ],
+    value: PROXY_VALUE,
+  });
+  await secrets.setGrants(user, agent, [env.id, proxied.id]);
+};
+
+test("a claim carries the agent's env secrets, the relay token and the relay guidance", async () => {
+  await grantBoth(agentId);
+  const started = await start(agentId);
+
+  const claimed = await claim("m1", started.runId);
+
+  expect(claimed.env).toEqual({
+    HARBOURMASTER_RELAY_TOKEN: claimed.runToken,
+    PLAIN_KEY: ENV_VALUE,
+  });
+  expect(claimed.instructions.startsWith("Be brief.")).toBe(true);
+  expect(claimed.instructions).toContain("PLAIN_KEY");
+  expect(claimed.instructions).toContain(
+    "https://hm.example/api/egress/api.openai.com/<path>"
+  );
+  expect(claimed.instructions).not.toContain(PROXY_VALUE);
+  expect(claimed.instructions).not.toContain(ENV_VALUE);
+  // The proxy secret itself never goes to the machine.
+  expect(JSON.stringify(claimed)).not.toContain(PROXY_VALUE);
+});
+
+test("a claim announces the delivery with names and hosts only", async () => {
+  await grantBoth(agentId);
+  const started = await start(agentId);
+  await claim("m1", started.runId);
+
+  const delivered = db
+    .select()
+    .from(eventRows)
+    .where(eq(eventRows.type, "secret.delivered"))
+    .all();
+  expect(delivered).toHaveLength(1);
+  const text = JSON.stringify(delivered);
+  expect(text).toContain("PLAIN_KEY");
+  expect(text).toContain("api.openai.com");
+  expect(text).not.toContain(ENV_VALUE);
+  expect(text).not.toContain(PROXY_VALUE);
+});
+
+test("an agent with a proxy secret only gets the relay token, and one with no grant gets nothing", async () => {
+  const proxied = await secrets.create(user, {
+    mode: "proxy",
+    name: "OPENAI_API_KEY",
+    rules: [
+      { header: "x-api-key", host: "api.openai.com", template: "{value}" },
+    ],
+    value: PROXY_VALUE,
+  });
+  await secrets.setGrants(user, agentId, [proxied.id]);
+
+  const granted = await claim("m1", (await start(agentId)).runId);
+  expect(Object.keys(granted.env ?? {})).toEqual(["HARBOURMASTER_RELAY_TOKEN"]);
+
+  const bare = await claim("m2", (await start(otherAgentId)).runId);
+  expect(bare.env).toBeUndefined();
+  expect(bare.instructions).toBe("");
+  expect(
+    db
+      .select()
+      .from(eventRows)
+      .where(eq(eventRows.agentId, otherAgentId))
+      .all()
+      .some((event) => event.type === "secret.delivered")
+  ).toBe(false);
+});
+
+test("a claim still succeeds when recording the delivery fails", async () => {
+  await grantBoth(agentId);
+  const failing = createRunsService({
+    adapters: [createMachineRuntime({ relay: noopRelay })],
+    atomic: sqliteAtomic(db),
+    blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+    clock,
+    db,
+    devFakeRuntime: false,
+    gateways: [],
+    runTokenKey: KEY,
+    secrets: {
+      announceDelivery: () => Promise.reject(new Error("log down")),
+      maskerFor: (workspaceId, agent) => secrets.maskerFor(workspaceId, agent),
+      resolveForAgent: (workspaceId, agent) =>
+        secrets.resolveForAgent(workspaceId, agent),
+    },
+  });
+  const started = await start(agentId);
+  const claimed = await failing.claimRunForMachine(
+    machine("m1"),
+    started.runId,
+    { platformUrl: PLATFORM }
+  );
+  expect(claimed.env?.PLAIN_KEY).toBe(ENV_VALUE);
+  expect(status(started.runId)?.status).toBe("running");
 });

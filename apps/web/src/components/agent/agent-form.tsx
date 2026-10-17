@@ -194,10 +194,11 @@ export function AgentForm({
             <FieldDescription>
               Runs on Anthropic's cloud, not on one of your machines. It needs
               the workspace's Anthropic API key (Settings, Managed Agents). It
-              cannot read attached files, does not get this workspace's skills,
-              and [ATTACHMENT:path] in its answers stays plain text. Images
-              returned by connector tools never reach the model. A session stops
-              at $10 of spend.
+              cannot read attached files. It gets this workspace's skills with
+              all their files, and TypeScript scripts in a skill run with bun in
+              its sandbox. [ATTACHMENT:path] in its answers stays plain text.
+              Images returned by connector tools never reach the model. A
+              session stops at $10 of spend.
             </FieldDescription>
           )}
           {values.runtime === "cloud" && (

@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from "bun:test";
+import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { files as fileRows } from "@repo/db/schema/files";
@@ -33,6 +33,7 @@ import {
   type RunsService,
   type RunsServiceOptions,
 } from "./runs.ts";
+import { createSecretsService } from "./secrets.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
@@ -87,6 +88,15 @@ const spyAdapter = (): RuntimeAdapter => ({
     return Promise.resolve();
   },
   kind: "machine",
+});
+
+/** A runtime that records each run the platform abandons. */
+const abandoningAdapter = (abandoned: string[]): RuntimeAdapter => ({
+  ...spyAdapter(),
+  abandon: (run) => {
+    abandoned.push(run.id);
+    return Promise.resolve();
+  },
 });
 
 const buildRuns = (overrides: Partial<RunsServiceOptions> = {}): RunsService =>
@@ -654,6 +664,56 @@ test("the reaper interrupts an expired lease and leaves it there", async () => {
   expect(runRow(runId)?.status).toBe("interrupted");
 });
 
+test("the reaper abandons an interrupted run and not one whose lease is live", async () => {
+  const abandoned: string[] = [];
+  runs = buildRuns({ adapters: [abandoningAdapter(abandoned)] });
+  const expired = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, expired.runId);
+  advance(60 * SECOND);
+  const live = await start(user, await addSpyAgent());
+  await runs.claimRun(SYSTEM_PRINCIPAL, live.runId);
+
+  advance(31 * SECOND);
+  expect(await runs.reapExpiredLeases(SYSTEM_PRINCIPAL)).toEqual({
+    interrupted: [expired.runId],
+  });
+  expect(abandoned).toEqual([expired.runId]);
+  expect(runRow(live.runId)?.status).toBe("running");
+});
+
+test("a throwing abandon is logged and does not stop the reaper", async () => {
+  const logged = spyOn(console, "error").mockImplementation(() => undefined);
+  const called: string[] = [];
+  runs = buildRuns({
+    adapters: [
+      {
+        ...spyAdapter(),
+        abandon: (run) => {
+          called.push(run.id);
+          return Promise.reject(new Error("boom"));
+        },
+      },
+    ],
+  });
+  try {
+    const first = await start(user, spyAgentId);
+    await runs.claimRun(SYSTEM_PRINCIPAL, first.runId);
+    const second = await start(user, await addSpyAgent());
+    await runs.claimRun(SYSTEM_PRINCIPAL, second.runId);
+
+    advance(91 * SECOND);
+    const { interrupted } = await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+    const ids = [first.runId, second.runId].sort();
+    expect([...interrupted].sort()).toEqual(ids);
+    expect([...called].sort()).toEqual(ids);
+    expect(runRow(first.runId)?.status).toBe("interrupted");
+    expect(runRow(second.runId)?.status).toBe("interrupted");
+    expect(logged).toHaveBeenCalledTimes(2);
+  } finally {
+    logged.mockRestore();
+  }
+});
+
 test("a claim takes the lease length the system asks for, 90 s by default", async () => {
   const cloud = await start(user, spyAgentId);
   await runs.claimRun(SYSTEM_PRINCIPAL, cloud.runId, {
@@ -794,6 +854,19 @@ test("the sweep fails a run nobody claimed for an hour and keeps a younger one",
     runEvents(runId).find((event) => event.type === "run.failed")
   ).toMatchObject({ actorKind: "system" });
   expect(dispatched).not.toContain(runId);
+});
+
+test("the sweep abandons a run it fails as never claimed", async () => {
+  const abandoned: string[] = [];
+  runs = buildRuns({ adapters: [abandoningAdapter(abandoned)] });
+  const { runId } = await start(user, spyAgentId, {}, "hello", {
+    offerLater: true,
+  });
+  advance(61 * 60 * SECOND);
+
+  const swept = await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+  expect(swept.failed).toEqual([{ message: "Never claimed", runId }]);
+  expect(abandoned).toEqual([runId]);
 });
 
 test("a claim that lands before expiry keeps the run past the sweep", async () => {
@@ -1471,4 +1544,84 @@ test("releaseRun leaves a cancelled run cancelled", async () => {
 
   await runs.releaseRun(SYSTEM_PRINCIPAL, runId);
   expect(runRow(runId)).toMatchObject({ status: "cancelled" });
+});
+
+const GRANTED_VALUE = "granted-value-0123456789";
+
+/** A runs service whose spy agents hold one granted secret. */
+const maskingRuns = async (agentIds: string[]) => {
+  const secrets = createSecretsService({
+    atomic: sqliteAtomic(db),
+    clock,
+    db,
+    events,
+    secretsKey: Buffer.from(new Uint8Array(32).fill(5)).toString("base64"),
+  });
+  const secret = await secrets.create(user, {
+    mode: "env",
+    name: "OPENAI_API_KEY",
+    value: GRANTED_VALUE,
+  });
+  for (const agentId of agentIds) {
+    // biome-ignore lint/performance/noAwaitInLoops: two agents, one after the other
+    await secrets.setGrants(user, agentId, [secret.id]);
+  }
+  return buildRuns({ secrets });
+};
+
+test("a granted secret value is masked in the events a run ingests", async () => {
+  runs = await maskingRuns([spyAgentId]);
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    {
+      payload: { ok: true, output: `key is ${GRANTED_VALUE}` },
+      seq: 1,
+      type: "tool.result",
+    },
+    {
+      payload: { input: { nested: [JSON.stringify({ k: GRANTED_VALUE })] } },
+      seq: 2,
+      type: "tool.call",
+    },
+  ]);
+  const stored = JSON.stringify(
+    runEvents(runId).filter((event) => event.seq !== null)
+  );
+  expect(stored).not.toContain(GRANTED_VALUE);
+  expect(stored).toContain("[secret:OPENAI_API_KEY]");
+});
+
+test("a granted secret value is masked in a run's result text and error", async () => {
+  const failedAgent = await addSpyAgent();
+  runs = await maskingRuns([spyAgentId, failedAgent]);
+  const done = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, done.runId);
+  await runs.completeRun(SYSTEM_PRINCIPAL, done.runId, {
+    status: "done",
+    text: `the key was ${GRANTED_VALUE}`,
+  });
+  expect(runRow(done.runId)?.resultText).toBe(
+    "the key was [secret:OPENAI_API_KEY]"
+  );
+
+  const failed = await start(user, failedAgent);
+  await runs.claimRun(SYSTEM_PRINCIPAL, failed.runId);
+  await runs.completeRun(SYSTEM_PRINCIPAL, failed.runId, {
+    error: `401 for ${GRANTED_VALUE}`,
+    status: "failed",
+  });
+  expect(runRow(failed.runId)?.error).toBe("401 for [secret:OPENAI_API_KEY]");
+  expect(JSON.stringify(runEvents(failed.runId))).not.toContain(GRANTED_VALUE);
+});
+
+test("a run whose agent holds no grant is stored as it came", async () => {
+  const bareAgent = await addSpyAgent();
+  runs = await maskingRuns([spyAgentId]);
+  const { runId } = await start(user, bareAgent);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    { payload: { text: GRANTED_VALUE }, seq: 1, type: "message.assistant" },
+  ]);
+  expect(JSON.stringify(runEvents(runId))).toContain(GRANTED_VALUE);
 });

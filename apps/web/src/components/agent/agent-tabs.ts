@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { AgentRecord } from "#/integrations/trpc/types";
 import { chatTab } from "./tabs/chat.tsx";
 import { connectorsTab } from "./tabs/connectors.tsx";
+import { secretsTab } from "./tabs/secrets.tsx";
 import { sessionsTab } from "./tabs/sessions.tsx";
 import { settingsTab } from "./tabs/settings.tsx";
 import { skillsTab } from "./tabs/skills.tsx";
@@ -28,6 +29,7 @@ export const agentTabs: readonly AgentTab[] = [
   sessionsTab,
   settingsTab,
   connectorsTab,
+  secretsTab,
   skillsTab,
   slackTab,
   triggersTab,

@@ -43,6 +43,11 @@
     "./routines/cron": "./src/routines/cron.ts",
     "./runs": "./src/runs.ts",
     "./runs/types": "./src/runs/types.ts",
+    "./secrets": "./src/secrets.ts",
+    "./secrets/guidance": "./src/secrets/guidance.ts",
+    "./secrets/relay": "./src/secrets/relay.ts",
+    "./secrets/rules": "./src/secrets/rules.ts",
+    "./secrets/scrub": "./src/secrets/scrub.ts",
     "./sessions": "./src/sessions.ts",
     "./skills": "./src/skills.ts",
     "./slack": "./src/slack.ts",
@@ -60,12 +65,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.118.0",
     "@repo/db": "workspace:*",
+    "@repo/protocol": "workspace:*",
     "drizzle-orm": "^0.44.7",
     "ulidx": "^2.4.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@repo/protocol": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^5.9.2"
   }

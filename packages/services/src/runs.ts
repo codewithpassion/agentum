@@ -11,6 +11,7 @@ import type { Atomic, Statement } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import type { Masker } from "@repo/protocol/masker";
 import {
   and,
   asc,
@@ -73,6 +74,7 @@ import {
   TERMINAL_STATUSES,
   usageSchema,
 } from "./runs/types.ts";
+import type { SecretsService } from "./secrets.ts";
 import { visibleSessions } from "./sessions.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
@@ -110,6 +112,25 @@ const runResultSchema = z.strictObject({
   usage: usageSchema.optional(),
 });
 
+type RunResultInput = z.infer<typeof runResultSchema>;
+
+/** `result` with the granted secret values taken out of its text and error. */
+const maskResult = (
+  result: RunResultInput,
+  masker: Masker | null
+): RunResultInput =>
+  masker
+    ? {
+        ...result,
+        ...(result.error === undefined
+          ? {}
+          : { error: masker.mask(result.error) }),
+        ...(result.text === undefined
+          ? {}
+          : { text: masker.mask(result.text) }),
+      }
+    : result;
+
 const runEventsSchema = z
   .array(
     z.strictObject({
@@ -134,6 +155,16 @@ export interface RunsServiceOptions {
    * mints the run token; leave it out where no machine claims runs.
    */
   runTokenKey?: string;
+  /**
+   * The workspace secrets store. A machine claim hands the agent its secrets,
+   * and everything a run writes to its transcript or result goes through the
+   * agent's masker, so a granted value never lands in an event, a result or a
+   * reply. Without it, no secret is delivered or masked.
+   */
+  secrets?: Pick<
+    SecretsService,
+    "announceDelivery" | "maskerFor" | "resolveForAgent"
+  >;
 }
 
 type ParsedInput = ReturnType<typeof startRunInputSchema.parse>;
@@ -178,6 +209,7 @@ export const createRunsService = ({
   devFakeRuntime,
   gateways,
   runTokenKey,
+  secrets,
 }: RunsServiceOptions) => {
   const eventsService = createEventsService({ blobs, db });
   const adapterByKind = new Map<string, RuntimeAdapter>(
@@ -192,6 +224,12 @@ export const createRunsService = ({
   ]);
 
   const nowIso = () => clock.now().toISOString();
+
+  /** The masker for the secrets this run's agent holds, or null. */
+  const runMasker = (run: RunRecord): Promise<Masker | null> =>
+    secrets
+      ? secrets.maskerFor(run.workspaceId, run.agentId)
+      : Promise.resolve(null);
 
   const requireRun = async (
     principal: Principal,
@@ -571,6 +609,7 @@ export const createRunsService = ({
         db,
         leaseMs: LEASE_MS,
         now: () => clock.now(),
+        secrets,
         signToken,
       },
       principal,
@@ -696,12 +735,13 @@ export const createRunsService = ({
     const fresh = parsed
       .filter((event) => event.seq > lastSeq)
       .sort((a, b) => a.seq - b.seq);
+    const masker = fresh.length > 0 ? await runMasker(run) : null;
     for (const event of fresh) {
       // biome-ignore lint/performance/noAwaitInLoops: events are stored in seq order
       await eventsService.append({
         actor: agentActor(run),
         agentId: run.agentId,
-        payload: event.payload,
+        payload: masker ? masker.maskDeep(event.payload) : event.payload,
         runId: run.id,
         seq: event.seq,
         sessionId: run.sessionId,
@@ -848,9 +888,12 @@ export const createRunsService = ({
     runId: string,
     rawResult: RunResult
   ): Promise<void> => {
-    const result = runResultSchema.parse(rawResult);
     const run = await requireRun(principal, runId);
     authorizeRunWrite(principal, run, "runs.complete");
+    const result = maskResult(
+      runResultSchema.parse(rawResult),
+      await runMasker(run)
+    );
     if (result.status === "aborted") {
       await abortedCompletion(principal, run);
       return;
@@ -1137,6 +1180,22 @@ export const createRunsService = ({
   };
 
   /**
+   * Tells the run's runtime that the reaper or the sweep ended the run, for a
+   * runtime that has an `abandon`. A failure is logged and never thrown, so one
+   * run cannot stop the job that is ending the others.
+   */
+  const abandonEnded = async (run: RunRecord): Promise<void> => {
+    try {
+      const { adapter } = await adapterFor(run);
+      await adapter?.abandon?.(run);
+    } catch (error) {
+      console.error(
+        `Stopping the runtime of run ${run.id} failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  };
+
+  /**
    * Offers one queued run to its agent's runtime, for the job a caller
    * defers until after it has answered (the sweep does it for a job that did
    * not run). A run still waiting on files is left alone.
@@ -1242,6 +1301,7 @@ export const createRunsService = ({
             eventActor(SYSTEM_PRINCIPAL),
             { error: NEVER_CLAIMED_ERROR }
           );
+          await abandonEnded(toRecord(row));
           result.failed.push({ message: NEVER_CLAIMED_ERROR, runId: row.id });
         }
       } catch (error) {
@@ -1334,6 +1394,7 @@ export const createRunsService = ({
           "run.interrupted",
           eventActor(principal)
         );
+        await abandonEnded(toRecord(row));
         interrupted.push(row.id);
       }
     }

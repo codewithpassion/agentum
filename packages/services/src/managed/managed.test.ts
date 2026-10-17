@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import {
   managedAgents,
   managedRuns,
   managedSessions,
+  managedSkills,
 } from "@repo/db/schema/managed";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -26,9 +27,11 @@ import {
 } from "../run-tokens.ts";
 import type { Clock, StartRunInput } from "../runs/types.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
-import type { Principal } from "../workspaces.ts";
+import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
+import { createSecretsService, type SecretsService } from "../secrets.ts";
+import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { advanceCursor, eventsAfter, type SessionEvent } from "./events.ts";
-import type { ManagedGateway } from "./gateway.ts";
+import type { ManagedGateway, SkillRef, SkillUploadFile } from "./gateway.ts";
 import { createManagedKeysService } from "./keys.ts";
 import { createManagedRuntime } from "./runtime.ts";
 import {
@@ -39,7 +42,7 @@ import {
   NO_KEY_ERROR,
   POLL_MS,
 } from "./service.ts";
-import type { ManagedPollerPort } from "./types.ts";
+import { MANAGED_LEASE_MS, type ManagedPollerPort } from "./types.ts";
 
 const WORKSPACE = "w1";
 const START = "2026-10-17T10:00:00.000Z";
@@ -77,15 +80,35 @@ interface FakeSession {
 class FakeGateway implements ManagedGateway {
   agentSeq = 0;
   credentials: { token: string; url: string; vaultId: string }[] = [];
+  /** Environment variable credentials. `value` is kept for checks, never printed. */
+  envCredentials: {
+    hosts: readonly string[] | undefined;
+    name: string;
+    value: string;
+    vaultId: string;
+  }[] = [];
   deletedVaults: string[] = [];
   interrupted: string[] = [];
   /** Runs when a session's status is read, to put a write between two steps of a launch. */
   onGetSession: (() => void) | null = null;
   pollFailure: Error | null = null;
-  registered: { instructions: string; name: string; urls: string[] }[] = [];
+  registered: {
+    instructions: string;
+    name: string;
+    skills: readonly SkillRef[];
+    system: string;
+    urls: string[];
+  }[] = [];
+  /** Every skill the fake holds: its versions, each with the files it was uploaded with. */
+  readonly skillStore = new Map<
+    string,
+    { files: readonly SkillUploadFile[]; version: string }[]
+  >();
+  deletedSkills: string[] = [];
   readonly sessions = new Map<string, FakeSession>();
   sessionStatus: "idle" | "running" = "idle";
   synced: string[] = [];
+  syncedAgents: { skills: readonly SkillRef[]; system: string }[] = [];
   turns: SessionEvent[][] = [];
   vaults: string[] = [];
   private eventSeq = 0;
@@ -142,6 +165,21 @@ class FakeGateway implements ManagedGateway {
       vaultId: input.vaultId,
     });
     return Promise.resolve(`cred_${this.credentials.length}`);
+  }
+
+  createEnvironmentVariableCredential(input: {
+    hosts?: readonly string[];
+    name: string;
+    value: string;
+    vaultId: string;
+  }) {
+    this.envCredentials.push({
+      hosts: input.hosts,
+      name: input.name,
+      value: input.value,
+      vaultId: input.vaultId,
+    });
+    return Promise.resolve(`envcred_${this.envCredentials.length}`);
   }
 
   createSession(input: {
@@ -204,15 +242,42 @@ class FakeGateway implements ManagedGateway {
     });
   }
 
+  createSkill(input: { files: readonly SkillUploadFile[] }) {
+    const skillId = `skill_${this.skillStore.size + 1}`;
+    this.skillStore.set(skillId, [{ files: input.files, version: "1" }]);
+    return Promise.resolve({ skillId, version: "1" });
+  }
+
+  createSkillVersion(input: {
+    files: readonly SkillUploadFile[];
+    skillId: string;
+  }) {
+    const versions = this.skillStore.get(input.skillId) ?? [];
+    const version = String(versions.length + 1);
+    versions.push({ files: input.files, version });
+    this.skillStore.set(input.skillId, versions);
+    return Promise.resolve(version);
+  }
+
+  deleteSkill(skillId: string) {
+    this.skillStore.delete(skillId);
+    this.deletedSkills.push(skillId);
+    return Promise.resolve();
+  }
+
   registerAgent(input: {
     instructions: string;
     mcpServers: readonly { name: string; url: string }[];
     name: string;
+    skills: readonly SkillRef[];
+    system: string;
   }) {
     this.agentSeq += 1;
     this.registered.push({
       instructions: input.instructions,
       name: input.name,
+      skills: input.skills,
+      system: input.system,
       urls: input.mcpServers.map((server) => server.url),
     });
     return Promise.resolve({ anthropicAgentId: `agent_${this.agentSeq}` });
@@ -227,8 +292,13 @@ class FakeGateway implements ManagedGateway {
     return Promise.resolve();
   }
 
-  syncAgent(input: { anthropicAgentId: string }) {
+  syncAgent(input: {
+    anthropicAgentId: string;
+    skills: readonly SkillRef[];
+    system: string;
+  }) {
     this.synced.push(input.anthropicAgentId);
+    this.syncedAgents.push({ skills: input.skills, system: input.system });
     return Promise.resolve();
   }
 }
@@ -248,6 +318,23 @@ let hasKey: boolean;
 let onResolveKey: (() => void) | null;
 let events: ReturnType<typeof createEventsService>;
 let keys: ReturnType<typeof createManagedKeysService>;
+let secrets: SecretsService;
+/** The agent's skill files as the library has them: path (skill folder first) to text. */
+let skillFiles: Map<string, string>;
+
+const encoder = new TextEncoder();
+
+const skillsSource = () => ({
+  list: () =>
+    Promise.resolve(
+      [...skillFiles].map(([path, text]) => ({
+        etag: `etag-${text}`,
+        path,
+        size: text.length,
+      }))
+    ),
+  read: (path: string) => Promise.resolve(encoder.encode(skillFiles.get(path))),
+});
 
 const buildManaged = (publicBaseUrl: string) =>
   createManagedService({
@@ -267,6 +354,8 @@ const buildManaged = (publicBaseUrl: string) =>
     publicBaseUrl,
     runs,
     runTokenKey: RUN_TOKEN_KEY,
+    secrets,
+    skills: skillsSource,
   });
 
 const clock: Clock = {
@@ -344,6 +433,7 @@ beforeEach(async () => {
   cancels = [];
   hasKey = true;
   onResolveKey = null;
+  skillFiles = new Map();
   tokenKey = await importRunTokenKey(RUN_TOKEN_KEY);
   db.insert(workspaces)
     .values({
@@ -363,6 +453,13 @@ beforeEach(async () => {
     },
   };
   events = createEventsService({ blobs, db });
+  secrets = createSecretsService({
+    atomic: sqliteAtomic(db),
+    clock,
+    db,
+    events,
+    secretsKey: SECRETS_KEY,
+  });
   agents = createAgentsService({ db, events });
   agentId = (
     await agents.create(dom, {
@@ -381,7 +478,9 @@ beforeEach(async () => {
   await keys.set(dom, { apiKey: FAKE_API_KEY });
   const atomic = sqliteAtomic(db);
   runs = createRunsService({
-    adapters: [createManagedRuntime({ poller })],
+    adapters: [
+      createManagedRuntime({ abandon: (run) => managed.abandon(run), poller }),
+    ],
     atomic,
     blobs,
     clock,
@@ -981,5 +1080,393 @@ describe("session tokens", () => {
       claims: { runId: two.runId },
       ok: true,
     });
+  });
+});
+
+const SKILL_MD = (name: string) =>
+  `---\nname: ${name}\ndescription: Says hello.\n---\n\n# ${name}\n`;
+
+const addSkill = (name: string, script = "console.log('hi')") => {
+  skillFiles.set(`${name}/SKILL.md`, SKILL_MD(name));
+  skillFiles.set(`${name}/scripts/hello.ts`, script);
+};
+
+/** Runs one complete run on the agent, in the same session as the last. */
+const finishRun = async (text = "go") => {
+  const { runId } = await start(dom, text);
+  await drive(runId);
+  return runId;
+};
+
+const skillRows = () => db.select().from(managedSkills).all();
+
+describe("skills", () => {
+  test("an agent without skills registers none and gets no skills guidance", async () => {
+    await finishRun();
+
+    expect(gateway.registered[0]?.skills).toEqual([]);
+    expect(gateway.registered[0]?.system).toBe("Be brief.");
+    expect(gateway.skillStore.size).toBe(0);
+  });
+
+  test("uploads each skill with every file and lists it on the agent, with the bun guidance", async () => {
+    addSkill("ts-hello");
+    skillFiles.set("ts-hello/notes/a.md", "# notes");
+
+    await finishRun();
+
+    const [upload] = [...gateway.skillStore.values()];
+    expect(upload?.[0]?.files.map((file) => file.path).sort()).toEqual([
+      "SKILL.md",
+      "notes/a.md",
+      "scripts/hello.ts",
+    ]);
+    expect(gateway.registered[0]?.skills).toEqual([
+      { skillId: "skill_1", version: "1" },
+    ]);
+    expect(gateway.registered[0]?.system).toContain(
+      "bun /workspace/skills/<name>/scripts/<script>.ts"
+    );
+    expect(gateway.registered[0]?.system).toContain("ts-hello");
+    expect(skillRows()).toMatchObject([
+      { agentId, anthropicSkillId: "skill_1", name: "ts-hello" },
+    ]);
+  });
+
+  test("a folder without a valid SKILL.md is left out", async () => {
+    addSkill("good");
+    skillFiles.set("bad/SKILL.md", "no frontmatter");
+    skillFiles.set("loose/readme.txt", "no skill file");
+
+    await finishRun();
+
+    expect(skillRows().map((row) => row.name)).toEqual(["good"]);
+    expect(gateway.registered[0]?.skills).toHaveLength(1);
+  });
+
+  test("an unchanged skill is not uploaded again and the agent is not synced", async () => {
+    addSkill("ts-hello");
+    await finishRun();
+
+    await finishRun("again");
+
+    expect(gateway.skillStore.get("skill_1")).toHaveLength(1);
+    expect(gateway.synced).toEqual([]);
+  });
+
+  test("a changed skill gets a new version, and the agent lists it", async () => {
+    addSkill("ts-hello");
+    await finishRun();
+    addSkill("ts-hello", "console.log('changed')");
+
+    await finishRun("again");
+
+    expect(gateway.skillStore.get("skill_1")).toHaveLength(2);
+    expect(gateway.syncedAgents.at(-1)?.skills).toEqual([
+      { skillId: "skill_1", version: "2" },
+    ]);
+    expect(skillRows()[0]?.anthropicVersion).toBe("2");
+  });
+
+  test("a removed skill is detached from the agent, then deleted", async () => {
+    addSkill("ts-hello");
+    addSkill("keep");
+    await finishRun();
+    skillFiles.delete("ts-hello/SKILL.md");
+    skillFiles.delete("ts-hello/scripts/hello.ts");
+
+    await finishRun("again");
+
+    expect(gateway.syncedAgents.at(-1)?.skills).toEqual([
+      { skillId: "skill_1", version: "1" },
+    ]);
+    expect(gateway.deletedSkills).toEqual(["skill_2"]);
+    expect(skillRows().map((row) => row.name)).toEqual(["keep"]);
+  });
+
+  test("the last skill removed leaves the agent with no skills and no guidance", async () => {
+    addSkill("ts-hello");
+    await finishRun();
+    skillFiles.clear();
+
+    await finishRun("again");
+
+    expect(gateway.syncedAgents.at(-1)).toEqual({
+      skills: [],
+      system: "Be brief.",
+    });
+    expect(skillRows()).toEqual([]);
+  });
+
+  test("more skills than Anthropic takes fail the run before anything is uploaded", async () => {
+    for (let index = 0; index < 21; index += 1) {
+      addSkill(`skill-${index}`);
+    }
+    const { runId } = await start(dom);
+
+    await managed.step(runId);
+
+    expect(runRow(runId)?.status).toBe("failed");
+    expect(runRow(runId)?.error).toContain("at most 20 skills");
+    expect(gateway.skillStore.size).toBe(0);
+  });
+});
+
+describe("a poller outage and the reaper", () => {
+  test("a reaped managed run sends the interrupt and closes the session", async () => {
+    const { runId, sessionId } = await start(dom);
+    gateway.turns = [[gateway.running()]];
+    await managed.step(runId);
+
+    nowMs += MANAGED_LEASE_MS + SECOND;
+    await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+
+    expect(runRow(runId)?.status).toBe("interrupted");
+    expect(gateway.interrupted).toEqual(["sesn_1"]);
+    expect(gateway.deletedVaults).toEqual(["vlt_1"]);
+    expect(sessionRow(sessionId)?.closedAt).not.toBeNull();
+    expect((await verify(tokenOf("vlt_1"))).ok).toBe(false);
+  });
+
+  test("a reaped run that is no longer the session's current run leaves the session alone", async () => {
+    const first = await start(dom, "one");
+    gateway.turns = [[gateway.running()]];
+    await managed.step(first.runId);
+    const second = await start(dom, "two");
+    db.update(managedSessions)
+      .set({ currentRunId: second.runId })
+      .where(eq(managedSessions.sessionId, first.sessionId))
+      .run();
+
+    nowMs += MANAGED_LEASE_MS + SECOND;
+    await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+
+    expect(runRow(first.runId)?.status).toBe("interrupted");
+    expect(gateway.interrupted).toEqual([]);
+    expect(gateway.deletedVaults).toEqual([]);
+    expect(sessionRow(first.sessionId)?.closedAt).toBeNull();
+  });
+
+  test("a poller down for two minutes does not interrupt the run", async () => {
+    const { runId, sessionId } = await start(dom);
+    gateway.turns = [[gateway.running()]];
+    await managed.step(runId);
+
+    for (let count = 0; count < 6; count += 1) {
+      nowMs += 20 * SECOND;
+      // biome-ignore lint/performance/noAwaitInLoops: each reap follows the clock
+      await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+    }
+
+    expect(runRow(runId)?.status).toBe("running");
+    expect(gateway.interrupted).toEqual([]);
+    expect((await verify(tokenOf("vlt_1"))).ok).toBe(true);
+
+    gateway.sessions
+      .get("sesn_1")
+      ?.events.push(gateway.say("pelican"), gateway.idle());
+    nowMs += POLL_MS;
+    const answer = await managed.step(runId);
+
+    expect(answer).toEqual({ next: null });
+    expect(runRow(runId)?.status).toBe("done");
+    expect(runRow(runId)?.resultText).toBe("pelican");
+    expect(gateway.interrupted).toEqual([]);
+    expect(sessionRow(sessionId)?.closedAt).toBeNull();
+  });
+
+  test("an outage longer than the lease still ends the run", async () => {
+    const { runId } = await start(dom);
+    gateway.turns = [[gateway.running()]];
+    await managed.step(runId);
+
+    nowMs += MANAGED_LEASE_MS + SECOND;
+    await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+
+    expect(runRow(runId)?.status).toBe("interrupted");
+    expect(gateway.interrupted).toEqual(["sesn_1"]);
+  });
+
+  test("the sweep ending a run that is not the session's current run leaves the session alone", async () => {
+    const first = await start(dom, "one");
+    gateway.turns = [[gateway.running()]];
+    await managed.step(first.runId);
+    const second = await start(dom, "two");
+
+    nowMs += 61 * 60 * SECOND;
+    await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+
+    expect(runRow(second.runId)?.status).toBe("failed");
+    expect(gateway.interrupted).toEqual([]);
+    expect(sessionRow(first.sessionId)?.closedAt).toBeNull();
+  });
+});
+
+describe("secrets", () => {
+  const ENV_VALUE = "env-secret-value-0123";
+  const PROXY_VALUE = "proxy-secret-value-0123";
+
+  const envSecret = (name: string, value = ENV_VALUE) =>
+    secrets.create(dom, { mode: "env", name, value });
+
+  const proxySecret = () =>
+    secrets.create(dom, {
+      mode: "proxy",
+      name: "OPENAI_API_KEY",
+      rules: [
+        {
+          header: "Authorization",
+          host: "api.openai.com",
+          template: "Bearer {value}",
+        },
+      ],
+      value: PROXY_VALUE,
+    });
+
+  /** The environment credentials without their values, for printing and comparing. */
+  const envCredentialsOf = (vaultId?: string) =>
+    gateway.envCredentials
+      .filter(
+        (credential) => vaultId === undefined || credential.vaultId === vaultId
+      )
+      .map(({ hosts, name, vaultId: vault }) => ({
+        hosts,
+        name,
+        vaultId: vault,
+      }));
+
+  test("an env secret becomes an environment variable credential with no hosts in the session vault", async () => {
+    const env = await envSecret("PLAIN_KEY");
+    await secrets.setGrants(dom, agentId, [env.id]);
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(runRow(runId)?.status).toBe("done");
+    expect(envCredentialsOf()).toEqual([
+      { hosts: undefined, name: "PLAIN_KEY", vaultId: "vlt_1" },
+    ]);
+    expect(gateway.envCredentials[0]?.value === ENV_VALUE).toBe(true);
+  });
+
+  test("a proxy secret gets a relay token limited to the platform host, and the guidance names the relay", async () => {
+    const proxied = await proxySecret();
+    await secrets.setGrants(dom, agentId, [proxied.id]);
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(envCredentialsOf()).toEqual([
+      { hosts: ["hm.example"], name: RELAY_TOKEN_ENV, vaultId: "vlt_1" },
+    ]);
+    const relay = gateway.envCredentials.at(0);
+    expect(relay?.value.startsWith(SESSION_TOKEN_PREFIX)).toBe(true);
+    expect(relay?.value === tokenOf("vlt_1")).toBe(true);
+    const system = gateway.registered.at(0)?.system;
+    expect(system).toContain(`${BASE}/api/egress/api.openai.com/<path>`);
+    expect(system?.includes(PROXY_VALUE)).toBe(false);
+  });
+
+  test("replacing a granted secret's value starts a fresh session and vault", async () => {
+    const env = await envSecret("PLAIN_KEY");
+    await secrets.setGrants(dom, agentId, [env.id]);
+    const first = await start(dom, "one");
+    await drive(first.runId);
+    await secrets.update(dom, env.id, { value: "env-secret-value-4567" });
+    const second = await start(dom, "two");
+
+    await managed.step(second.runId);
+
+    expect(gateway.sessions.size).toBe(2);
+    expect(gateway.sessions.get("sesn_2")?.messages).toEqual(["two"]);
+    expect(gateway.deletedVaults).toEqual(["vlt_1"]);
+    expect(envCredentialsOf("vlt_2")).toEqual([
+      { hosts: undefined, name: "PLAIN_KEY", vaultId: "vlt_2" },
+    ]);
+  });
+
+  test("revoking the grant starts a fresh session with no secret credentials", async () => {
+    const env = await envSecret("PLAIN_KEY");
+    await secrets.setGrants(dom, agentId, [env.id]);
+    const first = await start(dom, "one");
+    await drive(first.runId);
+    await secrets.setGrants(dom, agentId, []);
+    const second = await start(dom, "two");
+
+    await managed.step(second.runId);
+
+    expect(gateway.sessions.size).toBe(2);
+    expect(gateway.deletedVaults).toEqual(["vlt_1"]);
+    expect(envCredentialsOf("vlt_2")).toEqual([]);
+  });
+
+  test("an agent with no grant creates no secret credentials", async () => {
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(runRow(runId)?.status).toBe("done");
+    expect(gateway.envCredentials).toEqual([]);
+    expect(gateway.vaults).toEqual(["vlt_1"]);
+  });
+
+  test("more credentials than the vault holds fails the run before anything is created", async () => {
+    const ids: string[] = [];
+    for (let index = 1; index <= 20; index += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: each secret is created in order
+      const secret = await envSecret(`SECRET_${index}`);
+      ids.push(secret.id);
+    }
+    await secrets.setGrants(dom, agentId, ids);
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(runRow(runId)?.status).toBe("failed");
+    expect(runRow(runId)?.error).toBe(
+      "A managed agent needs 21 credentials, and the limit is 20."
+    );
+    expect(gateway.registered).toEqual([]);
+    expect(gateway.vaults).toEqual([]);
+  });
+
+  test("the run records that secrets were delivered, with names and hosts and no value", async () => {
+    const env = await envSecret("PLAIN_KEY");
+    const proxied = await proxySecret();
+    await secrets.setGrants(dom, agentId, [env.id, proxied.id]);
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    const delivered = runEvents(runId).filter(
+      (event) => event.type === "secret.delivered"
+    );
+    expect(delivered).toHaveLength(1);
+    expect(JSON.parse(delivered[0]?.payload ?? "{}")).toMatchObject({
+      env: ["PLAIN_KEY"],
+      proxy: [{ hosts: ["api.openai.com"], name: "OPENAI_API_KEY" }],
+      surface: "managed",
+    });
+    const everything = JSON.stringify(runEvents(runId));
+    expect(everything.includes(ENV_VALUE)).toBe(false);
+    expect(everything.includes(PROXY_VALUE)).toBe(false);
+  });
+
+  test("a delivery event that fails to record does not fail the launch", async () => {
+    const env = await envSecret("PLAIN_KEY");
+    await secrets.setGrants(dom, agentId, [env.id]);
+    const failing = spyOn(secrets, "announceDelivery").mockRejectedValue(
+      new Error("log down")
+    );
+    const quiet = spyOn(console, "error").mockImplementation(() => undefined);
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(failing).toHaveBeenCalled();
+    expect(runRow(runId)?.status).toBe("done");
+    expect(gateway.sessions.size).toBe(1);
+    failing.mockRestore();
+    quiet.mockRestore();
   });
 });

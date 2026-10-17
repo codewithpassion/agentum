@@ -1,6 +1,6 @@
-// Secret masker for the daemon: replaces each provided value with
-// `[secret:NAME]` wherever it appears, raw or JSON-encoded, so a secret never
-// leaves the machine in a transcript, log line, or completion payload.
+// Secret masker, shared by the daemon and the services: replaces each provided
+// value with `[secret:NAME]` wherever it appears, raw or JSON-encoded, so a
+// secret never reaches a transcript, log line, or completion payload.
 //
 // A value is carried in two shapes. Its raw text catches plain output. Its
 // JSON-encoded text catches a value that a quote, a backslash, or a newline

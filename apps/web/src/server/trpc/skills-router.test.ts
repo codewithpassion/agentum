@@ -4,6 +4,7 @@ import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
+import { bytesToBase64 } from "#/lib/library-content.ts";
 import { type Composed, composeWith, type Infra } from "../compose.ts";
 import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
@@ -128,5 +129,134 @@ test("an agent of another workspace is NOT_FOUND", async () => {
   );
   await expect(
     caller.skills.create({ agentId: agent.id, name: "sneaky" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+const skillWithFolder = async (
+  caller: Awaited<ReturnType<typeof callerFor>>
+) => {
+  const agent = await caller.agents.create({
+    model: "fake",
+    name: "Pelican",
+    runtime: "fake",
+  });
+  await caller.skills.create({ agentId: agent.id, name: "write-brief" });
+  return { agentId: agent.id, scope: "agent" as const, skill: "write-brief" };
+};
+
+test("a text file written into a skill shows in its files, reads back and can be edited", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const target = await skillWithFolder(caller);
+
+  await caller.skills.writeFile({
+    ...target,
+    data: "console.log('hi');\n",
+    encoding: "text",
+    path: "scripts/hello.ts",
+  });
+
+  const files = await caller.skills.files(target);
+  expect(files.map((file) => [file.path, file.size])).toEqual([
+    ["SKILL.md", expect.any(Number)],
+    ["scripts/hello.ts", 19],
+  ]);
+
+  const read = await caller.skills.readFile({
+    ...target,
+    path: "scripts/hello.ts",
+  });
+  expect(read.text).toBe("console.log('hi');\n");
+
+  await caller.skills.writeFile({
+    ...target,
+    data: "console.log('bye');\n",
+    encoding: "text",
+    path: "scripts/hello.ts",
+  });
+  const edited = await caller.skills.readFile({
+    ...target,
+    path: "scripts/hello.ts",
+  });
+  expect(edited.text).toBe("console.log('bye');\n");
+});
+
+test("a base64 binary file shows with its size and reads back with no text", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const target = await skillWithFolder(caller);
+  const header = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+  ]);
+
+  await caller.skills.writeFile({
+    ...target,
+    data: bytesToBase64(header),
+    encoding: "base64",
+    path: "assets/icon.png",
+  });
+
+  const files = await caller.skills.files(target);
+  expect(files.map((file) => [file.path, file.size])).toContainEqual([
+    "assets/icon.png",
+    header.byteLength,
+  ]);
+
+  const read = await caller.skills.readFile({
+    ...target,
+    path: "assets/icon.png",
+  });
+  expect(read.text).toBeNull();
+  expect(read.entry.path).toBe(
+    `skills/${target.agentId}/write-brief/assets/icon.png`
+  );
+});
+
+test("a removed file leaves the skill's files", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const target = await skillWithFolder(caller);
+  await caller.skills.writeFile({
+    ...target,
+    data: "x",
+    encoding: "text",
+    path: "scripts/hello.ts",
+  });
+
+  await caller.skills.removeFile({ ...target, path: "scripts/hello.ts" });
+
+  const files = await caller.skills.files(target);
+  expect(files.map((file) => file.path)).toEqual(["SKILL.md"]);
+});
+
+test.each(["../other/SKILL.md", "/etc/passwd", "scripts/../../x", "a//b"])(
+  "the file path %s is a BAD_REQUEST and adds nothing",
+  async (path) => {
+    const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+    const target = await skillWithFolder(caller);
+
+    await expect(
+      caller.skills.writeFile({ ...target, data: "x", encoding: "text", path })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    const files = await caller.skills.files(target);
+    expect(files.map((file) => file.path)).toEqual(["SKILL.md"]);
+  }
+);
+
+test("another workspace cannot list or read an agent's skill files", async () => {
+  const composed = servicesFor();
+  const owner = await callerFor({ orgId: "org_a", userId: "user_1" }, composed);
+  const target = await skillWithFolder(owner);
+  await owner.skills.writeFile({
+    ...target,
+    data: "secret",
+    encoding: "text",
+    path: "scripts/hello.ts",
+  });
+  const other = await callerFor({ orgId: "org_b", userId: "user_2" }, composed);
+
+  await expect(other.skills.files(target)).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+  await expect(
+    other.skills.readFile({ ...target, path: "scripts/hello.ts" })
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
 });

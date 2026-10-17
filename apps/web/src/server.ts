@@ -26,6 +26,7 @@ export { VmSession } from "./server/linux-vm/vm-session.ts";
 export { ManagedPoller } from "./server/managed-poller.ts";
 export { PiRun } from "./server/pi-run.ts";
 export { MachineRelay } from "./server/relay.ts";
+export { SecretsOutbound } from "./server/secrets-outbound.ts";
 
 const app = new Hono<AppEnv>();
 

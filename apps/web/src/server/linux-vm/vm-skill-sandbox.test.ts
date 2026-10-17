@@ -158,3 +158,22 @@ describe("vmSkillSandbox", () => {
     expect(vm.execCalls).toEqual([]);
   });
 });
+
+describe("vmSkillSandbox secrets", () => {
+  test("passes the env the agent was granted to the command and nothing else", async () => {
+    const vm = createFakeVm();
+    await vmSkillSandbox(vm).run({
+      args: [],
+      entry: "scripts/a.ts",
+      env: { API_TOKEN: "t0ken" },
+      files: [{ bytes: new TextEncoder().encode("1"), path: "scripts/a.ts" }],
+      maxOutputBytes: 1000,
+      proxy: true,
+      skill: "demo",
+      timeoutMs: 5000,
+    });
+
+    expect(vm.execCalls).toHaveLength(1);
+    expect(vm.execCalls[0]?.env).toEqual({ API_TOKEN: "t0ken" });
+  });
+});

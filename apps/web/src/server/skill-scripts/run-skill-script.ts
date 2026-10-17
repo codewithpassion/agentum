@@ -7,6 +7,7 @@ import {
 import type { SkillSummary, SkillsPort } from "../pi-run-skills.ts";
 import {
   type SandboxFile,
+  type SandboxRunInput,
   type SandboxRunResult,
   type SkillScriptSandbox,
   TIMEOUT_EXIT_CODE,
@@ -28,27 +29,40 @@ export interface ScriptLimits {
   timeoutMs: number;
 }
 
-/** The two sentences of the tool's guidance that depend on where the script runs. */
+/** The sentences of the tool's guidance that depend on where the script runs. */
 export interface ScriptTexts {
   /** The tool description's sentence on what the script can import and use. */
   capabilities: string;
-  /** What the script sees, said in the prompt section. The time cap is added after it. */
-  surroundings: string;
+  /** What the script sees when the agent was granted secrets. The time cap is added after it. */
+  granted: string;
+  /** What the script sees when the agent has no secrets. The time cap is added after it. */
+  plain: string;
 }
 
 export const ISOLATE_SCRIPT_TEXTS: ScriptTexts = {
   capabilities:
     "The script can import its own skill files (write the file extension, as in ./lib.ts) and use standard web APIs and fetch. No other packages.",
-  surroundings:
-    "The script sees only the skill's own files, has network access and no secrets",
+  granted:
+    "The script sees only the skill's own files and has network access. It has no secrets of its own: the environment variables the agent was granted are set in process.env, and requests to hosts the agent has a credential for get that credential added for it. It runs for at most",
+  plain:
+    "The script sees only the skill's own files, has network access and no secrets, and runs for at most",
 };
 
 export const SCRIPT_LIMITS: ScriptLimits = {
-  // The Linux VM stops a command at the wall time, 2 s later when it ignores TERM, and its last resort comes 3 s after that (the time to start a cold VM comes on top).(the time to start a cold VM comes on top).
+  // The Linux VM stops a command at the wall time, 2 s later when it ignores TERM, and its last resort comes 3 s after that (the time to start a cold VM comes on top).
   graceMs: 6000,
   maxOutputBytes: 64 * 1024,
   timeoutMs: 30_000,
 };
+
+/** What one run of a script is granted. `mask` replaces every granted value in a text, so none reaches the model. */
+export interface ScriptSecrets {
+  forRun: () => Promise<{
+    env: Record<string, string>;
+    mask: (text: string) => string;
+    proxy: boolean;
+  }>;
+}
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -164,11 +178,35 @@ const runWithSafetyNet = async (
   }
 };
 
+/** Runs the script and describes what it printed. `mask`, when set, hides granted values before the output is capped. */
+const runInSandbox = async (
+  sandbox: SkillScriptSandbox,
+  input: SandboxRunInput,
+  mask: ((text: string) => string) | undefined,
+  limits: ScriptLimits
+): Promise<ToolExecutionResult> => {
+  try {
+    const result = await runWithSafetyNet(sandbox.run(input), limits);
+    const shown =
+      mask === undefined
+        ? result
+        : {
+            exitCode: result.exitCode,
+            stderr: mask(result.stderr),
+            stdout: mask(result.stdout),
+          };
+    return describeResult(shown, limits.maxOutputBytes);
+  } catch (error) {
+    return textResult(`The sandbox failed: ${errorText(error)}`, true);
+  }
+};
+
 /** The run_skill_script tool and its prompt section. With no skills, the extension adds nothing. */
 export const skillScriptsExtension = (
   skills: readonly SkillSummary[],
   port: SkillsPort,
   sandbox: SkillScriptSandbox,
+  secrets: ScriptSecrets | undefined,
   limits: ScriptLimits = SCRIPT_LIMITS,
   texts: ScriptTexts = ISOLATE_SCRIPT_TEXTS
 ): Extension => {
@@ -176,7 +214,8 @@ export const skillScriptsExtension = (
     return { name: SKILL_SCRIPTS_EXTENSION };
   }
   const skillsByName = new Map(skills.map((skill) => [skill.name, skill]));
-  const prompt = `Scripts written in TypeScript or JavaScript in a skill are run with ${TOOL_NAME}, not read and imitated. ${texts.surroundings}, and runs for at most ${limits.timeoutMs / 1000} seconds.`;
+  const sandboxSentence = secrets === undefined ? texts.plain : texts.granted;
+  const prompt = `Scripts written in TypeScript or JavaScript in a skill are run with ${TOOL_NAME}, not read and imitated. ${sandboxSentence} ${limits.timeoutMs / 1000} seconds.`;
 
   const run = defineTool({
     description: `Runs a skill's TypeScript or JavaScript script and returns its exit code, stdout and stderr. Give the path relative to the skill folder, as activate_skill lists it. args become process.argv from index 2. ${texts.capabilities}`,
@@ -207,22 +246,33 @@ export const skillScriptsExtension = (
           true
         );
       }
-      try {
-        const result = await runWithSafetyNet(
-          sandbox.run({
-            args: args.args ?? [],
-            entry,
-            files,
-            maxOutputBytes: limits.maxOutputBytes,
-            skill: skill.name,
-            timeoutMs: limits.timeoutMs,
-          }),
-          limits
-        );
-        return describeResult(result, limits.maxOutputBytes);
-      } catch (error) {
-        return textResult(`The sandbox failed: ${errorText(error)}`, true);
+      let granted: Awaited<ReturnType<ScriptSecrets["forRun"]>> | undefined;
+      if (secrets !== undefined) {
+        try {
+          granted = await secrets.forRun();
+        } catch (error) {
+          return textResult(
+            `Could not read the secrets: ${errorText(error)}`,
+            true
+          );
+        }
       }
+      return runInSandbox(
+        sandbox,
+        {
+          args: args.args ?? [],
+          entry,
+          files,
+          maxOutputBytes: limits.maxOutputBytes,
+          ...(granted === undefined
+            ? {}
+            : { env: granted.env, proxy: granted.proxy }),
+          skill: skill.name,
+          timeoutMs: limits.timeoutMs,
+        },
+        granted?.mask,
+        limits
+      );
     },
     name: TOOL_NAME,
     parameters: Type.Object({

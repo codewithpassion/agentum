@@ -83,6 +83,9 @@ export const claimResponseSchema = z.strictObject({
     runtimeConfig: jsonRecordSchema,
     slug: z.string(),
   }),
+  // Secrets the agent is granted as environment variables. Absent when there
+  // are none, so a daemon that predates them still parses the claim.
+  env: z.record(z.string(), z.string()).optional(),
   inputFileIds: z.array(z.string()),
   instructions: z.string(),
   mcpServers: z.record(

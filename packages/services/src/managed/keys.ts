@@ -4,7 +4,7 @@
  * the service only through `resolve`, which the runtime calls.
  *
  * Every Anthropic-side id a workspace holds belongs to the key that made it, so
- * setting or removing the key clears its managed sessions and agents. Nothing
+ * setting or removing the key clears its managed sessions, agents and skills. Nothing
  * is deleted on Anthropic's side: the old key may already be revoked.
  *
  * No method, error or log line carries the plaintext key. A rejected key is
@@ -15,6 +15,7 @@ import type { Atomic, Statement } from "@repo/db/atomic";
 import {
   managedAgents,
   managedSessions,
+  managedSkills,
   workspaceAnthropicKeys,
 } from "@repo/db/schema/managed";
 import { eq } from "drizzle-orm";
@@ -156,6 +157,7 @@ export const createManagedKeysService = ({
       .delete(managedSessions)
       .where(eq(managedSessions.workspaceId, workspaceId)),
     db.delete(managedAgents).where(eq(managedAgents.workspaceId, workspaceId)),
+    db.delete(managedSkills).where(eq(managedSkills.workspaceId, workspaceId)),
   ];
 
   /** The status the caller may see: its own workspace's, never the key. */

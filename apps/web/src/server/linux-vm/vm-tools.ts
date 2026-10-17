@@ -19,7 +19,9 @@ const SECTION_TEXT = `You have a Linux VM. The read, write, edit and bash tools 
 /** What `run_skill_script` says when the script runs in the VM. */
 export const VM_SCRIPT_TEXTS: ScriptTexts = {
   capabilities: `bun runs the script in ${VM_WORKDIR}, so it can import its own skill files and any package bun can install, read and write the session's files, and use the network.`,
-  surroundings: `The script runs with bun in the Linux VM, with network access and none of this platform's secrets`,
+  granted:
+    "The script runs with bun in the Linux VM, with network access. It has no secrets of its own: the environment variables the agent was granted are set in process.env. The VM adds no credential to requests, so a host the agent only has a credential rule for gets none. It runs for at most",
+  plain: `The script runs with bun in the Linux VM, with network access and none of this platform's secrets, and runs for at most`,
 };
 
 /** A read changes nothing, so it may run again after a restart. The others may not. */

@@ -47,7 +47,9 @@ import { importRunTokenKey, signSessionToken } from "../run-tokens.ts";
 import { loadRun } from "../runs/queries.ts";
 import type { Clock, RunRecord } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
-import { LEASE_MS } from "../runs.ts";
+import { secretsGuidance } from "../secrets/guidance.ts";
+import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
+import type { SecretsService } from "../secrets.ts";
 import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { modelFor } from "./config.ts";
 import { type EventCursor, isAbnormalStop, reduceEvents } from "./events.ts";
@@ -56,11 +58,20 @@ import type {
   ManagedGateway,
   McpServerRef,
   PolledEvents,
+  SkillRef,
 } from "./gateway.ts";
 import type { ManagedKeysService } from "./keys.ts";
 import { finalReply, toRunEvents } from "./run-events.ts";
 import {
+  createSkillsSync,
+  loadLocalSkills,
+  MAX_SKILLS,
+  type SkillsSource,
+  skillsGuidance,
+} from "./skills-sync.ts";
+import {
   MANAGED_CLAIMER,
+  MANAGED_LEASE_MS,
   type ManagedPollerPort,
   type ManagedStepResult,
 } from "./types.ts";
@@ -119,6 +130,10 @@ export interface ManagedServiceOptions {
   >;
   /** `RUN_TOKEN_KEY`. Signs the session tokens. */
   runTokenKey?: string;
+  /** The secrets an agent is granted: env values go into the sandbox, proxy secrets go through the relay. */
+  secrets?: Pick<SecretsService, "announceDelivery" | "resolveForAgent">;
+  /** The skills a run's agent has, read as that run. */
+  skills: (run: RunRecord) => SkillsSource;
 }
 
 /** What went wrong, without anything the API might have echoed back. */
@@ -143,6 +158,20 @@ const stopMessage = (stopReason: string | null, errors: string[]): string => {
   return errors.length > 0 ? `${base}: ${errors.join("; ")}` : base;
 };
 
+/** The Anthropic agent's system text: its instructions, then what it is told about skills and secrets. */
+const systemOf = (
+  agent: AgentRecord,
+  skillNames: string[],
+  secretsText: string
+): string =>
+  [
+    agent.instructions.trim() || `You are ${agent.name}.`,
+    skillsGuidance(skillNames),
+    secretsText,
+  ]
+    .filter((part) => part !== "")
+    .join("\n\n");
+
 export const createManagedService = ({
   atomic,
   clock,
@@ -154,8 +183,11 @@ export const createManagedService = ({
   publicBaseUrl,
   runs: runsApi,
   runTokenKey,
+  secrets,
+  skills: skillsOf,
 }: ManagedServiceOptions) => {
   const nowIso = () => clock.now().toISOString();
+  const skillsSync = createSkillsSync({ db, now: nowIso });
 
   let tokenKey: Promise<CryptoKey> | undefined;
   const sessionTokenKey = () => {
@@ -189,7 +221,7 @@ export const createManagedService = ({
       .update(runs)
       .set({
         claimedBy: MANAGED_CLAIMER,
-        leaseUntil: new Date(now.getTime() + LEASE_MS).toISOString(),
+        leaseUntil: new Date(now.getTime() + MANAGED_LEASE_MS).toISOString(),
         startedAt: now.toISOString(),
         status: "running",
       })
@@ -286,6 +318,7 @@ export const createManagedService = ({
     gateway,
     model,
     servers,
+    skills,
     system,
   }: {
     agent: AgentRecord;
@@ -293,6 +326,7 @@ export const createManagedService = ({
     gateway: ManagedGateway;
     model: string;
     servers: McpServerRef[];
+    skills: SkillRef[];
     system: string;
   }): Promise<string> => {
     const [row] = await db
@@ -300,7 +334,13 @@ export const createManagedService = ({
       .from(managedAgents)
       .where(eq(managedAgents.agentId, agent.id))
       .limit(1);
-    const input = { mcpServers: servers, model, name: agent.name, system };
+    const input = {
+      mcpServers: servers,
+      model,
+      name: agent.name,
+      skills,
+      system,
+    };
     if (!row) {
       const { anthropicAgentId } = await gateway.registerAgent({
         ...input,
@@ -460,18 +500,23 @@ export const createManagedService = ({
   const createSession = async ({
     agent,
     anthropicAgentId,
+    env,
     fingerprint,
     gateway,
     model,
+    relayHost,
     run,
     servers,
     text,
   }: {
     agent: AgentRecord;
     anthropicAgentId: string;
+    env: Record<string, string>;
     fingerprint: string;
     gateway: ManagedGateway;
     model: string;
+    /** The host the relay listens on, when the agent has proxy secrets. */
+    relayHost: string | null;
     run: RunRecord;
     servers: McpServerRef[];
     text: string;
@@ -493,6 +538,22 @@ export const createManagedService = ({
           displayName: server.name,
           mcpServerUrl: server.url,
           token,
+          vaultId,
+        });
+      }
+      for (const [name, value] of Object.entries(env)) {
+        // biome-ignore lint/performance/noAwaitInLoops: Anthropic takes the credentials of one vault one at a time
+        await gateway.createEnvironmentVariableCredential({
+          name,
+          value,
+          vaultId,
+        });
+      }
+      if (relayHost !== null) {
+        await gateway.createEnvironmentVariableCredential({
+          hosts: [relayHost],
+          name: RELAY_TOKEN_ENV,
+          value: token,
           vaultId,
         });
       }
@@ -540,6 +601,60 @@ export const createManagedService = ({
       ? run.inputText
       : `${run.inputText}\n\n[${run.inputFileIds.length} attached file(s) could not be passed to you: managed agents cannot read Harbourmaster files. Say so if you need what was in them.]`;
 
+  /**
+   * What the run's agent is granted, shaped for the launch. The vault holds one
+   * credential per MCP server, per env secret, and one for the relay token when
+   * there are proxy secrets. Null, with the run failed, when that is over the limit.
+   */
+  const grantsFor = async (
+    run: RunRecord,
+    agent: AgentRecord,
+    base: string,
+    servers: readonly McpServerRef[]
+  ) => {
+    if (servers.length > MAX_SERVERS) {
+      await failRun(
+        run,
+        `A managed agent reaches at most ${MAX_SERVERS - 1} connectors, and this one has ${servers.length - 1}.`
+      );
+      return null;
+    }
+    const granted = await secrets?.resolveForAgent(run.workspaceId, agent.id);
+    const env = granted?.env ?? {};
+    const envNames = Object.keys(env);
+    const proxy = granted?.proxy ?? [];
+    const credentials =
+      servers.length + envNames.length + (proxy.length > 0 ? 1 : 0);
+    if (credentials > MAX_SERVERS) {
+      await failRun(
+        run,
+        `A managed agent needs ${credentials} credentials, and the limit is ${MAX_SERVERS}.`
+      );
+      return null;
+    }
+    const hasGrants = envNames.length > 0 || proxy.length > 0;
+    return {
+      deliver: () =>
+        secrets?.announceDelivery(
+          { agentId: run.agentId, runId: run.id, workspaceId: run.workspaceId },
+          { env: envNames, proxy, surface: "managed" }
+        ),
+      env,
+      envNames,
+      // A changed secret changes the revision, so the session holding the old value is not reused.
+      fingerprintPart:
+        granted && hasGrants ? { secrets: granted.revision } : {},
+      guidance: secretsGuidance({
+        base,
+        env: envNames,
+        proxy,
+        surface: "managed",
+      }),
+      proxy,
+      relayHost: proxy.length > 0 ? new URL(base).hostname : null,
+    };
+  };
+
   /** Sends the run's input to Anthropic. Returns false when the run was failed instead. */
   const launch = async (
     run: RunRecord,
@@ -559,18 +674,41 @@ export const createManagedService = ({
       return false;
     }
     const servers = await serversOf(run, publicBaseUrl);
-    if (servers.length > MAX_SERVERS) {
+    const grants = await grantsFor(run, agent, publicBaseUrl, servers);
+    if (!grants) {
+      return false;
+    }
+    const source = skillsOf(run);
+    const local = await loadLocalSkills(source);
+    if (local.length > MAX_SKILLS) {
       await failRun(
         run,
-        `A managed agent reaches at most ${MAX_SERVERS - 1} connectors, and this one has ${servers.length - 1}.`
+        `A managed agent has at most ${MAX_SKILLS} skills, and this one has ${local.length}.`
       );
       return false;
     }
     const gateway = gatewayOf(run.workspaceId, key);
     const model = modelFor(agent.model);
-    const system = agent.instructions.trim() || `You are ${agent.name}.`;
+    const { refs, stale } = await skillsSync.sync({
+      agent,
+      gateway,
+      local,
+      source,
+    });
+    const system = systemOf(
+      agent,
+      local.map((skill) => skill.name),
+      grants.guidance
+    );
     const fingerprint = await hashToken(
-      JSON.stringify({ model, name: agent.name, servers, system })
+      JSON.stringify({
+        model,
+        name: agent.name,
+        servers,
+        skills: refs,
+        system,
+        ...grants.fingerprintPart,
+      })
     );
     const anthropicAgentId = await ensureRegistered({
       agent,
@@ -578,8 +716,10 @@ export const createManagedService = ({
       gateway,
       model,
       servers,
+      skills: refs,
       system,
     });
+    await skillsSync.removeStale(gateway, stale);
     const [session] = await db
       .select()
       .from(managedSessions)
@@ -600,9 +740,11 @@ export const createManagedService = ({
       await createSession({
         agent,
         anthropicAgentId,
+        env: grants.env,
         fingerprint,
         gateway,
         model,
+        relayHost: grants.relayHost,
         run,
         servers,
         text,
@@ -612,6 +754,14 @@ export const createManagedService = ({
       .update(managedRuns)
       .set({ sentAt: nowIso() })
       .where(eq(managedRuns.runId, run.id));
+    try {
+      await grants.deliver();
+    } catch (error) {
+      // The message is sent: a log that failed must not fail the launch.
+      console.error(
+        `Recording the secrets delivery failed: ${describeError(error)}`
+      );
+    }
     return true;
   };
 
@@ -676,7 +826,9 @@ export const createManagedService = ({
         })
         .where(eq(managedSessions.sessionId, session.sessionId)),
     ]);
-    await runsApi.heartbeatRun(SYSTEM_PRINCIPAL, run.id);
+    await runsApi.heartbeatRun(SYSTEM_PRINCIPAL, run.id, {
+      leaseMs: MANAGED_LEASE_MS,
+    });
   };
 
   /** Whether the session finished the turn, and how. */
@@ -778,7 +930,9 @@ export const createManagedService = ({
       .limit(1);
     if (!managedRun?.sentAt) {
       // Launching takes many calls to Anthropic. The lease must outlast them.
-      await runsApi.heartbeatRun(SYSTEM_PRINCIPAL, run.id);
+      await runsApi.heartbeatRun(SYSTEM_PRINCIPAL, run.id, {
+        leaseMs: MANAGED_LEASE_MS,
+      });
       if (!(await launch(run, agent))) {
         return DONE;
       }
@@ -789,7 +943,8 @@ export const createManagedService = ({
   /**
    * Ends the run's session for good: it is never reused, its token stops
    * working, and Anthropic is told to stop whatever it is doing. Nothing here
-   * throws: it runs on paths that are already failing.
+   * throws: it runs on paths that are already failing. Cancels, failed steps
+   * and the reaper (through the runtime's `abandon`) end up here.
    */
   const abandon = async (run: RunRecord): Promise<void> => {
     const [session] = await db
@@ -930,7 +1085,7 @@ export const createManagedService = ({
     return { kicked };
   };
 
-  return { interrupt, rearm, step };
+  return { abandon, interrupt, rearm, step };
 };
 
 export type ManagedService = ReturnType<typeof createManagedService>;

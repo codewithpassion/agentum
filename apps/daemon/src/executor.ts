@@ -26,6 +26,7 @@ import {
   type CompleteRequest,
   HEARTBEAT_SECONDS,
 } from "@repo/protocol/machine";
+import { createMasker, type Masker } from "@repo/protocol/masker";
 import { buildAgentEnv } from "./agent-env.ts";
 import type { Timers } from "./client.ts";
 import type { CommandRunner } from "./command.ts";
@@ -33,7 +34,6 @@ import type { DaemonConfig } from "./config.ts";
 import { createEventBatcher } from "./event-batcher.ts";
 import type { FilesApi } from "./files-api.ts";
 import type { Logger } from "./log.ts";
-import { createMasker, type Masker } from "./masker.ts";
 import {
   normalizeMessage,
   type RunResult,
@@ -81,7 +81,10 @@ export interface ExecuteRunDeps {
    * Builds the function that starts Claude Code, as hm-agent unless the
    * machine is single_user. `onStderr` receives what the process writes.
    */
-  spawnProcessFor: (onStderr: (text: string) => void) => SpawnProcess;
+  spawnProcessFor: (
+    onStderr: (text: string) => void,
+    preserveEnv: readonly string[]
+  ) => SpawnProcess;
   timers: Timers;
 }
 
@@ -163,9 +166,11 @@ const completionOf = (
 
 export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   const { claim, config, log, timers } = deps;
+  const agentSecrets = claim.env ?? {};
   const masker = createMasker({
     machine_credential: config.credential,
     run_token: claim.runToken,
+    ...agentSecrets,
   });
   const api = deps.createApi(masker);
   const filesApi = deps.createFilesApi(masker);
@@ -197,7 +202,10 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   // `error` and never `exit`, so that ends the wait too.
   let exited: Promise<void> | undefined;
   let hasExited = false;
-  const startProcess = deps.spawnProcessFor(rememberStderr);
+  const startProcess = deps.spawnProcessFor(
+    rememberStderr,
+    Object.keys(agentSecrets)
+  );
   const spawnProcess = (options: SpawnOptions): SpawnedProcess => {
     const started = startProcess(options);
     child = started;
@@ -258,7 +266,9 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       abortController,
       allowDangerouslySkipPermissions: true,
       cwd: workDir,
-      env: buildAgentEnv(deps.env),
+      // The agent's secrets join after the filter: DENY_PATTERN would drop
+      // names that contain KEY or TOKEN, and these names often do.
+      env: { ...buildAgentEnv(deps.env), ...agentSecrets },
       model: claim.agent.model,
       pathToClaudeCodeExecutable: claudeBinary,
       permissionMode: "bypassPermissions",

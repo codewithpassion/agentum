@@ -2,8 +2,8 @@
 // the masking of bodies and errors, and the status each failure carries.
 import { describe, expect, test } from "bun:test";
 import type { CompleteRequest, RunEventInput } from "@repo/protocol/machine";
+import { createMasker } from "@repo/protocol/masker";
 import { file } from "bun";
-import { createMasker } from "./masker.ts";
 import { createRunApi, RunApiError } from "./run-api.ts";
 
 const CREDENTIAL = "hm_mach_credential_for_tests_0123456789";
