@@ -28,15 +28,31 @@ export const CLOUD_MODELS = [
   },
 ] as const;
 
+/** Finds the catalog entry for an alias or a catalog id, ignoring case and spaces. */
+export const findCloudModel = (model: string) => {
+  const value = model.trim().toLowerCase();
+  return CLOUD_MODELS.find(
+    (entry) => entry.alias === value || entry.id === value
+  );
+};
+
 /**
  * Resolves an alias or a catalog id to its catalog id. Anything else comes
  * back trimmed but otherwise unchanged, so an unknown id fails at the API
  * instead of running on another model.
  */
 export const cloudModelFor = (model: string): string => {
-  const value = model.trim().toLowerCase();
-  const match = CLOUD_MODELS.find(
-    (entry) => entry.alias === value || entry.id === value
-  );
+  const match = findCloudModel(model);
   return match ? match.id : model.trim();
+};
+
+/** Returns a message naming the valid models when `model` is not one of them. */
+export const cloudModelError = (model: string): string | undefined => {
+  if (findCloudModel(model)) {
+    return;
+  }
+  const valid = CLOUD_MODELS.map(
+    (entry) => `${entry.alias} (${entry.id})`
+  ).join(", ");
+  return `Unknown model "${model.trim()}". Valid cloud models: ${valid}.`;
 };

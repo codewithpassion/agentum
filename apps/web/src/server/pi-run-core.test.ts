@@ -107,6 +107,7 @@ const createFakePi = () => {
   const inputs: PiInput[] = [];
   const aborted: string[] = [];
   const models: string[] = [];
+  const instructions: string[] = [];
   let nextId = 1;
 
   const append = (...model: Message[]): number => {
@@ -144,6 +145,10 @@ const createFakePi = () => {
     entryOf: (operationId) => {
       const submission = submissions.get(operationId);
       return Promise.resolve(submission ? String(submission.entry) : undefined);
+    },
+    setInstructions: (text) => {
+      instructions.push(text);
+      return Promise.resolve();
     },
     setModel: (model) => {
       models.push(model);
@@ -193,6 +198,7 @@ const createFakePi = () => {
       }
     },
     inputs,
+    instructions,
     models,
     pi,
     /** The model says something. */
@@ -231,6 +237,14 @@ const createFakePi = () => {
     submitted,
   };
 };
+
+const withInstructions = (
+  input: CloudStart,
+  instructions: string
+): CloudStart => ({
+  ...input,
+  agent: { ...input.agent, instructions },
+});
 
 const startOf = (runId: string, text = "hello"): CloudStart => ({
   agent: {
@@ -284,6 +298,7 @@ const build = (
       fileIds: readonly string[]
     ) => Promise<PiInput>;
     installSkills?: () => Promise<void>;
+    modelError?: (model: string) => string | undefined;
     now?: () => number;
     outputsOf?: (run: RunRef, text: string) => Promise<RunOutputs>;
     status?: () => RunStatus;
@@ -333,6 +348,7 @@ const build = (
       installed.push(input.run.id);
       return Promise.resolve();
     },
+    modelError: options.modelError ?? (() => undefined),
     now: options.now,
     outputsOf: (run, text) => {
       outputs.push({ run, text });
@@ -449,6 +465,7 @@ describe("start", () => {
       inputOf: (_run, text) => Promise.resolve(text),
       installSkills: () => Promise.resolve(),
       installTools: () => Promise.reject(new Error("tools/list failed")),
+      modelError: () => undefined,
       outputsOf: (_run, text) => Promise.resolve({ fileIds: [], text }),
       pi: fake.pi,
       statusOf: () => Promise.resolve("running"),
@@ -558,6 +575,59 @@ describe("model failure", () => {
       error: "no_model",
       status: "failed",
     });
+  });
+});
+
+describe("instructions", () => {
+  test("reach Pi before the first submit", async () => {
+    const fake = createFakePi();
+    let seenBySubmit: string[] = [];
+    const h = build({
+      fake,
+      inputOf: () => {
+        seenBySubmit = [...fake.instructions];
+        return Promise.resolve("hello");
+      },
+    });
+    await h.core.start(startOf("run-1"));
+    expect(seenBySubmit).toEqual(["Be brief."]);
+    expect(h.fake.submitted).toHaveLength(1);
+  });
+
+  test("a later run of the session sends the agent's changed instructions", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    h.fake.finish("run-1", { status: "done", text: "one" });
+    await settle();
+    await h.core.start(
+      withInstructions(startOf("run-2", "second"), "Be thorough.")
+    );
+    expect(h.fake.instructions).toEqual(["Be brief.", "Be thorough."]);
+  });
+});
+
+describe("a model that cannot run", () => {
+  test("fails the run with the model error and sets up nothing in Pi", async () => {
+    const h = build({ modelError: (model) => `Unknown model ${model}` });
+    await h.core.start(startOf("run-1"));
+
+    expect(h.completed).toEqual([
+      {
+        result: { error: "Unknown model claude-test", status: "failed" },
+        runId: "run-1",
+      },
+    ]);
+    expect(h.fake.submitted).toEqual([]);
+    expect(h.fake.models).toEqual([]);
+    expect(h.fake.instructions).toEqual([]);
+    expect(h.installed).toEqual([]);
+  });
+
+  test("a valid model completes nothing at start", async () => {
+    const h = build({ modelError: () => undefined });
+    await h.core.start(startOf("run-1"));
+    expect(h.completed).toEqual([]);
+    expect(h.fake.submitted).toHaveLength(1);
   });
 });
 
@@ -938,6 +1008,7 @@ describe("resume", () => {
     await storage.put("run:run-1", {
       agentId: "agent-1",
       fileIds: [],
+      instructions: "Be brief.",
       model: "claude-test",
       startedAt: 0,
       state: "active",
@@ -950,6 +1021,24 @@ describe("resume", () => {
     expect(h.fake.submitted).toEqual([
       { operationId: "run-1", text: "hello", whenBusy: "followUp" },
     ]);
+  });
+
+  test("submits a run again with the instructions it was started with", async () => {
+    const storage = memoryStorage();
+    await storage.put("runs", ["run-1"]);
+    await storage.put("run:run-1", {
+      agentId: "agent-1",
+      fileIds: [],
+      instructions: "Stored text.",
+      model: "claude-test",
+      startedAt: 0,
+      state: "active",
+      text: "hello",
+      workspaceId: "workspace-1",
+    });
+    const h = build({ storage });
+    await h.core.resume();
+    expect(h.fake.instructions).toEqual(["Stored text."]);
   });
 
   test("works the unfinished runs again after a wake and leaves finished ones", async () => {

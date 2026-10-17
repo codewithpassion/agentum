@@ -1,4 +1,4 @@
-import { CLOUD_DEFAULT_MODEL, CLOUD_MODELS } from "@repo/services/cloud/models";
+import { CLOUD_MODELS, findCloudModel } from "@repo/services/cloud/models";
 import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, type FormEvent, useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
@@ -12,8 +12,6 @@ import { Input } from "#/components/ui/input";
 import { NativeSelect } from "#/components/ui/native-select";
 import { Textarea } from "#/components/ui/textarea";
 import type { MachineRecord } from "#/integrations/trpc/types";
-
-const cloudAliases = CLOUD_MODELS.map((model) => model.alias).join(", ");
 
 export interface AgentFormValues {
   instructions: string;
@@ -78,6 +76,11 @@ export function AgentForm({
       update("model", event.target.value),
     [update]
   );
+  const handleCloudModel = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) =>
+      update("model", event.target.value),
+    [update]
+  );
   const handleRuntime = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) =>
       update("runtime", toRuntime(event.target.value)),
@@ -90,6 +93,7 @@ export function AgentForm({
   );
 
   const selectable = machines.filter((machine) => machine.status !== "revoked");
+  const cloudAlias = findCloudModel(values.model)?.alias ?? "";
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -131,15 +135,29 @@ export function AgentForm({
         </Field>
         <Field>
           <FieldLabel htmlFor="agent-model">Model</FieldLabel>
-          <Input id="agent-model" onChange={handleModel} value={values.model} />
+          {values.runtime === "cloud" ? (
+            <NativeSelect
+              id="agent-model"
+              onChange={handleCloudModel}
+              required
+              value={cloudAlias}
+            >
+              {cloudAlias === "" && <option value="">Choose a model</option>}
+              {CLOUD_MODELS.map((entry) => (
+                <option key={entry.alias} value={entry.alias}>
+                  {entry.label}
+                </option>
+              ))}
+            </NativeSelect>
+          ) : (
+            <Input
+              id="agent-model"
+              onChange={handleModel}
+              value={values.model}
+            />
+          )}
           {values.runtime === "managed" && (
             <FieldDescription>Use opus, sonnet or haiku.</FieldDescription>
-          )}
-          {values.runtime === "cloud" && (
-            <FieldDescription>
-              Use one of {cloudAliases}, or a Claude model id such as{" "}
-              {CLOUD_DEFAULT_MODEL}.
-            </FieldDescription>
           )}
         </Field>
         <Field>
