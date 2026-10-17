@@ -352,3 +352,114 @@ describe("cancel", () => {
     expect(logged.join("\n")).toContain(runId);
   });
 });
+
+describe("offering the next run when one ends", () => {
+  const otherSession = { externalKey: "thread-2", origin: "slack" } as const;
+  const startedIds = () => runner.startCalls.map((call) => call.run.id);
+
+  test("a queued run of the session starts when the running one is done", async () => {
+    const first = await start();
+    const second = await start();
+    expect(runRow(second.runId)?.status).toBe("queued");
+
+    await runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
+      status: "done",
+      text: "Done",
+    });
+
+    expect(runRow(first.runId)?.status).toBe("done");
+    expect(runRow(second.runId)?.status).toBe("running");
+    expect(startedIds()).toEqual([first.runId, second.runId]);
+  });
+
+  test("a queued run of the session starts when the running one fails", async () => {
+    const first = await start();
+    const second = await start();
+
+    await runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
+      error: "boom",
+      status: "failed",
+    });
+
+    expect(runRow(first.runId)?.status).toBe("failed");
+    expect(runRow(second.runId)?.status).toBe("running");
+    expect(startedIds()).toEqual([first.runId, second.runId]);
+  });
+
+  test("a queued run of the session starts when the running one is cancelled", async () => {
+    const first = await start();
+    const second = await start();
+
+    await runs.cancelRun(dom, first.runId);
+
+    expect(runRow(first.runId)?.status).toBe("cancelled");
+    expect(runRow(second.runId)?.status).toBe("running");
+    expect(startedIds()).toEqual([first.runId, second.runId]);
+  });
+
+  test("a queued run of another session of the agent starts when the running one ends", async () => {
+    const first = await start();
+    const second = await start({ session: otherSession });
+
+    await runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
+      status: "done",
+      text: "Done",
+    });
+
+    expect(runRow(second.runId)?.status).toBe("running");
+    expect(startedIds()).toEqual([first.runId, second.runId]);
+  });
+
+  test("with two waiting runs only the oldest starts, and the next one after it ends", async () => {
+    const first = await start();
+    const second = await start();
+    const third = await start();
+
+    await runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
+      status: "done",
+      text: "Done",
+    });
+
+    expect(runRow(second.runId)?.status).toBe("running");
+    expect(runRow(third.runId)?.status).toBe("queued");
+    expect(startedIds()).toEqual([first.runId, second.runId]);
+
+    await runs.completeRun(SYSTEM_PRINCIPAL, second.runId, {
+      status: "done",
+      text: "Done",
+    });
+
+    expect(runRow(third.runId)?.status).toBe("running");
+    expect(startedIds()).toEqual([first.runId, second.runId, third.runId]);
+  });
+
+  test("a queued run cancelled while another run still runs starts nothing", async () => {
+    const first = await start();
+    const second = await start();
+    const third = await start();
+
+    await runs.cancelRun(dom, second.runId);
+
+    expect(runRow(first.runId)?.status).toBe("running");
+    expect(runRow(third.runId)?.status).toBe("queued");
+    expect(startedIds()).toEqual([first.runId]);
+  });
+
+  test("a failing runner start while offering does not fail completeRun", async () => {
+    const first = await start();
+    const second = await start();
+    runner.startFailure = new Error("runner unavailable");
+
+    await expect(
+      runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
+        status: "done",
+        text: "Done",
+      })
+    ).resolves.toBeUndefined();
+
+    expect(runRow(first.runId)?.status).toBe("done");
+    expect(runRow(second.runId)?.status).toBe("offered");
+    expect(startedIds()).toEqual([first.runId, second.runId]);
+    expect(logged.join("\n")).toContain(second.runId);
+  });
+});

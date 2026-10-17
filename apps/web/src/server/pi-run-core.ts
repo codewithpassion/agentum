@@ -424,18 +424,17 @@ export const createRunCore = ({
    * (Pi answers `accepted: false`) and only refreshes the run token. A run
    * that arrives while the session is busy joins the work in progress.
    */
-  const startOnce = async (input: CloudStart): Promise<void> => {
+  const startOnce = async (input: CloudStart): Promise<string | undefined> => {
     const { run } = input;
     const existing = await load(run.id);
     if (existing?.state === "finished") {
       return;
     }
     if (!existing) {
-      // A run that cannot start ends failed: a throw here would make the platform release it and retry it for ever.
       const modelIssue = modelError(input.agent.model);
       if (modelIssue) {
-        await completeRun(run.id, { error: modelIssue, status: "failed" });
-        return;
+        // The caller fails the run once this turn is over, see `start`.
+        return modelIssue;
       }
       await installTools(input);
       // A skill list that cannot be read (over the cap, storage down) must not hold the run back: the sweep would offer it again for ever.
@@ -479,10 +478,15 @@ export const createRunCore = ({
 
   // Two starts of one run at the same moment (a duplicate dispatch) take turns.
   let starting: Promise<unknown> = Promise.resolve();
-  const start = (input: CloudStart): Promise<void> => {
+  const start = async (input: CloudStart): Promise<void> => {
     const turn = starting.then(() => startOnce(input));
     starting = turn.catch(() => undefined);
-    return turn;
+    const modelIssue = await turn;
+    if (modelIssue) {
+      // A run that cannot start ends failed: a throw here would make the platform release it and retry it for ever.
+      // The platform then offers the session's next run, which starts on this object, so this runs after the turn: inside it, that start would wait on this one.
+      await completeRun(input.run.id, { error: modelIssue, status: "failed" });
+    }
   };
 
   /** Stops a run's work. A run this object never saw is ignored. */
