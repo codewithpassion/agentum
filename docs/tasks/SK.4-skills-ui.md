@@ -3,7 +3,7 @@ id: SK.4
 title: Skills page, versions, approvals and assignment in agent config
 milestone: SK
 size: M
-status: in_progress
+status: done
 depends_on: [SK.1]
 branch: task/SK.4-skills-ui
 ---
@@ -26,3 +26,4 @@ Asked for by Dom on 17 Oct 2026. The agent's Skills tab (`apps/web/src/component
 ## Log
 - 2026-10-17: added at Dom's request.
 - 2026-10-18: dispatched. Note from SK.1: the service is `@repo/services/skills-store` (see packages/services/README.md and docs/reviews/tasks/SK.1.md); skill names are unique per owner scope, so show the owner wherever a name is shown.
+- 2026-10-18: review clean after 1 fix round at 17fadc7 (docs/reviews/tasks/SK.4.md). Merged. Added read methods assignments, proposals, readFile to skills-store.
