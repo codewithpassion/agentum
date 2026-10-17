@@ -3,7 +3,7 @@ id: C.9
 title: Pi durability suite
 milestone: C
 size: S
-status: in_progress
+status: done
 depends_on: [C.4]
 branch: task/C.9-pi-durability-suite
 ---
@@ -21,3 +21,4 @@ The script exits 0 on the pinned versions. `bun run check && bun run test && bun
 ## Log
 - 2026-10-17: added from the C.0 spike (Dom: go on all).
 - 2026-10-17: dispatched on task/C.9-pi-durability-suite.
+- 2026-10-17: review clean after 0 fix rounds at 00984a0 (docs/reviews/tasks/C.9.md). Merged. bun run e2e:pi-durability covers unsafe and long-outage cases plus exact pins; safe-tool case moved to C.10.
