@@ -47,7 +47,7 @@ test("workDirPath lays out home, workspace, agent and work", () => {
   );
 });
 
-test("multi-user runs mkdir then rm as hm-agent under the agent home", async () => {
+test("multi-user runs mkdir, rm, then mkdir tmp as hm-agent under the agent home", async () => {
   const { calls, run } = fakeRun();
 
   const dir = await prepareWorkDir({

@@ -262,12 +262,13 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   const buildOptions = (workDir: string, claudeBinary: string): Options => {
     const budget = budgetOf(claim.agent.runtimeConfig);
     const resume = resumeOf(claim, config);
-    const files = workspaceInstructions({
+    // The daemon only collects attachments inside the work dir, so say so.
+    const files = `${workspaceInstructions({
       home: workDir,
       homeIsLocal: true,
       library: null,
       scratch: { lasts: "run-start", path: `${workDir}/${SCRATCH_DIR}` },
-    });
+    })}\nA file can only be attached from inside ${workDir}.`;
     return {
       abortController,
       allowDangerouslySkipPermissions: true,

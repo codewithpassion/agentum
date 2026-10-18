@@ -639,12 +639,13 @@ describe("the options passed to query", () => {
         ? (prompt.append ?? "")
         : "";
     expect(append.startsWith(run.claim.instructions)).toBe(true);
-    const sentence = append.slice(run.claim.instructions.length).trim();
-    expect(sentence.split("\n").at(-1)).toContain(
-      "on its own line in your final answer"
+    const filesSection = append.slice(run.claim.instructions.length).trim();
+    expect(filesSection).toContain("on its own line in your final answer");
+    expect(filesSection).toContain(
+      `A file can only be attached from inside ${workDirOf(run.claim)}.`
     );
     // The marker in the sentence is one the parser accepts, with a path slot.
-    const [marker] = sentence.match(ATTACHMENT_MARKER_RE) ?? [];
+    const [marker] = filesSection.match(ATTACHMENT_MARKER_RE) ?? [];
     expect(marker).toBe(formatAttachmentMarker("<absolute path>"));
     expect(extractAttachmentMarkers(`ok\n${marker}`).paths).toEqual([
       "<absolute path>",
