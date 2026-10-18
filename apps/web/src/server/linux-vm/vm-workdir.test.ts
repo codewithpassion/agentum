@@ -209,6 +209,53 @@ describe("placeSkills", () => {
     expect(vm.folders.has("/workspace/skills.run-1")).toBe(false);
   });
 
+  test("keeps the old skills readable until the new folder is renamed in", async () => {
+    const vm = createFakeVm();
+    vm.folders.add(SKILLS);
+    vm.files.set(`${SKILLS}/shout/SKILL.md`, bytesOf("old skill"));
+    const removed: string[] = [];
+    const { remove, rename } = vm;
+    vm.remove = (path, options) => {
+      removed.push(path);
+      return remove(path, options);
+    };
+    let oldAside: string | undefined;
+    vm.rename = (from, to) => {
+      if (to === SKILLS) {
+        oldAside = textOf(
+          vm.files.get("/workspace/skills.old.run-1/shout/SKILL.md")
+        );
+      }
+      return rename(from, to);
+    };
+
+    await placeSkills(vm, [shout], portOf(shoutContents()), "run-1");
+
+    expect(removed).not.toContain(SKILLS);
+    expect(oldAside).toBe("old skill");
+    expect(vm.folders.has("/workspace/skills.old.run-1")).toBe(false);
+    expect(textOf(vm.files.get(`${SKILLS}/shout/SKILL.md`))).toContain("Shout");
+  });
+
+  test("puts the old skills back when the swap fails", async () => {
+    const vm = createFakeVm();
+    vm.folders.add(SKILLS);
+    vm.files.set(`${SKILLS}/shout/SKILL.md`, bytesOf("old skill"));
+    const { rename } = vm;
+    vm.rename = (from, to) =>
+      from === "/workspace/skills.run-1" && to === SKILLS
+        ? Promise.reject(new Error("rename failed"))
+        : rename(from, to);
+
+    await expect(
+      placeSkills(vm, [shout], portOf(shoutContents()), "run-1")
+    ).rejects.toThrow("rename failed");
+
+    expect(textOf(vm.files.get(`${SKILLS}/shout/SKILL.md`))).toBe("old skill");
+    expect(vm.folders.has("/workspace/skills.run-1")).toBe(false);
+    expect(vm.folders.has("/workspace/skills.old.run-1")).toBe(false);
+  });
+
   test("sets the executable flag on flagged files in one command", async () => {
     const vm = createFakeVm();
     const flagged = ["shout/scripts/hello.ts", "shout/SKILL.md"];

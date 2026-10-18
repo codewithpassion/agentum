@@ -18,7 +18,7 @@ import {
 } from "./vm-port.ts";
 
 const IDLE_MS = 300_000;
-const LABEL = "session-1";
+const LABEL = "agent-1";
 const SNAPSHOT_KEY = "snapshot";
 const PREPARED_KEY = "prepared";
 

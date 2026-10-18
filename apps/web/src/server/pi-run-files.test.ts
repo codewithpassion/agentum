@@ -392,9 +392,10 @@ describe("filesExtension without instructions", () => {
 
   test("still offers read_input_file", async () => {
     expect(
-      await runReadTool(
-        async () => ({ bytes: TEXT_BYTES, mime: "text/plain", name: "n.txt" }),
-        "f"
+      await toolNamed(extension, "read_input_file").execute(
+        { id: "f" },
+        NO_API,
+        CONTEXT
       )
     ).toEqual({
       isError: false,

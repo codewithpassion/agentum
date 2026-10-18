@@ -27,7 +27,7 @@ const SECTION_TEXT = `${VM_FACTS}\n\n${WORKSPACE_TEXT}`;
 
 /** What `run_skill_script` says when the script runs in the VM. */
 export const VM_SCRIPT_TEXTS: ScriptTexts = {
-  capabilities: `bun runs the script in ${VM_HOME_DIR}, so it can import its own skill files and any package bun can install, read and write the session's files, and use the network.`,
+  capabilities: `bun runs the script in ${VM_HOME_DIR}, so it can import its own skill files and any package bun can install, read and write the agent's files, and use the network.`,
   granted:
     "The script runs with bun in the Linux VM, with network access. The environment variables the agent was granted are set in process.env, and HTTPS requests to hosts the agent has a credential for get that credential added for it. It runs for at most",
   plain:

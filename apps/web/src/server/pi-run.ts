@@ -201,7 +201,7 @@ export class PiRun extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // The attachment instructions and `read_input_file` are the same for every run.
+    // The isolate's files section and `read_input_file`. `#switchEnvironment` replaces them when the agent runs in a VM.
     this.registry.install(filesExtension((fileId) => this.#readInput(fileId)));
     this.registry.install(libraryToolsExtension());
   }

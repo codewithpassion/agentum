@@ -75,33 +75,56 @@ const markExecutable = async (
   }
 };
 
+const isCode = (error: unknown, ...codes: string[]): boolean =>
+  error instanceof VmFileError && codes.includes(error.code);
+
 /**
  * Replaces the skills folder with `staging`. A rename onto a folder that is not
- * empty fails, so the old folder is removed first. A run that swaps in the
- * same moment can fill it again between the two calls, so that case tries again.
+ * empty fails, so the old folder is first renamed aside, not deleted: a call
+ * that reads it is cut off for the time of two renames, not of a delete. The
+ * old folder is deleted after the swap, or put back when the swap fails. A run that swaps in the same moment can
+ * fill the name again between the two renames, so that case tries again.
  */
-const swapIn = async (vm: LinuxVm, staging: string): Promise<void> => {
-  for (let attempt = 1; ; attempt += 1) {
-    // biome-ignore lint/performance/noAwaitInLoops: each attempt follows the failure of the one before
-    await vm.remove(SKILLS_DIR, { force: true, recursive: true });
-    try {
-      await vm.rename(staging, SKILLS_DIR);
-      return;
-    } catch (error) {
-      const taken =
-        error instanceof VmFileError &&
-        (error.code === "ENOTEMPTY" || error.code === "EEXIST");
-      if (!taken || attempt >= SWAP_ATTEMPTS) {
-        throw error;
+const swapIn = async (
+  vm: LinuxVm,
+  staging: string,
+  aside: string
+): Promise<void> => {
+  let swapped = false;
+  try {
+    for (let attempt = 1; ; attempt += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: each attempt follows the failure of the one before
+      await vm.remove(aside, { force: true, recursive: true });
+      try {
+        await vm.rename(SKILLS_DIR, aside);
+      } catch (error) {
+        if (!isCode(error, "ENOENT")) {
+          throw error;
+        }
+      }
+      try {
+        await vm.rename(staging, SKILLS_DIR);
+        swapped = true;
+        return;
+      } catch (error) {
+        if (!isCode(error, "ENOTEMPTY", "EEXIST") || attempt >= SWAP_ATTEMPTS) {
+          throw error;
+        }
       }
     }
+  } finally {
+    if (!swapped) {
+      // The swap failed, so the old skills go back where they were.
+      await vm.rename(aside, SKILLS_DIR).catch(() => undefined);
+    }
+    await vm.remove(aside, { force: true, recursive: true });
   }
 };
 
 /**
  * Puts the run's skills in `${VM_WORKDIR}/skills`. The files are first written
  * to a staging folder named for the run, `${VM_WORKDIR}/skills.${runId}`, and
- * that folder then replaces the skills folder in one rename. The VM is shared
+ * that folder then replaces the skills folder by a rename. The VM is shared
  * by every session of an agent, so a run must not empty the folder that another
  * run's call is reading. The staging folder is what changes, and the swap
  * takes the old folder away, so a skill that was deleted does not stay.
@@ -130,7 +153,7 @@ export const placeSkills = async (
     if (skipped.length === 0 && executable.length > 0) {
       await markExecutable(vm, staging, executable);
     }
-    await swapIn(vm, staging);
+    await swapIn(vm, staging, `${VM_WORKDIR}/skills.old.${runId}`);
   } catch (error) {
     await vm.remove(staging, { force: true, recursive: true });
     throw error;
