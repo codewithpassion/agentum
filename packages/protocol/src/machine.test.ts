@@ -14,6 +14,7 @@ import {
   enrollResponseSchema,
   eventsRequestSchema,
   eventsResponseSchema,
+  hasDaemonFeature,
   heartbeatResponseSchema,
   offerSchema,
   relayFrameSchema,
@@ -115,6 +116,26 @@ describe("machine protocol fixtures", () => {
     expect(claimResponseSchema.safeParse(nullModel).success).toBe(false);
   });
 
+  test("claim-response accepts the library paths and conflicts, and rejects an unknown key in them", async () => {
+    const parsed = claimResponseSchema.parse(
+      await loadFixture("claim-response")
+    );
+    const library = {
+      conflicts: ["agents/ada/notes.md.conflict-r1"],
+      paths: ["agents/ada"],
+    };
+    expect(claimResponseSchema.parse({ ...parsed, library }).library).toEqual(
+      library
+    );
+    expect(parsed.library).toBeUndefined();
+    expect(
+      claimResponseSchema.safeParse({
+        ...parsed,
+        library: { ...library, extra: true },
+      }).success
+    ).toBe(false);
+  });
+
   test("complete-request accepts a usage with only costUsd", async () => {
     const raw = (await loadFixture("complete-request-done")) as Record<
       string,
@@ -164,5 +185,19 @@ describe("machine protocol fixtures", () => {
       .sort();
     const listed = cases.map(([name]) => name).sort();
     expect(listed).toEqual(onDisk);
+  });
+});
+
+describe("hasDaemonFeature", () => {
+  test("finds a feature among several, with spaces around it", () => {
+    expect(hasDaemonFeature("a, library-sync ,b", "library-sync")).toBe(true);
+    expect(hasDaemonFeature("library-sync", "library-sync")).toBe(true);
+  });
+
+  test("is false for a missing or empty header and for a different name", () => {
+    expect(hasDaemonFeature(undefined, "library-sync")).toBe(false);
+    expect(hasDaemonFeature(null, "library-sync")).toBe(false);
+    expect(hasDaemonFeature("", "library-sync")).toBe(false);
+    expect(hasDaemonFeature("library-sync-v2", "library-sync")).toBe(false);
   });
 });

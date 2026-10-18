@@ -2,7 +2,11 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { migrated } from "@repo/db/test-db";
-import { claimResponseSchema } from "@repo/protocol/machine";
+import {
+  claimResponseSchema,
+  DAEMON_FEATURES_HEADER,
+  FEATURE_LIBRARY_SYNC,
+} from "@repo/protocol/machine";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { importRunTokenKey } from "@repo/services/run-tokens";
@@ -145,18 +149,33 @@ const call = (
   action: Action,
   runId: string,
   credential: string | null,
-  body: unknown = {}
+  body: unknown = {},
+  extraHeaders: Record<string, string> = {}
 ) =>
   app.request(`${RUN_ROUTES}/${runId}/${action}`, {
     body: typeof body === "string" ? body : JSON.stringify(body),
     headers: {
       ...(credential ? { Authorization: `Bearer ${credential}` } : {}),
+      ...extraHeaders,
       "content-type": "application/json",
     },
     method: "POST",
   });
 
+/** A claim from a daemon that reads the library part of it, as the daemon of W.8 does. */
 const claim = (credential: string, runId: string) =>
+  call(
+    "claim",
+    runId,
+    credential,
+    {},
+    {
+      [DAEMON_FEATURES_HEADER]: FEATURE_LIBRARY_SYNC,
+    }
+  );
+
+/** A claim from a daemon built before W.8: it sends no feature header. */
+const oldDaemonClaim = (credential: string, runId: string) =>
   call("claim", runId, credential);
 
 test("a run goes offered, running, then done through the four routes", async () => {
@@ -170,6 +189,11 @@ test("a run goes offered, running, then done through the four routes", async () 
   const body = claimResponseSchema.parse(await claimed.json());
   expect(body.run.id).toBe(started.runId);
   expect(body.run.workspaceId).toBe(workspaceId);
+  // The claim names the agent's library folder, with no conflict copies yet.
+  expect(body.library).toEqual({
+    conflicts: [],
+    paths: [`agents/${body.agent.slug}`],
+  });
   expect(row(started.runId)?.status).toBe("running");
 
   const stored = await call("events", started.runId, credential, ONE_EVENT);
@@ -185,6 +209,28 @@ test("a run goes offered, running, then done through the four routes", async () 
   const finished = row(started.runId);
   expect(finished?.status).toBe("done");
   expect(finished?.resultText).toBe("hi");
+});
+
+test("a claim for a daemon built before W.8 has no library key, so its strict schema still parses it", async () => {
+  const { credential, machineId } = await enrol("laptop");
+  const agentId = await agentOn(machineId, "Box");
+  const started = await start(agentId);
+
+  const claimed = await oldDaemonClaim(credential, started.runId);
+
+  expect(claimed.status).toBe(200);
+  const json = (await claimed.json()) as Record<string, unknown>;
+  // Exactly the keys an older daemon's strict schema knows.
+  expect(Object.keys(json).sort()).toEqual([
+    "agent",
+    "inputFileIds",
+    "instructions",
+    "mcpServers",
+    "run",
+    "runToken",
+    "session",
+  ]);
+  expect(row(started.runId)?.status).toBe("running");
 });
 
 test("a second claim of the same run answers 409", async () => {

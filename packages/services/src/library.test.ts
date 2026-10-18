@@ -852,3 +852,74 @@ test("recordConflict refuses a machine", async () => {
   ).toBeInstanceOf(ForbiddenError);
   expect(libraryEvents()).toEqual([]);
 });
+
+test("pendingConflicts returns the conflict copies under a root, sorted", async () => {
+  await writeAll([
+    "notes/b.md.conflict-r1",
+    "notes/a.md.conflict-r2",
+    "notes/deep/c.md.conflict-r3",
+  ]);
+  expect(await service.pendingConflicts(user(), ["notes"])).toEqual([
+    "notes/a.md.conflict-r2",
+    "notes/b.md.conflict-r1",
+    "notes/deep/c.md.conflict-r3",
+  ]);
+});
+
+test("pendingConflicts leaves out a copy outside the roots", async () => {
+  await writeAll(["notes/a.md.conflict-r1", "other/b.md.conflict-r1"]);
+  expect(await service.pendingConflicts(user(), ["notes"])).toEqual([
+    "notes/a.md.conflict-r1",
+  ]);
+});
+
+test("pendingConflicts leaves out plain files and names that only contain conflict", async () => {
+  await writeAll([
+    "notes/a.md",
+    "notes/conflict.md",
+    "notes/conflicted.md",
+    "notes/a.conflict.md",
+  ]);
+  expect(await service.pendingConflicts(user(), [""])).toEqual([]);
+});
+
+test("pendingConflicts leaves out a folder named like a copy and what is inside it", async () => {
+  await service.write(user(), "x.conflict-1/inside.md", bytes("x"));
+  expect(paths()).toContain("x.conflict-1");
+  expect(await service.pendingConflicts(user(), [""])).toEqual([]);
+});
+
+test("pendingConflicts returns a copy at the root path itself", async () => {
+  await writeAll(["notes/a.md.conflict-r1"]);
+  expect(
+    await service.pendingConflicts(user(), ["notes/a.md.conflict-r1"])
+  ).toEqual(["notes/a.md.conflict-r1"]);
+});
+
+test("pendingConflicts never returns copies of another workspace", async () => {
+  await service.write(user(B), "notes/a.md.conflict-r1", bytes("b"));
+  expect(await service.pendingConflicts(user(A), [""])).toEqual([]);
+});
+
+test("pendingConflicts answers a user and a run, and refuses a machine", async () => {
+  await writeAll(["notes/a.md.conflict-r1"]);
+  const machine: Principal = {
+    kind: "machine",
+    machineId: "m1",
+    workspaceId: A,
+  };
+  expect(await service.pendingConflicts(user(), ["notes"])).toEqual([
+    "notes/a.md.conflict-r1",
+  ]);
+  expect(await service.pendingConflicts(runPrincipal, ["notes"])).toEqual([
+    "notes/a.md.conflict-r1",
+  ]);
+  expect(
+    await errorOf(service.pendingConflicts(machine, ["notes"]))
+  ).toBeInstanceOf(ForbiddenError);
+});
+
+test("pendingConflicts returns [] for an empty root list", async () => {
+  await writeAll(["notes/a.md.conflict-r1"]);
+  expect(await service.pendingConflicts(user(), [])).toEqual([]);
+});

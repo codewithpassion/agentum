@@ -4,6 +4,13 @@
 // channel with `setMcpServers`, and only then send the first user message. The
 // run token reaches Claude Code through that control channel and nowhere else.
 //
+// The agent's skills and its part of the workspace library are copied in
+// between preparing the work directory and the first message. The library
+// changes go back while the run works (a checkpoint every few minutes) and
+// once more after the process has exited, before the completion, because the
+// run token stops working when the run ends. A run that was aborted sends
+// nothing back: its edits stay on disk and go with the next run's sync.
+//
 // Input files are downloaded between preparing the work directory and the first
 // message. Output files are uploaded after the process has exited and before
 // the completion; heartbeats go on until the completion body is built, so a slow
@@ -33,6 +40,12 @@ import type { CommandRunner } from "./command.ts";
 import type { DaemonConfig } from "./config.ts";
 import { createEventBatcher } from "./event-batcher.ts";
 import type { FilesApi } from "./files-api.ts";
+import type { LibraryApi } from "./library-api.ts";
+import {
+  createDaemonLibrarySync,
+  type DaemonLibrarySync,
+  LIBRARY_DIR,
+} from "./library-sync.ts";
 import type { Logger } from "./log.ts";
 import {
   normalizeMessage,
@@ -48,6 +61,7 @@ import {
 } from "./run-files.ts";
 import type { SkillsApi } from "./skills-api.ts";
 import { syncSkills } from "./skills-sync.ts";
+import { createWorkDisk } from "./work-disk.ts";
 import { createWorkFiles, type WorkFiles } from "./work-files.ts";
 import { prepareWorkDir, SCRATCH_DIR } from "./workdir.ts";
 
@@ -68,6 +82,8 @@ export interface ExecuteRunDeps {
   createApi: (masker: Masker) => RunApi;
   /** Builds the client for the file routes, which take the run token. */
   createFilesApi: (masker: Masker) => FilesApi;
+  /** Builds the client for the library routes, which take the run token. The signal ends its requests when the run is aborted. */
+  createLibraryApi: (masker: Masker, signal: AbortSignal) => LibraryApi;
   /** Builds the client for the skills routes, which take the run token. */
   createSkillsApi: (masker: Masker) => SkillsApi;
   /** The daemon user's home, for the work directory of a single_user machine. */
@@ -88,6 +104,9 @@ export interface ExecuteRunDeps {
   timers: Timers;
 }
 
+/** The library folders the run's prompt names: copied in, with the conflict copies waiting in them. */
+type LibraryCopy = NonNullable<ClaimResponse["library"]>;
+
 export interface RunExecution {
   /** Stops the run. The completion is posted as `aborted` after the process exits. */
   abort: (reason: string) => void;
@@ -96,6 +115,10 @@ export interface RunExecution {
 }
 
 const HEARTBEAT_MS = HEARTBEAT_SECONDS * 1000;
+const MINUTE_MS = 60_000;
+const LIBRARY_CHECKPOINT_MINUTES = 5;
+/** How often a running run sends its library changes back. */
+export const LIBRARY_CHECKPOINT_MS = LIBRARY_CHECKPOINT_MINUTES * MINUTE_MS;
 /** How long Claude Code gets to leave after SIGTERM before SIGKILL. */
 export const KILL_GRACE_MS = 5000;
 const STDERR_TAIL_CHARS = 500;
@@ -259,15 +282,21 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
     });
   };
 
-  const buildOptions = (workDir: string, claudeBinary: string): Options => {
+  const buildOptions = (
+    workDir: string,
+    claudeBinary: string,
+    library: LibraryCopy | undefined
+  ): Options => {
     const budget = budgetOf(claim.agent.runtimeConfig);
     const resume = resumeOf(claim, config);
     // The daemon only collects attachments inside the work dir, so say so.
     const files = `${workspaceInstructions({
+      conflicts: library?.conflicts,
       home: workDir,
       homeIsLocal: true,
-      library: null,
+      library: library ? `${workDir}/${LIBRARY_DIR}` : null,
       scratch: { lasts: "run-start", path: `${workDir}/${SCRATCH_DIR}` },
+      syncedPaths: library?.paths,
     })}\nA file can only be attached from inside ${workDir}.`;
     return {
       abortController,
@@ -360,6 +389,8 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
 
   let failure: string | undefined;
   let preparedFiles: WorkFiles | undefined;
+  let librarySync: DaemonLibrarySync | undefined;
+  let cancelCheckpoint: () => void = () => undefined;
 
   /** Copies the agent's skills in. A failure is a warning: the run goes ahead without them. */
   const syncSkillsInto = async (files: WorkFiles): Promise<void> => {
@@ -378,6 +409,45 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
         `warning: skills sync failed, the run goes ahead without skills: ${messageOf(error)}`
       );
     }
+  };
+
+  /**
+   * Copies the library folders the claim names into the work directory and
+   * starts the checkpoints. A failure is a warning: the run goes ahead without
+   * a library copy, and the prompt does not mention one.
+   */
+  const syncLibraryInto = async (
+    workDir: string
+  ): Promise<LibraryCopy | undefined> => {
+    const { library } = claim;
+    if (library === undefined) {
+      return;
+    }
+    const sync = createDaemonLibrarySync({
+      api: deps.createLibraryApi(masker, abortController.signal),
+      disk: createWorkDisk({
+        run: deps.run,
+        singleUser: config.singleUser,
+        workDir,
+      }),
+      log: runLog,
+      paths: library.paths,
+      runId: claim.run.id,
+    });
+    // Without a copy there is nothing to send back, and a machine whose sudo
+    // rule lacks `find` would fail the same way again at the end of the run.
+    if (!(await sync.syncIn())) {
+      return;
+    }
+    librarySync = sync;
+    cancelCheckpoint = timers.every(
+      LIBRARY_CHECKPOINT_MS,
+      () => {
+        sync.syncOut().catch(() => undefined);
+      },
+      "library-checkpoint"
+    );
+    return library;
   };
 
   const work = async (): Promise<void> => {
@@ -406,6 +476,10 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
     if (abortReason !== undefined) {
       return;
     }
+    const libraryCopy = await syncLibraryInto(prepared);
+    if (abortReason !== undefined) {
+      return;
+    }
     const inputPaths = await fetchInputFiles({
       api: filesApi,
       fileIds: claim.inputFileIds,
@@ -416,13 +490,16 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       return;
     }
     await converse(
-      buildOptions(prepared, config.claudeBinary),
+      buildOptions(prepared, config.claudeBinary, libraryCopy),
       messageWithFiles(claim.run.inputText, inputPaths)
     );
   };
 
   /** The completion for a run that ended without an abort. */
   const completionBody = async (): Promise<CompleteRequest> => {
+    // The process has exited, so nothing changes under library/ any more. The
+    // run token still works: the run ends only with the completion below.
+    await librarySync?.syncOut();
     if (result === undefined || result.isError || preparedFiles === undefined) {
       return completionOf(result, failureDetail(), sessionId);
     }
@@ -468,6 +545,7 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       }
     } finally {
       batcher.stop();
+      cancelCheckpoint();
     }
     await processExited();
     await batcher.flush();

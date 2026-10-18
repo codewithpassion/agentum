@@ -373,6 +373,7 @@ export const composeWith = ({
     db,
     devFakeRuntime: infra.devFakeRuntime,
     gateways,
+    library,
     runTokenKey: infra.runTokenKey,
     secrets,
   });

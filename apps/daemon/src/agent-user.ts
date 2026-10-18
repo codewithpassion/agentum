@@ -8,13 +8,14 @@ export const AGENT_USER = "hm-agent";
 export const AGENT_HOME = `/home/${AGENT_USER}`;
 export const AGENT_MKDIR = "/bin/mkdir";
 export const AGENT_RM = "/bin/rm";
-// The four commands that move a run's files in and out of hm-agent's work
-// directory: `dd` writes stdin to a file, `realpath` and `stat` vet a path, and
-// `head` reads a file back.
+// The commands that move a run's files in and out of hm-agent's work
+// directory: `dd` writes stdin to a file, `realpath` and `stat` vet a path,
+// `head` reads a file back, and `find` lists a folder (W.8, the library sync).
 export const AGENT_DD = "/usr/bin/dd";
 export const AGENT_HEAD = "/usr/bin/head";
 export const AGENT_REALPATH = "/usr/bin/realpath";
 export const AGENT_STAT = "/usr/bin/stat";
+export const AGENT_FIND = "/usr/bin/find";
 /** The `sudo` prefix that runs a command as `hm-agent` without a password prompt. */
 export const AS_AGENT: readonly string[] = ["sudo", "-n", "-u", AGENT_USER];
 const AGENT_COMMANDS = [
@@ -24,6 +25,7 @@ const AGENT_COMMANDS = [
   AGENT_HEAD,
   AGENT_REALPATH,
   AGENT_STAT,
+  AGENT_FIND,
 ];
 export const SUDOERS_DIR = "/etc/sudoers.d";
 
@@ -34,7 +36,7 @@ const FILE_NAME_UNSAFE = /[^A-Za-z0-9_-]/g;
 
 /**
  * The line that lets `user` run `claudeBinary` as `hm-agent`, and `mkdir`, `rm`,
- * `dd`, `head`, `realpath` and `stat` too, with no password. `CWD=*` lets the
+ * `dd`, `head`, `realpath`, `stat` and `find` too, with no password. `CWD=*` lets the
  * daemon pass `sudo -D <dir>`, since its own user cannot enter the agent's
  * home. The helpers add no privilege: claude under bypassPermissions already
  * runs arbitrary commands as `hm-agent`. They let the daemon create and reset

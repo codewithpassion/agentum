@@ -1,9 +1,12 @@
 // The per-agent work directory that Claude Code runs in. Before each run the
 // daemon makes sure it exists and empties its `.claude/`, `.mcp.json`, `inbox/`
 // (where the run's input files are downloaded) and `tmp/` (the agent's scratch
-// space), then recreates `tmp/` empty, in both modes. In multi-user mode
-// hm-agent owns the directory, so the daemon reaches it through sudo. In
-// single-user mode it is a plain directory under the daemon's home.
+// space), then recreates `tmp/` empty, in both modes. Everything else stays,
+// including `library/` (the copy of the workspace library) and its manifest
+// `library.manifest.json`, which the library sync reads at the next run. In
+// multi-user mode hm-agent owns the directory, so the daemon reaches it
+// through sudo. In single-user mode it is a plain directory under the daemon's
+// home.
 
 import { mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";

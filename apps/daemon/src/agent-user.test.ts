@@ -28,7 +28,7 @@ const fakeRun =
 
 test("the sudoers line names the exact binary path, plus the file helpers", () => {
   expect(sudoersLine("dom", "/home/dom/.local/bin/claude")).toBe(
-    "dom ALL=(hm-agent) CWD=* NOPASSWD: SETENV: /home/dom/.local/bin/claude, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat"
+    "dom ALL=(hm-agent) CWD=* NOPASSWD: SETENV: /home/dom/.local/bin/claude, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat, /usr/bin/find"
   );
 });
 
@@ -39,14 +39,14 @@ test("SETENV covers only the claude binary, and every helper is NOSETENV", () =>
     "dom ALL=(hm-agent) CWD=* NOPASSWD: SETENV: /usr/bin/claude"
   );
   expect(helperEntry).toBe(
-    "/bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat"
+    "/bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat, /usr/bin/find"
   );
   expect(line.match(/ SETENV:/g)).toHaveLength(1);
 });
 
 test("the sudoers line escapes characters sudoers would split on", () => {
   expect(sudoersLine("dom", "/opt/my tools/claude,v2")).toBe(
-    "dom ALL=(hm-agent) CWD=* NOPASSWD: SETENV: /opt/my\\ tools/claude\\,v2, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat"
+    "dom ALL=(hm-agent) CWD=* NOPASSWD: SETENV: /opt/my\\ tools/claude\\,v2, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat, /usr/bin/find"
   );
 });
 
@@ -54,7 +54,7 @@ test("the drop-in file ends with a newline and holds the one rule", () => {
   const file = sudoersFile("dom", "/usr/bin/claude");
   expect(file.endsWith("\n")).toBe(true);
   expect(file).toContain(
-    "dom ALL=(hm-agent) CWD=* NOPASSWD: SETENV: /usr/bin/claude, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat\n"
+    "dom ALL=(hm-agent) CWD=* NOPASSWD: SETENV: /usr/bin/claude, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat, /usr/bin/find\n"
   );
 });
 

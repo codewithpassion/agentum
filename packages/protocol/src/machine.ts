@@ -1,5 +1,26 @@
 import { z } from "zod";
 
+/**
+ * The header a daemon sends with its claim to list the optional features it
+ * understands, comma separated. The Worker adds a feature's data to the claim
+ * only for a daemon that names it, because the claim schema is strict and an
+ * older daemon rejects a key it does not know.
+ */
+export const DAEMON_FEATURES_HEADER = "X-Daemon-Features";
+
+/** The daemon copies the claim's `library` folders to disk and syncs them (W.8). */
+export const FEATURE_LIBRARY_SYNC = "library-sync";
+
+/** Whether the value of `DAEMON_FEATURES_HEADER` names `feature`. */
+export const hasDaemonFeature = (
+  header: string | null | undefined,
+  feature: string
+): boolean =>
+  (header ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .includes(feature);
+
 export const LEASE_SECONDS = 90;
 export const HEARTBEAT_SECONDS = 20;
 export const CLOSE_CODES = {
@@ -88,6 +109,15 @@ export const claimResponseSchema = z.strictObject({
   env: z.record(z.string(), z.string()).optional(),
   inputFileIds: z.array(z.string()),
   instructions: z.string(),
+  // The library folders the daemon copies into the work directory, and the
+  // conflict copies waiting in them. Optional, so a Worker that predates the
+  // library sync still parses on a newer daemon.
+  library: z
+    .strictObject({
+      conflicts: z.array(z.string()),
+      paths: z.array(z.string()),
+    })
+    .optional(),
   mcpServers: z.record(
     z.string(),
     z.strictObject({

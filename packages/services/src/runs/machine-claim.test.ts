@@ -12,6 +12,8 @@ import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { createAgentsService } from "../agents.ts";
 import { createEventsService } from "../events.ts";
+import { memoryLibraryBlobs } from "../library/memory.ts";
+import { createLibraryService } from "../library.ts";
 import { createMachineRuntime } from "../machines/runtime.ts";
 import { noopRelay } from "../machines/types.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
@@ -484,4 +486,125 @@ test("a claim still succeeds when recording the delivery fails", async () => {
   );
   expect(claimed.env?.PLAIN_KEY).toBe(ENV_VALUE);
   expect(status(started.runId)?.status).toBe("running");
+});
+
+/** A runs service whose claim lists the library, over a library service on the test db. */
+const runsWithLibrary = () => {
+  const store = new Map<string, string>();
+  const blobs = {
+    get: (key: string) => Promise.resolve(store.get(key) ?? null),
+    put: (key: string, body: string) => {
+      store.set(key, body);
+      return Promise.resolve();
+    },
+  };
+  const library = createLibraryService({
+    atomic: sqliteAtomic(db),
+    blobs: memoryLibraryBlobs(),
+    clock,
+    db,
+    events: createEventsService({ blobs, db }),
+  });
+  const service = createRunsService({
+    adapters: [createMachineRuntime({ relay: noopRelay })],
+    atomic: sqliteAtomic(db),
+    blobs,
+    clock,
+    db,
+    devFakeRuntime: false,
+    gateways: [],
+    library,
+    runTokenKey: KEY,
+    secrets,
+  });
+  return { library, service };
+};
+
+const claimWith = async (service: RunsService, agent: string) => {
+  const started = await start(agent);
+  return await service.claimRunForMachine(machine("m1"), started.runId, {
+    libraryForDaemon: true,
+    platformUrl: PLATFORM,
+  });
+};
+
+test("a claim without a library names no library paths", async () => {
+  const started = await start(agentId);
+
+  const claimed = await claim("m1", started.runId);
+
+  expect(claimed.library).toBeUndefined();
+});
+
+test("a daemon that does not name the library feature gets a claim without library", async () => {
+  const { library, service } = runsWithLibrary();
+  await library.write(
+    user,
+    "agents/box/notes.md.conflict-r1",
+    new TextEncoder().encode("x")
+  );
+  const started = await start(agentId);
+
+  const claimed = await service.claimRunForMachine(
+    machine("m1"),
+    started.runId,
+    { platformUrl: PLATFORM }
+  );
+
+  expect("library" in claimed).toBe(false);
+});
+
+test("a claim names the agent's folder and lists the conflict copies waiting in it", async () => {
+  const { library, service } = runsWithLibrary();
+  const bytes = new TextEncoder().encode("x");
+  await library.write(user, "agents/box/notes.md", bytes);
+  await library.write(user, "agents/box/notes.md.conflict-r1", bytes);
+  await library.write(user, "agents/box/deep/a.txt.conflict-r2", bytes);
+  await library.write(user, "agents/other/notes.md.conflict-r3", bytes);
+  await library.write(user, "docs/b.md.conflict-r4", bytes);
+
+  const claimed = await claimWith(service, agentId);
+
+  expect(claimed.library).toEqual({
+    conflicts: [
+      "agents/box/deep/a.txt.conflict-r2",
+      "agents/box/notes.md.conflict-r1",
+    ],
+    paths: ["agents/box"],
+  });
+});
+
+test("a claim adds the library paths in the agent's runtime config, with their conflicts", async () => {
+  const { library, service } = runsWithLibrary();
+  const configured = await createAgentsService({
+    db,
+    events: createEventsService({
+      blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+      db,
+    }),
+  }).create(user, {
+    machineId: "m1",
+    model: "m",
+    name: "Crate",
+    runtime: "machine",
+    runtimeConfig: { libraryPaths: ["docs", "agents/crate/inner"] },
+  });
+  const bytes = new TextEncoder().encode("x");
+  await library.write(user, "docs/b.md.conflict-r4", bytes);
+  await library.write(user, "elsewhere/c.md.conflict-r5", bytes);
+
+  const claimed = await claimWith(service, configured.id);
+
+  expect(claimed.library).toEqual({
+    conflicts: ["docs/b.md.conflict-r4"],
+    paths: ["agents/crate", "docs"],
+  });
+});
+
+test("a claim with no conflicts lists none", async () => {
+  const { service } = runsWithLibrary();
+
+  const claimed = await claimWith(service, agentId);
+
+  expect(claimed.library).toEqual({ conflicts: [], paths: ["agents/box"] });
 });

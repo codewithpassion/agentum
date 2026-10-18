@@ -73,6 +73,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.118.0",
     "@repo/db": "workspace:*",
+    "@repo/library-sync": "workspace:*",
     "@repo/protocol": "workspace:*",
     "drizzle-orm": "^0.44.7",
     "fflate": "0.8.3",
