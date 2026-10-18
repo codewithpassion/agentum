@@ -39,6 +39,8 @@ export interface StartQueueDeps {
   /** The environment and files the run needs before Pi can take it. */
   prepare: (input: CloudStart) => Promise<void>;
   storage: RunStorage;
+  /** Whether the run still waits to be claimed (queued or offered). */
+  waiting: (runId: string) => Promise<boolean>;
 }
 
 class DeadlineError extends Error {
@@ -57,6 +59,7 @@ export const createStartQueue = ({
   now = Date.now,
   prepare,
   storage,
+  waiting,
 }: StartQueueDeps) => {
   const load = async () =>
     (await storage.get<PendingStart[]>(PENDING_KEY)) ?? [];
@@ -140,6 +143,11 @@ export const createStartQueue = ({
     const runId = entry.input.run.id;
     try {
       if (!entry.claimed) {
+        // Before the marker: a run that is not waiting was begun by an earlier wake, and a late duplicate must leave it alone. Once the marker is set, a running run is ours.
+        if (!(entry.claimAttempted || (await waiting(runId)))) {
+          await remove(runId);
+          return false;
+        }
         await mark(runId, { claimAttempted: true });
         const outcome = await claim(runId);
         // A run that is running without a claim of ours is already begun by an earlier wake: leave it alone.

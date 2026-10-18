@@ -244,6 +244,13 @@ export class PiRun extends DurableObject<Env> {
     },
     prepare: (input) => this.#prepareRun(input),
     storage: this.ctx.storage,
+    waiting: async (runId) => {
+      const { status } = await this.#services().runs.getRun(
+        SYSTEM_PRINCIPAL,
+        runId
+      );
+      return status === "queued" || status === "offered";
+    },
   });
 
   /** Works the saved starts from an alarm that survives this object being evicted. */

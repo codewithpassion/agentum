@@ -43,6 +43,7 @@ const setup = (
     begin?: (input: CloudStart) => Promise<void>;
     claim?: (runId: string) => Promise<"claimed" | "conflict" | "running">;
     prepare?: (input: CloudStart) => Promise<void>;
+    waiting?: (runId: string) => Promise<boolean>;
   } = {}
 ) => {
   const storage = memoryStorage();
@@ -69,6 +70,7 @@ const setup = (
         await overrides.prepare?.(input);
       },
       storage,
+      waiting: (runId) => overrides.waiting?.(runId) ?? Promise.resolve(true),
     });
   return { build, calls, clock, failures, queue: build() };
 };
@@ -196,6 +198,47 @@ describe("work", () => {
     expect(await queue.work()).toBe(false);
     expect(calls).toEqual(["claim r1"]);
     expect(await queue.hasPending()).toBe(false);
+  });
+
+  test("a duplicate wake for a run that is already running is dropped before the marker is saved or any claim is tried", async () => {
+    let running = false;
+    const { calls, queue } = setup({
+      claim: () => Promise.reject(new Error("D1 unreachable")),
+      waiting: () => Promise.resolve(!running),
+    });
+    // The original start ran to the end: the run is running and nothing is saved.
+    running = true;
+    // A late duplicate wake arrives.
+    await queue.request(startOf("r1"));
+    expect(await queue.work()).toBe(false);
+    expect(calls).toEqual([]);
+    expect(await queue.hasPending()).toBe(false);
+  });
+
+  test("a retry after a failed claim still recognises its own claim once the run shows as running", async () => {
+    const errors = spyOn(console, "error").mockImplementation(() => undefined);
+    let running = false;
+    const { calls, queue } = setup({
+      claim: () => {
+        if (calls.filter((c) => c === "claim r1").length === 1) {
+          // The claim wrote the row, then the object lost the answer.
+          running = true;
+          return Promise.reject(new Error("evicted"));
+        }
+        return Promise.resolve("running");
+      },
+      waiting: () => Promise.resolve(!running),
+    });
+    await queue.request(startOf("r1"));
+    expect(await queue.work()).toBe(true);
+    expect(await queue.work()).toBe(false);
+    errors.mockRestore();
+    expect(calls).toEqual([
+      "claim r1",
+      "claim r1",
+      "prepare r1",
+      "begin r1 token",
+    ]);
   });
 
   test("a setup that never finishes is cut off at the deadline and the claimed run is failed", async () => {
