@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import type { Context } from "@earendil-works/chord/context";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
   type AssistantMessage,
@@ -14,6 +15,7 @@ import {
   createRegistry,
   Harness,
   MemoryStorage,
+  type PromptInput,
 } from "@earendil-works/pi-durable";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
@@ -39,6 +41,12 @@ const user: Principal = {
   userId: "u1",
   via: "session",
   workspaceId: WORKSPACE,
+};
+
+const CONTEXT: Context = {
+  abortSignal: undefined,
+  toString: () => "test-context",
+  value: () => undefined,
 };
 
 const encode = (value: string) => new TextEncoder().encode(value);
@@ -111,7 +119,7 @@ const runCalls = async (calls: Call[]): Promise<string[]> => {
   const models = createModels();
   models.setProvider(faux.provider);
   const registry = createRegistry();
-  registry.install(libraryToolsExtension());
+  registry.install(libraryToolsExtension(async () => "ada"));
 
   const harness = await Harness.open(
     new MemoryStorage(),
@@ -144,7 +152,7 @@ const libraryText = async (path: string) =>
 
 describe("libraryToolsExtension", () => {
   test("offers read, write and edit, and read may run again", () => {
-    const extension = libraryToolsExtension();
+    const extension = libraryToolsExtension(async () => "ada");
     expect(extension.name).toBe(LIBRARY_TOOLS_EXTENSION);
     expect(
       extension.tools?.map((tool) => [tool.name, tool.replay ?? "unsafe"])
@@ -153,6 +161,36 @@ describe("libraryToolsExtension", () => {
       ["write", "unsafe"],
       ["edit", "unsafe"],
     ]);
+  });
+});
+
+const renderSection = async (
+  slugOf: () => Promise<string | undefined>
+): Promise<string> => {
+  const section = libraryToolsExtension(slugOf).sections?.[0];
+  if (section === undefined) {
+    throw new Error("no section");
+  }
+  const text = await section.render({} as PromptInput, CONTEXT);
+  if (text === undefined) {
+    throw new Error("the section was omitted");
+  }
+  return text;
+};
+
+describe("libraryToolsExtension section", () => {
+  test("names the agent's home in the library and the attachment marker", async () => {
+    const text = await renderSection(async () => "ada");
+    expect(text).toContain("/library/agents/ada");
+    expect(text).toContain("[ATTACHMENT:<absolute path>]");
+    expect(text).toContain("no scratch folder");
+    expect(text).toContain("kept for one tool call only");
+  });
+
+  test("names the library root when the agent has no slug yet", async () => {
+    const text = await renderSection(async () => undefined);
+    expect(text).toContain("/library");
+    expect(text).not.toContain("agents/");
   });
 });
 

@@ -26,6 +26,7 @@ import {
   managedSessions,
 } from "@repo/db/schema/managed";
 import { runs } from "@repo/db/schema/runs";
+import { workspaceInstructions } from "@repo/protocol/attachments";
 import {
   and,
   asc,
@@ -43,6 +44,8 @@ import { mcpServerUrls } from "../connectors/mcp-servers.ts";
 import { hashToken } from "../crypto.ts";
 import { isServiceError } from "../errors.ts";
 import type { EventsService } from "../events.ts";
+import { agentHomePath, ensureAgentHome } from "../library/home.ts";
+import type { LibraryService } from "../library.ts";
 import { importRunTokenKey, signSessionToken } from "../run-tokens.ts";
 import { loadRun } from "../runs/queries.ts";
 import type { Clock, RunRecord } from "../runs/types.ts";
@@ -117,6 +120,8 @@ export interface ManagedServiceOptions {
   /** The gateway on one workspace's key. Tests give a fake. */
   gatewayFor: (key: { apiKey: string; environment: IdCache }) => ManagedGateway;
   keys: Pick<ManagedKeysService, "rememberEnvironment" | "resolve">;
+  /** The workspace library. A run's agent keeps its home folder there. */
+  library: Pick<LibraryService, "mkdir" | "stat">;
   poller: ManagedPollerPort;
   /** `PUBLIC_BASE_URL`: where the Anthropic agent reaches `/mcp` and the proxy. */
   publicBaseUrl?: string;
@@ -155,7 +160,7 @@ const stopMessage = (stopReason: string | null, errors: string[]): string => {
   return errors.length > 0 ? `${base}: ${errors.join("; ")}` : base;
 };
 
-/** The Anthropic agent's system text: its instructions, then what it is told about skills and secrets. */
+/** The Anthropic agent's system text: its instructions, its files, then what it is told about skills and secrets. */
 const systemOf = (
   agent: AgentRecord,
   skillNames: string[],
@@ -163,6 +168,14 @@ const systemOf = (
 ): string =>
   [
     agent.instructions.trim() || `You are ${agent.name}.`,
+    workspaceInstructions({
+      // A managed run's reply is shown as it is: nothing reads the markers.
+      attachments: false,
+      home: `${agentHomePath(agent.slug)}/`,
+      homeIsLocal: false,
+      library: null,
+      scratch: { lasts: "session", path: "/workspace" },
+    }),
     skillsGuidance(skillNames),
     secretsText,
   ]
@@ -176,6 +189,7 @@ export const createManagedService = ({
   events,
   gatewayFor,
   keys,
+  library,
   poller,
   publicBaseUrl,
   runs: runsApi,
@@ -670,6 +684,19 @@ export const createManagedService = ({
       await failRun(run, LOOPBACK_ERROR);
       return false;
     }
+    const principal = {
+      agentId: run.agentId,
+      kind: "run" as const,
+      runId: run.id,
+      workspaceId: run.workspaceId,
+    };
+    await ensureAgentHome(
+      {
+        mkdir: (path) => library.mkdir(principal, path),
+        stat: (path) => library.stat(principal, path),
+      },
+      agent.slug
+    );
     const servers = await serversOf(run, publicBaseUrl);
     const grants = await grantsFor(run, agent, publicBaseUrl, servers);
     if (!grants) {

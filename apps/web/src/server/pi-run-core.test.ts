@@ -253,6 +253,7 @@ const startOf = (runId: string, text = "hello"): CloudStart => ({
     model: "claude-test",
     name: "Agent",
     runtimeConfig: {},
+    slug: "agent",
   },
   inputFileIds: [],
   mcpServers: {

@@ -12,10 +12,12 @@ import { CLOUD_LEASE_MS } from "@repo/services/cloud/lease";
 import { cloudModelError, cloudModelFor } from "@repo/services/cloud/models";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { isServiceError } from "@repo/services/errors";
+import { agentHomePath, ensureAgentHome } from "@repo/services/library/home";
 import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { compose } from "./compose.ts";
+import { LIBRARY_MOUNT } from "./library-bash/run.ts";
 import { createLibraryEnv } from "./library-env/library-env.ts";
 import { bindLibraryOps } from "./library-env/library-ops.ts";
 import { libraryToolsExtension } from "./library-env/library-tools.ts";
@@ -72,6 +74,8 @@ const TOOLS_KEY = "mcp-tools";
 const WORKSPACE_KEY = "workspace";
 /** The newest run of the session. Its principal reads and writes the library for Pi's file tools, which know no run of their own. */
 const RUN_KEY = "run";
+/** The slug of the agent of the newest run: its library home is `agents/<slug>`. */
+const AGENT_SLUG_KEY = "agent-slug";
 /** The skills of the run that loaded them last, with that run: a tool call knows no run of its own. The text is read again on each call. */
 const SKILLS_KEY = "skills";
 /** The agent id, stored only when the agent runs in a Linux VM: the VM is named by it, so every session of the agent shares one VM. Absent means the isolate. */
@@ -201,9 +205,9 @@ export class PiRun extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // The isolate's files section and `read_input_file`. `#switchEnvironment` replaces them when the agent runs in a VM.
+    // `read_input_file` is the same for every run.
     this.registry.install(filesExtension((fileId) => this.#readInput(fileId)));
-    this.registry.install(libraryToolsExtension());
+    this.registry.install(libraryToolsExtension(() => this.#agentSlug()));
   }
 
   /** Installs the servers whose list differs from the registry's, and removes the ones that are gone. */
@@ -270,16 +274,15 @@ export class PiRun extends DurableObject<Env> {
 
   /**
    * Makes the session run in its agent's Linux VM, or in the isolate when
-   * `agentId` is undefined: the file and shell tools, the skill script backend,
-   * the environment and the files section of the prompt follow. The VM is
-   * named by the agent id.
+   * `agentId` is undefined: the file and shell tools, the skill script backend
+   * and the environment follow. The VM is named by the agent id.
    */
   #switchEnvironment(agentId: string | undefined) {
     this.#vm = agentId ? durableVm(this.env.LINUX_VM, agentId) : undefined;
-    installEnvironmentTools(this.registry, this.#vm ? "linux-vm" : "isolate");
-    // The VM section of the prompt carries the workspace instructions, and the library line of the files section would contradict it.
-    this.registry.install(
-      filesExtension((fileId) => this.#readInput(fileId), !this.#vm)
+    installEnvironmentTools(
+      this.registry,
+      this.#vm ? "linux-vm" : "isolate",
+      () => this.#agentSlug()
     );
   }
 
@@ -292,6 +295,17 @@ export class PiRun extends DurableObject<Env> {
       await this.ctx.storage.delete(VM_KEY);
     }
     this.#switchEnvironment(inVm ? input.run.agentId : undefined);
+  }
+
+  #agentSlug() {
+    return this.ctx.storage.get<string>(AGENT_SLUG_KEY);
+  }
+
+  /** The isolate's agent keeps its files in its library folder, made on the first run. */
+  async #ensureHome(input: CloudStart) {
+    const run = runRefOf(input);
+    const ops = bindLibraryOps(this.#services().library, principalOf(run));
+    await ensureAgentHome(ops, input.agent.slug);
   }
 
   /** The environment of Pi's file and shell tools: the VM, or the library for the newest run. Without a run there is no principal, so no library environment. */
@@ -309,7 +323,10 @@ export class PiRun extends DurableObject<Env> {
     if (!run) {
       return;
     }
+    const slug = await this.#agentSlug();
     return createLibraryEnv({
+      // Relative paths land in the agent's home. A session from before the slug was stored starts at the root.
+      cwd: slug ? `${LIBRARY_MOUNT}/${agentHomePath(slug)}` : undefined,
       ops: bindLibraryOps(this.#services().library, principalOf(run)),
       workspaceId: run.workspaceId,
     });
@@ -606,11 +623,15 @@ export class PiRun extends DurableObject<Env> {
           import.meta.env.DEV && model === "faux"
             ? undefined
             : cloudModelError(model),
-        outputsOf: (run, text) =>
-          uploadOutputs(
+        outputsOf: async (run, text) => {
+          // The isolate's file tools start in the agent's home, so a relative marker is read from there.
+          const slug = this.#vm ? undefined : await this.#agentSlug();
+          return uploadOutputs(
             text,
-            this.#filesPort(() => Promise.resolve(run))
-          ),
+            this.#filesPort(() => Promise.resolve(run)),
+            slug ? agentHomePath(slug) : undefined
+          );
+        },
         pi: this.#port(),
         statusOf: async (runId) =>
           (await runs.getRun(SYSTEM_PRINCIPAL, runId)).status,
@@ -641,7 +662,11 @@ export class PiRun extends DurableObject<Env> {
   async startRun(input: CloudStart): Promise<void> {
     await this.ctx.storage.put(WORKSPACE_KEY, input.run.workspaceId);
     await this.ctx.storage.put(RUN_KEY, runRefOf(input));
+    await this.ctx.storage.put(AGENT_SLUG_KEY, input.agent.slug);
     await this.#selectEnvironment(input);
+    if (!this.#vm) {
+      await this.#ensureHome(input);
+    }
     await this.lifecycle.start();
     await this.#runCore().start(input);
     await this.lease.schedule();

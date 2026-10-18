@@ -21,6 +21,8 @@ import {
 import { createCredentialsService } from "../credentials.ts";
 import { importSecretsKey } from "../crypto.ts";
 import { createEventsService } from "../events.ts";
+import { memoryLibraryBlobs } from "../library/memory.ts";
+import { createLibraryService, type LibraryService } from "../library.ts";
 import {
   importRunTokenKey,
   SESSION_TOKEN_PREFIX,
@@ -309,6 +311,7 @@ let gateway: FakeGateway;
 let agents: AgentsService;
 let runs: RunsService;
 let managed: ManagedService;
+let library: LibraryService;
 let kicks: string[];
 let cancels: string[];
 let agentId: string;
@@ -364,8 +367,15 @@ const skillsSource = () => ({
     ),
 });
 
-const buildManaged = (publicBaseUrl: string) =>
-  createManagedService({
+const buildManaged = (publicBaseUrl: string) => {
+  library = createLibraryService({
+    atomic: sqliteAtomic(db),
+    blobs: memoryLibraryBlobs(),
+    clock,
+    db,
+    events,
+  });
+  return createManagedService({
     atomic: sqliteAtomic(db),
     clock,
     db,
@@ -378,6 +388,7 @@ const buildManaged = (publicBaseUrl: string) =>
         return hasKey ? keys.resolve(workspaceId) : Promise.resolve(null);
       },
     },
+    library,
     poller,
     publicBaseUrl,
     runs,
@@ -385,6 +396,7 @@ const buildManaged = (publicBaseUrl: string) =>
     secrets,
     skills: skillsSource,
   });
+};
 
 const clock: Clock = {
   now: () => new Date(nowMs),
@@ -1142,12 +1154,43 @@ const finishRun = async (text = "go") => {
 
 const versionRows = () => db.select().from(managedSkillVersions).all();
 
+describe("agent home", () => {
+  const home = "agents/pelican";
+  const principal = dom;
+
+  test("the system text names the agent's folder and the library tools that reach it", async () => {
+    await finishRun();
+
+    expect(gateway.registered[0]?.system).toContain("agents/pelican/");
+    expect(gateway.registered[0]?.system).toContain("library tools");
+    expect(gateway.registered[0]?.system).not.toContain("[ATTACHMENT:");
+  });
+
+  test("a first run creates the agent's folder when it is missing", async () => {
+    await expect(library.stat(principal, home)).rejects.toThrow();
+
+    await finishRun();
+
+    const entry = await library.stat(principal, home);
+    expect(entry.kind).toBe("dir");
+  });
+
+  test("a second run does not create the folder again", async () => {
+    const mkdir = spyOn(library, "mkdir");
+
+    await finishRun();
+    await finishRun("again");
+
+    expect(mkdir).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("skills", () => {
   test("an agent without skills registers none and gets no skills guidance", async () => {
     await finishRun();
 
     expect(gateway.registered[0]?.skills).toEqual([]);
-    expect(gateway.registered[0]?.system).toBe("Be brief.");
+    expect(gateway.registered[0]?.system).toContain("Be brief.");
     expect(gateway.skillStore.size).toBe(0);
   });
 
@@ -1249,7 +1292,7 @@ describe("skills", () => {
 
     expect(gateway.syncedAgents.at(-1)).toEqual({
       skills: [],
-      system: "Be brief.",
+      system: expect.stringContaining("Be brief."),
     });
   });
 

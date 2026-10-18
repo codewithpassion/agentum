@@ -16,7 +16,6 @@ import {
   type Extension,
   Harness,
   MemoryStorage,
-  type PromptInput,
   type ToolExecutionApi,
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
@@ -24,7 +23,6 @@ import {
   FILES_EXTENSION,
   filesExtension,
   inputContent,
-  LIBRARY_ROOT,
   type RunFilesPort,
   uploadOutputs,
 } from "./pi-run-files.ts";
@@ -287,6 +285,27 @@ describe("uploadOutputs", () => {
     expect(port.uploads.map((file) => file.name)).toEqual(["good.txt"]);
   });
 
+  test("a relative marker is read from the agent's home, an absolute one from the library root", async () => {
+    const port = fakePort({
+      library: {
+        "agents/ada/a.txt": PNG,
+        "agents/ada/b.txt": PNG,
+        "c.txt": PNG,
+      },
+    });
+    const result = await uploadOutputs(
+      "[ATTACHMENT:a.txt] [ATTACHMENT:./b.txt] [ATTACHMENT:/library/c.txt]",
+      port,
+      "agents/ada"
+    );
+    expect(result.fileIds).toHaveLength(3);
+    expect(port.uploads.map((file) => file.name)).toEqual([
+      "a.txt",
+      "b.txt",
+      "c.txt",
+    ]);
+  });
+
   test("the mime comes from the extension, with a fallback", async () => {
     const names = ["a.PDF", "b.docx", "c.mp4", "d.unknown", "noext"];
     const port = fakePort({
@@ -313,15 +332,12 @@ describe("filesExtension", () => {
     name: "x.txt",
   }));
 
-  test("is named for the files and its section names the library marker", async () => {
+  test("is named for the files, offers read_input_file and has no prompt section", () => {
     expect(extension.name).toBe(FILES_EXTENSION);
-    const section = extension.sections?.[0];
-    if (section === undefined) {
-      throw new Error("no section");
-    }
-    const text = await section.render({} as PromptInput, CONTEXT);
-    expect(text).toContain("[ATTACHMENT:<absolute path>]");
-    expect(text).toContain(LIBRARY_ROOT);
+    expect(extension.tools?.map((tool) => tool.name)).toEqual([
+      "read_input_file",
+    ]);
+    expect(extension.sections).toBeUndefined();
   });
 
   test("read_input_file returns the text of a text file", async () => {
@@ -375,31 +391,6 @@ describe("filesExtension", () => {
     ).toEqual({
       isError: true,
       output: [{ text: "File f9 could not be read", type: "text" }],
-    });
-  });
-});
-
-describe("filesExtension without instructions", () => {
-  const extension = filesExtension(
-    async () => ({ bytes: TEXT_BYTES, mime: "text/plain", name: "x.txt" }),
-    false
-  );
-
-  test("keeps the extension name and has no prompt section", () => {
-    expect(extension.name).toBe(FILES_EXTENSION);
-    expect(extension.sections).toEqual([]);
-  });
-
-  test("still offers read_input_file", async () => {
-    expect(
-      await toolNamed(extension, "read_input_file").execute(
-        { id: "f" },
-        NO_API,
-        CONTEXT
-      )
-    ).toEqual({
-      isError: false,
-      output: [{ text: "hello from the file", type: "text" }],
     });
   });
 });

@@ -1,5 +1,6 @@
-// A cloud run's files. There is no file system in a cloud agent: its work
-// directory is the workspace library, mounted at `/library` in its `bash` tool.
+// A cloud run's files. There is no file system in a cloud agent: its files are
+// in the workspace library, mounted at `/library` in its `bash` tool, and its
+// file tools start in the agent's own folder there.
 // Input files reach the model before the first turn, as image blocks or as a
 // list it reads with `read_input_file`. After a run, the `[ATTACHMENT:path]`
 // markers in the answer are uploaded from the library and replaced by file ids.
@@ -9,13 +10,10 @@ import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type Extension } from "@earendil-works/pi-durable";
 import { MAX_FILE_BYTES } from "@repo/db/shared";
-import {
-  attachmentInstructions,
-  extractAttachmentMarkers,
-} from "@repo/protocol/attachments";
+import { extractAttachmentMarkers } from "@repo/protocol/attachments";
 
 export const FILES_EXTENSION = "hm-files";
-export const LIBRARY_ROOT = "/library";
+const LIBRARY_ROOT = "/library";
 
 const LIBRARY_PREFIX = `${LIBRARY_ROOT}/`;
 const DOT_SLASH = "./";
@@ -204,11 +202,17 @@ const mimeFor = (name: string): string => {
   );
 };
 
-/** The library-relative path a marker names, or null when it names something outside the library. */
-const libraryRelative = (marker: string): string | null => {
+/**
+ * The library-relative path a marker names, or null when it names something
+ * outside the library. A path that does not start at `/library` is relative to
+ * `home`, the folder the agent's file tools start in, or to the root without one.
+ */
+const libraryRelative = (marker: string, home?: string): string | null => {
   let relative = marker;
+  let fromRoot = false;
   if (marker.startsWith(LIBRARY_PREFIX)) {
     relative = marker.slice(LIBRARY_PREFIX.length);
+    fromRoot = true;
   } else if (marker.startsWith(ABSOLUTE_PREFIX)) {
     return null;
   } else if (marker.startsWith(DOT_SLASH)) {
@@ -221,7 +225,7 @@ const libraryRelative = (marker: string): string | null => {
   ) {
     return null;
   }
-  return relative;
+  return home && !fromRoot ? `${home}/${relative}` : relative;
 };
 
 type SendOutcome = { id: string } | { note: string };
@@ -229,10 +233,11 @@ type SendOutcome = { id: string } | { note: string };
 /** Reads one marked library file and uploads it. A failure becomes a note in the answer. */
 const sendMarker = async (
   port: RunFilesPort,
-  marker: string
+  marker: string,
+  home?: string
 ): Promise<SendOutcome> => {
   const name = lastSegment(marker);
-  const relative = libraryRelative(marker);
+  const relative = libraryRelative(marker, home);
   if (relative === null) {
     return { note: `[attachment refused: ${name}]` };
   }
@@ -260,11 +265,13 @@ const sendMarker = async (
  * Uploads the files that the answer's `[ATTACHMENT:path]` markers name and
  * returns their ids, in marker order, with the markers removed. A marker that
  * is refused, missing or failing leaves a note in the text and no id. One bad
- * file never stops the others.
+ * file never stops the others. A relative marker is read from `home`, a
+ * library-relative folder, when one is given.
  */
 export const uploadOutputs = async (
   text: string,
-  port: RunFilesPort
+  port: RunFilesPort,
+  home?: string
 ): Promise<{ fileIds: string[]; text: string }> => {
   const extracted = extractAttachmentMarkers(text);
   if (extracted.paths.length === 0) {
@@ -279,7 +286,7 @@ export const uploadOutputs = async (
       continue;
     }
     // biome-ignore lint/performance/noAwaitInLoops: uploads go one at a time, in the order the answer names them.
-    const outcome = await sendMarker(port, marker);
+    const outcome = await sendMarker(port, marker, home);
     if ("id" in outcome) {
       fileIds.push(outcome.id);
     } else {
@@ -324,24 +331,10 @@ const readInputTool = (readInput: (fileId: string) => Promise<FileBody>) =>
     replay: "safe",
   });
 
-/**
- * The prompt section on where to write files, and the tool that reads input
- * files as text. A VM session passes `withInstructions` false: its VM section
- * already carries the workspace instructions, and the library text here would
- * contradict them. The tool stays either way.
- */
+/** The tool that reads input files as text. Where to write files is in the workspace instructions. */
 export const filesExtension = (
-  readInput: (fileId: string) => Promise<FileBody>,
-  withInstructions = true
+  readInput: (fileId: string) => Promise<FileBody>
 ): Extension => ({
   name: FILES_EXTENSION,
-  sections: withInstructions
-    ? [
-        {
-          key: "files",
-          render: () => attachmentInstructions(LIBRARY_ROOT),
-        },
-      ]
-    : [],
   tools: [readInputTool(readInput)],
 });
