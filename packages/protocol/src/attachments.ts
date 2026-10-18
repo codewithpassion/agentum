@@ -95,7 +95,7 @@ const conflictsLines = ({
     .map((path) => (library ? `${library}/${path}` : path))
     .join(", ");
   return [
-    `- Conflicts: ${conflicts.length} of your earlier changes could not be saved because the library file changed first. Your version is in each copy listed here. Compare it with the file beside it, keep what you want in that file, then delete the copy: ${list}.`,
+    `- Conflicts: some changes could not be saved because the library file changed first. Each copy listed here holds the version that was not saved. Compare it with the file beside it, keep what you want in that file, then delete the copy: ${list}.`,
   ];
 };
 

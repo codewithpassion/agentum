@@ -249,4 +249,75 @@ describe("runSyncOut", () => {
       "agents/ada/b.md",
     ]);
   });
+
+  test("a file the library already holds with the same bytes is adopted, not made a conflict", async () => {
+    const ctx = setup();
+    // An earlier send reached the library, but its manifest save was lost.
+    const etag = ctx.remote.put(NOTES, "same");
+    ctx.local.put(NOTES, "same");
+
+    const result = await syncOut(ctx);
+
+    expect(result.conflicts).toEqual([]);
+    expect([...ctx.remote.files.keys()]).toEqual([NOTES]);
+    expect(ctx.manifest.saved).toEqual([
+      { etag, path: NOTES, sha256: await sha256Of(bytesOf("same")) },
+    ]);
+  });
+
+  test("a conflict copy whose local write fails is not recorded in the manifest", async () => {
+    const ctx = setup();
+    await synced(ctx, NOTES, "v1");
+    ctx.remote.put(NOTES, "theirs");
+    ctx.local.put(NOTES, "mine");
+    ctx.local.failWrites.add(`${NOTES}.conflict-r1`);
+
+    const result = await syncOut(ctx);
+
+    expect(result.failed.map((failure) => failure.path)).toEqual([NOTES]);
+    expect(
+      ctx.manifest.saved.some((entry) => entry.path.includes(".conflict-"))
+    ).toBe(false);
+    // The next run must not take the copy for a local delete.
+    const next = await syncOut(ctx, "r2");
+    expect(next.deleted).toEqual([]);
+    expect(ctx.remote.files.has(`${NOTES}.conflict-r1`)).toBe(true);
+  });
+
+  test("an edit made while a conflict is resolved stays in the local file", async () => {
+    const ctx = setup();
+    await synced(ctx, NOTES, "v1");
+    ctx.remote.put(NOTES, "theirs");
+    ctx.local.put(NOTES, "mine");
+    const { read } = ctx.remote;
+    ctx.remote.read = (path) => {
+      ctx.local.put(NOTES, "edited again");
+      return read(path);
+    };
+
+    const result = await syncOut(ctx);
+
+    expect(result.conflicts).toHaveLength(1);
+    expect(textOf(ctx.local.files.get(NOTES))).toBe("edited again");
+    expect(textOf(ctx.remote.files.get(NOTES)?.bytes)).toBe("theirs");
+  });
+
+  test("a library file deleted by someone else keeps the conflict copy and sends the local file as new next time", async () => {
+    const ctx = setup();
+    await synced(ctx, NOTES, "v1");
+    ctx.remote.files.delete(NOTES);
+    ctx.local.put(NOTES, "mine");
+
+    const first = await syncOut(ctx);
+    expect(first.conflicts).toEqual([
+      { conflictPath: `${NOTES}.conflict-r1`, path: NOTES },
+    ]);
+    expect(ctx.manifest.saved.some((entry) => entry.path === NOTES)).toBe(
+      false
+    );
+
+    const second = await syncOut(ctx, "r2");
+    expect(second.written).toEqual([NOTES]);
+    expect(textOf(ctx.remote.files.get(NOTES)?.bytes)).toBe("mine");
+  });
 });

@@ -23,6 +23,8 @@ export const VM_HOME_DIR = `${VM_WORKDIR}/home`;
 export const VM_LIBRARY_DIR = `${VM_WORKDIR}/library`;
 /** The sync manifest of the working copy, beside it and not inside it. */
 export const VM_LIBRARY_MANIFEST = `${VM_WORKDIR}/library.manifest.json`;
+/** A folder made while a sync runs. Sessions of one agent share the VM and its manifest, so syncs take turns. */
+export const VM_LIBRARY_LOCK = `${VM_WORKDIR}/library.lock`;
 
 export interface VmExecInput {
   command: string;

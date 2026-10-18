@@ -19,13 +19,19 @@ import type { Principal } from "@repo/services/workspaces";
 import { asc, eq } from "drizzle-orm";
 import { bytesOf, createFakeVm, textOf } from "./fake-vm.ts";
 import {
+  libraryCopyOf,
   libraryStateOf,
   syncLibraryIn,
   syncLibraryOut,
   vmLocalPort,
   vmManifestStore,
+  withLibraryLock,
 } from "./vm-library-sync.ts";
-import { type LinuxVm, VM_LIBRARY_MANIFEST } from "./vm-port.ts";
+import {
+  type LinuxVm,
+  VM_LIBRARY_LOCK,
+  VM_LIBRARY_MANIFEST,
+} from "./vm-port.ts";
 import { linuxVmToolsExtension } from "./vm-tools.ts";
 
 const WORKSPACE = "w1";
@@ -203,6 +209,7 @@ test("sync in copies the agent folder and a named library path, and keeps the re
   expect(vm.files.has(VM_LIBRARY_MANIFEST)).toBe(true);
   expect(await libraryStateOf(storage)).toEqual({
     conflicts: [],
+    ready: true,
     roots: ["agents/ada", "shared/brand"],
   });
 });
@@ -383,6 +390,7 @@ test("the next run sees the conflict copy, and a second sync out records no new 
   });
   expect(await libraryStateOf(storage)).toEqual({
     conflicts: ["agents/ada/notes.md.conflict-r1"],
+    ready: true,
     roots: ["agents/ada"],
   });
 
@@ -416,7 +424,7 @@ test("the next run's prompt lists the conflict copy in the VM's library folder",
   });
 
   const [section] =
-    linuxVmToolsExtension(() => libraryStateOf(storage)).sections ?? [];
+    linuxVmToolsExtension(() => libraryCopyOf(storage)).sections ?? [];
   const text = await section?.render(undefined as never, BACKGROUND_CONTEXT);
 
   expect(text).toContain(`${LIBRARY_VM}/agents/ada/notes.md.conflict-r1`);
@@ -471,6 +479,26 @@ test("sync in warns and does not throw when the library fails", async () => {
     })
   ).resolves.toBeUndefined();
   expect(warn).toHaveBeenCalled();
+});
+
+test("the prompt says nothing about a synced copy until a sync in has finished", async () => {
+  await service.write(user, "agents/ada/notes.md", bytes("v1"));
+  spyOn(console, "warn").mockImplementation(() => undefined);
+  const storage = memoryStorage();
+  await syncLibraryIn({
+    ops: {
+      ...opsFor(runAs("r1")),
+      list: () => Promise.reject(new Error("down")),
+    },
+    runtimeConfig: {},
+    slug: "ada",
+    storage,
+    vm: createFakeVm(),
+  });
+
+  expect(await libraryCopyOf(storage)).toBeUndefined();
+  // The roots are kept, so the end of the run can still send the agent's files.
+  expect((await libraryStateOf(storage))?.roots).toEqual(["agents/ada"]);
 });
 
 test("sync out warns and does not throw when the library fails", async () => {
@@ -571,4 +599,99 @@ test("sync out without stored sync state does nothing", async () => {
     "agents/ada",
     "agents/ada/notes.md",
   ]);
+});
+
+const quickLock = {
+  retryMs: 1,
+  waitMs: 20,
+};
+
+test("a sync holds the library lock while it runs and releases it after", async () => {
+  await service.write(user, "agents/ada/notes.md", bytes("v1"));
+  const vm = createFakeVm();
+  const during: boolean[] = [];
+  const ops = opsFor(runAs("r1"));
+
+  await syncLibraryIn({
+    ops: {
+      ...ops,
+      list: (dir: string) => {
+        during.push(vm.folders.has(VM_LIBRARY_LOCK));
+        return ops.list(dir);
+      },
+    },
+    runtimeConfig: {},
+    slug: "ada",
+    storage: memoryStorage(),
+    vm,
+  });
+
+  expect(during.length).toBeGreaterThan(0);
+  expect(during.every(Boolean)).toBe(true);
+  expect(vm.folders.has(VM_LIBRARY_LOCK)).toBe(false);
+});
+
+test("withLibraryLock makes two syncs take turns", async () => {
+  const vm = createFakeVm();
+  const order: string[] = [];
+  const job = (name: string) => () => {
+    order.push(`${name} start`);
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        order.push(`${name} end`);
+        resolve();
+      }, 5);
+    });
+  };
+
+  // The fake VM dates every folder at 0, so a clock that stays near 0 keeps the lock fresh.
+  const clock = {
+    now: () => 1000,
+    sleep: () =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 1);
+      }),
+  };
+  await Promise.all([
+    withLibraryLock(vm, job("a"), { clock }),
+    withLibraryLock(vm, job("b"), { clock }),
+  ]);
+
+  expect(order).toEqual(["a start", "a end", "b start", "b end"]);
+});
+
+test("withLibraryLock gives up while another sync holds the lock, and takes over a stale one", async () => {
+  const vm = createFakeVm();
+  vm.folders.add(VM_LIBRARY_LOCK);
+  const work = mock(() => Promise.resolve("done"));
+  // The fake VM dates every folder at 0, so a clock near 0 makes the lock fresh.
+  let now = 1000;
+  const clock = {
+    now: () => now,
+    sleep: (ms: number) => {
+      now += ms;
+      return Promise.resolve();
+    },
+  };
+
+  await expect(
+    withLibraryLock(vm, work, { ...quickLock, clock, staleMs: 60_000 })
+  ).rejects.toThrow("Another sync holds the library lock");
+  expect(work).not.toHaveBeenCalled();
+  expect(vm.folders.has(VM_LIBRARY_LOCK)).toBe(true);
+
+  now = 120_000;
+  await expect(
+    withLibraryLock(vm, work, { ...quickLock, clock, staleMs: 60_000 })
+  ).resolves.toBe("done");
+  expect(vm.folders.has(VM_LIBRARY_LOCK)).toBe(false);
+});
+
+test("withLibraryLock releases the lock when the work throws", async () => {
+  const vm = createFakeVm();
+
+  await expect(
+    withLibraryLock(vm, () => Promise.reject(new Error("boom")), quickLock)
+  ).rejects.toThrow("boom");
+  expect(vm.folders.has(VM_LIBRARY_LOCK)).toBe(false);
 });

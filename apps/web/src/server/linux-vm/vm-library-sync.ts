@@ -20,6 +20,7 @@ import type { RunStorage } from "../pi-run-core.ts";
 import {
   type LinuxVm,
   VM_LIBRARY_DIR,
+  VM_LIBRARY_LOCK,
   VM_LIBRARY_MANIFEST,
   VmFileError,
 } from "./vm-port.ts";
@@ -29,8 +30,10 @@ export const LIBRARY_SYNC_KEY = "library-sync";
 
 /** What a run keeps between its start and its end. The prompt reads `conflicts`. */
 export interface LibrarySyncState {
-  /** Conflict copies in the library that wait for the agent. */
+  /** Library paths of conflict copies that wait for the agent. */
   conflicts: string[];
+  /** Whether the last sync in finished, so the prompt may say the VM holds a copy. */
+  ready: boolean;
   /** The library paths the run syncs. */
   roots: string[];
 }
@@ -221,11 +224,90 @@ export const libraryRemotePort = (
   },
 });
 
+const LOCK_RETRY_MS = 250;
+const LOCK_WAIT_MS = 30_000;
+/** A sync takes seconds. A lock this old belongs to a sync that died, for example with its Durable Object. */
+const LOCK_STALE_MS = 120_000;
+
+const realClock = {
+  now: () => Date.now(),
+  sleep: (ms: number) =>
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    }),
+};
+
+interface LockOptions {
+  clock?: { now: () => number; sleep: (ms: number) => Promise<void> };
+  retryMs?: number;
+  staleMs?: number;
+  waitMs?: number;
+}
+
+/**
+ * Runs `work` while holding the VM's library lock, a folder made with a plain
+ * `mkdir`, which fails when it exists. Sessions of one agent share the VM, the
+ * working copy and its manifest, and each has its own Durable Object, so only
+ * the VM can tell them to take turns. Waits up to `waitMs` for the holder, then
+ * throws. A lock older than `staleMs` is taken over.
+ */
+export const withLibraryLock = async <T>(
+  vm: LinuxVm,
+  work: () => Promise<T>,
+  {
+    clock = realClock,
+    retryMs = LOCK_RETRY_MS,
+    staleMs = LOCK_STALE_MS,
+    waitMs = LOCK_WAIT_MS,
+  }: LockOptions = {}
+): Promise<T> => {
+  const giveUpAt = clock.now() + waitMs;
+  for (;;) {
+    try {
+      // biome-ignore lint/performance/noAwaitInLoops: each try follows the failure of the one before
+      await vm.mkdir(VM_LIBRARY_LOCK);
+      break;
+    } catch (error) {
+      if (!(error instanceof VmFileError && error.code === "EEXIST")) {
+        throw error;
+      }
+      const held = await vm.stat(VM_LIBRARY_LOCK).catch(() => null);
+      if (held === null || clock.now() - held.mtimeMs > staleMs) {
+        await vm.remove(VM_LIBRARY_LOCK, { force: true, recursive: true });
+        continue;
+      }
+      if (clock.now() >= giveUpAt) {
+        throw new Error("Another sync holds the library lock", {
+          cause: error,
+        });
+      }
+      await clock.sleep(retryMs);
+    }
+  }
+  try {
+    return await work();
+  } finally {
+    await vm
+      .remove(VM_LIBRARY_LOCK, { force: true, recursive: true })
+      .catch(() => undefined);
+  }
+};
+
 /** The sync state a run kept, or undefined when the run has not synced yet. */
 export const libraryStateOf = (
   storage: Pick<RunStorage, "get">
 ): Promise<LibrarySyncState | undefined> =>
   storage.get<LibrarySyncState>(LIBRARY_SYNC_KEY);
+
+/** What the prompt says about the working copy: nothing until a sync in has finished. */
+export const libraryCopyOf = async (
+  storage: Pick<RunStorage, "get">
+): Promise<{ conflicts: string[]; roots: string[] } | undefined> => {
+  const state = await libraryStateOf(storage);
+  return state?.ready
+    ? { conflicts: state.conflicts, roots: state.roots }
+    : undefined;
+};
 
 /** Copies the agent's folder and its library paths into the VM. Never throws. */
 export const syncLibraryIn = async (input: {
@@ -238,21 +320,26 @@ export const syncLibraryIn = async (input: {
   try {
     const roots = librarySyncRoots(input.slug, input.runtimeConfig);
     const previous = await libraryStateOf(input.storage);
+    const conflicts = previous ? previous.conflicts : [];
     // Saved first, so the end of the run can sync out even when this fails.
     await input.storage.put<LibrarySyncState>(LIBRARY_SYNC_KEY, {
-      conflicts: previous === undefined ? [] : previous.conflicts,
+      conflicts,
+      ready: false,
       roots,
     });
-    await input.vm.mkdir(`${VM_LIBRARY_DIR}/${agentHomePath(input.slug)}`, {
-      recursive: true,
+    const result = await withLibraryLock(input.vm, async () => {
+      await input.vm.mkdir(`${VM_LIBRARY_DIR}/${agentHomePath(input.slug)}`, {
+        recursive: true,
+      });
+      return await createLibrarySync({
+        local: vmLocalPort(input.vm),
+        manifest: vmManifestStore(input.vm),
+        remote: libraryRemotePort(input.ops),
+      }).syncIn({ roots });
     });
-    const result = await createLibrarySync({
-      local: vmLocalPort(input.vm),
-      manifest: vmManifestStore(input.vm),
-      remote: libraryRemotePort(input.ops),
-    }).syncIn({ roots });
     await input.storage.put<LibrarySyncState>(LIBRARY_SYNC_KEY, {
       conflicts: result.conflicts,
+      ready: true,
       roots,
     });
     if (result.failed.length > 0) {
@@ -284,11 +371,13 @@ export const syncLibraryOut = async (input: {
     if (state === undefined) {
       return;
     }
-    const result = await createLibrarySync({
-      local: vmLocalPort(input.vm),
-      manifest: vmManifestStore(input.vm),
-      remote: libraryRemotePort(input.ops),
-    }).syncOut({ roots: state.roots, runId: input.runId });
+    const result = await withLibraryLock(input.vm, () =>
+      createLibrarySync({
+        local: vmLocalPort(input.vm),
+        manifest: vmManifestStore(input.vm),
+        remote: libraryRemotePort(input.ops),
+      }).syncOut({ roots: state.roots, runId: input.runId })
+    );
     await Promise.all(
       result.conflicts.map(async (conflict) => {
         try {

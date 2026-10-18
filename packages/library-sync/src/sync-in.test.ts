@@ -241,4 +241,25 @@ describe("runSyncIn", () => {
     expect(result.pulled).toEqual(["agents/ada/good.md"]);
     expect(textOf(local.files.get("agents/ada/good.md"))).toBe("good");
   });
+
+  test("a local edit made while the library file is being read is not overwritten", async () => {
+    const { local, manifest, ports, remote } = setup();
+    remote.put("agents/ada/notes.md", "v1");
+    await runSyncIn(ports, { roots: ADA });
+    remote.put("agents/ada/notes.md", "v2");
+    const { read } = remote;
+    remote.read = (path) => {
+      local.put(path, "edited meanwhile");
+      return read(path);
+    };
+
+    const result = await runSyncIn(ports, { roots: ADA });
+
+    expect(result.kept).toEqual(["agents/ada/notes.md"]);
+    expect(result.pulled).toEqual([]);
+    expect(textOf(local.files.get("agents/ada/notes.md"))).toBe(
+      "edited meanwhile"
+    );
+    expect(manifest.saved[0]?.sha256).toBe(await sha256Of(bytesOf("v1")));
+  });
 });

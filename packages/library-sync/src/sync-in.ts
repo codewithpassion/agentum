@@ -45,13 +45,21 @@ export const runSyncIn = async (
     skipped: [],
   };
 
-  const pull = async (path: string): Promise<void> => {
+  /** `unchanged` is the hash the local file had when it was judged unedited, checked again just before it is replaced. */
+  const pull = async (path: string, unchanged?: string): Promise<void> => {
     const read = await remote.read(path);
     if (read === null) {
       return;
     }
     if (read.bytes.byteLength > max) {
       result.skipped.push(path);
+      return;
+    }
+    if (
+      unchanged !== undefined &&
+      (await sha256Of(await local.read(path))) !== unchanged
+    ) {
+      result.kept.push(path);
       return;
     }
     await local.write(path, read.bytes);
@@ -90,7 +98,7 @@ export const runSyncIn = async (
     const localHash = await sha256Of(await local.read(path));
     if (entry) {
       if (localHash === entry.sha256) {
-        await pull(path);
+        await pull(path, localHash);
       } else {
         result.kept.push(path);
       }

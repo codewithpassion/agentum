@@ -18,7 +18,7 @@ export const LINUX_VM_TOOLS_EXTENSION = "hm-linux-vm-tools";
 
 /** The synced library copy in the VM, as the prompt section names it. */
 export interface VmLibraryState {
-  /** Library paths with a conflict copy still waiting from earlier runs. */
+  /** Library paths of conflict copies still waiting. */
   conflicts: readonly string[];
   /** Library paths copied to the VM's library folder. */
   roots: readonly string[];

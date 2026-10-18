@@ -51,17 +51,22 @@ export const runSyncOut = async (
     bytes: Uint8Array,
     hash: string
   ): Promise<void> => {
+    const current = await remote.read(path);
+    if (current && (await sha256Of(current.bytes)) === hash) {
+      // The library already holds these bytes, for example from a send whose manifest save was lost.
+      await keep(path, current.etag, hash);
+      return;
+    }
     const copyPath = conflictPathOf(path, options.runId);
     const copy = await remote.write(copyPath, bytes);
     if (!copy) {
       throw new Error(`write ${copyPath} returned no etag`);
     }
     conflicts.push({ conflictPath: copyPath, path });
-    entries.set(copyPath, { etag: copy.etag, path: copyPath, sha256: hash });
     localPaths.add(copyPath);
+    // The manifest learns of the copy only once it is on disk: an entry with no file would later delete the copy from the library.
     await local.write(copyPath, bytes);
-
-    const current = await remote.read(path);
+    entries.set(copyPath, { etag: copy.etag, path: copyPath, sha256: hash });
     if (current) {
       // Take the library's bytes only if the agent has not edited the file meanwhile.
       const localNow = await sha256Of(await local.read(path));

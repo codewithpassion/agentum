@@ -152,7 +152,7 @@ describe("workspaceInstructions", () => {
       conflicts: ["agents/ada/notes.md"],
     });
     expect(text).toContain(
-      "- Conflicts: 1 of your earlier changes could not be saved because the library file changed first."
+      "- Conflicts: some changes could not be saved because the library file changed first."
     );
     expect(text).toContain("delete the copy: /library/agents/ada/notes.md.");
     expect(text.indexOf("- Conflicts:")).toBeGreaterThan(
@@ -165,7 +165,7 @@ describe("workspaceInstructions", () => {
       ...managed,
       conflicts: ["shared/brand/guide.md", "agents/support/plan.md"],
     });
-    expect(text).toContain("- Conflicts: 2 of your earlier changes");
+    expect(text).toContain("- Conflicts: some changes could not be saved");
     expect(text).toContain(
       "delete the copy: shared/brand/guide.md, agents/support/plan.md."
     );

@@ -104,6 +104,8 @@ export const createMemoryRemote = (): MemoryRemote => {
 };
 
 export interface MemoryLocal extends LocalPort {
+  /** Paths whose next `write` throws, once. */
+  failWrites: Set<string>;
   files: Map<string, Uint8Array>;
   /** Puts a file in as the agent would. */
   put: (path: string, text: string) => void;
@@ -111,9 +113,11 @@ export interface MemoryLocal extends LocalPort {
 
 export const createMemoryLocal = (): MemoryLocal => {
   const files = new Map<string, Uint8Array>();
+  const failWrites = new Set<string>();
   const isDir = (path: string) =>
     [...files.keys()].some((key) => key.startsWith(`${path}/`));
   return {
+    failWrites,
     files,
     list: (dir) => {
       const children = new Map<string, "dir" | "file">();
@@ -150,6 +154,9 @@ export const createMemoryLocal = (): MemoryLocal => {
       return Promise.resolve(isDir(path) ? { kind: "dir", size: 0 } : null);
     },
     write: (path, bytes) => {
+      if (failWrites.delete(path)) {
+        return Promise.reject(new Error(`write ${path} failed`));
+      }
       files.set(path, bytes);
       return Promise.resolve();
     },

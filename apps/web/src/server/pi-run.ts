@@ -25,7 +25,7 @@ import { durableVm } from "./linux-vm/durable-vm.ts";
 import { installEnvironmentTools } from "./linux-vm/environment-tools.ts";
 import { createVmEnv } from "./linux-vm/vm-env.ts";
 import {
-  libraryStateOf,
+  libraryCopyOf,
   syncLibraryIn,
   syncLibraryOut,
 } from "./linux-vm/vm-library-sync.ts";
@@ -289,7 +289,7 @@ export class PiRun extends DurableObject<Env> {
       this.registry,
       this.#vm ? "linux-vm" : "isolate",
       () => this.#agentSlug(),
-      () => libraryStateOf(this.ctx.storage)
+      () => libraryCopyOf(this.ctx.storage)
     );
   }
 
