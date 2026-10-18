@@ -14,6 +14,7 @@ import {
   enrollResponseSchema,
   eventsRequestSchema,
   eventsResponseSchema,
+  hasDaemonFeature,
   heartbeatResponseSchema,
   offerSchema,
   relayFrameSchema,
@@ -184,5 +185,19 @@ describe("machine protocol fixtures", () => {
       .sort();
     const listed = cases.map(([name]) => name).sort();
     expect(listed).toEqual(onDisk);
+  });
+});
+
+describe("hasDaemonFeature", () => {
+  test("finds a feature among several, with spaces around it", () => {
+    expect(hasDaemonFeature("a, library-sync ,b", "library-sync")).toBe(true);
+    expect(hasDaemonFeature("library-sync", "library-sync")).toBe(true);
+  });
+
+  test("is false for a missing or empty header and for a different name", () => {
+    expect(hasDaemonFeature(undefined, "library-sync")).toBe(false);
+    expect(hasDaemonFeature(null, "library-sync")).toBe(false);
+    expect(hasDaemonFeature("", "library-sync")).toBe(false);
+    expect(hasDaemonFeature("library-sync-v2", "library-sync")).toBe(false);
   });
 });
