@@ -1163,6 +1163,7 @@ describe("agent home", () => {
 
     expect(gateway.registered[0]?.system).toContain("agents/pelican/");
     expect(gateway.registered[0]?.system).toContain("library tools");
+    expect(gateway.registered[0]?.system).not.toContain("[ATTACHMENT:");
   });
 
   test("a first run creates the agent's folder when it is missing", async () => {

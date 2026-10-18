@@ -29,6 +29,8 @@ export type ScratchLifetime =
   | "call";
 
 export interface WorkspaceInstructionsInput {
+  /** False when the runtime never reads `[ATTACHMENT:...]` markers, so the line is left out. Default true. */
+  attachments?: boolean;
   /**
    * Where the agent keeps its own files across sessions. A folder path when
    * `homeIsLocal`, otherwise a library-relative path such as `agents/<slug>/`.
@@ -85,7 +87,11 @@ export const workspaceInstructions = (
     homeLine(input),
     scratchLine(input),
     libraryLine(input),
-    `To give the user a file, put ${formatAttachmentMarker("<absolute path>")} on its own line in your final answer.`,
+    ...(input.attachments === false
+      ? []
+      : [
+          `To give the user a file, put ${formatAttachmentMarker("<absolute path>")} on its own line in your final answer.`,
+        ]),
   ].join("\n");
 
 const MARKER_WITH_LEADING_SPACE_RE = new RegExp(

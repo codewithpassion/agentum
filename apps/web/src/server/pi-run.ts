@@ -205,7 +205,7 @@ export class PiRun extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // The attachment instructions and `read_input_file` are the same for every run.
+    // `read_input_file` is the same for every run.
     this.registry.install(filesExtension((fileId) => this.#readInput(fileId)));
     this.registry.install(libraryToolsExtension(() => this.#agentSlug()));
   }
@@ -621,11 +621,15 @@ export class PiRun extends DurableObject<Env> {
           import.meta.env.DEV && model === "faux"
             ? undefined
             : cloudModelError(model),
-        outputsOf: (run, text) =>
-          uploadOutputs(
+        outputsOf: async (run, text) => {
+          // The isolate's file tools start in the agent's home, so a relative marker is read from there.
+          const slug = this.#vm ? undefined : await this.#agentSlug();
+          return uploadOutputs(
             text,
-            this.#filesPort(() => Promise.resolve(run))
-          ),
+            this.#filesPort(() => Promise.resolve(run)),
+            slug ? agentHomePath(slug) : undefined
+          );
+        },
         pi: this.#port(),
         statusOf: async (runId) =>
           (await runs.getRun(SYSTEM_PRINCIPAL, runId)).status,

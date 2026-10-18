@@ -285,6 +285,27 @@ describe("uploadOutputs", () => {
     expect(port.uploads.map((file) => file.name)).toEqual(["good.txt"]);
   });
 
+  test("a relative marker is read from the agent's home, an absolute one from the library root", async () => {
+    const port = fakePort({
+      library: {
+        "agents/ada/a.txt": PNG,
+        "agents/ada/b.txt": PNG,
+        "c.txt": PNG,
+      },
+    });
+    const result = await uploadOutputs(
+      "[ATTACHMENT:a.txt] [ATTACHMENT:./b.txt] [ATTACHMENT:/library/c.txt]",
+      port,
+      "agents/ada"
+    );
+    expect(result.fileIds).toHaveLength(3);
+    expect(port.uploads.map((file) => file.name)).toEqual([
+      "a.txt",
+      "b.txt",
+      "c.txt",
+    ]);
+  });
+
   test("the mime comes from the extension, with a fallback", async () => {
     const names = ["a.PDF", "b.docx", "c.mp4", "d.unknown", "noext"];
     const port = fakePort({

@@ -169,6 +169,8 @@ const systemOf = (
   [
     agent.instructions.trim() || `You are ${agent.name}.`,
     workspaceInstructions({
+      // A managed run's reply is shown as it is: nothing reads the markers.
+      attachments: false,
       home: `${agentHomePath(agent.slug)}/`,
       homeIsLocal: false,
       library: null,
