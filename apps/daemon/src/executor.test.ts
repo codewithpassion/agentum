@@ -21,6 +21,10 @@ import type {
   SpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  createMemoryRemote,
+  type MemoryRemote,
+} from "@repo/library-sync/testing";
+import {
   ATTACHMENT_MARKER_RE,
   extractAttachmentMarkers,
   formatAttachmentMarker,
@@ -45,6 +49,7 @@ import type { Timers } from "./client.ts";
 import type { CommandRunner } from "./command.ts";
 import { type ExecuteRunDeps, executeRun, type QueryFn } from "./executor.ts";
 import type { FilesApi } from "./files-api.ts";
+import type { LibraryApi } from "./library-api.ts";
 import type { Logger } from "./log.ts";
 import { createRunApi, type RunApi, RunApiError } from "./run-api.ts";
 import type { SkillsApi } from "./skills-api.ts";
@@ -85,7 +90,9 @@ const claimWith = (
 
 /** What `tick` stands for in a scripted SDK stream: the 500 ms batch timer fires. */
 const TICK = "tick";
-type Step = SDKMessage | typeof TICK;
+/** The library checkpoint timer fires, and the stream waits until the sync it started is done. */
+const CHECKPOINT = "checkpoint";
+type Step = SDKMessage | typeof TICK | typeof CHECKPOINT;
 
 class FakeProcess extends EventEmitter {
   exitCode: number | null = null;
@@ -154,6 +161,8 @@ interface Harness {
   /** The names the process spawner was asked to preserve, one entry per spawn. */
   preserveEnvSeen: (readonly string[])[];
   proc: FakeProcess;
+  /** The conflicts the run reported to the Worker. */
+  recordedConflicts: { conflictPath: string; path: string }[];
   /** What the fake hm-agent work directory holds (path to text), as the sudo calls left it. */
   remoteFiles: Map<string, string>;
   run: CommandRunner;
@@ -173,6 +182,14 @@ interface SetupOptions {
   hang?: boolean;
   /** Keeps the process alive after an abort until the test lets it go. */
   holdExit?: boolean;
+  /** The library the run syncs with. The claim names the paths to sync. */
+  library?: {
+    /** Runs once the first message is read, with the work directory: the agent working. */
+    agent?: (workDir: string, remote: MemoryRemote) => void;
+    /** The listing fails, as a Worker outage would make it. */
+    down?: boolean;
+    remote: MemoryRemote;
+  };
   /** `setMcpServers` answers only once the query is closed. */
   mcpHangsUntilClose?: boolean;
   /** Files already in the fake hm-agent work directory, by absolute path. */
@@ -257,6 +274,7 @@ const setup = (setupOptions: SetupOptions) => {
   let closeQuery: () => void = () => undefined;
   const maskerSeen: Masker[] = [];
   const preserveEnvSeen: (readonly string[])[] = [];
+  const recordedConflicts: Harness["recordedConflicts"] = [];
 
   const api: RunApi = {
     claim: () => Promise.reject(new Error("not used")),
@@ -348,14 +366,21 @@ const setup = (setupOptions: SetupOptions) => {
       order.push(`first-message:${String(content)}`);
       firstMessage.inbox = readInbox(cwd);
       firstMessage.skills = readSkills(cwd);
+      if (cwd !== undefined) {
+        setupOptions.library?.agent?.(cwd, setupOptions.library.remote);
+      }
       for (const step of setupOptions.script) {
         if (signal?.aborted) {
           throw abortError();
         }
-        if (step === TICK) {
+        if (step === CHECKPOINT) {
+          timers.fire("library-checkpoint");
+          // The sync runs on real file calls and fake HTTP; give it time to finish.
+          // biome-ignore lint/performance/noAwaitInLoops: the stream plays its steps in order.
+          await sleep(50);
+        } else if (step === TICK) {
           timers.fire("event-batch");
           // Let the batch go out before the next message is pushed.
-          // biome-ignore lint/performance/noAwaitInLoops: the stream plays its steps in order.
           await new Promise((resolve) => setTimeout(resolve, 0));
         } else {
           yield step;
@@ -367,7 +392,7 @@ const setup = (setupOptions: SetupOptions) => {
         });
       }
       const gotResult = setupOptions.script.some(
-        (step) => step !== TICK && step.type === "result"
+        (step) => step !== TICK && step !== CHECKPOINT && step.type === "result"
       );
       proc.exit(gotResult ? 0 : 1);
     }
@@ -480,6 +505,24 @@ const setup = (setupOptions: SetupOptions) => {
     error: (message) => lines.push(message),
     info: (message) => lines.push(message),
   };
+  const libraryRemote = setupOptions.library
+    ? setupOptions.library.remote
+    : createMemoryRemote();
+  const libraryApi: LibraryApi = {
+    ...libraryRemote,
+    list: (dir) =>
+      setupOptions.library?.down
+        ? Promise.reject(new RunApiError("library list answered HTTP 503", 503))
+        : libraryRemote.list(dir),
+    recordConflict: (conflict) => {
+      recordedConflicts.push(conflict);
+      return Promise.resolve();
+    },
+    write: (path, bytes, options) => {
+      order.push(`library-write:${path}:exited=${proc.exitCode !== null}`);
+      return libraryRemote.write(path, bytes, options);
+    },
+  };
   const deps: ExecuteRunDeps = {
     claim,
     config: {
@@ -505,6 +548,7 @@ const setup = (setupOptions: SetupOptions) => {
       return api;
     },
     createFilesApi: () => filesApi,
+    createLibraryApi: () => libraryApi,
     createSkillsApi: () => skillsApi,
     daemonHome: home,
     env: {
@@ -536,6 +580,7 @@ const setup = (setupOptions: SetupOptions) => {
     order,
     preserveEnvSeen,
     proc,
+    recordedConflicts,
     remoteFiles,
     run,
     runCommands,
@@ -1337,5 +1382,209 @@ describe("the agent's secrets", () => {
     expect(body).not.toContain(RELAY);
     expect(run.lines.join("\n")).not.toContain(OPENAI);
     expect(run.lines.join("\n")).not.toContain(RELAY);
+  });
+});
+
+describe("the library copy", () => {
+  const NOTES = "agents/ada/notes.md";
+
+  const claimWithLibrary = (conflicts: string[] = []) =>
+    claimWith((claim) => {
+      claim.library = { conflicts, paths: ["agents/ada"] };
+    });
+
+  const promptOf = (options: Options | undefined): string => {
+    const prompt = options?.systemPrompt;
+    return typeof prompt === "object" && prompt !== null && "append" in prompt
+      ? (prompt.append ?? "")
+      : "";
+  };
+
+  const localFile = (workDir: string, path: string) =>
+    join(workDir, "library", path);
+
+  /** The script of a run that works for a while: a checkpoint after the first message. */
+  const scriptWithCheckpoint = (): Step[] => {
+    const [first, ...rest] = toolRunScript();
+    return first === undefined ? [] : [first, CHECKPOINT, ...rest];
+  };
+
+  test("copies the named folders into library/ before the first message and says so in the prompt", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    remote.put("docs/other.md", "o");
+    let seen: string | undefined;
+    const run = setup({
+      claim: claimWithLibrary(),
+      library: {
+        agent: (dir) => {
+          seen = readFileSync(localFile(dir, NOTES), "utf8");
+        },
+        remote,
+      },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+    const workDir = workDirOf(run.claim);
+
+    expect(seen).toBe("n1");
+    expect(existsSync(join(workDir, "library", "docs"))).toBe(false);
+    // The manifest sits beside library/, not inside it.
+    expect(existsSync(join(workDir, "library.manifest.json"))).toBe(true);
+    expect(promptOf(run.optionsSeen[0])).toContain(
+      `- Library: ${workDir}/library holds a synced copy of agents/ada`
+    );
+  });
+
+  test("the prompt lists the conflict copies the claim carries", async () => {
+    const copy = "agents/ada/notes.md.conflict-r0";
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    remote.put(copy, "old");
+    const run = setup({
+      claim: claimWithLibrary([copy]),
+      library: { remote },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+
+    expect(promptOf(run.optionsSeen[0])).toContain(
+      `delete the copy: ${workDirOf(run.claim)}/library/${copy}.`
+    );
+  });
+
+  test("a claim with no library paths leaves the work directory and the prompt as before", async () => {
+    const run = setup({ script: toolRunScript() });
+    await run.execution.finished;
+    const workDir = workDirOf(run.claim);
+
+    expect(existsSync(join(workDir, "library"))).toBe(false);
+    expect(existsSync(join(workDir, "library.manifest.json"))).toBe(false);
+    expect(promptOf(run.optionsSeen[0])).not.toContain("synced copy");
+  });
+
+  test("the agent's changes go back after the process exited and before the completion", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    const run = setup({
+      claim: claimWithLibrary(),
+      library: {
+        agent: (workDir) => {
+          writeFileSync(localFile(workDir, NOTES), "n2");
+          writeFileSync(localFile(workDir, "agents/ada/new.md"), "new");
+        },
+        remote,
+      },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+
+    expect(new TextDecoder().decode(remote.files.get(NOTES)?.bytes)).toBe("n2");
+    expect(
+      new TextDecoder().decode(remote.files.get("agents/ada/new.md")?.bytes)
+    ).toBe("new");
+    const writes = run.order.filter((entry) =>
+      entry.startsWith("library-write:")
+    );
+    expect(writes).toEqual([
+      "library-write:agents/ada/new.md:exited=true",
+      `library-write:${NOTES}:exited=true`,
+    ]);
+    const lastWrite = run.order.lastIndexOf(writes.at(-1) ?? "");
+    expect(lastWrite).toBeLessThan(run.order.indexOf("complete:done"));
+  });
+
+  test("a checkpoint sends the changes while the process still runs, and the timer stops with the run", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    const run = setup({
+      claim: claimWithLibrary(),
+      library: {
+        agent: (workDir) => {
+          writeFileSync(localFile(workDir, NOTES), "n2");
+        },
+        remote,
+      },
+      script: scriptWithCheckpoint(),
+    });
+    expect(run.timers.has("library-checkpoint")).toBe(false);
+    await run.execution.finished;
+
+    expect(run.order).toContain(`library-write:${NOTES}:exited=false`);
+    expect(run.timers.has("library-checkpoint")).toBe(false);
+    expect(new TextDecoder().decode(remote.files.get(NOTES)?.bytes)).toBe("n2");
+  });
+
+  test("a change a person made meanwhile leaves a conflict copy, and the run reports it", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    const run = setup({
+      claim: claimWithLibrary(),
+      library: {
+        agent: (workDir, memory) => {
+          writeFileSync(localFile(workDir, NOTES), "mine");
+          memory.put(NOTES, "theirs");
+        },
+        remote,
+      },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+    const copy = `${NOTES}.conflict-${run.claim.run.id}`;
+
+    expect(new TextDecoder().decode(remote.files.get(NOTES)?.bytes)).toBe(
+      "theirs"
+    );
+    expect(new TextDecoder().decode(remote.files.get(copy)?.bytes)).toBe(
+      "mine"
+    );
+    expect(run.recordedConflicts).toEqual([
+      { conflictPath: copy, path: NOTES },
+    ]);
+  });
+
+  test("an aborted run sends nothing back", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    const run = setup({
+      claim: claimWithLibrary(),
+      hang: true,
+      library: {
+        agent: (workDir) => {
+          writeFileSync(localFile(workDir, NOTES), "n2");
+        },
+        remote,
+      },
+      script: [INIT],
+    });
+    await until(() =>
+      run.order.some((entry) => entry.startsWith("first-message:"))
+    );
+    run.execution.abort("cancelled");
+    await run.execution.finished;
+
+    expect(run.order.some((entry) => entry.startsWith("library-write:"))).toBe(
+      false
+    );
+    expect(new TextDecoder().decode(remote.files.get(NOTES)?.bytes)).toBe("n1");
+    expect(run.completions[0]?.body).toEqual({ status: "aborted" });
+  });
+
+  test("a library that cannot be reached is a warning: the run goes ahead and the prompt names no copy", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    const run = setup({
+      claim: claimWithLibrary(),
+      library: { down: true, remote },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+
+    expect(doneBody(run).status).toBe("done");
+    expect(promptOf(run.optionsSeen[0])).not.toContain("synced copy");
+    expect(run.lines.join("\n")).toContain(
+      "warning: syncing the library in failed"
+    );
+    expect(run.timers.has("library-checkpoint")).toBe(false);
   });
 });

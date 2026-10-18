@@ -55,7 +55,7 @@ const MODE_TYPE_DIVISOR = 0x10_00;
 const REGULAR_FILE_TYPE = 8;
 
 /** The absolute path of `relPath` under `workDir`; throws when it lands outside. */
-const insideWorkDir = (workDir: string, relPath: string): string => {
+export const insideWorkDir = (workDir: string, relPath: string): string => {
   const root = resolve(workDir);
   const target = resolve(root, relPath);
   if (isAbsolute(relPath) || target === root || !isWithin(root, target)) {

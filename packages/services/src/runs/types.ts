@@ -186,6 +186,8 @@ export interface MachineClaim {
   env?: Record<string, string>;
   inputFileIds: string[];
   instructions: string;
+  /** The library folders to copy into the work directory, and the conflict copies waiting in them. */
+  library?: { conflicts: string[]; paths: string[] };
   mcpServers: Record<
     string,
     { headers: Record<string, string>; type: "http"; url: string }

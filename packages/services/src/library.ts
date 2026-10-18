@@ -22,7 +22,8 @@ import {
   LIBRARY_MAX_BYTES,
   type LibraryEntryKind,
 } from "@repo/db/shared";
-import { and, asc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
+import { isConflictPath } from "@repo/library-sync/types";
+import { and, asc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
@@ -593,6 +594,50 @@ export const createLibraryService = ({
   };
 
   /**
+   * The conflict copies (`<path>.conflict-<runId>`) at or below any root, as
+   * sorted library paths. The root is the empty string and means the whole
+   * library. The SQL LIKE is only a cheap pre-filter, so the name is checked
+   * again here: a folder named like a copy, or a file below one, is not one.
+   */
+  const pendingConflicts = async (
+    principal: Principal,
+    roots: readonly string[]
+  ): Promise<string[]> => {
+    const member = requireMember(principal, "library.list");
+    authorize(member, "library.list", {
+      kind: LIBRARY_KIND,
+      workspaceId: member.workspaceId,
+    });
+    const paths = roots.map((root) => normalizePath(root));
+    if (paths.length === 0) {
+      return [];
+    }
+    const inRoots = paths.includes(ROOT)
+      ? undefined
+      : or(
+          ...paths.map((root) =>
+            or(
+              eq(libraryEntries.path, root),
+              underFolder(member.workspaceId, root)
+            )
+          )
+        );
+    const rows = await db
+      .select({ path: libraryEntries.path })
+      .from(libraryEntries)
+      .where(
+        and(
+          eq(libraryEntries.workspaceId, member.workspaceId),
+          eq(libraryEntries.kind, "file"),
+          like(libraryEntries.path, "%.conflict-%"),
+          inRoots
+        )
+      )
+      .orderBy(asc(libraryEntries.path));
+    return rows.map((row) => row.path).filter((path) => isConflictPath(path));
+  };
+
+  /**
    * Logs one `bash` tool call: the script (the event log strips secrets from
    * it), how it ended and what it cost. Any member may log, because a script
    * that only reads is still a command. The writes inside the script log their
@@ -657,6 +702,7 @@ export const createLibraryService = ({
     list,
     mkdir,
     move,
+    pendingConflicts,
     read,
     recordCommand,
     recordConflict,

@@ -125,6 +125,28 @@ test("single-user creates the dir and empties .claude, .mcp.json, inbox and tmp 
   expect(calls).toEqual([]);
 });
 
+test("single-user keeps library/ and its manifest, like the rest of home", async () => {
+  const home = tempDirectory();
+  const dir = workDirPath(home, "w1", "a1");
+  mkdirSync(join(dir, "library", "agents", "ada"), { recursive: true });
+  writeFileSync(join(dir, "library", "agents", "ada", "notes.md"), "mine");
+  writeFileSync(join(dir, "library.manifest.json"), "[]");
+  const { run } = fakeRun();
+
+  await prepareWorkDir({
+    agentId: "a1",
+    daemonHome: home,
+    run,
+    singleUser: true,
+    workspaceId: "w1",
+  });
+
+  expect(existsSync(join(dir, "library", "agents", "ada", "notes.md"))).toBe(
+    true
+  );
+  expect(existsSync(join(dir, "library.manifest.json"))).toBe(true);
+});
+
 test("single-user creates a missing dir with an empty tmp without touching the runner", async () => {
   const home = tempDirectory();
   const { calls, run } = fakeRun();

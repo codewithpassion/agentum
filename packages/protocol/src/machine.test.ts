@@ -115,6 +115,26 @@ describe("machine protocol fixtures", () => {
     expect(claimResponseSchema.safeParse(nullModel).success).toBe(false);
   });
 
+  test("claim-response accepts the library paths and conflicts, and rejects an unknown key in them", async () => {
+    const parsed = claimResponseSchema.parse(
+      await loadFixture("claim-response")
+    );
+    const library = {
+      conflicts: ["agents/ada/notes.md.conflict-r1"],
+      paths: ["agents/ada"],
+    };
+    expect(claimResponseSchema.parse({ ...parsed, library }).library).toEqual(
+      library
+    );
+    expect(parsed.library).toBeUndefined();
+    expect(
+      claimResponseSchema.safeParse({
+        ...parsed,
+        library: { ...library, extra: true },
+      }).success
+    ).toBe(false);
+  });
+
   test("complete-request accepts a usage with only costUsd", async () => {
     const raw = (await loadFixture("complete-request-done")) as Record<
       string,

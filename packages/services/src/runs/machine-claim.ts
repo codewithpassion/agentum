@@ -18,6 +18,8 @@ import { findAgent } from "../agents.ts";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { ServiceError } from "../errors.ts";
+import { librarySyncRoots } from "../library/sync-paths.ts";
+import type { LibraryService } from "../library.ts";
 import type { RunTokenClaims } from "../run-tokens.ts";
 import { secretsGuidance } from "../secrets/guidance.ts";
 import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
@@ -35,6 +37,8 @@ export interface MachineClaimDeps {
   db: Database;
   /** Lease length in milliseconds. */
   leaseMs: number;
+  /** Lists the conflict copies the claim hands over. Without it, the claim names no library paths. */
+  library?: Pick<LibraryService, "pendingConflicts">;
   now: () => Date;
   /** The agent's granted secrets. Without it, no secret reaches the machine. */
   secrets?: Pick<SecretsService, "announceDelivery" | "resolveForAgent">;
@@ -90,6 +94,24 @@ export const claimForMachine = async (
     run.workspaceId,
     agent.id
   );
+
+  // The library folders the daemon copies, and the conflict copies waiting in
+  // them. Read before the claim write, like the token and the secrets.
+  const libraryPaths = librarySyncRoots(agent.slug, agent.runtimeConfig);
+  const library = deps.library
+    ? {
+        conflicts: await deps.library.pendingConflicts(
+          {
+            agentId: run.agentId,
+            kind: "run",
+            runId: run.id,
+            workspaceId: run.workspaceId,
+          },
+          libraryPaths
+        ),
+        paths: libraryPaths,
+      }
+    : undefined;
 
   const sibling = alias(runs, "sibling");
   const older = alias(runs, "older");
@@ -224,6 +246,7 @@ export const claimForMachine = async (
       guidance === ""
         ? agent.instructions
         : `${agent.instructions}\n\n${guidance}`,
+    ...(library ? { library } : {}),
     mcpServers: buildMcpServers({
       connectors: assigned,
       platformUrl: options.platformUrl,

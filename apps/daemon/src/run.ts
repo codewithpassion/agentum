@@ -19,6 +19,7 @@ import type { DaemonConfig } from "./config.ts";
 import { executeRun, type QueryFn } from "./executor.ts";
 import { EXIT_OK } from "./exit-codes.ts";
 import { createFilesApi } from "./files-api.ts";
+import { createLibraryApi } from "./library-api.ts";
 import type { Logger } from "./log.ts";
 import { createRunApi } from "./run-api.ts";
 import { createRunManager } from "./run-manager.ts";
@@ -95,6 +96,15 @@ export const runCommand = async (options: RunOptions): Promise<number> => {
             masker,
             runToken: claim.runToken,
             server: config.server,
+          }),
+        createLibraryApi: (masker, signal) =>
+          createLibraryApi({
+            fetch: doFetch,
+            masker,
+            runId: claim.run.id,
+            runToken: claim.runToken,
+            server: config.server,
+            signal,
           }),
         createSkillsApi: (masker) =>
           createSkillsApi({

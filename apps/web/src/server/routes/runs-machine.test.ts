@@ -170,6 +170,11 @@ test("a run goes offered, running, then done through the four routes", async () 
   const body = claimResponseSchema.parse(await claimed.json());
   expect(body.run.id).toBe(started.runId);
   expect(body.run.workspaceId).toBe(workspaceId);
+  // The claim names the agent's library folder, with no conflict copies yet.
+  expect(body.library).toEqual({
+    conflicts: [],
+    paths: [`agents/${body.agent.slug}`],
+  });
   expect(row(started.runId)?.status).toBe("running");
 
   const stored = await call("events", started.runId, credential, ONE_EVENT);

@@ -35,6 +35,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
 import { type Blobs, createEventsService } from "./events.ts";
+import type { LibraryService } from "./library.ts";
 import {
   importRunTokenKey,
   type RunTokenClaims,
@@ -150,6 +151,8 @@ export interface RunsServiceOptions {
   /** Registers the echo runtime for agents whose runtime is `fake`. */
   devFakeRuntime: boolean;
   gateways: readonly Gateway[];
+  /** The workspace library. A machine claim lists the conflict copies waiting for the agent. Without it, the claim names no library paths. */
+  library?: Pick<LibraryService, "pendingConflicts">;
   /**
    * `RUN_TOKEN_KEY` (base64, 32 bytes). Only the machine claim needs it, which
    * mints the run token; leave it out where no machine claims runs.
@@ -208,6 +211,7 @@ export const createRunsService = ({
   db,
   devFakeRuntime,
   gateways,
+  library,
   runTokenKey,
   secrets,
 }: RunsServiceOptions) => {
@@ -608,6 +612,7 @@ export const createRunsService = ({
         },
         db,
         leaseMs: LEASE_MS,
+        library,
         now: () => clock.now(),
         secrets,
         signToken,

@@ -88,6 +88,15 @@ export const claimResponseSchema = z.strictObject({
   env: z.record(z.string(), z.string()).optional(),
   inputFileIds: z.array(z.string()),
   instructions: z.string(),
+  // The library folders the daemon copies into the work directory, and the
+  // conflict copies waiting in them. Optional, so a Worker that predates the
+  // library sync still parses on a newer daemon.
+  library: z
+    .strictObject({
+      conflicts: z.array(z.string()),
+      paths: z.array(z.string()),
+    })
+    .optional(),
   mcpServers: z.record(
     z.string(),
     z.strictObject({

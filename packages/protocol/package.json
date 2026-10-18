@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     "./attachments": "./src/attachments.ts",
+    "./library": "./src/library.ts",
     "./machine": "./src/machine.ts",
     "./masker": "./src/masker.ts",
     "./skills": "./src/skills.ts"
