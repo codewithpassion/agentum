@@ -3,7 +3,7 @@ id: W.6
 title: Machine scratch folder and prompt
 milestone: W
 size: S
-status: todo
+status: in_progress
 depends_on: [W.1]
 branch: task/W.6-machine-scratch
 ---
@@ -23,3 +23,4 @@ Asked for by Dom on 18 Oct 2026, from the report (section D, "Machines"). The ma
 
 ## Log
 - 2026-10-18: added at Dom's request.
+- 2026-10-18: dispatched.

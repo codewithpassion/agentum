@@ -3,7 +3,7 @@ id: W.5
 title: Isolate and managed homes in the library, prompts for both
 milestone: W
 size: S
-status: todo
+status: in_progress
 depends_on: [W.1]
 branch: task/W.5-library-homes
 ---
@@ -25,3 +25,4 @@ Asked for by Dom on 18 Oct 2026, from the report (section D). Isolate and Manage
 
 ## Log
 - 2026-10-18: added at Dom's request.
+- 2026-10-18: dispatched.

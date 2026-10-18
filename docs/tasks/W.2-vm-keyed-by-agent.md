@@ -3,7 +3,7 @@ id: W.2
 title: Linux VM keyed by agent with a persistent /workspace/home
 milestone: W
 size: M
-status: todo
+status: in_progress
 depends_on: [W.1]
 branch: task/W.2-vm-keyed-by-agent
 ---
@@ -27,3 +27,4 @@ Asked for by Dom on 18 Oct 2026, from the report (sections B and D). Files an ag
 
 ## Log
 - 2026-10-18: added at Dom's request.
+- 2026-10-18: dispatched.

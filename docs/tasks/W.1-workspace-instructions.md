@@ -3,7 +3,7 @@ id: W.1
 title: Workspace instructions builder shared by all runtimes
 milestone: W
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/W.1-workspace-instructions
 ---
@@ -24,3 +24,4 @@ Asked for by Dom on 18 Oct 2026, from docs/analysis/agent-workspace-persistence.
 
 ## Log
 - 2026-10-18: added at Dom's request.
+- 2026-10-18: review clean after 1 fix round at ed6b18e (docs/reviews/tasks/W.1.md). Merged.
