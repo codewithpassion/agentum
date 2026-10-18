@@ -629,7 +629,7 @@ describe("the options passed to query", () => {
     expect(options && "mcpServers" in options).toBe(false);
   });
 
-  test("the system prompt ends with the attachment sentence, after the agent's instructions", async () => {
+  test("the system prompt ends with the attachment line, after the agent's instructions", async () => {
     const run = setup({ script: toolRunScript() });
     await run.execution.finished;
     const [options] = run.optionsSeen;
@@ -639,14 +639,34 @@ describe("the options passed to query", () => {
         ? (prompt.append ?? "")
         : "";
     expect(append.startsWith(run.claim.instructions)).toBe(true);
-    const sentence = append.slice(run.claim.instructions.length).trim();
-    expect(sentence).toContain("on its own line in your final answer");
+    const filesSection = append.slice(run.claim.instructions.length).trim();
+    expect(filesSection).toContain("on its own line in your final answer");
+    expect(filesSection).toContain(
+      `A file can only be attached from inside ${workDirOf(run.claim)}.`
+    );
     // The marker in the sentence is one the parser accepts, with a path slot.
-    const [marker] = sentence.match(ATTACHMENT_MARKER_RE) ?? [];
+    const [marker] = filesSection.match(ATTACHMENT_MARKER_RE) ?? [];
     expect(marker).toBe(formatAttachmentMarker("<absolute path>"));
     expect(extractAttachmentMarkers(`ok\n${marker}`).paths).toEqual([
       "<absolute path>",
     ]);
+  });
+
+  test("the append names home (the work dir), scratch (<workDir>/tmp, emptied per run) and the library tools", async () => {
+    const run = setup({ script: toolRunScript() });
+    await run.execution.finished;
+    const [options] = run.optionsSeen;
+    const prompt = options?.systemPrompt;
+    const append =
+      typeof prompt === "object" && prompt !== null && "append" in prompt
+        ? (prompt.append ?? "")
+        : "";
+    const workDir = workDirOf(run.claim);
+    expect(append).toContain(`- Home: ${workDir}.`);
+    expect(append).toContain(`- Scratch: ${workDir}/tmp.`);
+    expect(append).toContain("emptied before your next run");
+    expect(append).toContain("- Library:");
+    expect(append).toContain("reach it with the library tools");
   });
 
   test("the env is filtered and holds no run token", async () => {
@@ -691,6 +711,7 @@ describe("the options passed to query", () => {
     expect(run.runCommands.map((command) => command.slice(0, 5))).toEqual([
       ["sudo", "-n", "-u", "hm-agent", "/bin/mkdir"],
       ["sudo", "-n", "-u", "hm-agent", "/bin/rm"],
+      ["sudo", "-n", "-u", "hm-agent", "/bin/mkdir"],
     ]);
     expect(
       run.optionsSeen[0]?.cwd?.startsWith("/home/hm-agent/harbourmaster/")
@@ -914,8 +935,8 @@ describe("files on a multi-user machine", () => {
     });
     await run.execution.finished;
     const inbox = `${remoteWorkDirOf(claim)}/inbox`;
-    // The first two commands prepare the work directory.
-    expect(run.runCommands.slice(2)).toEqual([
+    // The first three commands prepare the work directory.
+    expect(run.runCommands.slice(3)).toEqual([
       [...AS_AGENT, AGENT_MKDIR, "-p", inbox],
       [...AS_AGENT, AGENT_DD, `of=${inbox}/notes.txt`, "status=none"],
       [...AS_AGENT, AGENT_MKDIR, "-p", inbox],
@@ -956,10 +977,11 @@ describe("files on a multi-user machine", () => {
     });
     await run.execution.finished;
     expect(run.uploaded).toEqual([]);
-    // Only the two commands that prepare the work directory ran.
+    // Only the three commands that prepare the work directory ran.
     expect(run.runCommands.map((command) => command[AS_AGENT.length])).toEqual([
       AGENT_MKDIR,
       AGENT_RM,
+      AGENT_MKDIR,
     ]);
     const body = doneBody(run);
     expect(body.fileIds).toBeUndefined();

@@ -20,7 +20,7 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import { attachmentInstructions } from "@repo/protocol/attachments";
+import { workspaceInstructions } from "@repo/protocol/attachments";
 import {
   type ClaimResponse,
   type CompleteRequest,
@@ -49,7 +49,7 @@ import {
 import type { SkillsApi } from "./skills-api.ts";
 import { syncSkills } from "./skills-sync.ts";
 import { createWorkFiles, type WorkFiles } from "./work-files.ts";
-import { prepareWorkDir } from "./workdir.ts";
+import { prepareWorkDir, SCRATCH_DIR } from "./workdir.ts";
 
 export type QueryFn = (params: {
   options?: Options;
@@ -262,6 +262,13 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   const buildOptions = (workDir: string, claudeBinary: string): Options => {
     const budget = budgetOf(claim.agent.runtimeConfig);
     const resume = resumeOf(claim, config);
+    // The daemon only collects attachments inside the work dir, so say so.
+    const files = `${workspaceInstructions({
+      home: workDir,
+      homeIsLocal: true,
+      library: null,
+      scratch: { lasts: "run-start", path: `${workDir}/${SCRATCH_DIR}` },
+    })}\nA file can only be attached from inside ${workDir}.`;
     return {
       abortController,
       allowDangerouslySkipPermissions: true,
@@ -276,7 +283,7 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       spawnClaudeCodeProcess: spawnProcess,
       strictMcpConfig: true,
       systemPrompt: {
-        append: `${claim.instructions}\n\n${attachmentInstructions(workDir)}`,
+        append: `${claim.instructions}\n\n${files}`,
         preset: "claude_code",
         type: "preset",
       },
