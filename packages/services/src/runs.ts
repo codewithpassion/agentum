@@ -603,7 +603,7 @@ export const createRunsService = ({
   const claimRunForMachine = (
     principal: Principal,
     runId: string,
-    options: { platformUrl: string }
+    options: { libraryForDaemon?: boolean; platformUrl: string }
   ): Promise<MachineClaim> =>
     claimForMachine(
       {

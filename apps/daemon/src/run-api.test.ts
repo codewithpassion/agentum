@@ -123,6 +123,13 @@ describe("claim", () => {
     expect(firstCall(calls).url).toBe(`${RUN_BASE}/claim`);
   });
 
+  test("tells the Worker it reads the library part of the claim", async () => {
+    const fixture = await claimFixture();
+    const { calls, fetch } = recordingFetch(() => jsonResponse(fixture));
+    await makeApi(fetch).claim();
+    expect(firstCall(calls).headers["x-daemon-features"]).toBe("library-sync");
+  });
+
   test("an answer that fails the schema gives status 0", async () => {
     const { fetch } = recordingFetch(() => jsonResponse({ run: {} }));
     const error = await rejectionOf(makeApi(fetch).claim());

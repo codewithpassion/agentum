@@ -65,6 +65,13 @@ const FIND_KINDS = new Map<string, Kind>([
 ]);
 const MISSING_ERRORS = new Set(["ENOENT", "ENOTDIR"]);
 const MISSING_STDERR = ["No such file or directory", "Not a directory"];
+// What `sudo -n` says when the rule does not allow the command, for example a
+// machine whose install-service has not been run since `find` was added.
+const SUDO_REFUSED_STDERR = [
+  "a password is required",
+  "is not allowed to execute",
+  "may not run sudo",
+];
 
 const isMissingError = (error: unknown): boolean =>
   error instanceof Error &&
@@ -197,6 +204,11 @@ const sudoDisk = (run: CommandRunner, workDir: string): WorkDisk => {
       if (result.exitCode !== 0) {
         if (isMissingStderr(result.stderr)) {
           return [];
+        }
+        if (SUDO_REFUSED_STDERR.some((text) => result.stderr.includes(text))) {
+          throw new Error(
+            "sudo refused find as hm-agent: run harbourmaster install-service again to allow it"
+          );
         }
         throw new Error(`find failed: ${result.stderr.trim()}`);
       }

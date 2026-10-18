@@ -7,6 +7,8 @@ import {
   type ClaimResponse,
   type CompleteRequest,
   claimResponseSchema,
+  DAEMON_FEATURES_HEADER,
+  FEATURE_LIBRARY_SYNC,
   type RunEventInput,
 } from "@repo/protocol/machine";
 import type { Masker } from "@repo/protocol/masker";
@@ -89,9 +91,14 @@ export const createRunApi = (options: RunApiOptions): RunApi => {
       : masked.split(credential).join(CREDENTIAL_PLACEHOLDER);
   };
 
-  const send = async (route: string, body?: unknown): Promise<Response> => {
+  const send = async (
+    route: string,
+    body?: unknown,
+    extraHeaders: Record<string, string> = {}
+  ): Promise<Response> => {
     const headers: Record<string, string> = {
       authorization: `Bearer ${credential}`,
+      ...extraHeaders,
     };
     // A relay that never answers must not hold a run's slot, or the daemon's
     // shutdown, for longer than this.
@@ -135,7 +142,10 @@ export const createRunApi = (options: RunApiOptions): RunApi => {
   };
 
   const claim = async (): Promise<ClaimResponse> => {
-    const response = await send("claim");
+    // Tells the Worker which optional parts of the claim this daemon can read.
+    const response = await send("claim", undefined, {
+      [DAEMON_FEATURES_HEADER]: FEATURE_LIBRARY_SYNC,
+    });
     await expectOk("claim", response);
     const parsed = claimResponseSchema.safeParse(
       parseJson(await response.text())

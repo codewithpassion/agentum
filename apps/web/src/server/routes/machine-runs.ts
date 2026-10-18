@@ -5,8 +5,11 @@
 import {
   claimResponseSchema,
   completeRequestSchema,
+  DAEMON_FEATURES_HEADER,
   eventsRequestSchema,
   eventsResponseSchema,
+  FEATURE_LIBRARY_SYNC,
+  hasDaemonFeature,
 } from "@repo/protocol/machine";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
@@ -72,6 +75,12 @@ export const machineRunRoutes = () => {
       const claim = await c
         .get("composed")
         .services.runs.claimRunForMachine(principal, runId, {
+          // Only a daemon that says so gets the library part of the claim; an
+          // older one rejects a key it does not know.
+          libraryForDaemon: hasDaemonFeature(
+            c.req.header(DAEMON_FEATURES_HEADER),
+            FEATURE_LIBRARY_SYNC
+          ),
           // The address the daemon reached us at is one it can use for /mcp.
           platformUrl: new URL(c.req.url).origin,
         });

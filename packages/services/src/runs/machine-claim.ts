@@ -58,7 +58,7 @@ export const claimForMachine = async (
   deps: MachineClaimDeps,
   principal: Principal,
   runId: string,
-  options: { platformUrl: string }
+  options: { libraryForDaemon?: boolean; platformUrl: string }
 ): Promise<MachineClaim> => {
   if (principal.kind !== "machine") {
     throw new ForbiddenError(CLAIM_ACTION);
@@ -98,20 +98,21 @@ export const claimForMachine = async (
   // The library folders the daemon copies, and the conflict copies waiting in
   // them. Read before the claim write, like the token and the secrets.
   const libraryPaths = librarySyncRoots(agent.slug, agent.runtimeConfig);
-  const library = deps.library
-    ? {
-        conflicts: await deps.library.pendingConflicts(
-          {
-            agentId: run.agentId,
-            kind: "run",
-            runId: run.id,
-            workspaceId: run.workspaceId,
-          },
-          libraryPaths
-        ),
-        paths: libraryPaths,
-      }
-    : undefined;
+  const library =
+    deps.library && options.libraryForDaemon === true
+      ? {
+          conflicts: await deps.library.pendingConflicts(
+            {
+              agentId: run.agentId,
+              kind: "run",
+              runId: run.id,
+              workspaceId: run.workspaceId,
+            },
+            libraryPaths
+          ),
+          paths: libraryPaths,
+        }
+      : undefined;
 
   const sibling = alias(runs, "sibling");
   const older = alias(runs, "older");

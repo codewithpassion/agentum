@@ -393,6 +393,19 @@ test("multi-user list answers empty for a missing folder and throws on other fai
   ).rejects.toThrow("find failed: find: '/x': Permission denied");
 });
 
+test("multi-user list says what to do when sudo does not allow find", async () => {
+  const refused = recordingRunner(() =>
+    reply("", 1, "sudo: a password is required\n")
+  );
+  await expect(
+    createWorkDisk({
+      run: refused.run,
+      singleUser: false,
+      workDir: WORK_DIR,
+    }).list("library")
+  ).rejects.toThrow("run harbourmaster install-service again");
+});
+
 test("multi-user refuses paths outside the work directory before running anything", async () => {
   const { calls, run } = recordingRunner(() => reply(""));
   const disk = createWorkDisk({ run, singleUser: false, workDir: WORK_DIR });

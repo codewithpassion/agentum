@@ -1,5 +1,26 @@
 import { z } from "zod";
 
+/**
+ * The header a daemon sends with its claim to list the optional features it
+ * understands, comma separated. The Worker adds a feature's data to the claim
+ * only for a daemon that names it, because the claim schema is strict and an
+ * older daemon rejects a key it does not know.
+ */
+export const DAEMON_FEATURES_HEADER = "X-Daemon-Features";
+
+/** The daemon copies the claim's `library` folders to disk and syncs them (W.8). */
+export const FEATURE_LIBRARY_SYNC = "library-sync";
+
+/** Whether the value of `DAEMON_FEATURES_HEADER` names `feature`. */
+export const hasDaemonFeature = (
+  header: string | null | undefined,
+  feature: string
+): boolean =>
+  (header ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .includes(feature);
+
 export const LEASE_SECONDS = 90;
 export const HEARTBEAT_SECONDS = 20;
 export const CLOSE_CODES = {

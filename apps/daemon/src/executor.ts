@@ -434,10 +434,12 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       paths: library.paths,
       runId: claim.run.id,
     });
-    librarySync = sync;
+    // Without a copy there is nothing to send back, and a machine whose sudo
+    // rule lacks `find` would fail the same way again at the end of the run.
     if (!(await sync.syncIn())) {
       return;
     }
+    librarySync = sync;
     cancelCheckpoint = timers.every(
       LIBRARY_CHECKPOINT_MS,
       () => {

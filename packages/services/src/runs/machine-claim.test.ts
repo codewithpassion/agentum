@@ -523,6 +523,7 @@ const runsWithLibrary = () => {
 const claimWith = async (service: RunsService, agent: string) => {
   const started = await start(agent);
   return await service.claimRunForMachine(machine("m1"), started.runId, {
+    libraryForDaemon: true,
     platformUrl: PLATFORM,
   });
 };
@@ -533,6 +534,24 @@ test("a claim without a library names no library paths", async () => {
   const claimed = await claim("m1", started.runId);
 
   expect(claimed.library).toBeUndefined();
+});
+
+test("a daemon that does not name the library feature gets a claim without library", async () => {
+  const { library, service } = runsWithLibrary();
+  await library.write(
+    user,
+    "agents/box/notes.md.conflict-r1",
+    new TextEncoder().encode("x")
+  );
+  const started = await start(agentId);
+
+  const claimed = await service.claimRunForMachine(
+    machine("m1"),
+    started.runId,
+    { platformUrl: PLATFORM }
+  );
+
+  expect("library" in claimed).toBe(false);
 });
 
 test("a claim names the agent's folder and lists the conflict copies waiting in it", async () => {

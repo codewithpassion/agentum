@@ -1587,4 +1587,22 @@ describe("the library copy", () => {
     );
     expect(run.timers.has("library-checkpoint")).toBe(false);
   });
+
+  test("a failed sync in means no sync out at the end either", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    const run = setup({
+      claim: claimWithLibrary(),
+      library: { down: true, remote },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+
+    expect(run.lines.filter((line) => line.includes("library synced"))).toEqual(
+      []
+    );
+    expect(
+      run.lines.filter((line) => line.includes("syncing the library"))
+    ).toHaveLength(1);
+  });
 });
