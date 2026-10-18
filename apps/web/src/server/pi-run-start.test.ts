@@ -164,6 +164,25 @@ describe("work", () => {
     expect(await queue.hasPending()).toBe(false);
   });
 
+  test("a setup that never finishes is cut off at the deadline and the claimed run is failed", async () => {
+    const errors = spyOn(console, "error").mockImplementation(() => undefined);
+    const { clock, failures, queue } = setup({
+      prepare: () => new Promise<void>(() => undefined),
+    });
+    await queue.request(startOf("r1"));
+    // Ten milliseconds are left of the two minutes, so the step is cut off after the one-second floor.
+    clock.ms += START_TIMEOUT_MS - 10;
+    expect(await queue.work()).toBe(false);
+    errors.mockRestore();
+    expect(failures).toEqual([
+      [
+        "r1",
+        "The run could not start within 2 minutes: setup did not finish in time",
+      ],
+    ]);
+    expect(await queue.hasPending()).toBe(false);
+  });
+
   test("a run nobody claimed is dropped at the timeout without failing it, so the sweep offers it again", async () => {
     const errors = spyOn(console, "error").mockImplementation(() => undefined);
     const { clock, failures, queue } = setup({

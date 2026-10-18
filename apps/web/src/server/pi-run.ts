@@ -226,7 +226,12 @@ export class PiRun extends DurableObject<Env> {
         return "claimed";
       } catch (error) {
         if (isServiceError(error) && error.code === "conflict") {
-          return "conflict";
+          // A claim that went through before an eviction cut this start short leaves the run ours and running.
+          const run = await this.#services().runs.getRun(
+            SYSTEM_PRINCIPAL,
+            runId
+          );
+          return run.status === "running" ? "claimed" : "conflict";
         }
         throw error;
       }

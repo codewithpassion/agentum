@@ -35,6 +35,12 @@ export interface StartQueueDeps {
   storage: RunStorage;
 }
 
+class DeadlineError extends Error {
+  constructor() {
+    super("setup did not finish in time");
+  }
+}
+
 const describe = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
@@ -78,20 +84,38 @@ export const createStartQueue = ({
 
   /** Fails a claimed run that could not start in time. A run nobody claimed is left offered, for the sweep. */
   const giveUp = async (entry: PendingStart, reason: string) => {
-    await remove(entry.input.run.id);
-    if (!entry.claimed) {
-      return;
+    const runId = entry.input.run.id;
+    if (entry.claimed) {
+      try {
+        await fail(
+          runId,
+          `The run could not start within ${START_TIMEOUT_MS / 60_000} minutes: ${reason}`
+        );
+      } catch (error) {
+        // Most likely the platform already ended the run (cancelled, or its lease expired).
+        console.warn(
+          `PiRun: failing run ${runId} that could not start: ${describe(error)}`
+        );
+      }
     }
+    // After the failure is written, so an eviction in between finds the start and fails the run again.
+    await remove(runId);
+  };
+
+  /** Runs one step of a start, but not past the time the run has left to start. */
+  const withinDeadline = async (
+    entry: PendingStart,
+    step: () => Promise<void>
+  ): Promise<void> => {
+    const left = Math.max(START_TIMEOUT_MS - (now() - entry.requestedAt), 1000);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new DeadlineError()), left);
+    });
     try {
-      await fail(
-        entry.input.run.id,
-        `The run could not start within ${START_TIMEOUT_MS / 60_000} minutes: ${reason}`
-      );
-    } catch (error) {
-      // The platform already ended the run (cancelled, or its lease expired).
-      console.warn(
-        `PiRun: failing run ${entry.input.run.id} that could not start: ${describe(error)}`
-      );
+      await Promise.race([step(), expired]);
+    } finally {
+      clearTimeout(timer);
     }
   };
 
@@ -113,13 +137,17 @@ export const createStartQueue = ({
           await save(pending);
         }
       }
-      await prepare(entry.input);
-      await begin(entry.input);
+      await withinDeadline(entry, () => prepare(entry.input));
+      await withinDeadline(entry, () => begin(entry.input));
       await remove(runId);
       return false;
     } catch (error) {
       console.error(`PiRun: starting run ${runId}: ${describe(error)}`);
-      if (now() - entry.requestedAt >= START_TIMEOUT_MS) {
+      // A step that hit its deadline ends the start even if the clock has not moved as far.
+      if (
+        now() - entry.requestedAt >= START_TIMEOUT_MS ||
+        error instanceof DeadlineError
+      ) {
         await giveUp(entry, describe(error));
         return false;
       }
