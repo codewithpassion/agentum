@@ -78,12 +78,24 @@ const markExecutable = async (
 const isCode = (error: unknown, ...codes: string[]): boolean =>
   error instanceof VmFileError && codes.includes(error.code);
 
+/** Moves the old skills back after a failed swap. False when that failed for a reason that leaves them only in `aside`. */
+const putBack = async (vm: LinuxVm, aside: string): Promise<boolean> => {
+  try {
+    await vm.rename(aside, SKILLS_DIR);
+    return true;
+  } catch (error) {
+    // Nothing was moved aside, or a newer run's folder is in place: there is nothing to put back.
+    return isCode(error, "ENOENT", "ENOTEMPTY", "EEXIST");
+  }
+};
+
 /**
  * Replaces the skills folder with `staging`. A rename onto a folder that is not
  * empty fails, so the old folder is first renamed aside, not deleted: a call
  * that reads it is cut off for the time of two renames, not of a delete. The
- * old folder is deleted after the swap, or put back when the swap fails. A run that swaps in the same moment can
- * fill the name again between the two renames, so that case tries again.
+ * old folder is deleted after the swap, or put back when the swap fails. A run
+ * that swaps in the same moment can fill the name again between the two
+ * renames, so that case tries again.
  */
 const swapIn = async (
   vm: LinuxVm,
@@ -113,11 +125,13 @@ const swapIn = async (
       }
     }
   } finally {
-    if (!swapped) {
-      // The swap failed, so the old skills go back where they were.
-      await vm.rename(aside, SKILLS_DIR).catch(() => undefined);
+    // After a failed swap the old skills go back. The aside folder stays when they cannot, so they are not lost.
+    const settled = swapped || (await putBack(vm, aside));
+    if (settled) {
+      await vm.remove(aside, { force: true, recursive: true }).catch(() => {
+        // A folder left behind is scratch, and an error here must not hide the swap's own result.
+      });
     }
-    await vm.remove(aside, { force: true, recursive: true });
   }
 };
 

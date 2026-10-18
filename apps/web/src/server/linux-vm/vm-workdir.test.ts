@@ -194,7 +194,7 @@ describe("placeSkills", () => {
     const { rename } = vm;
     let landed = false;
     vm.rename = (from, to) => {
-      if (!landed) {
+      if (!landed && to === SKILLS) {
         landed = true;
         vm.folders.add(SKILLS);
         vm.files.set(`${SKILLS}/other/SKILL.md`, bytesOf("other run"));
@@ -204,6 +204,7 @@ describe("placeSkills", () => {
 
     await placeSkills(vm, [shout], portOf(shoutContents()), "run-1");
 
+    expect(landed).toBe(true);
     expect(vm.files.has(`${SKILLS}/shout/SKILL.md`)).toBe(true);
     expect(vm.files.has(`${SKILLS}/other/SKILL.md`)).toBe(false);
     expect(vm.folders.has("/workspace/skills.run-1")).toBe(false);
@@ -254,6 +255,27 @@ describe("placeSkills", () => {
     expect(textOf(vm.files.get(`${SKILLS}/shout/SKILL.md`))).toBe("old skill");
     expect(vm.folders.has("/workspace/skills.run-1")).toBe(false);
     expect(vm.folders.has("/workspace/skills.old.run-1")).toBe(false);
+  });
+
+  test("keeps the old skills aside when the swap fails and they cannot be put back", async () => {
+    const vm = createFakeVm();
+    vm.folders.add(SKILLS);
+    vm.files.set(`${SKILLS}/shout/SKILL.md`, bytesOf("old skill"));
+    const { rename } = vm;
+    vm.rename = (from, to) => {
+      if (to === SKILLS) {
+        return Promise.reject(new Error("io error"));
+      }
+      return rename(from, to);
+    };
+
+    await expect(
+      placeSkills(vm, [shout], portOf(shoutContents()), "run-1")
+    ).rejects.toThrow("io error");
+
+    expect(
+      textOf(vm.files.get("/workspace/skills.old.run-1/shout/SKILL.md"))
+    ).toBe("old skill");
   });
 
   test("sets the executable flag on flagged files in one command", async () => {
