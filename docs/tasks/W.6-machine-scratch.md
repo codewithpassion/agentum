@@ -3,7 +3,7 @@ id: W.6
 title: Machine scratch folder and prompt
 milestone: W
 size: S
-status: in_progress
+status: done
 depends_on: [W.1]
 branch: task/W.6-machine-scratch
 ---
@@ -24,3 +24,4 @@ Asked for by Dom on 18 Oct 2026, from the report (section D, "Machines"). The ma
 ## Log
 - 2026-10-18: added at Dom's request.
 - 2026-10-18: dispatched.
+- 2026-10-18: review clean after 1 fix round at 38a3538 (docs/reviews/tasks/W.6.md). Merged. Staging check pending (needs a machine).
