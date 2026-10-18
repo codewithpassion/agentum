@@ -180,7 +180,6 @@ test("dispatch leaves a run that is already running as running", async () => {
     clock,
     completeRun: unused,
     ingestRunEvents: unused,
-    releaseRun: unused,
   };
 
   await createMachineRuntime({ relay }).dispatch(

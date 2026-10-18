@@ -338,7 +338,6 @@ export const createRunsService = ({
       completeRun(principal, runId, result),
     ingestRunEvents: (principal, runId, batch) =>
       ingestRunEvents(principal, runId, batch),
-    releaseRun: (principal, runId) => releaseRun(principal, runId),
   };
 
   type Prepared = Awaited<ReturnType<typeof prepareStart>>;

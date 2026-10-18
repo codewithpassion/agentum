@@ -67,6 +67,8 @@ import {
   type SkillsPort,
   skillsExtension,
 } from "./pi-run-skills.ts";
+import { createStartQueue } from "./pi-run-start.ts";
+import { RunStartAlarm } from "./pi-run-start-alarm.ts";
 
 import { dynamicWorkerSandbox } from "./skill-scripts/dynamic-worker-sandbox.ts";
 import {
@@ -205,9 +207,59 @@ export class PiRun extends DurableObject<Env> {
   /** Moves the lease of the active runs from an alarm, so it outlives this object being down. */
   readonly lease = new RunLeaseAlarm(() => this.#runCore().beat());
 
+  /**
+   * The starts the platform handed over, saved until the claim and the setup
+   * are done. They run from an alarm, not in the request that asked, so a
+   * browser that leaves cannot strand a run that was already accepted.
+   */
+  readonly #starts = createStartQueue({
+    begin: async (input) => {
+      await this.lifecycle.start();
+      await this.#runCore().start(input);
+      await this.lease.schedule();
+    },
+    claim: async (runId) => {
+      try {
+        await this.#services().runs.claimRun(SYSTEM_PRINCIPAL, runId, {
+          leaseMs: CLOUD_LEASE_MS,
+        });
+        return "claimed";
+      } catch (error) {
+        if (isServiceError(error) && error.code === "conflict") {
+          // A run that is running: the queue decides whether our own earlier claim made it so.
+          const run = await this.#services().runs.getRun(
+            SYSTEM_PRINCIPAL,
+            runId
+          );
+          return run.status === "running" ? "running" : "conflict";
+        }
+        throw error;
+      }
+    },
+    fail: async (runId, error) => {
+      await this.#services().runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+        error,
+        status: "failed",
+      });
+    },
+    prepare: (input) => this.#prepareRun(input),
+    storage: this.ctx.storage,
+    waiting: async (runId) => {
+      const { status } = await this.#services().runs.getRun(
+        SYSTEM_PRINCIPAL,
+        runId
+      );
+      return status === "queued" || status === "offered";
+    },
+  });
+
+  /** Works the saved starts from an alarm that survives this object being evicted. */
+  readonly startAlarm = new RunStartAlarm(() => this.#starts.work());
+
   readonly lifecycle = Lifecycle.install(this)
     .use(this.harness)
-    .use(this.lease);
+    .use(this.lease)
+    .use(this.startAlarm);
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -734,6 +786,10 @@ export class PiRun extends DurableObject<Env> {
       .resume()
       .then(async () => {
         await this.lease.schedule();
+        // A start saved before an eviction is finished now.
+        if (await this.#starts.hasPending()) {
+          await this.startAlarm.schedule();
+        }
         // The lists stored before this wake may be old. With no active run there is nothing to look at.
         if (await this.ctx.storage.get(SERVERS_KEY)) {
           this.#refreshTools();
@@ -746,7 +802,19 @@ export class PiRun extends DurableObject<Env> {
 
   // The calls below are RPC from the Worker, through `pi-run-port.ts`.
 
+  /**
+   * Saves the start and returns. The claim and the setup run from the alarm
+   * (`#prepareRun`, then the run core), because this call comes from a request
+   * that the browser can cancel.
+   */
   async startRun(input: CloudStart): Promise<void> {
+    await this.lifecycle.start();
+    await this.#starts.request(input);
+    await this.startAlarm.schedule();
+  }
+
+  /** Points the object at the run's agent and brings its environment up, before Pi takes the run. */
+  async #prepareRun(input: CloudStart): Promise<void> {
     await this.ctx.storage.put(WORKSPACE_KEY, input.run.workspaceId);
     await this.ctx.storage.put(RUN_KEY, runRefOf(input));
     await this.ctx.storage.put(AGENT_SLUG_KEY, input.agent.slug);
@@ -764,9 +832,6 @@ export class PiRun extends DurableObject<Env> {
     } else {
       await this.#ensureHome(input);
     }
-    await this.lifecycle.start();
-    await this.#runCore().start(input);
-    await this.lease.schedule();
   }
 
   async cancelRun(runId: string): Promise<void> {
