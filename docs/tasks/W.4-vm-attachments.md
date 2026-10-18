@@ -3,7 +3,7 @@ id: W.4
 title: Attachments from the Linux VM
 milestone: W
 size: S
-status: in_progress
+status: done
 depends_on: [W.2]
 branch: task/W.4-vm-attachments
 ---
@@ -24,3 +24,4 @@ Asked for by Dom on 18 Oct 2026, from the report (section D, "VM attachments"). 
 ## Log
 - 2026-10-18: added at Dom's request.
 - 2026-10-18: dispatched.
+- 2026-10-18: review clean after 0 fix rounds at f752092 (docs/reviews/tasks/W.4.md). Merged. Staging check pending.
