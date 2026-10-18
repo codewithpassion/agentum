@@ -3,7 +3,7 @@ id: W.8
 title: Library folder synced onto machines
 milestone: W
 size: M
-status: in_progress
+status: done
 depends_on: [W.6, W.7]
 branch: task/W.8-library-sync-machines
 ---
@@ -26,3 +26,4 @@ Asked for by Dom on 18 Oct 2026, from the report (section E). Machines keep a pe
 ## Log
 - 2026-10-18: added at Dom's request.
 - 2026-10-18: dispatched.
+- 2026-10-18: review clean after 1 fix round at 5c1b382 (docs/reviews/tasks/W.8.md); fix round from the controller keeps old daemons working (library sent only to daemons that support it, no sync if sudo refuses find). Merged. Dom: re-run install-service on multi-user machines.
