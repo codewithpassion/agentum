@@ -787,3 +787,68 @@ test("recordCommand strips secrets from the script", async () => {
   const [event] = libraryEvents();
   expect(event?.payload).not.toContain("hunter2");
 });
+
+test("recordConflict logs a run's conflict with its run id in the payload", async () => {
+  await service.recordConflict(runPrincipal, {
+    conflictPath: "/notes/a (conflict).md",
+    path: "/notes/a.md",
+  });
+  const log = libraryEvents().map((event) => ({
+    actorId: event.actorId,
+    actorKind: event.actorKind,
+    agentId: event.agentId,
+    payload: JSON.parse(event.payload ?? "null"),
+    runId: event.runId,
+    type: event.type,
+  }));
+  expect(log).toEqual([
+    {
+      actorId: AGENT,
+      actorKind: "agent",
+      agentId: AGENT,
+      payload: {
+        conflictPath: "notes/a (conflict).md",
+        path: "notes/a.md",
+        runId: RUN,
+      },
+      runId: RUN,
+      type: "library.conflict",
+    },
+  ]);
+});
+
+test("recordConflict logs a user's conflict with no runId key in the payload", async () => {
+  await service.recordConflict(user(A, "u7"), {
+    conflictPath: "notes/a (conflict).md",
+    path: "notes/a.md",
+  });
+  const [event] = libraryEvents();
+  expect(event).toMatchObject({
+    actorId: "u7",
+    actorKind: "user",
+    agentId: null,
+    runId: null,
+    type: "library.conflict",
+  });
+  expect(JSON.parse(event?.payload ?? "null")).toEqual({
+    conflictPath: "notes/a (conflict).md",
+    path: "notes/a.md",
+  });
+});
+
+test("recordConflict refuses a machine", async () => {
+  const machine: Principal = {
+    kind: "machine",
+    machineId: "m1",
+    workspaceId: A,
+  };
+  expect(
+    await errorOf(
+      service.recordConflict(machine, {
+        conflictPath: "a (conflict).md",
+        path: "a.md",
+      })
+    )
+  ).toBeInstanceOf(ForbiddenError);
+  expect(libraryEvents()).toEqual([]);
+});

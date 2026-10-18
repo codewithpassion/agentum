@@ -21,11 +21,12 @@ import {
   DEFAULT_EXEC_TIMEOUT_MS,
   EXEC_OUTPUT_BYTES,
 } from "./vm-env.ts";
-import { VM_HOME_DIR, VM_WORKDIR } from "./vm-port.ts";
+import { VM_HOME_DIR, VM_LIBRARY_DIR, VM_WORKDIR } from "./vm-port.ts";
 import {
   LINUX_VM_TOOLS_EXTENSION,
   linuxVmToolsExtension,
   VM_SCRIPT_TEXTS,
+  type VmLibraryState,
 } from "./vm-tools.ts";
 
 const NOTE = "notes/a.md";
@@ -35,6 +36,15 @@ const messageText = (content: Message["content"]): string =>
   typeof content === "string"
     ? content
     : content.map((part) => ("text" in part ? String(part.text) : "")).join("");
+
+/** The prompt section text of the Linux VM tools, with the library getter if one is given. */
+const renderSection = async (
+  libraryOf?: () => Promise<VmLibraryState | undefined>
+): Promise<string | undefined> => {
+  const [section] = linuxVmToolsExtension(libraryOf).sections ?? [];
+  const text = await section?.render(undefined as never, BACKGROUND_CONTEXT);
+  return text;
+};
 
 interface Call {
   args: Record<string, unknown>;
@@ -112,9 +122,8 @@ describe("linuxVmToolsExtension", () => {
     ]);
   });
 
-  test("its prompt section says the tools work in the VM, with the home, skills and input folders", () => {
-    const [section] = linuxVmToolsExtension().sections ?? [];
-    const text = section?.render(undefined as never, BACKGROUND_CONTEXT);
+  test("its prompt section says the tools work in the VM, with the home, skills and input folders", async () => {
+    const text = await renderSection();
     expect(text).toContain("Linux VM");
     expect(text).toContain(VM_HOME_DIR);
     expect(text).toContain(`${VM_WORKDIR}/skills`);
@@ -123,16 +132,63 @@ describe("linuxVmToolsExtension", () => {
     expect(text).toContain("Scratch:");
   });
 
-  test("its prompt section does not mention /library and names the library tools", () => {
-    const [section] = linuxVmToolsExtension().sections ?? [];
-    const text = section?.render(undefined as never, BACKGROUND_CONTEXT);
+  test("its prompt section does not mention /library and names the library tools", async () => {
+    const text = await renderSection();
     expect(text).not.toContain("/library");
     expect(text).toContain("library tools");
   });
 
-  test("its prompt section says granted secrets are variables read as $NAME and shown as [secret:NAME]", () => {
-    const [section] = linuxVmToolsExtension().sections ?? [];
-    const text = section?.render(undefined as never, BACKGROUND_CONTEXT);
+  test("with a library state its prompt section names the synced copy and the rest of the library", async () => {
+    const text = await renderSection(async () => ({
+      conflicts: [],
+      roots: ["agents/ada", "shared/brand"],
+    }));
+    expect(text).toContain(VM_LIBRARY_DIR);
+    expect(text).toContain("agents/ada, shared/brand");
+    expect(text).toContain(".conflict-<runId>");
+    expect(text).toContain(
+      "The rest of the library is not on your disk, so reach it with the library tools."
+    );
+    expect(text).not.toContain("- Conflicts:");
+  });
+
+  test("with a pending conflict its prompt section lists the conflict copy under the library folder", async () => {
+    const text = await renderSection(async () => ({
+      conflicts: ["agents/ada/notes.md.conflict-r1"],
+      roots: ["agents/ada"],
+    }));
+    expect(text).toContain("- Conflicts:");
+    expect(text).toContain(`${VM_LIBRARY_DIR}/agents/ada/notes.md.conflict-r1`);
+  });
+
+  test("a library getter that answers undefined gives the same text as no getter", async () => {
+    const withoutGetter = await renderSection();
+    const withUndefined = await renderSection(async () => undefined);
+    expect(withUndefined).toBe(withoutGetter);
+    expect(withUndefined).not.toContain(VM_LIBRARY_DIR);
+  });
+
+  test("the library getter is read each time the prompt renders", async () => {
+    let state: VmLibraryState | undefined = {
+      conflicts: [],
+      roots: ["agents/ada"],
+    };
+    const extension = linuxVmToolsExtension(async () => state);
+    const [section] = extension.sections ?? [];
+    const first = await section?.render(undefined as never, BACKGROUND_CONTEXT);
+    expect(first).toContain("agents/ada");
+
+    state = undefined;
+    const second = await section?.render(
+      undefined as never,
+      BACKGROUND_CONTEXT
+    );
+    expect(second).not.toContain(VM_LIBRARY_DIR);
+    expect(second).toBe(await renderSection());
+  });
+
+  test("its prompt section says granted secrets are variables read as $NAME and shown as [secret:NAME]", async () => {
+    const text = await renderSection();
     expect(text).toContain("network access");
     expect(text).toContain("$NAME");
     expect(text).toContain("[secret:NAME]");

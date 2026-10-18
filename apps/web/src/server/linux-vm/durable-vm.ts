@@ -25,6 +25,7 @@ export const durableVm = (
     checkpoint: (run) => stub.checkpoint(run),
     exec: (input) => stub.exec(input),
     list: (path) => unwrap(stub.list(path)),
+    lockLibrary: (owner, ttlMs) => stub.lockLibrary(owner, ttlMs),
     mkdir: (path, options) => unwrap(stub.mkdir(path, options)),
     readFile: (path) => unwrap(stub.readFile(path)),
     remove: (path, options) => unwrap(stub.remove(path, options)),
@@ -32,6 +33,7 @@ export const durableVm = (
     setEgress: (egress) => stub.setEgress(egress),
     setRun: (run) => stub.setRun(run),
     stat: (path) => unwrap(stub.stat(path)),
+    unlockLibrary: (owner) => stub.unlockLibrary(owner),
     writeFile: (path, bytes) => unwrap(stub.writeFile(path, bytes)),
   };
 };

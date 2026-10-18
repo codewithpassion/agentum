@@ -624,7 +624,46 @@ export const createLibraryService = ({
     ]);
   };
 
-  return { list, mkdir, move, read, recordCommand, remove, stat, write };
+  /**
+   * Logs a write that hit a conflict and where its copy went. Paths are
+   * normalised first, so the event never holds a leading slash.
+   */
+  const recordConflict = async (
+    principal: Principal,
+    conflict: { conflictPath: string; path: string }
+  ): Promise<void> => {
+    const member = requireMember(principal, "library.conflict");
+    authorize(member, "library.conflict", {
+      kind: LIBRARY_KIND,
+      workspaceId: member.workspaceId,
+    });
+    await atomic([
+      events.insertStatement({
+        actor: actorOf(member),
+        agentId: member.kind === "run" ? member.agentId : undefined,
+        payload: {
+          conflictPath: normalizePath(conflict.conflictPath),
+          path: normalizePath(conflict.path),
+          ...(member.kind === "run" ? { runId: member.runId } : {}),
+        },
+        runId: member.kind === "run" ? member.runId : undefined,
+        type: "library.conflict",
+        workspaceId: member.workspaceId,
+      }),
+    ]);
+  };
+
+  return {
+    list,
+    mkdir,
+    move,
+    read,
+    recordCommand,
+    recordConflict,
+    remove,
+    stat,
+    write,
+  };
 };
 
 export type LibraryService = ReturnType<typeof createLibraryService>;

@@ -24,6 +24,11 @@ import { libraryToolsExtension } from "./library-env/library-tools.ts";
 import { durableVm } from "./linux-vm/durable-vm.ts";
 import { installEnvironmentTools } from "./linux-vm/environment-tools.ts";
 import { createVmEnv } from "./linux-vm/vm-env.ts";
+import {
+  libraryCopyOf,
+  syncLibraryIn,
+  syncLibraryOut,
+} from "./linux-vm/vm-library-sync.ts";
 import type { LinuxVm } from "./linux-vm/vm-port.ts";
 import { vmSkillSandbox } from "./linux-vm/vm-skill-sandbox.ts";
 import { VM_SCRIPT_TEXTS } from "./linux-vm/vm-tools.ts";
@@ -283,7 +288,8 @@ export class PiRun extends DurableObject<Env> {
     installEnvironmentTools(
       this.registry,
       this.#vm ? "linux-vm" : "isolate",
-      () => this.#agentSlug()
+      () => this.#agentSlug(),
+      () => libraryCopyOf(this.ctx.storage)
     );
   }
 
@@ -307,6 +313,50 @@ export class PiRun extends DurableObject<Env> {
     const run = runRefOf(input);
     const ops = bindLibraryOps(this.#services().library, principalOf(run));
     await ensureAgentHome(ops, input.agent.slug);
+  }
+
+  /**
+   * Copies the agent's library folders into the VM's working copy when a run
+   * starts. A failed sync is logged and the run goes on: the agent still has
+   * the library tools.
+   */
+  async #syncLibraryIn(input: CloudStart) {
+    if (!this.#vm) {
+      return;
+    }
+    await syncLibraryIn({
+      ops: bindLibraryOps(
+        this.#services().library,
+        principalOf(runRefOf(input))
+      ),
+      runtimeConfig: input.agent.runtimeConfig,
+      slug: input.agent.slug,
+      storage: this.ctx.storage,
+      vm: this.#vm,
+    });
+  }
+
+  /**
+   * Sends the agent's changes in the VM's working copy back to the library
+   * when a run ends, just before the VM checkpoint. A change that lost to a
+   * newer library file is kept as a conflict copy and logged as a
+   * `library.conflict` event on the run. Never throws.
+   */
+  async #syncLibraryOut(runId: string) {
+    const stored = await this.ctx.storage.get<RunRef>(RUN_KEY);
+    if (!(this.#vm && stored)) {
+      return;
+    }
+    // Every run of the session is the same agent in the same workspace.
+    const principal = principalOf({ ...stored, runId });
+    const { library } = this.#services();
+    await syncLibraryOut({
+      ops: bindLibraryOps(library, principal),
+      recordConflict: (conflict) => library.recordConflict(principal, conflict),
+      runId,
+      storage: this.ctx.storage,
+      vm: this.#vm,
+    });
   }
 
   /** The environment of Pi's file and shell tools: the VM, or the library for the newest run. Without a run there is no principal, so no library environment. */
@@ -631,6 +681,8 @@ export class PiRun extends DurableObject<Env> {
       const { runs } = this.#services();
       return createRunCore({
         complete: async (runId, result) => {
+          // Before the run ends, so its library events come before run.finished. A retried completion syncs again, which sends nothing new.
+          await this.#syncLibraryOut(runId);
           await runs.completeRun(SYSTEM_PRINCIPAL, runId, result);
           await this.#checkpointVm(runId);
         },
@@ -707,7 +759,9 @@ export class PiRun extends DurableObject<Env> {
         error instanceof Error ? error.message : String(error)
       );
     }
-    if (!this.#vm) {
+    if (this.#vm) {
+      await this.#syncLibraryIn(input);
+    } else {
       await this.#ensureHome(input);
     }
     await this.lifecycle.start();

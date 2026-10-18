@@ -98,6 +98,7 @@ export const EVENT_TYPES = [
   "library.write",
   "library.delete",
   "library.command",
+  "library.conflict",
   "secret.delivered",
   "secret.injected",
   "skill.created",

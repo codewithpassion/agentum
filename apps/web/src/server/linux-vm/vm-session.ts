@@ -145,6 +145,10 @@ export class VmSession extends DurableObject<Env> {
     return reply(this.#core.list(...args));
   }
 
+  lockLibrary(...args: Parameters<LinuxVm["lockLibrary"]>) {
+    return this.#core.lockLibrary(...args);
+  }
+
   mkdir(...args: Parameters<LinuxVm["mkdir"]>) {
     return reply(this.#core.mkdir(...args));
   }
@@ -163,6 +167,10 @@ export class VmSession extends DurableObject<Env> {
 
   stat(...args: Parameters<LinuxVm["stat"]>) {
     return reply(this.#core.stat(...args));
+  }
+
+  unlockLibrary(...args: Parameters<LinuxVm["unlockLibrary"]>) {
+    return this.#core.unlockLibrary(...args);
   }
 
   writeFile(...args: Parameters<LinuxVm["writeFile"]>) {

@@ -39,6 +39,14 @@ const recordingNamespace = () => {
             value: [{ kind: "file", name: "a.txt" }],
           });
         },
+        lockLibrary: (owner: string, ttlMs: number) => {
+          calls.push({ args: [owner, ttlMs], method: "lockLibrary", target });
+          return Promise.resolve(true);
+        },
+        unlockLibrary: (owner: string) => {
+          calls.push({ args: [owner], method: "unlockLibrary", target });
+          return Promise.resolve();
+        },
       };
     },
     idFromName: (name: string) => {
@@ -91,5 +99,18 @@ test("exec and file calls on a handle reach the stub it was built with", async (
   expect(calls).toEqual([
     { args: [input], method: "exec", target: "agent-1" },
     { args: ["/workspace/home"], method: "list", target: "agent-1" },
+  ]);
+});
+
+test("the library lock calls reach the stub of the agent", async () => {
+  const { calls, namespace } = recordingNamespace();
+  const vm = durableVm(namespace, "agent-1");
+
+  expect(await vm.lockLibrary("owner", 5000)).toBe(true);
+  await vm.unlockLibrary("owner");
+
+  expect(calls).toEqual([
+    { args: ["owner", 5000], method: "lockLibrary", target: "agent-1" },
+    { args: ["owner"], method: "unlockLibrary", target: "agent-1" },
   ]);
 });

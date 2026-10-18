@@ -14,6 +14,15 @@
 export const VM_WORKDIR = "/workspace";
 /** The agent's home in the VM, and the default working folder. It is the only directory that is snapshotted. */
 export const VM_HOME_DIR = `${VM_WORKDIR}/home`;
+/**
+ * The working copy of part of the workspace library: the agent's folder
+ * `agents/<slug>` and the paths its config names. It is synced when a run
+ * starts and when it ends. It sits outside home on purpose, so a snapshot does
+ * not keep it, and the library stays the only copy that lasts.
+ */
+export const VM_LIBRARY_DIR = `${VM_WORKDIR}/library`;
+/** The sync manifest of the working copy, beside it and not inside it. */
+export const VM_LIBRARY_MANIFEST = `${VM_WORKDIR}/library.manifest.json`;
 
 export interface VmExecInput {
   command: string;
@@ -107,6 +116,16 @@ export interface LinuxVm {
   checkpoint: (run: VmEgressRun) => Promise<void>;
   exec: (input: VmExecInput) => Promise<VmExecResult>;
   list: (path: string) => Promise<VmEntry[]>;
+  /**
+   * Takes the library sync lock for `owner`, or answers false while another
+   * owner holds it. Sessions of one agent share the VM, the working copy and
+   * its manifest, and each session has its own Durable Object, so the VM's
+   * object is the one place that can make their syncs take turns. The same
+   * owner asking again renews its hold. A hold ends after `ttlMs` unless renewed, so
+   * an owner that died cannot block the others for good. It is kept in storage
+   * and survives a restart of the VM's object.
+   */
+  lockLibrary: (owner: string, ttlMs: number) => Promise<boolean>;
   mkdir: (path: string, options?: { recursive?: boolean }) => Promise<void>;
   readFile: (path: string) => Promise<Uint8Array>;
   remove: (
@@ -126,5 +145,7 @@ export interface LinuxVm {
    */
   setRun: (run: VmEgressRun) => Promise<void>;
   stat: (path: string) => Promise<VmStat>;
+  /** Gives the library sync lock back. Does nothing when `owner` does not hold it. */
+  unlockLibrary: (owner: string) => Promise<void>;
   writeFile: (path: string, bytes: Uint8Array) => Promise<void>;
 }

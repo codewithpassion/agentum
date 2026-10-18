@@ -46,6 +46,13 @@ const MEASURE_TIMEOUT_SECONDS = 30;
 const SNAPSHOT_KEY = "snapshot";
 /** The run named by `setRun`: the one a restore or an idle snapshot is reported on. */
 const RUN_KEY = "run";
+/** The library sync lease: who holds it and when it ends. */
+const LIBRARY_LEASE_KEY = "library-lease";
+
+interface LibraryLease {
+  expiresAt: number;
+  owner: string;
+}
 /** Set once the container has started and its workdir is ready, and cleared when it is destroyed. A Durable Object that restarts while the container runs reads it to tell a finished start from a cut-off one. */
 const PREPARED_KEY = "prepared";
 /** The last `VmEgress` given to `setEgress`. A start that happens later applies it again. */
@@ -686,6 +693,36 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
       }
     });
 
+  /**
+   * The library sync lease is kept in storage, so it outlives a reset of this
+   * object: the holder runs in another object and carries on. Calls can
+   * interleave at an await, but a storage read or write holds the input gate
+   * and nothing else is awaited between the read and the write here, so no
+   * other call runs in between.
+   */
+  const lockLibrary: LinuxVm["lockLibrary"] = async (owner, ttlMs) => {
+    const lease = await storage.get<LibraryLease>(LIBRARY_LEASE_KEY);
+    if (
+      lease !== undefined &&
+      lease.owner !== owner &&
+      lease.expiresAt > now()
+    ) {
+      return false;
+    }
+    await storage.put<LibraryLease>(LIBRARY_LEASE_KEY, {
+      expiresAt: now() + ttlMs,
+      owner,
+    });
+    return true;
+  };
+
+  const unlockLibrary: LinuxVm["unlockLibrary"] = async (owner) => {
+    const lease = await storage.get<LibraryLease>(LIBRARY_LEASE_KEY);
+    if (lease?.owner === owner) {
+      await storage.delete(LIBRARY_LEASE_KEY);
+    }
+  };
+
   const setRun: LinuxVm["setRun"] = ({ agentId, runId, workspaceId }) =>
     storage.put<VmEgressRun>(RUN_KEY, { agentId, runId, workspaceId });
 
@@ -737,6 +774,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     checkpoint,
     exec,
     list,
+    lockLibrary,
     mkdir,
     readFile,
     remove,
@@ -745,6 +783,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     setRun,
     sleepNow,
     stat,
+    unlockLibrary,
     wake,
     writeFile,
   };
