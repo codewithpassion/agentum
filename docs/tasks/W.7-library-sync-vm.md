@@ -3,7 +3,7 @@ id: W.7
 title: Library folder synced into the Linux VM, with the shared sync module
 milestone: W
 size: L
-status: todo
+status: in_progress
 depends_on: [W.2, W.3, W.4]
 branch: task/W.7-library-sync-vm
 ---
@@ -30,3 +30,4 @@ This task also builds the sync core that W.8 reuses. YAGNI: no separate task, si
 
 ## Log
 - 2026-10-18: added at Dom's request.
+- 2026-10-18: dispatched.
