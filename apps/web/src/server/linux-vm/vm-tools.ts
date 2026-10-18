@@ -8,17 +8,26 @@ import {
   createReadTool,
   createWriteTool,
 } from "@earendil-works/pi-durable/tools";
+import { workspaceInstructions } from "@repo/protocol/attachments";
 import type { ScriptTexts } from "../skill-scripts/run-skill-script.ts";
-import { VM_WORKDIR } from "./vm-port.ts";
+import { VM_HOME_DIR, VM_WORKDIR } from "./vm-port.ts";
 
 export const LINUX_VM_TOOLS_EXTENSION = "hm-linux-vm-tools";
 
 const SECTION_KEY = "linux-vm";
-const SECTION_TEXT = `You have a Linux VM. The read, write, edit and bash tools work in it, and ${VM_WORKDIR} is its working folder: a relative path starts there. bun and node are installed, and bun runs a .ts file directly. Commands have network access. Any secrets this agent was granted are set as environment variables for commands: read them as $NAME. If one appears in output, you see it as [secret:NAME]. Never print a secret or write it to a file. HTTPS requests to a host the agent has a credential for get that credential added by the platform, so do not add it yourself. The VM sleeps when it has been idle for a few minutes, and the files in ${VM_WORKDIR} are kept for the next message. Nothing else in the VM is. The skills of this agent are in ${VM_WORKDIR}/skills/<name>/ and the files attached to the message are in ${VM_WORKDIR}/input/. The workspace library is not in the VM: reach it through the platform's library tools.`;
+const SCRATCH_DIR = "/tmp";
+const VM_FACTS = `You have a Linux VM. The read, write, edit and bash tools work in it, and a relative path starts in the home folder. bun and node are installed, and bun runs a .ts file directly. Commands have network access. Any secrets this agent was granted are set as environment variables for commands: read them as $NAME. If one appears in output, you see it as [secret:NAME]. Never print a secret or write it to a file. HTTPS requests to a host the agent has a credential for get that credential added by the platform, so do not add it yourself. The skills of this agent are in ${VM_WORKDIR}/skills/<name>/ and the files attached to the message are in ${VM_WORKDIR}/input/. Both are scratch and are placed again for each message. The VM sleeps when it has been idle for a few minutes.`;
+const WORKSPACE_TEXT = workspaceInstructions({
+  home: VM_HOME_DIR,
+  homeIsLocal: true,
+  library: null,
+  scratch: { lasts: "vm-sleep", path: SCRATCH_DIR },
+});
+const SECTION_TEXT = `${VM_FACTS}\n\n${WORKSPACE_TEXT}`;
 
 /** What `run_skill_script` says when the script runs in the VM. */
 export const VM_SCRIPT_TEXTS: ScriptTexts = {
-  capabilities: `bun runs the script in ${VM_WORKDIR}, so it can import its own skill files and any package bun can install, read and write the session's files, and use the network.`,
+  capabilities: `bun runs the script in ${VM_HOME_DIR}, so it can import its own skill files and any package bun can install, read and write the agent's files, and use the network.`,
   granted:
     "The script runs with bun in the Linux VM, with network access. The environment variables the agent was granted are set in process.env, and HTTPS requests to hosts the agent has a credential for get that credential added for it. It runs for at most",
   plain:

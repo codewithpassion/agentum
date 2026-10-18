@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { SandboxRunInput } from "../skill-scripts/sandbox-port.ts";
 import { TIMEOUT_EXIT_CODE } from "../skill-scripts/sandbox-port.ts";
 import { bytesOf, createFakeVm, type FakeVm, textOf } from "./fake-vm.ts";
-import { VM_WORKDIR } from "./vm-port.ts";
+import { VM_HOME_DIR, VM_WORKDIR } from "./vm-port.ts";
 import { vmSkillSandbox } from "./vm-skill-sandbox.ts";
 
 const FOLDER = `${VM_WORKDIR}/skills/shout`;
@@ -80,11 +80,11 @@ describe("vmSkillSandbox", () => {
     expect(vm.execCalls[0]?.command).toBe(`bun '${FOLDER}/scripts/hello.ts'`);
   });
 
-  test("the command runs in the workdir, with the timeout and output cap", async () => {
+  test("the command runs in the home folder, with the timeout and output cap", async () => {
     const { sandbox, vm } = setup();
     await sandbox.run(inputOf({ maxOutputBytes: 123, timeoutMs: 4567 }));
     const [call] = vm.execCalls;
-    expect(call?.cwd).toBe(VM_WORKDIR);
+    expect(call?.cwd).toBe(VM_HOME_DIR);
     expect(call?.maxOutputBytes).toBe(123);
     expect(call?.timeoutMs).toBe(4567);
   });

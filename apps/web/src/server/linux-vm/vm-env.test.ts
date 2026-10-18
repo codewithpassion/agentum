@@ -23,7 +23,7 @@ import {
   MAX_EXEC_TIMEOUT_MS,
 } from "./vm-env.ts";
 
-const WORKDIR = "/workspace";
+const HOME = "/workspace/home";
 
 /** Tool calls take the environment as `api.env`; the rest of the API is not used here. */
 const apiFor = (env: ExecutionEnv) => ({ env }) as unknown as ToolExecutionApi;
@@ -44,7 +44,7 @@ const errorOf = <T, E>(result: Result<T, E>): E => {
 
 const setup = (cwd?: string) => {
   const vm = createFakeVm();
-  const env = createVmEnv({ cwd, sessionId: "s1", vm });
+  const env = createVmEnv({ agentId: "a1", cwd, vm });
   return { env, vm };
 };
 
@@ -77,10 +77,12 @@ test("the write, read and edit tools round-trip a file through the VM", async ()
     api,
     BACKGROUND_CONTEXT
   );
-  expect(textOf(vm.files.get("/workspace/notes/a.md"))).toBe("alpha\nbeta\n");
+  expect(textOf(vm.files.get("/workspace/home/notes/a.md"))).toBe(
+    "alpha\nbeta\n"
+  );
 
   const read = await createReadTool().execute(
-    { path: "/workspace/notes/a.md" },
+    { path: "/workspace/home/notes/a.md" },
     api,
     BACKGROUND_CONTEXT
   );
@@ -91,12 +93,14 @@ test("the write, read and edit tools round-trip a file through the VM", async ()
     api,
     BACKGROUND_CONTEXT
   );
-  expect(textOf(vm.files.get("/workspace/notes/a.md"))).toBe("alpha\ngamma\n");
+  expect(textOf(vm.files.get("/workspace/home/notes/a.md"))).toBe(
+    "alpha\ngamma\n"
+  );
 });
 
 test("a missing file fails with not_found, and a file listed as a directory with not_directory", async () => {
   const { env, vm } = setup();
-  vm.files.set("/workspace/a.txt", bytesOf("x"));
+  vm.files.set("/workspace/home/a.txt", bytesOf("x"));
 
   const missing = await env.readTextFile("missing.txt", BACKGROUND_CONTEXT);
   expect(errorOf(missing).code).toBe("not_found");
@@ -107,8 +111,8 @@ test("a missing file fails with not_found, and a file listed as a directory with
 
 test("listDir returns each entry with its kind and size", async () => {
   const { env, vm } = setup();
-  vm.files.set("/workspace/a.txt", bytesOf("abc"));
-  vm.folders.add("/workspace/sub");
+  vm.files.set("/workspace/home/a.txt", bytesOf("abc"));
+  vm.folders.add("/workspace/home/sub");
 
   const listed = okValue(await env.listDir(".", BACKGROUND_CONTEXT))
     .map((info) => ({ kind: info.kind, name: info.name, size: info.size }))
@@ -141,10 +145,10 @@ test("relative paths resolve against cwd, and '..' is clamped at the root", asyn
   expect(env.cwd).toBe("/workspace/sub");
 });
 
-test("the env id names the session, and cwd defaults to the VM workdir", () => {
+test("the env id names the agent, and cwd defaults to the agent's home folder", () => {
   const { env } = setup();
-  expect(env.id).toBe("harbourmaster:vm:s1");
-  expect(env.cwd).toBe(WORKDIR);
+  expect(env.id).toBe("harbourmaster:vm:a1");
+  expect(env.cwd).toBe(HOME);
 });
 
 test("appendFile treats a missing file as empty, and truncateFile resizes", async () => {
@@ -152,13 +156,13 @@ test("appendFile treats a missing file as empty, and truncateFile resizes", asyn
 
   okValue(await env.appendFile("log.txt", "a", BACKGROUND_CONTEXT));
   okValue(await env.appendFile("log.txt", bytesOf("bc"), BACKGROUND_CONTEXT));
-  expect(textOf(vm.files.get("/workspace/log.txt"))).toBe("abc");
+  expect(textOf(vm.files.get("/workspace/home/log.txt"))).toBe("abc");
 
   okValue(await env.truncateFile("log.txt", 2, BACKGROUND_CONTEXT));
-  expect(textOf(vm.files.get("/workspace/log.txt"))).toBe("ab");
+  expect(textOf(vm.files.get("/workspace/home/log.txt"))).toBe("ab");
 
   okValue(await env.truncateFile("log.txt", 4, BACKGROUND_CONTEXT));
-  expect(vm.files.get("/workspace/log.txt")?.byteLength).toBe(4);
+  expect(vm.files.get("/workspace/home/log.txt")?.byteLength).toBe(4);
 });
 
 test("exec delivers stdout, then stderr, and returns the exit code", async () => {
@@ -181,7 +185,7 @@ test("exec delivers stdout, then stderr, and returns the exit code", async () =>
   ]);
   expect(vm.execCalls).toHaveLength(1);
   expect(vm.execCalls[0]?.command).toBe("echo hi");
-  expect(vm.execCalls[0]?.cwd).toBe(WORKDIR);
+  expect(vm.execCalls[0]?.cwd).toBe(HOME);
   expect(vm.execCalls[0]?.maxOutputBytes).toBe(EXEC_OUTPUT_BYTES);
   expect(vm.execCalls[0]?.timeoutMs).toBe(DEFAULT_EXEC_TIMEOUT_MS);
 });
@@ -291,7 +295,7 @@ test("temporary files and folders are made under /tmp", async () => {
 test("watch is refused with not_supported", async () => {
   const { env } = setup();
   const result = await env.watch(
-    [{ path: WORKDIR }],
+    [{ path: HOME }],
     () => undefined,
     BACKGROUND_CONTEXT
   );
@@ -314,8 +318,8 @@ const grantedSecrets = () => ({
 test("a granted secret reaches the command's env, next to the command's own env", async () => {
   const vm = createFakeVm();
   const env = createVmEnv({
+    agentId: "a1",
     secrets: grantedSecrets(),
-    sessionId: "s1",
     vm,
   });
 
@@ -326,7 +330,7 @@ test("a granted secret reaches the command's env, next to the command's own env"
 
 test("output holding a granted secret reaches onOutput masked", async () => {
   const vm = createFakeVm();
-  const env = createVmEnv({ secrets: grantedSecrets(), sessionId: "s1", vm });
+  const env = createVmEnv({ agentId: "a1", secrets: grantedSecrets(), vm });
   vm.onExec = () => ({
     exitCode: 0,
     stderr: "",
@@ -350,7 +354,7 @@ test("output holding a granted secret reaches onOutput masked", async () => {
 
 test("stderr holding a granted secret is masked too", async () => {
   const vm = createFakeVm();
-  const env = createVmEnv({ secrets: grantedSecrets(), sessionId: "s1", vm });
+  const env = createVmEnv({ agentId: "a1", secrets: grantedSecrets(), vm });
   vm.onExec = () => ({
     exitCode: 1,
     stderr: `bad token ${FAKE_SECRET}\n`,
@@ -389,8 +393,8 @@ test("with no secrets option the env is the command's own, and output is not mas
 test("when the secrets lookup fails, exec returns an error and the command does not run", async () => {
   const vm = createFakeVm();
   const env = createVmEnv({
+    agentId: "a1",
     secrets: { forRun: () => Promise.reject(new Error("lookup failed")) },
-    sessionId: "s1",
     vm,
   });
 

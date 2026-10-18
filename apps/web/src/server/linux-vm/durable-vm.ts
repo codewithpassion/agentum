@@ -11,12 +11,16 @@ const unwrap = async <T>(reply: Promise<VmReply<T>>): Promise<T> => {
   throw new VmFileError(settled.code, settled.message);
 };
 
-/** The session's Linux VM, reached through its Durable Object. The object is named by the session id. */
+/**
+ * The agent's Linux VM, reached through its Durable Object. The object is named
+ * by the agent id, so sessions of one agent share one VM and one disk. When two
+ * sessions write the same file, the last write wins.
+ */
 export const durableVm = (
   namespace: DurableObjectNamespace<VmSession>,
-  sessionId: string
+  agentId: string
 ): LinuxVm => {
-  const stub = namespace.get(namespace.idFromName(sessionId));
+  const stub = namespace.get(namespace.idFromName(agentId));
   return {
     exec: (input) => stub.exec(input),
     list: (path) => unwrap(stub.list(path)),

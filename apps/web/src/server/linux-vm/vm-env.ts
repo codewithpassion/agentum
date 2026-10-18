@@ -1,9 +1,10 @@
 /**
- * An `ExecutionEnv` over the Linux VM of one session, so Pi's `read`, `write`,
+ * An `ExecutionEnv` over the Linux VM of one agent, so Pi's `read`, `write`,
  * `edit` and `bash` tools work in the VM. Every absolute path is allowed, and a
- * relative path resolves against `cwd`. Files go through `LinuxVm`; the readers
- * and line helpers are the ones `library-env.ts` uses. When `secrets` is given,
- * each command gets the granted env and its output is masked before the model sees it.
+ * relative path resolves against `cwd`, the agent's home folder by default.
+ * Files go through `LinuxVm`; the readers and line helpers are the ones
+ * `library-env.ts` uses. When `secrets` is given, each command gets the granted
+ * env and its output is masked before the model sees it.
  */
 import type { Context } from "@earendil-works/chord";
 import {
@@ -35,7 +36,7 @@ import {
 import type { ScriptSecrets } from "../skill-scripts/run-skill-script.ts";
 import {
   type LinuxVm,
-  VM_WORKDIR,
+  VM_HOME_DIR,
   type VmEntry,
   type VmExecResult,
   VmFileError,
@@ -208,12 +209,12 @@ const deliver = (
 
 export const createVmEnv = ({
   vm,
-  sessionId,
-  cwd = VM_WORKDIR,
+  agentId,
+  cwd = VM_HOME_DIR,
   secrets,
 }: {
   vm: LinuxVm;
-  sessionId: string;
+  agentId: string;
   cwd?: string;
   secrets?: ScriptSecrets;
 }): ExecutionEnv => {
@@ -361,7 +362,7 @@ export const createVmEnv = ({
           : ok(undefined);
       }),
 
-    id: `${ENV_ID_PREFIX}${sessionId}`,
+    id: `${ENV_ID_PREFIX}${agentId}`,
 
     joinPath: (parts, context) =>
       withPath(env.cwd, parts.join("/"), context, (absolute) =>

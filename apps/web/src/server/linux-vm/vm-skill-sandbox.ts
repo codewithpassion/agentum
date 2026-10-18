@@ -1,8 +1,8 @@
 /**
  * Runs a skill script in the session's Linux VM with bun. The script's files
  * go into the workdir's skills folder first (a refresh of what the run start
- * placed there), and the script runs with the workdir as its working folder, so
- * it can read and write the session's files. Besides HOME, the CA
+ * placed there), and the script runs in the agent's home folder, so it can read
+ * and write the agent's files. Besides HOME, the CA
  * variable once the platform CA is trusted (set by the VM) and a minimal PATH,
  * the command sees only the variables in `input.env`.
  * `input.proxy` needs no action here: the platform routes the VM's HTTPS
@@ -17,7 +17,7 @@ import {
   type SkillScriptSandbox,
   TIMEOUT_EXIT_CODE,
 } from "../skill-scripts/sandbox-port.ts";
-import { type LinuxVm, VM_WORKDIR } from "./vm-port.ts";
+import { type LinuxVm, VM_HOME_DIR, VM_WORKDIR } from "./vm-port.ts";
 
 const SKILLS_FOLDER = `${VM_WORKDIR}/skills`;
 
@@ -50,7 +50,7 @@ export const vmSkillSandbox = (vm: LinuxVm): SkillScriptSandbox => ({
     await placeFiles(vm, folder, input.files);
     const result = await vm.exec({
       command: commandFor(input, `${folder}/${input.entry}`),
-      cwd: VM_WORKDIR,
+      cwd: VM_HOME_DIR,
       ...(input.env !== undefined && Object.keys(input.env).length > 0
         ? { env: input.env }
         : {}),

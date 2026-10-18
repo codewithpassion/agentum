@@ -34,8 +34,10 @@ const idleMsOf = (env: Env): number => {
 };
 
 /**
- * One session's Linux VM: a Sandbox SDK container, named by the Harbourmaster
- * session id. The logic is in `vm-core.ts`. This class is the part only a real
+ * One agent's Linux VM: a Sandbox SDK container, named by the agent id. Every
+ * session of the agent reaches this same VM. The snapshot covers only
+ * `/workspace/home`; the rest of `/workspace` is scratch. The logic is in
+ * `vm-core.ts`. This class is the part only a real
  * Worker can run: the container, the Sandbox SDK's file and backup classes, and
  * the alarm. Nothing of the Worker's `env` goes into the container: it starts
  * with no environment variables, and commands run with the ones they are given

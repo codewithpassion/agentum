@@ -78,7 +78,7 @@ const RUN_KEY = "run";
 const AGENT_SLUG_KEY = "agent-slug";
 /** The skills of the run that loaded them last, with that run: a tool call knows no run of its own. The text is read again on each call. */
 const SKILLS_KEY = "skills";
-/** The session id, stored only when the agent runs in a Linux VM: the VM is named by it. Absent means the isolate. */
+/** The agent id, stored only when the agent runs in a Linux VM: the VM is named by it, so every session of the agent shares one VM. Absent means the isolate. */
 const VM_KEY = "linux-vm";
 /** The run an input file belongs to, so `read_input_file` reads it as that run. */
 const inputFileKey = (fileId: string) => `input-file:${fileId}`;
@@ -137,7 +137,7 @@ export class PiRun extends DurableObject<Env> {
   /** Syncs take turns: two that overlap could install an older list over a newer one. */
   #syncing: Promise<unknown> = Promise.resolve();
   #faux: Faux | undefined;
-  /** The session's Linux VM, when its agent runs in one. */
+  /** The agent's Linux VM, when the agent runs in one. */
   #vm: LinuxVm | undefined;
   #composed: ReturnType<typeof compose> | undefined;
 
@@ -273,12 +273,12 @@ export class PiRun extends DurableObject<Env> {
   }
 
   /**
-   * Makes the session run in its Linux VM, or in the isolate when `sessionId`
-   * is undefined: the file and shell tools, the skill script backend and the
-   * environment follow. The VM is named by the session id.
+   * Makes the session run in its agent's Linux VM, or in the isolate when
+   * `agentId` is undefined: the file and shell tools, the skill script backend
+   * and the environment follow. The VM is named by the agent id.
    */
-  #switchEnvironment(sessionId: string | undefined) {
-    this.#vm = sessionId ? durableVm(this.env.LINUX_VM, sessionId) : undefined;
+  #switchEnvironment(agentId: string | undefined) {
+    this.#vm = agentId ? durableVm(this.env.LINUX_VM, agentId) : undefined;
     installEnvironmentTools(
       this.registry,
       this.#vm ? "linux-vm" : "isolate",
@@ -290,11 +290,11 @@ export class PiRun extends DurableObject<Env> {
   async #selectEnvironment(input: CloudStart) {
     const inVm = cloudEnvironmentOf(input.agent.runtimeConfig) === "linux-vm";
     if (inVm) {
-      await this.ctx.storage.put(VM_KEY, input.run.sessionId);
+      await this.ctx.storage.put(VM_KEY, input.run.agentId);
     } else {
       await this.ctx.storage.delete(VM_KEY);
     }
-    this.#switchEnvironment(inVm ? input.run.sessionId : undefined);
+    this.#switchEnvironment(inVm ? input.run.agentId : undefined);
   }
 
   #agentSlug() {
@@ -310,13 +310,13 @@ export class PiRun extends DurableObject<Env> {
 
   /** The environment of Pi's file and shell tools: the VM, or the library for the newest run. Without a run there is no principal, so no library environment. */
   async #executionEnv() {
-    const sessionId = await this.ctx.storage.get<string>(VM_KEY);
+    const agentId = await this.ctx.storage.get<string>(VM_KEY);
     const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
-    if (this.#vm && sessionId) {
+    if (this.#vm && agentId) {
       // The VM's commands get the agent's `env` secrets, and their output is masked.
       return createVmEnv({
+        agentId,
         secrets: run ? this.#scriptSecrets(run) : undefined,
-        sessionId,
         vm: this.#vm,
       });
     }
@@ -481,7 +481,7 @@ export class PiRun extends DurableObject<Env> {
     await this.ctx.storage.put(SKILLS_KEY, stored);
     this.#applySkills(stored);
     if (this.#vm) {
-      await placeSkills(this.#vm, skills, this.#skillsPort(run));
+      await placeSkills(this.#vm, skills, this.#skillsPort(run), run.runId);
       await this.#routeVmEgress(this.#vm, run);
     }
   }
@@ -490,7 +490,9 @@ export class PiRun extends DurableObject<Env> {
    * Tells the VM which hosts the agent has a `proxy` secret for, so the
    * platform adds the header to HTTPS requests to them outside the VM. Only
    * ids and hosts go in. The VM still works without it, and a request to such a
-   * host then goes out without the credential.
+   * host then goes out without the credential. Sessions of one agent share the
+   * VM and its one egress, so it belongs to the run that set it last, and the
+   * audit of a credential added outside the VM names that run.
    */
   async #routeVmEgress(vm: LinuxVm, run: RunRef) {
     try {
