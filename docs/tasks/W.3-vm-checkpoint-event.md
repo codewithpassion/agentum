@@ -26,3 +26,4 @@ Asked for by Dom on 18 Oct 2026, from the report (section D, items 3 and 4). The
 - 2026-10-18: added at Dom's request.
 - 2026-10-18: dispatched.
 - 2026-10-18: review clean after 0 fix rounds at da866ed (docs/reviews/tasks/W.3.md). Merged.
+- 2026-10-18: staging check passed (workspace.snapshot after each VM run).

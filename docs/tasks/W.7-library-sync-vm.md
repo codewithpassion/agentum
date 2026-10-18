@@ -32,3 +32,4 @@ This task also builds the sync core that W.8 reuses. YAGNI: no separate task, si
 - 2026-10-18: added at Dom's request.
 - 2026-10-18: dispatched.
 - 2026-10-18: review clean after 3 fix rounds at a5bc2c4 (docs/reviews/tasks/W.7.md); third round approved by the controller (lease lock in VmSession storage). Merged. Staging check pending.
+- 2026-10-18: staging check passed (library folder in VM, writes on Library page, conflict copy plus library.conflict event, next prompt lists it). Two chats of one agent run one after the other (one running run per agent, runs.ts:644), so the lease was not contended live. Found separately: a run can hang at run.started when the browser leaves the chat page right after Send (3 cases, until lease expiry).
