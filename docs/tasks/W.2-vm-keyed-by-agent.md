@@ -29,3 +29,4 @@ Asked for by Dom on 18 Oct 2026, from the report (sections B and D). Files an ag
 - 2026-10-18: added at Dom's request.
 - 2026-10-18: dispatched.
 - 2026-10-18: review clean after 2 fix rounds at fc1857b (docs/reviews/tasks/W.2.md). Merged. Staging check pending. Dom: production R2 lifecycle rule on vm-snapshots/ before VM agents run there.
+- 2026-10-18: staging check passed (w-check-vm: home file kept across sessions after VM sleep, /tmp gone, prompt describes home, scratch and library).

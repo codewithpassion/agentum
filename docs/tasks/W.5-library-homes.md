@@ -27,3 +27,4 @@ Asked for by Dom on 18 Oct 2026, from the report (section D). Isolate and Manage
 - 2026-10-18: added at Dom's request.
 - 2026-10-18: dispatched.
 - 2026-10-18: review clean after 1 fix round at b2c2ed7 (docs/reviews/tasks/W.5.md). Merged. Staging check pending.
+- 2026-10-18: staging check passed for isolate and managed (note in /library/agents/<slug>/ read back in a new chat).
