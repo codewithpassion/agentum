@@ -46,6 +46,13 @@ const MEASURE_TIMEOUT_SECONDS = 30;
 const SNAPSHOT_KEY = "snapshot";
 /** The run named by `setRun`: the one a restore or an idle snapshot is reported on. */
 const RUN_KEY = "run";
+/** The library sync lease: who holds it and when it ends. */
+const LIBRARY_LEASE_KEY = "library-lease";
+
+interface LibraryLease {
+  expiresAt: number;
+  owner: string;
+}
 /** Set once the container has started and its workdir is ready, and cleared when it is destroyed. A Durable Object that restarts while the container runs reads it to tell a finished start from a cut-off one. */
 const PREPARED_KEY = "prepared";
 /** The last `VmEgress` given to `setEgress`. A start that happens later applies it again. */
@@ -686,26 +693,34 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
       }
     });
 
-  /** Held in memory: a Durable Object that restarts has lost the work of the owner that held it too. */
-  let libraryLock: { owner: string; until: number } | undefined;
-
-  const lockLibrary: LinuxVm["lockLibrary"] = (owner, ttlMs) => {
+  /**
+   * The library sync lease is kept in storage, so it outlives a reset of this
+   * object: the holder runs in another object and carries on. The object takes
+   * one call at a time and storage reads and writes hold its input gate, so
+   * the read, the check and the write of one call cannot interleave with
+   * another call.
+   */
+  const lockLibrary: LinuxVm["lockLibrary"] = async (owner, ttlMs) => {
+    const lease = await storage.get<LibraryLease>(LIBRARY_LEASE_KEY);
     if (
-      libraryLock !== undefined &&
-      libraryLock.owner !== owner &&
-      libraryLock.until > now()
+      lease !== undefined &&
+      lease.owner !== owner &&
+      lease.expiresAt > now()
     ) {
-      return Promise.resolve(false);
+      return false;
     }
-    libraryLock = { owner, until: now() + ttlMs };
-    return Promise.resolve(true);
+    await storage.put<LibraryLease>(LIBRARY_LEASE_KEY, {
+      expiresAt: now() + ttlMs,
+      owner,
+    });
+    return true;
   };
 
-  const unlockLibrary: LinuxVm["unlockLibrary"] = (owner) => {
-    if (libraryLock?.owner === owner) {
-      libraryLock = undefined;
+  const unlockLibrary: LinuxVm["unlockLibrary"] = async (owner) => {
+    const lease = await storage.get<LibraryLease>(LIBRARY_LEASE_KEY);
+    if (lease?.owner === owner) {
+      await storage.delete(LIBRARY_LEASE_KEY);
     }
-    return Promise.resolve();
   };
 
   const setRun: LinuxVm["setRun"] = ({ agentId, runId, workspaceId }) =>

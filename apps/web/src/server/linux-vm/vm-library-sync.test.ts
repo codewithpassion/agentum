@@ -694,3 +694,26 @@ test("a failed release is warned and does not fail the sync", async () => {
   await expect(withLibraryLock(vm, () => Promise.resolve(7))).resolves.toBe(7);
   expect(warn).toHaveBeenCalled();
 });
+
+test("withLibraryLock renews its hold while a long sync runs", async () => {
+  const vm = createFakeVm();
+  const renewals: string[] = [];
+  const { lockLibrary } = vm;
+  vm.lockLibrary = (owner, ttlMs) => {
+    renewals.push(owner);
+    return lockLibrary(owner, ttlMs);
+  };
+
+  await withLibraryLock(
+    vm,
+    () =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 40);
+      }),
+    { ttlMs: 15 }
+  );
+
+  // One call to take it, at least one more to renew it, all by the same owner.
+  expect(renewals.length).toBeGreaterThan(1);
+  expect(new Set(renewals).size).toBe(1);
+});

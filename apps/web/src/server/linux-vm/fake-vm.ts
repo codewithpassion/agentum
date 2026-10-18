@@ -26,7 +26,7 @@ export interface FakeVm extends LinuxVm {
   files: Map<string, Uint8Array>;
   /** Folders, absolute, the root and the workdir included. */
   folders: Set<string>;
-  /** The owner that holds the library lock now, or null. Its hold never expires on its own. */
+  /** The owner that last took the library lock and has not released it. It stays set after the hold expires; only a new `lockLibrary` call checks the expiry. */
   libraryLockOwner: string | null;
   /** What the next `exec` calls answer. The default is exit 0 with no output. */
   onExec: (input: VmExecInput) => VmExecResult | Promise<VmExecResult>;

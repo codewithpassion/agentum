@@ -1119,6 +1119,8 @@ describe("createVmCore: workspace.snapshot", () => {
 });
 
 describe("createVmCore: the library lock", () => {
+  const LEASE_KEY = "library-lease";
+
   test("one owner holds it at a time, and the same owner renews it", async () => {
     const { core } = setup();
 
@@ -1138,13 +1140,39 @@ describe("createVmCore: the library lock", () => {
     expect(await core.lockLibrary("b", 1000)).toBe(true);
   });
 
-  test("a hold ends by itself after its time to live", async () => {
-    const { clock, core } = setup();
+  test("a lease survives a reset of the object, and a second session is refused while it is live", async () => {
+    const { clock, core, storage } = setup();
+    await core.lockLibrary("a", 1000);
+    expect(storage.get(LEASE_KEY)).toEqual({
+      expiresAt: clock.now + 1000,
+      owner: "a",
+    });
+
+    // A core built after a reset has no memory of its own: only storage tells it.
+    const afterReset = setup();
+    afterReset.storage.set(LEASE_KEY, storage.get(LEASE_KEY));
+    afterReset.clock.now = clock.now;
+
+    expect(await afterReset.core.lockLibrary("b", 1000)).toBe(false);
+    expect(await afterReset.core.lockLibrary("a", 1000)).toBe(true);
+  });
+
+  test("an expired lease is taken over", async () => {
+    const { clock, core, storage } = setup();
     await core.lockLibrary("a", 1000);
 
     clock.now += 999;
     expect(await core.lockLibrary("b", 1000)).toBe(false);
     clock.now += 2;
     expect(await core.lockLibrary("b", 1000)).toBe(true);
+    expect(storage.get(LEASE_KEY)).toMatchObject({ owner: "b" });
+  });
+
+  test("the release removes the lease from storage", async () => {
+    const { core, storage } = setup();
+    await core.lockLibrary("a", 1000);
+    await core.unlockLibrary("a");
+
+    expect(storage.has(LEASE_KEY)).toBe(false);
   });
 });

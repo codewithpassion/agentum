@@ -121,8 +121,9 @@ export interface LinuxVm {
    * owner holds it. Sessions of one agent share the VM, the working copy and
    * its manifest, and each session has its own Durable Object, so the VM's
    * object is the one place that can make their syncs take turns. The same
-   * owner asking again renews its hold. A hold ends after `ttlMs`, so an owner
-   * that died cannot block the others for good.
+   * owner asking again renews its hold. A hold ends after `ttlMs` unless renewed, so
+   * an owner that died cannot block the others for good. It is kept in storage
+   * and survives a restart of the VM's object.
    */
   lockLibrary: (owner: string, ttlMs: number) => Promise<boolean>;
   mkdir: (path: string, options?: { recursive?: boolean }) => Promise<void>;

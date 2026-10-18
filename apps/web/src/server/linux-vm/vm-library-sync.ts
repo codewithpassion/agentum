@@ -225,8 +225,9 @@ export const libraryRemotePort = (
 
 const LOCK_RETRY_MS = 250;
 const LOCK_WAIT_MS = 30_000;
-/** A sync takes seconds. A hold this old belongs to a sync that died, for example with its Durable Object. */
+/** A sync takes seconds and renews its hold while it runs, so a hold this old belongs to a sync that died, for example with its Durable Object. */
 const LOCK_TTL_MS = 300_000;
+const RENEWALS_PER_TTL = 3;
 
 const realSleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -245,7 +246,7 @@ interface LockOptions {
  * Runs `work` while this call holds the VM's library lock. Sessions of one
  * agent share the VM, its working copy and its manifest, so their syncs take
  * turns through the VM's Durable Object (`lockLibrary`). Waits up to `waitMs`
- * for the holder, then throws. The hold expires after `ttlMs`, and the release
+ * for the holder, then throws. The hold is renewed while the work runs and expires `ttlMs` after the last renewal, and the release
  * gives back only this call's own hold.
  */
 export const withLibraryLock = async <T>(
@@ -268,9 +269,14 @@ export const withLibraryLock = async <T>(
     }
     await sleep(retryMs);
   }
+  // A long sync renews its hold, so only a sync that died loses it.
+  const renewal = setInterval(() => {
+    vm.lockLibrary(owner, ttlMs).catch(() => undefined);
+  }, ttlMs / RENEWALS_PER_TTL);
   try {
     return await work();
   } finally {
+    clearInterval(renewal);
     await vm.unlockLibrary(owner).catch((error: unknown) => {
       console.warn(
         "PiRun: giving back the library lock failed, it ends by itself",
