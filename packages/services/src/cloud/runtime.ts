@@ -66,6 +66,7 @@ export const createCloudRuntime = ({
         model: agent.model,
         name: agent.name,
         runtimeConfig: agent.runtimeConfig,
+        slug: agent.slug,
       },
       inputFileIds: run.inputFileIds,
       mcpServers: buildMcpServers({

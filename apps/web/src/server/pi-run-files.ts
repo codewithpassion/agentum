@@ -9,10 +9,7 @@ import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type Extension } from "@earendil-works/pi-durable";
 import { MAX_FILE_BYTES } from "@repo/db/shared";
-import {
-  attachmentInstructions,
-  extractAttachmentMarkers,
-} from "@repo/protocol/attachments";
+import { extractAttachmentMarkers } from "@repo/protocol/attachments";
 
 export const FILES_EXTENSION = "hm-files";
 export const LIBRARY_ROOT = "/library";
@@ -324,16 +321,10 @@ const readInputTool = (readInput: (fileId: string) => Promise<FileBody>) =>
     replay: "safe",
   });
 
-/** The prompt section on where to write files, and the tool that reads input files as text. */
+/** The tool that reads input files as text. Where to write files is in the workspace instructions. */
 export const filesExtension = (
   readInput: (fileId: string) => Promise<FileBody>
 ): Extension => ({
   name: FILES_EXTENSION,
-  sections: [
-    {
-      key: "files",
-      render: () => attachmentInstructions(LIBRARY_ROOT),
-    },
-  ],
   tools: [readInputTool(readInput)],
 });

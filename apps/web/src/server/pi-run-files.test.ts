@@ -16,7 +16,6 @@ import {
   type Extension,
   Harness,
   MemoryStorage,
-  type PromptInput,
   type ToolExecutionApi,
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
@@ -24,7 +23,6 @@ import {
   FILES_EXTENSION,
   filesExtension,
   inputContent,
-  LIBRARY_ROOT,
   type RunFilesPort,
   uploadOutputs,
 } from "./pi-run-files.ts";
@@ -313,15 +311,12 @@ describe("filesExtension", () => {
     name: "x.txt",
   }));
 
-  test("is named for the files and its section names the library marker", async () => {
+  test("is named for the files, offers read_input_file and has no prompt section", () => {
     expect(extension.name).toBe(FILES_EXTENSION);
-    const section = extension.sections?.[0];
-    if (section === undefined) {
-      throw new Error("no section");
-    }
-    const text = await section.render({} as PromptInput, CONTEXT);
-    expect(text).toContain("[ATTACHMENT:<absolute path>]");
-    expect(text).toContain(LIBRARY_ROOT);
+    expect(extension.tools?.map((tool) => tool.name)).toEqual([
+      "read_input_file",
+    ]);
+    expect(extension.sections).toBeUndefined();
   });
 
   test("read_input_file returns the text of a text file", async () => {

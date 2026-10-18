@@ -4,6 +4,8 @@ import { LIBRARY_TOOLS_EXTENSION } from "../library-env/library-tools.ts";
 import { installEnvironmentTools } from "./environment-tools.ts";
 import { LINUX_VM_TOOLS_EXTENSION } from "./vm-tools.ts";
 
+const slugOf = async () => "ada";
+
 const toolNames = (registry: Registry): string[] =>
   registry
     .snapshot()
@@ -21,7 +23,7 @@ const extensionNames = (registry: Registry): string[] =>
 describe("installEnvironmentTools", () => {
   test("linux-vm installs the VM tools and no library tools", () => {
     const registry = createRegistry();
-    installEnvironmentTools(registry, "linux-vm");
+    installEnvironmentTools(registry, "linux-vm", slugOf);
 
     expect(extensionNames(registry)).toEqual([LINUX_VM_TOOLS_EXTENSION]);
     expect(toolNames(registry)).toEqual(["bash", "edit", "read", "write"]);
@@ -29,7 +31,7 @@ describe("installEnvironmentTools", () => {
 
   test("isolate installs the library tools and no bash", () => {
     const registry = createRegistry();
-    installEnvironmentTools(registry, "isolate");
+    installEnvironmentTools(registry, "isolate", slugOf);
 
     expect(extensionNames(registry)).toEqual([LIBRARY_TOOLS_EXTENSION]);
     expect(toolNames(registry)).toEqual(["edit", "read", "write"]);
@@ -37,16 +39,16 @@ describe("installEnvironmentTools", () => {
 
   test("switching environments leaves one set of tools each time", () => {
     const registry = createRegistry();
-    installEnvironmentTools(registry, "isolate");
-    installEnvironmentTools(registry, "linux-vm");
+    installEnvironmentTools(registry, "isolate", slugOf);
+    installEnvironmentTools(registry, "linux-vm", slugOf);
     expect(extensionNames(registry)).toEqual([LINUX_VM_TOOLS_EXTENSION]);
     expect(toolNames(registry)).toEqual(["bash", "edit", "read", "write"]);
 
-    installEnvironmentTools(registry, "isolate");
+    installEnvironmentTools(registry, "isolate", slugOf);
     expect(extensionNames(registry)).toEqual([LIBRARY_TOOLS_EXTENSION]);
     expect(toolNames(registry)).toEqual(["edit", "read", "write"]);
 
-    installEnvironmentTools(registry, "linux-vm");
+    installEnvironmentTools(registry, "linux-vm", slugOf);
     expect(extensionNames(registry)).toEqual([LINUX_VM_TOOLS_EXTENSION]);
     expect(toolNames(registry)).toEqual(["bash", "edit", "read", "write"]);
   });
