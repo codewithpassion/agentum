@@ -3,7 +3,7 @@ id: W.8
 title: Library folder synced onto machines
 milestone: W
 size: M
-status: todo
+status: in_progress
 depends_on: [W.6, W.7]
 branch: task/W.8-library-sync-machines
 ---
@@ -25,3 +25,4 @@ Asked for by Dom on 18 Oct 2026, from the report (section E). Machines keep a pe
 
 ## Log
 - 2026-10-18: added at Dom's request.
+- 2026-10-18: dispatched.

@@ -3,7 +3,7 @@ id: W.7
 title: Library folder synced into the Linux VM, with the shared sync module
 milestone: W
 size: L
-status: in_progress
+status: done
 depends_on: [W.2, W.3, W.4]
 branch: task/W.7-library-sync-vm
 ---
@@ -31,3 +31,4 @@ This task also builds the sync core that W.8 reuses. YAGNI: no separate task, si
 ## Log
 - 2026-10-18: added at Dom's request.
 - 2026-10-18: dispatched.
+- 2026-10-18: review clean after 3 fix rounds at a5bc2c4 (docs/reviews/tasks/W.7.md); third round approved by the controller (lease lock in VmSession storage). Merged. Staging check pending.
