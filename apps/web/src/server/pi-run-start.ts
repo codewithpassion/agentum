@@ -1,0 +1,157 @@
+// The start of a cloud run, kept free of `cloudflare:workers` so bun can test
+// it. The Worker's request only hands a start to the Durable Object, which
+// saves it. The claim and the slow setup (the VM's library, the agent's home)
+// run later from an alarm, so a browser that leaves cannot cancel them, and a
+// start cut short by an eviction is found in storage and tried again.
+import type { CloudStart } from "@repo/services/cloud/types";
+import type { RunStorage } from "./pi-run-core.ts";
+
+/** How long an accepted run may take to start before it is failed. */
+export const START_TIMEOUT_MS = 120_000;
+/** The wait before a start that failed is tried again. */
+export const START_RETRY_MS = 10_000;
+
+const PENDING_KEY = "pending-starts";
+
+/** A start the platform handed over and this object has not finished. */
+interface PendingStart {
+  /** The run is ours: the claim went through, so a retry must not claim again. */
+  claimed: boolean;
+  input: CloudStart;
+  /** When the first wake for this run arrived, from `now()`. */
+  requestedAt: number;
+}
+
+export interface StartQueueDeps {
+  /** Starts working the claimed run in Pi. */
+  begin: (input: CloudStart) => Promise<void>;
+  /** Claims the run for the system. "conflict" when it cannot be claimed now. */
+  claim: (runId: string) => Promise<"claimed" | "conflict">;
+  /** Ends a claimed run as failed. */
+  fail: (runId: string, error: string) => Promise<void>;
+  now?: () => number;
+  /** The environment and files the run needs before Pi can take it. */
+  prepare: (input: CloudStart) => Promise<void>;
+  storage: RunStorage;
+}
+
+const describe = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+export const createStartQueue = ({
+  begin,
+  claim,
+  fail,
+  now = Date.now,
+  prepare,
+  storage,
+}: StartQueueDeps) => {
+  const load = async () =>
+    (await storage.get<PendingStart[]>(PENDING_KEY)) ?? [];
+
+  const save = async (pending: PendingStart[]) => {
+    if (pending.length === 0) {
+      await storage.delete(PENDING_KEY);
+    } else {
+      await storage.put(PENDING_KEY, pending);
+    }
+  };
+
+  const remove = async (runId: string) => {
+    await save((await load()).filter((entry) => entry.input.run.id !== runId));
+  };
+
+  /**
+   * Saves a start. A repeat for the same run, such as the minute sweep
+   * offering it again, brings the newer run token and keeps the rest.
+   */
+  const request = async (input: CloudStart): Promise<void> => {
+    const pending = await load();
+    const known = pending.find((entry) => entry.input.run.id === input.run.id);
+    if (known) {
+      known.input = input;
+    } else {
+      pending.push({ claimed: false, input, requestedAt: now() });
+    }
+    await save(pending);
+  };
+
+  /** Fails a claimed run that could not start in time. A run nobody claimed is left offered, for the sweep. */
+  const giveUp = async (entry: PendingStart, reason: string) => {
+    await remove(entry.input.run.id);
+    if (!entry.claimed) {
+      return;
+    }
+    try {
+      await fail(
+        entry.input.run.id,
+        `The run could not start within ${START_TIMEOUT_MS / 60_000} minutes: ${reason}`
+      );
+    } catch (error) {
+      // The platform already ended the run (cancelled, or its lease expired).
+      console.warn(
+        `PiRun: failing run ${entry.input.run.id} that could not start: ${describe(error)}`
+      );
+    }
+  };
+
+  /** One start: the claim, then the setup, then Pi. Resolves to whether it should be tried again. */
+  const attempt = async (entry: PendingStart): Promise<boolean> => {
+    const runId = entry.input.run.id;
+    try {
+      if (!entry.claimed) {
+        if ((await claim(runId)) === "conflict") {
+          // Another run holds the agent, or the run is over. The platform offers it again when it can run.
+          await remove(runId);
+          return false;
+        }
+        entry.claimed = true;
+        const pending = await load();
+        const stored = pending.find((other) => other.input.run.id === runId);
+        if (stored) {
+          stored.claimed = true;
+          await save(pending);
+        }
+      }
+      await prepare(entry.input);
+      await begin(entry.input);
+      await remove(runId);
+      return false;
+    } catch (error) {
+      console.error(`PiRun: starting run ${runId}: ${describe(error)}`);
+      if (now() - entry.requestedAt >= START_TIMEOUT_MS) {
+        await giveUp(entry, describe(error));
+        return false;
+      }
+      return true;
+    }
+  };
+
+  /**
+   * Works every saved start, including ones saved while it runs. Resolves to
+   * whether any must be tried again later.
+   */
+  const work = async (): Promise<boolean> => {
+    const tried = new Set<string>();
+    let again = false;
+    for (;;) {
+      // biome-ignore lint/performance/noAwaitInLoops: a session's starts run one after the other
+      const next = (await load()).find(
+        (entry) => !tried.has(entry.input.run.id)
+      );
+      if (!next) {
+        return again;
+      }
+      tried.add(next.input.run.id);
+      if (await attempt(next)) {
+        again = true;
+      }
+    }
+  };
+
+  const hasPending = async () => (await load()).length > 0;
+
+  return { hasPending, request, work };
+};
+
+export type StartQueue = ReturnType<typeof createStartQueue>;

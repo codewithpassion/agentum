@@ -35,12 +35,25 @@ const dom: Principal = {
   workspaceId: WORKSPACE,
 };
 
-/** Records every call. A failure set on it is thrown after the call is recorded. */
+/** Waits for `count` rounds of pending work, each one a macrotask. */
+const turns = (count: number): Promise<void> =>
+  count <= 0
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => setTimeout(resolve, 0)).then(() =>
+        turns(count - 1)
+      );
+
+/**
+ * Records every call. A failure set on it is thrown after the call is recorded.
+ * With `startMode` set to "hangs", `start` never returns, like a runner that
+ * hangs while the request that woke it is cancelled.
+ */
 class FakeRunner implements CloudRunnerPort {
   cancelCalls: [string, string][] = [];
   cancelFailure: Error | null = null;
   startCalls: CloudStart[] = [];
   startFailure: Error | null = null;
+  startMode: "settles" | "hangs" = "settles";
 
   cancel(runId: string, sessionId: string) {
     this.cancelCalls.push([runId, sessionId]);
@@ -51,6 +64,9 @@ class FakeRunner implements CloudRunnerPort {
 
   start(input: CloudStart) {
     this.startCalls.push(input);
+    if (this.startMode === "hangs") {
+      return new Promise<void>(() => undefined);
+    }
     return this.startFailure
       ? Promise.reject(this.startFailure)
       : Promise.resolve();
@@ -97,6 +113,10 @@ const runEvents = (runId: string) =>
     .where(eq(eventRows.runId, runId))
     .orderBy(asc(eventRows.id))
     .all();
+
+/** The runner claims a run once it can start it. Tests do that claim here. */
+const claimAsRunner = (runId: string) =>
+  runs.claimRun(SYSTEM_PRINCIPAL, runId, { leaseMs: CLOUD_LEASE_MS });
 
 beforeEach(async () => {
   db = migrated();
@@ -157,8 +177,46 @@ afterEach(() => {
   restoreConsole();
 });
 
+describe("a request that ends during the start", () => {
+  test("a request that dies right after the run is accepted does not strand the run", async () => {
+    runner.startMode = "hangs";
+    nowMs += SECOND;
+    // The request is cancelled while dispatch waits on the runner. Nothing
+    // awaits the call.
+    runs.startRun(dom, {
+      agentId,
+      input: { text: "Summarise the inbox" },
+      session: { externalKey: "thread-1", origin: "slack" },
+    });
+    await turns(5);
+
+    const [run] = db
+      .select()
+      .from(runRows)
+      .where(eq(runRows.agentId, agentId))
+      .all();
+    if (!run) {
+      throw new Error("The run was not accepted");
+    }
+    expect(["queued", "offered"]).toContain(run.status);
+    expect(runEvents(run.id).map((event) => event.type)).not.toContain(
+      "run.started"
+    );
+    expect(runner.startCalls).toHaveLength(1);
+
+    nowMs += STALE_QUEUE_MS + SECOND;
+    runner.startMode = "settles";
+    await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+
+    expect(runner.startCalls.map((call) => call.run.id)).toEqual([
+      run.id,
+      run.id,
+    ]);
+  });
+});
+
 describe("dispatch", () => {
-  test("claims the run and starts the runner with the run, agent and MCP servers", async () => {
+  test("wakes the runner with the run, agent and MCP servers, and leaves the run for the runner to claim", async () => {
     await seedConnector(db, {
       authKind: "none",
       id: "con_mail",
@@ -187,9 +245,9 @@ describe("dispatch", () => {
     const { runId, sessionId } = await start();
 
     const run = runRow(runId);
-    expect(run?.status).toBe("running");
-    expect(run?.claimedBy).toBe("system");
-    expect(runEvents(runId).map((event) => event.type)).toContain(
+    expect(run?.status).toBe("queued");
+    expect(run?.claimedBy).toBeNull();
+    expect(runEvents(runId).map((event) => event.type)).not.toContain(
       "run.started"
     );
     expect(runner.startCalls).toHaveLength(1);
@@ -234,20 +292,11 @@ describe("dispatch", () => {
     expect(server("harbourmaster").headers).toEqual({
       Authorization: `Bearer ${token}`,
     });
-    const verified = await verifyRunToken({
-      db,
-      key: await importRunTokenKey(RUN_TOKEN_KEY),
-      now: clock.now(),
-      token,
-    });
-    expect(verified).toMatchObject({
-      claims: { agentId, runId, workspaceId: WORKSPACE },
-      ok: true,
-    });
   });
 
-  test("claims with the cloud lease, so the run token outlasts an outage of the runner", async () => {
+  test("once the runner claims the run with the cloud lease, the run token outlasts an outage of the runner", async () => {
     const { runId } = await start();
+    await claimAsRunner(runId);
     const [input] = runner.startCalls;
     if (!input) {
       throw new Error("The runner was not started");
@@ -261,6 +310,17 @@ describe("dispatch", () => {
         token: input.runToken,
       });
 
+    expect(
+      await verifyRunToken({
+        db,
+        key,
+        now: clock.now(),
+        token: input.runToken,
+      })
+    ).toMatchObject({
+      claims: { agentId, runId, workspaceId: WORKSPACE },
+      ok: true,
+    });
     expect(runRow(runId)?.leaseUntil).toBe(
       new Date(nowMs + CLOUD_LEASE_MS).toISOString()
     );
@@ -270,51 +330,14 @@ describe("dispatch", () => {
   });
 });
 
-describe("claims", () => {
-  test("two dispatches of one queued run start the runner once", async () => {
-    const { runId } = await start({}, { offerLater: true });
-    expect(runRow(runId)?.status).toBe("queued");
-
-    await Promise.all([
-      runs.offerQueuedRun(SYSTEM_PRINCIPAL, runId),
-      runs.offerQueuedRun(SYSTEM_PRINCIPAL, runId),
-    ]);
-
-    expect(runRow(runId)?.status).toBe("running");
-    expect(runner.startCalls.map((call) => call.run.id)).toEqual([runId]);
-  });
-
-  test("a second run of the agent waits while the first is running", async () => {
-    const first = await start();
-    const second = await start({
-      session: { externalKey: "thread-2", origin: "slack" },
-    });
-
-    expect(runRow(first.runId)?.status).toBe("running");
-    expect(runRow(second.runId)?.status).toBe("queued");
-    expect(runRow(second.runId)?.claimedBy).toBeNull();
-    expect(runner.startCalls.map((call) => call.run.id)).toEqual([first.runId]);
-  });
-
-  test("a younger run of a session waits while an older one is queued", async () => {
-    const older = await start({}, { offerLater: true });
-    const younger = await start();
-
-    expect(runRow(older.runId)?.status).toBe("queued");
-    expect(runRow(younger.runId)?.status).toBe("queued");
-    expect(runner.startCalls).toEqual([]);
-  });
-});
-
 describe("a start that fails", () => {
-  test("releases the run to offered, logs without the token, and a later sweep starts it", async () => {
+  test("logs without the token, leaves the run queued, and a later sweep wakes it again", async () => {
     runner.startFailure = new Error("runner unavailable");
 
     const { runId } = await start();
 
-    expect(runRow(runId)?.status).toBe("offered");
+    expect(runRow(runId)?.status).toBe("queued");
     expect(runRow(runId)?.claimedBy).toBeNull();
-    expect(runRow(runId)?.leaseUntil).toBeNull();
     expect(logged.join("\n")).toContain(runId);
     expect(logged.join("\n")).toContain("runner unavailable");
     expect(logged.join("\n")).not.toContain("hm_run_");
@@ -323,8 +346,7 @@ describe("a start that fails", () => {
     nowMs += STALE_QUEUE_MS + SECOND;
     await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
 
-    expect(runRow(runId)?.status).toBe("running");
-    expect(runRow(runId)?.claimedBy).toBe("system");
+    expect(runRow(runId)?.status).toBe("queued");
     expect(runner.startCalls.map((call) => call.run.id)).toEqual([
       runId,
       runId,
@@ -353,101 +375,105 @@ describe("cancel", () => {
   });
 });
 
-describe("offering the next run when one ends", () => {
+describe("waking the next run when one ends", () => {
   const otherSession = { externalKey: "thread-2", origin: "slack" } as const;
-  const startedIds = () => runner.startCalls.map((call) => call.run.id);
 
-  test("a queued run of the session starts when the running one is done", async () => {
+  /** The run ids the runner was woken for while `action` ran. */
+  const wokenBy = async (action: () => Promise<unknown>) => {
+    const before = runner.startCalls.length;
+    await action();
+    return runner.startCalls.slice(before).map((call) => call.run.id);
+  };
+
+  test("a queued run of the session is woken when the running one is done", async () => {
     const first = await start();
     const second = await start();
-    expect(runRow(second.runId)?.status).toBe("queued");
+    await claimAsRunner(first.runId);
 
-    await runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
-      status: "done",
-      text: "Done",
-    });
+    const woken = await wokenBy(() =>
+      runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
+        status: "done",
+        text: "Done",
+      })
+    );
 
     expect(runRow(first.runId)?.status).toBe("done");
-    expect(runRow(second.runId)?.status).toBe("running");
-    expect(startedIds()).toEqual([first.runId, second.runId]);
+    expect(woken).toEqual([second.runId]);
+    expect(runRow(second.runId)?.status).toBe("queued");
   });
 
-  test("a queued run of the session starts when the running one fails", async () => {
+  test("a queued run of the session is woken when the running one fails", async () => {
     const first = await start();
     const second = await start();
+    await claimAsRunner(first.runId);
 
-    await runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
-      error: "boom",
-      status: "failed",
-    });
+    const woken = await wokenBy(() =>
+      runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
+        error: "boom",
+        status: "failed",
+      })
+    );
 
     expect(runRow(first.runId)?.status).toBe("failed");
-    expect(runRow(second.runId)?.status).toBe("running");
-    expect(startedIds()).toEqual([first.runId, second.runId]);
+    expect(woken).toEqual([second.runId]);
   });
 
-  test("a queued run of the session starts when the running one is cancelled", async () => {
+  test("a queued run of the session is woken when the running one is cancelled", async () => {
     const first = await start();
     const second = await start();
+    await claimAsRunner(first.runId);
 
-    await runs.cancelRun(dom, first.runId);
+    const woken = await wokenBy(() => runs.cancelRun(dom, first.runId));
 
     expect(runRow(first.runId)?.status).toBe("cancelled");
-    expect(runRow(second.runId)?.status).toBe("running");
-    expect(startedIds()).toEqual([first.runId, second.runId]);
+    expect(woken).toEqual([second.runId]);
   });
 
-  test("a queued run of another session of the agent starts when the running one ends", async () => {
+  test("a queued run of another session of the agent is woken when the running one ends", async () => {
     const first = await start();
     const second = await start({ session: otherSession });
+    await claimAsRunner(first.runId);
 
-    await runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
-      status: "done",
-      text: "Done",
-    });
+    const woken = await wokenBy(() =>
+      runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
+        status: "done",
+        text: "Done",
+      })
+    );
 
-    expect(runRow(second.runId)?.status).toBe("running");
-    expect(startedIds()).toEqual([first.runId, second.runId]);
+    expect(woken).toEqual([second.runId]);
   });
 
-  test("with two waiting runs only the oldest starts, and the next one after it ends", async () => {
+  test("with two waiting runs the oldest is woken first, and the next one after it ends", async () => {
     const first = await start();
     const second = await start();
     const third = await start();
+    await claimAsRunner(first.runId);
 
-    await runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
-      status: "done",
-      text: "Done",
-    });
+    const wokenFirst = await wokenBy(() =>
+      runs.completeRun(SYSTEM_PRINCIPAL, first.runId, {
+        status: "done",
+        text: "Done",
+      })
+    );
 
-    expect(runRow(second.runId)?.status).toBe("running");
-    expect(runRow(third.runId)?.status).toBe("queued");
-    expect(startedIds()).toEqual([first.runId, second.runId]);
+    expect(wokenFirst).toEqual([second.runId]);
 
-    await runs.completeRun(SYSTEM_PRINCIPAL, second.runId, {
-      status: "done",
-      text: "Done",
-    });
+    await claimAsRunner(second.runId);
+    const wokenSecond = await wokenBy(() =>
+      runs.completeRun(SYSTEM_PRINCIPAL, second.runId, {
+        status: "done",
+        text: "Done",
+      })
+    );
 
-    expect(runRow(third.runId)?.status).toBe("running");
-    expect(startedIds()).toEqual([first.runId, second.runId, third.runId]);
+    expect(wokenSecond).toEqual([third.runId]);
   });
 
-  test("a queued run cancelled while another run still runs starts nothing", async () => {
+  test("a failing runner start while waking does not fail completeRun", async () => {
     const first = await start();
     const second = await start();
-    const third = await start();
-
-    await runs.cancelRun(dom, second.runId);
-
-    expect(runRow(first.runId)?.status).toBe("running");
-    expect(runRow(third.runId)?.status).toBe("queued");
-    expect(startedIds()).toEqual([first.runId]);
-  });
-
-  test("a failing runner start while offering does not fail completeRun", async () => {
-    const first = await start();
-    const second = await start();
+    await claimAsRunner(first.runId);
     runner.startFailure = new Error("runner unavailable");
 
     await expect(
@@ -458,8 +484,7 @@ describe("offering the next run when one ends", () => {
     ).resolves.toBeUndefined();
 
     expect(runRow(first.runId)?.status).toBe("done");
-    expect(runRow(second.runId)?.status).toBe("offered");
-    expect(startedIds()).toEqual([first.runId, second.runId]);
+    expect(runRow(second.runId)?.status).toBe("queued");
     expect(logged.join("\n")).toContain(second.runId);
   });
 });
