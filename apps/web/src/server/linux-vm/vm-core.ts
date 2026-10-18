@@ -695,10 +695,10 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
 
   /**
    * The library sync lease is kept in storage, so it outlives a reset of this
-   * object: the holder runs in another object and carries on. The object takes
-   * one call at a time and storage reads and writes hold its input gate, so
-   * the read, the check and the write of one call cannot interleave with
-   * another call.
+   * object: the holder runs in another object and carries on. Calls can
+   * interleave at an await, but a storage read or write holds the input gate
+   * and nothing else is awaited between the read and the write here, so no
+   * other call runs in between.
    */
   const lockLibrary: LinuxVm["lockLibrary"] = async (owner, ttlMs) => {
     const lease = await storage.get<LibraryLease>(LIBRARY_LEASE_KEY);
