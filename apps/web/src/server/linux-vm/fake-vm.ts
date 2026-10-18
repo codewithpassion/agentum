@@ -4,6 +4,7 @@
  */
 import {
   type LinuxVm,
+  VM_HOME_DIR,
   VM_WORKDIR,
   type VmEgress,
   type VmEntry,
@@ -34,8 +35,72 @@ export const parentOf = (path: string): string =>
 export const textOf = (bytes: Uint8Array | undefined): string | undefined =>
   bytes === undefined ? undefined : new TextDecoder().decode(bytes);
 
+/**
+ * Like rename(2) for a file or a folder. A folder moves with everything below
+ * it, and may replace an empty folder. Renaming onto a non-empty folder throws.
+ */
+const renameEntry = (
+  folders: Set<string>,
+  files: Map<string, Uint8Array>,
+  from: string,
+  to: string
+): void => {
+  const bytes = files.get(from);
+  if (bytes !== undefined) {
+    files.delete(from);
+    files.set(to, bytes);
+    return;
+  }
+  if (!folders.has(from)) {
+    throw new VmFileError(
+      "ENOENT",
+      `ENOENT: no such file or directory, '${from}'`
+    );
+  }
+  if (from === to) {
+    return;
+  }
+  if (to.startsWith(`${from}/`)) {
+    throw new VmFileError("EINVAL", `EINVAL: invalid argument, '${to}'`);
+  }
+  if (files.has(to)) {
+    throw new VmFileError("ENOTDIR", `ENOTDIR: not a directory, '${to}'`);
+  }
+  if (!folders.has(parentOf(to))) {
+    throw new VmFileError(
+      "ENOENT",
+      `ENOENT: no such file or directory, '${to}'`
+    );
+  }
+  const isBelowTo = (path: string) => path.startsWith(`${to}/`);
+  if (folders.has(to)) {
+    if ([...files.keys(), ...folders].some(isBelowTo)) {
+      throw new VmFileError(
+        "ENOTEMPTY",
+        `ENOTEMPTY: directory not empty, '${to}'`
+      );
+    }
+    folders.delete(to);
+  }
+  const isBelowFrom = (path: string) => path.startsWith(`${from}/`);
+  const moved = (path: string) => `${to}${path.slice(from.length)}`;
+  for (const folder of [...folders]) {
+    if (folder === from || isBelowFrom(folder)) {
+      folders.delete(folder);
+      folders.add(moved(folder));
+    }
+  }
+  for (const file of [...files.keys()]) {
+    if (isBelowFrom(file)) {
+      const moving = files.get(file) ?? new Uint8Array();
+      files.delete(file);
+      files.set(moved(file), moving);
+    }
+  }
+};
+
 export const createFakeVm = (): FakeVm => {
-  const folders = new Set<string>(["/", VM_WORKDIR]);
+  const folders = new Set<string>(["/", VM_WORKDIR, VM_HOME_DIR]);
   const files = new Map<string, Uint8Array>();
   const execCalls: VmExecInput[] = [];
   const egressCalls: VmEgress[] = [];
@@ -157,13 +222,12 @@ export const createFakeVm = (): FakeVm => {
       return Promise.resolve();
     },
     rename: (from, to) => {
-      const bytes = files.get(from);
-      if (bytes === undefined) {
-        return Promise.reject(missing(from));
+      try {
+        renameEntry(folders, files, from, to);
+        return Promise.resolve();
+      } catch (error) {
+        return Promise.reject(error);
       }
-      files.delete(from);
-      files.set(to, bytes);
-      return Promise.resolve();
     },
     setEgress: (egress) => {
       egressCalls.push(egress);

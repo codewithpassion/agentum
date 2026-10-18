@@ -324,16 +324,24 @@ const readInputTool = (readInput: (fileId: string) => Promise<FileBody>) =>
     replay: "safe",
   });
 
-/** The prompt section on where to write files, and the tool that reads input files as text. */
+/**
+ * The prompt section on where to write files, and the tool that reads input
+ * files as text. A VM session passes `withInstructions` false: its VM section
+ * already carries the workspace instructions, and the library text here would
+ * contradict them. The tool stays either way.
+ */
 export const filesExtension = (
-  readInput: (fileId: string) => Promise<FileBody>
+  readInput: (fileId: string) => Promise<FileBody>,
+  withInstructions = true
 ): Extension => ({
   name: FILES_EXTENSION,
-  sections: [
-    {
-      key: "files",
-      render: () => attachmentInstructions(LIBRARY_ROOT),
-    },
-  ],
+  sections: withInstructions
+    ? [
+        {
+          key: "files",
+          render: () => attachmentInstructions(LIBRARY_ROOT),
+        },
+      ]
+    : [],
   tools: [readInputTool(readInput)],
 });

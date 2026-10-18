@@ -10,7 +10,12 @@ import {
   type VmSnapshot,
   type VmStorage,
 } from "./vm-core.ts";
-import { VM_WORKDIR, type VmExecInput, VmFileError } from "./vm-port.ts";
+import {
+  VM_HOME_DIR,
+  VM_WORKDIR,
+  type VmExecInput,
+  VmFileError,
+} from "./vm-port.ts";
 
 const IDLE_MS = 300_000;
 const LABEL = "session-1";
@@ -295,7 +300,7 @@ const lastCall = (
   return call;
 };
 
-const fileError = (code: string, path: string = VM_WORKDIR): Error =>
+const fileError = (code: string, path: string = VM_HOME_DIR): Error =>
   Object.assign(new Error(`${code} from the VM`), {
     code,
     name: "SandboxFileError",
@@ -312,7 +317,7 @@ afterEach(() => {
 });
 
 describe("createVmCore: starting", () => {
-  test("the first call starts the container once, sets the timeout, waits for the probe, makes the workdir and arms the alarm", async () => {
+  test("with no snapshot, the first call starts the container once, sets the timeout, waits for the probe, makes /workspace and then the home folder, and arms the alarm", async () => {
     const env = setup();
     const start = env.clock.now;
 
@@ -323,25 +328,28 @@ describe("createVmCore: starting", () => {
     expect(probesOf(env.container)).toHaveLength(1);
     expect(env.files.mkdirs).toEqual([
       { options: { recursive: true }, path: VM_WORKDIR },
+      { options: { recursive: true }, path: VM_HOME_DIR },
     ]);
     expect(env.alarms.set).toEqual([start + CHECK_MS]);
   });
 
-  test("with a stored snapshot, the first call restores it and does not make the workdir", async () => {
+  test("with a stored snapshot, the first call restores it into the home folder, makes /workspace and does not make the home folder", async () => {
     const env = setup();
-    const snapshot = { dir: VM_WORKDIR, id: "snap-old" };
+    const snapshot = { dir: VM_HOME_DIR, id: "snap-old" };
     await env.storage.set(SNAPSHOT_KEY, snapshot);
 
     await env.core.list(VM_WORKDIR);
 
     expect(env.backups.calls.restore).toEqual([snapshot]);
-    expect(env.files.mkdirs).toEqual([]);
+    expect(env.files.mkdirs).toEqual([
+      { options: { recursive: true }, path: VM_WORKDIR },
+    ]);
   });
 
-  test("a restore that throws drops the stored snapshot, makes the workdir and the call still succeeds", async () => {
+  test("a restore that throws drops the stored snapshot, makes /workspace and then the home folder, and the call still succeeds", async () => {
     quietConsole();
     const env = setup();
-    env.storage.set(SNAPSHOT_KEY, { dir: VM_WORKDIR, id: "snap-bad" });
+    env.storage.set(SNAPSHOT_KEY, { dir: VM_HOME_DIR, id: "snap-bad" });
     env.backups.hooks.restoreError = new Error("snapshot is corrupt");
 
     await expect(env.core.list(VM_WORKDIR)).resolves.toEqual([]);
@@ -349,6 +357,7 @@ describe("createVmCore: starting", () => {
     expect(env.storage.has(SNAPSHOT_KEY)).toBe(false);
     expect(env.files.mkdirs).toEqual([
       { options: { recursive: true }, path: VM_WORKDIR },
+      { options: { recursive: true }, path: VM_HOME_DIR },
     ]);
   });
 
@@ -377,6 +386,7 @@ describe("createVmCore: starting", () => {
 
     expect(env.files.mkdirs).toEqual([
       { options: { recursive: true }, path: VM_WORKDIR },
+      { options: { recursive: true }, path: VM_HOME_DIR },
     ]);
   });
 });
@@ -385,14 +395,14 @@ describe("createVmCore: a restart of the Durable Object", () => {
   test("a container that is running without the prepared mark gets its readiness check, restore and workdir before the call runs", async () => {
     const env = setup();
     env.container.setRunning(true);
-    env.storage.set(SNAPSHOT_KEY, { dir: VM_WORKDIR, id: "snap-1" });
+    env.storage.set(SNAPSHOT_KEY, { dir: VM_HOME_DIR, id: "snap-1" });
 
     await env.core.list(VM_WORKDIR);
 
     expect(env.container.starts).toBe(0);
     expect(probesOf(env.container)).toHaveLength(1);
     expect(env.backups.calls.restore).toEqual([
-      { dir: VM_WORKDIR, id: "snap-1" },
+      { dir: VM_HOME_DIR, id: "snap-1" },
     ]);
     expect(env.storage.get(PREPARED_KEY)).toBe(true);
   });
@@ -440,10 +450,10 @@ describe("createVmCore: the alarm and sleep", () => {
     await env.core.alarm();
 
     expect(env.backups.calls.backup).toEqual([
-      { dir: VM_WORKDIR, name: LABEL },
+      { dir: VM_HOME_DIR, name: LABEL },
     ]);
     expect(env.storage.get(SNAPSHOT_KEY)).toEqual({
-      dir: VM_WORKDIR,
+      dir: VM_HOME_DIR,
       id: "snap-1",
     });
     expect(env.backups.calls.delete).toEqual([]);
@@ -454,17 +464,17 @@ describe("createVmCore: the alarm and sleep", () => {
     await env.core.list(VM_WORKDIR);
     expect(env.container.starts).toBe(2);
     expect(env.backups.calls.restore).toEqual([
-      { dir: VM_WORKDIR, id: "snap-1" },
+      { dir: VM_HOME_DIR, id: "snap-1" },
     ]);
 
     env.clock.now += IDLE_MS;
     await env.core.alarm();
 
     expect(env.backups.calls.delete).toEqual([
-      { dir: VM_WORKDIR, id: "snap-1" },
+      { dir: VM_HOME_DIR, id: "snap-1" },
     ]);
     expect(env.storage.get(SNAPSHOT_KEY)).toEqual({
-      dir: VM_WORKDIR,
+      dir: VM_HOME_DIR,
       id: "snap-2",
     });
   });
@@ -581,7 +591,7 @@ describe("createVmCore: the alarm and sleep", () => {
 });
 
 describe("createVmCore: exec", () => {
-  test("runs the command through timeout(1) with the seconds rounded up, in the workdir, with only a home folder as environment", async () => {
+  test("runs the command through timeout(1) with the seconds rounded up, in the home folder, with only a home folder as environment", async () => {
     const env = setup();
     env.container.answer = (command) =>
       command.at(-1) === "echo hi"
@@ -604,7 +614,7 @@ describe("createVmCore: exec", () => {
       "-c",
       "echo hi",
     ]);
-    expect(call.options?.cwd).toBe(VM_WORKDIR);
+    expect(call.options?.cwd).toBe(VM_HOME_DIR);
     expect(call.options?.signal).toBeInstanceOf(AbortSignal);
     expect(call.options?.env).toEqual({ HOME: "/root" });
     expect(result).toEqual({
@@ -614,6 +624,16 @@ describe("createVmCore: exec", () => {
       timedOut: false,
       truncated: false,
     });
+  });
+
+  test("a command with no cwd runs in the home folder, not the scratch root", async () => {
+    const env = setup();
+
+    await env.core.exec(input("pwd"));
+
+    const call = lastCall(env.container);
+    expect(call.options?.cwd).toBe(VM_HOME_DIR);
+    expect(call.options?.cwd).not.toBe(VM_WORKDIR);
   });
 
   test("passes a given cwd and env, and rounds a sub-second timeout up to one second", async () => {

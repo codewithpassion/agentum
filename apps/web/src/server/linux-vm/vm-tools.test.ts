@@ -21,7 +21,7 @@ import {
   DEFAULT_EXEC_TIMEOUT_MS,
   EXEC_OUTPUT_BYTES,
 } from "./vm-env.ts";
-import { VM_WORKDIR } from "./vm-port.ts";
+import { VM_HOME_DIR, VM_WORKDIR } from "./vm-port.ts";
 import {
   LINUX_VM_TOOLS_EXTENSION,
   linuxVmToolsExtension,
@@ -29,7 +29,7 @@ import {
 } from "./vm-tools.ts";
 
 const NOTE = "notes/a.md";
-const NOTE_PATH = `${VM_WORKDIR}/${NOTE}`;
+const NOTE_PATH = `${VM_HOME_DIR}/${NOTE}`;
 
 const messageText = (content: Message["content"]): string =>
   typeof content === "string"
@@ -75,7 +75,7 @@ const runCalls = async (calls: Call[], vm: FakeVm): Promise<Answer[]> => {
   const harness = await Harness.open(
     new MemoryStorage(),
     {
-      env: () => createVmEnv({ sessionId: "s1", vm }),
+      env: () => createVmEnv({ agentId: "a1", vm }),
       models,
       registry,
     },
@@ -112,10 +112,22 @@ describe("linuxVmToolsExtension", () => {
     ]);
   });
 
-  test("its prompt section says the tools work in /workspace", () => {
+  test("its prompt section says the tools work in the VM, with the home, skills and input folders", () => {
     const [section] = linuxVmToolsExtension().sections ?? [];
     const text = section?.render(undefined as never, BACKGROUND_CONTEXT);
-    expect(text).toContain(VM_WORKDIR);
+    expect(text).toContain("Linux VM");
+    expect(text).toContain(VM_HOME_DIR);
+    expect(text).toContain(`${VM_WORKDIR}/skills`);
+    expect(text).toContain(`${VM_WORKDIR}/input`);
+    expect(text).toContain("Home:");
+    expect(text).toContain("Scratch:");
+  });
+
+  test("its prompt section does not mention /library and names the library tools", () => {
+    const [section] = linuxVmToolsExtension().sections ?? [];
+    const text = section?.render(undefined as never, BACKGROUND_CONTEXT);
+    expect(text).not.toContain("/library");
+    expect(text).toContain("library tools");
   });
 
   test("its prompt section says granted secrets are variables read as $NAME and shown as [secret:NAME]", () => {
@@ -141,7 +153,7 @@ describe("VM_SCRIPT_TEXTS", () => {
 });
 
 describe("Pi's file and shell tools in the Linux VM through a real harness", () => {
-  test("write creates a file in the VM under /workspace", async () => {
+  test("write creates a file in the VM under the home folder", async () => {
     const vm = createFakeVm();
     await runCalls(
       [{ args: { content: "# Notes\n", path: NOTE }, tool: "write" }],
@@ -185,7 +197,7 @@ describe("Pi's file and shell tools in the Linux VM through a real harness", () 
     expect(textOf(vm.files.get(NOTE_PATH))).toBe("gamma beta\n");
   });
 
-  test("bash answers with the command output and runs in /workspace with no variables of ours", async () => {
+  test("bash answers with the command output and runs in the home folder with no variables of ours", async () => {
     const vm = createFakeVm();
     vm.onExec = () => ({
       exitCode: 0,
@@ -206,7 +218,7 @@ describe("Pi's file and shell tools in the Linux VM through a real harness", () 
     expect(answers[0]?.text).toContain("hello");
     const [timed, untimed] = vm.execCalls;
     expect(timed?.command).toBe("echo hello");
-    expect(timed?.cwd).toBe(VM_WORKDIR);
+    expect(timed?.cwd).toBe(VM_HOME_DIR);
     expect(timed?.env ?? {}).toEqual({});
     expect(timed?.maxOutputBytes).toBe(EXEC_OUTPUT_BYTES);
     expect(timed?.timeoutMs).toBe(5000);

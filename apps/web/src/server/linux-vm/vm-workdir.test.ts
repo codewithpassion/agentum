@@ -33,6 +33,15 @@ const shout: SkillSummary = {
   name: "shout",
 };
 
+/** A promise that stays pending until `open` is called. */
+const gateOf = (): { gate: Promise<void>; open: () => void } => {
+  let resolveGate: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    resolveGate = () => resolve();
+  });
+  return { gate, open: () => resolveGate() };
+};
+
 const shoutContents = (): Map<string, string> =>
   new Map([
     ["shout/SKILL.md", "---\nname: shout\n---\nShout things."],
@@ -43,7 +52,7 @@ const shoutContents = (): Map<string, string> =>
 describe("placeSkills", () => {
   test("writes SKILL.md and nested skill files at their paths with their bytes", async () => {
     const vm = createFakeVm();
-    await placeSkills(vm, [shout], portOf(shoutContents()));
+    await placeSkills(vm, [shout], portOf(shoutContents()), "run-1");
 
     expect(textOf(vm.files.get(`${SKILLS}/shout/SKILL.md`))).toBe(
       "---\nname: shout\n---\nShout things."
@@ -56,13 +65,23 @@ describe("placeSkills", () => {
     expect(vm.folders.has(`${SKILLS}/shout/notes`)).toBe(true);
   });
 
+  test("leaves no staging folder or file behind", async () => {
+    const vm = createFakeVm();
+    await placeSkills(vm, [shout], portOf(shoutContents()), "run-1");
+
+    const leftovers = [...vm.folders, ...vm.files.keys()].filter((path) =>
+      path.startsWith("/workspace/skills.run-1")
+    );
+    expect(leftovers).toEqual([]);
+  });
+
   test("removes the folder of a skill that is no longer listed", async () => {
     const vm = createFakeVm();
     vm.folders.add(SKILLS);
     vm.folders.add(`${SKILLS}/old`);
     vm.files.set(`${SKILLS}/old/SKILL.md`, bytesOf("old"));
 
-    await placeSkills(vm, [shout], portOf(shoutContents()));
+    await placeSkills(vm, [shout], portOf(shoutContents()), "run-1");
 
     expect(vm.files.has(`${SKILLS}/old/SKILL.md`)).toBe(false);
     expect(vm.folders.has(`${SKILLS}/old`)).toBe(false);
@@ -73,13 +92,121 @@ describe("placeSkills", () => {
     const vm = createFakeVm();
     const port = portOf(shoutContents(), ["shout/scripts/hello.ts"]);
 
-    await expect(placeSkills(vm, [shout], port)).rejects.toThrow(
+    await expect(placeSkills(vm, [shout], port, "run-1")).rejects.toThrow(
       "shout/scripts/hello.ts"
     );
 
     expect(vm.files.has(`${SKILLS}/shout/SKILL.md`)).toBe(true);
     expect(vm.files.has(`${SKILLS}/shout/notes/a.md`)).toBe(true);
     expect(vm.files.has(`${SKILLS}/shout/scripts/hello.ts`)).toBe(false);
+    expect(vm.folders.has("/workspace/skills.run-1")).toBe(false);
+  });
+
+  test("skills placed while a second run reads them", async () => {
+    const vm = createFakeVm();
+    await placeSkills(vm, [shout], portOf(shoutContents()), "run-a");
+
+    const { gate, open: release } = gateOf();
+    const runB = new Map([
+      ["shout/SKILL.md", "B skill"],
+      ["shout/scripts/hello.ts", "B script"],
+      ["shout/notes/a.md", "B note"],
+    ]);
+    const gatedPort: SkillsPort = {
+      list: () => Promise.resolve([]),
+      read: async (path) => {
+        await gate;
+        return bytesOf(runB.get(path) ?? "");
+      },
+    };
+    const placing = placeSkills(vm, [shout], gatedPort, "run-b");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(vm.folders.has("/workspace/skills.run-b")).toBe(true);
+    expect(textOf(await vm.readFile(`${SKILLS}/shout/SKILL.md`))).toBe(
+      "---\nname: shout\n---\nShout things."
+    );
+    expect(textOf(await vm.readFile(`${SKILLS}/shout/scripts/hello.ts`))).toBe(
+      "console.log('hi');"
+    );
+    expect(textOf(await vm.readFile(`${SKILLS}/shout/notes/a.md`))).toBe(
+      "a note"
+    );
+
+    release();
+    await placing;
+
+    expect(textOf(vm.files.get(`${SKILLS}/shout/SKILL.md`))).toBe("B skill");
+    expect(textOf(vm.files.get(`${SKILLS}/shout/scripts/hello.ts`))).toBe(
+      "B script"
+    );
+    expect(textOf(vm.files.get(`${SKILLS}/shout/notes/a.md`))).toBe("B note");
+    expect(vm.folders.has("/workspace/skills.run-b")).toBe(false);
+  });
+
+  test("two run ids stage in two different folders", async () => {
+    const vm = createFakeVm();
+    const { gate: firstGate, open: releaseFirst } = gateOf();
+    const gatedPort = (gate: Promise<void>): SkillsPort => ({
+      list: () => Promise.resolve([]),
+      read: async (path) => {
+        await gate;
+        return bytesOf(path);
+      },
+    });
+    const first = placeSkills(vm, [shout], gatedPort(firstGate), "run-1");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(vm.folders.has("/workspace/skills.run-1")).toBe(true);
+    expect(vm.folders.has("/workspace/skills.run-2")).toBe(false);
+
+    releaseFirst();
+    await first;
+    await placeSkills(vm, [shout], portOf(shoutContents()), "run-2");
+
+    expect(vm.folders.has("/workspace/skills.run-1")).toBe(false);
+    expect(vm.folders.has("/workspace/skills.run-2")).toBe(false);
+    expect(textOf(vm.files.get(`${SKILLS}/shout/SKILL.md`))).toBe(
+      "---\nname: shout\n---\nShout things."
+    );
+  });
+
+  test("keeps the old skills and removes the staging folder when a write fails", async () => {
+    const vm = createFakeVm();
+    vm.folders.add(SKILLS);
+    vm.files.set(`${SKILLS}/shout/SKILL.md`, bytesOf("old skill"));
+    const { writeFile } = vm;
+    vm.writeFile = (path, bytes) =>
+      path.startsWith("/workspace/skills.run-1/shout/notes")
+        ? Promise.reject(new Error("disk full"))
+        : writeFile(path, bytes);
+
+    await expect(
+      placeSkills(vm, [shout], portOf(shoutContents()), "run-1")
+    ).rejects.toThrow("disk full");
+
+    expect(vm.folders.has("/workspace/skills.run-1")).toBe(false);
+    expect(textOf(vm.files.get(`${SKILLS}/shout/SKILL.md`))).toBe("old skill");
+  });
+
+  test("tries the swap again when another run's skills folder lands in between", async () => {
+    const vm = createFakeVm();
+    const { rename } = vm;
+    let landed = false;
+    vm.rename = (from, to) => {
+      if (!landed) {
+        landed = true;
+        vm.folders.add(SKILLS);
+        vm.files.set(`${SKILLS}/other/SKILL.md`, bytesOf("other run"));
+      }
+      return rename(from, to);
+    };
+
+    await placeSkills(vm, [shout], portOf(shoutContents()), "run-1");
+
+    expect(vm.files.has(`${SKILLS}/shout/SKILL.md`)).toBe(true);
+    expect(vm.files.has(`${SKILLS}/other/SKILL.md`)).toBe(false);
+    expect(vm.folders.has("/workspace/skills.run-1")).toBe(false);
   });
 
   test("sets the executable flag on flagged files in one command", async () => {
@@ -87,11 +214,16 @@ describe("placeSkills", () => {
     const flagged = ["shout/scripts/hello.ts", "shout/SKILL.md"];
     const executable: SkillSummary = { ...shout, executable: flagged };
 
-    await placeSkills(vm, [executable], portOf(shoutContents(), [], flagged));
+    await placeSkills(
+      vm,
+      [executable],
+      portOf(shoutContents(), [], flagged),
+      "run-1"
+    );
 
     expect(vm.execCalls).toEqual([
       {
-        command: `chmod +x -- '${SKILLS}/shout/scripts/hello.ts' '${SKILLS}/shout/SKILL.md'`,
+        command: `chmod +x -- '/workspace/skills.run-1/shout/scripts/hello.ts' '/workspace/skills.run-1/shout/SKILL.md'`,
         cwd: "/workspace",
         maxOutputBytes: 4096,
         timeoutMs: 30_000,
@@ -112,17 +244,22 @@ describe("placeSkills", () => {
       name: "odd",
     };
 
-    await placeSkills(vm, [odd], portOf(contents, [], ["odd/it's.sh"]));
+    await placeSkills(
+      vm,
+      [odd],
+      portOf(contents, [], ["odd/it's.sh"]),
+      "run-1"
+    );
 
     expect(vm.execCalls[0]?.command).toBe(
-      `chmod +x -- '${SKILLS}/odd/it'\\''s.sh'`
+      `chmod +x -- '/workspace/skills.run-1/odd/it'\\''s.sh'`
     );
   });
 
   test("runs no command when no file is flagged", async () => {
     const vm = createFakeVm();
 
-    await placeSkills(vm, [shout], portOf(shoutContents()));
+    await placeSkills(vm, [shout], portOf(shoutContents()), "run-1");
 
     expect(vm.execCalls).toEqual([]);
   });
@@ -142,11 +279,14 @@ describe("placeSkills", () => {
       placeSkills(
         vm,
         [{ ...shout, executable: flagged }],
-        portOf(shoutContents(), [], flagged)
+        portOf(shoutContents(), [], flagged),
+        "run-1"
       )
     ).rejects.toThrow(
       "Could not set the executable flag on skill files: chmod: cannot access 'x': No such file or directory"
     );
+    expect(vm.folders.has("/workspace/skills.run-1")).toBe(false);
+    expect(vm.files.has(`${SKILLS}/shout/SKILL.md`)).toBe(false);
   });
 
   test("throws when the chmod times out", async () => {
@@ -164,7 +304,8 @@ describe("placeSkills", () => {
       placeSkills(
         vm,
         [{ ...shout, executable: flagged }],
-        portOf(shoutContents(), [], flagged)
+        portOf(shoutContents(), [], flagged),
+        "run-1"
       )
     ).rejects.toThrow("Could not set the executable flag on skill files");
   });
@@ -172,7 +313,7 @@ describe("placeSkills", () => {
   test("creates the skills folder when there are no skills", async () => {
     const vm = createFakeVm();
 
-    await placeSkills(vm, [], portOf(new Map()));
+    await placeSkills(vm, [], portOf(new Map()), "run-1");
 
     expect(vm.folders.has(SKILLS)).toBe(true);
     expect(vm.files.size).toBe(0);

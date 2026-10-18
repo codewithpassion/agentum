@@ -1,15 +1,16 @@
-// The logic of one session's Linux VM, kept free of `cloudflare:workers` and of
+// The logic of one agent's Linux VM, kept free of `cloudflare:workers` and of
 // the Sandbox SDK so bun can test it with a fake container. `vm-session.ts`
-// wraps it in the Durable Object.
+// wraps it in the Durable Object. The VM is named by agent.
 //
-// The container starts on the first call and gets the session's /workspace back
-// from its last snapshot. Every call counts as activity. An alarm looks every
-// CHECK_MS: once the VM has been idle for `idleMs` it snapshots /workspace to
-// R2 and destroys the container, and the next call starts it again. A command
-// runs with no environment of ours and under a wall-time cap, and its output is
-// read up to a cap.
+// The container starts on the first call and gets the agent's home folder
+// (/workspace/home) back from its last snapshot. Every call counts as activity.
+// An alarm looks every CHECK_MS: once the VM has been idle for `idleMs` it
+// snapshots the home folder to R2 and destroys the container, and the next call
+// starts it again. A command runs with no environment of ours and under a
+// wall-time cap, and its output is read up to a cap.
 import {
   type LinuxVm,
+  VM_HOME_DIR,
   VM_WORKDIR,
   type VmEgress,
   type VmEgressRun,
@@ -298,8 +299,9 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     throw new Error(`The Linux VM did not start: ${last}`);
   };
 
-  /** Puts the last snapshot back, or makes an empty workdir. A snapshot that cannot be restored must not stop the session. */
+  /** Makes /workspace, then puts the last snapshot back into the home folder, or makes an empty one. A snapshot that cannot be restored must not stop the agent. */
   const prepareWorkdir = async (): Promise<void> => {
+    await files.mkdir(VM_WORKDIR, { recursive: true });
     const snapshot = await storage.get<TSnapshot>(SNAPSHOT_KEY);
     if (snapshot) {
       try {
@@ -312,7 +314,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
         await storage.delete(SNAPSHOT_KEY);
       }
     }
-    await files.mkdir(VM_WORKDIR, { recursive: true });
+    await files.mkdir(VM_HOME_DIR, { recursive: true });
   };
 
   /** Trusts the platform's CA in the container. A failure means HTTPS to the intercepted hosts cannot verify. */
@@ -422,7 +424,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
             input.command,
           ],
           {
-            cwd: input.cwd ?? VM_WORKDIR,
+            cwd: input.cwd ?? VM_HOME_DIR,
             env: {
               HOME: VM_HOME,
               ...(trusted ? { NODE_EXTRA_CA_CERTS: CA_PATH } : {}),
@@ -510,10 +512,10 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
       await applyEgress(egress);
     });
 
-  /** Saves /workspace and replaces the snapshot before it. Returns false when the save failed and the VM should stay up. */
+  /** Saves the home folder and replaces the snapshot before it. Returns false when the save failed and the VM should stay up. */
   const snapshot = async (): Promise<boolean> => {
     try {
-      const saved = await backups.backup({ dir: VM_WORKDIR, name: label });
+      const saved = await backups.backup({ dir: VM_HOME_DIR, name: label });
       const previous = await storage.get<TSnapshot>(SNAPSHOT_KEY);
       await storage.put(SNAPSHOT_KEY, saved);
       if (previous) {
@@ -528,9 +530,9 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
       if (
         isSandboxFileError(error) &&
         error.code === "ENOENT" &&
-        error.path === VM_WORKDIR
+        error.path === VM_HOME_DIR
       ) {
-        // No workdir, so nothing was ever put in the VM.
+        // No home folder, so nothing was ever put in the VM.
         return true;
       }
       snapshotFailures += 1;
@@ -541,7 +543,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     }
   };
 
-  /** Snapshots /workspace and destroys the container. A VM with a call in flight is left alone. */
+  /** Snapshots the home folder and destroys the container. A VM with a call in flight is left alone. */
   const sleepNow = (): Promise<boolean> =>
     inTurn(async () => {
       if (!container.running) {

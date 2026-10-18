@@ -1,6 +1,6 @@
 import type { PiInput } from "../pi-run-files.ts";
 import type { SkillSummary, SkillsPort } from "../pi-run-skills.ts";
-import { type LinuxVm, VM_WORKDIR } from "./vm-port.ts";
+import { type LinuxVm, VM_WORKDIR, VmFileError } from "./vm-port.ts";
 
 const SKILLS_DIR = `${VM_WORKDIR}/skills`;
 const INPUT_DIR = `${VM_WORKDIR}/input`;
@@ -8,6 +8,8 @@ const SKILL_FILE = "SKILL.md";
 const FALLBACK_NAME = "file";
 const CHMOD_TIMEOUT_MS = 30_000;
 const CHMOD_OUTPUT_BYTES = 4096;
+/** Tries to put a staged skills folder in place when another run's folder lands in the same moment. */
+const SWAP_ATTEMPTS = 3;
 
 export interface InputFile {
   bytes: Uint8Array;
@@ -16,10 +18,11 @@ export interface InputFile {
 
 const parentOf = (path: string): string => path.slice(0, path.lastIndexOf("/"));
 
-/** Writes one skill file. Returns its path when the port cannot read it. */
+/** Writes one skill file under `folder`. Returns its path when the port cannot read it. */
 const placeSkillFile = async (
   vm: LinuxVm,
   port: SkillsPort,
+  folder: string,
   path: string
 ): Promise<string | undefined> => {
   let bytes: Uint8Array;
@@ -28,20 +31,21 @@ const placeSkillFile = async (
   } catch {
     return path;
   }
-  const target = `${SKILLS_DIR}/${path}`;
+  const target = `${folder}/${path}`;
   await vm.mkdir(parentOf(target), { recursive: true });
   await vm.writeFile(target, bytes);
 };
 
-/** Writes a skill's SKILL.md and other files. Returns the paths that could not be read. */
+/** Writes a skill's SKILL.md and other files under `folder`. Returns the paths that could not be read. */
 const placeSkill = async (
   vm: LinuxVm,
   port: SkillsPort,
+  folder: string,
   skill: SkillSummary
 ): Promise<string[]> => {
   const paths = [`${skill.name}/${SKILL_FILE}`, ...skill.files];
   const results = await Promise.all(
-    paths.map((path) => placeSkillFile(vm, port, path))
+    paths.map((path) => placeSkillFile(vm, port, folder, path))
   );
   return results.filter((path): path is string => path !== undefined);
 };
@@ -49,13 +53,14 @@ const placeSkill = async (
 const shellQuote = (text: string): string =>
   `'${text.replaceAll("'", "'\\''")}'`;
 
-/** Sets the executable flag on the placed files in one command. */
+/** Sets the executable flag on the placed files under `folder` in one command. */
 const markExecutable = async (
   vm: LinuxVm,
+  folder: string,
   paths: readonly string[]
 ): Promise<void> => {
   const targets = paths
-    .map((path) => shellQuote(`${SKILLS_DIR}/${path}`))
+    .map((path) => shellQuote(`${folder}/${path}`))
     .join(" ");
   const result = await vm.exec({
     command: `chmod +x -- ${targets}`,
@@ -71,29 +76,69 @@ const markExecutable = async (
 };
 
 /**
- * Puts the run's skills in `${VM_WORKDIR}/skills`. The old folder goes first,
- * so a skill that was deleted does not stay in the VM. Files that cannot be
- * read are skipped, and an error naming them is thrown after the rest are placed.
- * Files flagged as executable then get the executable flag, in one command.
+ * Replaces the skills folder with `staging`. A rename onto a folder that is not
+ * empty fails, so the old folder is removed first. A run that swaps in the
+ * same moment can fill it again between the two calls, so that case tries again.
+ */
+const swapIn = async (vm: LinuxVm, staging: string): Promise<void> => {
+  for (let attempt = 1; ; attempt += 1) {
+    // biome-ignore lint/performance/noAwaitInLoops: each attempt follows the failure of the one before
+    await vm.remove(SKILLS_DIR, { force: true, recursive: true });
+    try {
+      await vm.rename(staging, SKILLS_DIR);
+      return;
+    } catch (error) {
+      const taken =
+        error instanceof VmFileError &&
+        (error.code === "ENOTEMPTY" || error.code === "EEXIST");
+      if (!taken || attempt >= SWAP_ATTEMPTS) {
+        throw error;
+      }
+    }
+  }
+};
+
+/**
+ * Puts the run's skills in `${VM_WORKDIR}/skills`. The files are first written
+ * to a staging folder named for the run, `${VM_WORKDIR}/skills.${runId}`, and
+ * that folder then replaces the skills folder in one rename. The VM is shared
+ * by every session of an agent, so a run must not empty the folder that another
+ * run's call is reading. The staging folder is what changes, and the swap
+ * takes the old folder away, so a skill that was deleted does not stay.
+ * Files that cannot be read are skipped. The folder is still put in place, and
+ * then an error naming them is thrown. Files flagged as executable get the
+ * executable flag in one command before the swap. If anything fails before
+ * the swap, the staging folder is removed and the old skills folder stays.
  */
 export const placeSkills = async (
   vm: LinuxVm,
   skills: readonly SkillSummary[],
-  port: SkillsPort
+  port: SkillsPort,
+  runId: string
 ): Promise<void> => {
-  await vm.remove(SKILLS_DIR, { force: true, recursive: true });
-  await vm.mkdir(SKILLS_DIR, { recursive: true });
-  const skipped = (
-    await Promise.all(skills.map((skill) => placeSkill(vm, port, skill)))
-  ).flat();
+  const staging = `${VM_WORKDIR}/skills.${runId}`;
+  let skipped: string[];
+  try {
+    await vm.remove(staging, { force: true, recursive: true });
+    await vm.mkdir(staging, { recursive: true });
+    skipped = (
+      await Promise.all(
+        skills.map((skill) => placeSkill(vm, port, staging, skill))
+      )
+    ).flat();
+    const executable = skills.flatMap((skill) => skill.executable ?? []);
+    if (skipped.length === 0 && executable.length > 0) {
+      await markExecutable(vm, staging, executable);
+    }
+    await swapIn(vm, staging);
+  } catch (error) {
+    await vm.remove(staging, { force: true, recursive: true });
+    throw error;
+  }
   if (skipped.length > 0) {
     throw new Error(
       `Could not read skill files, so they were not placed: ${skipped.join(", ")}`
     );
-  }
-  const executable = skills.flatMap((skill) => skill.executable ?? []);
-  if (executable.length > 0) {
-    await markExecutable(vm, executable);
   }
 };
 

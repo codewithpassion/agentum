@@ -379,6 +379,30 @@ describe("filesExtension", () => {
   });
 });
 
+describe("filesExtension without instructions", () => {
+  const extension = filesExtension(
+    async () => ({ bytes: TEXT_BYTES, mime: "text/plain", name: "x.txt" }),
+    false
+  );
+
+  test("keeps the extension name and has no prompt section", () => {
+    expect(extension.name).toBe(FILES_EXTENSION);
+    expect(extension.sections).toEqual([]);
+  });
+
+  test("still offers read_input_file", async () => {
+    expect(
+      await runReadTool(
+        async () => ({ bytes: TEXT_BYTES, mime: "text/plain", name: "n.txt" }),
+        "f"
+      )
+    ).toEqual({
+      isError: false,
+      output: [{ text: "hello from the file", type: "text" }],
+    });
+  });
+});
+
 describe("read_input_file through a real harness", () => {
   const textOf = (content: Message["content"] | undefined): string => {
     if (content === undefined) {

@@ -1,15 +1,17 @@
 /**
- * The Linux VM of one session, as the cloud runner sees it. The Sandbox SDK
+ * The Linux VM of one agent, as the cloud runner sees it. The Sandbox SDK
  * container sits behind this port, so the file tools, the skill scripts and the
  * placement of files are tested against a fake (`fake-vm.ts`).
  *
- * The VM starts on its first call and restores the session's workdir from its
- * last snapshot. When it has been idle for a while it snapshots the workdir
- * and goes to sleep, and the next call starts it again.
+ * The VM starts on its first call and restores the agent's home folder from its
+ * last snapshot. When it has been idle for a while it snapshots the home
+ * folder and goes to sleep, and the next call starts it again.
  */
 
-/** Where the session's files live in the VM. It is the directory that is snapshotted. */
+/** The VM's scratch root: skills and input files go here, and they are gone once the VM sleeps. */
 export const VM_WORKDIR = "/workspace";
+/** The agent's home in the VM, and the default working folder. It is the only directory that is snapshotted. */
+export const VM_HOME_DIR = `${VM_WORKDIR}/home`;
 
 export interface VmExecInput {
   command: string;
