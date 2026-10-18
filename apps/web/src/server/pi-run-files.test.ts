@@ -19,12 +19,14 @@ import {
   type ToolExecutionApi,
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
+import { createFakeVm } from "./linux-vm/fake-vm.ts";
 import {
   FILES_EXTENSION,
   filesExtension,
   inputContent,
   type RunFilesPort,
   uploadOutputs,
+  uploadVmOutputs,
 } from "./pi-run-files.ts";
 
 interface Entry {
@@ -484,5 +486,144 @@ describe("uploadOutputs count", () => {
     );
     expect(result.fileIds).toHaveLength(100);
     expect(result.text).toBe("[attachment refused: f100.txt]");
+  });
+});
+
+describe("uploadVmOutputs", () => {
+  const HOME = "/workspace/home";
+  const SCRATCH = "/tmp";
+
+  /** A fake VM with the given files, and /tmp present. */
+  const vmWith = (files: Record<string, Uint8Array>) => {
+    const vm = createFakeVm();
+    vm.folders.add(SCRATCH);
+    for (const [path, bytes] of Object.entries(files)) {
+      vm.files.set(path, bytes);
+    }
+    return vm;
+  };
+
+  test("a home file is read by absolute path and by relative path", async () => {
+    const vm = vmWith({ [`${HOME}/report.txt`]: TEXT_BYTES });
+    const port = fakePort();
+    expect(
+      await uploadVmOutputs(
+        "[ATTACHMENT:/workspace/home/report.txt] [ATTACHMENT:report.txt] [ATTACHMENT:./report.txt]",
+        vm,
+        port
+      )
+    ).toEqual({ fileIds: ["up-1", "up-2", "up-3"], text: "" });
+    expect(port.uploads).toEqual([
+      { bytes: TEXT_BYTES, mime: "text/plain", name: "report.txt" },
+      { bytes: TEXT_BYTES, mime: "text/plain", name: "report.txt" },
+      { bytes: TEXT_BYTES, mime: "text/plain", name: "report.txt" },
+    ]);
+  });
+
+  test("a scratch file in /tmp is uploaded as image/png", async () => {
+    const vm = vmWith({ [`${SCRATCH}/out.png`]: PNG });
+    const port = fakePort();
+    expect(
+      await uploadVmOutputs("Chart: [ATTACHMENT:/tmp/out.png]", vm, port)
+    ).toEqual({ fileIds: ["up-1"], text: "Chart:" });
+    expect(port.uploads).toEqual([
+      { bytes: PNG, mime: "image/png", name: "out.png" },
+    ]);
+  });
+
+  test("paths outside the allowed roots and parent segments are refused, and nothing is uploaded", async () => {
+    const vm = vmWith({
+      "/etc/passwd": TEXT_BYTES,
+      "/library/b.txt": TEXT_BYTES,
+      "/workspace/../etc/shadow": TEXT_BYTES,
+      "/workspace/up.txt": TEXT_BYTES,
+      "/workspacex/a.txt": TEXT_BYTES,
+    });
+    const port = fakePort();
+    expect(
+      await uploadVmOutputs(
+        "Result: [ATTACHMENT:/etc/passwd] [ATTACHMENT:/workspacex/a.txt] [ATTACHMENT:/library/b.txt] [ATTACHMENT:/workspace/../etc/shadow] [ATTACHMENT:../up.txt]",
+        vm,
+        port
+      )
+    ).toEqual({
+      fileIds: [],
+      text: [
+        "Result:",
+        "[attachment refused: passwd]",
+        "[attachment refused: a.txt]",
+        "[attachment refused: b.txt]",
+        "[attachment refused: shadow]",
+        "[attachment refused: up.txt]",
+      ].join("\n"),
+    });
+    expect(port.uploads).toEqual([]);
+  });
+
+  test("a missing file gives a missing note", async () => {
+    const port = fakePort();
+    expect(
+      await uploadVmOutputs(
+        "See [ATTACHMENT:nothere.txt]",
+        createFakeVm(),
+        port
+      )
+    ).toEqual({
+      fileIds: [],
+      text: "See\n[attachment missing: nothere.txt]",
+    });
+  });
+
+  test("a folder marker gives a missing note", async () => {
+    const vm = vmWith({});
+    vm.folders.add(`${HOME}/notes`);
+    const port = fakePort();
+    expect(await uploadVmOutputs("[ATTACHMENT:notes]", vm, port)).toEqual({
+      fileIds: [],
+      text: "[attachment missing: notes]",
+    });
+    expect(port.uploads).toEqual([]);
+  });
+
+  test("a file over 50 MB is refused", async () => {
+    const vm = vmWith({ [`${SCRATCH}/big.bin`]: new Uint8Array(50 * MB + 1) });
+    const port = fakePort();
+    expect(
+      await uploadVmOutputs("[ATTACHMENT:/tmp/big.bin]", vm, port)
+    ).toEqual({ fileIds: [], text: "[attachment refused: big.bin]" });
+    expect(port.uploads).toEqual([]);
+  });
+
+  test("text without markers comes back untouched", async () => {
+    const port = fakePort();
+    expect(await uploadVmOutputs("plain answer", createFakeVm(), port)).toEqual(
+      { fileIds: [], text: "plain answer" }
+    );
+    expect(port.uploads).toEqual([]);
+  });
+
+  test("one bad marker does not stop a good one, and ids keep marker order", async () => {
+    const vm = vmWith({
+      [`${SCRATCH}/out.png`]: PNG,
+      [`${HOME}/report.txt`]: TEXT_BYTES,
+    });
+    const port = fakePort();
+    expect(
+      await uploadVmOutputs(
+        "[ATTACHMENT:missing.txt] [ATTACHMENT:/tmp/out.png] [ATTACHMENT:/etc/passwd] [ATTACHMENT:report.txt]",
+        vm,
+        port
+      )
+    ).toEqual({
+      fileIds: ["up-1", "up-2"],
+      text: [
+        "[attachment missing: missing.txt]",
+        "[attachment refused: passwd]",
+      ].join("\n"),
+    });
+    expect(port.uploads.map((file) => file.name)).toEqual([
+      "out.png",
+      "report.txt",
+    ]);
   });
 });

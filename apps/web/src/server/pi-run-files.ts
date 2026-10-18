@@ -1,9 +1,11 @@
-// A cloud run's files. There is no file system in a cloud agent: its files are
-// in the workspace library, mounted at `/library` in its `bash` tool, and its
-// file tools start in the agent's own folder there.
+// A cloud run's files. An isolate agent has no file system: its files are in
+// the workspace library, mounted at `/library` in its `bash` tool, and its file
+// tools start in the agent's own folder there. An agent with a Linux VM works in
+// the VM, and its files are read from there.
 // Input files reach the model before the first turn, as image blocks or as a
 // list it reads with `read_input_file`. After a run, the `[ATTACHMENT:path]`
-// markers in the answer are uploaded from the library and replaced by file ids.
+// markers in the answer are uploaded from the library, or from the VM, and
+// replaced by file ids.
 // Mirrors apps/daemon/src/run-files.ts where the two runtimes share a rule.
 
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
@@ -11,6 +13,12 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type Extension } from "@earendil-works/pi-durable";
 import { MAX_FILE_BYTES } from "@repo/db/shared";
 import { extractAttachmentMarkers } from "@repo/protocol/attachments";
+import {
+  type LinuxVm,
+  VM_HOME_DIR,
+  VM_WORKDIR,
+  VmFileError,
+} from "./linux-vm/vm-port.ts";
 
 export const FILES_EXTENSION = "hm-files";
 const LIBRARY_ROOT = "/library";
@@ -19,6 +27,9 @@ const LIBRARY_PREFIX = `${LIBRARY_ROOT}/`;
 const DOT_SLASH = "./";
 const PARENT_SEGMENT = "..";
 const ABSOLUTE_PREFIX = "/";
+const VM_SCRATCH_ROOT = "/tmp";
+const VM_ROOT_PREFIXES = [`${VM_WORKDIR}/`, `${VM_SCRATCH_ROOT}/`];
+const NOT_A_FILE_CODES = new Set(["ENOENT", "EISDIR", "ENOTDIR"]);
 const MIME_SEPARATOR = ";";
 const EXTENSION_SEPARATOR = ".";
 // A Durable Object stores a message in one SQLite row of at most 2 MB, and the images go in it as base64 (a third larger). Anthropic refuses an image over 5 MB too.
@@ -230,23 +241,29 @@ const libraryRelative = (marker: string, home?: string): string | null => {
 
 type SendOutcome = { id: string } | { note: string };
 
-/** Reads one marked library file and uploads it. A failure becomes a note in the answer. */
+/** What a reader found for a marker: the file's bytes, null when there is no such file, or a refusal. */
+type Found = { bytes: Uint8Array | null } | { refused: true };
+
+/** Reads the file that one marker names, from the library or from the VM. Throws on other failures. */
+type MarkerReader = (marker: string) => Promise<Found>;
+
+/** Reads one marked file and uploads it. A failure becomes a note in the answer. */
 const sendMarker = async (
   port: RunFilesPort,
-  marker: string,
-  home?: string
+  read: MarkerReader,
+  marker: string
 ): Promise<SendOutcome> => {
   const name = lastSegment(marker);
-  const relative = libraryRelative(marker, home);
-  if (relative === null) {
-    return { note: `[attachment refused: ${name}]` };
-  }
-  let bytes: Uint8Array | null;
+  let found: Found;
   try {
-    bytes = await port.readLibrary(relative);
+    found = await read(marker);
   } catch {
     return { note: `[attachment failed: ${name}]` };
   }
+  if ("refused" in found) {
+    return { note: `[attachment refused: ${name}]` };
+  }
+  const { bytes } = found;
   if (bytes === null) {
     return { note: `[attachment missing: ${name}]` };
   }
@@ -261,17 +278,67 @@ const sendMarker = async (
   }
 };
 
+/** A marker's file in the library. A relative marker is read from `home` when one is given. */
+const libraryReader =
+  (port: RunFilesPort, home?: string): MarkerReader =>
+  async (marker) => {
+    const relative = libraryRelative(marker, home);
+    return relative === null
+      ? { refused: true }
+      : { bytes: await port.readLibrary(relative) };
+  };
+
 /**
- * Uploads the files that the answer's `[ATTACHMENT:path]` markers name and
- * returns their ids, in marker order, with the markers removed. A marker that
- * is refused, missing or failing leaves a note in the text and no id. One bad
- * file never stops the others. A relative marker is read from `home`, a
- * library-relative folder, when one is given.
+ * The absolute VM path a marker names, or null when it names something outside
+ * `/workspace` and `/tmp`. A relative marker is relative to the VM home, where
+ * the file tools start.
  */
-export const uploadOutputs = async (
+const vmPathOf = (marker: string): string | null => {
+  let path = marker;
+  if (!marker.startsWith(ABSOLUTE_PREFIX)) {
+    path = `${VM_HOME_DIR}/${marker.startsWith(DOT_SLASH) ? marker.slice(DOT_SLASH.length) : marker}`;
+  }
+  if (
+    path.split("/").includes(PARENT_SEGMENT) ||
+    !VM_ROOT_PREFIXES.some((prefix) => path.startsWith(prefix))
+  ) {
+    return null;
+  }
+  return path;
+};
+
+/**
+ * A marker's file in the VM. The size is checked before the read, so a huge
+ * file is never pulled into memory. A path that is not a file counts as missing.
+ */
+const vmReader =
+  (vm: Pick<LinuxVm, "readFile" | "stat">): MarkerReader =>
+  async (marker) => {
+    const path = vmPathOf(marker);
+    if (path === null) {
+      return { refused: true };
+    }
+    try {
+      const info = await vm.stat(path);
+      if (info.kind !== "file") {
+        return { bytes: null };
+      }
+      if (info.size > MAX_FILE_BYTES) {
+        return { refused: true };
+      }
+      return { bytes: await vm.readFile(path) };
+    } catch (error) {
+      if (error instanceof VmFileError && NOT_A_FILE_CODES.has(error.code)) {
+        return { bytes: null };
+      }
+      throw error;
+    }
+  };
+
+const uploadMarked = async (
   text: string,
   port: RunFilesPort,
-  home?: string
+  read: MarkerReader
 ): Promise<{ fileIds: string[]; text: string }> => {
   const extracted = extractAttachmentMarkers(text);
   if (extracted.paths.length === 0) {
@@ -286,7 +353,7 @@ export const uploadOutputs = async (
       continue;
     }
     // biome-ignore lint/performance/noAwaitInLoops: uploads go one at a time, in the order the answer names them.
-    const outcome = await sendMarker(port, marker, home);
+    const outcome = await sendMarker(port, read, marker);
     if ("id" in outcome) {
       fileIds.push(outcome.id);
     } else {
@@ -295,6 +362,32 @@ export const uploadOutputs = async (
   }
   return { fileIds, text: [extracted.text, ...notes].join("\n").trim() };
 };
+
+/**
+ * Uploads the files that the answer's `[ATTACHMENT:path]` markers name and
+ * returns their ids, in marker order, with the markers removed. A marker that
+ * is refused, missing or failing leaves a note in the text and no id. One bad
+ * file never stops the others. A relative marker is read from `home`, a
+ * library-relative folder, when one is given.
+ */
+export const uploadOutputs = (
+  text: string,
+  port: RunFilesPort,
+  home?: string
+): Promise<{ fileIds: string[]; text: string }> =>
+  uploadMarked(text, port, libraryReader(port, home));
+
+/**
+ * `uploadOutputs` for a run in a Linux VM: the markers are read from the VM.
+ * A relative marker starts in the VM home. Paths outside `/workspace` and
+ * `/tmp` are refused, with the same size cap and notes.
+ */
+export const uploadVmOutputs = (
+  text: string,
+  vm: Pick<LinuxVm, "readFile" | "stat">,
+  port: RunFilesPort
+): Promise<{ fileIds: string[]; text: string }> =>
+  uploadMarked(text, port, vmReader(vm));
 
 const reply = (text: string, isError: boolean) => ({
   isError,
