@@ -125,6 +125,12 @@ describe("workspaceInstructions", () => {
     }
   });
 
+  test("leaves the attachment line out when the runtime reads no markers", () => {
+    const text = workspaceInstructions({ ...managed, attachments: false });
+    expect(text).not.toContain("[ATTACHMENT:");
+    expect(text).toContain("- Library:");
+  });
+
   test("names all three areas and the attachment line once", () => {
     for (const input of [vm, isolate, managed, machine]) {
       const text = workspaceInstructions(input);

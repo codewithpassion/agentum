@@ -8,6 +8,7 @@ export interface CloudStart {
     model: string;
     name: string;
     runtimeConfig: Record<string, unknown>;
+    slug: string;
   };
   inputFileIds: string[];
   mcpServers: Record<string, McpServerEntry>;

@@ -383,6 +383,7 @@ export const composeWith = ({
     events,
     gatewayFor: infra.managedGatewayFor ?? noGateway,
     keys: managedKeys,
+    library,
     poller: infra.managedPoller ?? noopPoller,
     publicBaseUrl: infra.publicBaseUrl,
     runs,
