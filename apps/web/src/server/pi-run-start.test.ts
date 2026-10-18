@@ -7,9 +7,11 @@ const memoryStorage = (): RunStorage => {
   const data = new Map<string, unknown>();
   return {
     delete: (key) => Promise.resolve(data.delete(key)),
-    get: <T>(key: string) => Promise.resolve(data.get(key) as T | undefined),
+    // Like Durable Object storage, reads give a copy.
+    get: <T>(key: string) =>
+      Promise.resolve(structuredClone(data.get(key)) as T | undefined),
     put: <T>(key: string, value: T) => {
-      data.set(key, value);
+      data.set(key, structuredClone(value));
       return Promise.resolve();
     },
   };
@@ -39,7 +41,7 @@ const startOf = (runId: string, runToken = "token"): CloudStart => ({
 const setup = (
   overrides: {
     begin?: (input: CloudStart) => Promise<void>;
-    claim?: (runId: string) => Promise<"claimed" | "conflict">;
+    claim?: (runId: string) => Promise<"claimed" | "conflict" | "running">;
     prepare?: (input: CloudStart) => Promise<void>;
   } = {}
 ) => {
@@ -161,6 +163,38 @@ describe("work", () => {
     expect(failures).toEqual([
       ["r1", "The run could not start within 2 minutes: VM not ready"],
     ]);
+    expect(await queue.hasPending()).toBe(false);
+  });
+
+  test("a claim that went through before the object saved it is recognised on the retry", async () => {
+    const errors = spyOn(console, "error").mockImplementation(() => undefined);
+    let attempts = 0;
+    const { calls, queue } = setup({
+      claim: () => {
+        attempts += 1;
+        // The first call wrote the row, then the object failed before it saw the answer.
+        return attempts === 1
+          ? Promise.reject(new Error("evicted"))
+          : Promise.resolve("running");
+      },
+    });
+    await queue.request(startOf("r1"));
+    expect(await queue.work()).toBe(true);
+    expect(await queue.work()).toBe(false);
+    errors.mockRestore();
+    expect(calls).toEqual([
+      "claim r1",
+      "claim r1",
+      "prepare r1",
+      "begin r1 token",
+    ]);
+  });
+
+  test("a run that is already running without a claim of ours is not started again", async () => {
+    const { calls, queue } = setup({ claim: () => Promise.resolve("running") });
+    await queue.request(startOf("r1"));
+    expect(await queue.work()).toBe(false);
+    expect(calls).toEqual(["claim r1"]);
     expect(await queue.hasPending()).toBe(false);
   });
 

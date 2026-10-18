@@ -15,6 +15,8 @@ const PENDING_KEY = "pending-starts";
 
 /** A start the platform handed over and this object has not finished. */
 interface PendingStart {
+  /** The claim was tried, saved before the call: a retry that finds the run running knows the claim went through. */
+  claimAttempted?: boolean;
   /** The run is ours: the claim went through, so a retry must not claim again. */
   claimed: boolean;
   input: CloudStart;
@@ -25,8 +27,12 @@ interface PendingStart {
 export interface StartQueueDeps {
   /** Starts working the claimed run in Pi. */
   begin: (input: CloudStart) => Promise<void>;
-  /** Claims the run for the system. "conflict" when it cannot be claimed now. */
-  claim: (runId: string) => Promise<"claimed" | "conflict">;
+  /**
+   * Claims the run for the system. "conflict" when it cannot be claimed now,
+   * "running" when it already is running (claimed by an earlier try, or begun
+   * by an earlier wake).
+   */
+  claim: (runId: string) => Promise<"claimed" | "conflict" | "running">;
   /** Ends a claimed run as failed. */
   fail: (runId: string, error: string) => Promise<void>;
   now?: () => number;
@@ -82,6 +88,16 @@ export const createStartQueue = ({
     await save(pending);
   };
 
+  /** Saves fields on a pending start. */
+  const mark = async (runId: string, fields: Partial<PendingStart>) => {
+    const pending = await load();
+    const stored = pending.find((other) => other.input.run.id === runId);
+    if (stored) {
+      Object.assign(stored, fields);
+      await save(pending);
+    }
+  };
+
   /** Fails a claimed run that could not start in time. A run nobody claimed is left offered, for the sweep. */
   const giveUp = async (entry: PendingStart, reason: string) => {
     const runId = entry.input.run.id;
@@ -124,18 +140,19 @@ export const createStartQueue = ({
     const runId = entry.input.run.id;
     try {
       if (!entry.claimed) {
-        if ((await claim(runId)) === "conflict") {
+        await mark(runId, { claimAttempted: true });
+        const outcome = await claim(runId);
+        // A run that is running without a claim of ours is already begun by an earlier wake: leave it alone.
+        const ours =
+          outcome === "claimed" ||
+          (outcome === "running" && entry.claimAttempted === true);
+        if (!ours) {
           // Another run holds the agent, or the run is over. The platform offers it again when it can run.
           await remove(runId);
           return false;
         }
         entry.claimed = true;
-        const pending = await load();
-        const stored = pending.find((other) => other.input.run.id === runId);
-        if (stored) {
-          stored.claimed = true;
-          await save(pending);
-        }
+        await mark(runId, { claimed: true });
       }
       await withinDeadline(entry, () => prepare(entry.input));
       await withinDeadline(entry, () => begin(entry.input));
