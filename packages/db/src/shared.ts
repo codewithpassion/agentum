@@ -109,6 +109,7 @@ export const EVENT_TYPES = [
   "skill.unassigned",
   "skill.pinned",
   "skill.imported",
+  "workspace.snapshot",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

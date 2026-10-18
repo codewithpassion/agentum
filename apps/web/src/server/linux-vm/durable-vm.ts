@@ -22,6 +22,7 @@ export const durableVm = (
 ): LinuxVm => {
   const stub = namespace.get(namespace.idFromName(agentId));
   return {
+    checkpoint: (run) => stub.checkpoint(run),
     exec: (input) => stub.exec(input),
     list: (path) => unwrap(stub.list(path)),
     mkdir: (path, options) => unwrap(stub.mkdir(path, options)),
@@ -29,6 +30,7 @@ export const durableVm = (
     remove: (path, options) => unwrap(stub.remove(path, options)),
     rename: (from, to) => unwrap(stub.rename(from, to)),
     setEgress: (egress) => stub.setEgress(egress),
+    setRun: (run) => stub.setRun(run),
     stat: (path) => unwrap(stub.stat(path)),
     writeFile: (path, bytes) => unwrap(stub.writeFile(path, bytes)),
   };
