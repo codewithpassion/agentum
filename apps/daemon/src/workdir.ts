@@ -1,8 +1,9 @@
 // The per-agent work directory that Claude Code runs in. Before each run the
-// daemon makes sure it exists and empties its `.claude/`, `.mcp.json` and
-// `inbox/`, where the run's input files are downloaded, in both modes. In
-// multi-user mode hm-agent owns the directory, so the daemon reaches it through
-// sudo. In single-user mode it is a plain directory under the daemon's home.
+// daemon makes sure it exists and empties its `.claude/`, `.mcp.json`, `inbox/`
+// (where the run's input files are downloaded) and `tmp/` (the agent's scratch
+// space), then recreates `tmp/` empty, in both modes. In multi-user mode
+// hm-agent owns the directory, so the daemon reaches it through sudo. In
+// single-user mode it is a plain directory under the daemon's home.
 
 import { mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
@@ -12,6 +13,9 @@ import type { CommandRunner } from "./command.ts";
 
 /** Where a run's input files are downloaded, relative to the work directory. */
 export const INBOX_DIR = "inbox";
+
+/** The agent's scratch directory, relative to the work directory. Emptied before each run. */
+export const SCRATCH_DIR = "tmp";
 
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 
@@ -54,7 +58,7 @@ const runStep = async (
   }
 };
 
-/** Ensures the work dir exists and empties `.claude/`, `.mcp.json` and `inbox/` inside it, in both modes. Returns the dir. Throws an Error naming the failed step. */
+/** Ensures the work dir exists and empties `.claude/`, `.mcp.json`, `inbox/` and `tmp/` inside it, then recreates `tmp/` empty, in both modes. Returns the dir. Throws an Error naming the failed step. */
 export const prepareWorkDir = async (
   options: PrepareWorkDirOptions
 ): Promise<string> => {
@@ -66,6 +70,8 @@ export const prepareWorkDir = async (
     rmSync(join(dir, ".claude"), { force: true, recursive: true });
     rmSync(join(dir, ".mcp.json"), { force: true, recursive: true });
     rmSync(join(dir, INBOX_DIR), { force: true, recursive: true });
+    rmSync(join(dir, SCRATCH_DIR), { force: true, recursive: true });
+    mkdirSync(join(dir, SCRATCH_DIR), { recursive: true });
     return dir;
   }
 
@@ -78,6 +84,13 @@ export const prepareWorkDir = async (
     `${dir}/.claude`,
     `${dir}/.mcp.json`,
     `${dir}/${INBOX_DIR}`,
+    `${dir}/${SCRATCH_DIR}`,
+  ]);
+  await runStep(run, "mkdir tmp", [
+    ...AS_AGENT,
+    AGENT_MKDIR,
+    "-p",
+    `${dir}/${SCRATCH_DIR}`,
   ]);
   return dir;
 };

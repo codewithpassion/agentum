@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -70,7 +71,9 @@ test("multi-user runs mkdir then rm as hm-agent under the agent home", async () 
       `${workDir}/.claude`,
       `${workDir}/.mcp.json`,
       `${workDir}/inbox`,
+      `${workDir}/tmp`,
     ],
+    ["sudo", "-n", "-u", "hm-agent", "/bin/mkdir", "-p", `${workDir}/tmp`],
   ]);
 });
 
@@ -90,7 +93,7 @@ test("a failing mkdir throws with the step and stderr, and skips the rm", async 
   expect(calls[0]?.[4]).toBe("/bin/mkdir");
 });
 
-test("single-user creates the dir and empties .claude, .mcp.json and inbox only", async () => {
+test("single-user creates the dir and empties .claude, .mcp.json, inbox and tmp only", async () => {
   const home = tempDirectory();
   const dir = workDirPath(home, "w1", "a1");
   mkdirSync(join(dir, ".claude"), { recursive: true });
@@ -98,6 +101,8 @@ test("single-user creates the dir and empties .claude, .mcp.json and inbox only"
   writeFileSync(join(dir, ".mcp.json"), "{}");
   mkdirSync(join(dir, "inbox"));
   writeFileSync(join(dir, "inbox", "old.txt"), "from an earlier run");
+  mkdirSync(join(dir, "tmp"));
+  writeFileSync(join(dir, "tmp", "scratch.txt"), "from an earlier run");
   writeFileSync(join(dir, "keep.txt"), "kept");
   const { calls, run } = fakeRun();
 
@@ -113,11 +118,14 @@ test("single-user creates the dir and empties .claude, .mcp.json and inbox only"
   expect(existsSync(join(dir, ".claude"))).toBe(false);
   expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
   expect(existsSync(join(dir, "inbox"))).toBe(false);
+  expect(existsSync(join(dir, "tmp", "scratch.txt"))).toBe(false);
+  expect(existsSync(join(dir, "tmp"))).toBe(true);
+  expect(readdirSync(join(dir, "tmp"))).toEqual([]);
   expect(existsSync(join(dir, "keep.txt"))).toBe(true);
   expect(calls).toEqual([]);
 });
 
-test("single-user creates a missing dir without touching the runner", async () => {
+test("single-user creates a missing dir with an empty tmp without touching the runner", async () => {
   const home = tempDirectory();
   const { calls, run } = fakeRun();
 
@@ -130,6 +138,8 @@ test("single-user creates a missing dir without touching the runner", async () =
   });
 
   expect(existsSync(dir)).toBe(true);
+  expect(existsSync(join(dir, "tmp"))).toBe(true);
+  expect(readdirSync(join(dir, "tmp"))).toEqual([]);
   expect(calls).toEqual([]);
 });
 
