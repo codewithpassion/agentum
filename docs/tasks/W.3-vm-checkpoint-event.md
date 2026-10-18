@@ -3,7 +3,7 @@ id: W.3
 title: VM snapshot after each run, with a workspace.snapshot event
 milestone: W
 size: S
-status: todo
+status: in_progress
 depends_on: [W.2]
 branch: task/W.3-vm-checkpoint-event
 ---
@@ -24,3 +24,4 @@ Asked for by Dom on 18 Oct 2026, from the report (section D, items 3 and 4). The
 
 ## Log
 - 2026-10-18: added at Dom's request.
+- 2026-10-18: dispatched.

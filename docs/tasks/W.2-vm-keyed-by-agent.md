@@ -3,7 +3,7 @@ id: W.2
 title: Linux VM keyed by agent with a persistent /workspace/home
 milestone: W
 size: M
-status: in_progress
+status: done
 depends_on: [W.1]
 branch: task/W.2-vm-keyed-by-agent
 ---
@@ -28,3 +28,4 @@ Asked for by Dom on 18 Oct 2026, from the report (sections B and D). Files an ag
 ## Log
 - 2026-10-18: added at Dom's request.
 - 2026-10-18: dispatched.
+- 2026-10-18: review clean after 2 fix rounds at fc1857b (docs/reviews/tasks/W.2.md). Merged. Staging check pending. Dom: production R2 lifecycle rule on vm-snapshots/ before VM agents run there.
