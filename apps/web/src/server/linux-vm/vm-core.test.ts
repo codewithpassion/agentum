@@ -13,8 +13,10 @@ import {
 import {
   VM_HOME_DIR,
   VM_WORKDIR,
+  type VmEgressRun,
   type VmExecInput,
   VmFileError,
+  type WorkspaceSnapshot,
 } from "./vm-port.ts";
 
 const IDLE_MS = 300_000;
@@ -231,7 +233,13 @@ const createFakeStorage = () => {
   return { map, storage };
 };
 
-const setup = (probeTimeoutMs?: number) => {
+interface ReportedSnapshot {
+  run: VmEgressRun;
+  snapshot: WorkspaceSnapshot;
+}
+
+/** `report` is passed to the core only when `options.report` is set. `reports` stays empty otherwise. */
+const setup = (probeTimeoutMs?: number, options: { report?: boolean } = {}) => {
   const clock = { now: 1_000_000 };
   const container = createFakeContainer();
   const files = createFakeFiles();
@@ -242,7 +250,16 @@ const setup = (probeTimeoutMs?: number) => {
     deletes: 0,
     set: [] as number[],
   };
+  const reports: ReportedSnapshot[] = [];
+  const reportHooks: { error: Error | null } = { error: null };
+  const report = (run: VmEgressRun, snapshot: WorkspaceSnapshot) => {
+    reports.push({ run, snapshot });
+    return reportHooks.error === null
+      ? Promise.resolve()
+      : Promise.reject(reportHooks.error);
+  };
   const core = createVmCore({
+    ...(options.report === true ? { report } : {}),
     backups: backups.backups,
     container,
     deleteAlarm: () => {
@@ -266,7 +283,17 @@ const setup = (probeTimeoutMs?: number) => {
     },
     storage,
   });
-  return { alarms, backups, clock, container, core, files, storage: map };
+  return {
+    alarms,
+    backups,
+    clock,
+    container,
+    core,
+    files,
+    reportHooks,
+    reports,
+    storage: map,
+  };
 };
 
 const input = (
@@ -855,5 +882,238 @@ describe("createVmCore: files", () => {
     await env.core.writeFile("/workspace/b.bin", data);
 
     await expect(env.core.readFile("/workspace/b.bin")).resolves.toEqual(data);
+  });
+});
+
+describe("createVmCore: workspace.snapshot", () => {
+  type Env = ReturnType<typeof setup>;
+  const RUN: VmEgressRun = {
+    agentId: "agent-1",
+    runId: "run-1",
+    workspaceId: "ws-1",
+  };
+  const home = (text: string): FakeRun => ({
+    exit: 0,
+    stdout: [bytes(`${text}\t/workspace/home\n`)],
+  });
+
+  /** Makes `du` answer `answer`. Every other command answers as before. */
+  const measuring = (env: Env, answer: FakeRun) => {
+    env.container.answer = (command) =>
+      command.includes("du") ? answer : { exit: 0 };
+  };
+
+  test("a checkpoint snapshots the home folder, leaves the container up and reports ok with the du bytes; the next checkpoint deletes the previous snapshot", async () => {
+    const env = setup(undefined, { report: true });
+    measuring(env, home("1234"));
+    await env.core.list(VM_WORKDIR);
+
+    await env.core.checkpoint(RUN);
+
+    expect(env.backups.calls.backup).toEqual([
+      { dir: VM_HOME_DIR, name: LABEL },
+    ]);
+    expect(env.storage.get(SNAPSHOT_KEY)).toEqual({
+      dir: VM_HOME_DIR,
+      id: "snap-1",
+    });
+    expect(env.container.running).toBe(true);
+    expect(env.container.destroyed).toEqual([]);
+    expect(env.reports).toEqual([
+      { run: RUN, snapshot: { bytes: 1234, ms: 0, ok: true } },
+    ]);
+
+    await env.core.checkpoint(RUN);
+
+    expect(env.backups.calls.delete).toEqual([
+      { dir: VM_HOME_DIR, id: "snap-1" },
+    ]);
+    expect(env.storage.get(SNAPSHOT_KEY)).toEqual({
+      dir: VM_HOME_DIR,
+      id: "snap-2",
+    });
+    expect(env.container.destroyed).toEqual([]);
+  });
+
+  test("a failed checkpoint keeps the VM up, keeps the stored snapshot and reports the error; it does not count toward MAX_SNAPSHOT_FAILURES", async () => {
+    quietConsole();
+    const env = setup(undefined, { report: true });
+    measuring(env, home("1234"));
+    await env.core.list(VM_WORKDIR);
+    await env.core.checkpoint(RUN);
+    env.backups.hooks.backupError = new Error("bucket is down");
+
+    await expect(env.core.checkpoint(RUN)).resolves.toBeUndefined();
+    for (let attempt = 1; attempt < MAX_SNAPSHOT_FAILURES; attempt += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: each checkpoint follows the one before
+      await env.core.checkpoint(RUN);
+    }
+
+    expect(env.container.running).toBe(true);
+    expect(env.container.destroyed).toEqual([]);
+    expect(env.storage.get(SNAPSHOT_KEY)).toEqual({
+      dir: VM_HOME_DIR,
+      id: "snap-1",
+    });
+    expect(env.reports).toHaveLength(MAX_SNAPSHOT_FAILURES + 1);
+    expect(env.reports.at(-1)).toEqual({
+      run: RUN,
+      snapshot: { bytes: 1234, error: "bucket is down", ms: 0, ok: false },
+    });
+
+    // Had the checkpoints counted, this failure would be the third and put the VM to sleep.
+    expect(await env.core.sleepNow()).toBe(false);
+    expect(env.container.destroyed).toEqual([]);
+
+    env.backups.hooks.backupError = null;
+    expect(await env.core.sleepNow()).toBe(true);
+    expect(env.container.destroyed).toEqual(["idle"]);
+  });
+
+  test("a checkpoint on a VM that is not running does nothing: no backup and no event", async () => {
+    const env = setup(undefined, { report: true });
+
+    await env.core.checkpoint(RUN);
+
+    expect(env.backups.calls.backup).toEqual([]);
+    expect(env.reports).toEqual([]);
+    expect(env.container.running).toBe(false);
+  });
+
+  test("a failed restore reports ok false on the run set by setRun, drops the snapshot and the call still succeeds", async () => {
+    quietConsole();
+    const env = setup(undefined, { report: true });
+    env.storage.set(SNAPSHOT_KEY, { dir: VM_HOME_DIR, id: "snap-bad" });
+    env.backups.hooks.restoreError = new Error("snapshot is corrupt");
+    await env.core.setRun(RUN);
+
+    await expect(env.core.list(VM_WORKDIR)).resolves.toEqual([]);
+
+    expect(env.storage.has(SNAPSHOT_KEY)).toBe(false);
+    expect(env.files.mkdirs).toEqual([
+      { options: { recursive: true }, path: VM_WORKDIR },
+      { options: { recursive: true }, path: VM_HOME_DIR },
+    ]);
+    expect(env.reports).toEqual([
+      {
+        run: RUN,
+        snapshot: {
+          bytes: 0,
+          error: "snapshot is corrupt",
+          ms: 0,
+          ok: false,
+        },
+      },
+    ]);
+  });
+
+  test("a successful restore reports ok true with the du bytes", async () => {
+    const env = setup(undefined, { report: true });
+    measuring(env, home("1234"));
+    env.storage.set(SNAPSHOT_KEY, { dir: VM_HOME_DIR, id: "snap-1" });
+    await env.core.setRun(RUN);
+
+    await env.core.list(VM_WORKDIR);
+
+    expect(env.backups.calls.restore).toEqual([
+      { dir: VM_HOME_DIR, id: "snap-1" },
+    ]);
+    expect(env.reports).toEqual([
+      { run: RUN, snapshot: { bytes: 1234, ms: 0, ok: true } },
+    ]);
+  });
+
+  test("a home folder over 1 GB is still saved, reported ok with a warning", async () => {
+    const env = setup(undefined, { report: true });
+    measuring(env, home("1073741825"));
+    await env.core.list(VM_WORKDIR);
+
+    await env.core.checkpoint(RUN);
+
+    expect(env.storage.get(SNAPSHOT_KEY)).toEqual({
+      dir: VM_HOME_DIR,
+      id: "snap-1",
+    });
+    expect(env.reports).toEqual([
+      {
+        run: RUN,
+        snapshot: {
+          bytes: 1_073_741_825,
+          ms: 0,
+          ok: true,
+          warning: expect.stringContaining("1.0 GB"),
+        },
+      },
+    ]);
+  });
+
+  test("a home folder of exactly 1 GB has no warning", async () => {
+    const env = setup(undefined, { report: true });
+    measuring(env, home("1073741824"));
+    await env.core.list(VM_WORKDIR);
+
+    await env.core.checkpoint(RUN);
+
+    expect(env.reports).toEqual([
+      { run: RUN, snapshot: { bytes: 1_073_741_824, ms: 0, ok: true } },
+    ]);
+  });
+
+  test("a du that fails reports bytes 0 with a warning, and the snapshot is still saved as ok", async () => {
+    const env = setup(undefined, { report: true });
+    measuring(env, { exit: 1 });
+    await env.core.list(VM_WORKDIR);
+
+    await env.core.checkpoint(RUN);
+
+    expect(env.storage.get(SNAPSHOT_KEY)).toEqual({
+      dir: VM_HOME_DIR,
+      id: "snap-1",
+    });
+    expect(env.reports).toEqual([
+      {
+        run: RUN,
+        snapshot: {
+          bytes: 0,
+          ms: 0,
+          ok: true,
+          warning: expect.stringContaining("could not be measured"),
+        },
+      },
+    ]);
+  });
+
+  test("an idle snapshot is reported on the run set by setRun", async () => {
+    const env = setup(undefined, { report: true });
+    measuring(env, home("1234"));
+    await env.core.setRun(RUN);
+    await env.core.list(VM_WORKDIR);
+
+    env.clock.now += IDLE_MS;
+    await env.core.alarm();
+
+    expect(env.container.destroyed).toEqual(["idle"]);
+    expect(env.reports).toEqual([
+      { run: RUN, snapshot: { bytes: 1234, ms: 0, ok: true } },
+    ]);
+  });
+
+  test("a report that rejects does not stop an idle snapshot: the VM still sleeps and the snapshot is kept", async () => {
+    quietConsole();
+    const env = setup(undefined, { report: true });
+    measuring(env, home("1234"));
+    env.reportHooks.error = new Error("event store is down");
+    await env.core.setRun(RUN);
+    await env.core.list(VM_WORKDIR);
+
+    env.clock.now += IDLE_MS;
+    await env.core.alarm();
+
+    expect(env.reports).toHaveLength(1);
+    expect(env.container.destroyed).toEqual(["idle"]);
+    expect(env.storage.get(SNAPSHOT_KEY)).toEqual({
+      dir: VM_HOME_DIR,
+      id: "snap-1",
+    });
   });
 });

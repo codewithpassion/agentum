@@ -7,6 +7,7 @@ import {
   VM_HOME_DIR,
   VM_WORKDIR,
   type VmEgress,
+  type VmEgressRun,
   type VmEntry,
   type VmExecInput,
   type VmExecResult,
@@ -15,6 +16,8 @@ import {
 } from "./vm-port.ts";
 
 export interface FakeVm extends LinuxVm {
+  /** Every `checkpoint` call, in order. */
+  checkpointCalls: VmEgressRun[];
   /** Every `setEgress` call, in order. */
   egressCalls: VmEgress[];
   /** Every `exec` call, in order. */
@@ -25,6 +28,8 @@ export interface FakeVm extends LinuxVm {
   folders: Set<string>;
   /** What the next `exec` calls answer. The default is exit 0 with no output. */
   onExec: (input: VmExecInput) => VmExecResult | Promise<VmExecResult>;
+  /** Every `setRun` call, in order. */
+  runCalls: VmEgressRun[];
 }
 
 const ENCODER = new TextEncoder();
@@ -104,6 +109,8 @@ export const createFakeVm = (): FakeVm => {
   const files = new Map<string, Uint8Array>();
   const execCalls: VmExecInput[] = [];
   const egressCalls: VmEgress[] = [];
+  const checkpointCalls: VmEgressRun[] = [];
+  const runCalls: VmEgressRun[] = [];
   const missing = (path: string) =>
     new VmFileError("ENOENT", `ENOENT: no such file or directory, '${path}'`);
   const childrenOf = (path: string): VmEntry[] => {
@@ -129,6 +136,11 @@ export const createFakeVm = (): FakeVm => {
     return [...entries.values()];
   };
   const fake: FakeVm = {
+    checkpoint: (run) => {
+      checkpointCalls.push(run);
+      return Promise.resolve();
+    },
+    checkpointCalls,
     egressCalls,
     exec: async (input) => {
       execCalls.push(input);
@@ -229,8 +241,13 @@ export const createFakeVm = (): FakeVm => {
         return Promise.reject(error);
       }
     },
+    runCalls,
     setEgress: (egress) => {
       egressCalls.push(egress);
+      return Promise.resolve();
+    },
+    setRun: (run) => {
+      runCalls.push(run);
       return Promise.resolve();
     },
     stat: (path): Promise<VmStat> => {

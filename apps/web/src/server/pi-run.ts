@@ -512,6 +512,33 @@ export class PiRun extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Snapshots the VM's home folder when a run completes. Never throws: a failed
+   * checkpoint is logged and must not fail or retry the completion.
+   */
+  async #checkpointVm(runId: string) {
+    const vm = this.#vm;
+    if (!vm) {
+      return;
+    }
+    try {
+      const agentId = await this.ctx.storage.get<string>(VM_KEY);
+      const workspaceId = await this.ctx.storage.get<string>(WORKSPACE_KEY);
+      if (!(agentId && workspaceId)) {
+        console.warn(
+          `PiRun: checkpointing the VM after run ${runId} skipped, the session has no VM ids`
+        );
+        return;
+      }
+      await vm.checkpoint({ agentId, runId, workspaceId });
+    } catch (error) {
+      console.warn(
+        `PiRun: checkpointing the VM after run ${runId} failed`,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
+
   /** Looks at the newest run's servers again, at most once per REFRESH_GAP_MS and never twice at a time. */
   readonly #refreshTools = throttled(() => this.#syncTools(), {
     minGapMs: REFRESH_GAP_MS,
@@ -602,8 +629,10 @@ export class PiRun extends DurableObject<Env> {
     this.#core ??= (() => {
       const { runs } = this.#services();
       return createRunCore({
-        complete: (runId, result) =>
-          runs.completeRun(SYSTEM_PRINCIPAL, runId, result),
+        complete: async (runId, result) => {
+          await runs.completeRun(SYSTEM_PRINCIPAL, runId, result);
+          await this.#checkpointVm(runId);
+        },
         heartbeat: (runId) =>
           runs.heartbeatRun(SYSTEM_PRINCIPAL, runId, {
             leaseMs: CLOUD_LEASE_MS,
@@ -664,6 +693,14 @@ export class PiRun extends DurableObject<Env> {
     await this.ctx.storage.put(RUN_KEY, runRefOf(input));
     await this.ctx.storage.put(AGENT_SLUG_KEY, input.agent.slug);
     await this.#selectEnvironment(input);
+    try {
+      await this.#vm?.setRun(runRefOf(input));
+    } catch (error) {
+      console.warn(
+        `PiRun: naming run ${input.run.id} to the VM failed`,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
     if (!this.#vm) {
       await this.#ensureHome(input);
     }

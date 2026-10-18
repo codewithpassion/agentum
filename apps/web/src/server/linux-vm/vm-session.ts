@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { DirectoryBackup, Files } from "@cloudflare/sandbox";
+import { compose } from "../compose.ts";
+import { recordSnapshot } from "./snapshot-event.ts";
 import { createVmCore, type VmContainer, type VmProcess } from "./vm-core.ts";
 import { type LinuxVm, VmFileError } from "./vm-port.ts";
 
@@ -101,6 +103,12 @@ export class VmSession extends DurableObject<Env> {
           );
         },
       },
+      report: (run, snapshot) =>
+        recordSnapshot(
+          compose(env, import.meta.env.DEV).services,
+          run,
+          snapshot
+        ),
       setAlarm: (at) => ctx.storage.setAlarm(at),
       storage: ctx.storage,
     });
@@ -124,6 +132,10 @@ export class VmSession extends DurableObject<Env> {
   }
 
   // The calls below are RPC from the PiRun Durable Object, through `durable-vm.ts`.
+
+  checkpoint(...args: Parameters<LinuxVm["checkpoint"]>) {
+    return this.#core.checkpoint(...args);
+  }
 
   exec(...args: Parameters<LinuxVm["exec"]>) {
     return this.#core.exec(...args);
@@ -159,5 +171,9 @@ export class VmSession extends DurableObject<Env> {
 
   setEgress(...args: Parameters<LinuxVm["setEgress"]>) {
     return this.#core.setEgress(...args);
+  }
+
+  setRun(...args: Parameters<LinuxVm["setRun"]>) {
+    return this.#core.setRun(...args);
   }
 }

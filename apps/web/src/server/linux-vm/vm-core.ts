@@ -6,7 +6,9 @@
 // (/workspace/home) back from its last snapshot. Every call counts as activity.
 // An alarm looks every CHECK_MS: once the VM has been idle for `idleMs` it
 // snapshots the home folder to R2 and destroys the container, and the next call
-// starts it again. A command runs with no environment of ours and under a
+// starts it again. A run that used the VM snapshots the home folder when it
+// ends (`checkpoint`), and every restore and snapshot is reported through
+// `report`, for a `workspace.snapshot` event on a run. A command runs with no environment of ours and under a
 // wall-time cap, and its output is read up to a cap.
 import {
   type LinuxVm,
@@ -19,6 +21,7 @@ import {
   VmFileError,
   type VmFileKind,
   type VmStat,
+  type WorkspaceSnapshot,
 } from "./vm-port.ts";
 
 /** How often the alarm looks at an awake VM. */
@@ -36,7 +39,13 @@ const ABORT_GRACE_MS = 3000;
 const STREAM_DRAIN_MS = 1000;
 /** The exit code of `timeout(1)` when the command ran out of time. */
 const TIMEOUT_EXIT_CODE = 124;
+/** A home folder over this many bytes (1 GB) gets a warning on its `workspace.snapshot` event. Nothing is refused. */
+export const SNAPSHOT_WARN_BYTES = 1024 * 1024 * 1024;
+/** `du` gets this long to measure the home folder. */
+const MEASURE_TIMEOUT_SECONDS = 30;
 const SNAPSHOT_KEY = "snapshot";
+/** The run named by `setRun`: the one a restore or an idle snapshot is reported on. */
+const RUN_KEY = "run";
 /** Set once the container has started and its workdir is ready, and cleared when it is destroyed. A Durable Object that restarts while the container runs reads it to tell a finished start from a cut-off one. */
 const PREPARED_KEY = "prepared";
 /** The last `VmEgress` given to `setEgress`. A start that happens later applies it again. */
@@ -136,6 +145,8 @@ export interface VmCoreDeps<TSnapshot extends VmSnapshot = VmSnapshot> {
   now?: () => number;
   /** How long one readiness probe may take. */
   probeTimeoutMs?: number;
+  /** Called with the outcome of each restore and snapshot, for the run it belongs to. A failure to report is logged and changes nothing. */
+  report?: (run: VmEgressRun, snapshot: WorkspaceSnapshot) => Promise<void>;
   setAlarm: (at: number) => Promise<void>;
   sleep?: (ms: number) => Promise<void>;
   storage: VmStorage;
@@ -240,6 +251,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
   network,
   now = Date.now,
   probeTimeoutMs = PROBE_TIMEOUT_MS,
+  report,
   setAlarm,
   sleep = defaultSleep,
   storage,
@@ -299,20 +311,61 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     throw new Error(`The Linux VM did not start: ${last}`);
   };
 
+  /** Reports a restore or a snapshot on the run named by `setRun`, or on `run`. Never throws. */
+  const record = async (
+    event: WorkspaceSnapshot,
+    run?: VmEgressRun
+  ): Promise<void> => {
+    if (report === undefined) {
+      return;
+    }
+    try {
+      const target = run ?? (await storage.get<VmEgressRun>(RUN_KEY));
+      if (target === undefined) {
+        console.warn(
+          `LinuxVm ${label}: no run is known, so the snapshot event is not recorded`
+        );
+        return;
+      }
+      await report(target, event);
+    } catch (error) {
+      console.warn(
+        `LinuxVm ${label}: recording the snapshot event failed: ${describe(error)}`
+      );
+    }
+  };
+
+  /** Puts the snapshot back into the home folder and reports it. Returns false when it could not be restored. */
+  const restore = async (saved: TSnapshot): Promise<boolean> => {
+    const startedAt = now();
+    try {
+      await backups.restore(saved);
+    } catch (error) {
+      console.error(
+        `LinuxVm ${label}: restoring the snapshot failed, starting empty: ${describe(error)}`
+      );
+      await record({
+        bytes: 0,
+        error: describe(error),
+        ms: now() - startedAt,
+        ok: false,
+      });
+      return false;
+    }
+    const bytes = (await measureHome()) ?? 0;
+    await record({ bytes, ms: now() - startedAt, ok: true });
+    return true;
+  };
+
   /** Makes /workspace, then puts the last snapshot back into the home folder, or makes an empty one. A snapshot that cannot be restored must not stop the agent. */
   const prepareWorkdir = async (): Promise<void> => {
     await files.mkdir(VM_WORKDIR, { recursive: true });
-    const snapshot = await storage.get<TSnapshot>(SNAPSHOT_KEY);
-    if (snapshot) {
-      try {
-        await backups.restore(snapshot);
+    const saved = await storage.get<TSnapshot>(SNAPSHOT_KEY);
+    if (saved) {
+      if (await restore(saved)) {
         return;
-      } catch (error) {
-        console.error(
-          `LinuxVm ${label}: restoring the snapshot failed, starting empty: ${describe(error)}`
-        );
-        await storage.delete(SNAPSHOT_KEY);
       }
+      await storage.delete(SNAPSHOT_KEY);
     }
     await files.mkdir(VM_HOME_DIR, { recursive: true });
   };
@@ -512,8 +565,56 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
       await applyEgress(egress);
     });
 
-  /** Saves the home folder and replaces the snapshot before it. Returns false when the save failed and the VM should stay up. */
-  const snapshot = async (): Promise<boolean> => {
+  /** The size of the home folder in bytes, or undefined when `du` could not tell. */
+  const measureHome = async (): Promise<number | undefined> => {
+    try {
+      const process = await container.exec([
+        "timeout",
+        String(MEASURE_TIMEOUT_SECONDS),
+        "du",
+        "-sb",
+        VM_HOME_DIR,
+      ]);
+      const out = readCapped(process.stdout, 1024);
+      const err = readCapped(process.stderr, 1024);
+      const exitCode = await process.exitCode;
+      await drained(Promise.all([out.done, err.done]));
+      const size = Number.parseInt(out.capped.text(), 10);
+      return exitCode === 0 && Number.isSafeInteger(size) && size >= 0
+        ? size
+        : undefined;
+    } catch (error) {
+      console.warn(
+        `LinuxVm ${label}: measuring the home folder failed: ${describe(error)}`
+      );
+    }
+  };
+
+  const warningFor = (size: number | undefined): string | undefined => {
+    if (size === undefined) {
+      return "The size of the home folder could not be measured";
+    }
+    return size > SNAPSHOT_WARN_BYTES
+      ? `The home folder is ${(size / SNAPSHOT_WARN_BYTES).toFixed(1)} GB, over the 1 GB soft cap`
+      : undefined;
+  };
+
+  /**
+   * Measures the home folder, saves it and replaces the snapshot before it.
+   * Returns what to report, or undefined when there is no home folder: nothing
+   * was ever put in the VM.
+   */
+  const saveHome = async (): Promise<WorkspaceSnapshot | undefined> => {
+    const startedAt = now();
+    const size = await measureHome();
+    const warning = warningFor(size);
+    const outcome = (error?: string): WorkspaceSnapshot => ({
+      bytes: size ?? 0,
+      ...(error === undefined ? {} : { error }),
+      ms: now() - startedAt,
+      ok: error === undefined,
+      ...(warning === undefined ? {} : { warning }),
+    });
     try {
       const saved = await backups.backup({ dir: VM_HOME_DIR, name: label });
       const previous = await storage.get<TSnapshot>(SNAPSHOT_KEY);
@@ -525,23 +626,68 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
           );
         });
       }
-      return true;
+      return outcome();
     } catch (error) {
       if (
         isSandboxFileError(error) &&
         error.code === "ENOENT" &&
         error.path === VM_HOME_DIR
       ) {
-        // No home folder, so nothing was ever put in the VM.
-        return true;
+        return;
       }
-      snapshotFailures += 1;
-      console.error(
-        `LinuxVm ${label}: snapshot failed (${snapshotFailures} of ${MAX_SNAPSHOT_FAILURES}): ${describe(error)}`
-      );
-      return snapshotFailures >= MAX_SNAPSHOT_FAILURES;
+      return outcome(describe(error));
     }
   };
+
+  /** The snapshot before sleep. Returns false when the save failed and the VM should stay up. */
+  const snapshotBeforeSleep = async (): Promise<boolean> => {
+    const saved = await saveHome();
+    if (saved === undefined) {
+      return true;
+    }
+    await record(saved);
+    if (saved.ok) {
+      return true;
+    }
+    snapshotFailures += 1;
+    console.error(
+      `LinuxVm ${label}: snapshot failed (${snapshotFailures} of ${MAX_SNAPSHOT_FAILURES}): ${saved.error}`
+    );
+    return snapshotFailures >= MAX_SNAPSHOT_FAILURES;
+  };
+
+  /**
+   * Snapshots the home folder for the end of a run and leaves the VM up. A
+   * failure is logged and reported, and the next idle snapshot tries again. It
+   * does not count toward MAX_SNAPSHOT_FAILURES, which only the idle path uses.
+   */
+  const checkpoint: LinuxVm["checkpoint"] = (run) =>
+    inTurn(async () => {
+      try {
+        if (
+          !(container.running && (await storage.get<boolean>(PREPARED_KEY)))
+        ) {
+          return;
+        }
+        const saved = await saveHome();
+        if (saved === undefined) {
+          return;
+        }
+        if (!saved.ok) {
+          console.error(
+            `LinuxVm ${label}: checkpoint failed, the VM stays up: ${saved.error}`
+          );
+        }
+        await record(saved, run);
+      } catch (error) {
+        console.error(
+          `LinuxVm ${label}: checkpoint failed, the VM stays up: ${describe(error)}`
+        );
+      }
+    });
+
+  const setRun: LinuxVm["setRun"] = ({ agentId, runId, workspaceId }) =>
+    storage.put<VmEgressRun>(RUN_KEY, { agentId, runId, workspaceId });
 
   /** Snapshots the home folder and destroys the container. A VM with a call in flight is left alone. */
   const sleepNow = (): Promise<boolean> =>
@@ -552,7 +698,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
       if (busy > 0) {
         return false;
       }
-      if (!(await snapshot())) {
+      if (!(await snapshotBeforeSleep())) {
         return false;
       }
       snapshotFailures = 0;
@@ -588,6 +734,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
 
   return {
     alarm,
+    checkpoint,
     exec,
     list,
     mkdir,
@@ -595,6 +742,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     remove,
     rename,
     setEgress,
+    setRun,
     sleepNow,
     stat,
     wake,

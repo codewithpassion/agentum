@@ -4,8 +4,10 @@
  * placement of files are tested against a fake (`fake-vm.ts`).
  *
  * The VM starts on its first call and restores the agent's home folder from its
- * last snapshot. When it has been idle for a while it snapshots the home
- * folder and goes to sleep, and the next call starts it again.
+ * last snapshot. A run that used the VM snapshots the home folder when it ends
+ * (`checkpoint`), and when the VM has been idle for a while it snapshots again
+ * and goes to sleep. The next call starts it again. Each restore and snapshot
+ * is reported as a `workspace.snapshot` event on a run.
  */
 
 /** The VM's scratch root: skills and input files go here, and they are gone once the VM sleeps. */
@@ -83,8 +85,26 @@ export interface VmEgress {
   run: VmEgressRun;
 }
 
+/** The payload of a `workspace.snapshot` event: one restore or one snapshot of the home folder. */
+export interface WorkspaceSnapshot {
+  /** Size of the home folder, from `du -sb`. 0 when it could not be measured or the restore failed. */
+  bytes: number;
+  error?: string;
+  /** How long the restore or the snapshot took. */
+  ms: number;
+  ok: boolean;
+  /** The home folder is over the soft cap, or its size could not be measured. Nothing is refused. */
+  warning?: string;
+}
+
 /** Paths are absolute. */
 export interface LinuxVm {
+  /**
+   * Snapshots the home folder now and leaves the VM up. Does nothing when the
+   * VM is asleep. It never throws: a failed snapshot is logged, and either way
+   * a `workspace.snapshot` event goes on `run`.
+   */
+  checkpoint: (run: VmEgressRun) => Promise<void>;
   exec: (input: VmExecInput) => Promise<VmExecResult>;
   list: (path: string) => Promise<VmEntry[]>;
   mkdir: (path: string, options?: { recursive?: boolean }) => Promise<void>;
@@ -100,6 +120,11 @@ export interface LinuxVm {
    * and wakes. A call with no hosts changes nothing. No secret value is passed.
    */
   setEgress: (egress: VmEgress) => Promise<void>;
+  /**
+   * Names the run that is using the VM, so the `workspace.snapshot` event of a
+   * restore or an idle snapshot goes on that run. It does not start the VM.
+   */
+  setRun: (run: VmEgressRun) => Promise<void>;
   stat: (path: string) => Promise<VmStat>;
   writeFile: (path: string, bytes: Uint8Array) => Promise<void>;
 }
