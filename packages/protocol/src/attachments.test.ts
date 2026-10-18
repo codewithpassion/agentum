@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   extractAttachmentMarkers,
   stripAttachmentMarkers,
+  type WorkspaceInstructionsInput,
+  workspaceInstructions,
 } from "./attachments.ts";
 
 describe("stripAttachmentMarkers", () => {
@@ -51,5 +53,85 @@ describe("extractAttachmentMarkers", () => {
     const text =
       "Here it is [ATTACHMENT:x.png] ok\n[ATTACHMENT:y.png]\n\n\n\nDone  \n";
     expect(extractAttachmentMarkers(text).text).toBe("Here it is ok\n\nDone");
+  });
+});
+
+describe("workspaceInstructions", () => {
+  const vm: WorkspaceInstructionsInput = {
+    home: "/workspace/home",
+    homeIsLocal: true,
+    library: null,
+    scratch: {
+      lasts: "vm-sleep",
+      path: "/tmp and anything else outside /workspace/home",
+    },
+  };
+  const isolate: WorkspaceInstructionsInput = {
+    home: "/library/agents/support/",
+    homeIsLocal: true,
+    library: "/library",
+    scratch: { lasts: "call", path: null },
+  };
+  const managed: WorkspaceInstructionsInput = {
+    home: "agents/support/",
+    homeIsLocal: false,
+    library: null,
+    scratch: { lasts: "session", path: null },
+  };
+  const machine: WorkspaceInstructionsInput = {
+    home: "/home/dom/agents/support",
+    homeIsLocal: true,
+    library: null,
+    scratch: { lasts: "run-start", path: "./tmp" },
+  };
+
+  test("VM: home is cwd, scratch vanishes on sleep, library is tools only", () => {
+    const text = workspaceInstructions(vm);
+    expect(text).toContain("- Home: /workspace/home.");
+    expect(text).toContain("Relative paths start here");
+    expect(text).toContain("deleted when the VM sleeps");
+    expect(text).toContain("never keep anything there that you need later");
+    expect(text).toContain("reach it with the library tools");
+    expect(text).toContain("[ATTACHMENT:<absolute path>]");
+  });
+
+  test("isolate: home and library are local paths and scratch is per call", () => {
+    const text = workspaceInstructions(isolate);
+    expect(text).toContain("- Home: /library/agents/support/.");
+    expect(text).toContain("- Library: /library.");
+    expect(text).toContain("no scratch folder");
+    expect(text).toContain("outside home and the library");
+    expect(text).toContain("kept for one tool call only");
+    expect(text).not.toContain("library tools");
+  });
+
+  test("managed: home is a library folder reached with the library tools", () => {
+    const text = workspaceInstructions(managed);
+    expect(text).toContain("the library folder agents/support/");
+    expect(text).toContain("not a folder on your disk");
+    expect(text).toContain("deleted when this session ends");
+  });
+
+  test("machine: scratch is a folder emptied before each run", () => {
+    const text = workspaceInstructions(machine);
+    expect(text).toContain("- Home: /home/dom/agents/support.");
+    expect(text).toContain("- Scratch: ./tmp.");
+    expect(text).toContain("emptied before your next run");
+  });
+
+  test("never prints /library when the library is not local", () => {
+    for (const input of [vm, managed, machine]) {
+      expect(workspaceInstructions(input)).not.toContain("/library");
+    }
+  });
+
+  test("names all three areas and the attachment line once", () => {
+    for (const input of [vm, isolate, managed, machine]) {
+      const text = workspaceInstructions(input);
+      expect(text).toContain("- Home:");
+      expect(text).toContain("- Scratch:");
+      expect(text).toContain("- Library:");
+      expect(text.match(/\[ATTACHMENT:/g)).toHaveLength(1);
+    }
   });
 });
