@@ -27,11 +27,7 @@ import {
   vmManifestStore,
   withLibraryLock,
 } from "./vm-library-sync.ts";
-import {
-  type LinuxVm,
-  VM_LIBRARY_LOCK,
-  VM_LIBRARY_MANIFEST,
-} from "./vm-port.ts";
+import { type LinuxVm, VM_LIBRARY_MANIFEST } from "./vm-port.ts";
 import { linuxVmToolsExtension } from "./vm-tools.ts";
 
 const WORKSPACE = "w1";
@@ -601,22 +597,19 @@ test("sync out without stored sync state does nothing", async () => {
   ]);
 });
 
-const quickLock = {
-  retryMs: 1,
-  waitMs: 20,
-};
+const instantSleep = () => Promise.resolve();
 
 test("a sync holds the library lock while it runs and releases it after", async () => {
   await service.write(user, "agents/ada/notes.md", bytes("v1"));
   const vm = createFakeVm();
-  const during: boolean[] = [];
+  const during: (string | null)[] = [];
   const ops = opsFor(runAs("r1"));
 
   await syncLibraryIn({
     ops: {
       ...ops,
       list: (dir: string) => {
-        during.push(vm.folders.has(VM_LIBRARY_LOCK));
+        during.push(vm.libraryLockOwner);
         return ops.list(dir);
       },
     },
@@ -627,8 +620,8 @@ test("a sync holds the library lock while it runs and releases it after", async 
   });
 
   expect(during.length).toBeGreaterThan(0);
-  expect(during.every(Boolean)).toBe(true);
-  expect(vm.folders.has(VM_LIBRARY_LOCK)).toBe(false);
+  expect(during.every((owner) => owner !== null)).toBe(true);
+  expect(vm.libraryLockOwner).toBeNull();
 });
 
 test("withLibraryLock makes two syncs take turns", async () => {
@@ -643,55 +636,61 @@ test("withLibraryLock makes two syncs take turns", async () => {
       }, 5);
     });
   };
+  const sleep = () =>
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 1);
+    });
 
-  // The fake VM dates every folder at 0, so a clock that stays near 0 keeps the lock fresh.
-  const clock = {
-    now: () => 1000,
-    sleep: () =>
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, 1);
-      }),
-  };
   await Promise.all([
-    withLibraryLock(vm, job("a"), { clock }),
-    withLibraryLock(vm, job("b"), { clock }),
+    withLibraryLock(vm, job("a"), { sleep, waitMs: 5000 }),
+    withLibraryLock(vm, job("b"), { sleep, waitMs: 5000 }),
   ]);
 
   expect(order).toEqual(["a start", "a end", "b start", "b end"]);
 });
 
-test("withLibraryLock gives up while another sync holds the lock, and takes over a stale one", async () => {
+test("withLibraryLock gives up while another sync holds the lock", async () => {
   const vm = createFakeVm();
-  vm.folders.add(VM_LIBRARY_LOCK);
+  await vm.lockLibrary("someone else", 60_000);
   const work = mock(() => Promise.resolve("done"));
-  // The fake VM dates every folder at 0, so a clock near 0 makes the lock fresh.
-  let now = 1000;
-  const clock = {
-    now: () => now,
-    sleep: (ms: number) => {
-      now += ms;
-      return Promise.resolve();
-    },
-  };
+  let now = 0;
 
   await expect(
-    withLibraryLock(vm, work, { ...quickLock, clock, staleMs: 60_000 })
+    withLibraryLock(vm, work, {
+      now: () => now,
+      sleep: (ms) => {
+        now += ms;
+        return instantSleep();
+      },
+      waitMs: 1000,
+    })
   ).rejects.toThrow("Another sync holds the library lock");
-  expect(work).not.toHaveBeenCalled();
-  expect(vm.folders.has(VM_LIBRARY_LOCK)).toBe(true);
 
-  now = 120_000;
-  await expect(
-    withLibraryLock(vm, work, { ...quickLock, clock, staleMs: 60_000 })
-  ).resolves.toBe("done");
-  expect(vm.folders.has(VM_LIBRARY_LOCK)).toBe(false);
+  expect(work).not.toHaveBeenCalled();
+  expect(vm.libraryLockOwner).toBe("someone else");
 });
 
-test("withLibraryLock releases the lock when the work throws", async () => {
+test("withLibraryLock releases only its own hold, and also when the work throws", async () => {
   const vm = createFakeVm();
 
   await expect(
-    withLibraryLock(vm, () => Promise.reject(new Error("boom")), quickLock)
+    withLibraryLock(vm, () => Promise.reject(new Error("boom")))
   ).rejects.toThrow("boom");
-  expect(vm.folders.has(VM_LIBRARY_LOCK)).toBe(false);
+  expect(vm.libraryLockOwner).toBeNull();
+
+  // A hold taken over by another owner is not released by the old one.
+  await withLibraryLock(vm, async () => {
+    await vm.unlockLibrary(vm.libraryLockOwner ?? "");
+    await vm.lockLibrary("takeover", 60_000);
+  });
+  expect(vm.libraryLockOwner).toBe("takeover");
+});
+
+test("a failed release is warned and does not fail the sync", async () => {
+  const vm = createFakeVm();
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  vm.unlockLibrary = () => Promise.reject(new Error("vm gone"));
+
+  await expect(withLibraryLock(vm, () => Promise.resolve(7))).resolves.toBe(7);
+  expect(warn).toHaveBeenCalled();
 });

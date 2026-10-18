@@ -1117,3 +1117,34 @@ describe("createVmCore: workspace.snapshot", () => {
     });
   });
 });
+
+describe("createVmCore: the library lock", () => {
+  test("one owner holds it at a time, and the same owner renews it", async () => {
+    const { core } = setup();
+
+    expect(await core.lockLibrary("a", 1000)).toBe(true);
+    expect(await core.lockLibrary("b", 1000)).toBe(false);
+    expect(await core.lockLibrary("a", 1000)).toBe(true);
+  });
+
+  test("a release by another owner changes nothing, and the owner's release frees it", async () => {
+    const { core } = setup();
+    await core.lockLibrary("a", 1000);
+
+    await core.unlockLibrary("b");
+    expect(await core.lockLibrary("b", 1000)).toBe(false);
+
+    await core.unlockLibrary("a");
+    expect(await core.lockLibrary("b", 1000)).toBe(true);
+  });
+
+  test("a hold ends by itself after its time to live", async () => {
+    const { clock, core } = setup();
+    await core.lockLibrary("a", 1000);
+
+    clock.now += 999;
+    expect(await core.lockLibrary("b", 1000)).toBe(false);
+    clock.now += 2;
+    expect(await core.lockLibrary("b", 1000)).toBe(true);
+  });
+});

@@ -26,6 +26,8 @@ export interface FakeVm extends LinuxVm {
   files: Map<string, Uint8Array>;
   /** Folders, absolute, the root and the workdir included. */
   folders: Set<string>;
+  /** The owner that holds the library lock now, or null. Its hold never expires on its own. */
+  libraryLockOwner: string | null;
   /** What the next `exec` calls answer. The default is exit 0 with no output. */
   onExec: (input: VmExecInput) => VmExecResult | Promise<VmExecResult>;
   /** Every `setRun` call, in order. */
@@ -135,6 +137,7 @@ export const createFakeVm = (): FakeVm => {
     }
     return [...entries.values()];
   };
+  let lockUntil = 0;
   const fake: FakeVm = {
     checkpoint: (run) => {
       checkpointCalls.push(run);
@@ -149,6 +152,7 @@ export const createFakeVm = (): FakeVm => {
     execCalls,
     files,
     folders,
+    libraryLockOwner: null,
     list: (path) => {
       if (files.has(path)) {
         return Promise.reject(
@@ -159,6 +163,18 @@ export const createFakeVm = (): FakeVm => {
         return Promise.reject(missing(path));
       }
       return Promise.resolve(childrenOf(path));
+    },
+    lockLibrary: (owner, ttlMs) => {
+      if (
+        fake.libraryLockOwner !== null &&
+        fake.libraryLockOwner !== owner &&
+        lockUntil > Date.now()
+      ) {
+        return Promise.resolve(false);
+      }
+      fake.libraryLockOwner = owner;
+      lockUntil = Date.now() + ttlMs;
+      return Promise.resolve(true);
     },
     mkdir: (path, options) => {
       if (
@@ -262,6 +278,12 @@ export const createFakeVm = (): FakeVm => {
       return folders.has(path)
         ? Promise.resolve({ kind: "directory", mtimeMs: 0, size: 0 })
         : Promise.reject(missing(path));
+    },
+    unlockLibrary: (owner) => {
+      if (fake.libraryLockOwner === owner) {
+        fake.libraryLockOwner = null;
+      }
+      return Promise.resolve();
     },
     writeFile: (path, bytes) => {
       if (folders.has(path)) {

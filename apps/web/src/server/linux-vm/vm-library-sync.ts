@@ -20,7 +20,6 @@ import type { RunStorage } from "../pi-run-core.ts";
 import {
   type LinuxVm,
   VM_LIBRARY_DIR,
-  VM_LIBRARY_LOCK,
   VM_LIBRARY_MANIFEST,
   VmFileError,
 } from "./vm-port.ts";
@@ -226,70 +225,58 @@ export const libraryRemotePort = (
 
 const LOCK_RETRY_MS = 250;
 const LOCK_WAIT_MS = 30_000;
-/** A sync takes seconds. A lock this old belongs to a sync that died, for example with its Durable Object. */
-const LOCK_STALE_MS = 120_000;
+/** A sync takes seconds. A hold this old belongs to a sync that died, for example with its Durable Object. */
+const LOCK_TTL_MS = 300_000;
 
-const realClock = {
-  now: () => Date.now(),
-  sleep: (ms: number) =>
-    new Promise<void>((resolve) => {
-      setTimeout(resolve, ms);
-    }),
-};
+const realSleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 interface LockOptions {
-  clock?: { now: () => number; sleep: (ms: number) => Promise<void> };
+  now?: () => number;
   retryMs?: number;
-  staleMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  ttlMs?: number;
   waitMs?: number;
 }
 
 /**
- * Runs `work` while holding the VM's library lock, a folder made with a plain
- * `mkdir`, which fails when it exists. Sessions of one agent share the VM, the
- * working copy and its manifest, and each has its own Durable Object, so only
- * the VM can tell them to take turns. Waits up to `waitMs` for the holder, then
- * throws. A lock older than `staleMs` is taken over.
+ * Runs `work` while this call holds the VM's library lock. Sessions of one
+ * agent share the VM, its working copy and its manifest, so their syncs take
+ * turns through the VM's Durable Object (`lockLibrary`). Waits up to `waitMs`
+ * for the holder, then throws. The hold expires after `ttlMs`, and the release
+ * gives back only this call's own hold.
  */
 export const withLibraryLock = async <T>(
   vm: LinuxVm,
   work: () => Promise<T>,
   {
-    clock = realClock,
+    now = Date.now,
     retryMs = LOCK_RETRY_MS,
-    staleMs = LOCK_STALE_MS,
+    sleep = realSleep,
+    ttlMs = LOCK_TTL_MS,
     waitMs = LOCK_WAIT_MS,
   }: LockOptions = {}
 ): Promise<T> => {
-  const giveUpAt = clock.now() + waitMs;
-  for (;;) {
-    try {
-      // biome-ignore lint/performance/noAwaitInLoops: each try follows the failure of the one before
-      await vm.mkdir(VM_LIBRARY_LOCK);
-      break;
-    } catch (error) {
-      if (!(error instanceof VmFileError && error.code === "EEXIST")) {
-        throw error;
-      }
-      const held = await vm.stat(VM_LIBRARY_LOCK).catch(() => null);
-      if (held === null || clock.now() - held.mtimeMs > staleMs) {
-        await vm.remove(VM_LIBRARY_LOCK, { force: true, recursive: true });
-        continue;
-      }
-      if (clock.now() >= giveUpAt) {
-        throw new Error("Another sync holds the library lock", {
-          cause: error,
-        });
-      }
-      await clock.sleep(retryMs);
+  const owner = crypto.randomUUID();
+  const giveUpAt = now() + waitMs;
+  // biome-ignore lint/performance/noAwaitInLoops: each try follows the failure of the one before
+  while (!(await vm.lockLibrary(owner, ttlMs))) {
+    if (now() >= giveUpAt) {
+      throw new Error("Another sync holds the library lock");
     }
+    await sleep(retryMs);
   }
   try {
     return await work();
   } finally {
-    await vm
-      .remove(VM_LIBRARY_LOCK, { force: true, recursive: true })
-      .catch(() => undefined);
+    await vm.unlockLibrary(owner).catch((error: unknown) => {
+      console.warn(
+        "PiRun: giving back the library lock failed, it ends by itself",
+        messageOf(error)
+      );
+    });
   }
 };
 

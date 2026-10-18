@@ -686,6 +686,28 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
       }
     });
 
+  /** Held in memory: a Durable Object that restarts has lost the work of the owner that held it too. */
+  let libraryLock: { owner: string; until: number } | undefined;
+
+  const lockLibrary: LinuxVm["lockLibrary"] = (owner, ttlMs) => {
+    if (
+      libraryLock !== undefined &&
+      libraryLock.owner !== owner &&
+      libraryLock.until > now()
+    ) {
+      return Promise.resolve(false);
+    }
+    libraryLock = { owner, until: now() + ttlMs };
+    return Promise.resolve(true);
+  };
+
+  const unlockLibrary: LinuxVm["unlockLibrary"] = (owner) => {
+    if (libraryLock?.owner === owner) {
+      libraryLock = undefined;
+    }
+    return Promise.resolve();
+  };
+
   const setRun: LinuxVm["setRun"] = ({ agentId, runId, workspaceId }) =>
     storage.put<VmEgressRun>(RUN_KEY, { agentId, runId, workspaceId });
 
@@ -737,6 +759,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     checkpoint,
     exec,
     list,
+    lockLibrary,
     mkdir,
     readFile,
     remove,
@@ -745,6 +768,7 @@ export const createVmCore = <TSnapshot extends VmSnapshot>({
     setRun,
     sleepNow,
     stat,
+    unlockLibrary,
     wake,
     writeFile,
   };
