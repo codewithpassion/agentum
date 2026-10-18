@@ -100,6 +100,7 @@ describe("workspaceInstructions", () => {
     expect(text).toContain("- Home: /library/agents/support/.");
     expect(text).toContain("- Library: /library.");
     expect(text).toContain("no scratch folder");
+    expect(text).toContain("outside home and the library");
     expect(text).toContain("kept for one tool call only");
     expect(text).not.toContain("library tools");
   });

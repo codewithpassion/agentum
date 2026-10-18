@@ -2,6 +2,8 @@
 //
 // An agent hands a file back to the chat by writing `[ATTACHMENT:path]` in its
 // reply. Skills rely on this exact syntax, so the pattern below is the contract.
+//
+// The workspace instructions builder lives here too, since it ends with the same marker line.
 
 export const ATTACHMENT_MARKER_RE = /\[ATTACHMENT:([^\]]+)\]/g;
 /** Write a marker for `path`, the inverse of what `ATTACHMENT_MARKER_RE` reads. */
@@ -52,11 +54,15 @@ const homeLine = ({ home, homeIsLocal }: WorkspaceInstructionsInput): string =>
     ? `- Home: ${home}. It is yours and keeps its files across all your sessions. Relative paths start here. Keep notes, code and data you want to find again here. Other sessions of yours may use it at the same time.`
     : `- Home: the library folder ${home}. It is yours and keeps its files across all your sessions. It is not a folder on your disk, so reach it with the library tools. Keep notes and data you want to find again here.`;
 
-const scratchLine = ({ scratch }: WorkspaceInstructionsInput): string => {
+const scratchLine = ({
+  library,
+  scratch,
+}: WorkspaceInstructionsInput): string => {
   const ends = SCRATCH_ENDS[scratch.lasts];
+  const kept = library ? "home and the library" : "home";
   const where = scratch.path
     ? `${scratch.path}. Use it for downloads, builds and temporary files. It is ${ends}`
-    : `no scratch folder. Files you write outside home are ${ends}`;
+    : `no scratch folder. Files you write outside ${kept} are ${ends}`;
   return `- Scratch: ${where}, so never keep anything there that you need later.`;
 };
 
