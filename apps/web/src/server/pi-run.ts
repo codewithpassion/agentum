@@ -44,6 +44,7 @@ import {
   inputContent,
   type RunFilesPort,
   uploadOutputs,
+  uploadVmOutputs,
 } from "./pi-run-files.ts";
 import { RunLeaseAlarm } from "./pi-run-lease.ts";
 import {
@@ -624,11 +625,16 @@ export class PiRun extends DurableObject<Env> {
             ? undefined
             : cloudModelError(model),
         outputsOf: async (run, text) => {
+          const port = this.#filesPort(() => Promise.resolve(run));
+          // A VM agent's files are in the VM.
+          if (this.#vm) {
+            return uploadVmOutputs(text, this.#vm, port);
+          }
           // The isolate's file tools start in the agent's home, so a relative marker is read from there.
-          const slug = this.#vm ? undefined : await this.#agentSlug();
+          const slug = await this.#agentSlug();
           return uploadOutputs(
             text,
-            this.#filesPort(() => Promise.resolve(run)),
+            port,
             slug ? agentHomePath(slug) : undefined
           );
         },
