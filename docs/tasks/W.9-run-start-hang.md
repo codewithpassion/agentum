@@ -26,3 +26,4 @@ Found in the W.7 staging check on 18 Oct 2026 (notes in `/home/roboto/devel/harb
 ## Log
 - 2026-10-18: added at Dom's request. dispatched.
 - 2026-10-18: review clean after 3 fix rounds at e154ad0 (docs/reviews/tasks/W.9.md); third round approved by the controller. Cause: the cloud run was claimed inside the browser's runs.start request before the slow PiRun DO call; dispatch now only wakes the DO, and an alarm claims and starts the run. Merged. Staging check pending.
+- 2026-10-18: staging check passed (6/6 runs on VM and isolate finished after leaving the page at once; two chats in order). Seen: cold runs sit queued 60 to 110 s, then go straight to done; a run posted 0.4 s later in a warm session overtook a new-session run of the same agent.
