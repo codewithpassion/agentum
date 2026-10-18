@@ -125,6 +125,60 @@ describe("workspaceInstructions", () => {
     }
   });
 
+  test("describes a synced library folder with its paths and conflict rule", () => {
+    const text = workspaceInstructions({
+      ...isolate,
+      syncedPaths: ["agents/ada", "shared/brand"],
+    });
+    expect(text).toContain(
+      "- Library: /library holds a synced copy of agents/ada, shared/brand from the workspace library."
+    );
+    expect(text).toContain("saved next to it as <file>.conflict-<runId>");
+    expect(text).toContain("reach it with the library tools");
+  });
+
+  test("keeps the library line unchanged without synced paths", () => {
+    const unchanged =
+      "- Library: /library. It is shared with every agent and person in this workspace and kept for good. Put finished work that people or other agents should see there.";
+    expect(workspaceInstructions(isolate)).toContain(unchanged);
+    expect(workspaceInstructions({ ...isolate, syncedPaths: [] })).toContain(
+      unchanged
+    );
+  });
+
+  test("lists conflict copies under a local library path", () => {
+    const text = workspaceInstructions({
+      ...isolate,
+      conflicts: ["agents/ada/notes.md"],
+    });
+    expect(text).toContain(
+      "- Conflicts: 1 of your earlier changes could not be saved because the library file changed first."
+    );
+    expect(text).toContain("delete the copy: /library/agents/ada/notes.md.");
+    expect(text.indexOf("- Conflicts:")).toBeGreaterThan(
+      text.indexOf("- Library:")
+    );
+  });
+
+  test("lists conflict copies as bare library paths when library is null", () => {
+    const text = workspaceInstructions({
+      ...managed,
+      conflicts: ["shared/brand/guide.md", "agents/support/plan.md"],
+    });
+    expect(text).toContain("- Conflicts: 2 of your earlier changes");
+    expect(text).toContain(
+      "delete the copy: shared/brand/guide.md, agents/support/plan.md."
+    );
+    expect(text).not.toContain("/library");
+  });
+
+  test("adds no conflicts line when the list is empty or absent", () => {
+    expect(workspaceInstructions({ ...isolate, conflicts: [] })).not.toContain(
+      "Conflicts:"
+    );
+    expect(workspaceInstructions(isolate)).not.toContain("Conflicts:");
+  });
+
   test("leaves the attachment line out when the runtime reads no markers", () => {
     const text = workspaceInstructions({ ...managed, attachments: false });
     expect(text).not.toContain("[ATTACHMENT:");

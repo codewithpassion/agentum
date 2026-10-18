@@ -17,6 +17,7 @@ import {
 } from "./cloud/environment.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
+import { libraryPathsError } from "./library/sync-paths.ts";
 import type { Principal } from "./workspaces.ts";
 
 const AGENT_CREATE = "agents.create";
@@ -37,7 +38,7 @@ const modelSchema = z.string().min(1).max(100);
 const machineIdSchema = z.string().min(1).max(200);
 const runtimeConfigSchema = z.record(z.string(), z.json());
 
-/** Fails an agent whose `runtimeConfig` names a cloud environment that does not exist, or that sets one on an agent that does not run in the cloud. */
+/** Fails an agent whose `runtimeConfig` names a cloud environment that does not exist, or that sets one on an agent that does not run in the cloud, or whose library paths are invalid. */
 const assertRuntimeConfig = (
   runtime: AgentRuntime,
   runtimeConfig: Record<string, unknown>
@@ -45,6 +46,10 @@ const assertRuntimeConfig = (
   const issue = cloudEnvironmentError(runtimeConfig);
   if (issue !== undefined) {
     throw new ServiceError("invalid", issue);
+  }
+  const pathIssue = libraryPathsError(runtimeConfig);
+  if (pathIssue !== undefined) {
+    throw new ServiceError("invalid", pathIssue);
   }
   if (runtime !== "cloud" && CLOUD_ENVIRONMENT_KEY in runtimeConfig) {
     throw new ServiceError(

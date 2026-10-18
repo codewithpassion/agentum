@@ -31,6 +31,8 @@ export type ScratchLifetime =
 export interface WorkspaceInstructionsInput {
   /** False when the runtime never reads `[ATTACHMENT:...]` markers, so the line is left out. Default true. */
   attachments?: boolean;
+  /** Library paths of conflict copies still waiting from earlier runs. Empty or absent adds no line. */
+  conflicts?: readonly string[];
   /**
    * Where the agent keeps its own files across sessions. A folder path when
    * `homeIsLocal`, otherwise a library-relative path such as `agents/<slug>/`.
@@ -42,6 +44,8 @@ export interface WorkspaceInstructionsInput {
   library: string | null;
   /** The temporary area. `path` is null when the runtime has no scratch folder. */
   scratch: { path: string | null; lasts: ScratchLifetime };
+  /** Library paths copied to the `library` folder. Only read when `library` is a path. */
+  syncedPaths?: readonly string[];
 }
 
 const SCRATCH_ENDS: Record<ScratchLifetime, string> = {
@@ -68,10 +72,32 @@ const scratchLine = ({
   return `- Scratch: ${where}, so never keep anything there that you need later.`;
 };
 
-const libraryLine = ({ library }: WorkspaceInstructionsInput): string =>
-  library
+const libraryLine = ({
+  library,
+  syncedPaths,
+}: WorkspaceInstructionsInput): string => {
+  if (library && syncedPaths && syncedPaths.length > 0) {
+    return `- Library: ${library} holds a synced copy of ${syncedPaths.join(", ")} from the workspace library. The library is shared with every agent and person in this workspace and kept for good. Your changes go back to it when your run ends. If someone changed the same file meanwhile, their version stays and yours is saved next to it as <file>.conflict-<runId>. The rest of the library is not on your disk, so reach it with the library tools.`;
+  }
+  return library
     ? `- Library: ${library}. It is shared with every agent and person in this workspace and kept for good. Put finished work that people or other agents should see there.`
     : "- Library: the workspace library. It is shared with every agent and person in this workspace and kept for good. It is not a folder on your disk, so reach it with the library tools. Put finished work that people or other agents should see there.";
+};
+
+const conflictsLines = ({
+  library,
+  conflicts,
+}: WorkspaceInstructionsInput): string[] => {
+  if (!conflicts || conflicts.length === 0) {
+    return [];
+  }
+  const list = conflicts
+    .map((path) => (library ? `${library}/${path}` : path))
+    .join(", ");
+  return [
+    `- Conflicts: ${conflicts.length} of your earlier changes could not be saved because the library file changed first. Your version is in each copy listed here. Compare it with the file beside it, keep what you want in that file, then delete the copy: ${list}.`,
+  ];
+};
 
 /**
  * The files section of an agent's system prompt: the same three areas (home,
@@ -87,6 +113,7 @@ export const workspaceInstructions = (
     homeLine(input),
     scratchLine(input),
     libraryLine(input),
+    ...conflictsLines(input),
     ...(input.attachments === false
       ? []
       : [

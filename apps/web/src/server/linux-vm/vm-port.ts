@@ -14,6 +14,15 @@
 export const VM_WORKDIR = "/workspace";
 /** The agent's home in the VM, and the default working folder. It is the only directory that is snapshotted. */
 export const VM_HOME_DIR = `${VM_WORKDIR}/home`;
+/**
+ * The working copy of part of the workspace library: the agent's folder
+ * `agents/<slug>` and the paths its config names. It is synced when a run
+ * starts and when it ends. It sits outside home on purpose, so a snapshot does
+ * not keep it, and the library stays the only copy that lasts.
+ */
+export const VM_LIBRARY_DIR = `${VM_WORKDIR}/library`;
+/** The sync manifest of the working copy, beside it and not inside it. */
+export const VM_LIBRARY_MANIFEST = `${VM_WORKDIR}/library.manifest.json`;
 
 export interface VmExecInput {
   command: string;

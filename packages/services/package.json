@@ -30,6 +30,7 @@
     "./library/home": "./src/library/home.ts",
     "./library/memory": "./src/library/memory.ts",
     "./library/skill-file": "./src/library/skill-file.ts",
+    "./library/sync-paths": "./src/library/sync-paths.ts",
     "./machines": "./src/machines.ts",
     "./machines/runtime": "./src/machines/runtime.ts",
     "./machines/types": "./src/machines/types.ts",

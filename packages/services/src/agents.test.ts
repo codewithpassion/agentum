@@ -288,6 +288,53 @@ test("create and update keep the cloud environment and refuse an unknown one", a
   ).rejects.toMatchObject({ code: "invalid" });
 });
 
+test("create and update keep the library paths and refuse a bad list", async () => {
+  const agent = await service.create(user, {
+    model: "sonnet",
+    name: "Synced agent",
+    runtime: "cloud",
+    runtimeConfig: {
+      environment: "linux-vm",
+      libraryPaths: ["projects/alpha"],
+    },
+  });
+  expect(agent.runtimeConfig).toEqual({
+    environment: "linux-vm",
+    libraryPaths: ["projects/alpha"],
+  });
+  const updated = await service.update(user, agent.id, {
+    runtimeConfig: { libraryPaths: ["notes/"] },
+  });
+  expect(updated.runtimeConfig).toEqual({ libraryPaths: ["notes/"] });
+
+  await expect(
+    service.create(user, {
+      model: "sonnet",
+      name: "Escaping paths",
+      runtime: "cloud",
+      runtimeConfig: { libraryPaths: ["../secrets"] },
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+  await expect(
+    service.update(user, agent.id, { runtimeConfig: { libraryPaths: [""] } })
+  ).rejects.toMatchObject({ code: "invalid" });
+  await expect(
+    service.update(user, agent.id, { runtimeConfig: { libraryPaths: "notes" } })
+  ).rejects.toMatchObject({ code: "invalid" });
+  await expect(
+    service.update(user, agent.id, { runtimeConfig: { libraryPaths: ["/"] } })
+  ).rejects.toMatchObject({ code: "invalid" });
+
+  // The key is allowed for every runtime, not only the cloud.
+  const fake = await service.create(user, {
+    model: "m",
+    name: "Fake synced",
+    runtime: "fake",
+    runtimeConfig: { libraryPaths: ["notes"] },
+  });
+  expect(fake.runtimeConfig).toEqual({ libraryPaths: ["notes"] });
+});
+
 test("archive is idempotent and writes one event", async () => {
   const agent = await service.create(user, {
     model: "m",
