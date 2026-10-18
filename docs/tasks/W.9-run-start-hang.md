@@ -3,7 +3,7 @@ id: W.9
 title: Runs hang at run.started when the browser leaves the chat page
 milestone: W
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/W.9-run-start-hang
 ---
@@ -25,3 +25,4 @@ Found in the W.7 staging check on 18 Oct 2026 (notes in `/home/roboto/devel/harb
 
 ## Log
 - 2026-10-18: added at Dom's request. dispatched.
+- 2026-10-18: review clean after 3 fix rounds at e154ad0 (docs/reviews/tasks/W.9.md); third round approved by the controller. Cause: the cloud run was claimed inside the browser's runs.start request before the slow PiRun DO call; dispatch now only wakes the DO, and an alarm claims and starts the run. Merged. Staging check pending.
