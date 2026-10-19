@@ -12,42 +12,24 @@ const SLACK_MIN = 10;
 const AWS_BODY_LENGTH = 16;
 const JWT_HEADER = "eyJ";
 const JWT_SEGMENT_MIN = 8;
-const BEARER_MIN = 8;
+const CREDENTIAL_MIN = 8;
 
-// Credential fields. Names match as the tail of a key, so no name prefix is
+// A credential name followed by `:` or `=`. The name matches as the tail of a
+// key (`x-api-key`, `GITHUB_TOKEN`, `Set-Cookie`), so no name prefix is
 // captured. The separator must follow the name directly, which keeps words
-// such as "tokens", "token count" or "password reset" out of the match.
-const SEPARATOR = String.raw`(?:\\?["'])?[ \t]*[:=][ \t]*`;
-// Auth schemes whose word stays in the text. After any other first word, the
-// whole rest of the value is the credential, so a raw key is never mistaken
-// for a scheme.
-const SCHEME = String.raw`(?:bearer|basic|token|bot|apikey|api-key|key|ssws|negotiate|ntlm|oauth|jwt)[ \t]+`;
-const SCHEME_PREFIX = new RegExp(`^${SCHEME}`, "i");
-const SKIP_REDACTED = String.raw`(?!(?:\\?["'])?(?:${SCHEME})?\[(?:redacted\]|secret:))`;
-// A value in quotes, or in escaped quotes as inside a JSON body in a shell string.
-const QUOTED = String.raw`\\"(?!\\")[^\r\n]+?\\"|"[^"\r\n]+"|'[^'\r\n]+'`;
-const UNQUOTED = String.raw`[^\s"',;&})\]]+`;
-const FIELD_VALUE = `(?:${QUOTED}|${UNQUOTED})`;
-const REST_OF_LINE = String.raw`(?:${QUOTED}|[^\r\n"' \t][^\r\n"']*)`;
-const AUTH_VALUE = `(?:${SCHEME}${UNQUOTED}|${REST_OF_LINE})`;
-const COOKIE_VALUE = REST_OF_LINE;
-
-const AUTH_HEADER = new RegExp(
-  `(authorization${SEPARATOR})${SKIP_REDACTED}(${AUTH_VALUE})`,
-  "gi"
-);
-const COOKIE_HEADER = new RegExp(
-  `(cookie${SEPARATOR})${SKIP_REDACTED}(${COOKIE_VALUE})`,
-  "gi"
-);
-const CREDENTIAL_FIELD = new RegExp(
-  String.raw`((?<!\[)(?:token|secret(?:[_-]?access)?(?:[_-]?key)?|password|passwd|api[_-]?key)${SEPARATOR})${SKIP_REDACTED}(${FIELD_VALUE})`,
-  "gi"
-);
-const BEARER_TOKEN = new RegExp(
-  String.raw`(?<![A-Za-z0-9_-])(Bearer[ \t]+)[A-Za-z0-9._~+/=-]{${BEARER_MIN},}`,
+// such as "tokens", "token count" or "password reset" out of the match. Group
+// 1 is the quote that closes a quoted key (`"token":`, `\"token\":`).
+const CREDENTIAL_NAME =
+  /(?:(?<![A-Za-z[])(?:authorization|cookie|token|secret|password|passwd|api[_-]?key)|(?<=[-_])key)(\\?["'])?[ \t]*[:=][ \t]*/gi;
+// A bare auth scheme word followed by something shaped like a credential: at
+// least 8 token characters, with at least one that is not a lowercase letter,
+// so prose such as "Basic authentication" stays as written.
+const SCHEME_WORD = new RegExp(
+  String.raw`(?<![A-Za-z0-9_-])(?:[Bb]earer|BEARER|[Bb]asic|BASIC|[Oo][Aa]uth|OAUTH|[Tt]oken|TOKEN)[ \t]+(?=[A-Za-z0-9._~+/=-]{${CREDENTIAL_MIN},})(?=[a-z]*[^a-z\s])`,
   "g"
 );
+const WORD_CHAR = /[\w-]/;
+const PLACEHOLDERS = ["[redacted]", "[secret:"];
 
 // Each pattern is anchored by a lookbehind so a run of token characters
 // cannot restart a match at every position.
@@ -70,38 +52,98 @@ const WELL_KNOWN_TOKENS: readonly RegExp[] = [
   ),
 ];
 
-// Keeps the quotes and an auth scheme word, and replaces the rest of the value.
-function maskValue(value: string, keepScheme: boolean): string {
-  let quote = "";
-  if (value.startsWith('\\"')) {
-    quote = '\\"';
-  } else if (value.startsWith('"') || value.startsWith("'")) {
-    quote = value.charAt(0);
+const isLineBreak = (char: string | undefined): boolean =>
+  char === "\n" || char === "\r";
+
+/** The quote that opens a value at `at`, `\\"` for an escaped one, or "". */
+function openerAt(text: string, at: number): string {
+  if (text.startsWith('\\"', at)) {
+    return '\\"';
   }
-  const inner = quote ? value.slice(quote.length, -quote.length) : value;
-  const scheme = keepScheme ? (inner.match(SCHEME_PREFIX)?.[0] ?? "") : "";
-  return `${quote}${scheme}${REDACTED}${quote}`;
+  const char = text.charAt(at);
+  return char === '"' || char === "'" ? char : "";
+}
+
+/** The quote that opens the string a key sits in, read from just before the key. */
+function enclosingQuote(text: string, keyAt: number): string {
+  let start = keyAt;
+  while (start > 0 && WORD_CHAR.test(text.charAt(start - 1))) {
+    start -= 1;
+  }
+  if (start >= 2 && text.startsWith('\\"', start - 2)) {
+    return '\\"';
+  }
+  const char = text.charAt(start - 1);
+  return char === '"' || char === "'" ? char : "";
+}
+
+interface Span {
+  closed: boolean;
+  end: number;
+}
+
+/** Where a value ends: at `quote` (not escaped) when one is given, else at the line end. */
+function spanOf(text: string, from: number, quote: string): Span {
+  for (let at = from; at < text.length; at += 1) {
+    if (isLineBreak(text.charAt(at))) {
+      return { closed: false, end: at };
+    }
+    if (
+      quote !== "" &&
+      text.startsWith(quote, at) &&
+      (quote === '\\"' || text.charAt(at - 1) !== "\\")
+    ) {
+      return { closed: true, end: at };
+    }
+  }
+  return { closed: false, end: text.length };
+}
+
+const isPlaceholder = (text: string, at: number): boolean =>
+  PLACEHOLDERS.some((placeholder) => text.startsWith(placeholder, at));
+
+/**
+ * Replaces what follows each match of `pattern`, up to the end of the line. A
+ * quoted value ends at its closing quote, and so does a value inside a string
+ * the key opened (`-H "x-api-key: v"`), so the rest of that line stays. A
+ * quote that never closes, or output cut off mid-value, runs to the line end.
+ * The scan resumes after the replaced text, so the cost stays linear.
+ */
+function redactAfter(text: string, pattern: RegExp): string {
+  let out = "";
+  let cursor = 0;
+  for (const match of text.matchAll(pattern)) {
+    const keyAt = match.index;
+    const valueAt = keyAt + match[0].length;
+    const opener = openerAt(text, valueAt);
+    const inner = valueAt + opener.length;
+    if (
+      keyAt < cursor ||
+      inner >= text.length ||
+      isLineBreak(text.charAt(valueAt)) ||
+      isPlaceholder(text, inner)
+    ) {
+      continue;
+    }
+    const closing = opener || (match[1] ? "" : enclosingQuote(text, keyAt));
+    const span = spanOf(text, inner, closing);
+    if (opener !== "" && span.closed && span.end === inner) {
+      continue;
+    }
+    out += text.slice(cursor, inner) + REDACTED;
+    if (opener !== "" && span.closed) {
+      out += opener;
+      cursor = span.end + opener.length;
+    } else {
+      cursor = span.end;
+    }
+  }
+  return out + text.slice(cursor);
 }
 
 export function redactText(text: string): string {
-  const scrubbed = text
-    .replace(
-      AUTH_HEADER,
-      (_match: string, prefix: string, value: string) =>
-        `${prefix}${maskValue(value, true)}`
-    )
-    .replace(
-      COOKIE_HEADER,
-      (_match: string, prefix: string, value: string) =>
-        `${prefix}${maskValue(value, false)}`
-    )
-    .replace(
-      CREDENTIAL_FIELD,
-      (_match: string, prefix: string, value: string) =>
-        `${prefix}${maskValue(value, false)}`
-    )
-    .replace(BEARER_TOKEN, `$1${REDACTED}`);
-  let result = scrubbed;
+  let result = redactAfter(text, CREDENTIAL_NAME);
+  result = redactAfter(result, SCHEME_WORD);
   for (const pattern of WELL_KNOWN_TOKENS) {
     result = result.replace(pattern, REDACTED);
   }

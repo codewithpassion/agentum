@@ -218,13 +218,13 @@ test("tool.result output loses the bearer token, a JWT and a GitHub token", asyn
   const event = await service.append({
     ...base,
     payload: {
-      output: `Authorization: Bearer abc.def.ghi-jklmnop ${JWT} ${GITHUB_TOKEN}`,
+      output: `Authorization: Bearer abc.def.ghi-jklmnop\n${JWT}\n${GITHUB_TOKEN}`,
     },
     sessionId: "s1",
     type: "tool.result",
   });
   expect(event.payload).toEqual({
-    output: "Authorization: Bearer [redacted] [redacted] [redacted]",
+    output: "Authorization: [redacted]\n[redacted]\n[redacted]",
   });
 });
 
