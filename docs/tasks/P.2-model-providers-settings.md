@@ -3,7 +3,7 @@ id: P.2
 title: Settings page for model providers
 milestone: P
 size: S
-status: in_progress
+status: done
 depends_on: [P.1]
 branch: task/P.2-model-providers-settings
 ---
@@ -25,3 +25,4 @@ Asked for by Dom on 19 Oct 2026, from the report `docs/analysis/other-model-prov
 ## Log
 - 2026-10-19: added at Dom's request.
 - 2026-10-19: dispatched.
+- 2026-10-19: review clean after 0 fix rounds at aa07252 (docs/reviews/tasks/P.2.md). Merged.
