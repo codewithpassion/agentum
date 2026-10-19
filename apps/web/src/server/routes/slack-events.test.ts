@@ -43,6 +43,10 @@ const SUMMARY_NAME = "summary.txt";
 const SUMMARY_CONTENT = "Launch is on track.";
 const SUMMARY_TEXT = "Here is the summary.";
 const DM_FILE_THREAD_TS = "1789171203.000300";
+const UNLINKED_TEXT =
+  "I don't know you yet. Ask a Harbourmaster admin of this workspace to invite you, using the same email address as your Slack profile.";
+const HIDDEN_EMAIL_TEXT =
+  "I can't see the email address on your Slack profile, so I can't match you to a Harbourmaster account. Ask a Harbourmaster admin of this workspace to invite you, and make your email visible to apps in your Slack profile.";
 
 type Fixture = Record<string, unknown> & { event: Record<string, unknown> };
 
@@ -64,6 +68,7 @@ let deferred: (() => Promise<void>)[];
 let dropDeferred: boolean;
 let failAtomic: boolean;
 let slackCalls: SlackCall[];
+let slackEmail: string | null;
 let downloadStatus: number;
 let directory: {
   emailOwner: string | null;
@@ -136,7 +141,7 @@ const fakeSlack = async (
       ok: true,
       user: {
         id: "U0NEW",
-        profile: { email: "newcomer@example.com", real_name: "Newcomer" },
+        profile: { email: slackEmail, real_name: "Newcomer" },
       },
     },
   };
@@ -160,6 +165,7 @@ beforeEach(async () => {
   dropDeferred = false;
   failAtomic = false;
   slackCalls = [];
+  slackEmail = "newcomer@example.com";
   downloadStatus = OK;
   directory = { emailOwner: null, member: false };
   composed = composeWith({
@@ -522,11 +528,34 @@ test("an unlinked sender gets no run, a slack.unlinked_sender event, and is told
   const post = slackCalls.find((call) => call.method === "chat.postMessage");
   expect(post?.body).toMatchObject({
     channel: "D0DM",
-    text: "I don't know you yet. Ask Dom to add you.",
+    text: UNLINKED_TEXT,
     thread_ts: "1789171202.000200",
   });
+  expect(String(post?.body.text)).not.toContain("Dom");
   expect(post?.auth).toBe(`Bearer ${BOT_TOKEN}`);
   expect(db.select().from(identityLinks).all()).toHaveLength(1);
+});
+
+test("an unlinked sender whose Slack email is hidden is told to make it visible, and no link is made", async () => {
+  slackEmail = null;
+  directory = { emailOwner: "user_new", member: true };
+  const body = await fixture("dm");
+  body.event.user = "U0NEW";
+  const response = await send(body);
+
+  expect(response.status).toBe(OK);
+  expect(allRuns()).toHaveLength(0);
+  expect(db.select().from(identityLinks).all()).toHaveLength(1);
+  expect(eventTypes()).toEqual(["slack.unlinked_sender"]);
+
+  await runAfterJobs();
+  const post = slackCalls.find((call) => call.method === "chat.postMessage");
+  expect(post?.body).toMatchObject({
+    channel: "D0DM",
+    text: HIDDEN_EMAIL_TEXT,
+    thread_ts: "1789171202.000200",
+  });
+  expect(String(post?.body.text)).not.toContain("Dom");
 });
 
 test("an email match for a Clerk user outside the org creates no link", async () => {
@@ -539,7 +568,7 @@ test("an email match for a Clerk user outside the org creates no link", async ()
   expect(db.select().from(identityLinks).all()).toHaveLength(1);
   expect(
     slackCalls.find((call) => call.method === "chat.postMessage")?.body.text
-  ).toBe("I don't know you yet. Ask Dom to add you.");
+  ).toBe(UNLINKED_TEXT);
 });
 
 test("an email match for an org member creates the link and asks them to send again", async () => {

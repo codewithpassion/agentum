@@ -60,7 +60,10 @@ export type ReceiveResult =
 /** `slack_events_seen` rows older than this are trimmed. Slack retries within minutes. */
 const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
 const NO_TEXT_WITH_FILES = "(see the attached files)";
-const UNLINKED_REPLY = "I don't know you yet. Ask Dom to add you.";
+const UNLINKED_REPLY =
+  "I don't know you yet. Ask a Harbourmaster admin of this workspace to invite you, using the same email address as your Slack profile.";
+const HIDDEN_EMAIL_REPLY =
+  "I can't see the email address on your Slack profile, so I can't match you to a Harbourmaster account. Ask a Harbourmaster admin of this workspace to invite you, and make your email visible to apps in your Slack profile.";
 const LINKED_REPLY =
   "I linked your Slack account to your Harbourmaster account. Please send your message again.";
 const REGEX_SPECIALS = /[.*+?^${}()|[\]\\]/g;
@@ -172,7 +175,11 @@ export const createSlackService = ({
       workspace &&
       (await directory.isOrgMember(clerkUserId, workspace.clerkOrgId));
     if (!(email && clerkUserId && member)) {
-      await replyInThread(app, event, UNLINKED_REPLY);
+      await replyInThread(
+        app,
+        event,
+        email ? UNLINKED_REPLY : HIDDEN_EMAIL_REPLY
+      );
       return;
     }
     await db
