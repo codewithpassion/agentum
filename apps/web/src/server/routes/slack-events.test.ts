@@ -1,4 +1,4 @@
-import { beforeEach, expect, spyOn, test } from "bun:test";
+import { beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { type Atomic, sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { files as fileRows } from "@repo/db/schema/files";
@@ -305,6 +305,22 @@ const runAfterJobs = async () => {
 
 const allRuns = () => db.select().from(runRows).all();
 const allSeen = () => db.select().from(slackEventsSeen).all();
+const refusals = () =>
+  db
+    .select()
+    .from(eventRows)
+    .where(eq(eventRows.type, "slack.event_refused"))
+    .orderBy(asc(eventRows.id))
+    .all()
+    .map((row) => ({
+      agentId: row.agentId,
+      payload: JSON.parse(row.payload ?? "null") as unknown,
+      workspaceId: row.workspaceId,
+    }));
+const refusedReasons = () =>
+  refusals()
+    .map((row) => (row.payload as { reason: string }).reason)
+    .sort();
 const eventTypes = () =>
   db
     .select({ type: eventRows.type })
@@ -482,6 +498,72 @@ test("a team_id that does not match the app row is 401 even when the signature i
 
   expect((await send(body)).status).toBe(UNAUTHORIZED);
   expect(allRuns()).toHaveLength(0);
+});
+
+test("a bad signature from a known app writes one refusal, and a repeat in the window writes none", async () => {
+  const body = await fixture("mention");
+  const signature = `v0=${"f".repeat(64)}`;
+  const first = await send(body, { signature });
+  const second = await send(body, { signature });
+
+  expect([first.status, second.status]).toEqual([UNAUTHORIZED, UNAUTHORIZED]);
+  const written = refusals();
+  expect(written).toEqual([
+    {
+      agentId,
+      payload: { appId: "A0APP", reason: "signature" },
+      workspaceId,
+    },
+  ]);
+  const json = JSON.stringify(db.select().from(eventRows).all());
+  expect(json).not.toContain(SECRET);
+  expect(json).not.toContain(signature);
+  expect(json).not.toContain("what is the status of the launch?");
+});
+
+test("a team mismatch with a correct signature writes a team refusal, and a bad signature in the same minute still writes its own", async () => {
+  const body = await fixture("mention");
+  body.team_id = "T0OTHER";
+  await send(body);
+  await send(body);
+  expect(refusedReasons()).toEqual(["team"]);
+
+  await send(await fixture("mention"), { secret: "not-the-secret" });
+  expect(refusedReasons()).toEqual(["signature", "team"]);
+  expect(allRuns()).toHaveLength(0);
+});
+
+test("an unknown app id writes no event and logs a warning with the app id", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    const unknown = await fixture("mention");
+    unknown.api_app_id = "A0OTHER";
+    expect((await send(unknown)).status).toBe(UNAUTHORIZED);
+
+    expect(refusals()).toEqual([]);
+    expect(warn.mock.calls).toEqual([
+      ["Slack event refused: unknown app", "A0OTHER"],
+    ]);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test("a refusal is written again once the window has passed", async () => {
+  setSystemTime(new Date(nowMs));
+  try {
+    const signature = `v0=${"e".repeat(64)}`;
+    await send(await fixture("mention"), { signature });
+    expect(refusedReasons()).toEqual(["signature"]);
+
+    nowMs += 11 * MINUTE_MS;
+    setSystemTime(new Date(nowMs));
+    await send(await fixture("mention"), { signature });
+
+    expect(refusedReasons()).toEqual(["signature", "signature"]);
+  } finally {
+    setSystemTime();
+  }
 });
 
 test("a bot's own message is ignored", async () => {
