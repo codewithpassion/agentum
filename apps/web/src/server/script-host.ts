@@ -29,7 +29,7 @@ export class ScriptHost
   extends WorkerEntrypoint<Env, ScriptHostProps>
   implements ScriptHostApi
 {
-  private host(): ScriptHostApi {
+  #host(): ScriptHostApi {
     const { services } = compose(this.env, import.meta.env.DEV);
     const { home, network, run } = this.ctx.props;
     const principal: Principal = {
@@ -53,18 +53,18 @@ export class ScriptHost
   }
 
   list(dir: string): Promise<HostEntry[]> {
-    return this.host().list(dir);
+    return this.#host().list(dir);
   }
 
   read(path: string): Promise<Uint8Array> {
-    return this.host().read(path);
+    return this.#host().read(path);
   }
 
   send(request: HostFetchRequest): Promise<HostFetchResult> {
-    return this.host().send(request);
+    return this.#host().send(request);
   }
 
   write(path: string, bytes: Uint8Array): Promise<void> {
-    return this.host().write(path, bytes);
+    return this.#host().write(path, bytes);
   }
 }

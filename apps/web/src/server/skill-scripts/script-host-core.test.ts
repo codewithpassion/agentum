@@ -184,4 +184,20 @@ describe("createScriptHost send", () => {
       await host.send({ headers: [], method: "GET", url: "https://x" })
     ).toEqual({ message: "The request failed.", ok: false });
   });
+
+  test("refuses arguments of the wrong type before they reach the library", async () => {
+    const { calls, ops } = fakeOps();
+    const host = createScriptHost({ fetcher: undefined, home: HOME, ops });
+    const loose = host as unknown as Record<
+      "list" | "read" | "write",
+      (...args: unknown[]) => Promise<unknown>
+    >;
+    await expect(loose.write("a.txt", "not bytes")).rejects.toThrow(
+      "Uint8Array"
+    );
+    await expect(loose.write(42, BYTES)).rejects.toThrow("string");
+    await expect(loose.read({})).rejects.toThrow("string");
+    await expect(loose.list(null)).rejects.toThrow("string");
+    expect(calls).toEqual([]);
+  });
 });
