@@ -65,6 +65,7 @@
     "./slack/apps": "./src/slack/apps.ts",
     "./slack/gateway": "./src/slack/gateway.ts",
     "./slack/guidance": "./src/slack/guidance.ts",
+    "./slack/manifest": "./src/slack/manifest.ts",
     "./slack/signature": "./src/slack/signature.ts",
     "./slack/threads": "./src/slack/threads.ts",
     "./triggers": "./src/triggers.ts",
