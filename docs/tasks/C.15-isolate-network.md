@@ -3,7 +3,7 @@ id: C.15
 title: Network access for isolate agents, on by default, switchable per agent
 milestone: C
 size: M
-status: todo
+status: in_progress
 depends_on: []
 branch: task/C.15-isolate-network
 ---
@@ -27,3 +27,4 @@ Asked for by Dom on 19 Oct 2026. Cloud agents in the isolate environment have no
 
 ## Log
 - 2026-10-19: added at Dom's request.
+- 2026-10-19: dispatched.

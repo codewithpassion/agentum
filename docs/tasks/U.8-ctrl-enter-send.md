@@ -3,7 +3,7 @@ id: U.8
 title: Ctrl+Enter sends a chat message, Enter adds a new line
 milestone: U
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/U.8-ctrl-enter-send
 ---
@@ -24,3 +24,4 @@ Asked for by Dom on 19 Oct 2026. In the chat composer, Ctrl+Enter (Cmd+Enter on 
 ## Log
 - 2026-10-19: added at Dom's request.
 - 2026-10-19: dispatched.
+- 2026-10-19: review clean after 0 fix rounds at 4cfa8f7 (docs/reviews/tasks/U.8.md). Merged.
