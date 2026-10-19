@@ -3,7 +3,7 @@ id: U.10
 title: Group the sidebar and gather workspace settings into one Settings area
 milestone: U
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/U.10-navigation-settings
 ---
@@ -64,3 +64,4 @@ Units run in waves. Units in the same wave touch disjoint files and can run at t
 ## Log
 - 2026-10-19: added at Dom's request.
 - 2026-10-19: dispatched with the analysis defaults.
+- 2026-10-19: review clean after 0 fix rounds at a94cd2e (docs/reviews/tasks/U.10.md). Merged.
