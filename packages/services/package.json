@@ -41,6 +41,7 @@
     "./managed/service": "./src/managed/service.ts",
     "./managed/skills-source": "./src/managed/skills-source.ts",
     "./managed/types": "./src/managed/types.ts",
+    "./model-keys": "./src/model-keys.ts",
     "./oauth-clients": "./src/oauth-clients.ts",
     "./run-skills": "./src/run-skills.ts",
     "./run-tokens": "./src/run-tokens.ts",
