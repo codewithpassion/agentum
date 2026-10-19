@@ -3,9 +3,9 @@
 // the Worker puts the real credential on the call, so a connector secret never
 // leaves it. Per request, in this order: verify the run token (signature, age,
 // and the run is `running` with a live lease), find the agent's assignment of
-// the connector (403 when there is none), resolve the credential, forward, cap
-// the wait, and append one event. A refused credential is refreshed once and
-// the call is tried again.
+// the connector (403 when there is none), resolve the credential, forward, bound
+// the wait by the connector's call timeout, and append one event. A refused
+// credential is refreshed once and the call is tried again.
 // Mount with `accessRoutes.route("/api/proxy", proxyRoutes())`.
 
 import type { Fetcher } from "@repo/services/connectors/mcp";
@@ -24,8 +24,9 @@ import { type AppEnv, bearerGroup } from "./groups.ts";
 
 /** Largest JSON-RPC request body forwarded; a real one is a few KB. */
 export const MAX_PROXY_BODY_BYTES = 1024 * 1024;
-/** Longest a forwarded call may take: Dom's answer to open question 9. */
+/** Default wall-clock cap for egress calls (`egress.ts`). The connector proxy uses each connector's `callTimeoutSeconds`. */
 export const PROXY_CAP_MS = 5 * 60 * 1000;
+const MS_PER_SECOND = 1000;
 
 const RETRY_AFTER_SECONDS = "30";
 const UNAUTHORIZED = 401;
@@ -52,12 +53,12 @@ type LogEntry = Record<string, unknown>;
 type RouteContext = Context<AppEnv>;
 
 export interface ProxyRouteOptions {
-  /** Wall-clock cap on one forwarded call. */
-  capMs?: number;
   /** How calls reach the connector. The global `fetch` by default. */
   fetch?: Fetcher;
   /** Structured log line. `console.log` of JSON by default (`wrangler tail`). */
   log?: (entry: LogEntry) => void;
+  /** The signal that ends a forwarded call at its limit (ms). `AbortSignal.timeout` by default. */
+  timeout?: (ms: number) => AbortSignal;
 }
 
 const defaultLog = (entry: LogEntry) => {
@@ -237,8 +238,10 @@ const sendUpstream = async ({
     const bytes = new Uint8Array(await response.arrayBuffer());
     return { bytes: scrub(bytes, credential), ok: true, response };
   } catch (error: unknown) {
+    // A stalled body can fail with another error, so the signal decides too.
     const timedOut =
-      error instanceof DOMException && error.name === "TimeoutError";
+      signal.aborted ||
+      (error instanceof DOMException && error.name === "TimeoutError");
     return { kind: timedOut ? "timeout" : "unreachable", ok: false };
   }
 };
@@ -344,16 +347,18 @@ const allowedUrl = (raw: string): string | null => {
 
 /** A sender for one call. Its single deadline covers a refresh and the second try too. */
 const upstreamSender = ({
-  capMs,
+  limitMs,
+  timeout,
   ...rest
 }: {
   body: Uint8Array<ArrayBuffer>;
-  capMs: number;
   fetchImpl: Fetcher;
+  limitMs: number;
   request: Request;
+  timeout: (ms: number) => AbortSignal;
   url: string;
 }) => {
-  const signal = AbortSignal.timeout(capMs);
+  const signal = timeout(limitMs);
   return (credential: Credential) =>
     sendUpstream({ ...rest, credential, signal });
 };
@@ -402,12 +407,10 @@ const sendWithRefresh = async ({
 /** The answers for a call that did not reach the connector, each with its event. */
 const responders = ({
   call,
-  capMs,
   origin,
   record,
 }: {
   call: RpcCall;
-  capMs: number;
   origin: string;
   record: Recorder;
 }) => {
@@ -435,36 +438,58 @@ const responders = ({
     });
   };
 
+  const timedOut = async ({
+    connectorName,
+    limitSeconds,
+    ms,
+    ownerKind,
+  }: {
+    connectorName: string;
+    limitSeconds: number;
+    ms: number;
+    ownerKind: string | null;
+  }): Promise<Response> => {
+    await record("connector.call", {
+      limitSeconds,
+      method: call.method,
+      ms,
+      outcome: "timeout",
+      ownerKind,
+      tool: call.tool,
+    });
+    const target = call.tool ?? call.method ?? "request";
+    return rpcError(
+      call,
+      `${connectorName} ${target} timed out after ${limitSeconds} s. Try a smaller request or retry.`,
+      { code: "timeout" }
+    );
+  };
+
+  const unreachable = async (): Promise<Response> => {
+    await record("connector.call", {
+      method: call.method,
+      outcome: "unreachable",
+      tool: call.tool,
+    });
+    return rpcError(call, "The connector could not be reached.");
+  };
+
   return {
     declined: (result: Declined): Promise<Response> =>
       result.reason === "needs_auth" ? refuse(result) : askAgain(),
-    failed: async (kind: "timeout" | "unreachable"): Promise<Response> => {
-      if (kind === "timeout") {
-        await record("connector.timeout", {
-          capMs,
-          method: call.method,
-          tool: call.tool,
-        });
-        return rpcError(
-          call,
-          `The connector did not answer within ${Math.round(capMs / 1000)} seconds, so the call was stopped.`,
-          { code: "timeout" }
-        );
-      }
-      await record("connector.call", {
-        method: call.method,
-        outcome: "unreachable",
-        tool: call.tool,
-      });
-      return rpcError(call, "The connector could not be reached.");
-    },
+    /** A send that failed: a timeout gets the limit's message, a dead connection the other one. */
+    failed: (
+      kind: "timeout" | "unreachable",
+      detail: Parameters<typeof timedOut>[0]
+    ): Promise<Response> =>
+      kind === "timeout" ? timedOut(detail) : unreachable(),
   };
 };
 
 export const proxyRoutes = ({
-  capMs = PROXY_CAP_MS,
   fetch: fetchImpl = (input, init) => fetch(input, init),
   log = defaultLog,
+  timeout = (ms) => AbortSignal.timeout(ms),
 }: ProxyRouteOptions = {}) => {
   const routes = bearerGroup();
 
@@ -529,7 +554,6 @@ export const proxyRoutes = ({
     });
     const { declined, failed } = responders({
       call,
-      capMs,
       origin: new URL(c.req.url).origin,
       record,
     });
@@ -547,12 +571,14 @@ export const proxyRoutes = ({
       return rpcError(call, "That connector's address is no longer allowed.");
     }
 
+    const limitSeconds = resolution.connector.callTimeoutSeconds;
     const started = Date.now();
     const send = upstreamSender({
       body: body.bytes,
-      capMs,
       fetchImpl,
+      limitMs: limitSeconds * MS_PER_SECOND,
       request: c.req.raw,
+      timeout,
       url,
     });
 
@@ -567,7 +593,12 @@ export const proxyRoutes = ({
     }
     const { sent, used } = tried;
     if (!sent.ok) {
-      return await failed(sent.kind);
+      return await failed(sent.kind, {
+        connectorName: resolution.connector.name,
+        limitSeconds,
+        ms: Date.now() - started,
+        ownerKind: used ? used.ownerKind : null,
+      });
     }
     return await answer({
       call,

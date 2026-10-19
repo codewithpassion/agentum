@@ -21,6 +21,7 @@ import {
   credentials,
 } from "@repo/db/schema/connectors";
 import {
+  CONNECTOR_CALL_TIMEOUT_SECONDS,
   type ConnectorAuthKind,
   type ConnectorStatus,
   CREDENTIAL_MODES,
@@ -68,6 +69,7 @@ const CONNECTOR_KIND = "connector";
 const CREATE_ACTION = "connectors.create";
 const LIST_ACTION = "connectors.list";
 const SET_CREDENTIAL_ACTION = "connectors.setCredential";
+const SET_CALL_TIMEOUT_ACTION = "connectors.setCallTimeout";
 const ASSIGN_ACTION = "connectors.assign";
 const UNASSIGN_ACTION = "connectors.unassign";
 const ASSIGNMENTS_ACTION = "connectors.assignments";
@@ -122,6 +124,17 @@ export const credentialSetSchema = z.strictObject({
 });
 export type CredentialSetInput = z.input<typeof credentialSetSchema>;
 
+export const connectorCallTimeoutSchema = z.strictObject({
+  connectorId: idString,
+  seconds: z
+    .int()
+    .min(CONNECTOR_CALL_TIMEOUT_SECONDS.min)
+    .max(CONNECTOR_CALL_TIMEOUT_SECONDS.max),
+});
+export type ConnectorCallTimeoutInput = z.input<
+  typeof connectorCallTimeoutSchema
+>;
+
 export const assignmentInputSchema = z.strictObject({
   agentId: idString,
   connectorId: idString,
@@ -150,6 +163,8 @@ export interface ConnectorSummary {
   /** Every agent-owned credential of this connector. */
   agentCredentials: CredentialSummary[];
   authKind: ConnectorAuthKind;
+  /** Seconds a tool call may take before it is stopped. */
+  callTimeoutSeconds: number;
   createdAt: string;
   headerName: string | null;
   id: string;
@@ -227,6 +242,7 @@ const toSummary = (
       .filter((credential) => credential.ownerKind === "agent")
       .map(toCredentialSummary),
     authKind: row.authKind,
+    callTimeoutSeconds: row.callTimeoutSeconds,
     createdAt: row.createdAt,
     headerName: row.headerName,
     id: row.id,
@@ -431,6 +447,7 @@ export const createConnectorsService = ({
     }
     const row: ConnectorRow = {
       authKind,
+      callTimeoutSeconds: CONNECTOR_CALL_TIMEOUT_SECONDS.default,
       createdAt: now.toISOString(),
       createdBy: user.userId,
       headerName:
@@ -572,6 +589,34 @@ export const createConnectorsService = ({
     return toCredentialSummary(saved);
   };
 
+  /** Sets how long one tool call of a connector may run. */
+  const setCallTimeout = async (
+    principal: Principal,
+    input: ConnectorCallTimeoutInput
+  ): Promise<ConnectorSummary> => {
+    const user = requireUser(principal, SET_CALL_TIMEOUT_ACTION);
+    const parsed = connectorCallTimeoutSchema.parse(input);
+    const { workspaceId } = user;
+    authorize(user, SET_CALL_TIMEOUT_ACTION, {
+      id: parsed.connectorId,
+      kind: CONNECTOR_KIND,
+      workspaceId,
+    });
+    await loadConnector(db, parsed.connectorId, workspaceId);
+    await db
+      .update(connectors)
+      .set({ callTimeoutSeconds: parsed.seconds })
+      .where(
+        and(
+          eq(connectors.id, parsed.connectorId),
+          eq(connectors.workspaceId, workspaceId)
+        )
+      );
+    const row = await loadConnector(db, parsed.connectorId, workspaceId);
+    const owned = await credentialsOf(workspaceId, user.userId, row.id);
+    return toSummary(row, owned, user.userId);
+  };
+
   /** Gives an agent a connector, or changes how its credential is chosen. */
   const assign = async (
     principal: Principal,
@@ -678,7 +723,15 @@ export const createConnectorsService = ({
       );
   };
 
-  return { assign, assignments, create, list, setCredential, unassign };
+  return {
+    assign,
+    assignments,
+    create,
+    list,
+    setCallTimeout,
+    setCredential,
+    unassign,
+  };
 };
 
 export type ConnectorsService = ReturnType<typeof createConnectorsService>;

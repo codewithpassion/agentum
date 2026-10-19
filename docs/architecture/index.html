@@ -2860,10 +2860,11 @@ can(principal: Principal, action: string, resource: { workspaceId: string; kind:
       </div>
       <div class="q" id="q9">
         <b>9. Cap on a connector call through the proxy.</b>Default: 60 s wall
-        clock, then the proxy returns an MCP error and logs
-        <code>connector.timeout</code>. Nobody has measured a long MCP tool call
-        held through a Worker; this needs one test in milestone 3 before the
-        number is trusted.
+        clock (settable per connector, 10 to 300 s), then the proxy returns an
+        MCP error and logs <code>connector.call</code> with outcome
+        <code>timeout</code>. Nobody has measured a long MCP tool call held
+        through a Worker; this needs one test in milestone 3 before the number
+        is trusted.
       </div>
       <div class="q" id="q10">
         <b

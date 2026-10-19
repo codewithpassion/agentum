@@ -9,6 +9,7 @@ import { events as eventsTable } from "@repo/db/schema/events";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
+import { ZodError } from "zod";
 import { type StubMcp, startStubMcp } from "../../../scripts/dev/stub-mcp.ts";
 import { type AgentRecord, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
@@ -607,4 +608,55 @@ test("credential.created is logged for each paste, without the value", async () 
       replaced: false,
     },
   });
+});
+
+test("a new connector has a 60 second call timeout, shown by list", async () => {
+  const connector = await addHeaderConnector();
+
+  expect(connector.callTimeoutSeconds).toBe(60);
+  expect(only(await service.list(dom)).callTimeoutSeconds).toBe(60);
+});
+
+test("setCallTimeout stores the seconds and list returns them", async () => {
+  const connector = await addHeaderConnector();
+
+  const updated = await service.setCallTimeout(dom, {
+    connectorId: connector.id,
+    seconds: 300,
+  });
+
+  expect(updated).toMatchObject({ callTimeoutSeconds: 300, id: connector.id });
+  expect(only(await service.list(dom)).callTimeoutSeconds).toBe(300);
+});
+
+test.each([9, 301, 60.5])(
+  "a call timeout of %p seconds is refused and the stored value stays",
+  async (seconds) => {
+    const connector = await addHeaderConnector();
+
+    await expect(
+      service.setCallTimeout(dom, { connectorId: connector.id, seconds })
+    ).rejects.toBeInstanceOf(ZodError);
+
+    expect(only(await service.list(dom)).callTimeoutSeconds).toBe(60);
+  }
+);
+
+test("setCallTimeout for a missing connector is not_found", async () => {
+  await expect(
+    service.setCallTimeout(dom, { connectorId: "missing", seconds: 30 })
+  ).rejects.toMatchObject({ code: "not_found" });
+});
+
+test("another workspace cannot change a connector's call timeout", async () => {
+  const connector = await addHeaderConnector();
+
+  await expect(
+    service.setCallTimeout(outsider, {
+      connectorId: connector.id,
+      seconds: 120,
+    })
+  ).rejects.toMatchObject({ code: "not_found" });
+
+  expect(only(await service.list(dom)).callTimeoutSeconds).toBe(60);
 });

@@ -144,6 +144,13 @@ export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
 export const CONNECTOR_AUTH_KINDS = ["none", "header", "oauth"] as const;
 export type ConnectorAuthKind = (typeof CONNECTOR_AUTH_KINDS)[number];
 
+/** Seconds a connector tool call may take before it is stopped. */
+export const CONNECTOR_CALL_TIMEOUT_SECONDS = {
+  default: 60,
+  max: 300,
+  min: 10,
+} as const;
+
 export const CONNECTOR_STATUSES = ["ok", "needs_auth"] as const;
 export type ConnectorStatus = (typeof CONNECTOR_STATUSES)[number];
 

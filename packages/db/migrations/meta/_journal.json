@@ -85,6 +85,13 @@
       "when": 1792389247096,
       "tag": "0011_powerful_ma_gnuci",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1792396726199,
+      "tag": "0012_normal_puff_adder",
+      "breakpoints": true
     }
   ]
 }
