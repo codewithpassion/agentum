@@ -98,6 +98,8 @@ const textOfInput = (input: PiInput): string =>
 interface FakeOptions {
   /** Makes an abort that settles a running operation also commit what Pi commits on an abort: a text-only partial turn, and, when `parallelCall`, an "aborted" error result for a call that never started. */
   abortLikePi?: { parallelCall: boolean };
+  /** When false, an abort that goes through leaves the operation running, as an abort Pi has accepted may: the test settles it. */
+  abortSettles?: boolean;
   /** How many abort calls, from the first, reject. */
   failingAborts?: number;
 }
@@ -170,7 +172,11 @@ const createFakePi = (behavior: FakeOptions = {}) => {
         return Promise.reject(new Error("Pi is busy"));
       }
       const submission = submissions.get(operationId);
-      if (submission && !submission.settled) {
+      if (
+        submission &&
+        !submission.settled &&
+        behavior.abortSettles !== false
+      ) {
         if (behavior.abortLikePi) {
           appendAbortedTurn(behavior.abortLikePi.parallelCall);
         }
@@ -380,6 +386,7 @@ const build = (
     status?: () => RunStatus;
     storage?: ReturnType<typeof memoryStorage>;
     abortLikePi?: { parallelCall: boolean };
+    abortSettles?: boolean;
     failingAborts?: number;
   } = {}
 ): Harness => {
@@ -387,6 +394,7 @@ const build = (
     options.fake ??
     createFakePi({
       abortLikePi: options.abortLikePi,
+      abortSettles: options.abortSettles,
       failingAborts: options.failingAborts,
     });
   const storage = options.storage ?? memoryStorage();
@@ -1518,6 +1526,78 @@ describe("safeguards", () => {
         stop: { count: 5, kind: "repeat", tool: "search" },
       });
       spy.mockRestore();
+    });
+
+    test("when the abort throws and the model's next call breaks the streak, the next flush still aborts and the run fails with the stop", async () => {
+      const spy = spyOn(console, "error").mockImplementation(() => undefined);
+      const h = build({ failingAborts: 1 });
+      await h.core.start(startOf("run-1"));
+      await failRepeatedly(h.fake, 5);
+      await settle();
+      expect(h.fake.aborted).toEqual(["run-1"]);
+
+      await failRepeatedly(h.fake, 1, { q: "y" });
+      await settle();
+
+      expect(h.fake.aborted).toEqual(["run-1", "run-1"]);
+      expect(h.completed).toHaveLength(1);
+      expect(h.completed[0]?.result).toMatchObject({
+        error: "Stopped after 5 identical failed calls to search in a row",
+        status: "failed",
+        stop: { count: 5, kind: "repeat", tool: "search" },
+      });
+      expect(await h.storage.get("run:run-1")).toMatchObject({
+        stop: { count: 5, kind: "repeat", tool: "search" },
+        stopAborted: true,
+      });
+      spy.mockRestore();
+    });
+
+    test("after an abort goes through, later flushes do not abort again", async () => {
+      const h = build({ abortSettles: false });
+      await h.core.start(startOf("run-1"));
+      await failRepeatedly(h.fake, 5);
+      await settle();
+      expect(h.fake.aborted).toEqual(["run-1"]);
+      expect(await h.storage.get("run:run-1")).toMatchObject({
+        stopAborted: true,
+      });
+
+      await failRepeatedly(h.fake, 2);
+      await failRepeatedly(h.fake, 1, { q: "y" });
+      await settle();
+      expect(h.fake.aborted).toEqual(["run-1"]);
+
+      h.fake.finish("run-1", { reason: "aborted", status: "unanswered" });
+      await settle();
+
+      expect(h.fake.aborted).toEqual(["run-1"]);
+      expect(h.completed[0]?.result).toMatchObject({
+        status: "failed",
+        stop: { count: 5, kind: "repeat", tool: "search" },
+      });
+    });
+
+    test("a run whose abort went through is not aborted again after a wake", async () => {
+      const first = build({ abortSettles: false });
+      await first.core.start(startOf("run-1"));
+      await failRepeatedly(first.fake, 5);
+      await settle();
+      expect(first.fake.aborted).toEqual(["run-1"]);
+
+      // The object is evicted: memory goes, storage and Pi's transcript stay.
+      const second = build({ fake: first.fake, storage: first.storage });
+      await second.core.resume();
+      await failRepeatedly(first.fake, 1);
+      first.fake.finish("run-1", { reason: "aborted", status: "unanswered" });
+      await settle();
+
+      expect(first.fake.aborted).toEqual(["run-1"]);
+      expect(second.completed).toHaveLength(1);
+      expect(second.completed[0]?.result).toMatchObject({
+        status: "failed",
+        stop: { count: 5, kind: "repeat", tool: "search" },
+      });
     });
   });
 });

@@ -130,6 +130,8 @@ interface StoredRun {
   state: "active" | "finished";
   /** The safeguard that stopped the run, kept from the moment it is found: Pi's transcript changes once the abort lands. */
   stop?: RunStop;
+  /** Whether the abort for the saved stop has gone through. Until it has, every flush tries it again. */
+  stopAborted?: boolean;
   /** The input, so a run whose submission never reached Pi can be submitted again. */
   text: string;
   workspaceId: string;
@@ -278,6 +280,28 @@ export const createRunCore = ({
     }
   };
 
+  /**
+   * Aborts Pi for the run's stop: the one saved on the run, else the one found in this slice. The saved stop wins, as the streak may have broken since. Every flush tries the abort again until it goes through, then saves `stopAborted`, so no later flush or wake repeats it.
+   */
+  const stopRun = async (
+    runId: string,
+    slice: readonly EntryRecord[],
+    maxTurns: number
+  ) => {
+    const stored = await load(runId);
+    const stop = stored?.stop ?? stopOf(slice, maxTurns);
+    if (!stop || stored?.stopAborted === true) {
+      return;
+    }
+    await saveStop(runId, stop);
+    if (await abortQuietly(runId)) {
+      const current = await load(runId);
+      if (current) {
+        await save(runId, { ...current, stopAborted: true });
+      }
+    }
+  };
+
   const finishRun = async (runId: string) => {
     const run = await load(runId);
     if (run) {
@@ -403,8 +427,6 @@ export const createRunCore = ({
     let gone = false;
     // Whether the last flush put everything Pi had committed on the platform.
     let delivered = true;
-    // Whether a safeguard has stopped the model, so the abort goes out once.
-    let stopping = false;
     const step = async () => {
       if (gone) {
         return;
@@ -412,11 +434,7 @@ export const createRunCore = ({
       try {
         slice = await report(runId, sent);
         delivered = true;
-        const found = stopping ? undefined : stopOf(slice, limit);
-        if (found) {
-          await saveStop(runId, found);
-          stopping = await abortQuietly(runId);
-        }
+        await stopRun(runId, slice, limit);
       } catch (error) {
         delivered = false;
         if (!isRunGone(error)) {
