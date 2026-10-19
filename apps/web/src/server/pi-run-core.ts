@@ -76,11 +76,12 @@ export interface RunCoreDeps {
   /** Extends a run's lease. Called by `beat`. */
   heartbeat: (runId: string) => Promise<void>;
   ingest: (runId: string, events: RunEventInput[]) => Promise<unknown>;
-  /** The run's message as Pi takes it: its text, and its input files as image blocks or a list. */
+  /** The run's message as Pi takes it: its text, and its input files as image blocks or a list. `model` is the agent's model string. */
   inputOf: (
     run: RunRef,
     text: string,
-    fileIds: readonly string[]
+    fileIds: readonly string[],
+    model: string
   ) => Promise<PiInput>;
   /** Loads the run's skills and installs them. A throw is logged and the run goes on without them. */
   installSkills: (input: CloudStart) => Promise<void>;
@@ -466,7 +467,8 @@ export const createRunCore = ({
       await inputOf(
         { agentId: run.agentId, runId: run.id, workspaceId: run.workspaceId },
         run.inputText,
-        input.inputFileIds
+        input.inputFileIds,
+        input.agent.model
       ),
       {
         operationId: run.id,
@@ -505,10 +507,13 @@ export const createRunCore = ({
       await pi.setModel(run.model);
       await pi.setInstructions(run.instructions);
     }
-    await pi.submit(await inputOf(refOf(runId, run), run.text, run.fileIds), {
-      operationId: runId,
-      whenBusy: "followUp",
-    });
+    await pi.submit(
+      await inputOf(refOf(runId, run), run.text, run.fileIds, run.model),
+      {
+        operationId: runId,
+        whenBusy: "followUp",
+      }
+    );
     follow(runId);
   };
 
