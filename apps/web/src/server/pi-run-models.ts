@@ -8,6 +8,11 @@ import {
 } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
+import {
+  type CostProbe,
+  createCostProbe,
+  withReportedCost,
+} from "./openrouter-cost.ts";
 
 /** Every OpenRouter quantization except fp4. */
 const OPENROUTER_QUANTIZATIONS = [
@@ -61,7 +66,8 @@ const DEEPSEEK_FLASH_1017 = "deepseek/deepseek-v4.1-flash-1017";
  * bundled V4.1 Flash with the values from the OpenRouter models API on
  * 19 Oct 2026: 1,048,576 context, 393,216 max completion tokens, text and
  * image input, and the standard rate in USD per million tokens (OpenRouter
- * halves it off-peak). Pi's cost is only an estimate, see P.6.
+ * halves it off-peak). Pi's cost is only an estimate, used only when a
+ * response has no `usage.cost`.
  */
 const extraOpenRouterModels = (
   base: readonly Model<Api>[]
@@ -82,6 +88,22 @@ const extraOpenRouterModels = (
   ];
 };
 
+/**
+ * Feeds every parsed stream chunk to the cost probe. A caller's
+ * `onProviderStreamEvent` runs first.
+ */
+function observedCost<TModel>(
+  onProviderStreamEvent:
+    | ((data: unknown, model: TModel) => void | Promise<void>)
+    | undefined,
+  probe: CostProbe
+) {
+  return async (data: unknown, model: TModel): Promise<void> => {
+    await onProviderStreamEvent?.(data, model);
+    probe.observe(data);
+  };
+}
+
 function withOpenRouterRouting(provider: Provider): Provider {
   return {
     ...provider,
@@ -93,24 +115,42 @@ function withOpenRouterRouting(provider: Provider): Provider {
       const models = provider.getModels();
       return [...models, ...extraOpenRouterModels(models)];
     },
-    stream: (model, context, options) =>
-      provider.stream(
-        model,
-        context,
-        // biome-ignore lint/style/useObjectSpread: an object spread does not type-check against the generic ApiStreamOptions<T>
-        Object.assign({}, options, {
-          onPayload: routedOnPayload(options?.onPayload),
-        })
-      ),
-    streamSimple: (model, context, options) =>
-      provider.streamSimple(
-        model,
-        context,
-        // biome-ignore lint/style/useObjectSpread: an object spread does not type-check against SimpleStreamOptions
-        Object.assign({}, options, {
-          onPayload: routedOnPayload(options?.onPayload),
-        })
-      ),
+    stream: (model, context, options) => {
+      const probe = createCostProbe();
+      return withReportedCost(
+        provider.stream(
+          model,
+          context,
+          // biome-ignore lint/style/useObjectSpread: an object spread does not type-check against the generic ApiStreamOptions<T>
+          Object.assign({}, options, {
+            onPayload: routedOnPayload(options?.onPayload),
+            onProviderStreamEvent: observedCost(
+              options?.onProviderStreamEvent,
+              probe
+            ),
+          })
+        ),
+        probe
+      );
+    },
+    streamSimple: (model, context, options) => {
+      const probe = createCostProbe();
+      return withReportedCost(
+        provider.streamSimple(
+          model,
+          context,
+          // biome-ignore lint/style/useObjectSpread: an object spread does not type-check against SimpleStreamOptions
+          Object.assign({}, options, {
+            onPayload: routedOnPayload(options?.onPayload),
+            onProviderStreamEvent: observedCost(
+              options?.onProviderStreamEvent,
+              probe
+            ),
+          })
+        ),
+        probe
+      );
+    },
   };
 }
 
