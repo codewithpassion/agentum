@@ -18,16 +18,19 @@ const BEARER_MIN = 8;
 // captured. The separator must follow the name directly, which keeps words
 // such as "tokens", "token count" or "password reset" out of the match.
 const SEPARATOR = String.raw`(?:\\?["'])?[ \t]*[:=][ \t]*`;
-// An auth scheme is any one word before the credential (Bearer, Basic, Bot, SSWS, ApiKey).
-const SCHEME = String.raw`[A-Za-z][\w.-]{0,31}[ \t]+`;
-const SCHEME_PREFIX = new RegExp(`^${SCHEME}`);
+// Auth schemes whose word stays in the text. After any other first word, the
+// whole rest of the value is the credential, so a raw key is never mistaken
+// for a scheme.
+const SCHEME = String.raw`(?:bearer|basic|token|bot|apikey|api-key|key|ssws|negotiate|ntlm|oauth|jwt)[ \t]+`;
+const SCHEME_PREFIX = new RegExp(`^${SCHEME}`, "i");
 const SKIP_REDACTED = String.raw`(?!(?:\\?["'])?(?:${SCHEME})?\[(?:redacted\]|secret:))`;
 // A value in quotes, or in escaped quotes as inside a JSON body in a shell string.
-const QUOTED = String.raw`\\"[^\r\n]+?\\"|"[^"\r\n]+"|'[^'\r\n]+'`;
+const QUOTED = String.raw`\\"(?!\\")[^\r\n]+?\\"|"[^"\r\n]+"|'[^'\r\n]+'`;
 const UNQUOTED = String.raw`[^\s"',;&})\]]+`;
 const FIELD_VALUE = `(?:${QUOTED}|${UNQUOTED})`;
-const AUTH_VALUE = `(?:${QUOTED}|(?:${SCHEME})?${UNQUOTED})`;
-const COOKIE_VALUE = String.raw`(?:${QUOTED}|[^\r\n"' \t][^\r\n"']*)`;
+const REST_OF_LINE = String.raw`(?:${QUOTED}|[^\r\n"' \t][^\r\n"']*)`;
+const AUTH_VALUE = `(?:${SCHEME}${UNQUOTED}|${REST_OF_LINE})`;
+const COOKIE_VALUE = REST_OF_LINE;
 
 const AUTH_HEADER = new RegExp(
   `(authorization${SEPARATOR})${SKIP_REDACTED}(${AUTH_VALUE})`,

@@ -83,7 +83,10 @@ test.each([
     "Proxy-Authorization: Basic [redacted]",
   ],
   ["Authorization: Token t0k3nvalue", "Authorization: Token [redacted]"],
-  ["Authorization: Digest abcdefgh", "Authorization: Digest [redacted]"],
+  [
+    "Authorization: Digest username=bob, response=abcdefgh",
+    "Authorization: [redacted]",
+  ],
   ["X-Api-Key: abc123def456", "X-Api-Key: [redacted]"],
   ["--password=hunter2", "--password=[redacted]"],
   ["password=value&x=1", "password=[redacted]&x=1"],
@@ -118,6 +121,19 @@ test.each([
   ["secret_key: abc123", "secret_key: [redacted]"],
   ["ASIAPACIFICREGIONSERVERS", "ASIAPACIFICREGIONSERVERS"],
   ["AKIAIOSFODNN7EXAMPLE", "[redacted]"],
+  ["Authorization: abc123secret (expired)", "Authorization: [redacted]"],
+  ['Authorization: "rawsecret more"', 'Authorization: "[redacted]"'],
+  [
+    '-H "Authorization: Foo abc123" https://x',
+    '-H "Authorization: [redacted]" https://x',
+  ],
+  ["token=abc123 [secret:GH]", "token=[redacted] [secret:GH]"],
+  ["password: hunter2 [redacted]", "password: [redacted] [redacted]"],
+  ["password: Bearer [redacted]", "password: Bearer [redacted]"],
+  [
+    '{\\"password\\":\\"\\",\\"api_key\\":\\"s3cr3t\\"}',
+    '{\\"password\\":[redacted]"\\",\\"api_key\\":\\"[redacted]\\"}',
+  ],
 ])(
   "redacts a shell-escaped body, any auth scheme and AWS names: %s",
   (input, expected) => {
