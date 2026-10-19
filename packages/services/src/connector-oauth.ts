@@ -165,7 +165,7 @@ const parseOwner = (as: string, userId: string): Owner => {
 const defaultReturnTo = (owner: Owner): string =>
   owner.kind === "agent"
     ? `/agents/${encodeURIComponent(owner.id)}?tab=connectors`
-    : "/connectors";
+    : "/settings/connectors";
 
 export const createConnectorOAuthService = ({
   atomic,
