@@ -389,8 +389,8 @@ export function AgentForm({
             </NativeSelect>
             {selectable.length === 0 && (
               <FieldDescription>
-                No machines yet. <Link to="/machines">Enrol a machine</Link>{" "}
-                first.
+                No machines yet.{" "}
+                <Link to="/settings/machines">Enrol a machine</Link> first.
               </FieldDescription>
             )}
           </Field>

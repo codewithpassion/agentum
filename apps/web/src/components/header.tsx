@@ -32,16 +32,6 @@ export default function Header() {
           </Link>
         </h2>
 
-        <div className="order-3 flex w-full flex-wrap items-center gap-x-4 gap-y-1 pb-1 font-semibold text-sm sm:order-none sm:w-auto sm:flex-nowrap sm:pb-0">
-          <Link
-            activeProps={{ className: "nav-link is-active" }}
-            className="nav-link"
-            to="/"
-          >
-            Home
-          </Link>
-        </div>
-
         <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
           <ClerkHeader />
 

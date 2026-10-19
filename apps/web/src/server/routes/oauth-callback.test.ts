@@ -334,7 +334,7 @@ test("denying access at the provider returns to the page with the reason", async
 
   expect(done.status).toBe(302);
   expect(done.headers.get("location")).toBe(
-    "/connectors?connect_error=access_denied"
+    "/settings/connectors?connect_error=access_denied"
   );
   expect(credentialRows()).toHaveLength(0);
 });

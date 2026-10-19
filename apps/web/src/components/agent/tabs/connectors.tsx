@@ -396,7 +396,7 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
         {available.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             No other connectors. Add one on the{" "}
-            <Link to="/connectors">Connectors page</Link>.
+            <Link to="/settings/connectors">Connectors page</Link>.
           </p>
         ) : (
           <div className="flex items-center gap-2">

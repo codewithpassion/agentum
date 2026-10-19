@@ -225,7 +225,7 @@ test("connecting as the user and as an agent leaves two credentials with differe
 
   expect(first).toMatchObject({
     error: null,
-    returnTo: "/connectors?connected=1",
+    returnTo: "/settings/connectors?connected=1",
   });
   expect(second.returnTo).toBe(
     `/agents/${agent.id}?tab=connectors&connected=1`
@@ -487,7 +487,9 @@ test("denying access at the provider sends the person back with the reason", asy
     connectorId: connector.id,
     error: "access_denied",
   });
-  expect(result.returnTo).toBe("/connectors?connect_error=access_denied");
+  expect(result.returnTo).toBe(
+    "/settings/connectors?connect_error=access_denied"
+  );
   expect(credentialRows(connector.id)).toHaveLength(0);
   expect(await db.select().from(oauthStates).all()).toHaveLength(0);
 });
@@ -600,7 +602,7 @@ test("the authorisation request carries PKCE, the resource and the state", async
     ownerId: "user_dom",
     ownerKind: "user",
     redirectUri: CALLBACK,
-    returnTo: "/connectors",
+    returnTo: "/settings/connectors",
     state: params.get("state"),
     workspaceId: WORKSPACE,
   });
