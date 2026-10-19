@@ -3,6 +3,7 @@ import type { EnvGrant } from "@repo/services/secrets/placeholders";
 import { type FilledHop, fillHop, type SecretHop } from "./hop-secrets.ts";
 
 const VALUE = "sk-123/+&secret";
+const PLACEHOLDER = "hm-secret:SUPADATA_KEY";
 const SUPADATA: EnvGrant = {
   hosts: ["api.supadata.ai"],
   name: "SUPADATA_KEY",
@@ -139,9 +140,13 @@ describe("fillHop", () => {
     const { calls, load } = loaderOf([SUPADATA]);
     const result = await fillHop(hop, load);
 
-    expect(result).toEqual({ hop, names: [], ok: true });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.hop).toBe(hop);
+      expect(result.names).toEqual([]);
+      expect(result.restore("https://a.example/?k=abc")).toBe(
+        "https://a.example/?k=abc"
+      );
     }
     expect(calls.count).toBe(0);
   });
@@ -324,5 +329,51 @@ describe("fillHop", () => {
       expect(result.ok).toBe(false);
       expect(JSON.stringify(result)).not.toContain(VALUE);
     }
+  });
+
+  test("restore puts the placeholder back for the raw and the encoded value", async () => {
+    const hop = hopOf(`https://api.supadata.ai/x?k=${PLACEHOLDER}`);
+    const result = await fillHop(hop, loaderOf([SUPADATA]).load);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const echoed = `https://cdn.example.com/y?k=${encodeURIComponent(VALUE)}&raw=${VALUE}`;
+    const restored = result.restore(echoed);
+    expect(restored).toBe(
+      `https://cdn.example.com/y?k=${PLACEHOLDER}&raw=${PLACEHOLDER}`
+    );
+    expect(restored).not.toContain(VALUE);
+    expect(restored).not.toContain(encodeURIComponent(VALUE));
+  });
+
+  test("restore restores only the values this hop filled", async () => {
+    const hop = hopOf(`https://api.supadata.ai/x?k=${PLACEHOLDER}`);
+    const result = await fillHop(hop, loaderOf([SUPADATA, OTHER]).load);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.restore("https://a.example/other-value")).toBe(
+        "https://a.example/other-value"
+      );
+    }
+  });
+
+  test("a placeholder only in the fragment is neither filled nor counted", async () => {
+    const hop = hopOf(`https://api.supadata.ai/x#${PLACEHOLDER}`);
+    const { calls, load } = loaderOf([SUPADATA]);
+    const result = await fillHop(hop, load);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.names).toEqual([]);
+      expect(result.hop.url.hash).toBe(`#${PLACEHOLDER}`);
+    }
+    expect(calls.count).toBe(0);
+  });
+
+  test("a fragment is dropped from the url that is sent", async () => {
+    const hop = hopOf(`https://api.supadata.ai/x?k=${PLACEHOLDER}#frag`);
+    const filled = filledOf(await fillHop(hop, loaderOf([SUPADATA]).load));
+    expect(filled.url.hash).toBe("");
+    expect(filled.url.href).not.toContain("frag");
   });
 });

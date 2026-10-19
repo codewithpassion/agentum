@@ -208,8 +208,6 @@ export interface GrantedSecret {
 export interface ResolvedSecrets {
   env: Record<string, string>;
   masker: Masker;
-  /** One per granted `env` secret, with the hosts its placeholder may be filled in for. No values. */
-  placeholders: { hosts: string[]; name: string }[];
   proxy: { hosts: string[]; name: string }[];
   revision: string;
 }
@@ -601,12 +599,6 @@ export const createSecretsService = ({
           .map((secret) => [secret.name, secret.value])
       ),
       masker: maskerOf(granted),
-      placeholders: granted
-        .filter((secret) => secret.mode === "env")
-        .map((secret) => ({
-          hosts: secret.allowedHosts,
-          name: secret.name,
-        })),
       proxy: granted
         .filter((secret) => secret.mode === "proxy")
         .map((secret) => ({
@@ -626,6 +618,33 @@ export const createSecretsService = ({
   ): Promise<Masker | null> => {
     const granted = await grantedTo(workspaceId, agentId);
     return granted.length === 0 ? null : maskerOf(granted);
+  };
+
+  /**
+   * The names and allowed hosts of the agent's granted `env` secrets, for the
+   * shell variables and the prompt. It reads no value and needs no key.
+   */
+  const placeholdersFor = async (
+    workspaceId: string,
+    agentId: string
+  ): Promise<{ hosts: string[]; name: string }[]> => {
+    const rows = await db
+      .select({ allowedHosts: secrets.allowedHosts, name: secrets.name })
+      .from(agentSecrets)
+      .innerJoin(secrets, eq(secrets.id, agentSecrets.secretId))
+      .where(
+        and(
+          eq(agentSecrets.agentId, agentId),
+          eq(agentSecrets.workspaceId, workspaceId),
+          eq(secrets.workspaceId, workspaceId),
+          eq(secrets.mode, "env")
+        )
+      )
+      .orderBy(asc(secrets.name));
+    return rows.map((row) => ({
+      hosts: allowedHostsOf(row),
+      name: row.name,
+    }));
   };
 
   /** The agent's granted `env` secrets with their values and allowed hosts, for the placeholder fetcher. Never for a router. */
@@ -750,6 +769,7 @@ export const createSecretsService = ({
     grantsOf,
     list,
     maskerFor,
+    placeholdersFor,
     proxyFor,
     remove,
     resolveForAgent,

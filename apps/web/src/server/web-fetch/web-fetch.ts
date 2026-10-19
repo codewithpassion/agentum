@@ -373,10 +373,14 @@ const runHop = async (
     });
     return failed(transportError(call));
   }
-  const location = followableLocation(response);
-  if (location === null) {
+  const echoed = followableLocation(response);
+  if (echoed === null) {
     return answer(call, hop, response, sentAt);
   }
+  // A server may echo what it was sent into its Location. Put the placeholders
+  // back, so the next hop is built from the placeholder form and is checked
+  // again against its own host, and no value reaches the result's `url`.
+  const location = filled.restore(echoed);
   await record(call, {
     ...entryOf(call, hop),
     bytes: 0,

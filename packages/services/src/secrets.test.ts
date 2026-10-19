@@ -526,7 +526,7 @@ describe("allowed hosts", () => {
     ).toBe("[]");
   });
 
-  test("resolveForAgent lists placeholders for granted env secrets only, with hosts and no value", async () => {
+  test("placeholdersFor lists granted env secrets only, with hosts and no value", async () => {
     const hosted = await service.create(user, {
       allowedHosts: ["api.example.com"],
       mode: "env",
@@ -541,18 +541,18 @@ describe("allowed hosts", () => {
     const proxied = await proxySecret();
     await service.setGrants(user, agentA, [hosted.id, bare.id, proxied.id]);
 
-    const resolved = await service.resolveForAgent(WORKSPACE, agentA);
-    expect(resolved.placeholders).toEqual([
+    const placeholders = await service.placeholdersFor(WORKSPACE, agentA);
+    expect(placeholders).toEqual([
       { hosts: [], name: "BARE_KEY" },
       { hosts: ["api.example.com"], name: "HOSTED_KEY" },
     ]);
-    const text = JSON.stringify(resolved.placeholders);
+    const text = JSON.stringify(placeholders);
     expect(text).not.toContain(ECHO);
     expect(text).not.toContain("bare-value-0123456");
     expect(text).not.toContain(OPENAI);
 
-    const forB = await service.resolveForAgent(WORKSPACE, agentB);
-    expect(forB.placeholders).toEqual([]);
+    expect(await service.placeholdersFor(WORKSPACE, agentB)).toEqual([]);
+    expect(await service.placeholdersFor(OTHER_WORKSPACE, agentA)).toEqual([]);
   });
 
   test("envGrantsFor returns the agent's granted env secrets with value and hosts", async () => {

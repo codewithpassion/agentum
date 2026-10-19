@@ -382,11 +382,10 @@ export class PiRun extends DurableObject<Env> {
       if (!run) {
         return [];
       }
-      const resolved = await this.#services().secrets.resolveForAgent(
+      return await this.#services().secrets.placeholdersFor(
         run.workspaceId,
         run.agentId
       );
-      return resolved.placeholders;
     } catch {
       console.warn(
         "PiRun: reading the secret placeholders for the prompt failed"

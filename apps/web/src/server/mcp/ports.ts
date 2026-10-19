@@ -178,7 +178,7 @@ export const createMcpPorts = ({
     workspaceId: string;
   }): Promise<Record<string, string> | undefined> => {
     try {
-      const { placeholders } = await services.secrets.resolveForAgent(
+      const placeholders = await services.secrets.placeholdersFor(
         run.workspaceId,
         run.agentId
       );

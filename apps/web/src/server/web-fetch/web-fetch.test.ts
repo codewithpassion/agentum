@@ -745,6 +745,44 @@ describe("createWebFetcher fills env secret placeholders", () => {
     ]);
   });
 
+  test("a redirect whose Location echoes the value is followed from the placeholder form and refused for another host", async () => {
+    const h = harness(
+      byUrl({
+        [`https://api.supadata.ai/v1?key=${REAL}`]: () =>
+          redirect(301, `https://cdn.other.example/x?key=${REAL}`),
+      }),
+      { overrides: withGrants([supadataGrant(["api.supadata.ai"])]) }
+    );
+    const result = await h.fetcher({
+      url: `https://api.supadata.ai/v1?key=${PLACEHOLDER}`,
+    });
+    expect(errorOf(result)).toBe("blocked");
+    expect(h.sent.map((sent) => sent.url)).toEqual([
+      `https://api.supadata.ai/v1?key=${REAL}`,
+    ]);
+    expect(h.entries[1]?.blocked).toBe(
+      "SUPADATA_KEY may only be sent to api.supadata.ai"
+    );
+    expect(JSON.stringify([result, h.entries, h.logs])).not.toContain(REAL);
+  });
+
+  test("a same-host redirect that echoes the value fills it again and the result url shows the placeholder", async () => {
+    const h = harness(
+      byUrl({
+        [`https://api.supadata.ai/v1?key=${REAL}`]: () =>
+          redirect(301, `/v1/?key=${encodeURIComponent(REAL)}`),
+        [`https://api.supadata.ai/v1/?key=${REAL}`]: () => new Response("done"),
+      }),
+      { overrides: withGrants([supadataGrant(["api.supadata.ai"])]) }
+    );
+    const result = okOf(
+      await h.fetcher({ url: `https://api.supadata.ai/v1?key=${PLACEHOLDER}` })
+    );
+    expect(result.url).toBe(`https://api.supadata.ai/v1/?key=${PLACEHOLDER}`);
+    expect(JSON.stringify(result.url)).not.toContain(REAL);
+    expect(h.sent).toHaveLength(2);
+  });
+
   test("announce gets the host and the secret names only", async () => {
     const h = harness(() => new Response("ok"), {
       overrides: withGrants([supadataGrant(["api.supadata.ai"])]),

@@ -9,6 +9,7 @@ import {
   type EnvGrant,
   fillPlaceholders,
   placeholderNames,
+  placeholderOf,
 } from "@repo/services/secrets/placeholders";
 
 /** One request as it is sent: a hop of the call. */
@@ -20,7 +21,18 @@ export interface SecretHop {
 }
 
 export type FilledHop =
-  | { hop: SecretHop; names: string[]; ok: true }
+  | {
+      hop: SecretHop;
+      names: string[];
+      ok: true;
+      /**
+       * Turns the values this hop filled in back into placeholders, in a text
+       * the server sent back (a `Location`). A server may echo what it was
+       * sent, and the next hop must be built from the placeholder form so it
+       * is checked again against its own host.
+       */
+      restore: (text: string) => string;
+    }
   | { error: "blocked" | "bad_request"; message: string; ok: false };
 
 const GRANTS_UNREADABLE = "The platform could not read this agent's secrets";
@@ -51,9 +63,18 @@ const bodyTextOf = (
   }
 };
 
+/** The URL as it is sent: a fragment never leaves the client, so it is not filled or counted. */
+const withoutFragment = (url: URL): URL => {
+  const sent = new URL(url.href);
+  sent.hash = "";
+  return sent;
+};
+
+const keep = (text: string): string => text;
+
 /** The texts a secret can hide in: the URL, every header value, and the body when it is text. */
 const textsOf = (hop: SecretHop, bodyText: string | null): string[] => {
-  const texts = [hop.url.href, ...hop.headers.values()];
+  const texts = [withoutFragment(hop.url).href, ...hop.headers.values()];
   if (bodyText !== null) {
     texts.push(bodyText);
   }
@@ -81,13 +102,41 @@ const valuesFor = (
 const fillUrl = (url: URL, values: ReadonlyMap<string, string>): URL | null => {
   let filled: URL;
   try {
-    filled = new URL(fillPlaceholders(url.href, values, encodeURIComponent));
+    filled = new URL(
+      fillPlaceholders(withoutFragment(url).href, values, encodeURIComponent)
+    );
   } catch {
     return null;
   }
   const moved = filled.protocol !== url.protocol || filled.host !== url.host;
   const hasCredentials = filled.username !== "" || filled.password !== "";
   return moved || hasCredentials ? null : filled;
+};
+
+const REGEXP_SPECIALS = /[.*+?^${}()|[\]\\]/g;
+
+/**
+ * A function that puts the placeholder back wherever one of the values stands,
+ * as the raw text or percent-encoded as in a URL. Longest value first.
+ */
+const restorerOf = (
+  values: ReadonlyMap<string, string>
+): ((text: string) => string) => {
+  const needles = new Map<string, string>();
+  for (const [name, value] of values) {
+    needles.set(value, placeholderOf(name));
+    needles.set(encodeURIComponent(value), placeholderOf(name));
+  }
+  const ordered = [...needles.keys()].sort((a, b) => b.length - a.length);
+  if (ordered.length === 0) {
+    return keep;
+  }
+  const pattern = new RegExp(
+    ordered.map((needle) => needle.replace(REGEXP_SPECIALS, "\\$&")).join("|"),
+    "g"
+  );
+  return (text) =>
+    text.replace(pattern, (found) => needles.get(found) ?? found);
 };
 
 /** A copy of the headers with each value filled, or undefined when the result is not a valid header. */
@@ -117,7 +166,7 @@ export const fillHop = async (
   const bodyText = bodyTextOf(hop.body);
   const names = [...new Set(textsOf(hop, bodyText).flatMap(placeholderNames))];
   if (names.length === 0) {
-    return { hop, names: [], ok: true };
+    return { hop, names: [], ok: true, restore: keep };
   }
 
   let grants: readonly EnvGrant[];
@@ -154,5 +203,6 @@ export const fillHop = async (
     hop: { body, headers, method: hop.method, url },
     names,
     ok: true,
+    restore: restorerOf(values),
   };
 };

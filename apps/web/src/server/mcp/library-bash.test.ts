@@ -601,7 +601,7 @@ test("when the placeholders cannot be read the shell runs without variables", as
   const warn = spyOn(console, "warn").mockImplementation(() => undefined);
   const resolve = spyOn(
     composed.services.secrets,
-    "resolveForAgent"
+    "placeholdersFor"
   ).mockRejectedValueOnce(new Error("boom"));
   try {
     const result = await networkBash(run, 'echo "[$SUPADATA_KEY]"');
