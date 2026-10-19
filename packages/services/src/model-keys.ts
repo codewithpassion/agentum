@@ -11,7 +11,8 @@
  * that calls the provider, and it must never reach an agent's environment.
  *
  * No method, error or log line carries the plaintext key. A rejected key is
- * refused without echoing it, and a failed live check is a no, not its reason.
+ * refused without echoing it, and a live check that could not run is refused
+ * in words of our own, never the provider's.
  */
 import type { Database } from "@repo/db";
 import { workspaceModelKeys } from "@repo/db/schema/model-keys";
