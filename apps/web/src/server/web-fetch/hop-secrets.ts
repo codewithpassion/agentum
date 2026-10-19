@@ -1,7 +1,8 @@
 // Swaps the `hm-secret:NAME` placeholders in one hop for the real values, when
 // the hop goes to a host each secret may reach. The caller keeps the hop with
 // its placeholders and uses it for redirects, so every later hop is checked
-// again against its own host. Nothing here logs, and no message, result or
+// again against its own host. `scrubSecrets` puts the placeholders back into
+// what leaves the fetcher. Nothing here logs, and no message, result or
 // thrown error carries a secret value.
 
 import {
@@ -20,25 +21,13 @@ export interface SecretHop {
   url: URL;
 }
 
-/** The `Location` of a redirect, ready for the next hop, or why it cannot be followed. */
-export type Restored =
-  | { location: string; ok: true }
-  | { message: string; ok: false };
-
 export type FilledHop =
   | {
       hop: SecretHop;
       names: string[];
       ok: true;
-      /**
-       * Prepares the `Location` a server answered with, after this hop filled
-       * a secret. A server may echo what it was sent. The values it echoes go
-       * back to placeholders, so the next hop is built from the placeholder
-       * form and checked again against its own host. The redirect is refused
-       * when its host is not allowed for every secret this hop filled, or
-       * when a value is still in it in a form that cannot be put back.
-       */
-      restore: (location: string) => Restored;
+      /** The value of each secret this hop filled, by name. Never leaves the fetcher. */
+      values: ReadonlyMap<string, string>;
     }
   | { error: "blocked" | "bad_request"; message: string; ok: false };
 
@@ -46,8 +35,6 @@ const GRANTS_UNREADABLE = "The platform could not read this agent's secrets";
 const HTTPS_ONLY = "A secret is only sent over https";
 const URL_PART_REFUSED = "A secret cannot go in that part of the URL";
 const HEADER_NOT_VALID = "A header value is not valid";
-const ECHOED_SECRET =
-  "The redirect carries a secret in a form that cannot be taken out";
 
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const encoder = new TextEncoder();
@@ -78,8 +65,6 @@ const withoutFragment = (url: URL): URL => {
   sent.hash = "";
   return sent;
 };
-
-const keep = (location: string): Restored => ({ location, ok: true });
 
 /** The texts a secret can hide in: the URL, every header value, and the body when it is text. */
 const textsOf = (hop: SecretHop, bodyText: string | null): string[] => {
@@ -123,90 +108,38 @@ const fillUrl = (url: URL, values: ReadonlyMap<string, string>): URL | null => {
 };
 
 const REGEXP_SPECIALS = /[.*+?^${}()|[\]\\]/g;
-const STRIPPED_BY_URL_PARSER = /[\t\n\r]/g;
-const PERCENT_ESCAPE = /%([0-9a-f]{2})/gi;
-const HEX = 16;
-const CANON_ROUNDS = 4;
 
-const percentDecoded = (text: string): string => {
-  try {
-    return decodeURIComponent(text);
-  } catch {
-    return text.replace(PERCENT_ESCAPE, (_, hex: string) =>
-      String.fromCharCode(Number.parseInt(hex, HEX))
-    );
-  }
-};
+const escapedForRegExp = (text: string): string =>
+  text.replace(REGEXP_SPECIALS, "\\$&");
 
 /**
- * A text with the spelling differences a server or the URL parser may add
- * taken out: tabs and line breaks, percent-encoding (repeatedly), `+` for a
- * space, and letter case. Two spellings of one value come out equal.
+ * `text` with each value in `values` replaced by its `hm-secret:NAME`
+ * placeholder, whether it stands as the raw text or percent-encoded as in a
+ * URL, in any letter case. Longest value first. This is for what
+ * leaves the fetcher: the result's `url` and the answer's headers.
  */
-const canonical = (text: string): string => {
-  let current = text;
-  for (let round = 0; round < CANON_ROUNDS; round += 1) {
-    const next = percentDecoded(current.replace(STRIPPED_BY_URL_PARSER, ""))
-      .replaceAll("+", " ")
-      .toLowerCase();
-    if (next === current) {
-      break;
-    }
-    current = next;
+export const scrubSecrets = (
+  text: string,
+  values: ReadonlyMap<string, string>
+): string => {
+  const placeholders = new Map<string, string>();
+  for (const [name, value] of values) {
+    placeholders.set(value.toLowerCase(), placeholderOf(name));
+    placeholders.set(
+      encodeURIComponent(value).toLowerCase(),
+      placeholderOf(name)
+    );
   }
-  return current;
+  if (placeholders.size === 0) {
+    return text;
+  }
+  const ordered = [...placeholders.keys()].sort((a, b) => b.length - a.length);
+  const pattern = new RegExp(ordered.map(escapedForRegExp).join("|"), "gi");
+  return text.replace(
+    pattern,
+    (found) => placeholders.get(found.toLowerCase()) ?? found
+  );
 };
-
-/**
- * Handles the `Location` of a redirect after a hop that filled `values`.
- * Where a value stands as the raw text or percent-encoded as in a URL, and
- * nothing word-like follows it, the placeholder goes back in. The redirect is
- * refused when its host is not allowed for every secret filled, and when any
- * value is still in it in another spelling.
- */
-const restorerOf =
-  (
-    values: ReadonlyMap<string, string>,
-    grants: readonly EnvGrant[],
-    base: URL
-  ): ((location: string) => Restored) =>
-  (location) => {
-    const needles = new Map<string, string>();
-    for (const [name, value] of values) {
-      needles.set(value, placeholderOf(name));
-      needles.set(encodeURIComponent(value), placeholderOf(name));
-    }
-    const ordered = [...needles.keys()].sort((a, b) => b.length - a.length);
-    const pattern = new RegExp(
-      `(?:${ordered.map((needle) => needle.replace(REGEXP_SPECIALS, "\\$&")).join("|")})(?![A-Za-z0-9_])`,
-      "g"
-    );
-    const restored = location.replace(
-      pattern,
-      (found) => needles.get(found) ?? found
-    );
-    const folded = canonical(restored);
-    for (const value of values.values()) {
-      if (folded.includes(canonical(value))) {
-        return { message: ECHOED_SECRET, ok: false };
-      }
-    }
-    let target: URL | undefined;
-    try {
-      target = new URL(restored, base);
-    } catch {
-      // Not a URL: the redirect guard refuses it with its own reason.
-    }
-    if (target !== undefined) {
-      for (const name of values.keys()) {
-        const decision = decidePlaceholder(name, target.hostname, grants);
-        if (!decision.ok) {
-          return { message: decision.message, ok: false };
-        }
-      }
-    }
-    return { location: restored, ok: true };
-  };
 
 /** A copy of the headers with each value filled, or undefined when the result is not a valid header. */
 const fillHeaders = (
@@ -235,7 +168,7 @@ export const fillHop = async (
   const bodyText = bodyTextOf(hop.body);
   const names = [...new Set(textsOf(hop, bodyText).flatMap(placeholderNames))];
   if (names.length === 0) {
-    return { hop, names: [], ok: true, restore: keep };
+    return { hop, names: [], ok: true, values: new Map() };
   }
 
   let grants: readonly EnvGrant[];
@@ -272,6 +205,6 @@ export const fillHop = async (
     hop: { body, headers, method: hop.method, url },
     names,
     ok: true,
-    restore: restorerOf(values, grants, hop.url),
+    values,
   };
 };

@@ -89,7 +89,7 @@ const failure = (error: string, message: string) =>
 const webFetchTool = (
   fetcherOf: () => Promise<WebFetcher>
 ): ToolRegistration<typeof parameters> => ({
-  description: `Sends an HTTP or HTTPS request from the platform. Only http and https URLs work. Private, loopback, link-local and internal addresses and this app's own hosts are refused. Redirects are followed, and each one is checked. Answers over ${WEB_FETCH_MAX_BYTES / MB} MB are refused. A call times out after ${WEB_FETCH_TIMEOUT_MS / 1000} seconds. Credentials the agent was granted for a host are added automatically. Text of the form hm-secret:NAME in the url, a header value or a text body is replaced by that secret's value when the host is one the secret allows. A text answer is decoded as UTF-8. Set responseEncoding to base64 to get the raw bytes.`,
+  description: `Sends an HTTP or HTTPS request from the platform. Only http and https URLs work. Private, loopback, link-local and internal addresses and this app's own hosts are refused. Redirects are followed, and each one is checked. Answers over ${WEB_FETCH_MAX_BYTES / MB} MB are refused. A call times out after ${WEB_FETCH_TIMEOUT_MS / 1000} seconds. Credentials the agent was granted for a host are added automatically. Text of the form hm-secret:NAME in the url, a header value or a text body is replaced by that secret's value when the host is one the secret allows. After a secret is filled in, a redirect is followed only within the same origin, and any other redirect is returned as the answer. A text answer is decoded as UTF-8. Set responseEncoding to base64 to get the raw bytes.`,
   execute: async (args, _api, context) => {
     let body: Uint8Array | undefined;
     if (args.body !== undefined) {
