@@ -37,6 +37,8 @@ const PUBLIC_BASE_URL = "https://app.example.test";
 const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString("base64");
 
 const SLACK_API = "https://slack.com/api/";
+/** The Slack id of the linked person, long enough to be a well-formed user mention. */
+const LINKED_SLACK_ID = "U0DOMINIK";
 const FILE_URL = "https://files.slack.com/files-pri/T0TEAM-F1/report.pdf";
 const UPLOAD_URL = "https://files.slack.com/upload/v1/abc";
 const FAILING_UPLOAD_URL = "https://files.slack.com/upload/v1/broken";
@@ -97,6 +99,15 @@ const defaultResponder: Responder = (call) => {
   }
   if (call.url === `${SLACK_API}files.completeUploadExternal`) {
     return json({ ok: true });
+  }
+  if (call.url === `${SLACK_API}users.info?user=${LINKED_SLACK_ID}`) {
+    return json({
+      ok: true,
+      user: {
+        name: "ann",
+        profile: { display_name: "Ann", real_name: "Ann Lee" },
+      },
+    });
   }
   return new Response(new Uint8Array(10), {
     headers: { "content-type": "application/pdf" },
@@ -437,6 +448,41 @@ test("deliver escapes control syntax before the text reaches Slack", async () =>
   expect(post?.body?.text).toBe(
     "Heads up &lt;!channel&gt; &lt;@U9&gt; the build is done &amp; tested."
   );
+});
+
+test("deliver posts an @name of a linked person as a mention", async () => {
+  insertIdentityLink(LINKED_SLACK_ID);
+
+  await deliver("Ask @ann about it.");
+
+  const [post] = callsTo("chat.postMessage");
+  expect(post?.body?.text).toBe(`Ask <@${LINKED_SLACK_ID}> about it.`);
+});
+
+test("deliver posts an @name nobody matches, and @here, as plain text", async () => {
+  insertIdentityLink(LINKED_SLACK_ID);
+
+  await deliver("Ping @bob and @here, <now> please.");
+
+  const [post] = callsTo("chat.postMessage");
+  expect(post?.body?.text).toBe("Ping @bob and @here, &lt;now&gt; please.");
+});
+
+test("deliver leaves an email address with a linked person's name alone", async () => {
+  insertIdentityLink(LINKED_SLACK_ID);
+
+  await deliver("Write to a@ann.com today.");
+
+  const [post] = callsTo("chat.postMessage");
+  expect(post?.body?.text).toBe("Write to a@ann.com today.");
+});
+
+test("deliver looks up Slack names only when the reply has an @", async () => {
+  insertIdentityLink(LINKED_SLACK_ID);
+
+  await deliver("Done.");
+
+  expect(callsTo("users.info")).toHaveLength(0);
 });
 
 test("deliver posts (no reply) for an empty answer", async () => {

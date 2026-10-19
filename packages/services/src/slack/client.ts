@@ -91,10 +91,10 @@ export interface SlackClient {
   userEmail: (
     userId: string
   ) => Promise<SlackCallResult<{ email: string | null }>>;
-  /** Gives the display name of a user. Needs the users:read scope. */
+  /** Gives the display name of a user, and the other distinct names Slack knows them by. Needs the users:read scope. */
   userName: (
     userId: string
-  ) => Promise<SlackCallResult<{ name: string | null }>>;
+  ) => Promise<SlackCallResult<{ aliases: string[]; name: string | null }>>;
 }
 
 type Body = Record<string, unknown>;
@@ -141,6 +141,21 @@ function escapeSlack(text: string): string {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+/** A well-formed user mention (`<@U…>`) or channel link (`<#C…>`): a letter, then 8 or more capitals and digits. */
+const PASS_THROUGH = /(<@[UW][A-Z0-9]{8,}>|<#[CG][A-Z0-9]{8,}>)/;
+
+/**
+ * Escapes like `escapeSlack`, except a well-formed user mention or channel
+ * link, which stays as written. Control syntax is still escaped: `<!channel>`,
+ * `<!here>`, `<@U123|label>`, masked links and short or odd ids.
+ */
+function escapeSlackKeepingMentions(text: string): string {
+  return text
+    .split(PASS_THROUGH)
+    .map((part, index) => (index % 2 === 1 ? part : escapeSlack(part)))
+    .join("");
 }
 
 function classify<T extends object>(
@@ -521,7 +536,7 @@ export const createSlackClient = (deps: {
         {
           body: {
             channel: request.channel,
-            text: escapeSlack(request.text),
+            text: escapeSlackKeepingMentions(request.text),
             thread_ts: request.threadTs,
             unfurl_links: false,
             unfurl_media: false,
@@ -641,15 +656,16 @@ export const createSlackClient = (deps: {
         (body) => {
           const user = asBody(body.user);
           const profile = asBody(user.profile);
-          const name = [
+          const names = [
             profile.display_name,
             profile.real_name,
             user.real_name,
             user.name,
-          ].find(
-            (candidate) => typeof candidate === "string" && candidate !== ""
+          ].filter(
+            (candidate): candidate is string =>
+              typeof candidate === "string" && candidate !== ""
           );
-          return { name: typeof name === "string" ? name : null };
+          return { aliases: [...new Set(names)], name: names[0] ?? null };
         }
       );
     },

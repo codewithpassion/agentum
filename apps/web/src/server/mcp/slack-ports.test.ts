@@ -20,7 +20,7 @@ import { createMcpPorts } from "./ports.ts";
 const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(9)).toString("base64");
 const TEAM = "T0TEAM";
 const ANN_EMAIL = "ann@example.test";
-const ANN_USER = "U0ANN";
+const ANN_USER = "U0ANN12345";
 const ANN_DM = "D0ANN";
 const GENERAL = "C0GENERAL";
 const SENT_TS = "1700000001.000100";
@@ -200,8 +200,22 @@ test("slack_destinations lists the bot's channels and the linked people", async 
 
   expect(result.isError).toBeFalsy();
   expect(dataOf(result)).toEqual({
-    channels: [{ id: GENERAL, isPrivate: false, name: "general" }],
-    people: [{ email: ANN_EMAIL, slackName: "Ann Lee" }],
+    channels: [
+      {
+        id: GENERAL,
+        isPrivate: false,
+        mention: `<#${GENERAL}>`,
+        name: "general",
+      },
+    ],
+    people: [
+      {
+        email: ANN_EMAIL,
+        mention: `<@${ANN_USER}>`,
+        slackName: "Ann Lee",
+        slackUserId: ANN_USER,
+      },
+    ],
   } satisfies SlackDestinations);
   await session.close();
 });
@@ -218,6 +232,7 @@ test("slack_send posts to a channel and to a person, and returns channel and ts"
   expect(toChannel.isError).toBeFalsy();
   expect(dataOf(toChannel)).toEqual({
     channel: GENERAL,
+    notes: [],
     permalink: `https://acme.slack.com/archives/${GENERAL}/p${SENT_TS}`,
     to: "#general",
     ts: SENT_TS,
