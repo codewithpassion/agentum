@@ -196,6 +196,116 @@ test("a message in a channel is ignored, not answered", () => {
   ).toEqual({ kind: "ignored", reason: "not_a_dm" });
 });
 
+test("a reply in a thread in a channel is answered with the thread it is in", () => {
+  expect(
+    parseEvent(
+      callback({
+        channel: "C024BE91L",
+        channel_type: "channel",
+        text: "approve",
+        thread_ts: "1355517000.000001",
+        ts: "1355517524.000005",
+        type: "message",
+        user: "U2147483697",
+      })
+    )
+  ).toEqual({
+    apiAppId: "A123",
+    channelId: "C024BE91L",
+    eventId: "Ev0PV52K21",
+    files: [],
+    kind: "message",
+    teamId: "T123ABC456",
+    text: "approve",
+    threadTs: "1355517000.000001",
+    trigger: "thread",
+    ts: "1355517524.000005",
+    userId: "U2147483697",
+  });
+});
+
+test("a reply in a thread in a private channel is answered too", () => {
+  expect(
+    parseEvent(
+      callback({
+        channel: "G024BE91L",
+        channel_type: "group",
+        text: "approve",
+        thread_ts: "1355517000.000001",
+        ts: "1355517524.000005",
+        type: "message",
+        user: "U2147483697",
+      })
+    )
+  ).toMatchObject({
+    channelId: "G024BE91L",
+    threadTs: "1355517000.000001",
+    trigger: "thread",
+  });
+});
+
+test("a channel message that is not a thread reply is ignored", () => {
+  // A thread's parent carries thread_ts equal to its own ts, so it is not a
+  // reply.
+  expect(
+    parseEvent(
+      callback({
+        channel: "C024BE91L",
+        channel_type: "channel",
+        text: "approve",
+        thread_ts: "1355517524.000005",
+        ts: "1355517524.000005",
+        type: "message",
+        user: "U2147483697",
+      })
+    )
+  ).toEqual({ kind: "ignored", reason: "not_a_dm" });
+  expect(
+    parseEvent(
+      callback({
+        channel: "G024BE91L",
+        channel_type: "group",
+        text: "approve",
+        ts: "1355517524.000005",
+        type: "message",
+        user: "U2147483697",
+      })
+    )
+  ).toEqual({ kind: "ignored", reason: "not_a_dm" });
+});
+
+test("a bot's reply in a thread is ignored, not answered", () => {
+  expect(
+    parseEvent(
+      callback({
+        bot_id: "B123ABC456",
+        channel: "C024BE91L",
+        channel_type: "channel",
+        text: "Filed *ENG-13*.",
+        thread_ts: "1355517000.000001",
+        ts: "1355517524.000005",
+        type: "message",
+      })
+    )
+  ).toEqual({ kind: "ignored", reason: "bot_message" });
+});
+
+test("an edited thread reply is ignored", () => {
+  expect(
+    parseEvent(
+      callback({
+        channel: "C024BE91L",
+        channel_type: "channel",
+        subtype: "message_changed",
+        thread_ts: "1355517000.000001",
+        ts: "1355517524.000005",
+        type: "message",
+        user: "U2147483697",
+      })
+    )
+  ).toEqual({ kind: "ignored", reason: "message_subtype" });
+});
+
 test("the app's own DM, sent with bot_id, is ignored so it cannot answer itself", () => {
   expect(
     parseEvent(

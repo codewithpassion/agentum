@@ -22,6 +22,7 @@
  * - `groups:history` does the same as `channels:history` for private channels.
  * - `groups:read` does the same as `channels:read` for private channels.
  * - `im:history` reads direct messages, which is the `message.im` event.
+ * - `im:write` opens a DM with a linked member for `slack_send`.
  * - `users:read` looks up members. It also serves `bots.info`, which
  *   Harbourmaster uses to learn the app id when a token is pasted.
  * - `users:read.email` reads a member's email address to match them to an
@@ -37,17 +38,24 @@ export const SLACK_BOT_SCOPES = [
   "groups:history",
   "groups:read",
   "im:history",
+  "im:write",
   "users:read",
   "users:read.email",
 ] as const;
 
 /**
  * Bot events. `app_mention` and `message.im` are the two ways a person reaches
- * the agent. Channel messages without a mention are ignored by the events
- * route, so `message.channels`, `message.groups` and `app_home_opened` are not
- * subscribed.
+ * the agent. `message.channels` and `message.groups` deliver a reply in a
+ * thread the agent started without a mention. The events route ignores channel
+ * messages except replies in a thread the agent knows, so `app_home_opened` is
+ * not subscribed.
  */
-export const SLACK_BOT_EVENTS = ["app_mention", "message.im"] as const;
+export const SLACK_BOT_EVENTS = [
+  "app_mention",
+  "message.channels",
+  "message.groups",
+  "message.im",
+] as const;
 
 /**
  * Slack's cap on `features.agent_view.agent_description`

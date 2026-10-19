@@ -1,7 +1,7 @@
 /**
  * The inbound half of the Events API: what Slack posts to the events URL when
- * a person sends the app a direct message, mentions it in a channel, or
- * shares a file with a message.
+ * a person sends the app a direct message, mentions it in a channel, replies
+ * in a thread in a channel, or shares a file with a message.
  *
  * Two payload shapes arrive at that URL. `url_verification` is the challenge
  * Slack issues while the request URL is being configured, and the route has to
@@ -138,10 +138,13 @@ export type SlackEvent =
       text: string;
       /** Set when the message is a reply in a thread. */
       threadTs: string | undefined;
-      trigger: "dm" | "mention";
+      trigger: MessageTrigger;
       ts: string;
       userId: string;
     };
+
+/** Why the app got the message: a DM, a mention, or a reply in a thread. */
+type MessageTrigger = "dm" | "mention" | "thread";
 
 /** What every real event carries: which Slack workspace, and which delivery. */
 interface SlackEventContext {
@@ -201,8 +204,10 @@ const ANSWERED_SUBTYPES = new Set(["file_share", "thread_broadcast"]);
 const DM_CHANNEL_TYPE = "im";
 
 /**
- * A direct message. A message in a channel is not for the app to answer: a
- * mention of the app in a channel arrives separately, as `app_mention`.
+ * A direct message, or a reply in a thread in a channel. Any other channel
+ * message is not for the app to answer: a mention of the app in a channel
+ * arrives separately, as `app_mention`, and a channel message that starts no
+ * thread the app is in is ignored.
  */
 function parseMessage(
   inner: unknown,
@@ -218,14 +223,34 @@ function parseMessage(
   if (skipped) {
     return { kind: "ignored", reason: skipped };
   }
-  if (event.channel_type !== DM_CHANNEL_TYPE) {
+  const trigger = messageTrigger(event);
+  if (!trigger) {
     return { kind: "ignored", reason: "not_a_dm" };
   }
   const userId = event.user;
   if (!userId) {
     return { kind: "ignored", reason: "no_sender" };
   }
-  return toMessage(event, userId, context, apiAppId, "dm");
+  return toMessage(event, userId, context, apiAppId, trigger);
+}
+
+/**
+ * Null when the message is not for the app: a channel message is a thread
+ * reply only when its `thread_ts` names a different message (a thread's
+ * parent has `thread_ts` equal to its own `ts`).
+ */
+function messageTrigger(event: {
+  channel_type?: string | null;
+  thread_ts?: string | null;
+  ts: string;
+}): MessageTrigger | null {
+  if (event.channel_type === DM_CHANNEL_TYPE) {
+    return "dm";
+  }
+  if (event.thread_ts && event.thread_ts !== event.ts) {
+    return "thread";
+  }
+  return null;
 }
 
 /**
@@ -259,7 +284,7 @@ function toMessage(
   userId: string,
   context: SlackEventContext,
   apiAppId: string | undefined,
-  trigger: "dm" | "mention"
+  trigger: MessageTrigger
 ): SlackEvent {
   return {
     apiAppId,

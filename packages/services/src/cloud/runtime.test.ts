@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { slackApps } from "@repo/db/schema/slack";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { asc, eq } from "drizzle-orm";
@@ -15,6 +16,7 @@ import {
   type RunsService,
   STALE_QUEUE_MS,
 } from "../runs.ts";
+import { SLACK_GUIDANCE } from "../slack/guidance.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { CLOUD_LEASE_MS } from "./lease.ts";
 import { createCloudRuntime } from "./runtime.ts";
@@ -84,6 +86,23 @@ let restoreConsole: () => void;
 const clock: Clock = {
   now: () => new Date(nowMs),
   sleep: () => Promise.resolve(),
+};
+
+const installSlackApp = (agent: string) => {
+  db.insert(slackApps)
+    .values({
+      agentId: agent,
+      appId: "A0SLACK",
+      botToken: null,
+      botUserId: "U0BOT",
+      createdAt: START,
+      id: `app-${agent}`,
+      signingSecret: "ciphertext",
+      status: "installed",
+      teamId: "T0TEAM",
+      workspaceId: WORKSPACE,
+    })
+    .run();
 };
 
 const start = async (
@@ -216,6 +235,28 @@ describe("a request that ends during the start", () => {
 });
 
 describe("dispatch", () => {
+  test("the runner gets the Slack line after the instructions when the agent has an installed Slack app", async () => {
+    installSlackApp(agentId);
+
+    await start();
+
+    const [input] = runner.startCalls;
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    expect(input.agent.instructions).toBe(`Be brief.\n\n${SLACK_GUIDANCE}`);
+  });
+
+  test("the runner gets the agent's own instructions when the agent has no Slack app", async () => {
+    await start();
+
+    const [input] = runner.startCalls;
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    expect(input.agent.instructions).toBe("Be brief.");
+  });
+
   test("wakes the runner with the run, agent and MCP servers, and leaves the run for the runner to claim", async () => {
     await seedConnector(db, {
       authKind: "none",

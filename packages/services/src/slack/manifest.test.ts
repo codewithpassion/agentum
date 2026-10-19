@@ -85,15 +85,23 @@ test("the scopes and events are exactly the lists", () => {
     "groups:history",
     "groups:read",
     "im:history",
+    "im:write",
     "users:read",
     "users:read.email",
   ]);
   expect([...manifest.oauth_config.scopes.bot]).toEqual([...SLACK_BOT_SCOPES]);
   expect(manifest.settings.event_subscriptions.bot_events).toEqual([
     "app_mention",
+    "message.channels",
+    "message.groups",
     "message.im",
   ]);
-  expect(SLACK_BOT_EVENTS).toEqual(["app_mention", "message.im"]);
+  expect(SLACK_BOT_EVENTS).toEqual([
+    "app_mention",
+    "message.channels",
+    "message.groups",
+    "message.im",
+  ]);
 });
 
 test("interactivity is disabled and the other settings are fixed", () => {

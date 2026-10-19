@@ -249,6 +249,21 @@ export interface SkillArchive {
   filename: string;
 }
 
+/** The channels the agent's Slack bot is in, and the people it may message. */
+export interface SlackDestinations {
+  channels: { id: string; isPrivate: boolean; name: string }[];
+  people: { email: string; slackName: string }[];
+}
+
+/** A message slack_send started. `permalink` is null when Slack gave none. */
+export interface SlackSendResult {
+  channel: string;
+  permalink: string | null;
+  /** The target as resolved: `#name`, or a person's email. */
+  to: string;
+  ts: string;
+}
+
 export interface McpPorts {
   approveSkillVersion: (input: {
     skillId: string;
@@ -345,6 +360,12 @@ export interface McpPorts {
     skillId: string;
     version: number;
   }) => Promise<SkillShown>;
+  slackDestinations: () => Promise<SlackDestinations>;
+  slackSend: (input: {
+    text: string;
+    thread_ts?: string;
+    to: string;
+  }) => Promise<SlackSendResult>;
   unassignSkill: (input: { agent: string; skillId: string }) => Promise<void>;
 }
 

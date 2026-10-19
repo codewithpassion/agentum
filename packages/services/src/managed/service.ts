@@ -53,6 +53,7 @@ import type { RunsService } from "../runs.ts";
 import { secretsGuidance } from "../secrets/guidance.ts";
 import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
 import type { SecretsService } from "../secrets.ts";
+import { slackGuidanceFor } from "../slack/guidance.ts";
 import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { modelFor } from "./config.ts";
 import { type EventCursor, isAbnormalStop, reduceEvents } from "./events.ts";
@@ -160,10 +161,11 @@ const stopMessage = (stopReason: string | null, errors: string[]): string => {
   return errors.length > 0 ? `${base}: ${errors.join("; ")}` : base;
 };
 
-/** The Anthropic agent's system text: its instructions, its files, then what it is told about skills and secrets. */
+/** The Anthropic agent's system text: its instructions, its files, then what it is told about skills, Slack and secrets. */
 const systemOf = (
   agent: AgentRecord,
   skillNames: string[],
+  slackText: string,
   secretsText: string
 ): string =>
   [
@@ -177,6 +179,7 @@ const systemOf = (
       scratch: { lasts: "session", path: "/workspace" },
     }),
     skillsGuidance(skillNames),
+    slackText,
     secretsText,
   ]
     .filter((part) => part !== "")
@@ -719,9 +722,14 @@ export const createManagedService = ({
       skills: resolved,
       source,
     });
+    const slack = await slackGuidanceFor(db, {
+      agentId: agent.id,
+      workspaceId: run.workspaceId,
+    });
     const system = systemOf(
       agent,
       resolved.map((skill) => skill.name),
+      slack,
       grants.guidance
     );
     const fingerprint = await hashToken(
