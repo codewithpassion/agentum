@@ -115,8 +115,8 @@ const escapedForRegExp = (text: string): string =>
 /**
  * `text` with each value in `values` replaced by its `hm-secret:NAME`
  * placeholder, whether it stands as the raw text or percent-encoded as in a
- * URL, in any letter case. Longest value first, one value at a time. This is for what
- * leaves the fetcher: the result's `url` and the answer's headers.
+ * URL, in any letter case. Longest value first, one value at a time. This is
+ * for what leaves the fetcher: the answer's headers and status text.
  */
 export const scrubSecrets = (
   text: string,

@@ -9,8 +9,8 @@
 // and only for a host the secret may reach. Redirects keep the placeholder form,
 // so each hop is checked against its own host. Once a call has filled a secret
 // it follows redirects to the same origin only: any other 3xx is the answer.
-// What leaves the fetcher (the result's `url` and the headers) shows the
-// placeholder in place of every value.
+// What leaves the fetcher shows the placeholder in place of every value: the
+// headers and status text are scrubbed, and the `url` is the one requested.
 
 import type { NetworkRequestEntry } from "@repo/services/network";
 import type { EnvGrant } from "@repo/services/secrets/placeholders";
