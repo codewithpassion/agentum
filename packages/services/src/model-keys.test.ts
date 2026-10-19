@@ -303,7 +303,7 @@ describe("set and status", () => {
     expect(modelKeyRow(WORKSPACE)).toBeUndefined();
   });
 
-  test("a live check that throws is a refusal that does not echo the key", async () => {
+  test("a live check that cannot run is a refusal that does not echo the key and does not call the key bad", async () => {
     const service = build((_provider, apiKey) =>
       Promise.reject(new Error(`request failed for ${apiKey}`))
     );
@@ -315,6 +315,7 @@ describe("set and status", () => {
     expect(error).toBeInstanceOf(ServiceError);
     expect(error).toMatchObject({ code: "invalid" });
     expect(messageOf(error)).not.toContain(KEY);
+    expect(messageOf(error)).not.toContain("did not accept");
     expect(modelKeyRow(WORKSPACE)).toBeUndefined();
   });
 });

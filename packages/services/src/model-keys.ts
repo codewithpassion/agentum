@@ -184,7 +184,10 @@ export const createModelKeysService = ({
     return { configured: true, hint: row.keyHint, updatedAt: row.updatedAt };
   };
 
-  /** Whether the provider accepts the key. A thrown check counts as a no. */
+  /**
+   * Whether the provider accepts the key. A check that could not run (an
+   * outage, a rate limit) is not a verdict on the key, so it is its own refusal.
+   */
   const accepted = async (
     provider: ModelProvider,
     apiKey: string
@@ -195,8 +198,11 @@ export const createModelKeysService = ({
     try {
       return await validate(provider, apiKey);
     } catch {
-      // An SDK error can quote the request, and so the key. Its words stay out.
-      return false;
+      // biome-ignore lint/style/useErrorCause: a failed request can quote the key, so the error stays out.
+      throw new ServiceError(
+        "invalid",
+        `Could not check that key with ${PROVIDER_NAMES[provider]}. Try again later.`
+      );
     }
   };
 
