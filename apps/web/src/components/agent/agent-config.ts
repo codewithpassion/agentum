@@ -8,6 +8,7 @@ import {
   CLOUD_ENVIRONMENT_KEY,
   type CloudEnvironment,
 } from "@repo/services/cloud/environment";
+import { CLOUD_NETWORK_KEY } from "@repo/services/cloud/network";
 import type { AgentFormValues } from "#/components/agent/agent-form";
 
 /** The turn limit as form input: the configured value, or "" to use the default. */
@@ -27,12 +28,14 @@ export const runtimeConfigOf = (
   values: {
     environment: CloudEnvironment;
     maxTurns: string;
+    networkAccess: boolean;
     runtime: AgentFormValues["runtime"];
   }
 ): RuntimeConfig => {
   const config: RuntimeConfig = { ...base };
   if (values.runtime === "cloud") {
     config[CLOUD_ENVIRONMENT_KEY] = values.environment;
+    config[CLOUD_NETWORK_KEY] = values.networkAccess;
   }
   if (values.runtime === "cloud" || values.runtime === "machine") {
     if (values.maxTurns.trim() === "") {

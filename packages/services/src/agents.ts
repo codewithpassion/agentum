@@ -17,6 +17,7 @@ import {
   cloudEnvironmentError,
 } from "./cloud/environment.ts";
 import { isAnthropicModel } from "./cloud/models.ts";
+import { CLOUD_NETWORK_KEY, networkAccessError } from "./cloud/network.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { libraryPathsError } from "./library/sync-paths.ts";
@@ -41,7 +42,7 @@ const machineIdSchema = z.string().min(1).max(200);
 const runtimeConfigSchema = z.record(z.string(), z.json());
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
 
-/** Fails an agent whose `runtimeConfig` names a cloud environment that does not exist, or that sets one on an agent that does not run in the cloud, or whose library paths are invalid, or whose turn limit is out of range, or that sets a turn limit on a managed agent, which has no turn count. */
+/** Fails an agent whose `runtimeConfig` names a cloud environment that does not exist, or that sets one on an agent that does not run in the cloud, or whose network setting is not a boolean or is set on an agent that does not run in the cloud, or whose library paths are invalid, or whose turn limit is out of range, or that sets a turn limit on a managed agent, which has no turn count. */
 const assertRuntimeConfig = (
   runtime: AgentRuntime,
   runtimeConfig: RuntimeConfig
@@ -49,6 +50,10 @@ const assertRuntimeConfig = (
   const issue = cloudEnvironmentError(runtimeConfig);
   if (issue !== undefined) {
     throw new ServiceError("invalid", issue);
+  }
+  const networkIssue = networkAccessError(runtimeConfig);
+  if (networkIssue !== undefined) {
+    throw new ServiceError("invalid", networkIssue);
   }
   const pathIssue = libraryPathsError(runtimeConfig);
   if (pathIssue !== undefined) {
@@ -58,6 +63,12 @@ const assertRuntimeConfig = (
     throw new ServiceError(
       "invalid",
       `Only a cloud agent takes an environment, not "${runtime}"`
+    );
+  }
+  if (runtime !== "cloud" && CLOUD_NETWORK_KEY in runtimeConfig) {
+    throw new ServiceError(
+      "invalid",
+      `Only a cloud agent takes network access, not "${runtime}"`
     );
   }
   const turnsIssue = maxTurnsError(runtimeConfig);

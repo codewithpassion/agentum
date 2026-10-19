@@ -5,6 +5,11 @@ import {
   libraryToolsExtension,
 } from "../library-env/library-tools.ts";
 import {
+  NETWORK_TOOLS_EXTENSION,
+  type NetworkToolsOptions,
+  networkToolsExtension,
+} from "../web-fetch/pi-tool.ts";
+import {
   LINUX_VM_TOOLS_EXTENSION,
   linuxVmToolsExtension,
   type VmLibraryState,
@@ -17,18 +22,27 @@ import {
  * session whose agent changed environment never holds both. `slugOf` gives the
  * agent's slug for the library tools' prompt section. `libraryOf` gives the
  * synced library copy's state for the Linux VM's prompt section.
+ *
+ * `web_fetch` belongs to the isolate only, because a Linux VM reaches the
+ * network through the VM itself. `network` gives the isolate's setting and the
+ * fetcher. Without it the isolate gets no network tool or notice.
  */
 export const installEnvironmentTools = (
   registry: Pick<Registry, "install" | "uninstall">,
   environment: CloudEnvironment,
   slugOf: () => Promise<string | undefined>,
-  libraryOf?: () => Promise<VmLibraryState | undefined>
+  libraryOf?: () => Promise<VmLibraryState | undefined>,
+  network?: NetworkToolsOptions
 ): void => {
+  registry.uninstall({ name: NETWORK_TOOLS_EXTENSION });
   if (environment === "linux-vm") {
     registry.uninstall({ name: LIBRARY_TOOLS_EXTENSION });
     registry.install(linuxVmToolsExtension(libraryOf));
   } else {
     registry.uninstall({ name: LINUX_VM_TOOLS_EXTENSION });
     registry.install(libraryToolsExtension(slugOf));
+    if (network) {
+      registry.install(networkToolsExtension(network));
+    }
   }
 };

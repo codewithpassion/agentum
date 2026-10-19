@@ -33,6 +33,7 @@ import {
   NativeSelectOptGroup,
   NativeSelectOption,
 } from "#/components/ui/native-select";
+import { Switch } from "#/components/ui/switch";
 import { Textarea } from "#/components/ui/textarea";
 import type { MachineRecord } from "#/integrations/trpc/types";
 
@@ -43,6 +44,7 @@ export interface AgentFormValues {
   maxTurns: string;
   model: string;
   name: string;
+  networkAccess: boolean;
   runtime: "cloud" | "fake" | "machine" | "managed";
 }
 
@@ -53,6 +55,7 @@ const defaultValues: AgentFormValues = {
   maxTurns: "",
   model: "sonnet",
   name: "",
+  networkAccess: true,
   runtime: import.meta.env.DEV ? "fake" : "machine",
 };
 
@@ -197,6 +200,10 @@ export function AgentForm({
         update("environment", next);
       }
     },
+    [update]
+  );
+  const handleNetworkAccess = useCallback(
+    (checked: boolean) => update("networkAccess", checked),
     [update]
   );
   const handleMachine = useCallback(
@@ -345,6 +352,22 @@ export function AgentForm({
               minutes idle, and its /workspace folder comes back on the next
               message. Scripts and commands in the VM have network access and
               never see this platform's secrets.
+            </FieldDescription>
+          </Field>
+        )}
+        {values.runtime === "cloud" && (
+          <Field>
+            <FieldLabel htmlFor="agent-network">Network access</FieldLabel>
+            <Switch
+              checked={values.networkAccess}
+              id="agent-network"
+              onCheckedChange={handleNetworkAccess}
+            />
+            <FieldDescription>
+              Lets this agent fetch web pages and call APIs from the isolate
+              with web_fetch and curl, with private and internal addresses
+              blocked. Linux VM agents always have network access, whatever this
+              says.
             </FieldDescription>
           </Field>
         )}

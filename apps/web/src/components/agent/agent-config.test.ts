@@ -6,11 +6,13 @@ import {
   MAX_TURNS_MIN,
 } from "@repo/protocol/safeguards";
 import { CLOUD_ENVIRONMENT_KEY } from "@repo/services/cloud/environment";
+import { CLOUD_NETWORK_KEY } from "@repo/services/cloud/network";
 import { maxTurnsInputOf, runtimeConfigOf } from "./agent-config.ts";
 
 const cloud = {
   environment: "isolate",
   maxTurns: "",
+  networkAccess: true,
   runtime: "cloud",
 } as const;
 
@@ -58,6 +60,7 @@ describe("runtimeConfigOf", () => {
     const base = { [MAX_TURNS_KEY]: 200, other: "kept" };
     expect(runtimeConfigOf(base, { ...cloud, maxTurns: "" })).toEqual({
       [CLOUD_ENVIRONMENT_KEY]: "isolate",
+      [CLOUD_NETWORK_KEY]: true,
       other: "kept",
     });
     expect(
@@ -70,20 +73,23 @@ describe("runtimeConfigOf", () => {
     const result = runtimeConfigOf(base, { ...cloud, maxTurns: "20" });
     expect(result).toEqual({
       [CLOUD_ENVIRONMENT_KEY]: "isolate",
+      [CLOUD_NETWORK_KEY]: true,
       [MAX_TURNS_KEY]: 20,
       other: "kept",
     });
     expect(base).toEqual({ other: "kept" });
   });
 
-  test("sets the environment only for cloud", () => {
+  test("sets the environment and the network setting only for cloud", () => {
     const values = {
       environment: "linux-vm",
       maxTurns: "",
+      networkAccess: false,
       runtime: "cloud",
     } as const;
     expect(runtimeConfigOf({}, values)).toEqual({
       [CLOUD_ENVIRONMENT_KEY]: "linux-vm",
+      [CLOUD_NETWORK_KEY]: false,
     });
     expect(runtimeConfigOf({}, { ...values, runtime: "machine" })).toEqual({});
   });
@@ -94,6 +100,7 @@ describe("runtimeConfigOf", () => {
       runtimeConfigOf(base, {
         environment: "linux-vm",
         maxTurns: "30",
+        networkAccess: false,
         runtime: "managed",
       })
     ).toEqual(base);

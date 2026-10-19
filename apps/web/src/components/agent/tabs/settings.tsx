@@ -1,5 +1,6 @@
 import type { ModelProvider } from "@repo/db/shared";
 import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
+import { networkAccessOf } from "@repo/services/cloud/network";
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -85,6 +86,7 @@ function SettingsPanel({ agent }: AgentTabProps) {
           maxTurns: maxTurnsInputOf(agent.runtimeConfig),
           model: agent.model,
           name: agent.name,
+          networkAccess: networkAccessOf(agent.runtimeConfig),
           runtime: agent.runtime,
         }}
         key={agent.id}

@@ -288,6 +288,56 @@ test("create and update keep the cloud environment and refuse an unknown one", a
   ).rejects.toMatchObject({ code: "invalid" });
 });
 
+test("create and update keep the network setting and refuse a bad one", async () => {
+  const agent = await service.create(user, {
+    model: "sonnet",
+    name: "Offline agent",
+    runtime: "cloud",
+    runtimeConfig: { networkAccess: false },
+  });
+  expect(agent.runtimeConfig).toEqual({ networkAccess: false });
+  const [stored] = db.select().from(agents).all();
+  expect(stored?.runtimeConfig).toBe('{"networkAccess":false}');
+  const updated = await service.update(user, agent.id, {
+    runtimeConfig: { networkAccess: true },
+  });
+  expect(updated.runtimeConfig).toEqual({ networkAccess: true });
+
+  await expect(
+    service.create(user, {
+      model: "sonnet",
+      name: "Stringy",
+      runtime: "cloud",
+      runtimeConfig: { networkAccess: "no" },
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+  await expect(
+    service.update(user, agent.id, { runtimeConfig: { networkAccess: 0 } })
+  ).rejects.toMatchObject({ code: "invalid" });
+});
+
+test("a machine agent refuses the network setting", async () => {
+  insertMachine("m-mine", WORKSPACE);
+  await expect(
+    service.create(user, {
+      machineId: "m-mine",
+      model: "sonnet",
+      name: "Box",
+      runtime: "machine",
+      runtimeConfig: { networkAccess: false },
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+  const box = await service.create(user, {
+    machineId: "m-mine",
+    model: "sonnet",
+    name: "Box",
+    runtime: "machine",
+  });
+  await expect(
+    service.update(user, box.id, { runtimeConfig: { networkAccess: true } })
+  ).rejects.toMatchObject({ code: "invalid" });
+});
+
 test("create and update keep the library paths and refuse a bad list", async () => {
   const agent = await service.create(user, {
     model: "sonnet",

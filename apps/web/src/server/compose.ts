@@ -78,6 +78,10 @@ import {
   validateModelKey,
 } from "@repo/services/model-keys";
 import {
+  createNetworkService,
+  type NetworkService,
+} from "@repo/services/network";
+import {
   createOAuthClientsService,
   type OAuthClientsService,
 } from "@repo/services/oauth-clients";
@@ -206,6 +210,7 @@ export interface Services {
   managed: ManagedService;
   managedKeys: ManagedKeysService;
   modelKeys: ModelKeysService;
+  network: NetworkService;
   oauthClients: OAuthClientsService;
   routines: RoutinesService;
   runSkills: RunSkillsService;
@@ -384,6 +389,7 @@ export const composeWith = ({
     secretsKey: infra.secretsKey,
     validate: infra.validateModelKey,
   });
+  const network = createNetworkService({ db, events });
   const oauthClients = createOAuthClientsService({ clock: infra.clock, db });
   const secrets = createSecretsService({
     atomic: infra.atomic,
@@ -513,6 +519,7 @@ export const composeWith = ({
       managed,
       managedKeys,
       modelKeys,
+      network,
       oauthClients,
       routines,
       runSkills,

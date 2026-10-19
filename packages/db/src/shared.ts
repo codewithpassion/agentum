@@ -111,6 +111,7 @@ export const EVENT_TYPES = [
   "library.conflict",
   "secret.delivered",
   "secret.injected",
+  "network.request",
   "skill.created",
   "skill.committed",
   "skill.approved",

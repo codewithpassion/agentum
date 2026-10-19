@@ -119,14 +119,32 @@ function blockedV6(address: string): boolean {
   if (g0 === 0x20_02) {
     return blockedV4(v4From(g1, g2)); // 6to4 2002::/16
   }
-  // fc00::/7 unique local, fe80::/10 link-local, ff00::/8 multicast
+  if (g0 === 0x20_01 && g1 === 0) {
+    return true; // Teredo 2001::/32 hides an IPv4 address
+  }
+  if (g0 === 0x64 && g1 === 0xff_9b && g2 === 1) {
+    return true; // local-use NAT64 64:ff9b:1::/48
+  }
+  if (
+    g0 === 0 &&
+    g1 === 0 &&
+    g2 === 0 &&
+    g3 === 0 &&
+    g4 === 0xff_ff &&
+    g5 === 0
+  ) {
+    return true; // IPv4-translated ::ffff:0:0:0/96
+  }
+  // fc00::/7 unique local, fe80::/10 link-local, ff00::/8 multicast, fec0::/10 site-local
   return (
     // biome-ignore lint/suspicious/noBitwiseOperators: Prefix masks on the first 16 bits.
     (g0 & 0xfe_00) === 0xfc_00 ||
     // biome-ignore lint/suspicious/noBitwiseOperators: Prefix masks on the first 16 bits.
     (g0 & 0xff_c0) === 0xfe_80 ||
     // biome-ignore lint/suspicious/noBitwiseOperators: Prefix masks on the first 16 bits.
-    (g0 & 0xff_00) === 0xff_00
+    (g0 & 0xff_00) === 0xff_00 ||
+    // biome-ignore lint/suspicious/noBitwiseOperators: Prefix masks on the first 16 bits.
+    (g0 & 0xff_c0) === 0xfe_c0 // fec0::/10 site-local, deprecated
   );
 }
 

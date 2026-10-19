@@ -16,6 +16,8 @@ import type {
   TriggerInfo,
 } from "@repo/mcp/ports";
 import { ToolError } from "@repo/mcp/result";
+import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
+import { networkAccessOf } from "@repo/services/cloud/network";
 import type { PostRecord, ThreadRecord } from "@repo/services/inbox";
 import type { RoutineSummary } from "@repo/services/routines";
 import type { RunSummary } from "@repo/services/runs/types";
@@ -31,10 +33,19 @@ import type { Principal } from "@repo/services/workspaces";
 import type { Services } from "../compose.ts";
 import { runLibraryBash } from "../library-bash/run.ts";
 import { bindLibraryOps } from "../library-env/library-ops.ts";
+import { ownHostsOf } from "../web-fetch/guard.ts";
+import {
+  type RunFetcherDeps,
+  runWebFetcher,
+} from "../web-fetch/run-fetcher.ts";
+import type { WebFetcher } from "../web-fetch/types.ts";
 import { guarded } from "./guarded.ts";
 import { createSkillPorts } from "./skill-ports.ts";
 
 const TITLE_MAX = 80;
+/** What the Log keeps of a script that started `curl`. Each request has its own `network.request` event. */
+export const NETWORK_SCRIPT_REDACTED =
+  "[script redacted: made network requests]";
 
 const toRunInfo = (run: RunSummary): RunInfo => ({
   agentId: run.agentId,
@@ -124,10 +135,17 @@ const toTriggerChange = (change: TriggerWithSecret): TriggerChange => ({
 });
 
 export const createMcpPorts = ({
+  fetch,
   principal,
+  publicBaseUrl,
+  requestHost,
   services,
 }: {
+  /** Replaces the global `fetch` for `curl`. Tests inject a fake here. */
+  fetch?: RunFetcherDeps["fetch"];
   principal: Principal;
+  publicBaseUrl?: string;
+  requestHost?: string;
   services: Services;
 }): McpPorts => {
   /** The agent whose slug or id is `reference`, among those the caller can see. */
@@ -148,6 +166,32 @@ export const createMcpPorts = ({
   /** An agent id for `reference`, an id or a slug. Left out stays left out. */
   const agentIdOf = async (reference: string | undefined) =>
     reference === undefined ? undefined : (await findAgent(reference)).id;
+
+  /**
+   * The fetcher `curl` uses. Only a run whose agent has network access gets
+   * one. A Linux VM agent always has network, so its setting does not count.
+   */
+  const webFetcherFor = async (): Promise<WebFetcher | undefined> => {
+    if (principal.kind !== "run") {
+      return;
+    }
+    const agent = await services.agents.get(principal, principal.agentId);
+    const inVm = cloudEnvironmentOf(agent.runtimeConfig) === "linux-vm";
+    if (!(inVm || networkAccessOf(agent.runtimeConfig))) {
+      return;
+    }
+    return runWebFetcher({
+      fetch,
+      ownHosts: ownHostsOf(publicBaseUrl, requestHost ? [requestHost] : []),
+      run: {
+        agentId: principal.agentId,
+        runId: principal.runId,
+        workspaceId: principal.workspaceId,
+      },
+      services,
+      via: "curl",
+    });
+  };
 
   return {
     ...createSkillPorts({ findAgent, principal, services }),
@@ -214,13 +258,21 @@ export const createMcpPorts = ({
     libraryBash: ({ script }) =>
       guarded(async () => {
         const { library } = services;
+        let usedNetwork = false;
         const result = await runLibraryBash({
+          onCurl: () => {
+            usedNetwork = true;
+          },
           ops: bindLibraryOps(library, principal),
           script,
+          web: await webFetcherFor(),
         });
         await library.recordCommand(principal, {
           exitCode: result.exitCode,
-          script,
+          // A script that used the network may hold a token anywhere in its text
+          // (a variable, a file, a pipe), and spelling cannot be checked, so the
+          // Log keeps the request events instead of the script.
+          script: usedNetwork ? NETWORK_SCRIPT_REDACTED : script,
           storageCalls: result.storageCalls,
           wallMs: result.wallMs,
         });

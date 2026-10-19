@@ -15,6 +15,7 @@ import {
   findCloudModel,
   parseModelRef,
 } from "@repo/services/cloud/models";
+import { networkAccessOf } from "@repo/services/cloud/network";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { isServiceError } from "@repo/services/errors";
 import { agentHomePath, ensureAgentHome } from "@repo/services/library/home";
@@ -82,6 +83,9 @@ import {
   skillScriptsExtension,
 } from "./skill-scripts/run-skill-script.ts";
 import { skillVersionFiles } from "./skill-scripts/skill-version-files.ts";
+import { ownHostsOf } from "./web-fetch/guard.ts";
+import { runWebFetcher } from "./web-fetch/run-fetcher.ts";
+import type { WebFetcher } from "./web-fetch/types.ts";
 
 const TOOLS_KEY = "mcp-tools";
 /** The workspace of the session. An id, not a secret: the model key is read again for each model request. */
@@ -94,6 +98,8 @@ const AGENT_SLUG_KEY = "agent-slug";
 const SKILLS_KEY = "skills";
 /** The agent id, stored only when the agent runs in a Linux VM: the VM is named by it, so every session of the agent shares one VM. Absent means the isolate. */
 const VM_KEY = "linux-vm";
+/** Whether the isolate's agent may reach the network, so the wake path installs the same `web_fetch` the run did. Absent means true. */
+const NETWORK_KEY = "network-access";
 /** The run an input file belongs to, so `read_input_file` reads it as that run. */
 const inputFileKey = (fileId: string) => `input-file:${fileId}`;
 const ENTRY_PAGE = 500;
@@ -189,7 +195,10 @@ export class PiRun extends DurableObject<Env> {
       this.#installTools(
         (await this.ctx.storage.get<ServerTools>(TOOLS_KEY)) ?? {}
       );
-      this.#switchEnvironment(await this.ctx.storage.get<string>(VM_KEY));
+      this.#switchEnvironment(
+        await this.ctx.storage.get<string>(VM_KEY),
+        (await this.ctx.storage.get<boolean>(NETWORK_KEY)) ?? true
+      );
       const skills = await this.ctx.storage.get<StoredSkills>(SKILLS_KEY);
       if (skills) {
         this.#applySkills(skills);
@@ -343,19 +352,21 @@ export class PiRun extends DurableObject<Env> {
   /**
    * Makes the session run in its agent's Linux VM, or in the isolate when
    * `agentId` is undefined: the file and shell tools, the skill script backend
-   * and the environment follow. The VM is named by the agent id.
+   * and the environment follow. The VM is named by the agent id. `networkEnabled`
+   * is the isolate's network setting, which decides its `web_fetch` tool.
    */
-  #switchEnvironment(agentId: string | undefined) {
+  #switchEnvironment(agentId: string | undefined, networkEnabled: boolean) {
     this.#vm = agentId ? durableVm(this.env.LINUX_VM, agentId) : undefined;
     installEnvironmentTools(
       this.registry,
       this.#vm ? "linux-vm" : "isolate",
       () => this.#agentSlug(),
-      () => libraryCopyOf(this.ctx.storage)
+      () => libraryCopyOf(this.ctx.storage),
+      { enabled: networkEnabled, fetcherOf: () => this.#webFetcher() }
     );
   }
 
-  /** Stores which environment the agent of this run asks for, and switches to it. */
+  /** Stores which environment and network setting the agent of this run asks for, and switches to them. */
   async #selectEnvironment(input: CloudStart) {
     const inVm = cloudEnvironmentOf(input.agent.runtimeConfig) === "linux-vm";
     if (inVm) {
@@ -363,7 +374,29 @@ export class PiRun extends DurableObject<Env> {
     } else {
       await this.ctx.storage.delete(VM_KEY);
     }
-    this.#switchEnvironment(inVm ? input.run.agentId : undefined);
+    const networkEnabled = networkAccessOf(input.agent.runtimeConfig);
+    await this.ctx.storage.put(NETWORK_KEY, networkEnabled);
+    this.#switchEnvironment(
+      inVm ? input.run.agentId : undefined,
+      networkEnabled
+    );
+  }
+
+  /**
+   * The fetcher for a `web_fetch` call. The run is read when the call comes,
+   * because the tool is installed before any run is known.
+   */
+  async #webFetcher(): Promise<WebFetcher> {
+    const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
+    if (!run) {
+      throw new Error("web_fetch needs a run, and none is stored");
+    }
+    return runWebFetcher({
+      ownHosts: ownHostsOf(this.env.PUBLIC_BASE_URL),
+      run,
+      services: this.#services(),
+      via: "web_fetch",
+    });
   }
 
   #agentSlug() {
