@@ -1,0 +1,1 @@
+ALTER TABLE `connectors` ADD `call_timeout_seconds` integer DEFAULT 60 NOT NULL;

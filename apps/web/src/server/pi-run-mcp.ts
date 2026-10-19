@@ -41,7 +41,9 @@ const SESSION_HEADER = "Mcp-Session-Id";
 const LOST_SESSION_STATUSES: readonly number[] = [400, 404];
 // The shared initialize cannot carry a caller's signal, so a server that never answers is cut off here.
 const INITIALIZE_TIMEOUT_MS = 30_000;
-const REQUEST_ID = 1;
+// The connector limit is 300 s. The grace lets the proxy's own timeout error arrive first.
+export const CALL_LIMIT_MS = 310_000;
+const MS_PER_SECOND = 1000;
 const TOOL_NAME_MAX = 64;
 const SSE_DATA_PREFIX = "data:";
 const SSE_DATA_PREFIX_LENGTH = SSE_DATA_PREFIX.length;
@@ -54,6 +56,13 @@ const INITIALIZE_PARAMS = {
 
 // Calls the global through a lambda: a bare `fetch` loses its receiver in workerd.
 const defaultFetch: McpFetch = (url, init) => fetch(url, init);
+
+// The spec forbids reusing a request id in a session, so every request takes the next one.
+let lastRequestId = 0;
+const nextRequestId = (): number => {
+  lastRequestId += 1;
+  return lastRequestId;
+};
 
 /** The last `data:` line of an SSE body, or the whole body when it has none. */
 const replyText = (text: string): string => {
@@ -119,7 +128,7 @@ const rpc = async <T>(
   const response = await postMcp(
     server,
     fetcher,
-    { id: REQUEST_ID, jsonrpc: "2.0", method, params },
+    { id: nextRequestId(), jsonrpc: "2.0", method, params },
     sessionHeaders(session),
     signal
   );
@@ -138,7 +147,7 @@ const initialize = async (
     server,
     fetcher,
     {
-      id: REQUEST_ID,
+      id: nextRequestId(),
       jsonrpc: "2.0",
       method: "initialize",
       params: INITIALIZE_PARAMS,
@@ -386,7 +395,8 @@ export const mcpToolRegistrations = (
   getServer: () => Promise<McpServerEntry>,
   fetcher: McpFetch = defaultFetch,
   onCallError?: () => void,
-  sessions: McpSessions = new Map()
+  sessions: McpSessions = new Map(),
+  callLimitMs = CALL_LIMIT_MS
 ): ToolRegistration[] => {
   // Cutting a long name can make two tools of a server collide, and the registry refuses a repeat.
   const taken = new Set<string>();
@@ -395,6 +405,13 @@ export const mcpToolRegistrations = (
       description: tool.description ?? tool.name,
       execute: async (args, _api, context) => {
         const server = await getServer();
+        // The call ends at the caller's abort or at the time limit, whichever comes first.
+        const timeLimit = AbortSignal.timeout(callLimitMs);
+        const signal = AbortSignal.any(
+          context.abortSignal === undefined
+            ? [timeLimit]
+            : [context.abortSignal, timeLimit]
+        );
         let result: ToolCallResult;
         try {
           result = await sessionRpc<ToolCallResult>(
@@ -403,9 +420,21 @@ export const mcpToolRegistrations = (
             sessions,
             "tools/call",
             { arguments: args, name: tool.name },
-            context.abortSignal
+            signal
           );
         } catch (error) {
+          if (timeLimit.aborted && context.abortSignal?.aborted !== true) {
+            // A slow connector is a result the model can read, so the run carries on.
+            return {
+              isError: true,
+              output: [
+                {
+                  text: `${serverKey} ${tool.name} timed out after ${callLimitMs / MS_PER_SECOND} s. Try a smaller request or retry.`,
+                  type: "text",
+                },
+              ],
+            };
+          }
           // A failed call is the only sign a POST-only client gets that the server's tools changed.
           if (context.abortSignal?.aborted !== true) {
             onCallError?.();

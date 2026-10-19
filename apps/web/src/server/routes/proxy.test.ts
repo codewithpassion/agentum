@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
-import { agentConnectors, credentials } from "@repo/db/schema/connectors";
+import {
+  agentConnectors,
+  connectors,
+  credentials,
+} from "@repo/db/schema/connectors";
 import { events } from "@repo/db/schema/events";
 import { machines } from "@repo/db/schema/machines";
 import { managedSessions } from "@repo/db/schema/managed";
@@ -33,7 +37,7 @@ import {
 } from "../../../../../scripts/dev/stub-mcp.ts";
 import { type Composed, composeWith } from "../compose.ts";
 import type { AppEnv } from "./groups.ts";
-import { PROXY_CAP_MS, proxyRoutes } from "./proxy.ts";
+import { PROXY_CAP_MS, type ProxyRouteOptions, proxyRoutes } from "./proxy.ts";
 
 const WORKSPACE = "w1";
 const START_MS = Date.parse("2026-10-16T10:00:00.000Z");
@@ -101,6 +105,14 @@ const toStub: Fetcher = async (input, init) => {
   );
 };
 
+/** A connector that never answers. Its call ends only when the signal does. */
+const neverAnswers: Fetcher = (_input, init) =>
+  new Promise<Response>((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => {
+      reject(new DOMException("The limit ended the call.", "TimeoutError"));
+    });
+  });
+
 const startStub = (options: Parameters<typeof startStubMcp>[0] = {}) => {
   stub = startStubMcp({ token: STUB_TOKEN, ...options });
 };
@@ -156,6 +168,13 @@ const echoBody = JSON.stringify({
   params: { arguments: { text: "hello" }, name: "echo" },
 });
 
+const searchBody = JSON.stringify({
+  id: 8,
+  jsonrpc: "2.0",
+  method: "tools/call",
+  params: { arguments: { query: "hello" }, name: "search" },
+});
+
 const call = (token: string | null, body = echoBody, connector = CONNECTOR) =>
   app.request(
     `https://hm.example/api/proxy/${connector}`,
@@ -201,24 +220,32 @@ const credentialRow = async (id: string) => {
   return row;
 };
 
-/** A stub-token header credential for the agent, assigned in `mode`. */
-const seedHeaderCredential = async () => {
+/** Sets columns on a seeded connector, such as its name or call timeout. */
+const editConnector = (
+  id: string,
+  values: Partial<typeof connectors.$inferInsert>
+) => {
+  db.update(connectors).set(values).where(eq(connectors.id, id)).run();
+};
+
+/** A stub-token header credential for the agent on `connectorId`. */
+const seedHeaderCredential = async (connectorId = CONNECTOR) => {
   await seedConnector(db, {
     authKind: "header",
-    id: CONNECTOR,
+    id: connectorId,
     now: new Date(nowMs).toISOString(),
     url: `${PUBLIC_ORIGIN}/mcp`,
     workspaceId: WORKSPACE,
   });
   await seedAssignment(db, {
     agentId,
-    connectorId: CONNECTOR,
+    connectorId,
     credentialMode: "agent",
     now: new Date(nowMs).toISOString(),
     workspaceId: WORKSPACE,
   });
   return await seedCredential(db, secretsKey, {
-    connectorId: CONNECTOR,
+    connectorId,
     now: new Date(nowMs).toISOString(),
     ownerId: agentId,
     ownerKind: "agent",
@@ -262,7 +289,7 @@ const seedOAuthCredential = async (
 };
 
 /** The proxy on an app that supplies `composed` the way server.ts does. */
-const mount = (capMs = PROXY_CAP_MS) => {
+const mount = (options: Pick<ProxyRouteOptions, "fetch" | "timeout"> = {}) => {
   app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     c.set("composed", composed);
@@ -270,7 +297,7 @@ const mount = (capMs = PROXY_CAP_MS) => {
   });
   app.route(
     "/api/proxy",
-    proxyRoutes({ capMs, fetch: toStub, log: () => undefined })
+    proxyRoutes({ fetch: toStub, log: () => undefined, ...options })
   );
 };
 
@@ -501,6 +528,7 @@ describe("forwarding", () => {
     expect(payload).toMatchObject({
       connectorId: CONNECTOR,
       method: "tools/call",
+      outcome: "ok",
       ownerKind: "agent",
       tool: "echo",
     });
@@ -880,27 +908,100 @@ describe("refreshing", () => {
   });
 });
 
-describe("the cap", () => {
-  test("a call that outlasts the cap produces connector.timeout", async () => {
-    // The stub's --sleep 310 against a 5 minute cap, scaled down: 1 s against 300 ms.
-    startStub({ sleepSeconds: 1 });
+describe("the limit", () => {
+  test("a call that outlasts its limit gets the timeout message and one connector.call event", async () => {
+    // A connector that never answers, and a signal that ends the call after
+    // 300 ms. The message names the connector's own limit, 60 s by default.
     await seedHeaderCredential();
+    editConnector(CONNECTOR, { name: "the-brain" });
     addRun("run_1");
-    mount(300);
+    mount({
+      fetch: neverAnswers,
+      timeout: () => AbortSignal.timeout(300),
+    });
 
-    const rpc = (await (await call(await tokenFor("run_1"))).json()) as Rpc;
+    const rpc = (await (
+      await call(await tokenFor("run_1"), searchBody)
+    ).json()) as Rpc;
 
     expect(rpc.error?.data?.code).toBe("timeout");
-    expect((await eventsOf("run_1")).map((row) => row.type)).toEqual([
-      "connector.timeout",
-    ]);
+    expect(rpc.error?.message).toBe(
+      "the-brain search timed out after 60 s. Try a smaller request or retry."
+    );
+    const logged = await eventsOf("run_1");
+    expect(logged.map((row) => row.type)).toEqual(["connector.call"]);
+    expect(JSON.parse(logged[0]?.payload ?? "{}")).toMatchObject({
+      limitSeconds: 60,
+      method: "tools/call",
+      ms: expect.any(Number),
+      outcome: "timeout",
+      ownerKind: "agent",
+      tool: "search",
+    });
   });
 
-  test("a call that finishes inside the cap is not stopped", async () => {
+  test("each connector's own callTimeoutSeconds sets the limit it is called with", async () => {
+    startStub();
+    await seedHeaderCredential();
+    await seedHeaderCredential("con_long");
+    editConnector("con_long", { callTimeoutSeconds: 120 });
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+    const asked: number[] = [];
+    mount({
+      timeout: (ms) => {
+        asked.push(ms);
+        return new AbortController().signal;
+      },
+    });
+
+    expect(await echoed(await call(token))).toBe("hello");
+    expect(await echoed(await call(token, echoBody, "con_long"))).toBe("hello");
+
+    expect(asked).toEqual([60_000, 120_000]);
+  });
+
+  test("aborting the limit's signal reaches the upstream fetch", async () => {
+    await seedHeaderCredential();
+    addRun("run_1");
+    const limit = new AbortController();
+    let seen: AbortSignal | null | undefined;
+    let failedWith: string | undefined;
+    let reachUpstream: () => void = () => undefined;
+    const upstreamCalled = new Promise<void>((resolve) => {
+      reachUpstream = resolve;
+    });
+    const hanging: Fetcher = (_input, init) => {
+      seen = init?.signal;
+      reachUpstream();
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const error = new DOMException(
+            "The limit ended the call.",
+            "TimeoutError"
+          );
+          failedWith = error.name;
+          reject(error);
+        });
+      });
+    };
+    mount({ fetch: hanging, timeout: () => limit.signal });
+
+    const pending = call(await tokenFor("run_1"));
+    await upstreamCalled;
+    limit.abort();
+    const rpc = (await (await pending).json()) as Rpc;
+
+    expect(seen).toBe(limit.signal);
+    expect(failedWith).toBe("TimeoutError");
+    expect(rpc.error?.data?.code).toBe("timeout");
+  });
+
+  test("a call that finishes inside its limit is not stopped", async () => {
     startStub({ sleepSeconds: 0.1 });
     await seedHeaderCredential();
     addRun("run_1");
-    mount(2000);
+    mount({ timeout: () => AbortSignal.timeout(2000) });
 
     expect(await echoed(await call(await tokenFor("run_1")))).toBe("hello");
   });

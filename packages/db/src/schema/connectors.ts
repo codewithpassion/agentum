@@ -9,6 +9,7 @@ import {
 import { createdAt, id, workspaceId } from "../columns.ts";
 import {
   CONNECTOR_AUTH_KINDS,
+  CONNECTOR_CALL_TIMEOUT_SECONDS,
   CONNECTOR_STATUSES,
   CREDENTIAL_MODES,
   CREDENTIAL_OWNER_KINDS,
@@ -26,6 +27,10 @@ export const connectors = sqliteTable(
   "connectors",
   {
     authKind: text("auth_kind", { enum: CONNECTOR_AUTH_KINDS }).notNull(),
+    // Seconds a connector tool call may take before it is stopped.
+    callTimeoutSeconds: integer("call_timeout_seconds")
+      .notNull()
+      .default(CONNECTOR_CALL_TIMEOUT_SECONDS.default),
     createdAt: createdAt(),
     // Clerk user id.
     createdBy: text("created_by").notNull(),

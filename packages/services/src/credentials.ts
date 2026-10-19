@@ -94,7 +94,12 @@ export interface NeedsAuth {
 export type Resolution =
   | {
       /** Where to send the call. */
-      connector: { id: string; name: string; url: string };
+      connector: {
+        callTimeoutSeconds: number;
+        id: string;
+        name: string;
+        url: string;
+      };
       /** Null for a connector that takes no login. */
       credential: DecryptedCredential | null;
       note: ResolveNote | null;
@@ -603,6 +608,7 @@ export const createCredentialsService = ({
     }
     const { connector } = link;
     const summary = {
+      callTimeoutSeconds: connector.callTimeoutSeconds,
       id: connector.id,
       name: connector.name,
       url: connector.url,

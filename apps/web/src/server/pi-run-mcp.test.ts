@@ -392,6 +392,104 @@ describe("stateful sessions", () => {
   });
 });
 
+/**
+ * A fake stateful server that keys each tools/call by its request id, as the MCP
+ * SDK does. A repeated id replaces the earlier resolver, so that request never answers.
+ */
+const keyedServer = () => {
+  const pending = new Map<number | undefined, (response: Response) => void>();
+  const calls: Call[] = [];
+  const fetcher: McpFetch = (url, init) => {
+    const body: RpcRequest = JSON.parse(String(init.body));
+    calls.push({ body, init, url });
+    if (body.method === "initialize") {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: body.id,
+            jsonrpc: "2.0",
+            result: { protocolVersion: "2025-06-18" },
+          }),
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "Mcp-Session-Id": "session-1",
+            },
+          }
+        )
+      );
+    }
+    if (body.method === "notifications/initialized") {
+      return Promise.resolve(new Response(null, { status: 202 }));
+    }
+    const { id } = body;
+    const { arguments: args } = body.params as { arguments: { q: string } };
+    return new Promise<Response>((resolve) => {
+      pending.set(id, resolve);
+      setTimeout(() => {
+        const answer = pending.get(id);
+        pending.delete(id);
+        answer?.(
+          Response.json({
+            id,
+            jsonrpc: "2.0",
+            result: { content: [{ text: `echo:${args.q}`, type: "text" }] },
+          })
+        );
+      }, 0);
+    });
+  };
+  return { calls, fetcher };
+};
+
+const RESOLVE_LIMIT_MS = 1000;
+
+/** `work`, or a rejection after RESOLVE_LIMIT_MS, so a hang fails the test fast. */
+const withinLimit = <T>(work: Promise<T>): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(`no reply within ${RESOLVE_LIMIT_MS} ms: a request hung`)
+        ),
+      RESOLVE_LIMIT_MS
+    );
+  });
+  return Promise.race([work, limit]).finally(() => clearTimeout(timer));
+};
+
+describe("parallel tools/call on one server", () => {
+  test("four parallel calls each get the reply meant for them, with distinct ids", async () => {
+    const server = keyedServer();
+    const registration = at(
+      mcpToolRegistrations(
+        "s",
+        [SEARCH],
+        () => Promise.resolve(SERVER),
+        server.fetcher,
+        undefined,
+        new Map()
+      ),
+      0
+    );
+    const words = ["one", "two", "three", "four"];
+
+    const results = await withinLimit(
+      Promise.all(
+        words.map((q) => registration.execute({ q }, NO_API, CONTEXT))
+      )
+    );
+
+    expect(results.map((result) => result.output)).toEqual(
+      words.map((word) => [{ text: `echo:${word}`, type: "text" }])
+    );
+    const ids = callsTo(server.calls, "tools/call").map((call) => call.body.id);
+    expect(ids).toHaveLength(words.length);
+    expect(new Set(ids).size).toBe(words.length);
+  });
+});
+
 describe("mcpToolRegistrations", () => {
   const registrationOf = (
     serverKey: string,
@@ -456,7 +554,7 @@ describe("mcpToolRegistrations", () => {
     });
     const toolCall = at(callsTo(calls, "tools/call"), 0);
     expect(toolCall.body).toEqual({
-      id: 1,
+      id: expect.any(Number),
       jsonrpc: "2.0",
       method: "tools/call",
       params: { arguments: { q: "x" }, name: "search" },
@@ -509,9 +607,88 @@ describe("mcpToolRegistrations", () => {
       abortSignal: controller.signal,
     });
 
-    expect(at(callsTo(calls, "tools/call"), 0).init.signal).toBe(
-      controller.signal
+    const { signal } = at(callsTo(calls, "tools/call"), 0).init;
+    expect(signal?.aborted).toBe(false);
+    controller.abort();
+    expect(signal?.aborted).toBe(true);
+  });
+});
+
+/**
+ * A fake server that answers every request except tools/call, which never answers.
+ * It rejects when the call's signal aborts, or at once if the signal already has.
+ */
+const neverAnswersCall: McpFetch = (_url, init) => {
+  const body: RpcRequest = JSON.parse(String(init.body));
+  if (body.method !== "tools/call") {
+    return Promise.resolve(toolsListReply(body));
+  }
+  return new Promise<Response>((_resolve, reject) => {
+    const fail = (): void => {
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+    };
+    if (init.signal?.aborted === true) {
+      fail();
+    }
+    init.signal?.addEventListener("abort", fail);
+  });
+};
+
+const TIME_LIMIT_MS = 20;
+
+describe("call time limit", () => {
+  test("a call that outlasts the limit returns a result the model can read", async () => {
+    const onCallError: string[] = [];
+    const registration = at(
+      mcpToolRegistrations(
+        "s",
+        [SEARCH],
+        () => Promise.resolve(SERVER),
+        neverAnswersCall,
+        () => onCallError.push("called"),
+        new Map(),
+        TIME_LIMIT_MS
+      ),
+      0
     );
+
+    const result = await registration.execute({}, NO_API, CONTEXT);
+
+    expect(result).toEqual({
+      isError: true,
+      output: [
+        {
+          text: "s search timed out after 0.02 s. Try a smaller request or retry.",
+          type: "text",
+        },
+      ],
+    });
+    expect(onCallError).toEqual([]);
+  });
+
+  test("a caller abort during the call still rejects and skips onCallError", async () => {
+    const onCallError: string[] = [];
+    const registration = at(
+      mcpToolRegistrations(
+        "s",
+        [SEARCH],
+        () => Promise.resolve(SERVER),
+        neverAnswersCall,
+        () => onCallError.push("called"),
+        new Map()
+      ),
+      0
+    );
+    const controller = new AbortController();
+
+    const running = registration.execute({}, NO_API, {
+      ...CONTEXT,
+      abortSignal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(running).rejects.toThrow("aborted");
+    expect(onCallError).toEqual([]);
   });
 });
 
@@ -604,6 +781,25 @@ describe("MCP tool through pi-durable", () => {
     );
 
     expect(await modelSawFrom(registration)).toBe(MCP_TEXT);
+  });
+
+  test("a call past its time limit lets the run carry on to the model's next turn", async () => {
+    const registration = at(
+      mcpToolRegistrations(
+        PROBE_SERVER,
+        [SEARCH],
+        () => Promise.resolve(SERVER),
+        neverAnswersCall,
+        undefined,
+        new Map(),
+        TIME_LIMIT_MS
+      ),
+      0
+    );
+
+    expect(await modelSawFrom(registration)).toBe(
+      "probe search timed out after 0.02 s. Try a smaller request or retry."
+    );
   });
 });
 describe("tool names that collide after the cut", () => {
