@@ -1,3 +1,4 @@
+import type { ModelProvider } from "@repo/db/shared";
 import {
   CLOUD_ENVIRONMENT_KEY,
   cloudEnvironmentOf,
@@ -10,18 +11,25 @@ import { getTrpc } from "#/integrations/trpc/client";
 import type { MachineRecord } from "#/integrations/trpc/types";
 import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
 
+interface SettingsData {
+  machines: MachineRecord[];
+  providerKeys: Record<ModelProvider, boolean>;
+}
+
 function SettingsPanel({ agent }: AgentTabProps) {
   const router = useRouter();
-  const [machines, setMachines] = useState<MachineRecord[] | undefined>();
+  const [data, setData] = useState<SettingsData | undefined>();
   const [error, setError] = useState<string | undefined>();
 
   useEffect(() => {
     let active = true;
-    getTrpc()
-      .machines.list.query()
-      .then((items) => {
+    Promise.all([
+      getTrpc().machines.list.query(),
+      getTrpc().agents.providerKeys.query(),
+    ])
+      .then(([machines, providerKeys]) => {
         if (active) {
-          setMachines(items);
+          setData({ machines, providerKeys });
         }
       })
       .catch((cause: unknown) => {
@@ -64,7 +72,7 @@ function SettingsPanel({ agent }: AgentTabProps) {
   let body: ReactNode;
   if (error !== undefined) {
     body = <p className="text-destructive text-sm">{error}</p>;
-  } else if (machines === undefined) {
+  } else if (data === undefined) {
     body = <p className="text-muted-foreground text-sm">Loading settings.</p>;
   } else {
     body = (
@@ -79,8 +87,9 @@ function SettingsPanel({ agent }: AgentTabProps) {
         }}
         key={agent.id}
         lockRuntime
-        machines={machines}
+        machines={data.machines}
         onSubmit={save}
+        providerKeys={data.providerKeys}
         submitLabel="Save changes"
       />
     );

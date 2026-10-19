@@ -362,3 +362,86 @@ test("a run principal cannot create an agent", async () => {
   ).rejects.toMatchObject({ code: "forbidden" });
   expect(db.select().from(agents).all()).toHaveLength(0);
 });
+
+test("a model for another provider is refused on managed and machine agents", async () => {
+  insertMachine("m-mine", WORKSPACE);
+  await Promise.all(
+    [
+      { machineId: "m-mine", runtime: "machine" as const },
+      { runtime: "managed" as const },
+    ].map((base) =>
+      expect(
+        service.create(user, {
+          ...base,
+          model: "openrouter:z-ai/glm-5.3",
+          name: `Other ${base.runtime}`,
+        })
+      ).rejects.toThrow("Anthropic models only")
+    )
+  );
+  await expect(
+    service.create(user, {
+      model: "OpenRouter:z-ai/glm-5.3",
+      name: "Upper",
+      runtime: "managed",
+    })
+  ).rejects.toThrow("Anthropic models only");
+  expect(db.select().from(agents).all()).toHaveLength(0);
+});
+
+test("a cloud agent keeps a model for another provider", async () => {
+  const agent = await service.create(user, {
+    model: "openrouter:z-ai/glm-5.3",
+    name: "Open",
+    runtime: "cloud",
+  });
+  expect(agent.model).toBe("openrouter:z-ai/glm-5.3");
+});
+
+test("bare model ids stay valid on managed and machine agents", async () => {
+  insertMachine("m-mine", WORKSPACE);
+  const models = ["sonnet", "claude-opus-5-5", "us.anthropic.claude-x-v1:0"];
+  const created = await Promise.all(
+    models.flatMap((model) => [
+      service.create(user, {
+        model,
+        name: `Managed ${model}`,
+        runtime: "managed",
+      }),
+      service.create(user, {
+        machineId: "m-mine",
+        model,
+        name: `Machine ${model}`,
+        runtime: "machine",
+      }),
+    ])
+  );
+  expect(created.map((agent) => agent.model)).toEqual(
+    models.flatMap((model) => [model, model])
+  );
+});
+
+test("update changes a model only when the runtime allows it", async () => {
+  const cloud = await service.create(user, {
+    model: "sonnet",
+    name: "Cloud",
+    runtime: "cloud",
+  });
+  const switched = await service.update(user, cloud.id, {
+    model: "openrouter:z-ai/glm-5.3",
+  });
+  expect(switched.model).toBe("openrouter:z-ai/glm-5.3");
+
+  const managed = await service.create(user, {
+    model: "sonnet",
+    name: "Managed",
+    runtime: "managed",
+  });
+  await expect(
+    service.update(user, managed.id, { model: "openrouter:z-ai/glm-5.3" })
+  ).rejects.toThrow("Anthropic models only");
+  expect((await service.get(user, managed.id)).model).toBe("sonnet");
+
+  const renamed = await service.update(user, managed.id, { name: "Renamed" });
+  expect(renamed).toMatchObject({ model: "sonnet", name: "Renamed" });
+});
