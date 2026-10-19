@@ -18,6 +18,7 @@ import { ServiceError } from "./errors.ts";
 import {
   type Blobs,
   createEventsService,
+  type EventRecord,
   type EventsService,
 } from "./events.ts";
 import type {
@@ -1624,4 +1625,86 @@ test("a run whose agent holds no grant is stored as it came", async () => {
     { payload: { text: GRANTED_VALUE }, seq: 1, type: "message.assistant" },
   ]);
   expect(JSON.stringify(runEvents(runId))).toContain(GRANTED_VALUE);
+});
+
+test("onEvent listeners hear the run events, each with the run's id", async () => {
+  const heard: EventRecord[] = [];
+  runs.onEvent((event) => {
+    heard.push(event);
+    return Promise.resolve();
+  });
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    {
+      payload: { input: {}, name: "bash", toolUseId: "t1" },
+      seq: 1,
+      type: "tool.call",
+    },
+  ]);
+  await runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    error: "boom",
+    status: "failed",
+  });
+
+  const types = heard.map((event) => event.type);
+  expect(types).toEqual([
+    "run.queued",
+    "message.user",
+    "run.started",
+    "tool.call",
+    "run.failed",
+  ]);
+  for (const event of heard) {
+    expect(event.runId).toBe(runId);
+  }
+  expect(heard[3]).toMatchObject({
+    payload: { input: {}, name: "bash", toolUseId: "t1" },
+    seq: 1,
+  });
+});
+
+test("onEvent listeners hear run.cancelled for a queued run and for a running one", async () => {
+  const heard: EventRecord[] = [];
+  runs.onEvent((event) => {
+    heard.push(event);
+    return Promise.resolve();
+  });
+  const queued = await start(user, spyAgentId);
+  await runs.cancelRun(user, queued.runId);
+  const running = await start(user, await addSpyAgent());
+  await runs.claimRun(SYSTEM_PRINCIPAL, running.runId);
+  await runs.cancelRun(user, running.runId);
+
+  for (const runId of [queued.runId, running.runId]) {
+    const cancelled = heard.filter(
+      (event) => event.runId === runId && event.type === "run.cancelled"
+    );
+    expect(cancelled).toHaveLength(1);
+  }
+});
+
+test("a throwing onEvent listener does not fail completeRun or cancelRun", async () => {
+  const logged = spyOn(console, "error").mockImplementation(() => undefined);
+  runs.onEvent(() => {
+    throw new Error("boom");
+  });
+
+  const done = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, done.runId);
+  await runs.completeRun(SYSTEM_PRINCIPAL, done.runId, {
+    error: "boom",
+    status: "failed",
+  });
+  expect(runRow(done.runId)).toMatchObject({ status: "failed" });
+
+  const cancelled = await start(user, spyAgentId);
+  await runs.cancelRun(user, cancelled.runId);
+  expect(runRow(cancelled.runId)).toMatchObject({ status: "cancelled" });
+
+  expect(logged).toHaveBeenCalledWith(
+    "Event listener failed",
+    expect.any(Error)
+  );
+  logged.mockRestore();
 });
