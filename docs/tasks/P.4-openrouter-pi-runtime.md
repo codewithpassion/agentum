@@ -32,3 +32,4 @@ Asked for by Dom on 19 Oct 2026, from the report `docs/analysis/other-model-prov
 - 2026-10-19: added at Dom's request.
 - 2026-10-19: dispatched.
 - 2026-10-19: review clean after 0 fix rounds at 045fdb4 (docs/reviews/tasks/P.4.md). Merged. DeepSeek id deepseek/deepseek-v4.1-flash-1017 (defined in pi-run-models.ts). Isolate passed locally on both models; Linux VM leg needs staging.
+- 2026-10-19: staging check passed (Linux VM and isolate, GLM-5.3 and DeepSeek V4.1 Flash 1017: pelican, file write, shell).

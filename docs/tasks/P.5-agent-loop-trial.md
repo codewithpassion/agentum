@@ -3,7 +3,7 @@ id: P.5
 title: Agent-loop trial of the catalogue
 milestone: P
 size: S
-status: todo
+status: done
 depends_on: [P.4]
 branch: null
 ---
@@ -25,3 +25,4 @@ Asked for by Dom on 19 Oct 2026, from the report `docs/analysis/other-model-prov
 
 ## Log
 - 2026-10-19: added at Dom's request.
+- 2026-10-19: trial run on staging, 3 runs per model on isolate (docs/reviews/trials/P.5-results.md). GLM-5.3 3/3 keep; DeepSeek V4.1 Flash 1017 3/3 keep; GLM-5.3 Flash 2/3, keep with a warning: one run repeated a malformed run_skill_script call 128 times. Found: runs have no turn limit, repeat guard or cancel.
