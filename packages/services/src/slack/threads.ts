@@ -28,8 +28,12 @@ export interface ThreadKey {
 
 /** The session a thread reply continues, with the key and origin the run should use. */
 export interface ThreadSession {
+  actorId: string;
+  actorKind: string;
   externalKey: string;
   origin: SessionOrigin;
+  /** A `ui` or private session belongs to its actor alone. */
+  private: boolean;
   sessionId: string;
 }
 
@@ -53,15 +57,21 @@ export const startedThreadStatement = (
     .onConflictDoNothing();
 
 const toThreadSession = (row: {
+  actorId: string;
+  actorKind: string;
   externalKey: string | null;
   origin: string;
+  private: boolean;
   sessionId: string;
 }): ThreadSession | null =>
   row.externalKey === null
     ? null
     : {
+        actorId: row.actorId,
+        actorKind: row.actorKind,
         externalKey: row.externalKey,
         origin: row.origin as SessionOrigin,
+        private: row.private,
         sessionId: row.sessionId,
       };
 
@@ -76,8 +86,11 @@ export const findThreadSession = async (
 ): Promise<ThreadSession | null> => {
   const started = await db
     .select({
+      actorId: sessions.actorId,
+      actorKind: sessions.actorKind,
       externalKey: sessions.externalKey,
       origin: sessions.origin,
+      private: sessions.private,
       sessionId: sessions.id,
     })
     .from(slackThreads)
@@ -99,8 +112,11 @@ export const findThreadSession = async (
   const mentionKey = `${key.teamId}:${key.channelId}:${key.threadTs}`;
   const mention = await db
     .select({
+      actorId: sessions.actorId,
+      actorKind: sessions.actorKind,
       externalKey: sessions.externalKey,
       origin: sessions.origin,
+      private: sessions.private,
       sessionId: sessions.id,
     })
     .from(sessions)

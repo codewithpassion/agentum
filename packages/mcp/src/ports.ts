@@ -259,7 +259,7 @@ export interface SlackDestinations {
 export interface SlackSendResult {
   channel: string;
   permalink: string | null;
-  /** The target as the caller wrote it: `#name`, or a person's email. */
+  /** The target as resolved: `#name`, or a person's email. */
   to: string;
   ts: string;
 }

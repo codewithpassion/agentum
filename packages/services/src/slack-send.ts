@@ -64,6 +64,15 @@ const MISSING_SCOPE =
 /** Turns a failed Slack call into the refusal an agent can act on. */
 const slackFailure = (result: FailedResult): ServiceError => {
   if (result.kind === "config") {
+    if (
+      result.error === "not_in_channel" ||
+      result.error === "channel_not_found"
+    ) {
+      return new ServiceError(
+        "conflict",
+        "The bot is not in that channel. Ask a person to add it with /invite, or pick one from slack_destinations."
+      );
+    }
     return result.error === "missing_scope"
       ? new ServiceError("conflict", MISSING_SCOPE)
       : new ServiceError(

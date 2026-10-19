@@ -95,7 +95,7 @@ test("findThreadSession returns the session of a thread the agent started", asyn
     }),
   ]);
 
-  expect(await findThreadSession(db, key())).toEqual({
+  expect(await findThreadSession(db, key())).toMatchObject({
     externalKey: `${TEAM}:C0OTHER:1700000000.000200`,
     origin: "slack",
     sessionId: STARTED_SESSION,
@@ -103,7 +103,7 @@ test("findThreadSession returns the session of a thread the agent started", asyn
 });
 
 test("findThreadSession finds a slack session by the mention key", async () => {
-  expect(await findThreadSession(db, key())).toEqual({
+  expect(await findThreadSession(db, key())).toMatchObject({
     externalKey: `${TEAM}:${CHANNEL}:${THREAD}`,
     origin: "slack",
     sessionId: MENTION_SESSION,

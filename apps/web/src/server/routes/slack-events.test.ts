@@ -866,6 +866,55 @@ test("an unlinked person's reply in a known thread gets no run, no row and no Sl
   ).toEqual([]);
 });
 
+/** A second linked person, who is not the owner of the agent's ui session. */
+const linkSecondPerson = () =>
+  db
+    .insert(identityLinks)
+    .values({
+      clerkUserId: "user_eve",
+      createdAt: new Date(nowMs).toISOString(),
+      email: "eve@example.com",
+      externalUserId: "U0EVE",
+      id: "link_eve",
+      provider: "slack",
+      teamId: "T0TEAM",
+      workspaceId,
+    })
+    .run();
+
+test("another linked person's plain reply in a thread started from a ui session starts nothing", async () => {
+  await startedThread("C0CHAN", AGENT_THREAD_TS);
+  await linkSecondPerson();
+  const response = await send(
+    await channelReply(AGENT_THREAD_TS, REPLY_TS, "U0EVE")
+  );
+
+  expect(response.status).toBe(OK);
+  expect(runsWithText("any update?")).toHaveLength(0);
+  expect(allSeen()).toHaveLength(0);
+});
+
+test("another linked person's mention in a thread started from a ui session opens its own Slack session", async () => {
+  const uiSession = await startedThread("C0CHAN", AGENT_THREAD_TS);
+  await linkSecondPerson();
+  const mention = await fixture("mention");
+  mention.event_id = "Ev0EVEMENTION";
+  mention.event = {
+    ...mention.event,
+    thread_ts: AGENT_THREAD_TS,
+    ts: REPLY_TS,
+    user: "U0EVE",
+  };
+  const response = await send(mention);
+
+  expect(response.status).toBe(OK);
+  const eveRuns = allRuns().filter(
+    (run) => run.onBehalfOfUserId === "user_eve"
+  );
+  expect(eveRuns).toHaveLength(1);
+  expect(eveRuns[0]?.sessionId).not.toBe(uiSession);
+});
+
 test("a bot's own message and another bot's message in a known thread start no run", async () => {
   await startedThread("C0CHAN", AGENT_THREAD_TS);
   const own = await channelReply(AGENT_THREAD_TS, REPLY_TS, "U0BOT");

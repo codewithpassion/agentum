@@ -291,7 +291,19 @@ export const createSlackService = ({
     text: string
   ): Promise<ReceiveResult> => {
     const threadTs = event.threadTs ?? event.ts;
-    const thread = await threadSession(app, event);
+    const known = await threadSession(app, event);
+    // A `ui` or private session answers only to its own actor. Another person's
+    // reply in such a thread is a mention like any other, and a plain thread
+    // reply is not addressed to the app.
+    const thread =
+      known &&
+      (known.origin === "ui" || known.private) &&
+      !(known.actorKind === "user" && known.actorId === clerkUserId)
+        ? null
+        : known;
+    if (event.trigger === "thread" && !thread) {
+      return accepted;
+    }
     const pendingFiles = event.files
       .slice(0, INPUT_FILES_MAX)
       .map((file) => ({ ...file, teamId: app.teamId }));
