@@ -61,6 +61,7 @@
     "./skills-store/records": "./src/skills-store/records.ts",
     "./slack": "./src/slack.ts",
     "./slack-apps": "./src/slack-apps.ts",
+    "./slack-history": "./src/slack-history.ts",
     "./slack-send": "./src/slack-send.ts",
     "./slack/apps": "./src/slack/apps.ts",
     "./slack/gateway": "./src/slack/gateway.ts",

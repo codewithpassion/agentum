@@ -42,11 +42,26 @@ export const slackFileSchema = z.object({
 });
 
 /**
+ * The message an edit changed, as Slack nests it under `message` on a
+ * `message_changed` event. Its `ts` is the original message's ts.
+ */
+export const editedMessageSchema = z.object({
+  app_id: z.string().nullish(),
+  bot_id: z.string().nullish(),
+  bot_profile: z.unknown().optional(),
+  subtype: z.string().nullish(),
+  text: z.string().nullish(),
+  ts: z.string().nullish(),
+  user: z.string().nullish(),
+});
+
+/**
  * A message in a DM (`channel_type` `im`), or in any other conversation the
  * app receives it from. `bot_id`, `bot_profile` and `app_id` are the fields
  * that keep the app from answering itself: its own replies arrive here too
  * (https://docs.slack.dev/reference/events/message.im.md), and the docs do
- * not promise which of the three an echo carries.
+ * not promise which of the three an echo carries. An edit carries `message`,
+ * a deletion carries `deleted_ts`.
  */
 export const messageImEventSchema = z.object({
   // Nullish, not optional: Slack's own file_share sample for a person's DM
@@ -56,7 +71,9 @@ export const messageImEventSchema = z.object({
   bot_profile: z.unknown().optional(),
   channel: z.string(),
   channel_type: z.string().nullish(),
+  deleted_ts: z.string().nullish(),
   files: z.array(slackFileSchema).nullish(),
+  message: editedMessageSchema.nullish(),
   subtype: z.string().nullish(),
   text: z.string().nullish(),
   thread_ts: z.string().nullish(),
@@ -120,7 +137,6 @@ export type IgnoredReason =
   | "bot_message"
   | "message_subtype"
   | "no_sender"
-  | "not_a_dm"
   | "unsupported_event";
 
 export type SlackEvent =
@@ -141,10 +157,29 @@ export type SlackEvent =
       trigger: MessageTrigger;
       ts: string;
       userId: string;
+    }
+  | {
+      apiAppId: string | undefined;
+      channelId: string;
+      kind: "message_edited";
+      teamId: string;
+      text: string;
+      ts: string;
+    }
+  | {
+      apiAppId: string | undefined;
+      channelId: string;
+      kind: "message_deleted";
+      teamId: string;
+      ts: string;
     };
 
-/** Why the app got the message: a DM, a mention, or a reply in a thread. */
-type MessageTrigger = "dm" | "mention" | "thread";
+/**
+ * Why the message reached the app: a DM, a mention, a reply in a thread, or
+ * any other channel message, which the service stores but the app does not
+ * answer.
+ */
+type MessageTrigger = "channel" | "dm" | "mention" | "thread";
 
 /** What every real event carries: which Slack workspace, and which delivery. */
 interface SlackEventContext {
@@ -153,6 +188,8 @@ interface SlackEventContext {
 }
 
 type SlackFileInput = z.infer<typeof slackFileSchema>;
+
+type MessageImEvent = z.infer<typeof messageImEventSchema>;
 
 /** The fields a message and a mention share, for building a `message` event. */
 interface IncomingMessage {
@@ -204,10 +241,11 @@ const ANSWERED_SUBTYPES = new Set(["file_share", "thread_broadcast"]);
 const DM_CHANNEL_TYPE = "im";
 
 /**
- * A direct message, or a reply in a thread in a channel. Any other channel
- * message is not for the app to answer: a mention of the app in a channel
- * arrives separately, as `app_mention`, and a channel message that starts no
- * thread the app is in is ignored.
+ * A direct message, or a message in a channel. A channel message that is not
+ * a thread reply is read as `channel`: the service stores it for the agent to
+ * read later, and the app does not answer it. A mention in a channel also
+ * arrives as `app_mention`, which the service handles. Edits and deletions are
+ * read here, before the subtype filter that would drop them.
  */
 function parseMessage(
   inner: unknown,
@@ -219,38 +257,94 @@ function parseMessage(
     return { detail: issues(parsed.error), kind: "malformed" };
   }
   const event = parsed.data;
+  if (event.subtype === "message_changed") {
+    return parseEdit(event, context, apiAppId);
+  }
+  if (event.subtype === "message_deleted") {
+    return parseDelete(event, context, apiAppId);
+  }
   const skipped = skipReason(event, apiAppId);
   if (skipped) {
     return { kind: "ignored", reason: skipped };
-  }
-  const trigger = messageTrigger(event);
-  if (!trigger) {
-    return { kind: "ignored", reason: "not_a_dm" };
   }
   const userId = event.user;
   if (!userId) {
     return { kind: "ignored", reason: "no_sender" };
   }
-  return toMessage(event, userId, context, apiAppId, trigger);
+  return toMessage(event, userId, context, apiAppId, messageTrigger(event));
 }
 
 /**
- * Null when the message is not for the app: a channel message is a thread
- * reply only when its `thread_ts` names a different message (a thread's
- * parent has `thread_ts` equal to its own `ts`).
+ * An edit names the edited message under `message`, and its `ts` is the
+ * original message's ts. An edit of a bot's message, this app's own included,
+ * is ignored as `bot_message`.
+ */
+function parseEdit(
+  event: MessageImEvent,
+  context: SlackEventContext,
+  apiAppId: string | undefined
+): SlackEvent {
+  const edited = event.message;
+  const ts = edited?.ts;
+  if (!(edited && ts)) {
+    return {
+      detail: "message.ts: an edit names no message",
+      kind: "malformed",
+    };
+  }
+  const skipped = skipReason(edited, apiAppId);
+  if (skipped) {
+    return { kind: "ignored", reason: skipped };
+  }
+  return {
+    apiAppId,
+    channelId: event.channel,
+    kind: "message_edited",
+    teamId: context.teamId,
+    text: edited.text ?? "",
+    ts,
+  };
+}
+
+/** A deletion names the removed message in `deleted_ts`. */
+function parseDelete(
+  event: MessageImEvent,
+  context: SlackEventContext,
+  apiAppId: string | undefined
+): SlackEvent {
+  const deletedTs = event.deleted_ts;
+  if (!deletedTs) {
+    return {
+      detail: "deleted_ts: a deletion names no message",
+      kind: "malformed",
+    };
+  }
+  return {
+    apiAppId,
+    channelId: event.channel,
+    kind: "message_deleted",
+    teamId: context.teamId,
+    ts: deletedTs,
+  };
+}
+
+/**
+ * A DM is `dm`. In a channel, a message is a `thread` reply when its
+ * `thread_ts` names a different message (a thread's parent has `thread_ts`
+ * equal to its own `ts`). Any other channel message is `channel`.
  */
 function messageTrigger(event: {
   channel_type?: string | null;
   thread_ts?: string | null;
   ts: string;
-}): MessageTrigger | null {
+}): MessageTrigger {
   if (event.channel_type === DM_CHANNEL_TYPE) {
     return "dm";
   }
   if (event.thread_ts && event.thread_ts !== event.ts) {
     return "thread";
   }
-  return null;
+  return "channel";
 }
 
 /**

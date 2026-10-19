@@ -5,7 +5,11 @@ import { migrated } from "@repo/db/test-db";
 import { createAgentsService } from "../agents.ts";
 import { createEventsService } from "../events.ts";
 import type { Principal } from "../workspaces.ts";
-import { SLACK_GUIDANCE, slackGuidanceFor } from "./guidance.ts";
+import {
+  SLACK_ALL_MESSAGES_GUIDANCE,
+  SLACK_GUIDANCE,
+  slackGuidanceFor,
+} from "./guidance.ts";
 
 const START = "2026-10-16T10:00:00.000Z";
 const WORKSPACE = "w1";
@@ -42,7 +46,9 @@ const installApp = (
   fields: {
     appId: string;
     id: string;
+    listenMode?: "all" | "mentions";
     status: "created" | "installed" | "revoked";
+    teamId?: string;
   }
 ) =>
   db
@@ -54,9 +60,10 @@ const installApp = (
       botUserId: "U0BOT",
       createdAt: START,
       id: fields.id,
+      listenMode: fields.listenMode ?? "mentions",
       signingSecret: "ciphertext",
       status: fields.status,
-      teamId: "T0TEAM",
+      teamId: fields.teamId ?? "T0TEAM",
       workspaceId: WORKSPACE,
     })
     .run();
@@ -87,6 +94,75 @@ test("returns an empty string for an app that is not installed", async () => {
   installApp(agentId, {
     appId: "A0REVOKED",
     id: "app-revoked",
+    status: "revoked",
+  });
+
+  expect(await slackGuidanceFor(db, { agentId, workspaceId: WORKSPACE })).toBe(
+    ""
+  );
+});
+
+test("adds the all-messages line for an installed app in all mode", async () => {
+  const agentId = await newAgent("AllMode");
+  installApp(agentId, {
+    appId: "A0ALL",
+    id: "app-all",
+    listenMode: "all",
+    status: "installed",
+  });
+
+  const guidance = await slackGuidanceFor(db, {
+    agentId,
+    workspaceId: WORKSPACE,
+  });
+  expect(guidance).toBe(`${SLACK_GUIDANCE} ${SLACK_ALL_MESSAGES_GUIDANCE}`);
+  expect(guidance.endsWith(` ${SLACK_ALL_MESSAGES_GUIDANCE}`)).toBe(true);
+});
+
+test("adds no all-messages line for an installed app in mentions mode", async () => {
+  const agentId = await newAgent("MentionsMode");
+  installApp(agentId, {
+    appId: "A0MENTIONS",
+    id: "app-mentions",
+    listenMode: "mentions",
+    status: "installed",
+  });
+
+  expect(await slackGuidanceFor(db, { agentId, workspaceId: WORKSPACE })).toBe(
+    SLACK_GUIDANCE
+  );
+});
+
+test("adds the all-messages line once when one of two installed apps is in all mode", async () => {
+  const agentId = await newAgent("TwoApps");
+  installApp(agentId, {
+    appId: "A0TWOMENTIONS",
+    id: "app-two-mentions",
+    listenMode: "mentions",
+    status: "installed",
+  });
+  installApp(agentId, {
+    appId: "A0TWOALL",
+    id: "app-two-all",
+    listenMode: "all",
+    status: "installed",
+    teamId: "T0OTHERTEAM",
+  });
+
+  const guidance = await slackGuidanceFor(db, {
+    agentId,
+    workspaceId: WORKSPACE,
+  });
+  expect(guidance).toBe(`${SLACK_GUIDANCE} ${SLACK_ALL_MESSAGES_GUIDANCE}`);
+  expect(guidance.split(SLACK_ALL_MESSAGES_GUIDANCE).length - 1).toBe(1);
+});
+
+test("returns an empty string for a revoked app in all mode", async () => {
+  const agentId = await newAgent("RevokedAll");
+  installApp(agentId, {
+    appId: "A0REVOKEDALL",
+    id: "app-revoked-all",
+    listenMode: "all",
     status: "revoked",
   });
 

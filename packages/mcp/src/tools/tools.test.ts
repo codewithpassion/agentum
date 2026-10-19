@@ -139,6 +139,8 @@ const failingPorts = (error: Error): McpPorts => ({
   skillLog: () => Promise.reject(error),
   skillShow: () => Promise.reject(error),
   slackDestinations: () => Promise.reject(error),
+  slackHistory: () => Promise.reject(error),
+  slackSearch: () => Promise.reject(error),
   slackSend: () => Promise.reject(error),
   unassignSkill: () => Promise.reject(error),
 });
@@ -177,6 +179,8 @@ const fakePorts = (overrides: Partial<McpPorts>): McpPorts => ({
   skillLog: uncalled("skillLog"),
   skillShow: uncalled("skillShow"),
   slackDestinations: uncalled("slackDestinations"),
+  slackHistory: uncalled("slackHistory"),
+  slackSearch: uncalled("slackSearch"),
   slackSend: uncalled("slackSend"),
   unassignSkill: uncalled("unassignSkill"),
   ...overrides,

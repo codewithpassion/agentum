@@ -8,6 +8,10 @@ export type IdentityProvider = (typeof IDENTITY_PROVIDERS)[number];
 export const SLACK_APP_STATUSES = ["created", "installed", "revoked"] as const;
 export type SlackAppStatus = (typeof SLACK_APP_STATUSES)[number];
 
+/** Which channel messages an app answers: only mentions, or every message in a channel it is in. */
+export const SLACK_LISTEN_MODES = ["mentions", "all"] as const;
+export type SlackListenMode = (typeof SLACK_LISTEN_MODES)[number];
+
 export const AGENT_RUNTIMES = ["machine", "managed", "cloud", "fake"] as const;
 export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
 
@@ -88,6 +92,8 @@ export const EVENT_TYPES = [
   "slack.message_sent",
   "slack.app_installed",
   "slack.app_revoked",
+  "slack.batch_started",
+  "slack.listen_mode_changed",
   "inbox.posted",
   "inbox.loop_stopped",
   "machine.online",

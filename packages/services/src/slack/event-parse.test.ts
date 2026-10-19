@@ -181,7 +181,7 @@ test("a file with missing name, type or size gets the defaults", () => {
   });
 });
 
-test("a message in a channel is ignored, not answered", () => {
+test("a message in a channel is read as a channel message", () => {
   expect(
     parseEvent(
       callback({
@@ -193,7 +193,53 @@ test("a message in a channel is ignored, not answered", () => {
         user: "U2147483697",
       })
     )
-  ).toEqual({ kind: "ignored", reason: "not_a_dm" });
+  ).toEqual({
+    apiAppId: "A123",
+    channelId: "C024BE91L",
+    eventId: "Ev0PV52K21",
+    files: [],
+    kind: "message",
+    teamId: "T123ABC456",
+    text: "approve",
+    threadTs: undefined,
+    trigger: "channel",
+    ts: "1355517524.000005",
+    userId: "U2147483697",
+  });
+});
+
+test("a message in a private channel, or with no channel_type, is a channel message", () => {
+  expect(
+    parseEvent(
+      callback({
+        channel: "G024BE91L",
+        channel_type: "group",
+        text: "approve",
+        ts: "1355517524.000005",
+        type: "message",
+        user: "U2147483697",
+      })
+    )
+  ).toMatchObject({
+    channelId: "G024BE91L",
+    kind: "message",
+    trigger: "channel",
+  });
+  expect(
+    parseEvent(
+      callback({
+        channel: "C024BE91L",
+        text: "approve",
+        ts: "1355517524.000005",
+        type: "message",
+        user: "U2147483697",
+      })
+    )
+  ).toMatchObject({
+    channelId: "C024BE91L",
+    kind: "message",
+    trigger: "channel",
+  });
 });
 
 test("a reply in a thread in a channel is answered with the thread it is in", () => {
@@ -244,7 +290,7 @@ test("a reply in a thread in a private channel is answered too", () => {
   });
 });
 
-test("a channel message that is not a thread reply is ignored", () => {
+test("a thread's parent in a channel is a channel message, not a reply", () => {
   // A thread's parent carries thread_ts equal to its own ts, so it is not a
   // reply.
   expect(
@@ -259,19 +305,11 @@ test("a channel message that is not a thread reply is ignored", () => {
         user: "U2147483697",
       })
     )
-  ).toEqual({ kind: "ignored", reason: "not_a_dm" });
-  expect(
-    parseEvent(
-      callback({
-        channel: "G024BE91L",
-        channel_type: "group",
-        text: "approve",
-        ts: "1355517524.000005",
-        type: "message",
-        user: "U2147483697",
-      })
-    )
-  ).toEqual({ kind: "ignored", reason: "not_a_dm" });
+  ).toMatchObject({
+    kind: "message",
+    threadTs: "1355517524.000005",
+    trigger: "channel",
+  });
 });
 
 test("a bot's reply in a thread is ignored, not answered", () => {
@@ -290,20 +328,37 @@ test("a bot's reply in a thread is ignored, not answered", () => {
   ).toEqual({ kind: "ignored", reason: "bot_message" });
 });
 
-test("an edited thread reply is ignored", () => {
+test("an edit of a thread reply becomes message_edited with the original ts", () => {
   expect(
     parseEvent(
       callback({
         channel: "C024BE91L",
         channel_type: "channel",
+        message: {
+          text: "approve now",
+          thread_ts: "1355517000.000001",
+          ts: "1355517524.000005",
+          user: "U2147483697",
+        },
+        previous_message: {
+          text: "approve",
+          thread_ts: "1355517000.000001",
+          ts: "1355517524.000005",
+          user: "U2147483697",
+        },
         subtype: "message_changed",
-        thread_ts: "1355517000.000001",
-        ts: "1355517524.000005",
+        ts: "1355517600.000100",
         type: "message",
-        user: "U2147483697",
       })
     )
-  ).toEqual({ kind: "ignored", reason: "message_subtype" });
+  ).toEqual({
+    apiAppId: "A123",
+    channelId: "C024BE91L",
+    kind: "message_edited",
+    teamId: "T123ABC456",
+    text: "approve now",
+    ts: "1355517524.000005",
+  });
 });
 
 test("the app's own DM, sent with bot_id, is ignored so it cannot answer itself", () => {
@@ -374,19 +429,89 @@ test("Slack's own file_share sample, with null bot fields, is answered", () => {
   ).toMatchObject({ kind: "message", text: "status of ENG-12", trigger: "dm" });
 });
 
-test("an edited or deleted message is ignored", () => {
+test("a deleted message becomes message_deleted with the deleted ts", () => {
   expect(
     parseEvent(
       callback({
-        channel: "D024BE91L",
-        channel_type: "im",
-        subtype: "message_changed",
-        ts: "1355517524.000005",
+        channel: "C024BE91L",
+        channel_type: "channel",
+        deleted_ts: "1355517524.000005",
+        hidden: true,
+        previous_message: {
+          text: "approve",
+          ts: "1355517524.000005",
+          user: "U2147483697",
+        },
+        subtype: "message_deleted",
+        ts: "1355517600.000200",
         type: "message",
-        user: "U2147483697",
       })
     )
-  ).toEqual({ kind: "ignored", reason: "message_subtype" });
+  ).toEqual({
+    apiAppId: "A123",
+    channelId: "C024BE91L",
+    kind: "message_deleted",
+    teamId: "T123ABC456",
+    ts: "1355517524.000005",
+  });
+});
+
+test("an edit of a bot's message, this app's own included, is ignored as bot_message", () => {
+  const edit = (message: Record<string, unknown>) =>
+    callback({
+      channel: "D024BE91L",
+      channel_type: "im",
+      message: { ts: "1355517524.000005", ...message },
+      subtype: "message_changed",
+      ts: "1355517600.000100",
+      type: "message",
+    });
+  expect(
+    parseEvent(edit({ bot_id: "B123ABC456", text: "Filed *ENG-13*." }))
+  ).toEqual({
+    kind: "ignored",
+    reason: "bot_message",
+  });
+  expect(parseEvent(edit({ app_id: "A123", text: "Filed *ENG-13*." }))).toEqual(
+    {
+      kind: "ignored",
+      reason: "bot_message",
+    }
+  );
+});
+
+test("an edit with no ts in the edited message, or a delete with no deleted_ts, is malformed", () => {
+  expect(
+    parseEvent(
+      callback({
+        channel: "C024BE91L",
+        message: { text: "approve now", user: "U2147483697" },
+        subtype: "message_changed",
+        ts: "1355517600.000100",
+        type: "message",
+      })
+    ).kind
+  ).toBe("malformed");
+  expect(
+    parseEvent(
+      callback({
+        channel: "C024BE91L",
+        subtype: "message_changed",
+        ts: "1355517600.000100",
+        type: "message",
+      })
+    ).kind
+  ).toBe("malformed");
+  expect(
+    parseEvent(
+      callback({
+        channel: "C024BE91L",
+        subtype: "message_deleted",
+        ts: "1355517600.000200",
+        type: "message",
+      })
+    ).kind
+  ).toBe("malformed");
 });
 
 test("a mention in a thread carries the thread it was written in", () => {

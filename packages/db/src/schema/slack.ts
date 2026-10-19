@@ -1,6 +1,6 @@
 import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
-import { SLACK_APP_STATUSES } from "../shared.ts";
+import { SLACK_APP_STATUSES, SLACK_LISTEN_MODES } from "../shared.ts";
 import { agents } from "./agents.ts";
 import { runs } from "./runs.ts";
 import { sessions } from "./sessions.ts";
@@ -25,6 +25,9 @@ export const slackApps = sqliteTable(
     clientSecret: text("client_secret"),
     createdAt: createdAt(),
     id: id(),
+    listenMode: text("listen_mode", { enum: SLACK_LISTEN_MODES })
+      .notNull()
+      .default("mentions"),
     signingSecret: text("signing_secret").notNull(),
     status: text("status", { enum: SLACK_APP_STATUSES }).notNull(),
     teamId: text("team_id").notNull(),
@@ -86,5 +89,35 @@ export const slackThreads = sqliteTable(
       t.channelId,
       t.threadTs
     ),
+  ]
+);
+
+/**
+ * Channel and thread messages the Slack app has seen, kept so the agent can
+ * read back recent history and search it. `text` is workspace data and must
+ * never be logged. Rows older than 90 days are purged. `batched_at` null
+ * means the message has not been handed to the agent yet.
+ */
+export const slackMessages = sqliteTable(
+  "slack_messages",
+  {
+    appId: text("app_id")
+      .notNull()
+      .references(() => slackApps.id),
+    batchedAt: text("batched_at"),
+    channelId: text("channel_id").notNull(),
+    clerkUserId: text("clerk_user_id"),
+    createdAt: createdAt(),
+    id: id(),
+    slackUserId: text("slack_user_id").notNull(),
+    text: text("text").notNull(),
+    threadTs: text("thread_ts"),
+    ts: text("ts").notNull(),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [
+    uniqueIndex("slack_messages_message_unique").on(t.appId, t.channelId, t.ts),
+    index("slack_messages_created_idx").on(t.createdAt),
+    index("slack_messages_batch_idx").on(t.batchedAt, t.createdAt),
   ]
 );

@@ -322,6 +322,21 @@ export const createMcpPorts = ({
     slackDestinations: () =>
       guarded(() => services.slackSend.destinations(principal)),
 
+    slackHistory: (input) =>
+      guarded(() =>
+        services.slackHistory.history(principal, {
+          channel: input.channel,
+          cursor: input.cursor,
+          limit: input.limit,
+          since: input.since,
+          threadTs: input.thread_ts,
+          until: input.until,
+        })
+      ),
+
+    slackSearch: (input) =>
+      guarded(() => services.slackHistory.search(principal, input)),
+
     slackSend: ({ text, thread_ts, to }) =>
       guarded(() =>
         services.slackSend.send(principal, { text, threadTs: thread_ts, to })

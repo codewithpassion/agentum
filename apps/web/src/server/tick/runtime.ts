@@ -19,4 +19,8 @@ export const runtimeJobs: readonly TickJob[] = [
     name: "slack.purge-seen",
     run: ({ services }) => services.slack.purgeSeen(),
   },
+  {
+    name: "slack.batches",
+    run: ({ services }) => services.slack.runDueBatches(),
+  },
 ];

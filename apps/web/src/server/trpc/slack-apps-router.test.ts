@@ -99,6 +99,7 @@ test("paste, list and revoke never send a secret back", async () => {
     "botUserId",
     "createdAt",
     "id",
+    "listenMode",
     "status",
     "teamId",
   ]);

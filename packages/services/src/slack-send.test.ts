@@ -4,13 +4,14 @@ import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
-import { slackApps, slackThreads } from "@repo/db/schema/slack";
+import { slackApps, slackMessages, slackThreads } from "@repo/db/schema/slack";
 import {
   identityLinks,
   workspaces as workspaceRows,
 } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
+import { ulid } from "ulidx";
 import { encryptSecret, importSecretsKey } from "./crypto.ts";
 import {
   type Blobs,
@@ -33,8 +34,11 @@ const ANN_EMAIL = "ann@example.test";
 const ANN_USER = "U0ANN";
 const ANN_DM = "D0ANN";
 const HOUR_MS = 60 * 60 * 1000;
+const APP_ID = "sa1";
 const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString("base64");
 const NEEDS_REINSTALL = /im:write[\s\S]*reinstall/;
+const THREAD_REFUSAL =
+  "thread_ts must be the ts of a message in this same channel or DM, such as one that slack_history, slack_search or a batch of channel messages showed.";
 
 const runPrincipal: Principal = {
   agentId: AGENT,
@@ -125,6 +129,28 @@ const sendEvents = () =>
 
 const threadRows = () => db.select().from(slackThreads).all();
 
+/** Stores a message of the seeded app, as the listener does for a message the agent was shown. */
+const storeMessage = (row: {
+  channelId: string;
+  threadTs?: string;
+  ts: string;
+}) => {
+  db.insert(slackMessages)
+    .values({
+      appId: APP_ID,
+      batchedAt: START,
+      channelId: row.channelId,
+      createdAt: START,
+      id: ulid(),
+      slackUserId: ANN_USER,
+      text: "Stored from Slack",
+      threadTs: row.threadTs ?? null,
+      ts: row.ts,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+};
+
 /** Resolves to the error a promise rejects with. Fails the test if it resolves. */
 const refusalOf = (promise: Promise<unknown>): Promise<unknown> =>
   promise.then(
@@ -196,7 +222,7 @@ beforeEach(async () => {
     .run();
 
   const key = await importSecretsKey(SECRETS_KEY);
-  const ref = { id: "sa1", workspaceId: WORKSPACE };
+  const ref = { id: APP_ID, workspaceId: WORKSPACE };
   db.insert(slackApps)
     .values({
       agentId: AGENT,
@@ -403,8 +429,77 @@ test("refuses a threadTs the agent did not start", async () => {
         to: "#general",
       })
     )
-  ).toMatchObject({ code: "invalid" });
+  ).toMatchObject({ code: "invalid", message: THREAD_REFUSAL });
   expect(callsTo("chat.postMessage")).toHaveLength(0);
+});
+
+test("replies in a thread whose parent message is stored, and adds no thread row", async () => {
+  storeMessage({ channelId: "C0GENERAL", ts: "1700000000.000500" });
+
+  const reply = await service.send(runPrincipal, {
+    text: "Reply to a message I was shown",
+    threadTs: "1700000000.000500",
+    to: "#general",
+  });
+
+  expect(callsTo("chat.postMessage")[0]?.body?.thread_ts).toBe(
+    "1700000000.000500"
+  );
+  expect(reply.channel).toBe("C0GENERAL");
+  expect(threadRows()).toHaveLength(0);
+  expect(sendEvents()).toHaveLength(1);
+});
+
+test("replies in a thread whose reply is stored, using the thread_ts of that reply", async () => {
+  storeMessage({
+    channelId: "C0GENERAL",
+    threadTs: "1700000000.000700",
+    ts: "1700000000.000800",
+  });
+
+  await service.send(runPrincipal, {
+    text: "Reply to a thread I was shown",
+    threadTs: "1700000000.000700",
+    to: "#general",
+  });
+
+  expect(callsTo("chat.postMessage")[0]?.body?.thread_ts).toBe(
+    "1700000000.000700"
+  );
+  expect(threadRows()).toHaveLength(0);
+});
+
+test("a stored message of another channel does not unlock a thread here", async () => {
+  storeMessage({ channelId: "C0LEADS", ts: "1700000000.000900" });
+
+  expect(
+    await refusalOf(
+      service.send(runPrincipal, {
+        text: "Reply",
+        threadTs: "1700000000.000900",
+        to: "#general",
+      })
+    )
+  ).toMatchObject({ code: "invalid", message: THREAD_REFUSAL });
+  expect(callsTo("chat.postMessage")).toHaveLength(0);
+});
+
+test("replies in a thread Slack confirms in this channel, though nothing is stored", async () => {
+  overrides.set("conversations.replies", () =>
+    json({ messages: [{ text: "parent", ts: "1700000000.001100" }], ok: true })
+  );
+
+  await service.send(runPrincipal, {
+    text: "Reply to a message from slack_history",
+    threadTs: "1700000000.001100",
+    to: "#general",
+  });
+
+  expect(callsTo("conversations.replies")).toHaveLength(1);
+  expect(callsTo("chat.postMessage")[0]?.body?.thread_ts).toBe(
+    "1700000000.001100"
+  );
+  expect(threadRows()).toHaveLength(0);
 });
 
 test("allows 30 sends an hour, refuses the 31st, and allows one again after the hour", async () => {

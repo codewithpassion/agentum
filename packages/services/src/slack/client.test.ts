@@ -973,3 +973,294 @@ test("permalink rejects a response with no permalink", async () => {
 
   expect(result).toEqual({ error: "no_error", kind: "rejected" });
 });
+
+test("history requests conversations.history with the channel and limit as a string", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({ messages: [], ok: true })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.history({ channel: "C1", limit: 50 });
+
+  expect(result).toEqual({ kind: "ok", messages: [], nextCursor: null });
+  const url = new URL(firstCall(calls).url);
+  expect(url.origin + url.pathname).toBe(
+    "https://slack.com/api/conversations.history"
+  );
+  expect(firstCall(calls).init.method).toBe("GET");
+  expect(url.searchParams.get("channel")).toBe("C1");
+  expect(url.searchParams.get("limit")).toBe("50");
+  expect(url.searchParams.has("cursor")).toBe(false);
+  expect(url.searchParams.has("latest")).toBe(false);
+  expect(url.searchParams.has("oldest")).toBe(false);
+});
+
+test("history sends cursor, latest and oldest when given", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({ messages: [], ok: true })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  await client.history({
+    channel: "C1",
+    cursor: "dXNlcjpU",
+    latest: "1700000900.000100",
+    limit: 20,
+    oldest: "1700000000.000100",
+  });
+
+  const url = new URL(firstCall(calls).url);
+  expect(url.searchParams.get("cursor")).toBe("dXNlcjpU");
+  expect(url.searchParams.get("latest")).toBe("1700000900.000100");
+  expect(url.searchParams.get("oldest")).toBe("1700000000.000100");
+  expect(url.searchParams.get("limit")).toBe("20");
+});
+
+test("history maps messages in Slack's order and skips an entry without a ts", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({
+      messages: [
+        {
+          bot_id: "B1",
+          text: "from a bot",
+          thread_ts: "1700000000.000100",
+          ts: "1700000300.000100",
+        },
+        { text: "no ts here", user: "U9" },
+        { text: "from a person", ts: "1700000200.000100", user: "U2" },
+        { text: 42, ts: "1700000100.000100" },
+      ],
+      ok: true,
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.history({ channel: "C1", limit: 10 });
+
+  expect(result).toEqual({
+    kind: "ok",
+    messages: [
+      {
+        botId: "B1",
+        text: "from a bot",
+        threadTs: "1700000000.000100",
+        ts: "1700000300.000100",
+        user: null,
+      },
+      {
+        botId: null,
+        text: "from a person",
+        threadTs: null,
+        ts: "1700000200.000100",
+        user: "U2",
+      },
+      {
+        botId: null,
+        text: "",
+        threadTs: null,
+        ts: "1700000100.000100",
+        user: null,
+      },
+    ],
+    nextCursor: null,
+  });
+});
+
+test("history returns next_cursor when Slack gives one", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({
+      messages: [],
+      ok: true,
+      response_metadata: { next_cursor: "bmV4dA==" },
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.history({ channel: "C1", limit: 10 });
+
+  expect(result).toEqual({ kind: "ok", messages: [], nextCursor: "bmV4dA==" });
+});
+
+test("history returns a null nextCursor when next_cursor is empty", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({
+      messages: [],
+      ok: true,
+      response_metadata: { next_cursor: "" },
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.history({ channel: "C1", limit: 10 });
+
+  expect(result).toEqual({ kind: "ok", messages: [], nextCursor: null });
+});
+
+test("history classifies not_in_channel as config", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "not_in_channel", ok: false })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.history({ channel: "C1", limit: 10 });
+
+  expect(result).toEqual({ error: "not_in_channel", kind: "config" });
+});
+
+test("history maps a ratelimited body to rate_limited", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "ratelimited", ok: false }, 200, {
+      "Retry-After": "12",
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.history({ channel: "C1", limit: 10 });
+
+  expect(result).toEqual({ kind: "rate_limited", retryAfterSeconds: 12 });
+});
+
+test("history rejects a body without messages", async () => {
+  const { fetch } = fakeFetch(() => jsonResponse({ ok: true }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.history({ channel: "C1", limit: 10 });
+
+  expect(result).toEqual({ error: "no_error", kind: "rejected" });
+});
+
+test("replies requests conversations.replies with ts and the window parameters", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({ messages: [], ok: true })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.replies({
+    channel: "C1",
+    cursor: "cur",
+    latest: "1700000900.000100",
+    limit: 5,
+    oldest: "1700000000.000100",
+    ts: "1700000000.000100",
+  });
+
+  expect(result).toEqual({ kind: "ok", messages: [], nextCursor: null });
+  const url = new URL(firstCall(calls).url);
+  expect(url.origin + url.pathname).toBe(
+    "https://slack.com/api/conversations.replies"
+  );
+  expect(firstCall(calls).init.method).toBe("GET");
+  expect(url.searchParams.get("channel")).toBe("C1");
+  expect(url.searchParams.get("ts")).toBe("1700000000.000100");
+  expect(url.searchParams.get("limit")).toBe("5");
+  expect(url.searchParams.get("cursor")).toBe("cur");
+  expect(url.searchParams.get("latest")).toBe("1700000900.000100");
+  expect(url.searchParams.get("oldest")).toBe("1700000000.000100");
+});
+
+test("replies omits the optional parameters that are not given", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({ messages: [], ok: true })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  await client.replies({ channel: "C1", limit: 5, ts: "1700000000.000100" });
+
+  const url = new URL(firstCall(calls).url);
+  expect(url.searchParams.get("ts")).toBe("1700000000.000100");
+  expect(url.searchParams.has("cursor")).toBe(false);
+  expect(url.searchParams.has("latest")).toBe(false);
+  expect(url.searchParams.has("oldest")).toBe(false);
+});
+
+test("replies maps the thread and returns next_cursor when Slack gives one", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({
+      messages: [
+        { text: "parent", ts: "1700000000.000100", user: "U1" },
+        {
+          text: "reply",
+          thread_ts: "1700000000.000100",
+          ts: "1700000050.000100",
+          user: "U2",
+        },
+        { text: "no ts" },
+      ],
+      ok: true,
+      response_metadata: { next_cursor: "more" },
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.replies({
+    channel: "C1",
+    limit: 10,
+    ts: "1700000000.000100",
+  });
+
+  expect(result).toEqual({
+    kind: "ok",
+    messages: [
+      {
+        botId: null,
+        text: "parent",
+        threadTs: null,
+        ts: "1700000000.000100",
+        user: "U1",
+      },
+      {
+        botId: null,
+        text: "reply",
+        threadTs: "1700000000.000100",
+        ts: "1700000050.000100",
+        user: "U2",
+      },
+    ],
+    nextCursor: "more",
+  });
+});
+
+test("replies classifies not_in_channel as config", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "not_in_channel", ok: false })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.replies({
+    channel: "C1",
+    limit: 10,
+    ts: "1700000000.000100",
+  });
+
+  expect(result).toEqual({ error: "not_in_channel", kind: "config" });
+});
+
+test("replies maps a ratelimited body to rate_limited", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "ratelimited", ok: false }, 200, {
+      "Retry-After": "3",
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.replies({
+    channel: "C1",
+    limit: 10,
+    ts: "1700000000.000100",
+  });
+
+  expect(result).toEqual({ kind: "rate_limited", retryAfterSeconds: 3 });
+});
+
+test("replies rejects a body without messages", async () => {
+  const { fetch } = fakeFetch(() => jsonResponse({ ok: true }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.replies({
+    channel: "C1",
+    limit: 10,
+    ts: "1700000000.000100",
+  });
+
+  expect(result).toEqual({ error: "no_error", kind: "rejected" });
+});

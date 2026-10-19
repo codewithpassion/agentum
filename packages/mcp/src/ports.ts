@@ -255,6 +255,37 @@ export interface SlackDestinations {
   people: { email: string; slackName: string }[];
 }
 
+/** A message read from Slack. `time` is ISO 8601, `threadTs` is null outside a thread. */
+export interface SlackHistoryMessage {
+  author: string;
+  text: string;
+  threadTs: string | null;
+  time: string;
+  ts: string;
+}
+
+/** Messages of one channel or thread, oldest first. `nextCursor` reads the next page. */
+export interface SlackHistory {
+  channel: string;
+  messages: SlackHistoryMessage[];
+  nextCursor: string | null;
+}
+
+/** A stored message that matched a search. */
+export interface SlackSearchHit {
+  author: string;
+  channel: string;
+  text: string;
+  threadTs: string | null;
+  time: string;
+  ts: string;
+}
+
+/** The matches of a search, newest first. */
+export interface SlackSearchResult {
+  hits: SlackSearchHit[];
+}
+
 /** A message slack_send started. `permalink` is null when Slack gave none. */
 export interface SlackSendResult {
   channel: string;
@@ -361,6 +392,22 @@ export interface McpPorts {
     version: number;
   }) => Promise<SkillShown>;
   slackDestinations: () => Promise<SlackDestinations>;
+  slackHistory: (input: {
+    channel: string;
+    cursor?: string;
+    limit?: number;
+    since?: string;
+    thread_ts?: string;
+    until?: string;
+  }) => Promise<SlackHistory>;
+  slackSearch: (input: {
+    channel?: string;
+    limit?: number;
+    person?: string;
+    query: string;
+    since?: string;
+    until?: string;
+  }) => Promise<SlackSearchResult>;
   slackSend: (input: {
     text: string;
     thread_ts?: string;
