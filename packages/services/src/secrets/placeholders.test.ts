@@ -83,7 +83,8 @@ test("a name with no value is left as it is", () => {
 
 test("decidePlaceholder refuses a name with no grant", () => {
   expect(decidePlaceholder("NOPE", "api.example.com", grants)).toEqual({
-    message: "NOPE is not granted to this agent",
+    message:
+      "A placeholder in the request is not for a secret granted to this agent",
     ok: false,
   });
 });

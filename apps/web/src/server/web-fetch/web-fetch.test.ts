@@ -660,7 +660,7 @@ describe("createWebFetcher fills env secret placeholders", () => {
     expect(result).toMatchObject({
       error: "blocked",
       message: expect.stringContaining(
-        "OTHER_KEY is not granted to this agent"
+        "A placeholder in the request is not for a secret granted to this agent"
       ),
     });
   });
@@ -675,7 +675,7 @@ describe("createWebFetcher fills env secret placeholders", () => {
     expect(result).toMatchObject({
       error: "blocked",
       message: expect.stringContaining(
-        "SUPADATA_KEY is not granted to this agent"
+        "A placeholder in the request is not for a secret granted to this agent"
       ),
     });
   });
@@ -717,7 +717,7 @@ describe("createWebFetcher fills env secret placeholders", () => {
     expect(h.sent[0]?.body).toBe(`payload ${REAL}`);
     expect(h.entries.map((entry) => entry.host)).toEqual([
       "api.supadata.ai",
-      "example.com",
+      "api.supadata.ai",
     ]);
     expect(h.entries[1]?.blocked).toBe(
       "SUPADATA_KEY may only be sent to api.supadata.ai"
@@ -781,6 +781,42 @@ describe("createWebFetcher fills env secret placeholders", () => {
     expect(result.url).toBe(`https://api.supadata.ai/v1/?key=${PLACEHOLDER}`);
     expect(JSON.stringify(result.url)).not.toContain(REAL);
     expect(h.sent).toHaveLength(2);
+  });
+
+  test("a redirect that echoes the value in another spelling is refused and nothing shows the value", async () => {
+    const h = harness(
+      byUrl({
+        [`https://api.supadata.ai/v1?key=${REAL}`]: () =>
+          redirect(
+            302,
+            `https://api.supadata.ai/v1/?key=${REAL.toUpperCase()}`
+          ),
+      }),
+      { overrides: withGrants([supadataGrant(["api.supadata.ai"])]) }
+    );
+    const result = await h.fetcher({
+      url: `https://api.supadata.ai/v1?key=${PLACEHOLDER}`,
+    });
+    expect(errorOf(result)).toBe("blocked");
+    expect(h.sent).toHaveLength(1);
+    const everything = JSON.stringify([result, h.entries, h.logs, h.announced]);
+    expect(everything).not.toContain(REAL);
+    expect(everything.toLowerCase()).not.toContain(REAL.toLowerCase());
+  });
+
+  test("a redirect to another host is refused after a filled hop even when it does not echo the value", async () => {
+    const h = harness(
+      byUrl({
+        [`https://api.supadata.ai/v1?key=${REAL}`]: () =>
+          redirect(302, "https://cdn.other.example/file"),
+      }),
+      { overrides: withGrants([supadataGrant(["api.supadata.ai"])]) }
+    );
+    const result = await h.fetcher({
+      url: `https://api.supadata.ai/v1?key=${PLACEHOLDER}`,
+    });
+    expect(errorOf(result)).toBe("blocked");
+    expect(h.sent).toHaveLength(1);
   });
 
   test("announce gets the host and the secret names only", async () => {

@@ -144,9 +144,10 @@ describe("fillHop", () => {
     if (result.ok) {
       expect(result.hop).toBe(hop);
       expect(result.names).toEqual([]);
-      expect(result.restore("https://a.example/?k=abc")).toBe(
-        "https://a.example/?k=abc"
-      );
+      expect(result.restore("https://a.example/?k=abc")).toEqual({
+        location: "https://a.example/?k=abc",
+        ok: true,
+      });
     }
     expect(calls.count).toBe(0);
   });
@@ -182,7 +183,7 @@ describe("fillHop", () => {
     const result = await fillHop(hop, loaderOf([]).load);
 
     expect(failureOf(result).message).toBe(
-      "SUPADATA_KEY is not granted to this agent"
+      "A placeholder in the request is not for a secret granted to this agent"
     );
   });
 
@@ -331,31 +332,93 @@ describe("fillHop", () => {
     }
   });
 
-  test("restore puts the placeholder back for the raw and the encoded value", async () => {
-    const hop = hopOf(`https://api.supadata.ai/x?k=${PLACEHOLDER}`);
-    const result = await fillHop(hop, loaderOf([SUPADATA]).load);
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-    const echoed = `https://cdn.example.com/y?k=${encodeURIComponent(VALUE)}&raw=${VALUE}`;
-    const restored = result.restore(echoed);
-    expect(restored).toBe(
-      `https://cdn.example.com/y?k=${PLACEHOLDER}&raw=${PLACEHOLDER}`
-    );
-    expect(restored).not.toContain(VALUE);
-    expect(restored).not.toContain(encodeURIComponent(VALUE));
-  });
+  describe("restore", () => {
+    const AWS = "Abcd/ef+gh=ij1234";
+    const AWS_GRANT: EnvGrant = {
+      hosts: ["api.supadata.ai"],
+      name: "SUPADATA_KEY",
+      value: AWS,
+    };
 
-  test("restore restores only the values this hop filled", async () => {
-    const hop = hopOf(`https://api.supadata.ai/x?k=${PLACEHOLDER}`);
-    const result = await fillHop(hop, loaderOf([SUPADATA, OTHER]).load);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.restore("https://a.example/other-value")).toBe(
-        "https://a.example/other-value"
-      );
+    async function restorerFor(grants: readonly EnvGrant[] = [AWS_GRANT]) {
+      const hop = hopOf(`https://api.supadata.ai/x?k=${PLACEHOLDER}`);
+      const result = await fillHop(hop, loaderOf(grants).load);
+      if (!result.ok) {
+        throw new Error("expected a filled hop");
+      }
+      return result.restore;
     }
+
+    test("puts the placeholder back for the raw and the encoded value", async () => {
+      const restore = await restorerFor();
+      const echoed = `https://api.supadata.ai/y?k=${encodeURIComponent(AWS)}&raw=${AWS}`;
+      expect(restore(echoed)).toEqual({
+        location: `https://api.supadata.ai/y?k=${PLACEHOLDER}&raw=${PLACEHOLDER}`,
+        ok: true,
+      });
+    });
+
+    test("refuses a redirect to a host the filled secret may not reach", async () => {
+      const restore = await restorerFor();
+      expect(restore("https://cdn.other.example/y")).toEqual({
+        message: "SUPADATA_KEY may only be sent to api.supadata.ai",
+        ok: false,
+      });
+      expect(restore("//cdn.other.example/y")).toMatchObject({ ok: false });
+    });
+
+    test("follows a relative redirect on the allowed host", async () => {
+      const restore = await restorerFor();
+      expect(restore("/next")).toEqual({ location: "/next", ok: true });
+    });
+
+    test.each([
+      ["lower-case hex", "abcd%2fef%2bgh%3dij1234"],
+      ["partly encoded", "Abcd/ef%2Bgh%3Dij1234"],
+      ["a space where the plus was", "Abcd%2Fef%20gh%3Dij1234"],
+      ["double encoded", encodeURIComponent(encodeURIComponent(AWS))],
+      ["lower-cased", AWS.toLowerCase()],
+      ["with tabs", [...AWS].join("\t")],
+      ["with a line break", `${AWS.slice(0, 6)}\n${AWS.slice(6)}`],
+    ])("refuses a redirect that carries the value %s", async (_, spelling) => {
+      const restore = await restorerFor();
+      const result = restore(`https://api.supadata.ai/y?k=${spelling}`);
+      expect(result).toEqual({
+        message:
+          "The redirect carries a secret in a form that cannot be taken out",
+        ok: false,
+      });
+    });
+
+    test("refuses a value that runs into word characters, since a placeholder cannot follow it", async () => {
+      const restore = await restorerFor();
+      expect(restore(`https://api.supadata.ai/y?k=${AWS}_2`)).toMatchObject({
+        ok: false,
+      });
+    });
+
+    test("a refusal never carries the value or any spelling of it", async () => {
+      const restore = await restorerFor();
+      const results = [
+        restore(`https://cdn.other.example/${AWS}`),
+        restore(`https://api.supadata.ai/y?k=${AWS.toLowerCase()}`),
+        restore(`hm-secret:${AWS.slice(0, 8)}`),
+      ];
+      expect(JSON.stringify(results)).not.toContain(AWS);
+      expect(JSON.stringify(results)).not.toContain(AWS.slice(0, 8));
+    });
+
+    test("restores only the values this hop filled", async () => {
+      const hop = hopOf(`https://api.supadata.ai/x?k=${PLACEHOLDER}`);
+      const result = await fillHop(hop, loaderOf([SUPADATA, OTHER]).load);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.restore("https://api.supadata.ai/other-value")).toEqual({
+          location: "https://api.supadata.ai/other-value",
+          ok: true,
+        });
+      }
+    });
   });
 
   test("a placeholder only in the fragment is neither filled nor counted", async () => {

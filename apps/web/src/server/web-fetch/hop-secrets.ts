@@ -20,18 +20,25 @@ export interface SecretHop {
   url: URL;
 }
 
+/** The `Location` of a redirect, ready for the next hop, or why it cannot be followed. */
+export type Restored =
+  | { location: string; ok: true }
+  | { message: string; ok: false };
+
 export type FilledHop =
   | {
       hop: SecretHop;
       names: string[];
       ok: true;
       /**
-       * Turns the values this hop filled in back into placeholders, in a text
-       * the server sent back (a `Location`). A server may echo what it was
-       * sent, and the next hop must be built from the placeholder form so it
-       * is checked again against its own host.
+       * Prepares the `Location` a server answered with, after this hop filled
+       * a secret. A server may echo what it was sent. The values it echoes go
+       * back to placeholders, so the next hop is built from the placeholder
+       * form and checked again against its own host. The redirect is refused
+       * when its host is not allowed for every secret this hop filled, or
+       * when a value is still in it in a form that cannot be put back.
        */
-      restore: (text: string) => string;
+      restore: (location: string) => Restored;
     }
   | { error: "blocked" | "bad_request"; message: string; ok: false };
 
@@ -39,6 +46,8 @@ const GRANTS_UNREADABLE = "The platform could not read this agent's secrets";
 const HTTPS_ONLY = "A secret is only sent over https";
 const URL_PART_REFUSED = "A secret cannot go in that part of the URL";
 const HEADER_NOT_VALID = "A header value is not valid";
+const ECHOED_SECRET =
+  "The redirect carries a secret in a form that cannot be taken out";
 
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const encoder = new TextEncoder();
@@ -70,7 +79,7 @@ const withoutFragment = (url: URL): URL => {
   return sent;
 };
 
-const keep = (text: string): string => text;
+const keep = (location: string): Restored => ({ location, ok: true });
 
 /** The texts a secret can hide in: the URL, every header value, and the body when it is text. */
 const textsOf = (hop: SecretHop, bodyText: string | null): string[] => {
@@ -114,30 +123,90 @@ const fillUrl = (url: URL, values: ReadonlyMap<string, string>): URL | null => {
 };
 
 const REGEXP_SPECIALS = /[.*+?^${}()|[\]\\]/g;
+const STRIPPED_BY_URL_PARSER = /[\t\n\r]/g;
+const PERCENT_ESCAPE = /%([0-9a-f]{2})/gi;
+const HEX = 16;
+const CANON_ROUNDS = 4;
+
+const percentDecoded = (text: string): string => {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text.replace(PERCENT_ESCAPE, (_, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, HEX))
+    );
+  }
+};
 
 /**
- * A function that puts the placeholder back wherever one of the values stands,
- * as the raw text or percent-encoded as in a URL. Longest value first.
+ * A text with the spelling differences a server or the URL parser may add
+ * taken out: tabs and line breaks, percent-encoding (repeatedly), `+` for a
+ * space, and letter case. Two spellings of one value come out equal.
  */
-const restorerOf = (
-  values: ReadonlyMap<string, string>
-): ((text: string) => string) => {
-  const needles = new Map<string, string>();
-  for (const [name, value] of values) {
-    needles.set(value, placeholderOf(name));
-    needles.set(encodeURIComponent(value), placeholderOf(name));
+const canonical = (text: string): string => {
+  let current = text;
+  for (let round = 0; round < CANON_ROUNDS; round += 1) {
+    const next = percentDecoded(current.replace(STRIPPED_BY_URL_PARSER, ""))
+      .replaceAll("+", " ")
+      .toLowerCase();
+    if (next === current) {
+      break;
+    }
+    current = next;
   }
-  const ordered = [...needles.keys()].sort((a, b) => b.length - a.length);
-  if (ordered.length === 0) {
-    return keep;
-  }
-  const pattern = new RegExp(
-    ordered.map((needle) => needle.replace(REGEXP_SPECIALS, "\\$&")).join("|"),
-    "g"
-  );
-  return (text) =>
-    text.replace(pattern, (found) => needles.get(found) ?? found);
+  return current;
 };
+
+/**
+ * Handles the `Location` of a redirect after a hop that filled `values`.
+ * Where a value stands as the raw text or percent-encoded as in a URL, and
+ * nothing word-like follows it, the placeholder goes back in. The redirect is
+ * refused when its host is not allowed for every secret filled, and when any
+ * value is still in it in another spelling.
+ */
+const restorerOf =
+  (
+    values: ReadonlyMap<string, string>,
+    grants: readonly EnvGrant[],
+    base: URL
+  ): ((location: string) => Restored) =>
+  (location) => {
+    const needles = new Map<string, string>();
+    for (const [name, value] of values) {
+      needles.set(value, placeholderOf(name));
+      needles.set(encodeURIComponent(value), placeholderOf(name));
+    }
+    const ordered = [...needles.keys()].sort((a, b) => b.length - a.length);
+    const pattern = new RegExp(
+      `(?:${ordered.map((needle) => needle.replace(REGEXP_SPECIALS, "\\$&")).join("|")})(?![A-Za-z0-9_])`,
+      "g"
+    );
+    const restored = location.replace(
+      pattern,
+      (found) => needles.get(found) ?? found
+    );
+    const folded = canonical(restored);
+    for (const value of values.values()) {
+      if (folded.includes(canonical(value))) {
+        return { message: ECHOED_SECRET, ok: false };
+      }
+    }
+    let target: URL | undefined;
+    try {
+      target = new URL(restored, base);
+    } catch {
+      // Not a URL: the redirect guard refuses it with its own reason.
+    }
+    if (target !== undefined) {
+      for (const name of values.keys()) {
+        const decision = decidePlaceholder(name, target.hostname, grants);
+        if (!decision.ok) {
+          return { message: decision.message, ok: false };
+        }
+      }
+    }
+    return { location: restored, ok: true };
+  };
 
 /** A copy of the headers with each value filled, or undefined when the result is not a valid header. */
 const fillHeaders = (
@@ -203,6 +272,6 @@ export const fillHop = async (
     hop: { body, headers, method: hop.method, url },
     names,
     ok: true,
-    restore: restorerOf(values),
+    restore: restorerOf(values, grants, hop.url),
   };
 };

@@ -9,6 +9,9 @@ export const PLACEHOLDER_PREFIX = "hm-secret:";
 
 const PLACEHOLDER = /hm-secret:([A-Za-z_][A-Za-z0-9_]*)/g;
 const NAME_MAX = 64;
+/** The name is not repeated: it may be text a server sent, and only a granted name is safe to show. */
+const NOT_GRANTED =
+  "A placeholder in the request is not for a secret granted to this agent";
 
 /** The placeholder an agent sees for the secret `name`. */
 export const placeholderOf = (name: string): string =>
@@ -62,7 +65,7 @@ export const decidePlaceholder = (
   const label = name.slice(0, NAME_MAX);
   const grant = grants.find((candidate) => candidate.name === name);
   if (grant === undefined) {
-    return { message: `${label} is not granted to this agent`, ok: false };
+    return { message: NOT_GRANTED, ok: false };
   }
   if (grant.hosts.length === 0) {
     return {

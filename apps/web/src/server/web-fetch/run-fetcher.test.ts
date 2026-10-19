@@ -383,7 +383,7 @@ describe("runWebFetcher with env secrets, over real services", () => {
     if (result.ok) {
       throw new Error("Expected the call to be refused");
     }
-    expect(result.message).toContain(SECRET_NAME);
+    expect(result.message).toContain("not for a secret granted to this agent");
     expect(sent).toEqual([]);
   });
 

@@ -377,10 +377,6 @@ const runHop = async (
   if (echoed === null) {
     return answer(call, hop, response, sentAt);
   }
-  // A server may echo what it was sent into its Location. Put the placeholders
-  // back, so the next hop is built from the placeholder form and is checked
-  // again against its own host, and no value reaches the result's `url`.
-  const location = filled.restore(echoed);
   await record(call, {
     ...entryOf(call, hop),
     bytes: 0,
@@ -391,7 +387,18 @@ const runHop = async (
   if (redirects === call.maxRedirects) {
     return failed("too_many_redirects");
   }
-  return follow(call, hop, response.status, location, redirects);
+  // A server may echo what it was sent into its Location. Put the placeholders
+  // back, so the next hop is built from the placeholder form and is checked
+  // again against its own host, and no value reaches the result's `url`. A
+  // redirect that still carries a value, or leaves the hosts the filled
+  // secrets may reach, is refused. The refusal names this hop's host: the
+  // Location is the server's text and is not logged.
+  const restored = filled.restore(echoed);
+  if (!restored.ok) {
+    await recordRefused(call, hop.url.hostname, hop.method, restored.message);
+    return failed("blocked", refusal("The redirect", restored.message));
+  }
+  return follow(call, hop, response.status, restored.location, redirects);
 };
 
 /** Why a request is not valid, or undefined when it is. */
