@@ -173,7 +173,7 @@ describe("dynamicWorkerSandbox", () => {
               'console.log("first");',
               'console.error("second");',
               'console.log("third");',
-              "await new Promise(() => {});",
+              "for (;;) { await new Promise((resolve) => setTimeout(resolve, 10)); }",
               "",
             ].join("\n")
           ),
@@ -201,6 +201,29 @@ describe("dynamicWorkerSandbox", () => {
       exitCode: TIMEOUT_EXIT_CODE,
       stderr: "timed out after 0.1 s\n",
       stdout: "",
+    });
+  });
+
+  test("a run stopped at the CPU limit keeps what it printed", async () => {
+    const loader = {
+      load: () => ({
+        getEntrypoint: () => ({
+          output: () =>
+            Promise.resolve({ stderr: "warned", stdout: "partial\n" }),
+          run: () =>
+            Promise.reject(new Error("Worker exceeded CPU time limit.")),
+        }),
+      }),
+    } as unknown as WorkerLoader;
+    const result = await dynamicWorkerSandbox(loader).run(
+      runInput([fileOf("scripts/main.ts", "")])
+    );
+
+    expect(result).toEqual({
+      exitCode: TIMEOUT_EXIT_CODE,
+      stderr:
+        "warned\nexceeded the CPU time limit: Worker exceeded CPU time limit.\n",
+      stdout: "partial\n",
     });
   });
 

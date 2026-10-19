@@ -555,7 +555,7 @@ describe("skillScriptsExtension in the local Dynamic Worker loader", () => {
           'console.log("one");',
           'console.log("two");',
           'console.error("three");',
-          "await new Promise(() => {});",
+          "for (;;) { await new Promise((resolve) => setTimeout(resolve, 10)); }",
           "",
         ].join("\n"),
       },

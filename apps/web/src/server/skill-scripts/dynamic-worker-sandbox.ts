@@ -1,6 +1,7 @@
 /**
  * Runs a skill script in a Dynamic Worker (Worker Loader): a fresh isolate for
- * each call, gone when the call returns. It gets only the `env` the run names,
+ * each call. A run that is stopped at its time limit is asked, once, for what
+ * it printed so far. It gets only the `env` the run names,
  * so it holds no binding or token of ours. It has the network. When the run
  * asks for `proxy`, `outbound` supplies the `globalOutbound` that adds the
  * agent's credentials to requests, so the isolate never holds them. Without

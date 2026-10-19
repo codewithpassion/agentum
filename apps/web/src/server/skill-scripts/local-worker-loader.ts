@@ -118,7 +118,7 @@ export const localWorkerLoader = (): {
             {},
             {
               get: (_target, method) => {
-                if (typeof method !== "string") {
+                if (typeof method !== "string" || method === "then") {
                   return;
                 }
                 return async (...args: unknown[]) => {
