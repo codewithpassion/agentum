@@ -43,6 +43,9 @@ import { guarded } from "./guarded.ts";
 import { createSkillPorts } from "./skill-ports.ts";
 
 const TITLE_MAX = 80;
+/** What the Log keeps of a script that started `curl`. Each request has its own `network.request` event. */
+export const NETWORK_SCRIPT_REDACTED =
+  "[script redacted: made network requests]";
 
 const toRunInfo = (run: RunSummary): RunInfo => ({
   agentId: run.agentId,
@@ -249,14 +252,21 @@ export const createMcpPorts = ({
     libraryBash: ({ script }) =>
       guarded(async () => {
         const { library } = services;
+        let usedNetwork = false;
         const result = await runLibraryBash({
+          onCurl: () => {
+            usedNetwork = true;
+          },
           ops: bindLibraryOps(library, principal),
           script,
           web: await webFetcherFor(),
         });
         await library.recordCommand(principal, {
           exitCode: result.exitCode,
-          script,
+          // A script that used the network may hold a token anywhere in its text
+          // (a variable, a file, a pipe), and spelling cannot be checked, so the
+          // Log keeps the request events instead of the script.
+          script: usedNetwork ? NETWORK_SCRIPT_REDACTED : script,
           storageCalls: result.storageCalls,
           wallMs: result.wallMs,
         });

@@ -429,10 +429,16 @@ const stdoutBytes = (bytes: Uint8Array): ExecResult => ({
 
 /**
  * `curl` for the library shell. With no network it says so and exits 1
- * without reading its arguments.
+ * without reading its arguments. `onRun` is called each time the command
+ * starts, before anything is read or sent, so the caller knows a script used
+ * the network even when curl then refused it.
  */
-export const curlCommand = (web: WebFetcher | undefined): Command =>
+export const curlCommand = (
+  web: WebFetcher | undefined,
+  onRun?: () => void
+): Command =>
   defineCommand("curl", async (args, ctx) => {
+    onRun?.();
     if (web === undefined) {
       return {
         exitCode: 1,

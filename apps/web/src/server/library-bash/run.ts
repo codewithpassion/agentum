@@ -44,10 +44,13 @@ const capStream = (text: string): { text: string; truncated: boolean } => {
 };
 
 export const runLibraryBash = async ({
+  onCurl,
   ops,
   script,
   web,
 }: {
+  /** Called each time the script starts `curl`, whether or not it is allowed to send. */
+  onCurl?: () => void;
   ops: LibraryOps;
   script: string;
   web?: WebFetcher;
@@ -59,7 +62,7 @@ export const runLibraryBash = async ({
     ops,
   });
   const bash = new Bash({
-    customCommands: [curlCommand(web)],
+    customCommands: [curlCommand(web, onCurl)],
     cwd: LIBRARY_MOUNT,
     executionLimitProfile: "hardened",
     executionLimits: {

@@ -404,15 +404,76 @@ test("a logged request keeps its query string and headers out of the event", asy
   expect(stored).not.toContain("topsecret");
   expect(stored).not.toContain("Bearer");
   expect(stored).not.toContain("token=");
+});
 
-  // The script itself goes to the Log as a library.command event.
+/** The scripts the Log holds for the library commands of one run. */
+const loggedScripts = async (run: Extract<Principal, { kind: "run" }>) => {
   const commands = await composed.services.events.query(
     userOf(workspaceA),
     workspaceA,
     { types: ["library.command"] }
   );
-  const commandLog = JSON.stringify(commands.map((event) => event.payload));
-  expect(commandLog).toContain("curl");
-  expect(commandLog).not.toContain("topsecret");
-  expect(commandLog).not.toContain("querysecret");
+  return commands
+    .filter((event) => event.runId === run.runId)
+    .map((event) => (event.payload as { script: string }).script);
+};
+
+const SECRET = "topsecret-value";
+
+test.each([
+  [
+    "a variable set on another line",
+    `T=${SECRET}\ncurl -H "A: $T" https://example.com/`,
+  ],
+  [
+    "a file written first",
+    `echo '{"t":"${SECRET}"}' > b.json\ncurl -d @b.json https://example.com/`,
+  ],
+  [
+    "a pipe over two lines",
+    `echo '{"t":"${SECRET}"}' |\ncurl -d @- https://example.com/`,
+  ],
+  [
+    "a spelling with a backslash",
+    `c\\url -H "A: ${SECRET}" https://example.com/`,
+  ],
+  ["ANSI-C quoting", `curl -H $'A: ${SECRET}' https://example.com/`],
+  ["backticks", `curl -H "A: \`echo ${SECRET}\`" https://example.com/`],
+  [
+    "a variable holding the command",
+    `c=curl; $c -H "A: ${SECRET}" https://example.com/`,
+  ],
+  [
+    "a request refused for its address",
+    `curl -H "A: ${SECRET}" http://127.0.0.1/`,
+  ],
+  [
+    "a curl that failed on its arguments",
+    `curl --no-such-option -H "A: ${SECRET}"`,
+  ],
+])("the Log keeps no script that started curl: %s", async (_name, script) => {
+  sent = [];
+  const run = await runOf(workspaceA, { runtime: "fake" });
+  await networkBash(run, script);
+  expect(await loggedScripts(run)).toEqual([
+    "[script redacted: made network requests]",
+  ]);
+});
+
+test("curl with network access off still hides the script", async () => {
+  const run = await runOf(workspaceA, {
+    runtime: "cloud",
+    runtimeConfig: { networkAccess: false },
+  });
+  await networkBash(run, `curl -H "A: ${SECRET}" https://example.com/`);
+  expect(await loggedScripts(run)).toEqual([
+    "[script redacted: made network requests]",
+  ]);
+});
+
+test("a script that only mentions curl is logged as typed", async () => {
+  const run = await runOf(workspaceA, { runtime: "fake" });
+  const script = `# curl is not used here\necho "run curl later, token ${SECRET}"`;
+  await networkBash(run, script);
+  expect(await loggedScripts(run)).toEqual([script]);
 });

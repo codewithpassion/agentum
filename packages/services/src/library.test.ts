@@ -721,23 +721,6 @@ test("a move of a whole valid skill folder to another owner works", async () => 
   ]);
 });
 
-test("recordCommand blanks the secrets of a curl line before it reaches the Log", async () => {
-  await service.recordCommand(runPrincipal, {
-    exitCode: 0,
-    script:
-      'curl -s -H "Authorization: Bearer sk-live-abcdef0123456789" https://api.example.com/v1?token=abc123',
-    storageCalls: 0,
-    wallMs: 5,
-  });
-  const [event] = libraryEvents();
-  const stored = event?.payload ?? "";
-  expect(stored).not.toContain("sk-live-abcdef0123456789");
-  expect(stored).not.toContain("abc123");
-  expect(JSON.parse(stored).script).toBe(
-    "curl api.example.com [arguments redacted]"
-  );
-});
-
 test("recordCommand logs one library.command event with the actor, and refuses a machine", async () => {
   await service.recordCommand(user(A, "u7"), {
     exitCode: 0,
