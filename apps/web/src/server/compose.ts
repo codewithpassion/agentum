@@ -117,6 +117,10 @@ import {
 } from "@repo/services/slack";
 import { createSlackGateway } from "@repo/services/slack/gateway";
 import {
+  createDbStatusPorts,
+  createSlackStatus,
+} from "@repo/services/slack/status";
+import {
   createSlackAppsService,
   type SlackAppsService,
 } from "@repo/services/slack-apps";
@@ -390,8 +394,20 @@ export const composeWith = ({
     publicBaseUrl: infra.publicBaseUrl,
     secretsKey: infra.secretsKey,
   });
+  // The working status in the thread of a Slack-started run.
+  const slackStatus = createSlackStatus({
+    clock: infra.clock,
+    defer: infra.defer,
+    ports: createDbStatusPorts({
+      db,
+      fetch: connectorFetch,
+      secretsKey: infra.secretsKey,
+    }),
+  });
   // A connector that needs a login tells the person in Slack, privately.
   events.onAppend(slackGateway.notifyNeedsAuth);
+  // Catches `slack.delivered`, which the gateway writes through this instance.
+  events.onAppend(slackStatus.onEvent);
   const gateways: Gateway[] = [inbox.gateway, slackGateway];
   const runs = createRunsService({
     adapters,
@@ -405,6 +421,8 @@ export const composeWith = ({
     runTokenKey: infra.runTokenKey,
     secrets,
   });
+  // Catches the run and tool events the runs service writes through its own events instance.
+  runs.onEvent(slackStatus.onEvent);
   const managed = createManagedService({
     atomic: infra.atomic,
     clock: infra.clock,
@@ -437,6 +455,7 @@ export const composeWith = ({
     fetch: connectorFetch,
     runs,
     secretsKey: infra.secretsKey,
+    status: slackStatus,
   });
   const slackApps = createSlackAppsService({
     atomic: infra.atomic,

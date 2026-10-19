@@ -13,6 +13,10 @@
  *
  * - `app_mentions:read` receives `app_mention` events, a mention of the app in
  *   a channel it is in.
+ * - `assistant:write` lets the app show a status such as "is thinking…" in a
+ *   Slack thread while a run is going, through `assistant.threads.setStatus`,
+ *   and is the scope Slack's manifest editor wants for apps with
+ *   `features.agent_view`.
  * - `channels:history` reads messages in public channels the app is in, so it
  *   can see replies in its own threads.
  * - `channels:read` gives a public channel's name, which titles its sessions.
@@ -30,6 +34,7 @@
  */
 export const SLACK_BOT_SCOPES = [
   "app_mentions:read",
+  "assistant:write",
   "channels:history",
   "channels:read",
   "chat:write",
@@ -46,11 +51,12 @@ export const SLACK_BOT_SCOPES = [
 /**
  * Bot events. `app_mention` and `message.im` are the two ways a person reaches
  * the agent. `message.channels` and `message.groups` deliver a reply in a
- * thread the agent started without a mention. The events route ignores channel
- * messages except replies in a thread the agent knows, so `app_home_opened` is
- * not subscribed.
+ * thread the agent started without a mention. `app_home_opened` is subscribed
+ * because Slack's manifest editor wants it for apps with agent_view, and the
+ * events route answers it with a 200 and does nothing else.
  */
 export const SLACK_BOT_EVENTS = [
+  "app_home_opened",
   "app_mention",
   "message.channels",
   "message.groups",

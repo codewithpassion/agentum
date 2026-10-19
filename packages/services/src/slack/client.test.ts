@@ -236,6 +236,93 @@ test("postEphemeral classifies a Slack error body", async () => {
   expect(result).toEqual({ error: "user_not_in_channel", kind: "rejected" });
 });
 
+test("setStatus posts channel_id, thread_ts and status with the bearer token", async () => {
+  const { calls, fetch } = fakeFetch(() => jsonResponse({ ok: true }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.setStatus({
+    channel: "C1",
+    status: "is thinking…",
+    threadTs: "1.2",
+  });
+
+  expect(result).toEqual({ kind: "ok" });
+  expect(firstCall(calls).url).toBe(
+    "https://slack.com/api/assistant.threads.setStatus"
+  );
+  expect(firstCall(calls).init.method).toBe("POST");
+  expect(new Headers(firstCall(calls).init.headers).get("authorization")).toBe(
+    `Bearer ${TOKEN}`
+  );
+  expect(sentBody(firstCall(calls))).toEqual({
+    channel_id: "C1",
+    status: "is thinking…",
+    thread_ts: "1.2",
+  });
+});
+
+test("setStatus sends an empty status to clear the status", async () => {
+  const { calls, fetch } = fakeFetch(() => jsonResponse({ ok: true }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  await client.setStatus({ channel: "C1", status: "", threadTs: "1.2" });
+
+  expect(sentBody(firstCall(calls)).status).toBe("");
+});
+
+test("setStatus classifies missing_scope as config", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "missing_scope", ok: false })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.setStatus({
+    channel: "C1",
+    status: "x",
+    threadTs: "1.2",
+  });
+
+  expect(result).toEqual({ error: "missing_scope", kind: "config" });
+});
+
+test("setStatus classifies method_not_supported_for_channel_type as rejected", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({
+      error: "method_not_supported_for_channel_type",
+      ok: false,
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.setStatus({
+    channel: "C1",
+    status: "x",
+    threadTs: "1.2",
+  });
+
+  expect(result).toEqual({
+    error: "method_not_supported_for_channel_type",
+    kind: "rejected",
+  });
+});
+
+test("setStatus maps a ratelimited body to rate_limited", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "ratelimited", ok: false }, 200, {
+      "Retry-After": "7",
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.setStatus({
+    channel: "C1",
+    status: "x",
+    threadTs: "1.2",
+  });
+
+  expect(result).toEqual({ kind: "rate_limited", retryAfterSeconds: 7 });
+});
+
 test("userEmail returns the profile email", async () => {
   const { calls, fetch } = fakeFetch(() =>
     jsonResponse({ ok: true, user: { profile: { email: "a@example.com" } } })

@@ -54,6 +54,15 @@ export const runs = sqliteTable(
     sessionId: text("session_id")
       .notNull()
       .references(() => sessions.id),
+    // The Slack working status of a run that replies in Slack: when and what
+    // was last claimed (the 5 s limit rests on these, so it holds across
+    // requests), and whether no more are sent (a call failed, or the run failed,
+    // was cancelled or was interrupted).
+    slackStatusAt: text("slack_status_at"),
+    slackStatusLabel: text("slack_status_label"),
+    slackStatusStopped: integer("slack_status_stopped", { mode: "boolean" })
+      .notNull()
+      .default(false),
     startedAt: text("started_at"),
     status: text("status", { enum: RUN_STATUSES }).notNull(),
     // Written only by the queued-run sweep: when it last looked at the run.

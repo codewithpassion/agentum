@@ -76,6 +76,12 @@ export interface SlackClient {
   ) => Promise<
     SlackCallResult<{ messages: HistoryMessage[]; nextCursor: string | null }>
   >;
+  /** Shows `status` in a thread under the app's name, such as "is thinking…", through assistant.threads.setStatus. An empty string clears it. Needs the assistant:write scope (chat:write also works for now). */
+  setStatus: (request: {
+    channel: string;
+    status: string;
+    threadTs: string;
+  }) => Promise<SlackCallResult>;
   uploadFile: (request: {
     bytes: Uint8Array<ArrayBuffer>;
     channel: string;
@@ -555,6 +561,21 @@ export const createSlackClient = (deps: {
           }),
         },
         readHistoryPage
+      );
+    },
+
+    setStatus(request) {
+      return callSlack(
+        {
+          body: {
+            channel_id: request.channel,
+            status: request.status,
+            thread_ts: request.threadTs,
+          },
+          method: "POST",
+          url: apiUrl("assistant.threads.setStatus"),
+        },
+        () => ({})
       );
     },
 
