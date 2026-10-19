@@ -3,7 +3,7 @@ id: P.6
 title: Real cost from OpenRouter
 milestone: P
 size: S
-status: todo
+status: in_progress
 depends_on: [P.4]
 branch: task/P.6-openrouter-real-cost
 ---
@@ -24,3 +24,4 @@ Asked for by Dom on 19 Oct 2026, from the report `docs/analysis/other-model-prov
 
 ## Log
 - 2026-10-19: added at Dom's request.
+- 2026-10-19: dispatched.

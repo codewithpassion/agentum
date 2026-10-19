@@ -222,7 +222,56 @@ describe("usageOf", () => {
     expect(usageOf(slice)).toEqual({
       costUsd: 0.75,
       inputTokens: 17,
+      model: "test-model",
       outputTokens: 8,
+      provider: "anthropic",
+    });
+  });
+
+  test("names the provider and model of the last assistant message", () => {
+    const slice = [
+      entry(
+        "a1",
+        assistant([{ text: "x", type: "text" }], {
+          model: "anthropic/claude-x",
+          provider: "anthropic",
+          usage: usage(10, 5, 0.25),
+        })
+      ),
+      entry(
+        "a2",
+        assistant([{ text: "y", type: "text" }], {
+          model: "z-ai/glm-5.3",
+          provider: "openrouter",
+          usage: usage(7, 3, 0.5),
+        })
+      ),
+    ];
+    expect(usageOf(slice)).toEqual({
+      costUsd: 0.75,
+      inputTokens: 17,
+      model: "z-ai/glm-5.3",
+      outputTokens: 8,
+      provider: "openrouter",
+    });
+  });
+
+  test("leaves out an empty provider or model", () => {
+    const slice = [
+      entry(
+        "a1",
+        assistant([{ text: "x", type: "text" }], {
+          model: "",
+          provider: "openrouter",
+          usage: usage(1, 1, 0),
+        })
+      ),
+    ];
+    expect(usageOf(slice)).toEqual({
+      costUsd: 0,
+      inputTokens: 1,
+      outputTokens: 1,
+      provider: "openrouter",
     });
   });
 
@@ -240,7 +289,9 @@ describe("usageOf", () => {
       cacheWriteTokens: 2,
       costUsd: 0,
       inputTokens: 1,
+      model: "test-model",
       outputTokens: 1,
+      provider: "anthropic",
     });
   });
 

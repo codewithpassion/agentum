@@ -20,6 +20,7 @@ import {
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { createFakeVm } from "./linux-vm/fake-vm.ts";
+import { withPlacedPaths } from "./linux-vm/vm-workdir.ts";
 import {
   FILES_EXTENSION,
   filesExtension,
@@ -196,6 +197,40 @@ describe("inputContent", () => {
       text: "task\n\nFiles attached to this message:\n- a.jpg (image/jpeg, shown as an image below)\n- b.jpg (image/jpeg, id b)",
       type: "text",
     });
+  });
+
+  test("with acceptsImages false an image is listed with its id and no image block is sent", async () => {
+    const port = fakePort({
+      files: {
+        f2: { bytes: TEXT_BYTES, mime: "text/plain", name: "notes.txt" },
+        img: { bytes: PNG, mime: "image/png", name: "shot.png" },
+      },
+    });
+    expect(await inputContent("task", ["img", "f2"], port, false)).toEqual([
+      {
+        text: [
+          "task",
+          "",
+          "Files attached to this message:",
+          "- shot.png (image/png, id img)",
+          "- notes.txt (text/plain, id f2): read it with read_input_file",
+        ].join("\n"),
+        type: "text",
+      },
+    ]);
+  });
+
+  test("the text-only result still gets the placed VM paths on its text block", async () => {
+    const port = fakePort({
+      files: { img: { bytes: PNG, mime: "image/png", name: "shot.png" } },
+    });
+    const content = await inputContent("task", ["img"], port, false);
+    expect(withPlacedPaths(content, ["/workspace/input/shot.png"])).toEqual([
+      {
+        text: "task\n\nFiles attached to this message:\n- shot.png (image/png, id img)\n\nThe attached files are also in the Linux VM at: /workspace/input/shot.png",
+        type: "text",
+      },
+    ]);
   });
 });
 

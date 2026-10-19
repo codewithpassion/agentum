@@ -9,7 +9,12 @@ import {
 } from "@earendil-works/pi-durable";
 import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
 import { CLOUD_LEASE_MS } from "@repo/services/cloud/lease";
-import { cloudModelError, cloudModelFor } from "@repo/services/cloud/models";
+import {
+  cloudModelError,
+  cloudModelFor,
+  findCloudModel,
+  parseModelRef,
+} from "@repo/services/cloud/models";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { isServiceError } from "@repo/services/errors";
 import { agentHomePath, ensureAgentHome } from "@repo/services/library/home";
@@ -91,7 +96,6 @@ const VM_KEY = "linux-vm";
 /** The run an input file belongs to, so `read_input_file` reads it as that run. */
 const inputFileKey = (fileId: string) => `input-file:${fileId}`;
 const ENTRY_PAGE = 500;
-const ANTHROPIC = "anthropic";
 const RETRY = { baseDelayMs: 1000, enabled: true, maxRetries: 3 };
 /** A failing tool call refreshes the tool lists at most this often. */
 const REFRESH_GAP_MS = 30_000;
@@ -150,16 +154,20 @@ export class PiRun extends DurableObject<Env> {
   #composed: ReturnType<typeof compose> | undefined;
 
   /**
-   * The workspace's Anthropic key, read from the workspace secrets store for
+   * The workspace's provider keys, read from the workspace secrets store for
    * each model request and never kept: it is not in this object's storage and
    * not in a field.
    */
-  readonly #credentials = workspaceKeyStore(async () => {
+  readonly #credentials = workspaceKeyStore(async (provider) => {
     const workspaceId = await this.ctx.storage.get<string>(WORKSPACE_KEY);
     if (!workspaceId) {
       return null;
     }
-    const key = await this.#services().managedKeys.resolve(workspaceId);
+    if (provider === "anthropic") {
+      const key = await this.#services().managedKeys.resolve(workspaceId);
+      return key?.apiKey ?? null;
+    }
+    const key = await this.#services().modelKeys.resolve(workspaceId, provider);
     return key?.apiKey ?? null;
   });
 
@@ -552,21 +560,34 @@ export class PiRun extends DurableObject<Env> {
   }
 
   /** The message as the model receives it. With a VM, the input files are also put in its workdir. */
-  async #inputContent(run: RunRef, text: string, fileIds: readonly string[]) {
+  async #inputContent(
+    run: RunRef,
+    text: string,
+    fileIds: readonly string[],
+    model: string
+  ) {
     const port = this.#filesPort(() => Promise.resolve(run));
     const vm = this.#vm;
+    // A model not in the catalogue, such as the dev-only faux model, keeps images.
+    const acceptsImages =
+      findCloudModel(model)?.input.includes("image") ?? true;
     if (!vm) {
-      return inputContent(text, fileIds, port);
+      return inputContent(text, fileIds, port, acceptsImages);
     }
     const placed: { bytes: Uint8Array; name: string }[] = [];
-    const content = await inputContent(text, fileIds, {
-      ...port,
-      download: async (fileId) => {
-        const file = await port.download(fileId);
-        placed.push(file);
-        return file;
+    const content = await inputContent(
+      text,
+      fileIds,
+      {
+        ...port,
+        download: async (fileId) => {
+          const file = await port.download(fileId);
+          placed.push(file);
+          return file;
+        },
       },
-    });
+      acceptsImages
+    );
     try {
       return withPlacedPaths(content, await placeInputFiles(vm, placed));
     } catch (error) {
@@ -652,7 +673,7 @@ export class PiRun extends DurableObject<Env> {
       const fauxModel: Model<string> = this.#faux.getModel();
       return { id: fauxModel.id, provider: this.#faux.provider.id };
     }
-    return { id: cloudModelFor(model), provider: ANTHROPIC };
+    return parseModelRef(cloudModelFor(model));
   }
 
   #port(): PiPort {
@@ -744,11 +765,11 @@ export class PiRun extends DurableObject<Env> {
           }),
         ingest: (runId, events) =>
           runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, events),
-        inputOf: async (run, text, fileIds) => {
+        inputOf: async (run, text, fileIds, model) => {
           await Promise.all(
             fileIds.map((id) => this.ctx.storage.put(inputFileKey(id), run))
           );
-          return await this.#inputContent(run, text, fileIds);
+          return await this.#inputContent(run, text, fileIds, model);
         },
         installSkills: (input) => this.#loadAndInstallSkills(input),
         installTools: (input) => this.#syncTools(input.mcpServers),

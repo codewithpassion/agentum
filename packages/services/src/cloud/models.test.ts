@@ -14,7 +14,7 @@ const ALIASED = CLOUD_MODELS.filter((entry) => entry.alias !== undefined);
 const OPEN_REFS = [
   "openrouter:z-ai/glm-5.3",
   "openrouter:z-ai/glm-5.3-flash",
-  "openrouter:deepseek/deepseek-v4.1-flash",
+  "openrouter:deepseek/deepseek-v4.1-flash-1017",
 ] as const;
 
 describe("cloudModelFor", () => {
@@ -92,32 +92,34 @@ describe("cloudModelError", () => {
 
   test("rejects an unknown OpenRouter model", () => {
     expect(cloudModelError("openrouter:nope/model")).toBe(
-      'Unknown model "openrouter:nope/model". Valid cloud models: opus (claude-opus-5-5), sonnet (claude-sonnet-5-5), haiku (claude-haiku-5-5), openrouter:z-ai/glm-5.3, openrouter:z-ai/glm-5.3-flash, openrouter:deepseek/deepseek-v4.1-flash.'
+      'Unknown model "openrouter:nope/model". Valid cloud models: opus (claude-opus-5-5), sonnet (claude-sonnet-5-5), haiku (claude-haiku-5-5), openrouter:z-ai/glm-5.3, openrouter:z-ai/glm-5.3-flash, openrouter:deepseek/deepseek-v4.1-flash-1017.'
     );
   });
 
   test("rejects a bare OpenRouter id with no prefix", () => {
     expect(cloudModelError("z-ai/glm-5.3")).toBe(
-      'Unknown model "z-ai/glm-5.3". Valid cloud models: opus (claude-opus-5-5), sonnet (claude-sonnet-5-5), haiku (claude-haiku-5-5), openrouter:z-ai/glm-5.3, openrouter:z-ai/glm-5.3-flash, openrouter:deepseek/deepseek-v4.1-flash.'
+      'Unknown model "z-ai/glm-5.3". Valid cloud models: opus (claude-opus-5-5), sonnet (claude-sonnet-5-5), haiku (claude-haiku-5-5), openrouter:z-ai/glm-5.3, openrouter:z-ai/glm-5.3-flash, openrouter:deepseek/deepseek-v4.1-flash-1017.'
     );
   });
 
   test("names the valid models for an unknown id", () => {
     expect(cloudModelError("claude-nope-1")).toBe(
-      'Unknown model "claude-nope-1". Valid cloud models: opus (claude-opus-5-5), sonnet (claude-sonnet-5-5), haiku (claude-haiku-5-5), openrouter:z-ai/glm-5.3, openrouter:z-ai/glm-5.3-flash, openrouter:deepseek/deepseek-v4.1-flash.'
+      'Unknown model "claude-nope-1". Valid cloud models: opus (claude-opus-5-5), sonnet (claude-sonnet-5-5), haiku (claude-haiku-5-5), openrouter:z-ai/glm-5.3, openrouter:z-ai/glm-5.3-flash, openrouter:deepseek/deepseek-v4.1-flash-1017.'
     );
   });
 
   test("treats an empty string as unknown", () => {
     expect(cloudModelError("")).toBe(
-      'Unknown model "". Valid cloud models: opus (claude-opus-5-5), sonnet (claude-sonnet-5-5), haiku (claude-haiku-5-5), openrouter:z-ai/glm-5.3, openrouter:z-ai/glm-5.3-flash, openrouter:deepseek/deepseek-v4.1-flash.'
+      'Unknown model "". Valid cloud models: opus (claude-opus-5-5), sonnet (claude-sonnet-5-5), haiku (claude-haiku-5-5), openrouter:z-ai/glm-5.3, openrouter:z-ai/glm-5.3-flash, openrouter:deepseek/deepseek-v4.1-flash-1017.'
     );
   });
 
-  test("does not offer the dated DeepSeek id", () => {
-    expect(cloudModelError("deepseek/deepseek-v4.1-flash-1017")).toBeDefined();
+  test("offers the 17 Oct DeepSeek id and not the September one", () => {
     expect(
       cloudModelError("openrouter:deepseek/deepseek-v4.1-flash-1017")
+    ).toBeUndefined();
+    expect(
+      cloudModelError("openrouter:deepseek/deepseek-v4.1-flash")
     ).toBeDefined();
   });
 });

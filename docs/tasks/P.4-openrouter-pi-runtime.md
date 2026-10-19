@@ -3,7 +3,7 @@ id: P.4
 title: OpenRouter in the Pi runtime
 milestone: P
 size: M
-status: in_progress
+status: done
 depends_on: [P.1, P.3]
 branch: task/P.4-openrouter-pi-runtime
 ---
@@ -31,3 +31,4 @@ Asked for by Dom on 19 Oct 2026, from the report `docs/analysis/other-model-prov
 ## Log
 - 2026-10-19: added at Dom's request.
 - 2026-10-19: dispatched.
+- 2026-10-19: review clean after 0 fix rounds at 045fdb4 (docs/reviews/tasks/P.4.md). Merged. DeepSeek id deepseek/deepseek-v4.1-flash-1017 (defined in pi-run-models.ts). Isolate passed locally on both models; Linux VM leg needs staging.

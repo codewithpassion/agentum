@@ -210,6 +210,29 @@ test("manifest is built from the agent and the public address", async () => {
   expect(manifest.oauth_config.scopes.bot).toContain("app_mentions:read");
 });
 
+test("manifest uses the name the owner gives, trimmed", async () => {
+  const { json: text } = await service.manifest(user, {
+    agentId,
+    name: " Support Helper ",
+  });
+  const manifest = JSON.parse(text);
+
+  expect(manifest.display_information.name).toBe("Support Helper");
+  expect(manifest.features.bot_user.display_name).toBe("support-helper");
+});
+
+test("manifest refuses an empty name and one over the display name limit", async () => {
+  await expect(service.manifest(user, { agentId, name: "" })).rejects.toThrow();
+  await expect(
+    service.manifest(user, { agentId, name: "a".repeat(36) })
+  ).rejects.toThrow();
+  const { json: text } = await service.manifest(user, {
+    agentId,
+    name: "a".repeat(35),
+  });
+  expect(JSON.parse(text).display_information.name).toHaveLength(35);
+});
+
 test("manifest refuses an agent of another workspace, and a missing public address", async () => {
   await expect(service.manifest(outsider, { agentId })).rejects.toBeInstanceOf(
     ServiceError

@@ -69,7 +69,7 @@ export const CLOUD_MODELS: readonly CloudModel[] = [
   },
   {
     description: "Open model through OpenRouter, text and images",
-    id: "deepseek/deepseek-v4.1-flash",
+    id: "deepseek/deepseek-v4.1-flash-1017",
     input: ["text", "image"],
     label: "DeepSeek V4.1 Flash",
     provider: "openrouter",
