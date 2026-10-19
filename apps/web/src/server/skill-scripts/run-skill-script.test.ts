@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Context } from "@earendil-works/chord/context";
 import type {
   Extension,
@@ -8,6 +8,8 @@ import type {
   ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { loadSkills, type SkillsPort } from "../pi-run-skills.ts";
+import { dynamicWorkerSandbox } from "./dynamic-worker-sandbox.ts";
+import { localWorkerLoader } from "./local-worker-loader.ts";
 import {
   ISOLATE_SCRIPT_TEXTS,
   type ScriptLimits,
@@ -533,6 +535,44 @@ const extensionWithVersions = (
     )
   );
 };
+
+describe("skillScriptsExtension in the local Dynamic Worker loader", () => {
+  let helper: ReturnType<typeof localWorkerLoader>;
+
+  beforeEach(() => {
+    helper = localWorkerLoader();
+  });
+
+  afterEach(() => {
+    helper.restore();
+  });
+
+  test("a run that never settles keeps the output it printed", async () => {
+    const extension = await extensionFor(
+      {
+        ...SKILL_FILES,
+        "shout/scripts/hang.ts": [
+          'console.log("one");',
+          'console.log("two");',
+          'console.error("three");',
+          "await new Promise(() => {});",
+          "",
+        ].join("\n"),
+      },
+      dynamicWorkerSandbox(helper.loader),
+      { graceMs: 1000, maxOutputBytes: 65_536, timeoutMs: 100 }
+    );
+    const result = await execute(extension, {
+      path: "scripts/hang.ts",
+      skill: "shout",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(
+      "exit code: 124\n\nstdout:\none\ntwo\n\n\nstderr:\nthree\ntimed out after 0.1 s\n"
+    );
+  });
+});
 
 describe("skillScriptsExtension with versions", () => {
   test("a call with version runs the files the callback returned, not the port's", async () => {

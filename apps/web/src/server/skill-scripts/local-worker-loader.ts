@@ -82,9 +82,11 @@ const writeModule = (
   }
 };
 
+type Method = (...args: unknown[]) => unknown;
+
 interface EntrypointInstance {
   env?: Record<string, unknown>;
-  run: (...args: unknown[]) => unknown;
+  [method: string]: unknown;
 }
 
 export const localWorkerLoader = (): {
@@ -111,20 +113,35 @@ export const localWorkerLoader = (): {
         writeModule(folder, name, module);
       }
       return {
-        getEntrypoint: (name: string) => ({
-          run: async (...args: unknown[]) => {
-            try {
-              const url = pathToFileURL(join(folder, config.mainModule)).href;
-              const module: Record<string, unknown> = await import(url);
-              const Entry = module[name] as new () => EntrypointInstance;
-              const instance = new Entry();
-              instance.env = config.env;
-              return await instance.run(...args);
-            } finally {
-              putBack(saved);
+        getEntrypoint: (name: string) =>
+          new Proxy<Record<string, Method>>(
+            {},
+            {
+              get: (_target, method) => {
+                if (typeof method !== "string") {
+                  return;
+                }
+                return async (...args: unknown[]) => {
+                  try {
+                    const url = pathToFileURL(
+                      join(folder, config.mainModule)
+                    ).href;
+                    const module: Record<string, unknown> = await import(url);
+                    const Entry = module[name] as new () => EntrypointInstance;
+                    const instance = new Entry();
+                    instance.env = config.env;
+                    const call = instance[method];
+                    if (typeof call !== "function") {
+                      throw new TypeError(`${name} has no method ${method}`);
+                    }
+                    return await (call as Method).apply(instance, args);
+                  } finally {
+                    putBack(saved);
+                  }
+                };
+              },
             }
-          },
-        }),
+          ),
       };
     },
   };

@@ -253,6 +253,31 @@ describe("runScriptExtension", () => {
     expect(textOf(result)).toContain("exit code: 124");
   });
 
+  test("a run that times out keeps the output it printed before it stopped", async () => {
+    const { extension } = setup(
+      {},
+      {
+        limits: { graceMs: 1000, maxOutputBytes: 65_536, timeoutMs: 100 },
+      }
+    );
+    const result = await execute(extension, {
+      code: [
+        'console.log("one");',
+        'console.log("two");',
+        'console.error("three");',
+        "await new Promise(() => {});",
+        "",
+      ].join("\n"),
+      language: "js",
+    });
+
+    expect(result.isError).toBe(true);
+    const text = textOf(result);
+    expect(text).toContain("exit code: 124");
+    expect(text).toContain("stdout:\none\ntwo\n");
+    expect(text).toContain("stderr:\nthree\ntimed out after 0.1 s");
+  });
+
   test("args reach process.argv and stdin reaches the global", async () => {
     const { extension } = setup();
     const result = await execute(extension, {
