@@ -295,7 +295,10 @@ const runOf = async (
   workspaceId: string,
   options: {
     runtime: "cloud" | "fake";
-    runtimeConfig?: { networkAccess?: boolean };
+    runtimeConfig?: {
+      environment?: "isolate" | "linux-vm";
+      networkAccess?: boolean;
+    };
   }
 ): Promise<Extract<Principal, { kind: "run" }>> => {
   const user = userOf(workspaceId);
@@ -350,6 +353,17 @@ test("a run whose agent has network access off is refused by curl and never fetc
   expect(sent).toEqual([]);
 });
 
+test("a Linux VM agent keeps curl whatever its network setting says", async () => {
+  sent = [];
+  const run = await runOf(workspaceA, {
+    runtime: "cloud",
+    runtimeConfig: { environment: "linux-vm", networkAccess: false },
+  });
+  const result = await networkBash(run, "curl -s https://example.com/");
+  expect(result.exitCode).toBe(0);
+  expect(sent).toHaveLength(1);
+});
+
 test("a user principal is refused by curl and never fetches", async () => {
   sent = [];
   const result = await networkBash(
@@ -390,4 +404,15 @@ test("a logged request keeps its query string and headers out of the event", asy
   expect(stored).not.toContain("topsecret");
   expect(stored).not.toContain("Bearer");
   expect(stored).not.toContain("token=");
+
+  // The script itself goes to the Log as a library.command event.
+  const commands = await composed.services.events.query(
+    userOf(workspaceA),
+    workspaceA,
+    { types: ["library.command"] }
+  );
+  const commandLog = JSON.stringify(commands.map((event) => event.payload));
+  expect(commandLog).toContain("curl");
+  expect(commandLog).not.toContain("topsecret");
+  expect(commandLog).not.toContain("querysecret");
 });

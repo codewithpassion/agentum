@@ -67,6 +67,7 @@ const CROSS_HOST_DROPPED_HEADERS = [
   "cookie",
   "proxy-authorization",
 ];
+const TRAILING_PERIOD = /\.$/;
 const MESSAGES: Record<WebFetchFailure, string> = {
   bad_request: "The request is not valid.",
   blocked: "The request was refused.",
@@ -105,6 +106,10 @@ const failed = (error: WebFetchFailure, message = MESSAGES[error]): Failed => ({
   message,
   ok: false,
 });
+
+/** "The request was refused: <reason>." with one full stop, whether or not the reason ends in one. */
+const refusal = (what: string, reason: string): string =>
+  `${what} was refused: ${reason.replace(TRAILING_PERIOD, "")}.`;
 
 const isDroppedRequestHeader = (name: string): boolean =>
   DROPPED_REQUEST_HEADERS.has(name) ||
@@ -293,15 +298,24 @@ const follow = async (
   const next = redirectTarget(hop.url, location, call.deps.ownHosts);
   if (!next.ok) {
     await recordRefused(call, hostOf(location, hop.url), method, next.reason);
-    return failed("blocked", `The redirect was refused: ${next.reason}.`);
+    return failed("blocked", refusal("The redirect", next.reason));
   }
-  const sameHost = next.url.hostname === hop.url.hostname;
+  // The whole origin, not the host: a hop from https to http, or to another
+  // port, must not carry the caller's token either.
+  const sameOrigin = next.url.origin === hop.url.origin;
+  const bodyKept = method === hop.method;
+  const headers = sameOrigin
+    ? new Headers(hop.headers)
+    : withoutCredentials(hop.headers);
+  if (!bodyKept) {
+    headers.delete("content-type");
+  }
   return runHop(
     call,
     {
       // A body goes only where the method stays the same.
-      body: method === hop.method ? hop.body : undefined,
-      headers: sameHost ? hop.headers : withoutCredentials(hop.headers),
+      body: bodyKept ? hop.body : undefined,
+      headers,
       method,
       url: next.url,
     },
@@ -393,7 +407,7 @@ export const createWebFetcher = (deps: WebFetchDeps): WebFetcher => {
     const first = checkTarget(request.url, deps.ownHosts);
     if (!first.ok) {
       await recordRefused(call, hostOf(request.url), method, first.reason);
-      return failed("blocked", `The request was refused: ${first.reason}.`);
+      return failed("blocked", refusal("The request", first.reason));
     }
     return runHop(
       call,

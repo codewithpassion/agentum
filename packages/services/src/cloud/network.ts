@@ -1,8 +1,8 @@
 /**
  * Whether a cloud agent's session may reach the network. Agents with no
- * setting keep network access, so the setting is only written when it is
- * turned off. This module imports nothing, so the web app can import it for
- * the form.
+ * setting keep network access, so a missing key means on and no backfill is
+ * needed. This module imports nothing, so the web app can import it for the
+ * form.
  */
 
 /** The key in an agent's `runtimeConfig`. */

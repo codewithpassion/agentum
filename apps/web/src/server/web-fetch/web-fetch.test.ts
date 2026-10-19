@@ -347,6 +347,50 @@ describe("createWebFetcher follows redirects", () => {
     expect(h.sent[2]?.headers.get("authorization")).toBeNull();
     expect(h.sent[2]?.headers.get("cookie")).toBeNull();
   });
+
+  test.each([
+    ["an https to http downgrade on the same host", "http://a.example/end"],
+    ["a port change on the same host", "https://a.example:8443/end"],
+  ])(
+    "caller authorization and cookie are dropped on %s",
+    async (_name, target) => {
+      const h = harness(
+        byUrl({
+          "https://a.example/start": () => redirect(302, target),
+          [target]: () => new Response("done"),
+        })
+      );
+      okOf(
+        await h.fetcher({
+          headers: { Authorization: "Bearer CALLER", Cookie: "session=abc" },
+          url: "https://a.example/start",
+        })
+      );
+      expect(h.sent[0]?.headers.get("authorization")).toBe("Bearer CALLER");
+      expect(h.sent[1]?.url).toBe(target);
+      expect(h.sent[1]?.headers.get("authorization")).toBeNull();
+      expect(h.sent[1]?.headers.get("cookie")).toBeNull();
+    }
+  );
+
+  test("a POST turned into a GET drops its content-type with its body", async () => {
+    const h = harness(
+      byUrl({
+        "https://a.example/end": () => new Response("done"),
+        "https://a.example/start": () => redirect(302, "/end"),
+      })
+    );
+    okOf(
+      await h.fetcher({
+        body: new TextEncoder().encode("a=b"),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        method: "POST",
+        url: "https://a.example/start",
+      })
+    );
+    expect(h.sent[1]?.method).toBe("GET");
+    expect(h.sent[1]?.headers.get("content-type")).toBeNull();
+  });
 });
 
 describe("createWebFetcher adds credentials per hop", () => {

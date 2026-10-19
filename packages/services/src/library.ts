@@ -28,6 +28,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { ancestorsOf, normalizePath, parentOf } from "./library/path.ts";
+import { redactScript } from "./library/redact-script.ts";
 import type { Clock } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -661,7 +662,8 @@ export const createLibraryService = ({
       events.insertStatement({
         actor: actorOf(member),
         agentId: member.kind === "run" ? member.agentId : undefined,
-        payload: command,
+        // A curl line may carry a token: the Log keeps the script, so it is blanked first.
+        payload: { ...command, script: redactScript(command.script) },
         runId: member.kind === "run" ? member.runId : undefined,
         type: "library.command",
         workspaceId: member.workspaceId,

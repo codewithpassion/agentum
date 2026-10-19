@@ -16,6 +16,7 @@ import type {
   TriggerInfo,
 } from "@repo/mcp/ports";
 import { ToolError } from "@repo/mcp/result";
+import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
 import { networkAccessOf } from "@repo/services/cloud/network";
 import type { PostRecord, ThreadRecord } from "@repo/services/inbox";
 import type { RoutineSummary } from "@repo/services/routines";
@@ -163,13 +164,17 @@ export const createMcpPorts = ({
   const agentIdOf = async (reference: string | undefined) =>
     reference === undefined ? undefined : (await findAgent(reference)).id;
 
-  /** The fetcher `curl` uses. Only a run whose agent has network access gets one. */
+  /**
+   * The fetcher `curl` uses. Only a run whose agent has network access gets
+   * one. A Linux VM agent always has network, so its setting does not count.
+   */
   const webFetcherFor = async (): Promise<WebFetcher | undefined> => {
     if (principal.kind !== "run") {
       return;
     }
     const agent = await services.agents.get(principal, principal.agentId);
-    if (!networkAccessOf(agent.runtimeConfig)) {
+    const inVm = cloudEnvironmentOf(agent.runtimeConfig) === "linux-vm";
+    if (!(inVm || networkAccessOf(agent.runtimeConfig))) {
       return;
     }
     return runWebFetcher({
