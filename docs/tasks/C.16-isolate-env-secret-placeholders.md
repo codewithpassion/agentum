@@ -3,7 +3,7 @@ id: C.16
 title: Env secrets in the isolate as placeholders, filled in on the way out
 milestone: C
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/C.16-isolate-env-secret-placeholders
 ---
@@ -28,3 +28,4 @@ Asked for by Dom on 19 Oct 2026. An "env" secret becomes an environment variable
 
 ## Log
 - 2026-10-19: added at Dom's request. dispatched.
+- 2026-10-19: review clean after 4 fix rounds at 7795a22 (docs/reviews/tasks/C.16.md); round 3 approved by the controller (same-origin redirects after a fill), round 4 a one-commit statusText fix by the dispatcher. Merged. Migration 0011. Staging check pending (Dom's Supadata secret).
