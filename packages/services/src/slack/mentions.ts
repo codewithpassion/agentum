@@ -16,12 +16,13 @@ export const channelMention = (channelId: string): string => `<#${channelId}>`;
 
 /**
  * An `@name` that starts the text or follows a character that cannot end a
- * word, a mention, a link or an address. The name keeps its trailing
- * punctuation so the caller can retry without it.
+ * word, a mention, a link or an address. The name may hold letters of any
+ * script, digits, `.`, `_`, `-` and `@`, so a full email address is one name.
+ * It keeps its trailing punctuation so the caller can retry without it.
  */
-const MENTION = /(?<![\p{L}\p{N}._%+\-/<@|])@([A-Za-z0-9][A-Za-z0-9._-]*)/gu;
+const MENTION = /(?<![\p{L}\p{N}._%+\-/<@|])@([\p{L}\p{N}][\p{L}\p{N}._@-]*)/gu;
 
-const TRAILING_PUNCTUATION = /[._-]+$/;
+const TRAILING_PUNCTUATION = /[._@-]+$/;
 
 const BROADCAST_NAMES: ReadonlySet<string> = new Set([
   "channel",

@@ -137,13 +137,12 @@ function escapeSlack(text: string): string {
     .replaceAll(">", "&gt;");
 }
 
-/** A well-formed user mention (`<@U…>`) or channel link (`<#C…>`). Slack ids are 9 to 11 characters. */
+/** A well-formed user mention (`<@U…>`) or channel link (`<#C…>`): a letter, then 8 or more capitals and digits. */
 const PASS_THROUGH = /(<@[UW][A-Z0-9]{8,}>|<#[CG][A-Z0-9]{8,}>)/;
 
 /**
  * Escapes like `escapeSlack`, except a well-formed user mention or channel
- * link, which stays as written. Only the caller (slack_send, the thread reply)
- * decides to allow those. Control syntax is still escaped: `<!channel>`,
+ * link, which stays as written. Control syntax is still escaped: `<!channel>`,
  * `<!here>`, `<@U123|label>`, masked links and short or odd ids.
  */
 function escapeSlackKeepingMentions(text: string): string {

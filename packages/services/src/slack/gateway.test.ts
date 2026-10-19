@@ -362,7 +362,7 @@ test("deliver gives up after three transient failures, records it, and does not 
 const CONNECT_TEXT = "Sign in at /connect/conn_1?as=user to continue.";
 
 test("deliver replaces a Connect link in the thread and sends it privately to the mapped user", async () => {
-  insertIdentityLink("U0DOMINIK");
+  insertIdentityLink("U0DOM");
 
   await deliver(CONNECT_TEXT);
 
@@ -374,7 +374,7 @@ test("deliver replaces a Connect link in the thread and sends it privately to th
   expect(ephemeral?.body).toMatchObject({
     channel: CHANNEL,
     thread_ts: THREAD,
-    user: "U0DOMINIK",
+    user: "U0DOM",
   });
   expect(String(ephemeral?.body?.text)).toContain(
     `${PUBLIC_BASE_URL}/connect/conn_1?as=user`
@@ -392,7 +392,7 @@ test("deliver sends no ephemeral Connect message when the user has no identity l
 });
 
 test("deliver sends only a Connect link under this app's own address, and every copy of it", async () => {
-  insertIdentityLink("U0DOMINIK");
+  insertIdentityLink("U0DOM");
   const own = `${PUBLIC_BASE_URL}/connect/conn_1?as=user`;
 
   await deliver(`First ${own} then again ${own}`);
@@ -405,7 +405,7 @@ test("deliver sends only a Connect link under this app's own address, and every 
 });
 
 test("deliver leaves a Connect link to another host in the thread and sends nothing privately", async () => {
-  insertIdentityLink("U0DOMINIK");
+  insertIdentityLink("U0DOM");
   const evil = "https://evil.example/connect/conn_1";
 
   await deliver(`Sign in at ${evil} please`);
@@ -423,7 +423,7 @@ test("deliver keeps the Connect link visible when there is nobody to send it to"
 });
 
 test("deliver records a Connect link that could not be sent privately", async () => {
-  insertIdentityLink("U0DOMINIK");
+  insertIdentityLink("U0DOM");
   respond = (call) =>
     call.url === `${SLACK_API}chat.postEphemeral`
       ? json({ error: "user_not_in_channel", ok: false })
@@ -820,7 +820,7 @@ test("deliver reports the files it had no time to upload and still records the e
 });
 
 test("notifyNeedsAuth sends the connect link privately to the owner, in the run's thread", async () => {
-  insertIdentityLink("U0DOMINIK");
+  insertIdentityLink("U0DOM");
 
   await gateway.notifyNeedsAuth(await appendNeedsAuth());
 
@@ -829,7 +829,7 @@ test("notifyNeedsAuth sends the connect link privately to the owner, in the run'
   expect(ephemeral?.body).toMatchObject({
     channel: CHANNEL,
     thread_ts: THREAD,
-    user: "U0DOMINIK",
+    user: "U0DOM",
   });
   expect(String(ephemeral?.body?.text)).toContain(
     `${PUBLIC_BASE_URL}/connect/c1?as=user`
@@ -837,7 +837,7 @@ test("notifyNeedsAuth sends the connect link privately to the owner, in the run'
 });
 
 test("notifyNeedsAuth sends one notice per run and connector", async () => {
-  insertIdentityLink("U0DOMINIK");
+  insertIdentityLink("U0DOM");
 
   await gateway.notifyNeedsAuth(await appendNeedsAuth());
   await gateway.notifyNeedsAuth(await appendNeedsAuth());
@@ -850,7 +850,7 @@ test("notifyNeedsAuth sends one notice per run and connector", async () => {
 });
 
 test("notifyNeedsAuth sends nothing when nobody can connect (connectPath is null)", async () => {
-  insertIdentityLink("U0DOMINIK");
+  insertIdentityLink("U0DOM");
 
   await gateway.notifyNeedsAuth(await appendNeedsAuth({ connectPath: null }));
 
@@ -858,7 +858,7 @@ test("notifyNeedsAuth sends nothing when nobody can connect (connectPath is null
 });
 
 test("notifyNeedsAuth sends nothing for a run whose reply is not Slack", async () => {
-  insertIdentityLink("U0DOMINIK");
+  insertIdentityLink("U0DOM");
   db.update(runRows)
     .set({ reply: JSON.stringify({ kind: "inbox", threadId: "t1" }) })
     .where(eq(runRows.id, RUN))
@@ -870,7 +870,7 @@ test("notifyNeedsAuth sends nothing for a run whose reply is not Slack", async (
 });
 
 test("notifyNeedsAuth sends an agent credential's notice to the run's user", async () => {
-  insertIdentityLink("U0DOMINIK");
+  insertIdentityLink("U0DOM");
 
   await gateway.notifyNeedsAuth(
     await appendNeedsAuth({ ownerId: "u2", ownerKind: "agent" })
@@ -878,7 +878,7 @@ test("notifyNeedsAuth sends an agent credential's notice to the run's user", asy
 
   expect(callsTo("chat.postEphemeral")).toHaveLength(1);
   expect(callsTo("chat.postEphemeral")[0]?.body).toMatchObject({
-    user: "U0DOMINIK",
+    user: "U0DOM",
   });
 });
 
@@ -889,7 +889,7 @@ test("notifyNeedsAuth sends nothing when the owner has no Slack identity link", 
 });
 
 test("notifyNeedsAuth does not throw when Slack refuses the notice", async () => {
-  insertIdentityLink("U0DOMINIK");
+  insertIdentityLink("U0DOM");
   respond = (call) =>
     call.url === `${SLACK_API}chat.postEphemeral`
       ? json({ error: "invalid_auth", ok: false })

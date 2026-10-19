@@ -159,3 +159,29 @@ test("returns a text without @ as it is", () => {
     text: "no names here",
   });
 });
+
+test("matches a full email address as one name", () => {
+  expect(
+    convertMentions("ask @dominik.fretz@portcity-ai.com now", [DOMINIK])
+  ).toEqual({
+    notes: [],
+    text: "ask <@U2> now",
+  });
+});
+
+test("keeps non-ASCII names whole in the note and matches them", () => {
+  const zoe: MentionPerson = {
+    aliases: ["Zoë"],
+    email: "zoe@example.test",
+    externalUserId: "U0ZOE",
+    slackName: "Zoë",
+  };
+  expect(convertMentions("hi @zoë", [zoe])).toEqual({
+    notes: [],
+    text: "hi <@U0ZOE>",
+  });
+  expect(convertMentions("hi @zoé", [zoe])).toEqual({
+    notes: ["@zoé matched nobody, sent as plain text"],
+    text: "hi @zoé",
+  });
+});
