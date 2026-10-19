@@ -8,10 +8,11 @@
  */
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
+import { events as eventRows } from "@repo/db/schema/events";
 import { slackEventsSeen } from "@repo/db/schema/slack";
 import { identityLinks, workspaces } from "@repo/db/schema/workspaces";
 import { INPUT_FILES_MAX } from "@repo/db/shared";
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, gte, lt } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ForbiddenError } from "./authz.ts";
 import { hashToken } from "./crypto.ts";
@@ -36,6 +37,7 @@ import { verifySlackRequest } from "./slack/signature.ts";
 import { SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 type Mention = Extract<SlackEvent, { kind: "message" }>;
+type RefusalReason = "signature" | "team";
 
 /** Clerk, as the Slack link flow needs it. Implemented in apps/web. */
 export interface SlackDirectory {
@@ -59,8 +61,13 @@ export type ReceiveResult =
 
 /** `slack_events_seen` rows older than this are trimmed. Slack retries within minutes. */
 const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
+/** One `slack.event_refused` per app and reason in this window. */
+const REFUSAL_WINDOW_MS = 10 * 60 * 1000;
 const NO_TEXT_WITH_FILES = "(see the attached files)";
-const UNLINKED_REPLY = "I don't know you yet. Ask Dom to add you.";
+const UNLINKED_REPLY =
+  "I don't know you yet. Ask a Harbourmaster admin of this workspace to invite you, using the same email address as your Slack profile.";
+const HIDDEN_EMAIL_REPLY =
+  "I can't see the email address on your Slack profile, so I can't match you to a Harbourmaster account. Ask a Harbourmaster admin of this workspace to invite you, and make your email visible to apps in your Slack profile.";
 const LINKED_REPLY =
   "I linked your Slack account to your Harbourmaster account. Please send your message again.";
 const REGEX_SPECIALS = /[.*+?^${}()|[\]\\]/g;
@@ -109,6 +116,49 @@ export const createSlackService = ({
       .where(eq(slackEventsSeen.eventHash, eventHash))
       .limit(1);
     return row !== undefined;
+  };
+
+  /**
+   * Writes `slack.event_refused` for a request a known app refused, at most one
+   * per app and reason per window. The payload is the app id and the reason
+   * only. A failure is logged and never changes the 401 answer.
+   */
+  const recordRefusal = async (app: SlackAppRow, reason: RefusalReason) => {
+    try {
+      const recent = await db
+        .select({ payload: eventRows.payload })
+        .from(eventRows)
+        .where(
+          and(
+            eq(eventRows.workspaceId, app.workspaceId),
+            eq(eventRows.type, "slack.event_refused"),
+            eq(eventRows.agentId, app.agentId),
+            gte(
+              eventRows.createdAt,
+              new Date(clock.now().getTime() - REFUSAL_WINDOW_MS).toISOString()
+            )
+          )
+        );
+      const written = recent.some((row) => {
+        const payload = JSON.parse(row.payload ?? "{}") as {
+          appId?: unknown;
+          reason?: unknown;
+        };
+        return payload.appId === app.appId && payload.reason === reason;
+      });
+      if (written) {
+        return;
+      }
+      await events.append({
+        actor: { id: "slack", kind: "system" },
+        agentId: app.agentId,
+        payload: { appId: app.appId, reason },
+        type: "slack.event_refused",
+        workspaceId: app.workspaceId,
+      });
+    } catch (error) {
+      console.error("Slack refusal not recorded", error);
+    }
   };
 
   const findLink = async (app: SlackAppRow, slackUserId: string) => {
@@ -172,7 +222,11 @@ export const createSlackService = ({
       workspace &&
       (await directory.isOrgMember(clerkUserId, workspace.clerkOrgId));
     if (!(email && clerkUserId && member)) {
-      await replyInThread(app, event, UNLINKED_REPLY);
+      await replyInThread(
+        app,
+        event,
+        email ? UNLINKED_REPLY : HIDDEN_EMAIL_REPLY
+      );
       return;
     }
     await db
@@ -415,6 +469,7 @@ export const createSlackService = ({
     const apiAppId = envelope.data.api_app_id;
     const app = apiAppId ? await findAppByApiId(db, apiAppId) : null;
     if (!app) {
+      console.warn("Slack event refused: unknown app", apiAppId);
       return { kind: "unauthorized" };
     }
     const verified = await verifySlackRequest({
@@ -424,7 +479,12 @@ export const createSlackService = ({
       signingSecret: await secrets.signingSecret(app),
       timestamp: request.timestamp,
     });
-    if (!verified || envelope.data.team_id !== app.teamId) {
+    if (!verified) {
+      await recordRefusal(app, "signature");
+      return { kind: "unauthorized" };
+    }
+    if (envelope.data.team_id !== app.teamId) {
+      await recordRefusal(app, "team");
       return { kind: "unauthorized" };
     }
     const event = parseEvent(payload);

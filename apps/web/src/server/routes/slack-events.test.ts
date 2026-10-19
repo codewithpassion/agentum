@@ -1,4 +1,4 @@
-import { beforeEach, expect, spyOn, test } from "bun:test";
+import { beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { type Atomic, sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { files as fileRows } from "@repo/db/schema/files";
@@ -43,6 +43,10 @@ const SUMMARY_NAME = "summary.txt";
 const SUMMARY_CONTENT = "Launch is on track.";
 const SUMMARY_TEXT = "Here is the summary.";
 const DM_FILE_THREAD_TS = "1789171203.000300";
+const UNLINKED_TEXT =
+  "I don't know you yet. Ask a Harbourmaster admin of this workspace to invite you, using the same email address as your Slack profile.";
+const HIDDEN_EMAIL_TEXT =
+  "I can't see the email address on your Slack profile, so I can't match you to a Harbourmaster account. Ask a Harbourmaster admin of this workspace to invite you, and make your email visible to apps in your Slack profile.";
 
 type Fixture = Record<string, unknown> & { event: Record<string, unknown> };
 
@@ -64,6 +68,7 @@ let deferred: (() => Promise<void>)[];
 let dropDeferred: boolean;
 let failAtomic: boolean;
 let slackCalls: SlackCall[];
+let slackEmail: string | null;
 let downloadStatus: number;
 let directory: {
   emailOwner: string | null;
@@ -136,7 +141,7 @@ const fakeSlack = async (
       ok: true,
       user: {
         id: "U0NEW",
-        profile: { email: "newcomer@example.com", real_name: "Newcomer" },
+        profile: { email: slackEmail, real_name: "Newcomer" },
       },
     },
   };
@@ -160,6 +165,7 @@ beforeEach(async () => {
   dropDeferred = false;
   failAtomic = false;
   slackCalls = [];
+  slackEmail = "newcomer@example.com";
   downloadStatus = OK;
   directory = { emailOwner: null, member: false };
   composed = composeWith({
@@ -299,6 +305,22 @@ const runAfterJobs = async () => {
 
 const allRuns = () => db.select().from(runRows).all();
 const allSeen = () => db.select().from(slackEventsSeen).all();
+const refusals = () =>
+  db
+    .select()
+    .from(eventRows)
+    .where(eq(eventRows.type, "slack.event_refused"))
+    .orderBy(asc(eventRows.id))
+    .all()
+    .map((row) => ({
+      agentId: row.agentId,
+      payload: JSON.parse(row.payload ?? "null") as unknown,
+      workspaceId: row.workspaceId,
+    }));
+const refusedReasons = () =>
+  refusals()
+    .map((row) => (row.payload as { reason: string }).reason)
+    .sort();
 const eventTypes = () =>
   db
     .select({ type: eventRows.type })
@@ -478,6 +500,72 @@ test("a team_id that does not match the app row is 401 even when the signature i
   expect(allRuns()).toHaveLength(0);
 });
 
+test("a bad signature from a known app writes one refusal, and a repeat in the window writes none", async () => {
+  const body = await fixture("mention");
+  const signature = `v0=${"f".repeat(64)}`;
+  const first = await send(body, { signature });
+  const second = await send(body, { signature });
+
+  expect([first.status, second.status]).toEqual([UNAUTHORIZED, UNAUTHORIZED]);
+  const written = refusals();
+  expect(written).toEqual([
+    {
+      agentId,
+      payload: { appId: "A0APP", reason: "signature" },
+      workspaceId,
+    },
+  ]);
+  const json = JSON.stringify(db.select().from(eventRows).all());
+  expect(json).not.toContain(SECRET);
+  expect(json).not.toContain(signature);
+  expect(json).not.toContain("what is the status of the launch?");
+});
+
+test("a team mismatch with a correct signature writes a team refusal, and a bad signature in the same minute still writes its own", async () => {
+  const body = await fixture("mention");
+  body.team_id = "T0OTHER";
+  await send(body);
+  await send(body);
+  expect(refusedReasons()).toEqual(["team"]);
+
+  await send(await fixture("mention"), { secret: "not-the-secret" });
+  expect(refusedReasons()).toEqual(["signature", "team"]);
+  expect(allRuns()).toHaveLength(0);
+});
+
+test("an unknown app id writes no event and logs a warning with the app id", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    const unknown = await fixture("mention");
+    unknown.api_app_id = "A0OTHER";
+    expect((await send(unknown)).status).toBe(UNAUTHORIZED);
+
+    expect(refusals()).toEqual([]);
+    expect(warn.mock.calls).toEqual([
+      ["Slack event refused: unknown app", "A0OTHER"],
+    ]);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test("a refusal is written again once the window has passed", async () => {
+  setSystemTime(new Date(nowMs));
+  try {
+    const signature = `v0=${"e".repeat(64)}`;
+    await send(await fixture("mention"), { signature });
+    expect(refusedReasons()).toEqual(["signature"]);
+
+    nowMs += 11 * MINUTE_MS;
+    setSystemTime(new Date(nowMs));
+    await send(await fixture("mention"), { signature });
+
+    expect(refusedReasons()).toEqual(["signature", "signature"]);
+  } finally {
+    setSystemTime();
+  }
+});
+
 test("a bot's own message is ignored", async () => {
   const response = await send(await fixture("bot-message"));
 
@@ -522,11 +610,34 @@ test("an unlinked sender gets no run, a slack.unlinked_sender event, and is told
   const post = slackCalls.find((call) => call.method === "chat.postMessage");
   expect(post?.body).toMatchObject({
     channel: "D0DM",
-    text: "I don't know you yet. Ask Dom to add you.",
+    text: UNLINKED_TEXT,
     thread_ts: "1789171202.000200",
   });
+  expect(String(post?.body.text)).not.toContain("Dom");
   expect(post?.auth).toBe(`Bearer ${BOT_TOKEN}`);
   expect(db.select().from(identityLinks).all()).toHaveLength(1);
+});
+
+test("an unlinked sender whose Slack email is hidden is told to make it visible, and no link is made", async () => {
+  slackEmail = null;
+  directory = { emailOwner: "user_new", member: true };
+  const body = await fixture("dm");
+  body.event.user = "U0NEW";
+  const response = await send(body);
+
+  expect(response.status).toBe(OK);
+  expect(allRuns()).toHaveLength(0);
+  expect(db.select().from(identityLinks).all()).toHaveLength(1);
+  expect(eventTypes()).toEqual(["slack.unlinked_sender"]);
+
+  await runAfterJobs();
+  const post = slackCalls.find((call) => call.method === "chat.postMessage");
+  expect(post?.body).toMatchObject({
+    channel: "D0DM",
+    text: HIDDEN_EMAIL_TEXT,
+    thread_ts: "1789171202.000200",
+  });
+  expect(String(post?.body.text)).not.toContain("Dom");
 });
 
 test("an email match for a Clerk user outside the org creates no link", async () => {
@@ -539,7 +650,7 @@ test("an email match for a Clerk user outside the org creates no link", async ()
   expect(db.select().from(identityLinks).all()).toHaveLength(1);
   expect(
     slackCalls.find((call) => call.method === "chat.postMessage")?.body.text
-  ).toBe("I don't know you yet. Ask Dom to add you.");
+  ).toBe(UNLINKED_TEXT);
 });
 
 test("an email match for an org member creates the link and asks them to send again", async () => {

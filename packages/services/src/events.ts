@@ -361,7 +361,7 @@ export const createEventsService = ({
           id: record.id,
           runId: record.runId,
           sessionId: record.sessionId,
-          summary: summarize(record.payload),
+          summary: summarize(record.type, record.payload),
           type: record.type,
         };
       }),
