@@ -15,6 +15,7 @@ import {
   CLOUD_ENVIRONMENT_KEY,
   cloudEnvironmentError,
 } from "./cloud/environment.ts";
+import { isAnthropicModel } from "./cloud/models.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { libraryPathsError } from "./library/sync-paths.ts";
@@ -55,6 +56,19 @@ const assertRuntimeConfig = (
     throw new ServiceError(
       "invalid",
       `Only a cloud agent takes an environment, not "${runtime}"`
+    );
+  }
+};
+
+/** Refuses a model for another provider on a runtime that runs Anthropic models only. */
+const assertModelForRuntime = (runtime: AgentRuntime, model: string): void => {
+  if (
+    (runtime === "managed" || runtime === "machine") &&
+    !isAnthropicModel(model)
+  ) {
+    throw new ServiceError(
+      "invalid",
+      `The "${runtime}" runtime runs Anthropic models only. Use a cloud agent for "${model.trim()}".`
     );
   }
 };
@@ -240,6 +254,7 @@ export const createAgentsService = ({
     const { workspaceId } = user;
     authorize(user, AGENT_CREATE, { kind: AGENT_KIND, workspaceId });
     assertRuntimeConfig(parsed.runtime, parsed.runtimeConfig);
+    assertModelForRuntime(parsed.runtime, parsed.model);
 
     const machineId = parsed.machineId ?? null;
     if (parsed.runtime === "machine") {
@@ -378,6 +393,9 @@ export const createAgentsService = ({
     }
     if (parsed.runtimeConfig !== undefined) {
       assertRuntimeConfig(current.runtime, parsed.runtimeConfig);
+    }
+    if (parsed.model !== undefined) {
+      assertModelForRuntime(current.runtime, parsed.model);
     }
     if (parsed.machineId !== undefined) {
       await assertMachinePatch(current.runtime, parsed.machineId, workspaceId);
