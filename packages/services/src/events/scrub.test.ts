@@ -9,6 +9,8 @@ const REPEAT_HOSTILE = 500_000;
 const REPEAT_JWT = 350_000;
 const REPEAT_SK = 350_000;
 const REPEAT_PASSWORD = 110_000;
+const REPEAT_ESCAPED = 90_000;
+const REPEAT_AUTH = 60_000;
 const REPEAT_BEARER = 150_000;
 const SENTENCE =
   "The build log shows every test passed and the deploy finished cleanly. ";
@@ -102,6 +104,26 @@ test.each([
   expect(scrubInput(input)).toBe(expected);
   expect(scrubOutput(input)).toBe(expected);
 });
+
+test.each([
+  [
+    'curl -d "{\\"password\\":\\"hunter2\\",\\"api_key\\":\\"abc123xyz\\"}" https://example.com',
+    'curl -d "{\\"password\\":\\"[redacted]\\",\\"api_key\\":\\"[redacted]\\"}" https://example.com',
+  ],
+  ["Authorization: Bot MTIzNDU2Nzg5.abc", "Authorization: Bot [redacted]"],
+  ["Authorization: ApiKey k-12345", "Authorization: ApiKey [redacted]"],
+  ["Authorization: SSWS 00abcDEF", "Authorization: SSWS [redacted]"],
+  ["Authorization: rawtokenvalue", "Authorization: [redacted]"],
+  ["AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI", "AWS_SECRET_ACCESS_KEY=[redacted]"],
+  ["secret_key: abc123", "secret_key: [redacted]"],
+  ["ASIAPACIFICREGIONSERVERS", "ASIAPACIFICREGIONSERVERS"],
+  ["AKIAIOSFODNN7EXAMPLE", "[redacted]"],
+])(
+  "redacts a shell-escaped body, any auth scheme and AWS names: %s",
+  (input, expected) => {
+    expect(redactText(input)).toBe(expected);
+  }
+);
 
 test("redacts a credential in a tool input and a tool output", () => {
   const command =
@@ -263,6 +285,8 @@ test.each([
   ["sk-", "sk-".repeat(REPEAT_SK)],
   ["password=", "password=".repeat(REPEAT_PASSWORD)],
   ["Bearer ", "Bearer ".repeat(REPEAT_BEARER)],
+  ["escaped password=", 'password=\\"'.repeat(REPEAT_ESCAPED)],
+  ["Authorization: a", "Authorization: a ".repeat(REPEAT_AUTH)],
 ])("scrubs a hostile megabyte of %s in time", (_label, hostile) => {
   const elapsed = timed(() => redactText(hostile));
   expect(elapsed).toBeLessThan(PERF_BUDGET_MS);

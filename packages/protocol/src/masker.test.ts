@@ -156,4 +156,17 @@ describe("base64 and URL-encoded forms", () => {
     const text = "nothing here: a-b c&d/e YWJj q=abc";
     expect(masker.mask(text)).toBe(text);
   });
+
+  test("masks the base64 of a value with a trailing newline", () => {
+    const masker = createMasker({ TOK: "abcdefgh" });
+    const piped = Buffer.from("abcdefgh\n").toString("base64");
+    expect(masker.mask(`auth ${piped} end`)).toBe("auth [secret:TOK] end");
+  });
+
+  test("masks the form encoding of marks encodeURIComponent keeps", () => {
+    const masker = createMasker({ TOK: "it's(a)~key!" });
+    const form = new URLSearchParams({ k: "it's(a)~key!" }).toString();
+    expect(form).toBe("k=it%27s%28a%29%7Ekey%21");
+    expect(masker.mask(form)).toBe("k=[secret:TOK]");
+  });
 });

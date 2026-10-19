@@ -5,9 +5,13 @@
 // A value is carried in several shapes. Its raw text catches plain output. Its
 // JSON-encoded text catches a value that a quote, a backslash, or a newline
 // has escaped inside a JSON document. Its standard base64 (of the UTF-8 bytes,
-// padded) catches a value a tool wrote in base64, such as an HTTP Basic
-// header. Its URL-encoded text, and the form-encoded variant that writes a
-// space as `+`, catches a value that went into a query string or a form body.
+// padded, and of the value with a trailing newline, as `echo $KEY | base64`
+// writes it) catches a value a tool wrote in base64 on its own. A value inside
+// a longer base64 string, such as `user:secret` in a Basic header, does not
+// survive as a substring and is left to the pattern scrub. Its URL-encoded
+// text, and the form-encoded variants that write a space as `+` (also with
+// `!'()~` percent-encoded, as a browser form does), catch a value that went
+// into a query string or a form body.
 // A shape is kept only when it differs from the shapes already kept for the
 // same value. All needles are sorted longest first, so a value that contains
 // another value is replaced whole, before the shorter one can cut into its
@@ -29,6 +33,8 @@ const MASKED_PREFIX = "[secret:";
 const MASKED_SUFFIX = "]";
 const PERCENT_SPACE = "%20";
 const FORM_SPACE = "+";
+const HEX_RADIX = 16;
+const FORM_UNSAFE_MARKS = /[!'()~]/g;
 
 const jsonEncode = (value: string): string =>
   JSON.stringify(value).slice(1, -1);
@@ -44,6 +50,13 @@ const base64Encode = (value: string): string => {
 const formEncode = (value: string): string =>
   encodeURIComponent(value).replaceAll(PERCENT_SPACE, FORM_SPACE);
 
+const percentByte = (char: string): string =>
+  `%${char.charCodeAt(0).toString(HEX_RADIX).toUpperCase()}`;
+
+// What `URLSearchParams` writes: also encodes the marks encodeURIComponent keeps.
+const strictFormEncode = (value: string): string =>
+  formEncode(value).replaceAll(FORM_UNSAFE_MARKS, percentByte);
+
 // Every shape of one value, raw first. The Set drops a shape that repeats an
 // earlier one, so an unchanged shape adds no needle.
 const shapesOf = (value: string): string[] => [
@@ -51,8 +64,10 @@ const shapesOf = (value: string): string[] => [
     value,
     jsonEncode(value),
     base64Encode(value),
+    base64Encode(`${value}\n`),
     encodeURIComponent(value),
     formEncode(value),
+    strictFormEncode(value),
   ]),
 ];
 

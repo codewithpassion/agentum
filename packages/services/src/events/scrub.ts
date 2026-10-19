@@ -9,7 +9,7 @@ const SK_MIN = 16;
 const GH_MIN = 30;
 const GITHUB_PAT_MIN = 20;
 const SLACK_MIN = 10;
-const AWS_BODY_MIN = 16;
+const AWS_BODY_LENGTH = 16;
 const JWT_HEADER = "eyJ";
 const JWT_SEGMENT_MIN = 8;
 const BEARER_MIN = 8;
@@ -17,11 +17,13 @@ const BEARER_MIN = 8;
 // Credential fields. Names match as the tail of a key, so no name prefix is
 // captured. The separator must follow the name directly, which keeps words
 // such as "tokens", "token count" or "password reset" out of the match.
-const SEPARATOR = String.raw`["']?[ \t]*[:=][ \t]*`;
-const SCHEME = String.raw`(?:bearer|basic|token|digest)[ \t]+`;
-const SCHEME_PREFIX = new RegExp(`^${SCHEME}`, "i");
-const SKIP_REDACTED = String.raw`(?!["']?(?:${SCHEME})?\[(?:redacted\]|secret:))`;
-const QUOTED = String.raw`"[^"\r\n]+"|'[^'\r\n]+'`;
+const SEPARATOR = String.raw`(?:\\?["'])?[ \t]*[:=][ \t]*`;
+// An auth scheme is any one word before the credential (Bearer, Basic, Bot, SSWS, ApiKey).
+const SCHEME = String.raw`[A-Za-z][\w.-]{0,31}[ \t]+`;
+const SCHEME_PREFIX = new RegExp(`^${SCHEME}`);
+const SKIP_REDACTED = String.raw`(?!(?:\\?["'])?(?:${SCHEME})?\[(?:redacted\]|secret:))`;
+// A value in quotes, or in escaped quotes as inside a JSON body in a shell string.
+const QUOTED = String.raw`\\"[^\r\n]+?\\"|"[^"\r\n]+"|'[^'\r\n]+'`;
 const UNQUOTED = String.raw`[^\s"',;&})\]]+`;
 const FIELD_VALUE = `(?:${QUOTED}|${UNQUOTED})`;
 const AUTH_VALUE = `(?:${QUOTED}|(?:${SCHEME})?${UNQUOTED})`;
@@ -36,7 +38,7 @@ const COOKIE_HEADER = new RegExp(
   "gi"
 );
 const CREDENTIAL_FIELD = new RegExp(
-  String.raw`((?<!\[)(?:token|secret|password|passwd|api[_-]?key)${SEPARATOR})${SKIP_REDACTED}(${FIELD_VALUE})`,
+  String.raw`((?<!\[)(?:token|secret(?:[_-]?access)?(?:[_-]?key)?|password|passwd|api[_-]?key)${SEPARATOR})${SKIP_REDACTED}(${FIELD_VALUE})`,
   "gi"
 );
 const BEARER_TOKEN = new RegExp(
@@ -55,7 +57,10 @@ const WELL_KNOWN_TOKENS: readonly RegExp[] = [
     "g"
   ),
   new RegExp(`(?<![A-Za-z0-9_-])xox[bpars]-[A-Za-z0-9-]{${SLACK_MIN},}`, "g"),
-  new RegExp(`(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{${AWS_BODY_MIN},}`, "g"),
+  new RegExp(
+    `(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{${AWS_BODY_LENGTH}}(?![0-9A-Z])`,
+    "g"
+  ),
   new RegExp(
     String.raw`(?<![A-Za-z0-9_-])${JWT_HEADER}[A-Za-z0-9_-]{${JWT_SEGMENT_MIN - JWT_HEADER.length},}\.[A-Za-z0-9_-]{${JWT_SEGMENT_MIN},}(?:\.[A-Za-z0-9_-]+)?`,
     "g"
@@ -64,9 +69,13 @@ const WELL_KNOWN_TOKENS: readonly RegExp[] = [
 
 // Keeps the quotes and an auth scheme word, and replaces the rest of the value.
 function maskValue(value: string, keepScheme: boolean): string {
-  const quote =
-    value.startsWith('"') || value.startsWith("'") ? value.charAt(0) : "";
-  const inner = quote ? value.slice(1, -1) : value;
+  let quote = "";
+  if (value.startsWith('\\"')) {
+    quote = '\\"';
+  } else if (value.startsWith('"') || value.startsWith("'")) {
+    quote = value.charAt(0);
+  }
+  const inner = quote ? value.slice(quote.length, -quote.length) : value;
   const scheme = keepScheme ? (inner.match(SCHEME_PREFIX)?.[0] ?? "") : "";
   return `${quote}${scheme}${REDACTED}${quote}`;
 }
