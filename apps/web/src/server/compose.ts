@@ -421,7 +421,7 @@ export const composeWith = ({
     runTokenKey: infra.runTokenKey,
     secrets,
   });
-  // Catches run and tool events, which the runs service writes through its own instance.
+  // Catches the run and tool events the runs service writes through its own events instance.
   runs.onEvent(slackStatus.onEvent);
   const managed = createManagedService({
     atomic: infra.atomic,

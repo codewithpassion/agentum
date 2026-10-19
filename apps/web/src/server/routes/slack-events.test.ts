@@ -22,7 +22,7 @@ import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { file as bunFile } from "bun";
 import { asc, eq } from "drizzle-orm";
 import { Hono } from "hono";
-import { type Composed, composeWith } from "../compose.ts";
+import { type Composed, composeWith, type Infra } from "../compose.ts";
 import type { AppEnv } from "./groups.ts";
 import { slackRoutes } from "./slack.ts";
 
@@ -66,6 +66,7 @@ interface SlackCall {
 
 let db: ReturnType<typeof migrated>;
 let composed: Composed;
+let infra: Infra;
 let app: Hono<AppEnv>;
 let nowMs: number;
 let workspaceId: string;
@@ -166,6 +167,26 @@ const atomicOrFail =
   (statements) =>
     failAtomic ? Promise.reject(new Error("d1 is down")) : inner(statements);
 
+const testInfra = (): Infra => ({
+  atomic: atomicOrFail(sqliteAtomic(db)),
+  blobs: {
+    get: () => Promise.resolve(null),
+    put: () => Promise.resolve(),
+  },
+  clock,
+  devFakeRuntime: true,
+  fetch: fakeSlack,
+  fileBlobs: memoryFileBlobs(),
+  publicBaseUrl: "https://hm.test",
+  relay: noopRelay,
+  secretsKey: SECRETS_KEY,
+  slackDirectory: clerk,
+});
+
+/** Another HTTP request: fresh services over the same database and infra, which keep no memory of the first. */
+const freshRequest = (): Composed =>
+  composeWith({ allowedOrgIds: [ORG], db, infra });
+
 beforeEach(async () => {
   db = migrated();
   nowMs = Date.parse("2026-10-16T10:00:00.000Z");
@@ -177,25 +198,8 @@ beforeEach(async () => {
   downloadStatus = OK;
   statusAnswer = { ok: true };
   directory = { emailOwner: null, member: false };
-  composed = composeWith({
-    allowedOrgIds: [ORG],
-    db,
-    infra: {
-      atomic: atomicOrFail(sqliteAtomic(db)),
-      blobs: {
-        get: () => Promise.resolve(null),
-        put: () => Promise.resolve(),
-      },
-      clock,
-      devFakeRuntime: true,
-      fetch: fakeSlack,
-      fileBlobs: memoryFileBlobs(),
-      publicBaseUrl: "https://hm.test",
-      relay: noopRelay,
-      secretsKey: SECRETS_KEY,
-      slackDirectory: clerk,
-    },
-  });
+  infra = testInfra();
+  composed = freshRequest();
   const workspace = await composed.services.workspaces.forOrg({
     clerkOrgId: ORG,
   });
@@ -1197,8 +1201,13 @@ const startDmRun = async (): Promise<string> => {
 };
 
 /** Reports one tool call of a run that the machine has claimed. */
-const reportTool = (runId: string, seq: number, name: string) =>
-  composed.services.runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+const reportTool = (
+  runId: string,
+  seq: number,
+  name: string,
+  services: Composed["services"] = composed.services
+) =>
+  services.runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
     {
       payload: { input: {}, name, toolUseId: `t${seq}` },
       seq,
@@ -1331,4 +1340,102 @@ test("a run that did not come from Slack sends no status", async () => {
   await runAfterJobs();
 
   expect(statusCalls()).toEqual([]);
+});
+
+/** The `runs` row of a run, read back as the status facts the Slack status keeps on it. */
+const runRow = (runId: string) =>
+  db.select().from(runRows).where(eq(runRows.id, runId)).all()[0];
+
+test("the 5 s limit holds across requests: a status claimed by one request limits the next", async () => {
+  const runId = await startDmRun();
+  await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  nowMs += 6 * SECOND_MS;
+  await reportTool(runId, 1, "bash");
+  expect(statusCalls().map((call) => call.body.status)).toEqual([
+    "is thinking…",
+    "is running a command…",
+  ]);
+
+  nowMs += 2 * SECOND_MS;
+  await reportTool(runId, 2, "read", freshRequest().services);
+  expect(statusCalls()).toHaveLength(2);
+
+  nowMs += 6 * SECOND_MS;
+  await reportTool(runId, 3, "read", freshRequest().services);
+  expect(statusCalls()).toHaveLength(3);
+  expect(statusCalls()[2]?.body).toMatchObject({
+    channel_id: DM_CHANNEL,
+    status: "is reading files…",
+    thread_ts: DM_TS,
+  });
+});
+
+test("a missing scope stops the status for every request, so later calls from other requests send nothing", async () => {
+  statusAnswer = { error: "missing_scope", ok: false };
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  const runId = await startDmRun();
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(String(warn.mock.calls[0]?.[0])).toContain("missing_scope");
+  expect(runRow(runId)?.slackStatusStopped).toBe(true);
+
+  await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  nowMs += 6 * SECOND_MS;
+  await reportTool(runId, 1, "bash", freshRequest().services);
+  await freshRequest().services.runs.cancelRun(domPrincipal(), runId);
+
+  expect(statusCalls()).toHaveLength(1);
+  expect(warn).toHaveBeenCalledTimes(1);
+  warn.mockRestore();
+});
+
+test("cancelling from another request clears the status once, and a second terminal event adds no call", async () => {
+  const runId = await startDmRun();
+  await freshRequest().services.runs.cancelRun(domPrincipal(), runId);
+
+  expect(statusCalls()).toHaveLength(2);
+  expect(statusCalls()[1]?.body).toMatchObject({
+    channel_id: DM_CHANNEL,
+    status: "",
+    thread_ts: DM_TS,
+  });
+  expect(runRow(runId)?.slackStatusStopped).toBe(true);
+
+  await freshRequest().services.events.append({
+    actor: { id: "system", kind: "system" },
+    payload: {},
+    runId,
+    type: "run.failed",
+    workspaceId,
+  });
+  expect(statusCalls()).toHaveLength(2);
+});
+
+test("a run that did not come from Slack keeps no status facts, whichever request handles its events", async () => {
+  const { runId } = await composed.services.runs.startRun(
+    { kind: "user", userId: "user_owner", via: "session", workspaceId },
+    { agentId, input: { text: "hi" }, session: { origin: "ui" } }
+  );
+  await freshRequest().services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await reportTool(runId, 1, "bash", freshRequest().services);
+  await freshRequest().services.runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    error: "boom",
+    status: "failed",
+  });
+  await runAfterJobs();
+
+  expect(runRow(runId)).toMatchObject({
+    slackStatusAt: null,
+    slackStatusLabel: null,
+    slackStatusStopped: false,
+  });
+  expect(statusCalls()).toEqual([]);
+});
+
+test("the Slack run row keeps the label and the clock time of the status it sent", async () => {
+  const runId = await startDmRun();
+
+  expect(runRow(runId)).toMatchObject({
+    slackStatusAt: new Date(nowMs).toISOString(),
+    slackStatusLabel: "is thinking…",
+  });
 });

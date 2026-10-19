@@ -71,6 +71,13 @@
       "when": 1792373041205,
       "tag": "0009_warm_riptide",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792380372560,
+      "tag": "0010_silky_kabuki",
+      "breakpoints": true
     }
   ]
 }

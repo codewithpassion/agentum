@@ -215,7 +215,6 @@ export const createRunsService = ({
   runTokenKey,
   secrets,
 }: RunsServiceOptions) => {
-  // Lets the composition root react to each run event after it is written, such as the Slack status. A listener runs inside the request that wrote the event, so it must be quick; one that throws is logged and does not fail the write.
   const eventsService = createEventsService({ blobs, db });
   const adapterByKind = new Map<string, RuntimeAdapter>(
     adapters.map((adapter) => [adapter.kind, adapter])
@@ -1416,6 +1415,12 @@ export const createRunsService = ({
     heartbeatRun,
     ingestRunEvents,
     offerQueuedRun,
+    /**
+     * Lets the composition root react to each run event after it is written,
+     * such as the Slack status. A listener runs inside the request that wrote
+     * the event, so it must be quick; one that throws is logged and does not
+     * fail the write.
+     */
     onEvent: eventsService.onAppend,
     reapExpiredLeases,
     releaseRun,

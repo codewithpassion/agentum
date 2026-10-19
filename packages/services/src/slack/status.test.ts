@@ -1,9 +1,19 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  type Mock,
+  spyOn,
+  test,
+} from "bun:test";
 import type { EventRecord } from "../events.ts";
 import type { Clock } from "../runs/types.ts";
 import type { SlackCallResult } from "./client.ts";
 import {
   createSlackStatus,
+  STATUS_MIN_INTERVAL_MS,
+  type StatusClaim,
   type StatusPorts,
   type StatusTarget,
   THINKING_STATUS,
@@ -11,15 +21,22 @@ import {
 } from "./status.ts";
 
 const START_MS = Date.parse("2026-10-16T10:00:00.000Z");
-const WAIT_MS = 5000;
+const RUN_ID = "run-1";
+const WORKSPACE_ID = "ws-1";
+const RETRY_AFTER_SECONDS = 3;
+const READ_LABEL = "is reading files…";
+const COMMAND_LABEL = "is running a command…";
+const GENERIC_LABEL = "is working…";
 
 const target: StatusTarget = {
   agentId: "agent-1",
   channel: "C1",
   teamId: "T1",
   threadTs: "1.1",
-  workspaceId: "ws-1",
+  workspaceId: WORKSPACE_ID,
 };
+
+const sendOk: SlackCallResult = { kind: "ok" };
 
 /** A clock that only moves when the test says so. */
 const movableClock = () => {
@@ -36,11 +53,11 @@ const movableClock = () => {
   };
 };
 
-/** An event of a run, with the fields the status reads. */
+/** A full event record. Only the fields the status reads vary by test. */
 const eventOf = (
   type: EventRecord["type"],
   payload: EventRecord["payload"] = {},
-  runId: string | null = "run-1"
+  runId: string | null = RUN_ID
 ): EventRecord => ({
   actor: { id: "agent-1", kind: "system" },
   agentId: "agent-1",
@@ -52,40 +69,61 @@ const eventOf = (
   seq: null,
   sessionId: "session-1",
   type,
-  workspaceId: "ws-1",
+  workspaceId: WORKSPACE_ID,
 });
 
 const toolCall = (name: string) => eventOf("tool.call", { name });
 
-/** Fake ports. `respond` answers each send. `targetOf` answers from `targetFor`. */
+/**
+ * Fake ports that record every call. Each answer can be changed by a test
+ * before the call it governs.
+ */
 const fakePorts = () => {
-  const sends: Array<{ status: string; target: StatusTarget }> = [];
-  const lookups: string[] = [];
-  const ports = {
-    respond: (_status: string): SlackCallResult => ({ kind: "ok" }),
-    targetFor: (_runId: string): StatusTarget | null => target,
+  const claims: StatusClaim[] = [];
+  const finishes: { runId: string; workspaceId: string }[] = [];
+  const sends: { status: string; target: StatusTarget }[] = [];
+  const answers = {
+    claim: (): Promise<StatusTarget | null> => Promise.resolve(target),
+    finish: (): Promise<StatusTarget | null> => Promise.resolve(target),
+    send: (): Promise<SlackCallResult> => Promise.resolve(sendOk),
   };
-  const statusPorts: StatusPorts = {
+  const ports: StatusPorts = {
+    claim: (claim) => {
+      claims.push(claim);
+      return answers.claim();
+    },
+    finish: (runId, workspaceId) => {
+      finishes.push({ runId, workspaceId });
+      return answers.finish();
+    },
     send: (sent, status) => {
       sends.push({ status, target: sent });
-      return Promise.resolve(ports.respond(status));
-    },
-    targetOf: (event) => {
-      lookups.push(event.runId ?? "");
-      return Promise.resolve(ports.targetFor(event.runId ?? ""));
+      return answers.send();
     },
   };
   return {
-    lookups,
+    answers,
+    claims,
+    finishes,
     ports,
     sends,
     statuses: () => sends.map((send) => send.status),
-    statusPorts,
   };
 };
 
+const setUp = (defer?: (work: Promise<void>) => void) => {
+  const time = movableClock();
+  const fake = fakePorts();
+  const status = createSlackStatus({
+    clock: time.clock,
+    defer,
+    ports: fake.ports,
+  });
+  return { fake, status, time };
+};
+
 describe("slack status", () => {
-  let warn: ReturnType<typeof spyOn<Console, "warn">>;
+  let warn: Mock<(...data: unknown[]) => void>;
 
   beforeEach(() => {
     warn = spyOn(console, "warn").mockImplementation(() => undefined);
@@ -95,272 +133,291 @@ describe("slack status", () => {
     warn.mockRestore();
   });
 
-  test("begin sends the thinking status", async () => {
-    const { clock } = movableClock();
-    const fake = fakePorts();
-    const status = createSlackStatus({ clock, ports: fake.statusPorts });
+  describe("begin", () => {
+    test("claims the thinking label and sends it to the claimed thread", async () => {
+      const { fake, status } = setUp();
 
-    await status.begin("run-1", target);
+      await status.begin(RUN_ID, WORKSPACE_ID);
 
-    expect(fake.sends).toEqual([{ status: THINKING_STATUS, target }]);
+      expect(fake.claims).toEqual([
+        {
+          cutoff: new Date(START_MS - STATUS_MIN_INTERVAL_MS).toISOString(),
+          label: THINKING_STATUS,
+          now: new Date(START_MS).toISOString(),
+          runId: RUN_ID,
+          workspaceId: WORKSPACE_ID,
+        },
+      ]);
+      expect(fake.sends).toEqual([{ status: THINKING_STATUS, target }]);
+    });
+
+    test("sends nothing when the claim is lost", async () => {
+      const { fake, status } = setUp();
+      fake.answers.claim = () => Promise.resolve(null);
+
+      await status.begin(RUN_ID, WORKSPACE_ID);
+
+      expect(fake.claims).toHaveLength(1);
+      expect(fake.sends).toEqual([]);
+    });
   });
 
-  test("a tool call after 5 s sends the tool label", async () => {
-    const time = movableClock();
-    const fake = fakePorts();
-    const status = createSlackStatus({
-      clock: time.clock,
-      ports: fake.statusPorts,
+  describe("tool.call", () => {
+    test("claims the tool label and sends it when claimed", async () => {
+      const { fake, status } = setUp();
+
+      await status.onEvent(toolCall("bash"));
+
+      expect(fake.claims).toHaveLength(1);
+      expect(fake.claims[0]).toMatchObject({
+        label: COMMAND_LABEL,
+        runId: RUN_ID,
+        workspaceId: WORKSPACE_ID,
+      });
+      expect(fake.sends).toEqual([{ status: COMMAND_LABEL, target }]);
     });
-    await status.begin("run-1", target);
 
-    time.advance(WAIT_MS);
-    await status.onEvent(toolCall("read"));
+    test("sends nothing when the claim is lost", async () => {
+      const { fake, status } = setUp();
+      fake.answers.claim = () => Promise.resolve(null);
 
-    expect(fake.statuses()).toEqual([THINKING_STATUS, "is reading files…"]);
+      await status.onEvent(toolCall("bash"));
+
+      expect(fake.sends).toEqual([]);
+    });
+
+    test.each([
+      ["no name", {}],
+      ["a non-string name", { name: 42 }],
+    ])("%s gives the generic label", async (_case, payload) => {
+      const { fake, status } = setUp();
+
+      await status.onEvent(eventOf("tool.call", payload));
+
+      expect(fake.claims[0]?.label).toBe(GENERIC_LABEL);
+      expect(fake.statuses()).toEqual([GENERIC_LABEL]);
+    });
   });
 
-  test("a second tool call under 5 s later sends nothing", async () => {
-    const time = movableClock();
-    const fake = fakePorts();
-    const status = createSlackStatus({
-      clock: time.clock,
-      ports: fake.statusPorts,
-    });
-    await status.begin("run-1", target);
-    time.advance(WAIT_MS);
-    await status.onEvent(toolCall("bash"));
+  test("run.started claims the thinking label", async () => {
+    const { fake, status } = setUp();
 
-    time.advance(WAIT_MS - 1);
-    await status.onEvent(toolCall("read"));
-
-    expect(fake.statuses()).toEqual([THINKING_STATUS, "is running a command…"]);
-  });
-
-  test("a tool call another 5 s later sends again", async () => {
-    const time = movableClock();
-    const fake = fakePorts();
-    const status = createSlackStatus({
-      clock: time.clock,
-      ports: fake.statusPorts,
-    });
-    await status.begin("run-1", target);
-    time.advance(WAIT_MS);
-    await status.onEvent(toolCall("bash"));
-    time.advance(WAIT_MS - 1);
-    await status.onEvent(toolCall("read"));
-
-    time.advance(1);
-    await status.onEvent(toolCall("read"));
-
-    expect(fake.statuses()).toEqual([
-      THINKING_STATUS,
-      "is running a command…",
-      "is reading files…",
-    ]);
-  });
-
-  test("the same label twice sends once", async () => {
-    const time = movableClock();
-    const fake = fakePorts();
-    const status = createSlackStatus({
-      clock: time.clock,
-      ports: fake.statusPorts,
-    });
-    await status.begin("run-1", target);
-    time.advance(WAIT_MS);
-    await status.onEvent(toolCall("read"));
-    time.advance(WAIT_MS);
-
-    await status.onEvent(toolCall("read"));
-
-    expect(fake.statuses()).toEqual([THINKING_STATUS, "is reading files…"]);
-  });
-
-  test.each(["run.failed", "run.cancelled", "run.interrupted"] as const)(
-    "%s clears the status",
-    async (type) => {
-      const { clock } = movableClock();
-      const fake = fakePorts();
-      const status = createSlackStatus({ clock, ports: fake.statusPorts });
-      await status.begin("run-1", target);
-
-      await status.onEvent(eventOf(type));
-
-      expect(fake.statuses()).toEqual([THINKING_STATUS, ""]);
-    }
-  );
-
-  test("a missing scope logs one warning, stops the run and does not throw", async () => {
-    const time = movableClock();
-    const fake = fakePorts();
-    fake.ports.respond = () => ({ error: "missing_scope", kind: "config" });
-    const status = createSlackStatus({
-      clock: time.clock,
-      ports: fake.statusPorts,
-    });
-
-    await status.begin("run-1", target);
-    time.advance(WAIT_MS);
-    await status.onEvent(toolCall("read"));
-    await status.onEvent(eventOf("run.failed"));
-
-    expect(fake.sends).toHaveLength(1);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain("missing_scope");
-  });
-
-  test("method_not_supported_for_channel_type stops the run without a warning", async () => {
-    const time = movableClock();
-    const fake = fakePorts();
-    fake.ports.respond = () => ({
-      error: "method_not_supported_for_channel_type",
-      kind: "rejected",
-    });
-    const status = createSlackStatus({
-      clock: time.clock,
-      ports: fake.statusPorts,
-    });
-
-    await status.begin("run-1", target);
-    time.advance(WAIT_MS);
-    await status.onEvent(toolCall("read"));
-
-    expect(fake.sends).toHaveLength(1);
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  test("a thrown send logs one warning and stops the run", async () => {
-    const time = movableClock();
-    const fake = fakePorts();
-    fake.ports.respond = () => {
-      throw new Error("The agent has no installed Slack app for this team");
-    };
-    const status = createSlackStatus({
-      clock: time.clock,
-      ports: fake.statusPorts,
-    });
-
-    await status.begin("run-1", target);
-    time.advance(WAIT_MS);
-    await status.onEvent(toolCall("read"));
-
-    expect(fake.sends).toHaveLength(1);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain(
-      "The agent has no installed Slack app for this team"
-    );
-  });
-
-  test("a run that does not reply in Slack makes no send and is looked up once", async () => {
-    const time = movableClock();
-    const fake = fakePorts();
-    fake.ports.targetFor = () => null;
-    const status = createSlackStatus({
-      clock: time.clock,
-      ports: fake.statusPorts,
-    });
-
-    await status.onEvent(toolCall("read"));
     await status.onEvent(eventOf("run.started"));
-    await status.onEvent(eventOf("run.failed"));
 
-    expect(fake.sends).toHaveLength(0);
-    expect(fake.lookups).toEqual(["run-1"]);
-  });
-
-  test("slack.delivered with delivered false clears the status", async () => {
-    const { clock } = movableClock();
-    const fake = fakePorts();
-    const status = createSlackStatus({ clock, ports: fake.statusPorts });
-    await status.begin("run-1", target);
-
-    await status.onEvent(eventOf("slack.delivered", { delivered: false }));
-
-    expect(fake.statuses()).toEqual([THINKING_STATUS, ""]);
-  });
-
-  test("slack.delivered with delivered true sends nothing", async () => {
-    const { clock } = movableClock();
-    const fake = fakePorts();
-    const status = createSlackStatus({ clock, ports: fake.statusPorts });
-    await status.begin("run-1", target);
-
-    await status.onEvent(eventOf("slack.delivered", { delivered: true }));
-
+    expect(fake.claims[0]?.label).toBe(THINKING_STATUS);
     expect(fake.statuses()).toEqual([THINKING_STATUS]);
   });
 
-  test("no send after the run finished", async () => {
-    const time = movableClock();
-    const fake = fakePorts();
-    const status = createSlackStatus({
-      clock: time.clock,
-      ports: fake.statusPorts,
-    });
-    await status.begin("run-1", target);
+  describe("ending a run", () => {
+    test.each(["run.failed", "run.cancelled", "run.interrupted"] as const)(
+      "%s finishes the run and clears the status",
+      async (type) => {
+        const { fake, status } = setUp();
 
-    await status.onEvent(eventOf("run.finished"));
-    time.advance(WAIT_MS);
-    await status.onEvent(toolCall("read"));
+        await status.onEvent(eventOf(type));
 
-    expect(fake.statuses()).toEqual([THINKING_STATUS]);
-  });
-
-  test("the 501st run evicts the first", async () => {
-    const time = movableClock();
-    const fake = fakePorts();
-    const status = createSlackStatus({
-      clock: time.clock,
-      ports: fake.statusPorts,
-    });
-    // Each begin stores its state before it awaits the send, so all 501 are stored.
-    await Promise.all(
-      Array.from({ length: 501 }, (_, i) => status.begin(`run-${i}`, target))
+        expect(fake.finishes).toEqual([
+          { runId: RUN_ID, workspaceId: WORKSPACE_ID },
+        ]);
+        expect(fake.sends).toEqual([{ status: "", target }]);
+      }
     );
-    time.advance(WAIT_MS);
 
-    await status.onEvent(eventOf("tool.call", { name: "read" }, "run-500"));
-    await status.onEvent(eventOf("tool.call", { name: "read" }, "run-0"));
+    test.each(["run.failed", "run.cancelled", "run.interrupted"] as const)(
+      "%s sends nothing when finish returns null",
+      async (type) => {
+        const { fake, status } = setUp();
+        fake.answers.finish = () => Promise.resolve(null);
 
-    expect(fake.lookups).toEqual(["run-0"]);
+        await status.onEvent(eventOf(type));
+
+        expect(fake.finishes).toHaveLength(1);
+        expect(fake.sends).toEqual([]);
+      }
+    );
+
+    test("slack.delivered with delivered false finishes the run and clears the status", async () => {
+      const { fake, status } = setUp();
+
+      await status.onEvent(eventOf("slack.delivered", { delivered: false }));
+
+      expect(fake.finishes).toHaveLength(1);
+      expect(fake.sends).toEqual([{ status: "", target }]);
+    });
+
+    test("slack.delivered with delivered true makes no port call", async () => {
+      const { fake, status } = setUp();
+
+      await status.onEvent(eventOf("slack.delivered", { delivered: true }));
+
+      expect(fake.claims).toEqual([]);
+      expect(fake.finishes).toEqual([]);
+      expect(fake.sends).toEqual([]);
+    });
   });
 
-  test("defer receives the work, and the send happens when it is awaited", async () => {
-    const time = movableClock();
-    const fake = fakePorts();
-    const deferred: Promise<void>[] = [];
-    const status = createSlackStatus({
-      clock: time.clock,
-      defer: (work) => {
+  describe("events that make no port call", () => {
+    const silent: [string, EventRecord][] = [
+      ["run.finished", eventOf("run.finished")],
+      ["message.assistant", eventOf("message.assistant")],
+      ["a tool call with no run", eventOf("tool.call", { name: "bash" }, null)],
+      ["a failed run with no run", eventOf("run.failed", {}, null)],
+    ];
+
+    for (const [name, event] of silent) {
+      test(`${name} makes no port call`, async () => {
+        const { fake, status } = setUp();
+
+        await status.onEvent(event);
+
+        expect(fake.claims).toEqual([]);
+        expect(fake.finishes).toEqual([]);
+        expect(fake.sends).toEqual([]);
+      });
+    }
+  });
+
+  describe("send failures", () => {
+    test("a missing scope after a claim finishes the run and logs once", async () => {
+      const { fake, status } = setUp();
+      fake.answers.send = () =>
+        Promise.resolve({ error: "missing_scope", kind: "config" });
+
+      await status.onEvent(toolCall("read"));
+
+      expect(fake.finishes).toHaveLength(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain("missing_scope");
+    });
+
+    test("a missing scope logs nothing when another request already stopped the run", async () => {
+      const { fake, status } = setUp();
+      fake.answers.send = () =>
+        Promise.resolve({ error: "missing_scope", kind: "config" });
+      fake.answers.finish = () => Promise.resolve(null);
+
+      await status.onEvent(toolCall("read"));
+
+      expect(fake.finishes).toHaveLength(1);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    test("a channel type the status does not support finishes the run without a warning", async () => {
+      const { fake, status } = setUp();
+      fake.answers.send = () =>
+        Promise.resolve({
+          error: "method_not_supported_for_channel_type",
+          kind: "rejected",
+        });
+
+      await status.onEvent(toolCall("read"));
+
+      expect(fake.finishes).toHaveLength(1);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    test("a rate limit finishes the run and logs ratelimited once", async () => {
+      const { fake, status } = setUp();
+      fake.answers.send = () =>
+        Promise.resolve({
+          kind: "rate_limited",
+          retryAfterSeconds: RETRY_AFTER_SECONDS,
+        });
+
+      await status.onEvent(toolCall("read"));
+
+      expect(fake.finishes).toHaveLength(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain("ratelimited");
+    });
+
+    test("a thrown send finishes the run and logs its message once", async () => {
+      const { fake, status } = setUp();
+      fake.answers.send = () =>
+        Promise.reject(
+          new Error("The agent has no installed Slack app for this team")
+        );
+
+      await status.onEvent(toolCall("read"));
+
+      expect(fake.finishes).toHaveLength(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain(
+        "The agent has no installed Slack app for this team"
+      );
+    });
+
+    test("a failed clear logs once and does not finish the run again", async () => {
+      const { fake, status } = setUp();
+      fake.answers.send = () =>
+        Promise.resolve({ error: "missing_scope", kind: "config" });
+
+      await status.onEvent(eventOf("run.failed"));
+
+      expect(fake.finishes).toHaveLength(1);
+      expect(fake.statuses()).toEqual([""]);
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    test("a rejected claim logs once, resolves and sends nothing", async () => {
+      const { fake, status } = setUp();
+      fake.answers.claim = () =>
+        Promise.reject(new Error("database is locked"));
+
+      await expect(status.onEvent(toolCall("read"))).resolves.toBeUndefined();
+
+      expect(fake.sends).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain("database is locked");
+    });
+  });
+
+  describe("defer", () => {
+    test("begin does not use defer", async () => {
+      const deferred: Promise<void>[] = [];
+      const { fake, status } = setUp((work) => {
         deferred.push(work);
-      },
-      ports: fake.statusPorts,
+      });
+
+      await status.begin(RUN_ID, WORKSPACE_ID);
+
+      expect(deferred).toEqual([]);
+      expect(fake.statuses()).toEqual([THINKING_STATUS]);
     });
-    await status.begin("run-1", target);
-    time.advance(WAIT_MS);
 
-    await status.onEvent(toolCall("read"));
+    test("onEvent hands defer the work, which completes the send", async () => {
+      const deferred: Promise<void>[] = [];
+      const { fake, status, time } = setUp((work) => {
+        deferred.push(work);
+      });
+      await status.begin(RUN_ID, WORKSPACE_ID);
+      time.advance(STATUS_MIN_INTERVAL_MS);
 
-    expect(deferred).toHaveLength(1);
-    expect(fake.statuses()).toEqual([THINKING_STATUS, "is reading files…"]);
-    await deferred[0];
-    expect(fake.statuses()).toEqual([THINKING_STATUS, "is reading files…"]);
-  });
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = () => resolve();
+      });
+      fake.answers.send = async () => {
+        await gate;
+        return sendOk;
+      };
 
-  test("a tool call without a name shows the generic label", async () => {
-    const time = movableClock();
-    const fake = fakePorts();
-    const status = createSlackStatus({
-      clock: time.clock,
-      ports: fake.statusPorts,
+      // onEvent returns while Slack has not answered yet.
+      await status.onEvent(toolCall("read"));
+
+      expect(deferred).toHaveLength(1);
+      let workDone = false;
+      const settled = Promise.resolve(deferred[0]).then(() => {
+        workDone = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(workDone).toBe(false);
+
+      release();
+      await settled;
+      expect(workDone).toBe(true);
+      expect(fake.statuses()).toEqual([THINKING_STATUS, READ_LABEL]);
     });
-    await status.begin("run-1", target);
-    time.advance(WAIT_MS);
-
-    await status.onEvent(eventOf("tool.call", {}));
-
-    expect(fake.statuses()).toEqual([THINKING_STATUS, "is working…"]);
   });
 });
 
@@ -390,11 +447,11 @@ describe("toolStatus", () => {
     expect(toolStatus("mcp__harbourmaster__slack_search")).toBe(
       "is searching Slack…"
     );
-    expect(toolStatus("mcp__server__Bash")).toBe("is running a command…");
+    expect(toolStatus("mcp__server__Bash")).toBe(COMMAND_LABEL);
   });
 
   test("an unknown or empty name gives the generic label", () => {
-    expect(toolStatus("frobnicate")).toBe("is working…");
-    expect(toolStatus("")).toBe("is working…");
+    expect(toolStatus("frobnicate")).toBe(GENERIC_LABEL);
+    expect(toolStatus("")).toBe(GENERIC_LABEL);
   });
 });

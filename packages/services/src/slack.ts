@@ -521,17 +521,12 @@ export const createSlackService = ({
     // Offering the run and fetching its files come after the answer. If the
     // job is lost, the minute tick does the same for a run nobody offered.
     const afterAnswer = async () => {
-      try {
-        await status.begin(started.runId, {
-          agentId: app.agentId,
-          channel: event.channelId,
-          teamId: app.teamId,
-          threadTs,
-          workspaceId: app.workspaceId,
+      // The status call runs beside the offer, so a slow Slack never delays the run.
+      const statusShown = status
+        .begin(started.runId, app.workspaceId)
+        .catch((error: unknown) => {
+          console.error("Slack status failed", error);
         });
-      } catch (error) {
-        console.error("Slack status failed", error);
-      }
       try {
         await (pendingFiles.length > 0
           ? runs.fetchPendingFiles(SYSTEM_PRINCIPAL, started.runId)
@@ -544,6 +539,7 @@ export const createSlackService = ({
       } catch (error) {
         console.error("Slack session naming failed", error);
       }
+      await statusShown;
     };
     return { after: afterAnswer, kind: "accepted", runId: started.runId };
   };

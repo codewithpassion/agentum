@@ -1,11 +1,14 @@
 /**
  * The Slack thread status while a run works: "is thinking…", then the label
- * of the tool it runs. `createSlackStatus` decides when Slack gets a call, and
- * `createDbStatusPorts` finds the thread and the bot token for each call.
+ * of the tool it runs. `createSlackStatus` turns run events into status calls,
+ * and `createDbStatusPorts` keeps the facts it needs on the `runs` row: when a
+ * status was last claimed, which label, and whether the run's status has
+ * stopped. The facts live in the database, not in memory, because every
+ * request builds its own services and a run's events arrive in many requests.
  */
 import type { Database } from "@repo/db";
 import { runs } from "@repo/db/schema/runs";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { EventRecord } from "../events.ts";
 import { type Clock, replyTargetSchema } from "../runs/types.ts";
 import { createSecretReader, findInstalledApp } from "./apps.ts";
@@ -23,14 +26,11 @@ export const STATUS_MIN_INTERVAL_MS = 5000;
 const CLEAR_STATUS = "";
 /** Slack refuses the status in some kinds of conversation. Those runs skip it quietly. */
 const CHANNEL_NOT_SUPPORTED = "method_not_supported_for_channel_type";
-const MAX_TRACKED_RUNS = 500;
 const DEFAULT_TOOL_STATUS = "is working…";
 /** An MCP tool name is `mcp__<server>__<tool>`. Only the tool part matters here. */
 const TOOL_NAME_SEPARATOR = "__";
 const SLACK_TOOL_PREFIX = "slack";
 const SLACK_TOOL_STATUS = "is searching Slack…";
-/** No update was sent yet, so the first one is never held back. */
-const NEVER_SENT = Number.NEGATIVE_INFINITY;
 
 const TOOL_GROUPS: ReadonlyArray<readonly [readonly string[], string]> = [
   [["read", "glob", "grep", "ls", "find"], "is reading files…"],
@@ -51,17 +51,6 @@ const TOOL_LABELS: ReadonlyMap<string, string> = new Map(
   )
 );
 
-/** The event types that change the status. Any other type is ignored. */
-const TRACKED_TYPES: ReadonlySet<string> = new Set([
-  "tool.call",
-  "run.started",
-  "run.failed",
-  "run.cancelled",
-  "run.interrupted",
-  "run.finished",
-  "slack.delivered",
-]);
-
 /** The Slack thread a run replies in, plus what is needed to find the bot token. */
 export interface StatusTarget {
   agentId: string;
@@ -71,19 +60,32 @@ export interface StatusTarget {
   workspaceId: string;
 }
 
-export interface StatusPorts {
-  /** Calls assistant.threads.setStatus with the agent's bot token. May throw (no token). */
-  send: (target: StatusTarget, status: string) => Promise<SlackCallResult>;
-  /** The Slack thread the run of this event replies in, or null when the run does not reply in Slack. */
-  targetOf: (event: EventRecord) => Promise<StatusTarget | null>;
+/** What `claim` asks for: the right to show `label` on a run now. */
+export interface StatusClaim {
+  /** A status claimed at or before this ISO time may be replaced. */
+  cutoff: string;
+  label: string;
+  /** The ISO time to record as the claim time. */
+  now: string;
+  runId: string;
+  workspaceId: string;
 }
 
-interface RunState {
-  ended: boolean;
-  label: string;
-  lastAt: number;
-  stopped: boolean;
-  target: StatusTarget | null;
+export interface StatusPorts {
+  /**
+   * Takes the right to show `label` on a run, in one conditional write so it
+   * holds across requests. Gives the Slack thread when this call won: the run
+   * replies in Slack, its status has not stopped, the last claim is older than
+   * `cutoff` and shows another label. Gives null in every other case.
+   */
+  claim: (claim: StatusClaim) => Promise<StatusTarget | null>;
+  /**
+   * Stops all later status for a run. Gives the Slack thread when this call
+   * stopped it, null when the run does not reply in Slack or already stopped.
+   */
+  finish: (runId: string, workspaceId: string) => Promise<StatusTarget | null>;
+  /** Calls assistant.threads.setStatus with the agent's bot token. May throw (no token). */
+  send: (target: StatusTarget, status: string) => Promise<SlackCallResult>;
 }
 
 const messageOf = (error: unknown): string =>
@@ -101,6 +103,9 @@ export const toolStatus = (toolName: string): string => {
   return TOOL_LABELS.get(name) ?? DEFAULT_TOOL_STATUS;
 };
 
+/** The Slack call that follows a won claim, not started until it is called. */
+type Job = () => Promise<void>;
+
 export const createSlackStatus = ({
   clock,
   defer,
@@ -110,37 +115,45 @@ export const createSlackStatus = ({
   defer?: (work: Promise<void>) => void;
   ports: StatusPorts;
 }) => {
-  const states = new Map<string, RunState>();
-
-  const remember = (runId: string, state: RunState): void => {
-    if (!states.has(runId) && states.size >= MAX_TRACKED_RUNS) {
-      const [oldest] = states.keys();
-      if (oldest !== undefined) {
-        states.delete(oldest);
-      }
+  /** Sends one status. Gives the failure code, or null when Slack took it. */
+  const trySend = async (
+    target: StatusTarget,
+    status: string
+  ): Promise<string | null> => {
+    try {
+      const result = await ports.send(target, status);
+      return result.kind === "ok" ? null : describeFailure(result);
+    } catch (error) {
+      return messageOf(error);
     }
-    states.set(runId, state);
   };
 
-  /** Sends one status. A failure stops the run's later sends and logs once. */
-  const deliver = async (
-    state: RunState,
+  const warn = (code: string): void => {
+    if (code !== CHANNEL_NOT_SUPPORTED) {
+      console.warn(`Slack status not set: ${code}`);
+    }
+  };
+
+  /**
+   * Sends a claimed status. A failure stops the run's status for good, in the
+   * database, and only the call that stopped it logs, so a run warns once even
+   * when many requests fail on the same missing scope.
+   */
+  const show = async (
+    runId: string,
     target: StatusTarget,
     status: string
   ): Promise<void> => {
+    const failure = await trySend(target, status);
+    if (failure === null) {
+      return;
+    }
     try {
-      const result = await ports.send(target, status);
-      if (result.kind === "ok") {
-        return;
-      }
-      state.stopped = true;
-      const code = describeFailure(result);
-      if (code !== CHANNEL_NOT_SUPPORTED) {
-        console.warn(`Slack status not set: ${code}`);
+      if (await ports.finish(runId, target.workspaceId)) {
+        warn(failure);
       }
     } catch (error) {
-      state.stopped = true;
-      console.warn(`Slack status not set: ${messageOf(error)}`);
+      console.warn(`Slack status not stopped: ${messageOf(error)}`);
     }
   };
 
@@ -153,119 +166,89 @@ export const createSlackStatus = ({
     return work;
   };
 
-  /** The work for a label change, or null when the rate limit or the state says no. */
-  const update = (state: RunState, label: string): Promise<void> | null => {
-    const { target } = state;
-    if (!target || state.stopped || state.ended || label === state.label) {
-      return null;
-    }
-    const now = clock.now().getTime();
-    if (now - state.lastAt < STATUS_MIN_INTERVAL_MS) {
-      return null;
-    }
-    state.lastAt = now;
-    state.label = label;
-    return deliver(state, target, label);
+  /** Claims `label` and, when this call won the claim, returns the job that shows it. */
+  const update = async (
+    runId: string,
+    workspaceId: string,
+    label: string
+  ): Promise<Job | null> => {
+    const now = clock.now();
+    const target = await ports.claim({
+      cutoff: new Date(now.getTime() - STATUS_MIN_INTERVAL_MS).toISOString(),
+      label,
+      now: now.toISOString(),
+      runId,
+      workspaceId,
+    });
+    return target ? () => show(runId, target, label) : null;
   };
 
-  /** Ends the run. A clear sends an empty status when the run has a target that still works. */
-  const finish = (
+  /** Stops the run's status and clears what is shown. Does nothing when it already stopped. */
+  const end = async (
     runId: string,
-    state: RunState,
-    clear: boolean
-  ): Promise<void> | null => {
-    state.ended = true;
-    states.delete(runId);
-    if (!(clear && state.target) || state.stopped) {
+    workspaceId: string
+  ): Promise<Job | null> => {
+    const target = await ports.finish(runId, workspaceId);
+    if (!target) {
       return null;
     }
-    return deliver(state, state.target, CLEAR_STATUS);
+    return async () => {
+      const failure = await trySend(target, CLEAR_STATUS);
+      if (failure !== null) {
+        warn(failure);
+      }
+    };
   };
 
   const react = (
     runId: string,
-    state: RunState,
     event: EventRecord
-  ): Promise<void> | null => {
+  ): Promise<Job | null> | null => {
+    const { workspaceId } = event;
     switch (event.type) {
       case "tool.call": {
         const name =
           typeof event.payload.name === "string" ? event.payload.name : "";
-        return update(state, toolStatus(name));
+        return update(runId, workspaceId, toolStatus(name));
       }
       case "run.started":
-        return update(state, THINKING_STATUS);
+        return update(runId, workspaceId, THINKING_STATUS);
       case "run.failed":
       case "run.cancelled":
       case "run.interrupted":
-        return finish(runId, state, true);
+        return end(runId, workspaceId);
       case "slack.delivered":
-        return finish(runId, state, event.payload.delivered === false);
-      case "run.finished":
-        // The reply post clears the status, so the state stays until slack.delivered.
-        state.ended = true;
-        if (!state.target) {
-          states.delete(runId);
-        }
-        return null;
+        // A posted reply clears the status by itself. Only a failed post leaves it up.
+        return event.payload.delivered === false
+          ? end(runId, workspaceId)
+          : null;
       default:
         return null;
     }
   };
 
-  /** The state of a run. On first sight it asks `targetOf` once and keeps the answer, a null target too. */
-  const stateFor = async (
-    runId: string,
-    event: EventRecord
-  ): Promise<RunState> => {
-    const known = states.get(runId);
-    if (known) {
-      return known;
-    }
-    let target: StatusTarget | null = null;
+  /** Shows "is thinking…" when a run starts from Slack. Awaits the one send. */
+  const begin = async (runId: string, workspaceId: string): Promise<void> => {
     try {
-      target = await ports.targetOf(event);
+      await (await update(runId, workspaceId, THINKING_STATUS))?.();
     } catch (error) {
       console.warn(`Slack status not set: ${messageOf(error)}`);
     }
-    // A concurrent event for the same run may have stored its state meanwhile.
-    const raced = states.get(runId);
-    if (raced) {
-      return raced;
-    }
-    const state: RunState = {
-      ended: false,
-      label: "",
-      lastAt: NEVER_SENT,
-      stopped: false,
-      target,
-    };
-    remember(runId, state);
-    return state;
   };
 
-  /** Shows "is thinking…" when a run begins. Awaits the one send. */
-  const begin = async (runId: string, target: StatusTarget): Promise<void> => {
-    const state: RunState = {
-      ended: false,
-      label: THINKING_STATUS,
-      lastAt: clock.now().getTime(),
-      stopped: false,
-      target,
-    };
-    remember(runId, state);
-    await deliver(state, target, THINKING_STATUS);
-  };
-
+  /** Never throws: a status problem must not fail the write that triggered it. */
   const onEvent = async (event: EventRecord): Promise<void> => {
     const { runId } = event;
-    if (runId === null || !TRACKED_TYPES.has(event.type)) {
+    if (runId === null) {
       return;
     }
-    const state = await stateFor(runId, event);
-    const work = react(runId, state, event);
-    if (work) {
-      await dispatch(work);
+    try {
+      const job = await react(runId, event);
+      if (job) {
+        await dispatch(job());
+      }
+    } catch (error) {
+      console.warn(`Slack status not set: ${messageOf(error)}`);
     }
   };
 
@@ -274,7 +257,31 @@ export const createSlackStatus = ({
 
 export type SlackStatus = ReturnType<typeof createSlackStatus>;
 
-/** The status ports for the app: the thread from the `runs` row, the token from the installed app. */
+/** The thread of a run row that replies in Slack, or null for any other reply. */
+const targetOf = (
+  row: { agentId: string; reply: string | null },
+  workspaceId: string
+): StatusTarget | null => {
+  if (row.reply === null) {
+    return null;
+  }
+  const reply = replyTargetSchema.safeParse(JSON.parse(row.reply));
+  if (!reply.success || reply.data.kind !== "slack") {
+    return null;
+  }
+  return {
+    agentId: row.agentId,
+    channel: reply.data.channel,
+    teamId: reply.data.teamId,
+    threadTs: reply.data.threadTs,
+    workspaceId,
+  };
+};
+
+/** True for a run whose answer goes to a Slack thread. */
+const repliesInSlack = sql`json_extract(${runs.reply}, '$.kind') = 'slack'`;
+
+/** The status ports for the app: the facts on the `runs` row, the token from the installed app. */
 export const createDbStatusPorts = ({
   db,
   fetch,
@@ -286,6 +293,44 @@ export const createDbStatusPorts = ({
 }): StatusPorts => {
   const secrets = createSecretReader(secretsKey);
   return {
+    claim: async (claim) => {
+      const [row] = await db
+        .update(runs)
+        .set({ slackStatusAt: claim.now, slackStatusLabel: claim.label })
+        .where(
+          and(
+            eq(runs.id, claim.runId),
+            eq(runs.workspaceId, claim.workspaceId),
+            eq(runs.slackStatusStopped, false),
+            repliesInSlack,
+            or(
+              isNull(runs.slackStatusAt),
+              lte(runs.slackStatusAt, claim.cutoff)
+            ),
+            or(
+              isNull(runs.slackStatusLabel),
+              ne(runs.slackStatusLabel, claim.label)
+            )
+          )
+        )
+        .returning({ agentId: runs.agentId, reply: runs.reply });
+      return row ? targetOf(row, claim.workspaceId) : null;
+    },
+    finish: async (runId, workspaceId) => {
+      const [row] = await db
+        .update(runs)
+        .set({ slackStatusStopped: true })
+        .where(
+          and(
+            eq(runs.id, runId),
+            eq(runs.workspaceId, workspaceId),
+            eq(runs.slackStatusStopped, false),
+            repliesInSlack
+          )
+        )
+        .returning({ agentId: runs.agentId, reply: runs.reply });
+      return row ? targetOf(row, workspaceId) : null;
+    },
     send: async (target, status) => {
       const app = await findInstalledApp(db, {
         agentId: target.agentId,
@@ -301,32 +346,6 @@ export const createDbStatusPorts = ({
         status,
         threadTs: target.threadTs,
       });
-    },
-    targetOf: async (event) => {
-      if (event.runId === null) {
-        return null;
-      }
-      const [run] = await db
-        .select({ agentId: runs.agentId, reply: runs.reply })
-        .from(runs)
-        .where(
-          and(eq(runs.id, event.runId), eq(runs.workspaceId, event.workspaceId))
-        )
-        .limit(1);
-      if (!run || run.reply === null) {
-        return null;
-      }
-      const reply = replyTargetSchema.safeParse(JSON.parse(run.reply));
-      if (!reply.success || reply.data.kind !== "slack") {
-        return null;
-      }
-      return {
-        agentId: run.agentId,
-        channel: reply.data.channel,
-        teamId: reply.data.teamId,
-        threadTs: reply.data.threadTs,
-        workspaceId: event.workspaceId,
-      };
     },
   };
 };
