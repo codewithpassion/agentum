@@ -1,10 +1,18 @@
+import type { ModelProvider } from "@repo/db/shared";
 import {
   CLOUD_DEFAULT_ENVIRONMENT,
   CLOUD_ENVIRONMENTS,
   type CloudEnvironment,
   isCloudEnvironment,
 } from "@repo/services/cloud/environment";
-import { CLOUD_MODELS, findCloudModel } from "@repo/services/cloud/models";
+import {
+  CLOUD_MODELS,
+  CLOUD_PROVIDER_LABELS,
+  type CloudModel,
+  type CloudProvider,
+  cloudModelValue,
+  findCloudModel,
+} from "@repo/services/cloud/models";
 import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, type FormEvent, useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
@@ -15,7 +23,11 @@ import {
   FieldLabel,
 } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
-import { NativeSelect } from "#/components/ui/native-select";
+import {
+  NativeSelect,
+  NativeSelectOptGroup,
+  NativeSelectOption,
+} from "#/components/ui/native-select";
 import { Textarea } from "#/components/ui/textarea";
 import type { MachineRecord } from "#/integrations/trpc/types";
 
@@ -42,6 +54,7 @@ interface AgentFormProps {
   lockRuntime?: boolean;
   machines: MachineRecord[];
   onSubmit: (values: AgentFormValues) => Promise<void>;
+  providerKeys: Record<ModelProvider, boolean>;
   submitLabel: string;
 }
 
@@ -52,11 +65,87 @@ function toRuntime(value: string): AgentFormValues["runtime"] {
   return "machine";
 }
 
+interface ProviderGroup {
+  models: CloudModel[];
+  provider: CloudProvider;
+}
+
+function groupByProvider(models: readonly CloudModel[]): ProviderGroup[] {
+  const groups: ProviderGroup[] = [];
+  for (const model of models) {
+    const group = groups.find((entry) => entry.provider === model.provider);
+    if (group) {
+      group.models.push(model);
+    } else {
+      groups.push({ models: [model], provider: model.provider });
+    }
+  }
+  return groups;
+}
+
+const CLOUD_PROVIDER_GROUPS = groupByProvider(CLOUD_MODELS);
+
+function isMissingKey(
+  provider: CloudProvider,
+  providerKeys: Record<ModelProvider, boolean>
+): boolean {
+  return provider !== "anthropic" && providerKeys[provider] !== true;
+}
+
+function groupLabel(
+  provider: CloudProvider,
+  providerKeys: Record<ModelProvider, boolean>
+): string {
+  const label = CLOUD_PROVIDER_LABELS[provider];
+  return isMissingKey(provider, providerKeys) ? `${label} (no API key)` : label;
+}
+
+function CloudModelGroup({
+  group,
+  providerKeys,
+}: {
+  group: ProviderGroup;
+  providerKeys: Record<ModelProvider, boolean>;
+}) {
+  return (
+    <NativeSelectOptGroup label={groupLabel(group.provider, providerKeys)}>
+      {group.models.map((entry) => (
+        <NativeSelectOption
+          key={cloudModelValue(entry)}
+          value={cloudModelValue(entry)}
+        >
+          {entry.label}
+        </NativeSelectOption>
+      ))}
+    </NativeSelectOptGroup>
+  );
+}
+
+function CloudModelNote({
+  entry,
+  providerKeys,
+}: {
+  entry: CloudModel;
+  providerKeys: Record<ModelProvider, boolean>;
+}) {
+  const missingKey = isMissingKey(entry.provider, providerKeys);
+  const label = CLOUD_PROVIDER_LABELS[entry.provider];
+  return (
+    <FieldDescription>
+      {entry.description}
+      {missingKey
+        ? ` This workspace has no ${label} API key. Add one in Settings, Model providers.`
+        : null}
+    </FieldDescription>
+  );
+}
+
 export function AgentForm({
   initial = defaultValues,
   lockRuntime = false,
   machines,
   onSubmit,
+  providerKeys,
   submitLabel,
 }: AgentFormProps) {
   const [values, setValues] = useState<AgentFormValues>(initial);
@@ -110,7 +199,8 @@ export function AgentForm({
   );
 
   const selectable = machines.filter((machine) => machine.status !== "revoked");
-  const cloudAlias = findCloudModel(values.model)?.alias ?? "";
+  const found = findCloudModel(values.model);
+  const cloudValue = found ? cloudModelValue(found) : "";
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -157,13 +247,15 @@ export function AgentForm({
               id="agent-model"
               onChange={handleCloudModel}
               required
-              value={cloudAlias}
+              value={cloudValue}
             >
-              {cloudAlias === "" && <option value="">Choose a model</option>}
-              {CLOUD_MODELS.map((entry) => (
-                <option key={entry.alias} value={entry.alias}>
-                  {entry.label}
-                </option>
+              {cloudValue === "" && <option value="">Choose a model</option>}
+              {CLOUD_PROVIDER_GROUPS.map((group) => (
+                <CloudModelGroup
+                  group={group}
+                  key={group.provider}
+                  providerKeys={providerKeys}
+                />
               ))}
             </NativeSelect>
           ) : (
@@ -172,6 +264,9 @@ export function AgentForm({
               onChange={handleModel}
               value={values.model}
             />
+          )}
+          {values.runtime === "cloud" && found !== undefined && (
+            <CloudModelNote entry={found} providerKeys={providerKeys} />
           )}
           {values.runtime === "managed" && (
             <FieldDescription>Use opus, sonnet or haiku.</FieldDescription>
