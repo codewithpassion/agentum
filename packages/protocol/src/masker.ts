@@ -2,11 +2,16 @@
 // value with `[secret:NAME]` wherever it appears, raw or JSON-encoded, so a
 // secret never reaches a transcript, log line, or completion payload.
 //
-// A value is carried in two shapes. Its raw text catches plain output. Its
+// A value is carried in several shapes. Its raw text catches plain output. Its
 // JSON-encoded text catches a value that a quote, a backslash, or a newline
-// has escaped inside a JSON document. Both needles are sorted longest first,
-// so a value that contains another value is replaced whole, before the
-// shorter one can cut into its replacement.
+// has escaped inside a JSON document. Its standard base64 (of the UTF-8 bytes,
+// padded) catches a value a tool wrote in base64, such as an HTTP Basic
+// header. Its URL-encoded text, and the form-encoded variant that writes a
+// space as `+`, catches a value that went into a query string or a form body.
+// A shape is kept only when it differs from the shapes already kept for the
+// same value. All needles are sorted longest first, so a value that contains
+// another value is replaced whole, before the shorter one can cut into its
+// replacement.
 
 export interface Masker {
   /** Replaces every needle, raw and JSON-encoded, with `[secret:NAME]`. */
@@ -22,9 +27,34 @@ interface Needle {
 
 const MASKED_PREFIX = "[secret:";
 const MASKED_SUFFIX = "]";
+const PERCENT_SPACE = "%20";
+const FORM_SPACE = "+";
 
 const jsonEncode = (value: string): string =>
   JSON.stringify(value).slice(1, -1);
+
+const base64Encode = (value: string): string => {
+  let binary = "";
+  for (const byte of new TextEncoder().encode(value)) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+};
+
+const formEncode = (value: string): string =>
+  encodeURIComponent(value).replaceAll(PERCENT_SPACE, FORM_SPACE);
+
+// Every shape of one value, raw first. The Set drops a shape that repeats an
+// earlier one, so an unchanged shape adds no needle.
+const shapesOf = (value: string): string[] => [
+  ...new Set([
+    value,
+    jsonEncode(value),
+    base64Encode(value),
+    encodeURIComponent(value),
+    formEncode(value),
+  ]),
+];
 
 const buildNeedles = (secrets: Readonly<Record<string, string>>): Needle[] => {
   const needles: Needle[] = [];
@@ -33,13 +63,10 @@ const buildNeedles = (secrets: Readonly<Record<string, string>>): Needle[] => {
     if (value === "") {
       continue;
     }
-    needles.push({ name, value });
-    const encoded = jsonEncode(value);
-    if (encoded !== value) {
-      needles.push({ name, value: encoded });
+    for (const shape of shapesOf(value)) {
+      needles.push({ name, value: shape });
     }
   }
-  // Escaping only adds length, so an encoded shape sorts ahead of its raw one.
   return needles.sort((a, b) => b.value.length - a.value.length);
 };
 

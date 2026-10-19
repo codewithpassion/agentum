@@ -192,6 +192,98 @@ test("secrets are stripped from payloads that go to the blob store", async () =>
   expect(body).not.toContain("hunter2");
 });
 
+const JWT =
+  "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+const GITHUB_TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+const CURL_KEY =
+  'curl -H "x-api-key: sk-test-1234567890abcdef" https://example.com';
+const JSON_BODY =
+  'curl -d \'{"password": "hunter2hunter2"}\' https://example.com';
+
+test("tool.call text keeps its command and loses the credential in it", async () => {
+  const event = await service.append({
+    ...base,
+    payload: { input: { command: CURL_KEY } },
+    sessionId: "s1",
+    type: "tool.call",
+  });
+  expect(event.payload).toEqual({
+    input: {
+      command: 'curl -H "x-api-key: [redacted]" https://example.com',
+    },
+  });
+});
+
+test("tool.result output loses the bearer token, a JWT and a GitHub token", async () => {
+  const event = await service.append({
+    ...base,
+    payload: {
+      output: `Authorization: Bearer abc.def.ghi-jklmnop ${JWT} ${GITHUB_TOKEN}`,
+    },
+    sessionId: "s1",
+    type: "tool.result",
+  });
+  expect(event.payload).toEqual({
+    output: "Authorization: Bearer [redacted] [redacted] [redacted]",
+  });
+});
+
+test("a tool.call JSON body string loses the password value", async () => {
+  const event = await service.append({
+    ...base,
+    payload: { input: { command: JSON_BODY } },
+    sessionId: "s1",
+    type: "tool.call",
+  });
+  expect(event.payload).toEqual({
+    input: {
+      command: 'curl -d \'{"password": "[redacted]"}\' https://example.com',
+    },
+  });
+});
+
+test("message events keep the same text, since only tool events get the text scrub", async () => {
+  const payload = { text: `${CURL_KEY} ${JSON_BODY}` };
+  const assistant = await service.append({
+    ...base,
+    payload,
+    sessionId: "s1",
+    type: "message.assistant",
+  });
+  const user = await service.append({
+    ...base,
+    payload,
+    sessionId: "s1",
+    type: "message.user",
+  });
+  expect(assistant.payload).toEqual(payload);
+  expect(user.payload).toEqual(payload);
+});
+
+test("ordinary tool text is stored unchanged", async () => {
+  const text = "token count is 5, see the password reset page";
+  const event = await service.append({
+    ...base,
+    payload: { output: text },
+    sessionId: "s1",
+    type: "tool.result",
+  });
+  expect(event.payload).toEqual({ output: text });
+});
+
+test("a tool.result over 64 KB keeps a GitHub token past 64 KB out of the blob", async () => {
+  const event = await service.append({
+    ...base,
+    payload: { output: `${"x".repeat(70 * KB)} ${GITHUB_TOKEN}` },
+    sessionId: "s1",
+    type: "tool.result",
+  });
+  expect(event.payloadRef).not.toBeNull();
+  const [body] = [...store.values()];
+  expect(body).toContain("[redacted]");
+  expect(body).not.toContain(GITHUB_TOKEN);
+});
+
 test("invalid input is rejected and nothing is written", async () => {
   await expect(
     service.append({ ...base, type: "nope" as never })
@@ -325,6 +417,42 @@ test("insertStatement redacts secrets as append does", async () => {
     note: "keep",
     password: "[redacted]",
   });
+});
+
+test("insertStatement redacts tool text as append does", async () => {
+  await sqliteAtomic(db)([
+    service.insertStatement({
+      ...base,
+      payload: { input: { command: CURL_KEY } },
+      type: "tool.call",
+    }),
+    service.insertStatement({
+      ...base,
+      payload: { output: `${JWT} ${GITHUB_TOKEN}` },
+      type: "tool.result",
+    }),
+  ]);
+  const [call, result] = db.select().from(events).all();
+  expect(JSON.parse(call?.payload ?? "")).toEqual({
+    input: {
+      command: 'curl -H "x-api-key: [redacted]" https://example.com',
+    },
+  });
+  expect(JSON.parse(result?.payload ?? "")).toEqual({
+    output: "[redacted] [redacted]",
+  });
+});
+
+test("insertStatement leaves message text alone", async () => {
+  await sqliteAtomic(db)([
+    service.insertStatement({
+      ...base,
+      payload: { text: CURL_KEY },
+      type: "message.user",
+    }),
+  ]);
+  const [row] = db.select().from(events).all();
+  expect(JSON.parse(row?.payload ?? "")).toEqual({ text: CURL_KEY });
 });
 
 test("insertStatement throws for a payload over 64 KB and writes nothing", () => {

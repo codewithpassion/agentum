@@ -110,3 +110,50 @@ describe("empty values", () => {
     expect(masker.maskDeep({ a: ["b"] })).toEqual({ a: ["b"] });
   });
 });
+
+describe("base64 and URL-encoded forms", () => {
+  // "a b&c/d": base64 YSBiJmMvZA==, URL %20 %26 %2F, form-encoded a+b%26c%2Fd.
+  const VALUE = "a b&c/d";
+
+  test("masks the standard base64 of a value", () => {
+    const masker = createMasker({ TOK: VALUE });
+    expect(masker.mask("Basic YSBiJmMvZA== end")).toBe(
+      "Basic [secret:TOK] end"
+    );
+  });
+
+  test("masks the URL-encoded form of a value", () => {
+    const masker = createMasker({ TOK: VALUE });
+    expect(masker.mask("q=a%20b%26c%2Fd&next=1")).toBe("q=[secret:TOK]&next=1");
+  });
+
+  test("masks the form-encoded form, where a space is +", () => {
+    const masker = createMasker({ TOK: VALUE });
+    expect(masker.mask("q=a+b%26c%2Fd")).toBe("q=[secret:TOK]");
+  });
+
+  test("a value whose URL-encoded form equals itself is still masked", () => {
+    const masker = createMasker({ TOK: "abcdefgh" });
+    expect(masker.mask("abcdefgh and YWJjZGVmZ2g=")).toBe(
+      "[secret:TOK] and [secret:TOK]"
+    );
+  });
+
+  test("masks the base64 of a non-ASCII value", () => {
+    const masker = createMasker({ TOK: "pässwörd✓" });
+    expect(masker.mask("auth cMOkc3N3w7ZyZOKckw== end")).toBe(
+      "auth [secret:TOK] end"
+    );
+  });
+
+  test("masks the URL-encoded form of a non-ASCII value", () => {
+    const masker = createMasker({ TOK: "pässwörd✓" });
+    expect(masker.mask("p%C3%A4ssw%C3%B6rd%E2%9C%93")).toBe("[secret:TOK]");
+  });
+
+  test("text with none of the forms is unchanged", () => {
+    const masker = createMasker({ TOK: VALUE });
+    const text = "nothing here: a-b c&d/e YWJj q=abc";
+    expect(masker.mask(text)).toBe(text);
+  });
+});

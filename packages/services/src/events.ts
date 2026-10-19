@@ -35,6 +35,7 @@ import {
   payloadSchema,
 } from "./events/payload.ts";
 import { stripSecrets } from "./events/redact.ts";
+import { redactToolPayload } from "./events/scrub.ts";
 import { type PersonName, personLabel, summarize } from "./events/summary.ts";
 import { visibleSessions } from "./sessions.ts";
 import type { Principal } from "./workspaces.ts";
@@ -142,6 +143,20 @@ type ParsedEventInput = z.output<typeof eventInputSchema>;
 
 const actorKindSchema = z.enum(EVENT_ACTOR_KINDS);
 const typeSchema = z.enum(EVENT_TYPES);
+const TOOL_EVENT_TYPES: ReadonlySet<EventType> = new Set([
+  "tool.call",
+  "tool.result",
+]);
+
+/**
+ * The payload as it is stored. Every type loses its secret keys and values.
+ * Tool events also lose credentials and token formats inside their text, which
+ * the stripping above does not reach.
+ */
+const redactPayload = (type: EventType, payload: Payload): Payload => {
+  const stripped = payloadSchema.parse(stripSecrets(payload));
+  return TOOL_EVENT_TYPES.has(type) ? redactToolPayload(stripped) : stripped;
+};
 
 /** The row for a parsed input, with the id and time the caller minted. */
 const toRow = (
@@ -234,7 +249,7 @@ export const createEventsService = ({
     const parsed = eventInputSchema.parse(input);
     const now = new Date();
     const id = newEventId(now);
-    const redacted = payloadSchema.parse(stripSecrets(parsed.payload));
+    const redacted = redactPayload(parsed.type, parsed.payload);
     // The blob goes in first, so a row never points at a missing blob.
     const capped = await capPayload(redacted, {
       key: `payloads/${parsed.workspaceId}/${id}.json`,
@@ -270,7 +285,7 @@ export const createEventsService = ({
     const parsed = eventInputSchema.parse(input);
     const now = new Date();
     const id = newEventId(now);
-    const redacted = payloadSchema.parse(stripSecrets(parsed.payload));
+    const redacted = redactPayload(parsed.type, parsed.payload);
     const size = new TextEncoder().encode(JSON.stringify(redacted)).byteLength;
     if (size > PAYLOAD_MAX_BYTES) {
       throw new ServiceError(

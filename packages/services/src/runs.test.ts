@@ -1558,9 +1558,10 @@ test("releaseRun leaves a cancelled run cancelled", async () => {
 });
 
 const GRANTED_VALUE = "granted-value-0123456789";
+const SPACED_VALUE = "granted value/with+chars&more=1";
 
 /** A runs service whose spy agents hold one granted secret. */
-const maskingRuns = async (agentIds: string[]) => {
+const maskingRuns = async (agentIds: string[], value = GRANTED_VALUE) => {
   const secrets = createSecretsService({
     atomic: sqliteAtomic(db),
     clock,
@@ -1571,7 +1572,7 @@ const maskingRuns = async (agentIds: string[]) => {
   const secret = await secrets.create(user, {
     mode: "env",
     name: "OPENAI_API_KEY",
-    value: GRANTED_VALUE,
+    value,
   });
   for (const agentId of agentIds) {
     // biome-ignore lint/performance/noAwaitInLoops: two agents, one after the other
@@ -1641,6 +1642,77 @@ const payloadOf = (runId: string, type: string): unknown => {
   const row = runEvents(runId).find((event) => event.type === type);
   return JSON.parse(row?.payload ?? "null");
 };
+
+const PERCENT_SPACE = "%20";
+const FORM_SPACE = "+";
+const HAND_TYPED_KEY = "sk-test-1234567890abcdef";
+const HAND_TYPED_COMMAND = `curl -H "x-api-key: ${HAND_TYPED_KEY}" https://example.com`;
+
+/** A secret as a tool may write it: plain, base64, URL-encoded, form-encoded. */
+const secretForms = (value: string): string[] => {
+  const urlEncoded = encodeURIComponent(value);
+  return [
+    value,
+    Buffer.from(value).toString("base64"),
+    urlEncoded,
+    urlEncoded.replaceAll(PERCENT_SPACE, FORM_SPACE),
+  ];
+};
+
+test("a granted secret in its plain, base64, URL and form-encoded forms is masked in a run's events", async () => {
+  runs = await maskingRuns([spyAgentId], SPACED_VALUE);
+  const forms = secretForms(SPACED_VALUE);
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    {
+      payload: {
+        input: { command: forms.map((form) => `echo ${form}`).join(" && ") },
+      },
+      seq: 1,
+      type: "tool.call",
+    },
+    {
+      payload: { ok: true, output: forms.join("\n") },
+      seq: 2,
+      type: "tool.result",
+    },
+  ]);
+  const stored = JSON.stringify(runEvents(runId));
+  for (const form of forms) {
+    expect(stored).not.toContain(form);
+  }
+  expect(stored).toContain("[secret:OPENAI_API_KEY]");
+});
+
+test("a hand-typed API key that is not a granted secret is redacted, the rest of the command kept", async () => {
+  runs = await maskingRuns([spyAgentId]);
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    {
+      payload: { input: { command: HAND_TYPED_COMMAND } },
+      seq: 1,
+      type: "tool.call",
+    },
+  ]);
+  const stored = JSON.stringify(payloadOf(runId, "tool.call"));
+  expect(stored).not.toContain(HAND_TYPED_KEY);
+  expect(stored).toContain("[redacted]");
+  expect(stored).toContain("curl");
+  expect(stored).toContain("https://example.com");
+});
+
+test("ordinary tool text that mentions a token or password is stored unchanged", async () => {
+  runs = await maskingRuns([spyAgentId]);
+  const output = "token count is 5, see the password reset page";
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    { payload: { ok: true, output }, seq: 1, type: "tool.result" },
+  ]);
+  expect(payloadOf(runId, "tool.result")).toEqual({ ok: true, output });
+});
 
 test("a turn-limit stop ends the run failed with its line and event", async () => {
   const { runId } = await start(user, spyAgentId);

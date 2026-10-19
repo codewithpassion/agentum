@@ -35,6 +35,12 @@ test("redacts headers, nested payloads and credential values without mutation", 
   expect(value.headers.Cookie).toBe("session");
 });
 
+test("redacts a Proxy-Authorization header", () => {
+  expect(
+    stripSecrets({ headers: { "Proxy-Authorization": "Basic dXNlcjpwYXNz" } })
+  ).toEqual({ headers: { "Proxy-Authorization": "[redacted]" } });
+});
+
 test("redacts a Harbourmaster key token in a string value", () => {
   expect(
     stripSecrets({ note: "hm_key_abcdefghijklmnop", safe: "hm_key_short" })
