@@ -3,7 +3,7 @@ id: P.1
 title: Model provider keys service
 milestone: P
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/P.1-model-provider-keys
 ---
@@ -28,3 +28,4 @@ Asked for by Dom on 19 Oct 2026, from the report `docs/analysis/other-model-prov
 ## Log
 - 2026-10-19: added at Dom's request.
 - 2026-10-19: dispatched.
+- 2026-10-19: review clean after 1 fix round at 416985c (docs/reviews/tasks/P.1.md). Merged. Migration 0007.
