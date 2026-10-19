@@ -5,6 +5,11 @@ import {
   libraryToolsExtension,
 } from "../library-env/library-tools.ts";
 import {
+  RUN_SCRIPT_EXTENSION,
+  type RunScriptDeps,
+  runScriptExtension,
+} from "../skill-scripts/run-script.ts";
+import {
   NETWORK_TOOLS_EXTENSION,
   type NetworkToolsOptions,
   networkToolsExtension,
@@ -26,15 +31,19 @@ import {
  * `web_fetch` belongs to the isolate only, because a Linux VM reaches the
  * network through the VM itself. `network` gives the isolate's setting and the
  * fetcher. Without it the isolate gets no network tool or notice.
+ *
+ * `run_script` belongs to the isolate only, and only when `scripts` is given.
  */
 export const installEnvironmentTools = (
   registry: Pick<Registry, "install" | "uninstall">,
   environment: CloudEnvironment,
   slugOf: () => Promise<string | undefined>,
   libraryOf?: () => Promise<VmLibraryState | undefined>,
-  network?: NetworkToolsOptions
+  network?: NetworkToolsOptions,
+  scripts?: RunScriptDeps
 ): void => {
   registry.uninstall({ name: NETWORK_TOOLS_EXTENSION });
+  registry.uninstall({ name: RUN_SCRIPT_EXTENSION });
   if (environment === "linux-vm") {
     registry.uninstall({ name: LIBRARY_TOOLS_EXTENSION });
     registry.install(linuxVmToolsExtension(libraryOf));
@@ -43,6 +52,9 @@ export const installEnvironmentTools = (
     registry.install(libraryToolsExtension(slugOf));
     if (network) {
       registry.install(networkToolsExtension(network));
+    }
+    if (scripts) {
+      registry.install(runScriptExtension(scripts));
     }
   }
 };

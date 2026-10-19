@@ -78,6 +78,7 @@ import { createStartQueue } from "./pi-run-start.ts";
 import { RunStartAlarm } from "./pi-run-start-alarm.ts";
 
 import { dynamicWorkerSandbox } from "./skill-scripts/dynamic-worker-sandbox.ts";
+import type { RunScriptDeps } from "./skill-scripts/run-script.ts";
 import {
   type ScriptSecrets,
   skillScriptsExtension,
@@ -367,7 +368,8 @@ export class PiRun extends DurableObject<Env> {
         enabled: networkEnabled,
         fetcherOf: () => this.#webFetcher(),
         placeholdersOf: () => this.#secretPlaceholders(),
-      }
+      },
+      this.#runScriptDeps()
     );
   }
 
@@ -415,10 +417,7 @@ export class PiRun extends DurableObject<Env> {
    * because the tool is installed before any run is known.
    */
   async #webFetcher(): Promise<WebFetcher> {
-    const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
-    if (!run) {
-      throw new Error("web_fetch needs a run, and none is stored");
-    }
+    const run = await this.#storedRun("web_fetch");
     return runWebFetcher({
       ownHosts: ownHostsOf(this.env.PUBLIC_BASE_URL),
       run,
@@ -427,8 +426,65 @@ export class PiRun extends DurableObject<Env> {
     });
   }
 
+  /** The newest run, read when a tool call comes. `tool` names the call in the error. */
+  async #storedRun(tool: string): Promise<RunRef> {
+    const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
+    if (!run) {
+      throw new Error(`${tool} needs a run, and none is stored`);
+    }
+    return run;
+  }
+
+  /** What `run_script` needs from this session. Each part is read when its call comes. */
+  #runScriptDeps(): RunScriptDeps {
+    return {
+      homeOf: () => this.#agentHome(),
+      read: async (path) => {
+        const run = await this.#storedRun("run_script");
+        try {
+          return (await this.#services().library.read(principalOf(run), path))
+            .bytes;
+        } catch (error) {
+          if (isServiceError(error) && error.code === "not_found") {
+            return null;
+          }
+          throw error;
+        }
+      },
+      record: async (entry) => {
+        const run = await this.#storedRun("run_script");
+        await this.#services().library.recordScript(principalOf(run), entry);
+      },
+      sandboxOf: async () => {
+        const run = await this.#storedRun("run_script");
+        const home = await this.#agentHome();
+        const network =
+          (await this.ctx.storage.get<boolean>(NETWORK_KEY)) ?? true;
+        return dynamicWorkerSandbox(this.env.LOADER, undefined, () =>
+          this.ctx.exports.ScriptHost({
+            props: {
+              home,
+              network,
+              run: {
+                agentId: run.agentId,
+                runId: run.runId,
+                workspaceId: run.workspaceId,
+              },
+            },
+          })
+        );
+      },
+    };
+  }
+
   #agentSlug() {
     return this.ctx.storage.get<string>(AGENT_SLUG_KEY);
+  }
+
+  /** The agent's library home, `agents/<slug>`, or "" for the root when no agent is stored. */
+  async #agentHome(): Promise<string> {
+    const slug = await this.#agentSlug();
+    return slug ? agentHomePath(slug) : "";
   }
 
   /** The isolate's agent keeps its files in its library folder, made on the first run. */

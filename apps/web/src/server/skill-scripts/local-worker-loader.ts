@@ -60,6 +60,9 @@ const putBack = (saved: Saved[]): void => {
   }
 };
 
+/** workerd provides `cloudflare:workers` and bun does not, and the root `bun test scripts` run has no preload to mock it. A plain class stands in. */
+const WORKERS_IMPORT = 'import { WorkerEntrypoint } from "cloudflare:workers";';
+
 const writeModule = (
   folder: string,
   name: string,
@@ -68,7 +71,10 @@ const writeModule = (
   const path = join(folder, name);
   mkdirSync(dirname(path), { recursive: true });
   if ("js" in module) {
-    writeFileSync(path, module.js);
+    writeFileSync(
+      path,
+      module.js.replace(WORKERS_IMPORT, "class WorkerEntrypoint {}")
+    );
   } else if ("json" in module) {
     writeFileSync(path, JSON.stringify(module.json));
   } else {
