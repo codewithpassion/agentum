@@ -58,7 +58,7 @@ function SlackPanel({ agent }: AgentTabProps) {
   const [apps, setApps] = useState<SlackAppRecord[] | undefined>();
   const [listError, setListError] = useState<string | undefined>();
   const [manifestError, setManifestError] = useState<string | undefined>();
-  const [name, setName] = useState(agent.name);
+  const [name, setName] = useState(agent.name.slice(0, DISPLAY_NAME_LIMIT));
   const [copied, setCopied] = useState(false);
 
   const fetchApps = useCallback(
