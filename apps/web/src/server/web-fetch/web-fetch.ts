@@ -61,13 +61,19 @@ const DROPPED_REQUEST_HEADERS = new Set([
   "x-real-ip",
 ]);
 const DROPPED_REQUEST_PREFIXES = ["cf-", "proxy-", "x-forwarded-"];
-/** Credentials a caller sends for its own host. They never follow a redirect to another host. */
+/** Credentials a caller sends for its own origin. They never follow a redirect to another origin. */
 const CROSS_HOST_DROPPED_HEADERS = [
   "authorization",
   "cookie",
   "proxy-authorization",
 ];
 const TRAILING_PERIOD = /\.$/;
+const BODY_HEADERS = [
+  "content-encoding",
+  "content-language",
+  "content-location",
+  "content-type",
+];
 const MESSAGES: Record<WebFetchFailure, string> = {
   bad_request: "The request is not valid.",
   blocked: "The request was refused.",
@@ -308,7 +314,10 @@ const follow = async (
     ? new Headers(hop.headers)
     : withoutCredentials(hop.headers);
   if (!bodyKept) {
-    headers.delete("content-type");
+    // The headers that describe the body go with it, as a browser does.
+    for (const name of BODY_HEADERS) {
+      headers.delete(name);
+    }
   }
   return runHop(
     call,

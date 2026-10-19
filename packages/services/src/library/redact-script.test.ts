@@ -43,3 +43,20 @@ test("leaves other commands as typed, even with -d and -u", () => {
   const script = "cut -d, -f1 data.csv\nsort -u names.txt\ngrep -d skip x *";
   expect(redactScript(script)).toBe(script);
 });
+
+test("sees options in a cluster and values attached to them", () => {
+  for (const script of [
+    `curl -sH "Authorization: Bearer SECRET" https://example.com/`,
+    "curl -su alice:SECRET https://example.com/",
+    "curl -ualice:SECRET https://example.com/",
+    "curl -dtoken=SECRET https://example.com/",
+    `curl -d'{"t":"SECRET"}' https://example.com/`,
+    `curl --header='Authorization: SECRET' https://example.com/`,
+    `curl -H 'X-Json: {"k":"SECRET"}' https://example.com/`,
+    `curl -H "X-Key: it's SECRET" https://example.com/`,
+  ]) {
+    const out = redactScript(script);
+    expect(out).not.toContain("SECRET");
+    expect(out).toContain("https://example.com/");
+  }
+});
