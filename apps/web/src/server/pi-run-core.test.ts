@@ -296,7 +296,8 @@ const build = (
     inputOf?: (
       run: RunRef,
       text: string,
-      fileIds: readonly string[]
+      fileIds: readonly string[],
+      model: string
     ) => Promise<PiInput>;
     installSkills?: () => Promise<void>;
     modelError?: (model: string) => string | undefined;
@@ -337,9 +338,11 @@ const build = (
         inFlight -= 1;
       }
     },
-    inputOf: (run, text, fileIds) => {
+    inputOf: (run, text, fileIds, model) => {
       inputs.push({ fileIds, run, text });
-      return options.inputOf?.(run, text, fileIds) ?? Promise.resolve(text);
+      return (
+        options.inputOf?.(run, text, fileIds, model) ?? Promise.resolve(text)
+      );
     },
     installSkills: async (input) => {
       skillsInstalled.push(input.run.id);
@@ -1124,6 +1127,20 @@ describe("skills", () => {
 });
 
 describe("input files", () => {
+  test("inputOf gets the agent's model on a start", async () => {
+    const models: string[] = [];
+    const h = build({
+      inputOf: (_run, text, _fileIds, model) => {
+        models.push(model);
+        return Promise.resolve(text);
+      },
+    });
+    await h.core.start(startOf("run-1"));
+    expect(models).toEqual(["claude-test"]);
+    h.fake.finish("run-1", { status: "done", text: "ok" });
+    await settle();
+  });
+
   test("the message Pi gets is what inputOf builds from the run's files", async () => {
     const h = build({ inputOf: () => Promise.resolve(IMAGE_INPUT) });
     await h.core.start(withFiles("run-1", ["file-1", "file-2"]));

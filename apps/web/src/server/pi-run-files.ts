@@ -155,13 +155,16 @@ const listedLine = (fileId: string, file: FileBody): string => {
 
 /**
  * The message as the model receives it. Every file is listed. Images under the
- * size cap also become image blocks. Other files are listed by name and id, and
- * the ones that could not be downloaded are listed as unreadable.
+ * size cap also become image blocks, unless `acceptsImages` is false (a text-only
+ * model): then images are listed like the other files, with their id, and no
+ * image block is sent. Other files are listed by name and id, and the ones that
+ * could not be downloaded are listed as unreadable.
  */
 export const inputContent = async (
   text: string,
   fileIds: readonly string[],
-  port: RunFilesPort
+  port: RunFilesPort,
+  acceptsImages = true
 ): Promise<PiInput> => {
   if (fileIds.length === 0) {
     return text;
@@ -176,6 +179,7 @@ export const inputContent = async (
     if (file === undefined) {
       lines.push(`- ${fileId} (could not be read)`);
     } else if (
+      acceptsImages &&
       isImage(file.mime) &&
       imageBytes + file.bytes.byteLength <= MAX_IMAGE_TOTAL_BYTES
     ) {

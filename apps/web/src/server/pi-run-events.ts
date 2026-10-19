@@ -110,12 +110,21 @@ export const toRunEvents = (slice: readonly EntryRecord[]): RunEventInput[] =>
       type: event.type,
     }));
 
-/** Sum of the slice's assistant messages' usage, or undefined when there is no assistant message. */
+const nonEmpty = (value: string | undefined): value is string =>
+  value !== undefined && value !== "";
+
+/**
+ * Sum of the slice's assistant messages' usage, or undefined when there is no assistant message. `costUsd` is Pi's estimate, summed. `provider` and `model` come from the last assistant message and are left out when empty.
+ */
 export const usageOf = (slice: readonly EntryRecord[]): Usage | undefined => {
-  const usages = assistantsOf(slice).map((message) => message.usage);
+  const assistants = assistantsOf(slice);
+  const usages = assistants.map((message) => message.usage);
   if (usages.length === 0) {
     return;
   }
+  const last = assistants.at(-1);
+  const provider = last?.provider;
+  const model = last?.model;
   const cacheReadTokens = sum(usages.map((usage) => usage.cacheRead));
   const cacheWriteTokens = sum(usages.map((usage) => usage.cacheWrite));
   const cacheTokens =
@@ -124,6 +133,8 @@ export const usageOf = (slice: readonly EntryRecord[]): Usage | undefined => {
       : {};
   return {
     ...cacheTokens,
+    ...(nonEmpty(provider) ? { provider } : {}),
+    ...(nonEmpty(model) ? { model } : {}),
     costUsd: sum(usages.map((usage) => usage.cost.total)),
     inputTokens: sum(usages.map((usage) => usage.input)),
     outputTokens: sum(usages.map((usage) => usage.output)),

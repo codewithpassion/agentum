@@ -8,6 +8,7 @@ import {
 } from "bun:test";
 import type { AssistantMessage, Context } from "@earendil-works/pi-ai";
 import { NO_KEY_MESSAGE } from "@repo/services/managed/keys";
+import { NO_KEY_MESSAGES } from "@repo/services/model-keys";
 import { serve } from "bun";
 import { workspaceKeyStore } from "./pi-run-credentials.ts";
 import { createCloudModels } from "./pi-run-models.ts";
@@ -69,9 +70,33 @@ describe("workspaceKeyStore", () => {
     expect(await store.read("openai")).toBeUndefined();
   });
 
+  test("read resolves the key for each provider by id", async () => {
+    const resolved: string[] = [];
+    const store = workspaceKeyStore((provider) => {
+      resolved.push(provider);
+      return Promise.resolve(`key-for-${provider}`);
+    });
+    expect(await store.read("openrouter")).toEqual({
+      key: "key-for-openrouter",
+      type: "api_key",
+    });
+    expect(await store.read("anthropic")).toEqual({
+      key: "key-for-anthropic",
+      type: "api_key",
+    });
+    expect(resolved).toEqual(["openrouter", "anthropic"]);
+  });
+
   test("a null key makes read throw NO_KEY_MESSAGE", async () => {
     const store = workspaceKeyStore(async () => null);
     await expect(store.read("anthropic")).rejects.toThrow(NO_KEY_MESSAGE);
+  });
+
+  test("a null OpenRouter key makes read throw its message", async () => {
+    const store = workspaceKeyStore(async () => null);
+    await expect(store.read("openrouter")).rejects.toThrow(
+      NO_KEY_MESSAGES.openrouter
+    );
   });
 
   test("resolveKey is called on every read", async () => {
@@ -108,14 +133,15 @@ describe("workspaceKeyStore", () => {
 
 describe("cloud models against a fake Anthropic server", () => {
   let server: ReturnType<typeof serve>;
-  let requests: { path: string; apiKey: string | null }[] = [];
+  let requests: { path: string; apiKey: string | null; body: string }[] = [];
 
   beforeAll(() => {
     server = serve({
-      fetch(request) {
+      async fetch(request) {
         const url = new URL(request.url);
         requests.push({
           apiKey: request.headers.get("x-api-key"),
+          body: await request.text(),
           path: url.pathname,
         });
         return new Response(STREAM, {
@@ -150,6 +176,10 @@ describe("cloud models against a fake Anthropic server", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]?.path).toBe("/v1/messages");
     expect(requests[0]?.apiKey).toBe(KEY);
+    const body = requests[0]?.body ?? "";
+    expect(JSON.parse(body)).not.toHaveProperty("provider");
+    expect(body).not.toContain("require_parameters");
+    expect(body).not.toContain("quantizations");
     const text = result.content
       .map((block) => (block.type === "text" ? block.text : ""))
       .join("");
@@ -184,6 +214,28 @@ describe("cloud models against a fake Anthropic server", () => {
     }
 
     expect(message).toContain(NO_KEY_MESSAGE);
+    expect(requests).toHaveLength(0);
+  });
+
+  test("with no OpenRouter key, the run fails before any request", async () => {
+    let message = "";
+    try {
+      const models = createCloudModels(workspaceKeyStore(async () => null));
+      const model = models.getModel("openrouter", "z-ai/glm-5.3");
+      expect(model).toBeDefined();
+      if (!model) {
+        return;
+      }
+      const result: AssistantMessage = await models.complete(
+        { ...model, baseUrl: server.url.origin },
+        context
+      );
+      message = result.errorMessage ?? "";
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain(NO_KEY_MESSAGES.openrouter);
     expect(requests).toHaveLength(0);
   });
 });
