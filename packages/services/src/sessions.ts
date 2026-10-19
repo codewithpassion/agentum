@@ -83,7 +83,7 @@ export interface SessionTranscript {
   outputFileIds: Record<string, string[]>;
   /**
    * Set when the latest run is queued or offered: the agent's runtime, and whether
-   * another run of the same agent is running. Null otherwise.
+   * another run of the same session is running. Null otherwise.
    */
   queue: { otherRunActive: boolean; runtime: AgentRuntime } | null;
   /** The session with its title: named by its origin, else the first message trimmed. */
@@ -391,7 +391,12 @@ export const createSessionsService = ({
     const [agent] = await db
       .select({ runtime: agents.runtime })
       .from(agents)
-      .where(eq(agents.id, session.agentId))
+      .where(
+        and(
+          eq(agents.id, session.agentId),
+          eq(agents.workspaceId, session.workspaceId)
+        )
+      )
       .limit(1);
     if (agent === undefined) {
       return null;
@@ -401,9 +406,9 @@ export const createSessionsService = ({
       .from(runs)
       .where(
         and(
-          eq(runs.agentId, session.agentId),
+          eq(runs.sessionId, session.id),
           eq(runs.workspaceId, session.workspaceId),
-          eq(runs.status, "running"),
+          inArray(runs.status, ["offered", "running"]),
           ne(runs.id, latest.id)
         )
       )

@@ -769,7 +769,7 @@ test("a queued run of a machine agent reports the machine runtime, with no other
   expect(result.queue).toEqual({ otherRunActive: false, runtime: "machine" });
 });
 
-test("a queued run reports otherRunActive when another run of the same agent is running", async () => {
+test("a queued run reports otherRunActive when another run of the same session is running", async () => {
   const first = await send(user("u1"), "in progress");
   const next = await send(user("u1"), "waiting", first.sessionId);
   db.update(runRows)
@@ -784,4 +784,22 @@ test("a queued run reports otherRunActive when another run of the same agent is 
   const result = await sessions.transcript(user("u1"), first.sessionId);
 
   expect(result.queue).toEqual({ otherRunActive: true, runtime: "fake" });
+});
+
+test("a run running in another session of the agent does not count as otherRunActive", async () => {
+  const other = await send(user("u1"), "elsewhere");
+  const mine = await send(user("u1"), "waiting");
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, other.runId))
+    .run();
+  db.update(runRows)
+    .set({ status: "queued" })
+    .where(eq(runRows.id, mine.runId))
+    .run();
+
+  const result = await sessions.transcript(user("u1"), mine.sessionId);
+
+  expect(other.sessionId).not.toBe(mine.sessionId);
+  expect(result.queue).toEqual({ otherRunActive: false, runtime: "fake" });
 });
