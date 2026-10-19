@@ -1,10 +1,11 @@
 /**
  * Slack events. `receive` is everything the events route does before it
- * answers: check who is calling, turn a mention or a DM into a run, and write
- * the dedupe row, the run and its events in one atomic write. Nothing slow
- * happens before the answer. File downloads and the reply to an unknown sender
- * come back as an `after` job for the route to hand to `waitUntil`. The
- * minute tick finishes any download that job did not.
+ * answers: check who is calling, turn a mention, a DM or a reply in a thread
+ * the agent knows into a run, and write the dedupe row, the run and its
+ * events in one atomic write. Nothing slow happens before the answer. File
+ * downloads and the reply to an unknown sender come back as an `after` job for
+ * the route to hand to `waitUntil`. The minute tick finishes any download that
+ * job did not.
  */
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
@@ -33,6 +34,7 @@ import {
 } from "./slack/event-parse.ts";
 import { withRetry } from "./slack/post.ts";
 import { verifySlackRequest } from "./slack/signature.ts";
+import { findThreadSession } from "./slack/threads.ts";
 import { SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 type Mention = Extract<SlackEvent, { kind: "message" }>;
@@ -236,11 +238,25 @@ export const createSlackService = ({
       )
       .trim();
 
+  /** The session of the thread a message is in, if the app knows it. */
+  const threadSession = (app: SlackAppRow, event: Mention) =>
+    findThreadSession(db, {
+      agentId: app.agentId,
+      channelId: event.channelId,
+      teamId: app.teamId,
+      threadTs: event.threadTs ?? event.ts,
+      workspaceId: app.workspaceId,
+    });
+
   const admitUnlinked = async (
     app: SlackAppRow,
     event: Mention,
     eventHash: string
   ): Promise<ReceiveResult> => {
+    // A stranger's reply in a thread is not addressed to the app: no reply, no row.
+    if (event.trigger === "thread") {
+      return accepted;
+    }
     await atomic([
       seenRow(app.workspaceId, eventHash, null),
       events.insertStatement({
@@ -275,6 +291,7 @@ export const createSlackService = ({
     text: string
   ): Promise<ReceiveResult> => {
     const threadTs = event.threadTs ?? event.ts;
+    const thread = await threadSession(app, event);
     const pendingFiles = event.files
       .slice(0, INPUT_FILES_MAX)
       .map((file) => ({ ...file, teamId: app.teamId }));
@@ -287,11 +304,13 @@ export const createSlackService = ({
         teamId: app.teamId,
         threadTs,
       },
-      session: {
-        externalKey: `${app.teamId}:${event.channelId}:${threadTs}`,
-        origin: "slack",
-        private: event.trigger === "dm",
-      },
+      session: thread
+        ? { externalKey: thread.externalKey, origin: thread.origin }
+        : {
+            externalKey: `${app.teamId}:${event.channelId}:${threadTs}`,
+            origin: "slack",
+            private: event.trigger === "dm",
+          },
     };
     const started = await runs.startRun(
       {
@@ -429,6 +448,10 @@ export const createSlackService = ({
     }
     const event = parseEvent(payload);
     if (event.kind !== "message" || event.userId === app.botUserId) {
+      return accepted;
+    }
+    // A channel message is for the app only inside a thread it knows.
+    if (event.trigger === "thread" && !(await threadSession(app, event))) {
       return accepted;
     }
     return await admit(app, event);

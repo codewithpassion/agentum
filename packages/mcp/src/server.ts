@@ -10,6 +10,7 @@ import { routineTools } from "./tools/routines";
 import { sessionTools } from "./tools/sessions";
 import { skillReadTools } from "./tools/skills-read";
 import { skillWriteTools } from "./tools/skills-write";
+import { slackTools } from "./tools/slack";
 import { triggerTools } from "./tools/triggers";
 
 export interface ServerOptions {
@@ -49,6 +50,7 @@ export const harbourmasterTools = (
   ...libraryTools(ports),
   ...automationTools(ports, readOnly),
   ...skillTools(ports, readOnly),
+  ...(readOnly ? [] : slackTools(ports)),
 ];
 
 /** Ports for reading tool names: the names do not depend on them, so none is ever called. */
@@ -88,6 +90,8 @@ export const TOOL_NAMES = harbourmasterTools({
   skillDiff: unusedPort,
   skillLog: unusedPort,
   skillShow: unusedPort,
+  slackDestinations: unusedPort,
+  slackSend: unusedPort,
   unassignSkill: unusedPort,
 }).map((tool) => tool.name);
 

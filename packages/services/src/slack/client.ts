@@ -3,6 +3,8 @@ const API_TIMEOUT_MS = 10_000;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 const DEFAULT_RATE_LIMIT_SECONDS = 30;
 const MAX_RETRY_AFTER_SECONDS = 900;
+const MAX_CHANNEL_PAGES = 5;
+const CHANNEL_PAGE_SIZE = "200";
 
 /** Slack errors that mean the app or channel setup is wrong. */
 const CONFIG_ERRORS = new Set([
@@ -42,6 +44,15 @@ export interface SlackClient {
     channelId: string
   ) => Promise<SlackCallResult<{ name: string | null }>>;
   downloadFile: (url: string, maxBytes: number) => Promise<SlackDownload>;
+  /** Lists public and private channels the bot is a member of. Follows up to 5 pages. */
+  listChannels: () => Promise<SlackCallResult<{ channels: ChannelEntry[] }>>;
+  /** Opens (or finds) the DM between the bot and a user. */
+  openDm: (userId: string) => Promise<SlackCallResult<{ channelId: string }>>;
+  /** Gives the permalink of a message the bot can see. */
+  permalink: (
+    channel: string,
+    ts: string
+  ) => Promise<SlackCallResult<{ permalink: string }>>;
   postEphemeral: (request: {
     channel: string;
     text: string;
@@ -136,6 +147,34 @@ function classify<T extends object>(
   return { error, kind: "rejected" };
 }
 
+interface ChannelEntry {
+  id: string;
+  isPrivate: boolean;
+  name: string;
+}
+
+function readChannelPage(
+  body: Body
+): { channels: ChannelEntry[]; nextCursor: string } | null {
+  if (!Array.isArray(body.channels)) {
+    return null;
+  }
+  const channels = body.channels.flatMap((entry) => {
+    const { id, is_private: isPrivate, name } = asBody(entry);
+    return typeof id === "string" &&
+      id !== "" &&
+      typeof name === "string" &&
+      name !== ""
+      ? [{ id, isPrivate: isPrivate === true, name }]
+      : [];
+  });
+  const cursor = asBody(body.response_metadata).next_cursor;
+  return {
+    channels,
+    nextCursor: typeof cursor === "string" ? cursor : "",
+  };
+}
+
 function isSlackFileUrl(url: string): boolean {
   let parsed: URL;
   try {
@@ -228,6 +267,34 @@ export const createSlackClient = (deps: {
     return classify(asBody(parsed), response, read);
   }
 
+  /** Reads one page of channels, then the next page while Slack gives a cursor. */
+  async function listChannelPages(
+    cursor: string,
+    pagesLeft: number,
+    channels: ChannelEntry[]
+  ): Promise<SlackCallResult<{ channels: ChannelEntry[] }>> {
+    const query: Record<string, string> = {
+      exclude_archived: "true",
+      limit: CHANNEL_PAGE_SIZE,
+      types: "public_channel,private_channel",
+    };
+    if (cursor !== "") {
+      query.cursor = cursor;
+    }
+    const result = await callSlack(
+      { method: "GET", url: apiUrl("users.conversations", query) },
+      readChannelPage
+    );
+    if (result.kind !== "ok") {
+      return result;
+    }
+    const all = [...channels, ...result.channels];
+    if (result.nextCursor === "" || pagesLeft <= 1) {
+      return { channels: all, kind: "ok" };
+    }
+    return listChannelPages(result.nextCursor, pagesLeft - 1, all);
+  }
+
   return {
     authTest() {
       return callSlack({ method: "GET", url: apiUrl("auth.test") }, (body) => {
@@ -303,6 +370,39 @@ export const createSlackClient = (deps: {
         return { error: "html_response", kind: "rejected" };
       }
       return readCapped(response, maxBytes);
+    },
+
+    listChannels() {
+      return listChannelPages("", MAX_CHANNEL_PAGES, []);
+    },
+
+    openDm(userId) {
+      return callSlack(
+        {
+          body: { users: userId },
+          method: "POST",
+          url: apiUrl("conversations.open"),
+        },
+        (body) => {
+          const { id } = asBody(body.channel);
+          return typeof id === "string" && id !== "" ? { channelId: id } : null;
+        }
+      );
+    },
+
+    permalink(channel, ts) {
+      return callSlack(
+        {
+          method: "GET",
+          url: apiUrl("chat.getPermalink", { channel, message_ts: ts }),
+        },
+        (body) => {
+          const { permalink } = body;
+          return typeof permalink === "string" && permalink !== ""
+            ? { permalink }
+            : null;
+        }
+      );
     },
 
     postEphemeral(request) {

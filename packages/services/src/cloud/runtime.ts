@@ -5,6 +5,7 @@ import type { AgentRecord } from "../agents.ts";
 import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
 import type { AdapterDeps, RunRecord, RuntimeAdapter } from "../runs/types.ts";
+import { slackGuidanceFor } from "../slack/guidance.ts";
 import type { CloudRunnerPort } from "./types.ts";
 
 const describeError = (error: unknown): string =>
@@ -51,6 +52,10 @@ export const createCloudRuntime = ({
         )
       )
       .orderBy(agentConnectors.createdAt, agentConnectors.connectorId);
+    const slack = await slackGuidanceFor(db, {
+      agentId: run.agentId,
+      workspaceId: run.workspaceId,
+    });
     const runToken = await signRunToken(await hmacKey(), {
       agentId: run.agentId,
       issuedAt: deps.clock.now().getTime(),
@@ -60,7 +65,9 @@ export const createCloudRuntime = ({
     await runner.start({
       agent: {
         id: agent.id,
-        instructions: agent.instructions,
+        instructions: [agent.instructions, slack]
+          .filter((part) => part !== "")
+          .join("\n\n"),
         model: agent.model,
         name: agent.name,
         runtimeConfig: agent.runtimeConfig,
