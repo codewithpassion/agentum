@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
-import { agentConnectors, credentials } from "@repo/db/schema/connectors";
+import {
+  agentConnectors,
+  connectors,
+  credentials,
+} from "@repo/db/schema/connectors";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -407,6 +411,57 @@ describe("what counts as a credential", () => {
       value: "Bearer at-1",
     });
     expect(tokenCalls).toBe(0);
+  });
+});
+
+describe("the call timeout", () => {
+  test("a credential resolution carries the default 60 s, then the stored value once it is changed", async () => {
+    await assign("agent");
+    await addCredential("agent", agentId, "agent-key");
+
+    const before = await resolve(null);
+    expect(before.ok && before.connector.callTimeoutSeconds).toBe(60);
+
+    db.update(connectors)
+      .set({ callTimeoutSeconds: 120 })
+      .where(eq(connectors.id, CONNECTOR))
+      .run();
+
+    const after = await resolve(null);
+    expect(after.ok && after.connector.callTimeoutSeconds).toBe(120);
+    expect(headerOf(after)).toBe("agent-key");
+  });
+
+  test("a connector that takes no login carries the default 60 s, then the stored value once it is changed", async () => {
+    await seedConnector(db, {
+      authKind: "none",
+      id: "con_open",
+      now: START,
+      workspaceId: WORKSPACE,
+    });
+    await assign("user", agentId, "con_open");
+    const open = () =>
+      service.resolve({
+        agentId,
+        connectorId: "con_open",
+        onBehalfOfUserId: null,
+        workspaceId: WORKSPACE,
+      });
+
+    expect(await open()).toMatchObject({
+      connector: { callTimeoutSeconds: 60, id: "con_open" },
+      ok: true,
+    });
+
+    db.update(connectors)
+      .set({ callTimeoutSeconds: 120 })
+      .where(eq(connectors.id, "con_open"))
+      .run();
+
+    expect(await open()).toMatchObject({
+      connector: { callTimeoutSeconds: 120 },
+      ok: true,
+    });
   });
 });
 

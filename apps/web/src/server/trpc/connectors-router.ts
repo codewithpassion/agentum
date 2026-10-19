@@ -1,10 +1,12 @@
-// Connector procedures: the registry, pasted header credentials, the OAuth
-// client for a server that needs one typed in, and which agents get which
-// connector. Connecting itself is a redirect flow, in routes/connectors-oauth.ts.
+// Connector procedures: the registry, the per-call time limit, pasted header
+// credentials, the OAuth client for a server that needs one typed in, and which
+// agents get which connector. Connecting itself is a redirect flow, in
+// routes/connectors-oauth.ts.
 import { oauthClientSchema } from "@repo/services/connector-oauth";
 import {
   agentInputSchema,
   assignmentInputSchema,
+  connectorCallTimeoutSchema,
   connectorCreateSchema,
   credentialSetSchema,
   unassignInputSchema,
@@ -30,6 +32,11 @@ export const connectorsRouter = router({
   list: workspaceProcedure.query(({ ctx }) =>
     ctx.services.connectors.list(ctx.principal)
   ),
+  setCallTimeout: workspaceProcedure
+    .input(connectorCallTimeoutSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.connectors.setCallTimeout(ctx.principal, input)
+    ),
   setCredential: workspaceProcedure
     .input(credentialSetSchema)
     .mutation(({ ctx, input }) =>

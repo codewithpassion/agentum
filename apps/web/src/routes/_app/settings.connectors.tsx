@@ -2,6 +2,7 @@ import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useState } from "react";
 import { AddConnectorDialog } from "#/components/connectors/add-connector-dialog";
+import { CallTimeoutDialog } from "#/components/connectors/call-timeout-dialog";
 import { connectHref } from "#/components/connectors/connect-link";
 import { connectSearchSchema } from "#/components/connectors/connect-search";
 import { OAuthClientDialog } from "#/components/connectors/oauth-client-dialog";
@@ -127,14 +128,20 @@ function OAuthActions({
 
 function ConnectorRow({
   connector,
+  onEditTimeout,
   onPaste,
   onSetClient,
 }: {
   connector: ConnectorRecord;
+  onEditTimeout: (connector: ConnectorRecord) => void;
   onPaste: (connector: ConnectorRecord) => void;
   onSetClient: (connector: ConnectorRecord) => void;
 }) {
   const paste = useCallback(() => onPaste(connector), [connector, onPaste]);
+  const editTimeout = useCallback(
+    () => onEditTimeout(connector),
+    [connector, onEditTimeout]
+  );
   const toolNames = connector.tools.map((tool) => tool.name).join(", ");
 
   return (
@@ -167,6 +174,7 @@ function ConnectorRow({
           )}
         </div>
       </TableCell>
+      <TableCell>{connector.callTimeoutSeconds} s</TableCell>
       <TableCell className="text-muted-foreground">
         {connector.authKind === "oauth" ? (
           <OAuthCredential connector={connector} />
@@ -175,14 +183,19 @@ function ConnectorRow({
         )}
       </TableCell>
       <TableCell className="text-right">
-        {connector.authKind === "header" ? (
-          <Button onClick={paste} size="sm" variant="outline">
-            Paste credential
+        <div className="flex justify-end gap-2">
+          {connector.authKind === "header" ? (
+            <Button onClick={paste} size="sm" variant="outline">
+              Paste credential
+            </Button>
+          ) : null}
+          {connector.authKind === "oauth" ? (
+            <OAuthActions connector={connector} onSetClient={onSetClient} />
+          ) : null}
+          <Button onClick={editTimeout} size="sm" variant="outline">
+            Time limit
           </Button>
-        ) : null}
-        {connector.authKind === "oauth" ? (
-          <OAuthActions connector={connector} onSetClient={onSetClient} />
-        ) : null}
+        </div>
       </TableCell>
     </TableRow>
   );
@@ -195,6 +208,9 @@ function ConnectorsPage() {
   const [adding, setAdding] = useState(false);
   const [pasting, setPasting] = useState<ConnectorRecord | null>(null);
   const [settingClient, setSettingClient] = useState<ConnectorRecord | null>(
+    null
+  );
+  const [editingTimeout, setEditingTimeout] = useState<ConnectorRecord | null>(
     null
   );
   const [notice, setNotice] = useState<string | null>(null);
@@ -240,6 +256,18 @@ function ConnectorsPage() {
     await router.invalidate();
   }, [router]);
 
+  const openEditTimeout = useCallback(
+    (connector: ConnectorRecord) => setEditingTimeout(connector),
+    []
+  );
+
+  const closeEditTimeout = useCallback(() => setEditingTimeout(null), []);
+
+  const handleTimeoutSaved = useCallback(async () => {
+    setEditingTimeout(null);
+    await router.invalidate();
+  }, [router]);
+
   return (
     <section className="mx-auto max-w-5xl">
       <div className="mb-6 flex items-center justify-between gap-4">
@@ -265,6 +293,7 @@ function ConnectorsPage() {
               <TableHead>Auth</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Tools</TableHead>
+              <TableHead>Time limit</TableHead>
               <TableHead>Your credential</TableHead>
               <TableHead>
                 <span className="sr-only">Actions</span>
@@ -276,6 +305,7 @@ function ConnectorsPage() {
               <ConnectorRow
                 connector={connector}
                 key={connector.id}
+                onEditTimeout={openEditTimeout}
                 onPaste={openPaste}
                 onSetClient={openSetClient}
               />
@@ -305,6 +335,17 @@ function ConnectorsPage() {
           connector={{ id: settingClient.id, name: settingClient.name }}
           onClose={closeSetClient}
           onSaved={handleClientSaved}
+        />
+      )}
+      {editingTimeout === null ? null : (
+        <CallTimeoutDialog
+          connector={{
+            id: editingTimeout.id,
+            name: editingTimeout.name,
+            callTimeoutSeconds: editingTimeout.callTimeoutSeconds,
+          }}
+          onClose={closeEditTimeout}
+          onSaved={handleTimeoutSaved}
         />
       )}
     </section>

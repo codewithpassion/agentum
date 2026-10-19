@@ -138,3 +138,37 @@ test("a caller without a session gets UNAUTHORIZED", async () => {
     caller.connectors.create({ name: "x", url: `${PUBLIC_ORIGIN}/mcp` })
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });
+
+test("a connector's call time limit defaults to 60 and setCallTimeout stores a new one", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const connector = await caller.connectors.create({
+    name: "Slow",
+    url: `${PUBLIC_ORIGIN}/mcp`,
+  });
+  expect((await caller.connectors.list())[0]?.callTimeoutSeconds).toBe(60);
+
+  const updated = await caller.connectors.setCallTimeout({
+    connectorId: connector.id,
+    seconds: 120,
+  });
+
+  expect(updated).toMatchObject({ callTimeoutSeconds: 120, id: connector.id });
+  expect((await caller.connectors.list())[0]?.callTimeoutSeconds).toBe(120);
+});
+
+test("setCallTimeout refuses a limit outside 10 to 300 and changes nothing", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const connector = await caller.connectors.create({
+    name: "Bounded",
+    url: `${PUBLIC_ORIGIN}/mcp`,
+  });
+
+  await Promise.all(
+    [9, 301].map((seconds) =>
+      expect(
+        caller.connectors.setCallTimeout({ connectorId: connector.id, seconds })
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" })
+    )
+  );
+  expect((await caller.connectors.list())[0]?.callTimeoutSeconds).toBe(60);
+});
