@@ -61,6 +61,7 @@ const unusedPort = (): Promise<never> =>
 export const TOOL_NAMES = harbourmasterTools({
   approveSkillVersion: unusedPort,
   assignSkill: unusedPort,
+  cancelRun: unusedPort,
   commitSkill: unusedPort,
   createRoutine: unusedPort,
   createSkill: unusedPort,

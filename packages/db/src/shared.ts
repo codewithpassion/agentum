@@ -72,6 +72,8 @@ export const EVENT_TYPES = [
   "run.finished",
   "run.failed",
   "run.interrupted",
+  "run.limit_reached",
+  "run.repeat_stopped",
   "message.user",
   "message.assistant",
   "tool.call",

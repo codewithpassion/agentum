@@ -39,6 +39,7 @@ const SLACK_WRITE_NAMES = ["slack_send"];
 
 const EXPECTED_NAMES = [
   "bash",
+  "cancel_run",
   "create_routine",
   "create_trigger",
   "delete_routine",
@@ -82,6 +83,7 @@ const uncalled = (): Promise<never> =>
 const fakePorts: McpPorts = {
   approveSkillVersion: uncalled,
   assignSkill: uncalled,
+  cancelRun: uncalled,
   commitSkill: uncalled,
   createRoutine: uncalled,
   createSkill: uncalled,

@@ -125,6 +125,37 @@ test("a browser caller cannot make a session private", async () => {
   expect(await caller.sessions.list({ agentId: agent.id })).toEqual([]);
 });
 
+test("cancel reaches the service, which refuses a run that already finished", async () => {
+  const { agent, caller } = await setup();
+  const started = await caller.runs.start({
+    agentId: agent.id,
+    input: { text: "hello" },
+    session: { origin: "ui" },
+  });
+
+  await expect(
+    caller.runs.cancel({ runId: started.runId })
+  ).rejects.toMatchObject({ code: "CONFLICT" });
+  const run = await caller.runs.get({ runId: started.runId });
+  expect(run.status).toBe("done");
+});
+
+test("cancel of an unknown run is not found", async () => {
+  const { caller } = await setup();
+
+  await expect(
+    caller.runs.cancel({ runId: "run_missing" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("cancel rejects extra input keys", async () => {
+  const { caller } = await setup();
+
+  await expect(
+    caller.runs.cancel({ force: true, runId: "run_1" } as never)
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+});
+
 test("a browser caller cannot set a reply target", async () => {
   const { agent, caller } = await setup();
 

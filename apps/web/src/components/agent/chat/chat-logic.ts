@@ -27,6 +27,9 @@ export type ChatItem =
 export const isRunActive = (status: RunStatus): boolean =>
   status === "queued" || status === "offered" || status === "running";
 
+export const canCancel = (run: Run | null): boolean =>
+  run !== null && isRunActive(run.status);
+
 export const canRetry = (run: Run | null, nowMs: number): boolean => {
   if (run?.status !== "interrupted") {
     return false;
