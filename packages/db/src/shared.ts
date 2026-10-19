@@ -126,6 +126,10 @@ export type EventActorKind = (typeof EVENT_ACTOR_KINDS)[number];
 export const SECRET_MODES = ["env", "proxy"] as const;
 export type SecretMode = (typeof SECRET_MODES)[number];
 
+/** Model providers a workspace can bring its own key for. */
+export const MODEL_PROVIDERS = ["openrouter"] as const;
+export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
+
 export const CONNECTOR_AUTH_KINDS = ["none", "header", "oauth"] as const;
 export type ConnectorAuthKind = (typeof CONNECTOR_AUTH_KINDS)[number];
 
