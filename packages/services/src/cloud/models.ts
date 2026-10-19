@@ -1,8 +1,9 @@
 /**
  * Models a cloud agent can run on. Cloud agents run Pi on a Durable Object.
  * Anthropic models call the Anthropic API directly. Other providers are
- * named with a prefix, such as `openrouter:z-ai/glm-5.3`. This module imports
- * nothing at runtime, so the web app can import it for the form.
+ * named with a prefix, such as `openrouter:z-ai/glm-5.3`. This module has no
+ * runtime imports (only a type from `@repo/db/shared`), so the web app can
+ * import it for the form.
  */
 import type { ModelProvider } from "@repo/db/shared";
 
@@ -93,7 +94,7 @@ export const parseModelRef = (
     const prefix = value.slice(0, colon).toLowerCase();
     const provider = PREFIXED_PROVIDERS.find((name) => name === prefix);
     if (provider) {
-      return { id: value.slice(colon + 1).trim(), provider };
+      return { id: value.slice(colon + 1), provider };
     }
   }
   return { id: value, provider: "anthropic" };

@@ -173,7 +173,7 @@ describe("parseModelRef", () => {
   });
 
   test("trims surrounding spaces", () => {
-    expect(parseModelRef("  openrouter:  z-ai/glm-5.3 \n")).toEqual({
+    expect(parseModelRef("  openrouter:z-ai/glm-5.3 \n")).toEqual({
       id: "z-ai/glm-5.3",
       provider: "openrouter",
     });

@@ -16,7 +16,7 @@
  */
 import type { Database } from "@repo/db";
 import { workspaceModelKeys } from "@repo/db/schema/model-keys";
-import type { ModelProvider } from "@repo/db/shared";
+import { MODEL_PROVIDERS, type ModelProvider } from "@repo/db/shared";
 import { and, eq } from "drizzle-orm";
 import { authorize, ForbiddenError } from "./authz.ts";
 import {
@@ -75,6 +75,12 @@ const NOT_CONFIGURED: ModelKeyStatus = {
   hint: null,
   updatedAt: null,
 };
+
+/** `Object.fromEntries` types its result as an index signature, so check that every provider is present. */
+const hasEveryProvider = (
+  flags: Record<string, boolean>
+): flags is Record<ModelProvider, boolean> =>
+  MODEL_PROVIDERS.every((provider) => typeof flags[provider] === "boolean");
 
 /** Only a signed-in user may set or remove the key. */
 const requireUser = (principal: Principal, action: string): UserPrincipal => {
@@ -314,7 +320,32 @@ export const createModelKeysService = ({
     return { apiKey };
   };
 
-  return { remove, resolve, set, status };
+  /**
+   * Whether the caller's workspace has a key for each provider. Booleans only,
+   * so a form can mark a provider without ever seeing a hint.
+   */
+  const configuredProviders = async (
+    principal: Principal
+  ): Promise<Record<ModelProvider, boolean>> => {
+    const workspaceId = readableWorkspace(principal, READ_ACTION);
+    authorize(principal, READ_ACTION, { kind: KEY_KIND, workspaceId });
+    const entries = await Promise.all(
+      MODEL_PROVIDERS.map(
+        async (provider) =>
+          [
+            provider,
+            (await statusOf(workspaceId, provider)).configured,
+          ] as const
+      )
+    );
+    const flags = Object.fromEntries(entries);
+    if (!hasEveryProvider(flags)) {
+      throw new Error("Every model provider needs a key flag");
+    }
+    return flags;
+  };
+
+  return { configuredProviders, remove, resolve, set, status };
 };
 
 export type ModelKeysService = ReturnType<typeof createModelKeysService>;
