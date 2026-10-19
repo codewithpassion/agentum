@@ -402,7 +402,12 @@ export const mcpRoutes = ({
     const { parsedBody, request } = body;
 
     const composed = c.get("composed");
-    const ports = createMcpPorts({ principal, services: composed.services });
+    const ports = createMcpPorts({
+      principal,
+      publicBaseUrl: c.env.PUBLIC_BASE_URL,
+      requestHost: new URL(c.req.url).hostname,
+      services: composed.services,
+    });
     const handler = createMcpHandler(
       () =>
         createHarbourmasterMcpServer(ports, {

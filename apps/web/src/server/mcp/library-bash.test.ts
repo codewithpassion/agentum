@@ -13,6 +13,10 @@ import type { Principal } from "@repo/services/workspaces";
 import { type Composed, composeWith } from "../compose.ts";
 import { createMcpPorts } from "./ports.ts";
 
+const RUN_TOKEN_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString(
+  "base64"
+);
+
 let composed: Composed;
 let blobs: MemoryLibraryBlobs;
 let workspaceA: string;
@@ -47,11 +51,18 @@ beforeEach(async () => {
     infra: {
       atomic: sqliteAtomic(db),
       blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+      // A cloud agent starts through the cloud runtime, which needs a runner, a run token key and a base URL.
       clock: systemClock,
+      cloudRunner: {
+        cancel: () => Promise.resolve(),
+        start: () => Promise.resolve(),
+      },
       devFakeRuntime: true,
       fileBlobs: memoryFileBlobs(),
       libraryBlobs: blobs,
+      publicBaseUrl: "https://harbourmaster.example.com",
       relay: noopRelay,
+      runTokenKey: RUN_TOKEN_KEY,
     },
   });
   const [a, b] = await Promise.all([
@@ -258,4 +269,125 @@ test("a script cannot reach the network or the removed commands", async () => {
   );
   expect(result.exitCode).not.toBe(0);
   expect(result.stderr).toContain("command not found");
+});
+
+// The fetch that `curl` sends through. `createMcpPorts` takes it so no test reaches the network.
+let sent: Request[];
+const fakeFetch = (request: Request): Promise<Response> => {
+  sent.push(request);
+  return Promise.resolve(new Response("hello\n", { status: 200 }));
+};
+
+const networkPorts = (principal: Principal): McpPorts =>
+  createMcpPorts({
+    fetch: fakeFetch,
+    principal,
+    publicBaseUrl: "https://harbourmaster.example.com",
+    requestHost: "harbourmaster.example.com",
+    services: composed.services,
+  });
+
+const networkBash = (principal: Principal, script: string) =>
+  networkPorts(principal).libraryBash({ script });
+
+/** Starts a run of an agent made with `runtime` and `runtimeConfig`, and returns its principal. */
+const runOf = async (
+  workspaceId: string,
+  options: {
+    runtime: "cloud" | "fake";
+    runtimeConfig?: { networkAccess?: boolean };
+  }
+): Promise<Extract<Principal, { kind: "run" }>> => {
+  const user = userOf(workspaceId);
+  const agent = await composed.services.agents.create(user, {
+    model: options.runtime === "cloud" ? "sonnet" : "fake",
+    name: `runner-${options.runtime}`,
+    runtime: options.runtime,
+    runtimeConfig: options.runtimeConfig ?? {},
+    slug: `runner-${options.runtime}-${sent.length}-${Math.random().toString(36).slice(2)}`,
+  });
+  const started = await composed.services.runs.startRun(user, {
+    agentId: agent.id,
+    input: { text: "hi" },
+    session: { origin: "mcp" },
+  });
+  return {
+    agentId: agent.id,
+    kind: "run",
+    runId: started.runId,
+    workspaceId,
+  };
+};
+
+const networkEvents = async (workspaceId: string) =>
+  composed.services.events.query(userOf(workspaceId), workspaceId, {
+    types: ["network.request"],
+  });
+
+test("a run whose agent has network access gets curl through the fetcher, and the request is logged", async () => {
+  sent = [];
+  const run = await runOf(workspaceA, { runtime: "fake" });
+  const result = await networkBash(run, "curl -s https://example.com/");
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe("hello\n");
+  expect(sent.map((request) => request.url)).toEqual(["https://example.com/"]);
+
+  const [event] = await networkEvents(workspaceA);
+  expect(event?.runId).toBe(run.runId);
+  expect(event?.payload.host).toBe("example.com");
+  expect(event?.payload.status).toBe(200);
+});
+
+test("a run whose agent has network access off is refused by curl and never fetches", async () => {
+  sent = [];
+  const run = await runOf(workspaceA, {
+    runtime: "cloud",
+    runtimeConfig: { networkAccess: false },
+  });
+  const result = await networkBash(run, "curl -s https://example.com/");
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("Network access is off for this agent.");
+  expect(sent).toEqual([]);
+});
+
+test("a user principal is refused by curl and never fetches", async () => {
+  sent = [];
+  const result = await networkBash(
+    userOf(workspaceA),
+    "curl -s https://example.com/"
+  );
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("Network access is off for this agent.");
+  expect(sent).toEqual([]);
+});
+
+test("curl refuses loopback and metadata addresses from an enabled run", async () => {
+  sent = [];
+  const run = await runOf(workspaceA, { runtime: "fake" });
+  for (const url of [
+    "http://127.0.0.1/",
+    "http://169.254.169.254/latest/meta-data/",
+  ]) {
+    // biome-ignore lint/performance/noAwaitInLoops: each attempt is a separate call
+    const result = await networkBash(run, `curl -s ${url}`);
+    expect(result.exitCode).not.toBe(0);
+  }
+  expect(sent).toEqual([]);
+});
+
+test("a logged request keeps its query string and headers out of the event", async () => {
+  sent = [];
+  const run = await runOf(workspaceA, { runtime: "fake" });
+  await networkBash(
+    run,
+    "curl -s -H 'Authorization: Bearer topsecret' 'https://example.com/a?token=querysecret'"
+  );
+  expect(sent).toHaveLength(1);
+  const events = await networkEvents(workspaceA);
+  expect(events).toHaveLength(1);
+  const stored = JSON.stringify(events[0]?.payload);
+  expect(stored).not.toContain("querysecret");
+  expect(stored).not.toContain("topsecret");
+  expect(stored).not.toContain("Bearer");
+  expect(stored).not.toContain("token=");
 });

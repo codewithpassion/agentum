@@ -3,6 +3,8 @@ export interface WebFetchRequest {
   body?: Uint8Array;
   headers?: Record<string, string>;
   method?: string;
+  /** The caller's own abort, for example the shell's time limit. */
+  signal?: AbortSignal;
   url: string;
 }
 

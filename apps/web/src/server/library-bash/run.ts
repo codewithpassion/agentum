@@ -5,6 +5,8 @@
  */
 import type { LibraryBashResult } from "@repo/mcp/ports";
 import { Bash, InMemoryFs, MountableFs } from "just-bash/browser";
+import type { WebFetcher } from "../web-fetch/types.ts";
+import { curlCommand } from "./curl.ts";
 import {
   createLibraryFs,
   type LibraryOps,
@@ -44,9 +46,11 @@ const capStream = (text: string): { text: string; truncated: boolean } => {
 export const runLibraryBash = async ({
   ops,
   script,
+  web,
 }: {
   ops: LibraryOps;
   script: string;
+  web?: WebFetcher;
 }): Promise<LibraryBashResult> => {
   const abort = new AbortController();
   const library = createLibraryFs({
@@ -55,6 +59,7 @@ export const runLibraryBash = async ({
     ops,
   });
   const bash = new Bash({
+    customCommands: [curlCommand(web)],
     cwd: LIBRARY_MOUNT,
     executionLimitProfile: "hardened",
     executionLimits: {
