@@ -3,7 +3,7 @@ id: C.17
 title: run_script tool for isolate agents, JS and TS in a dynamic worker
 milestone: C
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/C.17-isolate-run-script
 ---
@@ -27,3 +27,4 @@ Asked for by Dom on 19 Oct 2026. Isolate agents have no JavaScript or TypeScript
 
 ## Log
 - 2026-10-19: added at Dom's request. dispatched.
+- 2026-10-19: review clean after 1 fix round at 143dec4 (docs/reviews/tasks/C.17.md). Merged. Adds a library global (read, write, list) over an RPC binding. Staging check pending.
