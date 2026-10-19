@@ -194,6 +194,18 @@ describe("linuxVmToolsExtension", () => {
     expect(text).toContain("[secret:NAME]");
     expect(text).not.toContain("none of this platform's secrets");
   });
+
+  test("its prompt section does not mention run_script, with or without a library state", async () => {
+    const plain = await renderSection();
+    const withLibrary = await renderSection(async () => ({
+      conflicts: [],
+      roots: ["agents/ada"],
+    }));
+    expect(plain).toContain("You have a Linux VM");
+    expect(withLibrary).toContain("You have a Linux VM");
+    expect(plain).not.toContain("run_script");
+    expect(withLibrary).not.toContain("run_script");
+  });
 });
 
 describe("VM_SCRIPT_TEXTS", () => {

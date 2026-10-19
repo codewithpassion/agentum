@@ -42,6 +42,8 @@ export interface WorkspaceInstructionsInput {
   homeIsLocal: boolean;
   /** The library folder on the agent's disk, or null when it is reached with the library tools only. */
   library: string | null;
+  /** True when the agent has the `run_script` tool, which only isolate agents have. Default false. */
+  runScript?: boolean;
   /** The temporary area. `path` is null when the runtime has no scratch folder. */
   scratch: { path: string | null; lasts: ScratchLifetime };
   /** Library paths copied to the `library` folder. Only read when `library` is a path. */
@@ -54,6 +56,9 @@ const SCRATCH_ENDS: Record<ScratchLifetime, string> = {
   session: "deleted when this session ends",
   "vm-sleep": "deleted when the VM sleeps after a few idle minutes",
 };
+
+const RUN_SCRIPT_PARAGRAPH =
+  "You have no shell runtime such as node, bun or python. To run JavaScript or TypeScript, use `run_script` with a library file or inline code. Scripts can read and write the library and, when network access is on, use fetch. npm packages and Node built-ins such as fs and child_process aren't available. For work that needs them, ask for this agent to use the Linux VM.";
 
 const homeLine = ({ home, homeIsLocal }: WorkspaceInstructionsInput): string =>
   homeIsLocal
@@ -119,6 +124,7 @@ export const workspaceInstructions = (
       : [
           `To give the user a file, put ${formatAttachmentMarker("<absolute path>")} on its own line in your final answer.`,
         ]),
+    ...(input.runScript ? ["", RUN_SCRIPT_PARAGRAPH] : []),
   ].join("\n");
 
 const MARKER_WITH_LEADING_SPACE_RE = new RegExp(

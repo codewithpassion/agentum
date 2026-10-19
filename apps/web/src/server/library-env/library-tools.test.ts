@@ -192,6 +192,11 @@ describe("libraryToolsExtension section", () => {
     expect(text).toContain("/library");
     expect(text).not.toContain("agents/");
   });
+
+  test("tells the isolate agent about its run_script tool", async () => {
+    const text = await renderSection(async () => "ada");
+    expect(text).toContain("run_script");
+  });
 });
 
 describe("Pi's file tools through a real harness", () => {

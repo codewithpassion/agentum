@@ -6,6 +6,10 @@
  * agent's credentials to requests, so the isolate never holds them. Without
  * `proxy` it has no `globalOutbound`. The choice is in
  * `docs/reviews/tasks/C.12.md`.
+ *
+ * A hosted run gets the platform host instead: `host()` is its `HOST` binding,
+ * which backs the `library` global and a `fetch` that goes through the
+ * platform. It has no direct network, and it reads the run's `stdin`.
  */
 
 import {
@@ -57,7 +61,7 @@ const stream = (limit) => {
 };
 
 export class Runner extends WorkerEntrypoint {
-  async run(entry, args, limit) {
+  async run(entry, args, limit, stdin) {
     const out = stream(limit);
     const err = stream(limit);
     const line = (target) => (...values) => target.write(format(...values) + "\\n");
@@ -69,6 +73,27 @@ export class Runner extends WorkerEntrypoint {
     process.exit = (code) => {
       throw new Exit(Number.isInteger(Number(code)) ? Number(code) : 0);
     };
+    const host = this.env.HOST;
+    if (host) {
+      globalThis.stdin = stdin ?? "";
+      const decoder = new TextDecoder();
+      globalThis.library = {
+        list: (dir) => host.list(dir),
+        read: async (path) => decoder.decode(await host.read(path)),
+        write: (path, content) =>
+          host.write(path, typeof content === "string" ? encoder.encode(content) : content),
+      };
+      globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        const body = request.body === null ? undefined : new Uint8Array(await request.arrayBuffer());
+        const answer = await host.send({ body, headers: [...request.headers], method: request.method, url: request.url });
+        if (!answer.ok) {
+          throw new TypeError(answer.message);
+        }
+        const empty = answer.status === 204 || answer.status === 205 || answer.status === 304;
+        return new Response(empty ? null : answer.body, { headers: answer.headers, status: answer.status, statusText: answer.statusText });
+      };
+    }
     let exitCode = 0;
     try {
       const module = await import("./" + entry);
@@ -110,9 +135,21 @@ const timer = (ms: number) => {
 
 export const dynamicWorkerSandbox = (
   loader: WorkerLoader,
-  outbound?: () => Fetcher
+  outbound?: () => Fetcher,
+  host?: () => unknown
 ): SkillScriptSandbox => ({
   run: async (input: SandboxRunInput): Promise<SandboxRunResult> => {
+    let env: Record<string, unknown> = input.env ?? {};
+    let network: { globalOutbound?: Fetcher | null } = {};
+    if (input.hosted === true) {
+      if (host === undefined) {
+        return failure("This sandbox has no platform host.");
+      }
+      env = { ...env, HOST: host() };
+      network = { globalOutbound: null };
+    } else if (input.proxy === true && outbound !== undefined) {
+      network = { globalOutbound: outbound() };
+    }
     let modules: ReturnType<typeof buildModules>;
     try {
       modules = buildModules(input.files, input.entry);
@@ -121,25 +158,29 @@ export const dynamicWorkerSandbox = (
     }
     const worker = loader.load({
       compatibilityDate: COMPATIBILITY_DATE,
-      env: input.env ?? {},
+      env,
       limits: { cpuMs: input.timeoutMs, subRequests: MAX_SUBREQUESTS },
       mainModule: HARNESS,
       modules: { ...modules, [HARNESS]: { js: HARNESS_SOURCE } },
-      ...(input.proxy === true && outbound !== undefined
-        ? { globalOutbound: outbound() }
-        : {}),
+      ...network,
     });
     const runner = worker.getEntrypoint("Runner") as unknown as {
       run: (
         entry: string,
         args: string[],
-        limit: number
+        limit: number,
+        stdin: string
       ) => Promise<SandboxRunResult>;
     };
     const wall = timer(input.timeoutMs);
     try {
       const finished = await Promise.race([
-        runner.run(input.entry, input.args, HARNESS_STREAM_BYTES),
+        runner.run(
+          input.entry,
+          input.args,
+          HARNESS_STREAM_BYTES,
+          input.stdin ?? ""
+        ),
         wall.expired,
       ]);
       if (finished === undefined) {

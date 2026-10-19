@@ -194,4 +194,21 @@ describe("workspaceInstructions", () => {
       expect(text.match(/\[ATTACHMENT:/g)).toHaveLength(1);
     }
   });
+
+  test("omits the run_script paragraph by default and when runScript is false", () => {
+    for (const input of [vm, isolate, managed, machine]) {
+      expect(workspaceInstructions(input)).not.toContain("run_script");
+      expect(workspaceInstructions({ ...input, runScript: false })).toBe(
+        workspaceInstructions(input)
+      );
+    }
+  });
+
+  test("ends with the run_script paragraph after a blank line when runScript is true", () => {
+    const paragraph =
+      "You have no shell runtime such as node, bun or python. To run JavaScript or TypeScript, use `run_script` with a library file or inline code. Scripts can read and write the library and, when network access is on, use fetch. npm packages and Node built-ins such as fs and child_process aren't available. For work that needs them, ask for this agent to use the Linux VM.";
+    expect(workspaceInstructions({ ...isolate, runScript: true })).toBe(
+      `${workspaceInstructions(isolate)}\n\n${paragraph}`
+    );
+  });
 });

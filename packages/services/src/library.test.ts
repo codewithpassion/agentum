@@ -788,6 +788,102 @@ test("recordCommand strips secrets from the script", async () => {
   expect(event?.payload).not.toContain("hunter2");
 });
 
+test("recordScript logs one script.run event with the actor, and refuses a machine", async () => {
+  await service.recordScript(user(A, "u7"), {
+    durationMs: 42,
+    exitCode: 0,
+    script: "notes/build.ts",
+    stderrBytes: 0,
+    stdoutBytes: 10,
+  });
+  await service.recordScript(runPrincipal, {
+    durationMs: 7,
+    exitCode: 1,
+    script: "inline",
+    stderrBytes: 5,
+    stdoutBytes: 0,
+  });
+  const log = libraryEvents().map((event) => ({
+    actorId: event.actorId,
+    actorKind: event.actorKind,
+    agentId: event.agentId,
+    payload: JSON.parse(event.payload ?? "null"),
+    runId: event.runId,
+    type: event.type,
+  }));
+  expect(log).toEqual([
+    {
+      actorId: "u7",
+      actorKind: "user",
+      agentId: null,
+      payload: {
+        durationMs: 42,
+        exitCode: 0,
+        script: "notes/build.ts",
+        stderrBytes: 0,
+        stdoutBytes: 10,
+        text: "Ran notes/build.ts, exit code 0, 42 ms",
+      },
+      runId: null,
+      type: "script.run",
+    },
+    {
+      actorId: AGENT,
+      actorKind: "agent",
+      agentId: AGENT,
+      payload: {
+        durationMs: 7,
+        exitCode: 1,
+        script: "inline",
+        stderrBytes: 5,
+        stdoutBytes: 0,
+        text: "Ran inline, exit code 1, 7 ms",
+      },
+      runId: RUN,
+      type: "script.run",
+    },
+  ]);
+  const machine: Principal = {
+    kind: "machine",
+    machineId: "m1",
+    workspaceId: A,
+  };
+  expect(
+    await errorOf(
+      service.recordScript(machine, {
+        durationMs: 0,
+        exitCode: 0,
+        script: "inline",
+        stderrBytes: 0,
+        stdoutBytes: 0,
+      })
+    )
+  ).toBeInstanceOf(ForbiddenError);
+});
+
+test("recordScript keeps the code, args and output out of the event", async () => {
+  await service.recordScript(user(), {
+    args: ["SECRET"],
+    code: "SECRET",
+    durationMs: 3,
+    exitCode: 0,
+    output: "SECRET",
+    script: "inline",
+    stderrBytes: 0,
+    stdoutBytes: 0,
+  } as never);
+  const [event] = libraryEvents();
+  expect(Object.keys(JSON.parse(event?.payload ?? "null")).sort()).toEqual([
+    "durationMs",
+    "exitCode",
+    "script",
+    "stderrBytes",
+    "stdoutBytes",
+    "text",
+  ]);
+  expect(event?.payload).not.toContain("SECRET");
+});
+
 test("recordConflict logs a run's conflict with its run id in the payload", async () => {
   await service.recordConflict(runPrincipal, {
     conflictPath: "/notes/a (conflict).md",

@@ -19,7 +19,7 @@ export interface NetworkRequestEntry {
   host: string;
   method: string;
   status: number | null;
-  via: "curl" | "web_fetch";
+  via: "curl" | "run_script" | "web_fetch";
 }
 
 const KB = 1024;

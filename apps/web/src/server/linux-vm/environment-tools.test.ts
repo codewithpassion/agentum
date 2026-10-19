@@ -2,6 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createRegistry, type Registry } from "@earendil-works/pi-durable";
 import { LIBRARY_TOOLS_EXTENSION } from "../library-env/library-tools.ts";
+import {
+  RUN_SCRIPT_EXTENSION,
+  type RunScriptDeps,
+} from "../skill-scripts/run-script.ts";
 import { NETWORK_TOOLS_EXTENSION } from "../web-fetch/pi-tool.ts";
 import type { WebFetcher } from "../web-fetch/types.ts";
 import { installEnvironmentTools } from "./environment-tools.ts";
@@ -11,6 +15,12 @@ import { LINUX_VM_TOOLS_EXTENSION } from "./vm-tools.ts";
 const slugOf = async () => "ada";
 const fetcherOf = (): Promise<WebFetcher> =>
   Promise.reject(new Error("not called"));
+const scriptsOf: RunScriptDeps = {
+  homeOf: async () => "agents/ada",
+  read: async () => null,
+  record: async () => undefined,
+  sandboxOf: () => Promise.reject(new Error("not called")),
+};
 
 const toolNames = (registry: Registry): string[] =>
   registry
@@ -126,6 +136,64 @@ describe("installEnvironmentTools", () => {
       fetcherOf,
     });
     expect(extensionNames(registry)).toEqual([LINUX_VM_TOOLS_EXTENSION]);
+  });
+
+  test("isolate with scripts installs run_script", () => {
+    const registry = createRegistry();
+    installEnvironmentTools(
+      registry,
+      "isolate",
+      slugOf,
+      undefined,
+      undefined,
+      scriptsOf
+    );
+
+    expect(extensionNames(registry)).toEqual([
+      LIBRARY_TOOLS_EXTENSION,
+      RUN_SCRIPT_EXTENSION,
+    ]);
+    expect(toolNames(registry)).toEqual([
+      "edit",
+      "read",
+      "run_script",
+      "write",
+    ]);
+  });
+
+  test("isolate without scripts installs no run_script", () => {
+    const registry = createRegistry();
+    installEnvironmentTools(registry, "isolate", slugOf);
+    expect(extensionNames(registry)).toEqual([LIBRARY_TOOLS_EXTENSION]);
+  });
+
+  test("linux-vm with scripts installs no run_script", () => {
+    const registry = createRegistry();
+    installEnvironmentTools(
+      registry,
+      "linux-vm",
+      slugOf,
+      undefined,
+      undefined,
+      scriptsOf
+    );
+    expect(extensionNames(registry)).toEqual([LINUX_VM_TOOLS_EXTENSION]);
+  });
+
+  test("switching from isolate to linux-vm removes run_script", () => {
+    const registry = createRegistry();
+    installEnvironmentTools(
+      registry,
+      "isolate",
+      slugOf,
+      undefined,
+      undefined,
+      scriptsOf
+    );
+    installEnvironmentTools(registry, "linux-vm", slugOf);
+
+    expect(extensionNames(registry)).toEqual([LINUX_VM_TOOLS_EXTENSION]);
+    expect(toolNames(registry)).toEqual(["bash", "edit", "read", "write"]);
   });
 
   test("switching from isolate to linux-vm removes web_fetch", () => {

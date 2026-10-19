@@ -42,6 +42,7 @@ export const libraryToolsExtension = (
           home: await homeFor(slugOf),
           homeIsLocal: true,
           library: LIBRARY_MOUNT,
+          runScript: true,
           scratch: { lasts: "call", path: null },
         }),
     },

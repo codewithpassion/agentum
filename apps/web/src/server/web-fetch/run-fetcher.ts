@@ -7,7 +7,7 @@ export interface RunFetcherDeps {
   ownHosts: readonly string[];
   run: { agentId: string; runId: string; workspaceId: string };
   services: Pick<Services, "network" | "secrets">;
-  via: "curl" | "web_fetch";
+  via: "curl" | "run_script" | "web_fetch";
 }
 
 /** The one place a run's fetcher is made, shared by the `web_fetch` tool and `curl`. */
