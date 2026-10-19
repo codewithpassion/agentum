@@ -56,3 +56,23 @@ test("other types collapse whitespace and skip blank fields", () => {
     "a b"
   );
 });
+
+test("run.cancelled names the user who cancelled", () => {
+  expect(summarize("run.cancelled", {}, { id: "alice", kind: "user" })).toBe(
+    "Cancelled by user alice"
+  );
+});
+
+test("run.cancelled from the system or with no actor says so", () => {
+  expect(summarize("run.cancelled", {}, { id: "sys", kind: "system" })).toBe(
+    "Cancelled by the system"
+  );
+  expect(summarize("run.cancelled", {})).toBe("Cancelled");
+});
+
+test("run.limit_reached and run.repeat_stopped show their error text", () => {
+  const limit = "Stopped after 100 turns, the agent's limit";
+  const repeat = "Stopped, the agent repeated the same step";
+  expect(summarize("run.limit_reached", { error: limit })).toBe(limit);
+  expect(summarize("run.repeat_stopped", { error: repeat })).toBe(repeat);
+});

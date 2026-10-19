@@ -152,6 +152,12 @@ export const createMcpPorts = ({
   return {
     ...createSkillPorts({ findAgent, principal, services }),
 
+    cancelRun: ({ runId }) =>
+      guarded(async () => {
+        await services.runs.cancelRun(principal, runId);
+        return toRunInfo(await services.runs.getRun(principal, runId));
+      }),
+
     createRoutine: ({ agentId, ...input }) =>
       guarded(async () =>
         toRoutineInfo(

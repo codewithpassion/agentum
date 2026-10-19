@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import packageJson from "../package.json";
 import type { McpPorts } from "./ports";
 import { registerTools } from "./register";
-import { agentTools } from "./tools/agents";
+import { agentTools, agentWriteTools } from "./tools/agents";
 import type { ToolDefinition } from "./tools/define";
 import { inboxTools } from "./tools/inbox";
 import { libraryTools } from "./tools/library";
@@ -45,6 +45,7 @@ export const harbourmasterTools = (
   { readOnly = false }: ServerOptions = {}
 ): readonly ToolDefinition[] => [
   ...agentTools(ports),
+  ...(readOnly ? [] : agentWriteTools(ports)),
   ...sessionTools(ports),
   ...inboxTools(ports),
   ...libraryTools(ports),
@@ -61,6 +62,7 @@ const unusedPort = (): Promise<never> =>
 export const TOOL_NAMES = harbourmasterTools({
   approveSkillVersion: unusedPort,
   assignSkill: unusedPort,
+  cancelRun: unusedPort,
   commitSkill: unusedPort,
   createRoutine: unusedPort,
   createSkill: unusedPort,

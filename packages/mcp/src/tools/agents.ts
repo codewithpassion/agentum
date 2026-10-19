@@ -6,6 +6,7 @@ import {
   READ_ONLY,
   type ToolDefinition,
   WRITE_CREATE,
+  WRITE_DELETE,
 } from "./define";
 
 type RunState = "done" | "failed" | "pending";
@@ -123,5 +124,24 @@ export const agentTools = (ports: McpPorts): ToolDefinition[] => [
     name: "get_run",
     run: async (input) => runPayload(await ports.getRun(input)),
     title: "Get run",
+  }),
+];
+
+/** Tools that change a run. Only a caller who may write gets them. */
+export const agentWriteTools = (ports: McpPorts): ToolDefinition[] => [
+  defineTool({
+    annotations: WRITE_DELETE,
+    description:
+      "Cancels a run that is queued or running. The transcript so far is kept and the agent is free for its next run. Only people can cancel runs: an agent's own run is refused. Returns the run's state, which is failed (cancelled) once it has stopped.",
+    inputSchema: z.strictObject({
+      runId: z
+        .string()
+        .min(1)
+        .max(200)
+        .describe("The runId that send_message returned."),
+    }),
+    name: "cancel_run",
+    run: async (input) => runPayload(await ports.cancelRun(input)),
+    title: "Cancel run",
   }),
 ];

@@ -49,6 +49,7 @@ const uncalled = (name: string) => (): Promise<never> =>
 const fakePorts = (overrides: Partial<McpPorts> = {}): McpPorts => ({
   approveSkillVersion: uncalled("approveSkillVersion"),
   assignSkill: uncalled("assignSkill"),
+  cancelRun: uncalled("cancelRun"),
   commitSkill: uncalled("commitSkill"),
   createRoutine: uncalled("createRoutine"),
   createSkill: uncalled("createSkill"),

@@ -1,11 +1,14 @@
 import { beforeEach, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { events } from "@repo/db/schema/events";
+import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { ForbiddenError } from "./authz.ts";
 import { createEventsService } from "./events.ts";
+import { createRunsService } from "./runs.ts";
 import type { Principal } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
@@ -189,4 +192,61 @@ test("list gives a short summary of the payload and not the payload", async () =
   const [entry] = (await service.list(alice)).entries;
   expect(entry?.summary).toBe("boom");
   expect(entry).not.toHaveProperty("payload");
+});
+
+test("list gives each entry the status of its run, null without a run", async () => {
+  db.insert(runs)
+    .values({
+      actorId: "alice",
+      actorKind: "user",
+      agentId: "a1",
+      createdAt: NOW,
+      id: "r_live",
+      inputText: "hi",
+      sessionId: "s_alice_ui",
+      status: "running",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  insertEvent({ createdAt: NOW, runId: "r_live", type: "run.started" });
+  insertEvent({ createdAt: NOW, type: "agent.created" });
+
+  const [withoutRun, withRun] = (await service.list(alice)).entries;
+  expect(withRun).toMatchObject({ runId: "r_live", runStatus: "running" });
+  expect(withoutRun).toMatchObject({ runId: null, runStatus: null });
+});
+
+test("list shows the run as cancelled after cancelRun, and who cancelled it", async () => {
+  db.insert(runs)
+    .values({
+      actorId: "alice",
+      actorKind: "user",
+      agentId: "a1",
+      createdAt: NOW,
+      id: "r_cancel",
+      inputText: "hi",
+      sessionId: "s_alice_ui",
+      status: "running",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  insertEvent({ createdAt: NOW, runId: "r_cancel", type: "run.started" });
+  const runsService = createRunsService({
+    adapters: [],
+    atomic: sqliteAtomic(db),
+    blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+    clock: { now: () => new Date(NOW), sleep: () => Promise.resolve() },
+    db,
+    devFakeRuntime: true,
+    gateways: [],
+  });
+  await runsService.cancelRun(alice, "r_cancel");
+
+  const page = await service.list(alice);
+  expect(
+    page.entries.find((entry) => entry.runId === "r_cancel")
+  ).toMatchObject({ runStatus: "cancelled" });
+  expect(
+    page.entries.find((entry) => entry.type === "run.cancelled")?.summary
+  ).toBe("Cancelled by user alice");
 });

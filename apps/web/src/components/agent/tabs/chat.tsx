@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 import { SendHint } from "#/components/composer/send-hint.tsx";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut.ts";
 import { Button } from "#/components/ui/button.tsx";
@@ -18,6 +19,7 @@ import { getTrpc } from "#/integrations/trpc/client";
 import type { FileInfo, SessionTranscript } from "#/integrations/trpc/types";
 import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
 import {
+  canCancel,
   canRetry,
   collectFileIds,
   fileIdsOfRun,
@@ -64,12 +66,16 @@ function StatusRow({
   run,
   nowMs,
   sending,
+  cancelling,
   onRetry,
+  onCancel,
 }: {
   run: LatestRun;
   nowMs: number;
   sending: boolean;
+  cancelling: boolean;
   onRetry: () => void;
+  onCancel: () => void;
 }) {
   const status = statusLine(run);
   const retryable = run.status === "interrupted";
@@ -81,6 +87,17 @@ function StatusRow({
           {status}
         </p>
       )}
+      {canCancel(run) ? (
+        <Button
+          disabled={cancelling}
+          onClick={onCancel}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Cancel
+        </Button>
+      ) : null}
       {retryable ? (
         <Button
           disabled={!allowed || sending}
@@ -106,6 +123,7 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [attaching, setAttaching] = useState(false);
@@ -221,6 +239,21 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
       setSending(false);
     }
   }, [latestRun, load, startRun, transcript]);
+
+  const cancel = useCallback(async () => {
+    if (latestRun === null) {
+      return;
+    }
+    setCancelling(true);
+    try {
+      await getTrpc().runs.cancel.mutate({ runId: latestRun.id });
+      await load();
+    } catch (cause) {
+      toast.error(messageOf(cause));
+    } finally {
+      setCancelling(false);
+    }
+  }, [latestRun, load]);
 
   // The first failure is shown; the files that did upload stay attached.
   const attachFiles = useCallback(
@@ -390,7 +423,9 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
       <TranscriptView agentName={agent.name} files={files} items={items} />
       {latestRun === null ? null : (
         <StatusRow
+          cancelling={cancelling}
           nowMs={nowMs}
+          onCancel={cancel}
           onRetry={retry}
           run={latestRun}
           sending={sending}

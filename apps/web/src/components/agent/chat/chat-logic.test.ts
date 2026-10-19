@@ -3,6 +3,7 @@ import type { RunStatus } from "@repo/db/shared";
 import type { SessionTranscript } from "#/integrations/trpc/types";
 import {
   type ChatItem,
+  canCancel,
   canRetry,
   collectFileIds,
   fileIdsOfRun,
@@ -63,6 +64,24 @@ describe("isRunActive", () => {
     ["interrupted", false],
   ] as [RunStatus, boolean][])("%s is active: %p", (status, expected) => {
     expect(isRunActive(status)).toBe(expected);
+  });
+});
+
+describe("canCancel", () => {
+  test("is false for no run", () => {
+    expect(canCancel(null)).toBe(false);
+  });
+
+  test.each([
+    ["queued", true],
+    ["offered", true],
+    ["running", true],
+    ["done", false],
+    ["failed", false],
+    ["cancelled", false],
+    ["interrupted", false],
+  ] as [RunStatus, boolean][])("%s run: %p", (status, expected) => {
+    expect(canCancel(makeRun({ status }))).toBe(expected);
   });
 });
 

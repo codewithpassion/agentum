@@ -315,6 +315,8 @@ export interface McpPorts {
     agent: string;
     skillId: string;
   }) => Promise<SkillAssignment>;
+  /** Cancels a queued, offered or running run and returns the run as it is afterwards. */
+  cancelRun: (input: { runId: string }) => Promise<RunInfo>;
   commitSkill: (input: {
     baseVersion: number;
     deletes: string[];

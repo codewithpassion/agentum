@@ -9,6 +9,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { EntryRecord } from "@earendil-works/pi-durable";
 
+import type { ToolOutcome } from "@repo/protocol/safeguards";
 import type { RunEventInput, Usage } from "@repo/services/runs/types";
 
 type EventDraft = Omit<RunEventInput, "seq">;
@@ -152,3 +153,35 @@ export const finalText = (slice: readonly EntryRecord[]): string =>
     .map(nonEmptyTexts)
     .findLast((texts) => texts.length > NONE)
     ?.join("\n") ?? "";
+
+/** The number of assistant messages in the slice, one per model turn. */
+export const turnsOf = (slice: readonly EntryRecord[]): number =>
+  assistantsOf(slice).length;
+
+/** True when the last assistant message in the slice has a tool call, so the run goes on to another turn. False with no assistant message. */
+export const wantsAnotherTurn = (slice: readonly EntryRecord[]): boolean =>
+  assistantsOf(slice)
+    .at(-1)
+    ?.content.some((part) => part.type === "toolCall") ?? false;
+
+const toolCallsOf = (slice: readonly EntryRecord[]): ToolCall[] =>
+  assistantsOf(slice).flatMap((message) =>
+    message.content.filter((part): part is ToolCall => part.type === "toolCall")
+  );
+
+/** One outcome per toolResult in the slice, in order: the name and arguments of the tool call with the same id, and `ok` false when the result is an error. A result with no matching call in the slice is left out. */
+export const toolOutcomesOf = (
+  slice: readonly EntryRecord[]
+): ToolOutcome[] => {
+  const calls = toolCallsOf(slice);
+  return messagesOf(slice)
+    .filter(isToolResult)
+    .flatMap((result) => {
+      const call = calls.find(
+        (candidate) => candidate.id === result.toolCallId
+      );
+      return call === undefined
+        ? []
+        : [{ input: call.arguments, name: call.name, ok: !result.isError }];
+    });
+};

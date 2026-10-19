@@ -380,6 +380,7 @@ describe("tools with an api key", () => {
       "create_skill",
       "commit_skill",
       "approve_skill_version",
+      "cancel_run",
     ]) {
       expect(names).toContain(name);
     }

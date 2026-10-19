@@ -34,6 +34,11 @@ import {
   HEARTBEAT_SECONDS,
 } from "@repo/protocol/machine";
 import { createMasker, type Masker } from "@repo/protocol/masker";
+import {
+  maxTurnsOf,
+  type RunStop,
+  stopMessage,
+} from "@repo/protocol/safeguards";
 import { buildAgentEnv } from "./agent-env.ts";
 import type { Timers } from "./client.ts";
 import type { CommandRunner } from "./command.ts";
@@ -161,6 +166,7 @@ const completionOf = (
   result: RunResult | undefined,
   failure: string | undefined,
   sessionId: string | undefined,
+  turnLimit: number,
   fileIds: string[] = []
 ): CompleteRequest => {
   if (result && !result.isError) {
@@ -170,6 +176,16 @@ const completionOf = (
       text: result.text,
       usage: result.usage,
       ...(fileIds.length > 0 ? { fileIds } : {}),
+    };
+  }
+  if (result?.turnLimitReached) {
+    const stop: RunStop = { kind: "turn_limit", limit: turnLimit };
+    return {
+      error: stopMessage(stop),
+      runtimeRef: result.sessionId,
+      status: "failed",
+      stop,
+      usage: result.usage,
     };
   }
   if (result) {
@@ -305,6 +321,7 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       // The agent's secrets join after the filter: DENY_PATTERN would drop
       // names that contain KEY or TOKEN, and these names often do.
       env: { ...buildAgentEnv(deps.env), ...agentSecrets },
+      maxTurns: maxTurnsOf(claim.agent.runtimeConfig),
       model: claim.agent.model,
       pathToClaudeCodeExecutable: claudeBinary,
       permissionMode: "bypassPermissions",
@@ -497,11 +514,12 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
 
   /** The completion for a run that ended without an abort. */
   const completionBody = async (): Promise<CompleteRequest> => {
+    const turnLimit = maxTurnsOf(claim.agent.runtimeConfig);
     // The process has exited, so nothing changes under library/ any more. The
     // run token still works: the run ends only with the completion below.
     await librarySync?.syncOut();
     if (result === undefined || result.isError || preparedFiles === undefined) {
-      return completionOf(result, failureDetail(), sessionId);
+      return completionOf(result, failureDetail(), sessionId, turnLimit);
     }
     try {
       const outputs = await uploadOutputs({
@@ -515,12 +533,13 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
         { ...result, text: outputs.text },
         undefined,
         sessionId,
+        turnLimit,
         outputs.fileIds
       );
     } catch (error) {
       if (abortReason === undefined) {
         runLog(`attachments failed: ${messageOf(error)}`);
-        return completionOf(result, undefined, sessionId);
+        return completionOf(result, undefined, sessionId, turnLimit);
       }
       return { status: "aborted" };
     }

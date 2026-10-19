@@ -1,5 +1,8 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
+import { useCallback, useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "#/components/ui/badge.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import {
   Table,
   TableBody,
@@ -8,7 +11,9 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
+import { getTrpc } from "#/integrations/trpc/client";
 import type { EventLogEntry } from "#/integrations/trpc/types";
+import { canCancelFromLog } from "./log-logic.ts";
 
 interface LogTableProps {
   agentNames: ReadonlyMap<string, string>;
@@ -32,6 +37,36 @@ function agentLabel(
     return "-";
   }
   return agentNames.get(entry.agentId) ?? "Agent";
+}
+
+const CANCEL_FAILED = "Could not cancel the run.";
+
+function CancelRunButton({ runId }: { runId: string }) {
+  const router = useRouter();
+  const [cancelling, setCancelling] = useState(false);
+  const cancel = useCallback(async () => {
+    setCancelling(true);
+    try {
+      await getTrpc().runs.cancel.mutate({ runId });
+      await router.invalidate();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : CANCEL_FAILED);
+    } finally {
+      setCancelling(false);
+    }
+  }, [router, runId]);
+  return (
+    <Button
+      className="ml-2"
+      data-testid="log-cancel"
+      disabled={cancelling}
+      onClick={cancel}
+      size="sm"
+      variant="outline"
+    >
+      Cancel
+    </Button>
+  );
 }
 
 function LogRow({ agentName, entry }: LogRowProps) {
@@ -65,6 +100,9 @@ function LogRow({ agentName, entry }: LogRowProps) {
             Run {entry.runId.slice(-8)}
           </span>
         )}
+        {entry.runId !== null && canCancelFromLog(entry) ? (
+          <CancelRunButton runId={entry.runId} />
+        ) : null}
       </TableCell>
     </TableRow>
   );

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { dayRangeFilters, isEventType } from "./log-logic.ts";
+import { canCancelFromLog, dayRangeFilters, isEventType } from "./log-logic.ts";
 
 test("a day range runs from the start of the first day to the start of the day after the last", () => {
   expect(dayRangeFilters("2026-02-02", "2026-02-03")).toEqual({
@@ -36,4 +36,53 @@ test("a day that rolls over is dropped", () => {
     from: undefined,
     to: undefined,
   });
+});
+
+const RUN_ID = "r1";
+
+test("canCancelFromLog offers Cancel on the opening events of an active run", () => {
+  for (const runStatus of ["queued", "offered", "running"] as const) {
+    for (const type of ["run.queued", "run.started"] as const) {
+      expect(canCancelFromLog({ runId: RUN_ID, runStatus, type })).toBe(true);
+    }
+  }
+});
+
+test("canCancelFromLog hides Cancel once the run is over", () => {
+  for (const runStatus of [
+    "done",
+    "failed",
+    "cancelled",
+    "interrupted",
+  ] as const) {
+    expect(
+      canCancelFromLog({ runId: RUN_ID, runStatus, type: "run.started" })
+    ).toBe(false);
+  }
+});
+
+test("canCancelFromLog hides Cancel on the other events of a run", () => {
+  expect(
+    canCancelFromLog({
+      runId: RUN_ID,
+      runStatus: "running",
+      type: "run.finished",
+    })
+  ).toBe(false);
+  expect(
+    canCancelFromLog({
+      runId: RUN_ID,
+      runStatus: "running",
+      type: "message.user",
+    })
+  ).toBe(false);
+});
+
+test("canCancelFromLog hides Cancel on an event without a run", () => {
+  expect(
+    canCancelFromLog({ runId: null, runStatus: null, type: "run.started" })
+  ).toBe(false);
+  expect(
+    canCancelFromLog({ runId: null, runStatus: "running", type: "run.started" })
+  ).toBe(false);
 });

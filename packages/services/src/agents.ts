@@ -7,6 +7,7 @@ import {
   type AgentRuntime,
   type AgentStatus,
 } from "@repo/db/shared";
+import { MAX_TURNS_KEY, maxTurnsError } from "@repo/protocol/safeguards";
 import { and, asc, eq } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
@@ -38,11 +39,12 @@ const instructionsSchema = z.string().max(50_000);
 const modelSchema = z.string().min(1).max(100);
 const machineIdSchema = z.string().min(1).max(200);
 const runtimeConfigSchema = z.record(z.string(), z.json());
+export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
 
-/** Fails an agent whose `runtimeConfig` names a cloud environment that does not exist, or that sets one on an agent that does not run in the cloud, or whose library paths are invalid. */
+/** Fails an agent whose `runtimeConfig` names a cloud environment that does not exist, or that sets one on an agent that does not run in the cloud, or whose library paths are invalid, or whose turn limit is out of range, or that sets a turn limit on a managed agent, which has no turn count. */
 const assertRuntimeConfig = (
   runtime: AgentRuntime,
-  runtimeConfig: Record<string, unknown>
+  runtimeConfig: RuntimeConfig
 ): void => {
   const issue = cloudEnvironmentError(runtimeConfig);
   if (issue !== undefined) {
@@ -57,6 +59,13 @@ const assertRuntimeConfig = (
       "invalid",
       `Only a cloud agent takes an environment, not "${runtime}"`
     );
+  }
+  const turnsIssue = maxTurnsError(runtimeConfig);
+  if (turnsIssue !== undefined) {
+    throw new ServiceError("invalid", turnsIssue);
+  }
+  if (runtime === "managed" && MAX_TURNS_KEY in runtimeConfig) {
+    throw new ServiceError("invalid", "A managed agent has no turn limit");
   }
 };
 
@@ -82,7 +91,7 @@ export interface AgentRecord {
   model: string;
   name: string;
   runtime: AgentRuntime;
-  runtimeConfig: Record<string, unknown>;
+  runtimeConfig: RuntimeConfig;
   slug: string;
   status: AgentStatus;
   workspaceId: string;
