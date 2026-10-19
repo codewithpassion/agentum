@@ -162,6 +162,71 @@ describe("dynamicWorkerSandbox", () => {
     expect(result.stderr).toContain("timed out");
   });
 
+  test("a run stopped at the time limit keeps what it printed", async () => {
+    const sandbox = dynamicWorkerSandbox(helper.loader);
+    const result = await sandbox.run(
+      runInput(
+        [
+          fileOf(
+            "scripts/main.ts",
+            [
+              'console.log("first");',
+              'console.error("second");',
+              'console.log("third");',
+              "for (;;) { await new Promise((resolve) => setTimeout(resolve, 10)); }",
+              "",
+            ].join("\n")
+          ),
+        ],
+        { timeoutMs: 100 }
+      )
+    );
+
+    expect(result).toEqual({
+      exitCode: TIMEOUT_EXIT_CODE,
+      stderr: "second\ntimed out after 0.1 s\n",
+      stdout: "first\nthird\n",
+    });
+  });
+
+  test("a run that prints nothing before the time limit reports only the timeout", async () => {
+    const sandbox = dynamicWorkerSandbox(helper.loader);
+    const result = await sandbox.run(
+      runInput([fileOf("scripts/main.ts", "await new Promise(() => {});\n")], {
+        timeoutMs: 100,
+      })
+    );
+
+    expect(result).toEqual({
+      exitCode: TIMEOUT_EXIT_CODE,
+      stderr: "timed out after 0.1 s\n",
+      stdout: "",
+    });
+  });
+
+  test("a run stopped at the CPU limit keeps what it printed", async () => {
+    const loader = {
+      load: () => ({
+        getEntrypoint: () => ({
+          output: () =>
+            Promise.resolve({ stderr: "warned", stdout: "partial\n" }),
+          run: () =>
+            Promise.reject(new Error("Worker exceeded CPU time limit.")),
+        }),
+      }),
+    } as unknown as WorkerLoader;
+    const result = await dynamicWorkerSandbox(loader).run(
+      runInput([fileOf("scripts/main.ts", "")])
+    );
+
+    expect(result).toEqual({
+      exitCode: TIMEOUT_EXIT_CODE,
+      stderr:
+        "warned\nexceeded the CPU time limit: Worker exceeded CPU time limit.\n",
+      stdout: "partial\n",
+    });
+  });
+
   test("a hosted run reads and writes the library and gets stdin and args", async () => {
     const host = hostStub({
       entries: [{ kind: "file", name: "a.txt" }],
