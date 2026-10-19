@@ -670,6 +670,46 @@ export const createLibraryService = ({
   };
 
   /**
+   * Logs one `run_script` call: the library path of the script or "inline",
+   * how it ended, how long it took and how big its output was. The event
+   * never holds the code, args, stdin or output text. The payload is built
+   * field by field, so nothing else on the argument reaches the log.
+   */
+  const recordScript = async (
+    principal: Principal,
+    script: {
+      durationMs: number;
+      exitCode: number;
+      script: string;
+      stderrBytes: number;
+      stdoutBytes: number;
+    }
+  ): Promise<void> => {
+    const member = requireMember(principal, "script.run");
+    authorize(member, "script.run", {
+      kind: LIBRARY_KIND,
+      workspaceId: member.workspaceId,
+    });
+    await atomic([
+      events.insertStatement({
+        actor: actorOf(member),
+        agentId: member.kind === "run" ? member.agentId : undefined,
+        payload: {
+          durationMs: script.durationMs,
+          exitCode: script.exitCode,
+          script: script.script,
+          stderrBytes: script.stderrBytes,
+          stdoutBytes: script.stdoutBytes,
+          text: `Ran ${script.script}, exit code ${script.exitCode}, ${script.durationMs} ms`,
+        },
+        runId: member.kind === "run" ? member.runId : undefined,
+        type: "script.run",
+        workspaceId: member.workspaceId,
+      }),
+    ]);
+  };
+
+  /**
    * Logs a write that hit a conflict and where its copy went. Paths are
    * normalised first, so the event never holds a leading slash.
    */
@@ -706,6 +746,7 @@ export const createLibraryService = ({
     read,
     recordCommand,
     recordConflict,
+    recordScript,
     remove,
     stat,
     write,

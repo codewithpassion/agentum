@@ -112,6 +112,7 @@ export const EVENT_TYPES = [
   "secret.delivered",
   "secret.injected",
   "network.request",
+  "script.run",
   "skill.created",
   "skill.committed",
   "skill.approved",
