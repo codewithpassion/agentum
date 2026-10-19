@@ -750,7 +750,7 @@ export const createSecretsService = ({
     injection: {
       host: string;
       names: readonly string[];
-      via: "outbound" | "relay" | "web_fetch" | "curl";
+      via: "outbound" | "relay" | "run_script" | "web_fetch" | "curl";
     }
   ): Promise<void> => {
     await runEvent("secret.injected", run, {
