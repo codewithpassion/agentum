@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type {
   AssistantMessage,
@@ -36,30 +43,51 @@ const sse = (event: string, data: unknown) =>
 
 const chatChunk = (data: unknown) => `data: ${JSON.stringify(data)}\n\n`;
 
-const CHAT_STREAM = [
-  chatChunk({
-    choices: [
-      {
-        delta: { content: "pelican", role: "assistant" },
-        finish_reason: null,
-        index: 0,
-      },
-    ],
-    created: 1,
-    id: "chatcmpl-test",
-    model: "z-ai/glm-5.3",
-    object: "chat.completion.chunk",
-  }),
-  chatChunk({
-    choices: [{ delta: {}, finish_reason: "stop", index: 0 }],
-    created: 1,
-    id: "chatcmpl-test",
-    model: "z-ai/glm-5.3",
-    object: "chat.completion.chunk",
-    usage: { completion_tokens: 1, prompt_tokens: 1, total_tokens: 2 },
-  }),
-  "data: [DONE]\n\n",
-].join("");
+/** The cost OpenRouter reports in the final chunk of the cost stream. */
+const REPORTED_COST = 0.0123;
+const MILLION = 1_000_000;
+
+const chatStream = (usage: Record<string, number>) =>
+  [
+    chatChunk({
+      choices: [
+        {
+          delta: { content: "pelican", role: "assistant" },
+          finish_reason: null,
+          index: 0,
+        },
+      ],
+      created: 1,
+      id: "chatcmpl-test",
+      model: "z-ai/glm-5.3",
+      object: "chat.completion.chunk",
+    }),
+    chatChunk({
+      choices: [{ delta: {}, finish_reason: "stop", index: 0 }],
+      created: 1,
+      id: "chatcmpl-test",
+      model: "z-ai/glm-5.3",
+      object: "chat.completion.chunk",
+      usage,
+    }),
+    "data: [DONE]\n\n",
+  ].join("");
+
+const CHAT_STREAM = chatStream({
+  completion_tokens: 1,
+  prompt_tokens: 1,
+  total_tokens: 2,
+});
+
+const CHAT_COST_STREAM = chatStream({
+  completion_tokens: 1,
+  cost: REPORTED_COST,
+  prompt_tokens: 1,
+  total_tokens: 2,
+});
+
+/** The stream the fake server sends for OpenAI-compatible paths. */
+let chatReply = CHAT_STREAM;
 
 const ANTHROPIC_STREAM = [
   sse("message_start", {
@@ -134,7 +162,7 @@ describe("cloud models", () => {
             headers: { "content-type": "text/event-stream" },
           });
         }
-        return new Response(CHAT_STREAM, {
+        return new Response(chatReply, {
           headers: { "content-type": "text/event-stream" },
         });
       },
@@ -145,6 +173,14 @@ describe("cloud models", () => {
   afterAll(() => {
     server.stop(true);
   });
+
+  afterEach(() => {
+    chatReply = CHAT_STREAM;
+  });
+
+  /** Pi's catalogue estimate for one prompt token and one completion token. */
+  const catalogueEstimate = (cost: { input: number; output: number }) =>
+    (cost.input + cost.output) / MILLION;
 
   test.each([
     "z-ai/glm-5.3",
@@ -186,6 +222,43 @@ describe("cloud models", () => {
     expect(provider).not.toHaveProperty("only");
 
     expect(textOf(result.content)).toContain("pelican");
+  });
+
+  test("an OpenRouter call takes the cost the response reports", async () => {
+    chatReply = CHAT_COST_STREAM;
+    const models = createCloudModels(store);
+    const model = models.getModel("openrouter", "z-ai/glm-5.3");
+    expect(model).toBeDefined();
+    if (!model) {
+      return;
+    }
+
+    const result = await models.complete(
+      { ...model, baseUrl: server.url.origin },
+      context
+    );
+
+    expect(result.usage.cost.total).toBe(REPORTED_COST);
+  });
+
+  test("an OpenRouter call without a reported cost keeps Pi's catalogue estimate", async () => {
+    const models = createCloudModels(store);
+    const model = models.getModel("openrouter", "z-ai/glm-5.3");
+    expect(model).toBeDefined();
+    if (!model) {
+      return;
+    }
+
+    const result = await models.complete(
+      { ...model, baseUrl: server.url.origin },
+      context
+    );
+
+    const { total } = result.usage.cost;
+    expect(total).not.toBe(REPORTED_COST);
+    expect(Number.isFinite(total)).toBe(true);
+    expect(total).toBeGreaterThanOrEqual(0);
+    expect(total).toBeCloseTo(catalogueEstimate(model.cost), 15);
   });
 
   test("the 17 Oct DeepSeek model, defined here, is requested by its own id", async () => {
@@ -266,6 +339,25 @@ describe("cloud models", () => {
       expect(field(provider, "require_parameters")).toBe(true);
       expect(provider).not.toHaveProperty("order");
     }
+  });
+
+  test("an Anthropic call ignores the reported cost of an OpenRouter stream", async () => {
+    chatReply = CHAT_COST_STREAM;
+    const models = createCloudModels(store);
+    const model = models.getModel("anthropic", "claude-sonnet-5-5");
+    expect(model).toBeDefined();
+    if (!model) {
+      return;
+    }
+
+    const result = await models.complete(
+      { ...model, baseUrl: server.url.origin },
+      context
+    );
+
+    const { total } = result.usage.cost;
+    expect(total).not.toBe(REPORTED_COST);
+    expect(total).toBeCloseTo(catalogueEstimate(model.cost), 15);
   });
 
   test("an Anthropic request carries no provider routing", async () => {

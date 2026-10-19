@@ -114,7 +114,7 @@ const nonEmpty = (value: string | undefined): value is string =>
   value !== undefined && value !== "";
 
 /**
- * Sum of the slice's assistant messages' usage, or undefined when there is no assistant message. `costUsd` is Pi's estimate, summed. `provider` and `model` come from the last assistant message and are left out when empty.
+ * Sum of the slice's assistant messages' usage, or undefined when there is no assistant message. `costUsd` is the sum of each assistant message's `usage.cost.total`: OpenRouter's reported cost when the response had one, otherwise Pi's catalogue estimate. `provider` and `model` come from the last assistant message and are left out when empty.
  */
 export const usageOf = (slice: readonly EntryRecord[]): Usage | undefined => {
   const assistants = assistantsOf(slice);
