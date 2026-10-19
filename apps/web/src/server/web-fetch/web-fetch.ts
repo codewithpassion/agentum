@@ -280,29 +280,27 @@ const readAnswer = async (
 
 /**
  * The answer's headers and `url` as the agent sees them. Once the call has
- * filled a secret, a value in a header becomes its placeholder, and a URL
- * reached through a redirect is not shown: the server built it, and it can
- * spell the value in ways no replacement finds, so the requested URL stands.
+ * filled a secret, a value in a header or the status text becomes its
+ * placeholder, and the `url` is the one requested: a URL reached through a
+ * redirect was built by the server, and it can spell the value in ways no
+ * replacement finds.
  */
 const shownAnswer = (
   call: Call,
   hop: Hop,
-  response: Response,
-  redirects: number
-): { headers: Record<string, string>; url: string } => {
+  response: Response
+): { headers: Record<string, string>; statusText: string; url: string } => {
   const headers = responseHeadersOf(response.headers);
   if (call.secrets.size === 0) {
-    return { headers, url: hop.url.href };
+    return { headers, statusText: response.statusText, url: hop.url.href };
   }
   for (const [name, value] of Object.entries(headers)) {
     headers[name] = scrubSecrets(value, call.secrets);
   }
   return {
     headers,
-    url:
-      redirects === 0
-        ? scrubSecrets(hop.url.href, call.secrets)
-        : call.requestedUrl,
+    statusText: scrubSecrets(response.statusText, call.secrets),
+    url: call.requestedUrl,
   };
 };
 
@@ -310,8 +308,7 @@ const answer = async (
   call: Call,
   hop: Hop,
   response: Response,
-  sentAt: number,
-  redirects: number
+  sentAt: number
 ): Promise<WebFetchResult> => {
   const read = await readAnswer(call, hop, response);
   // A read cut short by the deadline is a timeout, so its status is unknown.
@@ -325,14 +322,14 @@ const answer = async (
   if (!read.ok) {
     return failed(read.error);
   }
-  const shown = shownAnswer(call, hop, response, redirects);
+  const shown = shownAnswer(call, hop, response);
   return {
     bytes: read.bytes,
     durationMs: call.now() - call.started,
     headers: shown.headers,
     ok: true,
     status: response.status,
-    statusText: response.statusText,
+    statusText: shown.statusText,
     url: shown.url,
   };
 };
@@ -392,7 +389,8 @@ const runHop = async (
   redirects: number
 ): Promise<WebFetchResult> => {
   // Only the first request, and the hops after a hop that filled a secret,
-  // may fill one: a `Location` that spells a placeholder fills nothing.
+  // may fill one: a `Location` that spells a placeholder fills nothing in a
+  // call that has filled none.
   const mayFill = redirects === 0 || call.secrets.size > 0;
   const filled = mayFill
     ? await fillHop(hop, call.deps.envGrants ?? (() => Promise.resolve([])))
@@ -428,7 +426,7 @@ const runHop = async (
   // After a fill, a redirect leaves the origin only as the answer: the agent
   // gets the 3xx, with the placeholder in place of any value.
   if (location === null || (call.secrets.size > 0 && !stays(hop, location))) {
-    return answer(call, hop, response, sentAt, redirects);
+    return answer(call, hop, response, sentAt);
   }
   await record(call, {
     ...entryOf(call, hop),

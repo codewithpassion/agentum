@@ -360,6 +360,13 @@ describe("fillHop", () => {
       );
     });
 
+    test("a value whose lower case changes length is still replaced", () => {
+      const turkish = new Map([["TR_KEY", "İstanbulKey1"]]);
+      expect(scrubSecrets("k=İstanbulKey1", turkish)).toBe(
+        "k=hm-secret:TR_KEY"
+      );
+    });
+
     test("leaves a text without a value, and any text without values, alone", () => {
       expect(scrubSecrets("https://a.example/", values)).toBe(
         "https://a.example/"

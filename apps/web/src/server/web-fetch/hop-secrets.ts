@@ -115,30 +115,27 @@ const escapedForRegExp = (text: string): string =>
 /**
  * `text` with each value in `values` replaced by its `hm-secret:NAME`
  * placeholder, whether it stands as the raw text or percent-encoded as in a
- * URL, in any letter case. Longest value first. This is for what
+ * URL, in any letter case. Longest value first, one value at a time. This is for what
  * leaves the fetcher: the result's `url` and the answer's headers.
  */
 export const scrubSecrets = (
   text: string,
   values: ReadonlyMap<string, string>
 ): string => {
-  const placeholders = new Map<string, string>();
+  const needles: [needle: string, placeholder: string][] = [];
   for (const [name, value] of values) {
-    placeholders.set(value.toLowerCase(), placeholderOf(name));
-    placeholders.set(
-      encodeURIComponent(value).toLowerCase(),
-      placeholderOf(name)
+    needles.push([value, placeholderOf(name)]);
+    needles.push([encodeURIComponent(value), placeholderOf(name)]);
+  }
+  needles.sort((a, b) => b[0].length - a[0].length);
+  let scrubbed = text;
+  for (const [needle, placeholder] of needles) {
+    scrubbed = scrubbed.replace(
+      new RegExp(escapedForRegExp(needle), "gi"),
+      () => placeholder
     );
   }
-  if (placeholders.size === 0) {
-    return text;
-  }
-  const ordered = [...placeholders.keys()].sort((a, b) => b.length - a.length);
-  const pattern = new RegExp(ordered.map(escapedForRegExp).join("|"), "gi");
-  return text.replace(
-    pattern,
-    (found) => placeholders.get(found.toLowerCase()) ?? found
-  );
+  return scrubbed;
 };
 
 /** A copy of the headers with each value filled, or undefined when the result is not a valid header. */

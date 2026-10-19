@@ -802,6 +802,29 @@ describe("createWebFetcher fills env secret placeholders", () => {
     ).not.toContain(REAL);
   });
 
+  test("the status text and every header lose a value the server echoes", async () => {
+    const h = harness(
+      () =>
+        new Response("ok", {
+          headers: { "x-echo": `a ${REAL} b` },
+          status: 200,
+          statusText: `OK ${REAL}`,
+        }),
+      { overrides: withGrants([supadataGrant(["api.supadata.ai"])]) }
+    );
+    const result = okOf(
+      await h.fetcher({
+        headers: { "X-Key": PLACEHOLDER },
+        url: "https://api.supadata.ai/",
+      })
+    );
+    expect(result.statusText).toBe(`OK ${PLACEHOLDER}`);
+    expect(result.headers["x-echo"]).toBe(`a ${PLACEHOLDER} b`);
+    expect(JSON.stringify([result.headers, result.statusText])).not.toContain(
+      REAL
+    );
+  });
+
   test("a same-origin redirect that echoes the value is followed and the result url is the requested one", async () => {
     const h = harness(
       byUrl({
