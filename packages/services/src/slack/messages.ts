@@ -28,8 +28,12 @@ export const BATCH_DELAY_MS = 5 * 60 * 1000;
 /** Rows older than this are purged, the retention the Slack app promises. */
 export const MESSAGE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
-/** Caps one batch, so a run never gets an unbounded prompt. */
-export const BATCH_MESSAGES_MAX = 200;
+/**
+ * The most messages one batch takes in and marks as handed over. The prompt
+ * may show fewer (see `formatBatchPrompt`), but every message taken in is
+ * marked, so a burst never causes a second batch inside the five minutes.
+ */
+export const BATCH_MESSAGES_MAX = 1000;
 
 /** Caps one search, so the agent cannot pull a whole channel history in one call. */
 export const SEARCH_LIMIT_MAX = 50;

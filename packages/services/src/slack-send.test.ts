@@ -38,7 +38,7 @@ const APP_ID = "sa1";
 const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString("base64");
 const NEEDS_REINSTALL = /im:write[\s\S]*reinstall/;
 const THREAD_REFUSAL =
-  "thread_ts must be the ts of a message you started with slack_send, or the ts of a message or thread you were shown from Slack, in this same channel or DM.";
+  "thread_ts must be the ts of a message in this same channel or DM, such as one that slack_history, slack_search or a batch of channel messages showed.";
 
 const runPrincipal: Principal = {
   agentId: AGENT,
@@ -482,6 +482,24 @@ test("a stored message of another channel does not unlock a thread here", async 
     )
   ).toMatchObject({ code: "invalid", message: THREAD_REFUSAL });
   expect(callsTo("chat.postMessage")).toHaveLength(0);
+});
+
+test("replies in a thread Slack confirms in this channel, though nothing is stored", async () => {
+  overrides.set("conversations.replies", () =>
+    json({ messages: [{ text: "parent", ts: "1700000000.001100" }], ok: true })
+  );
+
+  await service.send(runPrincipal, {
+    text: "Reply to a message from slack_history",
+    threadTs: "1700000000.001100",
+    to: "#general",
+  });
+
+  expect(callsTo("conversations.replies")).toHaveLength(1);
+  expect(callsTo("chat.postMessage")[0]?.body?.thread_ts).toBe(
+    "1700000000.001100"
+  );
+  expect(threadRows()).toHaveLength(0);
 });
 
 test("allows 30 sends an hour, refuses the 31st, and allows one again after the hour", async () => {

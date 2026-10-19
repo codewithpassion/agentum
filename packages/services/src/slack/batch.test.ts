@@ -527,6 +527,30 @@ test("the batch marks its messages and records a slack.batch_started event", asy
   expect(startCalls).toHaveLength(1);
 });
 
+test("a burst too big for the prompt is all marked, noted in the prompt, and does not start a second batch", async () => {
+  const big = "x".repeat(1900);
+  await store(
+    Array.from({ length: 60 }, (_, index) => ({
+      createdAt: at(0),
+      text: big,
+      ts: `1.${String(index + 1).padStart(6, "0")}`,
+    }))
+  );
+  setNow(5);
+  const runner = makeRunner();
+
+  await runner.runDue();
+
+  expect(startCalls).toHaveLength(1);
+  const text = startCalls[0]?.input.text ?? "";
+  expect(text).toContain("more messages from this period are not shown here.");
+  expect(batchedAtByTs("1.000060")).not.toBeNull();
+
+  setNow(7);
+  await runner.runDue();
+  expect(startCalls).toHaveLength(1);
+});
+
 test("a message stored after the batch waits another 5 minutes", async () => {
   await store([{ createdAt: at(0), text: "first", ts: "1.000001" }]);
   const runner = makeRunner();

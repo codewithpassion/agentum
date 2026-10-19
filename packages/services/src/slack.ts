@@ -369,19 +369,25 @@ export const createSlackService = ({
    * the Harbourmaster user when there is one. Nothing is logged: the text is
    * workspace data.
    */
-  const storeChannelMessage = async (
-    app: SlackAppRow,
-    event: Mention,
-    batchedAt: string | null
-  ) => {
+  const storeChannelMessage = async (app: SlackAppRow, event: Mention) => {
     const link = await findLink(app, event.userId);
     await atomic(
       storeMessage(app, event, {
-        batchedAt,
+        batchedAt: null,
         clerkUserId: link?.clerkUserId ?? null,
         now: clock.now().toISOString(),
       })
     );
+  };
+
+  /**
+   * A channel message the app does not answer. In "all" mode it waits for its
+   * batch, unless it mentions the bot: the `app_mention` event carries that one.
+   */
+  const batchLater = async (app: SlackAppRow, event: Mention) => {
+    if (app.listenMode === "all" && !mentionsBot(app, event.text)) {
+      await storeChannelMessage(app, event);
+    }
   };
 
   const admitUnlinked = async (
@@ -389,8 +395,10 @@ export const createSlackService = ({
     event: Mention,
     eventHash: string
   ): Promise<ReceiveResult> => {
-    // A stranger's reply in a thread is not addressed to the app: no reply, no row.
+    // A stranger's reply in a thread is not addressed to the app: no reply, no
+    // dedupe row. In "all" mode the agent still sees it in a batch.
     if (event.trigger === "thread") {
+      await batchLater(app, event);
       return accepted;
     }
     const now = clock.now().toISOString();
@@ -446,6 +454,7 @@ export const createSlackService = ({
         ? null
         : known;
     if (event.trigger === "thread" && !thread) {
+      await batchLater(app, event);
       return accepted;
     }
     const pendingFiles = event.files
@@ -604,9 +613,7 @@ export const createSlackService = ({
       event.trigger === "channel" ||
       (event.trigger === "thread" && !(await threadSession(app, event)))
     ) {
-      if (app.listenMode === "all" && !mentionsBot(app, event.text)) {
-        await storeChannelMessage(app, event, null);
-      }
+      await batchLater(app, event);
       return accepted;
     }
     return await admit(app, event);

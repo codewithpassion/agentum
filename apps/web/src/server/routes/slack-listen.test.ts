@@ -370,6 +370,32 @@ test("all mode: a thread reply in a thread the app does not know is stored with 
   expect(allRuns()).toEqual([]);
 });
 
+test("all mode: a stranger's reply in a thread the app knows is stored for the batch, and starts no run", async () => {
+  await setListenMode("all");
+  await send(appMention("<@U0BOT> what is up?", tsAt(10)));
+  const runsBefore = allRuns().length;
+
+  await send(
+    plain({
+      text: "stranger reply",
+      thread_ts: tsAt(10),
+      ts: tsAt(11),
+      user: "U0STRANGER",
+    })
+  );
+
+  expect(allRuns()).toHaveLength(runsBefore);
+  expect(storedMessages()).toMatchObject([
+    { batchedAt: expect.any(String), text: "<@U0BOT> what is up?" },
+    {
+      batchedAt: null,
+      clerkUserId: null,
+      text: "stranger reply",
+      threadTs: tsAt(10),
+    },
+  ]);
+});
+
 test("all mode: a message from the app's own bot user or with a bot_id is not stored", async () => {
   await setListenMode("all");
   await send(plain({ text: "echo", ts: tsAt(6), user: "U0BOT" }));

@@ -64,8 +64,9 @@ const formatLine = (
 /**
  * The prompt for one batch: what the channel is, how to answer, then one line
  * per message, oldest first. Lines are added until the next one would push the
- * whole prompt past the size cap. The first message is always kept, so
- * `included` is 0 only when there are no messages.
+ * whole prompt past the size cap, and a closing line counts the messages left
+ * out. The first message is always kept, so `included` is 0 only when there
+ * are no messages.
  */
 export const formatBatchPrompt = ({
   channelId,
@@ -100,7 +101,14 @@ export const formatBatchPrompt = ({
     lines.push(line);
     size += added;
   }
-  return { included: lines.length, text: prefix + lines.join("\n") };
+  const omitted = messages.length - lines.length;
+  // The agent can still read the rest live. Marking them as handed over keeps
+  // the five minutes between two batches of a channel.
+  const note =
+    omitted > 0
+      ? `\n(${omitted} more messages from this period are not shown here. Read them with slack_history.)`
+      : "";
+  return { included: lines.length, text: prefix + lines.join("\n") + note };
 };
 
 export const createBatchRunner = ({
@@ -160,8 +168,7 @@ export const createBatchRunner = ({
   const runOne = async (batch: DueBatch): Promise<void> => {
     const { agentId, appId, channelId, teamId, workspaceId } = batch;
     const messages = await unbatchedMessages(db, { appId, channelId });
-    const [first] = messages;
-    if (!first) {
+    if (messages.length === 0) {
       return;
     }
     const [app] = await db
@@ -173,7 +180,7 @@ export const createBatchRunner = ({
       return;
     }
     const { channelName, names } = await lookupNames(app, channelId, messages);
-    const { included, text } = formatBatchPrompt({
+    const { text } = formatBatchPrompt({
       channelId,
       channelName,
       messages,
@@ -184,7 +191,7 @@ export const createBatchRunner = ({
       agentId,
       input: { text },
       reply: { kind: "none" },
-      requestId: `slack-batch:${appId}:${channelId}:${first.id}`,
+      requestId: `slack-batch:${appId}:${channelId}:${batch.firstMessageId}`,
       session: {
         externalKey: `${teamId}:${channelId}:batch`,
         origin: "slack",
@@ -195,12 +202,12 @@ export const createBatchRunner = ({
         // Marking the messages lands with the run, so a failed start leaves them for the next batch.
         ...markBatchedStatements(db, {
           batchedAt,
-          ids: messages.slice(0, included).map((message) => message.id),
+          ids: messages.map((message) => message.id),
         }),
         events.insertStatement({
           actor: { id: "slack", kind: "system" },
           agentId,
-          payload: { channel: channelId, messageCount: included },
+          payload: { channel: channelId, messageCount: messages.length },
           runId,
           sessionId,
           type: "slack.batch_started",

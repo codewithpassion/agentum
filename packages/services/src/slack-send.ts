@@ -54,7 +54,7 @@ const LEADING_SIGIL = /^[#@]/;
 
 const TOOL_NAMES = "slack_send and slack_destinations";
 const THREAD_REFUSAL =
-  "thread_ts must be the ts of a message you started with slack_send, or the ts of a message or thread you were shown from Slack, in this same channel or DM.";
+  "thread_ts must be the ts of a message in this same channel or DM, such as one that slack_history, slack_search or a batch of channel messages showed.";
 
 export const createSlackSendService = ({
   atomic,
@@ -222,9 +222,12 @@ export const createSlackSendService = ({
 
   /**
    * True for a thread the agent started, or one with a stored message of this
-   * app in this channel: the parent (`ts`) or a reply (`thread_ts`).
+   * app in this channel: the parent (`ts`) or a reply (`thread_ts`). Failing
+   * both, Slack is asked whether the message exists in this channel, so a ts
+   * that only `slack_history` showed works too.
    */
   const threadIsKnown = async (
+    client: SlackClient,
     run: RunPrincipal,
     app: SlackAppRow,
     channelId: string,
@@ -260,7 +263,21 @@ export const createSlackSendService = ({
         )
       )
       .limit(1);
-    return stored !== undefined;
+    if (stored) {
+      return true;
+    }
+    const live = await client.replies({
+      channel: channelId,
+      limit: 1,
+      ts: threadTs,
+    });
+    if (live.kind === "ok") {
+      return live.messages.length > 0;
+    }
+    if (live.kind === "rejected") {
+      return false;
+    }
+    throw slackFailure(live);
   };
 
   /** Writes the thread (when new) and the send event in one atomic write. */
@@ -344,7 +361,7 @@ export const createSlackSendService = ({
 
     if (
       input.threadTs !== undefined &&
-      !(await threadIsKnown(run, app, channelId, input.threadTs))
+      !(await threadIsKnown(client, run, app, channelId, input.threadTs))
     ) {
       throw new ServiceError("invalid", THREAD_REFUSAL);
     }
