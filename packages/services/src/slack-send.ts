@@ -4,7 +4,7 @@
  * account. Every send is capped per agent per hour, written to the event log
  * without its text, and, when it starts a thread, remembered so replies in it
  * route back to the run's session. A reply may also go into a thread whose
- * messages were stored from Slack.
+ * messages were stored from Slack, or that Slack confirms in the channel.
  */
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
