@@ -5,12 +5,13 @@
  * `runs`.
  */
 import type { Database } from "@repo/db";
+import { agents } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { inboxThreads } from "@repo/db/schema/inbox";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
-import type { RunStatus } from "@repo/db/shared";
+import type { AgentRuntime, RunStatus } from "@repo/db/shared";
 import {
   and,
   asc,
@@ -80,6 +81,11 @@ export interface SessionTranscript {
   latestRun: SessionRun | null;
   /** Output file ids of every run in the session, keyed by run id. Runs with no outputs are absent. */
   outputFileIds: Record<string, string[]>;
+  /**
+   * Set when the latest run is queued or offered: the agent's runtime, and whether
+   * another run of the same agent is running. Null otherwise.
+   */
+  queue: { otherRunActive: boolean; runtime: AgentRuntime } | null;
   /** The session with its title: named by its origin, else the first message trimmed. */
   session: SessionRecord & { title: string };
 }
@@ -371,6 +377,40 @@ export const createSessionsService = ({
     return withRuns(rows);
   };
 
+  /** The queue state of a session's latest run, see `SessionTranscript.queue`. */
+  const queueOf = async (
+    session: SessionRow,
+    latest: { id: string; status: RunStatus } | undefined
+  ): Promise<SessionTranscript["queue"]> => {
+    if (
+      latest === undefined ||
+      (latest.status !== "queued" && latest.status !== "offered")
+    ) {
+      return null;
+    }
+    const [agent] = await db
+      .select({ runtime: agents.runtime })
+      .from(agents)
+      .where(eq(agents.id, session.agentId))
+      .limit(1);
+    if (agent === undefined) {
+      return null;
+    }
+    const [other] = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.agentId, session.agentId),
+          eq(runs.workspaceId, session.workspaceId),
+          eq(runs.status, "running"),
+          ne(runs.id, latest.id)
+        )
+      )
+      .limit(1);
+    return { otherRunActive: other !== undefined, runtime: agent.runtime };
+  };
+
   const transcript = async (
     principal: Principal,
     sessionId: string
@@ -413,6 +453,7 @@ export const createSessionsService = ({
         ? { ...toSummary(toRecord(latest)), inputText: latest.inputText }
         : null,
       outputFileIds,
+      queue: await queueOf(row, latest),
       session: {
         ...toSession(row),
         title: titles.get(row.id) ?? "",

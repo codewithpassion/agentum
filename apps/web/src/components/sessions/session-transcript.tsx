@@ -92,7 +92,7 @@ export function SessionTranscriptPanel({
           </p>
           {latestRun === null ? null : (
             <p className="text-muted-foreground text-sm" role="status">
-              {statusLine(latestRun)}
+              {statusLine(latestRun, transcript.queue)}
             </p>
           )}
         </div>
