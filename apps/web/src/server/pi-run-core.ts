@@ -7,6 +7,14 @@
 // object is not following.
 import type { EntryRecord } from "@earendil-works/pi-durable";
 import type { RunStatus } from "@repo/db/shared";
+import {
+  MAX_TURNS_DEFAULT,
+  maxTurnsOf,
+  REPEAT_STOP_AT,
+  type RunStop,
+  stopMessage,
+  streakOf,
+} from "@repo/protocol/safeguards";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { isServiceError } from "@repo/services/errors";
 import { RUN_TOKEN_MAX_AGE_MS } from "@repo/services/run-tokens";
@@ -19,8 +27,11 @@ import {
   failureOf,
   finalText,
   sliceRun,
+  toolOutcomesOf,
   toRunEvents,
+  turnsOf,
   usageOf,
+  wantsAnotherTurn,
 } from "./pi-run-events.ts";
 import type { PiInput } from "./pi-run-files.ts";
 
@@ -108,6 +119,8 @@ interface StoredRun {
   fileIds: string[];
   /** The agent's instructions, so a run submitted again after a wake uses them. */
   instructions: string;
+  /** The turn limit the run was started with. Absent on records saved before it existed: `MAX_TURNS_DEFAULT`. */
+  maxTurns?: number;
   /** The agent's model, so a run submitted again after a wake uses it. */
   model: string;
   /** The uploaded output files, kept so a completion that is tried again does not upload them twice. */
@@ -141,6 +154,20 @@ const describe = (error: unknown): string =>
 /** A write the platform refused because the run is no longer running. */
 const isRunGone = (error: unknown): boolean =>
   isServiceError(error) && error.code === "conflict";
+
+/** The safeguard that ends a run at this point, or undefined while it may go on. */
+const stopOf = (
+  slice: readonly EntryRecord[],
+  maxTurns: number
+): RunStop | undefined => {
+  const streak = streakOf(toolOutcomesOf(slice));
+  if (streak && streak.count >= REPEAT_STOP_AT) {
+    return { count: streak.count, kind: "repeat", tool: streak.tool };
+  }
+  if (turnsOf(slice) >= maxTurns && wantsAnotherTurn(slice)) {
+    return { kind: "turn_limit", limit: maxTurns };
+  }
+};
 
 const refOf = (runId: string, run: StoredRun): RunRef => ({
   agentId: run.agentId,
@@ -266,6 +293,25 @@ export const createRunCore = ({
     };
   };
 
+  /** The result of a run Pi ended: the safeguard's stop when one ended the model before it answered, else what Pi reported. */
+  const finalResultOf = (
+    outcome: PiOutcome,
+    slice: EntryRecord[],
+    maxTurns: number
+  ): RunResult => {
+    const stop =
+      outcome.status === "done" ? undefined : stopOf(slice, maxTurns);
+    if (!stop) {
+      return resultOf(outcome, slice);
+    }
+    return {
+      error: stopMessage(stop),
+      status: "failed",
+      stop,
+      usage: usageOf(slice),
+    };
+  };
+
   /** A finished run's result with its output files uploaded once, however often the completion is tried. */
   const withOutputs = async (
     runId: string,
@@ -328,9 +374,11 @@ export const createRunCore = ({
   };
 
   const work = async (runId: string): Promise<void> => {
-    if ((await load(runId))?.state !== "active") {
+    const run = await load(runId);
+    if (run?.state !== "active") {
       return;
     }
+    const limit = run.maxTurns ?? MAX_TURNS_DEFAULT;
     const sent = { count: 0 };
     let slice: EntryRecord[] = [];
     // Flushes never overlap: two that read the same last seq would write it twice.
@@ -339,6 +387,8 @@ export const createRunCore = ({
     let gone = false;
     // Whether the last flush put everything Pi had committed on the platform.
     let delivered = true;
+    // Whether a safeguard has stopped the model, so the abort goes out once.
+    let stopping = false;
     const step = async () => {
       if (gone) {
         return;
@@ -346,6 +396,10 @@ export const createRunCore = ({
       try {
         slice = await report(runId, sent);
         delivered = true;
+        if (!stopping && stopOf(slice, limit)) {
+          stopping = true;
+          await abortQuietly(runId);
+        }
       } catch (error) {
         delivered = false;
         if (!isRunGone(error)) {
@@ -386,7 +440,7 @@ export const createRunCore = ({
       if (!gone) {
         const done = await completeRun(
           runId,
-          await withOutputs(runId, resultOf(outcome, slice))
+          await withOutputs(runId, finalResultOf(outcome, slice, limit))
         );
         if (done === "waiting") {
           return;
@@ -448,6 +502,7 @@ export const createRunCore = ({
         agentId: run.agentId,
         fileIds: input.inputFileIds,
         instructions: input.agent.instructions,
+        maxTurns: maxTurnsOf(input.agent.runtimeConfig),
         model: input.agent.model,
         startedAt: now(),
         state: "active",

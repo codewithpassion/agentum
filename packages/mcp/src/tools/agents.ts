@@ -125,6 +125,10 @@ export const agentTools = (ports: McpPorts): ToolDefinition[] => [
     run: async (input) => runPayload(await ports.getRun(input)),
     title: "Get run",
   }),
+];
+
+/** Tools that change a run. Only a caller who may write gets them. */
+export const agentWriteTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_DELETE,
     description:

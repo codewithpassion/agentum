@@ -4,6 +4,7 @@ import type { McpPorts } from "./ports";
 import { errorResult } from "./result";
 import {
   createHarbourmasterMcpServer,
+  harbourmasterTools,
   type ServerOptions,
   TOOL_NAMES,
 } from "./server";
@@ -176,6 +177,13 @@ describe("tools/list", () => {
       },
       { readOnly: true }
     ));
+
+  test("cancel_run is listed for a write caller only", () => {
+    const names = (readOnly: boolean) =>
+      harbourmasterTools(fakePorts, { readOnly }).map((tool) => tool.name);
+    expect(names(false)).toContain("cancel_run");
+    expect(names(true)).not.toContain("cancel_run");
+  });
 
   test("a read-only caller gets the read tools for skills and none that change them", () =>
     withClient(

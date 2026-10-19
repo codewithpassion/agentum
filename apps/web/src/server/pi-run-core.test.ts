@@ -234,9 +234,40 @@ const createFakePi = () => {
       append(toolResult);
       await commit();
     },
+    /** The model calls a tool with these arguments and gets a result, which may be an error. */
+    sayToolCall: async (
+      name: string,
+      args: Record<string, string | number>,
+      isError: boolean
+    ) => {
+      const id = `call-${nextId}`;
+      append(
+        assistant([{ arguments: args, id, name, type: "toolCall" }], {
+          stopReason: "toolUse",
+        })
+      );
+      const toolResult: ToolResultMessage = {
+        content: [{ text: isError ? "failed" : "ok", type: "text" }],
+        isError,
+        role: "toolResult",
+        timestamp: 0,
+        toolCallId: id,
+        toolName: name,
+      };
+      append(toolResult);
+      await commit();
+    },
     submitted,
   };
 };
+
+const withRuntimeConfig = (
+  input: CloudStart,
+  runtimeConfig: Record<string, unknown>
+): CloudStart => ({
+  ...input,
+  agent: { ...input.agent, runtimeConfig },
+});
 
 const withInstructions = (
   input: CloudStart,
@@ -1241,5 +1272,140 @@ describe("output files", () => {
       { fileIds: ["out-1"], text: "cleaned" },
     ]);
     spy.mockRestore();
+  });
+});
+
+describe("safeguards", () => {
+  const TEN_TURNS = 10;
+
+  /** The model takes `count` turns, each one a successful tool call with its own arguments. */
+  const takeTurns = async (
+    fake: ReturnType<typeof createFakePi>,
+    count: number
+  ) => {
+    for (let turn = 1; turn <= count; turn += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: each turn follows the one before
+      await fake.sayToolCall("lookup", { turn }, false);
+    }
+  };
+
+  /** The model calls the same tool with the same arguments, and it fails, `count` times. */
+  const failRepeatedly = async (
+    fake: ReturnType<typeof createFakePi>,
+    count: number,
+    args: Record<string, string | number> = { q: "x" }
+  ) => {
+    for (let call = 1; call <= count; call += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: each call follows the one before
+      await fake.sayToolCall("search", args, true);
+    }
+  };
+
+  test("a model that never stops is aborted after its tenth turn and the run fails", async () => {
+    const h = build();
+    await h.core.start(
+      withRuntimeConfig(startOf("run-1"), { maxTurns: TEN_TURNS })
+    );
+    await takeTurns(h.fake, TEN_TURNS - 1);
+    expect(h.fake.aborted).toEqual([]);
+
+    await h.fake.sayToolCall("lookup", { turn: TEN_TURNS }, false);
+    await settle();
+
+    expect(h.fake.aborted).toEqual(["run-1"]);
+    expect(h.completed).toHaveLength(1);
+    expect(h.completed[0]?.result).toMatchObject({
+      error: "Stopped after 10 turns, the agent's limit",
+      status: "failed",
+      stop: { kind: "turn_limit", limit: TEN_TURNS },
+    });
+  });
+
+  test("a run with no maxTurns in its runtimeConfig stops after 100 turns", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    await takeTurns(h.fake, 99);
+    expect(h.fake.aborted).toEqual([]);
+
+    await h.fake.sayToolCall("lookup", { turn: 100 }, false);
+    await settle();
+
+    expect(h.fake.aborted).toEqual(["run-1"]);
+    expect(h.completed[0]?.result).toMatchObject({
+      error: "Stopped after 100 turns, the agent's limit",
+      stop: { kind: "turn_limit", limit: 100 },
+    });
+  });
+
+  test("a tenth turn that is a plain answer ends the run done, not failed", async () => {
+    const h = build();
+    await h.core.start(
+      withRuntimeConfig(startOf("run-1"), { maxTurns: TEN_TURNS })
+    );
+    await takeTurns(h.fake, TEN_TURNS - 1);
+    await h.fake.say("Final answer");
+    h.fake.finish("run-1", { status: "done", text: "Final answer" });
+    await settle();
+
+    expect(h.fake.aborted).toEqual([]);
+    expect(h.completed[0]?.result).toMatchObject({
+      status: "done",
+      text: "Final answer",
+    });
+    expect(h.completed[0]?.result.stop).toBeUndefined();
+  });
+
+  test("five identical failing calls in a row abort the run and fail it", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    await failRepeatedly(h.fake, 4);
+    expect(h.fake.aborted).toEqual([]);
+
+    await failRepeatedly(h.fake, 1);
+    await settle();
+
+    expect(h.fake.aborted).toEqual(["run-1"]);
+    expect(h.completed[0]?.result).toMatchObject({
+      error: "Stopped after 5 identical failed calls to search in a row",
+      status: "failed",
+      stop: { count: 5, kind: "repeat", tool: "search" },
+    });
+  });
+
+  test("a call with different arguments in the middle resets the count", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    await failRepeatedly(h.fake, 2);
+    await failRepeatedly(h.fake, 1, { q: "y" });
+    await failRepeatedly(h.fake, 4);
+    await settle();
+
+    expect(h.fake.aborted).toEqual([]);
+    expect(h.completed).toEqual([]);
+  });
+
+  test("a successful call in the middle resets the count", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    await failRepeatedly(h.fake, 3);
+    await h.fake.sayToolCall("search", { q: "x" }, false);
+    await failRepeatedly(h.fake, 4);
+    await settle();
+
+    expect(h.fake.aborted).toEqual([]);
+    expect(h.completed).toEqual([]);
+  });
+
+  test("a repeat stop keeps the usage of the turns so far", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    await failRepeatedly(h.fake, 5);
+    await settle();
+
+    expect(h.completed[0]?.result.usage).toMatchObject({
+      costUsd: 2.5,
+      inputTokens: 50,
+      outputTokens: 20,
+    });
   });
 });

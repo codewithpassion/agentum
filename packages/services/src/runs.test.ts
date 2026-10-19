@@ -24,6 +24,7 @@ import type {
   Clock,
   DeliveryContext,
   Gateway,
+  RunEventInput,
   RuntimeAdapter,
   StartRunInput,
   StartRunOptions,
@@ -95,6 +96,15 @@ const abandoningAdapter = (abandoned: string[]): RuntimeAdapter => ({
   ...spyAdapter(),
   abandon: (run) => {
     abandoned.push(run.id);
+    return Promise.resolve();
+  },
+});
+
+/** A runtime that records each run it is told to cancel. */
+const cancellingAdapter = (cancelled: string[]): RuntimeAdapter => ({
+  ...spyAdapter(),
+  cancel: (_db, run) => {
+    cancelled.push(run.id);
     return Promise.resolve();
   },
 });
@@ -1624,4 +1634,295 @@ test("a run whose agent holds no grant is stored as it came", async () => {
     { payload: { text: GRANTED_VALUE }, seq: 1, type: "message.assistant" },
   ]);
   expect(JSON.stringify(runEvents(runId))).toContain(GRANTED_VALUE);
+});
+
+const payloadOf = (runId: string, type: string): unknown => {
+  const row = runEvents(runId).find((event) => event.type === type);
+  return JSON.parse(row?.payload ?? "null");
+};
+
+test("a turn-limit stop ends the run failed with its line and event", async () => {
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    status: "failed",
+    stop: { kind: "turn_limit", limit: 100 },
+  });
+  expect(runRow(runId)).toMatchObject({
+    error: "Stopped after 100 turns, the agent's limit",
+    status: "failed",
+  });
+  expect(
+    runEvents(runId)
+      .map((event) => event.type)
+      .slice(-2)
+  ).toEqual(["run.limit_reached", "run.failed"]);
+  expect(payloadOf(runId, "run.limit_reached")).toMatchObject({ limit: 100 });
+});
+
+test("a repeat stop ends the run failed with its line and event", async () => {
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    error: "ignored by the stop",
+    status: "failed",
+    stop: { count: 5, kind: "repeat", tool: "run_skill_script" },
+  });
+  expect(runRow(runId)).toMatchObject({
+    error:
+      "Stopped after 5 identical failed calls to run_skill_script in a row",
+    status: "failed",
+  });
+  expect(
+    runEvents(runId)
+      .map((event) => event.type)
+      .slice(-2)
+  ).toEqual(["run.repeat_stopped", "run.failed"]);
+  expect(payloadOf(runId, "run.repeat_stopped")).toMatchObject({
+    count: 5,
+    tool: "run_skill_script",
+  });
+});
+
+test("a user cancels a running run as cancelled and keeps its earlier events", async () => {
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    { payload: { text: "working" }, seq: 1, type: "message.assistant" },
+  ]);
+  await runs.cancelRun(user, runId);
+  expect(runRow(runId)).toMatchObject({ status: "cancelled" });
+  const recorded = runEvents(runId);
+  const cancelled = recorded.filter((event) => event.type === "run.cancelled");
+  expect(cancelled).toHaveLength(1);
+  expect(cancelled[0]).toMatchObject({ actorId: "u1", actorKind: "user" });
+  expect(recorded.map((event) => event.type)).toContain("message.assistant");
+});
+
+test("cancelling a queued run frees the agent for its next run", async () => {
+  const session = { externalKey: "chat", origin: "ui" as const };
+  const first = await start(user, spyAgentId, { session });
+  advance(SECOND);
+  const second = await start(user, spyAgentId, { session });
+  expect(
+    await failure(runs.claimRun(SYSTEM_PRINCIPAL, second.runId))
+  ).toMatchObject({ code: "conflict" });
+
+  await runs.cancelRun(user, first.runId);
+  expect(runRow(first.runId)).toMatchObject({ status: "cancelled" });
+  await runs.claimRun(SYSTEM_PRINCIPAL, second.runId);
+  expect(runRow(second.runId)).toMatchObject({ status: "running" });
+});
+
+test("cancelling a running run offers the agent's next waiting run", async () => {
+  const offering: RuntimeAdapter = { ...spyAdapter(), offerNextOnEnd: true };
+  runs = buildRuns({ adapters: [offering] });
+  const running = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, running.runId);
+  const waiting = await start(user, spyAgentId);
+  dispatched = [];
+
+  await runs.cancelRun(user, running.runId);
+  expect(runRow(running.runId)).toMatchObject({ status: "cancelled" });
+  expect(dispatched).toEqual([waiting.runId]);
+});
+
+test("a run cannot cancel a run", async () => {
+  const { runId } = await start(user, spyAgentId);
+  const error = await failure(
+    runs.cancelRun(runPrincipal(runId, spyAgentId), runId)
+  );
+  expect(error).toBeInstanceOf(ForbiddenError);
+  expect(runRow(runId)).toMatchObject({ status: "queued" });
+  expect(runEvents(runId).map((event) => event.type)).not.toContain(
+    "run.cancelled"
+  );
+});
+
+const PATH_A = { path: "a" };
+const PATH_B = { path: "b" };
+
+/** One tool call and its result: a failed or a successful round, with its input. */
+interface Round {
+  input?: { path: string };
+  ok: boolean;
+}
+const FAIL: Round = { ok: false };
+const OK: Round = { ok: true };
+const OTHER_FAIL: Round = { input: PATH_B, ok: false };
+
+/** The rounds as tool events, numbered from `firstSeq`: each call, then its result. */
+const rounds = (
+  firstSeq: number,
+  outcomes: readonly Round[]
+): RunEventInput[] =>
+  outcomes.flatMap((round, index): RunEventInput[] => {
+    const seq = firstSeq + index * 2;
+    const toolUseId = `t${seq}`;
+    return [
+      {
+        payload: {
+          input: round.input ?? PATH_A,
+          name: "read_file",
+          toolUseId,
+        },
+        seq,
+        type: "tool.call",
+      },
+      {
+        payload: { ok: round.ok, output: "out", toolUseId },
+        seq: seq + 1,
+        type: "tool.result",
+      },
+    ];
+  });
+
+/** A machine run claimed and running. */
+const claimedRun = async (agentId = spyAgentId): Promise<string> => {
+  const { runId } = await start(user, agentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  return runId;
+};
+
+test("five identical failed calls in one batch stop the run and cancel it", async () => {
+  const cancelled: string[] = [];
+  runs = buildRuns({ adapters: [cancellingAdapter(cancelled)] });
+  const runId = await claimedRun();
+  expect(
+    await runs.ingestRunEvents(
+      SYSTEM_PRINCIPAL,
+      runId,
+      rounds(1, [FAIL, FAIL, FAIL, FAIL, FAIL])
+    )
+  ).toEqual({ lastSeq: 10 });
+  expect(runRow(runId)).toMatchObject({
+    error: "Stopped after 5 identical failed calls to read_file in a row",
+    status: "failed",
+  });
+  // The run's own events have no seq, so they are read in insertion order.
+  expect(
+    runEvents(runId)
+      .map((event) => event.type)
+      .filter((type) => type.startsWith("run."))
+      .slice(-2)
+  ).toEqual(["run.repeat_stopped", "run.failed"]);
+  expect(payloadOf(runId, "run.repeat_stopped")).toMatchObject({
+    count: 5,
+    tool: "read_file",
+  });
+  expect(cancelled).toEqual([runId]);
+});
+
+test("four identical failed calls leave the run running and cancel nothing", async () => {
+  const cancelled: string[] = [];
+  runs = buildRuns({ adapters: [cancellingAdapter(cancelled)] });
+  const runId = await claimedRun();
+  await runs.ingestRunEvents(
+    SYSTEM_PRINCIPAL,
+    runId,
+    rounds(1, [FAIL, FAIL, FAIL, FAIL])
+  );
+  expect(runRow(runId)).toMatchObject({ status: "running" });
+  expect(cancelled).toEqual([]);
+});
+
+test("a different input in the middle of the streak resets the count", async () => {
+  const cancelled: string[] = [];
+  runs = buildRuns({ adapters: [cancellingAdapter(cancelled)] });
+  const runId = await claimedRun();
+  await runs.ingestRunEvents(
+    SYSTEM_PRINCIPAL,
+    runId,
+    rounds(1, [FAIL, FAIL, OTHER_FAIL, FAIL, FAIL])
+  );
+  expect(runRow(runId)).toMatchObject({ status: "running" });
+  expect(cancelled).toEqual([]);
+});
+
+test("a successful call in the middle of the streak resets the count", async () => {
+  const cancelled: string[] = [];
+  runs = buildRuns({ adapters: [cancellingAdapter(cancelled)] });
+  const runId = await claimedRun();
+  await runs.ingestRunEvents(
+    SYSTEM_PRINCIPAL,
+    runId,
+    rounds(1, [FAIL, FAIL, OK, FAIL, FAIL])
+  );
+  expect(runRow(runId)).toMatchObject({ status: "running" });
+  expect(cancelled).toEqual([]);
+});
+
+test("a streak that spans two batches stops on the second", async () => {
+  const cancelled: string[] = [];
+  runs = buildRuns({ adapters: [cancellingAdapter(cancelled)] });
+  const runId = await claimedRun();
+  await runs.ingestRunEvents(
+    SYSTEM_PRINCIPAL,
+    runId,
+    rounds(1, [FAIL, FAIL, FAIL])
+  );
+  expect(runRow(runId)).toMatchObject({ status: "running" });
+  expect(cancelled).toEqual([]);
+
+  await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, rounds(7, [FAIL, FAIL]));
+  expect(runRow(runId)).toMatchObject({
+    error: "Stopped after 5 identical failed calls to read_file in a row",
+    status: "failed",
+  });
+  expect(cancelled).toEqual([runId]);
+});
+
+test("a cloud run is not stopped by the service after five identical failed calls", async () => {
+  const cancelled: string[] = [];
+  runs = buildRuns({
+    adapters: [{ ...cancellingAdapter(cancelled), kind: "cloud" }],
+  });
+  const cloudAgentId = (
+    await agents.create(user, {
+      model: "sonnet",
+      name: "Cloud",
+      runtime: "cloud",
+    })
+  ).id;
+  const runId = await claimedRun(cloudAgentId);
+  await runs.ingestRunEvents(
+    SYSTEM_PRINCIPAL,
+    runId,
+    rounds(1, [FAIL, FAIL, FAIL, FAIL, FAIL])
+  );
+  expect(runRow(runId)).toMatchObject({ status: "running" });
+  expect(cancelled).toEqual([]);
+});
+
+test("an ingest after a repeat stop is refused as the run is no longer running", async () => {
+  runs = buildRuns({ adapters: [cancellingAdapter([])] });
+  const runId = await claimedRun();
+  await runs.ingestRunEvents(
+    SYSTEM_PRINCIPAL,
+    runId,
+    rounds(1, [FAIL, FAIL, FAIL, FAIL, FAIL])
+  );
+  const error = await failure(
+    runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, rounds(11, [OK]))
+  );
+  expect(error).toMatchObject({ code: "conflict" });
+});
+
+test("a repeat stop offers the agent's next waiting run when the runtime offers on end", async () => {
+  const offering: RuntimeAdapter = {
+    ...cancellingAdapter([]),
+    offerNextOnEnd: true,
+  };
+  runs = buildRuns({ adapters: [offering] });
+  const runId = await claimedRun();
+  const waiting = await start(user, spyAgentId);
+  dispatched = [];
+
+  await runs.ingestRunEvents(
+    SYSTEM_PRINCIPAL,
+    runId,
+    rounds(1, [FAIL, FAIL, FAIL, FAIL, FAIL])
+  );
+  expect(runRow(runId)).toMatchObject({ status: "failed" });
+  expect(dispatched).toEqual([waiting.runId]);
 });

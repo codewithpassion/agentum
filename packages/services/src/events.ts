@@ -1,12 +1,14 @@
 import type { Database } from "@repo/db";
 import type { Statement } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
+import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import {
   EVENT_ACTOR_KINDS,
   EVENT_TYPES,
   type EventActorKind,
   type EventType,
+  type RunStatus,
 } from "@repo/db/shared";
 import {
   and,
@@ -96,6 +98,8 @@ export interface EventLogEntry {
   createdAt: string;
   id: string;
   runId: string | null;
+  /** The status of the entry's run now, null when the event has no run. */
+  runStatus: RunStatus | null;
   sessionId: string | null;
   summary: string;
   type: EventType;
@@ -345,23 +349,28 @@ export const createEventsService = ({
       conditions.push(inArray(events.type, f.types));
     }
     const rows = await db
-      .select()
+      .select({ event: events, runStatus: runs.status })
       .from(events)
+      .leftJoin(
+        runs,
+        and(eq(runs.id, events.runId), eq(runs.workspaceId, events.workspaceId))
+      )
       .where(and(...conditions))
       .orderBy(desc(events.id))
       .limit(f.limit + 1)
       .offset(f.page * f.limit);
     return {
-      entries: rows.slice(0, f.limit).map((row) => {
-        const record = toRecord(row);
+      entries: rows.slice(0, f.limit).map(({ event, runStatus }) => {
+        const record = toRecord(event);
         return {
           actor: record.actor,
           agentId: record.agentId,
           createdAt: record.createdAt,
           id: record.id,
           runId: record.runId,
+          runStatus,
           sessionId: record.sessionId,
-          summary: summarize(record.type, record.payload),
+          summary: summarize(record.type, record.payload, record.actor),
           type: record.type,
         };
       }),

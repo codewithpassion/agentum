@@ -19,6 +19,8 @@ export interface RunResult {
   sessionId: string;
   /** `result` text on success; on error the joined `errors` or the subtype name. */
   text: string;
+  /** True exactly when the result subtype is `error_max_turns`. */
+  turnLimitReached: boolean;
   usage: Usage;
 }
 
@@ -154,6 +156,7 @@ export const summariseResult = (message: SDKMessage): RunResult | undefined => {
     isError: message.subtype !== "success",
     sessionId: message.session_id,
     text: resultText(message),
+    turnLimitReached: message.subtype === "error_max_turns",
     usage: usageOf(message),
   };
 };

@@ -335,6 +335,72 @@ test("create and update keep the library paths and refuse a bad list", async () 
   expect(fake.runtimeConfig).toEqual({ libraryPaths: ["notes"] });
 });
 
+test("create and update keep the turn limit and refuse a bad one", async () => {
+  insertMachine("m-mine", WORKSPACE);
+  const cloud = await service.create(user, {
+    model: "sonnet",
+    name: "Cloud turns",
+    runtime: "cloud",
+    runtimeConfig: { maxTurns: 50 },
+  });
+  expect(cloud.runtimeConfig).toEqual({ maxTurns: 50 });
+  const machine = await service.create(user, {
+    machineId: "m-mine",
+    model: "sonnet",
+    name: "Machine turns",
+    runtime: "machine",
+    runtimeConfig: { maxTurns: 50 },
+  });
+  expect(machine.runtimeConfig).toEqual({ maxTurns: 50 });
+
+  const updated = await service.update(user, cloud.id, {
+    runtimeConfig: { maxTurns: 200 },
+  });
+  expect(updated.runtimeConfig).toEqual({ maxTurns: 200 });
+
+  await Promise.all(
+    [9, 501, 12.5, "50"].map((maxTurns) =>
+      Promise.all([
+        expect(
+          service.create(user, {
+            model: "sonnet",
+            name: `Bad turns ${String(maxTurns)}`,
+            runtime: "cloud",
+            runtimeConfig: { maxTurns },
+          })
+        ).rejects.toMatchObject({
+          code: "invalid",
+          message: expect.stringContaining("maxTurns"),
+        }),
+        expect(
+          service.update(user, cloud.id, { runtimeConfig: { maxTurns } })
+        ).rejects.toMatchObject({
+          code: "invalid",
+          message: expect.stringContaining("maxTurns"),
+        }),
+      ])
+    )
+  );
+  expect((await service.get(user, cloud.id)).runtimeConfig).toEqual({
+    maxTurns: 200,
+  });
+});
+
+test("a managed agent refuses a turn limit", async () => {
+  await expect(
+    service.create(user, {
+      model: "sonnet",
+      name: "Managed turns",
+      runtime: "managed",
+      runtimeConfig: { maxTurns: 50 },
+    })
+  ).rejects.toMatchObject({
+    code: "invalid",
+    message: "A managed agent has no turn limit",
+  });
+  expect(db.select().from(agents).all()).toHaveLength(0);
+});
+
 test("archive is idempotent and writes one event", async () => {
   const agent = await service.create(user, {
     model: "m",

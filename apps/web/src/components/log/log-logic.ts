@@ -1,6 +1,14 @@
-import { EVENT_TYPES, type EventType } from "@repo/db/shared";
+import { EVENT_TYPES, type EventType, type RunStatus } from "@repo/db/shared";
 
 export const LOG_PAGE_SIZE = 25;
+
+const ACTIVE_RUN_STATUSES: readonly RunStatus[] = [
+  "queued",
+  "offered",
+  "running",
+];
+/** The events that open a run. The button sits on them only, so a run shows it once or twice. */
+const RUN_START_TYPES: readonly EventType[] = ["run.queued", "run.started"];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -39,3 +47,14 @@ export const dayRangeFilters = (
         : new Date(last.getTime() + DAY_MS).toISOString(),
   };
 };
+
+/** Whether the log offers Cancel on this entry: a run that is still active, on its opening events. */
+export const canCancelFromLog = (entry: {
+  runId: string | null;
+  runStatus: RunStatus | null;
+  type: EventType;
+}): boolean =>
+  entry.runId !== null &&
+  entry.runStatus !== null &&
+  ACTIVE_RUN_STATUSES.includes(entry.runStatus) &&
+  RUN_START_TYPES.includes(entry.type);

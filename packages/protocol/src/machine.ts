@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { runStopSchema } from "./safeguards.ts";
 
 /**
  * The header a daemon sends with its claim to list the optional features it
@@ -180,7 +181,13 @@ const completeOutcomeFields = {
 
 export const completeRequestSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("done"), ...completeOutcomeFields }),
-  z.strictObject({ status: z.literal("failed"), ...completeOutcomeFields }),
+  // A daemon newer than the Worker must not send `stop` before the Worker
+  // accepts it: the schema is strict, so an older Worker rejects the key.
+  z.strictObject({
+    status: z.literal("failed"),
+    ...completeOutcomeFields,
+    stop: runStopSchema.optional(),
+  }),
   z.strictObject({ status: z.literal("aborted") }),
 ]);
 export type CompleteRequest = z.infer<typeof completeRequestSchema>;

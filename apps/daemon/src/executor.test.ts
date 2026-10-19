@@ -1202,6 +1202,81 @@ describe("failures", () => {
   });
 });
 
+describe("the turn limit", () => {
+  const maxTurnsResult = (errors: string[] = []) =>
+    ({
+      ...(toolRun.at(-1) as object),
+      errors,
+      is_error: true,
+      subtype: "error_max_turns",
+    }) as unknown as SDKMessage;
+
+  test("query gets maxTurns 100 when the agent config has none", async () => {
+    const claim = claimWith((c) => {
+      c.agent.runtimeConfig = {};
+    });
+    const run = setup({ claim, script: toolRunScript() });
+    await run.execution.finished;
+    expect(run.optionsSeen[0]?.maxTurns).toBe(100);
+  });
+
+  test("query gets the configured maxTurns", async () => {
+    const claim = claimWith((c) => {
+      c.agent.runtimeConfig = { maxTurns: 25 };
+    });
+    const run = setup({ claim, script: toolRunScript() });
+    await run.execution.finished;
+    expect(run.optionsSeen[0]?.maxTurns).toBe(25);
+  });
+
+  test("an error_max_turns result posts failed with the turn limit as stop", async () => {
+    const claim = claimWith((c) => {
+      c.agent.runtimeConfig = {};
+    });
+    const run = setup({ claim, script: [INIT, maxTurnsResult()] });
+    await run.execution.finished;
+    expect(run.completions[0]?.body).toMatchObject({
+      error: "Stopped after 100 turns, the agent's limit",
+      status: "failed",
+      stop: { kind: "turn_limit", limit: 100 },
+    });
+  });
+
+  test("the stop carries the configured limit", async () => {
+    const claim = claimWith((c) => {
+      c.agent.runtimeConfig = { maxTurns: 25 };
+    });
+    const run = setup({ claim, script: [INIT, maxTurnsResult()] });
+    await run.execution.finished;
+    expect(run.completions[0]?.body).toMatchObject({
+      error: "Stopped after 25 turns, the agent's limit",
+      stop: { kind: "turn_limit", limit: 25 },
+    });
+  });
+
+  test("a success result completes without a stop", async () => {
+    const run = setup({ script: toolRunScript() });
+    await run.execution.finished;
+    const body = run.completions[0]?.body;
+    expect(body?.status).toBe("done");
+    expect(body && "stop" in body).toBe(false);
+  });
+
+  test("a normal error result fails without a stop", async () => {
+    const result = {
+      ...(toolRun.at(-1) as object),
+      errors: ["Budget of $0.01 exceeded"],
+      is_error: true,
+      subtype: "error_max_budget_usd",
+    } as unknown as SDKMessage;
+    const run = setup({ script: [INIT, result] });
+    await run.execution.finished;
+    const body = run.completions[0]?.body;
+    expect(body?.status).toBe("failed");
+    expect(body && "stop" in body).toBe(false);
+  });
+});
+
 describe("skills", () => {
   const SKILLS = [
     { path: "a/SKILL.md", text: "# a" },

@@ -6,6 +6,7 @@ import {
   INPUT_FILES_MAX,
   type RunStatus,
 } from "@repo/db/shared";
+import type { RunStop } from "@repo/protocol/safeguards";
 import { z } from "zod";
 import type { AgentRecord } from "../agents.ts";
 import type { Payload } from "../events/payload.ts";
@@ -169,6 +170,8 @@ export interface RunResult {
   runtimeRef?: string;
   /** `aborted` is accepted for a `running` run (it becomes `interrupted`) and for an `interrupted` one. */
   status: "done" | "failed" | "aborted";
+  /** Set when a safeguard ended the run, so the platform records the matching event. */
+  stop?: RunStop;
   text?: string;
   usage?: Usage;
 }
