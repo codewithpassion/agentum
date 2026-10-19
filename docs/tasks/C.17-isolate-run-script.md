@@ -28,3 +28,4 @@ Asked for by Dom on 19 Oct 2026. Isolate agents have no JavaScript or TypeScript
 ## Log
 - 2026-10-19: added at Dom's request. dispatched.
 - 2026-10-19: review clean after 1 fix round at 143dec4 (docs/reviews/tasks/C.17.md). Merged. Adds a library global (read, write, list) over an RPC binding. Staging check pending.
+- 2026-10-19: staging check passed (prompt paragraph, TS file reading and writing the library, fetch, script.run event without code). Calls 1 to 50 work; call 51 fails with Cloudflare's 'Too many subrequests'. One 60-fetch run hung to the 30 s limit and lost its stdout; not reproduced.
