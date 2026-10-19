@@ -49,6 +49,7 @@ import {
 } from "./slack/messages.ts";
 import { withRetry } from "./slack/post.ts";
 import { verifySlackRequest } from "./slack/signature.ts";
+import type { SlackStatus } from "./slack/status.ts";
 import { findThreadSession } from "./slack/threads.ts";
 import { SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
@@ -106,6 +107,7 @@ export const createSlackService = ({
   fetch: slackFetch,
   runs,
   secretsKey,
+  status,
 }: {
   atomic: Atomic;
   clock: Clock;
@@ -114,6 +116,8 @@ export const createSlackService = ({
   events: EventsService;
   fetch: SlackFetch;
   runs: Pick<RunsService, "fetchPendingFiles" | "offerQueuedRun" | "startRun">;
+  /** Shows the working status in the thread of a Slack-started run. */
+  status: Pick<SlackStatus, "begin">;
   /** `SECRETS_KEY`, base64. */
   secretsKey?: string;
 }) => {
@@ -517,6 +521,12 @@ export const createSlackService = ({
     // Offering the run and fetching its files come after the answer. If the
     // job is lost, the minute tick does the same for a run nobody offered.
     const afterAnswer = async () => {
+      // The status call runs beside the offer, so a slow Slack never delays the run.
+      const statusShown = status
+        .begin(started.runId, app.workspaceId)
+        .catch((error: unknown) => {
+          console.error("Slack status failed", error);
+        });
       try {
         await (pendingFiles.length > 0
           ? runs.fetchPendingFiles(SYSTEM_PRINCIPAL, started.runId)
@@ -529,6 +539,7 @@ export const createSlackService = ({
       } catch (error) {
         console.error("Slack session naming failed", error);
       }
+      await statusShown;
     };
     return { after: afterAnswer, kind: "accepted", runId: started.runId };
   };
