@@ -62,7 +62,7 @@ const DROPPED_REQUEST_HEADERS = new Set([
 ]);
 const DROPPED_REQUEST_PREFIXES = ["cf-", "proxy-", "x-forwarded-"];
 /** Credentials a caller sends for its own origin. They never follow a redirect to another origin. */
-const CROSS_HOST_DROPPED_HEADERS = [
+const CROSS_ORIGIN_DROPPED_HEADERS = [
   "authorization",
   "cookie",
   "proxy-authorization",
@@ -146,7 +146,7 @@ const responseHeadersOf = (headers: Headers): Record<string, string> => {
 
 const withoutCredentials = (headers: Headers): Headers => {
   const copy = new Headers(headers);
-  for (const name of CROSS_HOST_DROPPED_HEADERS) {
+  for (const name of CROSS_ORIGIN_DROPPED_HEADERS) {
     copy.delete(name);
   }
   return copy;

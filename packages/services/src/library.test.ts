@@ -734,7 +734,7 @@ test("recordCommand blanks the secrets of a curl line before it reaches the Log"
   expect(stored).not.toContain("sk-live-abcdef0123456789");
   expect(stored).not.toContain("abc123");
   expect(JSON.parse(stored).script).toBe(
-    'curl -s -H "Authorization: [redacted]" https://api.example.com/v1?[redacted]'
+    "curl api.example.com [arguments redacted]"
   );
 });
 

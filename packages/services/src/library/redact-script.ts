@@ -1,25 +1,24 @@
-// The Log keeps the script of every library `bash` call. A `curl` line in it can
-// carry a token in a header, a `-u` login, a `-d` body or a URL query, and the
-// Log must not hold those. This blanks them, and also the login and query of
-// any http(s) URL in the script. It is a guard for the usual spellings of curl,
-// not a parser. Known limits: a secret that a script builds in a variable, a
-// body sent on stdin (`-d @-`), and options the shell's curl refuses (`-F`,
-// `--oauth2-bearer`) are not seen here. The shell never holds the agent's
+// The Log keeps the script of every library `bash` call. A `curl` line can carry
+// a token in a header, a login, a body or a URL query, in more spellings than a
+// pattern can list, so a line that runs curl is not kept at all. It is logged as
+// `curl <host> [arguments redacted]`, or `curl [arguments redacted]` when the
+// host cannot be read safely. When the script cannot be read with confidence
+// (curl behind a variable, a quote or an alias, a here-document, a quote or
+// bracket left open across lines) the whole script is replaced. A script
+// without the word curl is logged as typed. The shell never holds the agent's
 // workspace secrets, which a credential rule adds outside it.
 
-const CURL = /\bcurl\b/;
-const URL_QUERY = /(https?:\/\/[^\s"'?#]+)\?[^\s"'#]*/gi;
-const URL_USERINFO = /(https?:\/\/)[^\s/@"']+@/gi;
-// A short option may sit in a cluster (`-sH`) and take its value attached (`-uname:pw`).
-const HEADER_OPTION = "(?:^|\\s)(?:-[A-Za-z]*H|--header)(?:\\s+|=)";
-const QUOTED_HEADER = new RegExp(
-  `(${HEADER_OPTION})(?:"([^":]+):[^"]*"|'([^':]+):[^']*')`,
-  "g"
-);
-const BARE_HEADER = new RegExp(`(${HEADER_OPTION})([^\\s"':]+):\\S*`, "g");
-const VALUE_OPTION =
-  /((?:^|\s)(?:-[A-Za-z]*[ubd]\s*|--(?:user|cookie|data(?:-raw|-binary|-urlencode|-ascii)?|json)(?:\s+|=)))("[^"]*"|'[^']*'|\S+)/g;
-const REDACTED = "[redacted]";
+const ANY_CURL = /curl/gi;
+const HAS_CURL = /curl/i;
+/** `curl` where a command starts: after a separator, a keyword, or a short list of wrappers. */
+const COMMAND_CURL =
+  /(?:^|[|&;({`]|\$\(|\b(?:then|do|else|elif|if|while|until|time|exec|command|sudo|xargs(?:\s+-\S+)*)\s)\s*(?:\S*\/)?curl(?=\s|$|[;&|)`])/gim;
+const HEREDOC = /<</;
+const URL_AUTHORITY = /https?:\/\/([^\s"'`/?#\\]*)/i;
+const SAFE_AUTHORITY = /^[A-Za-z0-9.[\]:-]+$/;
+const PORT = /:\d*$/;
+const WHOLE_SCRIPT = "[script redacted: contains curl]";
+const NO_HOST = "curl [arguments redacted]";
 
 /** The lines of one shell command: a trailing backslash joins a line to the next. */
 const commandsOf = (script: string): string[] => {
@@ -36,22 +35,65 @@ const commandsOf = (script: string): string[] => {
   return commands;
 };
 
-const redactCurl = (command: string): string =>
-  command
-    .replace(
-      QUOTED_HEADER,
-      (_match, option: string, double?: string, single?: string) =>
-        double === undefined
-          ? `${option}'${single}: ${REDACTED}'`
-          : `${option}"${double}: ${REDACTED}"`
-    )
-    .replace(BARE_HEADER, `$1$2: ${REDACTED}`)
-    .replace(VALUE_OPTION, `$1${REDACTED}`);
+type Quote = "'" | '"' | null;
 
-/** The script with the secrets a curl command can carry blanked. Other commands are left as typed, apart from the login and query of a URL. */
-export const redactScript = (script: string): string =>
-  commandsOf(script)
-    .map((command) => (CURL.test(command) ? redactCurl(command) : command))
-    .join("\n")
-    .replace(URL_USERINFO, `$1${REDACTED}@`)
-    .replace(URL_QUERY, `$1?${REDACTED}`);
+/** The quote state after `char`. Inside single quotes only the closing quote counts. */
+const quoteAfter = (quote: Quote, char: string): Quote => {
+  if (quote === null) {
+    return char === "'" || char === '"' ? char : null;
+  }
+  return char === quote ? null : quote;
+};
+
+/** Whether every quote and bracket the command opens is closed in it. */
+const isBalanced = (command: string): boolean => {
+  let quote: Quote = null;
+  let depth = 0;
+  let escaped = false;
+  for (const char of command) {
+    if (escaped) {
+      escaped = false;
+    } else if (char === "\\" && quote !== "'") {
+      escaped = true;
+    } else if (quote === null && (char === "(" || char === ")")) {
+      depth += char === "(" ? 1 : -1;
+    } else {
+      quote = quoteAfter(quote, char);
+    }
+  }
+  return quote === null && depth === 0;
+};
+
+/** The host of the first http(s) URL in the command, or null when it is not plainly one. */
+const hostOf = (command: string): string | null => {
+  const authority = URL_AUTHORITY.exec(command)?.[1];
+  if (authority === undefined || !SAFE_AUTHORITY.test(authority)) {
+    return null;
+  }
+  const host = authority.replace(PORT, "");
+  return host === "" ? null : host.toLowerCase();
+};
+
+const summaryOf = (command: string): string => {
+  const host = hostOf(command);
+  return host === null ? NO_HOST : `curl ${host} [arguments redacted]`;
+};
+
+/** The script as the Log may keep it. */
+export const redactScript = (script: string): string => {
+  const mentions = script.match(ANY_CURL)?.length ?? 0;
+  if (mentions === 0) {
+    return script;
+  }
+  const commands = commandsOf(script);
+  const readable =
+    !HEREDOC.test(script) &&
+    (script.match(COMMAND_CURL)?.length ?? 0) === mentions &&
+    commands.every((command) => !HAS_CURL.test(command) || isBalanced(command));
+  if (!readable) {
+    return WHOLE_SCRIPT;
+  }
+  return commands
+    .map((command) => (HAS_CURL.test(command) ? summaryOf(command) : command))
+    .join("\n");
+};
