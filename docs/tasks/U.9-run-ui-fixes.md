@@ -3,7 +3,7 @@ id: U.9
 title: Run and agent UI fixes from the R.2 staging check
 milestone: U
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/U.9-run-ui-fixes
 ---
@@ -25,3 +25,4 @@ Asked for by Dom on 19 Oct 2026, from the R.2 staging check (screenshots in `/ho
 
 ## Log
 - 2026-10-19: added at Dom's request. dispatched.
+- 2026-10-19: review clean after 1 fix round at 423d362 (docs/reviews/tasks/U.9.md). Merged. Adds a Clerk name lookup (apps/web/src/server/clerk-people.ts).
