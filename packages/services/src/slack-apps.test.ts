@@ -1,10 +1,11 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
-import { slackApps } from "@repo/db/schema/slack";
+import { slackApps, slackMessages } from "@repo/db/schema/slack";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { and, eq } from "drizzle-orm";
+import { ulid } from "ulidx";
 import { ZodError } from "zod";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
@@ -13,7 +14,11 @@ import { createEventsService, type EventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
 import { createSecretReader, findAppByApiId } from "./slack/apps.ts";
 import type { SlackFetch } from "./slack/client.ts";
-import { createSlackAppsService, type SlackAppsService } from "./slack-apps.ts";
+import {
+  createSlackAppsService,
+  type SlackAppsService,
+  slackAppSetListenModeInputSchema,
+} from "./slack-apps.ts";
 import type { Principal } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
@@ -140,8 +145,28 @@ const build = (
 
 const appRows = () => db.select().from(slackApps).all();
 
-const eventTypes = (type: "slack.app_installed" | "slack.app_revoked") =>
-  db.select().from(eventRows).where(eq(eventRows.type, type)).all();
+const eventTypes = (
+  type:
+    | "slack.app_installed"
+    | "slack.app_revoked"
+    | "slack.listen_mode_changed"
+) => db.select().from(eventRows).where(eq(eventRows.type, type)).all();
+
+const insertMessage = (appId: string, ts: string, batchedAt: string | null) =>
+  db
+    .insert(slackMessages)
+    .values({
+      appId,
+      batchedAt,
+      channelId: "C0GENERAL",
+      createdAt: START,
+      id: ulid(),
+      slackUserId: "U0PERSON",
+      text: "a channel message",
+      ts,
+      workspaceId: WORKSPACE,
+    })
+    .run();
 
 beforeEach(async () => {
   db = migrated();
@@ -207,6 +232,7 @@ test("paste checks the token with Slack, stores both secrets encrypted and insta
     botUserId: "U0BOT",
     createdAt: START,
     id: summary.id,
+    listenMode: "mentions",
     status: "installed",
     teamId: "T0TEAM",
   });
@@ -239,6 +265,7 @@ test("list returns summaries with no secret field, only for the agent's own work
 
   const listed = await service.list(user, { agentId });
   expect(listed).toHaveLength(1);
+  expect(listed[0]?.listenMode).toBe("mentions");
   for (const key of SECRET_KEYS) {
     expect(listed[0]).not.toHaveProperty(key);
   }
@@ -435,4 +462,143 @@ test("pasting without SECRETS_KEY fails before Slack is called", async () => {
   ).rejects.toThrow("SECRETS_KEY");
   expect(slackCalls).toHaveLength(0);
   expect(appRows()).toHaveLength(0);
+});
+
+test("a user switches an installed app to all and back, and the list shows the mode", async () => {
+  const { id } = await service.paste(user, {
+    agentId,
+    botToken: TOKEN,
+    signingSecret: SIGNING_SECRET,
+  });
+
+  const all = await service.setListenMode(user, { id, listenMode: "all" });
+  expect(all.listenMode).toBe("all");
+  expect((await service.list(user, { agentId }))[0]?.listenMode).toBe("all");
+
+  const back = await service.setListenMode(user, {
+    id,
+    listenMode: "mentions",
+  });
+  expect(back.listenMode).toBe("mentions");
+  expect((await service.list(user, { agentId }))[0]?.listenMode).toBe(
+    "mentions"
+  );
+});
+
+test("a mode change writes one event, and an unchanged mode writes none", async () => {
+  const { id } = await service.paste(user, {
+    agentId,
+    botToken: TOKEN,
+    signingSecret: SIGNING_SECRET,
+  });
+
+  await service.setListenMode(user, { id, listenMode: "mentions" });
+  expect(eventTypes("slack.listen_mode_changed")).toHaveLength(0);
+
+  await service.setListenMode(user, { id, listenMode: "all" });
+  const [event] = eventTypes("slack.listen_mode_changed");
+  expect(eventTypes("slack.listen_mode_changed")).toHaveLength(1);
+  expect(event?.actorId).toBe("u1");
+  expect(event?.agentId).toBe(agentId);
+  expect(JSON.parse(event?.payload ?? "{}")).toEqual({
+    appId: "A0APP",
+    listenMode: "all",
+    slackAppRowId: id,
+    teamId: "T0TEAM",
+  });
+});
+
+test("switching to mentions marks only this app's unbatched messages as batched", async () => {
+  const { id } = await service.paste(user, {
+    agentId,
+    botToken: TOKEN,
+    signingSecret: SIGNING_SECRET,
+  });
+  const other = await service.paste(user, {
+    agentId: secondAgentId,
+    botToken: OTHER_TOKEN,
+    signingSecret: OTHER_SECRET,
+  });
+  await service.setListenMode(user, { id, listenMode: "all" });
+  await service.setListenMode(user, { id: other.id, listenMode: "all" });
+  insertMessage(id, "1.000001", null);
+  insertMessage(id, "1.000002", "2026-10-16T09:00:00.000Z");
+  insertMessage(other.id, "2.000001", null);
+
+  await service.setListenMode(user, { id, listenMode: "mentions" });
+
+  const rows = db.select().from(slackMessages).all();
+  const batchedAt = (appId: string, ts: string) =>
+    rows.find((row) => row.appId === appId && row.ts === ts)?.batchedAt;
+  expect(batchedAt(id, "1.000001")).toBe(START);
+  expect(batchedAt(id, "1.000002")).toBe("2026-10-16T09:00:00.000Z");
+  expect(batchedAt(other.id, "2.000001")).toBeNull();
+});
+
+test("switching to all leaves the messages alone", async () => {
+  const { id } = await service.paste(user, {
+    agentId,
+    botToken: TOKEN,
+    signingSecret: SIGNING_SECRET,
+  });
+  insertMessage(id, "1.000001", null);
+
+  await service.setListenMode(user, { id, listenMode: "all" });
+
+  const [row] = db.select().from(slackMessages).all();
+  expect(row?.batchedAt).toBeNull();
+});
+
+test("only a signed-in session changes the listen mode", async () => {
+  const { id } = await service.paste(user, {
+    agentId,
+    botToken: TOKEN,
+    signingSecret: SIGNING_SECRET,
+  });
+
+  await expect(
+    service.setListenMode(fromSlack, { id, listenMode: "all" })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect((await service.list(user, { agentId }))[0]?.listenMode).toBe(
+    "mentions"
+  );
+});
+
+test("another workspace's app is not found when its mode is changed", async () => {
+  const { id } = await service.paste(user, {
+    agentId,
+    botToken: TOKEN,
+    signingSecret: SIGNING_SECRET,
+  });
+
+  await expect(
+    service.setListenMode(outsider, { id, listenMode: "all" })
+  ).rejects.toMatchObject({ code: "not_found" });
+  expect(eventTypes("slack.listen_mode_changed")).toHaveLength(0);
+});
+
+test("a revoked app cannot change its listen mode", async () => {
+  const { id } = await service.paste(user, {
+    agentId,
+    botToken: TOKEN,
+    signingSecret: SIGNING_SECRET,
+  });
+  await service.revoke(user, { id });
+
+  await expect(
+    service.setListenMode(user, { id, listenMode: "all" })
+  ).rejects.toMatchObject({
+    code: "conflict",
+    message: "The Slack app is revoked. Connect it again first.",
+  });
+  expect(eventTypes("slack.listen_mode_changed")).toHaveLength(0);
+});
+
+test("the schema rejects a mode that is not in the list", () => {
+  expect(() =>
+    slackAppSetListenModeInputSchema.parse({ id: "x", listenMode: "some" })
+  ).toThrow(ZodError);
+  expect(
+    slackAppSetListenModeInputSchema.parse({ id: "x", listenMode: "all" })
+  ).toEqual({ id: "x", listenMode: "all" });
 });

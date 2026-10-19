@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { saveTextFile } from "#/components/slack/download-manifest";
+import { ListenModeControl } from "#/components/slack/listen-mode-control";
 import { SlackPasteForm } from "#/components/slack/slack-paste-form";
 import { errorMessage } from "#/components/triggers/format";
 import { Badge } from "#/components/ui/badge";
@@ -16,16 +17,18 @@ const statusLabels: Record<SlackAppRecord["status"], string> = {
 
 function SlackAppRow({
   app,
+  onListenModeChanged,
   onRevoke,
 }: {
   app: SlackAppRecord;
+  onListenModeChanged: () => void;
   onRevoke: (id: string) => void;
 }) {
   const appId = app.id;
   const handleRevoke = useCallback(() => onRevoke(appId), [appId, onRevoke]);
 
   return (
-    <li className="flex items-center justify-between gap-3 py-3">
+    <li className="flex flex-wrap items-center justify-between gap-3 py-3">
       <div className="flex flex-col gap-1 text-sm">
         <span>Team {app.teamId}</span>
         <span className="text-muted-foreground">App {app.appId}</span>
@@ -40,6 +43,9 @@ function SlackAppRow({
           </Button>
         )}
       </div>
+      {app.status === "installed" && (
+        <ListenModeControl app={app} onChanged={onListenModeChanged} />
+      )}
     </li>
   );
 }
@@ -127,7 +133,12 @@ function SlackPanel({ agent }: AgentTabProps) {
         ) : (
           <ul className="divide-y">
             {apps.map((app) => (
-              <SlackAppRow app={app} key={app.id} onRevoke={revokeApp} />
+              <SlackAppRow
+                app={app}
+                key={app.id}
+                onListenModeChanged={reload}
+                onRevoke={revokeApp}
+              />
             ))}
           </ul>
         )}

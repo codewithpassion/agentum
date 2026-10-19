@@ -29,7 +29,11 @@ const SKILL_WRITE_NAMES = [
   "unassign_skill",
 ];
 
-const SLACK_READ_NAMES = ["slack_destinations"];
+const SLACK_READ_NAMES = [
+  "slack_destinations",
+  "slack_history",
+  "slack_search",
+];
 
 const SLACK_WRITE_NAMES = ["slack_send"];
 
@@ -108,6 +112,8 @@ const fakePorts: McpPorts = {
   skillLog: uncalled,
   skillShow: uncalled,
   slackDestinations: uncalled,
+  slackHistory: uncalled,
+  slackSearch: uncalled,
   slackSend: uncalled,
   unassignSkill: uncalled,
 };

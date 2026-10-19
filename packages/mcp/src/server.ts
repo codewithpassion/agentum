@@ -91,6 +91,8 @@ export const TOOL_NAMES = harbourmasterTools({
   skillLog: unusedPort,
   skillShow: unusedPort,
   slackDestinations: unusedPort,
+  slackHistory: unusedPort,
+  slackSearch: unusedPort,
   slackSend: unusedPort,
   unassignSkill: unusedPort,
 }).map((tool) => tool.name);

@@ -3,32 +3,30 @@
  * channel its bot is in, or in a DM with a person who linked their Slack
  * account. Every send is capped per agent per hour, written to the event log
  * without its text, and, when it starts a thread, remembered so replies in it
- * route back to the run's session.
+ * route back to the run's session. A reply may also go into a thread whose
+ * messages were stored from Slack.
  */
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
-import { slackApps, slackThreads } from "@repo/db/schema/slack";
+import { slackMessages, slackThreads } from "@repo/db/schema/slack";
 import { identityLinks } from "@repo/db/schema/workspaces";
-import { and, asc, eq, gt } from "drizzle-orm";
-import { authorize } from "./authz.ts";
+import { and, asc, eq, gt, or } from "drizzle-orm";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
-import { createSecretReader, type SlackAppRow } from "./slack/apps.ts";
-import {
-  createSlackClient,
-  type SlackCallResult,
-  type SlackClient,
-  type SlackFetch,
-} from "./slack/client.ts";
+import type { SlackAppRow } from "./slack/apps.ts";
+import type { SlackClient, SlackFetch } from "./slack/client.ts";
 import { withRetry } from "./slack/post.ts";
+import {
+  createAgentClients,
+  type RunPrincipal,
+  requireRun,
+  slackFailure,
+} from "./slack/run-app.ts";
 import { startedThreadStatement } from "./slack/threads.ts";
 import type { Principal } from "./workspaces.ts";
-
-type RunPrincipal = Extract<Principal, { kind: "run" }>;
-type FailedResult = Exclude<SlackCallResult, { kind: "ok" }>;
 
 export interface SlackSendOptions {
   atomic: Atomic;
@@ -54,60 +52,9 @@ const TEXT_MAX = 4000;
 const CHANNEL_ID = /^[CG][A-Z0-9]{8,}$/;
 const LEADING_SIGIL = /^[#@]/;
 
-const NO_APP =
-  "This agent has no Slack app installed. Ask a workspace owner to install one for it in Harbourmaster, then try again.";
-const RUN_ONLY =
-  "slack_send and slack_destinations work only inside an agent run.";
-const MISSING_SCOPE =
-  "The agent's Slack app is missing a permission (missing_scope). A workspace owner must add the im:write scope (and the message.channels and message.groups events) to the app in Slack, reinstall it, and paste the new bot token in Harbourmaster.";
-
-/** Turns a failed Slack call into the refusal an agent can act on. */
-const slackFailure = (result: FailedResult): ServiceError => {
-  if (result.kind === "config") {
-    if (
-      result.error === "not_in_channel" ||
-      result.error === "channel_not_found"
-    ) {
-      return new ServiceError(
-        "conflict",
-        "The bot is not in that channel. Ask a person to add it with /invite, or pick one from slack_destinations."
-      );
-    }
-    return result.error === "missing_scope"
-      ? new ServiceError("conflict", MISSING_SCOPE)
-      : new ServiceError(
-          "conflict",
-          `Slack refused: ${result.error}. The app may need to be reinstalled.`
-        );
-  }
-  if (result.kind === "rate_limited") {
-    return new ServiceError(
-      "conflict",
-      `Slack is rate limiting this app. Try again in ${result.retryAfterSeconds} seconds.`
-    );
-  }
-  if (result.kind === "transient") {
-    return new ServiceError(
-      "conflict",
-      "Slack did not answer. Try again in a moment."
-    );
-  }
-  return new ServiceError(
-    "conflict",
-    `Slack refused the message: ${result.error}.`
-  );
-};
-
-const requireRun = (principal: Principal): RunPrincipal => {
-  if (principal.kind !== "run") {
-    throw new ServiceError("invalid", RUN_ONLY);
-  }
-  authorize(principal, SEND_ACTION, {
-    kind: "slack",
-    workspaceId: principal.workspaceId,
-  });
-  return principal;
-};
+const TOOL_NAMES = "slack_send and slack_destinations";
+const THREAD_REFUSAL =
+  "thread_ts must be the ts of a message you started with slack_send, or the ts of a message or thread you were shown from Slack, in this same channel or DM.";
 
 export const createSlackSendService = ({
   atomic,
@@ -117,30 +64,13 @@ export const createSlackSendService = ({
   fetch: slackFetch,
   secretsKey,
 }: SlackSendOptions) => {
-  const secrets = createSecretReader(secretsKey);
-
-  /** The agent's oldest installed Slack app, with a client for its bot token. */
-  const agentClient = async (
-    run: RunPrincipal
-  ): Promise<{ app: SlackAppRow; client: SlackClient }> => {
-    const [app] = await db
-      .select()
-      .from(slackApps)
-      .where(
-        and(
-          eq(slackApps.workspaceId, run.workspaceId),
-          eq(slackApps.agentId, run.agentId),
-          eq(slackApps.status, "installed")
-        )
-      )
-      .orderBy(asc(slackApps.createdAt))
-      .limit(1);
-    const token = app ? await secrets.botToken(app) : null;
-    if (!(app && token)) {
-      throw new ServiceError("not_found", NO_APP);
-    }
-    return { app, client: createSlackClient({ fetch: slackFetch, token }) };
-  };
+  const agentClient = createAgentClients({
+    db,
+    fetch: slackFetch,
+    secretsKey,
+  });
+  const requireSendRun = (principal: Principal): RunPrincipal =>
+    requireRun(principal, SEND_ACTION, TOOL_NAMES);
 
   const channelsOf = async (client: SlackClient) => {
     const result = await client.listChannels();
@@ -190,7 +120,7 @@ export const createSlackSendService = ({
   };
 
   const destinations = async (principal: Principal) => {
-    const run = requireRun(principal);
+    const run = requireSendRun(principal);
     const { app, client } = await agentClient(run);
     const [channels, people] = await Promise.all([
       channelsOf(client),
@@ -290,13 +220,17 @@ export const createSlackSendService = ({
     }
   };
 
-  const threadIsStarted = async (
+  /**
+   * True for a thread the agent started, or one with a stored message of this
+   * app in this channel: the parent (`ts`) or a reply (`thread_ts`).
+   */
+  const threadIsKnown = async (
     run: RunPrincipal,
     app: SlackAppRow,
     channelId: string,
     threadTs: string
   ): Promise<boolean> => {
-    const [row] = await db
+    const [started] = await db
       .select({ id: slackThreads.id })
       .from(slackThreads)
       .where(
@@ -309,7 +243,24 @@ export const createSlackSendService = ({
         )
       )
       .limit(1);
-    return row !== undefined;
+    if (started) {
+      return true;
+    }
+    const [stored] = await db
+      .select({ id: slackMessages.id })
+      .from(slackMessages)
+      .where(
+        and(
+          eq(slackMessages.appId, app.id),
+          eq(slackMessages.channelId, channelId),
+          or(
+            eq(slackMessages.ts, threadTs),
+            eq(slackMessages.threadTs, threadTs)
+          )
+        )
+      )
+      .limit(1);
+    return stored !== undefined;
   };
 
   /** Writes the thread (when new) and the send event in one atomic write. */
@@ -373,7 +324,7 @@ export const createSlackSendService = ({
     to: string;
     ts: string;
   }> => {
-    const run = requireRun(principal);
+    const run = requireSendRun(principal);
     const { app, client } = await agentClient(run);
 
     const text = input.text.trim();
@@ -393,12 +344,9 @@ export const createSlackSendService = ({
 
     if (
       input.threadTs !== undefined &&
-      !(await threadIsStarted(run, app, channelId, input.threadTs))
+      !(await threadIsKnown(run, app, channelId, input.threadTs))
     ) {
-      throw new ServiceError(
-        "invalid",
-        "thread_ts must be the ts of a message you started with slack_send in this same channel or DM."
-      );
+      throw new ServiceError("invalid", THREAD_REFUSAL);
     }
 
     const posted = await withRetry(clock, () =>

@@ -6,9 +6,15 @@
  * downloads and the reply to an unknown sender come back as an `after` job for
  * the route to hand to `waitUntil`. The minute tick finishes any download that
  * job did not.
+ *
+ * In "all messages" mode a plain channel message is stored in `slack_messages`
+ * and waits there. The minute tick's `runDueBatches` gives each channel's
+ * waiting messages to the agent in one run, at most one run per channel every
+ * five minutes. A message that starts a run is stored as already handed over.
+ * Stored messages are kept for 90 days, and `purgeSeen` deletes the older ones.
  */
 import type { Database } from "@repo/db";
-import type { Atomic } from "@repo/db/atomic";
+import type { Atomic, Statement } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { slackEventsSeen } from "@repo/db/schema/slack";
 import { identityLinks, workspaces } from "@repo/db/schema/workspaces";
@@ -26,6 +32,7 @@ import {
   findAppByApiId,
   type SlackAppRow,
 } from "./slack/apps.ts";
+import { createBatchRunner } from "./slack/batch.ts";
 import { createSlackClient, type SlackFetch } from "./slack/client.ts";
 import {
   eventCallbackSchema,
@@ -33,6 +40,13 @@ import {
   type SlackEvent,
   urlVerificationSchema,
 } from "./slack/event-parse.ts";
+import {
+  deleteMessage,
+  MESSAGE_RETENTION_MS,
+  purgeMessagesBefore,
+  storeMessageStatement,
+  updateMessageText,
+} from "./slack/messages.ts";
 import { withRetry } from "./slack/post.ts";
 import { verifySlackRequest } from "./slack/signature.ts";
 import { findThreadSession } from "./slack/threads.ts";
@@ -76,6 +90,13 @@ const REGEX_SPECIALS = /[.*+?^${}()|[\]\\]/g;
 
 const accepted: ReceiveResult = { kind: "accepted" };
 
+/**
+ * Whether a text mentions the app. Slack writes a mention as `<@U123>`, or
+ * `<@U123|name>` with a display name, and both start with `<@U123`.
+ */
+const mentionsBot = (app: SlackAppRow, text: string): boolean =>
+  text.includes(`<@${app.botUserId}`);
+
 export const createSlackService = ({
   atomic,
   clock,
@@ -97,6 +118,14 @@ export const createSlackService = ({
   secretsKey?: string;
 }) => {
   const secrets = createSecretReader(secretsKey);
+  const batches = createBatchRunner({
+    clock,
+    db,
+    events,
+    fetch: slackFetch,
+    runs,
+    secretsKey,
+  });
 
   const seenRow = (
     workspaceId: string,
@@ -302,6 +331,59 @@ export const createSlackService = ({
       workspaceId: app.workspaceId,
     });
 
+  /**
+   * The statement that stores a message, or none when the message has no text
+   * to keep. `batchedAt` is null for a message that waits for its batch, and the
+   * time it was stored for one that already went to an agent in a run.
+   */
+  const storeMessage = (
+    app: SlackAppRow,
+    event: Mention,
+    {
+      batchedAt,
+      clerkUserId,
+      now,
+    }: { batchedAt: string | null; clerkUserId: string | null; now: string }
+  ): Statement[] => {
+    if (event.text.trim() === "") {
+      return [];
+    }
+    return [
+      storeMessageStatement(db, {
+        appId: app.id,
+        batchedAt,
+        channelId: event.channelId,
+        clerkUserId,
+        createdAt: now,
+        slackUserId: event.userId,
+        text: event.text,
+        threadTs: event.threadTs ?? null,
+        ts: event.ts,
+        workspaceId: app.workspaceId,
+      }),
+    ];
+  };
+
+  /**
+   * Stores a plain channel message for the app's batch. The sender's link names
+   * the Harbourmaster user when there is one. Nothing is logged: the text is
+   * workspace data.
+   */
+  const storeChannelMessage = async (
+    app: SlackAppRow,
+    event: Mention,
+    batchedAt: string | null
+  ) => {
+    const link = await findLink(app, event.userId);
+    await atomic(
+      storeMessage(app, event, {
+        batchedAt,
+        clerkUserId: link?.clerkUserId ?? null,
+        now: clock.now().toISOString(),
+      })
+    );
+  };
+
   const admitUnlinked = async (
     app: SlackAppRow,
     event: Mention,
@@ -311,8 +393,16 @@ export const createSlackService = ({
     if (event.trigger === "thread") {
       return accepted;
     }
+    const now = clock.now().toISOString();
+    // A stranger's mention starts no run, so it is stored here as already handed
+    // over. Otherwise the batch would answer a mention the app is replying to.
+    const stored =
+      app.listenMode === "all" && event.trigger === "mention"
+        ? storeMessage(app, event, { batchedAt: now, clerkUserId: null, now })
+        : [];
     await atomic([
       seenRow(app.workspaceId, eventHash, null),
+      ...stored,
       events.insertStatement({
         actor: { id: "slack", kind: "system" },
         agentId: app.agentId,
@@ -361,6 +451,7 @@ export const createSlackService = ({
     const pendingFiles = event.files
       .slice(0, INPUT_FILES_MAX)
       .map((file) => ({ ...file, teamId: app.teamId }));
+    const now = clock.now().toISOString();
     const input: StartRunInput = {
       agentId: app.agentId,
       input: { text },
@@ -389,6 +480,12 @@ export const createSlackService = ({
       {
         alongside: ({ runId, sessionId }) => [
           seenRow(app.workspaceId, eventHash, runId),
+          // Stored as already handed over, so no batch repeats what this run answers.
+          ...storeMessage(app, event, {
+            batchedAt: now,
+            clerkUserId,
+            now,
+          }),
           events.insertStatement({
             actor: { id: clerkUserId, kind: "user" },
             agentId: app.agentId,
@@ -470,6 +567,51 @@ export const createSlackService = ({
     }
   };
 
+  /** Acts on one parsed event from an app whose signature and team were checked. */
+  const handleEvent = async (
+    app: SlackAppRow,
+    event: SlackEvent
+  ): Promise<ReceiveResult> => {
+    // An edit or a deletion changes only a row that exists. In either mode, a
+    // message the app never stored matches no row and changes nothing.
+    if (event.kind === "message_edited") {
+      if (event.text !== "") {
+        await updateMessageText(db, {
+          appId: app.id,
+          channelId: event.channelId,
+          text: event.text,
+          ts: event.ts,
+        });
+      }
+      return accepted;
+    }
+    if (event.kind === "message_deleted") {
+      await deleteMessage(db, {
+        appId: app.id,
+        channelId: event.channelId,
+        ts: event.ts,
+      });
+      return accepted;
+    }
+    if (event.kind !== "message" || event.userId === app.botUserId) {
+      return accepted;
+    }
+    // A channel message, or a thread reply in a thread the app does not know,
+    // is not for the app to answer. In "all" mode it is stored for its batch.
+    // Slack also sends a mention as an `app_mention`, which starts the run. So
+    // this path writes no dedupe row, and it skips a mention for that reason.
+    if (
+      event.trigger === "channel" ||
+      (event.trigger === "thread" && !(await threadSession(app, event)))
+    ) {
+      if (app.listenMode === "all" && !mentionsBot(app, event.text)) {
+        await storeChannelMessage(app, event, null);
+      }
+      return accepted;
+    }
+    return await admit(app, event);
+  };
+
   /**
    * Authenticates and admits one request. `rawBody` is the body exactly as
    * Slack sent it. Throws when the atomic write fails, so the route answers
@@ -518,18 +660,13 @@ export const createSlackService = ({
       await recordRefusal(app, "team");
       return { kind: "unauthorized" };
     }
-    const event = parseEvent(payload);
-    if (event.kind !== "message" || event.userId === app.botUserId) {
-      return accepted;
-    }
-    // A channel message is for the app only inside a thread it knows.
-    if (event.trigger === "thread" && !(await threadSession(app, event))) {
-      return accepted;
-    }
-    return await admit(app, event);
+    return await handleEvent(app, parseEvent(payload));
   };
 
-  /** Trims the dedupe rows Slack can no longer retry. */
+  /**
+   * Trims the dedupe rows Slack can no longer retry, and the stored messages
+   * older than the 90 day retention. The minute tick runs it.
+   */
   const purgeSeen = async (): Promise<void> => {
     await db
       .delete(slackEventsSeen)
@@ -539,9 +676,13 @@ export const createSlackService = ({
           new Date(clock.now().getTime() - SEEN_TTL_MS).toISOString()
         )
       );
+    await purgeMessagesBefore(
+      db,
+      new Date(clock.now().getTime() - MESSAGE_RETENTION_MS).toISOString()
+    );
   };
 
-  return { purgeSeen, receive };
+  return { purgeSeen, receive, runDueBatches: batches.runDue };
 };
 
 export type SlackService = ReturnType<typeof createSlackService>;

@@ -7,9 +7,13 @@
  */
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
-import { slackApps } from "@repo/db/schema/slack";
-import type { SlackAppStatus } from "@repo/db/shared";
-import { and, desc, eq } from "drizzle-orm";
+import { slackApps, slackMessages } from "@repo/db/schema/slack";
+import {
+  SLACK_LISTEN_MODES,
+  type SlackAppStatus,
+  type SlackListenMode,
+} from "@repo/db/shared";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -32,6 +36,7 @@ const MANIFEST_ACTION = "slack_apps.manifest";
 const LIST_ACTION = "slack_apps.list";
 const PASTE_ACTION = "slack_apps.paste";
 const REVOKE_ACTION = "slack_apps.revoke";
+const SET_LISTEN_MODE_ACTION = "slack_apps.set_listen_mode";
 
 const idString = z.string().min(1).max(200);
 
@@ -65,6 +70,14 @@ export type SlackAppPasteInput = z.input<typeof slackAppPasteInputSchema>;
 export const slackAppRevokeInputSchema = z.strictObject({ id: idString });
 export type SlackAppRevokeInput = z.input<typeof slackAppRevokeInputSchema>;
 
+export const slackAppSetListenModeInputSchema = z.strictObject({
+  id: idString,
+  listenMode: z.enum(SLACK_LISTEN_MODES),
+});
+export type SlackAppSetListenModeInput = z.input<
+  typeof slackAppSetListenModeInputSchema
+>;
+
 /** A Slack app as a signed-in user may see it. Has no secret of any kind. */
 export interface SlackAppSummary {
   agentId: string;
@@ -72,6 +85,7 @@ export interface SlackAppSummary {
   botUserId: string;
   createdAt: string;
   id: string;
+  listenMode: SlackListenMode;
   status: SlackAppStatus;
   teamId: string;
 }
@@ -82,6 +96,7 @@ const summaryColumns = {
   botUserId: slackApps.botUserId,
   createdAt: slackApps.createdAt,
   id: slackApps.id,
+  listenMode: slackApps.listenMode,
   status: slackApps.status,
   teamId: slackApps.teamId,
 };
@@ -370,7 +385,73 @@ export const createSlackAppsService = ({
     return await summaryOf(user.workspaceId, parsed.id);
   };
 
-  return { list, manifest, paste, revoke };
+  /**
+   * Switches an installed app between answering mentions only and listening to
+   * every channel message. Switching to mentions also marks the messages that
+   * were waiting for a batch as batched, so they do not start a run later.
+   */
+  const setListenMode = async (
+    principal: Principal,
+    input: SlackAppSetListenModeInput
+  ): Promise<SlackAppSummary> => {
+    const user = requireUser(principal, SET_LISTEN_MODE_ACTION);
+    const parsed = slackAppSetListenModeInputSchema.parse(input);
+    authorize(user, SET_LISTEN_MODE_ACTION, {
+      id: parsed.id,
+      kind: SLACK_APP_KIND,
+      workspaceId: user.workspaceId,
+    });
+    const current = await summaryOf(user.workspaceId, parsed.id);
+    if (current.status === "revoked") {
+      throw new ServiceError(
+        "conflict",
+        "The Slack app is revoked. Connect it again first."
+      );
+    }
+    if (current.listenMode === parsed.listenMode) {
+      return current;
+    }
+    const now = clock.now().toISOString();
+    await atomic([
+      db
+        .update(slackApps)
+        .set({ listenMode: parsed.listenMode })
+        .where(
+          and(
+            eq(slackApps.workspaceId, user.workspaceId),
+            eq(slackApps.id, parsed.id)
+          )
+        ),
+      events.insertStatement({
+        actor: { id: user.userId, kind: "user" },
+        agentId: current.agentId,
+        payload: {
+          appId: current.appId,
+          listenMode: parsed.listenMode,
+          slackAppRowId: current.id,
+          teamId: current.teamId,
+        },
+        type: "slack.listen_mode_changed",
+        workspaceId: user.workspaceId,
+      }),
+      ...(parsed.listenMode === "mentions"
+        ? [
+            db
+              .update(slackMessages)
+              .set({ batchedAt: now })
+              .where(
+                and(
+                  eq(slackMessages.appId, current.id),
+                  isNull(slackMessages.batchedAt)
+                )
+              ),
+          ]
+        : []),
+    ]);
+    return await summaryOf(user.workspaceId, parsed.id);
+  };
+
+  return { list, manifest, paste, revoke, setListenMode };
 };
 
 export type SlackAppsService = ReturnType<typeof createSlackAppsService>;

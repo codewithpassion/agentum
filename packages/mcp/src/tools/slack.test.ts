@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { McpPorts, SlackDestinations, SlackSendResult } from "../ports";
+import type {
+  McpPorts,
+  SlackDestinations,
+  SlackHistory,
+  SlackSearchResult,
+  SlackSendResult,
+} from "../ports";
 import { ToolError } from "../result";
 import { createHarbourmasterMcpServer } from "../server";
 import { connectClient, textOf } from "../testing";
@@ -55,6 +61,8 @@ const fakePorts = (overrides: Partial<McpPorts> = {}): McpPorts => ({
   skillLog: uncalled("skillLog"),
   skillShow: uncalled("skillShow"),
   slackDestinations: uncalled("slackDestinations"),
+  slackHistory: uncalled("slackHistory"),
+  slackSearch: uncalled("slackSearch"),
   slackSend: uncalled("slackSend"),
   unassignSkill: uncalled("unassignSkill"),
   ...overrides,
@@ -103,6 +111,212 @@ describe("slack_destinations", () => {
       "No channels. The Slack bot is in no channel yet. Ask a person to add it with /invite in a channel.",
       "No linked people.",
     ]);
+  });
+});
+
+const HISTORY: SlackHistory = {
+  channel: "C0123456789",
+  messages: [
+    {
+      author: "Ana",
+      text: "Deploy is green",
+      threadTs: null,
+      time: "2026-10-18T09:00:00.000Z",
+      ts: "1760000000.000100",
+    },
+    {
+      author: "Ben",
+      text: "Thanks",
+      threadTs: "1760000000.000100",
+      time: "2026-10-18T09:05:00.000Z",
+      ts: "1760000300.000200",
+    },
+  ],
+  nextCursor: "dGhyZWFk",
+};
+
+const SEARCH: SlackSearchResult = {
+  hits: [
+    {
+      author: "Ana",
+      channel: "#ops",
+      text: "deploy failed on staging",
+      threadTs: null,
+      time: "2026-10-18T10:00:00.000Z",
+      ts: "1760003600.000100",
+    },
+    {
+      author: "Ben",
+      channel: "#ops",
+      text: "deploy rolled back",
+      threadTs: "1760000000.000100",
+      time: "2026-10-18T09:30:00.000Z",
+      ts: "1760001800.000100",
+    },
+  ],
+};
+
+describe("slack_history", () => {
+  test("passes every field to the port unchanged and renders one line per message with the next cursor last", async () => {
+    const received: unknown[] = [];
+    const input = {
+      channel: "#ops",
+      cursor: "abc",
+      limit: 50,
+      since: "2026-10-18T00:00:00Z",
+      thread_ts: "1760000000.000100",
+      until: "2026-10-19T00:00:00+02:00",
+    };
+    const result = await callTool(
+      fakePorts({
+        slackHistory: (received_input) => {
+          received.push(received_input);
+          return Promise.resolve(HISTORY);
+        },
+      }),
+      "slack_history",
+      input
+    );
+    expect(received).toEqual([input]);
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual(HISTORY);
+    expect(textOf(result).split("\n")).toEqual([
+      "[2026-10-18T09:00:00.000Z] Ana (ts 1760000000.000100): Deploy is green",
+      "[2026-10-18T09:05:00.000Z] Ben (ts 1760000300.000200, thread 1760000000.000100): Thanks",
+      'More messages: pass cursor "dGhyZWFk".',
+    ]);
+  });
+
+  test("says there are no messages when the result is empty", async () => {
+    const result = await callTool(
+      fakePorts({
+        slackHistory: () =>
+          Promise.resolve({
+            channel: "C0123456789",
+            messages: [],
+            nextCursor: null,
+          }),
+      }),
+      "slack_history",
+      { channel: "#ops" }
+    );
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toBe("No messages.");
+  });
+
+  test("gives a ToolError from the port as an error result carrying its message", async () => {
+    const result = await callTool(
+      fakePorts({
+        slackHistory: () =>
+          Promise.reject(
+            new ToolError(
+              "not_found",
+              'The bot is not in "#nowhere". Pick one from slack_destinations.'
+            )
+          ),
+      }),
+      "slack_history",
+      { channel: "#nowhere" }
+    );
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain(
+      'The bot is not in "#nowhere". Pick one from slack_destinations.'
+    );
+  });
+
+  test("refuses a limit outside 1 to 200 without calling the port", async () => {
+    const received: unknown[] = [];
+    const ports = fakePorts({
+      slackHistory: (input) => {
+        received.push(input);
+        return Promise.resolve(HISTORY);
+      },
+    });
+    const results = await Promise.all(
+      [0, 201].map((limit) =>
+        callTool(ports, "slack_history", { channel: "#ops", limit })
+      )
+    );
+    for (const result of results) {
+      expect(result.isError).toBe(true);
+    }
+    expect(received).toEqual([]);
+  });
+});
+
+describe("slack_search", () => {
+  test("passes every field to the port unchanged and renders one line per hit", async () => {
+    const received: unknown[] = [];
+    const input = {
+      channel: "#ops",
+      limit: 10,
+      person: "ana@example.com",
+      query: "deploy",
+      since: "2026-10-18T00:00:00Z",
+      until: "2026-10-19T00:00:00+02:00",
+    };
+    const result = await callTool(
+      fakePorts({
+        slackSearch: (received_input) => {
+          received.push(received_input);
+          return Promise.resolve(SEARCH);
+        },
+      }),
+      "slack_search",
+      input
+    );
+    expect(received).toEqual([input]);
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual(SEARCH);
+    expect(textOf(result).split("\n")).toEqual([
+      "[2026-10-18T10:00:00.000Z] Ana in #ops (ts 1760003600.000100): deploy failed on staging",
+      "[2026-10-18T09:30:00.000Z] Ben in #ops (ts 1760001800.000100, thread 1760000000.000100): deploy rolled back",
+    ]);
+  });
+
+  test("says there are no matches when the search finds nothing", async () => {
+    const result = await callTool(
+      fakePorts({
+        slackSearch: () => Promise.resolve({ hits: [] }),
+      }),
+      "slack_search",
+      { query: "deploy" }
+    );
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toBe("No matches.");
+  });
+
+  test("gives a ToolError from the port as an error result carrying its message", async () => {
+    const result = await callTool(
+      fakePorts({
+        slackSearch: () =>
+          Promise.reject(
+            new ToolError("forbidden", "Search is off for this agent.")
+          ),
+      }),
+      "slack_search",
+      { query: "deploy" }
+    );
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("Search is off for this agent.");
+  });
+
+  test("refuses an empty query and a limit above 50 without calling the port", async () => {
+    const received: unknown[] = [];
+    const ports = fakePorts({
+      slackSearch: (input) => {
+        received.push(input);
+        return Promise.resolve({ hits: [] });
+      },
+    });
+    const empty = await callTool(ports, "slack_search", { query: "" });
+    const tooMany = await callTool(ports, "slack_search", {
+      limit: 51,
+      query: "deploy",
+    });
+    expect(empty.isError).toBe(true);
+    expect(tooMany.isError).toBe(true);
+    expect(received).toEqual([]);
   });
 });
 

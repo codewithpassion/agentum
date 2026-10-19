@@ -44,6 +44,12 @@ export interface SlackClient {
     channelId: string
   ) => Promise<SlackCallResult<{ name: string | null }>>;
   downloadFile: (url: string, maxBytes: number) => Promise<SlackDownload>;
+  /** Reads one page of a channel's messages. Needs the channels:history and groups:history scopes. */
+  history: (
+    request: HistoryWindow
+  ) => Promise<
+    SlackCallResult<{ messages: HistoryMessage[]; nextCursor: string | null }>
+  >;
   /** Lists public and private channels the bot is a member of. Follows up to 5 pages. */
   listChannels: () => Promise<SlackCallResult<{ channels: ChannelEntry[] }>>;
   /** Opens (or finds) the DM between the bot and a user. */
@@ -64,6 +70,12 @@ export interface SlackClient {
     text: string;
     threadTs?: string;
   }) => Promise<SlackCallResult<{ ts: string }>>;
+  /** Reads one page of the replies in a thread, parent included. Needs the channels:history and groups:history scopes. */
+  replies: (
+    request: HistoryWindow & { ts: string }
+  ) => Promise<
+    SlackCallResult<{ messages: HistoryMessage[]; nextCursor: string | null }>
+  >;
   uploadFile: (request: {
     bytes: Uint8Array<ArrayBuffer>;
     channel: string;
@@ -172,6 +184,73 @@ function readChannelPage(
   return {
     channels,
     nextCursor: typeof cursor === "string" ? cursor : "",
+  };
+}
+
+export interface HistoryMessage {
+  botId: string | null;
+  text: string;
+  threadTs: string | null;
+  ts: string;
+  user: string | null;
+}
+
+interface HistoryWindow {
+  channel: string;
+  cursor?: string;
+  latest?: string;
+  limit: number;
+  oldest?: string;
+}
+
+function historyQuery(request: HistoryWindow): Record<string, string> {
+  const query: Record<string, string> = {
+    channel: request.channel,
+    limit: String(request.limit),
+  };
+  if (request.cursor !== undefined) {
+    query.cursor = request.cursor;
+  }
+  if (request.latest !== undefined) {
+    query.latest = request.latest;
+  }
+  if (request.oldest !== undefined) {
+    query.oldest = request.oldest;
+  }
+  return query;
+}
+
+/** Reads one page of messages in Slack's order. Entries without a ts are skipped. */
+function readHistoryPage(
+  body: Body
+): { messages: HistoryMessage[]; nextCursor: string | null } | null {
+  if (!Array.isArray(body.messages)) {
+    return null;
+  }
+  const messages = body.messages.flatMap((entry) => {
+    const {
+      bot_id: botId,
+      text,
+      thread_ts: threadTs,
+      ts,
+      user,
+    } = asBody(entry);
+    return typeof ts === "string"
+      ? [
+          {
+            botId: typeof botId === "string" ? botId : null,
+            text: typeof text === "string" ? text : "",
+            threadTs: typeof threadTs === "string" ? threadTs : null,
+            ts,
+            user: typeof user === "string" ? user : null,
+          },
+        ]
+      : [];
+  });
+  const cursor = asBody(body.response_metadata).next_cursor;
+  return {
+    messages,
+    nextCursor: typeof cursor === "string" && cursor !== "" ? cursor : null,
   };
 }
 
@@ -372,6 +451,16 @@ export const createSlackClient = (deps: {
       return readCapped(response, maxBytes);
     },
 
+    history(request) {
+      return callSlack(
+        {
+          method: "GET",
+          url: apiUrl("conversations.history", historyQuery(request)),
+        },
+        readHistoryPage
+      );
+    },
+
     listChannels() {
       return listChannelPages("", MAX_CHANNEL_PAGES, []);
     },
@@ -438,6 +527,19 @@ export const createSlackClient = (deps: {
           const { ts } = body;
           return typeof ts === "string" ? { ts } : null;
         }
+      );
+    },
+
+    replies(request) {
+      return callSlack(
+        {
+          method: "GET",
+          url: apiUrl("conversations.replies", {
+            ...historyQuery(request),
+            ts: request.ts,
+          }),
+        },
+        readHistoryPage
       );
     },
 

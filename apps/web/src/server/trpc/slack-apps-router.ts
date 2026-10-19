@@ -4,6 +4,7 @@ import {
   slackAppListInputSchema,
   slackAppPasteInputSchema,
   slackAppRevokeInputSchema,
+  slackAppSetListenModeInputSchema,
   slackManifestInputSchema,
 } from "@repo/services/slack-apps";
 import { router, workspaceProcedure } from "./init.ts";
@@ -28,5 +29,10 @@ export const slackAppsRouter = router({
     .input(slackAppRevokeInputSchema)
     .mutation(({ ctx, input }) =>
       ctx.services.slackApps.revoke(ctx.principal, input)
+    ),
+  setListenMode: workspaceProcedure
+    .input(slackAppSetListenModeInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.slackApps.setListenMode(ctx.principal, input)
     ),
 });
