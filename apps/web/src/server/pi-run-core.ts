@@ -128,6 +128,8 @@ interface StoredRun {
   /** When the run was first started, from `now()`. */
   startedAt: number;
   state: "active" | "finished";
+  /** The safeguard that stopped the run, kept from the moment it is found: Pi's transcript changes once the abort lands. */
+  stop?: RunStop;
   /** The input, so a run whose submission never reached Pi can be submitted again. */
   text: string;
   workspaceId: string;
@@ -257,11 +259,22 @@ export const createRunCore = ({
   const isOver = async (runId: string) =>
     TERMINAL_STATUSES.includes(await statusOf(runId));
 
-  const abortQuietly = async (runId: string) => {
+  /** Whether the abort call went through. A failed one is tried again by the next flush. */
+  const abortQuietly = async (runId: string): Promise<boolean> => {
     try {
       await pi.abort(runId);
+      return true;
     } catch (error) {
       console.error(`PiRun: stopping run ${runId}: ${describe(error)}`);
+      return false;
+    }
+  };
+
+  /** Keeps the first stop found on the stored run, so the result names it after the abort changes the transcript. */
+  const saveStop = async (runId: string, stop: RunStop) => {
+    const run = await load(runId);
+    if (run && !run.stop) {
+      await save(runId, { ...run, stop });
     }
   };
 
@@ -294,13 +307,16 @@ export const createRunCore = ({
   };
 
   /** The result of a run Pi ended: the safeguard's stop when one ended the model before it answered, else what Pi reported. */
-  const finalResultOf = (
+  const finalResultOf = async (
+    runId: string,
     outcome: PiOutcome,
     slice: EntryRecord[],
     maxTurns: number
-  ): RunResult => {
+  ): Promise<RunResult> => {
     const stop =
-      outcome.status === "done" ? undefined : stopOf(slice, maxTurns);
+      outcome.status === "done"
+        ? undefined
+        : ((await load(runId))?.stop ?? stopOf(slice, maxTurns));
     if (!stop) {
       return resultOf(outcome, slice);
     }
@@ -396,9 +412,10 @@ export const createRunCore = ({
       try {
         slice = await report(runId, sent);
         delivered = true;
-        if (!stopping && stopOf(slice, limit)) {
-          stopping = true;
-          await abortQuietly(runId);
+        const found = stopping ? undefined : stopOf(slice, limit);
+        if (found) {
+          await saveStop(runId, found);
+          stopping = await abortQuietly(runId);
         }
       } catch (error) {
         delivered = false;
@@ -440,7 +457,10 @@ export const createRunCore = ({
       if (!gone) {
         const done = await completeRun(
           runId,
-          await withOutputs(runId, finalResultOf(outcome, slice, limit))
+          await withOutputs(
+            runId,
+            await finalResultOf(runId, outcome, slice, limit)
+          )
         );
         if (done === "waiting") {
           return;

@@ -1,12 +1,18 @@
 // Warns the agent when it repeats the same failing tool call. The streak logic is
-// pure and lives in @repo/protocol/safeguards; this file keeps the streak in the
-// run's storage and adds the warning to the tool result.
+// pure and lives in @repo/protocol/safeguards; this file adds the warning to the
+// request messages Pi sends to the model. It works on those messages only, so it
+// keeps no state: every later request carries the warning again, and a call Pi
+// settles without running (bad arguments, unknown tool) counts like any other.
 import type {
-  ToolDiagnostic,
-  ToolExecutionResult,
-  ToolHookCall,
+  Message,
+  ToolCall,
+  ToolResultMessage,
+} from "@earendil-works/pi-ai";
+import {
+  defineExtension,
+  GenerationTask,
+  hook,
 } from "@earendil-works/pi-durable";
-import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
 import {
   nextStreak,
   REPEAT_WARN_AT,
@@ -14,74 +20,65 @@ import {
   type Streak,
 } from "@repo/protocol/safeguards";
 
-/** The storage key of the streak of identical failing calls. */
-export const STREAK_KEY = "repeat-streak";
-
-/** The part of a Durable Object's storage this guard uses. */
-export interface StreakStorage {
-  delete: (key: string) => Promise<unknown>;
-  get: <T>(key: string) => Promise<T | undefined>;
-  put: <T>(key: string, value: T) => Promise<void>;
-}
-
-/** Forgets the streak, so a new run starts without one. */
-export const resetStreak = (storage: StreakStorage): Promise<unknown> =>
-  storage.delete(STREAK_KEY);
-
-/** Adds the warning to the output, or to the diagnostics when the result has no output. */
+/** The result with the warning as one more text part, after what the result already has. */
 const withWarning = (
-  result: ToolExecutionResult,
+  message: ToolResultMessage,
   warning: string
-): ToolExecutionResult => {
-  if (result.output === undefined) {
-    const diagnostic: ToolDiagnostic = {
-      code: "repeat-warning",
-      message: warning,
-      severity: "warn",
-    };
-    return {
-      ...result,
-      diagnostics: [...(result.diagnostics ?? []), diagnostic],
-    };
-  }
-  return {
-    ...result,
-    output: [...result.output, { text: warning, type: "text" }],
-  };
+): ToolResultMessage => ({
+  ...message,
+  content: [...message.content, { text: warning, type: "text" }],
+});
+
+/**
+ * The messages with the repeat warning added to the third failed result of an
+ * identical call in a row. Every other message is returned as the same object.
+ */
+export const warnRepeats = (
+  messages: readonly Message[]
+): readonly Message[] => {
+  const calls = new Map<string, ToolCall>();
+  let streak: Streak | undefined;
+  return messages.map((message) => {
+    if (message.role === "assistant") {
+      for (const part of message.content) {
+        if (part.type === "toolCall") {
+          calls.set(part.id, part);
+        }
+      }
+      return message;
+    }
+    if (message.role !== "toolResult") {
+      return message;
+    }
+    const call = calls.get(message.toolCallId);
+    if (!call) {
+      return message;
+    }
+    streak = nextStreak(streak, {
+      input: call.arguments,
+      name: call.name,
+      ok: !message.isError,
+    });
+    if (!streak || streak.count !== REPEAT_WARN_AT) {
+      return message;
+    }
+    return withWarning(message, repeatWarning(streak.tool, streak.count));
+  });
 };
 
-/** The `afterTool` handler: counts the streak and warns on the third identical failure. */
-export const repeatGuardHook =
-  (storage: StreakStorage) =>
-  async (
-    call: ToolHookCall,
-    result: ToolExecutionResult
-  ): Promise<ToolExecutionResult | undefined> => {
-    try {
-      const previous = await storage.get<Streak>(STREAK_KEY);
-      const streak = nextStreak(previous, {
-        input: call.arguments,
-        name: call.name,
-        ok: result.isError !== true,
-      });
-      if (streak === undefined) {
-        await storage.delete(STREAK_KEY);
-        return;
-      }
-      await storage.put(STREAK_KEY, streak);
-      if (streak.count !== REPEAT_WARN_AT) {
-        return;
-      }
-      return withWarning(result, repeatWarning(streak.tool, streak.count));
-    } catch (error) {
-      // A throw here would block the tool, so a storage error only costs the warning.
-      console.warn("RepeatGuard: streak not updated", error);
-    }
-  };
-
-/** The extension that installs the repeat guard on every tool call. */
-export const repeatGuardExtension = (storage: StreakStorage) =>
+/** The extension that adds the repeat warning to every request Pi makes. */
+export const repeatGuardExtension = () =>
   defineExtension({
-    hooks: [hook(ToolTask, { afterTool: repeatGuardHook(storage) })],
+    hooks: [
+      hook(GenerationTask, {
+        beforeRequest: ({ messages }) => {
+          const warned = warnRepeats(messages);
+          const changed = warned.some(
+            (message, index) => message !== messages[index]
+          );
+          return changed ? { messages: warned } : undefined;
+        },
+      }),
+    ],
     name: "repeat-guard",
   });

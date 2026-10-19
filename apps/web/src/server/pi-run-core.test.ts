@@ -95,8 +95,15 @@ const textOfInput = (input: PiInput): string =>
     ? input
     : input.map((part) => (part.type === "text" ? part.text : "")).join("");
 
+interface FakeOptions {
+  /** Makes an abort that settles a running operation also commit what Pi commits on an abort: a text-only partial turn, and, when `parallelCall`, an "aborted" error result for a call that never started. */
+  abortLikePi?: { parallelCall: boolean };
+  /** How many abort calls, from the first, reject. */
+  failingAborts?: number;
+}
+
 /** Pi, reduced to what the runner sees: a transcript, submissions that settle when the test says so, and commit callbacks. */
-const createFakePi = () => {
+const createFakePi = (behavior: FakeOptions = {}) => {
   const entries: EntryRecord[] = [];
   const submissions = new Map<
     string,
@@ -109,6 +116,7 @@ const createFakePi = () => {
   const models: string[] = [];
   const instructions: string[] = [];
   let nextId = 1;
+  let failingAborts = behavior.failingAborts ?? 0;
 
   const append = (...model: Message[]): number => {
     const id = nextId;
@@ -126,11 +134,46 @@ const createFakePi = () => {
     await Promise.all([...watchers].map((watcher) => watcher()));
   };
 
+  /** What Pi commits when it aborts a running turn. Appended without a commit: the run's final flush reads it. */
+  const appendAbortedTurn = (parallelCall: boolean) => {
+    append(
+      assistant([{ text: "Partial answer", type: "text" }], {
+        stopReason: "aborted",
+      })
+    );
+    if (parallelCall) {
+      const id = `call-aborted-${nextId}`;
+      append(
+        assistant(
+          [{ arguments: { q: 1 }, id, name: "lookup", type: "toolCall" }],
+          {
+            stopReason: "aborted",
+          }
+        )
+      );
+      append({
+        content: [{ text: "aborted", type: "text" }],
+        isError: true,
+        role: "toolResult",
+        timestamp: 0,
+        toolCallId: id,
+        toolName: "lookup",
+      });
+    }
+  };
+
   const pi: PiPort = {
     abort: (operationId) => {
       aborted.push(operationId);
+      if (failingAborts > 0) {
+        failingAborts -= 1;
+        return Promise.reject(new Error("Pi is busy"));
+      }
       const submission = submissions.get(operationId);
       if (submission && !submission.settled) {
+        if (behavior.abortLikePi) {
+          appendAbortedTurn(behavior.abortLikePi.parallelCall);
+        }
         submission.settled = true;
         submission.outcome.resolve({ reason: "aborted", status: "unanswered" });
       }
@@ -336,9 +379,16 @@ const build = (
     outputsOf?: (run: RunRef, text: string) => Promise<RunOutputs>;
     status?: () => RunStatus;
     storage?: ReturnType<typeof memoryStorage>;
+    abortLikePi?: { parallelCall: boolean };
+    failingAborts?: number;
   } = {}
 ): Harness => {
-  const fake = options.fake ?? createFakePi();
+  const fake =
+    options.fake ??
+    createFakePi({
+      abortLikePi: options.abortLikePi,
+      failingAborts: options.failingAborts,
+    });
   const storage = options.storage ?? memoryStorage();
   const completed: Harness["completed"] = [];
   const ingested: Harness["ingested"] = [];
@@ -1406,6 +1456,68 @@ describe("safeguards", () => {
       costUsd: 2.5,
       inputTokens: 50,
       outputTokens: 20,
+    });
+  });
+
+  describe("the stop survives Pi's abort", () => {
+    test("a turn limit still fails the run with its stop when the aborted turn is committed", async () => {
+      const h = build({ abortLikePi: { parallelCall: false } });
+      await h.core.start(
+        withRuntimeConfig(startOf("run-1"), { maxTurns: TEN_TURNS })
+      );
+      await takeTurns(h.fake, TEN_TURNS);
+      await settle();
+
+      expect(h.fake.aborted).toEqual(["run-1"]);
+      expect(h.completed).toHaveLength(1);
+      expect(h.completed[0]?.result).toMatchObject({
+        error: "Stopped after 10 turns, the agent's limit",
+        status: "failed",
+        stop: { kind: "turn_limit", limit: TEN_TURNS },
+      });
+      expect(await h.storage.get("run:run-1")).toMatchObject({
+        stop: { kind: "turn_limit", limit: TEN_TURNS },
+      });
+    });
+
+    test("a repeat stop still fails the run with its stop when the aborted turn and a call that never started are committed", async () => {
+      const h = build({ abortLikePi: { parallelCall: true } });
+      await h.core.start(startOf("run-1"));
+      await failRepeatedly(h.fake, 5);
+      await settle();
+
+      expect(h.fake.aborted).toEqual(["run-1"]);
+      expect(h.completed).toHaveLength(1);
+      expect(h.completed[0]?.result).toMatchObject({
+        error: "Stopped after 5 identical failed calls to search in a row",
+        status: "failed",
+        stop: { count: 5, kind: "repeat", tool: "search" },
+      });
+      expect(await h.storage.get("run:run-1")).toMatchObject({
+        stop: { count: 5, kind: "repeat", tool: "search" },
+      });
+    });
+
+    test("when the abort throws, the next flush tries to abort again, and the run stops once it lands", async () => {
+      const spy = spyOn(console, "error").mockImplementation(() => undefined);
+      const h = build({ failingAborts: 1 });
+      await h.core.start(startOf("run-1"));
+      await failRepeatedly(h.fake, 5);
+      await settle();
+
+      expect(h.fake.aborted).toEqual(["run-1"]);
+      expect(h.completed).toEqual([]);
+      expect(String(spy.mock.calls[0]?.[0])).toContain("Pi is busy");
+
+      await failRepeatedly(h.fake, 1);
+      await settle();
+
+      expect(h.fake.aborted).toEqual(["run-1", "run-1"]);
+      expect(h.completed[0]?.result).toMatchObject({
+        error: "Stopped after 5 identical failed calls to search in a row",
+        stop: { count: 5, kind: "repeat", tool: "search" },
+      });
+      spy.mockRestore();
     });
   });
 });

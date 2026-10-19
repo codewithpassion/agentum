@@ -181,8 +181,8 @@ const completeOutcomeFields = {
 
 export const completeRequestSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("done"), ...completeOutcomeFields }),
-  // A daemon newer than the Worker must not send `stop` before the Worker
-  // accepts it: the schema is strict, so an older Worker rejects the key.
+  // Deploy the Worker before the daemon: the schema is strict, so an older
+  // Worker rejects a `stop` key, and the daemon sends it on a turn-limit stop.
   z.strictObject({
     status: z.literal("failed"),
     ...completeOutcomeFields,
