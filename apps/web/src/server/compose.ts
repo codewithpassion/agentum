@@ -6,6 +6,7 @@
 // `adapters` or a gateway to `gateways` below. Nothing else needs to know.
 import type { Database } from "@repo/db";
 import { type Atomic, d1Atomic } from "@repo/db/atomic";
+import type { ModelProvider } from "@repo/db/shared";
 import { type AgentsService, createAgentsService } from "@repo/services/agents";
 import {
   type ApiKeysService,
@@ -70,6 +71,11 @@ import {
 } from "@repo/services/managed/service";
 import { createManagedSkillsSource } from "@repo/services/managed/skills-source";
 import type { ManagedPollerPort } from "@repo/services/managed/types";
+import {
+  createModelKeysService,
+  type ModelKeysService,
+  validateModelKey,
+} from "@repo/services/model-keys";
 import {
   createOAuthClientsService,
   type OAuthClientsService,
@@ -162,6 +168,11 @@ export interface Infra {
   slackDirectory?: SlackDirectory;
   /** Asks Anthropic whether a key works. Without it, `managedKeys` checks only the key's shape. */
   validateAnthropicKey?: (apiKey: string) => Promise<boolean>;
+  /** Asks the provider whether a key works. Without it, `modelKeys` checks only the key's shape. */
+  validateModelKey?: (
+    provider: ModelProvider,
+    apiKey: string
+  ) => Promise<boolean>;
 }
 
 export interface Services {
@@ -178,6 +189,7 @@ export interface Services {
   machines: MachinesService;
   managed: ManagedService;
   managedKeys: ManagedKeysService;
+  modelKeys: ModelKeysService;
   oauthClients: OAuthClientsService;
   routines: RoutinesService;
   runSkills: RunSkillsService;
@@ -344,6 +356,12 @@ export const composeWith = ({
     secretsKey: infra.secretsKey,
     validate: infra.validateAnthropicKey,
   });
+  const modelKeys = createModelKeysService({
+    clock: infra.clock,
+    db,
+    secretsKey: infra.secretsKey,
+    validate: infra.validateModelKey,
+  });
   const oauthClients = createOAuthClientsService({ clock: infra.clock, db });
   const secrets = createSecretsService({
     atomic: infra.atomic,
@@ -444,6 +462,7 @@ export const composeWith = ({
       machines,
       managed,
       managedKeys,
+      modelKeys,
       oauthClients,
       routines,
       runSkills,
@@ -495,6 +514,7 @@ export const compose = (
       skillBlobs: r2SkillBlobs(env.FILES),
       slackDirectory: clerkSlackDirectory(env.CLERK_SECRET_KEY),
       validateAnthropicKey,
+      validateModelKey,
     },
   });
 };
