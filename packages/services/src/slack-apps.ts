@@ -24,7 +24,7 @@ import {
   type SlackCallResult,
   type SlackFetch,
 } from "./slack/client.ts";
-import { manifestJson } from "./slack/manifest.ts";
+import { DISPLAY_NAME_LIMIT, manifestJson } from "./slack/manifest.ts";
 import type { Principal } from "./workspaces.ts";
 
 const SLACK_APP_KIND = "slack_app";
@@ -35,7 +35,10 @@ const REVOKE_ACTION = "slack_apps.revoke";
 
 const idString = z.string().min(1).max(200);
 
-export const slackManifestInputSchema = z.strictObject({ agentId: idString });
+export const slackManifestInputSchema = z.strictObject({
+  agentId: idString,
+  name: z.string().trim().min(1).max(DISPLAY_NAME_LIMIT).optional(),
+});
 export type SlackManifestInput = z.input<typeof slackManifestInputSchema>;
 
 export const slackAppListInputSchema = z.strictObject({ agentId: idString });
@@ -175,7 +178,7 @@ export const createSlackAppsService = ({
       filename: `${agent.slug}-slack-manifest.json`,
       json: manifestJson({
         description: describeAgent(agent.name),
-        name: agent.name,
+        name: parsed.name ?? agent.name,
         origin: publicBaseUrl,
       }),
     };
