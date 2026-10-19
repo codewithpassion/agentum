@@ -180,35 +180,78 @@ describe("shouldPoll", () => {
 
 describe("statusLine", () => {
   test("is null for no run", () => {
-    expect(statusLine(null)).toBeNull();
+    expect(statusLine(null, null)).toBeNull();
   });
 
   test("describes each status", () => {
-    expect(statusLine(makeRun({ status: "queued" }))).toBe(
+    expect(statusLine(makeRun({ status: "queued" }), null)).toBe(
       "Queued, waiting for the machine"
     );
-    expect(statusLine(makeRun({ status: "offered" }))).toBe(
+    expect(statusLine(makeRun({ status: "offered" }), null)).toBe(
       "Queued, waiting for the machine"
     );
-    expect(statusLine(makeRun({ status: "running" }))).toBe("Running");
-    expect(statusLine(makeRun({ status: "done" }))).toBe("Done");
-    expect(statusLine(makeRun({ status: "cancelled" }))).toBe("Cancelled");
+    expect(statusLine(makeRun({ status: "running" }), null)).toBe("Running");
+    expect(statusLine(makeRun({ status: "done" }), null)).toBe("Done");
+    expect(statusLine(makeRun({ status: "cancelled" }), null)).toBe(
+      "Cancelled"
+    );
+  });
+
+  test("says a cloud run waits for the agent's current run when another is active", () => {
+    const queue = { otherRunActive: true, runtime: "cloud" as const };
+    expect(statusLine(makeRun({ status: "queued" }), queue)).toBe(
+      "Queued, waiting for the agent's current run to finish"
+    );
+  });
+
+  test("says a cloud run is queued when no other run is active", () => {
+    const queue = { otherRunActive: false, runtime: "cloud" as const };
+    expect(statusLine(makeRun({ status: "queued" }), queue)).toBe("Queued");
+  });
+
+  test("says a managed run waits for the agent's current run when another is active", () => {
+    const queue = { otherRunActive: true, runtime: "managed" as const };
+    expect(statusLine(makeRun({ status: "offered" }), queue)).toBe(
+      "Queued, waiting for the agent's current run to finish"
+    );
+  });
+
+  test("says a managed run is queued when no other run is active", () => {
+    const queue = { otherRunActive: false, runtime: "managed" as const };
+    expect(statusLine(makeRun({ status: "offered" }), queue)).toBe("Queued");
+  });
+
+  test("keeps the machine wording for a machine run", () => {
+    const queue = { otherRunActive: true, runtime: "machine" as const };
+    expect(statusLine(makeRun({ status: "queued" }), queue)).toBe(
+      "Queued, waiting for the machine"
+    );
+  });
+
+  test("keeps the machine wording for a fake run", () => {
+    const queue = { otherRunActive: false, runtime: "fake" as const };
+    expect(statusLine(makeRun({ status: "queued" }), queue)).toBe(
+      "Queued, waiting for the machine"
+    );
   });
 
   test("includes the error for a failed run", () => {
     expect(
-      statusLine(makeRun({ error: "machine went away", status: "failed" }))
+      statusLine(
+        makeRun({ error: "machine went away", status: "failed" }),
+        null
+      )
     ).toBe("Failed: machine went away");
   });
 
   test("says only Failed when there is no error", () => {
-    expect(statusLine(makeRun({ error: null, status: "failed" }))).toBe(
+    expect(statusLine(makeRun({ error: null, status: "failed" }), null)).toBe(
       "Failed"
     );
   });
 
   test("warns that the process may still run when processEndedAt is null", () => {
-    expect(statusLine(makeRun({ status: "interrupted" }))).toBe(
+    expect(statusLine(makeRun({ status: "interrupted" }), null)).toBe(
       "Interrupted. The process may still be running."
     );
   });
@@ -219,7 +262,8 @@ describe("statusLine", () => {
         makeRun({
           processEndedAt: "2026-10-16T11:30:00.000Z",
           status: "interrupted",
-        })
+        }),
+        null
       )
     ).toBe("Interrupted");
   });

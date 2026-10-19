@@ -18,14 +18,38 @@ const REFUSAL_SUMMARIES = new Map<string, string>([
 const CANCELLED_SUMMARY = "Cancelled";
 const SYSTEM_CANCELLED_SUMMARY = "Cancelled by the system";
 
+/** A person's name and email, as the directory knows them. */
+export interface PersonName {
+  email: string | null;
+  name: string | null;
+}
+
+/** The name to show for a person: their name, else their email, else nothing. */
+export const personLabel = (
+  person: PersonName | undefined
+): string | undefined => {
+  const name = person?.name?.trim();
+  if (name) {
+    return name;
+  }
+  const email = person?.email?.trim();
+  if (email) {
+    return email;
+  }
+};
+
 const summarizeRefusal = (reason: unknown): string =>
   (typeof reason === "string" ? REFUSAL_SUMMARIES.get(reason) : undefined) ??
   REFUSED_SUMMARY;
 
 /** Who cancelled a run: a person, the system, or nobody recorded. */
-const summarizeCancel = (actor?: { id: string; kind: string }): string => {
+const summarizeCancel = (actor?: {
+  id: string;
+  kind: string;
+  label?: string;
+}): string => {
   if (actor?.kind === "user") {
-    return `Cancelled by user ${actor.id}`;
+    return `Cancelled by ${actor.label ?? `user ${actor.id}`}`;
   }
   if (actor?.kind === "system") {
     return SYSTEM_CANCELLED_SUMMARY;
@@ -37,7 +61,7 @@ const summarizeCancel = (actor?: { id: string; kind: string }): string => {
 export const summarize = (
   type: EventType,
   payload: Payload,
-  actor?: { id: string; kind: string }
+  actor?: { id: string; kind: string; label?: string }
 ): string => {
   if (type === "slack.event_refused") {
     return summarizeRefusal(payload.reason);

@@ -64,6 +64,7 @@ type LatestRun = NonNullable<SessionTranscript["latestRun"]>;
 
 function StatusRow({
   run,
+  queue,
   nowMs,
   sending,
   cancelling,
@@ -71,13 +72,14 @@ function StatusRow({
   onCancel,
 }: {
   run: LatestRun;
+  queue: SessionTranscript["queue"];
   nowMs: number;
   sending: boolean;
   cancelling: boolean;
   onRetry: () => void;
   onCancel: () => void;
 }) {
-  const status = statusLine(run);
+  const status = statusLine(run, queue);
   const retryable = run.status === "interrupted";
   const allowed = canRetry(run, nowMs);
   return (
@@ -427,6 +429,7 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
           nowMs={nowMs}
           onCancel={cancel}
           onRetry={retry}
+          queue={transcript?.queue ?? null}
           run={latestRun}
           sending={sending}
         />

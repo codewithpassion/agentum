@@ -54,13 +54,21 @@ export const shouldPoll = (run: Run | null, nowMs: number): boolean => {
   );
 };
 
-export const statusLine = (run: Run | null): string | null => {
+export const statusLine = (
+  run: Run | null,
+  queue: SessionTranscript["queue"]
+): string | null => {
   if (run === null) {
     return null;
   }
   switch (run.status) {
     case "queued":
     case "offered":
+      if (queue?.runtime === "cloud" || queue?.runtime === "managed") {
+        return queue.otherRunActive
+          ? "Queued, waiting for the agent's current run to finish"
+          : "Queued";
+      }
       return "Queued, waiting for the machine";
     case "running":
       return "Running";

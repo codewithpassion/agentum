@@ -7,7 +7,7 @@ const ACTIVE_RUN_STATUSES: readonly RunStatus[] = [
   "offered",
   "running",
 ];
-/** The events that open a run. The button sits on them only, so a run shows it once or twice. */
+/** The events that open a run. The button sits on them only, and `cancelEntryIds` puts it on one per run. */
 const RUN_START_TYPES: readonly EventType[] = ["run.queued", "run.started"];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -48,13 +48,32 @@ export const dayRangeFilters = (
   };
 };
 
-/** Whether the log offers Cancel on this entry: a run that is still active, on its opening events. */
-export const canCancelFromLog = (entry: {
-  runId: string | null;
-  runStatus: RunStatus | null;
-  type: EventType;
-}): boolean =>
-  entry.runId !== null &&
-  entry.runStatus !== null &&
-  ACTIVE_RUN_STATUSES.includes(entry.runStatus) &&
-  RUN_START_TYPES.includes(entry.type);
+/**
+ * The ids of the entries that show Cancel: one per active run, on its newest
+ * opening event in the list. Entries come newest first.
+ */
+export const cancelEntryIds = (
+  entries: readonly {
+    id: string;
+    runId: string | null;
+    runStatus: RunStatus | null;
+    type: EventType;
+  }[]
+): Set<string> => {
+  const runsWithButton = new Set<string>();
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    if (
+      entry.runId === null ||
+      entry.runStatus === null ||
+      !ACTIVE_RUN_STATUSES.includes(entry.runStatus) ||
+      !RUN_START_TYPES.includes(entry.type) ||
+      runsWithButton.has(entry.runId)
+    ) {
+      continue;
+    }
+    runsWithButton.add(entry.runId);
+    ids.add(entry.id);
+  }
+  return ids;
+};

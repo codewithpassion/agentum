@@ -7,7 +7,8 @@ import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { ForbiddenError } from "./authz.ts";
-import { createEventsService } from "./events.ts";
+import type { PersonName } from "./events/summary.ts";
+import { createEventsService, type PeopleLookup } from "./events.ts";
 import { createRunsService } from "./runs.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -249,4 +250,89 @@ test("list shows the run as cancelled after cancelRun, and who cancelled it", as
   expect(
     page.entries.find((entry) => entry.type === "run.cancelled")?.summary
   ).toBe("Cancelled by user alice");
+});
+
+const serviceWith = (people?: PeopleLookup) =>
+  createEventsService({
+    blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+    db,
+    people,
+  });
+
+/** A people lookup that answers from `names` and records the ids it was asked for. */
+const recordingPeople = (names: Map<string, PersonName>) => {
+  const calls: string[][] = [];
+  const lookup: PeopleLookup = (userIds) => {
+    calls.push([...userIds]);
+    return Promise.resolve(names);
+  };
+  return { calls, lookup };
+};
+
+test("list names the user who cancelled, by name", async () => {
+  insertEvent({
+    actorId: "user_1",
+    createdAt: NOW,
+    type: "run.cancelled",
+  });
+  const { lookup } = recordingPeople(
+    new Map([["user_1", { email: "dom@example.com", name: "Dom Fretz" }]])
+  );
+  const [entry] = (await serviceWith(lookup).list(alice)).entries;
+  expect(entry?.summary).toBe("Cancelled by Dom Fretz");
+  expect(entry?.actor).toEqual({ id: "user_1", kind: "user" });
+});
+
+test("list names the user by email when they have no name", async () => {
+  insertEvent({ actorId: "user_1", createdAt: NOW, type: "run.cancelled" });
+  const { lookup } = recordingPeople(
+    new Map([["user_1", { email: "dom@example.com", name: null }]])
+  );
+  const [entry] = (await serviceWith(lookup).list(alice)).entries;
+  expect(entry?.summary).toBe("Cancelled by dom@example.com");
+});
+
+test("list falls back to the user id when the person is not found", async () => {
+  insertEvent({ actorId: "user_1", createdAt: NOW, type: "run.cancelled" });
+  const { lookup } = recordingPeople(new Map());
+  const [entry] = (await serviceWith(lookup).list(alice)).entries;
+  expect(entry?.summary).toBe("Cancelled by user user_1");
+});
+
+test("list still loads with ids when the people lookup throws", async () => {
+  insertEvent({ actorId: "user_1", createdAt: NOW, type: "run.cancelled" });
+  insertEvent({ createdAt: NOW, type: "agent.created" });
+  const failing: PeopleLookup = () =>
+    Promise.reject(new Error("directory down"));
+  const page = await serviceWith(failing).list(alice);
+  expect(page.entries).toHaveLength(2);
+  expect(
+    page.entries.find((entry) => entry.type === "run.cancelled")?.summary
+  ).toBe("Cancelled by user user_1");
+});
+
+test("list looks up each cancelling user once, and no one else", async () => {
+  insertEvent({ actorId: "user_1", createdAt: NOW, type: "run.cancelled" });
+  insertEvent({ actorId: "user_1", createdAt: NOW, type: "run.cancelled" });
+  insertEvent({ actorId: "user_2", createdAt: NOW, type: "run.queued" });
+  const { calls, lookup } = recordingPeople(new Map());
+  await serviceWith(lookup).list(alice);
+  expect(calls).toEqual([["user_1"]]);
+});
+
+test("list does not look anyone up without a user-cancelled event", async () => {
+  insertEvent({ actorId: "user_2", createdAt: NOW, type: "run.queued" });
+  insertEvent({
+    actorId: "sys",
+    actorKind: "system",
+    createdAt: NOW,
+    type: "run.cancelled",
+  });
+  const { calls, lookup } = recordingPeople(new Map());
+  const page = await serviceWith(lookup).list(alice);
+  expect(calls).toEqual([]);
+  expect(page.entries.map((entry) => entry.summary).sort()).toEqual([
+    "",
+    "Cancelled by the system",
+  ]);
 });

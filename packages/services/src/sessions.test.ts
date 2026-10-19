@@ -1,7 +1,9 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { inboxThreads } from "@repo/db/schema/inbox";
+import { machines as machineRows } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { triggers as triggerRows } from "@repo/db/schema/triggers";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
@@ -716,4 +718,88 @@ test("getRun finds a run of a shared session for every user", async () => {
 
   expect((await runs.getRun(user("u1"), shared.runId)).id).toBe(shared.runId);
   expect((await runs.getRun(user("u2"), shared.runId)).id).toBe(shared.runId);
+});
+
+const insertMachine = (id: string) =>
+  db
+    .insert(machineRows)
+    .values({
+      capabilities: "{}",
+      createdAt: START,
+      credentialHash: `hash-${id}`,
+      enrolledBy: "u1",
+      id,
+      name: "laptop",
+      singleUser: false,
+      status: "online",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+
+test("transcript has no queue state for a finished run or a running one", async () => {
+  const started = await send(user("u1"), "done already");
+  expect(
+    (await sessions.transcript(user("u1"), started.sessionId)).queue
+  ).toBeNull();
+
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, started.runId))
+    .run();
+
+  expect(
+    (await sessions.transcript(user("u1"), started.sessionId)).queue
+  ).toBeNull();
+});
+
+test("a queued run of a machine agent reports the machine runtime, with no other run active", async () => {
+  insertMachine("m1");
+  const started = await send(user("u1"), "waiting");
+  db.update(agentRows)
+    .set({ machineId: "m1", runtime: "machine" })
+    .where(eq(agentRows.id, agentId))
+    .run();
+  db.update(runRows)
+    .set({ status: "queued" })
+    .where(eq(runRows.id, started.runId))
+    .run();
+
+  const result = await sessions.transcript(user("u1"), started.sessionId);
+
+  expect(result.queue).toEqual({ otherRunActive: false, runtime: "machine" });
+});
+
+test("a queued run reports otherRunActive when another run of the same session is running", async () => {
+  const first = await send(user("u1"), "in progress");
+  const next = await send(user("u1"), "waiting", first.sessionId);
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, first.runId))
+    .run();
+  db.update(runRows)
+    .set({ status: "queued" })
+    .where(eq(runRows.id, next.runId))
+    .run();
+
+  const result = await sessions.transcript(user("u1"), first.sessionId);
+
+  expect(result.queue).toEqual({ otherRunActive: true, runtime: "fake" });
+});
+
+test("a run running in another session of the agent does not count as otherRunActive", async () => {
+  const other = await send(user("u1"), "elsewhere");
+  const mine = await send(user("u1"), "waiting");
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, other.runId))
+    .run();
+  db.update(runRows)
+    .set({ status: "queued" })
+    .where(eq(runRows.id, mine.runId))
+    .run();
+
+  const result = await sessions.transcript(user("u1"), mine.sessionId);
+
+  expect(other.sessionId).not.toBe(mine.sessionId);
+  expect(result.queue).toEqual({ otherRunActive: false, runtime: "fake" });
 });

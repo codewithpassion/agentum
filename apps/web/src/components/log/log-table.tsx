@@ -13,7 +13,7 @@ import {
 } from "#/components/ui/table.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { EventLogEntry } from "#/integrations/trpc/types";
-import { canCancelFromLog } from "./log-logic.ts";
+import { cancelEntryIds } from "./log-logic.ts";
 
 interface LogTableProps {
   agentNames: ReadonlyMap<string, string>;
@@ -22,6 +22,7 @@ interface LogTableProps {
 
 interface LogRowProps {
   agentName: string;
+  cancellable: boolean;
   entry: EventLogEntry;
 }
 
@@ -69,7 +70,7 @@ function CancelRunButton({ runId }: { runId: string }) {
   );
 }
 
-function LogRow({ agentName, entry }: LogRowProps) {
+function LogRow({ agentName, cancellable, entry }: LogRowProps) {
   const hasLinks = entry.sessionId !== null || entry.runId !== null;
   return (
     <TableRow data-testid="log-row">
@@ -100,7 +101,7 @@ function LogRow({ agentName, entry }: LogRowProps) {
             Run {entry.runId.slice(-8)}
           </span>
         )}
-        {entry.runId !== null && canCancelFromLog(entry) ? (
+        {entry.runId !== null && cancellable ? (
           <CancelRunButton runId={entry.runId} />
         ) : null}
       </TableCell>
@@ -112,6 +113,7 @@ export function LogTable({ agentNames, entries }: LogTableProps) {
   if (entries.length === 0) {
     return <p className="text-muted-foreground text-sm">No events.</p>;
   }
+  const cancellable = cancelEntryIds(entries);
   return (
     <Table>
       <TableHeader>
@@ -127,6 +129,7 @@ export function LogTable({ agentNames, entries }: LogTableProps) {
         {entries.map((entry) => (
           <LogRow
             agentName={agentLabel(entry, agentNames)}
+            cancellable={cancellable.has(entry.id)}
             entry={entry}
             key={entry.id}
           />
