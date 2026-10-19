@@ -8,7 +8,11 @@ import { getTrpc } from "#/integrations/trpc/client";
 export const Route = createFileRoute("/_app/agents/new")({
   loader: async () => {
     try {
-      return await getTrpc().machines.list.query();
+      const [machines, providerKeys] = await Promise.all([
+        getTrpc().machines.list.query(),
+        getTrpc().agents.providerKeys.query(),
+      ]);
+      return { machines, providerKeys };
     } catch (error) {
       if (
         error instanceof TRPCClientError &&
@@ -23,7 +27,7 @@ export const Route = createFileRoute("/_app/agents/new")({
 });
 
 function NewAgent() {
-  const machines = Route.useLoaderData();
+  const { machines, providerKeys } = Route.useLoaderData();
   const navigate = Route.useNavigate();
 
   const createAgent = useCallback(
@@ -53,6 +57,7 @@ function NewAgent() {
       <AgentForm
         machines={machines}
         onSubmit={createAgent}
+        providerKeys={providerKeys}
         submitLabel="Create agent"
       />
     </section>

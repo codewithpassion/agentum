@@ -561,3 +561,34 @@ describe("NO_KEY_MESSAGES", () => {
     );
   });
 });
+
+describe("configuredProviders", () => {
+  test("reports one boolean per provider, never a hint or the key", async () => {
+    const service = build();
+    expect(await service.configuredProviders(user)).toEqual({
+      openrouter: false,
+    });
+
+    await service.set(user, { apiKey: KEY, provider: "openrouter" });
+
+    const flags = await service.configuredProviders(user);
+    expect(flags).toEqual({ openrouter: true });
+    expect(JSON.stringify(flags)).not.toContain(KEY);
+  });
+
+  test("answers for the caller's workspace only", async () => {
+    const service = build();
+    await service.set(user, { apiKey: KEY, provider: "openrouter" });
+
+    expect(await service.configuredProviders(otherWorkspaceUser)).toEqual({
+      openrouter: false,
+    });
+  });
+
+  test("refuses the system principal", async () => {
+    const service = build();
+    await expect(service.configuredProviders(system)).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+  });
+});

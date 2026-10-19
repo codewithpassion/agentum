@@ -23,6 +23,9 @@ export const agentsRouter = router({
   list: workspaceProcedure
     .input(z.strictObject({ includeArchived: z.boolean().optional() }))
     .query(({ ctx, input }) => ctx.services.agents.list(ctx.principal, input)),
+  providerKeys: workspaceProcedure.query(({ ctx }) =>
+    ctx.services.modelKeys.configuredProviders(ctx.principal)
+  ),
   update: workspaceProcedure
     .input(z.strictObject({ id: z.string().min(1), patch: agentUpdateSchema }))
     .mutation(({ ctx, input }) =>

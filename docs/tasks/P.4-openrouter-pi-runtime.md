@@ -3,7 +3,7 @@ id: P.4
 title: OpenRouter in the Pi runtime
 milestone: P
 size: M
-status: todo
+status: in_progress
 depends_on: [P.1, P.3]
 branch: task/P.4-openrouter-pi-runtime
 ---
@@ -30,3 +30,4 @@ Asked for by Dom on 19 Oct 2026, from the report `docs/analysis/other-model-prov
 
 ## Log
 - 2026-10-19: added at Dom's request.
+- 2026-10-19: dispatched.
