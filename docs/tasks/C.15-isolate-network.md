@@ -3,7 +3,7 @@ id: C.15
 title: Network access for isolate agents, on by default, switchable per agent
 milestone: C
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/C.15-isolate-network
 ---
@@ -28,3 +28,4 @@ Asked for by Dom on 19 Oct 2026. Cloud agents in the isolate environment have no
 ## Log
 - 2026-10-19: added at Dom's request.
 - 2026-10-19: dispatched.
+- 2026-10-19: review clean after 4 fix rounds at 9e8d778 (docs/reviews/tasks/C.15.md); rounds 3 and 4 approved by the controller. library.command scripts are redacted whenever the shell starts curl. Known gap: tool.call run events store bash and web_fetch inputs verbatim. Staging check pending.
