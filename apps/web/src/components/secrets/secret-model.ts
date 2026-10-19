@@ -14,6 +14,7 @@ export type ActiveDialog =
   | { kind: "create" }
   | { kind: "replace"; secret: SecretRecord }
   | { kind: "rules"; secret: SecretRecord }
+  | { kind: "hosts"; secret: SecretRecord }
   | { kind: "delete"; secret: SecretRecord };
 
 /** Matches the server's limit on rules per secret. */
@@ -61,7 +62,18 @@ export const toRules = (rules: RuleDraft[]) =>
 export const rulesReady = (rules: RuleDraft[]): boolean =>
   rules.every((rule) => rule.host.trim() !== "");
 
-export const hostsOf = (secret: SecretRecord): string =>
-  secret.mode === "proxy"
-    ? secret.rules.map((rule) => rule.host).join(", ")
-    : "-";
+const HOST_SEPARATOR = /[\s,]+/;
+
+/** Splits typed hosts on commas and whitespace, dropping repeats and empty entries. */
+export const parseHosts = (text: string): string[] => [
+  ...new Set(text.split(HOST_SEPARATOR).filter((host) => host !== "")),
+];
+
+export const hostsText = (hosts: readonly string[]): string => hosts.join(", ");
+
+export const hostsOf = (secret: SecretRecord): string => {
+  if (secret.mode === "proxy") {
+    return hostsText(secret.rules.map((rule) => rule.host));
+  }
+  return secret.allowedHosts.length > 0 ? hostsText(secret.allowedHosts) : "-";
+};

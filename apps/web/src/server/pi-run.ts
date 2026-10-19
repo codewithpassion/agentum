@@ -84,6 +84,7 @@ import {
 } from "./skill-scripts/run-skill-script.ts";
 import { skillVersionFiles } from "./skill-scripts/skill-version-files.ts";
 import { ownHostsOf } from "./web-fetch/guard.ts";
+import type { SecretPlaceholder } from "./web-fetch/pi-tool.ts";
 import { runWebFetcher } from "./web-fetch/run-fetcher.ts";
 import type { WebFetcher } from "./web-fetch/types.ts";
 
@@ -362,8 +363,36 @@ export class PiRun extends DurableObject<Env> {
       this.#vm ? "linux-vm" : "isolate",
       () => this.#agentSlug(),
       () => libraryCopyOf(this.ctx.storage),
-      { enabled: networkEnabled, fetcherOf: () => this.#webFetcher() }
+      {
+        enabled: networkEnabled,
+        fetcherOf: () => this.#webFetcher(),
+        placeholdersOf: () => this.#secretPlaceholders(),
+      }
     );
+  }
+
+  /**
+   * The secrets of the newest run's agent that it may use as placeholders, read
+   * when the prompt renders. Names and hosts only. A failed read is logged
+   * without its error, and the prompt renders without the list.
+   */
+  async #secretPlaceholders(): Promise<readonly SecretPlaceholder[]> {
+    try {
+      const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
+      if (!run) {
+        return [];
+      }
+      const resolved = await this.#services().secrets.resolveForAgent(
+        run.workspaceId,
+        run.agentId
+      );
+      return resolved.placeholders;
+    } catch {
+      console.warn(
+        "PiRun: reading the secret placeholders for the prompt failed"
+      );
+      return [];
+    }
   }
 
   /** Stores which environment and network setting the agent of this run asks for, and switches to them. */

@@ -4,12 +4,17 @@
 // added. A caller's own `authorization` and `cookie` are dropped as soon as a
 // redirect leaves the host they were sent to. Each hop that is sent, and each
 // target that is refused, writes one network entry. The entry holds the host
-// name and numbers only.
+// name and numbers only. A `hm-secret:NAME` placeholder in a hop's URL, headers
+// or text body is swapped for the secret's value just before that hop is sent,
+// and only for a host the secret may reach. Redirects keep the placeholder form,
+// so each hop is checked against its own host.
 
 import type { NetworkRequestEntry } from "@repo/services/network";
+import type { EnvGrant } from "@repo/services/secrets/placeholders";
 import { readCappedBody } from "../mcp/body.ts";
 import { type OutboundDeps, outboundFetch } from "../secrets-outbound-core.ts";
 import { checkTarget, redirectTarget } from "./guard.ts";
+import { fillHop } from "./hop-secrets.ts";
 import {
   WEB_FETCH_MAX_BYTES,
   WEB_FETCH_MAX_REDIRECTS,
@@ -21,6 +26,8 @@ import {
 
 export interface WebFetchDeps {
   announce: OutboundDeps["announce"];
+  /** The agent's granted env secrets with their allowed hosts, read only when a hop holds a placeholder. Without it every placeholder is refused as not granted. */
+  envGrants?: () => Promise<readonly EnvGrant[]>;
   /** Sends one request, redirects not followed. The global fetch in the app, a fake in tests. */
   fetch: OutboundDeps["fetch"];
   log: OutboundDeps["log"];
@@ -338,10 +345,25 @@ const runHop = async (
   hop: Hop,
   redirects: number
 ): Promise<WebFetchResult> => {
+  const filled = await fillHop(
+    hop,
+    call.deps.envGrants ?? (() => Promise.resolve([]))
+  );
+  if (!filled.ok) {
+    await recordRefused(call, hop.url.hostname, hop.method, filled.message);
+    return failed(filled.error, refusal("The request", filled.message));
+  }
+  if (filled.names.length > 0) {
+    try {
+      await call.deps.announce(hop.url.hostname, filled.names);
+    } catch {
+      call.deps.log("web fetch: recording the event failed");
+    }
+  }
   const sentAt = call.now();
   let response: Response;
   try {
-    response = await sendHop(call, hop);
+    response = await sendHop(call, filled.hop);
   } catch {
     await record(call, {
       ...entryOf(call, hop),

@@ -53,6 +53,7 @@
     "./runs/types": "./src/runs/types.ts",
     "./secrets": "./src/secrets.ts",
     "./secrets/guidance": "./src/secrets/guidance.ts",
+    "./secrets/placeholders": "./src/secrets/placeholders.ts",
     "./secrets/relay": "./src/secrets/relay.ts",
     "./secrets/rules": "./src/secrets/rules.ts",
     "./secrets/scrub": "./src/secrets/scrub.ts",

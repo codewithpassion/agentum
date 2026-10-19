@@ -4,7 +4,9 @@ import {
   changeRule,
   emptyRule,
   hostsOf,
+  hostsText,
   MAX_RULES,
+  parseHosts,
   type RuleDraft,
   removeRule,
   rulesReady,
@@ -98,7 +100,58 @@ describe("hostsOf", () => {
     expect(hostsOf(proxy)).toBe("api.openai.com, *.example.com");
   });
 
-  test("shows a dash for an env secret", () => {
-    expect(hostsOf(secret({ mode: "env" }))).toBe("-");
+  test("lists the allowed hosts of an env secret", () => {
+    expect(
+      hostsOf(
+        secret({
+          allowedHosts: ["api.example.com", "*.example.org"],
+          mode: "env",
+        })
+      )
+    ).toBe("api.example.com, *.example.org");
+  });
+
+  test("shows a dash for an env secret without allowed hosts", () => {
+    expect(hostsOf(secret({ allowedHosts: [], mode: "env" }))).toBe("-");
+  });
+});
+
+describe("parseHosts", () => {
+  test("splits on commas and whitespace, including newlines", () => {
+    expect(
+      parseHosts("api.example.com,*.example.org\n  x.example.net\tz.io")
+    ).toEqual(["api.example.com", "*.example.org", "x.example.net", "z.io"]);
+  });
+
+  test("drops duplicates and keeps the first position", () => {
+    expect(parseHosts("a.io, b.io, a.io b.io c.io")).toEqual([
+      "a.io",
+      "b.io",
+      "c.io",
+    ]);
+  });
+
+  test("drops empty entries from stray commas and spaces", () => {
+    expect(parseHosts(" ,, a.io ,, ,b.io, ")).toEqual(["a.io", "b.io"]);
+  });
+
+  test("an empty or blank string gives no hosts", () => {
+    expect(parseHosts("")).toEqual([]);
+    expect(parseHosts(" \n , ")).toEqual([]);
+  });
+});
+
+describe("hostsText", () => {
+  test("joins hosts with a comma and a space", () => {
+    expect(hostsText(["a.io", "*.b.io"])).toBe("a.io, *.b.io");
+  });
+
+  test("gives an empty string for no hosts", () => {
+    expect(hostsText([])).toBe("");
+  });
+
+  test("round-trips through parseHosts", () => {
+    const hosts = ["api.example.com", "*.example.org"];
+    expect(parseHosts(hostsText(hosts))).toEqual(hosts);
   });
 });

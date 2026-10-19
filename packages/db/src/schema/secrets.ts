@@ -14,12 +14,16 @@ import { workspaces } from "./workspaces.ts";
  * A workspace secret an agent can be granted (S.3). `value_enc` is AES-GCM
  * ciphertext under `SECRETS_KEY`: write-only, never selected into a response.
  * `rules` is a JSON array of `{ host, header, template }` and is `[]` for an
- * `env` secret. `version` counts value and rule changes, so a managed session
+ * `env` secret. `allowed_hosts` is a JSON array of host patterns an `env`
+ * secret's placeholder may be filled in for, and is `[]` for a `proxy` secret.
+ * `version` counts value and rule changes, so a managed session
  * made under an older one is not reused.
  */
 export const secrets = sqliteTable(
   "secrets",
   {
+    // JSON array of host patterns, same pattern as a rule host.
+    allowedHosts: text("allowed_hosts").notNull().default("[]"),
     createdAt: createdAt(),
     // Clerk user id.
     createdBy: text("created_by").notNull(),

@@ -3,6 +3,7 @@ import { TRPCClientError } from "@trpc/client";
 import { useCallback, useState } from "react";
 import { CreateSecretDialog } from "#/components/secrets/create-secret-dialog";
 import { DeleteSecretDialog } from "#/components/secrets/delete-secret-dialog";
+import { EditHostsDialog } from "#/components/secrets/edit-hosts-dialog";
 import { EditRulesDialog } from "#/components/secrets/edit-rules-dialog";
 import { ReplaceValueDialog } from "#/components/secrets/replace-value-dialog";
 import type {
@@ -44,6 +45,10 @@ function SecretsPage() {
     (secret: SecretRecord) => setActive({ kind: "rules", secret }),
     []
   );
+  const openHosts = useCallback(
+    (secret: SecretRecord) => setActive({ kind: "hosts", secret }),
+    []
+  );
   const openDelete = useCallback(
     (secret: SecretRecord) => setActive({ kind: "delete", secret }),
     []
@@ -78,6 +83,7 @@ function SecretsPage() {
       </div>
       <SecretsTable
         onDelete={openDelete}
+        onEditHosts={openHosts}
         onEditRules={openRules}
         onReplace={openReplace}
         secrets={secrets}
@@ -94,6 +100,9 @@ function SecretsPage() {
       ) : null}
       {active?.kind === "rules" ? (
         <EditRulesDialog onClose={close} onDone={done} secret={active.secret} />
+      ) : null}
+      {active?.kind === "hosts" ? (
+        <EditHostsDialog onClose={close} onDone={done} secret={active.secret} />
       ) : null}
       {active?.kind === "delete" ? (
         <DeleteSecretDialog

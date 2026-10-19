@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from "bun:test";
+import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { migrated } from "@repo/db/test-db";
 import type { McpPorts } from "@repo/mcp/ports";
@@ -16,6 +16,7 @@ import { createMcpPorts } from "./ports.ts";
 const RUN_TOKEN_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString(
   "base64"
 );
+const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(3)).toString("base64");
 
 let composed: Composed;
 let blobs: MemoryLibraryBlobs;
@@ -63,6 +64,7 @@ beforeEach(async () => {
       publicBaseUrl: "https://harbourmaster.example.com",
       relay: noopRelay,
       runTokenKey: RUN_TOKEN_KEY,
+      secretsKey: SECRETS_KEY,
     },
   });
   const [a, b] = await Promise.all([
@@ -476,4 +478,137 @@ test("a script that only mentions curl is logged as typed", async () => {
   const script = `# curl is not used here\necho "run curl later, token ${SECRET}"`;
   await networkBash(run, script);
   expect(await loggedScripts(run)).toEqual([script]);
+});
+
+const SUPADATA_VALUE = "supadata-real-value";
+
+/** Stores an env secret and grants it to `agentId`, or leaves it ungranted when `grant` is false. */
+const storeEnvSecret = async (
+  workspaceId: string,
+  agentId: string,
+  {
+    grant = true,
+    name = "SUPADATA_KEY",
+  }: { grant?: boolean; name?: string } = {}
+) => {
+  const user = userOf(workspaceId);
+  const created = await composed.services.secrets.create(user, {
+    allowedHosts: ["api.supadata.ai"],
+    mode: "env",
+    name,
+    value: SUPADATA_VALUE,
+  });
+  if (grant) {
+    await composed.services.secrets.setGrants(user, agentId, [created.id]);
+  }
+};
+
+const cloudRunOf = (
+  workspaceId: string,
+  runtimeConfig: {
+    environment?: "isolate" | "linux-vm";
+    networkAccess?: boolean;
+  } = {}
+) => runOf(workspaceId, { runtime: "cloud", runtimeConfig });
+
+test("an isolate agent with network access sees its granted env secret as a placeholder, never the value", async () => {
+  sent = [];
+  const run = await cloudRunOf(workspaceA);
+  await storeEnvSecret(workspaceA, run.agentId);
+  const result = await networkBash(run, "echo $SUPADATA_KEY");
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe("hm-secret:SUPADATA_KEY\n");
+  expect(JSON.stringify(result)).not.toContain(SUPADATA_VALUE);
+  const commands = await composed.services.events.query(
+    userOf(workspaceA),
+    workspaceA,
+    { types: ["library.command"] }
+  );
+  expect(JSON.stringify(commands)).not.toContain(SUPADATA_VALUE);
+});
+
+test("curl sends the real value to an allowed host, and the shell output never shows it", async () => {
+  sent = [];
+  const run = await cloudRunOf(workspaceA);
+  await storeEnvSecret(workspaceA, run.agentId);
+  const result = await networkBash(
+    run,
+    'curl -s -H "x-api-key: $SUPADATA_KEY" https://api.supadata.ai/x'
+  );
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.headers.get("x-api-key")).toBe(SUPADATA_VALUE);
+  expect(result.stdout).not.toContain(SUPADATA_VALUE);
+  expect(result.stderr).not.toContain(SUPADATA_VALUE);
+  expect(JSON.stringify(await networkEvents(workspaceA))).not.toContain(
+    SUPADATA_VALUE
+  );
+});
+
+test("curl refuses the placeholder for a host the secret may not reach", async () => {
+  sent = [];
+  const run = await cloudRunOf(workspaceA);
+  await storeEnvSecret(workspaceA, run.agentId);
+  const result = await networkBash(
+    run,
+    'curl -s -H "x-api-key: $SUPADATA_KEY" https://example.com/'
+  );
+  expect(result.exitCode).not.toBe(0);
+  expect(sent).toEqual([]);
+  expect(result.stdout).not.toContain(SUPADATA_VALUE);
+  expect(result.stderr).not.toContain(SUPADATA_VALUE);
+});
+
+test("an isolate agent with network access off gets no variable", async () => {
+  const run = await cloudRunOf(workspaceA, { networkAccess: false });
+  await storeEnvSecret(workspaceA, run.agentId);
+  const result = await networkBash(run, 'echo "[$SUPADATA_KEY]"');
+  expect(result.stdout).toBe("[]\n");
+});
+
+test("a Linux VM agent gets no variable", async () => {
+  const run = await cloudRunOf(workspaceA, { environment: "linux-vm" });
+  await storeEnvSecret(workspaceA, run.agentId);
+  const result = await networkBash(run, 'echo "[$SUPADATA_KEY]"');
+  expect(result.stdout).toBe("[]\n");
+});
+
+test("a proxy-mode secret is not a variable", async () => {
+  const run = await cloudRunOf(workspaceA);
+  const user = userOf(workspaceA);
+  const created = await composed.services.secrets.create(user, {
+    mode: "proxy",
+    name: "SUPADATA_KEY",
+    rules: [
+      { header: "x-api-key", host: "api.supadata.ai", template: "{value}" },
+    ],
+    value: SUPADATA_VALUE,
+  });
+  await composed.services.secrets.setGrants(user, run.agentId, [created.id]);
+  const result = await networkBash(run, 'echo "[$SUPADATA_KEY]"');
+  expect(result.stdout).toBe("[]\n");
+});
+
+test("a secret that is not granted to the agent is not a variable", async () => {
+  const run = await cloudRunOf(workspaceA);
+  await storeEnvSecret(workspaceA, run.agentId, { grant: false });
+  const result = await networkBash(run, 'echo "[$SUPADATA_KEY]"');
+  expect(result.stdout).toBe("[]\n");
+});
+
+test("when the placeholders cannot be read the shell runs without variables", async () => {
+  const run = await cloudRunOf(workspaceA);
+  await storeEnvSecret(workspaceA, run.agentId);
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  const resolve = spyOn(
+    composed.services.secrets,
+    "resolveForAgent"
+  ).mockRejectedValueOnce(new Error("boom"));
+  try {
+    const result = await networkBash(run, 'echo "[$SUPADATA_KEY]"');
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("[]\n");
+  } finally {
+    resolve.mockRestore();
+    warn.mockRestore();
+  }
 });

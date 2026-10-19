@@ -20,6 +20,7 @@ import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
 import { toggledIds } from "../secrets/grants.ts";
 import { RuntimeNotes } from "../secrets/runtime-notes.tsx";
 import { type SecretRecord, SecretRow } from "../secrets/secret-row.tsx";
+import { secretStatus } from "../secrets/status.ts";
 
 interface SecretsState {
   grantedIds: string[];
@@ -94,8 +95,11 @@ function SecretsPanel({ agent }: AgentTabProps) {
       <p className="text-sm">
         A granted secret is delivered on every run of this agent. A proxy secret
         is added as a header to requests to its hosts, so the agent&apos;s code
-        never sees it. An env secret is set as an environment variable. Secrets
-        are managed under <Link to="/settings/secrets">Settings, Secrets</Link>.
+        never sees it. An env secret is set as an environment variable for
+        machine and Linux VM agents. An isolate agent gets a placeholder
+        instead, which is filled in only for the secret&apos;s allowed hosts.
+        Secrets are managed under{" "}
+        <Link to="/settings/secrets">Settings, Secrets</Link>.
       </p>
       {error !== undefined && (
         <p className="text-destructive text-sm" role="alert">
@@ -125,6 +129,7 @@ function SecretsPanel({ agent }: AgentTabProps) {
                 <TableHead>Name</TableHead>
                 <TableHead>Mode</TableHead>
                 <TableHead>Hosts</TableHead>
+                <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -135,6 +140,11 @@ function SecretsPanel({ agent }: AgentTabProps) {
                   key={secret.id}
                   onToggle={toggle}
                   secret={secret}
+                  status={
+                    grantedSet.has(secret.id)
+                      ? secretStatus(secret, agent)
+                      : null
+                  }
                 />
               ))}
             </TableBody>

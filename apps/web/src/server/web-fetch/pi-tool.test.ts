@@ -6,7 +6,11 @@ import type {
   ToolExecutionApi,
   ToolRegistration,
 } from "@earendil-works/pi-durable";
-import { NETWORK_TOOLS_EXTENSION, networkToolsExtension } from "./pi-tool.ts";
+import {
+  NETWORK_TOOLS_EXTENSION,
+  networkToolsExtension,
+  type SecretPlaceholder,
+} from "./pi-tool.ts";
 import type { WebFetcher, WebFetchRequest, WebFetchResult } from "./types.ts";
 
 /** A request as the tool sends it, with the signal the tool adds when the run has one. */
@@ -277,5 +281,92 @@ describe("networkToolsExtension when network access is on", () => {
     );
 
     expect(sent[0]?.signal).toBe(controller.signal);
+  });
+});
+
+const PLACEHOLDER_LEAD =
+  "Some secrets are available to you as placeholders. Write the placeholder text where the value belongs, in a web_fetch url, header value or text body, or in a curl command in the bash tool, where the variable $NAME holds the placeholder. The platform fills in the real value as the request leaves, and only for the hosts listed. You cannot read the real value.";
+
+/** The rendered placeholder section, or undefined when the extension has none. */
+const placeholderTextOf = async (
+  placeholders: readonly SecretPlaceholder[]
+): Promise<string | undefined> => {
+  const extension = networkToolsExtension({
+    enabled: true,
+    fetcherOf: () => Promise.reject(new Error("not called")),
+    placeholdersOf: () => Promise.resolve(placeholders),
+  });
+  const section = extension.sections?.find(
+    (candidate) => candidate.key === "secret-placeholders"
+  );
+  if (section === undefined) {
+    throw new Error("the enabled extension has no placeholder section");
+  }
+  return await section.render(NO_PROMPT, contextWith());
+};
+
+describe("networkToolsExtension placeholder section", () => {
+  test("lists each name, its placeholder text and its hosts, and no value", async () => {
+    const text = await placeholderTextOf([
+      { hosts: ["api.github.com", "uploads.github.com"], name: "GITHUB_TOKEN" },
+      { hosts: ["api.example.com"], name: "EXAMPLE_KEY" },
+    ]);
+
+    expect(text).toBe(
+      `${PLACEHOLDER_LEAD}\n\n` +
+        "- EXAMPLE_KEY (placeholder hm-secret:EXAMPLE_KEY): sent only to api.example.com\n" +
+        "- GITHUB_TOKEN (placeholder hm-secret:GITHUB_TOKEN): sent only to api.github.com, uploads.github.com"
+    );
+  });
+
+  test("a secret without hosts says it cannot be used yet", async () => {
+    const text = await placeholderTextOf([{ hosts: [], name: "NEW_KEY" }]);
+
+    expect(text).toBe(
+      `${PLACEHOLDER_LEAD}\n\n` +
+        "- NEW_KEY (placeholder hm-secret:NEW_KEY): no allowed hosts yet, so it cannot be used until someone adds them under Settings, Secrets"
+    );
+  });
+
+  test("lines are sorted by name whatever order the list comes in", async () => {
+    const text = await placeholderTextOf([
+      { hosts: ["b.example"], name: "ZETA" },
+      { hosts: ["a.example"], name: "ALPHA" },
+      { hosts: ["m.example"], name: "MID" },
+    ]);
+    const lines = (text ?? "")
+      .split("\n")
+      .filter((line) => line.startsWith("- "));
+
+    expect(lines.map((line) => line.split(" ")[1])).toEqual([
+      "ALPHA",
+      "MID",
+      "ZETA",
+    ]);
+  });
+
+  test("an empty list renders nothing, so the prompt gets no section", async () => {
+    expect(await placeholderTextOf([])).toBeUndefined();
+  });
+
+  test("when network access is off, the notice is still the only section and placeholders are not read", () => {
+    const extension = networkToolsExtension({
+      enabled: false,
+      fetcherOf: () => Promise.reject(new Error("not called")),
+      placeholdersOf: () => Promise.reject(new Error("must not be read")),
+    });
+
+    expect(extension.sections?.map((section) => section.key)).toEqual([
+      "network-access",
+    ]);
+    expect(extension.tools).toEqual([]);
+  });
+
+  test("the web_fetch description says placeholder text is replaced for allowed hosts", () => {
+    const tool = webFetchOf(() => Promise.reject(new Error("not called")));
+
+    expect(tool.description).toContain(
+      "Text of the form hm-secret:NAME in the url, a header value or a text body is replaced by that secret's value when the host is one the secret allows."
+    );
   });
 });
