@@ -185,3 +185,20 @@ test("keeps non-ASCII names whole in the note and matches them", () => {
     text: "hi @zoé",
   });
 });
+
+test("keeps combining marks in a name, composed or not", () => {
+  const priya: MentionPerson = {
+    aliases: ["प्रिया"],
+    email: "priya@example.test",
+    externalUserId: "U0PRIYA",
+    slackName: "प्रिया",
+  };
+  expect(convertMentions("hi @प्रिया.", [priya])).toEqual({
+    notes: [],
+    text: "hi <@U0PRIYA>.",
+  });
+  expect(convertMentions("hi @zo\u0065\u0308", [priya])).toEqual({
+    notes: ["@zo\u0065\u0308 matched nobody, sent as plain text"],
+    text: "hi @zo\u0065\u0308",
+  });
+});
