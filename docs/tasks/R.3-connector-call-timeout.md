@@ -3,7 +3,7 @@ id: R.3
 title: Connector call time limit, and the first of parallel connector calls hanging
 milestone: R
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/R.3-connector-call-timeout
 ---
@@ -29,3 +29,4 @@ In both cases the first of several parallel calls to the same connector never re
 
 ## Log
 - 2026-10-19: added at Dom's request. dispatched.
+- 2026-10-19: review clean after 1 fix round at 5743f68 (docs/reviews/tasks/R.3.md). Cause: pi-run-mcp.ts sent every JSON-RPC request with id 1, so a stateful MCP server dropped the first of overlapping calls. Merged. Migration 0012. Staging check pending.
