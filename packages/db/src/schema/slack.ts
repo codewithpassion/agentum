@@ -3,6 +3,7 @@ import { createdAt, id, workspaceId } from "../columns.ts";
 import { SLACK_APP_STATUSES } from "../shared.ts";
 import { agents } from "./agents.ts";
 import { runs } from "./runs.ts";
+import { sessions } from "./sessions.ts";
 import { workspaces } from "./workspaces.ts";
 
 /**
@@ -54,5 +55,36 @@ export const slackEventsSeen = sqliteTable(
     uniqueIndex("slack_events_seen_hash_unique").on(t.eventHash),
     // The minute tick trims by this column.
     index("slack_events_seen_received_idx").on(t.receivedAt),
+  ]
+);
+
+/**
+ * A thread an agent started with `slack_send`. A reply in it arrives without
+ * a mention and routes to `session_id`. The unique key is the thread itself,
+ * so a second start of the same thread is a no-op.
+ */
+export const slackThreads = sqliteTable(
+  "slack_threads",
+  {
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    channelId: text("channel_id").notNull(),
+    createdAt: createdAt(),
+    id: id(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    teamId: text("team_id").notNull(),
+    threadTs: text("thread_ts").notNull(),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [
+    uniqueIndex("slack_threads_thread_unique").on(
+      t.agentId,
+      t.teamId,
+      t.channelId,
+      t.threadTs
+    ),
   ]
 );

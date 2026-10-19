@@ -29,6 +29,10 @@ const SKILL_WRITE_NAMES = [
   "unassign_skill",
 ];
 
+const SLACK_READ_NAMES = ["slack_destinations"];
+
+const SLACK_WRITE_NAMES = ["slack_send"];
+
 const EXPECTED_NAMES = [
   "bash",
   "create_routine",
@@ -50,6 +54,8 @@ const EXPECTED_NAMES = [
   "set_trigger_enabled",
   ...SKILL_READ_NAMES,
   ...SKILL_WRITE_NAMES,
+  ...SLACK_READ_NAMES,
+  ...SLACK_WRITE_NAMES,
 ].sort();
 
 const READ_NAMES = [
@@ -63,6 +69,7 @@ const READ_NAMES = [
   "read_session",
   "search_sessions",
   ...SKILL_READ_NAMES,
+  ...SLACK_READ_NAMES,
 ].sort();
 
 const uncalled = (): Promise<never> =>
@@ -100,6 +107,8 @@ const fakePorts: McpPorts = {
   skillDiff: uncalled,
   skillLog: uncalled,
   skillShow: uncalled,
+  slackDestinations: uncalled,
+  slackSend: uncalled,
   unassignSkill: uncalled,
 };
 
@@ -168,6 +177,17 @@ describe("tools/list", () => {
           expect(names).toContain(name);
         }
         for (const name of SKILL_WRITE_NAMES) {
+          expect(names).not.toContain(name);
+        }
+      },
+      { readOnly: true }
+    ));
+
+  test("a read-only caller gets neither Slack tool", () =>
+    withClient(
+      async (client) => {
+        const names = (await client.listTools()).tools.map((tool) => tool.name);
+        for (const name of [...SLACK_READ_NAMES, ...SLACK_WRITE_NAMES]) {
           expect(names).not.toContain(name);
         }
       },

@@ -4,7 +4,11 @@ import { events as eventRows } from "@repo/db/schema/events";
 import { files as fileRows } from "@repo/db/schema/files";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
-import { slackApps, slackEventsSeen } from "@repo/db/schema/slack";
+import {
+  slackApps,
+  slackEventsSeen,
+  slackThreads,
+} from "@repo/db/schema/slack";
 import { identityLinks } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { encryptSecret, importSecretsKey } from "@repo/services/crypto";
@@ -868,4 +872,236 @@ test("the answer of a finished run is posted in the thread", async () => {
     "what is the status of the launch?"
   );
   expect(eventTypes()).toContain("slack.delivered");
+});
+
+const AGENT_THREAD_TS = "1789171100.000050";
+const REPLY_TS = "1789171500.000100";
+const DM_THREAD_TS = "1789171202.000300";
+
+/** A ui session of Dom's that the agent started a Slack thread from. */
+const startedThread = async (channelId: string, threadTs: string) => {
+  const { sessionId } = await composed.services.runs.startRun(
+    { kind: "user", userId: DOM, via: "session", workspaceId },
+    {
+      agentId,
+      input: { text: "post the update" },
+      session: { origin: "ui" },
+    }
+  );
+  await db.insert(slackThreads).values({
+    agentId,
+    channelId,
+    createdAt: new Date(nowMs).toISOString(),
+    id: `thread_${threadTs}`,
+    sessionId,
+    teamId: "T0TEAM",
+    threadTs,
+    workspaceId,
+  });
+  return sessionId;
+};
+
+/** A message in a channel thread with no mention, as Slack sends it. */
+const channelReply = async (
+  threadTs: string | undefined,
+  ts: string,
+  user = "U0DOM"
+) => {
+  const body = await fixture("dm");
+  body.event_id = `Ev${ts}`;
+  body.event = {
+    ...body.event,
+    channel: "C0CHAN",
+    channel_type: "channel",
+    text: "any update?",
+    ts,
+    user,
+  };
+  if (threadTs) {
+    body.event.thread_ts = threadTs;
+  }
+  return body;
+};
+
+const runsWithText = (text: string) =>
+  allRuns().filter((run) => run.inputText === text);
+
+test("a reply in a thread the agent started continues that session and answers in the thread", async () => {
+  const sessionId = await startedThread("C0CHAN", AGENT_THREAD_TS);
+  const response = await send(await channelReply(AGENT_THREAD_TS, REPLY_TS));
+
+  expect(response.status).toBe(OK);
+  const [run] = runsWithText("any update?");
+  expect(run).toMatchObject({ sessionId, onBehalfOfUserId: DOM });
+  expect(JSON.parse(run?.reply ?? "null")).toEqual({
+    channel: "C0CHAN",
+    kind: "slack",
+    teamId: "T0TEAM",
+    threadTs: AGENT_THREAD_TS,
+  });
+  expect(allSeen()).toHaveLength(1);
+});
+
+test("a channel reply in a thread the app does not know starts nothing", async () => {
+  const response = await send(
+    await channelReply("1789171000.000010", REPLY_TS)
+  );
+
+  expect(response.status).toBe(OK);
+  expect(allRuns()).toHaveLength(0);
+  expect(allSeen()).toHaveLength(0);
+});
+
+test("a reply in a thread a mention started continues that Slack session", async () => {
+  await send(await fixture("mention"));
+  await send(await channelReply("1789171201.000100", REPLY_TS));
+
+  expect(allRuns()).toHaveLength(2);
+  expect(new Set(allRuns().map((run) => run.sessionId)).size).toBe(1);
+  expect(db.select().from(sessionRows).all()).toHaveLength(1);
+});
+
+test("an unlinked person's reply in a known thread gets no run, no row and no Slack post", async () => {
+  await startedThread("C0CHAN", AGENT_THREAD_TS);
+  const response = await send(
+    await channelReply(AGENT_THREAD_TS, REPLY_TS, "U0NEW")
+  );
+  await runAfterJobs();
+
+  expect(response.status).toBe(OK);
+  expect(runsWithText("any update?")).toHaveLength(0);
+  expect(allSeen()).toHaveLength(0);
+  expect(eventTypes()).not.toContain("slack.unlinked_sender");
+  expect(
+    slackCalls.filter((call) => call.method === "chat.postMessage")
+  ).toEqual([]);
+});
+
+/** A second linked person, who is not the owner of the agent's ui session. */
+const linkSecondPerson = () =>
+  db
+    .insert(identityLinks)
+    .values({
+      clerkUserId: "user_eve",
+      createdAt: new Date(nowMs).toISOString(),
+      email: "eve@example.com",
+      externalUserId: "U0EVE",
+      id: "link_eve",
+      provider: "slack",
+      teamId: "T0TEAM",
+      workspaceId,
+    })
+    .run();
+
+test("another linked person's plain reply in a thread started from a ui session starts nothing", async () => {
+  await startedThread("C0CHAN", AGENT_THREAD_TS);
+  await linkSecondPerson();
+  const response = await send(
+    await channelReply(AGENT_THREAD_TS, REPLY_TS, "U0EVE")
+  );
+
+  expect(response.status).toBe(OK);
+  expect(runsWithText("any update?")).toHaveLength(0);
+  expect(allSeen()).toHaveLength(0);
+});
+
+test("another linked person's mention in a thread started from a ui session opens its own Slack session", async () => {
+  const uiSession = await startedThread("C0CHAN", AGENT_THREAD_TS);
+  await linkSecondPerson();
+  const mention = await fixture("mention");
+  mention.event_id = "Ev0EVEMENTION";
+  mention.event = {
+    ...mention.event,
+    thread_ts: AGENT_THREAD_TS,
+    ts: REPLY_TS,
+    user: "U0EVE",
+  };
+  const response = await send(mention);
+
+  expect(response.status).toBe(OK);
+  const eveRuns = allRuns().filter(
+    (run) => run.onBehalfOfUserId === "user_eve"
+  );
+  expect(eveRuns).toHaveLength(1);
+  expect(eveRuns[0]?.sessionId).not.toBe(uiSession);
+});
+
+test("a bot's own message and another bot's message in a known thread start no run", async () => {
+  await startedThread("C0CHAN", AGENT_THREAD_TS);
+  const own = await channelReply(AGENT_THREAD_TS, REPLY_TS, "U0BOT");
+  own.event.bot_id = "B0BOT";
+  own.event.app_id = "A0APP";
+  const other = await channelReply(
+    AGENT_THREAD_TS,
+    "1789171600.000100",
+    "U0OTHER"
+  );
+  other.event.bot_id = "B0OTHER";
+  await send(own);
+  await send(other);
+
+  expect(runsWithText("any update?")).toHaveLength(0);
+  expect(allSeen()).toHaveLength(0);
+});
+
+test("a thread reply that also mentions the app creates one run in either delivery order", async () => {
+  const sessionId = await startedThread("C0CHAN", AGENT_THREAD_TS);
+  const asMessage = await channelReply(AGENT_THREAD_TS, REPLY_TS);
+  asMessage.event.text = "<@U0BOT> any update?";
+  const asMention = await fixture("mention");
+  asMention.event_id = "Ev0REPLYMENTION";
+  asMention.event.thread_ts = AGENT_THREAD_TS;
+  asMention.event.ts = REPLY_TS;
+
+  await send(asMessage);
+  await send(asMention);
+  const runs = runsWithText("any update?");
+  expect(runs.map((run) => run.sessionId)).toEqual([sessionId]);
+  expect(allSeen()).toHaveLength(1);
+});
+
+test("the same thread reply sent as a mention first also creates one run", async () => {
+  await startedThread("C0CHAN", AGENT_THREAD_TS);
+  const asMention = await fixture("mention");
+  asMention.event_id = "Ev0REPLYMENTION";
+  asMention.event.thread_ts = AGENT_THREAD_TS;
+  asMention.event.ts = REPLY_TS;
+  const asMessage = await channelReply(AGENT_THREAD_TS, REPLY_TS);
+  asMessage.event.text = "<@U0BOT> any update?";
+
+  await send(asMention);
+  await send(asMessage);
+
+  expect(
+    allRuns().filter(
+      (run) => run.inputText === "what is the status of the launch?"
+    )
+  ).toHaveLength(1);
+  expect(allSeen()).toHaveLength(1);
+});
+
+test("a plain top-level channel message is still ignored", async () => {
+  const response = await send(await channelReply(undefined, REPLY_TS));
+
+  expect(response.status).toBe(OK);
+  expect(allRuns()).toHaveLength(0);
+  expect(allSeen()).toHaveLength(0);
+});
+
+test("a DM reply in a thread the agent started in the DM continues the session", async () => {
+  const sessionId = await startedThread("D0DM", DM_THREAD_TS);
+  const reply = await fixture("dm");
+  reply.event_id = "Ev0DMREPLY01";
+  reply.event.thread_ts = DM_THREAD_TS;
+  reply.event.ts = REPLY_TS;
+  reply.event.text = "any update?";
+  await send(reply);
+
+  const [run] = runsWithText("any update?");
+  expect(run).toMatchObject({ sessionId });
+  expect(JSON.parse(run?.reply ?? "null")).toMatchObject({
+    channel: "D0DM",
+    threadTs: DM_THREAD_TS,
+  });
+  expect(db.select().from(sessionRows).all()).toHaveLength(1);
 });

@@ -24,6 +24,7 @@ import type { RunTokenClaims } from "../run-tokens.ts";
 import { secretsGuidance } from "../secrets/guidance.ts";
 import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
 import type { SecretsService } from "../secrets.ts";
+import { slackGuidanceFor } from "../slack/guidance.ts";
 import type { Principal } from "../workspaces.ts";
 import { loadRun } from "./queries.ts";
 import type { MachineClaim, RunRecord } from "./types.ts";
@@ -203,6 +204,10 @@ export const claimForMachine = async (
     // The relay authenticates a call with the run's own token.
     env[RELAY_TOKEN_ENV] = runToken;
   }
+  const slack = await slackGuidanceFor(db, {
+    agentId: agent.id,
+    workspaceId: run.workspaceId,
+  });
   const guidance = granted
     ? secretsGuidance({
         base: options.platformUrl,
@@ -243,10 +248,9 @@ export const claimForMachine = async (
     },
     ...(Object.keys(env).length > 0 ? { env } : {}),
     inputFileIds: claimedRun.inputFileIds,
-    instructions:
-      guidance === ""
-        ? agent.instructions
-        : `${agent.instructions}\n\n${guidance}`,
+    instructions: [agent.instructions, guidance, slack]
+      .filter((part) => part !== "")
+      .join("\n\n"),
     ...(library ? { library } : {}),
     mcpServers: buildMcpServers({
       connectors: assigned,

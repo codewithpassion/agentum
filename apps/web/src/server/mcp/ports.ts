@@ -318,5 +318,13 @@ export const createMcpPorts = ({
           await services.triggers.setEnabled(principal, { enabled, triggerId })
         )
       ),
+
+    slackDestinations: () =>
+      guarded(() => services.slackSend.destinations(principal)),
+
+    slackSend: ({ text, thread_ts, to }) =>
+      guarded(() =>
+        services.slackSend.send(principal, { text, threadTs: thread_ts, to })
+      ),
   };
 };

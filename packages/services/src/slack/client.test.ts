@@ -748,3 +748,228 @@ test("botInfo rejects a bot with no app_id", async () => {
 
   expect(result.kind).toBe("rejected");
 });
+
+test("listChannels requests users.conversations and parses public and private channels", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({
+      channels: [
+        { id: "C1", is_private: false, name: "general" },
+        { id: "G1", is_private: true, name: "secret" },
+      ],
+      ok: true,
+      response_metadata: { next_cursor: "" },
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.listChannels();
+
+  expect(result).toEqual({
+    channels: [
+      { id: "C1", isPrivate: false, name: "general" },
+      { id: "G1", isPrivate: true, name: "secret" },
+    ],
+    kind: "ok",
+  });
+  expect(calls).toHaveLength(1);
+  const url = new URL(firstCall(calls).url);
+  expect(url.origin + url.pathname).toBe(
+    "https://slack.com/api/users.conversations"
+  );
+  expect(url.searchParams.get("types")).toBe("public_channel,private_channel");
+  expect(url.searchParams.get("exclude_archived")).toBe("true");
+  expect(url.searchParams.get("limit")).toBe("200");
+  expect(url.searchParams.has("cursor")).toBe(false);
+  expect(firstCall(calls).init.method).toBe("GET");
+  expect(new Headers(firstCall(calls).init.headers).get("authorization")).toBe(
+    `Bearer ${TOKEN}`
+  );
+});
+
+test("listChannels follows next_cursor across two pages", async () => {
+  const { calls, fetch } = fakeFetch((url) => {
+    if (new URL(url).searchParams.get("cursor") === "page2") {
+      return jsonResponse({
+        channels: [{ id: "C2", is_private: false, name: "random" }],
+        ok: true,
+        response_metadata: { next_cursor: "" },
+      });
+    }
+    return jsonResponse({
+      channels: [{ id: "C1", is_private: false, name: "general" }],
+      ok: true,
+      response_metadata: { next_cursor: "page2" },
+    });
+  });
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.listChannels();
+
+  expect(result).toEqual({
+    channels: [
+      { id: "C1", isPrivate: false, name: "general" },
+      { id: "C2", isPrivate: false, name: "random" },
+    ],
+    kind: "ok",
+  });
+  expect(calls).toHaveLength(2);
+  expect(
+    new URL(firstCall(calls.slice(1)).url).searchParams.get("cursor")
+  ).toBe("page2");
+});
+
+test("listChannels stops after five pages even when Slack keeps returning a cursor", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({
+      channels: [{ id: "C1", is_private: false, name: "general" }],
+      ok: true,
+      response_metadata: { next_cursor: "more" },
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.listChannels();
+
+  expect(calls).toHaveLength(5);
+  expect(result).toEqual({
+    channels: Array.from({ length: 5 }, () => ({
+      id: "C1",
+      isPrivate: false,
+      name: "general",
+    })),
+    kind: "ok",
+  });
+});
+
+test("listChannels returns the error of a failing page as it is", async () => {
+  let page = 0;
+  const { fetch } = fakeFetch(() => {
+    page += 1;
+    if (page === 1) {
+      return jsonResponse({
+        channels: [{ id: "C1", is_private: false, name: "general" }],
+        ok: true,
+        response_metadata: { next_cursor: "page2" },
+      });
+    }
+    return jsonResponse({ error: "ratelimited", ok: false }, 200, {
+      "Retry-After": "3",
+    });
+  });
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.listChannels();
+
+  expect(result).toEqual({ kind: "rate_limited", retryAfterSeconds: 3 });
+});
+
+test("listChannels classifies missing_scope as config", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "missing_scope", ok: false })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.listChannels();
+
+  expect(result).toEqual({ error: "missing_scope", kind: "config" });
+});
+
+test("listChannels skips entries without an id or a name", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({
+      channels: [
+        { id: "C1", is_private: false, name: "general" },
+        { is_private: false, name: "no-id" },
+        { id: "", is_private: false, name: "empty-id" },
+        { id: "C3", is_private: false },
+        { id: "C4", is_private: false, name: "" },
+        "not an object",
+        null,
+      ],
+      ok: true,
+      response_metadata: { next_cursor: "" },
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.listChannels();
+
+  expect(result).toEqual({
+    channels: [{ id: "C1", isPrivate: false, name: "general" }],
+    kind: "ok",
+  });
+});
+
+test("openDm posts the user to conversations.open and returns the DM channel id", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({ channel: { id: "D1" }, ok: true })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.openDm("U1");
+
+  expect(result).toEqual({ channelId: "D1", kind: "ok" });
+  expect(firstCall(calls).url).toBe("https://slack.com/api/conversations.open");
+  expect(firstCall(calls).init.method).toBe("POST");
+  expect(sentBody(firstCall(calls))).toEqual({ users: "U1" });
+  expect(new Headers(firstCall(calls).init.headers).get("authorization")).toBe(
+    `Bearer ${TOKEN}`
+  );
+});
+
+test("openDm rejects a response with no channel id", async () => {
+  const { fetch } = fakeFetch(() => jsonResponse({ channel: {}, ok: true }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.openDm("U1");
+
+  expect(result).toEqual({ error: "no_error", kind: "rejected" });
+});
+
+test("openDm classifies missing_scope as config", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "missing_scope", ok: false })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.openDm("U1");
+
+  expect(result).toEqual({ error: "missing_scope", kind: "config" });
+});
+
+test("permalink requests chat.getPermalink with channel and message_ts and returns the link", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({
+      channel: "C1",
+      ok: true,
+      permalink: "https://team.slack.com/archives/C1/p1700000000000100",
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.permalink("C1", "1700000000.000100");
+
+  expect(result).toEqual({
+    kind: "ok",
+    permalink: "https://team.slack.com/archives/C1/p1700000000000100",
+  });
+  const url = new URL(firstCall(calls).url);
+  expect(url.origin + url.pathname).toBe(
+    "https://slack.com/api/chat.getPermalink"
+  );
+  expect(url.searchParams.get("channel")).toBe("C1");
+  expect(url.searchParams.get("message_ts")).toBe("1700000000.000100");
+  expect(firstCall(calls).init.method).toBe("GET");
+  expect(new Headers(firstCall(calls).init.headers).get("authorization")).toBe(
+    `Bearer ${TOKEN}`
+  );
+});
+
+test("permalink rejects a response with no permalink", async () => {
+  const { fetch } = fakeFetch(() => jsonResponse({ ok: true }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.permalink("C1", "1.2");
+
+  expect(result).toEqual({ error: "no_error", kind: "rejected" });
+});

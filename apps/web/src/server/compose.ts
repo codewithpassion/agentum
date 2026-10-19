@@ -121,6 +121,10 @@ import {
   type SlackAppsService,
 } from "@repo/services/slack-apps";
 import {
+  createSlackSendService,
+  type SlackSendService,
+} from "@repo/services/slack-send";
+import {
   createTriggersService,
   type TriggersService,
 } from "@repo/services/triggers";
@@ -200,6 +204,7 @@ export interface Services {
   skillsStore: SkillsStoreService;
   slack: SlackService;
   slackApps: SlackAppsService;
+  slackSend: SlackSendService;
   triggers: TriggersService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
@@ -437,6 +442,14 @@ export const composeWith = ({
     publicBaseUrl: infra.publicBaseUrl,
     secretsKey: infra.secretsKey,
   });
+  const slackSend = createSlackSendService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    fetch: connectorFetch,
+    secretsKey: infra.secretsKey,
+  });
   const triggers = createTriggersService({
     allowedOrgIds,
     clock: infra.clock,
@@ -473,6 +486,7 @@ export const composeWith = ({
       skillsStore,
       slack,
       slackApps,
+      slackSend,
       triggers,
       workspaces,
     },
