@@ -5,6 +5,8 @@ import {
   useId,
   useState,
 } from "react";
+import { SendHint } from "#/components/composer/send-hint";
+import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
 import { canSend } from "#/components/inbox/inbox-logic";
 import { errorMessage } from "#/components/triggers/format";
 import { Button } from "#/components/ui/button";
@@ -57,15 +59,17 @@ export function PostComposer({ onSent, threadId }: PostComposerProps) {
         aria-describedby={hintId}
         id={textId}
         onChange={handleChange}
+        onKeyDown={submitOnSendShortcut}
         value={text}
       />
       <p className="text-muted-foreground text-xs" id={hintId}>
         Mention an agent with @slug to start a run.
       </p>
-      <div>
+      <div className="flex items-center gap-2">
         <Button disabled={!canSend(text, sending)} type="submit">
           Send
         </Button>
+        <SendHint />
       </div>
       {error === null ? null : (
         <p className="text-destructive text-sm">{error}</p>
