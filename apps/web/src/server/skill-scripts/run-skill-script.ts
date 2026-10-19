@@ -73,12 +73,15 @@ export interface ScriptSecrets {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-const textResult = (text: string, isError = false): ToolExecutionResult => ({
+export const textResult = (
+  text: string,
+  isError = false
+): ToolExecutionResult => ({
   isError,
   output: [{ text, type: "text" }],
 });
 
-const errorText = (error: unknown): string =>
+export const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 const folderPrefix = (skill: string): string => `${skill}/`;
@@ -148,7 +151,7 @@ const isContinuationByte = (byte: number): boolean =>
   byte >= 0x80 && byte < 0xc0;
 
 /** The first `max` bytes of `text`, cut back to a character boundary, with a note when anything was cut. */
-const capOutput = (text: string, max: number): string => {
+export const capOutput = (text: string, max: number): string => {
   const bytes = encoder.encode(text);
   if (bytes.length <= max) {
     return text;
@@ -181,7 +184,7 @@ const describeResult = (
 };
 
 /** Races the run against a timer, so a sandbox that never settles still ends. */
-const runWithSafetyNet = async (
+export const runWithSafetyNet = async (
   run: Promise<SandboxRunResult>,
   limits: ScriptLimits
 ): Promise<SandboxRunResult> => {
