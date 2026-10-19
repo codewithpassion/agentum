@@ -31,6 +31,7 @@ import {
   type Blobs,
   createEventsService,
   type EventsService,
+  type PeopleLookup,
 } from "@repo/services/events";
 import {
   createFilesService,
@@ -142,6 +143,7 @@ import {
 } from "@repo/services/triggers";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
+import { clerkPeople } from "./clerk-people.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
 import { durableRunnerPort } from "./pi-run-port.ts";
 import { r2Blobs } from "./r2-blobs.ts";
@@ -171,6 +173,8 @@ export interface Infra {
   managedGatewayFor?: ManagedServiceOptions["gatewayFor"];
   /** Wakes the poller of a managed run. Without it, `managed` agents cannot run. */
   managedPoller?: ManagedPollerPort;
+  /** Names the people behind user ids in the Log. Without it, the Log shows ids. */
+  people?: PeopleLookup;
   /** `PUBLIC_BASE_URL`. A Connect path posted to Slack becomes a link under it. */
   publicBaseUrl?: string;
   relay: MachineRelayPort;
@@ -301,7 +305,11 @@ export const composeWith = ({
   ];
 
   const workspaces = createWorkspacesService({ allowedOrgIds, db });
-  const events = createEventsService({ blobs: infra.blobs, db });
+  const events = createEventsService({
+    blobs: infra.blobs,
+    db,
+    people: infra.people,
+  });
   const agents = createAgentsService({ db, events });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
   // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
@@ -558,6 +566,7 @@ export const compose = (
           environmentName: ENVIRONMENT_NAME,
         }),
       managedPoller: durablePollerPort(env.MANAGED_POLLER),
+      people: clerkPeople(env.CLERK_SECRET_KEY),
       publicBaseUrl: env.PUBLIC_BASE_URL,
       relay: durableRelayPort(env.MACHINE_RELAY),
       runTokenKey: env.RUN_TOKEN_KEY,

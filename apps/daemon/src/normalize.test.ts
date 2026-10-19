@@ -176,6 +176,7 @@ describe("summariseResult", () => {
       isError: false,
       sessionId: "s1",
       text: "Done.",
+      turnLimitReached: false,
       usage: { costUsd: 0.25, inputTokens: 10, outputTokens: 4 },
     });
   });
@@ -191,6 +192,31 @@ describe("summariseResult", () => {
     );
     expect(summary?.isError).toBe(true);
     expect(summary?.text).toBe("error_max_turns");
+  });
+
+  test("error_max_turns sets turnLimitReached", () => {
+    const summary = summariseResult(
+      resultMessage({
+        ...BASE_RESULT,
+        errors: [],
+        is_error: true,
+        subtype: "error_max_turns",
+      })
+    );
+    expect(summary?.turnLimitReached).toBe(true);
+  });
+
+  test("other error subtypes do not set turnLimitReached", () => {
+    const summary = summariseResult(
+      resultMessage({
+        ...BASE_RESULT,
+        errors: ["boom"],
+        is_error: true,
+        subtype: "error_during_execution",
+      })
+    );
+    expect(summary?.isError).toBe(true);
+    expect(summary?.turnLimitReached).toBe(false);
   });
 
   test("error_during_execution joins the errors", () => {

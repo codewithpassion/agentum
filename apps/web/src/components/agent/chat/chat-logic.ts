@@ -27,6 +27,9 @@ export type ChatItem =
 export const isRunActive = (status: RunStatus): boolean =>
   status === "queued" || status === "offered" || status === "running";
 
+export const canCancel = (run: Run | null): boolean =>
+  run !== null && isRunActive(run.status);
+
 export const canRetry = (run: Run | null, nowMs: number): boolean => {
   if (run?.status !== "interrupted") {
     return false;
@@ -51,13 +54,21 @@ export const shouldPoll = (run: Run | null, nowMs: number): boolean => {
   );
 };
 
-export const statusLine = (run: Run | null): string | null => {
+export const statusLine = (
+  run: Run | null,
+  queue: SessionTranscript["queue"]
+): string | null => {
   if (run === null) {
     return null;
   }
   switch (run.status) {
     case "queued":
     case "offered":
+      if (queue?.runtime === "cloud" || queue?.runtime === "managed") {
+        return queue.otherRunActive
+          ? "Queued, waiting for the agent's current run to finish"
+          : "Queued";
+      }
       return "Queued, waiting for the machine";
     case "running":
       return "Running";

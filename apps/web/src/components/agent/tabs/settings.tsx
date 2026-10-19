@@ -1,16 +1,16 @@
 import type { ModelProvider } from "@repo/db/shared";
-import {
-  CLOUD_ENVIRONMENT_KEY,
-  cloudEnvironmentOf,
-} from "@repo/services/cloud/environment";
-import {
-  CLOUD_NETWORK_KEY,
-  networkAccessOf,
-} from "@repo/services/cloud/network";
+import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
+import { networkAccessOf } from "@repo/services/cloud/network";
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import {
+  maxTurnsInputOf,
+  runtimeConfigOf,
+} from "#/components/agent/agent-config.ts";
 import { AgentForm, type AgentFormValues } from "#/components/agent/agent-form";
+import { ArchiveAgentDialog } from "#/components/agent/archive-agent-dialog";
+import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { MachineRecord } from "#/integrations/trpc/types";
 import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
@@ -24,6 +24,9 @@ function SettingsPanel({ agent }: AgentTabProps) {
   const router = useRouter();
   const [data, setData] = useState<SettingsData | undefined>();
   const [error, setError] = useState<string | undefined>();
+  const [archiving, setArchiving] = useState(false);
+  const openArchive = useCallback(() => setArchiving(true), []);
+  const closeArchive = useCallback(() => setArchiving(false), []);
 
   useEffect(() => {
     let active = true;
@@ -57,14 +60,8 @@ function SettingsPanel({ agent }: AgentTabProps) {
           ...(agent.runtime === "machine"
             ? { machineId: values.machineId }
             : {}),
-          ...(agent.runtime === "cloud"
-            ? {
-                runtimeConfig: {
-                  ...agent.runtimeConfig,
-                  [CLOUD_ENVIRONMENT_KEY]: values.environment,
-                  [CLOUD_NETWORK_KEY]: values.networkAccess,
-                },
-              }
+          ...(agent.runtime === "cloud" || agent.runtime === "machine"
+            ? { runtimeConfig: runtimeConfigOf(agent.runtimeConfig, values) }
             : {}),
         },
       });
@@ -86,6 +83,7 @@ function SettingsPanel({ agent }: AgentTabProps) {
           environment: cloudEnvironmentOf(agent.runtimeConfig),
           instructions: agent.instructions,
           machineId: agent.machineId ?? "",
+          maxTurns: maxTurnsInputOf(agent.runtimeConfig),
           model: agent.model,
           name: agent.name,
           networkAccess: networkAccessOf(agent.runtimeConfig),
@@ -101,7 +99,23 @@ function SettingsPanel({ agent }: AgentTabProps) {
     );
   }
 
-  return <section className="max-w-3xl">{body}</section>;
+  return (
+    <section className="max-w-3xl">
+      {body}
+      <div className="mt-10 border-border border-t pt-6">
+        <Button onClick={openArchive} variant="outline">
+          Archive agent
+        </Button>
+      </div>
+      {archiving ? (
+        <ArchiveAgentDialog
+          agentId={agent.id}
+          agentName={agent.name}
+          onClose={closeArchive}
+        />
+      ) : null}
+    </section>
+  );
 }
 
 export const settingsTab: AgentTab = {

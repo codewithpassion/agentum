@@ -157,6 +157,55 @@ describe("machine protocol fixtures", () => {
     expect(completeRequestSchema.safeParse(withExtra).success).toBe(false);
   });
 
+  test("a failed completion with a turn limit stop parses", async () => {
+    const raw = (await loadFixture("complete-request-failed")) as Record<
+      string,
+      unknown
+    >;
+    const withStop = {
+      ...raw,
+      stop: { kind: "turn_limit", limit: 100 },
+    };
+    expect(completeRequestSchema.safeParse(withStop).success).toBe(true);
+  });
+
+  test("a failed completion with a repeat stop parses", async () => {
+    const raw = (await loadFixture("complete-request-failed")) as Record<
+      string,
+      unknown
+    >;
+    const withStop = {
+      ...raw,
+      stop: { count: 5, kind: "repeat", tool: "Bash" },
+    };
+    expect(completeRequestSchema.safeParse(withStop).success).toBe(true);
+  });
+
+  test("a done completion with a stop is rejected", async () => {
+    const raw = (await loadFixture("complete-request-done")) as Record<
+      string,
+      unknown
+    >;
+    const withStop = { ...raw, stop: { kind: "turn_limit", limit: 100 } };
+    expect(completeRequestSchema.safeParse(withStop).success).toBe(false);
+  });
+
+  test("a failed completion with a bad stop is rejected", async () => {
+    const raw = (await loadFixture("complete-request-failed")) as Record<
+      string,
+      unknown
+    >;
+    const badLimit = { ...raw, stop: { kind: "turn_limit", limit: 0 } };
+    const badKind = { ...raw, stop: { kind: "budget", limit: 100 } };
+    const extraField = {
+      ...raw,
+      stop: { kind: "turn_limit", limit: 100, unexpected: 1 },
+    };
+    expect(completeRequestSchema.safeParse(badLimit).success).toBe(false);
+    expect(completeRequestSchema.safeParse(badKind).success).toBe(false);
+    expect(completeRequestSchema.safeParse(extraField).success).toBe(false);
+  });
+
   test("daemonFrameSchema accepts daemon frames and rejects relay frames", async () => {
     const daemonResults = (await loadFixtures(daemonFixtures)).map(
       (raw) => daemonFrameSchema.safeParse(raw).success

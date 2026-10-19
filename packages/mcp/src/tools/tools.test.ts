@@ -109,6 +109,7 @@ const uncalled = (name: string) => (): Promise<never> =>
 const failingPorts = (error: Error): McpPorts => ({
   approveSkillVersion: () => Promise.reject(error),
   assignSkill: () => Promise.reject(error),
+  cancelRun: () => Promise.reject(error),
   commitSkill: () => Promise.reject(error),
   createRoutine: () => Promise.reject(error),
   createSkill: () => Promise.reject(error),
@@ -149,6 +150,7 @@ const failingPorts = (error: Error): McpPorts => ({
 const fakePorts = (overrides: Partial<McpPorts>): McpPorts => ({
   approveSkillVersion: uncalled("approveSkillVersion"),
   assignSkill: uncalled("assignSkill"),
+  cancelRun: uncalled("cancelRun"),
   commitSkill: uncalled("commitSkill"),
   createRoutine: uncalled("createRoutine"),
   createSkill: uncalled("createSkill"),
@@ -216,6 +218,7 @@ const ALL_TOOLS = [
   "list_agents",
   "send_message",
   "get_run",
+  "cancel_run",
   "list_sessions",
   "read_session",
   "search_sessions",
@@ -230,6 +233,7 @@ const CALLS: [string, Record<string, unknown>][] = [
   ["list_agents", {}],
   ["send_message", { agent: "ops-bot", text: "hi" }],
   ["get_run", { runId: "run_1" }],
+  ["cancel_run", { runId: "run_1" }],
   ["list_sessions", { agent: "ops-bot" }],
   ["read_session", { sessionId: "ses_1" }],
   ["search_sessions", { agent: "ops-bot", query: "deploy" }],
@@ -268,6 +272,7 @@ describe("tools/list", () => {
       "waitMs",
     ]);
     expect(fieldsOf("get_run")).toEqual(["runId"]);
+    expect(fieldsOf("cancel_run")).toEqual(["runId"]);
     expect(fieldsOf("list_sessions")).toEqual(["agent"]);
     expect(fieldsOf("read_session")).toEqual(["sessionId"]);
     expect(fieldsOf("search_sessions")).toEqual(["agent", "query"]);
@@ -403,6 +408,35 @@ describe("get_run", () => {
       state: "done",
     });
     expect(textOf(result)).toBe("42");
+  });
+});
+
+describe("cancel_run", () => {
+  test("passes the runId and returns the cancelled run", async () => {
+    const received: unknown[] = [];
+    const result = await callTool(
+      fakePorts({
+        cancelRun: (input) => {
+          received.push(input);
+          return Promise.resolve({
+            ...RUN,
+            answer: null,
+            error: "Cancelled.",
+            status: "cancelled",
+          });
+        },
+      }),
+      "cancel_run",
+      { runId: "run_1" }
+    );
+    expect(received).toEqual([{ runId: "run_1" }]);
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      runId: "run_1",
+      state: "failed",
+      status: "cancelled",
+    });
+    expect(textOf(result)).toBe("Cancelled.");
   });
 });
 

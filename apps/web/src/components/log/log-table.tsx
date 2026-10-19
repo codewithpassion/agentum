@@ -1,5 +1,8 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
+import { useCallback, useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "#/components/ui/badge.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import {
   Table,
   TableBody,
@@ -8,7 +11,9 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
+import { getTrpc } from "#/integrations/trpc/client";
 import type { EventLogEntry } from "#/integrations/trpc/types";
+import { cancelEntryIds } from "./log-logic.ts";
 
 interface LogTableProps {
   agentNames: ReadonlyMap<string, string>;
@@ -17,6 +22,7 @@ interface LogTableProps {
 
 interface LogRowProps {
   agentName: string;
+  cancellable: boolean;
   entry: EventLogEntry;
 }
 
@@ -34,7 +40,37 @@ function agentLabel(
   return agentNames.get(entry.agentId) ?? "Agent";
 }
 
-function LogRow({ agentName, entry }: LogRowProps) {
+const CANCEL_FAILED = "Could not cancel the run.";
+
+function CancelRunButton({ runId }: { runId: string }) {
+  const router = useRouter();
+  const [cancelling, setCancelling] = useState(false);
+  const cancel = useCallback(async () => {
+    setCancelling(true);
+    try {
+      await getTrpc().runs.cancel.mutate({ runId });
+      await router.invalidate();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : CANCEL_FAILED);
+    } finally {
+      setCancelling(false);
+    }
+  }, [router, runId]);
+  return (
+    <Button
+      className="ml-2"
+      data-testid="log-cancel"
+      disabled={cancelling}
+      onClick={cancel}
+      size="sm"
+      variant="outline"
+    >
+      Cancel
+    </Button>
+  );
+}
+
+function LogRow({ agentName, cancellable, entry }: LogRowProps) {
   const hasLinks = entry.sessionId !== null || entry.runId !== null;
   return (
     <TableRow data-testid="log-row">
@@ -65,6 +101,9 @@ function LogRow({ agentName, entry }: LogRowProps) {
             Run {entry.runId.slice(-8)}
           </span>
         )}
+        {entry.runId !== null && cancellable ? (
+          <CancelRunButton runId={entry.runId} />
+        ) : null}
       </TableCell>
     </TableRow>
   );
@@ -74,6 +113,7 @@ export function LogTable({ agentNames, entries }: LogTableProps) {
   if (entries.length === 0) {
     return <p className="text-muted-foreground text-sm">No events.</p>;
   }
+  const cancellable = cancelEntryIds(entries);
   return (
     <Table>
       <TableHeader>
@@ -89,6 +129,7 @@ export function LogTable({ agentNames, entries }: LogTableProps) {
         {entries.map((entry) => (
           <LogRow
             agentName={agentLabel(entry, agentNames)}
+            cancellable={cancellable.has(entry.id)}
             entry={entry}
             key={entry.id}
           />

@@ -11,8 +11,11 @@ import {
   failureOf,
   finalText,
   sliceRun,
+  toolOutcomesOf,
   toRunEvents,
+  turnsOf,
   usageOf,
+  wantsAnotherTurn,
 } from "./pi-run-events.ts";
 
 const entry = (id: string, ...model: Message[]): EntryRecord => ({
@@ -352,5 +355,159 @@ describe("finalText", () => {
 
   test("empty string when there is no assistant text", () => {
     expect(finalText([entry("u1", user("hi"))])).toBe("");
+  });
+});
+
+describe("turnsOf", () => {
+  test("0 with no assistant message", () => {
+    expect(turnsOf([entry("u1", user("hi"))])).toBe(0);
+  });
+
+  test("1 for one assistant message", () => {
+    expect(
+      turnsOf([entry("a1", assistant([{ text: "x", type: "text" }]))])
+    ).toBe(1);
+  });
+
+  test("3 for three assistant messages, with tool results between them", () => {
+    const slice = [
+      entry(
+        "a1",
+        assistant([{ arguments: {}, id: "c1", name: "bash", type: "toolCall" }])
+      ),
+      entry("t1", toolResult("c1", [{ text: "ok", type: "text" }])),
+      entry(
+        "a2",
+        assistant([{ arguments: {}, id: "c2", name: "bash", type: "toolCall" }])
+      ),
+      entry("t2", toolResult("c2", [{ text: "ok", type: "text" }])),
+      entry("a3", assistant([{ text: "Done", type: "text" }])),
+    ];
+    expect(turnsOf(slice)).toBe(3);
+  });
+});
+
+describe("wantsAnotherTurn", () => {
+  test("true when the last assistant message has a tool call", () => {
+    const slice = [
+      entry(
+        "a1",
+        assistant([
+          { text: "Looking.", type: "text" },
+          { arguments: {}, id: "c1", name: "bash", type: "toolCall" },
+        ])
+      ),
+    ];
+    expect(wantsAnotherTurn(slice)).toBe(true);
+  });
+
+  test("false when the last assistant message is text only", () => {
+    const slice = [
+      entry(
+        "a1",
+        assistant([{ arguments: {}, id: "c1", name: "bash", type: "toolCall" }])
+      ),
+      entry("t1", toolResult("c1", [{ text: "ok", type: "text" }])),
+      entry("a2", assistant([{ text: "Done", type: "text" }])),
+    ];
+    expect(wantsAnotherTurn(slice)).toBe(false);
+  });
+
+  test("false for an empty slice", () => {
+    expect(wantsAnotherTurn([])).toBe(false);
+  });
+
+  test("looks only at the last assistant message", () => {
+    const slice = [
+      entry("a1", assistant([{ text: "Done", type: "text" }])),
+      entry("u1", user("more")),
+      entry("a2", assistant([{ text: "Also done", type: "text" }])),
+      entry(
+        "a3",
+        assistant([{ arguments: {}, id: "c1", name: "bash", type: "toolCall" }])
+      ),
+    ];
+    expect(wantsAnotherTurn(slice)).toBe(true);
+    expect(wantsAnotherTurn(slice.slice(0, 3))).toBe(false);
+  });
+});
+
+describe("toolOutcomesOf", () => {
+  test("pairs each result with its call, in order, with ok from isError", () => {
+    const slice = [
+      entry(
+        "a1",
+        assistant([
+          {
+            arguments: { cmd: "ls" },
+            id: "c1",
+            name: "bash",
+            type: "toolCall",
+          },
+        ])
+      ),
+      entry("t1", toolResult("c1", [{ text: "a.txt", type: "text" }])),
+      entry(
+        "a2",
+        assistant([
+          {
+            arguments: { path: "x" },
+            id: "c2",
+            name: "read",
+            type: "toolCall",
+          },
+        ])
+      ),
+      entry(
+        "t2",
+        toolResult("c2", [{ text: "no such file", type: "text" }], true)
+      ),
+    ];
+    expect(toolOutcomesOf(slice)).toEqual([
+      { input: { cmd: "ls" }, name: "bash", ok: true },
+      { input: { path: "x" }, name: "read", ok: false },
+    ]);
+  });
+
+  test("handles two tool calls in one assistant message", () => {
+    const slice = [
+      entry(
+        "a1",
+        assistant([
+          {
+            arguments: { cmd: "ls" },
+            id: "c1",
+            name: "bash",
+            type: "toolCall",
+          },
+          {
+            arguments: { path: "y" },
+            id: "c2",
+            name: "read",
+            type: "toolCall",
+          },
+        ])
+      ),
+      entry("t1", toolResult("c2", [{ text: "y", type: "text" }])),
+      entry("t2", toolResult("c1", [{ text: "a.txt", type: "text" }])),
+    ];
+    expect(toolOutcomesOf(slice)).toEqual([
+      { input: { path: "y" }, name: "read", ok: true },
+      { input: { cmd: "ls" }, name: "bash", ok: true },
+    ]);
+  });
+
+  test("drops a result with no matching call", () => {
+    const slice = [
+      entry("t1", toolResult("orphan", [{ text: "x", type: "text" }])),
+      entry(
+        "a1",
+        assistant([{ arguments: {}, id: "c1", name: "bash", type: "toolCall" }])
+      ),
+      entry("t2", toolResult("c1", [{ text: "ok", type: "text" }])),
+    ];
+    expect(toolOutcomesOf(slice)).toEqual([
+      { input: {}, name: "bash", ok: true },
+    ]);
   });
 });

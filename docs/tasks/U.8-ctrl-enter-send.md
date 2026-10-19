@@ -25,3 +25,4 @@ Asked for by Dom on 19 Oct 2026. In the chat composer, Ctrl+Enter (Cmd+Enter on 
 - 2026-10-19: added at Dom's request.
 - 2026-10-19: dispatched.
 - 2026-10-19: review clean after 0 fix rounds at 4cfa8f7 (docs/reviews/tasks/U.8.md). Merged.
+- 2026-10-19: staging check passed (Enter newline, Ctrl+Enter sends, hint shown).

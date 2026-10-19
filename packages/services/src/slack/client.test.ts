@@ -149,6 +149,44 @@ test("postMessage escapes mentions, links and ampersands so agent text cannot pi
   );
 });
 
+test("postMessage keeps well-formed user mentions and channel links but escapes other control syntax", async () => {
+  const { calls, fetch } = fakeFetch(() => jsonResponse({ ok: true, ts: "1" }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  await client.postMessage({
+    channel: "C1",
+    text: "ask <@U0ANN1234> in <#C0GENERAL1> now <!channel> <@U0ANN1234|label> <https://evil.test|label> a & b",
+  });
+
+  expect(sentBody(firstCall(calls)).text).toBe(
+    "ask <@U0ANN1234> in <#C0GENERAL1> now &lt;!channel&gt; &lt;@U0ANN1234|label&gt; &lt;https://evil.test|label&gt; a &amp; b"
+  );
+});
+
+test("postMessage escapes a lowercase user id that is not a well-formed mention", async () => {
+  const { calls, fetch } = fakeFetch(() => jsonResponse({ ok: true, ts: "1" }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  await client.postMessage({ channel: "C1", text: "<@u0ann1234>" });
+
+  expect(sentBody(firstCall(calls)).text).toBe("&lt;@u0ann1234&gt;");
+});
+
+test("postEphemeral still escapes a well-formed user mention", async () => {
+  const { calls, fetch } = fakeFetch(() => jsonResponse({ ok: true }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  await client.postEphemeral({
+    channel: "C1",
+    text: "<@U0ANN1234> <#C0GENERAL1>",
+    user: "U9",
+  });
+
+  expect(sentBody(firstCall(calls)).text).toBe(
+    "&lt;@U0ANN1234&gt; &lt;#C0GENERAL1&gt;"
+  );
+});
+
 test("postMessage sends thread_ts and turns off unfurling", async () => {
   const { calls, fetch } = fakeFetch(() => jsonResponse({ ok: true, ts: "1" }));
   const client = createSlackClient({ fetch, token: TOKEN });
@@ -329,7 +367,11 @@ test("userName returns the display name and requests users.info", async () => {
 
   const result = await client.userName("U1");
 
-  expect(result).toEqual({ kind: "ok", name: "Ada D" });
+  expect(result).toEqual({
+    aliases: ["Ada D", "Ada Duke", "Ada Duke Top", "ada"],
+    kind: "ok",
+    name: "Ada D",
+  });
   const url = new URL(firstCall(calls).url);
   expect(url.origin + url.pathname).toBe("https://slack.com/api/users.info");
   expect(url.searchParams.get("user")).toBe("U1");
@@ -354,10 +396,36 @@ test("userName falls back to real_name when the display name is empty", async ()
 
   const result = await client.userName("U1");
 
-  expect(result).toEqual({ kind: "ok", name: "Ada Duke" });
+  expect(result).toEqual({
+    aliases: ["Ada Duke", "Other", "ada"],
+    kind: "ok",
+    name: "Ada Duke",
+  });
 });
 
-test("userName returns null when the user has no name", async () => {
+test("userName collapses names that repeat across fields", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({
+      ok: true,
+      user: {
+        name: "ada",
+        profile: { display_name: "ada", real_name: "Ada Duke" },
+        real_name: "Ada Duke",
+      },
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.userName("U1");
+
+  expect(result).toEqual({
+    aliases: ["ada", "Ada Duke"],
+    kind: "ok",
+    name: "ada",
+  });
+});
+
+test("userName returns null and no aliases when the user has no name", async () => {
   const { fetch } = fakeFetch(() =>
     jsonResponse({ ok: true, user: { profile: {} } })
   );
@@ -365,7 +433,7 @@ test("userName returns null when the user has no name", async () => {
 
   const result = await client.userName("U1");
 
-  expect(result).toEqual({ kind: "ok", name: null });
+  expect(result).toEqual({ aliases: [], kind: "ok", name: null });
 });
 
 test("channelName returns the channel name and requests conversations.info", async () => {

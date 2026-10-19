@@ -1,8 +1,7 @@
-import { CLOUD_ENVIRONMENT_KEY } from "@repo/services/cloud/environment";
-import { CLOUD_NETWORK_KEY } from "@repo/services/cloud/network";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback } from "react";
+import { runtimeConfigOf } from "#/components/agent/agent-config.ts";
 import { AgentForm, type AgentFormValues } from "#/components/agent/agent-form";
 import { getTrpc } from "#/integrations/trpc/client";
 
@@ -33,6 +32,10 @@ function NewAgent() {
 
   const createAgent = useCallback(
     async (values: AgentFormValues) => {
+      const runtimeConfig = runtimeConfigOf({}, values);
+      const sendsConfig =
+        (values.runtime === "cloud" || values.runtime === "machine") &&
+        Object.keys(runtimeConfig).length > 0;
       const agent = await getTrpc().agents.create.mutate({
         instructions: values.instructions,
         model: values.model,
@@ -41,14 +44,7 @@ function NewAgent() {
         ...(values.runtime === "machine"
           ? { machineId: values.machineId }
           : {}),
-        ...(values.runtime === "cloud"
-          ? {
-              runtimeConfig: {
-                [CLOUD_ENVIRONMENT_KEY]: values.environment,
-                [CLOUD_NETWORK_KEY]: values.networkAccess,
-              },
-            }
-          : {}),
+        ...(sendsConfig ? { runtimeConfig } : {}),
       });
       await navigate({ to: "/agents/$agentId", params: { agentId: agent.id } });
     },

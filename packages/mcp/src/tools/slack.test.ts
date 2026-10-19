@@ -12,14 +12,32 @@ import { connectClient, textOf } from "../testing";
 
 const DESTINATIONS: SlackDestinations = {
   channels: [
-    { id: "C0123456789", isPrivate: false, name: "ops" },
-    { id: "G0987654321", isPrivate: true, name: "leads" },
+    {
+      id: "C0123456789",
+      isPrivate: false,
+      mention: "<#C0123456789>",
+      name: "ops",
+    },
+    {
+      id: "G0987654321",
+      isPrivate: true,
+      mention: "<#G0987654321>",
+      name: "leads",
+    },
   ],
-  people: [{ email: "ana@example.com", slackName: "Ana" }],
+  people: [
+    {
+      email: "ana@example.com",
+      mention: "<@U0456>",
+      slackName: "Ana",
+      slackUserId: "U0456",
+    },
+  ],
 };
 
 const SENT: SlackSendResult = {
   channel: "C0123456789",
+  notes: [],
   permalink: "https://example.slack.com/archives/C0123456789/p1",
   to: "#ops",
   ts: "1760000000.000100",
@@ -31,6 +49,7 @@ const uncalled = (name: string) => (): Promise<never> =>
 const fakePorts = (overrides: Partial<McpPorts> = {}): McpPorts => ({
   approveSkillVersion: uncalled("approveSkillVersion"),
   assignSkill: uncalled("assignSkill"),
+  cancelRun: uncalled("cancelRun"),
   commitSkill: uncalled("commitSkill"),
   createRoutine: uncalled("createRoutine"),
   createSkill: uncalled("createSkill"),
@@ -93,10 +112,26 @@ describe("slack_destinations", () => {
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toEqual(DESTINATIONS);
     expect(textOf(result).split("\n")).toEqual([
-      "#ops (C0123456789, public)",
-      "#leads (G0987654321, private)",
-      "ana@example.com as Ana",
+      "#ops (C0123456789, public), mention <#C0123456789>",
+      "#leads (G0987654321, private), mention <#G0987654321>",
+      "ana@example.com as Ana, mention <@U0456>",
     ]);
+  });
+
+  test("tells the agent to write a mention text, and says so in the tool description", async () => {
+    const { client, close } = await connectClient(
+      createHarbourmasterMcpServer(fakePorts())
+    );
+    try {
+      const { tools } = await client.listTools();
+      const tool = tools.find(
+        (candidate) => candidate.name === "slack_destinations"
+      );
+      expect(tool?.description).toContain("<@U");
+      expect(tool?.description).toContain("<#C");
+    } finally {
+      await close();
+    }
   });
 
   test("says there are no channels and no people when both lists are empty", async () => {
@@ -341,6 +376,51 @@ describe("slack_send", () => {
     expect(textOf(result)).toBe(
       "Sent to #ops in C0123456789, ts 1760000000.000100. Link: https://example.slack.com/archives/C0123456789/p1"
     );
+  });
+
+  test("puts each note on its own line after the sent line", async () => {
+    const result = await callTool(
+      fakePorts({
+        slackSend: () =>
+          Promise.resolve({
+            ...SENT,
+            notes: [
+              "@ana was sent as plain text: no linked person matches it.",
+              "@here was sent as plain text.",
+            ],
+          }),
+      }),
+      "slack_send",
+      { text: "@ana @here Deploy done", to: "#ops" }
+    );
+    expect(textOf(result).split("\n")).toEqual([
+      "Sent to #ops in C0123456789, ts 1760000000.000100. Link: https://example.slack.com/archives/C0123456789/p1",
+      "@ana was sent as plain text: no linked person matches it.",
+      "@here was sent as plain text.",
+    ]);
+  });
+
+  test("describes the mention syntax in the tool description and the text field", async () => {
+    const { client, close } = await connectClient(
+      createHarbourmasterMcpServer(fakePorts())
+    );
+    try {
+      const { tools } = await client.listTools();
+      const tool = tools.find((candidate) => candidate.name === "slack_send");
+      if (!tool) {
+        throw new Error("slack_send is not listed");
+      }
+      expect(tool.description).toContain("<@U");
+      expect(tool.description).toContain("@here and @channel");
+      const schema = tool.inputSchema as {
+        properties: { text?: { description?: string } };
+      };
+      expect(schema.properties.text?.description).toBe(
+        "The message to send. Mention a person with <@U…> or @name, as the tool description says."
+      );
+    } finally {
+      await close();
+    }
   });
 
   test("leaves the link out when Slack gave no permalink", async () => {

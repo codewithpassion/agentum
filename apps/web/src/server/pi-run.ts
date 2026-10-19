@@ -57,6 +57,7 @@ import {
   uploadOutputs,
   uploadVmOutputs,
 } from "./pi-run-files.ts";
+import { repeatGuardExtension } from "./pi-run-guard.ts";
 import { RunLeaseAlarm } from "./pi-run-lease.ts";
 import {
   type McpSessions,
@@ -283,6 +284,7 @@ export class PiRun extends DurableObject<Env> {
     // `read_input_file` is the same for every run.
     this.registry.install(filesExtension((fileId) => this.#readInput(fileId)));
     this.registry.install(libraryToolsExtension(() => this.#agentSlug()));
+    this.registry.install(repeatGuardExtension());
   }
 
   /** Installs the servers whose list differs from the registry's, and removes the ones that are gone. */

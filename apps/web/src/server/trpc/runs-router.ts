@@ -19,6 +19,11 @@ const browserStartRunInputSchema = startRunInputSchema
   });
 
 export const runsRouter = router({
+  cancel: workspaceProcedure
+    .input(z.strictObject({ runId: z.string().min(1) }))
+    .mutation(({ ctx, input }) =>
+      ctx.services.runs.cancelRun(ctx.principal, input.runId)
+    ),
   get: workspaceProcedure
     .input(z.strictObject({ runId: z.string().min(1) }))
     .query(({ ctx, input }) =>

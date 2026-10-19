@@ -1,5 +1,10 @@
 import type { ModelProvider } from "@repo/db/shared";
 import {
+  MAX_TURNS_DEFAULT,
+  MAX_TURNS_MAX,
+  MAX_TURNS_MIN,
+} from "@repo/protocol/safeguards";
+import {
   CLOUD_DEFAULT_ENVIRONMENT,
   CLOUD_ENVIRONMENTS,
   type CloudEnvironment,
@@ -36,6 +41,7 @@ export interface AgentFormValues {
   environment: CloudEnvironment;
   instructions: string;
   machineId: string;
+  maxTurns: string;
   model: string;
   name: string;
   networkAccess: boolean;
@@ -46,6 +52,7 @@ const defaultValues: AgentFormValues = {
   environment: CLOUD_DEFAULT_ENVIRONMENT,
   instructions: "",
   machineId: "",
+  maxTurns: "",
   model: "sonnet",
   name: "",
   networkAccess: true,
@@ -202,6 +209,11 @@ export function AgentForm({
   const handleMachine = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) =>
       update("machineId", event.target.value),
+    [update]
+  );
+  const handleMaxTurns = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) =>
+      update("maxTurns", event.target.value),
     [update]
   );
 
@@ -381,6 +393,26 @@ export function AgentForm({
                 first.
               </FieldDescription>
             )}
+          </Field>
+        )}
+        {(values.runtime === "cloud" || values.runtime === "machine") && (
+          <Field>
+            <FieldLabel htmlFor="agent-max-turns">Turn limit</FieldLabel>
+            <Input
+              id="agent-max-turns"
+              max={MAX_TURNS_MAX}
+              min={MAX_TURNS_MIN}
+              onChange={handleMaxTurns}
+              placeholder={String(MAX_TURNS_DEFAULT)}
+              step={1}
+              type="number"
+              value={values.maxTurns}
+            />
+            <FieldDescription>
+              The most model turns one run may take before it is stopped as
+              failed. Leave it empty for the default of {MAX_TURNS_DEFAULT}, or
+              set a number from {MAX_TURNS_MIN} to {MAX_TURNS_MAX}.
+            </FieldDescription>
           </Field>
         )}
       </FieldGroup>

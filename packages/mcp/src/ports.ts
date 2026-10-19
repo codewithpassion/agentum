@@ -249,10 +249,19 @@ export interface SkillArchive {
   filename: string;
 }
 
-/** The channels the agent's Slack bot is in, and the people it may message. */
+/**
+ * The channels the agent's Slack bot is in, and the people it may message.
+ * `mention` is the text that makes a real Slack mention (`<#C…>` for a channel,
+ * `<@U…>` for a person).
+ */
 export interface SlackDestinations {
-  channels: { id: string; isPrivate: boolean; name: string }[];
-  people: { email: string; slackName: string }[];
+  channels: { id: string; isPrivate: boolean; mention: string; name: string }[];
+  people: {
+    email: string;
+    mention: string;
+    slackName: string;
+    slackUserId: string;
+  }[];
 }
 
 /** A message read from Slack. `time` is ISO 8601, `threadTs` is null outside a thread. */
@@ -289,6 +298,8 @@ export interface SlackSearchResult {
 /** A message slack_send started. `permalink` is null when Slack gave none. */
 export interface SlackSendResult {
   channel: string;
+  /** Remarks about the text, such as an @name that was sent as plain text. */
+  notes: string[];
   permalink: string | null;
   /** The target as resolved: `#name`, or a person's email. */
   to: string;
@@ -304,6 +315,8 @@ export interface McpPorts {
     agent: string;
     skillId: string;
   }) => Promise<SkillAssignment>;
+  /** Cancels a queued, offered or running run and returns the run as it is afterwards. */
+  cancelRun: (input: { runId: string }) => Promise<RunInfo>;
   commitSkill: (input: {
     baseVersion: number;
     deletes: string[];

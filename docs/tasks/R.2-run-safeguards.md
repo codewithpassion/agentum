@@ -3,7 +3,7 @@ id: R.2
 title: Run safeguards, turn limit, repeat guard and cancel
 milestone: R
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/R.2-run-safeguards
 ---
@@ -25,3 +25,5 @@ Asked for by Dom on 19 Oct 2026, after the P.5 trial (`docs/reviews/trials/P.5-r
 
 ## Log
 - 2026-10-19: added at Dom's request. dispatched.
+- 2026-10-19: review clean after 2 fix rounds at a2f026b (docs/reviews/tasks/R.2.md). Merged. No turn limit for Managed Agents (no turn count); repeat warning only for cloud runs. Deploy the Worker before daemons. Staging check pending.
+- 2026-10-19: staging check passed (cancel from chat and Log with run.cancelled and actor, queued run starts after; turn limit 10 stops with run.limit_reached). Odd: queued cloud run says 'waiting for the machine'; Cancel shows on two Log rows; Log shows raw user id.

@@ -1,12 +1,14 @@
 import type { Database } from "@repo/db";
 import type { Statement } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
+import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import {
   EVENT_ACTOR_KINDS,
   EVENT_TYPES,
   type EventActorKind,
   type EventType,
+  type RunStatus,
 } from "@repo/db/shared";
 import {
   and,
@@ -33,7 +35,7 @@ import {
   payloadSchema,
 } from "./events/payload.ts";
 import { stripSecrets } from "./events/redact.ts";
-import { summarize } from "./events/summary.ts";
+import { type PersonName, personLabel, summarize } from "./events/summary.ts";
 import { visibleSessions } from "./sessions.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -96,6 +98,8 @@ export interface EventLogEntry {
   createdAt: string;
   id: string;
   runId: string | null;
+  /** The status of the entry's run now, null when the event has no run. */
+  runStatus: RunStatus | null;
   sessionId: string | null;
   summary: string;
   type: EventType;
@@ -105,6 +109,11 @@ export interface EventLogPage {
   entries: EventLogEntry[];
   hasMore: boolean;
 }
+
+/** Looks up the people behind user ids, for names in the log. Ids it does not know are left out. */
+export type PeopleLookup = (
+  userIds: readonly string[]
+) => Promise<ReadonlyMap<string, PersonName>>;
 
 /** Where oversized payloads go: R2 in the app, a Map in tests. */
 export interface Blobs {
@@ -156,6 +165,10 @@ const toRow = (
   workspaceId: parsed.workspaceId,
 });
 
+/** A run cancelled by a person, the only kind of event whose summary names someone. */
+const isUserCancel = (record: EventRecord): boolean =>
+  record.type === "run.cancelled" && record.actor.kind === "user";
+
 const toRecord = (row: EventRow): EventRecord => ({
   actor: { id: row.actorId, kind: actorKindSchema.parse(row.actorKind) },
   agentId: row.agentId,
@@ -178,11 +191,34 @@ const toRecord = (row: EventRow): EventRecord => ({
 export const createEventsService = ({
   blobs,
   db,
+  people,
 }: {
   blobs: Blobs;
   db: Database;
+  people?: PeopleLookup;
 }) => {
   const listeners: Array<(event: EventRecord) => Promise<void>> = [];
+
+  /**
+   * The people behind the user ids that cancelled runs on this page. A failing
+   * lookup logs and gives an empty map, so the log still loads with ids.
+   */
+  const lookupCancelledBy = async (
+    records: readonly EventRecord[]
+  ): Promise<ReadonlyMap<string, PersonName>> => {
+    const userIds = [
+      ...new Set(records.filter(isUserCancel).map((record) => record.actor.id)),
+    ];
+    if (!people || userIds.length === 0) {
+      return new Map<string, PersonName>();
+    }
+    try {
+      return await people(userIds);
+    } catch (error) {
+      console.error("People lookup failed", error);
+      return new Map<string, PersonName>();
+    }
+  };
 
   /**
    * Runs after each `append`, for side effects that follow an event, such as
@@ -345,26 +381,41 @@ export const createEventsService = ({
       conditions.push(inArray(events.type, f.types));
     }
     const rows = await db
-      .select()
+      .select({ event: events, runStatus: runs.status })
       .from(events)
+      .leftJoin(
+        runs,
+        and(eq(runs.id, events.runId), eq(runs.workspaceId, events.workspaceId))
+      )
       .where(and(...conditions))
       .orderBy(desc(events.id))
       .limit(f.limit + 1)
       .offset(f.page * f.limit);
+    const pageRows = rows
+      .slice(0, f.limit)
+      .map(({ event, runStatus }) => ({ record: toRecord(event), runStatus }));
+    const found = await lookupCancelledBy(pageRows.map(({ record }) => record));
     return {
-      entries: rows.slice(0, f.limit).map((row) => {
-        const record = toRecord(row);
-        return {
-          actor: record.actor,
-          agentId: record.agentId,
-          createdAt: record.createdAt,
-          id: record.id,
-          runId: record.runId,
-          sessionId: record.sessionId,
-          summary: summarize(record.type, record.payload),
-          type: record.type,
-        };
-      }),
+      entries: pageRows.map(({ record, runStatus }) => ({
+        actor: record.actor,
+        agentId: record.agentId,
+        createdAt: record.createdAt,
+        id: record.id,
+        runId: record.runId,
+        runStatus,
+        sessionId: record.sessionId,
+        summary: summarize(
+          record.type,
+          record.payload,
+          isUserCancel(record)
+            ? {
+                ...record.actor,
+                label: personLabel(found.get(record.actor.id)),
+              }
+            : record.actor
+        ),
+        type: record.type,
+      })),
       hasMore: rows.length > f.limit,
     };
   };

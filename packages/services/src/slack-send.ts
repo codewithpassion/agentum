@@ -5,19 +5,25 @@
  * without its text, and, when it starts a thread, remembered so replies in it
  * route back to the run's session. A reply may also go into a thread whose
  * messages were stored from Slack, or that Slack confirms in the channel.
+ * An `@name` in the text becomes a Slack mention when exactly one linked person has that name.
  */
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { slackMessages, slackThreads } from "@repo/db/schema/slack";
-import { identityLinks } from "@repo/db/schema/workspaces";
 import { and, asc, eq, gt, or } from "drizzle-orm";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
 import type { SlackAppRow } from "./slack/apps.ts";
 import type { SlackClient, SlackFetch } from "./slack/client.ts";
+import {
+  channelMention,
+  convertMentions,
+  userMention,
+} from "./slack/mentions.ts";
+import { linkedPeople } from "./slack/people.ts";
 import { withRetry } from "./slack/post.ts";
 import {
   createAgentClients,
@@ -91,48 +97,26 @@ export const createSlackSendService = ({
     return opened.channelId;
   };
 
-  /** Linked people of this workspace in this Slack team, with their Slack names. */
-  const peopleOf = async (client: SlackClient, app: SlackAppRow) => {
-    const links = await db
-      .select({
-        email: identityLinks.email,
-        externalUserId: identityLinks.externalUserId,
-      })
-      .from(identityLinks)
-      .where(
-        and(
-          eq(identityLinks.workspaceId, app.workspaceId),
-          eq(identityLinks.provider, "slack"),
-          eq(identityLinks.teamId, app.teamId)
-        )
-      );
-    return Promise.all(
-      links.map(async (link) => {
-        const name = await client.userName(link.externalUserId);
-        return {
-          email: link.email,
-          externalUserId: link.externalUserId,
-          slackName:
-            name.kind === "ok" && name.name !== null ? name.name : link.email,
-        };
-      })
-    );
-  };
-
   const destinations = async (principal: Principal) => {
     const run = requireSendRun(principal);
     const { app, client } = await agentClient(run);
     const [channels, people] = await Promise.all([
       channelsOf(client),
-      peopleOf(client, app),
+      linkedPeople(db, client, app),
     ]);
     return {
       channels: channels.map(({ id, isPrivate, name }) => ({
         id,
         isPrivate,
+        mention: channelMention(id),
         name,
       })),
-      people: people.map(({ email, slackName }) => ({ email, slackName })),
+      people: people.map(({ email, externalUserId, slackName }) => ({
+        email,
+        mention: userMention(externalUserId),
+        slackName,
+        slackUserId: externalUserId,
+      })),
     };
   };
 
@@ -160,7 +144,7 @@ export const createSlackSendService = ({
       };
     }
 
-    const matches = (await peopleOf(client, app)).filter(
+    const matches = (await linkedPeople(db, client, app)).filter(
       (entry) =>
         entry.email.toLowerCase() === lower ||
         entry.slackName.toLowerCase() === lower
@@ -337,6 +321,7 @@ export const createSlackSendService = ({
     input: SendInput
   ): Promise<{
     channel: string;
+    notes: string[];
     permalink: string | null;
     to: string;
     ts: string;
@@ -366,8 +351,16 @@ export const createSlackSendService = ({
       throw new ServiceError("invalid", THREAD_REFUSAL);
     }
 
+    const { notes, text: postedText } = text.includes("@")
+      ? convertMentions(text, await linkedPeople(db, client, app))
+      : { notes: [], text };
+
     const posted = await withRetry(clock, () =>
-      client.postMessage({ channel: channelId, text, threadTs: input.threadTs })
+      client.postMessage({
+        channel: channelId,
+        text: postedText,
+        threadTs: input.threadTs,
+      })
     );
     if (posted.kind !== "ok") {
       throw slackFailure(posted);
@@ -383,7 +376,7 @@ export const createSlackSendService = ({
           target.kind === "channel"
             ? { channelName: target.name }
             : { person: target.email },
-        textLength: text.length,
+        textLength: postedText.length,
         threadTs: input.threadTs,
         ts: posted.ts,
       });
@@ -392,7 +385,13 @@ export const createSlackSendService = ({
       console.error("Recording a Slack send failed", error);
     }
 
-    return { channel: channelId, permalink, to: target.to, ts: posted.ts };
+    return {
+      channel: channelId,
+      notes,
+      permalink,
+      to: target.to,
+      ts: posted.ts,
+    };
   };
 
   return { destinations, send };

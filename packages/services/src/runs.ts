@@ -13,8 +13,17 @@ import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import type { Masker } from "@repo/protocol/masker";
 import {
+  REPEAT_STOP_AT,
+  type RunStop,
+  runStopSchema,
+  stopMessage,
+  streakOf,
+  type ToolOutcome,
+} from "@repo/protocol/safeguards";
+import {
   and,
   asc,
+  desc,
   eq,
   exists,
   gte,
@@ -97,6 +106,8 @@ const PENDING_FILES_ERROR = "Could not download the attached files";
 const DOWNLOAD_LEASE_MS = 5 * 60_000;
 /** The `message.user` event of a run started with `offerLater` keeps this much of the text. */
 const EVENT_TEXT_CHARS = 20_000;
+/** The most recent tool events a batch's repeat check reads: about ten call and result pairs. */
+const RECENT_TOOL_EVENTS = 20;
 
 const STARTING: RunRecord["status"][] = ["queued", "offered"];
 const ACTIVE: RunRecord["status"][] = ["queued", "offered", "running"];
@@ -109,11 +120,88 @@ const runResultSchema = z.strictObject({
   fileIds: z.array(z.string().min(1).max(200)).max(100).optional(),
   runtimeRef: z.string().min(1).max(500).optional(),
   status: z.enum(["done", "failed", "aborted"]),
+  stop: runStopSchema.optional(),
   text: z.string().max(1_000_000).optional(),
   usage: usageSchema.optional(),
 });
 
 type RunResultInput = z.infer<typeof runResultSchema>;
+
+/** The error a failed run stores: the safeguard's line when it stopped, else the runtime's. */
+const failureError = (result: RunResultInput): string =>
+  result.stop ? stopMessage(result.stop) : (result.error ?? "Run failed");
+
+/** The event a safeguard stop records before `run.failed`, with its error line. */
+const stopEvent = (
+  stop: RunStop
+): {
+  payload: Record<string, unknown>;
+  type: "run.limit_reached" | "run.repeat_stopped";
+} => {
+  const error = stopMessage(stop);
+  return stop.kind === "turn_limit"
+    ? { payload: { error, limit: stop.limit }, type: "run.limit_reached" }
+    : {
+        payload: { count: stop.count, error, tool: stop.tool },
+        type: "run.repeat_stopped",
+      };
+};
+
+const toolCallSchema = z.object({
+  input: z.unknown(),
+  name: z.string(),
+  toolUseId: z.string(),
+});
+const toolResultSchema = z.object({
+  ok: z.unknown(),
+  toolUseId: z.string(),
+});
+
+const parseJson = (raw: string | null): unknown => {
+  if (raw === null) {
+    return;
+  }
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    // A row that is not JSON is ignored by the caller.
+  }
+};
+
+/**
+ * The outcomes of the tool calls and results in ascending order. A result pairs
+ * with the call that has its `toolUseId`; a result without one is skipped, and so
+ * is a row that does not parse. Only `ok: false` counts as a failure.
+ */
+const toolOutcomes = (
+  rows: readonly { payload: string | null; type: string }[]
+): ToolOutcome[] => {
+  const calls = new Map<string, z.infer<typeof toolCallSchema>>();
+  const outcomes: ToolOutcome[] = [];
+  for (const row of rows) {
+    const payload = parseJson(row.payload);
+    if (row.type === "tool.call") {
+      const call = toolCallSchema.safeParse(payload);
+      if (call.success) {
+        calls.set(call.data.toolUseId, call.data);
+      }
+      continue;
+    }
+    const result = toolResultSchema.safeParse(payload);
+    if (!result.success) {
+      continue;
+    }
+    const call = calls.get(result.data.toolUseId);
+    if (call) {
+      outcomes.push({
+        input: call.input,
+        name: call.name,
+        ok: result.data.ok !== false,
+      });
+    }
+  }
+  return outcomes;
+};
 
 /** `result` with the granted secret values taken out of its text and error. */
 const maskResult = (
@@ -754,7 +842,66 @@ export const createRunsService = ({
       });
       lastSeq = event.seq;
     }
+    if (
+      fresh.some(
+        (event) => event.type === "tool.result" && event.payload.ok === false
+      )
+    ) {
+      await stopOnRepeat(run);
+    }
     return { lastSeq };
+  };
+
+  /**
+   * Ends a run that repeats one failing call `REPEAT_STOP_AT` times in a row, as
+   * counted over its recent tool events. A cloud run is stopped by its own
+   * runner, which keeps its usage, so it is left alone here. The stop is
+   * conditional on the run still running, so it is recorded once.
+   */
+  const stopOnRepeat = async (run: RunRecord): Promise<void> => {
+    const { adapter } = await adapterFor(run);
+    if (!adapter || adapter.kind === "cloud") {
+      return;
+    }
+    const rows = await db
+      .select({ payload: events.payload, type: events.type })
+      .from(events)
+      .where(
+        and(
+          eq(events.runId, run.id),
+          eq(events.workspaceId, run.workspaceId),
+          inArray(events.type, ["tool.call", "tool.result"])
+        )
+      )
+      .orderBy(desc(events.seq))
+      .limit(RECENT_TOOL_EVENTS);
+    const streak = streakOf(toolOutcomes(rows.reverse()));
+    if (!streak || streak.count < REPEAT_STOP_AT) {
+      return;
+    }
+    const stop: RunStop = {
+      count: streak.count,
+      kind: "repeat",
+      tool: streak.tool,
+    };
+    const line = stopMessage(stop);
+    const stopped = await db
+      .update(runs)
+      .set({ error: line, finishedAt: nowIso(), status: "failed" })
+      .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+      .returning({ id: runs.id });
+    if (stopped.length === 0) {
+      return;
+    }
+    await recordStop(run, stop, line);
+    try {
+      await adapter.cancel(db, run, adapterDeps);
+    } catch (cancelError) {
+      console.error(
+        `Cancelling run ${run.id} after a repeat stop failed: ${cancelError instanceof Error ? cancelError.message : String(cancelError)}`
+      );
+    }
+    await offerNextWaiting(run);
   };
 
   /**
@@ -887,6 +1034,29 @@ export const createRunsService = ({
         )
       );
 
+  /** Records a safeguard stop: its event with the system actor, then `run.failed` with the line. */
+  const recordStop = async (run: RunRecord, stop: RunStop, error: string) => {
+    const event = stopEvent(stop);
+    await appendRunEvent(
+      run,
+      event.type,
+      eventActor(SYSTEM_PRINCIPAL),
+      event.payload
+    );
+    await appendRunEvent(run, "run.failed", agentActor(run), { error });
+  };
+
+  /** Records a failed run: its safeguard stop first, when it has one, else `run.failed` alone. */
+  const recordFailure = async (run: RunRecord, result: RunResultInput) => {
+    if (result.stop) {
+      await recordStop(run, result.stop, failureError(result));
+      return;
+    }
+    await appendRunEvent(run, "run.failed", agentActor(run), {
+      error: failureError(result),
+    });
+  };
+
   const completeRun = async (
     principal: Principal,
     runId: string,
@@ -912,7 +1082,7 @@ export const createRunsService = ({
       workspaceId: run.workspaceId,
     });
     const failed = result.status === "failed";
-    const error = failed ? (result.error ?? "Run failed") : null;
+    const error = failed ? failureError(result) : null;
     const finishedAt = nowIso();
     const runWrite = db
       .update(runs)
@@ -940,7 +1110,7 @@ export const createRunsService = ({
       throw new ServiceError("conflict", "Run is no longer running");
     }
     if (failed) {
-      await appendRunEvent(run, "run.failed", agentActor(run), { error });
+      await recordFailure(run, result);
       await offerNextWaiting(run);
       return;
     }
@@ -1002,6 +1172,9 @@ export const createRunsService = ({
     principal: Principal,
     runId: string
   ): Promise<void> => {
+    if (principal.kind === "run") {
+      throw new ForbiddenError("runs.cancel");
+    }
     const run = await requireRun(principal, runId);
     await requireVisibleSession(principal, run);
     authorize(principal, "runs.cancel", {

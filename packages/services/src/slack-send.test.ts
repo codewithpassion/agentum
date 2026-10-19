@@ -31,7 +31,7 @@ const RUN = "r1";
 const START = "2026-10-16T10:00:00.000Z";
 const TEAM = "T0TEAM";
 const ANN_EMAIL = "ann@example.test";
-const ANN_USER = "U0ANN";
+const ANN_USER = "U0ANN12345";
 const ANN_DM = "D0ANN";
 const HOUR_MS = 60 * 60 * 1000;
 const APP_ID = "sa1";
@@ -85,7 +85,7 @@ const answer = (
     case "users.info":
       return json({
         ok: true,
-        user: { profile: { real_name: "Ann Lee" } },
+        user: { name: "ann", profile: { real_name: "Ann Lee" } },
       });
     case "conversations.open":
       return json({ channel: { id: ANN_DM }, ok: true });
@@ -278,10 +278,22 @@ test("lists channels and linked people", async () => {
 
   expect(result).toEqual({
     channels: [
-      { id: "C0GENERAL", isPrivate: false, name: "general" },
-      { id: "C0LEADS", isPrivate: true, name: "leads" },
+      {
+        id: "C0GENERAL",
+        isPrivate: false,
+        mention: "<#C0GENERAL>",
+        name: "general",
+      },
+      { id: "C0LEADS", isPrivate: true, mention: "<#C0LEADS>", name: "leads" },
     ],
-    people: [{ email: ANN_EMAIL, slackName: "Ann Lee" }],
+    people: [
+      {
+        email: ANN_EMAIL,
+        mention: `<@${ANN_USER}>`,
+        slackName: "Ann Lee",
+        slackUserId: ANN_USER,
+      },
+    ],
   });
 });
 
@@ -586,4 +598,126 @@ test("a Slack failure on postMessage writes no event and no thread row", async (
   });
   expect(sendEvents()).toHaveLength(0);
   expect(threadRows()).toHaveLength(0);
+});
+
+/** Links a second person whose Slack name is the same as Ann's. */
+const linkSecondAnn = () => {
+  db.insert(identityLinks)
+    .values({
+      clerkUserId: "user_ann2",
+      createdAt: START,
+      email: "ann2@example.test",
+      externalUserId: "U0ANN67890",
+      id: "il2",
+      provider: "slack",
+      teamId: TEAM,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+};
+
+test("turns @name into a mention of the linked person, by Slack username", async () => {
+  const result = await service.send(runPrincipal, {
+    text: "Hi @ann",
+    to: "#general",
+  });
+
+  expect(callsTo("chat.postMessage")[0]?.body?.text).toBe(`Hi <@${ANN_USER}>`);
+  expect(result.notes).toEqual([]);
+  const [row] = sendEvents();
+  expect(JSON.parse(row?.payload ?? "{}")).toMatchObject({
+    textLength: `Hi <@${ANN_USER}>`.length,
+  });
+});
+
+test("turns @name into a mention by the local part of the email", async () => {
+  await service.send(runPrincipal, {
+    text: "Ping @ann.",
+    to: "#general",
+  });
+
+  expect(callsTo("chat.postMessage")[0]?.body?.text).toBe(
+    `Ping <@${ANN_USER}>.`
+  );
+});
+
+test("keeps an unknown @name as plain text with a note", async () => {
+  const result = await service.send(runPrincipal, {
+    text: "Hi @bob",
+    to: "#general",
+  });
+
+  expect(callsTo("chat.postMessage")[0]?.body?.text).toBe("Hi @bob");
+  expect(result.notes).toContain("@bob matched nobody, sent as plain text");
+});
+
+test("keeps an ambiguous @name as plain text with a note", async () => {
+  linkSecondAnn();
+
+  const result = await service.send(runPrincipal, {
+    text: "Hi @ann",
+    to: "#general",
+  });
+
+  expect(callsTo("chat.postMessage")[0]?.body?.text).toBe("Hi @ann");
+  expect(result.notes).toEqual([
+    "@ann matched more than one person, sent as plain text",
+  ]);
+});
+
+test("keeps @here as plain text with a note", async () => {
+  const result = await service.send(runPrincipal, {
+    text: "Stand up @here",
+    to: "#general",
+  });
+
+  expect(callsTo("chat.postMessage")[0]?.body?.text).toBe("Stand up @here");
+  expect(result.notes).toEqual(["@here is not converted, sent as plain text"]);
+});
+
+test("leaves email addresses in the text untouched, with no notes", async () => {
+  const result = await service.send(runPrincipal, {
+    text: "Write to a@ann.com or ann@example.test",
+    to: "#general",
+  });
+
+  expect(callsTo("chat.postMessage")[0]?.body?.text).toBe(
+    "Write to a@ann.com or ann@example.test"
+  );
+  expect(result.notes).toEqual([]);
+});
+
+test("passes a well-formed mention the agent wrote through unchanged", async () => {
+  const result = await service.send(runPrincipal, {
+    text: "Over to <@U0ANN12345>",
+    to: "#general",
+  });
+
+  expect(callsTo("chat.postMessage")[0]?.body?.text).toBe(
+    "Over to <@U0ANN12345>"
+  );
+  expect(result.notes).toEqual([]);
+});
+
+test("does not call users.info when the text has no @", async () => {
+  await service.send(runPrincipal, { text: "Hello team", to: "#general" });
+
+  expect(callsTo("users.info")).toHaveLength(0);
+});
+
+test("converts @name in a thread reply", async () => {
+  const first = await service.send(runPrincipal, {
+    text: "Start",
+    to: "#general",
+  });
+  await service.send(runPrincipal, {
+    text: "Hi @ann",
+    threadTs: first.ts,
+    to: "#general",
+  });
+
+  expect(callsTo("chat.postMessage")[1]?.body).toMatchObject({
+    text: `Hi <@${ANN_USER}>`,
+    thread_ts: first.ts,
+  });
 });
