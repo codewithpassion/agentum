@@ -16,6 +16,7 @@ import {
   cloudEnvironmentError,
 } from "./cloud/environment.ts";
 import { isAnthropicModel } from "./cloud/models.ts";
+import { CLOUD_NETWORK_KEY, networkAccessError } from "./cloud/network.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { libraryPathsError } from "./library/sync-paths.ts";
@@ -39,7 +40,7 @@ const modelSchema = z.string().min(1).max(100);
 const machineIdSchema = z.string().min(1).max(200);
 const runtimeConfigSchema = z.record(z.string(), z.json());
 
-/** Fails an agent whose `runtimeConfig` names a cloud environment that does not exist, or that sets one on an agent that does not run in the cloud, or whose library paths are invalid. */
+/** Fails an agent whose `runtimeConfig` names a cloud environment that does not exist, or that sets one on an agent that does not run in the cloud, or whose network setting is not a boolean or is set on an agent that does not run in the cloud, or whose library paths are invalid. */
 const assertRuntimeConfig = (
   runtime: AgentRuntime,
   runtimeConfig: Record<string, unknown>
@@ -47,6 +48,10 @@ const assertRuntimeConfig = (
   const issue = cloudEnvironmentError(runtimeConfig);
   if (issue !== undefined) {
     throw new ServiceError("invalid", issue);
+  }
+  const networkIssue = networkAccessError(runtimeConfig);
+  if (networkIssue !== undefined) {
+    throw new ServiceError("invalid", networkIssue);
   }
   const pathIssue = libraryPathsError(runtimeConfig);
   if (pathIssue !== undefined) {
@@ -56,6 +61,12 @@ const assertRuntimeConfig = (
     throw new ServiceError(
       "invalid",
       `Only a cloud agent takes an environment, not "${runtime}"`
+    );
+  }
+  if (runtime !== "cloud" && CLOUD_NETWORK_KEY in runtimeConfig) {
+    throw new ServiceError(
+      "invalid",
+      `Only a cloud agent takes network access, not "${runtime}"`
     );
   }
 };

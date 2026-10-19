@@ -1,4 +1,5 @@
 import { CLOUD_ENVIRONMENT_KEY } from "@repo/services/cloud/environment";
+import { CLOUD_NETWORK_KEY } from "@repo/services/cloud/network";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback } from "react";
@@ -42,7 +43,10 @@ function NewAgent() {
           : {}),
         ...(values.runtime === "cloud"
           ? {
-              runtimeConfig: { [CLOUD_ENVIRONMENT_KEY]: values.environment },
+              runtimeConfig: {
+                [CLOUD_ENVIRONMENT_KEY]: values.environment,
+                [CLOUD_NETWORK_KEY]: values.networkAccess,
+              },
             }
           : {}),
       });

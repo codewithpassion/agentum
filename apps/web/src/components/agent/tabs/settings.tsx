@@ -3,6 +3,10 @@ import {
   CLOUD_ENVIRONMENT_KEY,
   cloudEnvironmentOf,
 } from "@repo/services/cloud/environment";
+import {
+  CLOUD_NETWORK_KEY,
+  networkAccessOf,
+} from "@repo/services/cloud/network";
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -58,6 +62,7 @@ function SettingsPanel({ agent }: AgentTabProps) {
                 runtimeConfig: {
                   ...agent.runtimeConfig,
                   [CLOUD_ENVIRONMENT_KEY]: values.environment,
+                  [CLOUD_NETWORK_KEY]: values.networkAccess,
                 },
               }
             : {}),
@@ -83,6 +88,7 @@ function SettingsPanel({ agent }: AgentTabProps) {
           machineId: agent.machineId ?? "",
           model: agent.model,
           name: agent.name,
+          networkAccess: networkAccessOf(agent.runtimeConfig),
           runtime: agent.runtime,
         }}
         key={agent.id}
