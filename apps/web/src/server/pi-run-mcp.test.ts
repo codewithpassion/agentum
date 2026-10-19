@@ -783,6 +783,32 @@ describe("MCP tool through pi-durable", () => {
     expect(await modelSawFrom(registration)).toBe(MCP_TEXT);
   });
 
+  test("a call the proxy stopped at its limit lets the run carry on to the model's next turn", async () => {
+    const message =
+      "the-brain search timed out after 60 s. Try a smaller request or retry.";
+    const onCallError: string[] = [];
+    const { fetcher } = fakeFetch(() =>
+      Response.json({
+        error: { code: -32_000, data: { code: "timeout" }, message },
+        id: 1,
+        jsonrpc: "2.0",
+      })
+    );
+    const registration = at(
+      mcpToolRegistrations(
+        PROBE_SERVER,
+        [SEARCH],
+        () => Promise.resolve(SERVER),
+        fetcher,
+        () => onCallError.push("called")
+      ),
+      0
+    );
+
+    expect(await modelSawFrom(registration)).toBe(message);
+    expect(onCallError).toEqual([]);
+  });
+
   test("a call past its time limit lets the run carry on to the model's next turn", async () => {
     const registration = at(
       mcpToolRegistrations(

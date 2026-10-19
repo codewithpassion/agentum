@@ -27,7 +27,7 @@ interface ToolCallResult {
 }
 
 interface RpcReply {
-  error?: { message: string };
+  error?: { data?: { code?: unknown }; message: string };
   result?: unknown;
 }
 
@@ -44,6 +44,7 @@ const INITIALIZE_TIMEOUT_MS = 30_000;
 // The connector limit is 300 s. The grace lets the proxy's own timeout error arrive first.
 export const CALL_LIMIT_MS = 310_000;
 const MS_PER_SECOND = 1000;
+const PROXY_TIMEOUT_CODE = "timeout";
 const TOOL_NAME_MAX = 64;
 const SSE_DATA_PREFIX = "data:";
 const SSE_DATA_PREFIX_LENGTH = SSE_DATA_PREFIX.length;
@@ -108,10 +109,20 @@ const sessionHeaders = (session: string | undefined): Record<string, string> =>
     ? { [PROTOCOL_HEADER]: PROTOCOL_VERSION }
     : { [PROTOCOL_HEADER]: PROTOCOL_VERSION, [SESSION_HEADER]: session };
 
+/** A JSON-RPC error. The proxy marks a call it stopped at its limit with the code `timeout`. */
+class McpRpcError extends Error {
+  readonly code: unknown;
+
+  constructor(message: string, code: unknown) {
+    super(message);
+    this.code = code;
+  }
+}
+
 const resultOf = <T>(text: string): T => {
   const reply: RpcReply = JSON.parse(replyText(text));
   if (reply.error) {
-    throw new Error(reply.error.message);
+    throw new McpRpcError(reply.error.message, reply.error.data?.code);
   }
   // The server answers each method with the shape the MCP spec gives it, which the caller names with T.
   return reply.result as T;
@@ -377,6 +388,16 @@ const uniqueName = (name: string, taken: Set<string>): string => {
   return candidate;
 };
 
+interface ToolCallOutput {
+  isError: boolean;
+  output: { text: string; type: "text" }[];
+}
+
+const errorResult = (text: string): ToolCallOutput => ({
+  isError: true,
+  output: [{ text, type: "text" }],
+});
+
 const contentText = (content: readonly ContentPart[]): string =>
   content
     .map((part) =>
@@ -423,17 +444,18 @@ export const mcpToolRegistrations = (
             signal
           );
         } catch (error) {
+          // A slow connector is a result the model can read, so the run carries on.
+          // Either the proxy stopped the call at the connector's limit, or the backstop did.
+          if (
+            error instanceof McpRpcError &&
+            error.code === PROXY_TIMEOUT_CODE
+          ) {
+            return errorResult(error.message);
+          }
           if (timeLimit.aborted && context.abortSignal?.aborted !== true) {
-            // A slow connector is a result the model can read, so the run carries on.
-            return {
-              isError: true,
-              output: [
-                {
-                  text: `${serverKey} ${tool.name} timed out after ${callLimitMs / MS_PER_SECOND} s. Try a smaller request or retry.`,
-                  type: "text",
-                },
-              ],
-            };
+            return errorResult(
+              `${serverKey} ${tool.name} timed out after ${callLimitMs / MS_PER_SECOND} s. Try a smaller request or retry.`
+            );
           }
           // A failed call is the only sign a POST-only client gets that the server's tools changed.
           if (context.abortSignal?.aborted !== true) {

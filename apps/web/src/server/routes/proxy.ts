@@ -238,8 +238,10 @@ const sendUpstream = async ({
     const bytes = new Uint8Array(await response.arrayBuffer());
     return { bytes: scrub(bytes, credential), ok: true, response };
   } catch (error: unknown) {
+    // A stalled body can fail with another error, so the signal decides too.
     const timedOut =
-      error instanceof DOMException && error.name === "TimeoutError";
+      signal.aborted ||
+      (error instanceof DOMException && error.name === "TimeoutError");
     return { kind: timedOut ? "timeout" : "unreachable", ok: false };
   }
 };
