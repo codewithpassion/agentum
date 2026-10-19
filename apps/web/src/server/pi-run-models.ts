@@ -1,6 +1,8 @@
 import {
+  type Api,
   type CredentialStore,
   createModels,
+  type Model,
   type MutableModels,
   type Provider,
 } from "@earendil-works/pi-ai";
@@ -50,9 +52,47 @@ function routedOnPayload<TModel>(
   };
 }
 
+const DEEPSEEK_FLASH_BASE = "deepseek/deepseek-v4.1-flash";
+const DEEPSEEK_FLASH_1017 = "deepseek/deepseek-v4.1-flash-1017";
+
+/**
+ * pi-ai 1.3.0 predates `deepseek/deepseek-v4.1-flash-1017` (created 17 Oct
+ * 2026), so a Pi run on it would end with `no_model`. This entry is the
+ * bundled V4.1 Flash with the values from the OpenRouter models API on
+ * 19 Oct 2026: 1,048,576 context, 393,216 max completion tokens, text and
+ * image input, and the standard rate in USD per million tokens (OpenRouter
+ * halves it off-peak). Pi's cost is only an estimate, see P.6.
+ */
+const extraOpenRouterModels = (
+  base: readonly Model<Api>[]
+): readonly Model<Api>[] => {
+  const flash = base.find((model) => model.id === DEEPSEEK_FLASH_BASE);
+  if (!flash || base.some((model) => model.id === DEEPSEEK_FLASH_1017)) {
+    return [];
+  }
+  return [
+    {
+      ...flash,
+      contextWindow: 1_048_576,
+      cost: { cacheRead: 0.006, cacheWrite: 0, input: 0.3, output: 1.2 },
+      id: DEEPSEEK_FLASH_1017,
+      maxTokens: 393_216,
+      name: "DeepSeek: DeepSeek V4.1 Flash 1017",
+    },
+  ];
+};
+
 function withOpenRouterRouting(provider: Provider): Provider {
   return {
     ...provider,
+    getAllModels: () => {
+      const models = provider.getAllModels?.() ?? provider.getModels();
+      return [...models, ...extraOpenRouterModels(provider.getModels())];
+    },
+    getModels: () => {
+      const models = provider.getModels();
+      return [...models, ...extraOpenRouterModels(models)];
+    },
     stream: (model, context, options) =>
       provider.stream(
         model,

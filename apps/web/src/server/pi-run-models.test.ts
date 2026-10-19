@@ -149,8 +149,8 @@ describe("cloud models", () => {
   test.each([
     "z-ai/glm-5.3",
     "z-ai/glm-5.3-flash",
-    "deepseek/deepseek-v4.1-flash",
-  ])("the bundled OpenRouter catalog has %s", (id) => {
+    "deepseek/deepseek-v4.1-flash-1017",
+  ])("the OpenRouter catalog has %s", (id) => {
     const models = createCloudModels(store);
     expect(models.getModel("openrouter", id)).toBeDefined();
   });
@@ -186,6 +186,31 @@ describe("cloud models", () => {
     expect(provider).not.toHaveProperty("only");
 
     expect(textOf(result.content)).toContain("pelican");
+  });
+
+  test("the 17 Oct DeepSeek model, defined here, is requested by its own id", async () => {
+    received = [];
+    const models = createCloudModels(store);
+    const model = models.getModel(
+      "openrouter",
+      "deepseek/deepseek-v4.1-flash-1017"
+    );
+    expect(model).toBeDefined();
+    if (!model) {
+      return;
+    }
+    expect(model.contextWindow).toBe(1_048_576);
+    expect(model.cost.input).toBe(0.3);
+
+    await models.complete({ ...model, baseUrl: server.url.origin }, context);
+
+    expect(field(received[0]?.body, "model")).toBe(
+      "deepseek/deepseek-v4.1-flash-1017"
+    );
+    expect(field(received[0]?.body, "provider")).toHaveProperty(
+      "require_parameters",
+      true
+    );
   });
 
   test("the Pi harness sends a stable session id and the routing on each submission", async () => {
