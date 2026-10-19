@@ -10,6 +10,8 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { SendHint } from "#/components/composer/send-hint.tsx";
+import { submitOnSendShortcut } from "#/components/composer/send-shortcut.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
@@ -340,9 +342,12 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
+      if (sendDisabled) {
+        return;
+      }
       send();
     },
-    [send]
+    [send, sendDisabled]
   );
 
   let composer: ReactNode;
@@ -356,7 +361,13 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
     composer = (
       <form className="flex flex-col gap-2" onSubmit={handleSubmit}>
         <Label htmlFor="chat-message">Message</Label>
-        <Textarea id="chat-message" onChange={handleInput} value={input} />
+        <Textarea
+          aria-describedby="chat-send-hint"
+          id="chat-message"
+          onChange={handleInput}
+          onKeyDown={submitOnSendShortcut}
+          value={input}
+        />
         <FileChips
           fileIds={attachments}
           files={files}
@@ -394,6 +405,7 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
           <Button disabled={sendDisabled} type="submit">
             Send
           </Button>
+          <SendHint id="chat-send-hint" />
         </div>
       </form>
     );

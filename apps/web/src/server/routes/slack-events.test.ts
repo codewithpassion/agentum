@@ -22,7 +22,7 @@ import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { file as bunFile } from "bun";
 import { asc, eq } from "drizzle-orm";
 import { Hono } from "hono";
-import { type Composed, composeWith } from "../compose.ts";
+import { type Composed, composeWith, type Infra } from "../compose.ts";
 import type { AppEnv } from "./groups.ts";
 import { slackRoutes } from "./slack.ts";
 
@@ -32,6 +32,8 @@ const SECRETS_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(5)));
 const BOT_TOKEN = "xoxb-test-token";
 const DOM = "user_dom";
 const MINUTE_MS = 60_000;
+const SECOND_MS = 1000;
+const STATUS_METHOD = "assistant.threads.setStatus";
 const OK = 200;
 const UNAUTHORIZED = 401;
 const SERVER_ERROR = 500;
@@ -64,6 +66,7 @@ interface SlackCall {
 
 let db: ReturnType<typeof migrated>;
 let composed: Composed;
+let infra: Infra;
 let app: Hono<AppEnv>;
 let nowMs: number;
 let workspaceId: string;
@@ -74,6 +77,7 @@ let failAtomic: boolean;
 let slackCalls: SlackCall[];
 let slackEmail: string | null;
 let downloadStatus: number;
+let statusAnswer: Record<string, unknown>;
 let directory: {
   emailOwner: string | null;
   member: boolean;
@@ -141,6 +145,7 @@ const fakeSlack = async (
       ok: true,
       upload_url: UPLOAD_URL,
     },
+    [STATUS_METHOD]: statusAnswer,
     "users.info": {
       ok: true,
       user: {
@@ -162,6 +167,26 @@ const atomicOrFail =
   (statements) =>
     failAtomic ? Promise.reject(new Error("d1 is down")) : inner(statements);
 
+const testInfra = (): Infra => ({
+  atomic: atomicOrFail(sqliteAtomic(db)),
+  blobs: {
+    get: () => Promise.resolve(null),
+    put: () => Promise.resolve(),
+  },
+  clock,
+  devFakeRuntime: true,
+  fetch: fakeSlack,
+  fileBlobs: memoryFileBlobs(),
+  publicBaseUrl: "https://hm.test",
+  relay: noopRelay,
+  secretsKey: SECRETS_KEY,
+  slackDirectory: clerk,
+});
+
+/** Another HTTP request: fresh services over the same database and infra, which keep no memory of the first. */
+const freshRequest = (): Composed =>
+  composeWith({ allowedOrgIds: [ORG], db, infra });
+
 beforeEach(async () => {
   db = migrated();
   nowMs = Date.parse("2026-10-16T10:00:00.000Z");
@@ -171,26 +196,10 @@ beforeEach(async () => {
   slackCalls = [];
   slackEmail = "newcomer@example.com";
   downloadStatus = OK;
+  statusAnswer = { ok: true };
   directory = { emailOwner: null, member: false };
-  composed = composeWith({
-    allowedOrgIds: [ORG],
-    db,
-    infra: {
-      atomic: atomicOrFail(sqliteAtomic(db)),
-      blobs: {
-        get: () => Promise.resolve(null),
-        put: () => Promise.resolve(),
-      },
-      clock,
-      devFakeRuntime: true,
-      fetch: fakeSlack,
-      fileBlobs: memoryFileBlobs(),
-      publicBaseUrl: "https://hm.test",
-      relay: noopRelay,
-      secretsKey: SECRETS_KEY,
-      slackDirectory: clerk,
-    },
-  });
+  infra = testInfra();
+  composed = freshRequest();
   const workspace = await composed.services.workspaces.forOrg({
     clerkOrgId: ORG,
   });
@@ -576,6 +585,70 @@ test("a bot's own message is ignored", async () => {
   expect(response.status).toBe(OK);
   expect(allRuns()).toHaveLength(0);
   expect(allSeen()).toHaveLength(0);
+});
+
+/** An event the app is not subscribed to answer: a signed body, no handler. */
+const unhandledEvent = (type: string, event: Record<string, unknown>) => ({
+  api_app_id: "A0APP",
+  event: { type, ...event },
+  event_id: `Ev0${type.toUpperCase().replace("_", "")}01`,
+  event_time: 1_789_171_200,
+  team_id: "T0TEAM",
+  type: "event_callback",
+});
+
+test("an app_home_opened event answers 200 and starts nothing", async () => {
+  const eventsBefore = db.select().from(eventRows).all();
+  const response = await send(
+    unhandledEvent("app_home_opened", {
+      channel: "D0DM",
+      event_ts: "1789171200.000100",
+      tab: "messages",
+      user: "U0DOM",
+    })
+  );
+
+  expect(response.status).toBe(OK);
+  expect(await response.json()).toEqual({ ok: true });
+  expect(allRuns()).toHaveLength(0);
+  expect(allSeen()).toHaveLength(0);
+  expect(db.select().from(eventRows).all()).toEqual(eventsBefore);
+  expect(deferred).toHaveLength(0);
+  expect(slackCalls).toEqual([]);
+});
+
+test("a team_join event answers 200 and starts nothing", async () => {
+  const eventsBefore = db.select().from(eventRows).all();
+  const response = await send(
+    unhandledEvent("team_join", {
+      event_ts: "1789171200.000100",
+      user: { id: "U0NEW", name: "newcomer" },
+    })
+  );
+
+  expect(response.status).toBe(OK);
+  expect(await response.json()).toEqual({ ok: true });
+  expect(allRuns()).toHaveLength(0);
+  expect(allSeen()).toHaveLength(0);
+  expect(db.select().from(eventRows).all()).toEqual(eventsBefore);
+  expect(deferred).toHaveLength(0);
+  expect(slackCalls).toEqual([]);
+});
+
+test("an unsigned app_home_opened event is 401, like other events", async () => {
+  const response = await send(
+    unhandledEvent("app_home_opened", {
+      channel: "D0DM",
+      event_ts: "1789171200.000100",
+      tab: "messages",
+      user: "U0DOM",
+    }),
+    { signature: "v0=00" }
+  );
+
+  expect(response.status).toBe(UNAUTHORIZED);
+  expect(allRuns()).toHaveLength(0);
+  expect(slackCalls).toEqual([]);
 });
 
 test("the URL check echoes the challenge, and junk is 400", async () => {
@@ -1104,4 +1177,265 @@ test("a DM reply in a thread the agent started in the DM continues the session",
     threadTs: DM_THREAD_TS,
   });
   expect(db.select().from(sessionRows).all()).toHaveLength(1);
+});
+
+const DM_TS = "1789171202.000200";
+const DM_CHANNEL = "D0DM";
+/** The linked DM sender, who started the run and may cancel it. */
+const domPrincipal = () => ({
+  kind: "user" as const,
+  userId: DOM,
+  via: "session" as const,
+  workspaceId,
+});
+
+const statusCalls = () =>
+  slackCalls.filter((call) => call.method === STATUS_METHOD);
+
+/** Sends the linked DM and runs its jobs, which show "is thinking…". */
+const startDmRun = async (): Promise<string> => {
+  const response = await send(await fixture("dm"));
+  const { runId } = (await response.json()) as { runId: string };
+  await runAfterJobs();
+  return runId;
+};
+
+/** Reports one tool call of a run that the machine has claimed. */
+const reportTool = (
+  runId: string,
+  seq: number,
+  name: string,
+  services: Composed["services"] = composed.services
+) =>
+  services.runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    {
+      payload: { input: {}, name, toolUseId: `t${seq}` },
+      seq,
+      type: "tool.call",
+    },
+  ]);
+
+test("a DM from a linked user shows 'is thinking…' in its thread with the bot token", async () => {
+  await startDmRun();
+
+  expect(statusCalls()).toMatchObject([
+    {
+      auth: `Bearer ${BOT_TOKEN}`,
+      body: {
+        channel_id: DM_CHANNEL,
+        status: "is thinking…",
+        thread_ts: DM_TS,
+      },
+    },
+  ]);
+});
+
+test("a bash tool call six seconds later says it runs a command, and a read within five seconds adds no call", async () => {
+  const runId = await startDmRun();
+  await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  nowMs += 6 * SECOND_MS;
+  await reportTool(runId, 1, "bash");
+
+  expect(statusCalls()).toHaveLength(2);
+  expect(statusCalls()[1]?.body).toMatchObject({
+    channel_id: DM_CHANNEL,
+    status: "is running a command…",
+    thread_ts: DM_TS,
+  });
+
+  nowMs += 2 * SECOND_MS;
+  await reportTool(runId, 2, "read");
+  expect(statusCalls()).toHaveLength(2);
+});
+
+test("cancelling the run clears the status with an empty one", async () => {
+  const runId = await startDmRun();
+  await composed.services.runs.cancelRun(domPrincipal(), runId);
+
+  expect(statusCalls().slice(1)).toMatchObject([
+    { body: { channel_id: DM_CHANNEL, status: "", thread_ts: DM_TS } },
+  ]);
+});
+
+test("a failed run clears the status with an empty one", async () => {
+  const runId = await startDmRun();
+  await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await composed.services.runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    error: "boom",
+    status: "failed",
+  });
+
+  expect(statusCalls().slice(1)).toMatchObject([
+    { body: { channel_id: DM_CHANNEL, status: "", thread_ts: DM_TS } },
+  ]);
+});
+
+test("a done run posts its answer and sends no clearing status", async () => {
+  const runId = await startDmRun();
+  await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await composed.services.runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    status: "done",
+    text: "All set.",
+  });
+  await runAfterJobs();
+
+  expect(
+    slackCalls.some(
+      (call) =>
+        call.method === "chat.postMessage" && call.body.text === "All set."
+    )
+  ).toBe(true);
+  expect(statusCalls().map((call) => call.body.status)).toEqual([
+    "is thinking…",
+  ]);
+});
+
+test("a missing scope keeps the run, warns once, and sends no later status", async () => {
+  statusAnswer = { error: "missing_scope", ok: false };
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  const runId = await startDmRun();
+  expect(allRuns()).toHaveLength(1);
+  expect(["queued", "offered"]).toContain(allRuns()[0]?.status ?? "");
+
+  await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  nowMs += 6 * SECOND_MS;
+  await reportTool(runId, 1, "bash");
+  await composed.services.runs.cancelRun(domPrincipal(), runId);
+
+  expect(statusCalls()).toHaveLength(1);
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(String(warn.mock.calls[0]?.[0])).toContain("missing_scope");
+  warn.mockRestore();
+});
+
+test("a method not supported for the channel is skipped quietly", async () => {
+  statusAnswer = { error: "method_not_supported_for_channel_type", ok: false };
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  const runId = await startDmRun();
+  await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  nowMs += 6 * SECOND_MS;
+  await reportTool(runId, 1, "bash");
+  await composed.services.runs.cancelRun(domPrincipal(), runId);
+
+  expect(statusCalls()).toHaveLength(1);
+  expect(
+    warn.mock.calls
+      .map((args) => String(args[0]))
+      .filter((text) => text.includes("Slack status"))
+  ).toEqual([]);
+  warn.mockRestore();
+});
+
+test("a run that did not come from Slack sends no status", async () => {
+  const { runId } = await composed.services.runs.startRun(
+    { kind: "user", userId: "user_owner", via: "session", workspaceId },
+    { agentId, input: { text: "hi" }, session: { origin: "ui" } }
+  );
+  await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await reportTool(runId, 1, "bash");
+  await composed.services.runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    status: "done",
+    text: "ok",
+  });
+  await runAfterJobs();
+
+  expect(statusCalls()).toEqual([]);
+});
+
+/** The `runs` row of a run, read back as the status facts the Slack status keeps on it. */
+const runRow = (runId: string) =>
+  db.select().from(runRows).where(eq(runRows.id, runId)).all()[0];
+
+test("the 5 s limit holds across requests: a status claimed by one request limits the next", async () => {
+  const runId = await startDmRun();
+  await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  nowMs += 6 * SECOND_MS;
+  await reportTool(runId, 1, "bash");
+  expect(statusCalls().map((call) => call.body.status)).toEqual([
+    "is thinking…",
+    "is running a command…",
+  ]);
+
+  nowMs += 2 * SECOND_MS;
+  await reportTool(runId, 2, "read", freshRequest().services);
+  expect(statusCalls()).toHaveLength(2);
+
+  nowMs += 6 * SECOND_MS;
+  await reportTool(runId, 3, "read", freshRequest().services);
+  expect(statusCalls()).toHaveLength(3);
+  expect(statusCalls()[2]?.body).toMatchObject({
+    channel_id: DM_CHANNEL,
+    status: "is reading files…",
+    thread_ts: DM_TS,
+  });
+});
+
+test("a missing scope stops the status for every request, so later calls from other requests send nothing", async () => {
+  statusAnswer = { error: "missing_scope", ok: false };
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  const runId = await startDmRun();
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(String(warn.mock.calls[0]?.[0])).toContain("missing_scope");
+  expect(runRow(runId)?.slackStatusStopped).toBe(true);
+
+  await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  nowMs += 6 * SECOND_MS;
+  await reportTool(runId, 1, "bash", freshRequest().services);
+  await freshRequest().services.runs.cancelRun(domPrincipal(), runId);
+
+  expect(statusCalls()).toHaveLength(1);
+  expect(warn).toHaveBeenCalledTimes(1);
+  warn.mockRestore();
+});
+
+test("cancelling from another request clears the status once, and a second terminal event adds no call", async () => {
+  const runId = await startDmRun();
+  await freshRequest().services.runs.cancelRun(domPrincipal(), runId);
+
+  expect(statusCalls()).toHaveLength(2);
+  expect(statusCalls()[1]?.body).toMatchObject({
+    channel_id: DM_CHANNEL,
+    status: "",
+    thread_ts: DM_TS,
+  });
+  expect(runRow(runId)?.slackStatusStopped).toBe(true);
+
+  await freshRequest().services.events.append({
+    actor: { id: "system", kind: "system" },
+    payload: {},
+    runId,
+    type: "run.failed",
+    workspaceId,
+  });
+  expect(statusCalls()).toHaveLength(2);
+});
+
+test("a run that did not come from Slack keeps no status facts, whichever request handles its events", async () => {
+  const { runId } = await composed.services.runs.startRun(
+    { kind: "user", userId: "user_owner", via: "session", workspaceId },
+    { agentId, input: { text: "hi" }, session: { origin: "ui" } }
+  );
+  await freshRequest().services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await reportTool(runId, 1, "bash", freshRequest().services);
+  await freshRequest().services.runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    error: "boom",
+    status: "failed",
+  });
+  await runAfterJobs();
+
+  expect(runRow(runId)).toMatchObject({
+    slackStatusAt: null,
+    slackStatusLabel: null,
+    slackStatusStopped: false,
+  });
+  expect(statusCalls()).toEqual([]);
+});
+
+test("the Slack run row keeps the label and the clock time of the status it sent", async () => {
+  const runId = await startDmRun();
+
+  expect(runRow(runId)).toMatchObject({
+    slackStatusAt: new Date(nowMs).toISOString(),
+    slackStatusLabel: "is thinking…",
+  });
 });

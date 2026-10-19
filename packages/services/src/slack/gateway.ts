@@ -30,6 +30,8 @@ import {
   type SlackClient,
   type SlackFetch,
 } from "./client.ts";
+import { convertMentions } from "./mentions.ts";
+import { linkedPeople } from "./people.ts";
 import { describeFailure, withRetry } from "./post.ts";
 
 export interface SlackGatewayOptions {
@@ -256,10 +258,20 @@ export const createSlackGateway = ({
     // The link leaves the thread only when there is someone to send it to.
     const visible =
       link && requester ? text.replaceAll(link, PRIVATE_NOTE) : text;
+    // `@name` becomes a mention, as slack_send does. The notes are dropped: nobody reads them in a thread reply.
+    const mentioned = visible.includes("@")
+      ? convertMentions(
+          visible,
+          await linkedPeople(db, client, {
+            teamId: slack.teamId,
+            workspaceId,
+          })
+        ).text
+      : visible;
     const posted = await withRetry(clock, () =>
       client.postMessage({
         channel: slack.channel,
-        text: visible.trim() === "" ? EMPTY_REPLY : visible,
+        text: mentioned.trim() === "" ? EMPTY_REPLY : mentioned,
         threadTs: slack.threadTs,
       })
     );

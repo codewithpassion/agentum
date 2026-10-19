@@ -77,6 +77,7 @@ test("the scopes and events are exactly the lists", () => {
   const manifest = buildManifest(input());
   expect(manifest.oauth_config.scopes.bot).toEqual([
     "app_mentions:read",
+    "assistant:write",
     "channels:history",
     "channels:read",
     "chat:write",
@@ -91,17 +92,33 @@ test("the scopes and events are exactly the lists", () => {
   ]);
   expect([...manifest.oauth_config.scopes.bot]).toEqual([...SLACK_BOT_SCOPES]);
   expect(manifest.settings.event_subscriptions.bot_events).toEqual([
+    "app_home_opened",
     "app_mention",
     "message.channels",
     "message.groups",
     "message.im",
   ]);
   expect(SLACK_BOT_EVENTS).toEqual([
+    "app_home_opened",
     "app_mention",
     "message.channels",
     "message.groups",
     "message.im",
   ]);
+});
+
+test("the bot scopes include assistant:write for the agent status", () => {
+  expect(SLACK_BOT_SCOPES).toContain("assistant:write");
+  const manifest = buildManifest(input());
+  expect(manifest.oauth_config.scopes.bot).toContain("assistant:write");
+});
+
+test("the bot events include app_home_opened for agent_view apps", () => {
+  expect(SLACK_BOT_EVENTS).toContain("app_home_opened");
+  const manifest = buildManifest(input());
+  expect(manifest.settings.event_subscriptions.bot_events).toContain(
+    "app_home_opened"
+  );
 });
 
 test("interactivity is disabled and the other settings are fixed", () => {

@@ -16,10 +16,10 @@ import {
 } from "./define";
 
 const channelLine = (channel: SlackDestinations["channels"][number]): string =>
-  `#${channel.name} (${channel.id}, ${channel.isPrivate ? "private" : "public"})`;
+  `#${channel.name} (${channel.id}, ${channel.isPrivate ? "private" : "public"}), mention ${channel.mention}`;
 
 const personLine = (person: SlackDestinations["people"][number]): string =>
-  `${person.email} as ${person.slackName}`;
+  `${person.email} as ${person.slackName}, mention ${person.mention}`;
 
 const destinationsText = (destinations: SlackDestinations): string => {
   const channels =
@@ -37,7 +37,8 @@ const destinationsText = (destinations: SlackDestinations): string => {
 
 const sendText = (result: SlackSendResult): string => {
   const link = result.permalink ? ` Link: ${result.permalink}` : "";
-  return `Sent to ${result.to} in ${result.channel}, ts ${result.ts}.${link}`;
+  const sent = `Sent to ${result.to} in ${result.channel}, ts ${result.ts}.${link}`;
+  return [sent, ...result.notes].join("\n");
 };
 
 const threadPart = (threadTs: string | null): string =>
@@ -68,7 +69,7 @@ export const slackTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: READ_ONLY,
     description:
-      "Lists where slack_send can reach: the channels the agent's Slack bot is a member of, and the people who linked their Slack account to Harbourmaster (for DMs). Nobody else can be messaged. Use a channel name or a person's email as the `to` of slack_send.",
+      "Lists where slack_send can reach: the channels the agent's Slack bot is a member of, and the people who linked their Slack account to Harbourmaster (for DMs). Nobody else can be messaged. Use a channel name or a person's email as the `to` of slack_send. Each entry shows its mention text. To tag someone or point at a channel in a message, write that mention text (<@U…> for a person, <#C…> for a channel) in the message.",
     inputSchema: z.strictObject({}),
     name: "slack_destinations",
     run: async () => {
@@ -183,9 +184,16 @@ export const slackTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
     description:
-      "Starts a message in Slack. `to` is a channel the agent's bot is in (#name or channel id) or a linked workspace member (their email or Slack name). Nobody else can be reached. Every send is logged in the workspace Log with its target and length, never its text. The limit is 30 sends per hour per agent. Pass thread_ts to reply in a thread: the ts of a message this agent started with slack_send, or of a message (or thread parent) that slack_history, slack_search or a batch of channel messages showed, in the same channel.",
+      "Starts a message in Slack. `to` is a channel the agent's bot is in (#name or channel id) or a linked workspace member (their email or Slack name). Nobody else can be reached. Every send is logged in the workspace Log with its target and length, never its text. The limit is 30 sends per hour per agent. Pass thread_ts to reply in a thread: the ts of a message this agent started with slack_send, or of a message (or thread parent) that slack_history, slack_search or a batch of channel messages showed, in the same channel. To mention a person, write their mention text from slack_destinations (<@U…>), or write @name for a linked person (their email, email name, or Slack name) and it becomes a real mention. A plain @name that matches nobody or two people, and @here and @channel, are sent as plain text, and the result says so.",
     inputSchema: z.strictObject({
-      text: z.string().trim().min(1).max(4000).describe("The message to send."),
+      text: z
+        .string()
+        .trim()
+        .min(1)
+        .max(4000)
+        .describe(
+          "The message to send. Mention a person with <@U…> or @name, as the tool description says."
+        ),
       thread_ts: z
         .string()
         .min(1)

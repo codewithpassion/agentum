@@ -625,6 +625,32 @@ test("an event the app did not ask for is ignored, not an error", () => {
   ).toEqual({ kind: "ignored", reason: "unsupported_event" });
 });
 
+test("an app_home_opened event is ignored as unsupported, not malformed", () => {
+  expect(
+    parseEvent(
+      callback({
+        channel: "D0DM",
+        event_ts: "1789171200.000100",
+        tab: "messages",
+        type: "app_home_opened",
+        user: "U0DOM",
+      })
+    )
+  ).toEqual({ kind: "ignored", reason: "unsupported_event" });
+});
+
+test("a team_join event is ignored as unsupported, not malformed", () => {
+  expect(
+    parseEvent(
+      callback({
+        event_ts: "1789171200.000100",
+        type: "team_join",
+        user: { id: "U0NEW", name: "newcomer" },
+      })
+    )
+  ).toEqual({ kind: "ignored", reason: "unsupported_event" });
+});
+
 test("a payload that is neither shape is malformed, and says why", () => {
   const event = parseEvent({ type: "event_callback" });
   expect(event.kind).toBe("malformed");
