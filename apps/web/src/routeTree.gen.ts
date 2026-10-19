@@ -29,6 +29,7 @@ import { Route as AppAgentsNewRouteImport } from './routes/_app/agents.new'
 import { Route as AppSettingsApiKeysRouteImport } from './routes/_app/settings.api-keys'
 import { Route as AppSettingsConnectedAppsRouteImport } from './routes/_app/settings.connected-apps'
 import { Route as AppSettingsManagedAgentsRouteImport } from './routes/_app/settings.managed-agents'
+import { Route as AppSettingsModelProvidersRouteImport } from './routes/_app/settings.model-providers'
 import { Route as AppSettingsSecretsRouteImport } from './routes/_app/settings.secrets'
 import { Route as AppSkillsIndexRouteImport } from './routes/_app/skills.index'
 import { Route as AppSkillsSkillIdRouteImport } from './routes/_app/skills.$skillId'
@@ -134,6 +135,12 @@ const AppSettingsManagedAgentsRoute =
     path: '/settings/managed-agents',
     getParentRoute: () => AppRoute,
   } as any)
+const AppSettingsModelProvidersRoute =
+  AppSettingsModelProvidersRouteImport.update({
+    id: '/settings/model-providers',
+    path: '/settings/model-providers',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppSettingsSecretsRoute = AppSettingsSecretsRouteImport.update({
   id: '/settings/secrets',
   path: '/settings/secrets',
@@ -169,6 +176,7 @@ export interface FileRoutesByFullPath {
   '/settings/api-keys': typeof AppSettingsApiKeysRoute
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/settings/managed-agents': typeof AppSettingsManagedAgentsRoute
+  '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/agents/': typeof AppAgentsIndexRoute
@@ -193,6 +201,7 @@ export interface FileRoutesByTo {
   '/settings/api-keys': typeof AppSettingsApiKeysRoute
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/settings/managed-agents': typeof AppSettingsManagedAgentsRoute
+  '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/agents': typeof AppAgentsIndexRoute
@@ -219,6 +228,7 @@ export interface FileRoutesById {
   '/_app/settings/api-keys': typeof AppSettingsApiKeysRoute
   '/_app/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/_app/settings/managed-agents': typeof AppSettingsManagedAgentsRoute
+  '/_app/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/_app/settings/secrets': typeof AppSettingsSecretsRoute
   '/_app/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
@@ -245,6 +255,7 @@ export interface FileRouteTypes {
     | '/settings/api-keys'
     | '/settings/connected-apps'
     | '/settings/managed-agents'
+    | '/settings/model-providers'
     | '/settings/secrets'
     | '/skills/$skillId'
     | '/agents/'
@@ -269,6 +280,7 @@ export interface FileRouteTypes {
     | '/settings/api-keys'
     | '/settings/connected-apps'
     | '/settings/managed-agents'
+    | '/settings/model-providers'
     | '/settings/secrets'
     | '/skills/$skillId'
     | '/agents'
@@ -294,6 +306,7 @@ export interface FileRouteTypes {
     | '/_app/settings/api-keys'
     | '/_app/settings/connected-apps'
     | '/_app/settings/managed-agents'
+    | '/_app/settings/model-providers'
     | '/_app/settings/secrets'
     | '/_app/skills/$skillId'
     | '/_app/agents/'
@@ -451,6 +464,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsManagedAgentsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/model-providers': {
+      id: '/_app/settings/model-providers'
+      path: '/settings/model-providers'
+      fullPath: '/settings/model-providers'
+      preLoaderRoute: typeof AppSettingsModelProvidersRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/secrets': {
       id: '/_app/settings/secrets'
       path: '/settings/secrets'
@@ -489,6 +509,7 @@ interface AppRouteChildren {
   AppSettingsApiKeysRoute: typeof AppSettingsApiKeysRoute
   AppSettingsConnectedAppsRoute: typeof AppSettingsConnectedAppsRoute
   AppSettingsManagedAgentsRoute: typeof AppSettingsManagedAgentsRoute
+  AppSettingsModelProvidersRoute: typeof AppSettingsModelProvidersRoute
   AppSettingsSecretsRoute: typeof AppSettingsSecretsRoute
   AppSkillsSkillIdRoute: typeof AppSkillsSkillIdRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
@@ -509,6 +530,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsApiKeysRoute: AppSettingsApiKeysRoute,
   AppSettingsConnectedAppsRoute: AppSettingsConnectedAppsRoute,
   AppSettingsManagedAgentsRoute: AppSettingsManagedAgentsRoute,
+  AppSettingsModelProvidersRoute: AppSettingsModelProvidersRoute,
   AppSettingsSecretsRoute: AppSettingsSecretsRoute,
   AppSkillsSkillIdRoute: AppSkillsSkillIdRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
