@@ -3,7 +3,7 @@ id: C.18
 title: Keep a script's output when it hits its time limit
 milestone: C
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/C.18-script-timeout-output
 ---
@@ -22,3 +22,4 @@ Asked for by Dom on 19 Oct 2026. In the C.17 staging check, a `run_script` run (
 
 ## Log
 - 2026-10-19: added at Dom's request. dispatched.
+- 2026-10-19: review clean after 1 fix round at bbb53d2 (docs/reviews/tasks/C.18.md). Merged. No cause found for the 94TVF8QX hang. Staging check pending.
