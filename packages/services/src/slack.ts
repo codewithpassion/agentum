@@ -1,17 +1,19 @@
 /**
  * Slack events. `receive` is everything the events route does before it
- * answers: check who is calling, turn a mention or a DM into a run, and write
- * the dedupe row, the run and its events in one atomic write. Nothing slow
- * happens before the answer. File downloads and the reply to an unknown sender
- * come back as an `after` job for the route to hand to `waitUntil`. The
- * minute tick finishes any download that job did not.
+ * answers: check who is calling, turn a mention, a DM or a reply in a thread
+ * the agent knows into a run, and write the dedupe row, the run and its
+ * events in one atomic write. Nothing slow happens before the answer. File
+ * downloads and the reply to an unknown sender come back as an `after` job for
+ * the route to hand to `waitUntil`. The minute tick finishes any download that
+ * job did not.
  */
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
+import { events as eventRows } from "@repo/db/schema/events";
 import { slackEventsSeen } from "@repo/db/schema/slack";
 import { identityLinks, workspaces } from "@repo/db/schema/workspaces";
 import { INPUT_FILES_MAX } from "@repo/db/shared";
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, gte, lt } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ForbiddenError } from "./authz.ts";
 import { hashToken } from "./crypto.ts";
@@ -33,9 +35,11 @@ import {
 } from "./slack/event-parse.ts";
 import { withRetry } from "./slack/post.ts";
 import { verifySlackRequest } from "./slack/signature.ts";
+import { findThreadSession } from "./slack/threads.ts";
 import { SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 type Mention = Extract<SlackEvent, { kind: "message" }>;
+type RefusalReason = "signature" | "team";
 
 /** Clerk, as the Slack link flow needs it. Implemented in apps/web. */
 export interface SlackDirectory {
@@ -59,8 +63,13 @@ export type ReceiveResult =
 
 /** `slack_events_seen` rows older than this are trimmed. Slack retries within minutes. */
 const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
+/** One `slack.event_refused` per app and reason in this window. */
+const REFUSAL_WINDOW_MS = 10 * 60 * 1000;
 const NO_TEXT_WITH_FILES = "(see the attached files)";
-const UNLINKED_REPLY = "I don't know you yet. Ask Dom to add you.";
+const UNLINKED_REPLY =
+  "I don't know you yet. Ask a Harbourmaster admin of this workspace to invite you, using the same email address as your Slack profile.";
+const HIDDEN_EMAIL_REPLY =
+  "I can't see the email address on your Slack profile, so I can't match you to a Harbourmaster account. Ask a Harbourmaster admin of this workspace to invite you, and make your email visible to apps in your Slack profile.";
 const LINKED_REPLY =
   "I linked your Slack account to your Harbourmaster account. Please send your message again.";
 const REGEX_SPECIALS = /[.*+?^${}()|[\]\\]/g;
@@ -109,6 +118,49 @@ export const createSlackService = ({
       .where(eq(slackEventsSeen.eventHash, eventHash))
       .limit(1);
     return row !== undefined;
+  };
+
+  /**
+   * Writes `slack.event_refused` for a request a known app refused, at most one
+   * per app and reason per window. The payload is the app id and the reason
+   * only. A failure is logged and never changes the 401 answer.
+   */
+  const recordRefusal = async (app: SlackAppRow, reason: RefusalReason) => {
+    try {
+      const recent = await db
+        .select({ payload: eventRows.payload })
+        .from(eventRows)
+        .where(
+          and(
+            eq(eventRows.workspaceId, app.workspaceId),
+            eq(eventRows.type, "slack.event_refused"),
+            eq(eventRows.agentId, app.agentId),
+            gte(
+              eventRows.createdAt,
+              new Date(clock.now().getTime() - REFUSAL_WINDOW_MS).toISOString()
+            )
+          )
+        );
+      const written = recent.some((row) => {
+        const payload = JSON.parse(row.payload ?? "{}") as {
+          appId?: unknown;
+          reason?: unknown;
+        };
+        return payload.appId === app.appId && payload.reason === reason;
+      });
+      if (written) {
+        return;
+      }
+      await events.append({
+        actor: { id: "slack", kind: "system" },
+        agentId: app.agentId,
+        payload: { appId: app.appId, reason },
+        type: "slack.event_refused",
+        workspaceId: app.workspaceId,
+      });
+    } catch (error) {
+      console.error("Slack refusal not recorded", error);
+    }
   };
 
   const findLink = async (app: SlackAppRow, slackUserId: string) => {
@@ -172,7 +224,11 @@ export const createSlackService = ({
       workspace &&
       (await directory.isOrgMember(clerkUserId, workspace.clerkOrgId));
     if (!(email && clerkUserId && member)) {
-      await replyInThread(app, event, UNLINKED_REPLY);
+      await replyInThread(
+        app,
+        event,
+        email ? UNLINKED_REPLY : HIDDEN_EMAIL_REPLY
+      );
       return;
     }
     await db
@@ -236,11 +292,25 @@ export const createSlackService = ({
       )
       .trim();
 
+  /** The session of the thread a message is in, if the app knows it. */
+  const threadSession = (app: SlackAppRow, event: Mention) =>
+    findThreadSession(db, {
+      agentId: app.agentId,
+      channelId: event.channelId,
+      teamId: app.teamId,
+      threadTs: event.threadTs ?? event.ts,
+      workspaceId: app.workspaceId,
+    });
+
   const admitUnlinked = async (
     app: SlackAppRow,
     event: Mention,
     eventHash: string
   ): Promise<ReceiveResult> => {
+    // A stranger's reply in a thread is not addressed to the app: no reply, no row.
+    if (event.trigger === "thread") {
+      return accepted;
+    }
     await atomic([
       seenRow(app.workspaceId, eventHash, null),
       events.insertStatement({
@@ -275,6 +345,19 @@ export const createSlackService = ({
     text: string
   ): Promise<ReceiveResult> => {
     const threadTs = event.threadTs ?? event.ts;
+    const known = await threadSession(app, event);
+    // A `ui` or private session answers only to its own actor. Another person's
+    // reply in such a thread is a mention like any other, and a plain thread
+    // reply is not addressed to the app.
+    const thread =
+      known &&
+      (known.origin === "ui" || known.private) &&
+      !(known.actorKind === "user" && known.actorId === clerkUserId)
+        ? null
+        : known;
+    if (event.trigger === "thread" && !thread) {
+      return accepted;
+    }
     const pendingFiles = event.files
       .slice(0, INPUT_FILES_MAX)
       .map((file) => ({ ...file, teamId: app.teamId }));
@@ -287,11 +370,13 @@ export const createSlackService = ({
         teamId: app.teamId,
         threadTs,
       },
-      session: {
-        externalKey: `${app.teamId}:${event.channelId}:${threadTs}`,
-        origin: "slack",
-        private: event.trigger === "dm",
-      },
+      session: thread
+        ? { externalKey: thread.externalKey, origin: thread.origin }
+        : {
+            externalKey: `${app.teamId}:${event.channelId}:${threadTs}`,
+            origin: "slack",
+            private: event.trigger === "dm",
+          },
     };
     const started = await runs.startRun(
       {
@@ -415,6 +500,7 @@ export const createSlackService = ({
     const apiAppId = envelope.data.api_app_id;
     const app = apiAppId ? await findAppByApiId(db, apiAppId) : null;
     if (!app) {
+      console.warn("Slack event refused: unknown app", apiAppId);
       return { kind: "unauthorized" };
     }
     const verified = await verifySlackRequest({
@@ -424,11 +510,20 @@ export const createSlackService = ({
       signingSecret: await secrets.signingSecret(app),
       timestamp: request.timestamp,
     });
-    if (!verified || envelope.data.team_id !== app.teamId) {
+    if (!verified) {
+      await recordRefusal(app, "signature");
+      return { kind: "unauthorized" };
+    }
+    if (envelope.data.team_id !== app.teamId) {
+      await recordRefusal(app, "team");
       return { kind: "unauthorized" };
     }
     const event = parseEvent(payload);
     if (event.kind !== "message" || event.userId === app.botUserId) {
+      return accepted;
+    }
+    // A channel message is for the app only inside a thread it knows.
+    if (event.trigger === "thread" && !(await threadSession(app, event))) {
       return accepted;
     }
     return await admit(app, event);

@@ -7,6 +7,7 @@ import {
 import { events as eventRows } from "@repo/db/schema/events";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { slackApps } from "@repo/db/schema/slack";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
@@ -18,6 +19,7 @@ import { createMachineRuntime } from "../machines/runtime.ts";
 import { noopRelay } from "../machines/types.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
 import { createSecretsService, type SecretsService } from "../secrets.ts";
+import { SLACK_GUIDANCE } from "../slack/guidance.ts";
 import type { Principal } from "../workspaces.ts";
 import type { Clock } from "./types.ts";
 
@@ -80,6 +82,23 @@ const addConnector = (id: string, name: string) => {
 const assign = (agent: string, connectorId: string, createdAt: string) => {
   db.insert(agentConnectorRows)
     .values({ agentId: agent, connectorId, createdAt, workspaceId: WORKSPACE })
+    .run();
+};
+
+const installSlackApp = (agent: string) => {
+  db.insert(slackApps)
+    .values({
+      agentId: agent,
+      appId: "A0SLACK",
+      botToken: null,
+      botUserId: "U0BOT",
+      createdAt: START,
+      id: `app-${agent}`,
+      signingSecret: "ciphertext",
+      status: "installed",
+      teamId: "T0TEAM",
+      workspaceId: WORKSPACE,
+    })
     .run();
 };
 
@@ -607,4 +626,14 @@ test("a claim with no conflicts lists none", async () => {
   const claimed = await claimWith(service, agentId);
 
   expect(claimed.library).toEqual({ conflicts: [], paths: ["agents/box"] });
+});
+
+test("an agent with an installed Slack app gets the Slack line, and one without does not", async () => {
+  installSlackApp(agentId);
+
+  const withApp = await claim("m1", (await start(agentId)).runId);
+  expect(withApp.instructions).toBe(`Be brief.\n\n${SLACK_GUIDANCE}`);
+
+  const withoutApp = await claim("m2", (await start(otherAgentId)).runId);
+  expect(withoutApp.instructions).toBe("");
 });

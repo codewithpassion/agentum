@@ -9,6 +9,7 @@ import {
   managedSkillVersions,
 } from "@repo/db/schema/managed";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { slackApps } from "@repo/db/schema/slack";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { asc, eq } from "drizzle-orm";
@@ -32,6 +33,7 @@ import type { Clock, StartRunInput } from "../runs/types.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
 import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
 import { createSecretsService, type SecretsService } from "../secrets.ts";
+import { SLACK_GUIDANCE } from "../slack/guidance.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { advanceCursor, eventsAfter, type SessionEvent } from "./events.ts";
 import type { ManagedGateway, SkillRef, SkillUploadFile } from "./gateway.ts";
@@ -1154,6 +1156,23 @@ const finishRun = async (text = "go") => {
 
 const versionRows = () => db.select().from(managedSkillVersions).all();
 
+const installSlackApp = (agent: string) => {
+  db.insert(slackApps)
+    .values({
+      agentId: agent,
+      appId: "A0SLACK",
+      botToken: null,
+      botUserId: "U0BOT",
+      createdAt: START,
+      id: `app-${agent}`,
+      signingSecret: "ciphertext",
+      status: "installed",
+      teamId: "T0TEAM",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+};
+
 describe("agent home", () => {
   const home = "agents/pelican";
   const principal = dom;
@@ -1164,6 +1183,20 @@ describe("agent home", () => {
     expect(gateway.registered[0]?.system).toContain("agents/pelican/");
     expect(gateway.registered[0]?.system).toContain("library tools");
     expect(gateway.registered[0]?.system).not.toContain("[ATTACHMENT:");
+  });
+
+  test("the system text carries the Slack line when the agent has an installed Slack app", async () => {
+    installSlackApp(agentId);
+
+    await finishRun();
+
+    expect(gateway.registered[0]?.system).toContain(SLACK_GUIDANCE);
+  });
+
+  test("the system text has no Slack line when the agent has no Slack app", async () => {
+    await finishRun();
+
+    expect(gateway.registered[0]?.system).not.toContain(SLACK_GUIDANCE);
   });
 
   test("a first run creates the agent's folder when it is missing", async () => {

@@ -1,9 +1,18 @@
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { DISPLAY_NAME_LIMIT } from "@repo/services/slack/manifest";
+import {
+  type ChangeEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import { saveTextFile } from "#/components/slack/download-manifest";
 import { SlackPasteForm } from "#/components/slack/slack-paste-form";
 import { errorMessage } from "#/components/triggers/format";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
+import { Input } from "#/components/ui/input";
+import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { SlackAppRecord } from "#/integrations/trpc/types";
 import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
@@ -49,6 +58,8 @@ function SlackPanel({ agent }: AgentTabProps) {
   const [apps, setApps] = useState<SlackAppRecord[] | undefined>();
   const [listError, setListError] = useState<string | undefined>();
   const [manifestError, setManifestError] = useState<string | undefined>();
+  const [name, setName] = useState(agent.name.slice(0, DISPLAY_NAME_LIMIT));
+  const [copied, setCopied] = useState(false);
 
   const fetchApps = useCallback(
     () => getTrpc().slackApps.list.query({ agentId }),
@@ -83,15 +94,39 @@ function SlackPanel({ agent }: AgentTabProps) {
       .catch((cause: unknown) => setListError(errorMessage(cause)));
   }, [fetchApps]);
 
+  const handleNameChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value),
+    []
+  );
+
+  const fetchManifest = useCallback(() => {
+    const trimmedName = name.trim();
+    return getTrpc().slackApps.manifest.query(
+      trimmedName === "" ? { agentId } : { agentId, name: trimmedName }
+    );
+  }, [agentId, name]);
+
   const downloadManifest = useCallback(async () => {
     try {
-      const manifest = await getTrpc().slackApps.manifest.query({ agentId });
+      const manifest = await fetchManifest();
       saveTextFile(manifest.filename, manifest.json);
       setManifestError(undefined);
     } catch (cause) {
       setManifestError(errorMessage(cause));
     }
-  }, [agentId]);
+  }, [fetchManifest]);
+
+  const copyManifest = useCallback(async () => {
+    try {
+      const manifest = await fetchManifest();
+      await navigator.clipboard.writeText(manifest.json);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      setManifestError(undefined);
+    } catch (cause) {
+      setManifestError(errorMessage(cause));
+    }
+  }, [fetchManifest]);
 
   const revokeApp = useCallback(
     async (id: string) => {
@@ -144,7 +179,10 @@ function SlackPanel({ agent }: AgentTabProps) {
       <div className="flex flex-col gap-3">
         <h3 className="font-medium text-sm">Connect Slack</h3>
         <ol className="list-decimal space-y-1 pl-5 text-sm">
-          <li>Download the manifest.</li>
+          <li>
+            Set the Slack app name if you want a different one, then download or
+            copy the manifest.
+          </li>
           <li>
             Go to{" "}
             <a
@@ -166,9 +204,24 @@ function SlackPanel({ agent }: AgentTabProps) {
           <li>Paste both below.</li>
           <li>Mention the agent in a channel or message it directly.</li>
         </ol>
-        <div>
+        <div className="flex max-w-md flex-col gap-1.5">
+          <Label htmlFor="slack-app-name">Slack app name</Label>
+          <Input
+            id="slack-app-name"
+            maxLength={DISPLAY_NAME_LIMIT}
+            onChange={handleNameChange}
+            value={name}
+          />
+          <p className="text-muted-foreground text-xs">
+            {name.length}/{DISPLAY_NAME_LIMIT}
+          </p>
+        </div>
+        <div className="flex gap-2">
           <Button onClick={downloadManifest} variant="outline">
             Download manifest
+          </Button>
+          <Button onClick={copyManifest} variant="outline">
+            {copied ? "Copied" : "Copy manifest"}
           </Button>
         </div>
         {manifestError !== undefined && (
