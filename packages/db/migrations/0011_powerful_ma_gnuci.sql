@@ -1,0 +1,1 @@
+ALTER TABLE `secrets` ADD `allowed_hosts` text DEFAULT '[]' NOT NULL;

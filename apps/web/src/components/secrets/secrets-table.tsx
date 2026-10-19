@@ -16,11 +16,13 @@ type SecretAction = (secret: SecretRecord) => void;
 
 function SecretRow({
   onDelete,
+  onEditHosts,
   onEditRules,
   onReplace,
   secret,
 }: {
   onDelete: SecretAction;
+  onEditHosts: SecretAction;
   onEditRules: SecretAction;
   onReplace: SecretAction;
   secret: SecretRecord;
@@ -29,6 +31,10 @@ function SecretRow({
   const editRules = useCallback(
     () => onEditRules(secret),
     [onEditRules, secret]
+  );
+  const editHosts = useCallback(
+    () => onEditHosts(secret),
+    [onEditHosts, secret]
   );
   const remove = useCallback(() => onDelete(secret), [onDelete, secret]);
 
@@ -53,7 +59,11 @@ function SecretRow({
             <Button onClick={editRules} size="sm" variant="outline">
               Edit rules
             </Button>
-          ) : null}
+          ) : (
+            <Button onClick={editHosts} size="sm" variant="outline">
+              Edit hosts
+            </Button>
+          )}
           <Button onClick={remove} size="sm" variant="outline">
             Delete
           </Button>
@@ -65,11 +75,13 @@ function SecretRow({
 
 export function SecretsTable({
   onDelete,
+  onEditHosts,
   onEditRules,
   onReplace,
   secrets,
 }: {
   onDelete: SecretAction;
+  onEditHosts: SecretAction;
   onEditRules: SecretAction;
   onReplace: SecretAction;
   secrets: SecretRecord[];
@@ -100,6 +112,7 @@ export function SecretsTable({
           <SecretRow
             key={secret.id}
             onDelete={onDelete}
+            onEditHosts={onEditHosts}
             onEditRules={onEditRules}
             onReplace={onReplace}
             secret={secret}

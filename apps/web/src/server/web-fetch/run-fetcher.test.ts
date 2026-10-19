@@ -1,6 +1,16 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
+import { runs as runRows } from "@repo/db/schema/runs";
+import { sessions as sessionRows } from "@repo/db/schema/sessions";
+import { workspaces } from "@repo/db/schema/workspaces";
+import { migrated } from "@repo/db/test-db";
+import { createAgentsService } from "@repo/services/agents";
+import { createEventsService } from "@repo/services/events";
 import type { NetworkRequestEntry } from "@repo/services/network";
-import type { ProxyMatch } from "@repo/services/secrets";
+import { createNetworkService } from "@repo/services/network";
+import { systemClock } from "@repo/services/runs/types";
+import { createSecretsService, type ProxyMatch } from "@repo/services/secrets";
+import type { Principal } from "@repo/services/workspaces";
 import type { Services } from "../compose.ts";
 import { runWebFetcher } from "./run-fetcher.ts";
 
@@ -164,5 +174,275 @@ describe("runWebFetcher", () => {
     expect(logged).not.toContain("QUERY_SECRET_VALUE");
     expect(logged).not.toContain("TRACE_HEADER_VALUE");
     expect(logged).not.toContain(KEY);
+  });
+});
+
+describe("runWebFetcher with env secrets, over real services", () => {
+  const WORKSPACE = "w1";
+  const START = "2026-10-19T10:00:00.000Z";
+  const SECRET_NAME = "SUPADATA_KEY";
+  const SECRET_VALUE = "sdt_live_0123456789abcdef";
+  const PLACEHOLDER = `hm-secret:${SECRET_NAME}`;
+  const SECRETS_KEY = Buffer.from(
+    crypto.getRandomValues(new Uint8Array(32))
+  ).toString("base64");
+  const user: Principal = {
+    kind: "user",
+    userId: "u1",
+    via: "session",
+    workspaceId: WORKSPACE,
+  };
+
+  let db: ReturnType<typeof migrated>;
+  let events: ReturnType<typeof createEventsService>;
+  let secrets: ReturnType<typeof createSecretsService>;
+  let network: ReturnType<typeof createNetworkService>;
+  let agentA: string;
+  let agentB: string;
+
+  const seedRun = (agentId: string, runId: string) => {
+    db.insert(sessionRows)
+      .values({
+        actorId: "u1",
+        actorKind: "user",
+        agentId,
+        createdAt: START,
+        id: `s-${runId}`,
+        origin: "ui",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    db.insert(runRows)
+      .values({
+        actorId: "u1",
+        actorKind: "user",
+        agentId,
+        createdAt: START,
+        id: runId,
+        inputText: "hi",
+        sessionId: `s-${runId}`,
+        status: "running",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+  };
+
+  const runOf = (agentId: string) => ({
+    agentId,
+    runId: `run-${agentId}`,
+    workspaceId: WORKSPACE,
+  });
+
+  const fetcherFor = (
+    agentId: string,
+    sent: Request[],
+    via: "curl" | "web_fetch" = "web_fetch"
+  ) =>
+    runWebFetcher({
+      fetch: (request) => {
+        sent.push(request);
+        return Promise.resolve(answer());
+      },
+      ownHosts: [],
+      run: runOf(agentId),
+      services: { network, secrets },
+      via,
+    });
+
+  const eventsOf = async (runId: string) =>
+    await events.query(user, WORKSPACE, { runId });
+
+  beforeEach(async () => {
+    db = migrated();
+    db.insert(workspaces)
+      .values({
+        clerkOrgId: `org_${WORKSPACE}`,
+        createdAt: START,
+        id: WORKSPACE,
+        name: WORKSPACE,
+        timezone: "UTC",
+      })
+      .run();
+    const store = new Map<string, string>();
+    events = createEventsService({
+      blobs: {
+        get: (key) => Promise.resolve(store.get(key) ?? null),
+        put: (key, body) => {
+          store.set(key, body);
+          return Promise.resolve();
+        },
+      },
+      db,
+    });
+    const agents = createAgentsService({ db, events });
+    secrets = createSecretsService({
+      atomic: sqliteAtomic(db),
+      clock: systemClock,
+      db,
+      events,
+      secretsKey: SECRETS_KEY,
+    });
+    network = createNetworkService({ db, events });
+    agentA = (
+      await agents.create(user, {
+        model: "m",
+        name: "Agent A",
+        runtime: "fake",
+      })
+    ).id;
+    agentB = (
+      await agents.create(user, {
+        model: "m",
+        name: "Agent B",
+        runtime: "fake",
+      })
+    ).id;
+    seedRun(agentA, runOf(agentA).runId);
+    seedRun(agentB, runOf(agentB).runId);
+  });
+
+  test("a granted placeholder goes out as the real value to an allowed host", async () => {
+    const created = await secrets.create(user, {
+      allowedHosts: ["api.supadata.ai"],
+      mode: "env",
+      name: SECRET_NAME,
+      value: SECRET_VALUE,
+    });
+    await secrets.setGrants(user, agentA, [created.id]);
+    const sent: Request[] = [];
+
+    const result = await fetcherFor(
+      agentA,
+      sent
+    )({
+      headers: { "x-api-key": PLACEHOLDER },
+      url: "https://api.supadata.ai/v1/x",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.headers.get("x-api-key")).toBe(SECRET_VALUE);
+  });
+
+  test("the same placeholder to another host is refused and never sent", async () => {
+    const created = await secrets.create(user, {
+      allowedHosts: ["api.supadata.ai"],
+      mode: "env",
+      name: SECRET_NAME,
+      value: SECRET_VALUE,
+    });
+    await secrets.setGrants(user, agentA, [created.id]);
+    const sent: Request[] = [];
+
+    const result = await fetcherFor(
+      agentA,
+      sent
+    )({
+      headers: { "x-api-key": PLACEHOLDER },
+      url: "https://example.com/",
+    });
+
+    expect(result).toMatchObject({ error: "blocked", ok: false });
+    if (result.ok) {
+      throw new Error("Expected the call to be refused");
+    }
+    expect(result.message).toContain(SECRET_NAME);
+    expect(result.message).toContain("api.supadata.ai");
+    expect(sent).toEqual([]);
+
+    const refused = (await eventsOf(runOf(agentA).runId)).filter(
+      (event) => event.type === "network.request"
+    );
+    expect(refused).toHaveLength(1);
+    expect(refused[0]?.payload).toMatchObject({
+      blocked: expect.any(String),
+      host: "example.com",
+    });
+    expect(JSON.stringify(refused)).not.toContain(SECRET_VALUE);
+  });
+
+  test("a secret granted only to another agent is refused for this agent", async () => {
+    const created = await secrets.create(user, {
+      allowedHosts: ["api.supadata.ai"],
+      mode: "env",
+      name: SECRET_NAME,
+      value: SECRET_VALUE,
+    });
+    await secrets.setGrants(user, agentB, [created.id]);
+    const sent: Request[] = [];
+
+    const result = await fetcherFor(
+      agentA,
+      sent
+    )({
+      headers: { "x-api-key": PLACEHOLDER },
+      url: "https://api.supadata.ai/v1/x",
+    });
+
+    expect(result).toMatchObject({ error: "blocked", ok: false });
+    if (result.ok) {
+      throw new Error("Expected the call to be refused");
+    }
+    expect(result.message).toContain("not for a secret granted to this agent");
+    expect(sent).toEqual([]);
+  });
+
+  test("an env secret with no allowed hosts is refused with the Settings message", async () => {
+    const created = await secrets.create(user, {
+      mode: "env",
+      name: SECRET_NAME,
+      value: SECRET_VALUE,
+    });
+    await secrets.setGrants(user, agentA, [created.id]);
+    const sent: Request[] = [];
+
+    const result = await fetcherFor(
+      agentA,
+      sent
+    )({
+      headers: { "x-api-key": PLACEHOLDER },
+      url: "https://api.supadata.ai/v1/x",
+    });
+
+    expect(result).toMatchObject({ error: "blocked", ok: false });
+    if (result.ok) {
+      throw new Error("Expected the call to be refused");
+    }
+    expect(result.message).toContain("Add them in Settings, Secrets.");
+    expect(sent).toEqual([]);
+  });
+
+  test("the injection event names the secret, the host and via, and no event of the run holds the value", async () => {
+    const created = await secrets.create(user, {
+      allowedHosts: ["api.supadata.ai"],
+      mode: "env",
+      name: SECRET_NAME,
+      value: SECRET_VALUE,
+    });
+    await secrets.setGrants(user, agentA, [created.id]);
+    const sent: Request[] = [];
+
+    const result = await fetcherFor(
+      agentA,
+      sent,
+      "curl"
+    )({
+      headers: { "x-api-key": PLACEHOLDER },
+      url: "https://api.supadata.ai/v1/x",
+    });
+    expect(result.ok).toBe(true);
+
+    const runEvents = await eventsOf(runOf(agentA).runId);
+    const injected = runEvents.filter(
+      (event) => event.type === "secret.injected"
+    );
+    expect(injected).toHaveLength(1);
+    expect(injected[0]?.payload).toMatchObject({
+      host: "api.supadata.ai",
+      names: [SECRET_NAME],
+      via: "curl",
+    });
+    expect(runEvents.length).toBeGreaterThan(0);
+    expect(JSON.stringify(runEvents)).not.toContain(SECRET_VALUE);
   });
 });

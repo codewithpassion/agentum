@@ -24,7 +24,7 @@ export type WebFetchResult =
       ok: true;
       status: number;
       statusText: string;
-      /** The URL the answer came from, after redirects. */
+      /** The URL the answer came from, after redirects. Once the call has filled a secret, the URL that was requested. */
       url: string;
     }
   | { error: WebFetchFailure; message: string; ok: false };

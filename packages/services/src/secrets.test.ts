@@ -169,6 +169,7 @@ describe("storing", () => {
       expect(text).not.toContain(ECHO);
     }
     expect(Object.keys(listed[0] ?? {}).sort()).toEqual([
+      "allowedHosts",
       "createdAt",
       "id",
       "mode",
@@ -419,6 +420,178 @@ describe("grants", () => {
     expect(await service.grantsOf(user, agentA)).toEqual([]);
     expect(db.select().from(secretRows).all()).toHaveLength(0);
     await service.remove(user, created.id);
+  });
+});
+
+describe("allowed hosts", () => {
+  test("an env secret keeps its allowed hosts, lower-cased and without repeats", async () => {
+    const created = await service.create(user, {
+      allowedHosts: ["API.Example.com", "*.example.org", "api.example.com"],
+      mode: "env",
+      name: "HOSTED_KEY",
+      value: ECHO,
+    });
+    expect(created.allowedHosts).toEqual(["api.example.com", "*.example.org"]);
+    const [listed] = await service.list(user);
+    expect(listed?.allowedHosts).toEqual(["api.example.com", "*.example.org"]);
+  });
+
+  test("an env secret created without hosts has none", async () => {
+    const created = await service.create(user, {
+      mode: "env",
+      name: "PLAIN_KEY",
+      value: ECHO,
+    });
+    expect(created.allowedHosts).toEqual([]);
+  });
+
+  test("a proxy secret given allowed hosts is refused, on create and on update", async () => {
+    expect(
+      await failure(
+        service.create(user, {
+          allowedHosts: ["api.openai.com"],
+          mode: "proxy",
+          name: "OPENAI_API_KEY",
+          rules: [rule],
+          value: OPENAI,
+        } as never)
+      )
+    ).toBeDefined();
+    expect(db.select().from(secretRows).all()).toHaveLength(0);
+
+    const proxied = await proxySecret();
+    expect(
+      await failure(
+        service.update(user, proxied.id, { allowedHosts: ["api.openai.com"] })
+      )
+    ).toMatchObject({ code: "invalid" });
+  });
+
+  test.each([
+    ["localhost", "localhost"],
+    ["a bare wildcard suffix", "*.com"],
+    ["a URL", "https://api.example.com"],
+  ])("refuses a host that is %s", async (_label, host) => {
+    expect(
+      await failure(
+        service.create(user, {
+          allowedHosts: [host],
+          mode: "env",
+          name: "BAD_HOST_KEY",
+          value: ECHO,
+        })
+      )
+    ).toBeDefined();
+    expect(db.select().from(secretRows).all()).toHaveLength(0);
+  });
+
+  test("an update sets and clears the hosts and bumps the version", async () => {
+    const created = await service.create(user, {
+      mode: "env",
+      name: "HOST_KEY",
+      value: ECHO,
+    });
+    const set = await service.update(user, created.id, {
+      allowedHosts: ["api.example.com"],
+    });
+    expect(set.allowedHosts).toEqual(["api.example.com"]);
+    const [listed] = await service.list(user);
+    expect(listed?.allowedHosts).toEqual(["api.example.com"]);
+
+    const cleared = await service.update(user, created.id, {
+      allowedHosts: [],
+    });
+    expect(cleared.allowedHosts).toEqual([]);
+    expect(
+      db.select().from(secretRows).where(eq(secretRows.id, created.id)).get()
+        ?.version
+    ).toBe(3);
+  });
+
+  test("switching an env secret with hosts to proxy clears the hosts", async () => {
+    const created = await service.create(user, {
+      allowedHosts: ["api.openai.com"],
+      mode: "env",
+      name: "SWITCH_HOSTS",
+      value: OPENAI,
+    });
+    const proxied = await service.update(user, created.id, {
+      mode: "proxy",
+      rules: [rule],
+    });
+    expect(proxied.allowedHosts).toEqual([]);
+    expect(
+      db.select().from(secretRows).where(eq(secretRows.id, created.id)).get()
+        ?.allowedHosts
+    ).toBe("[]");
+  });
+
+  test("placeholdersFor lists granted env secrets only, with hosts and no value", async () => {
+    const hosted = await service.create(user, {
+      allowedHosts: ["api.example.com"],
+      mode: "env",
+      name: "HOSTED_KEY",
+      value: ECHO,
+    });
+    const bare = await service.create(user, {
+      mode: "env",
+      name: "BARE_KEY",
+      value: "bare-value-0123456",
+    });
+    const proxied = await proxySecret();
+    await service.setGrants(user, agentA, [hosted.id, bare.id, proxied.id]);
+
+    const placeholders = await service.placeholdersFor(WORKSPACE, agentA);
+    expect(placeholders).toEqual([
+      { hosts: [], name: "BARE_KEY" },
+      { hosts: ["api.example.com"], name: "HOSTED_KEY" },
+    ]);
+    const text = JSON.stringify(placeholders);
+    expect(text).not.toContain(ECHO);
+    expect(text).not.toContain("bare-value-0123456");
+    expect(text).not.toContain(OPENAI);
+
+    expect(await service.placeholdersFor(WORKSPACE, agentB)).toEqual([]);
+    expect(await service.placeholdersFor(OTHER_WORKSPACE, agentA)).toEqual([]);
+  });
+
+  test("envGrantsFor returns the agent's granted env secrets with value and hosts", async () => {
+    const hosted = await service.create(user, {
+      allowedHosts: ["api.example.com"],
+      mode: "env",
+      name: "HOSTED_KEY",
+      value: ECHO,
+    });
+    const other = await service.create(user, {
+      mode: "env",
+      name: "OTHER_KEY",
+      value: "other-value-0123",
+    });
+    const proxied = await proxySecret();
+    await service.setGrants(user, agentA, [hosted.id, proxied.id]);
+    await service.setGrants(user, agentB, [other.id]);
+
+    expect(await service.envGrantsFor(WORKSPACE, agentA)).toEqual([
+      { hosts: ["api.example.com"], name: "HOSTED_KEY", value: ECHO },
+    ]);
+    expect(await service.envGrantsFor(WORKSPACE, agentB)).toEqual([
+      { hosts: [], name: "OTHER_KEY", value: "other-value-0123" },
+    ]);
+    expect(await service.envGrantsFor(OTHER_WORKSPACE, agentA)).toEqual([]);
+  });
+
+  test("list never carries a secret value, env or proxy", async () => {
+    const proxied = await proxySecret();
+    const hosted = await service.create(user, {
+      allowedHosts: ["api.example.com"],
+      mode: "env",
+      name: "HOSTED_KEY",
+      value: ECHO,
+    });
+    await service.setGrants(user, agentA, [proxied.id, hosted.id]);
+    const text = JSON.stringify(await service.list(user));
+    expect(text).not.toContain(OPENAI);
+    expect(text).not.toContain(ECHO);
   });
 });
 

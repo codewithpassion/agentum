@@ -4,12 +4,20 @@
 // added. A caller's own `authorization` and `cookie` are dropped as soon as a
 // redirect leaves the host they were sent to. Each hop that is sent, and each
 // target that is refused, writes one network entry. The entry holds the host
-// name and numbers only.
+// name and numbers only. A `hm-secret:NAME` placeholder in a hop's URL, headers
+// or text body is swapped for the secret's value just before that hop is sent,
+// and only for a host the secret may reach. Redirects keep the placeholder form,
+// so each hop is checked against its own host. Once a call has filled a secret
+// it follows redirects to the same origin only: any other 3xx is the answer.
+// What leaves the fetcher shows the placeholder in place of every value: the
+// headers and status text are scrubbed, and the `url` is the one requested.
 
 import type { NetworkRequestEntry } from "@repo/services/network";
+import type { EnvGrant } from "@repo/services/secrets/placeholders";
 import { readCappedBody } from "../mcp/body.ts";
 import { type OutboundDeps, outboundFetch } from "../secrets-outbound-core.ts";
 import { checkTarget, redirectTarget } from "./guard.ts";
+import { fillHop, scrubSecrets } from "./hop-secrets.ts";
 import {
   WEB_FETCH_MAX_BYTES,
   WEB_FETCH_MAX_REDIRECTS,
@@ -21,6 +29,8 @@ import {
 
 export interface WebFetchDeps {
   announce: OutboundDeps["announce"];
+  /** The agent's granted env secrets with their allowed hosts, read only when a hop holds a placeholder. Without it every placeholder is refused as not granted. */
+  envGrants?: () => Promise<readonly EnvGrant[]>;
   /** Sends one request, redirects not followed. The global fetch in the app, a fake in tests. */
   fetch: OutboundDeps["fetch"];
   log: OutboundDeps["log"];
@@ -97,6 +107,10 @@ interface Call {
   maxBytes: number;
   maxRedirects: number;
   now: () => number;
+  /** The URL of the first request, in the form the caller wrote it. */
+  requestedUrl: string;
+  /** The value of each secret this call has filled, by name. Never leaves the fetcher. */
+  secrets: Map<string, string>;
   signal: AbortSignal;
   started: number;
 }
@@ -264,6 +278,32 @@ const readAnswer = async (
   }
 };
 
+/**
+ * The answer's headers and `url` as the agent sees them. Once the call has
+ * filled a secret, a value in a header or the status text becomes its
+ * placeholder, and the `url` is the one requested: a URL reached through a
+ * redirect was built by the server, and it can spell the value in ways no
+ * replacement finds.
+ */
+const shownAnswer = (
+  call: Call,
+  hop: Hop,
+  response: Response
+): { headers: Record<string, string>; statusText: string; url: string } => {
+  const headers = responseHeadersOf(response.headers);
+  if (call.secrets.size === 0) {
+    return { headers, statusText: response.statusText, url: hop.url.href };
+  }
+  for (const [name, value] of Object.entries(headers)) {
+    headers[name] = scrubSecrets(value, call.secrets);
+  }
+  return {
+    headers,
+    statusText: scrubSecrets(response.statusText, call.secrets),
+    url: call.requestedUrl,
+  };
+};
+
 const answer = async (
   call: Call,
   hop: Hop,
@@ -282,14 +322,15 @@ const answer = async (
   if (!read.ok) {
     return failed(read.error);
   }
+  const shown = shownAnswer(call, hop, response);
   return {
     bytes: read.bytes,
     durationMs: call.now() - call.started,
-    headers: responseHeadersOf(response.headers),
+    headers: shown.headers,
     ok: true,
     status: response.status,
-    statusText: response.statusText,
-    url: hop.url.href,
+    statusText: shown.statusText,
+    url: shown.url,
   };
 };
 
@@ -332,16 +373,46 @@ const follow = async (
   );
 };
 
+/** Whether `location` names the origin of `hop` itself: scheme, host and port, no wildcard. */
+const stays = (hop: Hop, location: string): boolean => {
+  try {
+    return new URL(location, hop.url).origin === hop.url.origin;
+  } catch {
+    return false;
+  }
+};
+
 /** Sends one hop, then answers, follows its redirect, or fails. */
 const runHop = async (
   call: Call,
   hop: Hop,
   redirects: number
 ): Promise<WebFetchResult> => {
+  // Only the first request, and the hops after a hop that filled a secret,
+  // may fill one: a `Location` that spells a placeholder fills nothing in a
+  // call that has filled none.
+  const mayFill = redirects === 0 || call.secrets.size > 0;
+  const filled = mayFill
+    ? await fillHop(hop, call.deps.envGrants ?? (() => Promise.resolve([])))
+    : { hop, names: [], ok: true as const, values: new Map<string, string>() };
+  if (!filled.ok) {
+    await recordRefused(call, hop.url.hostname, hop.method, filled.message);
+    return failed(filled.error, refusal("The request", filled.message));
+  }
+  for (const [name, value] of filled.values) {
+    call.secrets.set(name, value);
+  }
+  if (filled.names.length > 0) {
+    try {
+      await call.deps.announce(hop.url.hostname, filled.names);
+    } catch {
+      call.deps.log("web fetch: recording the event failed");
+    }
+  }
   const sentAt = call.now();
   let response: Response;
   try {
-    response = await sendHop(call, hop);
+    response = await sendHop(call, filled.hop);
   } catch {
     await record(call, {
       ...entryOf(call, hop),
@@ -352,7 +423,9 @@ const runHop = async (
     return failed(transportError(call));
   }
   const location = followableLocation(response);
-  if (location === null) {
+  // After a fill, a redirect leaves the origin only as the answer: the agent
+  // gets the 3xx, with the placeholder in place of any value.
+  if (location === null || (call.secrets.size > 0 && !stays(hop, location))) {
     return answer(call, hop, response, sentAt);
   }
   await record(call, {
@@ -409,6 +482,8 @@ export const createWebFetcher = (deps: WebFetchDeps): WebFetcher => {
       maxBytes,
       maxRedirects,
       now,
+      requestedUrl: request.url,
+      secrets: new Map(),
       signal: request.signal ? AbortSignal.any([timer, request.signal]) : timer,
       started,
     };

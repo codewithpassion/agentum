@@ -2,10 +2,11 @@
  * Workspace secrets for agents (S.3). A secret has a name (an environment
  * variable name), a value and a mode: `env` sets it as a variable where the
  * agent runs, `proxy` adds it to outgoing requests that match a rule, so the
- * code never holds it. The value is AES-GCM encrypted under `SECRETS_KEY`
- * and write-only: no method returns it except `resolveForAgent`, `proxyFor`
- * and `maskerFor`, which the runtimes, the outbound entrypoint and the relay
- * call and which never reach a router.
+ * code never holds it. An `env` secret may also list the hosts it may be
+ * filled in for. The value is AES-GCM encrypted under `SECRETS_KEY`
+ * and write-only: no method returns it except `resolveForAgent`, `proxyFor`,
+ * `maskerFor` and `envGrantsFor`, which the runtimes, the outbound entrypoint,
+ * the relay and the placeholder fetcher call and which never reach a router.
  *
  * Grants are per agent. Nothing here reads the Worker's own secrets, and a name
  * that would clash with them, with the run token or with the model key is
@@ -38,8 +39,10 @@ import {
   isHeaderSafe,
   matchHost,
   normalizeHost,
+  RULES_MAX,
   type Rule,
   renderHeader,
+  ruleSchema,
   rulesSchema,
   storedRulesSchema,
 } from "./secrets/rules.ts";
@@ -137,9 +140,13 @@ const valueSchema = z
 
 const modeSchema = z.enum(SECRET_MODES);
 
+/** Host patterns, as a rule's host is written. The list may be empty. */
+const allowedHostsSchema = z.array(ruleSchema.shape.host).max(RULES_MAX);
+
 /** A proxy secret has rules, an env secret has none. */
 export const secretCreateSchema = z.discriminatedUnion("mode", [
   z.strictObject({
+    allowedHosts: allowedHostsSchema.optional(),
     mode: z.literal("env"),
     name: nameSchema,
     value: valueSchema,
@@ -156,6 +163,7 @@ export type SecretCreateInput = z.input<typeof secretCreateSchema>;
 /** Each field replaces what the secret has. A value is never read back, only replaced. */
 export const secretUpdateSchema = z
   .strictObject({
+    allowedHosts: allowedHostsSchema.optional(),
     mode: modeSchema.optional(),
     rules: rulesSchema.optional(),
     value: valueSchema.optional(),
@@ -171,6 +179,7 @@ const grantIdsSchema = z.array(idString).max(100);
 
 /** A secret as a reader sees it: everything but the value. */
 export interface SecretSummary {
+  allowedHosts: string[];
   createdAt: string;
   id: string;
   mode: SecretMode;
@@ -181,6 +190,7 @@ export interface SecretSummary {
 
 /** A granted secret as a runtime needs it. The value is plaintext: keep it out of logs and events. */
 export interface GrantedSecret {
+  allowedHosts: string[];
   id: string;
   mode: SecretMode;
   name: string;
@@ -234,7 +244,14 @@ const binding = (workspaceId: string, secretId: string): SecretBinding => ({
 const rulesOf = (row: Pick<SecretRow, "rules">): Rule[] =>
   storedRulesSchema.parse(JSON.parse(row.rules));
 
+const allowedHostsOf = (row: Pick<SecretRow, "allowedHosts">): string[] =>
+  allowedHostsSchema.parse(JSON.parse(row.allowedHosts));
+
+/** Drops repeated hosts and keeps the first of each, in order. */
+const uniqueHosts = (hosts: readonly string[]): string[] => [...new Set(hosts)];
+
 const toSummary = (row: SecretRow): SecretSummary => ({
+  allowedHosts: allowedHostsOf(row),
   createdAt: row.createdAt,
   id: row.id,
   mode: row.mode,
@@ -242,6 +259,24 @@ const toSummary = (row: SecretRow): SecretSummary => ({
   rules: rulesOf(row),
   updatedAt: row.updatedAt,
 });
+
+/** The hosts a secret has after an update: none for `proxy`, the new ones or the old ones for `env`. */
+const allowedHostsFor = (
+  mode: SecretMode,
+  given: string[] | undefined,
+  row: Pick<SecretRow, "allowedHosts" | "mode">
+): string[] => {
+  if (mode === "proxy") {
+    if (given !== undefined) {
+      throw new ServiceError("invalid", "A proxy secret has no allowed hosts");
+    }
+    return [];
+  }
+  if (given !== undefined) {
+    return uniqueHosts(given);
+  }
+  return row.mode === "env" ? allowedHostsOf(row) : [];
+};
 
 /** The rules a secret has after an update: none for `env`, the new ones or the old ones for `proxy`. */
 const rulesFor = (
@@ -338,6 +373,9 @@ export const createSecretsService = ({
     const id = ulid();
     const now = clock.now().toISOString();
     const row: SecretRow = {
+      allowedHosts: JSON.stringify(
+        parsed.mode === "env" ? uniqueHosts(parsed.allowedHosts ?? []) : []
+      ),
       createdAt: now,
       createdBy: user.userId,
       id,
@@ -373,6 +411,7 @@ export const createSecretsService = ({
     const row = await requireSecret(workspaceId, id);
     const mode = patch.mode ?? row.mode;
     const rules = rulesFor(mode, patch.rules, row);
+    const allowedHosts = allowedHostsFor(mode, patch.allowedHosts, row);
     const key = await cryptoKey();
     // A mode change needs the value it must fit, so a proxy rule never meets a value that cannot be a header.
     const plain =
@@ -385,6 +424,7 @@ export const createSecretsService = ({
         : await encryptSecret(key, binding(workspaceId, id), patch.value);
     const next: SecretRow = {
       ...row,
+      allowedHosts: JSON.stringify(allowedHosts),
       mode,
       rules: JSON.stringify(rules),
       updatedAt: clock.now().toISOString(),
@@ -394,6 +434,7 @@ export const createSecretsService = ({
     await db
       .update(secrets)
       .set({
+        allowedHosts: next.allowedHosts,
         mode: next.mode,
         rules: next.rules,
         updatedAt: next.updatedAt,
@@ -525,6 +566,7 @@ export const createSecretsService = ({
     const key = await cryptoKey();
     return await Promise.all(
       rows.map(async ({ row }) => ({
+        allowedHosts: allowedHostsOf(row),
         id: row.id,
         mode: row.mode,
         name: row.name,
@@ -576,6 +618,48 @@ export const createSecretsService = ({
   ): Promise<Masker | null> => {
     const granted = await grantedTo(workspaceId, agentId);
     return granted.length === 0 ? null : maskerOf(granted);
+  };
+
+  /**
+   * The names and allowed hosts of the agent's granted `env` secrets, for the
+   * shell variables and the prompt. It reads no value and needs no key.
+   */
+  const placeholdersFor = async (
+    workspaceId: string,
+    agentId: string
+  ): Promise<{ hosts: string[]; name: string }[]> => {
+    const rows = await db
+      .select({ allowedHosts: secrets.allowedHosts, name: secrets.name })
+      .from(agentSecrets)
+      .innerJoin(secrets, eq(secrets.id, agentSecrets.secretId))
+      .where(
+        and(
+          eq(agentSecrets.agentId, agentId),
+          eq(agentSecrets.workspaceId, workspaceId),
+          eq(secrets.workspaceId, workspaceId),
+          eq(secrets.mode, "env")
+        )
+      )
+      .orderBy(asc(secrets.name));
+    return rows.map((row) => ({
+      hosts: allowedHostsOf(row),
+      name: row.name,
+    }));
+  };
+
+  /** The agent's granted `env` secrets with their values and allowed hosts, for the placeholder fetcher. Never for a router. */
+  const envGrantsFor = async (
+    workspaceId: string,
+    agentId: string
+  ): Promise<{ hosts: string[]; name: string; value: string }[]> => {
+    const granted = await grantedTo(workspaceId, agentId);
+    return granted
+      .filter((secret) => secret.mode === "env")
+      .map((secret) => ({
+        hosts: secret.allowedHosts,
+        name: secret.name,
+        value: secret.value,
+      }));
   };
 
   /** The proxy rules that apply to a request to `host`, with the values they send. Empty when none is granted. */
@@ -681,9 +765,11 @@ export const createSecretsService = ({
     announceDelivery,
     announceInjection,
     create,
+    envGrantsFor,
     grantsOf,
     list,
     maskerFor,
+    placeholdersFor,
     proxyFor,
     remove,
     resolveForAgent,

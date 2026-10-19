@@ -44,11 +44,14 @@ const capStream = (text: string): { text: string; truncated: boolean } => {
 };
 
 export const runLibraryBash = async ({
+  env,
   onCurl,
   ops,
   script,
   web,
 }: {
+  /** Variables the shell starts with, for example the placeholders of the agent's env secrets. */
+  env?: Record<string, string>;
   /** Called each time the script starts `curl`, whether or not it is allowed to send. */
   onCurl?: () => void;
   ops: LibraryOps;
@@ -73,6 +76,7 @@ export const runLibraryBash = async ({
       base: new InMemoryFs(),
       mounts: [{ filesystem: library.fs, mountPoint: LIBRARY_MOUNT }],
     }),
+    ...(env ? { env } : {}),
   });
   const started = Date.now();
   let stdout = "";

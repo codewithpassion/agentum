@@ -2,7 +2,12 @@
 // gets no tool and one prompt line, so it does not try to call a tool that is
 // not there.
 import { Type } from "@earendil-works/pi-ai";
-import type { Extension, ToolRegistration } from "@earendil-works/pi-durable";
+import type {
+  Extension,
+  PromptSection,
+  ToolRegistration,
+} from "@earendil-works/pi-durable";
+import { placeholderOf } from "@repo/services/secrets/placeholders";
 import {
   WEB_FETCH_MAX_BYTES,
   WEB_FETCH_TIMEOUT_MS,
@@ -16,6 +21,9 @@ export const NETWORK_TOOLS_EXTENSION = "hm-network-tools";
 const SECTION_KEY = "network-access";
 const OFF_LINE =
   "Network access is off for this agent, so web_fetch and curl are not available.";
+const PLACEHOLDER_SECTION_KEY = "secret-placeholders";
+const PLACEHOLDER_LEAD =
+  "Some secrets are available to you as placeholders. Write the placeholder text where the value belongs, in a web_fetch url, header value or text body, or in a curl command in the bash tool, where the variable $NAME holds the placeholder. The platform fills in the real value as the request leaves, and only for the hosts listed. You cannot read the real value.";
 
 const MB = 1024 * 1024;
 
@@ -81,7 +89,7 @@ const failure = (error: string, message: string) =>
 const webFetchTool = (
   fetcherOf: () => Promise<WebFetcher>
 ): ToolRegistration<typeof parameters> => ({
-  description: `Sends an HTTP or HTTPS request from the platform. Only http and https URLs work. Private, loopback, link-local and internal addresses and this app's own hosts are refused. Redirects are followed, and each one is checked. Answers over ${WEB_FETCH_MAX_BYTES / MB} MB are refused. A call times out after ${WEB_FETCH_TIMEOUT_MS / 1000} seconds. Credentials the agent was granted for a host are added automatically. A text answer is decoded as UTF-8. Set responseEncoding to base64 to get the raw bytes.`,
+  description: `Sends an HTTP or HTTPS request from the platform. Only http and https URLs work. Private, loopback, link-local and internal addresses and this app's own hosts are refused. Redirects are followed, and each one is checked. Answers over ${WEB_FETCH_MAX_BYTES / MB} MB are refused. A call times out after ${WEB_FETCH_TIMEOUT_MS / 1000} seconds. Credentials the agent was granted for a host are added automatically. Text of the form hm-secret:NAME in the url, a header value or a text body is replaced by that secret's value when the host is one the secret allows. After a secret is filled in, a redirect is followed only within the same origin, and any other redirect is returned as the answer. A text answer is decoded as UTF-8. Set responseEncoding to base64 to get the raw bytes.`,
   execute: async (args, _api, context) => {
     let body: Uint8Array | undefined;
     if (args.body !== undefined) {
@@ -136,18 +144,65 @@ const webFetchTool = (
   replay: "unsafe",
 });
 
+/** A secret the agent may use as a placeholder, and the hosts it may be sent to. */
+export interface SecretPlaceholder {
+  hosts: readonly string[];
+  name: string;
+}
+
 export interface NetworkToolsOptions {
   enabled: boolean;
   fetcherOf: () => Promise<WebFetcher>;
+  /** Read when the prompt renders, so it lists the secrets granted at that time. */
+  placeholdersOf?: () => Promise<readonly SecretPlaceholder[]>;
 }
 
-/** Installs `web_fetch` when network access is on, and the one-line notice when it is off. */
+const placeholderLine = ({ hosts, name }: SecretPlaceholder): string => {
+  const placeholder = `- ${name} (placeholder ${placeholderOf(name)}): `;
+  return hosts.length === 0
+    ? `${placeholder}no allowed hosts yet, so it cannot be used until someone adds them under Settings, Secrets`
+    : `${placeholder}sent only to ${hosts.join(", ")}`;
+};
+
+const byName = (a: SecretPlaceholder, b: SecretPlaceholder): number => {
+  if (a.name === b.name) {
+    return 0;
+  }
+  return a.name < b.name ? -1 : 1;
+};
+
+/** Lists the placeholders, sorted by name. Renders nothing when there are none. */
+const placeholderSection = (
+  placeholdersOf: () => Promise<readonly SecretPlaceholder[]>
+): PromptSection => ({
+  key: PLACEHOLDER_SECTION_KEY,
+  render: async () => {
+    const placeholders = await placeholdersOf();
+    if (placeholders.length === 0) {
+      return;
+    }
+    const lines = [...placeholders].sort(byName).map(placeholderLine);
+    return `${PLACEHOLDER_LEAD}\n\n${lines.join("\n")}`;
+  },
+});
+
+/**
+ * Installs `web_fetch` when network access is on, and the one-line notice when it is off.
+ * With `placeholdersOf`, the on case also lists the secrets the agent may use as placeholders.
+ */
 export const networkToolsExtension = ({
   enabled,
   fetcherOf,
+  placeholdersOf,
 }: NetworkToolsOptions): Extension => {
   if (enabled) {
-    return { name: NETWORK_TOOLS_EXTENSION, tools: [webFetchTool(fetcherOf)] };
+    return {
+      name: NETWORK_TOOLS_EXTENSION,
+      ...(placeholdersOf === undefined
+        ? {}
+        : { sections: [placeholderSection(placeholdersOf)] }),
+      tools: [webFetchTool(fetcherOf)],
+    };
   }
   return {
     name: NETWORK_TOOLS_EXTENSION,

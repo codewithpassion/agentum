@@ -14,9 +14,11 @@ import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "#/components/ui/radio-group";
 import { getTrpc } from "#/integrations/trpc/client";
+import { AllowedHostsField } from "./allowed-hosts-field.tsx";
 import { RulesEditor } from "./rules-editor.tsx";
 import {
   emptyRule,
+  parseHosts,
   type RuleDraft,
   rulesReady,
   toRules,
@@ -37,6 +39,7 @@ export function CreateSecretDialog({
   const [value, setValue] = useState("");
   const [mode, setMode] = useState<SecretMode>("proxy");
   const [rules, setRules] = useState<RuleDraft[]>(() => [emptyRule()]);
+  const [hosts, setHosts] = useState("");
   const { error, pending, submit } = useSecretSubmit(onDone);
 
   const handleOpenChange = useCallback(
@@ -71,13 +74,13 @@ export function CreateSecretDialog({
         await getTrpc().secrets.create.mutate(
           mode === "proxy"
             ? { mode: "proxy", name, rules: toRules(rules), value }
-            : { mode: "env", name, value }
+            : { allowedHosts: parseHosts(hosts), mode: "env", name, value }
         );
         setValue("");
         toast.success(`Secret ${name.trim()} created`);
       });
     },
-    [mode, name, rules, submit, value]
+    [hosts, mode, name, rules, submit, value]
   );
 
   const canSubmit =
@@ -136,7 +139,13 @@ export function CreateSecretDialog({
           </div>
           {mode === "proxy" ? (
             <RulesEditor onChange={setRules} rules={rules} />
-          ) : null}
+          ) : (
+            <AllowedHostsField
+              disabled={pending}
+              onChange={setHosts}
+              value={hosts}
+            />
+          )}
           {error === null ? null : (
             <p className="text-destructive text-sm" role="alert">
               {error}

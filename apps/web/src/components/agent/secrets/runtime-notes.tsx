@@ -2,6 +2,12 @@ export function RuntimeNotes() {
   return (
     <ul className="flex list-disc flex-col gap-1 pl-5 text-muted-foreground text-xs">
       <li>
+        Isolate agents receive env secrets as placeholders (hm-secret:NAME). The
+        platform fills in the real value only in requests to the secret&apos;s
+        allowed hosts, so an env secret without allowed hosts does nothing
+        there.
+      </li>
+      <li>
         Machine agents receive env secrets as environment variables of Claude
         Code.
       </li>

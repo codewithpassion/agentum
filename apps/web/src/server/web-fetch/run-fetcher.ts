@@ -21,6 +21,8 @@ export const runWebFetcher = ({
   createWebFetcher({
     announce: (host, names) =>
       services.secrets.announceInjection(run, { host, names, via }),
+    envGrants: () =>
+      services.secrets.envGrantsFor(run.workspaceId, run.agentId),
     fetch: send,
     log: (line) => console.warn(line),
     matches: (host) =>

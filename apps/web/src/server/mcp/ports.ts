@@ -21,6 +21,7 @@ import { networkAccessOf } from "@repo/services/cloud/network";
 import type { PostRecord, ThreadRecord } from "@repo/services/inbox";
 import type { RoutineSummary } from "@repo/services/routines";
 import type { RunSummary } from "@repo/services/runs/types";
+import { placeholderOf } from "@repo/services/secrets/placeholders";
 import type {
   SessionListItem,
   SessionTranscript,
@@ -168,29 +169,67 @@ export const createMcpPorts = ({
     reference === undefined ? undefined : (await findAgent(reference)).id;
 
   /**
-   * The fetcher `curl` uses. Only a run whose agent has network access gets
-   * one. A Linux VM agent always has network, so its setting does not count.
+   * The placeholder variables of the agent's granted env secrets, for an isolate
+   * run. The value of each is its placeholder, never the secret. A lookup that
+   * fails leaves the shell without variables.
    */
-  const webFetcherFor = async (): Promise<WebFetcher | undefined> => {
+  const placeholderEnvOf = async (run: {
+    agentId: string;
+    workspaceId: string;
+  }): Promise<Record<string, string> | undefined> => {
+    try {
+      const placeholders = await services.secrets.placeholdersFor(
+        run.workspaceId,
+        run.agentId
+      );
+      if (placeholders.length === 0) {
+        return;
+      }
+      return Object.fromEntries(
+        placeholders.map(({ name }) => [name, placeholderOf(name)])
+      );
+    } catch (error) {
+      console.warn(
+        "libraryBash: reading the secret placeholders failed",
+        error instanceof Error ? error.name : "unknown error"
+      );
+    }
+  };
+
+  /**
+   * What the shell of a run gets. The fetcher `curl` uses is made only for a run
+   * whose agent has network access. A Linux VM agent always has network, so its
+   * setting does not count. The placeholder variables go only to a cloud isolate
+   * run with network access.
+   */
+  const shellFor = async (): Promise<{
+    env?: Record<string, string>;
+    web?: WebFetcher;
+  }> => {
     if (principal.kind !== "run") {
-      return;
+      return {};
     }
     const agent = await services.agents.get(principal, principal.agentId);
     const inVm = cloudEnvironmentOf(agent.runtimeConfig) === "linux-vm";
     if (!(inVm || networkAccessOf(agent.runtimeConfig))) {
-      return;
+      return {};
     }
-    return runWebFetcher({
+    const run = {
+      agentId: principal.agentId,
+      runId: principal.runId,
+      workspaceId: principal.workspaceId,
+    };
+    const web = runWebFetcher({
       fetch,
       ownHosts: ownHostsOf(publicBaseUrl, requestHost ? [requestHost] : []),
-      run: {
-        agentId: principal.agentId,
-        runId: principal.runId,
-        workspaceId: principal.workspaceId,
-      },
+      run,
       services,
       via: "curl",
     });
+    if (agent.runtime !== "cloud" || inVm) {
+      return { web };
+    }
+    return { env: await placeholderEnvOf(run), web };
   };
 
   return {
@@ -259,13 +298,15 @@ export const createMcpPorts = ({
       guarded(async () => {
         const { library } = services;
         let usedNetwork = false;
+        const { env, web } = await shellFor();
         const result = await runLibraryBash({
+          env,
           onCurl: () => {
             usedNetwork = true;
           },
           ops: bindLibraryOps(library, principal),
           script,
-          web: await webFetcherFor(),
+          web,
         });
         await library.recordCommand(principal, {
           exitCode: result.exitCode,
