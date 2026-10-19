@@ -29,3 +29,4 @@ Asked for by Dom on 19 Oct 2026. Cloud agents in the isolate environment have no
 - 2026-10-19: added at Dom's request.
 - 2026-10-19: dispatched.
 - 2026-10-19: review clean after 4 fix rounds at 9e8d778 (docs/reviews/tasks/C.15.md); rounds 3 and 4 approved by the controller. library.command scripts are redacted whenever the shell starts curl. Known gap: tool.call run events store bash and web_fetch inputs verbatim. Staging check pending.
+- 2026-10-19: staging check passed (web_fetch and curl fetch example.com with network.request events; metadata and localhost refused; off switch removes web_fetch and curl refuses). Controller confirmed library.command shows '[script redacted: made network requests]' in D1.
