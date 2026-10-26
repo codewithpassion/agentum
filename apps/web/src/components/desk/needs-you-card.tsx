@@ -22,6 +22,7 @@ const HEADINGS: Record<NeedsYouKind, (agentName: string) => string> = {
   question: (name) => `${name} asks`,
   routine_proposal: (name) => `${name} proposed a routine`,
   skill_proposal: (name) => `${name} proposed a skill change`,
+  takeover: (name) => `${name} needs you to take over a computer`,
   trigger_proposal: (name) => `${name} proposed a trigger`,
   wiki_suggestion: (name) => `${name} suggested a wiki edit`,
 };

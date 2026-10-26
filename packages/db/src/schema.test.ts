@@ -1,4 +1,10 @@
 import { expect, test } from "bun:test";
+import {
+  EVENT_TYPES,
+  MACHINE_ROLES,
+  NEEDS_YOU_KINDS,
+  REQUEST_KINDS,
+} from "./shared.ts";
 import { migrated } from "./test-db.ts";
 
 interface Column {
@@ -26,6 +32,7 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "agent_tool_rules",
     "agents",
     "api_keys",
+    "browser_sessions",
     "connectors",
     "credentials",
     "events",
@@ -37,6 +44,7 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "library_entries",
     "library_links",
     "library_versions",
+    "machine_credentials",
     "machine_enroll_tokens",
     "machines",
     "mail_messages",
@@ -78,7 +86,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(46);
+  expect(tables.length).toBe(48);
 
   for (const table of tables) {
     const column = client
@@ -88,4 +96,65 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     expect(column?.notnull, table).toBe(1);
     expect(column?.dflt_value, table).toBeNull();
   }
+});
+
+test("the computer columns are nullable and the enrol token defaults to agent_host", () => {
+  const { client } = migrated();
+  const columns = (table: string) =>
+    client.query<Column, []>(`PRAGMA table_info(${table})`).all();
+  const find = (table: string, name: string) =>
+    columns(table).find((c) => c.name === name);
+
+  for (const name of [
+    "computer_capabilities",
+    "computer_last_seen_at",
+    "computer_status",
+  ]) {
+    expect(find("machines", name)?.notnull, name).toBe(0);
+  }
+  expect(find("agents", "computer_machine_id")?.notnull).toBe(0);
+  expect(find("machine_enroll_tokens", "machine_id")?.notnull).toBe(0);
+  const role = find("machine_enroll_tokens", "role");
+  expect(role?.notnull).toBe(1);
+  expect(role?.dflt_value).toBe("'agent_host'");
+});
+
+test("agents.computer_machine_id is a partial unique index", () => {
+  const { client } = migrated();
+  const index = client
+    .query<{ name: string; unique: number; partial: number }, []>(
+      "PRAGMA index_list(agents)"
+    )
+    .all()
+    .find((row) => row.name === "agents_computer_machine_unique");
+  expect(index?.unique).toBe(1);
+  expect(index?.partial).toBe(1);
+});
+
+test("machines was not rebuilt, so no __new_machines table exists", () => {
+  const { client } = migrated();
+  const row = client
+    .query<{ name: string }, []>(
+      "SELECT name FROM sqlite_master WHERE name LIKE '%__new_%'"
+    )
+    .all();
+  expect(row).toEqual([]);
+});
+
+test("the shared module names the machine roles, the computer events and the takeover kind", () => {
+  expect(MACHINE_ROLES).toEqual(["agent_host", "computer"]);
+  for (const type of [
+    "computer.online",
+    "computer.offline",
+    "computer.exec",
+    "computer.file",
+    "computer.takeover_requested",
+    "computer.taken",
+    "computer.handed_back",
+    "browser.action",
+  ]) {
+    expect(EVENT_TYPES).toContain(type as never);
+  }
+  expect(REQUEST_KINDS).toContain("takeover");
+  expect(NEEDS_YOU_KINDS).toContain("takeover");
 });

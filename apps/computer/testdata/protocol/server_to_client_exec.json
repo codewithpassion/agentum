@@ -1,0 +1,10 @@
+{
+  "id": "req-01HQ7",
+  "op": "exec",
+  "command": "uname -a",
+  "cwd": "/var/lib/agentum-computer/sessions/sess-42",
+  "env": {
+    "TFY_SESSION_ID": "sess-42"
+  },
+  "timeout_ms": 120000
+}
