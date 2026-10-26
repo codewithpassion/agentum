@@ -39,6 +39,11 @@ const runPrincipal: Principal = {
   workspaceId: A,
 };
 
+let notified: {
+  byRunId: string | null;
+  paths: string[];
+  workspaceId: string;
+}[];
 let db: ReturnType<typeof migrated>;
 let blobs: MemoryLibraryBlobs;
 let service: ReturnType<typeof createLibraryService>;
@@ -70,9 +75,14 @@ const libraryEvents = () =>
 const writeAll = (list: string[]) =>
   Promise.all(list.map((path) => service.write(user(), path, bytes(path))));
 
-const keys = () => [...blobs.objects.keys()].sort();
+// These assertions cover live objects; immutable history is tested in library-versions.test.ts.
+const keys = () =>
+  [...blobs.objects.keys()]
+    .filter((key) => !key.includes("/library-versions/"))
+    .sort();
 
 beforeEach(() => {
+  notified = [];
   db = migrated();
   blobs = memoryLibraryBlobs();
   const atomic = sqliteAtomic(db);
@@ -86,6 +96,9 @@ beforeEach(() => {
     clock: systemClock,
     db,
     events: eventsService,
+    notify: (change) => {
+      notified.push(change);
+    },
   });
   for (const id of [A, B]) {
     db.insert(workspaceRows)
@@ -227,7 +240,9 @@ test("paths with .. past the root or control characters are refused and no key o
   expect(paths()).toEqual(["b", "b/c.md", "d.md"]);
   expect(blobs.touched.length).toBeGreaterThan(0);
   for (const key of blobs.touched) {
-    expect(key.startsWith("w1/library/")).toBe(true);
+    expect(
+      key.startsWith("w1/library/") || key.startsWith("w1/library-versions/")
+    ).toBe(true);
   }
   expect(blobs.objects.get("w2/library/secret.md")?.bytes).toEqual(bytes("b"));
 });
@@ -405,6 +420,11 @@ test("removing a non-empty folder needs recursive, a file or empty folder does n
 test("each write and delete adds one event with the right actor", async () => {
   await service.write(user(A, "u7"), "a/one.md", bytes("12345"));
   await service.write(runPrincipal, "a/two.md", bytes("123"));
+  expect(notified.at(-1)).toEqual({
+    byRunId: RUN,
+    paths: ["a/two.md"],
+    workspaceId: A,
+  });
   await service.mkdir(user(), "empty");
   await service.remove(user(A, "u7"), "a/one.md");
   await service.remove(runPrincipal, "a", { recursive: true });

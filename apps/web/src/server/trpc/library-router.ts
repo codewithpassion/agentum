@@ -11,6 +11,11 @@ const pathInput = z.strictObject({ path: z.string() });
 const ifEtag = z.string().optional();
 
 export const libraryRouter = router({
+  compare: workspaceProcedure
+    .input(z.strictObject({ a: z.string(), b: z.string() }))
+    .query(({ ctx, input }) =>
+      ctx.services.library.compare(ctx.principal, input.a, input.b)
+    ),
   list: workspaceProcedure
     .input(z.strictObject({ dir: z.string().default("") }))
     .query(({ ctx, input }) =>
@@ -21,6 +26,11 @@ export const libraryRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.services.library.mkdir(ctx.principal, input.path)
     ),
+  move: workspaceProcedure
+    .input(z.strictObject({ from: z.string(), to: z.string() }))
+    .mutation(({ ctx, input }) =>
+      ctx.services.library.move(ctx.principal, input.from, input.to)
+    ),
   read: workspaceProcedure.input(pathInput).query(async ({ ctx, input }) => {
     const { bytes, entry } = await ctx.services.library.read(
       ctx.principal,
@@ -28,6 +38,15 @@ export const libraryRouter = router({
     );
     return { entry, text: decodeLibraryText(bytes) };
   }),
+  readVersion: workspaceProcedure
+    .input(z.strictObject({ versionId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { bytes, version } = await ctx.services.library.readVersion(
+        ctx.principal,
+        input.versionId
+      );
+      return { text: decodeLibraryText(bytes), version };
+    }),
   remove: workspaceProcedure
     .input(
       z.strictObject({
@@ -39,6 +58,23 @@ export const libraryRouter = router({
       ctx.services.library.remove(ctx.principal, input.path, {
         recursive: input.recursive,
       })
+    ),
+  restore: workspaceProcedure
+    .input(z.strictObject({ ifEtag, versionId: z.string() }))
+    .mutation(({ ctx, input }) =>
+      ctx.services.library.restore(ctx.principal, input.versionId, {
+        ifEtag: input.ifEtag,
+      })
+    ),
+  stat: workspaceProcedure
+    .input(pathInput)
+    .query(({ ctx, input }) =>
+      ctx.services.library.stat(ctx.principal, input.path)
+    ),
+  versions: workspaceProcedure
+    .input(pathInput)
+    .query(({ ctx, input }) =>
+      ctx.services.library.versions(ctx.principal, input.path)
     ),
   write: workspaceProcedure
     .input(
