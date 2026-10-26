@@ -70,3 +70,20 @@ export const computersOf = <T extends Pick<MachineRecord, "roles" | "status">>(
     (machine) =>
       machine.status !== "revoked" && machine.roles.includes("computer")
   );
+
+/** A machine that is not revoked can be revoked. Revoking is permanent. */
+export const canRevoke = (machine: Pick<MachineRecord, "status">): boolean =>
+  machine.status !== "revoked";
+
+/** Revokes one machine. Resolves to null on success, or the error text to show. */
+export const revokeMachine = async (
+  revoke: (input: { machineId: string }) => Promise<unknown>,
+  machineId: string
+): Promise<string | null> => {
+  try {
+    await revoke({ machineId });
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : "Something went wrong.";
+  }
+};

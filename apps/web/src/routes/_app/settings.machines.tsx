@@ -4,6 +4,7 @@ import { TRPCClientError } from "@trpc/client";
 import { useCallback, useState } from "react";
 import { EnrollDialog } from "#/components/machines/enroll-dialog";
 import { MachineRow } from "#/components/machines/machine-row";
+import { RevokeDialog } from "#/components/machines/revoke-dialog";
 import { Button } from "#/components/ui/button";
 import {
   Table,
@@ -40,6 +41,9 @@ function MachinesPage() {
   const machines = Route.useLoaderData();
   const router = useRouter();
   const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [revoking, setRevoking] = useState<{ id: string; name: string } | null>(
+    null
+  );
 
   const openEnrol = useCallback(() => setDialog({ role: "agent_host" }), []);
 
@@ -56,6 +60,13 @@ function MachinesPage() {
 
   const closeDialog = useCallback(() => {
     setDialog(null);
+    router.invalidate();
+  }, [router]);
+
+  const closeRevoke = useCallback(() => setRevoking(null), []);
+
+  const revoked = useCallback(() => {
+    setRevoking(null);
     router.invalidate();
   }, [router]);
 
@@ -93,6 +104,7 @@ function MachinesPage() {
                 key={machine.id}
                 machine={machine}
                 onAddComputer={addComputerTo}
+                onRevoke={setRevoking}
               />
             ))}
           </TableBody>
@@ -103,6 +115,13 @@ function MachinesPage() {
           machine={dialog.machine}
           onClose={closeDialog}
           role={dialog.role}
+        />
+      ) : null}
+      {revoking ? (
+        <RevokeDialog
+          machine={revoking}
+          onClose={closeRevoke}
+          onRevoked={revoked}
         />
       ) : null}
     </section>

@@ -6,6 +6,7 @@ import { TableCell, TableRow } from "#/components/ui/table";
 import type { MachineRecord } from "#/integrations/trpc/types";
 import {
   canAddComputerRole,
+  canRevoke,
   computerKind,
   type RoleTone,
   roleRows,
@@ -35,13 +36,22 @@ function lastSeen(machine: MachineRecord): string {
 interface MachineRowProps {
   machine: MachineRecord;
   onAddComputer: (machine: { id: string; name: string }) => void;
+  onRevoke: (machine: { id: string; name: string }) => void;
 }
 
-export function MachineRow({ machine, onAddComputer }: MachineRowProps) {
+export function MachineRow({
+  machine,
+  onAddComputer,
+  onRevoke,
+}: MachineRowProps) {
   const { id, name } = machine;
   const handleAddComputer = useCallback(
     () => onAddComputer({ id, name }),
     [onAddComputer, id, name]
+  );
+  const handleRevoke = useCallback(
+    () => onRevoke({ id, name }),
+    [onRevoke, id, name]
   );
 
   return (
@@ -71,11 +81,18 @@ export function MachineRow({ machine, onAddComputer }: MachineRowProps) {
         {lastSeen(machine)}
       </TableCell>
       <TableCell>
-        {canAddComputerRole(machine) ? (
-          <Button onClick={handleAddComputer} size="sm" variant="outline">
-            Add computer role
-          </Button>
-        ) : null}
+        <div className="flex items-center justify-end gap-2">
+          {canAddComputerRole(machine) ? (
+            <Button onClick={handleAddComputer} size="sm" variant="outline">
+              Add computer role
+            </Button>
+          ) : null}
+          {canRevoke(machine) ? (
+            <Button onClick={handleRevoke} size="sm" variant="destructive">
+              Revoke
+            </Button>
+          ) : null}
+        </div>
       </TableCell>
     </TableRow>
   );
