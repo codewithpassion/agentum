@@ -79,13 +79,25 @@ const splitLines = (text: string): string[] => {
 };
 
 /**
+ * The most cells the LCS table may hold, 16 MB of Uint32. Above it the
+ * middle is listed as deletes, then adds, instead of compared.
+ */
+export const MAX_DIFF_CELLS = 4_000_000;
+
+/**
  * Diffs two runs of lines with no common prefix or suffix left to trim.
  * Changed lines are emitted as deletes, then adds, between two same lines.
  */
 const diffMiddle = (a: string[], b: string[]): DiffLine[] => {
-  const out: DiffLine[] = [];
   const n = a.length;
   const m = b.length;
+  if ((n + 1) * (m + 1) > MAX_DIFF_CELLS) {
+    return [
+      ...a.map((text): DiffLine => ({ kind: "del", text })),
+      ...b.map((text): DiffLine => ({ kind: "add", text })),
+    ];
+  }
+  const out: DiffLine[] = [];
   const width = m + 1;
 
   // lcs[i * width + j] is the longest common subsequence of a from i on
@@ -142,7 +154,8 @@ const diffMiddle = (a: string[], b: string[]): DiffLine[] => {
 
 /**
  * A line diff of `before` to `after`. Within a block of changed lines the
- * deleted lines come before the added ones.
+ * deleted lines come before the added ones. Texts whose changed middle is
+ * too large to compare (`MAX_DIFF_CELLS`) list every middle line as changed.
  */
 export const lineDiff = (before: string, after: string): DiffLine[] => {
   const a = splitLines(before);

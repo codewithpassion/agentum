@@ -22,7 +22,8 @@ const MARKER_OPEN = "<untrusted-thread-posts>";
 const MARKER_CLOSE = "</untrusted-thread-posts>";
 
 /** Escapes `<` so no post line can contain a marker. */
-const escapeAngles = (line: string): string => line.replaceAll("<", "\\u003c");
+export const escapeAngles = (line: string): string =>
+  line.replaceAll("<", "\\u003c");
 
 const postLine = (post: EarlierPost): string =>
   escapeAngles(
