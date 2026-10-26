@@ -47,6 +47,7 @@
     "./library/task-files": "./src/library/task-files.ts",
     "./map": "./src/map.ts",
     "./machines": "./src/machines.ts",
+    "./machines/lease": "./src/machines/lease.ts",
     "./machines/runtime": "./src/machines/runtime.ts",
     "./machines/types": "./src/machines/types.ts",
     "./mail": "./src/mail/index.ts",

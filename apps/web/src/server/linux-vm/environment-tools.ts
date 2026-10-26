@@ -26,13 +26,16 @@ import {
  * `bash` in the Linux VM. The other environment's set is taken out first, so a
  * session whose agent changed environment never holds both. `slugOf` gives the
  * agent's slug for the library tools' prompt section. `libraryOf` gives the
- * synced library copy's state for the Linux VM's prompt section.
+ * synced library copy's state for the Linux VM's prompt section. `taskFolderOf`
+ * gives the run's task folder as a library path for the isolate's prompt section.
  *
  * `web_fetch` belongs to the isolate only, because a Linux VM reaches the
  * network through the VM itself. `network` gives the isolate's setting and the
  * fetcher. Without it the isolate gets no network tool or notice.
  *
  * `run_script` belongs to the isolate only, and only when `scripts` is given.
+ * `taskFolderOf` is read by the isolate's library tools only. The Linux VM gets
+ * its task folder through `libraryOf`.
  */
 export const installEnvironmentTools = (
   registry: Pick<Registry, "install" | "uninstall">,
@@ -40,7 +43,8 @@ export const installEnvironmentTools = (
   slugOf: () => Promise<string | undefined>,
   libraryOf?: () => Promise<VmLibraryState | undefined>,
   network?: NetworkToolsOptions,
-  scripts?: RunScriptDeps
+  scripts?: RunScriptDeps,
+  taskFolderOf?: () => Promise<string | undefined>
 ): void => {
   // An extension that stays is installed over itself and keeps its place. Pi lists the tools in
   // install order, so taking it out first would move it to the end and make Pi re-declare every tool.
@@ -56,7 +60,7 @@ export const installEnvironmentTools = (
     registry.install(linuxVmToolsExtension(libraryOf));
   } else {
     registry.uninstall({ name: LINUX_VM_TOOLS_EXTENSION });
-    registry.install(libraryToolsExtension(slugOf));
+    registry.install(libraryToolsExtension(slugOf, taskFolderOf));
     if (network) {
       registry.install(networkToolsExtension(network));
     }

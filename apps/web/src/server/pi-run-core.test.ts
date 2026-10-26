@@ -28,7 +28,6 @@ import {
   createRunCore,
   type PiOutcome,
   type PiPort,
-  type RunOutputs,
   type RunRef,
   type RunStorage,
   runsInVm,
@@ -371,6 +370,7 @@ const startOf = (runId: string, text = "hello"): CloudStart => ({
 });
 
 interface Harness {
+  checkpoints: string[];
   completed: { result: RunResult; runId: string }[];
   core: ReturnType<typeof createRunCore>;
   fake: ReturnType<typeof createFakePi>;
@@ -379,13 +379,13 @@ interface Harness {
   inputs: { fileIds: readonly string[]; run: RunRef; text: string }[];
   installed: string[];
   maxInFlight: () => number;
-  outputs: { run: RunRef; text: string }[];
   skillsInstalled: string[];
   storage: ReturnType<typeof memoryStorage>;
 }
 
 const build = (
   options: {
+    checkpointLibrary?: (runId: string) => Promise<void>;
     complete?: (runId: string, result: RunResult) => Promise<void>;
     fake?: ReturnType<typeof createFakePi>;
     heartbeat?: (runId: string) => Promise<void>;
@@ -399,7 +399,6 @@ const build = (
     installSkills?: () => Promise<void>;
     modelError?: (model: string) => string | undefined;
     now?: () => number;
-    outputsOf?: (run: RunRef, text: string) => Promise<RunOutputs>;
     status?: () => RunStatus;
     storage?: ReturnType<typeof memoryStorage>;
     abortLikePi?: { parallelCall: boolean };
@@ -417,14 +416,18 @@ const build = (
   const storage = options.storage ?? memoryStorage();
   const completed: Harness["completed"] = [];
   const ingested: Harness["ingested"] = [];
+  const checkpoints: string[] = [];
   const heartbeats: string[] = [];
   const installed: string[] = [];
   const skillsInstalled: string[] = [];
   const inputs: Harness["inputs"] = [];
-  const outputs: Harness["outputs"] = [];
   let inFlight = 0;
   let maxInFlight = 0;
   const core = createRunCore({
+    checkpointLibrary: async (runId) => {
+      checkpoints.push(runId);
+      await options.checkpointLibrary?.(runId);
+    },
     complete: async (runId, result) => {
       await options.complete?.(runId, result);
       completed.push({ result, runId });
@@ -460,12 +463,6 @@ const build = (
     },
     modelError: options.modelError ?? (() => undefined),
     now: options.now,
-    outputsOf: (run, text) => {
-      outputs.push({ run, text });
-      return (
-        options.outputsOf?.(run, text) ?? Promise.resolve({ fileIds: [], text })
-      );
-    },
     pi: fake.pi,
     sleep: () => Promise.resolve(),
     statusOf: async () =>
@@ -473,6 +470,7 @@ const build = (
     storage,
   });
   return {
+    checkpoints,
     completed,
     core,
     fake,
@@ -481,7 +479,6 @@ const build = (
     inputs,
     installed,
     maxInFlight: () => maxInFlight,
-    outputs,
     skillsInstalled,
     storage,
   };
@@ -569,6 +566,7 @@ describe("start", () => {
     const fake = createFakePi();
     const storage = memoryStorage();
     const core = createRunCore({
+      checkpointLibrary: () => Promise.resolve(),
       complete: () => Promise.resolve(),
       heartbeat: () => Promise.resolve(),
       ingest: () => Promise.resolve(),
@@ -576,7 +574,6 @@ describe("start", () => {
       installSkills: () => Promise.resolve(),
       installTools: () => Promise.reject(new Error("tools/list failed")),
       modelError: () => undefined,
-      outputsOf: (_run, text) => Promise.resolve({ fileIds: [], text }),
       pi: fake.pi,
       statusOf: () => Promise.resolve("running"),
       storage,
@@ -1009,6 +1006,43 @@ describe("completion", () => {
 });
 
 describe("beat", () => {
+  test("sends the library changes back on each beat while a run is active, and stops when it ends", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+
+    await h.core.beat();
+    await h.core.beat();
+    expect(h.checkpoints).toEqual(["run-1", "run-1"]);
+
+    h.fake.finish("run-1", { status: "done", text: "ok" });
+    await settle();
+    await h.core.beat();
+    expect(h.checkpoints).toEqual(["run-1", "run-1"]);
+  });
+
+  test("one push covers every active run of the session", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    await h.core.start(startOf("run-2", "second"));
+
+    await h.core.beat();
+
+    expect(h.checkpoints).toHaveLength(1);
+  });
+
+  test("a failing library push is logged and does not stop the beat", async () => {
+    const error = spyOn(console, "error").mockImplementation(() => undefined);
+    const h = build({
+      checkpointLibrary: () => Promise.reject(new Error("library down")),
+    });
+    await h.core.start(startOf("run-1"));
+
+    expect(await h.core.beat()).toBe(true);
+    expect(h.heartbeats).toEqual(["run-1"]);
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   test("heartbeats each active run once and none of the finished ones", async () => {
     const h = build();
     await h.core.start(startOf("run-1"));
@@ -1303,71 +1337,19 @@ describe("input files", () => {
   });
 });
 
-describe("output files", () => {
-  test("a finished run completes with the uploaded files and the cleaned answer", async () => {
-    const h = build({
-      outputsOf: () =>
-        Promise.resolve({ fileIds: ["out-1", "out-2"], text: "Here you go" }),
-    });
-    await h.core.start(startOf("run-1"));
-    await h.fake.say("Here you go\n[ATTACHMENT:/library/a.png]");
-    h.fake.finish("run-1", { status: "done", text: "unused" });
-    await settle();
-
-    expect(h.outputs).toEqual([
-      {
-        run: {
-          agentId: "agent-1",
-          runId: "run-1",
-          workspaceId: "workspace-1",
-        },
-        text: "Here you go\n[ATTACHMENT:/library/a.png]",
-      },
-    ]);
-    expect(h.completed[0]?.result).toMatchObject({
-      fileIds: ["out-1", "out-2"],
-      status: "done",
-      text: "Here you go",
-    });
-  });
-
-  test("a failed run uploads nothing", async () => {
+describe("final answer", () => {
+  test("an [ATTACHMENT:] marker stays in the text and the run completes with no file ids", async () => {
     const h = build();
     await h.core.start(startOf("run-1"));
-    await h.fake.sayError("model down");
-    h.fake.finish("run-1", { reason: "model down", status: "unanswered" });
-    await settle();
-    expect(h.outputs).toEqual([]);
-    expect(h.completed[0]?.result.status).toBe("failed");
-  });
-
-  test("a completion that is tried again does not upload the files again", async () => {
-    let refusals = 3;
-    const h = build({
-      complete: () => {
-        if (refusals > 0) {
-          refusals -= 1;
-          return Promise.reject(new Error("D1 is down"));
-        }
-        return Promise.resolve();
-      },
-      outputsOf: () => Promise.resolve({ fileIds: ["out-1"], text: "cleaned" }),
-    });
-    const spy = spyOn(console, "error").mockImplementation(() => undefined);
-    await h.core.start(startOf("run-1"));
-    await h.fake.say("done [ATTACHMENT:/library/a.txt]");
-    h.fake.finish("run-1", { status: "done", text: "done" });
-    await settle();
-    expect(h.completed).toEqual([]);
-
-    await h.core.beat();
+    const answer = "Report ready.\n[ATTACHMENT:out/report.pdf]";
+    await h.fake.say(answer);
+    h.fake.finish("run-1", { status: "done", text: answer });
     await settle();
 
-    expect(h.outputs).toHaveLength(1);
-    expect(h.completed.map((c) => c.result)).toMatchObject([
-      { fileIds: ["out-1"], text: "cleaned" },
-    ]);
-    spy.mockRestore();
+    expect(h.completed).toHaveLength(1);
+    const result = h.completed[0]?.result;
+    expect(result).toMatchObject({ status: "done", text: answer });
+    expect(result?.fileIds).toBeUndefined();
   });
 });
 
@@ -1722,6 +1704,7 @@ describe("a run that waits on a person, on the real services", () => {
 
     const fake = createFakePi();
     const core = createRunCore({
+      checkpointLibrary: () => Promise.resolve(),
       complete: (id, result) => runs.completeRun(SYSTEM_PRINCIPAL, id, result),
       heartbeat: (id) => runs.heartbeatRun(SYSTEM_PRINCIPAL, id),
       ingest: (id, batch) => runs.ingestRunEvents(SYSTEM_PRINCIPAL, id, batch),
@@ -1729,7 +1712,6 @@ describe("a run that waits on a person, on the real services", () => {
       installSkills: () => Promise.resolve(),
       installTools: () => Promise.resolve(),
       modelError: () => undefined,
-      outputsOf: (_run, text) => Promise.resolve({ fileIds: [], text }),
       pi: fake.pi,
       sleep: () => Promise.resolve(),
       statusOf,

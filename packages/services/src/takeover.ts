@@ -8,7 +8,7 @@ import { takeoverDisplaySchema } from "@repo/protocol/requests";
 import { and, eq } from "drizzle-orm";
 import { ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
-import type { EventsService } from "./events.ts";
+import type { EventRecord, EventsService } from "./events.ts";
 import type { RequestsService } from "./requests.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -26,6 +26,8 @@ export const createTakeoverService = ({
     release: (machineId: string) => Promise<void>;
   };
 }) => {
+  const displayOf = (display: string) =>
+    takeoverDisplaySchema.parse(JSON.parse(display));
   const load = async (principal: Principal, requestId: string) => {
     if (principal.kind !== "user") {
       throw new ForbiddenError("requests.answer");
@@ -45,7 +47,7 @@ export const createTakeoverService = ({
       throw new ServiceError("not_found", "Takeover request not found");
     }
     return {
-      display: takeoverDisplaySchema.parse(JSON.parse(row.display)),
+      display: displayOf(row.display),
       row,
       user: principal,
     };
@@ -55,6 +57,8 @@ export const createTakeoverService = ({
     if (row.status !== "pending") {
       throw new ServiceError("conflict", "Already answered");
     }
+    // A refused take throws here, so no computer.taken event is logged for it.
+    await lease?.take(display.machineId, user.userId);
     const payload: ComputerTakenPayload = {
       machineId: display.machineId,
       userId: user.userId,
@@ -68,7 +72,6 @@ export const createTakeoverService = ({
       type: "computer.taken",
       workspaceId: row.workspaceId,
     });
-    await lease?.take(display.machineId, user.userId);
   };
   const handBack = async (
     principal: Principal,
@@ -105,8 +108,36 @@ export const createTakeoverService = ({
   const cancel = async (principal: Principal, requestId: string) => {
     const { user, display } = await load(principal, requestId);
     await requests.cancel(user, requestId);
+    // The onEvent listener also releases on request.cancelled. Release is idempotent, so both are safe.
     await lease?.release(display.machineId);
   };
-  return { cancel, handBack, take };
+  // Releases the lease when a takeover closes without a hand-back, by expiry or by its run ending.
+  const closedWithoutHandBack = new Set([
+    "request.expired",
+    "request.cancelled",
+  ]);
+  const onEvent = async (event: EventRecord) => {
+    if (!closedWithoutHandBack.has(event.type)) {
+      return;
+    }
+    const { requestId } = event.payload;
+    if (typeof requestId !== "string") {
+      return;
+    }
+    const [row] = await db
+      .select()
+      .from(runRequests)
+      .where(
+        and(
+          eq(runRequests.id, requestId),
+          eq(runRequests.workspaceId, event.workspaceId)
+        )
+      );
+    if (row?.kind !== "takeover") {
+      return;
+    }
+    await lease?.release(displayOf(row.display).machineId);
+  };
+  return { cancel, handBack, onEvent, take };
 };
 export type TakeoverService = ReturnType<typeof createTakeoverService>;

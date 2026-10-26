@@ -1,7 +1,6 @@
 // The library folders an agent syncs into its working copy: its home, the wiki
-// and its grants (`librarySyncScope`). `librarySyncRoots` and `libraryPathsOf`
-// still read the legacy `runtimeConfig.libraryPaths` for the cloud VM sync,
-// until V4.7 removes the last caller.
+// and its grants (`librarySyncScope`). `libraryPathsOf` still reads the legacy
+// `runtimeConfig.libraryPaths` for the profile's library editor, until V4.19.
 import type { LibraryAccessGrant } from "@repo/db/shared";
 import { isServiceError } from "../errors.ts";
 import { agentHomePath } from "./home.ts";
@@ -43,22 +42,6 @@ export const libraryPathsOf = (
     }
   }
   return [...paths];
-};
-
-/**
- * The folders an agent syncs: its home first, then the library paths. A root
- * inside another root is dropped, because the outer root already covers it.
- */
-export const librarySyncRoots = (
-  slug: string,
-  runtimeConfig: Record<string, unknown>
-): string[] => {
-  const roots = [
-    ...new Set([agentHomePath(slug), ...libraryPathsOf(runtimeConfig)]),
-  ];
-  return roots.filter(
-    (root) => !roots.some((other) => root.startsWith(`${other}/`))
-  );
 };
 
 /** Home and wiki are implicit grants. Explicit grants add access, never revoke it. */
