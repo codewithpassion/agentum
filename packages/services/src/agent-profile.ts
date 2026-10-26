@@ -373,7 +373,11 @@ export const createAgentProfileService = ({
     const machine = machineList.find(
       ({ id: machineId }) => machineId === agent.machineId
     );
-    const byId = new Map(everyAgent.map((other) => [other.id, other]));
+    // Active agents only, like `handsToNames` in the prompt.
+    const activeAgents = everyAgent.filter(
+      (other) => other.status === "active"
+    );
+    const byId = new Map(activeAgents.map((other) => [other.id, other]));
     return {
       channels: { email: "reserved", slack: starts.slack },
       does: agent.instructions,
@@ -407,7 +411,7 @@ export const createAgentProfileService = ({
           ),
         ],
       },
-      receivesFrom: everyAgent
+      receivesFrom: activeAgents
         .filter(
           (other) => other.id !== agent.id && other.handsTo.includes(agent.id)
         )
