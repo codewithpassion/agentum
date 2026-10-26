@@ -311,6 +311,28 @@ test("a prune retry finishes an expired tombstone history spanning multiple batc
   expect(blobs.objects.size).toBe(0);
 });
 
+test("a prune does not delete a version written after the tombstone it is clearing", async () => {
+  for (let i = 0; i < 95; i += 1) {
+    await service.write(principal, "a", bytes(String(i)));
+  }
+  await service.remove(principal, "a");
+  now = "2026-03-01T00:00:00.000Z";
+  const remove = blobs.delete;
+  let revived = false;
+  blobs.delete = async (keys) => {
+    if (!revived) {
+      revived = true;
+      await service.write(principal, "a", bytes("back"));
+    }
+    return remove(keys);
+  };
+  await service.pruneVersions(new Date(now));
+  const [kept, ...rest] = await service.versions(principal, "a");
+  expect(rest).toEqual([]);
+  expect(kept).toMatchObject({ op: "write", version: 97 });
+  expect((await service.read(principal, "a")).bytes).toEqual(bytes("back"));
+});
+
 test("concurrent writes to one path get distinct version numbers", async () => {
   await Promise.all([
     service.write(principal, "race", bytes("one")),

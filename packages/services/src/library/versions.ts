@@ -6,7 +6,7 @@ import {
   LIBRARY_VERSION_KEEP_DAYS,
   LIBRARY_VERSION_KEEP_MIN,
 } from "@repo/db/shared";
-import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, lte, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ServiceError } from "../errors.ts";
 import type { LibraryBlobs } from "../library.ts";
@@ -164,10 +164,15 @@ export const createVersionStore = ({
     ]);
   };
 
-  /** Deletes a whole history, oldest first so the tombstone goes last and a failed prune can resume. */
+  /**
+   * Deletes a file's history up to its tombstone, oldest first so the
+   * tombstone goes last and a failed prune can resume. A version written after
+   * the tombstone (the file came back mid-prune) is not part of that history.
+   */
   const dropHistory = async (
     workspaceId: string,
-    path: string
+    path: string,
+    tombstone: number
   ): Promise<void> => {
     for (;;) {
       const batch = await db
@@ -176,7 +181,8 @@ export const createVersionStore = ({
         .where(
           and(
             eq(libraryVersions.workspaceId, workspaceId),
-            eq(libraryVersions.path, path)
+            eq(libraryVersions.path, path),
+            lte(libraryVersions.version, tombstone)
           )
         )
         .orderBy(libraryVersions.version)
@@ -194,6 +200,7 @@ export const createVersionStore = ({
       const files = await db
         .select({
           path: libraryVersions.path,
+          version: libraryVersions.version,
           workspaceId: libraryVersions.workspaceId,
         })
         .from(libraryVersions)
@@ -204,20 +211,20 @@ export const createVersionStore = ({
             sql`${libraryVersions.version} = (select max(newer.version) from library_versions as newer where ${inSameFile})`
           )
         )
-        .orderBy(libraryVersions.workspaceId, libraryVersions.path)
         .limit(PRUNE_PAGE);
       if (files.length === 0) {
         return;
       }
-      for (const { path, workspaceId } of files) {
-        await dropHistory(workspaceId, path);
+      for (const { path, version, workspaceId } of files) {
+        await dropHistory(workspaceId, path, version);
       }
     }
   };
 
   /**
    * Past the newest KEEP_MIN of a file, a version expires with its age.
-   * Oldest first, so deleting a batch never changes the rank of a row left.
+   * Ordered by `created_at` so SQLite walks the index. Deleting a row ranked
+   * KEEP_MIN or lower never drops another row's rank below KEEP_MIN.
    */
   const pruneExcessVersions = async (cutoff: string): Promise<void> => {
     for (;;) {
@@ -230,11 +237,7 @@ export const createVersionStore = ({
             sql`(select count(*) from library_versions as newer where ${inSameFile} and newer.version > ${libraryVersions.version}) >= ${LIBRARY_VERSION_KEEP_MIN}`
           )
         )
-        .orderBy(
-          libraryVersions.workspaceId,
-          libraryVersions.path,
-          libraryVersions.version
-        )
+        .orderBy(libraryVersions.createdAt, libraryVersions.version)
         .limit(PRUNE_BATCH);
       if (batch.length === 0) {
         return;
@@ -244,9 +247,10 @@ export const createVersionStore = ({
   };
 
   /**
-   * Reads only rows older than the cutoff, never a whole history. Each pass
-   * reads one batch, deletes its blobs, then its rows, so a failed pass leaves
-   * the rows for the next one.
+   * Finds candidates through the `created_at` index, so it reads rows older
+   * than the cutoff, plus the files of expired tombstones. Each pass reads one
+   * batch, deletes its blobs, then its rows, so a failed pass leaves the rows
+   * for the next one.
    */
   const prune = async (now: Date): Promise<void> => {
     const cutoff = new Date(

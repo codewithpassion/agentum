@@ -79,7 +79,7 @@ export const libraryVersions = sqliteTable(
       t.path,
       t.version
     ),
-    // The prune reads only rows older than its cutoff.
+    // The prune finds its candidates, the rows older than its cutoff, through this.
     index("library_versions_created_at_idx").on(t.createdAt),
   ]
 );
