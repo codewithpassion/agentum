@@ -28,6 +28,9 @@
   // The sandbox for skill scripts (run_skill_script): a Dynamic Worker made for
   // each run. Needs the Workers Paid plan.
   "worker_loaders": [{ "binding": "LOADER" }],
+  // Outbound agent mail (task V5.7). `remote` stays off so local dev simulates
+  // sends instead of mailing anyone.
+  "send_email": [{ "name": "EMAIL" }],
   // Migrations are not per environment, so they live at the top level only.
   // Never edit a tag that has shipped, add the next one.
   "migrations": [
@@ -46,7 +49,13 @@
   "vars": {
     "PUBLIC_BASE_URL": "https://harbourmaster.rockyshoreslabs.io",
     // How long a Linux VM sits idle before it snapshots /workspace and sleeps.
-    "LINUX_VM_IDLE_SECONDS": "180"
+    "LINUX_VM_IDLE_SECONDS": "180",
+    // Agent mail (task V5.7). An empty MAIL_DOMAIN turns mail off. Production has
+    // no mail domain yet: set the three below once Dom picks one, with Email
+    // Routing and Email Sending on for it.
+    "MAIL_DOMAIN": "",
+    "MAIL_ZONE_ID": "",
+    "MAIL_WORKER_NAME": "harbourmaster"
   },
   "routes": [
     { "pattern": "harbourmaster.rockyshoreslabs.io", "custom_domain": true }
@@ -93,9 +102,15 @@
         }
       ],
       "worker_loaders": [{ "binding": "LOADER" }],
+      "send_email": [{ "name": "EMAIL" }],
       "vars": {
         "PUBLIC_BASE_URL": "https://harbourmaster-staging.rockyshoreslabs.io",
-        "LINUX_VM_IDLE_SECONDS": "180"
+        "LINUX_VM_IDLE_SECONDS": "180",
+        "MAIL_DOMAIN": "rockyshoreslabs.io",
+        // The zone id of rockyshoreslabs.io, from the zone's Overview page.
+        // Mailboxes stay "provisioning pending" until it is set.
+        "MAIL_ZONE_ID": "4dd028fe52d70f89e51383e1689d601a",
+        "MAIL_WORKER_NAME": "harbourmaster-staging"
       },
       "r2_buckets": [
         { "binding": "FILES", "bucket_name": "harbourmaster-staging-files" }
@@ -127,7 +142,15 @@
         // VM agent fails in a preview with "VmSession needs a container".
         // Isolate agents are unaffected.
         "worker_loaders": [{ "binding": "LOADER" }],
-        "vars": { "PUBLIC_BASE_URL": "", "LINUX_VM_IDLE_SECONDS": "180" },
+        "send_email": [{ "name": "EMAIL" }],
+        // Mail is off in previews: an empty MAIL_DOMAIN.
+        "vars": {
+          "PUBLIC_BASE_URL": "",
+          "LINUX_VM_IDLE_SECONDS": "180",
+          "MAIL_DOMAIN": "",
+          "MAIL_ZONE_ID": "",
+          "MAIL_WORKER_NAME": ""
+        },
         // Previews share the staging bucket; keys are per workspace.
         "r2_buckets": [
           { "binding": "FILES", "bucket_name": "harbourmaster-staging-files" }

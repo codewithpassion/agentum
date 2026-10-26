@@ -67,6 +67,7 @@
     "./run-tokens": "./src/run-tokens.ts",
     "./routines": "./src/routines.ts",
     "./routines/cron": "./src/routines/cron.ts",
+    "./qa": "./src/qa.ts",
     "./requests": "./src/requests.ts",
     "./runs": "./src/runs.ts",
     "./runs/types": "./src/runs/types.ts",
@@ -102,7 +103,9 @@
     "./tasks/receipt": "./src/tasks/receipt.ts",
     "./tasks/action-log": "./src/tasks/action-log.ts",
     "./tasks/service": "./src/tasks/service.ts",
-    "./tasks/status-band": "./src/tasks/status-band.ts"
+    "./tasks/status-band": "./src/tasks/status-band.ts",
+    "./skills-store/github": "./src/skills-store/github.ts",
+    "./wiki/suggestions": "./src/wiki/suggestions.ts"
   },
   "scripts": {
     "test": "bun test",

@@ -1,4 +1,8 @@
-import type { AgentRuntime, MachineStatus } from "@repo/db/shared";
+import type {
+  AgentRuntime,
+  MachineStatus,
+  MailboxStatus,
+} from "@repo/db/shared";
 import {
   computerKind,
   computersOf,
@@ -188,9 +192,31 @@ export const startChips = (startsOn: Starts): Chip[] => {
   return [...triggers, ...routines, ...slack];
 };
 
+const emailChip = (
+  emailLocal: string | null,
+  mailStatus: MailboxStatus | null
+): Chip => {
+  if (emailLocal === null) {
+    return { key: "email", label: "Email · no address yet", tone: "default" };
+  }
+  switch (mailStatus) {
+    case "active":
+      return { key: "email", label: "Email", tone: "on" };
+    case "provisioning":
+      return { key: "email", label: "Email · setting up", tone: "default" };
+    case "failed":
+      return { key: "email", label: "Email · failed", tone: "warn" };
+    case "disabled":
+      return { key: "email", label: "Email · off", tone: "default" };
+    default:
+      return { key: "email", label: "Email · reserved", tone: "default" };
+  }
+};
+
 export const channelChips = (
   channels: Channels,
-  emailLocal: string | null
+  emailLocal: string | null,
+  mailStatus: MailboxStatus | null
 ): Chip[] => {
   const app = channels.slack;
   let slack: Chip;
@@ -207,10 +233,7 @@ export const channelChips = (
   } else {
     slack = { key: "slack", label: "Slack app · revoked", tone: "warn" };
   }
-  const email: Chip =
-    emailLocal === null
-      ? { key: "email", label: "Email · no address yet", tone: "default" }
-      : { key: "email", label: "Email", tone: "on" };
+  const email = emailChip(emailLocal, mailStatus);
   const whatsapp: Chip = {
     key: "whatsapp",
     label: "WhatsApp (later)",

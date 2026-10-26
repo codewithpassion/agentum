@@ -500,12 +500,21 @@ export const createLibraryService = ({
     };
   };
 
+  const approvalStatements = (
+    approval: { statements: (version: VersionRow) => Statement[] } | undefined,
+    version: VersionRow
+  ): Statement[] => (approval ? approval.statements(version) : []);
+
   const writeFile = async (
     principal: Principal,
     rawPath: string,
     bytes: Uint8Array,
     options: { ifEtag?: string } = {},
-    op: "write" | "restore" = "write"
+    op: "write" | "restore" = "write",
+    approval?: {
+      author: Extract<Principal, { kind: "run" }>;
+      statements: (version: VersionRow) => Statement[];
+    }
   ): Promise<LibraryEntry> => {
     const member = await resolveMember(
       requireWriter(principal, "library.write")
@@ -543,13 +552,14 @@ export const createLibraryService = ({
     if (!stored) {
       throw new ServiceError("conflict", "The file changed since it was read");
     }
-    const row = rowOf(member, path, {
+    const author = approval?.author ?? member;
+    const row = rowOf(author, path, {
       etag: stored.etag,
       kind: "file",
       size: bytes.byteLength,
     });
     const version = await versionOf(
-      member,
+      author,
       row,
       (previous[0]?.version ?? seeds[0]?.version ?? 0) + 1,
       op,
@@ -559,6 +569,7 @@ export const createLibraryService = ({
       ...(linkIndex?.(member.workspaceId, [{ bytes, path }]) ?? []),
       ...seeds.map(history.insertSeed),
       history.insertNext(version),
+      ...approvalStatements(approval, version),
       ...folderStatements(member, folders),
       db
         .insert(libraryEntries)
@@ -590,6 +601,32 @@ export const createLibraryService = ({
     bytes: Uint8Array,
     options: { ifEtag?: string } = {}
   ) => writeFile(principal, path, bytes, options);
+  /** In-process approval port: authorize the person, retain the proposing agent's authorship. */
+  const writeApproved = async (
+    principal: Principal,
+    path: string,
+    bytes: Uint8Array,
+    approval: {
+      author: Extract<Principal, { kind: "run" }>;
+      ifEtag?: string;
+      statements: (version: VersionRow) => Statement[];
+    }
+  ) => {
+    if (
+      principal.kind !== "user" ||
+      approval.author.workspaceId !== principal.workspaceId
+    ) {
+      throw new ForbiddenError("library.write");
+    }
+    return await writeFile(
+      principal,
+      path,
+      bytes,
+      { ifEtag: approval.ifEtag },
+      "write",
+      approval
+    );
+  };
   const restore = async (
     principal: Principal,
     versionId: string,
@@ -1089,6 +1126,7 @@ export const createLibraryService = ({
     stat,
     versions,
     write,
+    writeApproved,
   };
 };
 

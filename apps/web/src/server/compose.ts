@@ -118,6 +118,7 @@ import {
   createOAuthClientsService,
   type OAuthClientsService,
 } from "@repo/services/oauth-clients";
+import { createQaService, type QaService } from "@repo/services/qa";
 import {
   createRequestsService,
   type RequestsService,
@@ -195,10 +196,15 @@ import {
   createWikiService,
   type WikiService,
 } from "@repo/services/wiki/service";
+import {
+  createWikiSuggestionsService,
+  type WikiSuggestionsService,
+} from "@repo/services/wiki/suggestions";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { clerkPeople } from "./clerk-people.ts";
 import { libraryNotifier } from "./library-notifier.ts";
+import { type MailEnv, mailInfra } from "./mail-infra.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
 import { clerkEmailMemberLookup } from "./mcp/clerk-email-member.ts";
 import { durableRunnerPort } from "./pi-run-port.ts";
@@ -288,6 +294,7 @@ export interface Services {
   modelKeys: ModelKeysService;
   network: NetworkService;
   oauthClients: OAuthClientsService;
+  qa: QaService;
   requests: RequestsService;
   routines: RoutinesService;
   runSkills: RunSkillsService;
@@ -305,6 +312,7 @@ export interface Services {
   tasks: TasksService;
   triggers: TriggersService;
   wiki: WikiService;
+  wikiSuggestions: WikiSuggestionsService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
 
@@ -329,7 +337,8 @@ export type ComposeEnv = Pick<
   | "RUN_TOKEN_KEY"
   | "SECRETS_KEY"
   | "SESSION_STREAM"
->;
+> &
+  MailEnv;
 
 /** Splits a comma separated list of ids, trimmed, dropping empty entries. */
 export const parseOrgIds = (raw: string | undefined): string[] =>
@@ -433,9 +442,10 @@ export const composeWith = ({
     events,
     runs: { startRun: (principal, input) => runs.startRun(principal, input) },
   });
+  const libraryBlobs = infra.libraryBlobs ?? memoryLibraryBlobs();
   const library = createLibraryService({
     atomic: infra.atomic,
-    blobs: infra.libraryBlobs ?? memoryLibraryBlobs(),
+    blobs: libraryBlobs,
     clock: infra.clock,
     db,
     events,
@@ -448,6 +458,14 @@ export const composeWith = ({
     }),
   });
   const wiki = createWikiService({ db, library });
+  const wikiSuggestions = createWikiSuggestionsService({
+    atomic: infra.atomic,
+    blobs: libraryBlobs,
+    clock: infra.clock,
+    db,
+    events,
+    library,
+  });
   const libraryAccess = createLibraryAccessService({
     atomic: infra.atomic,
     clock: infra.clock,
@@ -748,6 +766,13 @@ export const composeWith = ({
       modelKeys,
       network,
       oauthClients,
+      qa: createQaService({
+        atomic: infra.atomic,
+        clock: infra.clock,
+        db,
+        events,
+        runs,
+      }),
       requests,
       routines,
       runSkills,
@@ -765,6 +790,7 @@ export const composeWith = ({
       tasks,
       triggers,
       wiki,
+      wikiSuggestions,
       workspaces,
     },
   };
@@ -792,6 +818,7 @@ export const compose = (
       devFakeRuntime,
       fileBlobs: r2FileBlobs(env.FILES),
       libraryBlobs: r2LibraryBlobs(env.FILES),
+      ...mailInfra(env),
       managedGatewayFor: ({ apiKey, environment }) =>
         connectManagedGateway(apiKey, {
           cache: environment,
