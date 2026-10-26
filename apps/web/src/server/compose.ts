@@ -8,6 +8,7 @@ import type { Database } from "@repo/db";
 import { type Atomic, d1Atomic } from "@repo/db/atomic";
 import type { ModelProvider } from "@repo/db/shared";
 import { TRANSFER_HELPER_SOURCE } from "@repo/library-sync/transfer-bundle";
+import type { GithubSkillFetcher } from "@repo/protocol/skills";
 import {
   type AgentBuilderService,
   createAgentBuilderService,
@@ -158,6 +159,7 @@ import {
   type SkillBlobs,
   type SkillsStoreService,
 } from "@repo/services/skills-store";
+import type { GithubSkillFetcher as SkillsStoreGithubFetcher } from "@repo/services/skills-store/github";
 import { memorySkillBlobs } from "@repo/services/skills-store/memory";
 import {
   createSlackService,
@@ -210,6 +212,7 @@ import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { browserRunDriver } from "./browser-run.ts";
 import { clerkPeople } from "./clerk-people.ts";
+import { createGithubSkillFetcher } from "./github-skill-source.ts";
 import { libraryNotifier } from "./library-notifier.ts";
 import { type MailEnv, mailInfra } from "./mail-infra.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
@@ -245,6 +248,10 @@ export interface Infra {
   fetch?: Fetcher;
   /** Where uploaded files live: R2 in the app. */
   fileBlobs: FileBlobs;
+  /** Reads skills from GitHub (V7.9). Without it, GitHub import and update checks answer "not set up". */
+  github?: GithubSkillFetcher;
+  /** `GITHUB_TOKEN`, optional. Raises GitHub's rate limit; without it the fetcher is unauthenticated. */
+  githubToken?: string;
   /** Where the workspace library keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
   libraryBlobs?: LibraryBlobs;
   mailbox?: MailboxPort;
@@ -344,6 +351,7 @@ export type ComposeEnv = Pick<
   | "CLERK_SECRET_KEY"
   | "DB"
   | "FILES"
+  | "GITHUB_TOKEN"
   | "MACHINE_RELAY"
   | "MANAGED_POLLER"
   | "PI_RUN"
@@ -381,6 +389,26 @@ const unlinkedDirectory: SlackDirectory = {
   findUserIdByEmail: () => Promise.resolve(null),
   isOrgMember: () => Promise.resolve(false),
 };
+
+/**
+ * The skills store asks a fetcher to `resolve` and `tree`; the GitHub adapter
+ * (the protocol port) offers `resolveCommit` and `fetchTree`.
+ */
+const skillsStoreGithub = (
+  fetcher: GithubSkillFetcher
+): SkillsStoreGithubFetcher => ({
+  resolve: ({ repoUrl, ref, githubToken }) =>
+    fetcher.resolveCommit(repoUrl, ref, githubToken),
+  tree: async ({ repoUrl, commitSha, path, githubToken }) =>
+    (
+      await fetcher.fetchTree(
+        repoUrl,
+        commitSha,
+        path ?? undefined,
+        githubToken
+      )
+    ).files,
+});
 
 /** The services over a database and infra. Tests call this with fakes. */
 export const composeWith = ({
@@ -508,6 +536,8 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     events,
+    github: infra.github && skillsStoreGithub(infra.github),
+    githubToken: infra.githubToken,
     library,
   });
   const runSkills = createRunSkillsService({ skillsStore });
@@ -878,6 +908,10 @@ export const compose = (
       defer,
       devFakeRuntime,
       fileBlobs: r2FileBlobs(env.FILES),
+      // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
+      github: createGithubSkillFetcher((url, init) => fetch(url, init)),
+      // An unset secret reads as an empty string: GitHub then sees no credential.
+      githubToken: env.GITHUB_TOKEN || undefined,
       libraryBlobs: r2LibraryBlobs(env.FILES),
       ...mailInfra(env),
       managedGatewayFor: ({ apiKey, environment }) =>

@@ -522,7 +522,7 @@ export interface QaPort {
     answers: QaAnswerInfo[];
     question: QaQuestionInfo;
   }>;
-  list: (input: { status?: QaStatus }) => Promise<{
+  list: (input: { cursor?: string; status?: QaStatus }) => Promise<{
     nextCursor: string | null;
     questions: QaQuestionInfo[];
   }>;

@@ -463,3 +463,14 @@ for (const [status, headers, code, message] of [
     await expectFailure(fetcher.fetchTree(repo, sha, undefined), code, message);
   });
 }
+
+const NO_SUCH_REF = /could not find that ref/i;
+
+test("HTTP 422 for an unknown ref reads as ref not found", async () => {
+  const { fetcher } = stub(() => new Response("{}", { status: 422 }));
+  await expectFailure(
+    fetcher.resolveCommit(repo, "no-such-branch"),
+    "not_found",
+    NO_SUCH_REF
+  );
+});
