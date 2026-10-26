@@ -11,7 +11,7 @@ import type { SessionStream } from "../session-stream.ts";
 import { createStreamCore, type StreamCore } from "../session-stream-core.ts";
 import { eventFrame, STREAM_EVENT_TYPES } from "../session-stream-frames.ts";
 import type { AppEnv } from "./groups.ts";
-import { sessionStreamRoutes } from "./session-stream.ts";
+import { NO_REPLAY, relay, sessionStreamRoutes } from "./session-stream.ts";
 
 const KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
 
@@ -338,4 +338,24 @@ test("a resume point longer than an event id answers 400", async () => {
   const res = await open(sessionId, { "Last-Event-ID": "x".repeat(201) });
 
   expect(res.status).toBe(400);
+});
+
+test("a relay whose keep check fails errors the stream and ends the live subscription", async () => {
+  let cancelled = false;
+  const live = new ReadableStream<Uint8Array>({
+    cancel: () => {
+      cancelled = true;
+    },
+    pull: (controller) => {
+      controller.enqueue(
+        new TextEncoder().encode('data: {"frame":"ping"}\n\n')
+      );
+    },
+  });
+  const reader = relay(NO_REPLAY, live, () =>
+    Promise.reject(new Error("D1 is down"))
+  ).getReader();
+
+  await expect(reader.read()).rejects.toThrow("D1 is down");
+  expect(cancelled).toBe(true);
 });

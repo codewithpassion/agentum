@@ -34,6 +34,15 @@ export const STREAM_EVENT_TYPES = [
 
 const STREAM_TYPES: ReadonlySet<EventType> = new Set(STREAM_EVENT_TYPES);
 
+/** The event types the desk stream carries: requests and runs, not messages or tool calls. */
+export const DESK_EVENT_TYPES = STREAM_EVENT_TYPES.filter(
+  (type) => type.startsWith("request.") || type.startsWith("run.")
+);
+
+/** The name of the one SessionStream Durable Object per workspace that carries the desk frames. */
+export const deskStreamName = (workspaceId: string): string =>
+  `desk:${workspaceId}`;
+
 /** The run status an event moves its run to. `run.limit_reached` and `run.repeat_stopped` are followed by `run.failed`. */
 const RUN_STATUS_OF: Partial<Record<EventType, RunStatus>> = {
   "run.cancelled": "cancelled",

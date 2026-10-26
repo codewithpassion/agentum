@@ -501,3 +501,13 @@ test("decide on a request in another member's private session is not found, what
     desk.decide(other, question.id, { decision: "allow_once" })
   ).rejects.toMatchObject({ code: "not_found" });
 });
+
+test("canSeeRun admits the opener's ui run and hides it from other members and unknown runs", async () => {
+  const runId = await start();
+  members.set("eli@example.com|org1", "u2");
+  const other = await desk.actingMember(deskKey, "eli@example.com");
+
+  expect(await desk.canSeeRun(member, runId)).toBe(true);
+  expect(await desk.canSeeRun(other, runId)).toBe(false);
+  expect(await desk.canSeeRun(member, "no-such-run")).toBe(false);
+});
