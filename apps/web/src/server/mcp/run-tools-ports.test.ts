@@ -5,14 +5,18 @@ import { machines } from "@repo/db/schema/machines";
 import { migrated } from "@repo/db/test-db";
 import { createHarbourmasterMcpServer } from "@repo/mcp/server";
 import { connectClient } from "@repo/mcp/testing";
-import type { BrowserDriver, BrowserPage } from "@repo/services/browser";
+import type { BrowserDriver, BrowserPage } from "@repo/services/browser/types";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
 import { eq } from "drizzle-orm";
 import { type Composed, composeWith } from "../compose.ts";
-import { createMcpPorts, resolveRunComputer } from "./ports.ts";
+import {
+  createMcpPorts,
+  resolveRunBrowser,
+  resolveRunComputer,
+} from "./ports.ts";
 
 const PAGE_URL = "https://example.com/";
 const MACHINE_ID = "machine_1";
@@ -161,7 +165,7 @@ const connect = async (principal: Principal) => {
     services: composed.services,
   });
   const server = createHarbourmasterMcpServer(ports, {
-    browser: principal.kind === "run",
+    browser: await resolveRunBrowser(composed.services, principal),
     computer: computer ? { desktop: computer.desktop } : undefined,
   });
   const { client, close } = await connectClient(server);
@@ -220,4 +224,25 @@ test("a person gets neither the browser nor the computer tools", async () => {
   expect(names.some((name) => name.startsWith("browser_"))).toBe(false);
   expect(names).not.toContain("computer_exec");
   await session.close();
+});
+
+test("a run whose agent has the browser unplugged gets no browser tools", async () => {
+  const principal = await runAs(false);
+  if (principal.kind !== "run") {
+    throw new Error("expected a run principal");
+  }
+  await composed.services.agents.update(userPrincipal, principal.agentId, {
+    runtimeConfig: { browser: false },
+  });
+  expect(await resolveRunBrowser(composed.services, principal)).toBe(false);
+  const session = await connect(principal);
+  const names = await session.listToolNames();
+  expect(names.some((name) => name.startsWith("browser_"))).toBe(false);
+  await session.close();
+});
+
+test("a run keeps the browser when runtimeConfig does not mention it", async () => {
+  const principal = await runAs(false);
+  expect(await resolveRunBrowser(composed.services, principal)).toBe(true);
+  expect(await resolveRunBrowser(composed.services, userPrincipal)).toBe(false);
 });

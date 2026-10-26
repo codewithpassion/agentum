@@ -168,7 +168,8 @@ export const createAgentBuilderService = ({
       modelKeys.status(principal, "openrouter"),
     ]);
     const usable = machineList.filter(
-      (machine) => machine.status !== "revoked"
+      (machine) =>
+        machine.status !== "revoked" && machine.roles.includes("agent_host")
     );
     return {
       agents: agentList.map((agent) => ({

@@ -121,10 +121,12 @@ type MachineRow = typeof machines.$inferSelect;
 
 const capabilitiesSchema = z.record(z.string(), z.json());
 
+/** Whether a machine's stored credential hash gives it the `agent_host` role. */
+export const hasAgentHostRole = (credentialHash: string): boolean =>
+  !credentialHash.startsWith(COMPUTER_ONLY_HASH_PREFIX);
+
 const rolesOf = (row: MachineRow): MachineRole[] => [
-  ...(row.credentialHash.startsWith(COMPUTER_ONLY_HASH_PREFIX)
-    ? []
-    : (["agent_host"] as const)),
+  ...(hasAgentHostRole(row.credentialHash) ? (["agent_host"] as const) : []),
   ...(row.computerStatus === null ? [] : (["computer"] as const)),
 ];
 

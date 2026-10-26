@@ -369,6 +369,8 @@ describe("tools with an api key", () => {
       "list_sessions",
       "list_skills",
       "list_triggers",
+      "qa_list",
+      "qa_read",
       "read_session",
       "search_sessions",
       "send_message",
@@ -397,6 +399,8 @@ describe("tools with an api key", () => {
       "commit_skill",
       "approve_skill_version",
       "cancel_run",
+      "qa_ask",
+      "qa_answer",
     ]) {
       expect(names).toContain(name);
     }
