@@ -12,9 +12,11 @@ let db: ReturnType<typeof migrated>;
 let created: string[];
 let versioned: { skillId: string }[];
 let fetched: string[];
+let titles: string[];
 
 const gateway = {
-  createSkill: () => {
+  createSkill: (input: { displayTitle: string }) => {
+    titles.push(input.displayTitle);
     created.push(`skill_${created.length + 1}`);
     return Promise.resolve({
       skillId: `skill_${created.length}`,
@@ -52,6 +54,7 @@ beforeEach(() => {
   created = [];
   versioned = [];
   fetched = [];
+  titles = [];
   db.insert(workspaces)
     .values({
       clerkOrgId: "org_w1",
@@ -72,6 +75,16 @@ const sync = (agentId: string, skills: ResolvedSkill[]) =>
   });
 
 describe("skills sync", () => {
+  test("a new skill's display title stays within the 64 characters Anthropic accepts", async () => {
+    // A built-in skill id carries the workspace id, which made the title 82 characters.
+    await sync("a1", [
+      resolved("builtin-library-transfer-01M538QZWS1B9PAQ3J8X2JMRF6", 1),
+    ]);
+
+    expect(titles).toHaveLength(1);
+    expect(titles[0]?.length).toBeLessThanOrEqual(64);
+  });
+
   test("a version is uploaded once and shared by every agent that carries it", async () => {
     const first = await sync("a1", [resolved("hm1", 1)]);
     const second = await sync("a2", [resolved("hm1", 1)]);
