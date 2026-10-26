@@ -191,6 +191,14 @@ test("an agent's re-import is proposed and leaves the pin where it was", async (
   expect(source?.skillId).toBe(first.version.skillId);
 });
 
+test("an agent can't re-import over a skill from another ref", async () => {
+  const { service } = fake();
+  await service.importGithub(run(), input);
+  await expect(
+    service.importGithub(run(), { ...input, ref: "other" })
+  ).rejects.toThrow("can't change");
+});
+
 test("invalid paths leave the source intact and no update is clear", async () => {
   const { service, state, db } = fake();
   await service.importGithub(user(), input);

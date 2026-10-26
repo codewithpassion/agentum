@@ -1626,6 +1626,18 @@ export const createSkillsStoreService = ({
         )
       )
       .limit(1);
+    if (existing && c.kind === "agent") {
+      // A proposal can't carry a new location, so an agent keeps the one it has.
+      const current = await sourceOf(existing.id);
+      if (
+        current &&
+        (current.repoUrl !== location.repoUrl ||
+          current.path !== location.path ||
+          current.ref !== location.ref)
+      ) {
+        throw invalid("An agent can't change a skill's GitHub source");
+      }
+    }
     const publication = {
       message: "Imported from GitHub",
       source: {
