@@ -47,7 +47,7 @@ xclip on display `:99`, for agents that drive a screen. Both run as uid 1000 and
 state in the `/var/lib/hm-computer` volume.
 
 Issue a single-use `hm_enr_` code in Harbourmaster, then enrol and run in one command. The
-entrypoint is `hm-computer run`, so `--url` and `--code` enrol the computer on first start. The
+entrypoints end in `hm-computer run`, so `--url` and `--code` enrol the computer on first start. The
 credential lands in the volume, and later starts ignore the spent code.
 
 Headless:
@@ -60,7 +60,7 @@ docker run -d --restart unless-stopped --name hm-computer \
 ```
 
 Desktop. Chromium keeps its sandbox, which the default Docker seccomp profile refuses, so pass
-`packaging/desktop/seccomp.json` from this directory. Without it the daemon still starts and
+`packaging/desktop/seccomp.json` from this directory, which you can download from the repository. Without it the daemon still starts and
 reports the desktop as unavailable.
 
 ```sh
@@ -72,7 +72,7 @@ docker run -d --restart unless-stopped --name hm-computer-desktop \
   --url https://harbourmaster.example.com --code hm_enr_YOUR_CODE
 ```
 
-Use `--code-stdin` or `HM_ENROLL_CODE` and `HM_URL` to keep the code out of the process list.
+To keep the code off the `docker run` command line, pass `--env-file` with `HM_URL` and `HM_ENROLL_CODE` instead of the two flags. Do not use `--code-stdin` in a detached container: it reads an empty stdin and exits on every start.
 Pin a host to one build with the commit tag instead of `latest`. Podman should work the same but
 is untested.
 
