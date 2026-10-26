@@ -238,6 +238,7 @@ export const createMapService = ({
         wires.set(key, {
           ...value,
           active: value.active || (previous?.active ?? false),
+          configured: value.configured || (previous?.configured ?? false),
           count7d: (previous?.count7d ?? 0) + value.count7d,
         });
       };
@@ -254,6 +255,7 @@ export const createMapService = ({
         });
         wire({
           active: false,
+          configured: true,
           count7d: 0,
           from: `trigger:${trigger.id}`,
           kind: "trigger",
@@ -265,6 +267,7 @@ export const createMapService = ({
         for (const target of JSON.parse(agent.handsTo) as string[]) {
           wire({
             active: false,
+            configured: true,
             count7d: 0,
             from: `agent:${agent.id}`,
             kind: "handoff",
@@ -369,6 +372,7 @@ const addCounts = (
         subkind,
       });
     }
-    wire({ ...count, active: Boolean(count.active) });
+    // Counts come from old events, so they never make a wire configured.
+    wire({ ...count, active: Boolean(count.active), configured: false });
   }
 };

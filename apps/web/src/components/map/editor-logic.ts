@@ -89,7 +89,7 @@ export function triggerIdOfKey(key: string): string | null {
 
 export interface EditGraph {
   nodes: { key: string; kind: string; label: string; subkind: string | null }[];
-  wires: { from: string; to: string; kind: string }[];
+  wires: { configured: boolean; from: string; to: string; kind: string }[];
 }
 
 type EditNode = EditGraph["nodes"][number];
@@ -110,7 +110,7 @@ function isMovableTriggerNode(node: EditNode | undefined): boolean {
   );
 }
 
-/** A trigger may start an agent it is not already wired to. */
+/** A trigger may start an agent it is not configured to start. A historical wire does not count. */
 export function isValidTriggerConnection(
   graph: EditGraph,
   sourceKey: string,
@@ -126,6 +126,7 @@ export function isValidTriggerConnection(
   }
   return !graph.wires.some(
     (wire) =>
+      wire.configured &&
       wire.kind === "trigger" &&
       wire.from === sourceKey &&
       wire.to === targetKey
@@ -145,6 +146,7 @@ export function moveWireMessage(
   const target = labelOf(graph, targetKey);
   const previous = graph.wires.find(
     (wire) =>
+      wire.configured &&
       wire.kind === "trigger" &&
       wire.from === sourceKey &&
       wire.to !== targetKey
@@ -162,13 +164,18 @@ export function moveWireMessage(
   };
 }
 
-/** Only a trigger wire from a movable trigger can be deleted, since that deletion revokes or removes the trigger. */
+/**
+ * Only a configured trigger wire from a movable trigger can be deleted, since
+ * that deletion revokes or removes the trigger. A historical wire has no row.
+ */
 export function isDeletableWire(
   graph: EditGraph,
-  wire: { from: string; kind: string }
+  wire: { configured: boolean; from: string; kind: string }
 ): boolean {
   return (
-    wire.kind === "trigger" && isMovableTriggerNode(nodeOf(graph, wire.from))
+    wire.configured &&
+    wire.kind === "trigger" &&
+    isMovableTriggerNode(nodeOf(graph, wire.from))
   );
 }
 

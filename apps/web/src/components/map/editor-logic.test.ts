@@ -57,9 +57,19 @@ const graph: EditGraph = {
     { key: "out:qa", kind: "output", label: "Q&A board", subkind: "qa" },
   ],
   wires: [
-    { from: "trigger:h1", kind: "trigger", to: "agent:researcher" },
-    { from: "agent:researcher", kind: "qa", to: "out:qa" },
-    { from: "trigger:slack:T1", kind: "trigger", to: "agent:bookkeeper" },
+    {
+      configured: true,
+      from: "trigger:h1",
+      kind: "trigger",
+      to: "agent:researcher",
+    },
+    { configured: false, from: "agent:researcher", kind: "qa", to: "out:qa" },
+    {
+      configured: true,
+      from: "trigger:slack:T1",
+      kind: "trigger",
+      to: "agent:bookkeeper",
+    },
   ],
 };
 
@@ -219,27 +229,96 @@ test("moveWireMessage asks to connect when the trigger has no wire", () => {
 });
 
 test("isDeletableWire is true for a trigger wire from a movable trigger", () => {
-  expect(isDeletableWire(graph, { from: "trigger:h1", kind: "trigger" })).toBe(
-    true
-  );
-  expect(isDeletableWire(graph, { from: "trigger:r1", kind: "trigger" })).toBe(
-    true
-  );
+  expect(
+    isDeletableWire(graph, {
+      configured: true,
+      from: "trigger:h1",
+      kind: "trigger",
+    })
+  ).toBe(true);
+  expect(
+    isDeletableWire(graph, {
+      configured: true,
+      from: "trigger:r1",
+      kind: "trigger",
+    })
+  ).toBe(true);
 });
 
 test("isDeletableWire is false for mail, slack, other wire kinds and missing sources", () => {
-  expect(isDeletableWire(graph, { from: "trigger:m1", kind: "trigger" })).toBe(
-    false
-  );
   expect(
-    isDeletableWire(graph, { from: "trigger:slack:T1", kind: "trigger" })
+    isDeletableWire(graph, {
+      configured: true,
+      from: "trigger:m1",
+      kind: "trigger",
+    })
   ).toBe(false);
-  expect(isDeletableWire(graph, { from: "agent:researcher", kind: "qa" })).toBe(
-    false
-  );
   expect(
-    isDeletableWire(graph, { from: "trigger:nope", kind: "trigger" })
+    isDeletableWire(graph, {
+      configured: true,
+      from: "trigger:slack:T1",
+      kind: "trigger",
+    })
   ).toBe(false);
+  expect(
+    isDeletableWire(graph, {
+      configured: true,
+      from: "agent:researcher",
+      kind: "qa",
+    })
+  ).toBe(false);
+  expect(
+    isDeletableWire(graph, {
+      configured: true,
+      from: "trigger:nope",
+      kind: "trigger",
+    })
+  ).toBe(false);
+});
+
+test("a trigger moved to another agent leaves a historical wire to the old one", () => {
+  // "h1" fired for the researcher, then moved to the bookkeeper.
+  const moved: EditGraph = {
+    ...graph,
+    wires: [
+      {
+        configured: false,
+        from: "trigger:h1",
+        kind: "trigger",
+        to: "agent:researcher",
+      },
+      {
+        configured: true,
+        from: "trigger:h1",
+        kind: "trigger",
+        to: "agent:bookkeeper",
+      },
+    ],
+  };
+  expect(
+    isValidTriggerConnection(moved, "trigger:h1", "agent:researcher")
+  ).toBe(true);
+  expect(
+    isValidTriggerConnection(moved, "trigger:h1", "agent:bookkeeper")
+  ).toBe(false);
+  expect(
+    isDeletableWire(moved, {
+      configured: false,
+      from: "trigger:h1",
+      kind: "trigger",
+    })
+  ).toBe(false);
+  expect(
+    isDeletableWire(moved, {
+      configured: true,
+      from: "trigger:h1",
+      kind: "trigger",
+    })
+  ).toBe(true);
+  expect(moveWireMessage(moved, "trigger:h1", "agent:researcher")).toEqual({
+    body: '"Daily report" starts Bookkeeper today. Start Researcher instead? Bookkeeper will no longer be started by it.',
+    title: "Move this wire?",
+  });
 });
 
 test("disconnectMessage for an http trigger revokes it for good", () => {
