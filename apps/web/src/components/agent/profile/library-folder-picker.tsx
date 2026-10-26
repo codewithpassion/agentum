@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { baseName, errorMessage } from "#/components/library/library-logic.ts";
+import {
+  baseName,
+  errorMessage,
+  parentDir,
+} from "#/components/library/library-logic.ts";
 import { Button } from "#/components/ui/button";
 import {
   Dialog,
@@ -62,6 +66,7 @@ export function LibraryFolderPicker({
       })
       .catch((cause: unknown) => {
         if (active) {
+          setFolders([]);
           setError(errorMessage(cause));
         }
       });
@@ -70,10 +75,7 @@ export function LibraryFolderPicker({
     };
   }, [dir, open]);
 
-  const up = useCallback(
-    () => setDir((current) => current.slice(0, current.lastIndexOf("/"))),
-    []
-  );
+  const up = useCallback(() => setDir(parentDir), []);
   const choose = useCallback(() => onChoose(dir), [dir, onChoose]);
 
   return (

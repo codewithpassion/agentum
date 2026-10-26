@@ -18,6 +18,8 @@ test("paths join and split at the root and below it", () => {
   expect(joinPath("docs/notes", "a.md")).toBe("docs/notes/a.md");
   expect(parentDir("a.md")).toBe("");
   expect(parentDir("docs/notes/a.md")).toBe("docs/notes");
+  expect(parentDir("docs")).toBe("");
+  expect(parentDir("a/b")).toBe("a");
   expect(baseName("docs/notes/a.md")).toBe("a.md");
   expect(baseName("a.md")).toBe("a.md");
 });
