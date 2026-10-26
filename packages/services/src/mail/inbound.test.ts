@@ -199,6 +199,31 @@ test("first mail starts a task and reply reuses session; redelivery is idempoten
     subject: "Help",
   });
 });
+test("threads carry the message count and the newest message's direction and status", async () => {
+  await service.receive(message());
+  const [row] = await service.threads(user, "a");
+  expect(row).toMatchObject({
+    lastDirection: "in",
+    lastStatus: "received",
+    messageCount: 1,
+  });
+  await db
+    .insert(mailMessages)
+    .values({
+      ...db.select().from(mailMessages).get(),
+      createdAt: "2999-01-01T00:00:00.000Z",
+      direction: "out",
+      externalMessageId: "later",
+      id: "later",
+      status: "held",
+    } as typeof mailMessages.$inferInsert)
+    .run();
+  expect((await service.threads(user, "a"))[0]).toMatchObject({
+    lastDirection: "out",
+    lastStatus: "held",
+    messageCount: 2,
+  });
+});
 test("trigger off and inactive agent store only", async () => {
   await service.setTrigger(user, "a", false);
   await service.receive(message());

@@ -1,4 +1,5 @@
 // Skill store procedures: the central, versioned skills (SK.1) for the Skills page and the agent Skills tab.
+import { importGithubInputSchema } from "@repo/services/skills-store/github";
 import {
   assignInputSchema,
   decideInputSchema,
@@ -115,6 +116,16 @@ export const skillStoreRouter = router({
         ctx.principal,
         base64ToBytes(input.data)
       )
+    ),
+  importGithub: workspaceProcedure
+    .input(importGithubInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.skillsStore.importGithub(ctx.principal, input)
+    ),
+  importUpdate: workspaceProcedure
+    .input(skillRefSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.skillsStore.importUpdate(ctx.principal, input.skillId)
     ),
   list: workspaceProcedure.query(({ ctx }) =>
     ctx.services.skillsStore.list(ctx.principal)
