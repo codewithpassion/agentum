@@ -195,7 +195,11 @@ export interface MachineClaim {
   inputFileIds: string[];
   instructions: string;
   /** The library folders to copy into the work directory, and the conflict copies waiting in them. */
-  library?: { conflicts: string[]; paths: string[]; roots?: import("@repo/db/shared").LibraryAccessGrant[] };
+  library?: {
+    conflicts: string[];
+    paths: string[];
+    roots?: import("@repo/db/shared").LibraryAccessGrant[];
+  };
   mcpServers: Record<
     string,
     { headers: Record<string, string>; type: "http"; url: string }

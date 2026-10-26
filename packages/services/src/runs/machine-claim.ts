@@ -50,6 +50,37 @@ export interface MachineClaimDeps {
   signToken: (claims: RunTokenClaims) => Promise<string>;
 }
 
+/** The library part of a claim, for a daemon that syncs the library. */
+const claimLibrary = async (
+  deps: MachineClaimDeps,
+  run: { agentId: string; id: string; workspaceId: string },
+  agent: { id: string; slug: string },
+  options: { libraryForDaemon?: boolean; libraryLiveForDaemon?: boolean }
+): Promise<MachineClaim["library"]> => {
+  const live = options.libraryLiveForDaemon === true;
+  if (!(deps.library && (options.libraryForDaemon === true || live))) {
+    return;
+  }
+  const roots = librarySyncScope(
+    agent.slug,
+    await agentGrants(deps.db, run.workspaceId, agent.id)
+  );
+  const paths = roots.map((root) => root.path);
+  return {
+    conflicts: await deps.library.pendingConflicts(
+      {
+        agentId: run.agentId,
+        kind: "run",
+        runId: run.id,
+        workspaceId: run.workspaceId,
+      },
+      paths
+    ),
+    paths,
+    ...(live ? { roots } : {}),
+  };
+};
+
 /**
  * A machine claims a run. Everything the seam 3 predicate says is one
  * conditional write: the run is `queued` or `offered`, has no pending files,
@@ -106,24 +137,7 @@ export const claimForMachine = async (
 
   // The library folders the daemon copies, and the conflict copies waiting in
   // them. Read before the claim write, like the token and the secrets.
-  const roots = librarySyncScope(agent.slug, await agentGrants(db, run.workspaceId, agent.id));
-  const libraryPaths = roots.map(root => root.path);
-  const library =
-    deps.library && (options.libraryForDaemon === true || options.libraryLiveForDaemon === true)
-      ? {
-          conflicts: await deps.library.pendingConflicts(
-            {
-              agentId: run.agentId,
-              kind: "run",
-              runId: run.id,
-              workspaceId: run.workspaceId,
-            },
-            libraryPaths
-          ),
-          paths: libraryPaths,
-          ...(options.libraryLiveForDaemon === true ? { roots } : {}),
-        }
-      : undefined;
+  const library = await claimLibrary(deps, run, agent, options);
 
   const toolRules =
     options.requestsForDaemon === true

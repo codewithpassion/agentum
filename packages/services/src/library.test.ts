@@ -126,7 +126,17 @@ beforeEach(() => {
       workspaceId: A,
     })
     .run();
-  db.insert(agentLibraryAccess).values(["a", "notes"].map(path => ({ agentId: AGENT, workspaceId: A, path, mode: "write" as const, createdAt: START }))).run();
+  db.insert(agentLibraryAccess)
+    .values(
+      ["a", "notes", "skills/a1"].map((path) => ({
+        agentId: AGENT,
+        createdAt: START,
+        mode: "write" as const,
+        path,
+        workspaceId: A,
+      }))
+    )
+    .run();
   db.insert(sessionRows)
     .values({
       actorId: "u1",

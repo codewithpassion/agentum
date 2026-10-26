@@ -1,11 +1,11 @@
-import { agentGrants } from "../library/access.ts";
-import { librarySyncScope } from "../library/sync-paths.ts";
 import type { Database } from "@repo/db";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { and, eq } from "drizzle-orm";
 import { agentPrompt } from "../agent-prompt.ts";
 import { type AgentRecord, handsToNames } from "../agents.ts";
 import { buildMcpServers } from "../connectors/mcp-servers.ts";
+import { agentGrants } from "../library/access.ts";
+import { librarySyncScope } from "../library/sync-paths.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
 import type { AdapterDeps, RunRecord, RuntimeAdapter } from "../runs/types.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
@@ -76,8 +76,13 @@ export const createCloudRuntime = ({
         runtimeConfig: agent.runtimeConfig,
         slug: agent.slug,
       },
-      library: { roots: librarySyncScope(agent.slug, await agentGrants(db, run.workspaceId, agent.id)) },
       inputFileIds: run.inputFileIds,
+      library: {
+        roots: librarySyncScope(
+          agent.slug,
+          await agentGrants(db, run.workspaceId, agent.id)
+        ),
+      },
       mcpServers: buildMcpServers({
         connectors: assigned,
         platformUrl,

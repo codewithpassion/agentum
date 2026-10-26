@@ -358,7 +358,9 @@ test("create and update keep legacy library paths without validation", async () 
   });
   expect(updated.runtimeConfig).toEqual({ libraryPaths: ["notes/"] });
 
-  const legacy = await service.update(user, agent.id, { runtimeConfig: { libraryPaths: "ignored" } });
+  const legacy = await service.update(user, agent.id, {
+    runtimeConfig: { libraryPaths: "ignored" },
+  });
   expect(legacy.runtimeConfig.libraryPaths).toBe("ignored");
 
   // The key is allowed for every runtime, not only the cloud.

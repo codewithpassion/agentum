@@ -17,6 +17,7 @@ import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { libraryEntries, libraryVersions } from "@repo/db/schema/library";
+import type { LibraryAccessGrant } from "@repo/db/shared";
 import {
   LIBRARY_FILE_MAX_BYTES,
   LIBRARY_MAX_BYTES,
@@ -29,9 +30,8 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { agentGrants } from "./library/access.ts";
-import { librarySyncScope } from "./library/sync-paths.ts";
-import type { LibraryAccessGrant } from "@repo/db/shared";
 import { ancestorsOf, normalizePath, parentOf } from "./library/path.ts";
+import { librarySyncScope } from "./library/sync-paths.ts";
 import {
   compareVersionBytes,
   createVersionStore,
@@ -112,13 +112,20 @@ const requireWriter = (principal: Principal, action: string): Member => {
 };
 
 type AccessMember = Member & { scope?: LibraryAccessGrant[] };
-const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
+const within = (path: string, root: string) =>
+  path === root || path.startsWith(`${root}/`);
 const canWriteAt = (member: AccessMember, path: string): boolean =>
-  member.kind === "user" || (member.scope ?? []).some(root => root.mode === "write" && within(path, root.path));
+  member.kind === "user" ||
+  (member.scope ?? []).some(
+    (root) => root.mode === "write" && within(path, root.path)
+  );
 // Ancestors are traversable so nested grants can be discovered; list filters siblings.
 const canReadAt = (member: AccessMember, path: string): boolean =>
-  member.kind === "user" || path === "" || (member.scope ?? []).some(root =>
-    within(path, root.path) || within(root.path, path));
+  member.kind === "user" ||
+  path === "" ||
+  (member.scope ?? []).some(
+    (root) => within(path, root.path) || within(root.path, path)
+  );
 
 const actorOf = (member: Member): { id: string; kind: "agent" | "user" } =>
   member.kind === "user"
@@ -138,7 +145,11 @@ const underFolder = (workspaceId: string, path: string) =>
   );
 
 /** The paths of a move: neither is the root, neither holds the other, the member may write both. */
-const checkMovePaths = (member: AccessMember, from: string, to: string): void => {
+const checkMovePaths = (
+  member: AccessMember,
+  from: string,
+  to: string
+): void => {
   if (from === ROOT || to === ROOT) {
     throw invalid("The library root cannot be moved");
   }
@@ -179,10 +190,22 @@ export const createLibraryService = ({
       return member;
     }
     const [[agent], grants] = await Promise.all([
-      db.select({ slug: agents.slug }).from(agents).where(and(eq(agents.id, member.agentId), eq(agents.workspaceId, member.workspaceId))).limit(1),
+      db
+        .select({ slug: agents.slug })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.id, member.agentId),
+            eq(agents.workspaceId, member.workspaceId)
+          )
+        )
+        .limit(1),
       agentGrants(db, member.workspaceId, member.agentId),
     ]);
-    return { ...member, scope: agent ? librarySyncScope(agent.slug, grants) : [] };
+    return {
+      ...member,
+      scope: agent ? librarySyncScope(agent.slug, grants) : [],
+    };
   };
 
   /** Runs after the commit, so a failing listener must not fail the change. */
@@ -231,13 +254,17 @@ export const createLibraryService = ({
     const member = await historyMember(principal, "library.read");
     // History is newest first and remains readable after deletion.
     const path = normalizePath(rawPath);
-    if (!canReadAt(member, path)) { throw notFound(); }
+    if (!canReadAt(member, path)) {
+      throw notFound();
+    }
     return await history.list(member.workspaceId, path);
   };
   const readVersion = async (principal: Principal, id: string) => {
     const member = await historyMember(principal, "library.read");
     const version = await history.get(member.workspaceId, id);
-    if (!canReadAt(member, version.path)) { throw notFound(); }
+    if (!canReadAt(member, version.path)) {
+      throw notFound();
+    }
     return await history.read(member.workspaceId, id);
   };
   const compare = async (principal: Principal, a: string, b: string) => {
@@ -357,13 +384,17 @@ export const createLibraryService = ({
     principal: Principal,
     dir: string
   ): Promise<LibraryEntry[]> => {
-    const member = await resolveMember(requireMember(principal, "library.list"));
+    const member = await resolveMember(
+      requireMember(principal, "library.list")
+    );
     authorize(member, "library.list", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
     });
     const path = normalizePath(dir);
-    if (!canReadAt(member, path)) { throw notFound(); }
+    if (!canReadAt(member, path)) {
+      throw notFound();
+    }
     if (path !== ROOT) {
       const folder = await entryAt(member.workspaceId, path);
       if (folder?.kind !== "dir") {
@@ -380,7 +411,7 @@ export const createLibraryService = ({
         )
       )
       .orderBy(asc(libraryEntries.path));
-    return rows.filter(row => canReadAt(member, row.path)).map(toEntry);
+    return rows.filter((row) => canReadAt(member, row.path)).map(toEntry);
   };
 
   /** The root has no row. It reads as an empty-handed folder dated at the epoch. */
@@ -388,13 +419,17 @@ export const createLibraryService = ({
     principal: Principal,
     rawPath: string
   ): Promise<LibraryEntry> => {
-    const member = await resolveMember(requireMember(principal, "library.stat"));
+    const member = await resolveMember(
+      requireMember(principal, "library.stat")
+    );
     authorize(member, "library.stat", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
     });
     const path = normalizePath(rawPath);
-    if (!canReadAt(member, path)) { throw notFound(); }
+    if (!canReadAt(member, path)) {
+      throw notFound();
+    }
     if (path === ROOT) {
       return {
         etag: null,
@@ -416,13 +451,17 @@ export const createLibraryService = ({
     principal: Principal,
     rawPath: string
   ): Promise<{ bytes: Uint8Array; entry: LibraryEntry }> => {
-    const member = await resolveMember(requireMember(principal, "library.read"));
+    const member = await resolveMember(
+      requireMember(principal, "library.read")
+    );
     authorize(member, "library.read", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
     });
     const path = normalizePath(rawPath);
-    if (!canReadAt(member, path)) { throw notFound(); }
+    if (!canReadAt(member, path)) {
+      throw notFound();
+    }
     const row = await entryAt(member.workspaceId, path);
     if (!row) {
       throw notFound();
@@ -451,7 +490,9 @@ export const createLibraryService = ({
     options: { ifEtag?: string } = {},
     op: "write" | "restore" = "write"
   ): Promise<LibraryEntry> => {
-    const member = await resolveMember(requireWriter(principal, "library.write"));
+    const member = await resolveMember(
+      requireWriter(principal, "library.write")
+    );
     authorize(member, "library.write", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
@@ -545,7 +586,9 @@ export const createLibraryService = ({
     principal: Principal,
     rawPath: string
   ): Promise<LibraryEntry> => {
-    const member = await resolveMember(requireWriter(principal, "library.mkdir"));
+    const member = await resolveMember(
+      requireWriter(principal, "library.mkdir")
+    );
     authorize(member, "library.mkdir", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
@@ -578,7 +621,9 @@ export const createLibraryService = ({
     rawPath: string,
     options: { recursive?: boolean } = {}
   ): Promise<void> => {
-    const member = await resolveMember(requireWriter(principal, "library.delete"));
+    const member = await resolveMember(
+      requireWriter(principal, "library.delete")
+    );
     authorize(member, "library.delete", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
@@ -738,7 +783,9 @@ export const createLibraryService = ({
     rawFrom: string,
     rawTo: string
   ): Promise<LibraryEntry> => {
-    const member = await resolveMember(requireWriter(principal, "library.move"));
+    const member = await resolveMember(
+      requireWriter(principal, "library.move")
+    );
     authorize(member, "library.move", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
@@ -823,7 +870,9 @@ export const createLibraryService = ({
     principal: Principal,
     roots: readonly string[]
   ): Promise<string[]> => {
-    const member = await resolveMember(requireMember(principal, "library.list"));
+    const member = await resolveMember(
+      requireMember(principal, "library.list")
+    );
     authorize(member, "library.list", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
@@ -855,7 +904,9 @@ export const createLibraryService = ({
       )
       .orderBy(asc(libraryEntries.path));
     const access = await resolveMember(member);
-    return rows.map((row) => row.path).filter((path) => canReadAt(access, path) && isConflictPath(path));
+    return rows
+      .map((row) => row.path)
+      .filter((path) => canReadAt(access, path) && isConflictPath(path));
   };
 
   /**

@@ -615,6 +615,13 @@ describe("the bash tool", () => {
     });
     expect(wrote.structuredContent).toMatchObject({ exitCode: 0 });
 
+    // A run sees only its home, the wiki and its grants.
+    await composed.services.libraryAccess.setGrant(
+      sessionUser("u1"),
+      agentA,
+      "notes",
+      "read"
+    );
     addRun({ agentId: agentA, id: "run_bash", onBehalfOfUserId: "u1" });
     const token = await runToken("run_bash", agentA);
     const found = await callTool(token, "bash", {

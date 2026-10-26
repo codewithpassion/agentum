@@ -1,4 +1,3 @@
-import { agentLibraryAccess } from "@repo/db/schema/library";
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import {
@@ -6,6 +5,7 @@ import {
   connectors as connectorRows,
 } from "@repo/db/schema/connectors";
 import { events as eventRows } from "@repo/db/schema/events";
+import { agentLibraryAccess } from "@repo/db/schema/library";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { slackApps } from "@repo/db/schema/slack";
@@ -609,7 +609,13 @@ test("a claim uses grants and ignores legacy runtime paths", async () => {
     runtime: "machine",
     runtimeConfig: { libraryPaths: ["docs", "agents/crate/inner"] },
   });
-  await db.insert(agentLibraryAccess).values({ agentId: configured.id, workspaceId: user.workspaceId, path: "docs", mode: "write", createdAt: clock.now().toISOString() });
+  await db.insert(agentLibraryAccess).values({
+    agentId: configured.id,
+    createdAt: clock.now().toISOString(),
+    mode: "write",
+    path: "docs",
+    workspaceId: user.workspaceId,
+  });
   const bytes = new TextEncoder().encode("x");
   await library.write(user, "docs/b.md.conflict-r4", bytes);
   await library.write(user, "elsewhere/c.md.conflict-r5", bytes);
@@ -627,7 +633,10 @@ test("a claim with no conflicts lists none", async () => {
 
   const claimed = await claimWith(service, agentId);
 
-  expect(claimed.library).toEqual({ conflicts: [], paths: ["agents/box", "wiki"] });
+  expect(claimed.library).toEqual({
+    conflicts: [],
+    paths: ["agents/box", "wiki"],
+  });
 });
 
 test("an agent with an installed Slack app gets the Slack line, and one without does not", async () => {
@@ -661,10 +670,26 @@ test("machine claim composes voice and hands to before Slack guidance", async ()
 
 test("library-live claims carry modes, legacy claims keep paths only", async () => {
   const { service } = runsWithLibrary();
-  await db.insert(agentLibraryAccess).values({ agentId, workspaceId: user.workspaceId, path: "docs", mode: "read", createdAt: clock.now().toISOString() });
+  await db.insert(agentLibraryAccess).values({
+    agentId,
+    createdAt: clock.now().toISOString(),
+    mode: "read",
+    path: "docs",
+    workspaceId: user.workspaceId,
+  });
   const started = await start(agentId);
-  const claimed = await service.claimRunForMachine(machine("m1"), started.runId, { libraryLiveForDaemon: true, platformUrl: PLATFORM });
-  expect(claimed.library).toEqual({ conflicts: [], paths: ["agents/box", "wiki", "docs"], roots: [
-    { path: "agents/box", mode: "write" }, { path: "wiki", mode: "read" }, { path: "docs", mode: "read" }
-  ] });
+  const claimed = await service.claimRunForMachine(
+    machine("m1"),
+    started.runId,
+    { libraryLiveForDaemon: true, platformUrl: PLATFORM }
+  );
+  expect(claimed.library).toEqual({
+    conflicts: [],
+    paths: ["agents/box", "wiki", "docs"],
+    roots: [
+      { mode: "write", path: "agents/box" },
+      { mode: "read", path: "wiki" },
+      { mode: "read", path: "docs" },
+    ],
+  });
 });

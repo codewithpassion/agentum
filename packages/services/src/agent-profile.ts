@@ -24,8 +24,8 @@ import type { AgentRecord, AgentsService } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import type { ConnectorsService } from "./connectors.ts";
 import { ServiceError } from "./errors.ts";
-import { agentHomePath } from "./library/home.ts";
 import { agentGrants } from "./library/access.ts";
+import { agentHomePath } from "./library/home.ts";
 import type { MachinesService } from "./machines.ts";
 import type { RequestsService } from "./requests.ts";
 import type { RoutinesService } from "./routines.ts";
@@ -399,7 +399,11 @@ export const createAgentProfileService = ({
           { access: "write", home: true, path: agentHomePath(agent.slug) },
           { access: "read", home: false, path: "wiki" },
           ...(await agentGrants(db, user.workspaceId, agent.id)).map(
-            ({ path, mode }): ProfileFolder => ({ access: mode, home: false, path })
+            ({ path, mode }): ProfileFolder => ({
+              access: mode,
+              home: false,
+              path,
+            })
           ),
         ],
       },

@@ -71,7 +71,16 @@ describe("librarySyncRoots", () => {
 });
 
 test("scope preserves nested write exceptions", () => {
-  expect(librarySyncScope("ada", [{ path: "docs", mode: "read" }, { path: "docs/api", mode: "read" }, { path: "docs/edit", mode: "write" }])).toEqual([
-    { path: "agents/ada", mode: "write" }, { path: "wiki", mode: "read" }, { path: "docs", mode: "read" }, { path: "docs/edit", mode: "write" }
+  expect(
+    librarySyncScope("ada", [
+      { mode: "read", path: "docs" },
+      { mode: "read", path: "docs/api" },
+      { mode: "write", path: "docs/edit" },
+    ])
+  ).toEqual([
+    { mode: "write", path: "agents/ada" },
+    { mode: "read", path: "wiki" },
+    { mode: "read", path: "docs" },
+    { mode: "write", path: "docs/edit" },
   ]);
 });

@@ -2,13 +2,11 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
-import { libraryEntries } from "@repo/db/schema/library";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
-import { LIBRARY_FILE_MAX_BYTES, LIBRARY_MAX_BYTES } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
-import { asc, eq } from "drizzle-orm";
+import { asc } from "drizzle-orm";
 import { ForbiddenError } from "./authz.ts";
 import { createEventsService } from "./events.ts";
 import {
@@ -49,37 +47,9 @@ let blobs: MemoryLibraryBlobs;
 let service: ReturnType<typeof createLibraryService>;
 
 const bytes = (value: string) => new TextEncoder().encode(value);
-const decode = (value: Uint8Array) => new TextDecoder().decode(value);
-
-/** The error a promise rejects with, or null when it resolves. */
-const errorOf = (promise: Promise<unknown>): Promise<unknown> =>
-  promise.then(
-    () => null,
-    (caught: unknown) => caught
-  );
-
-const rows = (workspaceId = A) =>
-  db
-    .select()
-    .from(libraryEntries)
-    .where(eq(libraryEntries.workspaceId, workspaceId))
-    .orderBy(asc(libraryEntries.path))
-    .all();
-
-const paths = (workspaceId = A) => rows(workspaceId).map((row) => row.path);
 
 const libraryEvents = () =>
   db.select().from(eventRows).orderBy(asc(eventRows.id)).all();
-
-/** Each file holds its own path as content. */
-const writeAll = (list: string[]) =>
-  Promise.all(list.map((path) => service.write(user(), path, bytes(path))));
-
-// These assertions cover live objects; immutable history is tested in library-versions.test.ts.
-const keys = () =>
-  [...blobs.objects.keys()]
-    .filter((key) => !key.includes("/library-versions/"))
-    .sort();
 
 beforeEach(() => {
   notified = [];
@@ -156,48 +126,130 @@ beforeEach(() => {
 
 test("runs use home, wiki and grants; denied paths and history are hidden", async () => {
   const { createLibraryAccessService } = await import("./library/access.ts");
-  const access = createLibraryAccessService({ db, atomic: sqliteAtomic(db), clock: systemClock, events: createEventsService({ db, blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() } }) });
+  const access = createLibraryAccessService({
+    atomic: sqliteAtomic(db),
+    clock: systemClock,
+    db,
+    events: createEventsService({
+      blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+      db,
+    }),
+  });
   await access.setGrant(user(), AGENT, "/shared/read/", "read");
   await access.setGrant(user(), AGENT, "shared/write", "write");
-  for (const path of ["agents/agent/a", "wiki/a", "shared/read/a", "shared/write/a", "private/a"]) {
+  for (const path of [
+    "agents/agent/a",
+    "wiki/a",
+    "shared/read/a",
+    "shared/write/a",
+    "private/a",
+  ]) {
+    // biome-ignore lint/performance/noAwaitInLoops: each write is its own step
     await service.write(user(), path, bytes(path));
   }
-  for (const path of ["agents/agent/a", "wiki/a", "shared/read/a", "shared/write/a"]) {
+  for (const path of [
+    "agents/agent/a",
+    "wiki/a",
+    "shared/read/a",
+    "shared/write/a",
+  ]) {
+    // biome-ignore lint/performance/noAwaitInLoops: each path is checked in turn
     expect((await service.read(runPrincipal, path)).entry.path).toBe(path);
     expect((await service.stat(runPrincipal, path)).path).toBe(path);
     expect(await service.versions(runPrincipal, path)).toHaveLength(1);
   }
   await service.write(runPrincipal, "agents/agent/new", bytes("home"));
   await service.write(runPrincipal, "shared/write/new", bytes("grant"));
-  for (const path of ["wiki/a", "shared/read/a", "private/a", "agents/agent-two/a"]) {
-    await expect(service.write(runPrincipal, path, bytes("no"))).rejects.toBeInstanceOf(ForbiddenError);
-    await expect(service.remove(runPrincipal, path, { recursive: true })).rejects.toBeInstanceOf(ForbiddenError);
-    await expect(service.mkdir(runPrincipal, path)).rejects.toBeInstanceOf(ForbiddenError);
+  for (const path of [
+    "wiki/a",
+    "shared/read/a",
+    "private/a",
+    "agents/agent-two/a",
+  ]) {
+    // biome-ignore lint/performance/noAwaitInLoops: each path is checked in turn
+    await expect(
+      service.write(runPrincipal, path, bytes("no"))
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      service.remove(runPrincipal, path, { recursive: true })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(service.mkdir(runPrincipal, path)).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
   }
-  await expect(service.read(runPrincipal, "private/a")).rejects.toMatchObject({ code: "not_found" });
-  await expect(service.stat(runPrincipal, "private")).rejects.toMatchObject({ code: "not_found" });
-  await expect(service.versions(runPrincipal, "private/a")).rejects.toMatchObject({ code: "not_found" });
-  await expect(service.list(runPrincipal, "private")).rejects.toMatchObject({ code: "not_found" });
+  await expect(service.read(runPrincipal, "private/a")).rejects.toMatchObject({
+    code: "not_found",
+  });
+  await expect(service.stat(runPrincipal, "private")).rejects.toMatchObject({
+    code: "not_found",
+  });
+  await expect(
+    service.versions(runPrincipal, "private/a")
+  ).rejects.toMatchObject({ code: "not_found" });
+  await expect(service.list(runPrincipal, "private")).rejects.toMatchObject({
+    code: "not_found",
+  });
   const [version] = await service.versions(user(), "private/a");
-  await expect(service.readVersion(runPrincipal, version!.id)).rejects.toMatchObject({ code: "not_found" });
-  expect((await service.list(runPrincipal, "")).map(row => row.path)).not.toContain("private");
-  expect((await service.list(runPrincipal, "shared")).map(row => row.path)).toEqual(["shared/read", "shared/write"]);
-  await expect(service.move(runPrincipal, "shared/read/a", "agents/agent/a")).rejects.toBeInstanceOf(ForbiddenError);
-  await expect(access.setGrant(runPrincipal, AGENT, "private", "write")).rejects.toBeInstanceOf(ForbiddenError);
-  await expect(access.listGrants(user(B), AGENT)).rejects.toMatchObject({ code: "not_found" });
-  await expect(access.setGrant(user(), AGENT, "/", "write")).rejects.toMatchObject({ code: "invalid" });
+  expect(version).toBeDefined();
+  await expect(
+    service.readVersion(runPrincipal, version?.id ?? "")
+  ).rejects.toMatchObject({ code: "not_found" });
+  expect(
+    (await service.list(runPrincipal, "")).map((row) => row.path)
+  ).not.toContain("private");
+  expect(
+    (await service.list(runPrincipal, "shared")).map((row) => row.path)
+  ).toEqual(["shared/read", "shared/write"]);
+  await expect(
+    service.move(runPrincipal, "shared/read/a", "agents/agent/a")
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    access.setGrant(runPrincipal, AGENT, "private", "write")
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(access.listGrants(user(B), AGENT)).rejects.toMatchObject({
+    code: "not_found",
+  });
+  await expect(
+    access.setGrant(user(), AGENT, "/", "write")
+  ).rejects.toMatchObject({ code: "invalid" });
   await access.removeGrant(user(), AGENT, "shared/read");
-  expect(await access.listGrants(user(), AGENT)).toMatchObject([{ path: "shared/write", mode: "write" }]);
-  expect(libraryEvents().filter(event => event.type === "library.access")).toHaveLength(4);
+  expect(await access.listGrants(user(), AGENT)).toMatchObject([
+    { mode: "write", path: "shared/write" },
+  ]);
+  expect(
+    libraryEvents().filter((event) => event.type === "library.access")
+  ).toHaveLength(4);
 });
 
 test("read-only people cannot mutate files or grants", async () => {
   const { createLibraryAccessService } = await import("./library/access.ts");
-  const access = createLibraryAccessService({ db, atomic: sqliteAtomic(db), clock: systemClock, events: createEventsService({ db, blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() } }) });
-  const reader: Principal = { kind: "user", workspaceId: A, userId: "u1", via: "api_key", apiKey: { id: "key", access: "read" } };
+  const access = createLibraryAccessService({
+    atomic: sqliteAtomic(db),
+    clock: systemClock,
+    db,
+    events: createEventsService({
+      blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+      db,
+    }),
+  });
+  const reader: Principal = {
+    apiKey: { access: "read", id: "key" },
+    kind: "user",
+    userId: "u1",
+    via: "api_key",
+    workspaceId: A,
+  };
   await service.write(user(), "private/a", bytes("ok"));
-  expect((await service.read(reader, "private/a")).entry.path).toBe("private/a");
-  await expect(service.write(reader, "private/a", bytes("no"))).rejects.toBeInstanceOf(ForbiddenError);
-  await expect(access.setGrant(reader, AGENT, "private", "write")).rejects.toBeInstanceOf(ForbiddenError);
-  await expect(access.removeGrant(reader, AGENT, "private")).rejects.toBeInstanceOf(ForbiddenError);
+  expect((await service.read(reader, "private/a")).entry.path).toBe(
+    "private/a"
+  );
+  await expect(
+    service.write(reader, "private/a", bytes("no"))
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    access.setGrant(reader, AGENT, "private", "write")
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    access.removeGrant(reader, AGENT, "private")
+  ).rejects.toBeInstanceOf(ForbiddenError);
 });

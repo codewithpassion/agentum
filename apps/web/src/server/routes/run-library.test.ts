@@ -124,9 +124,11 @@ const claimedRun = async (owner: User, agentId: string) => {
 /** A run in workspace A, for most tests. */
 const runInA = async () => {
   const agentId = await newAgent(userA, "Box");
-  for (const path of ["notes", "fresh", "gone.md", "docs"]) {
-    await composed.services.libraryAccess.setGrant(userA, agentId, path, "write");
-  }
+  await Promise.all(
+    ["notes", "fresh", "gone.md", "docs"].map((path) =>
+      composed.services.libraryAccess.setGrant(userA, agentId, path, "write")
+    )
+  );
   return claimedRun(userA, agentId);
 };
 
@@ -438,7 +440,11 @@ test("a run in workspace B never sees workspace A's files", async () => {
 
 test("an ungranted folder is hidden and cannot be written", async () => {
   const { runId, runToken } = await runInA();
-  await composed.services.library.write(userA, "private/a", TEXT.encode("secret"));
+  await composed.services.library.write(
+    userA,
+    "private/a",
+    TEXT.encode("secret")
+  );
   expect((await readOf(runId, runToken, "private/a")).status).toBe(404);
   expect((await listOf(runId, runToken, "private")).status).toBe(404);
   expect((await writeOf(runId, runToken, "private/a", "no")).status).toBe(403);

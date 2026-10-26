@@ -10,8 +10,8 @@ export interface CloudStart {
     runtimeConfig: Record<string, unknown>;
     slug: string;
   };
-  library?: { roots: import("@repo/db/shared").LibraryAccessGrant[] };
   inputFileIds: string[];
+  library?: { roots: import("@repo/db/shared").LibraryAccessGrant[] };
   mcpServers: Record<string, McpServerEntry>;
   run: {
     agentId: string;

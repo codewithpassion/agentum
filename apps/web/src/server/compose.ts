@@ -1,4 +1,3 @@
-import { createLibraryAccessService, type LibraryAccessService } from "@repo/services/library/access";
 // The composition root. It builds every service from the Worker's bindings and
 // secrets, once per request (and once per minute tick). Kept free of Clerk and
 // `cloudflare:workers` imports so bun can test it: callers pass `env` in.
@@ -60,6 +59,10 @@ import {
   type LibraryBlobs,
   type LibraryService,
 } from "@repo/services/library";
+import {
+  createLibraryAccessService,
+  type LibraryAccessService,
+} from "@repo/services/library/access";
 import { memoryLibraryBlobs } from "@repo/services/library/memory";
 import {
   createLibraryLinksService,
@@ -405,7 +408,12 @@ export const composeWith = ({
     db,
     events,
   });
-  const libraryAccess = createLibraryAccessService({ db, atomic: infra.atomic, clock: infra.clock, events });
+  const libraryAccess = createLibraryAccessService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+  });
   const libraryLinks = createLibraryLinksService({ files, library });
   const skills = createSkillsService({ agents, library });
   const skillsStore = createSkillsStoreService({
