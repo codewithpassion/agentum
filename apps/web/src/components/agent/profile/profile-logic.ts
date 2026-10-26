@@ -1,4 +1,4 @@
-import type { AgentRuntime } from "@repo/db/shared";
+import type { AgentRuntime, MachineStatus } from "@repo/db/shared";
 import { describeCron } from "#/components/routines/describe-cron.ts";
 import type { AgentProfileView } from "#/integrations/trpc/types";
 
@@ -31,6 +31,57 @@ export const runtimeWords = (
     default:
       return "Runs on a test runner";
   }
+};
+
+export interface RuntimeOption {
+  /** True for the runtime the agent has now. */
+  current: boolean;
+  /** "Online" or "Offline" on the current machine runtime, otherwise null. */
+  machineState: string | null;
+  runtime: "managed" | "cloud" | "machine";
+  /** The plain-words description. */
+  text: string;
+  /** "Anthropic cloud", or "Our machine: laptop" when the agent runs on that machine. */
+  title: string;
+}
+
+const MACHINE_STATE_WORDS: Record<MachineStatus, string> = {
+  offline: "Offline",
+  online: "Online",
+  revoked: "Revoked",
+};
+
+/** The three runtimes in plain words, the agent's current one marked. */
+export const runtimeOptions = (
+  runtime: AgentRuntime,
+  machine: { name: string; status: MachineStatus } | null
+): RuntimeOption[] => {
+  const onMachine = runtime === "machine";
+  return [
+    {
+      current: runtime === "managed",
+      machineState: null,
+      runtime: "managed",
+      text: "Managed Agents. Simplest. Has its own sandbox.",
+      title: "Anthropic cloud",
+    },
+    {
+      current: runtime === "cloud",
+      machineState: null,
+      runtime: "cloud",
+      text: "Always on, lowest cost for many small jobs.",
+      title: "Cloudflare",
+    },
+    {
+      current: onMachine,
+      machineState:
+        onMachine && machine ? MACHINE_STATE_WORDS[machine.status] : null,
+      runtime: "machine",
+      text: "Claude Code on that machine. Sees local files.",
+      title:
+        onMachine && machine ? `Our machine: ${machine.name}` : "Our machine",
+    },
+  ];
 };
 
 export const statusText = (
