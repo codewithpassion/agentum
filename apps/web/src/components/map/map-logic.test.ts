@@ -45,6 +45,7 @@ function graphOf(nodes: MapNode[], wires: MapWire[] = []): MapGraph {
 
 const EMPTY_CTX = {
   agents: new Map<string, { runtime: AgentRuntime }>(),
+  qaOpenCount: 0,
   runCounts: new Map<string, number>(),
   selectedKey: null,
 };
@@ -94,6 +95,7 @@ test("status text names the runs and the runtime of a known agent", () => {
   const graph = graphOf([agentNode("a1"), agentNode("a2")]);
   const nodes = toFlowNodes(graph, {
     agents: new Map([["a1", { runtime: "managed" }]]),
+    qaOpenCount: 0,
     runCounts: new Map([["a1", 31]]),
     selectedKey: null,
   });
@@ -108,6 +110,7 @@ test("status text uses the singular for one run and the pause text when waiting"
   const graph = graphOf([agentNode("a1"), agentNode("a2", { waiting: true })]);
   const nodes = toFlowNodes(graph, {
     agents: new Map([["a1", { runtime: "machine" }]]),
+    qaOpenCount: 0,
     runCounts: new Map([["a1", 1]]),
     selectedKey: null,
   });
@@ -127,6 +130,7 @@ test("a running agent shows the same run text as an idle one", () => {
   );
   const [node] = toFlowNodes(graph, {
     agents: new Map([["a1", { runtime: "cloud" }]]),
+    qaOpenCount: 0,
     runCounts: new Map([["a1", 2]]),
     selectedKey: null,
   });
@@ -282,6 +286,49 @@ test("an output with no incoming wires reads zero", () => {
   const [node] = toFlowNodes(graph, EMPTY_CTX);
   expect(node?.type === "output" && node.data.detail).toBe("0 emails");
   expect(node?.type === "output" && node.data.subkind).toBe("email");
+});
+
+test("a qa output reads its open question count, not the wire count", () => {
+  const graph = graphOf(
+    [
+      {
+        key: "out:qa:board",
+        kind: "output",
+        label: "Q&A",
+        ports: [],
+        subkind: "qa",
+        x: 0,
+        y: 0,
+      },
+    ],
+    [
+      wire({
+        count7d: 9,
+        from: "agent:a1",
+        kind: "qa",
+        to: "out:qa:board",
+      }),
+    ]
+  );
+  const [node] = toFlowNodes(graph, { ...EMPTY_CTX, qaOpenCount: 3 });
+  expect(node?.type === "output" && node.data.detail).toBe("3 open");
+  expect(node?.type === "output" && node.data.subkind).toBe("qa");
+});
+
+test("a qa output with no open questions reads zero open", () => {
+  const graph = graphOf([
+    {
+      key: "out:qa:board",
+      kind: "output",
+      label: "Q&A",
+      ports: [],
+      subkind: "qa",
+      x: 0,
+      y: 0,
+    },
+  ]);
+  const [node] = toFlowNodes(graph, EMPTY_CTX);
+  expect(node?.type === "output" && node.data.detail).toBe("0 open");
 });
 
 test("toFlowEdges gives each wire an id, a label and its data", () => {

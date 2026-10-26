@@ -15,6 +15,7 @@ import { skillReadTools } from "./tools/skills-read";
 import { skillWriteTools } from "./tools/skills-write";
 import { slackTools } from "./tools/slack";
 import { triggerTools } from "./tools/triggers";
+import { wikiTools } from "./tools/wiki";
 
 export interface ServerOptions {
   browser?: boolean;
@@ -68,7 +69,14 @@ export const harbourmasterTools = (
   ...(readOnly ? [] : agentWriteTools(ports)),
   ...sessionTools(ports),
   ...inboxTools(ports),
-  ...libraryTools(ports),
+  // V4.13 leaves read-only callers unspecified: new writes follow the skills convention.
+  // Keep the existing bash availability unchanged.
+  ...[...libraryTools(ports), ...wikiTools(ports)].filter(
+    (tool) =>
+      !readOnly ||
+      tool.name === "bash" ||
+      tool.annotations.readOnlyHint === true
+  ),
   ...automationTools(ports, readOnly),
   ...skillTools(ports, readOnly),
   ...(readOnly ? [] : slackTools(ports)),
@@ -97,6 +105,10 @@ export const TOOL_NAMES = harbourmasterTools({
   inboxPost: unusedPort,
   inboxRead: unusedPort,
   libraryBash: unusedPort,
+  libraryList: unusedPort,
+  libraryRead: unusedPort,
+  libraryVersions: unusedPort,
+  libraryWrite: unusedPort,
   listAgents: unusedPort,
   listRoutines: unusedPort,
   listSessions: unusedPort,
@@ -118,6 +130,8 @@ export const TOOL_NAMES = harbourmasterTools({
   slackSearch: unusedPort,
   slackSend: unusedPort,
   unassignSkill: unusedPort,
+  wikiRead: unusedPort,
+  wikiSuggestEdit: unusedPort,
 }).map((tool) => tool.name);
 
 /**

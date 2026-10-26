@@ -241,8 +241,11 @@ export const createBrowserService = ({
             throw new ForbiddenError("browser.action");
           }
           const bytes = await page.screenshot();
+          // Read on the same connection, so the caller learns which page the image shows.
+          const { url: pageUrl } = await page.snapshot();
           const path = `${taskFolderPath(slug, principal.runId)}/screenshot-${clock.now().getTime()}-${crypto.randomUUID()}.png`;
-          return library.write(principal, path, bytes);
+          const entry = await library.write(principal, path, bytes);
+          return { bytes, entry, pageUrl };
         }
       ),
     snapshot: (principal: Principal) =>

@@ -127,6 +127,10 @@ const failingPorts = (error: Error): McpPorts => ({
   inboxPost: () => Promise.reject(error),
   inboxRead: () => Promise.reject(error),
   libraryBash: () => Promise.reject(error),
+  libraryList: () => Promise.reject(error),
+  libraryRead: () => Promise.reject(error),
+  libraryVersions: () => Promise.reject(error),
+  libraryWrite: () => Promise.reject(error),
   listAgents: () => Promise.reject(error),
   listRoutines: () => Promise.reject(error),
   listSessions: () => Promise.reject(error),
@@ -148,6 +152,8 @@ const failingPorts = (error: Error): McpPorts => ({
   slackSearch: () => Promise.reject(error),
   slackSend: () => Promise.reject(error),
   unassignSkill: () => Promise.reject(error),
+  wikiRead: () => Promise.reject(error),
+  wikiSuggestEdit: () => Promise.reject(error),
 });
 
 /** Ports that answer what a test needs and reject any other call. */
@@ -168,6 +174,10 @@ const fakePorts = (overrides: Partial<McpPorts>): McpPorts => ({
   inboxPost: uncalled("inboxPost"),
   inboxRead: uncalled("inboxRead"),
   libraryBash: uncalled("libraryBash"),
+  libraryList: uncalled("libraryList"),
+  libraryRead: uncalled("libraryRead"),
+  libraryVersions: uncalled("libraryVersions"),
+  libraryWrite: uncalled("libraryWrite"),
   listAgents: uncalled("listAgents"),
   listRoutines: uncalled("listRoutines"),
   listSessions: uncalled("listSessions"),
@@ -189,6 +199,8 @@ const fakePorts = (overrides: Partial<McpPorts>): McpPorts => ({
   slackSearch: uncalled("slackSearch"),
   slackSend: uncalled("slackSend"),
   unassignSkill: uncalled("unassignSkill"),
+  wikiRead: uncalled("wikiRead"),
+  wikiSuggestEdit: uncalled("wikiSuggestEdit"),
   ...overrides,
 });
 
@@ -233,6 +245,12 @@ const ALL_TOOLS = [
   "inbox_read",
   "inbox_post",
   "bash",
+  "library_list",
+  "library_read",
+  "library_write",
+  "library_versions",
+  "wiki_read",
+  "wiki_suggest_edit",
 ];
 
 /** One valid call per real tool, used by the failure tests. */
@@ -248,6 +266,12 @@ const CALLS: [string, Record<string, unknown>][] = [
   ["inbox_read", { threadId: "thr_1" }],
   ["inbox_post", { text: "hi", threadId: "thr_1" }],
   ["bash", { script: "ls" }],
+  ["library_list", {}],
+  ["library_read", { path: "tasks/t1/file" }],
+  ["library_write", { content: "new", path: "tasks/t1/file" }],
+  ["library_versions", { path: "tasks/t1/file" }],
+  ["wiki_read", { path: "wiki/start.md" }],
+  ["wiki_suggest_edit", { body: "new", path: "wiki/start.md", summary: "Fix" }],
 ];
 
 describe("tools/list", () => {

@@ -20,6 +20,11 @@ import {
   type ApiKeysService,
   createApiKeysService,
 } from "@repo/services/api-keys";
+import {
+  type BrowserDriver,
+  type BrowserService,
+  createBrowserService,
+} from "@repo/services/browser";
 import { createCloudRuntime } from "@repo/services/cloud/runtime";
 import type { CloudRunnerPort } from "@repo/services/cloud/types";
 import {
@@ -202,6 +207,7 @@ import {
 } from "@repo/services/wiki/suggestions";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
+import { browserRunDriver } from "./browser-run.ts";
 import { clerkPeople } from "./clerk-people.ts";
 import { libraryNotifier } from "./library-notifier.ts";
 import { type MailEnv, mailInfra } from "./mail-infra.ts";
@@ -225,6 +231,8 @@ import { clerkSlackDirectory } from "./slack-directory.ts";
 export interface Infra {
   atomic: Atomic;
   blobs: Blobs;
+  /** Drives the agents' browser: Browser Run in the app. Without it, browser tools answer "unavailable". */
+  browserDriver?: BrowserDriver;
   clock: Clock;
   /** Starts and stops the work of a cloud run. Without it, `cloud` agents cannot run. */
   cloudRunner?: CloudRunnerPort;
@@ -275,6 +283,7 @@ export interface Services {
   agentProfile: AgentProfileService;
   agents: AgentsService;
   apiKeys: ApiKeysService;
+  browser: BrowserService;
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
   credentials: CredentialsService;
@@ -320,6 +329,8 @@ export interface Composed {
   atomic: Atomic;
   clock: Clock;
   db: Database;
+  /** The machine relay, for the computer tools of a run: they act per machine, not through a service. */
+  relay: MachineRelayPort;
   services: Services;
 }
 
@@ -327,6 +338,7 @@ export interface Composed {
 export type ComposeEnv = Pick<
   Env,
   | "ALLOWED_ORG_IDS"
+  | "BROWSER"
   | "CLERK_SECRET_KEY"
   | "DB"
   | "FILES"
@@ -354,6 +366,12 @@ const noGateway: ManagedServiceOptions["gatewayFor"] = () => {
 const noopPoller: ManagedPollerPort = {
   cancel: () => Promise.resolve(),
   kick: () => Promise.resolve(),
+};
+
+/** The browser of a deployment with no Browser Run: every action answers "unavailable". */
+const noBrowserDriver: BrowserDriver = {
+  connect: () => Promise.reject(new Error("No browser is configured.")),
+  launch: () => Promise.reject(new Error("No browser is configured.")),
 };
 
 /** A directory that knows nobody: every unknown Slack sender stays unlinked. */
@@ -456,6 +474,14 @@ export const composeWith = ({
       relay: infra.relay,
       runner: infra.cloudRunner,
     }),
+  });
+  const browser = createBrowserService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    driver: infra.browserDriver ?? noBrowserDriver,
+    events,
+    library,
   });
   const wiki = createWikiService({ db, library });
   const wikiSuggestions = createWikiSuggestionsService({
@@ -692,7 +718,19 @@ export const composeWith = ({
     people: infra.people,
     requests,
   });
-  const map = createMapService({ clock: infra.clock, db, requests });
+  const map = createMapService({
+    agents,
+    atomic: infra.atomic,
+    clock: infra.clock,
+    connectors,
+    db,
+    events,
+    machines,
+    requests,
+    routines,
+    skillsStore,
+    triggers,
+  });
   // The desk's Needs you logic is shared: the web desk and the desk API read the same items.
   const desk = createDeskService({
     clock: infra.clock,
@@ -742,11 +780,13 @@ export const composeWith = ({
     atomic: infra.atomic,
     clock: infra.clock,
     db,
+    relay: infra.relay,
     services: {
       agentBuilder,
       agentProfile,
       agents,
       apiKeys,
+      browser,
       connectorOAuth,
       connectors,
       credentials,
@@ -812,6 +852,7 @@ export const compose = (
     infra: {
       atomic: d1Atomic(db),
       blobs: r2Blobs(env.FILES),
+      browserDriver: browserRunDriver(env.BROWSER),
       clock: systemClock,
       cloudRunner: durableRunnerPort(env.PI_RUN),
       defer,

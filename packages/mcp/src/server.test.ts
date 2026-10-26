@@ -39,6 +39,12 @@ const SLACK_READ_NAMES = [
 const SLACK_WRITE_NAMES = ["slack_send"];
 
 const EXPECTED_NAMES = [
+  "library_list",
+  "library_read",
+  "library_write",
+  "library_versions",
+  "wiki_read",
+  "wiki_suggest_edit",
   "bash",
   "cancel_run",
   "create_routine",
@@ -65,6 +71,10 @@ const EXPECTED_NAMES = [
 ].sort();
 
 const READ_NAMES = [
+  "library_list",
+  "library_read",
+  "library_versions",
+  "wiki_read",
   "get_run",
   "inbox_list",
   "inbox_read",
@@ -98,6 +108,10 @@ const fakePorts: McpPorts = {
   inboxPost: uncalled,
   inboxRead: uncalled,
   libraryBash: uncalled,
+  libraryList: uncalled,
+  libraryRead: uncalled,
+  libraryVersions: uncalled,
+  libraryWrite: uncalled,
   listAgents: uncalled,
   listRoutines: uncalled,
   listSessions: uncalled,
@@ -119,6 +133,8 @@ const fakePorts: McpPorts = {
   slackSearch: uncalled,
   slackSend: uncalled,
   unassignSkill: uncalled,
+  wikiRead: uncalled,
+  wikiSuggestEdit: uncalled,
 };
 
 const withClient = async (

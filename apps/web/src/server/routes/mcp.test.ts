@@ -348,7 +348,7 @@ describe("authentication", () => {
 });
 
 describe("tools with an api key", () => {
-  test("lists the ten platform tools and the list tools for a read key, skill reads included", async () => {
+  test("lists the platform tools and the list tools for a read key, skill, library and wiki reads included", async () => {
     const key = await mintKey("u1", "read");
     const response = await post(key, rpcBody("tools/list", {}));
     const rpc = (await readRpc(response)) as {
@@ -361,6 +361,9 @@ describe("tools with an api key", () => {
       "inbox_list",
       "inbox_post",
       "inbox_read",
+      "library_list",
+      "library_read",
+      "library_versions",
       "list_agents",
       "list_routines",
       "list_sessions",
@@ -372,6 +375,7 @@ describe("tools with an api key", () => {
       "skill_diff",
       "skill_log",
       "skill_show",
+      "wiki_read",
     ]);
   });
 
