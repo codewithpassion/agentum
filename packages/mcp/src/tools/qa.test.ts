@@ -128,7 +128,7 @@ describe("Q&A results", () => {
     expect(textOf(answered)).toContain("a1");
   });
 
-  test("lists with no filter or each valid status and reports an empty board", async () => {
+  test("lists with no filter, each valid status or a cursor and reports an empty board", async () => {
     const received: unknown[] = [];
     const page = { nextCursor: "q1", questions: [QUESTION] };
     const ports = qaPorts({
@@ -138,9 +138,11 @@ describe("Q&A results", () => {
       },
     });
     const results = await Promise.all(
-      [{}, ...QA_STATUSES.map((status) => ({ status }))].map((input) =>
-        callTool(ports, "qa_list", input, { qa: true })
-      )
+      [
+        {},
+        ...QA_STATUSES.map((status) => ({ status })),
+        { cursor: "q0", status: "open" },
+      ].map((input) => callTool(ports, "qa_list", input, { qa: true }))
     );
     for (const result of results) {
       expect(result.isError).toBeFalsy();
@@ -150,10 +152,12 @@ describe("Q&A results", () => {
       });
       expect(textOf(result)).toContain(QUESTION.title);
       expect(textOf(result)).toContain(UNTRUSTED_NOTICE);
+      expect(textOf(result)).toContain('pass cursor "q1"');
     }
     expect(received).toEqual([
       {},
       ...QA_STATUSES.map((status) => ({ status })),
+      { cursor: "q0", status: "open" },
     ]);
     const empty = await callTool(
       qaPorts({
@@ -212,6 +216,8 @@ describe("Q&A validation and failures", () => {
     ["qa_read", { id: "" }],
     ["qa_read", { id: "x".repeat(201) }],
     ["qa_list", { status: "pending" }],
+    ["qa_list", { cursor: "" }],
+    ["qa_list", { cursor: "x".repeat(201) }],
     ...CALLS.map(([name, input]) => [name, { ...input, extra: true }]),
     ...CALLS.map(([name]) => [name, { title: 42 }]),
   ] as [string, Record<string, unknown>][])(
