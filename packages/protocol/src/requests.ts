@@ -2,6 +2,7 @@
 // question a run raises for a person (V1). Browser safe: no drizzle imports.
 
 import {
+  type AgentRuntime,
   APPROVAL_DECISIONS,
   CHOICES_MAX,
   QUESTIONS_MAX,
@@ -63,8 +64,6 @@ export const requestOutcomeSchema = z.discriminatedUnion("status", [
 ]);
 export type RequestOutcome = z.infer<typeof requestOutcomeSchema>;
 
-export type ToolRuntime = "claude_code" | "pi" | "managed";
-
 const BUILTIN_KEYS: Readonly<Record<string, string>> = {
   bash: "bash",
   edit: "edit",
@@ -79,26 +78,39 @@ const BUILTIN_KEYS: Readonly<Record<string, string>> = {
   write: "write",
 };
 
-/** A rule key shared by all runtimes; MCP tool names retain their case. */
+/**
+ * A rule key shared by all runtimes; MCP tool names retain their case. A runtime
+ * that reports the MCP `server` (managed `mcp_tool_use`, or a gate that holds
+ * the original server and tool) gets `<server>/<name>`. Otherwise "machine"
+ * (Claude Code, `mcp__<server>__<tool>`) and "cloud" (Pi, `<server>_<tool>`)
+ * names are split by the known `serverKeys`.
+ */
 export const toolKey = ({
   runtime,
   name,
   server,
   serverKeys = [],
 }: {
-  runtime: ToolRuntime;
+  runtime: AgentRuntime;
   name: string;
   server?: string;
   serverKeys?: readonly string[];
 }): string => {
-  if (runtime === "managed" && server !== undefined) {
+  if (server !== undefined) {
     return `${server}/${name}`;
   }
-  if (runtime !== "managed") {
+  const lower = name.toLowerCase();
+  const builtin = Object.hasOwn(BUILTIN_KEYS, lower)
+    ? BUILTIN_KEYS[lower]
+    : undefined;
+  if (builtin !== undefined) {
+    return builtin;
+  }
+  if (runtime === "machine" || runtime === "cloud") {
     let match: { key: string; prefix: string } | undefined;
     for (const key of serverKeys) {
       const prefix =
-        runtime === "claude_code"
+        runtime === "machine"
           ? `mcp__${key}__`
           : `${key}_`.replaceAll(/[^A-Za-z0-9_-]/g, "_");
       if (
@@ -115,10 +127,7 @@ export const toolKey = ({
       return `${match.key}/${name.slice(match.prefix.length)}`;
     }
   }
-  const lower = name.toLowerCase();
-  return Object.hasOwn(BUILTIN_KEYS, lower)
-    ? (BUILTIN_KEYS[lower] ?? lower)
-    : lower;
+  return lower;
 };
 
 /** Registered by cloud and managed runtimes without a schema library adapter. */
@@ -140,11 +149,11 @@ export const ASK_USER_TOOL = {
     type: "object",
   },
   name: "ask_user",
-};
+} as const;
 
-export const isAskUserCall = (runtime: ToolRuntime, name: string): boolean =>
-  name === "ask_user" ||
-  (runtime === "claude_code" && name === "AskUserQuestion");
+/** `machine` runs Claude Code, whose own question tool is `AskUserQuestion`. */
+export const isAskUserCall = (runtime: AgentRuntime, name: string): boolean =>
+  name === "ask_user" || (runtime === "machine" && name === "AskUserQuestion");
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -210,7 +219,7 @@ export const outcomeText = (
   throw new TypeError(`Answer does not match request kind: ${kind}`);
 };
 
-/** Filter Claude Code's answers map to questions actually asked by this call. */
+/** Filter Claude Code's answers map to questions actually asked by this call. Multi-select answers arrive already joined with ", " (the answer schema holds strings), so this passes them through. */
 export const askUserQuestionAnswers = (
   input: unknown,
   answer: QuestionAnswer

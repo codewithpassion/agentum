@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { AgentRuntime } from "@repo/db/shared";
 import {
   ASK_USER_TOOL,
   approvalAnswerSchema,
@@ -11,7 +12,6 @@ import {
   questionDisplaySchema,
   questionSchema,
   requestOutcomeSchema,
-  type ToolRuntime,
   toolKey,
 } from "./requests.ts";
 
@@ -164,7 +164,7 @@ describe("toolKey", () => {
       web_search: ["WebSearch", "web_search"],
       write: ["Write", "write"],
     };
-    const runtimes: ToolRuntime[] = ["claude_code", "pi", "managed"];
+    const runtimes: AgentRuntime[] = ["machine", "cloud", "managed", "fake"];
     for (const runtime of runtimes) {
       for (const [key, names] of Object.entries(aliases)) {
         for (const name of names) {
@@ -179,34 +179,42 @@ describe("toolKey", () => {
     expect(
       toolKey({
         name: "mcp__github__create_issue",
-        runtime: "claude_code",
+        runtime: "machine",
         serverKeys: ["github"],
       })
     ).toBe("github/create_issue");
     expect(
       toolKey({
         name: "github_create_issue",
-        runtime: "pi",
+        runtime: "cloud",
         serverKeys: ["github"],
       })
     ).toBe("github/create_issue");
+    for (const runtime of ["machine", "cloud", "managed", "fake"] as const) {
+      expect(toolKey({ name: "create_issue", runtime, server: "github" })).toBe(
+        "github/create_issue"
+      );
+    }
+  });
+
+  test("checks built-in names before splitting, so a server key cannot shadow them", () => {
     expect(
-      toolKey({ name: "create_issue", runtime: "managed", server: "github" })
-    ).toBe("github/create_issue");
+      toolKey({ name: "run_script", runtime: "cloud", serverKeys: ["run"] })
+    ).toBe("run_script");
   });
 
   test("prefers the longest known server key, including underscores", () => {
     expect(
       toolKey({
         name: "my_server_create_issue",
-        runtime: "pi",
+        runtime: "cloud",
         serverKeys: ["my", "my_server"],
       })
     ).toBe("my_server/create_issue");
     expect(
       toolKey({
         name: "mcp__my__server__Read",
-        runtime: "claude_code",
+        runtime: "machine",
         serverKeys: ["my", "my__server"],
       })
     ).toBe("my__server/Read");
@@ -216,25 +224,25 @@ describe("toolKey", () => {
     expect(
       toolKey({
         name: "my_server_create_issue",
-        runtime: "pi",
+        runtime: "cloud",
         serverKeys: ["my.server"],
       })
     ).toBe("my.server/create_issue");
     const name = `github_${"a".repeat(80)}`.slice(0, 64);
-    expect(toolKey({ name, runtime: "pi", serverKeys: ["github"] })).toBe(
+    expect(toolKey({ name, runtime: "cloud", serverKeys: ["github"] })).toBe(
       `github/${"a".repeat(57)}`
     );
   });
 
   test("does not guess unknown servers or accept empty tool suffixes", () => {
-    expect(toolKey({ name: "mcp__Other__Read", runtime: "claude_code" })).toBe(
+    expect(toolKey({ name: "mcp__Other__Read", runtime: "machine" })).toBe(
       "mcp__other__read"
     );
     expect(
-      toolKey({ name: "other_Read", runtime: "pi", serverKeys: ["github"] })
+      toolKey({ name: "other_Read", runtime: "cloud", serverKeys: ["github"] })
     ).toBe("other_read");
     expect(
-      toolKey({ name: "github_", runtime: "pi", serverKeys: ["github"] })
+      toolKey({ name: "github_", runtime: "cloud", serverKeys: ["github"] })
     ).toBe("github_");
   });
 });
@@ -260,11 +268,11 @@ describe("ask_user tool", () => {
   });
 
   test("recognises ask_user everywhere and AskUserQuestion only in Claude Code", () => {
-    const runtimes: ToolRuntime[] = ["claude_code", "pi", "managed"];
+    const runtimes: AgentRuntime[] = ["machine", "cloud", "managed", "fake"];
     for (const runtime of runtimes) {
       expect(isAskUserCall(runtime, "ask_user")).toBe(true);
       expect(isAskUserCall(runtime, "AskUserQuestion")).toBe(
-        runtime === "claude_code"
+        runtime === "machine"
       );
       expect(isAskUserCall(runtime, "bash")).toBe(false);
     }
