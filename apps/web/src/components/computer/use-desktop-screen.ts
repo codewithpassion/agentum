@@ -115,7 +115,13 @@ export function useDesktopScreen(machineId: string): DesktopScreen {
             setHasFrame(false);
           }
         },
-        onStatus: setStatus,
+        onStatus: (next) => {
+          setStatus(next);
+          // Control is back, so an error about losing it no longer applies.
+          if (next.youHaveControl) {
+            setInputError(null);
+          }
+        },
       },
       url: streamUrl({
         host: window.location.host,

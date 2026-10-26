@@ -42,7 +42,7 @@ function ControlBar({
 }: {
   busy: boolean;
   onCopy: () => void;
-  onHandBack: (note: string) => Promise<void>;
+  onHandBack: (note: string) => Promise<boolean>;
 }) {
   const noteId = useId();
   const [finishing, setFinishing] = useState(false);
@@ -54,9 +54,10 @@ function ControlBar({
     []
   );
   const handBack = useCallback(async () => {
-    await onHandBack(note.trim());
-    setNote("");
-    setFinishing(false);
+    if (await onHandBack(note.trim())) {
+      setNote("");
+      setFinishing(false);
+    }
   }, [note, onHandBack]);
   return (
     <div className="flex flex-col gap-2">
@@ -177,14 +178,17 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /** Runs a request with the busy and error state. False when it failed. */
   const run = useCallback(async (task: () => Promise<void>) => {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       await task();
+      return true;
     } catch (cause) {
       setError(errorMessage(cause));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -208,6 +212,8 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
     surface: surfaceRef,
   });
 
+  const { releaseButtons } = input;
+
   const take = useCallback(
     () =>
       run(async () => {
@@ -220,11 +226,11 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
   const handBack = useCallback(
     (note: string) =>
       run(async () => {
-        input.releaseButtons();
+        releaseButtons();
         flushInput({ dropMoves: true });
         await takeover?.handBack(note);
       }),
-    [flushInput, input, run, takeover]
+    [flushInput, releaseButtons, run, takeover]
   );
 
   const cancel = useCallback(
