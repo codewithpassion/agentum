@@ -347,7 +347,7 @@ test("the conflicts route appends a library.conflict event with the run id", asy
   const { runId, runToken } = await runInA();
 
   const res = await conflictOf(runId, runToken, {
-    conflictPath: "/notes/a (conflict).md",
+    conflictPath: `/notes/a.md.conflict-${runId}`,
     path: "notes/a.md",
   });
   expect(res.status).toBe(200);
@@ -360,7 +360,7 @@ test("the conflicts route appends a library.conflict event with the run id", asy
     .all();
   expect(event?.runId).toBe(runId);
   expect(JSON.parse(event?.payload ?? "null")).toEqual({
-    conflictPath: "notes/a (conflict).md",
+    conflictPath: `notes/a.md.conflict-${runId}`,
     path: "notes/a.md",
     runId,
   });
