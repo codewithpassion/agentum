@@ -272,3 +272,54 @@ test("a cancelled incident run of an agent without the ingest token posts nothin
 
   expect(posted).toEqual([]);
 });
+
+/** A trigger run that the system claims, then ends `done`, with the tool results it printed first. */
+const finishTriggerRun = async (requestId: string, outputs: string[]) => {
+  const system: Principal = { kind: "system" };
+  const { runId } = await composed.services.runs.startRun(user, {
+    agentId,
+    input: { text: `Investigate incident ${INCIDENT} on billing` },
+    requestId,
+    session: { origin: "trigger" },
+  });
+  await composed.services.runs.claimRun(system, runId);
+  await composed.services.runs.ingestRunEvents(
+    system,
+    runId,
+    outputs.map((output, index) => ({
+      payload: { ok: true, output, toolUseId: `t${index}` },
+      seq: index + 1,
+      type: "tool.result",
+    }))
+  );
+  await composed.services.runs.completeRun(system, runId, {
+    status: "done",
+    text: "ok",
+  });
+  return runId;
+};
+
+test("a trigger run that finished without reporting tells control-plane to escalate", async () => {
+  await grantIngestToken();
+
+  const runId = await finishTriggerRun(
+    "trigger:trg1:apr_01HZX3Y5N7Q9R2T4V6W8A0B1C2",
+    ["step posted"]
+  );
+
+  expect(posted).toHaveLength(1);
+  expect(posted[0]?.body).toMatchObject({
+    payload: { incidentId: INCIDENT, outcome: "escalate", runId },
+    type: "investigation.result",
+  });
+});
+
+test("a trigger run that finished after it reported posts nothing more", async () => {
+  await grantIngestToken();
+
+  await finishTriggerRun("trigger:trg1:apr_01HZX3Y5N7Q9R2T4V6W8A0B1C2", [
+    `reported fixed for ${INCIDENT}: HTTP 202`,
+  ]);
+
+  expect(posted).toEqual([]);
+});
