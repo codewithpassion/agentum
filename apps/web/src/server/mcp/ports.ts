@@ -350,7 +350,6 @@ export const createMcpPorts = ({
           thread: toThreadInfo(view.thread),
         };
       }),
-
     libraryBash: ({ script }) =>
       guarded(async () => {
         const { library } = services;
@@ -376,6 +375,12 @@ export const createMcpPorts = ({
         });
         return result;
       }),
+
+    // V4.21 supplies the real library/wiki adapters in the worker lane.
+    libraryList: () => Promise.reject(new Error("not wired yet")),
+    libraryRead: () => Promise.reject(new Error("not wired yet")),
+    libraryVersions: () => Promise.reject(new Error("not wired yet")),
+    libraryWrite: () => Promise.reject(new Error("not wired yet")),
 
     listAgents: () =>
       guarded(async () =>
@@ -497,5 +502,7 @@ export const createMcpPorts = ({
       guarded(() =>
         services.slackSend.send(principal, { text, threadTs: thread_ts, to })
       ),
+    wikiRead: () => Promise.reject(new Error("not wired yet")),
+    wikiSuggestEdit: () => Promise.reject(new Error("not wired yet")),
   };
 };
