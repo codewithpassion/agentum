@@ -89,7 +89,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 interface RpcCall {
   id: string | number | null;
   method: string | null;
-  /** The body is a batch or not a JSON object with a method, so the proxy cannot say which tool it calls. An empty body (DELETE) is not. */
+  /** The body is a batch, not a JSON object with a method, or has a key a looser parser could read as a protocol key, so the proxy cannot say which tool it calls. An empty body (DELETE) is not. */
   opaque: boolean;
   tool: string | null;
 }

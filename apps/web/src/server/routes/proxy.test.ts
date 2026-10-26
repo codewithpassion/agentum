@@ -1124,7 +1124,7 @@ describe("tool allowlist", () => {
     const bodies = [
       '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","NAME":"shout"}}',
       '{"jsonrpc":"2.0","id":1,"method":"ping","METHOD":"tools/list"}',
-      '{"jsonrpc":"2.0","id":1,"method":"tools/call","paramſ":{"name":"shout"},"params":{"name":"echo"}}',
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo"},"paramſ":{"name":"shout"}}',
     ];
 
     const responses = await Promise.all(

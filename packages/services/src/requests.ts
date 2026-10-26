@@ -20,7 +20,7 @@ import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
-import { redactText, redactToolPayload } from "./events/scrub.ts";
+import { redactToolPayload } from "./events/scrub.ts";
 import type { EventInput, EventsService } from "./events.ts";
 import {
   answerInputSchema,
@@ -29,6 +29,10 @@ import {
   outcomeOf,
   type RequestRow,
   requestRecord,
+  runtimeAnswers,
+  scrubAnswer,
+  scrubbedRecord,
+  scrubText,
 } from "./requests/records.ts";
 import { loadRun } from "./runs/queries.ts";
 import type { Clock, RunRecord } from "./runs/types.ts";
@@ -337,9 +341,20 @@ export const createRequestsService = ({
             toolKey,
             toolName: input.toolName,
           }
-        : (masker?.maskDeep({ questions: input.questions }) ?? {
-            questions: input.questions,
-          });
+        : {
+            questions: input.questions.map((question) => ({
+              ...question,
+              ...(question.choices && {
+                choices: question.choices.map((choice) =>
+                  scrubText(masker, choice)
+                ),
+              }),
+              ...(question.header !== undefined && {
+                header: scrubText(masker, question.header),
+              }),
+              question: scrubText(masker, question.question),
+            })),
+          };
     const now = clock.now();
     const [row] = await db
       .insert(runRequests)
@@ -353,6 +368,11 @@ export const createRequestsService = ({
         ).toISOString(),
         id: ulid(),
         kind: input.kind,
+        // The runtime's own question texts; answers come back keyed by them.
+        questionKeys:
+          input.kind === "question"
+            ? JSON.stringify(input.questions.map(({ question }) => question))
+            : null,
         runId: run.id,
         sessionId: run.sessionId,
         status: "pending",
@@ -404,27 +424,14 @@ export const createRequestsService = ({
         ? approvalAnswerSchema.parse(input.answer)
         : questionAnswerSchema.parse(input.answer);
     const masker = await secrets.maskerFor(row.workspaceId, row.agentId);
-    const masked = masker?.maskDeep(parsed) ?? parsed;
-    const clean =
-      "decision" in masked
-        ? {
-            ...masked,
-            ...(masked.note === undefined
-              ? {}
-              : { note: redactText(masked.note) }),
-          }
-        : {
-            answers: Object.fromEntries(
-              Object.entries(masked.answers).map(([q, text]) => [
-                redactText(q),
-                redactText(text),
-              ])
-            ),
-          };
+    // The row keeps what the person typed, which the runtime hands to the
+    // model. Only the event and the clients' records are scrubbed.
+    const stored = "answers" in parsed ? runtimeAnswers(row, parsed) : parsed;
+    const clean = scrubAnswer(parsed, masker);
     const [closed] = await db
       .update(runRequests)
       .set({
-        answer: JSON.stringify(clean),
+        answer: JSON.stringify(stored),
         answeredAt: clock.now().toISOString(),
         answeredBy: principal.userId,
         answeredVia: input.via,
@@ -436,8 +443,8 @@ export const createRequestsService = ({
       throw new ServiceError("conflict", "Already answered");
     }
     if (
-      "decision" in clean &&
-      clean.decision === "always_allow" &&
+      "decision" in parsed &&
+      parsed.decision === "always_allow" &&
       row.toolKey
     ) {
       await setRule(principal, {
@@ -453,7 +460,7 @@ export const createRequestsService = ({
       principal.userId
     );
     await resume(closed);
-    return requestRecord(closed);
+    return scrubbedRecord(closed, masker);
   };
   const outcome = async (principal: Principal, requestId: string) =>
     outcomeOf((await requireRequest(principal, requestId)).row);
@@ -550,7 +557,8 @@ export const createRequestsService = ({
         )
       )
       .orderBy(runRequests.createdAt, runRequests.id);
-    return rows.map(requestRecord);
+    // A pending request has no answer yet, so there is nothing to mask.
+    return rows.map((row) => scrubbedRecord(row, null));
   };
   return {
     answer,

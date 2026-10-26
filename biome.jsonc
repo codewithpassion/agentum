@@ -16,7 +16,9 @@
       "!**/hooks/use-mobile.ts",
       // Verbatim copies of app files, kept by the add-clerk skill to copy back
       // in. They are not part of the app until that skill runs.
-      "!.claude/skills/add-clerk/templates"
+      "!.claude/skills/add-clerk/templates",
+      // Design mock-ups exported from Claude Design, kept as reference only.
+      "!docs/v2/design"
     ]
   }
 }

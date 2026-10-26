@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a4ac6d55-4f6e-41b0-a8bf-52accd82b651",
+  "id": "8fc55524-5664-4d0a-afb0-ee70344bcdc7",
   "prevId": "3dccb5d4-342d-4fa1-aa55-866e985d7bff",
   "tables": {
     "agents": {
@@ -222,13 +222,6 @@
     "agent_connectors": {
       "name": "agent_connectors",
       "columns": {
-        "allowed_tools": {
-          "name": "allowed_tools",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "agent_id": {
           "name": "agent_id",
           "type": "text",
@@ -2090,6 +2083,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "question_keys": {
+          "name": "question_keys",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "run_id": {
