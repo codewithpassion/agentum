@@ -31,6 +31,10 @@ export const runRequests = sqliteTable(
     expiresAt: text("expires_at").notNull(),
     id: id(),
     kind: text("kind", { enum: REQUEST_KINDS }).notNull(),
+    // JSON array of the question texts the runtime asked, unscrubbed and in the
+    // order of `display.questions`. Null for an approval and for rows that
+    // predate it. Answers are keyed by these, so the runtime finds its own text.
+    questionKeys: text("question_keys"),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id),
