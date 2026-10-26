@@ -1,0 +1,17 @@
+{
+  "type": "hello",
+  "protocol_version": 1,
+  "hostname": "office-box",
+  "os": "linux",
+  "arch": "arm64",
+  "version": "0.1.0",
+  "run_as_user": "agentum",
+  "workdir": "/var/lib/agentum-computer/sessions",
+  "capabilities": {
+    "python3": true,
+    "git": false,
+    "skills": false,
+    "desktop": false,
+    "desktop_unavailable_reason": "chromium sandbox self-test failed: No usable sandbox!"
+  }
+}

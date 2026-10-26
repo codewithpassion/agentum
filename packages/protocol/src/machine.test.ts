@@ -7,6 +7,7 @@ import {
   claimResponseSchema,
   completeRequestSchema,
   completeResponseSchema,
+  computerEnrollRequestSchema,
   createRequestBodySchema,
   createRequestResponseSchema,
   daemonFrameSchema,
@@ -21,6 +22,7 @@ import {
   hasDaemonFeature,
   heartbeatResponseSchema,
   libraryChangedSchema,
+  machineEnrollRequestSchema,
   offerSchema,
   relayFrameSchema,
   relayHelloAckSchema,
@@ -414,5 +416,44 @@ describe("message.reasoning events", () => {
       events: [{ payload: { text: "hm" }, seq: 1, type: "message.reasoning" }],
     });
     expect(parsed.success).toBe(true);
+  });
+});
+
+describe("computer enrol request", () => {
+  const computerBody = {
+    arch: "arm64",
+    clientVersion: "0.1.0",
+    code: "hm_enr_abc",
+    hostname: "dom-mac",
+    os: "darwin",
+    role: "computer",
+  };
+
+  test("a computer body parses with the computer schema and the union", () => {
+    expect(computerEnrollRequestSchema.safeParse(computerBody).success).toBe(
+      true
+    );
+    expect(machineEnrollRequestSchema.safeParse(computerBody).success).toBe(
+      true
+    );
+  });
+
+  test("the daemon body still parses through the union", () => {
+    const daemonBody = { code: "hm_enr_abc", singleUser: false };
+    expect(machineEnrollRequestSchema.safeParse(daemonBody).success).toBe(true);
+    expect(computerEnrollRequestSchema.safeParse(daemonBody).success).toBe(
+      false
+    );
+  });
+
+  test("the role must be computer and fields are strict", () => {
+    for (const body of [
+      { ...computerBody, role: "agent_host" },
+      { ...computerBody, extra: 1 },
+      { ...computerBody, clientVersion: undefined },
+      { ...computerBody, code: "nope" },
+    ]) {
+      expect(machineEnrollRequestSchema.safeParse(body).success).toBe(false);
+    }
   });
 });
