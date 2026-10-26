@@ -492,6 +492,7 @@ export const composeWith = ({
     library,
     poller: infra.managedPoller ?? noopPoller,
     publicBaseUrl: infra.publicBaseUrl,
+    requests,
     runs,
     runTokenKey: infra.runTokenKey,
     secrets,
