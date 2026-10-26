@@ -281,6 +281,34 @@ test("mail, routines and Slack trigger nodes use their own event sources", async
   }
 });
 
+test("a revoked Slack app has no node and no wire, an installed one keeps both", async () => {
+  const { slackApps } = await import("@repo/db/schema/slack");
+  await db.insert(slackApps).values(
+    ["installed", "revoked"].map((status) => ({
+      agentId: "a",
+      appId: `api-${status}`,
+      botUserId: `bot-${status}`,
+      createdAt: now,
+      id: status,
+      signingSecret: "encrypted",
+      status: status as "installed" | "revoked",
+      teamId: `team-${status}`,
+      workspaceId: "w",
+    }))
+  );
+  await event("run.queued", "a", { origin: "slack" }, { runId: "parent" });
+  const result = await graph();
+  const keys = result.nodes.map((n) => n.key);
+  expect(keys).toContain("trigger:slack:installed");
+  expect(keys).not.toContain("trigger:slack:revoked");
+  expect(
+    result.wires.find((w) => w.from === "trigger:slack:installed")
+  ).toMatchObject({ count7d: 1, to: "agent:a" });
+  expect(result.wires.some((w) => w.from === "trigger:slack:revoked")).toBe(
+    false
+  );
+});
+
 test("workspace assignments provide connector, skill and computer ports", async () => {
   const { connectors, agentConnectors } = await import(
     "@repo/db/schema/connectors"
