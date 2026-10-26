@@ -28,3 +28,4 @@ flightdex-v2 will show Harbourmaster's Desk in a panel. It renders the same Reac
 
 ## Log
 - 2026-10-26: requested by the integration coordinator (contract C4).
+- 2026-10-26: Dom confirmed the integration coordinator is his and may add task files.

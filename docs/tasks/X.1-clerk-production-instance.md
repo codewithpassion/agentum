@@ -25,3 +25,4 @@ Dom approved one production Clerk instance shared by Harbourmaster, flightdex-v2
 
 ## Log
 - 2026-10-26: written by the integration coordinator; Dom approved one shared production instance.
+- 2026-10-26: Dom: run now, next in the worker lane after V1.16. Prod instance ins_3LDH0LvG5SOMvxgdBIX2kyIj1Sf exists; only org Harbour Edge Intelligence (org_3LDLbiYGe7iohEccrRQuLeBqaX2) so far, per ~/devel/ai-os-integration/STATUS.md.
