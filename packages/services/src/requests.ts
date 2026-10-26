@@ -17,15 +17,7 @@ import {
   toolKey as canonicalToolKey,
   questionAnswerSchema,
 } from "@repo/protocol/requests";
-import {
-  and,
-  eq,
-  getTableColumns,
-  inArray,
-  lte,
-  notLike,
-  sql,
-} from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, lte, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -33,6 +25,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import { redactToolPayload } from "./events/scrub.ts";
 import type { EventInput, EventsService } from "./events.ts";
+import { isMailApproval, notMailApproval } from "./mail/approval.ts";
 import {
   answerInputSchema,
   answerSchemas,
@@ -303,7 +296,7 @@ export const createRequestsService = ({
         and(
           eq(runRequests.runId, runId),
           eq(runRequests.status, "pending"),
-          notLike(runRequests.toolUseId, "mail:%")
+          notMailApproval
         )
       )
       .limit(1);
@@ -481,7 +474,7 @@ export const createRequestsService = ({
   };
   const waitForRuntime = async (row: RequestRow) => {
     // Mail approvals outlive the run; the tool returns immediately.
-    if (row.toolUseId.startsWith("mail:")) {
+    if (isMailApproval(row)) {
       return;
     }
     await runs.markWaiting(SYSTEM_PRINCIPAL, row.runId);
@@ -489,7 +482,7 @@ export const createRequestsService = ({
     await markRunningIfSettled(row.runId);
   };
   const resume = async (row: RequestRow) => {
-    if (row.toolUseId.startsWith("mail:")) {
+    if (isMailApproval(row)) {
       return;
     }
     await markRunningIfSettled(row.runId);
@@ -614,7 +607,7 @@ export const createRequestsService = ({
         and(
           eq(runRequests.runId, run.id),
           eq(runRequests.workspaceId, run.workspaceId),
-          notLike(runRequests.toolUseId, "mail:%"),
+          notMailApproval,
           eq(runRequests.status, "pending")
         )
       )

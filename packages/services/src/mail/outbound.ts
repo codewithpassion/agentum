@@ -321,20 +321,27 @@ export const createMailOutbound = ({
       box,
       "mail.held"
     );
-    const request = await requests.open(SYSTEM_PRINCIPAL, {
-      input: {
-        cc: draft.cc,
-        from: box.address,
-        preview: draft.text.slice(0, 500),
-        subject: draft.subject,
-        to: draft.to,
-      },
-      kind: "approval",
-      runId: run.id,
-      toolKey: mailToolKey(unallowed),
-      toolName: MAIL_SEND_TOOL,
-      toolUseId: `mail:${message.id}`,
-    });
+    let request: Awaited<ReturnType<RequestsService["open"]>>;
+    try {
+      request = await requests.open(SYSTEM_PRINCIPAL, {
+        input: {
+          cc: draft.cc,
+          from: box.address,
+          preview: draft.text.slice(0, 500),
+          subject: draft.subject,
+          to: draft.to,
+        },
+        kind: "approval",
+        runId: run.id,
+        toolKey: mailToolKey(unallowed),
+        toolName: MAIL_SEND_TOOL,
+        toolUseId: `mail:${message.id}`,
+      });
+    } catch (error) {
+      // Without an approval nothing would ever release or drop the held mail.
+      await failHeld(adapter, ref, message);
+      throw error;
+    }
     await atomic([
       db
         .update(mailMessages)
@@ -348,6 +355,19 @@ export const createMailOutbound = ({
       status: "held" as const,
       threadId: storedThread.id,
     };
+  };
+  const failHeld = async (
+    adapter: MailboxPort,
+    ref: MailboxRef,
+    message: Message
+  ) => {
+    await adapter.discard(ref, message.externalMessageId);
+    await atomic([
+      db
+        .update(mailMessages)
+        .set({ status: "failed" })
+        .where(eq(mailMessages.id, message.id)),
+    ]);
   };
   const decisionContext = async (event: EventRecord) => {
     const { requestId } = event.payload;
@@ -387,15 +407,9 @@ export const createMailOutbound = ({
           eq(mailMessages.status, "held")
         )
       );
-    // Match the message id in the tool use, even when an immediate answer
-    // arrives before requests.open has returned its id to the sending call.
-    if (
-      !context ||
-      context.request.toolUseId !== `mail:${context.message.id}`
-    ) {
-      return null;
-    }
-    return context;
+    // The join matches the message id in the tool use, so an immediate answer
+    // works before requests.open has returned its id to the sending call.
+    return context ?? null;
   };
   const allowOtherRecipients = async (
     request: typeof runRequests.$inferSelect,
@@ -426,6 +440,26 @@ export const createMailOutbound = ({
         )
     );
   };
+  const releaseHeld = async (
+    adapter: MailboxPort,
+    ref: MailboxRef,
+    requestId: string,
+    message: Message
+  ) => {
+    try {
+      return await adapter.release(ref, message.externalMessageId);
+    } catch (error) {
+      // The person allowed it but it never left. Say so in the message status
+      // instead of leaving it held for good.
+      await atomic([
+        db
+          .update(mailMessages)
+          .set({ requestId, status: "failed" })
+          .where(eq(mailMessages.id, message.id)),
+      ]);
+      throw error;
+    }
+  };
   const applyDecision = async ({
     request,
     message,
@@ -444,7 +478,7 @@ export const createMailOutbound = ({
     }
     const adapter = port();
     const sent = permitted
-      ? await adapter.release(ref, message.externalMessageId)
+      ? await releaseHeld(adapter, ref, request.id, message)
       : null;
     if (!permitted) {
       await adapter.discard(ref, message.externalMessageId);
@@ -481,10 +515,7 @@ export const createMailOutbound = ({
       return;
     }
     const pendingDecision = await decisionContext(event);
-    if (
-      pendingDecision &&
-      ["answered", "expired"].includes(pendingDecision.request.status)
-    ) {
+    if (pendingDecision) {
       await applyDecision(pendingDecision);
     }
   });

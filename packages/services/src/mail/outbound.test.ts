@@ -299,6 +299,32 @@ test("deny discards and closes without waking the run", async () => {
   expect(resumed).toBe(0);
 });
 
+test("an allowed mail that fails to send is marked failed instead of staying held", async () => {
+  await mail.send(principal, draft(["outside@example.com"]));
+  mailbox.release = () => Promise.reject(new Error("send_failed"));
+  await answer("allow_once");
+  expect(message()?.status).toBe("failed");
+});
+
+test("a failed approval opening discards the held mail", async () => {
+  const broken = createMailOutbound({
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(now), sleep: async () => undefined },
+    db,
+    events,
+    mailbox,
+    requests: {
+      ...requests,
+      open: () => Promise.reject(new Error("run ended")),
+    },
+  });
+  await expect(
+    broken.send(principal, draft(["outside@example.com"]))
+  ).rejects.toThrow("run ended");
+  expect(message()?.status).toBe("failed");
+  expect(calls).toEqual(["hold", "discard:external-1"]);
+});
+
 test("approval survives run completion and expires without restarting the run", async () => {
   await mail.send(principal, draft(["outside@example.com"]));
   const run = await loadRun(db, principal.runId);

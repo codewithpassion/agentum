@@ -56,6 +56,7 @@ import type { Payload } from "../events/payload.ts";
 import type { EventsService } from "../events.ts";
 import { agentHomePath, ensureAgentHome } from "../library/home.ts";
 import type { LibraryService } from "../library.ts";
+import { notMailApproval } from "../mail/approval.ts";
 import { outcomeOf } from "../requests/records.ts";
 import type { RequestsService } from "../requests.ts";
 import { importRunTokenKey, signSessionToken } from "../run-tokens.ts";
@@ -1048,6 +1049,8 @@ export const createManagedService = ({
           eq(runRequests.runId, run.id),
           eq(runRequests.workspaceId, run.workspaceId),
           isNull(runRequests.deliveredAt),
+          // A mail approval is no tool call of the session, so nothing to confirm.
+          notMailApproval,
           or(
             inArray(runRequests.status, ["answered", "expired"]),
             // A person's cancel of a takeover wakes the tool call; a cancel
@@ -1110,7 +1113,9 @@ export const createManagedService = ({
       .where(
         and(
           eq(runRequests.runId, run.id),
-          eq(runRequests.workspaceId, run.workspaceId)
+          eq(runRequests.workspaceId, run.workspaceId),
+          // A mail approval never holds the run, so it is no waiting time.
+          notMailApproval
         )
       );
     const now = clock.now().getTime();
