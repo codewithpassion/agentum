@@ -5,6 +5,7 @@ import { AddConnectorDialog } from "#/components/connectors/add-connector-dialog
 import { CallTimeoutDialog } from "#/components/connectors/call-timeout-dialog";
 import { connectHref } from "#/components/connectors/connect-link";
 import { connectSearchSchema } from "#/components/connectors/connect-search";
+import { DeleteConnectorDialog } from "#/components/connectors/delete-connector-dialog";
 import { OAuthClientDialog } from "#/components/connectors/oauth-client-dialog";
 import { PasteCredentialDialog } from "#/components/connectors/paste-credential-dialog";
 import { Badge } from "#/components/ui/badge";
@@ -128,11 +129,13 @@ function OAuthActions({
 
 function ConnectorRow({
   connector,
+  onDelete,
   onEditTimeout,
   onPaste,
   onSetClient,
 }: {
   connector: ConnectorRecord;
+  onDelete: (connector: ConnectorRecord) => void;
   onEditTimeout: (connector: ConnectorRecord) => void;
   onPaste: (connector: ConnectorRecord) => void;
   onSetClient: (connector: ConnectorRecord) => void;
@@ -142,6 +145,7 @@ function ConnectorRow({
     () => onEditTimeout(connector),
     [connector, onEditTimeout]
   );
+  const remove = useCallback(() => onDelete(connector), [connector, onDelete]);
   const toolNames = connector.tools.map((tool) => tool.name).join(", ");
 
   return (
@@ -195,6 +199,9 @@ function ConnectorRow({
           <Button onClick={editTimeout} size="sm" variant="outline">
             Time limit
           </Button>
+          <Button onClick={remove} size="sm" variant="outline">
+            Delete
+          </Button>
         </div>
       </TableCell>
     </TableRow>
@@ -213,6 +220,7 @@ function ConnectorsPage() {
   const [editingTimeout, setEditingTimeout] = useState<ConnectorRecord | null>(
     null
   );
+  const [deleting, setDeleting] = useState<ConnectorRecord | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const connectNotice =
@@ -268,6 +276,22 @@ function ConnectorsPage() {
     await router.invalidate();
   }, [router]);
 
+  const openDelete = useCallback(
+    (connector: ConnectorRecord) => setDeleting(connector),
+    []
+  );
+
+  const closeDelete = useCallback(() => setDeleting(null), []);
+
+  const handleDeleted = useCallback(
+    async (name: string) => {
+      setDeleting(null);
+      setNotice(`Deleted ${name}.`);
+      await router.invalidate();
+    },
+    [router]
+  );
+
   return (
     <section className="mx-auto max-w-5xl">
       <div className="mb-6 flex items-center justify-between gap-4">
@@ -305,6 +329,7 @@ function ConnectorsPage() {
               <ConnectorRow
                 connector={connector}
                 key={connector.id}
+                onDelete={openDelete}
                 onEditTimeout={openEditTimeout}
                 onPaste={openPaste}
                 onSetClient={openSetClient}
@@ -346,6 +371,13 @@ function ConnectorsPage() {
           }}
           onClose={closeEditTimeout}
           onSaved={handleTimeoutSaved}
+        />
+      )}
+      {deleting === null ? null : (
+        <DeleteConnectorDialog
+          connector={{ id: deleting.id, name: deleting.name }}
+          onClose={closeDelete}
+          onDeleted={handleDeleted}
         />
       )}
     </section>

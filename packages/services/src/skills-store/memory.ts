@@ -23,5 +23,9 @@ export const memorySkillBlobs = (): MemorySkillBlobs => {
       return Promise.resolve();
     },
     puts,
+    remove: (key) => {
+      objects.delete(key);
+      return Promise.resolve();
+    },
   };
 };

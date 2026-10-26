@@ -57,6 +57,10 @@ const summarizeCancel = (actor?: {
   return CANCELLED_SUMMARY;
 };
 
+/** Skill events carry the version number: "name v3". */
+const withVersion = (line: string, payload: Payload): string =>
+  typeof payload.version === "number" ? `${line} v${payload.version}` : line;
+
 /** A short line for the event log: the first of `SUMMARY_KEYS` that holds text, cut to 120 characters. */
 export const summarize = (
   type: EventType,
@@ -72,7 +76,11 @@ export const summarize = (
   for (const key of SUMMARY_KEYS) {
     const value = payload[key];
     if (typeof value === "string" && value.trim() !== "") {
-      const line = value.trim().replace(/\s+/g, " ");
+      const text = value.trim().replace(/\s+/g, " ");
+      const line =
+        key === "name" && type.startsWith("skill.")
+          ? withVersion(text, payload)
+          : text;
       return line.length > SUMMARY_MAX
         ? `${line.slice(0, SUMMARY_MAX)}...`
         : line;

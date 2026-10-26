@@ -114,6 +114,7 @@ export const TOOL_NAMES = harbourmasterTools({
   createSkill: unusedPort,
   createTrigger: unusedPort,
   deleteRoutine: unusedPort,
+  deleteSkill: unusedPort,
   deleteTrigger: unusedPort,
   exportSkill: unusedPort,
   getRun: unusedPort,

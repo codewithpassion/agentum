@@ -46,9 +46,9 @@ export const createAdminPorts = ({
   services,
 }: {
   principal: Principal;
-  services: Pick<Services, "admin" | "agents">;
+  services: Pick<Services, "admin" | "agents" | "connectors">;
 }): AdminPort => {
-  const { admin, agents } = services;
+  const { admin, agents, connectors } = services;
 
   /** The agent id for a slug or an id, among all active agents of the workspace. */
   const agentIdOf = async (reference: string): Promise<string> => {
@@ -94,6 +94,9 @@ export const createAdminPorts = ({
       guarded(async () =>
         toSecretInfo(await admin.createSecret(principal, input))
       ),
+
+    deleteConnector: ({ connectorId }) =>
+      guarded(() => connectors.remove(principal, { connectorId })),
 
     grantSecret: ({ agent, secretId }) =>
       guarded(async () =>

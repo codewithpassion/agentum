@@ -342,4 +342,19 @@ export const adminSetupTools = (port: AdminPort): ToolDefinition[] => [
     },
     title: "Revoke API key",
   }),
+  defineTool({
+    annotations: WRITE_DELETE,
+    description:
+      "Deletes a connector with its stored credentials and its assignments to agents. Needs an admin API key.",
+    inputSchema: z.strictObject({ connectorId: ref }),
+    name: "delete_connector",
+    run: async (input) => {
+      await port.deleteConnector(input);
+      return {
+        data: { connectorId: input.connectorId },
+        text: `Deleted connector ${input.connectorId}.`,
+      };
+    },
+    title: "Delete connector",
+  }),
 ];

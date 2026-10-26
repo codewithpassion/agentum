@@ -30,6 +30,7 @@ export type SkillPorts = Pick<
   | "assignSkill"
   | "commitSkill"
   | "createSkill"
+  | "deleteSkill"
   | "exportSkill"
   | "importSkill"
   | "listSkills"
@@ -154,6 +155,9 @@ export const createSkillPorts = ({
         });
         return toVersionInfo(version, skill.name);
       }),
+
+    deleteSkill: ({ skillId }) =>
+      guarded(() => skillsStore.remove(principal, { skillId })),
 
     exportSkill: ({ skillId, version }) =>
       guarded(async () => {
