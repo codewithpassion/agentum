@@ -117,14 +117,33 @@ test("a caller without a session gets UNAUTHORIZED", async () => {
 
 test("address procedures check and reserve across workspaces with authentication", async () => {
   const composed = servicesFor();
-  const caller = await callerFor({ orgId: "org_a", userId: "user_1" }, composed);
+  const caller = await callerFor(
+    { orgId: "org_a", userId: "user_1" },
+    composed
+  );
   const other = await callerFor({ orgId: "org_b", userId: "user_2" }, composed);
-  const agent = await caller.agents.create({ name: "Address", model: "m", runtime: "fake" });
-  expect(await caller.agents.checkAddress({ local: "address" })).toEqual({ available: true });
-  expect(await caller.agents.reserveAddress({ agentId: agent.id, local: "address" })).toMatchObject({ emailLocal: "address" });
-  expect(await other.agents.checkAddress({ local: "address" })).toEqual({ available: false });
-  await expect(other.agents.reserveAddress({ agentId: agent.id, local: "other" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const agent = await caller.agents.create({
+    model: "m",
+    name: "Address",
+    runtime: "fake",
+  });
+  expect(await caller.agents.checkAddress({ local: "address" })).toEqual({
+    available: true,
+  });
+  expect(
+    await caller.agents.reserveAddress({ agentId: agent.id, local: "address" })
+  ).toMatchObject({ emailLocal: "address" });
+  expect(await other.agents.checkAddress({ local: "address" })).toEqual({
+    available: false,
+  });
+  await expect(
+    other.agents.reserveAddress({ agentId: agent.id, local: "other" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
   const anonymous = await callerFor({ orgId: "org_a", userId: null }, composed);
-  await expect(anonymous.agents.checkAddress({ local: "address" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-  await expect(anonymous.agents.reserveAddress({ agentId: agent.id, local: "address" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(
+    anonymous.agents.checkAddress({ local: "address" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(
+    anonymous.agents.reserveAddress({ agentId: agent.id, local: "address" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });

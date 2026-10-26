@@ -746,5 +746,8 @@ test("another workspace cannot change a connector's call timeout", async () => {
 
 test("a draft connector assignment explains that the agent is not active", async () => {
   const draft = await agents.createDraft(dom, { name: "Draft" });
-  await expect(loadActiveAgent(db, draft.id, WORKSPACE)).rejects.toMatchObject({ code: "invalid", message: "That agent is not active" });
+  await expect(loadActiveAgent(db, draft.id, WORKSPACE)).rejects.toMatchObject({
+    code: "invalid",
+    message: "That agent is not active",
+  });
 });

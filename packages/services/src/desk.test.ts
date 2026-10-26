@@ -693,8 +693,25 @@ test("only a person reads the desk", async () => {
 
 test("draft dry-run history is absent from desk lanes and counts", async () => {
   const draft = await agents.createDraft(user(), { name: "Draft" });
-  await seed({ agentId: draft.id, status: "running" });
-  await seed({ agentId: draft.id, status: "done", finishedAt: DAY_START });
+  const runId = await seed({ agentId: draft.id, status: "running" });
+  await requests.open(system, {
+    kind: "question",
+    questions: [{ header: "Draft?", question: "Ready?" }],
+    runId,
+    toolName: "ask_user",
+    toolUseId: "draft-question",
+  });
+  await skillsStore.create(runPrincipal(draft.id, runId), {
+    files: [
+      {
+        content: "---\nname: draft-skill\ndescription: Draft.\n---\n",
+        path: "SKILL.md",
+      },
+    ],
+    message: "Draft proposal",
+    name: "draft-skill",
+  });
+  await seed({ agentId: draft.id, finishedAt: DAY_START, status: "done" });
   const live = await seed({ status: "running" });
   const view = await get();
   expect(ids(view.running)).toEqual([live]);
@@ -702,4 +719,12 @@ test("draft dry-run history is absent from desk lanes and counts", async () => {
   expect(view.doneMore).toBe(0);
   expect(view.needsYou).toEqual([]);
   expect(await desk.needsYouCount(user())).toBe(0);
+  expect(
+    await desk.pendingRequests({
+      kind: "user",
+      userId: "u1",
+      via: "session",
+      workspaceId: "w1",
+    })
+  ).toEqual([]);
 });
