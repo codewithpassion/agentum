@@ -20,6 +20,7 @@ test("the foundation, connector and OAuth client tables exist", () => {
     .filter((name) => name !== "__drizzle_migrations");
   expect(names).toEqual([
     "agent_connectors",
+    "agent_library_access",
     "agent_secrets",
     "agent_tool_rules",
     "agents",
@@ -31,7 +32,10 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "identity_links",
     "inbox_posts",
     "inbox_threads",
+    "library_conflicts",
     "library_entries",
+    "library_links",
+    "library_versions",
     "machine_enroll_tokens",
     "machines",
     "managed_agents",
@@ -55,6 +59,7 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "slack_messages",
     "slack_threads",
     "triggers",
+    "wiki_suggestions",
     "workspace_anthropic_keys",
     "workspace_model_keys",
     "workspaces",
@@ -70,7 +75,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(38);
+  expect(tables.length).toBe(43);
 
   for (const table of tables) {
     const column = client

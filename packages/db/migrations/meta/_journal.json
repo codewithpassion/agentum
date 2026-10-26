@@ -127,6 +127,13 @@
       "when": 1793015057446,
       "tag": "0017_cloudy_sersi",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1793016235192,
+      "tag": "0018_rare_doctor_strange",
+      "breakpoints": true
     }
   ]
 }
