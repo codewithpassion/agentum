@@ -8,7 +8,7 @@ import { apiKeys } from "@repo/db/schema/api-keys";
 import { machines } from "@repo/db/schema/machines";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
-import type { ApiKeyAccess } from "@repo/db/shared";
+import type { ApiKeyAccess, OAuthClientAccess } from "@repo/db/shared";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hashToken } from "./crypto.ts";
@@ -25,7 +25,7 @@ export type Principal =
       apiKey?: { access: ApiKeyAccess; id: string };
       kind: "user";
       /** Set when `via` is `oauth`: which client, and what it may do. */
-      oauthClient?: { access: ApiKeyAccess; clientId: string };
+      oauthClient?: { access: OAuthClientAccess; clientId: string };
       workspaceId: string;
       userId: string;
       via: "session" | "api_key" | "oauth" | "slack";
@@ -187,7 +187,7 @@ export const findTriggerByToken = async (
 
 /** What the app's Clerk OAuth check hands the resolver for a token it accepts. */
 export interface VerifiedOAuthClaim {
-  access: ApiKeyAccess;
+  access: OAuthClientAccess;
   clientId: string;
   userId: string;
   workspaceId: string;

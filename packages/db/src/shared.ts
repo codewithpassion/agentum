@@ -34,8 +34,13 @@ export const RUN_STATUSES = [
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
-export const API_KEY_ACCESS = ["read", "write"] as const;
+/** `desk` is the external desk API (`/api/desk/*`) and nothing else: `/mcp` refuses it. */
+export const API_KEY_ACCESS = ["read", "write", "desk"] as const;
 export type ApiKeyAccess = (typeof API_KEY_ACCESS)[number];
+
+/** What a connected app may be given: a desk key is a key, never an OAuth client. */
+export const OAUTH_CLIENT_ACCESS = ["read", "write"] as const;
+export type OAuthClientAccess = (typeof OAUTH_CLIENT_ACCESS)[number];
 
 /** Most files one run can take as input. The composer and `startRun` both enforce it. */
 export const INPUT_FILES_MAX = 20;

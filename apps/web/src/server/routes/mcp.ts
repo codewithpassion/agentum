@@ -6,27 +6,22 @@
 // (`oauth-auth.ts`). Mount with `accessRoutes.route("/mcp", mcpRoutes({ ... }))`.
 import { createHarbourmasterMcpServer } from "@repo/mcp/server";
 import { isReadOnly } from "@repo/services/automation-access";
-import { importRunTokenKey } from "@repo/services/run-tokens";
-import {
-  createPrincipalResolver,
-  type Principal,
-} from "@repo/services/workspaces";
+import type { Principal } from "@repo/services/workspaces";
 import { createMcpHandler } from "agents/mcp/server";
 import type { Context } from "hono";
-import { parseOrgIds } from "../compose.ts";
 import { readCappedBody } from "../mcp/body.ts";
-import type { OrgMemberCheck } from "../mcp/clerk-membership.ts";
-import {
-  OAuthVerificationUnavailableError,
-  type VerifiedOAuthToken,
-} from "../mcp/clerk-oauth.ts";
+import { OAuthVerificationUnavailableError } from "../mcp/clerk-oauth.ts";
 import {
   LOCAL_HOSTNAMES,
   mcpOrigin,
   resourceMetadataUrl,
 } from "../mcp/metadata.ts";
-import { OAuthDeniedError, oauthClaimVerifier } from "../mcp/oauth-auth.ts";
+import { OAuthDeniedError } from "../mcp/oauth-auth.ts";
 import { createMcpPorts } from "../mcp/ports.ts";
+import {
+  authenticateBearer,
+  type BearerAuthOptions,
+} from "../mcp/principal-resolver.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
 
 /** Largest JSON-RPC request body accepted; a real one is a few KB. */
@@ -40,21 +35,13 @@ const MCP_ROUTE = "/mcp";
 type LogEntry = Record<string, unknown>;
 type RouteContext = Context<AppEnv>;
 
-export interface McpRouteOptions {
-  /** The name of an OAuth application, asked when its client is first seen. */
-  clientName: (env: Env) => (clientId: string) => Promise<string | null>;
+export interface McpRouteOptions extends BearerAuthOptions {
   /** Runs work after the response. `executionCtx.waitUntil` by default. */
   defer?: (c: RouteContext, work: Promise<unknown>) => void;
   /** A dev build: the local hostnames are accepted besides `PUBLIC_BASE_URL`'s. */
   dev: boolean;
-  /** The membership check for the bindings of this request. */
-  isOrgMember: (env: Env) => OrgMemberCheck;
   /** Structured log line. `console.log` of JSON by default (`wrangler tail`). */
   log?: (entry: LogEntry) => void;
-  /** Clerk's verdict on an OAuth access token for the bindings of this request. */
-  verifyOAuthToken: (
-    env: Env
-  ) => (token: string) => Promise<VerifiedOAuthToken | null>;
 }
 
 /**
@@ -255,28 +242,12 @@ export const mcpRoutes = ({
     });
 
   /** The principal for the request, null for a bad credential. Throws when auth cannot run. */
-  const authenticate = async (c: RouteContext): Promise<Principal | null> => {
-    const { env } = c;
-    const composed = c.get("composed");
-    const allowedOrgIds = parseOrgIds(env.ALLOWED_ORG_IDS);
-    const resolver = createPrincipalResolver({
-      allowedOrgIds,
-      db: composed.db,
-      isOrgMember: isOrgMember(env),
-      runTokenKey: await importRunTokenKey(env.RUN_TOKEN_KEY),
-      // Only a token that is not an `hm_` credential gets here.
-      verifyClerkOAuthToken: oauthClaimVerifier({
-        allowedOrgIds,
-        clientName: (clientId) => clientName(env)(clientId),
-        isOrgMember: (userId, clerkOrgId) =>
-          isOrgMember(env)(userId, clerkOrgId),
-        oauthClients: composed.services.oauthClients,
-        verify: (token) => verifyOAuthToken(env)(token),
-        workspaces: composed.services.workspaces,
-      }),
-    });
-    return await resolver.resolve(c.req.header("Authorization") ?? null);
-  };
+  const authenticate = (c: RouteContext): Promise<Principal | null> =>
+    authenticateBearer(
+      { composed: c.get("composed"), env: c.env },
+      { clientName, isOrgMember, verifyOAuthToken },
+      c.req.header("Authorization") ?? null
+    );
 
   /** Runs a last-used stamp after the response. A failure is only logged. */
   const deferTouch = (
@@ -366,6 +337,11 @@ export const mcpRoutes = ({
     }
     if (principal.kind !== "user" && principal.kind !== "run") {
       log({ event: "mcp.denied", kind: principal.kind, reason: "kind" });
+      return forbidden();
+    }
+    // A desk key is for `/api/desk` only, and acts for whoever the header names.
+    if (principal.kind === "user" && principal.apiKey?.access === "desk") {
+      log({ event: "mcp.denied", reason: "desk_key" });
       return forbidden();
     }
     return principal;

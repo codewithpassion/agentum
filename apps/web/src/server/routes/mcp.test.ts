@@ -57,7 +57,7 @@ const createAgent = async (slug: string): Promise<string> => {
   return agent.id;
 };
 
-const mintKey = async (userId: string, access: "read" | "write") =>
+const mintKey = async (userId: string, access: "desk" | "read" | "write") =>
   (
     await composed.services.apiKeys.create(sessionUser(userId), {
       access,
@@ -298,6 +298,14 @@ describe("authentication", () => {
       })
       .run();
     expect((await post(token, rpcBody("tools/list", {}))).status).toBe(403);
+  });
+
+  test("a desk key is refused with 403: it is for the desk API only", async () => {
+    const key = await mintKey("u1", "desk");
+    expect((await post(key, rpcBody("tools/list", {}))).status).toBe(403);
+    expect(logs).toContainEqual(
+      expect.objectContaining({ event: "mcp.denied", reason: "desk_key" })
+    );
   });
 
   test("a host other than PUBLIC_BASE_URL's is refused", async () => {

@@ -1,6 +1,6 @@
 import { sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
-import { API_KEY_ACCESS } from "../shared.ts";
+import { OAUTH_CLIENT_ACCESS } from "../shared.ts";
 import { workspaces } from "./workspaces.ts";
 
 /**
@@ -15,7 +15,7 @@ export const oauthClients = sqliteTable(
   "oauth_clients",
   {
     // Null until approved.
-    access: text("access", { enum: API_KEY_ACCESS }),
+    access: text("access", { enum: OAUTH_CLIENT_ACCESS }),
     approvedAt: text("approved_at"),
     clientId: text("client_id").notNull(),
     // When the client was first seen.
