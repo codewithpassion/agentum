@@ -1,3 +1,4 @@
+import type { StreamFrame } from "@repo/protocol/stream";
 import {
   useCallback,
   useEffect,
@@ -26,7 +27,7 @@ const FROM_START = "0";
 type Mode = "poll" | "stream";
 
 type Action =
-  | { frame: Parameters<typeof applyFrame>[1]; kind: "frame" }
+  | { frame: StreamFrame; kind: "frame" }
   | { kind: "transcript"; transcript: ChatTranscript };
 
 const reduce = (
@@ -118,7 +119,12 @@ export const useSessionStream = (
       };
       opened.onerror = () => {
         failures += 1;
-        if (failures >= MAX_FAILURES) {
+        // A closed source will not reconnect: the route refused it (a 401
+        // after the session ended, a 404, a 500), so poll straight away.
+        if (
+          failures >= MAX_FAILURES ||
+          opened.readyState === EventSource.CLOSED
+        ) {
           opened.close();
           setMode("poll");
         }

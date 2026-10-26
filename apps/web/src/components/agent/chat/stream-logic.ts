@@ -6,6 +6,7 @@
 import type { EventType, RunStatus } from "@repo/db/shared";
 import { stripAttachmentMarkers } from "@repo/protocol/attachments";
 import {
+  type DeltaFrame,
   type EventFrame,
   type StreamFrame,
   streamFrameSchema,
@@ -170,10 +171,7 @@ const applyEvent = (state: StreamState, frame: EventFrame): StreamState => {
     : next;
 };
 
-const applyDelta = (
-  state: StreamState,
-  frame: Extract<StreamFrame, { frame: "delta" }>
-): StreamState => {
+const applyDelta = (state: StreamState, frame: DeltaFrame): StreamState => {
   const { latestRun } = state.transcript;
   // A delta that comes after its run ended is a late copy of a stored message.
   if (latestRun?.id === frame.runId && !isRunActive(latestRun.status)) {
@@ -200,7 +198,7 @@ export const applyFrame = (
     case "run":
       return withRunStatus(state, frame.runId, frame.status);
     case "request": {
-      // The run frame that follows would say the same; this covers a replay, which has no run frames.
+      // The run frame that follows says the same; this shows it a moment sooner.
       const { latestRun } = state.transcript;
       return frame.status === "pending" && latestRun?.status === "running"
         ? withRunStatus(state, frame.runId, "waiting")
