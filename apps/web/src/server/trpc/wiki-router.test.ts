@@ -55,25 +55,91 @@ test("wiki suggestions are reviewable through tRPC and appear on the desk", asyn
       relay: noopRelay,
     },
   });
-  const ctx = await buildContext({ composed, session: { orgId: "org", userId: "user" } });
+  const ctx = await buildContext({
+    composed,
+    session: { orgId: "org", userId: "user" },
+  });
   const caller = appRouter.createCaller(ctx);
-  if (!ctx.principal || ctx.principal.kind !== "user") {
+  if (ctx.principal?.kind !== "user") {
     throw new Error("Expected member");
   }
-  const agent = await ctx.services.agents.create(ctx.principal, { name: "Wiki agent", slug: "wiki-agent", instructions: "", model: "m", runtime: "fake", runtimeConfig: {} });
+  const agent = await ctx.services.agents.create(ctx.principal, {
+    instructions: "",
+    model: "m",
+    name: "Wiki agent",
+    runtime: "fake",
+    runtimeConfig: {},
+    slug: "wiki-agent",
+  });
   const createdAt = systemClock.now().toISOString();
-  db.insert(sessions).values({ id: "s", agentId: agent.id, actorId: "user", actorKind: "user", origin: "ui", createdAt, workspaceId: ctx.principal.workspaceId }).run();
-  db.insert(runs).values({ id: "r", agentId: agent.id, actorId: "user", actorKind: "user", sessionId: "s", status: "running", inputText: "Edit wiki", createdAt, workspaceId: ctx.principal.workspaceId }).run();
+  db.insert(sessions)
+    .values({
+      actorId: "user",
+      actorKind: "user",
+      agentId: agent.id,
+      createdAt,
+      id: "s",
+      origin: "ui",
+      workspaceId: ctx.principal.workspaceId,
+    })
+    .run();
+  db.insert(runs)
+    .values({
+      actorId: "user",
+      actorKind: "user",
+      agentId: agent.id,
+      createdAt,
+      id: "r",
+      inputText: "Edit wiki",
+      sessionId: "s",
+      status: "running",
+      workspaceId: ctx.principal.workspaceId,
+    })
+    .run();
   const page = await caller.wiki.createPage({ title: "Welcome" });
-  const suggestion = await ctx.services.wikiSuggestions.suggest({ kind: "run", agentId: agent.id, runId: "r", workspaceId: ctx.principal.workspaceId }, page.path, "# New welcome", "Improve welcome");
+  const suggestion = await ctx.services.wikiSuggestions.suggest(
+    {
+      agentId: agent.id,
+      kind: "run",
+      runId: "r",
+      workspaceId: ctx.principal.workspaceId,
+    },
+    page.path,
+    "# New welcome",
+    "Improve welcome"
+  );
   expect(await caller.wiki.suggestions.list()).toHaveLength(1);
-  expect(await caller.wiki.suggestions.get({ id: suggestion.id })).toMatchObject({ baseText: "# Welcome\n", proposedText: "# New welcome" });
-  const desk = await ctx.services.desk.get(ctx.principal, { dayStart: "2026-10-27T00:00:00.000Z" });
-  expect(desk.needsYou).toContainEqual(expect.objectContaining({ id: suggestion.id, kind: "proposal", needsYouKind: "wiki_suggestion" }));
-  expect(await ctx.services.desk.needsYouCount(ctx.principal)).toBe(desk.needsYou.length);
-  expect(await caller.wiki.suggestions.decide({ id: suggestion.id, accept: true, body: "# Edited welcome" })).toMatchObject({ status: "accepted" });
-  expect((await caller.wiki.page({ path: page.path })).body).toBe("# Edited welcome");
+  expect(
+    await caller.wiki.suggestions.get({ id: suggestion.id })
+  ).toMatchObject({ baseText: "# Welcome\n", proposedText: "# New welcome" });
+  const desk = await ctx.services.desk.get(ctx.principal, {
+    dayStart: "2026-10-27T00:00:00.000Z",
+  });
+  expect(desk.needsYou).toContainEqual(
+    expect.objectContaining({
+      id: suggestion.id,
+      kind: "proposal",
+      needsYouKind: "wiki_suggestion",
+    })
+  );
+  expect(await ctx.services.desk.needsYouCount(ctx.principal)).toBe(
+    desk.needsYou.length
+  );
+  expect(
+    await caller.wiki.suggestions.decide({
+      accept: true,
+      body: "# Edited welcome",
+      id: suggestion.id,
+    })
+  ).toMatchObject({ status: "accepted" });
+  expect((await caller.wiki.page({ path: page.path })).body).toBe(
+    "# Edited welcome"
+  );
   expect(await caller.wiki.suggestions.list()).toEqual([]);
-  const anonymous = appRouter.createCaller(await buildContext({ composed, session: { userId: null } }));
-  await expect(anonymous.wiki.suggestions.list()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  const anonymous = appRouter.createCaller(
+    await buildContext({ composed, session: { userId: null } })
+  );
+  await expect(anonymous.wiki.suggestions.list()).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
 });

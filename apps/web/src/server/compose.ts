@@ -195,6 +195,10 @@ import {
   createWikiService,
   type WikiService,
 } from "@repo/services/wiki/service";
+import {
+  createWikiSuggestionsService,
+  type WikiSuggestionsService,
+} from "@repo/services/wiki/suggestions";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { clerkPeople } from "./clerk-people.ts";
@@ -305,6 +309,7 @@ export interface Services {
   tasks: TasksService;
   triggers: TriggersService;
   wiki: WikiService;
+  wikiSuggestions: WikiSuggestionsService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
 
@@ -433,9 +438,10 @@ export const composeWith = ({
     events,
     runs: { startRun: (principal, input) => runs.startRun(principal, input) },
   });
+  const libraryBlobs = infra.libraryBlobs ?? memoryLibraryBlobs();
   const library = createLibraryService({
     atomic: infra.atomic,
-    blobs: infra.libraryBlobs ?? memoryLibraryBlobs(),
+    blobs: libraryBlobs,
     clock: infra.clock,
     db,
     events,
@@ -448,6 +454,14 @@ export const composeWith = ({
     }),
   });
   const wiki = createWikiService({ db, library });
+  const wikiSuggestions = createWikiSuggestionsService({
+    atomic: infra.atomic,
+    blobs: libraryBlobs,
+    clock: infra.clock,
+    db,
+    events,
+    library,
+  });
   const libraryAccess = createLibraryAccessService({
     atomic: infra.atomic,
     clock: infra.clock,
@@ -765,6 +779,7 @@ export const composeWith = ({
       tasks,
       triggers,
       wiki,
+      wikiSuggestions,
       workspaces,
     },
   };
