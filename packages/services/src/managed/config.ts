@@ -65,3 +65,15 @@ export const SESSION_BUDGET_CURRENCY = "USD";
 
 /** The toolset version our agents are built against. */
 export const AGENT_TOOLSET = "agent_toolset_20260401";
+
+/** The built-in tools of the Managed Agents agent toolset, the names a permission rule can target. */
+export const AGENT_TOOL_NAMES = [
+  "bash",
+  "edit",
+  "glob",
+  "grep",
+  "read",
+  "web_fetch",
+  "web_search",
+  "write",
+] as const;

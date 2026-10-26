@@ -36,7 +36,13 @@ export interface SessionEvent {
   /** Agent text output, when the event carries any. */
   text?: string;
   /** The call, on an `agent.tool_use`, `agent.mcp_tool_use` or `agent.custom_tool_use`. */
-  tool?: { id: string; input: Record<string, unknown>; name: string };
+  tool?: {
+    id: string;
+    input: Record<string, unknown>;
+    name: string;
+    /** The MCP server name, on an `agent.mcp_tool_use`. */
+    server?: string;
+  };
   type: string;
 }
 
@@ -154,9 +160,10 @@ export const isSessionReusable = (status: SessionStatus): boolean =>
  * A stop the agent did not choose: the platform cut the session off mid-task
  * (`budget_reached` is the one we have seen), so whatever it was doing died
  * without a word. `end_turn` is the agent finishing on its own terms.
+ * `requires_action` is a wait the service answers by opening a request, so it
+ * is not a cut-off either.
  */
 export const isAbnormalStop = (stopReason: string | null): boolean =>
   stopReason !== null &&
-  // `requires_action` counts too: it waits on an approval or a client-run tool
-  // result, and nothing here supplies either.
-  stopReason !== "end_turn";
+  stopReason !== "end_turn" &&
+  stopReason !== "requires_action";

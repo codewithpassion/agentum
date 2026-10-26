@@ -1,27 +1,38 @@
-// The daemon's HTTP client for the four run routes under
-// `/api/machines/runs/<runId>`. Each JSON body is masked before it is sent, and
+// The daemon's HTTP client for the run routes under
+// `/api/machines/runs/<runId>`: claim, events, heartbeat and complete, and the
+// two request routes (raise a request, wait for its outcome). Each JSON body is masked before it is sent, and
 // each error message is masked before it is thrown, so the machine credential
 // and any secret a run carries never leave the machine in a request or a log.
 
 import {
   type ClaimResponse,
   type CompleteRequest,
+  type CreateRequestBody,
+  type CreateRequestResponse,
   claimResponseSchema,
+  createRequestResponseSchema,
   DAEMON_FEATURES_HEADER,
   FEATURE_LIBRARY_SYNC,
+  FEATURE_REQUESTS,
   type RunEventInput,
+  type WaitRequestResponse,
+  waitRequestResponseSchema,
 } from "@repo/protocol/machine";
 import type { Masker } from "@repo/protocol/masker";
 
 const CONFLICT = 409;
 /** The status a RunApiError carries when no HTTP answer was usable. */
 const NO_ANSWER = 0;
+/** The status of an answer the Worker sent that this daemon cannot read. Not 0 or 5xx, so a caller that retries on those does not retry it. */
+export const UNREADABLE_ANSWER = 422;
 const ERROR_TEXT_LIMIT = 200;
 const CREDENTIAL_PLACEHOLDER = "[secret:machine_credential]";
 const TRAILING_SLASHES = /\/+$/;
 
 /** How long one call to the Worker may take. */
 export const REQUEST_TIMEOUT_MS = 30_000;
+/** Seconds the Worker holds one wait for a request's outcome. It stays under REQUEST_TIMEOUT_MS. */
+export const REQUEST_WAIT_SECONDS = 25;
 
 export class RunApiError extends Error {
   readonly status: number;
@@ -38,9 +49,19 @@ export interface RunApi {
   claim: () => Promise<ClaimResponse>;
   /** Throws RunApiError, except that a 409 on `{ status: "aborted" }` resolves: the run already ended, and an aborted completion is accepted once. */
   complete: (body: CompleteRequest) => Promise<void>;
+  /** Raises a request. Throws RunApiError on a non-2xx answer or one that fails the protocol. `signal` ends the call early. */
+  createRequest: (
+    body: CreateRequestBody,
+    signal?: AbortSignal
+  ) => Promise<CreateRequestResponse>;
   /** Throws RunApiError on a non-2xx answer. */
   events: (events: RunEventInput[]) => Promise<void>;
   heartbeat: () => Promise<void>;
+  /** One long poll (up to REQUEST_WAIT_SECONDS) for a request's outcome; `status` stays "pending" when none came. Throws like createRequest. */
+  waitRequest: (
+    requestId: string,
+    signal?: AbortSignal
+  ) => Promise<WaitRequestResponse>;
 }
 
 export interface RunApiOptions {
@@ -94,7 +115,8 @@ export const createRunApi = (options: RunApiOptions): RunApi => {
   const send = async (
     route: string,
     body?: unknown,
-    extraHeaders: Record<string, string> = {}
+    extraHeaders: Record<string, string> = {},
+    call: { method?: string; signal?: AbortSignal } = {}
   ): Promise<Response> => {
     const headers: Record<string, string> = {
       authorization: `Bearer ${credential}`,
@@ -102,10 +124,14 @@ export const createRunApi = (options: RunApiOptions): RunApi => {
     };
     // A relay that never answers must not hold a run's slot, or the daemon's
     // shutdown, for longer than this.
+    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
     const init: RequestInit = {
       headers,
-      method: "POST",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      method: call.method ?? "POST",
+      signal:
+        call.signal === undefined
+          ? timeout
+          : AbortSignal.any([timeout, call.signal]),
     };
     if (body !== undefined) {
       headers["content-type"] = "application/json";
@@ -144,7 +170,7 @@ export const createRunApi = (options: RunApiOptions): RunApi => {
   const claim = async (): Promise<ClaimResponse> => {
     // Tells the Worker which optional parts of the claim this daemon can read.
     const response = await send("claim", undefined, {
-      [DAEMON_FEATURES_HEADER]: FEATURE_LIBRARY_SYNC,
+      [DAEMON_FEATURES_HEADER]: `${FEATURE_LIBRARY_SYNC},${FEATURE_REQUESTS}`,
     });
     await expectOk("claim", response);
     const parsed = claimResponseSchema.safeParse(
@@ -168,6 +194,48 @@ export const createRunApi = (options: RunApiOptions): RunApi => {
     await expectOk("heartbeat", await send("heartbeat"));
   };
 
+  /** The answer parsed with `schema`, or a RunApiError when it does not match. */
+  const parseAnswer = async <T>(
+    route: string,
+    response: Response,
+    schema: { safeParse: (value: unknown) => { data?: T; success: boolean } }
+  ): Promise<T> => {
+    await expectOk(route, response);
+    const parsed = schema.safeParse(parseJson(await response.text()));
+    if (!(parsed.success && parsed.data !== undefined)) {
+      throw new RunApiError(
+        scrub(`run ${route} answer does not match the protocol`),
+        UNREADABLE_ANSWER
+      );
+    }
+    return parsed.data;
+  };
+
+  const createRequest = async (
+    body: CreateRequestBody,
+    signal?: AbortSignal
+  ): Promise<CreateRequestResponse> =>
+    parseAnswer(
+      "requests",
+      await send("requests", body, {}, { signal }),
+      createRequestResponseSchema
+    );
+
+  const waitRequest = async (
+    requestId: string,
+    signal?: AbortSignal
+  ): Promise<WaitRequestResponse> =>
+    parseAnswer(
+      "request wait",
+      await send(
+        `requests/${encodeURIComponent(requestId)}?wait=${REQUEST_WAIT_SECONDS}`,
+        undefined,
+        {},
+        { method: "GET", signal }
+      ),
+      waitRequestResponseSchema
+    );
+
   const complete = async (body: CompleteRequest): Promise<void> => {
     const response = await send("complete", body);
     if (response.status === CONFLICT && body.status === "aborted") {
@@ -176,5 +244,5 @@ export const createRunApi = (options: RunApiOptions): RunApi => {
     await expectOk("complete", response);
   };
 
-  return { claim, complete, events, heartbeat };
+  return { claim, complete, createRequest, events, heartbeat, waitRequest };
 };

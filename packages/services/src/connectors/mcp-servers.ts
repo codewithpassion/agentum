@@ -1,3 +1,5 @@
+import { connectorServerKeys, PLATFORM_KEY } from "@repo/protocol/server-keys";
+
 export interface McpServerEntry {
   headers: Record<string, string>;
   type: "http";
@@ -10,28 +12,6 @@ export interface McpServerConnector {
 }
 
 const TRAILING_SLASHES = /\/+$/;
-const NON_SLUG_RUNS = /[^a-z0-9]+/g;
-const EDGE_DASHES = /^-+|-+$/g;
-const MAX_KEY_LENGTH = 40;
-const FALLBACK_KEY = "connector";
-const PLATFORM_KEY = "harbourmaster";
-
-const slugify = (name: string): string => {
-  const slug = name
-    .toLowerCase()
-    .replace(NON_SLUG_RUNS, "-")
-    .slice(0, MAX_KEY_LENGTH)
-    .replace(EDGE_DASHES, "");
-  return slug || FALLBACK_KEY;
-};
-
-const freeKey = (base: string, taken: Set<string>): string => {
-  let key = base;
-  for (let suffix = 2; taken.has(key); suffix += 1) {
-    key = `${base}-${suffix}`;
-  }
-  return key;
-};
 
 /**
  * The MCP servers an agent reaches, as name and URL: the platform's own
@@ -42,14 +22,14 @@ export const mcpServerUrls = (input: {
   platformUrl: string;
 }): { name: string; url: string }[] => {
   const base = input.platformUrl.replace(TRAILING_SLASHES, "");
-  const servers = [{ name: PLATFORM_KEY, url: `${base}/mcp` }];
-  const taken = new Set<string>([PLATFORM_KEY]);
-  for (const connector of input.connectors) {
-    const name = freeKey(slugify(connector.name), taken);
-    taken.add(name);
-    servers.push({ name, url: `${base}/api/proxy/${connector.id}` });
-  }
-  return servers;
+  const keys = connectorServerKeys(input.connectors.map(({ name }) => name));
+  return [
+    { name: PLATFORM_KEY, url: `${base}/mcp` },
+    ...input.connectors.map((connector, index) => ({
+      name: keys[index] ?? connector.id,
+      url: `${base}/api/proxy/${connector.id}`,
+    })),
+  ];
 };
 
 /**

@@ -40,6 +40,10 @@ import {
 } from "@repo/services/files";
 import { createInboxService, type InboxService } from "@repo/services/inbox";
 import {
+  createInvestigatorReportBack,
+  createRunRequestReader,
+} from "@repo/services/investigator-report";
+import {
   createLibraryService,
   type LibraryBlobs,
   type LibraryService,
@@ -125,6 +129,10 @@ import {
   type SlackService,
 } from "@repo/services/slack";
 import { createSlackGateway } from "@repo/services/slack/gateway";
+import {
+  createSlackRequests,
+  type SlackRequests,
+} from "@repo/services/slack/requests";
 import {
   createDbStatusPorts,
   createSlackStatus,
@@ -234,6 +242,7 @@ export interface Services {
   slack: SlackService;
   slackApps: SlackAppsService;
   slackHistory: SlackHistoryService;
+  slackRequests: SlackRequests;
   slackSend: SlackSendService;
   triggers: TriggersService;
   workspaces: ReturnType<typeof createWorkspacesService>;
@@ -433,6 +442,20 @@ export const composeWith = ({
   });
   // A connector that needs a login tells the person in Slack, privately.
   events.onAppend(slackGateway.notifyNeedsAuth);
+  // An approval or a question goes to Slack as a card, and the card settles when it closes.
+  // `requests` is built below, so the card code reaches it lazily.
+  const slackRequests = createSlackRequests({
+    clock: infra.clock,
+    db,
+    defer: infra.defer,
+    fetch: connectorFetch,
+    requests: {
+      answer: (principal, input) => requests.answer(principal, input),
+      outcome: (principal, requestId) => requests.outcome(principal, requestId),
+    },
+    secretsKey: infra.secretsKey,
+  });
+  events.onAppend(slackRequests.onEvent);
   // Catches `slack.delivered`, which the gateway writes through this instance.
   events.onAppend(slackStatus.onEvent);
   const gateways: Gateway[] = [inbox.gateway, slackGateway];
@@ -458,6 +481,16 @@ export const composeWith = ({
   });
   // Catches the run and tool events the runs service writes through its own events instance.
   runs.onEvent(slackStatus.onEvent);
+  // An investigator run that ends before it reported tells control-plane to escalate.
+  runs.onEvent(
+    createInvestigatorReportBack({
+      defer: infra.defer,
+      fetch: connectorFetch,
+      now: () => infra.clock.now(),
+      requestOf: createRunRequestReader(db),
+      secrets,
+    }).onEvent
+  );
   if (infra.streams) {
     const onStreamEvent = streamListener(infra.streams);
     events.onAppend(onStreamEvent);
@@ -473,6 +506,7 @@ export const composeWith = ({
     library,
     poller: infra.managedPoller ?? noopPoller,
     publicBaseUrl: infra.publicBaseUrl,
+    requests,
     runs,
     runTokenKey: infra.runTokenKey,
     secrets,
@@ -558,6 +592,7 @@ export const composeWith = ({
       slack,
       slackApps,
       slackHistory,
+      slackRequests,
       slackSend,
       triggers,
       workspaces,

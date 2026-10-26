@@ -717,7 +717,8 @@ export class PiRun extends DurableObject<Env> {
           );
         }
         return {
-          env: granted.env,
+          // The run's own id, so a skill script can name its run in a report.
+          env: { ...granted.env, HM_RUN_ID: run.runId },
           mask: granted.masker.mask,
           proxy: granted.proxy.length > 0,
         };
