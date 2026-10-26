@@ -10,12 +10,12 @@ Nothing in the port is a blocker. The port needs no change in agentic-inbox-hei,
 
 Dom was asleep, so the choice is mine and Dom confirms it (see the next section). V5.1, V5.6 and V5.7 build on it.
 
-The one place I depart from the task text is storage inside Option A. I port the logic of `MailboxDO` but keep it small, and I keep mail bodies out of anything that can hit a 2 MB row limit. Details are under "What gets ported".
+One refinement differs. The task refinements say mail bodies and attachments can live in `FILES`. I put the raw MIME and the attachments there, and keep the parsed body in the mailbox Durable Object, capped at 1 MB, next to the rows that threading and listing query. A body in `FILES` alone would mean one R2 read per message for every thread view. Details are under "What gets ported".
 
 ## For Dom to confirm
 
-1. Option A over Option B. If you want B, the reversal is cheap before V5.6 starts and expensive after. V5.1 and V5.3 do not change, because they only see `MailboxPort` and `EmailRoutingPort`. V5.6 becomes "add a `WorkerEntrypoint` to agentic-inbox-hei and a `MailboxPort` client over a service binding", and V5.7 swaps the `email()` handler for an RPC entrypoint (the list is at the end).
-2. A per-mailbox Durable Object (`MailboxDO`, ported) over a Durable-Object-free variant. The variant keeps the index in D1 and the bodies in `FILES`. It removes one DO class, migration tag `v6` and the bun:sqlite adapter. It costs V5.1 two more columns (`message_id`, `references`) and moves threading into the service. I chose the DO because the threading and rate-limit code already ran on a real inbox, and because V5.1 and V5.6 were written for it. Both fit behind the same `MailboxPort`, so you can change your mind later without touching V5.3 to V5.5.
+1. Option A over Option B. If you want B, the reversal is cheap before V5.6 starts and expensive after. V5.3 to V5.5 do not change, because they only see `MailboxPort` and `EmailRoutingPort`. V5.1 loses `storeInbound` and `readAttachment` from the port (in B the inbox Worker stores mail and calls Harbourmaster with the parsed message) and gets `createMailbox` back. V5.6 becomes "add a `WorkerEntrypoint` to agentic-inbox-hei and a `MailboxPort` client over a service binding", and V5.7 swaps the `email()` handler for an RPC entrypoint (the list is at the end).
+2. A per-mailbox Durable Object (`MailboxDO`, ported) over a Durable-Object-free variant. The variant keeps the index in D1 and the bodies in `FILES`. It removes one DO class, migration tag `v6` and the bun:sqlite adapter. It costs V5.1 two more columns (`message_id`, `references`) and moves threading into the service. I chose the DO because the threading and rate-limit code already ran on a real inbox (with two date bugs the port must fix, see "What gets ported"), and because V5.1 and V5.6 were written for it. Both fit behind the same `MailboxPort`, so you can change your mind later without touching V5.3 to V5.5.
 3. The Cloudflare API token for Email Routing rules (Zone, Email Routing Rules, Edit, on `rockyshoreslabs.io`). Only you can make it. Name of the Worker secret, `CF_EMAIL_ROUTING_TOKEN`.
 4. The production mail domain, and that Email Routing and Email Sending are on for it. Staging uses `rockyshoreslabs.io`, which needs nothing new.
 5. Provisioning with one literal rule per address, not the catch-all. This leaves `ccau@` and `supatesta@` alone and caps one domain at about 198 agents (see "Provisioning path").
@@ -44,8 +44,8 @@ From `workers/durableObject/index.ts` and `migrations.ts`, with the Apache-2.0 h
 
 - The schema (`folders`, `emails`, `attachments`) and the migration runner with its eight migrations, applied in the constructor.
 - `createEmail`, `getEmail`, `getThreadEmails`, `updateEmail`, `moveEmail`, `deleteEmail`.
-- `findThreadBySubject` and `checkSendRateLimit` (20 an hour and 100 a day per mailbox, counted from the `sent` folder). Keep the limit as a backstop for inside mail between agents, which skips approval.
-- A new `listThreads`, one grouped query on `COALESCE(thread_id, id)`. The inbox's four-CTE conversation query, the sort options, the folder CRUD, the search and the counts stay behind. The desk and the Mail tab list from D1, and an agent needs a plain recent-threads list.
+- `findThreadBySubject` and `checkSendRateLimit` (20 an hour and 100 a day per mailbox, counted from the `sent` folder). Keep the limit as a backstop for inside mail between agents, which skips approval. Fix the date comparison when porting. The inbox stores `date` as an ISO string (`2026-10-26T12:34:56.000Z`) and compares it with `datetime('now', '-1 hour')` (`2026-10-26 11:34:56`). A `T` sorts after a space, so every row from the same UTC day passes the test, and "20 an hour" really means 20 a day. `findThreadBySubject`'s 7-day window has the same flaw. Compare with `strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')`, and cover both in tests.
+- A new `listThreads`, one grouped query on `COALESCE(thread_id, id)`. The inbox's six-CTE conversation query, the sort options, the folder CRUD, the search and the counts stay behind. The desk and the Mail tab list from D1, and an agent needs a plain recent-threads list.
 
 From `workers/lib/email-helpers.ts` and `tools.ts`, the pieces `send` and `reply` need.
 
@@ -63,11 +63,11 @@ Changes to the ported code, all small.
 - Recipient comes from the envelope (`message.to`), not the first `To` header. A Bcc or a list copy has the right envelope recipient and a different header.
 - `storeInbound` is idempotent on the RFC `Message-ID`. The inbox makes a new `crypto.randomUUID()` for every delivery, so a redelivered mail would start a second run. Look up an existing inbox row by `message_id` first and return its ids.
 - Body cap. Both D1 and DO SQLite refuse a value or row over 2 MB, and an inbound message can be 25 MiB. The body column holds at most 1 MB of UTF-8, cut at a character boundary with a marker. `raw_headers` keeps only `message-id`, `in-reply-to`, `references`, `from`, `to`, `cc`, `date`, `auto-submitted`, `list-id` and `precedence`, so it stays small.
-- Inbound size cap. The Worker reads the whole message into memory before parsing, and PostalMime then holds decoded copies. I did not measure the peak. Set `MAIL_MAX_INBOUND_BYTES` to 10 MiB and call `setReject("Message too large")` above it, until someone measures a 25 MiB message in a Worker.
-- Thread resolution checks `References` against stored `message_id` values and falls back to the subject rule when none match (see "Findings for later tasks", item 2).
+- Inbound size cap. The Worker reads the whole message into memory before parsing, and PostalMime then holds decoded copies. I did not measure the peak. Set a constant `MAIL_MAX_INBOUND_BYTES` (in code, not a var) to 10 MiB and call `setReject("Message too large")` above it, until someone measures a 25 MiB message in a Worker.
+- Thread resolution checks `References` and `In-Reply-To` against stored `message_id` values and falls back to the subject rule when none match (see "Findings for later tasks", item 2). A thread the agent starts gets its own RFC `Message-ID` as `thread_id`, not a bare uuid, so a later reply's `References[0]` can match it.
 - Types are rewritten for zod-free use. The tool input schemas live in `packages/mcp` (V5.8), in zod 4.
 
-Where it lives. A workspace package, `packages/mailbox/` (`@repo/mailbox`), with a barrel `index.ts` as its only public entry, its own `package.json`, `tsconfig.json` and tests, and no imports from `apps/`. The Durable Object class is a thin shell in `apps/web/src/server/mailbox.ts`, exported from `server.ts` and bound in V5.7, the way `SessionStream` wraps `session-stream-core.ts`.
+Where it lives. A workspace package, `packages/mailbox/` (`@repo/mailbox`), with one `exports` subpath per module (`@repo/mailbox/store`, `/threading`, `/send`) and no barrel file, because HANDOVER and Biome's `noBarrelFile` override the global barrel rule. It has its own `package.json`, `tsconfig.json` and tests, and no imports from `apps/`. Ported code comes in with its tests, as HANDOVER requires, so the tests for each ported function are written new in `bun test`. The Durable Object class is a thin shell in `apps/web/src/server/mailbox.ts`, exported from `server.ts` and bound in V5.7, the way `SessionStream` wraps `session-stream-core.ts`.
 
 ## MailboxPort
 
@@ -87,14 +87,35 @@ interface MailboxPort {
 }
 ```
 
-- `storeInbound` writes the message, its attachments and the raw MIME (see "Inbound path"). It returns `{ messageId, threadId, attachments, duplicate }`. A duplicate returns the existing ids and `duplicate: true`, and V5.4 starts no run for it.
+- `storeInbound` writes the message, its attachments and the raw MIME (see "Inbound path"). It returns `{ messageId, threadId, attachments, duplicate }`. A duplicate returns the existing ids and `duplicate: true` and writes nothing. `mail.receive` still upserts the D1 rows and tries to start the run on a duplicate, because the DO write and the D1 write are separate and the first attempt may have died between them. The run's `requestId` (`mail:<externalMessageId>`) keeps that to one run.
 - `send` and `reply` deliver at once and record the message in `sent`. `reply` builds `In-Reply-To` and `References` from the newest inbound message of the thread. Both throw a typed `MailError` with `code` `rate_limited`, `send_failed` or `bad_request`.
-- `hold`, `release` and `discard` serve V5.5. A send that needs approval is stored as a draft (`hold`), delivered on Allow (`release`, which sends and moves the row to `sent`) or dropped on Deny or expiry (`discard`).
+- `hold`, `release` and `discard` serve V5.5. A send that needs approval is stored as a draft (`hold`), delivered on Allow (`release`, which sends and moves the row to `sent`) or dropped on Deny or expiry (`discard`, which moves the row to `trash` and keeps the body). The outcome that `mail_read` shows comes from the D1 `mail_messages.status`, which the service merges into `readThread` by `external_message_id`.
 - `OutgoingDraft` is `{ from, to[], cc[], subject, text, html? }`. The service sets `from` from the mailbox row, checks it, and decides inside or outside before it calls the port.
+
+Shapes V5.1 needs to fix, in `packages/services/src/mail/types.ts`.
+
+```ts
+interface MailboxRef { workspaceId: string; mailboxId: string }
+interface Address { address: string; name?: string }
+interface InboundMessage {
+  envelopeTo: string; envelopeFrom: string;
+  from: Address; to: Address[]; cc: Address[];
+  subject: string; text?: string; html?: string;
+  messageId: string | null; inReplyTo: string | null; references: string[];
+  headers: { autoSubmitted?: string; listId?: string; precedence?: string; contentType?: string; reportType?: string };
+  attachments: { filename: string; mimetype: string; contentId?: string; disposition: string; content: Uint8Array }[];
+  raw: Uint8Array;
+}
+interface StoredInbound { messageId: string; threadId: string; duplicate: boolean; attachments: AttachmentMeta[] }
+interface SentMail { messageId: string; threadId: string; rfcMessageId: string }
+interface HeldMail { messageId: string; threadId: string }
+```
+
+`ThreadSummary` has `threadId`, `subject`, `participants`, `messageCount`, `unreadCount` and `lastMessageAt`. `ThreadView` has `threadId` and its messages in date order, each with `messageId`, `folder`, `from`, `to`, `cc`, `subject`, `text`, `html`, `date` and `attachments`. The headers block gives V5.4 what its loop guard and bounce check read.
 
 Left off the list V5.1 gave. `createMailbox` has nothing to do, because a DO starts on first use and the registry is the D1 row. Provisioning is the row, the routing rule and the trigger row. `disable` is the same, a D1 status change and a rule deletion, and the history stays in the DO.
 
-Ids. `mail_threads.external_thread_id` is the DO `emails.thread_id`, which is the first `References` entry, the `In-Reply-To` value, or the message's own uuid. `mail_messages.external_message_id` is the DO `emails.id`, our uuid, never the RFC `Message-ID` header. That keeps V5.4's `requestId: "mail:<externalMessageId>"` stable, because `storeInbound` is idempotent. The RFC id stays inside the DO as `message_id`.
+Ids. `mail_threads.external_thread_id` is the DO `emails.thread_id`, which is a stored thread that the `References` or `In-Reply-To` ids match, else the first `References` entry or the `In-Reply-To` value, else the subject fallback, else the message's own uuid. `mail_messages.external_message_id` is the DO `emails.id`, our uuid, never the RFC `Message-ID` header. That keeps V5.4's `requestId: "mail:<externalMessageId>"` stable, because `storeInbound` is idempotent. For a mail with no references, `thread_id` can also come from the subject fallback. The RFC id stays inside the DO as `message_id`.
 
 `EmailRoutingPort` has `findRule(address)`, `createRule(address)` and `deleteRule(ruleId)`.
 
@@ -102,8 +123,8 @@ Ids. `mail_threads.external_thread_id` is the DO `emails.thread_id`, which is th
 
 1. Cloudflare matches the recipient against a literal rule whose action is the Worker, and calls the `email(message, env, ctx)` export. `apps/web/src/server.ts` exports `{ fetch, scheduled, email }`.
 2. The handler lowercases `message.to` and looks the address up in `agent_mailboxes` in D1, status `active`. No row means `message.setReject("Unknown address")`, which covers a rule left behind after a disable. A size above `MAIL_MAX_INBOUND_BYTES` is rejected the same way.
-3. It reads the stream into a buffer (the inbox's `streamToArrayBuffer` size check carries over), writes the raw MIME to `FILES`, and parses it with PostalMime (`^2.6.1` there, not yet installed here).
-4. It builds an `InboundMessage` and calls `mail.receive` (V5.4). That calls `mailbox.storeInbound`, writes the `mail_threads` and `mail_messages` rows through `atomic`, emits `mail.received`, and starts the run when the mail trigger is on. Run start can go through `ctx.waitUntil` to keep the SMTP session short.
+3. It reads the stream into a buffer (the inbox's `streamToArrayBuffer` size check carries over) and parses it with PostalMime (`^2.6.1` there, not yet installed here).
+4. It builds an `InboundMessage`, raw bytes included, and calls `mail.receive` (V5.4). That calls `mailbox.storeInbound`, which assigns the message id and writes the raw MIME and attachments to `FILES`. Then `mail.receive` writes the `mail_threads` and `mail_messages` rows through `atomic`, emits `mail.received`, and starts the run when the mail trigger is on. Run start can go through `ctx.waitUntil` to keep the SMTP session short.
 5. A thrown error decides whether the sender retries. The pages I read do not say, so V5.7 should test it on staging with a handler that throws.
 
 Where the bytes live.
@@ -118,7 +139,7 @@ Where the bytes live.
 One literal rule per agent address, action `worker`, created by `EmailRoutingPort.createRule` through the Cloudflare API. I did not find the request body in the docs search for this task, only Wrangler's `addresses` field. The endpoint I expect is `POST /zones/{zone_id}/email/routing/rules` with a `literal` matcher on `to` and a `worker` action naming the Worker, plus `GET` to list and `DELETE /rules/{id}`. V5.7 confirms the body against the API reference before it writes the fake-fetch test.
 
 - `findRule(address)` lists the zone's rules (paged) and matches the literal `to` value. V5.3 calls it first and fails the mailbox row with "Address in use outside Harbourmaster" if a rule exists. Dom's `ccau@` and `supatesta@` are the two known cases.
-- The action names a Worker, and the name differs per environment, `harbourmaster` in production and `harbourmaster-staging` on staging. A var supplies it, `MAIL_WORKER_NAME`, set in the top level and in `env.staging`.
+- The action names a Worker, and the name differs per environment, `harbourmaster` in production and `harbourmaster-staging` on staging. A var supplies it, `MAIL_WORKER_NAME`.
 - Zone and domain are vars too, `MAIL_ZONE_ID` and `MAIL_DOMAIN`. The token is the secret `CF_EMAIL_ROUTING_TOKEN`.
 - Limit. Email Routing allows 200 rules per domain. With Dom's two on `rockyshoreslabs.io`, one domain holds about 198 agents. `createRule` must turn the limit error into a readable `failed` reason. Two ways out when it gets close. A subdomain gives a fresh 200 (a zone may hold 30 domains, and each needs Routing and Sending set up), or a catch-all on the apex pointing at the Worker with the address registry in D1 and `setReject` for unknown addresses. The catch-all is where I would go past roughly 150 agents, and it needs Dom's call because it changes how the domain treats unknown addresses.
 - Why not the catch-all today. The task refinements say no, and I agree. Without it Cloudflare rejects an unknown address at SMTP time and no Worker runs.
@@ -135,14 +156,14 @@ One literal rule per agent address, action `worker`, created by `EmailRoutingPor
 Wrangler changes, for V5.7.
 
 - Durable Object binding `MAILBOX` to `MailboxDO` in all three places (top level, `env.staging`, `env.staging.previews`). Migration `{ "tag": "v6", "new_sqlite_classes": ["MailboxDO"] }` at the top level only.
-- `send_email` `EMAIL`, `MAIL_DOMAIN`, `MAIL_ZONE_ID` and `MAIL_WORKER_NAME` in the same three places. Previews set `MAIL_DOMAIN` to `""`, which turns mail off there, and the other two to `""` as well.
+- `send_email` `EMAIL`, `MAIL_DOMAIN`, `MAIL_ZONE_ID` and `MAIL_WORKER_NAME` in the same three places. Previews set `MAIL_DOMAIN` to `""`, which turns mail off there, and `MAIL_ZONE_ID` and `MAIL_WORKER_NAME` to `""` as well. A release that creates `MailboxDO` goes out with `wrangler deploy`, because Cloudflare refuses `versions upload` for a new DO class.
 - `apps/web/.env.example` lists `CF_EMAIL_ROUTING_TOKEN`.
 - No cron change. Production runs the minute tick, and staging does not, so `provisionPending` and approval expiry do not run on staging.
 
 ## Findings for later tasks
 
 1. Bounces probably do not come back as mail to the agent. Email Sending onboarding adds an MX record on a `cf-bounce` subdomain so that bounces go to Cloudflare, not to the sender address. V5.4's rule "a delivery status notification marks the original outbound message `bounced`" may never fire for mail sent through the binding. Email Sending publishes `message.bounced`, `message.failed` and related events through Queues event subscriptions, scoped to one sending domain. A queue consumer is the likely real path. I have not tested it. V5.12 should send to a non-existent address on staging first and look at what arrives. If nothing arrives as mail, the controller decides whether V5.7 gains a Queue binding and a `queue()` handler, and V5.4 keeps the DSN parser only as a fallback.
-2. The inbox stores its own generated `Message-ID` (`<uuid>@<domain>`) but does not pass it to `send()`. Whether Cloudflare accepts a `Message-ID` header, or what `result.messageId` is, I could not settle from the docs (the headers page lists platform-controlled headers I did not see in full). If the sent id differs from the stored one, a reply from Gmail carries a `References` entry the mailbox never stored. The inbox then starts a new thread, because it trusts `References[0]`. V5.6 must check this against one real send, and the port resolves a thread by matching `References` and `In-Reply-To` against stored ids and then falling back to subject and participants. If `result.messageId` is the header value, store it as `message_id`.
+2. The inbox stores its own generated `Message-ID` (`<uuid>@<domain>`) but does not pass it to `send()`. Whether Cloudflare accepts a `Message-ID` header, or what `result.messageId` is, I could not settle from the docs (the headers page lists platform-controlled headers I did not see in full). If the sent id differs from the stored one, a reply from Gmail carries a `References` entry the mailbox never stored. The inbox then starts a new thread, because it trusts `References[0]`. The thread breaks even when the ids do match, for a thread the agent started. The inbox stores `thread_id` as the bare uuid, and a reply's `References[0]` is the `<uuid@domain>` header, so the two never agree. V5.6 must check this against one real send, and the port resolves a thread by matching `References` and `In-Reply-To` against stored ids and then falling back to subject and participants. If `result.messageId` is the header value, store it as `message_id`.
 3. `message.reply()` is not used. It allows one reply per inbound event and only to the sender, which does not fit an agent that answers after approval.
 4. The staging check (V5.12) needs two Gmail legs that only Dom's account can do, unless the controller session has a Gmail connector.
 
@@ -152,7 +173,7 @@ For Option A, none. The port reads the repo and leaves it unchanged, so the inbo
 
 For the reversal to Option B, the list is as follows.
 
-- A `WorkerEntrypoint` class with `createMailbox`, `listThreads`, `readThread`, `send`, `reply`, `hold`, `release` and `discard` over `MailboxDO` and `workers/lib/tools.ts`, exported from `workers/app.ts`.
+- A `WorkerEntrypoint` class with `createMailbox` (B needs it, because the registry there is R2 objects, which A does not), `listThreads`, `readThread`, `send`, `reply`, `hold`, `release` and `discard` over `MailboxDO` and `workers/lib/tools.ts`, exported from `workers/app.ts`.
 - A reverse call into Harbourmaster on inbound mail, through a service binding to an RPC entrypoint on Harbourmaster's Worker, from `receiveEmail`.
 - Mailbox creation without the Access-protected UI, and a registry that is not only R2 objects.
 - A deploy of the inbox Worker per Harbourmaster environment, with its R2 bucket and DO namespaces, and an answer for previews.
