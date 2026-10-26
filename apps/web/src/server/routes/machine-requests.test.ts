@@ -28,6 +28,8 @@ const BAD_REQUEST = 400;
 const FORBIDDEN = 403;
 const UNAUTHORIZED = 401;
 const CONFLICT = 409;
+const NINE_KB = 9000;
+const PREVIEW_CHARS = 1300;
 
 const APPROVAL = {
   display: {
@@ -201,6 +203,29 @@ test("create opens a pending request, and a repeat create returns the same id", 
   expect(first.status).toBe("pending");
   expect(first.outcome).toBeUndefined();
   expect(again.requestId).toBe(first.requestId);
+});
+
+test("a 9 KB tool input, sent as the daemon's text preview, opens a redacted request", async () => {
+  const { credential, runId } = await runningRun();
+  const token = "sk-ant-api03-AbCdEf1234567890xyz";
+  const json = JSON.stringify({
+    command: `curl -H "x-api-key: ${token}" ${"x".repeat(NINE_KB)}`,
+  });
+  const preview = `${json.slice(0, PREVIEW_CHARS)}… [truncated]`;
+
+  const response = await create(runId, credential, {
+    ...APPROVAL,
+    display: { ...APPROVAL.display, input: preview },
+  });
+
+  expect(response.status).toBe(OK);
+  expect(createRequestResponseSchema.parse(await response.json()).status).toBe(
+    "pending"
+  );
+  const [stored] = await composed.services.requests.listPending(user);
+  const input = JSON.stringify(stored?.display);
+  expect(input).toContain("[truncated]");
+  expect(input).not.toContain(token);
 });
 
 test("a question request opens too", async () => {
