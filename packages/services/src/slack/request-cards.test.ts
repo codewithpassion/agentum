@@ -239,17 +239,37 @@ describe("request cards", () => {
   });
 });
 
-const takeover = { ...base, reason: "Log in <please>", runId: "run1", publicBaseUrl: "https://hm.test/" };
+const takeover = {
+  ...base,
+  publicBaseUrl: "https://hm.test/",
+  reason: "Log in <please>",
+  runId: "run1",
+};
 
 test("takeover card has a screen link and only cancellation control", () => {
   const card = takeoverCard(takeover);
   expect(card.text).toContain("Pilot: Log in &lt;please&gt;");
   const actions = card.blocks.find((block) => block.type === "actions");
   expect(actions?.elements).toEqual([
-    { action_id: "hm_req:req1:screen", text: { type: "plain_text", text: "Open screen" }, type: "button", url: "https://hm.test/tasks/run1#computer" },
-    { action_id: "hm_req:req1:cancel", text: { type: "plain_text", text: "Cancel request" }, type: "button", style: "danger" },
+    {
+      action_id: "hm_req:req1:screen",
+      text: { text: "Open screen", type: "plain_text" },
+      type: "button",
+      url: "https://hm.test/tasks/run1#computer",
+    },
+    {
+      action_id: "hm_req:req1:cancel",
+      style: "danger",
+      text: { text: "Cancel request", type: "plain_text" },
+      type: "button",
+    },
   ]);
-  expect(parseInteraction(click(actions?.elements[1]))).toMatchObject({ ok: true, cancel: true, requestId: "req1", userId: "U1" });
+  expect(parseInteraction(click(actions?.elements[1]))).toMatchObject({
+    cancel: true,
+    ok: true,
+    requestId: "req1",
+    userId: "U1",
+  });
   expect(parseInteraction(click(actions?.elements[0])).ok).toBe(false);
   const preview = takeoverCard({ ...takeover, publicBaseUrl: "" });
   expect(JSON.stringify(preview)).not.toContain("Open screen");
@@ -257,10 +277,18 @@ test("takeover card has a screen link and only cancellation control", () => {
 });
 
 test("settled takeover cards show hand-back or cancellation without actions", () => {
-  for (const outcome of [{ status: "answered", answer: {} }, { status: "cancelled" }] as const) {
+  for (const outcome of [
+    { answer: {}, status: "answered" },
+    { status: "cancelled" },
+  ] as const) {
     const card = settledCard(takeover, { by: "Dom", outcome, via: "web" });
-    expect(card.text).toContain(outcome.status === "answered" ? "Handed back by Dom" : "Cancelled");
+    expect(card.text).toContain(
+      outcome.status === "answered" ? "Handed back by Dom" : "Cancelled"
+    );
     expect(card.blocks.some((block) => block.type === "actions")).toBe(false);
+    expect(JSON.stringify(card.blocks)).toContain(
+      outcome.status === "answered" ? "Handed back by Dom" : "Cancelled"
+    );
     expect(JSON.stringify(card.blocks)).toContain("Log in &lt;please&gt;");
   }
 });

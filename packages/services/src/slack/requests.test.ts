@@ -366,15 +366,15 @@ beforeEach(async () => {
   // The service methods the Slack module calls. It never reads their return
   // values, so the fakes return only what the calls need.
   const requests = {
-    cancel: async (principal: Principal, requestId: string) => {
-      cancelCalls.push({ principal, requestId });
-      settleRow({ answer: null, answeredVia: null, status: "cancelled" });
-      await gateway.onEvent(eventOf("request.cancelled", REQUEST));
-    },
     answer: (principal: Principal, input: AnswerCall["input"]) => {
       const call = { input, principal };
       answerCalls.push(call);
       return answerImpl(call);
+    },
+    cancel: async (principal: Principal, requestId: string) => {
+      cancelCalls.push({ principal, requestId });
+      settleRow({ answer: null, answeredVia: null, status: "cancelled" });
+      await gateway.onEvent(eventOf("request.cancelled", REQUEST));
     },
     outcome: () => outcomeImpl(),
   } as unknown as Pick<RequestsService, "answer" | "cancel" | "outcome">;
@@ -782,8 +782,10 @@ test("refuses a body with no payload field as malformed", async () => {
   expect(await gateway.interact(request)).toEqual({ kind: "malformed" });
 });
 
-
-const takeoverSeed = { kind: "takeover" as const, display: JSON.stringify({ machineId: "computer", reason: "Please log in" }) };
+const takeoverSeed = {
+  display: JSON.stringify({ machineId: "computer", reason: "Please log in" }),
+  kind: "takeover" as const,
+};
 
 for (const reply of [slackReply, null]) {
   test(`posts takeover in ${reply ? "thread" : "DM"} with screen link`, async () => {
@@ -794,7 +796,9 @@ for (const reply of [slackReply, null]) {
     const [post] = callsTo("chat.postMessage");
     expect(post?.body?.channel).toBe(reply ? CHANNEL : DM_CHANNEL);
     expect(post?.body?.thread_ts).toBe(reply ? THREAD : undefined);
-    expect(JSON.stringify(post?.body?.blocks)).toContain("https://hm.test/tasks/r1#computer");
+    expect(JSON.stringify(post?.body?.blocks)).toContain(
+      "https://hm.test/tasks/r1#computer"
+    );
     expect(post?.body?.text).toContain("Cloud: Please log in");
     expect(readRequest()?.slackMessage).not.toBeNull();
   });
@@ -804,24 +808,47 @@ test("updates takeover when handed back on the web, resolving the person's name"
   seedRun(slackReply);
   linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
   seedRequest({ ...takeoverSeed, slackMessage: storedSlackMessage });
-  respond = (call) => call.url === `${SLACK_API}users.info`
-    ? json({ ok: true, user: { id: LINKED_SLACK_ID, name: "dom", real_name: "Dom", profile: { display_name: "Dom" } } })
-    : defaultResponder(call);
+  respond = (call) =>
+    call.url.startsWith(`${SLACK_API}users.info?`)
+      ? json({
+          ok: true,
+          user: {
+            id: LINKED_SLACK_ID,
+            name: "dom",
+            profile: { display_name: "Dom" },
+            real_name: "Dom",
+          },
+        })
+      : defaultResponder(call);
   settleRow({ answer: "{}", answeredVia: "web", status: "answered" });
   await gateway.onEvent(eventOf("request.answered", REQUEST));
   const [update] = callsTo("chat.update");
   expect(update?.body?.text).toContain("Handed back by Dom");
-  expect(JSON.stringify(update?.body?.blocks)).not.toContain('"type":"actions"');
+  expect(JSON.stringify(update?.body?.blocks)).not.toContain(
+    '"type":"actions"'
+  );
 });
 
 test("cancel takeover calls cancel after response and updates the card", async () => {
   seedRun(slackReply);
   seedRequest({ ...takeoverSeed, slackMessage: storedSlackMessage });
   linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
-  const result = await gateway.interact(await signedClick(clickPayload({ actionId: `hm_req:${REQUEST}:cancel` })));
+  const result = await gateway.interact(
+    await signedClick(clickPayload({ actionId: `hm_req:${REQUEST}:cancel` }))
+  );
   expect(cancelCalls).toHaveLength(0);
   await runAfter(result);
-  expect(cancelCalls).toEqual([{ principal: { kind: "user", userId: CLERK_USER, via: "slack", workspaceId: WORKSPACE }, requestId: REQUEST }]);
+  expect(cancelCalls).toEqual([
+    {
+      principal: {
+        kind: "user",
+        userId: CLERK_USER,
+        via: "slack",
+        workspaceId: WORKSPACE,
+      },
+      requestId: REQUEST,
+    },
+  ]);
   expect(answerCalls).toHaveLength(0);
   expect(callsTo("chat.update")[0]?.body?.text).toContain("Cancelled");
 });
@@ -829,10 +856,47 @@ test("cancel takeover calls cancel after response and updates the card", async (
 test("unlinked users cannot cancel takeover and Slack cannot hand it back", async () => {
   seedRun(slackReply);
   seedRequest(takeoverSeed);
-  await runAfter(await gateway.interact(await signedClick(clickPayload({ actionId: `hm_req:${REQUEST}:cancel`, slackUserId: STRANGER_SLACK_ID }))));
+  await runAfter(
+    await gateway.interact(
+      await signedClick(
+        clickPayload({
+          actionId: `hm_req:${REQUEST}:cancel`,
+          slackUserId: STRANGER_SLACK_ID,
+        })
+      )
+    )
+  );
   expect(cancelCalls).toHaveLength(0);
   expect(callsTo("chat.postEphemeral")).toHaveLength(1);
   linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
   await runAfter(await gateway.interact(await signedClick(clickPayload())));
   expect(answerCalls).toHaveLength(0);
+});
+
+for (const linked of [true, false]) {
+  test(`hand-back name falls back to ${linked ? "linked email" : "user id"}`, async () => {
+    seedRun(slackReply);
+    seedRequest({ ...takeoverSeed, slackMessage: storedSlackMessage });
+    if (linked) {
+      linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
+    }
+    settleRow({ answer: "{}", answeredVia: "web", status: "answered" });
+    await gateway.onEvent(eventOf("request.answered", REQUEST));
+    expect(callsTo("chat.update")[0]?.body?.text).toContain(
+      `Handed back by ${linked ? "person@example.test" : CLERK_USER}`
+    );
+  });
+}
+
+test("takeover cancellation elsewhere updates its card without actions", async () => {
+  seedRun(slackReply);
+  seedRequest({ ...takeoverSeed, slackMessage: storedSlackMessage });
+  settleRow({ answer: null, answeredVia: null, status: "cancelled" });
+  await gateway.onEvent(eventOf("request.cancelled", REQUEST));
+  const [update] = callsTo("chat.update");
+  expect(update?.body?.text).toContain("Cancelled");
+  expect(JSON.stringify(update?.body?.blocks)).not.toContain(
+    '"type":"actions"'
+  );
+  expect(cancelCalls).toHaveLength(0);
 });
