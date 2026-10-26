@@ -20,6 +20,9 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { ResolvedSkill } from "../skills-store/records.ts";
 import type { ManagedGateway, SkillRef, SkillUploadFile } from "./gateway.ts";
 
+/** Anthropic refuses a skill display title longer than this. */
+const DISPLAY_TITLE_MAX = 64;
+
 /** Anthropic takes at most this many skills on one agent. */
 export const MAX_SKILLS = 20;
 
@@ -83,7 +86,7 @@ export const createSkillsSync = ({
   };
 
   const displayTitle = (skillId: string, name: string) =>
-    `harbourmaster ${skillId} ${name}`;
+    `harbourmaster ${skillId} ${name}`.slice(0, DISPLAY_TITLE_MAX);
 
   /** A new Anthropic skill, holding the first uploaded version of a skill. */
   const createdSkill = async (
