@@ -10,7 +10,15 @@ import {
 import { getTrpc } from "#/integrations/trpc/client";
 import { type ChatItem, POLL_MS, shouldPoll } from "./chat-logic.ts";
 import {
+  type AnswerPayload,
+  isConflict,
+  type RequestView,
+  type Settled,
+} from "./request-card-logic.ts";
+import {
   applyFrame,
+  applyPending,
+  applySettled,
   applyTranscript,
   type ChatTranscript,
   lastEntryId,
@@ -26,8 +34,12 @@ const FROM_START = "0";
 
 type Mode = "poll" | "stream";
 
+type PendingRecords = Parameters<typeof applyPending>[1];
+
 type Action =
   | { frame: StreamFrame; kind: "frame" }
+  | { kind: "pending"; records: PendingRecords }
+  | { kind: "settled"; requestId: string; settled: Settled }
   | { kind: "transcript"; transcript: ChatTranscript };
 
 const reduce = (
@@ -37,13 +49,25 @@ const reduce = (
   if (action.kind === "transcript") {
     return applyTranscript(state, action.transcript);
   }
-  return state === null ? null : applyFrame(state, action.frame);
+  if (state === null) {
+    return null;
+  }
+  switch (action.kind) {
+    case "pending":
+      return applyPending(state, action.records);
+    case "settled":
+      return applySettled(state, action.requestId, action.settled);
+    default:
+      return applyFrame(state, action.frame);
+  }
 };
 
 const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
 export interface SessionStream {
+  /** Sends a person's answer to a request. A request that was answered elsewhere settles instead of failing. */
+  answer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
   error: string | null;
   items: ChatItem[];
   /** Fetches the transcript now, for after the chat changed the session itself. */
@@ -77,8 +101,10 @@ export const useSessionStream = (
       const transcript = await getTrpc().sessions.transcript.query({
         sessionId,
       });
+      const pending = await getTrpc().requests.pending.query({ sessionId });
       if (mine === fetchCount.current) {
         dispatch({ kind: "transcript", transcript });
+        dispatch({ kind: "pending", records: pending });
         setError(null);
       }
       return transcript;
@@ -165,10 +191,58 @@ export const useSessionStream = (
     }
   }, [load, needsRefetch]);
 
+  // A request the chat has not heard of is in the pending list, not the transcript.
+  const needsRequests = state?.needsRequests;
+  useEffect(() => {
+    if (needsRequests && sessionId !== undefined) {
+      getTrpc()
+        .requests.pending.query({ sessionId })
+        .then((records) => dispatch({ kind: "pending", records }))
+        .catch((cause: unknown) => setError(messageOf(cause)));
+    }
+  }, [needsRequests, sessionId]);
+
+  const answer = useCallback(
+    async (view: RequestView, payload: AnswerPayload) => {
+      try {
+        const record = await getTrpc().requests.answer.mutate({
+          ...payload,
+          requestId: view.id,
+        });
+        dispatch({
+          kind: "settled",
+          requestId: view.id,
+          settled: {
+            answer: record.answer ?? payload,
+            answeredBy: record.answeredBy,
+            status: "answered",
+            via: "web",
+          },
+        });
+      } catch (cause) {
+        if (!isConflict(cause)) {
+          throw cause;
+        }
+        dispatch({
+          kind: "settled",
+          requestId: view.id,
+          settled: { status: "conflict" },
+        });
+      }
+    },
+    []
+  );
+
   const items = useMemo(
     () => (state === null ? [] : streamItems(state)),
     [state]
   );
 
-  return { error, items, reload, transcript: state?.transcript ?? null };
+  return {
+    answer,
+    error,
+    items,
+    reload,
+    transcript: state?.transcript ?? null,
+  };
 };

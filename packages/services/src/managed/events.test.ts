@@ -171,16 +171,16 @@ describe("custom tool calls", () => {
     expect(outcome.requiredEventIds).toEqual(["use"]);
     expect(outcome.stopReason).toBe("requires_action");
   });
-
-  test("waiting on a tool result counts as an abnormal stop, since nothing answers it", () => {
-    expect(isAbnormalStop("requires_action")).toBe(true);
-  });
 });
 
 describe("isAbnormalStop", () => {
   test("the agent finishing on its own terms is not abnormal", () => {
     expect(isAbnormalStop(null)).toBe(false);
     expect(isAbnormalStop("end_turn")).toBe(false);
+  });
+
+  test("waiting on a request is not abnormal, since the service opens one", () => {
+    expect(isAbnormalStop("requires_action")).toBe(false);
   });
 
   test("a platform cut-off is", () => {

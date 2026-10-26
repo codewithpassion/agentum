@@ -54,6 +54,11 @@ export interface SlackClient {
   listChannels: () => Promise<SlackCallResult<{ channels: ChannelEntry[] }>>;
   /** Opens (or finds) the DM between the bot and a user. */
   openDm: (userId: string) => Promise<SlackCallResult<{ channelId: string }>>;
+  /** Opens a modal view for a user who clicked a button or ran a shortcut. `trigger_id` expires after about 3 seconds. */
+  openView: (request: {
+    triggerId: string;
+    view: unknown;
+  }) => Promise<SlackCallResult>;
   /** Gives the permalink of a message the bot can see. */
   permalink: (
     channel: string,
@@ -65,7 +70,9 @@ export interface SlackClient {
     threadTs?: string;
     user: string;
   }) => Promise<SlackCallResult>;
+  /** Posts a message. `text` is the fallback and is escaped. `blocks` is sent as given, so the caller must escape any text inside it. */
   postMessage: (request: {
+    blocks?: unknown[];
     channel: string;
     text: string;
     threadTs?: string;
@@ -81,6 +88,13 @@ export interface SlackClient {
     channel: string;
     status: string;
     threadTs: string;
+  }) => Promise<SlackCallResult>;
+  /** Replaces the text and blocks of a message the bot posted. `text` is escaped; `blocks` is sent as given. */
+  updateMessage: (request: {
+    blocks?: unknown[];
+    channel: string;
+    text: string;
+    ts: string;
   }) => Promise<SlackCallResult>;
   uploadFile: (request: {
     bytes: Uint8Array<ArrayBuffer>;
@@ -500,6 +514,17 @@ export const createSlackClient = (deps: {
       );
     },
 
+    openView(request) {
+      return callSlack(
+        {
+          body: { trigger_id: request.triggerId, view: request.view },
+          method: "POST",
+          url: apiUrl("views.open"),
+        },
+        () => ({})
+      );
+    },
+
     permalink(channel, ts) {
       return callSlack(
         {
@@ -535,6 +560,7 @@ export const createSlackClient = (deps: {
       return callSlack(
         {
           body: {
+            blocks: request.blocks,
             channel: request.channel,
             text: escapeSlackKeepingMentions(request.text),
             thread_ts: request.threadTs,
@@ -574,6 +600,22 @@ export const createSlackClient = (deps: {
           },
           method: "POST",
           url: apiUrl("assistant.threads.setStatus"),
+        },
+        () => ({})
+      );
+    },
+
+    updateMessage(request) {
+      return callSlack(
+        {
+          body: {
+            blocks: request.blocks,
+            channel: request.channel,
+            text: escapeSlack(request.text),
+            ts: request.ts,
+          },
+          method: "POST",
+          url: apiUrl("chat.update"),
         },
         () => ({})
       );

@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { BetaManagedAgentsSessionEvent } from "@anthropic-ai/sdk/resources/beta/sessions/events";
+import { ASK_USER_TOOL } from "@repo/protocol/requests";
 import {
+  AGENT_TOOL_NAMES,
   AGENT_TOOLSET,
   SESSION_BUDGET_CENTS,
   SESSION_BUDGET_CURRENCY,
@@ -59,6 +61,13 @@ export interface PolledEvents {
 }
 
 export interface ManagedGateway {
+  /** Answers a `requires_action` tool confirmation: allow the call, or deny it with a reason. */
+  confirmTool: (
+    sessionId: string,
+    toolUseId: string,
+    decision: "allow" | "deny",
+    denyMessage?: string
+  ) => Promise<void>;
   /** A static_bearer credential for one MCP server URL. Header substitution only. */
   createBearerCredential: (input: {
     displayName: string;
@@ -109,6 +118,8 @@ export interface ManagedGateway {
     cursor: EventCursor | undefined
   ) => Promise<PolledEvents>;
   registerAgent: (input: {
+    /** Tool keys whose rule is "ask": `<tool>` for a built-in, `<server>/<tool>` for an MCP tool. */
+    askKeys: readonly string[];
     instructions: string;
     mcpServers: readonly McpServerRef[];
     model: string;
@@ -116,10 +127,18 @@ export interface ManagedGateway {
     skills: readonly SkillRef[];
     system: string;
   }) => Promise<{ anthropicAgentId: string }>;
+  /** Returns the text of a custom tool call the session is waiting on. */
+  sendCustomToolResult: (
+    sessionId: string,
+    toolUseId: string,
+    text: string
+  ) => Promise<void>;
   sendMessage: (sessionId: string, text: string) => Promise<void>;
   /** Replaces model, name, system, mcp_servers, skills and tools. Omitted fields stay. */
   syncAgent: (input: {
     anthropicAgentId: string;
+    /** Tool keys whose rule is "ask": `<tool>` for a built-in, `<server>/<tool>` for an MCP tool. */
+    askKeys: readonly string[];
     mcpServers: readonly McpServerRef[];
     model: string;
     name: string;
@@ -143,25 +162,87 @@ const permissive = {
   permission_policy: { type: "always_allow" as const },
 };
 
-const mcpToolset = (name: string) => ({
+/** The `configs` of a toolset: one `always_ask` entry per tool named. Omitted when none is. */
+const configsFor = <Name extends string>(toolNames: readonly Name[]) =>
+  toolNames.length > 0
+    ? {
+        configs: toolNames.map((name) => ({
+          name,
+          permission_policy: { type: "always_ask" as const },
+        })),
+      }
+    : {};
+
+const mcpToolset = (name: string, askNames: readonly string[]) => ({
   default_config: permissive,
   mcp_server_name: name,
+  ...configsFor(askNames),
   type: "mcp_toolset" as const,
 });
 
-const agentToolset = () => ({
+const agentToolset = (askNames: readonly AgentToolName[]) => ({
   default_config: permissive,
+  ...configsFor(askNames),
   type: AGENT_TOOLSET as "agent_toolset_20260401",
 });
 
+type AgentToolName = (typeof AGENT_TOOL_NAMES)[number];
+
+const isAgentToolName = (key: string): key is AgentToolName =>
+  AGENT_TOOL_NAMES.some((name) => name === key);
+
 /**
- * Every declared server must be referenced by an `mcp_toolset`, so the two
- * arrays are built from the same list.
+ * Splits the ask keys by the toolset they belong to. A key with no "/" is a
+ * built-in tool; `<server>/<tool>` is a tool on a declared server. Anything else
+ * names nothing this agent has, and is dropped.
  */
-const toolsFor = (mcpServers: readonly McpServerRef[]) => [
-  agentToolset(),
-  ...mcpServers.map((server) => mcpToolset(server.name)),
-];
+const askNamesFor = (
+  mcpServers: readonly McpServerRef[],
+  askKeys: readonly string[]
+) => {
+  const agent: AgentToolName[] = [];
+  const servers = new Map<string, string[]>(
+    mcpServers.map((server) => [server.name, []])
+  );
+  for (const key of askKeys) {
+    const slash = key.indexOf("/");
+    if (slash === -1) {
+      if (isAgentToolName(key)) {
+        agent.push(key);
+      }
+    } else {
+      servers.get(key.slice(0, slash))?.push(key.slice(slash + 1));
+    }
+  }
+  return { agent, servers };
+};
+
+/**
+ * Every declared server must be referenced by an `mcp_toolset`, so the toolsets
+ * are built from the same list. The ask_user custom tool comes last: it is how
+ * the agent asks a person a question, and nothing else carries that.
+ */
+const toolsFor = (
+  mcpServers: readonly McpServerRef[],
+  askKeys: readonly string[]
+) => {
+  const asks = askNamesFor(mcpServers, askKeys);
+  return [
+    agentToolset(asks.agent),
+    ...mcpServers.map((server) =>
+      mcpToolset(server.name, asks.servers.get(server.name) ?? [])
+    ),
+    {
+      description: ASK_USER_TOOL.description,
+      input_schema: {
+        ...structuredClone(ASK_USER_TOOL.inputSchema),
+        required: [...ASK_USER_TOOL.inputSchema.required],
+      },
+      name: ASK_USER_TOOL.name,
+      type: "custom" as const,
+    },
+  ];
+};
 
 /** `mcp_servers` is a full replacement, so it is sent whole or not at all. */
 const mcpServersFor = (mcpServers: readonly McpServerRef[]) =>
@@ -261,9 +342,16 @@ const resultText = (
 const toolOf = (
   event: BetaManagedAgentsSessionEvent
 ): SessionEvent["tool"] | undefined => {
+  if (event.type === "agent.mcp_tool_use") {
+    return {
+      id: event.id,
+      input: event.input,
+      name: event.name,
+      server: event.mcp_server_name,
+    };
+  }
   if (
     event.type === "agent.tool_use" ||
-    event.type === "agent.mcp_tool_use" ||
     event.type === "agent.custom_tool_use"
   ) {
     return { id: event.id, input: event.input, name: event.name };
@@ -376,6 +464,21 @@ export const createManagedGateway = (
   };
 
   return {
+    async confirmTool(sessionId, toolUseId, decision, denyMessage) {
+      await client.beta.sessions.events.send(sessionId, {
+        events: [
+          {
+            ...(decision === "deny" && denyMessage
+              ? { deny_message: denyMessage }
+              : {}),
+            result: decision,
+            tool_use_id: toolUseId,
+            type: "user.tool_confirmation",
+          },
+        ],
+      });
+    },
+
     async createBearerCredential(input) {
       const credential = await client.beta.vaults.credentials.create(
         input.vaultId,
@@ -533,10 +636,22 @@ export const createManagedGateway = (
         name: input.name,
         ...(input.skills.length > 0 ? { skills: skillsFor(input.skills) } : {}),
         system: input.system,
-        tools: toolsFor(input.mcpServers),
+        tools: toolsFor(input.mcpServers, input.askKeys),
       });
 
       return { anthropicAgentId: agent.id };
+    },
+
+    async sendCustomToolResult(sessionId, toolUseId, text) {
+      await client.beta.sessions.events.send(sessionId, {
+        events: [
+          {
+            content: [{ text, type: "text" }],
+            custom_tool_use_id: toolUseId,
+            type: "user.custom_tool_result",
+          },
+        ],
+      });
     },
 
     async sendMessage(sessionId, text) {
@@ -561,7 +676,7 @@ export const createManagedGateway = (
         ...(input.mcpServers.length > 0
           ? { mcp_servers: mcpServersFor(input.mcpServers) }
           : {}),
-        tools: toolsFor(input.mcpServers),
+        tools: toolsFor(input.mcpServers, input.askKeys),
       });
     },
   };
