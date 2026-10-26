@@ -18,7 +18,7 @@ import { ForbiddenError } from "./authz.ts";
 import { hashToken } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
 import { createEventsService, type EventsService } from "./events.ts";
-import type { MachineRelayPort } from "./machines/types.ts";
+import { type MachineRelayPort, noopRelay } from "./machines/types.ts";
 import {
   createMachinesService,
   ENROLL_TOKEN_PREFIX,
@@ -156,6 +156,7 @@ beforeEach(() => {
   });
   relayCalls = { cancel: [], offer: [], revoke: [] };
   relay = {
+    ...noopRelay,
     announce: () => Promise.resolve(),
     cancel: (machineId, runId) => {
       relayCalls.cancel.push([machineId, runId]);
