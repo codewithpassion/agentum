@@ -1,7 +1,7 @@
 // The "Ask me before it..." list on the agent's settings tab (V1.14): which
 // tool keys a person can pick from, and what counts as a key to add.
 
-import { mcpServerUrls } from "@repo/services/connectors/mcp-servers";
+import { connectorServerKeys } from "@repo/protocol/server-keys";
 
 /** Tools every runtime has, as their rule keys. */
 export const BUILTIN_TOOL_KEYS = ["bash", "write", "edit", "web_fetch"];
@@ -20,15 +20,9 @@ export const toolKeySuggestions = ({
   connectors,
   taken,
 }: SuggestionInput): string[] => {
-  const servers = mcpServerUrls({
-    connectors: connectors.map((connector, index) => ({
-      id: String(index),
-      name: connector.name,
-    })),
-    platformUrl: "",
-  }).slice(1);
-  const connectorKeys = servers.flatMap(({ name }, index) =>
-    (connectors[index]?.tools ?? []).map((tool) => `${name}/${tool.name}`)
+  const keys = connectorServerKeys(connectors.map(({ name }) => name));
+  const connectorKeys = connectors.flatMap((connector, index) =>
+    connector.tools.map((tool) => `${keys[index]}/${tool.name}`)
   );
   return [...BUILTIN_TOOL_KEYS, ...connectorKeys].filter(
     (key) => !taken.includes(key)
