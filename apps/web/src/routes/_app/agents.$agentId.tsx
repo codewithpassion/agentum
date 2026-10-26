@@ -23,13 +23,14 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
   loader: async ({ params }) => {
     try {
       const trpc = getTrpc();
-      const [agent, profile, askBefore, tasks] = await Promise.all([
+      const [agent, profile, askBefore, tasks, machines] = await Promise.all([
         trpc.agents.get.query({ id: params.agentId }),
         trpc.agentProfile.profile.query({ agentId: params.agentId }),
         trpc.agentProfile.askBefore.query({ agentId: params.agentId }),
         trpc.tasks.list.query({ agentId: params.agentId, limit: RECENT_TASKS }),
+        trpc.machines.list.query(),
       ]);
-      return { agent, askBefore, profile, tasks };
+      return { agent, askBefore, machines, profile, tasks };
     } catch (error) {
       if (
         error instanceof TRPCClientError &&
@@ -51,7 +52,7 @@ function useNowMs(): number | null {
 }
 
 function AgentPage() {
-  const { agent, askBefore, profile, tasks } = Route.useLoaderData();
+  const { agent, askBefore, machines, profile, tasks } = Route.useLoaderData();
   const nowMs = useNowMs();
   const { sheet } = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -86,7 +87,11 @@ function AgentPage() {
           <RunsOnCard header={profile.header} onAdvanced={edit} />
           <AskBeforeCard actions={askBefore} agentId={agent.id} />
           <RecentTasksCard agentId={agent.id} nowMs={nowMs} tasks={tasks} />
-          <ComputerCard />
+          <ComputerCard
+            agent={agent}
+            header={profile.header}
+            machines={machines}
+          />
         </aside>
       </div>
       <ManageSheet agent={agent} onClose={close} sheet={sheet} />

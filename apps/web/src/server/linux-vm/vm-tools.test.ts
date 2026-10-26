@@ -141,10 +141,13 @@ describe("linuxVmToolsExtension", () => {
   test("with a library state its prompt section names the synced copy and the rest of the library", async () => {
     const text = await renderSection(async () => ({
       conflicts: [],
-      roots: ["agents/ada", "shared/brand"],
+      roots: [
+        { mode: "write", path: "agents/ada" },
+        { mode: "read", path: "shared/brand" },
+      ],
     }));
     expect(text).toContain(VM_LIBRARY_DIR);
-    expect(text).toContain("agents/ada, shared/brand");
+    expect(text).toContain("agents/ada (write), shared/brand (read)");
     expect(text).toContain(".conflict-<runId>");
     expect(text).toContain(
       "The rest of the library is not on your disk, so reach it with the library tools."
@@ -152,10 +155,28 @@ describe("linuxVmToolsExtension", () => {
     expect(text).not.toContain("- Conflicts:");
   });
 
+  test("with a task folder its prompt section names it under the VM library and has no attachment marker", async () => {
+    const text = await renderSection(async () => ({
+      conflicts: [],
+      roots: [{ mode: "write", path: "agents/ada" }],
+      taskFolder: "agents/ada/tasks/run-1",
+    }));
+    expect(text).toContain(
+      `Save files for the user in ${VM_LIBRARY_DIR}/agents/ada/tasks/run-1.`
+    );
+    expect(text).not.toContain("[ATTACHMENT:");
+  });
+
+  test("without a library state its prompt section names no task folder and no attachment marker", async () => {
+    const text = await renderSection();
+    expect(text).not.toContain("Save files for the user");
+    expect(text).not.toContain("[ATTACHMENT:");
+  });
+
   test("with a pending conflict its prompt section lists the conflict copy under the library folder", async () => {
     const text = await renderSection(async () => ({
       conflicts: ["agents/ada/notes.md.conflict-r1"],
-      roots: ["agents/ada"],
+      roots: [{ mode: "write", path: "agents/ada" }],
     }));
     expect(text).toContain("- Conflicts:");
     expect(text).toContain(`${VM_LIBRARY_DIR}/agents/ada/notes.md.conflict-r1`);
@@ -171,12 +192,12 @@ describe("linuxVmToolsExtension", () => {
   test("the library getter is read each time the prompt renders", async () => {
     let state: VmLibraryState | undefined = {
       conflicts: [],
-      roots: ["agents/ada"],
+      roots: [{ mode: "write", path: "agents/ada" }],
     };
     const extension = linuxVmToolsExtension(async () => state);
     const [section] = extension.sections ?? [];
     const first = await section?.render(undefined as never, BACKGROUND_CONTEXT);
-    expect(first).toContain("agents/ada");
+    expect(first).toContain("agents/ada (write)");
 
     state = undefined;
     const second = await section?.render(
@@ -199,7 +220,7 @@ describe("linuxVmToolsExtension", () => {
     const plain = await renderSection();
     const withLibrary = await renderSection(async () => ({
       conflicts: [],
-      roots: ["agents/ada"],
+      roots: [{ mode: "write", path: "agents/ada" }],
     }));
     expect(plain).toContain("You have a Linux VM");
     expect(withLibrary).toContain("You have a Linux VM");

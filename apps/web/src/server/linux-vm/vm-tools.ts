@@ -10,6 +10,7 @@ import {
   createReadTool,
   createWriteTool,
 } from "@earendil-works/pi-durable/tools";
+import type { LibraryAccessGrant } from "@repo/db/shared";
 import { workspaceInstructions } from "@repo/protocol/attachments";
 import type { ScriptTexts } from "../skill-scripts/run-skill-script.ts";
 import { VM_HOME_DIR, VM_LIBRARY_DIR, VM_WORKDIR } from "./vm-port.ts";
@@ -20,8 +21,10 @@ export const LINUX_VM_TOOLS_EXTENSION = "hm-linux-vm-tools";
 export interface VmLibraryState {
   /** Library paths of conflict copies still waiting. */
   conflicts: readonly string[];
-  /** Library paths copied to the VM's library folder. */
-  roots: readonly string[];
+  /** Library paths copied to the VM's library folder, with the access mode of each. */
+  roots: readonly LibraryAccessGrant[];
+  /** The run's task folder as a library path, such as `agents/ada/tasks/run-1`. */
+  taskFolder?: string;
 }
 
 const SECTION_KEY = "linux-vm";
@@ -30,12 +33,17 @@ const VM_FACTS = `You have a Linux VM. The read, write, edit and bash tools work
 
 const sectionText = (state: VmLibraryState | undefined): string =>
   `${VM_FACTS}\n\n${workspaceInstructions({
+    attachments: false,
     conflicts: state?.conflicts,
     home: VM_HOME_DIR,
     homeIsLocal: true,
     library: state ? VM_LIBRARY_DIR : null,
+    liveSync: true,
+    roots: state?.roots,
     scratch: { lasts: "vm-sleep", path: SCRATCH_DIR },
-    syncedPaths: state?.roots,
+    taskFolder: state?.taskFolder
+      ? `${VM_LIBRARY_DIR}/${state.taskFolder}`
+      : undefined,
   })}`;
 
 /** What `run_skill_script` says when the script runs in the VM. */
@@ -49,8 +57,9 @@ export const VM_SCRIPT_TEXTS: ScriptTexts = {
 
 /**
  * A read changes nothing, so it may run again after a restart. The others may
- * not. `libraryOf` answers the synced library copy's state when the prompt
- * renders, or undefined when there is none, and then the section leaves it out.
+ * not. `libraryOf` answers the synced library copy's state, including the run's
+ * task folder, when the prompt renders, or undefined when there is none, and
+ * then the section leaves the library path and the task folder out.
  */
 export const linuxVmToolsExtension = (
   libraryOf?: () => Promise<VmLibraryState | undefined>

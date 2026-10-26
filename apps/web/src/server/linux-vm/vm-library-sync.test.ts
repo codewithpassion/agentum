@@ -7,6 +7,7 @@ import { agentLibraryAccess, libraryEntries } from "@repo/db/schema/library";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
+import type { LibraryAccessGrant } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { createEventsService } from "@repo/services/events";
 import { createLibraryService } from "@repo/services/library";
@@ -14,6 +15,7 @@ import {
   type MemoryLibraryBlobs,
   memoryLibraryBlobs,
 } from "@repo/services/library/memory";
+import { librarySyncScope } from "@repo/services/library/sync-paths";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
 import { asc, eq } from "drizzle-orm";
@@ -23,6 +25,7 @@ import {
   libraryStateOf,
   syncLibraryIn,
   syncLibraryOut,
+  syncLibraryPaths,
   vmLocalPort,
   vmManifestStore,
   withLibraryLock,
@@ -35,6 +38,12 @@ const AGENT = "a1";
 const SESSION = "s1";
 const START = "2026-10-16T10:00:00.000Z";
 const LIBRARY_VM = "/workspace/library";
+const AGENT_HOME = { mode: "write", path: "agents/ada" } as const;
+const WIKI = { mode: "read", path: "wiki" } as const;
+
+/** The roots a run starts with: the home, the wiki and the grants. */
+const scope = (grants: LibraryAccessGrant[] = []) =>
+  librarySyncScope("ada", grants);
 
 const user: Principal = {
   kind: "user",
@@ -195,7 +204,7 @@ test("sync in copies the agent folder and a named library path, and keeps the re
 
   await syncLibraryIn({
     ops: opsFor(runAs("r1")),
-    runtimeConfig: { libraryPaths: ["shared/brand"] },
+    roots: scope([{ mode: "read", path: "shared/brand" }]),
     slug: "ada",
     storage,
     vm,
@@ -215,7 +224,7 @@ test("sync in copies the agent folder and a named library path, and keeps the re
   expect(await libraryStateOf(storage)).toEqual({
     conflicts: [],
     ready: true,
-    roots: ["agents/ada", "shared/brand"],
+    roots: [AGENT_HOME, WIKI, { mode: "read", path: "shared/brand" }],
   });
 });
 
@@ -225,7 +234,7 @@ test("sync in makes the agent folder in the VM even when the library has none", 
 
   await syncLibraryIn({
     ops: opsFor(runAs("r1")),
-    runtimeConfig: { libraryPaths: ["shared/brand"] },
+    roots: scope([{ mode: "read", path: "shared/brand" }]),
     slug: "ada",
     storage: memoryStorage(),
     vm,
@@ -291,7 +300,7 @@ test("sync out sends the agent's edits and new files to the library, once", asyn
   const storage = memoryStorage();
   await syncLibraryIn({
     ops: opsFor(runAs("r1")),
-    runtimeConfig: {},
+    roots: scope(),
     slug: "ada",
     storage,
     vm,
@@ -338,7 +347,7 @@ const editedInBoth = async () => {
   const storage = memoryStorage();
   await syncLibraryIn({
     ops: opsFor(runAs("r1")),
-    runtimeConfig: {},
+    roots: scope(),
     slug: "ada",
     storage,
     vm,
@@ -388,7 +397,7 @@ test("the next run sees the conflict copy, and a second sync out records no new 
 
   await syncLibraryIn({
     ops: opsFor(runAs("r2")),
-    runtimeConfig: {},
+    roots: scope(),
     slug: "ada",
     storage,
     vm,
@@ -396,7 +405,7 @@ test("the next run sees the conflict copy, and a second sync out records no new 
   expect(await libraryStateOf(storage)).toEqual({
     conflicts: ["agents/ada/notes.md.conflict-r1"],
     ready: true,
-    roots: ["agents/ada"],
+    roots: [AGENT_HOME, WIKI],
   });
 
   const recordConflict = mock(() => Promise.resolve());
@@ -422,7 +431,7 @@ test("the next run's prompt lists the conflict copy in the VM's library folder",
   });
   await syncLibraryIn({
     ops: opsFor(runAs("r2")),
-    runtimeConfig: {},
+    roots: scope(),
     slug: "ada",
     storage,
     vm,
@@ -433,7 +442,9 @@ test("the next run's prompt lists the conflict copy in the VM's library folder",
   const text = await section?.render(undefined as never, BACKGROUND_CONTEXT);
 
   expect(text).toContain(`${LIBRARY_VM}/agents/ada/notes.md.conflict-r1`);
-  expect(text).toContain(`${LIBRARY_VM} holds a synced copy of agents/ada`);
+  expect(text).toContain(
+    `${LIBRARY_VM} holds a synced copy of agents/ada (write), wiki (read)`
+  );
   expect(
     textOf(vm.files.get(`${LIBRARY_VM}/agents/ada/notes.md.conflict-r1`))
   ).toBe("agent");
@@ -445,7 +456,7 @@ test("sync in leaves an edit that was not synced out alone", async () => {
   const storage = memoryStorage();
   await syncLibraryIn({
     ops: opsFor(runAs("r1")),
-    runtimeConfig: {},
+    roots: scope(),
     slug: "ada",
     storage,
     vm,
@@ -455,7 +466,7 @@ test("sync in leaves an edit that was not synced out alone", async () => {
 
   await syncLibraryIn({
     ops: opsFor(runAs("r2")),
-    runtimeConfig: {},
+    roots: scope(),
     slug: "ada",
     storage,
     vm,
@@ -477,7 +488,7 @@ test("sync in warns and does not throw when the library fails", async () => {
   await expect(
     syncLibraryIn({
       ops: failing,
-      runtimeConfig: {},
+      roots: scope(),
       slug: "ada",
       storage: memoryStorage(),
       vm: createFakeVm(),
@@ -495,7 +506,7 @@ test("the prompt says nothing about a synced copy until a sync in has finished",
       ...opsFor(runAs("r1")),
       list: () => Promise.reject(new Error("down")),
     },
-    runtimeConfig: {},
+    roots: scope(),
     slug: "ada",
     storage,
     vm: createFakeVm(),
@@ -503,7 +514,7 @@ test("the prompt says nothing about a synced copy until a sync in has finished",
 
   expect(await libraryCopyOf(storage)).toBeUndefined();
   // The roots are kept, so the end of the run can still send the agent's files.
-  expect((await libraryStateOf(storage))?.roots).toEqual(["agents/ada"]);
+  expect((await libraryStateOf(storage))?.roots).toEqual([AGENT_HOME, WIKI]);
 });
 
 test("sync out warns and does not throw when the library fails", async () => {
@@ -512,7 +523,7 @@ test("sync out warns and does not throw when the library fails", async () => {
   const storage = memoryStorage();
   await syncLibraryIn({
     ops: opsFor(runAs("r1")),
-    runtimeConfig: {},
+    roots: scope(),
     slug: "ada",
     storage,
     vm,
@@ -546,7 +557,7 @@ test("a conflict that fails to record is warned, and the other conflicts are sti
   const storage = memoryStorage();
   await syncLibraryIn({
     ops: opsFor(runAs("r1")),
-    runtimeConfig: {},
+    roots: scope(),
     slug: "ada",
     storage,
     vm,
@@ -622,7 +633,7 @@ test("a sync holds the library lock while it runs and releases it after", async 
         return ops.list(dir);
       },
     },
-    runtimeConfig: {},
+    roots: scope(),
     slug: "ada",
     storage: memoryStorage(),
     vm,
@@ -725,4 +736,189 @@ test("withLibraryLock renews its hold while a long sync runs", async () => {
   // One call to take it, at least one more to renew it, all by the same owner.
   expect(renewals.length).toBeGreaterThan(1);
   expect(new Set(renewals).size).toBe(1);
+});
+
+const grantReadOnBrand = () =>
+  db
+    .insert(agentLibraryAccess)
+    .values({
+      agentId: AGENT,
+      createdAt: START,
+      mode: "read",
+      path: "shared/brand",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+
+test("sync out never sends a change under a read root", async () => {
+  await service.write(user, "shared/brand/logo.md", bytes("logo"));
+  grantReadOnBrand();
+  const vm = createFakeVm();
+  const storage = memoryStorage();
+  await syncLibraryIn({
+    ops: opsFor(runAs("r1")),
+    roots: scope([{ mode: "read", path: "shared/brand" }]),
+    slug: "ada",
+    storage,
+    vm,
+  });
+
+  vm.files.set(`${LIBRARY_VM}/shared/brand/logo.md`, bytes("edited"));
+  await vm.writeFile(`${LIBRARY_VM}/shared/brand/new.md`, bytes("new"));
+  await vm.writeFile(`${LIBRARY_VM}/agents/ada/mine.md`, bytes("mine"));
+  await syncLibraryOut({
+    ops: opsFor(runAs("r1")),
+    recordConflict: () => Promise.resolve(),
+    runId: "r1",
+    storage,
+    vm,
+  });
+
+  expect(await readText("shared/brand/logo.md")).toBe("logo");
+  expect(libraryPaths()).not.toContain("shared/brand/new.md");
+  expect(await readText("agents/ada/mine.md")).toBe("mine");
+});
+
+test("a state saved with plain string roots reads as write roots", async () => {
+  const storage = memoryStorage();
+  storage.values.set("library-sync", {
+    conflicts: [],
+    ready: true,
+    roots: ["agents/ada", "shared/brand"],
+  });
+
+  expect((await libraryStateOf(storage))?.roots).toEqual([
+    { mode: "write", path: "agents/ada" },
+    { mode: "write", path: "shared/brand" },
+  ]);
+  expect((await libraryCopyOf(storage))?.roots).toEqual([
+    { mode: "write", path: "agents/ada" },
+    { mode: "write", path: "shared/brand" },
+  ]);
+});
+
+test("sync in makes the task folder in the VM and keeps it in the state", async () => {
+  const vm = createFakeVm();
+  const storage = memoryStorage();
+
+  await syncLibraryIn({
+    ops: opsFor(runAs("r1")),
+    roots: scope(),
+    slug: "ada",
+    storage,
+    taskFolder: "agents/ada/tasks/r1",
+    vm,
+  });
+
+  expect(vm.folders.has(`${LIBRARY_VM}/agents/ada/tasks/r1`)).toBe(true);
+  expect((await libraryCopyOf(storage))?.taskFolder).toBe(
+    "agents/ada/tasks/r1"
+  );
+});
+
+test("a pull of announced paths copies only those paths inside the roots", async () => {
+  await service.write(user, "agents/ada/a.md", bytes("a1"));
+  await service.write(user, "agents/ada/b.md", bytes("b1"));
+  await service.write(user, "other/x.md", bytes("x1"));
+  const vm = createFakeVm();
+  const storage = memoryStorage();
+  await syncLibraryIn({
+    ops: opsFor(runAs("r1")),
+    roots: scope(),
+    slug: "ada",
+    storage,
+    vm,
+  });
+  await service.write(user, "agents/ada/a.md", bytes("a2"));
+  await service.write(user, "agents/ada/b.md", bytes("b2"));
+  await service.write(user, "other/x.md", bytes("x2"));
+
+  await syncLibraryPaths({
+    ops: opsFor(runAs("r1")),
+    paths: ["agents/ada/a.md", "other/x.md"],
+    storage,
+    vm,
+  });
+
+  expect(textOf(vm.files.get(`${LIBRARY_VM}/agents/ada/a.md`))).toBe("a2");
+  expect(textOf(vm.files.get(`${LIBRARY_VM}/agents/ada/b.md`))).toBe("b1");
+  expect(vm.files.has(`${LIBRARY_VM}/other/x.md`)).toBe(false);
+});
+
+test("a pull of announced paths keeps the roots, the task folder and the conflicts of the other paths", async () => {
+  const vm = createFakeVm();
+  const storage = memoryStorage();
+  await syncLibraryIn({
+    ops: opsFor(runAs("r1")),
+    roots: scope(),
+    slug: "ada",
+    storage,
+    taskFolder: "agents/ada/tasks/r1",
+    vm,
+  });
+  const before = await libraryStateOf(storage);
+  await service.write(user, "agents/ada/a.md", bytes("a1"));
+
+  await syncLibraryPaths({
+    ops: opsFor(runAs("r1")),
+    paths: ["agents/ada/a.md"],
+    storage,
+    vm,
+  });
+
+  expect(await libraryStateOf(storage)).toEqual(before);
+  expect(textOf(vm.files.get(`${LIBRARY_VM}/agents/ada/a.md`))).toBe("a1");
+});
+
+test("a pull of announced paths does nothing before the run has synced in", async () => {
+  await service.write(user, "agents/ada/a.md", bytes("a1"));
+  const vm = createFakeVm();
+
+  await syncLibraryPaths({
+    ops: opsFor(runAs("r1")),
+    paths: ["agents/ada/a.md"],
+    storage: memoryStorage(),
+    vm,
+  });
+
+  expect(vm.files.has(`${LIBRARY_VM}/agents/ada/a.md`)).toBe(false);
+});
+
+test("a push with no wait does nothing and says nothing while another sync holds the lock", async () => {
+  await service.write(user, "agents/ada/notes.md", bytes("notes"));
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  const vm = createFakeVm();
+  const storage = memoryStorage();
+  await syncLibraryIn({
+    ops: opsFor(runAs("r1")),
+    roots: scope(),
+    slug: "ada",
+    storage,
+    vm,
+  });
+  vm.files.set(`${LIBRARY_VM}/agents/ada/notes.md`, bytes("edit"));
+  await vm.lockLibrary("another-sync", 60_000);
+
+  await syncLibraryOut({
+    ops: opsFor(runAs("r1")),
+    recordConflict: () => Promise.resolve(),
+    runId: "r1",
+    storage,
+    vm,
+    waitMs: 0,
+  });
+
+  expect(await readText("agents/ada/notes.md")).toBe("notes");
+  expect(warn).not.toHaveBeenCalled();
+
+  await vm.unlockLibrary("another-sync");
+  await syncLibraryOut({
+    ops: opsFor(runAs("r1")),
+    recordConflict: () => Promise.resolve(),
+    runId: "r1",
+    storage,
+    vm,
+    waitMs: 0,
+  });
+  expect(await readText("agents/ada/notes.md")).toBe("edit");
 });

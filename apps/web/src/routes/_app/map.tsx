@@ -1,14 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { ReactFlowProvider } from "@xyflow/react";
+import { MapPage } from "#/components/map/map-page.tsx";
 
 export const Route = createFileRoute("/_app/map")({
-  component: MapPage,
+  component: MapRoute,
 });
 
-function MapPage() {
+function MapRoute() {
   return (
-    <section className="mx-auto max-w-3xl">
-      <h1 className="font-heading text-3xl text-foreground">Map</h1>
-      <p className="mt-4 text-muted-foreground text-sm">Map comes in V7.</p>
-    </section>
+    <ReactFlowProvider>
+      <MapPage />
+    </ReactFlowProvider>
   );
 }
