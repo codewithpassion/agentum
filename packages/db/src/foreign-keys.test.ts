@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { agents } from "./schema/agents.ts";
+import {
+  agentLibraryAccess,
+  libraryConflicts,
+  libraryLinks,
+  libraryVersions,
+  wikiSuggestions,
+} from "./schema/library.ts";
 import { runRequests } from "./schema/requests.ts";
 import { runs } from "./schema/runs.ts";
 import { sessions } from "./schema/sessions.ts";
@@ -187,4 +194,186 @@ test("a tool rule is unique per agent and tool key, and refuses an unknown agent
       .values(rule("t4", "nope", "Bash"))
       .run()
   ).toThrow("FOREIGN KEY constraint failed");
+});
+
+const version = (
+  overrides: Partial<typeof libraryVersions.$inferInsert> = {}
+) => ({
+  authorId: "a1",
+  authorKind: "agent",
+  blobKey: "w1/library-versions/v1",
+  createdAt: NOW,
+  etag: "e",
+  id: "v1",
+  op: "write" as const,
+  path: "wiki/index.md",
+  runId: "r1",
+  sha256: "abc",
+  size: 3,
+  version: 1,
+  workspaceId: "w1",
+  ...overrides,
+});
+
+test("a library version refuses an unknown run or workspace and a repeated version of a path, and takes a null run", () => {
+  const db = migrated();
+  seedRun(db);
+  db.insert(libraryVersions).values(version()).run();
+  db.insert(libraryVersions)
+    .values(version({ id: "v2", runId: null, version: 2 }))
+    .run();
+  expect(() =>
+    db
+      .insert(libraryVersions)
+      .values(version({ id: "v3" }))
+      .run()
+  ).toThrow("UNIQUE constraint failed");
+  expect(() =>
+    db
+      .insert(libraryVersions)
+      .values(version({ id: "v4", runId: "nope", version: 3 }))
+      .run()
+  ).toThrow("FOREIGN KEY constraint failed");
+  expect(() =>
+    db
+      .insert(libraryVersions)
+      .values(version({ id: "v5", version: 4, workspaceId: "nope" }))
+      .run()
+  ).toThrow("FOREIGN KEY constraint failed");
+});
+
+test("an access grant is unique per agent and path, and refuses an unknown agent", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  db.insert(agents).values(agent("a1", "w1")).run();
+  const grant = (agentId: string, path: string) => ({
+    agentId,
+    createdAt: NOW,
+    mode: "read" as const,
+    path,
+    workspaceId: "w1",
+  });
+  db.insert(agentLibraryAccess).values(grant("a1", "shared")).run();
+  db.insert(agentLibraryAccess).values(grant("a1", "clients")).run();
+  expect(() =>
+    db.insert(agentLibraryAccess).values(grant("a1", "shared")).run()
+  ).toThrow("UNIQUE constraint failed");
+  expect(() =>
+    db.insert(agentLibraryAccess).values(grant("nope", "shared")).run()
+  ).toThrow("FOREIGN KEY constraint failed");
+});
+
+test("a conflict refuses an unknown agent or run, and takes a null run", () => {
+  const db = migrated();
+  seedRun(db);
+  const conflict = (
+    overrides: Partial<typeof libraryConflicts.$inferInsert> = {}
+  ) => ({
+    agentId: "a1",
+    conflictPath: "notes.md.conflict-r1",
+    createdAt: NOW,
+    id: "c1",
+    path: "notes.md",
+    runId: "r1",
+    status: "open" as const,
+    workspaceId: "w1",
+    ...overrides,
+  });
+  db.insert(libraryConflicts).values(conflict()).run();
+  db.insert(libraryConflicts)
+    .values(conflict({ id: "c2", runId: null }))
+    .run();
+  expect(() =>
+    db
+      .insert(libraryConflicts)
+      .values(conflict({ agentId: "nope", id: "c3" }))
+      .run()
+  ).toThrow("FOREIGN KEY constraint failed");
+  expect(() =>
+    db
+      .insert(libraryConflicts)
+      .values(conflict({ id: "c4", runId: "nope" }))
+      .run()
+  ).toThrow("FOREIGN KEY constraint failed");
+});
+
+test("a link is unique per page and target as written, and refuses an unknown workspace", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  const link = (target: string, workspaceId = "w1") => ({
+    fromPath: "wiki/a.md",
+    target,
+    targetKey: "wiki/b.md",
+    workspaceId,
+  });
+  db.insert(libraryLinks).values(link("b")).run();
+  db.insert(libraryLinks).values(link("B")).run();
+  expect(() => db.insert(libraryLinks).values(link("b")).run()).toThrow(
+    "UNIQUE constraint failed"
+  );
+  expect(() => db.insert(libraryLinks).values(link("c", "nope")).run()).toThrow(
+    "FOREIGN KEY constraint failed"
+  );
+});
+
+test("a suggestion refuses an unknown agent, run or version, and takes null references", () => {
+  const db = migrated();
+  seedRun(db);
+  db.insert(libraryVersions).values(version()).run();
+  const suggestion = (
+    overrides: Partial<typeof wikiSuggestions.$inferInsert> = {}
+  ) => ({
+    agentId: "a1",
+    baseVersionId: "v1",
+    blobKey: "w1/wiki-suggestions/s1",
+    createdAt: NOW,
+    id: "s1",
+    path: "wiki/index.md",
+    runId: "r1",
+    status: "pending" as const,
+    summary: "Fix a typo",
+    workspaceId: "w1",
+    ...overrides,
+  });
+  db.insert(wikiSuggestions).values(suggestion()).run();
+  db.insert(wikiSuggestions)
+    .values(suggestion({ baseVersionId: null, id: "s2", runId: null }))
+    .run();
+  for (const [id, overrides] of [
+    ["s3", { agentId: "nope" }],
+    ["s4", { runId: "nope" }],
+    ["s5", { baseVersionId: "nope" }],
+    ["s6", { resultVersionId: "nope" }],
+  ] as const) {
+    expect(() =>
+      db
+        .insert(wikiSuggestions)
+        .values(suggestion({ id, ...overrides }))
+        .run()
+    ).toThrow("FOREIGN KEY constraint failed");
+  }
+});
+
+test("deleting a version a suggestion points at clears the reference", () => {
+  const db = migrated();
+  seedRun(db);
+  db.insert(libraryVersions).values(version()).run();
+  db.insert(wikiSuggestions)
+    .values({
+      agentId: "a1",
+      baseVersionId: "v1",
+      blobKey: "w1/wiki-suggestions/s1",
+      createdAt: NOW,
+      id: "s1",
+      path: "wiki/index.md",
+      resultVersionId: "v1",
+      status: "accepted",
+      summary: "Fix a typo",
+      workspaceId: "w1",
+    })
+    .run();
+  db.delete(libraryVersions).where(eq(libraryVersions.id, "v1")).run();
+  const [row] = db.select().from(wikiSuggestions).all();
+  expect(row?.baseVersionId).toBeNull();
+  expect(row?.resultVersionId).toBeNull();
 });

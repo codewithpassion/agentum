@@ -510,14 +510,34 @@ describe("mcpToolOrigins", () => {
     expect([...origins.keys()].sort()).toEqual(registered.sort());
     expect(origins.get("my_server_list_items_v2")).toEqual({
       name: "list.items/v2",
+      readOnly: true,
       server: "my server",
     });
     // The second tool collides with the first and gets a number.
     expect(origins.get("my_server_list_items_v2_2")).toEqual({
       name: "list items v2",
+      readOnly: true,
       server: "my server",
     });
-    expect(origins.get("s_search")).toEqual({ name: "search", server: "s" });
+    expect(origins.get("s_search")).toEqual({
+      name: "search",
+      readOnly: true,
+      server: "s",
+    });
+  });
+
+  test("marks a tool read-only only when readOnlyHint is true", () => {
+    const origins = mcpToolOrigins({
+      s: [
+        { ...SEARCH, name: "hinted" },
+        { ...SEARCH, annotations: { readOnlyHint: false }, name: "denied" },
+        { ...SEARCH, annotations: undefined, name: "bare" },
+      ],
+    });
+
+    expect(origins.get("s_hinted")?.readOnly).toBe(true);
+    expect(origins.get("s_denied")?.readOnly).toBe(false);
+    expect(origins.get("s_bare")?.readOnly).toBe(false);
   });
 });
 

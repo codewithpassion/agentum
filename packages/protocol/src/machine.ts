@@ -1,4 +1,8 @@
-import { REQUEST_KINDS, REQUEST_STATUSES } from "@repo/db/shared";
+import {
+  LIBRARY_ACCESS_MODES,
+  REQUEST_KINDS,
+  REQUEST_STATUSES,
+} from "@repo/db/shared";
 import { z } from "zod";
 import {
   approvalDisplaySchema,
@@ -20,6 +24,9 @@ export const FEATURE_LIBRARY_SYNC = "library-sync";
 
 /** The daemon can raise approval and question requests and wait for them (V1.9). */
 export const FEATURE_REQUESTS = "requests";
+
+/** The daemon takes `library_changed` relay frames and the claim's library `roots` and `taskFolder` (V4). */
+export const FEATURE_LIBRARY_LIVE = "library-live";
 
 /** Whether the value of `DAEMON_FEATURES_HEADER` names `feature`. */
 export const hasDaemonFeature = (
@@ -63,6 +70,9 @@ export const daemonHelloSchema = z.strictObject({
     container: z.boolean(),
   }),
   daemonVersion: z.string(),
+  // The daemon's optional features (see DAEMON_FEATURES_HEADER). An old daemon
+  // omits it.
+  features: z.array(z.string()).optional(),
   type: z.literal("hello"),
 });
 export type DaemonHello = z.infer<typeof daemonHelloSchema>;
@@ -99,10 +109,17 @@ export const cancelSchema = z.strictObject({
 });
 export type Cancel = z.infer<typeof cancelSchema>;
 
+export const libraryChangedSchema = z.strictObject({
+  paths: z.array(z.string()),
+  type: z.literal("library_changed"),
+});
+export type LibraryChanged = z.infer<typeof libraryChangedSchema>;
+
 export const relayFrameSchema = z.discriminatedUnion("type", [
   relayHelloAckSchema,
   offerSchema,
   cancelSchema,
+  libraryChangedSchema,
 ]);
 export type RelayFrame = z.infer<typeof relayFrameSchema>;
 
@@ -121,11 +138,22 @@ export const claimResponseSchema = z.strictObject({
   instructions: z.string(),
   // The library folders the daemon copies into the work directory, and the
   // conflict copies waiting in them. Optional, so a Worker that predates the
-  // library sync still parses on a newer daemon.
+  // library sync still parses on a newer daemon. roots and taskFolder are sent
+  // only to a daemon that names FEATURE_LIBRARY_LIVE (the schema is strict, so
+  // an older daemon would reject the keys).
   library: z
     .strictObject({
       conflicts: z.array(z.string()),
       paths: z.array(z.string()),
+      roots: z
+        .array(
+          z.strictObject({
+            mode: z.enum(LIBRARY_ACCESS_MODES),
+            path: z.string(),
+          })
+        )
+        .optional(),
+      taskFolder: z.string().optional(),
     })
     .optional(),
   mcpServers: z.record(

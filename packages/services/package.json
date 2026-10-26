@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./agent-profile": "./src/agent-profile.ts",
     "./agents": "./src/agents.ts",
     "./api-keys": "./src/api-keys.ts",
     "./authz": "./src/authz.ts",
