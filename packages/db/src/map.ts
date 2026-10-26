@@ -36,7 +36,7 @@ export const graphNodes = async (db: Database, workspaceId: string) => {
       from triggers t left join agent_mailboxes m on m.agent_id = t.agent_id and m.workspace_id = t.workspace_id
       where t.workspace_id = ${workspaceId} and t.revoked_at is null
       union all select 'slack:' || s.id, s.agent_id, 'slack', 'Slack'
-      from slack_apps s where s.workspace_id = ${workspaceId} order by 1`),
+      from slack_apps s where s.workspace_id = ${workspaceId} and s.status <> 'revoked' order by 1`),
     // The spec's connector_assignments is named agent_connectors in this schema.
     db.all<{
       agentId: string;
@@ -127,7 +127,7 @@ export const graphCounts = async (
     ${
       type === "run.queued"
         ? sql`left join runs p on p.id = r.parent_run_id and p.workspace_id = e.workspace_id
-      left join slack_apps s on s.agent_id = e.agent_id and s.workspace_id = e.workspace_id and r.parent_run_id is null`
+      left join slack_apps s on s.agent_id = e.agent_id and s.workspace_id = e.workspace_id and s.status <> 'revoked' and r.parent_run_id is null`
         : sql``
     }
     ${type === "mail.received" ? sql`join triggers t on t.agent_id = e.agent_id and t.workspace_id = e.workspace_id and t.kind = 'mail' and t.revoked_at is null` : sql``}
