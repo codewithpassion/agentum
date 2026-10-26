@@ -32,7 +32,12 @@ const isBounce = (message: InboundMessage) =>
   message.headers.reportType?.toLowerCase() === "delivery-status" ||
   DELIVERY_STATUS_REPORT.test(message.headers.contentType ?? "");
 // The returned original's own Message-ID names the failed mail. Its In-Reply-To and References name older mail.
-const HEADER_ID = /(?:Original-Message-ID|Message-ID):\s*([^\r\n]+)/gi;
+const HEADER_ID = /^(?:Original-Message-ID|Message-ID):\s*([^\r\n]+)/gim;
+const REPORT_CONTENT_TYPE = /multipart\/report/i;
+// Read receipts and abuse reports are reports too. They are not mail for the agent to act on.
+const isOtherReport = (message: InboundMessage) =>
+  Boolean(message.headers.reportType) ||
+  REPORT_CONTENT_TYPE.test(message.headers.contentType ?? "");
 const RFC_ID = /<[^<>\s]+>/g;
 /** DSNs differ by transport; only inspect their ids, never interpret the report body as instructions. */
 export const bounceMessageIds = (message: InboundMessage): string[] => {
@@ -316,6 +321,9 @@ export const createInboundMail = ({
     // DSNs are usually auto-submitted themselves, so recognize them before the loop guard.
     if (isBounce(message)) {
       await bounce(message, box);
+      return;
+    }
+    if (isOtherReport(message)) {
       return;
     }
     const own = await db
