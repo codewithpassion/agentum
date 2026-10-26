@@ -144,6 +144,24 @@ test("a done run settles a tool step whose result body went to R2", () => {
   );
 });
 
+test("settling a done run keeps a failed result in a folded group failed", () => {
+  const offloaded = {
+    ...result("b", ""),
+    payload: {},
+    payloadRef: "payloads/b",
+  };
+  const events = [
+    call("a"),
+    result("a", "boom", false),
+    call("b"),
+    offloaded,
+    event("message.assistant", { text: "ok" }),
+  ];
+  expect(buildReceipt(run({ status: "done" }), events)[1]?.state).toBe(
+    "failed"
+  );
+});
+
 test("a folded step returns to running until its latest call resolves", () => {
   expect(
     buildReceipt(run(), [call("a"), result("a", "{}"), call("b")])[1]?.state

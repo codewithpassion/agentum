@@ -252,7 +252,11 @@ export const buildReceipt = (
     }
     // A finished run has no open calls. A result whose body went to R2 has no
     // toolUseId to join on, so settle the step instead of leaving it running.
-    if (group.remaining > 0 && run.status === "done") {
+    if (
+      group.remaining > 0 &&
+      run.status === "done" &&
+      group.step.state !== "failed"
+    ) {
       group.step.state = "done";
     }
     if (group.step !== ctx.steps.at(-1)) {
