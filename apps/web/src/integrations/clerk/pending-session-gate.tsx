@@ -39,7 +39,6 @@ function ResolveChooseOrganization() {
   const onPicker = pathname === CHOOSE_ORGANIZATION_PATH;
 
   useEffect(() => {
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: started.current is mutated below so the activation runs once.
     if (!(isLoaded && organizationId) || started.current) {
       return;
     }
