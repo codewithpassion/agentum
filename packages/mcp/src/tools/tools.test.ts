@@ -887,35 +887,73 @@ const DRY_RUN_INPUTS: Record<string, Record<string, unknown>> = {
     prompt: "status",
   },
   create_skill: {
-    files: [{ path: "SKILL.md", content: "hello" }],
+    files: [{ content: "hello", path: "SKILL.md" }],
     message: "initial",
     name: "ops",
   },
-  create_trigger: { agentId: "agt_1", name: "hook" },
+  create_trigger: { agentId: "agt_1", name: " hook " },
   delete_routine: { routineId: "rt_1" },
   delete_trigger: { triggerId: "tr_1" },
+  export_skill: { skillId: "sk_1", version: 1 },
   import_skill: { archiveBase64: "eA==" },
+  list_routines: {},
+  list_skills: {},
+  list_triggers: {},
   pin_skill: { agent: "ops-bot", skillId: "sk_1", version: null },
   reject_skill_version: { skillId: "sk_1", version: 1 },
   revert_skill: { skillId: "sk_1", toVersion: 1 },
   set_routine_enabled: { enabled: false, routineId: "rt_1" },
   set_trigger_enabled: { enabled: false, triggerId: "tr_1" },
+  skill_diff: { from: 1, skillId: "sk_1", to: 2 },
+  skill_log: { skillId: "sk_1" },
+  skill_show: { skillId: "sk_1", version: 1 },
+  slack_destinations: {},
+  slack_history: { channel: "#ops" },
+  slack_search: { query: "hi" },
   slack_send: { text: "hi", to: "#ops" },
   unassign_skill: { agent: "ops-bot", skillId: "sk_1" },
 };
 
 const countedPorts = (calls: string[]): McpPorts =>
-  Object.fromEntries(
-    Object.keys(fakePorts({})).map((name) => [
-      name,
-      () => {
-        calls.push(name);
-        return Promise.reject(new Error("Unexpected port call"));
-      },
-    ])
-  ) as McpPorts;
+  fakePorts(
+    Object.fromEntries(
+      Object.keys(fakePorts({})).map((name) => [
+        name,
+        () => {
+          calls.push(name);
+          return Promise.reject(new Error("Unexpected port call"));
+        },
+      ])
+    )
+  );
 
 describe("dry-run gate", () => {
+  for (const tool of harbourmasterTools(fakePorts({})).filter(
+    (definition) => definition.annotations.readOnlyHint === true
+  )) {
+    test(`${tool.name} still reaches its port in a dry run`, async () => {
+      const input = DRY_RUN_INPUTS[tool.name];
+      if (!input) {
+        throw new Error(`Missing dry-run sample for read tool ${tool.name}`);
+      }
+      const calls: string[] = [];
+      const skips: unknown[] = [];
+      const result = await callTool(countedPorts(calls), tool.name, input, {
+        dryRun: {
+          record: (skip) => {
+            skips.push(skip);
+            return Promise.resolve();
+          },
+        },
+      });
+      // The port deliberately rejects: the error proves the read reached it.
+      expect(calls).toHaveLength(1);
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe(GENERIC);
+      expect(skips).toEqual([]);
+    });
+  }
+
   for (const tool of harbourmasterTools(fakePorts({})).filter(
     (definition) => definition.annotations.readOnlyHint !== true
   )) {
@@ -1007,7 +1045,7 @@ describe("dry-run gate", () => {
 
   test("summarizes validated input with defaults and truncates compact JSON to 200 characters", async () => {
     const skips: unknown[] = [];
-    const input = { agent: " ops-bot ", text: "x".repeat(250) };
+    const input = { agent: "ops-bot", text: "x".repeat(250) };
     const result = await callTool(countedPorts([]), "send_message", input, {
       dryRun: {
         record: (skip) => {

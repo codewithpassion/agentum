@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
-import { runs } from "@repo/db/schema/runs";
 import { events } from "@repo/db/schema/events";
+import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";

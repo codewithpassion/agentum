@@ -387,6 +387,17 @@ export const mcpRoutes = ({
     const handler = createMcpHandler(
       () =>
         createHarbourmasterMcpServer(ports, {
+          dryRun:
+            principal.kind === "run" && principal.dryRun === true
+              ? {
+                  record: (skip) =>
+                    composed.services.runs.recordDryRunSkip(
+                      principal,
+                      principal.runId,
+                      skip
+                    ),
+                }
+              : undefined,
           readOnly: isReadOnly(principal),
         }),
       options

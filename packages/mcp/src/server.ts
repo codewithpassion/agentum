@@ -14,6 +14,10 @@ import { slackTools } from "./tools/slack";
 import { triggerTools } from "./tools/triggers";
 
 export interface ServerOptions {
+  /** Record skipped writes without calling their ports. */
+  dryRun?: {
+    record: (skip: { summary: string; tool: string }) => Promise<void>;
+  };
   /**
    * The caller is a read-only API key or connected app. It then gets the
    * list tools for routines and triggers and the read tools for skills, and
@@ -115,6 +119,6 @@ export const createHarbourmasterMcpServer = (
     { name: "harbourmaster", version: packageJson.version },
     { capabilities: { tools: { listChanged: false } } }
   );
-  registerTools(server, harbourmasterTools(ports, options));
+  registerTools(server, harbourmasterTools(ports, options), options);
   return server;
 };
