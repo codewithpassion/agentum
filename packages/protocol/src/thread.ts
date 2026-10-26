@@ -151,7 +151,12 @@ const settle = (
   settlement?: Record<string, unknown>
 ): ThreadPart[] =>
   parts.map((part) =>
-    part.type === "request" && part.requestId === requestId
+    part.type === "request" &&
+    part.requestId === requestId &&
+    // A settled card keeps its status. Only the closing event of the same
+    // status may add its settlement details after the status-only frame.
+    (part.status === "pending" ||
+      (settlement !== undefined && part.status === status))
       ? { ...part, status, ...(settlement === undefined ? {} : { settlement }) }
       : part
   );
@@ -193,8 +198,14 @@ const addReasoning = (
   text: string,
   cursor: Cursor
 ): void => {
-  const first = message.parts.findIndex((part) => part.type !== "reasoning");
-  const index = first === -1 ? message.parts.length : first;
+  // Reasoning goes before the text of its own turn. A turn starts after the
+  // last tool call, request, placeholder or earlier reasoning part.
+  let index = 0;
+  for (const [position, part] of message.parts.entries()) {
+    if (part.type !== "text" && part.type !== "attachment") {
+      index = position + 1;
+    }
+  }
   message.parts.splice(index, 0, { text, type: "reasoning" });
   if (cursor.open && index <= cursor.open.start) {
     cursor.open.start += 1;

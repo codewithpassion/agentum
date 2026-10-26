@@ -300,3 +300,37 @@ test("reasoning inserted during a delta preserves its replacement position", () 
     { text: "Final", type: "text" },
   ]);
 });
+
+test("reasoning of a later turn lands after the earlier turn's tool calls", () => {
+  expect(
+    foldThread([
+      event("1", "message.reasoning", { text: "R1" }),
+      event("2", "tool.call", { input: {}, name: "read", toolUseId: "t" }),
+      event("3", "tool.result", { ok: true, output: "x", toolUseId: "t" }),
+      event("4", "message.reasoning", { text: "R2" }),
+      event("5", "message.assistant", { text: "Done" }),
+    ])[0]?.parts.map((part) => part.type)
+  ).toEqual(["reasoning", "tool-call", "reasoning", "text"]);
+});
+
+test("a late pending frame does not reopen an answered request", () => {
+  const opened = {
+    display: { questions: [{ question: "Why?" }] },
+    expiresAt: at,
+    kind: "question" as const,
+    requestId: "q",
+    toolUseId: "t",
+  };
+  const messages = foldThread([
+    event("1", "request.opened", opened),
+    event("2", "request.answered", { requestId: "q" }),
+  ]);
+  const after = applyFrame(messages, {
+    frame: "request",
+    kind: "question",
+    requestId: "q",
+    runId: "r1",
+    status: "pending",
+  });
+  expect(after[0]?.parts[0]).toMatchObject({ status: "answered" });
+});
