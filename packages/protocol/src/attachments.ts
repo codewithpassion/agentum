@@ -194,3 +194,17 @@ export const extractAttachmentMarkers = (text: string): ExtractedMarkers => {
   }
   return { paths, text: stripAttachmentMarkers(text) };
 };
+
+/** Remote computer instructions shared by runtimes; takeover is a native waiting tool. */
+export const computerInstructions = ({
+  desktop,
+}: {
+  desktop: boolean;
+}): string => {
+  // Computer identity is provided by the runtime, so this paragraph needs only capabilities.
+  const base =
+    "Use the `computer_*` tools (`computer_exec`, `computer_write_file`, `computer_read_file`, `computer_edit_file`, `computer_list_dir`) for all file and shell work the user asks for. Any sandbox you might have besides this computer is a separate scratch machine the user cannot see; never do the user's work there.";
+  return desktop
+    ? `${base}\n\nIt has a desktop: display :99, with \`DISPLAY\` already set for \`computer_exec\`. Launch graphical apps in the background so the command returns, for example \`chromium https://example.com >/dev/null 2>&1 &\` or \`xterm &\`, give them a moment to open, then call \`desktop_screenshot\`. The picture comes back in the tool result. If blocked on something only a person can do, such as a login or CAPTCHA, call your \`request_human_takeover\` tool.`
+    : base;
+};
