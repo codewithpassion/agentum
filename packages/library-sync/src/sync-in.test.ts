@@ -18,7 +18,7 @@ const setup = () => {
   return { local, manifest, ports, remote };
 };
 
-const ADA = ["agents/ada"];
+const ADA = [{ mode: "write", path: "agents/ada" }] as const;
 
 describe("runSyncIn", () => {
   test("first sync copies the files under the root and writes the manifest", async () => {
@@ -53,7 +53,9 @@ describe("runSyncIn", () => {
     remote.put("agents/ada/notes.md", "one");
     remote.put("agents/ada/other.md", "two");
 
-    const result = await runSyncIn(ports, { roots: ["agents/ada/notes.md"] });
+    const result = await runSyncIn(ports, {
+      roots: [{ mode: "write", path: "agents/ada/notes.md" }],
+    });
 
     expect(result.pulled).toEqual(["agents/ada/notes.md"]);
     expect([...local.files.keys()]).toEqual(["agents/ada/notes.md"]);
@@ -63,7 +65,9 @@ describe("runSyncIn", () => {
     const { local, manifest, ports, remote } = setup();
     remote.put("agents/ada/notes.md", "hello");
 
-    const result = await runSyncIn(ports, { roots: ["agents/nobody"] });
+    const result = await runSyncIn(ports, {
+      roots: [{ mode: "write", path: "agents/nobody" }],
+    });
 
     expect(result).toEqual({
       conflicts: [],
@@ -262,4 +266,133 @@ describe("runSyncIn", () => {
     );
     expect(manifest.saved[0]?.sha256).toBe(await sha256Of(bytesOf("v1")));
   });
+});
+
+describe("targeted pulls and read roots", () => {
+  const ROOTS = [{ mode: "read", path: "/agents/ada/" }] as const;
+  const A = "agents/ada/a.md";
+  const B = "agents/ada/sub/b.md";
+
+  test("only pulls the selected file without reading or listing other paths", async () => {
+    const { local, ports, remote } = setup();
+    remote.put(A, "one");
+    remote.put(B, "two");
+    const result = await runSyncIn(ports, {
+      only: [A, A, "agents/bob", "agents"],
+      roots: ADA,
+    });
+    expect(result.pulled).toEqual([A]);
+    expect([...local.files.keys()]).toEqual([A]);
+    expect(remote.calls).toEqual([`stat ${A}`, `read ${A}`]);
+  });
+
+  test("only removes library deletions, keeps unsent edits, and leaves everything else alone", async () => {
+    const { local, manifest, ports, remote } = setup();
+    remote.put(A, "one");
+    remote.put(B, "two");
+    remote.put("agents/ada/outside.md", "outside");
+    await runSyncIn(ports, { roots: ADA });
+    remote.files.clear();
+    local.put(B, "unsent");
+    remote.calls.length = 0;
+    const result = await runSyncIn(ports, {
+      only: [A, "agents/ada/sub"],
+      roots: ADA,
+    });
+    expect(result.removed).toEqual([A]);
+    expect(result.kept).toEqual([B]);
+    expect(textOf(local.files.get(B))).toBe("unsent");
+    expect(textOf(local.files.get("agents/ada/outside.md"))).toBe("outside");
+    expect(manifest.saved.map((entry) => entry.path)).toEqual([
+      "agents/ada/outside.md",
+    ]);
+    expect(remote.calls).toEqual([`stat ${A}`, "stat agents/ada/sub"]);
+  });
+
+  test("empty only does no remote or local work", async () => {
+    const { local, ports, remote } = setup();
+    remote.put(A, "one");
+    await runSyncIn(ports, { roots: ADA });
+    remote.files.clear();
+    remote.calls.length = 0;
+    local.stat = () => {
+      throw new Error("outside only");
+    };
+    const result = await runSyncIn(ports, { only: [], roots: ADA });
+    expect(result.removed).toEqual([]);
+    expect(remote.calls).toEqual([]);
+  });
+
+  test("read roots restore edits and deletes even with the same library etag", async () => {
+    const { local, ports, remote } = setup();
+    remote.put(A, "one");
+    remote.put(B, "two");
+    await runSyncIn(ports, { roots: ROOTS });
+    local.put(A, "edited");
+    local.files.delete(B);
+    local.put("agents/ada/new.md", "local only");
+    const result = await runSyncIn(ports, { roots: ROOTS });
+    expect(result.pulled).toEqual([A, B]);
+    expect(result.kept).toEqual([]);
+    expect(textOf(local.files.get(A))).toBe("one");
+    expect(textOf(local.files.get(B))).toBe("two");
+    expect(textOf(local.files.get("agents/ada/new.md"))).toBe("local only");
+    remote.calls.length = 0;
+    expect((await runSyncIn(ports, { roots: ROOTS })).pulled).toEqual([]);
+    expect(remote.calls.filter((call) => call.startsWith("read "))).toEqual([]);
+  });
+
+  test("the library wins collisions without a manifest and deletions under read roots", async () => {
+    const { local, ports, remote } = setup();
+    remote.put(A, "library");
+    local.put(A, "mine");
+    expect((await runSyncIn(ports, { roots: ROOTS })).pulled).toEqual([A]);
+    remote.files.delete(A);
+    local.put(A, "edited again");
+    expect((await runSyncIn(ports, { roots: ROOTS })).removed).toEqual([A]);
+    expect(local.files.has(A)).toBe(false);
+  });
+
+  test("nested modes apply even though only the outer root is walked", async () => {
+    const { local, ports, remote } = setup();
+    const roots = [
+      ...ROOTS,
+      { mode: "write", path: "agents/ada/sub" },
+    ] as const;
+    remote.put(A, "one");
+    remote.put(B, "two");
+    await runSyncIn(ports, { roots });
+    local.put(A, "edited");
+    local.put(B, "unsent");
+    remote.put(B, "updated");
+    const result = await runSyncIn(ports, { roots });
+    expect(result.pulled).toEqual([A]);
+    expect(result.kept).toEqual([B]);
+    expect(textOf(local.files.get(B))).toBe("unsent");
+  });
+});
+
+test("targeted folders walk descendants once and preserve edits under write roots", async () => {
+  const { local, ports, remote } = setup();
+  const path = "agents/ada/sub/a";
+  remote.put(path, "base");
+  remote.put("agents/ada/other", "outside");
+  await runSyncIn(ports, { roots: ADA });
+  local.put(path, "unsent");
+  remote.put(path, "updated");
+  remote.put("agents/ada/sub/new", "new");
+  remote.put("agents/ada/other", "outside updated");
+  remote.calls.length = 0;
+  const result = await runSyncIn(ports, {
+    only: ["agents/ada/sub", path, "agents/ada/sub/"],
+    roots: ADA,
+  });
+  expect(result.kept).toEqual([path]);
+  expect(result.pulled).toEqual(["agents/ada/sub/new"]);
+  expect(textOf(local.files.get("agents/ada/other"))).toBe("outside");
+  expect(remote.calls).toEqual([
+    "stat agents/ada/sub",
+    "list agents/ada/sub",
+    "read agents/ada/sub/new",
+  ]);
 });

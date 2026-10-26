@@ -6,6 +6,8 @@ import type {
   ManifestStore,
   RemoteEntry,
   RemotePort,
+  SyncRoot,
+  SyncRootMode,
 } from "./types.ts";
 
 const HEX_WIDTH = 2;
@@ -27,15 +29,41 @@ export const describe = (error: unknown): string =>
 export const inScope = (path: string, roots: readonly string[]): boolean =>
   roots.some((root) => path === root || path.startsWith(`${root}/`));
 
-/** Roots with a trailing slash removed and duplicates dropped, so a root that holds another is walked once. */
-export const cleanRoots = (roots: readonly string[]): string[] => {
+/** Paths with edge slashes and duplicates removed, so a containing path is walked once. */
+export const cleanPaths = (paths: readonly string[]): string[] => {
   const trimmed = [
-    ...new Set(roots.map((root) => root.replace(/^\/+|\/+$/g, ""))),
+    ...new Set(paths.map((root) => root.replace(/^\/+|\/+$/g, ""))),
   ].filter((root) => root !== "");
   return trimmed.filter(
     (root) =>
       !trimmed.some((other) => other !== root && root.startsWith(`${other}/`))
   );
+};
+
+/** Only outer paths are walked; nested roots still take part in mode selection. */
+export const cleanRoots = (roots: readonly SyncRoot[]): string[] =>
+  cleanPaths(roots.map((root) => root.path));
+
+/** The longest containing root decides; read wins when the same path has both modes. */
+export const modeOf = (
+  path: string,
+  roots: readonly SyncRoot[]
+): SyncRootMode | undefined => {
+  let length = -1;
+  let mode: SyncRootMode | undefined;
+  for (const root of roots) {
+    const normalized = root.path.replace(/^\/+|\/+$/g, "");
+    if (normalized === "" || !inScope(path, [normalized])) {
+      continue;
+    }
+    if (normalized.length > length) {
+      ({ length } = normalized);
+      ({ mode } = root);
+    } else if (normalized.length === length && root.mode === "read") {
+      mode = "read";
+    }
+  }
+  return mode;
 };
 
 /** Every file of the library under the roots. A root may be a file or a folder, and one that is not there adds nothing. */
