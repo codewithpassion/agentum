@@ -40,6 +40,7 @@ const isOtherReport = (message: InboundMessage) =>
   Boolean(message.headers.reportType) ||
   REPORT_CONTENT_TYPE.test(message.headers.contentType ?? "");
 const RFC_ID = /<[^<>\s]+>/g;
+const BRACKETS = /^<|>$/g;
 /** DSNs differ by transport; only inspect their ids, never interpret the report body as instructions. */
 export const bounceMessageIds = (message: InboundMessage): string[] => {
   const ids = [
@@ -224,7 +225,15 @@ export const createInboundMail = ({
     message: InboundMessage,
     box: typeof agentMailboxes.$inferSelect
   ) => {
-    const ids = bounceMessageIds(message);
+    // The port stores a sent mail's id without angle brackets, and a report names it with them.
+    const ids = [
+      ...new Set(
+        bounceMessageIds(message).flatMap((id) => {
+          const bare = id.replace(BRACKETS, "").trim();
+          return bare ? [bare, `<${bare}>`] : [];
+        })
+      ),
+    ];
     if (!ids.length) {
       return;
     }

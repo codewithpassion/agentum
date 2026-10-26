@@ -392,6 +392,43 @@ test("DSN finds original RFC id in attachment and marks outbound bounced once", 
   ).toHaveLength(1);
   expect(db.select().from(runRows).all()).toHaveLength(1);
 });
+test("DSN matches a sent mail whose id is stored without angle brackets", async () => {
+  await service.receive(message());
+  const thread = db.select().from(mailThreads).get();
+  await db.insert(mailMessages).values({
+    ccAddresses: "[]",
+    createdAt: now,
+    direction: "out",
+    externalMessageId: "out-uuid",
+    fromAddress: "{}",
+    id: "out-bare",
+    rfcMessageId: "bare@example.com",
+    snippet: "",
+    status: "sent",
+    subject: "Help",
+    threadId: thread?.id ?? "",
+    toAddresses: '["recipient@example.net"]',
+    workspaceId: "w",
+  });
+  await service.receive({
+    ...message("dsn-bare"),
+    attachments: [
+      {
+        content: new TextEncoder().encode(
+          "Original-Message-ID: <bare@example.com>"
+        ),
+        disposition: "attachment",
+        filename: "status",
+        mimetype: "message/delivery-status",
+      },
+    ],
+    headers: { autoSubmitted: "auto-generated", reportType: "delivery-status" },
+  });
+  expect(
+    db.select().from(mailMessages).where(eq(mailMessages.id, "out-bare")).get()
+      ?.status
+  ).toBe("bounced");
+});
 test("a read receipt is neither a bounce nor mail for the agent", async () => {
   await service.receive(message());
   const thread = db.select().from(mailThreads).get();
