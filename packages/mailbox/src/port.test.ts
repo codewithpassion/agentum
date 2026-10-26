@@ -33,14 +33,19 @@ const setup = () => {
   ) as unknown as MailboxClient;
   const files = memoryFileBlobs();
   const sent: SendMessage[] = [];
-  const state = { failWith: null as Error | null };
+  const state = {
+    failWith: null as Error | null,
+    reportedId: null as string | null,
+  };
   const sender: EmailSender = {
     send: (message) => {
       if (state.failWith) {
         return Promise.reject(state.failWith);
       }
       sent.push(message);
-      return Promise.resolve({ messageId: "ignored" });
+      return Promise.resolve(
+        state.reportedId === null ? {} : { messageId: state.reportedId }
+      );
     },
   };
   let counter = 0;
@@ -240,11 +245,11 @@ describe("send", () => {
     expect(sent[0]).toMatchObject({
       cc: ["Boss@ext.example"],
       from: AGENT,
-      headers: {},
       subject: "Hello there",
       text: "Hi person",
       to: ["person@ext.example"],
     });
+    expect(sent[0]?.headers).toEqual({});
     expect(sent[0]?.html).toContain("Hi person");
     const thread = await port.readThread(REF, result.threadId);
     expect(thread?.messages).toHaveLength(1);
@@ -335,7 +340,7 @@ describe("reply", () => {
 
     expect(first.threadId).toBe("r0@ext.example");
     expect(out.threadId).toBe(first.threadId);
-    expect(sent[0]?.headers).toMatchObject({
+    expect(sent[0]?.headers).toEqual({
       "In-Reply-To": "<m2@ext.example>",
       References: "<r0@ext.example> <m2@ext.example>",
     });
@@ -381,6 +386,33 @@ describe("reply", () => {
       .reply(REF, "nope", draft())
       .catch((e: unknown) => e);
     expect((error as MailError).code).toBe("bad_request");
+  });
+});
+
+describe("the id Email Sending reports", () => {
+  test("a send takes the reported id as its RFC id and names the thread by it", async () => {
+    const { port, state, store } = setup();
+    state.reportedId = "<cf-77@cfmail.example>";
+    const out = await port.send(REF, draft());
+
+    expect(out.rfcMessageId).toBe("cf-77@cfmail.example");
+    expect(out.threadId).toBe("cf-77@cfmail.example");
+    expect(store.getEmail(out.messageId)?.messageId).toBe(
+      "cf-77@cfmail.example"
+    );
+  });
+
+  test("a release stores the reported id on the held row", async () => {
+    const { port, state, store } = setup();
+    const held = await port.hold(REF, draft());
+    state.reportedId = "cf-88@cfmail.example";
+    const out = await port.release(REF, held.messageId);
+
+    expect(out.rfcMessageId).toBe("cf-88@cfmail.example");
+    expect(out.threadId).toBe(held.threadId);
+    expect(store.getEmail(held.messageId)?.messageId).toBe(
+      "cf-88@cfmail.example"
+    );
   });
 });
 
