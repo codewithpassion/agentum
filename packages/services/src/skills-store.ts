@@ -643,9 +643,16 @@ export const createSkillsStoreService = ({
         .where(eq(agents.workspaceId, c.workspaceId))
         .orderBy(asc(agents.id))
     ).map((row) => row.id);
+    // The migration moves the whole workspace's skill folders, so it reads
+    // as a person, whatever run or key started it.
     const snapshot = await readLibrarySkills(
       library,
-      principal,
+      {
+        kind: "user",
+        userId: MIGRATION_AUTHOR,
+        via: "session",
+        workspaceId: c.workspaceId,
+      },
       new Set(agentIds)
     );
     const system: Caller = {

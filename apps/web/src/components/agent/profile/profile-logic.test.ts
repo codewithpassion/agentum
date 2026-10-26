@@ -460,15 +460,19 @@ describe("channelChips", () => {
 
 describe("folderLabel", () => {
   test("the home folder says so", () => {
-    expect(folderLabel({ access: "read_write", home: true })).toBe(
+    expect(folderLabel({ access: "write", home: true })).toBe(
       "home · read and write"
     );
   });
 
   test("other folders are read and write", () => {
-    expect(folderLabel({ access: "read_write", home: false })).toBe(
+    expect(folderLabel({ access: "write", home: false })).toBe(
       "read and write"
     );
+  });
+
+  test("a read grant is read only", () => {
+    expect(folderLabel({ access: "read", home: false })).toBe("read only");
   });
 });
 

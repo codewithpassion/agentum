@@ -63,6 +63,10 @@ import {
   type LibraryBlobs,
   type LibraryService,
 } from "@repo/services/library";
+import {
+  createLibraryAccessService,
+  type LibraryAccessService,
+} from "@repo/services/library/access";
 import { memoryLibraryBlobs } from "@repo/services/library/memory";
 import {
   createLibraryLinksService,
@@ -251,6 +255,7 @@ export interface Services {
   files: FilesService;
   inbox: InboxService;
   library: LibraryService;
+  libraryAccess: LibraryAccessService;
   libraryLinks: LibraryLinksService;
   machines: MachinesService;
   managed: ManagedService;
@@ -404,6 +409,12 @@ export const composeWith = ({
   const library = createLibraryService({
     atomic: infra.atomic,
     blobs: infra.libraryBlobs ?? memoryLibraryBlobs(),
+    clock: infra.clock,
+    db,
+    events,
+  });
+  const libraryAccess = createLibraryAccessService({
+    atomic: infra.atomic,
     clock: infra.clock,
     db,
     events,
@@ -657,6 +668,7 @@ export const composeWith = ({
       files,
       inbox,
       library,
+      libraryAccess,
       libraryLinks,
       machines,
       managed,

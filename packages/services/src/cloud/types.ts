@@ -11,6 +11,7 @@ export interface CloudStart {
     slug: string;
   };
   inputFileIds: string[];
+  library?: { roots: import("@repo/db/shared").LibraryAccessGrant[] };
   mcpServers: Record<string, McpServerEntry>;
   run: {
     agentId: string;

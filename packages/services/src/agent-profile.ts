@@ -24,8 +24,8 @@ import type { AgentRecord, AgentsService } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import type { ConnectorsService } from "./connectors.ts";
 import { ServiceError } from "./errors.ts";
+import { agentGrants } from "./library/access.ts";
 import { agentHomePath } from "./library/home.ts";
-import { libraryPathsOf } from "./library/sync-paths.ts";
 import type { MachinesService } from "./machines.ts";
 import type { RequestsService } from "./requests.ts";
 import type { RoutinesService } from "./routines.ts";
@@ -116,7 +116,7 @@ export interface ProfileSlackApp {
 }
 
 export interface ProfileFolder {
-  access: "read_write";
+  access: "read" | "write";
   /** The agent's own folder. */
   home: boolean;
   path: string;
@@ -396,10 +396,11 @@ export const createAgentProfileService = ({
       },
       library: {
         folders: [
-          { access: "read_write", home: true, path: agentHomePath(agent.slug) },
-          ...libraryPathsOf(agent.runtimeConfig).map(
-            (path): ProfileFolder => ({
-              access: "read_write",
+          { access: "write", home: true, path: agentHomePath(agent.slug) },
+          { access: "read", home: false, path: "wiki" },
+          ...(await agentGrants(db, user.workspaceId, agent.id)).map(
+            ({ path, mode }): ProfileFolder => ({
+              access: mode,
               home: false,
               path,
             })
