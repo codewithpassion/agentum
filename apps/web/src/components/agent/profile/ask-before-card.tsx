@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Switch } from "#/components/ui/switch.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { MailAllowedList } from "./mail-allowed-list.tsx";
 
 type AskBeforeAction = RouterOutputs["agentProfile"]["askBefore"][number];
 
@@ -89,9 +90,12 @@ function AskBeforeList({
 export function AskBeforeCard({
   actions,
   agentId,
+  mailAllowed,
 }: {
   agentId: string;
   actions: RouterOutputs["agentProfile"]["askBefore"];
+  /** Bare email addresses the agent may always email without asking. */
+  mailAllowed: string[];
 }) {
   return (
     <section
@@ -104,10 +108,15 @@ export function AskBeforeCard({
         without asking.
       </p>
       <AskBeforeList actions={actions} agentId={agentId} key={agentId} />
-      <p className="mt-3 text-muted-foreground text-xs">
-        Email to people outside your workspace will ask first too, once email
-        arrives with V5.
-      </p>
+      <div className="flex items-center justify-between gap-3 border-border border-t border-dashed py-2.5">
+        <span className="min-w-0 text-sm">
+          Emails someone outside the workspace: always asks
+        </span>
+        <span className="text-muted-foreground text-xs">Always</span>
+      </div>
+      {mailAllowed.length === 0 ? null : (
+        <MailAllowedList addresses={mailAllowed} agentId={agentId} />
+      )}
     </section>
   );
 }

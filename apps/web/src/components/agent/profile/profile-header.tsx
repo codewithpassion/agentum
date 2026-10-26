@@ -5,18 +5,26 @@ import {
   agentTileColour,
 } from "#/components/shell/agent-tile.ts";
 import { Button } from "#/components/ui/button.tsx";
-import type { AgentProfileView } from "#/integrations/trpc/types";
+import type {
+  AgentProfileView,
+  MailboxRecord,
+} from "#/integrations/trpc/types";
 import { AddressChip } from "./address-chip.tsx";
+import { MailStatus } from "./mail-status.tsx";
 import { runtimeWords, statusText } from "./profile-logic.ts";
 
 /** Tile, name, address, runtime and status, with Edit and Run now. */
 export function ProfileHeader({
   header,
+  mailbox,
   onEdit,
+  onOpenMail,
   onStarted,
 }: {
   header: AgentProfileView["header"];
+  mailbox: MailboxRecord | null;
   onEdit: () => void;
+  onOpenMail: () => void;
   onStarted: (runId: string) => void;
 }) {
   const status = statusText(header);
@@ -31,11 +39,19 @@ export function ProfileHeader({
       <div className="min-w-0 flex-[1_1_300px]">
         <h1 className="font-heading text-2xl text-foreground">{header.name}</h1>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          <AddressChip
-            agentId={header.id}
-            emailLocal={header.emailLocal}
-            suggestion={header.slug}
-          />
+          {mailbox === null ? (
+            <AddressChip
+              agentId={header.id}
+              emailLocal={header.emailLocal}
+              suggestion={header.slug}
+            />
+          ) : (
+            <MailStatus
+              agentId={header.id}
+              mailbox={mailbox}
+              onOpenMail={onOpenMail}
+            />
+          )}
           <span className="rounded-full border border-border px-2.5 py-0.5 text-xs">
             {runtimeWords(header.runtime, header.machine)}
           </span>

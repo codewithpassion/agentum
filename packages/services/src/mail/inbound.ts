@@ -101,7 +101,7 @@ export const createInboundMail = ({
     });
     return principal;
   };
-  const threads = async (principal: Principal, agentId: string) => {
+  const threadRows = async (principal: Principal, agentId: string) => {
     const member = requireMember(principal);
     return await db
       .select({ thread: mailThreads })
@@ -115,6 +115,36 @@ export const createInboundMail = ({
       )
       .orderBy(desc(mailThreads.lastMessageAt))
       .then((rows) => rows.map((row) => row.thread));
+  };
+  /** Each thread with its message count and the newest message's direction and status, for lists. */
+  const threads = async (principal: Principal, agentId: string) => {
+    const rows = await threadRows(principal, agentId);
+    const messages = await inBatches(
+      rows.map((row) => row.id),
+      (batch) =>
+        db
+          .select({
+            createdAt: mailMessages.createdAt,
+            direction: mailMessages.direction,
+            status: mailMessages.status,
+            threadId: mailMessages.threadId,
+          })
+          .from(mailMessages)
+          .where(inArray(mailMessages.threadId, batch))
+    );
+    return rows.map((row) => {
+      const own = messages.filter((m) => m.threadId === row.id);
+      const newest = own.reduce<(typeof own)[number] | undefined>(
+        (best, m) => (best && best.createdAt > m.createdAt ? best : m),
+        undefined
+      );
+      return {
+        ...row,
+        lastDirection: newest?.direction ?? null,
+        lastStatus: newest?.status ?? null,
+        messageCount: own.length,
+      };
+    });
   };
   const thread = async (principal: Principal, id: string) => {
     const member = requireMember(principal);
@@ -479,5 +509,11 @@ export const createInboundMail = ({
     await saveAttachments(message, box, started.runId, names);
     await runs.offerQueuedRun(SYSTEM_PRINCIPAL, started.runId);
   };
-  return { receive, setTrigger, thread, threadForTask, threads };
+  return {
+    receive,
+    setTrigger,
+    thread,
+    threadForTask,
+    threads,
+  };
 };
