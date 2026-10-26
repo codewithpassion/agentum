@@ -20,6 +20,7 @@ import {
 import { describeFailure } from "./post.ts";
 
 export const THINKING_STATUS = "is thinking…";
+export const WAITING_STATUS = "is waiting for an answer…";
 /** At most one status update per run in this many ms. */
 export const STATUS_MIN_INTERVAL_MS = 5000;
 
@@ -170,11 +171,14 @@ export const createSlackStatus = ({
   const update = async (
     runId: string,
     workspaceId: string,
-    label: string
+    label: string,
+    { throttle = true }: { throttle?: boolean } = {}
   ): Promise<Job | null> => {
     const now = clock.now();
     const target = await ports.claim({
-      cutoff: new Date(now.getTime() - STATUS_MIN_INTERVAL_MS).toISOString(),
+      cutoff: new Date(
+        now.getTime() - (throttle ? STATUS_MIN_INTERVAL_MS : 0)
+      ).toISOString(),
       label,
       now: now.toISOString(),
       runId,
@@ -213,6 +217,12 @@ export const createSlackStatus = ({
       }
       case "run.started":
         return update(runId, workspaceId, THINKING_STATUS);
+      // The question follows a tool call by milliseconds, and the label must
+      // show for the whole wait, so these two skip the update interval.
+      case "run.resumed":
+        return update(runId, workspaceId, THINKING_STATUS, { throttle: false });
+      case "run.waiting":
+        return update(runId, workspaceId, WAITING_STATUS, { throttle: false });
       case "run.failed":
       case "run.cancelled":
       case "run.interrupted":

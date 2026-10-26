@@ -42,8 +42,9 @@ export const eventActor = (principal: Principal): Actor => {
 
 /**
  * Refuses a message to an agent that is waiting on this very chain: the run
- * `parent` and each of its ancestors that is still `running`. Answering would
- * need the busy agent to finish first, and it is waiting for this run.
+ * `parent` and each of its ancestors that is still `running` or `waiting`.
+ * Answering would need the busy agent to finish first, and it is waiting for
+ * this run.
  */
 const refuseBusyAncestor = async (
   db: Database,
@@ -52,7 +53,10 @@ const refuseBusyAncestor = async (
 ): Promise<void> => {
   let cursor: RunRecord | null = parent;
   while (cursor) {
-    if (cursor.status === "running" && cursor.agentId === agentId) {
+    if (
+      (cursor.status === "running" || cursor.status === "waiting") &&
+      cursor.agentId === agentId
+    ) {
       throw new ServiceError(
         "conflict",
         "That agent is busy with a run that is waiting on this one"

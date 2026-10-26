@@ -3,7 +3,7 @@
  * through `startRun`: it derives who is asking from the principal, finds or
  * creates the session, inserts a queued run and hands it to the agent's
  * runtime adapter. `ingestRunEvents` and `completeRun` are what the runtime
- * calls back with, fenced so that only a `running` run accepts them. The types
+ * calls back with, fenced so that only a `running` or `waiting` run accepts them. The types
  * (adapters, gateways, the input schema) are in `@repo/services/runs/types`.
  */
 import type { Database } from "@repo/db";
@@ -11,6 +11,7 @@ import type { Atomic, Statement } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import type { AgentRuntime } from "@repo/db/shared";
 import type { Masker } from "@repo/protocol/masker";
 import {
   REPEAT_STOP_AT,
@@ -41,10 +42,12 @@ import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
+import { CLOUD_LEASE_MS } from "./cloud/lease.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
 import { type Blobs, createEventsService } from "./events.ts";
 import type { LibraryService } from "./library.ts";
+import { MANAGED_LEASE_MS } from "./managed/types.ts";
 import {
   importRunTokenKey,
   type RunTokenClaims,
@@ -110,7 +113,15 @@ const EVENT_TEXT_CHARS = 20_000;
 const RECENT_TOOL_EVENTS = 20;
 
 const STARTING: RunRecord["status"][] = ["queued", "offered"];
-const ACTIVE: RunRecord["status"][] = ["queued", "offered", "running"];
+/** A claimed run: working, or waiting for a person's answer. */
+const LIVE: RunRecord["status"][] = ["running", "waiting"];
+const ACTIVE: RunRecord["status"][] = ["queued", "offered", ...LIVE];
+
+/** A lease longer than the machine default, by the agent runtime that needs it. */
+const RUNTIME_LEASE_MS: Partial<Record<AgentRuntime, number>> = {
+  cloud: CLOUD_LEASE_MS,
+  managed: MANAGED_LEASE_MS,
+};
 
 const READ_ACTION = "runs.read";
 const RUN_KIND = "run";
@@ -746,7 +757,7 @@ export const createRunsService = ({
           inArray(runs.status, STARTING),
           // A run with pending Slack files is not claimable.
           isNull(runs.pendingFiles),
-          // One running run per agent.
+          // One running run per agent; a waiting run still holds its agent.
           notExists(
             db
               .select({ id: sibling.id })
@@ -754,7 +765,7 @@ export const createRunsService = ({
               .where(
                 and(
                   eq(sibling.agentId, runs.agentId),
-                  eq(sibling.status, "running")
+                  inArray(sibling.status, LIVE)
                 )
               )
           ),
@@ -818,6 +829,64 @@ export const createRunsService = ({
       );
   };
 
+  /**
+   * The run asked a person something: `running` moves to `waiting`. The
+   * heartbeat and the event upload carry on, and the lease keeps running, so a
+   * runtime that dies while waiting is still reaped. Returns false, and
+   * changes nothing, for a run that is not `running`.
+   */
+  const markWaiting = async (
+    principal: Principal,
+    runId: string
+  ): Promise<boolean> => {
+    requireSystem(principal, "runs.wait");
+    const run = await requireRun(principal, runId);
+    const moved = await db
+      .update(runs)
+      .set({ status: "waiting" })
+      .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+      .returning({ id: runs.id });
+    if (moved.length === 0) {
+      return false;
+    }
+    await appendRunEvent(run, "run.waiting", agentActor(run));
+    return true;
+  };
+
+  /**
+   * The answer came: `waiting` moves back to `running` and the lease restarts
+   * from now, since the runtime's last heartbeat may be old. The lease is the
+   * agent's runtime's own (90 seconds for a machine, 10 minutes for a cloud or
+   * managed run) unless `options.leaseMs` says otherwise. Returns false, and
+   * changes nothing, for a run that is not `waiting`, such as a cancelled one.
+   */
+  const markRunning = async (
+    principal: Principal,
+    runId: string,
+    options?: { leaseMs?: number }
+  ): Promise<boolean> => {
+    requireSystem(principal, "runs.resume");
+    const run = await requireRun(principal, runId);
+    const { agent } = await adapterFor(run);
+    const runtimeLeaseMs =
+      (agent && RUNTIME_LEASE_MS[agent.runtime]) ?? LEASE_MS;
+    const moved = await db
+      .update(runs)
+      .set({
+        leaseUntil: new Date(
+          clock.now().getTime() + (options?.leaseMs ?? runtimeLeaseMs)
+        ).toISOString(),
+        status: "running",
+      })
+      .where(and(eq(runs.id, run.id), eq(runs.status, "waiting")))
+      .returning({ id: runs.id });
+    if (moved.length === 0) {
+      return false;
+    }
+    await appendRunEvent(run, "run.resumed", agentActor(run));
+    return true;
+  };
+
   const ingestRunEvents = async (
     principal: Principal,
     runId: string,
@@ -826,7 +895,7 @@ export const createRunsService = ({
     const parsed = runEventsSchema.parse(batch);
     const run = await requireRun(principal, runId);
     authorizeRunWrite(principal, run, "runs.ingest");
-    if (run.status !== "running") {
+    if (!LIVE.includes(run.status)) {
       throw new ServiceError("conflict", `Run is ${run.status}, not running`);
     }
     const [last] = await db
@@ -920,7 +989,7 @@ export const createRunsService = ({
   /**
    * The daemon is still working: the lease moves to 90 seconds from now, or
    * to `options.leaseMs` for a caller that is the system (a cloud run's object).
-   * Refused with 409 unless the run is `running`. The write is conditional, so
+   * Refused with 409 unless the run is `running` or `waiting`. The write is conditional, so
    * a run the reaper just interrupted stays interrupted.
    */
   const heartbeatRun = async (
@@ -941,7 +1010,7 @@ export const createRunsService = ({
           clock.now().getTime() + (options?.leaseMs ?? LEASE_MS)
         ).toISOString(),
       })
-      .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+      .where(and(eq(runs.id, run.id), inArray(runs.status, LIVE)))
       .returning({ id: runs.id });
     if (extended.length === 0) {
       throw new ServiceError("conflict", `Run is ${run.status}, not running`);
@@ -979,7 +1048,7 @@ export const createRunsService = ({
    * `process_ended_at` set, and Retry is offered at once.
    */
   const abortedCompletion = async (principal: Principal, run: RunRecord) => {
-    if (run.status !== "running") {
+    if (!LIVE.includes(run.status)) {
       await recordProcessEnded(run);
       return;
     }
@@ -992,7 +1061,7 @@ export const createRunsService = ({
         processEndedAt: now,
         status: "interrupted",
       })
-      .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+      .where(and(eq(runs.id, run.id), inArray(runs.status, LIVE)))
       .returning({ id: runs.id });
     if (moved.length === 0) {
       throw new ServiceError("conflict", "Run is no longer running");
@@ -1020,7 +1089,7 @@ export const createRunsService = ({
 
   /**
    * The Claude Code session id, valid only on the machine that ran it. The
-   * write applies only while the run is still `running`, and goes in the same
+   * write applies only while the run is still `running` or `waiting`, and goes in the same
    * atomic write as the run's own update.
    */
   const runtimeRefWrite = (
@@ -1042,7 +1111,7 @@ export const createRunsService = ({
             db
               .select({ id: runs.id })
               .from(runs)
-              .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+              .where(and(eq(runs.id, run.id), inArray(runs.status, LIVE)))
           )
         )
       );
@@ -1085,7 +1154,7 @@ export const createRunsService = ({
       await abortedCompletion(principal, run);
       return;
     }
-    if (run.status !== "running") {
+    if (!LIVE.includes(run.status)) {
       throw new ServiceError("conflict", `Run is ${run.status}, not running`);
     }
     const fileIds = [...new Set(result.fileIds ?? [])];
@@ -1107,8 +1176,8 @@ export const createRunsService = ({
         status: result.status,
         usage: result.usage ? JSON.stringify(result.usage) : null,
       })
-      .where(and(eq(runs.id, run.id), eq(runs.status, "running")));
-    // The session write goes first: it only applies while the run is running.
+      .where(and(eq(runs.id, run.id), inArray(runs.status, LIVE)));
+    // The session write goes first: it only applies while the run is live.
     await atomic(
       result.runtimeRef
         ? [runtimeRefWrite(principal, run, result.runtimeRef), runWrite]
@@ -1562,7 +1631,7 @@ export const createRunsService = ({
     const expired = await db
       .select()
       .from(runs)
-      .where(and(eq(runs.status, "running"), lt(runs.leaseUntil, now)))
+      .where(and(inArray(runs.status, LIVE), lt(runs.leaseUntil, now)))
       .limit(SWEEP_BATCH);
     const interrupted: string[] = [];
     for (const row of expired) {
@@ -1573,7 +1642,7 @@ export const createRunsService = ({
         .where(
           and(
             eq(runs.id, row.id),
-            eq(runs.status, "running"),
+            inArray(runs.status, LIVE),
             lt(runs.leaseUntil, now)
           )
         )
@@ -1600,6 +1669,8 @@ export const createRunsService = ({
     getRun,
     heartbeatRun,
     ingestRunEvents,
+    markRunning,
+    markWaiting,
     offerQueuedRun,
     /**
      * Lets the composition root react to each run event after it is written,

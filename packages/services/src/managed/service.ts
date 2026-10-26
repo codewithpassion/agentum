@@ -252,7 +252,7 @@ export const createManagedService = ({
               .where(
                 and(
                   eq(sibling.sessionId, runs.sessionId),
-                  eq(sibling.status, "running")
+                  inArray(sibling.status, ["running", "waiting"])
                 )
               )
           ),
@@ -1036,7 +1036,9 @@ export const createManagedService = ({
         return { answer: { next: BUSY_RETRY_MS } };
       }
     }
-    return run?.status === "running" ? { agent, run } : { answer: DONE };
+    return run?.status === "running" || run?.status === "waiting"
+      ? { agent, run }
+      : { answer: DONE };
   };
 
   const step = async (runId: string): Promise<ManagedStepResult> => {
@@ -1051,7 +1053,7 @@ export const createManagedService = ({
       if (isServiceError(error)) {
         // The run was cancelled, finished or reaped between two writes.
         const latest = await loadRun(db, runId);
-        if (latest?.status !== "running") {
+        if (latest?.status !== "running" && latest?.status !== "waiting") {
           return DONE;
         }
       }
