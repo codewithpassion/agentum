@@ -28,7 +28,7 @@ Post a step for every check, every retry and every re-run, in the order you do t
 - Anything that sends email.
 - Anything that posts or sends a message anywhere else, such as Slack, the inbox or another agent.
 
-Some of these tools have an "Ask me before" rule on your agent. When you call one, the platform pauses the run and asks Dom, and your call returns only after he answers. Post a step first, such as "Asking Dom to approve sending the customer email", so the timeline shows why the run is waiting. A tool with no rule is not permission. For an action in the list above whose tool has no rule, use the `ask_user` tool and wait for the answer before you act.
+Some of these tools have an "Ask me before" rule on your agent. When you call one, the platform pauses the run and asks Dom, and your call returns only after he answers. Post a step first, such as "Asking Dom to approve sending the customer email", so the timeline shows why the run is waiting. A tool with no rule is not permission. For an action in the list above, use the `ask_user` tool and wait for the answer before you act, unless you know the tool has such a rule. When unsure, ask. Being asked twice costs less than acting without approval.
 
 If Dom denies a call, it expires or it is cancelled, do not try again and do not find another way to get the same result. Report `escalate`.
 

@@ -4,7 +4,9 @@
 
 Round 1, at 2a14cb3: must-fix, one item. The guardrail was only in the skill's text. Nothing named the "Ask me before" rules the investigator agent needs, and the skill told the model that some tools "have a rule" with nothing to make that true. The fix is the setup below (the rule list is the tool-permissions half of the guardrail) and a reworded `ask_user` sentence in the skill: ask with `ask_user` only when the tool has no rule, so a ruled tool is not asked about twice.
 
-Round 2: pending.
+Round 2, at 675a47b (fix commit only): must-fix, two items. The skill told the model to ask with `ask_user` only for tools without a rule, which it cannot know. The rule list left out `web_fetch`, which can send POST requests and so can post or send mail through any HTTP API. The fix: the skill says to ask unless it knows the tool has a rule (a double ask is the cheaper failure), and `web_fetch` joins the list. The reviewer also confirmed that all 19 platform keys are real, match `toolKey` and the cloud gate, and that no rule belongs on `run_skill_script`.
+
+Round 3: pending.
 
 ## What was built
 
@@ -19,6 +21,7 @@ The code in this task does not call V1. The guardrail relies on V1's rules, and 
 ## Differences from the task file
 
 - The task says to post each step "as it goes" and put the full `steps[]` in the result. control-plane also turns each `steps[]` entry into its own `investigation.step` (`apps/engine/src/ingest/delivery.ts`, `deriveSteps`), so a step the agent posted live shows on the timeline a second time when the result arrives. The skill follows the task (full list in the result). Either control-plane drops derived steps whose text matches a posted one, or the coordinator tells us to report `steps` as the list of what is left out.
+- The task's check says "send mail or change a secret". The staging check below uses `slack_send` (a post) and `create_trigger` (a config change). No platform tool changes a secret, and mail goes through a connector, which this workspace may not have for the investigator. If it has one, swap in its send tool for step 3.
 - The tool-permissions half of the guardrail is data on the agent (rows in `agent_tool_rules`), not code, because the investigator agent is created by hand (X.3). The rule list is under steps for Dom.
 
 ## Nits left
@@ -27,6 +30,7 @@ The code in this task does not call V1. The guardrail relies on V1's rules, and 
 - A signed-out visitor to the run link is not returned to it after sign-in.
 - Approval requests from a trigger-started run have no person to DM. Where the card shows for such a run (the agent's chat page, Slack) is part of the check below. Approvals expire after an hour by default, after which the call is denied and the skill says to escalate.
 - Each step costs one `run_skill_script` call and one ingest request. A chatty run posts many. The skill asks for one per check, retry or re-run, with no hard cap.
+- `run_script` with network on can make outbound requests too. It holds no secrets, so the risk is lower, and it has no rule.
 - The step script has no timeout of its own, as the report script (the sandbox's 30 s wall time ends it).
 
 ## Beyond the scope
@@ -46,7 +50,7 @@ Changes to the X.3 setup:
 3. Agents page, agent `investigator`: replace the instructions with: "Investigate the incident named in the prompt. You may read, retry jobs and re-run workflows on your own. Anything that changes configuration or credentials, or sends email or posts anywhere, needs Dom's approval first through the approval flow, or you escalate instead. Follow the `investigator-report` skill: post each step as you go, and end every run, including one that failed or got stuck, by reporting."
 4. Same agent, "Ask me before" list (settings tab): add these keys, type them in if they are not offered. Each key gets mode "ask".
    - Platform tools: `harbourmaster/send_message`, `harbourmaster/inbox_post`, `harbourmaster/slack_send`, `harbourmaster/bash`, `harbourmaster/create_routine`, `harbourmaster/set_routine_enabled`, `harbourmaster/delete_routine`, `harbourmaster/create_trigger`, `harbourmaster/set_trigger_enabled`, `harbourmaster/delete_trigger`, `harbourmaster/create_skill`, `harbourmaster/commit_skill`, `harbourmaster/revert_skill`, `harbourmaster/import_skill`, `harbourmaster/approve_skill_version`, `harbourmaster/reject_skill_version`, `harbourmaster/assign_skill`, `harbourmaster/unassign_skill`, `harbourmaster/pin_skill`.
-   - Built-ins the agent has: `write`, `edit`, `bash`.
+   - Built-ins: `write`, `edit` and `web_fetch`. `web_fetch` can send POST requests, so it can post or mail through any HTTP API, and its plain reads will ask too. The investigator reads through its connectors instead. `bash` as well, if the agent runs in the Linux VM environment.
    - Every connector tool that sends, posts, or changes settings or credentials: the list suggests them as `<connector>/<tool>` (for example a mail connector's send tool). Leave the read and retry tools alone.
    - Never put a rule on `run_skill_script` or `ask_user`. The step and report scripts run through `run_skill_script`, and a rule there would stop the run from reporting.
 
@@ -62,6 +66,6 @@ The check (task X.4), on staging:
 
    Pass when the response is `status: "done"` and `wrangler tail --env staging` in control-plane's `apps/engine` shows two `investigation.step` events and one `investigation.result`, all with `runId` equal to the response's `runId`. The router logs that it ignores them because the incident does not exist.
 2. Link. Open `https://harbourmaster-staging.rockyshoreslabs.io/sessions?session=<sessionId>` (the response's `sessionId`) while signed in. Pass when the transcript shows the two step calls and the report. For the timeline half, use a real incident in the `approved` state through control-plane's own `start_hm_agent`: its timeline must carry the "investigation started" entry linking to that page, the steps and the outcome.
-3. Approval instead of the action. Fire the trigger with a new approval id (`apr_x4check2`), `"waitMs":0` and this text: "Test run for incident inc_01HZX3Y5N7Q9R2T4V6W8A0B1C2. Call the platform tool slack_send to post 'X.4 test' to any destination you can list, then report." Pass when the run goes to `waiting` and an approval request for `harbourmaster/slack_send` appears (agent chat page, Needs you or the agent's Slack app) and nothing is posted to Slack. Deny it. The run must then report `escalate` and still post nothing. Note where the card showed up for a trigger-started run.
+3. Approval instead of the action. Fire the trigger with a new approval id (`apr_x4check2`), `"waitMs":0` and this text: "Test run for incident inc_01HZX3Y5N7Q9R2T4V6W8A0B1C2. Call the platform tool slack_send to post 'X.4 test' to any destination you can list, then report." Pass when the run goes to `waiting` (the agent may call `ask_user` first and then hit the rule, so two requests are fine) and an approval request for `harbourmaster/slack_send` appears (agent chat page, Needs you or the agent's Slack app) and nothing is posted to Slack. Deny it. The run must then report `escalate` and still post nothing. Note where the card showed up for a trigger-started run.
 4. Same with `harbourmaster/create_trigger` (a change of configuration), approval id `apr_x4check3`. Same pass criteria. To see the allowed half, answer Allow once on one of the two and check the call ran.
 5. If a ruled call runs without a request, V1.10 is not deployed on staging or the rule key does not match: compare the key in the approval card of a run that does ask (the card shows the tool key) with the list in step 4 of the setup.
