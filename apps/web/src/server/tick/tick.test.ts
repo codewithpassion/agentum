@@ -98,6 +98,12 @@ test("the sweep and the reaper are registered", () => {
   );
 });
 
+test("the request expiry job is registered once", () => {
+  const names = tickJobs.map((job) => job.name);
+  expect(names.filter((name) => name === "requests.expire")).toHaveLength(1);
+  expect(new Set(names).size).toBe(names.length);
+});
+
 test("the routine jobs are registered", () => {
   expect(tickJobs.map((job) => job.name)).toEqual(
     expect.arrayContaining(["routines.fire", "routines.settle"])
