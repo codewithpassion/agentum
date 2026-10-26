@@ -7,11 +7,11 @@ import {
   toChatItems,
 } from "#/components/agent/chat/chat-logic.ts";
 import { TranscriptView } from "#/components/agent/chat/transcript-view.tsx";
-import { useFileInfos } from "#/components/agent/chat/use-file-infos.ts";
 import {
   originLabel,
   sessionTitle,
 } from "#/components/sessions/sessions-logic.ts";
+import { useFileInfos } from "#/components/thread/use-file-infos.ts";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { SessionTranscript } from "#/integrations/trpc/types";
 

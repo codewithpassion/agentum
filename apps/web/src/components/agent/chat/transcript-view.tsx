@@ -5,11 +5,11 @@ import type {
   AnswerPayload,
   RequestView,
 } from "#/components/requests/request-card-logic.ts";
+import { FileChips } from "#/components/thread/file-chips.tsx";
 import { Bubble, BubbleContent } from "#/components/ui/bubble.tsx";
 import { Message, MessageContent } from "#/components/ui/message.tsx";
 import type { FileInfo } from "#/integrations/trpc/types.ts";
 import type { ChatItem } from "./chat-logic.ts";
-import { FileChips } from "./file-chips.tsx";
 
 function ToolSection({ label, text }: { label: string; text: string }) {
   return (

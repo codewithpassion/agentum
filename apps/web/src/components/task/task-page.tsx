@@ -7,12 +7,19 @@ import {
   isConflict,
   type RequestView,
 } from "#/components/requests/request-card-logic.ts";
+import { TaskThread } from "#/components/thread/task-thread.tsx";
+import {
+  applyThreadFrame,
+  initialThread,
+  resetThread,
+  type ThreadState,
+} from "#/components/thread/thread-state.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TaskView } from "#/integrations/trpc/types";
 import { ActionLog } from "./action-log.tsx";
 import { Receipt } from "./receipt.tsx";
-import { ComputerSlot, FilesSlot, ThreadSlot } from "./slots.tsx";
+import { ComputerSlot, FilesSlot, SlotCard } from "./slots.tsx";
 import {
   canStop,
   costText,
@@ -64,6 +71,15 @@ const reduceLive = (live: TaskLive, action: LiveAction): TaskLive => {
   }
 };
 
+type ThreadAction =
+  | { frame: Parameters<typeof applyFrame>[1]; kind: "frame" }
+  | { events: TaskView["events"]; kind: "reset" };
+
+const reduceThread = (state: ThreadState, action: ThreadAction): ThreadState =>
+  action.kind === "frame"
+    ? applyThreadFrame(state, action.frame)
+    : resetThread(state, action.events);
+
 function Fact({
   label,
   children,
@@ -84,13 +100,19 @@ function Fact({
 /**
  * One task, as a receipt of steps with the action log beside it. It starts
  * from `tasks.get` and follows the session stream, rebuilding the receipt and
- * the log from the event list on each event. The slots for the thread (V2.12),
- * the files (V4) and the computer (V6) are placeholders.
+ * the log from the event list on each event. The thread folds the same frames
+ * (deltas included) into messages. The slots for the files (V4) and the
+ * computer (V6) are placeholders.
  */
 export function TaskPage({ initial }: { initial: TaskView }) {
   const runId = initial.run.id;
   const [task, setTask] = useState(initial);
   const [live, dispatch] = useReducer(reduceLive, initial, initialLive);
+  const [thread, dispatchThread] = useReducer(
+    reduceThread,
+    initial.events,
+    initialThread
+  );
   const [error, setError] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
   const nowMs = useNowMs();
@@ -100,6 +122,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
       const next = await getTrpc().tasks.get.query({ runId });
       setTask(next);
       dispatch({ kind: "task", task: next });
+      dispatchThread({ events: next.events, kind: "reset" });
       setError(null);
     } catch (cause) {
       setError(messageOf(cause));
@@ -107,11 +130,10 @@ export function TaskPage({ initial }: { initial: TaskView }) {
   }, [runId]);
 
   const getLastEventId = useCallback(() => lastEventId(live), [live]);
-  const onFrame = useCallback(
-    (frame: Parameters<typeof applyFrame>[1]) =>
-      dispatch({ frame, kind: "frame" }),
-    []
-  );
+  const onFrame = useCallback((frame: Parameters<typeof applyFrame>[1]) => {
+    dispatch({ frame, kind: "frame" });
+    dispatchThread({ frame, kind: "frame" });
+  }, []);
   useSessionEvents({
     lastEventId: getLastEventId,
     onFrame,
@@ -259,7 +281,15 @@ export function TaskPage({ initial }: { initial: TaskView }) {
           <ComputerSlot />
           <FilesSlot />
           <ActionLog entries={log} />
-          <ThreadSlot />
+          <SlotCard testId="slot-thread" title="Thread">
+            <TaskThread
+              answer={answer}
+              messages={thread.messages}
+              nowMs={nowMs}
+              requests={requests}
+              task={task}
+            />
+          </SlotCard>
         </div>
       </div>
     </section>

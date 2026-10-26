@@ -43,14 +43,3 @@ export function ComputerSlot() {
     </SlotCard>
   );
 }
-
-/** The thread slot of the task view. */
-export function ThreadSlot() {
-  return (
-    <SlotCard testId="slot-thread" title="Thread">
-      <p className="text-muted-foreground text-sm">
-        The conversation around this task shows up here. Coming next (V2.12).
-      </p>
-    </SlotCard>
-  );
-}

@@ -12,6 +12,10 @@ import {
 import { toast } from "sonner";
 import { SendHint } from "#/components/composer/send-hint.tsx";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut.ts";
+import { FileChips } from "#/components/thread/file-chips.tsx";
+import { LibraryPicker } from "#/components/thread/library-picker.tsx";
+import { uploadFile } from "#/components/thread/upload-file.ts";
+import { useFileInfos } from "#/components/thread/use-file-infos.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
@@ -27,11 +31,7 @@ import {
   MAX_ATTACHMENTS,
   statusLine,
 } from "../chat/chat-logic.ts";
-import { FileChips } from "../chat/file-chips.tsx";
-import { LibraryPicker } from "../chat/library-picker.tsx";
 import { TranscriptView } from "../chat/transcript-view.tsx";
-import { uploadFile } from "../chat/upload-file.ts";
-import { useFileInfos } from "../chat/use-file-infos.ts";
 import { useSessionStream } from "../chat/use-session-stream.ts";
 
 const CLOCK_MS = 15_000;
