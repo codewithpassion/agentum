@@ -67,6 +67,7 @@ export const seedAssignment = async (
   db: Database,
   input: {
     agentId: string;
+    allowedTools?: string[] | null;
     connectorId: string;
     credentialMode?: CredentialMode;
     now: string;
@@ -75,6 +76,9 @@ export const seedAssignment = async (
 ): Promise<void> => {
   await db.insert(agentConnectors).values({
     agentId: input.agentId,
+    allowedTools: input.allowedTools
+      ? JSON.stringify(input.allowedTools)
+      : null,
     connectorId: input.connectorId,
     createdAt: input.now,
     credentialMode: input.credentialMode ?? "user_or_agent",

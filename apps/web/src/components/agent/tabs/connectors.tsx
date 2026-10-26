@@ -8,6 +8,8 @@ import {
   useMemo,
   useState,
 } from "react";
+import { toolAccessLabel } from "#/components/connectors/allowed-tools";
+import { AllowedToolsDialog } from "#/components/connectors/allowed-tools-dialog";
 import { connectHref } from "#/components/connectors/connect-link";
 import { OAuthClientDialog } from "#/components/connectors/oauth-client-dialog";
 import { PasteCredentialDialog } from "#/components/connectors/paste-credential-dialog";
@@ -62,6 +64,7 @@ function AssignedConnectorRow({
   assignment,
   connector,
   onChangeMode,
+  onChooseTools,
   onPaste,
   onRemove,
   onSetClient,
@@ -70,6 +73,7 @@ function AssignedConnectorRow({
   assignment: AssignmentRecord;
   connector: ConnectorRecord;
   onChangeMode: (connectorId: string, mode: CredentialMode) => void;
+  onChooseTools: (connectorId: string) => void;
   onPaste: (connectorId: string, as: PasteAs) => void;
   onRemove: (connectorId: string) => void;
   onSetClient: (connectorId: string) => void;
@@ -99,6 +103,10 @@ function AssignedConnectorRow({
   const setClient = useCallback(
     () => onSetClient(connectorId),
     [connectorId, onSetClient]
+  );
+  const chooseTools = useCallback(
+    () => onChooseTools(connectorId),
+    [connectorId, onChooseTools]
   );
 
   let credentials: ReactNode;
@@ -195,6 +203,16 @@ function AssignedConnectorRow({
           ))}
         </NativeSelect>
       </TableCell>
+      <TableCell>
+        <div className="flex flex-col items-start gap-1.5">
+          <span className="text-muted-foreground text-xs">
+            {toolAccessLabel(assignment.allowedTools, connector.tools)}
+          </span>
+          <Button onClick={chooseTools} size="sm" variant="outline">
+            Choose tools
+          </Button>
+        </div>
+      </TableCell>
       <TableCell className="text-right">
         <Button onClick={handleRemove} size="sm" variant="outline">
           Remove
@@ -216,6 +234,7 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
   const [error, setError] = useState<string | undefined>();
   const [addId, setAddId] = useState("");
   const [oauthId, setOauthId] = useState<string | null>(null);
+  const [toolsId, setToolsId] = useState<string | null>(null);
   const [paste, setPaste] = useState<{
     connectorId: string;
     as: PasteAs;
@@ -315,6 +334,18 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
     reload();
   }, [reload]);
 
+  const openChooseTools = useCallback(
+    (connectorId: string) => setToolsId(connectorId),
+    []
+  );
+
+  const closeChooseTools = useCallback(() => setToolsId(null), []);
+
+  const toolsSaved = useCallback(() => {
+    setToolsId(null);
+    reload();
+  }, [reload]);
+
   const openSetClient = useCallback(
     (connectorId: string) => setOauthId(connectorId),
     []
@@ -355,6 +386,11 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
       ? undefined
       : connectors.find((item) => item.id === oauthId);
 
+  const toolsRow =
+    toolsId === null
+      ? undefined
+      : assignedRows.find((row) => row.connector.id === toolsId);
+
   return (
     <section className="flex max-w-3xl flex-col gap-4">
       {error !== undefined && (
@@ -372,6 +408,7 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
               <TableHead>URL</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Credential mode</TableHead>
+              <TableHead>Tools</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -383,6 +420,7 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
                 connector={connector}
                 key={connector.id}
                 onChangeMode={changeMode}
+                onChooseTools={openChooseTools}
                 onPaste={openPaste}
                 onRemove={removeConnector}
                 onSetClient={openSetClient}
@@ -426,6 +464,16 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
           connector={pasteConnector}
           onClose={closePaste}
           onSaved={pasteSaved}
+        />
+      )}
+      {toolsRow !== undefined && (
+        <AllowedToolsDialog
+          agentId={agentId}
+          allowedTools={toolsRow.assignment.allowedTools}
+          connector={toolsRow.connector}
+          credentialMode={toolsRow.assignment.credentialMode}
+          onClose={closeChooseTools}
+          onSaved={toolsSaved}
         />
       )}
       {oauthConnector !== undefined && (

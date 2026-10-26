@@ -228,8 +228,11 @@ const editConnector = (
   db.update(connectors).set(values).where(eq(connectors.id, id)).run();
 };
 
-/** A stub-token header credential for the agent on `connectorId`. */
-const seedHeaderCredential = async (connectorId = CONNECTOR) => {
+/** A stub-token header credential for the agent on `connectorId`, which may use `allowedTools` (null: every tool). */
+const seedHeaderCredential = async (
+  connectorId = CONNECTOR,
+  allowedTools: string[] | null = null
+) => {
   await seedConnector(db, {
     authKind: "header",
     id: connectorId,
@@ -239,6 +242,7 @@ const seedHeaderCredential = async (connectorId = CONNECTOR) => {
   });
   await seedAssignment(db, {
     agentId,
+    allowedTools,
     connectorId,
     credentialMode: "agent",
     now: new Date(nowMs).toISOString(),
@@ -1004,5 +1008,219 @@ describe("the limit", () => {
     mount({ timeout: () => AbortSignal.timeout(2000) });
 
     expect(await echoed(await call(await tokenFor("run_1")))).toBe("hello");
+  });
+});
+
+describe("tool allowlist", () => {
+  const listBody = JSON.stringify({
+    id: 3,
+    jsonrpc: "2.0",
+    method: "tools/list",
+    params: {},
+  });
+  const shoutBody = JSON.stringify({
+    id: 4,
+    jsonrpc: "2.0",
+    method: "tools/call",
+    params: { arguments: { text: "hi" }, name: "shout" },
+  });
+  const batchBody = JSON.stringify([
+    JSON.parse(echoBody),
+    JSON.parse(searchBody),
+  ]);
+
+  const namesOf = async (response: Response): Promise<string[]> => {
+    const rpc = (await response.json()) as {
+      result: { tools: { name: string }[] };
+    };
+    return rpc.result.tools.map((tool) => tool.name);
+  };
+
+  test("tools/list lists only the allowed tools", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential(CONNECTOR, ["echo"]);
+    addRun("run_1");
+
+    const response = await call(await tokenFor("run_1"), listBody);
+
+    expect(response.status).toBe(200);
+    expect(await namesOf(response)).toEqual(["echo"]);
+  });
+
+  test("an allowed tools/call goes through", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential(CONNECTOR, ["echo"]);
+    addRun("run_1");
+
+    expect(await echoed(await call(await tokenFor("run_1")))).toBe("hello");
+  });
+
+  test("a tools/call naming a tool outside the list is refused before the connector, and the denial is logged", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential(CONNECTOR, ["echo"]);
+    addRun("run_1");
+
+    const response = await call(await tokenFor("run_1"), shoutBody);
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "forbidden",
+      reason: "tool_not_allowed",
+    });
+    expect(
+      stubOf()
+        .stats()
+        .calls.filter((seen) => seen.method === "tools/call")
+    ).toHaveLength(0);
+    const logged = await eventsOf("run_1");
+    expect(logged.map((row) => row.type)).toEqual(["connector.call"]);
+    expect(JSON.parse(logged[0]?.payload ?? "{}")).toMatchObject({
+      note: "tool_not_allowed",
+      outcome: "denied",
+      tool: "shout",
+    });
+  });
+
+  test("a JSON-RPC batch is refused whole when the allowlist is set", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential(CONNECTOR, ["echo"]);
+    addRun("run_1");
+
+    const response = await call(await tokenFor("run_1"), batchBody);
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "forbidden",
+      reason: "tool_not_allowed",
+    });
+    expect(stubOf().stats().calls).toHaveLength(0);
+  });
+
+  test("a body JSON.parse cannot read as one call is refused when the allowlist is set", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential(CONNECTOR, ["echo"]);
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+    const nan =
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"shout","arguments":{"text":"hi","n":NaN}}}';
+
+    const responses = await Promise.all(
+      [nan, "not json", '{"id":1}', "[1]", '"tools/call"'].map((body) =>
+        call(token, body)
+      )
+    );
+
+    expect(responses.map((response) => response.status)).toEqual([
+      403, 403, 403, 403, 403,
+    ]);
+    expect(stubOf().stats().calls).toHaveLength(0);
+  });
+
+  test("keys a looser parser could read as protocol keys are refused when the allowlist is set", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential(CONNECTOR, ["echo"]);
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+    const bodies = [
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","NAME":"shout"}}',
+      '{"jsonrpc":"2.0","id":1,"method":"ping","METHOD":"tools/list"}',
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo"},"paramſ":{"name":"shout"}}',
+    ];
+
+    const responses = await Promise.all(
+      bodies.map((body) => call(token, body))
+    );
+
+    expect(responses.map((response) => response.status)).toEqual([
+      403, 403, 403,
+    ]);
+    expect(stubOf().stats().calls).toHaveLength(0);
+  });
+
+  test("initialize, notifications and an empty DELETE still pass when the allowlist is set", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential(CONNECTOR, ["echo"]);
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+    const init = JSON.stringify({
+      id: 1,
+      jsonrpc: "2.0",
+      method: "initialize",
+      params: { capabilities: {}, protocolVersion: "2025-06-18" },
+    });
+    const note = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    });
+
+    expect((await call(token, init)).status).toBe(200);
+    expect((await call(token, note)).status).toBe(202);
+    const deleted = await app.request(
+      `https://hm.example/api/proxy/${CONNECTOR}`,
+      { headers: { Authorization: `Bearer ${token}` }, method: "DELETE" },
+      env
+    );
+    expect(deleted.status).not.toBe(403);
+  });
+
+  test("a body JSON.parse cannot read still goes upstream with no allowlist", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential();
+    addRun("run_1");
+
+    const response = await call(await tokenFor("run_1"), "not json");
+
+    expect(response.status).not.toBe(403);
+  });
+
+  test("with no allowlist the same stub lists both tools and shout works", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential();
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+
+    expect(await namesOf(await call(token, listBody))).toEqual([
+      "echo",
+      "shout",
+    ]);
+    expect(await echoed(await call(token, shoutBody))).toBe("HI");
+  });
+
+  test("an empty list stored for the assignment is unrestricted", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential(CONNECTOR, []);
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+
+    expect(await namesOf(await call(token, listBody))).toEqual([
+      "echo",
+      "shout",
+    ]);
+    expect(await echoed(await call(token, shoutBody))).toBe("HI");
+  });
+
+  test("a tools/list answer sent as an event stream by the connector is filtered too", async () => {
+    const message = {
+      id: 3,
+      jsonrpc: "2.0",
+      result: { tools: [{ name: "echo" }, { name: "shout" }] },
+    };
+    const sseAnswer: Fetcher = () =>
+      Promise.resolve(
+        new Response(`event: message\ndata: ${JSON.stringify(message)}\n\n`, {
+          headers: { "content-type": "text/event-stream" },
+          status: 200,
+        })
+      );
+    mount({ fetch: sseAnswer });
+    await seedHeaderCredential(CONNECTOR, ["echo"]);
+    addRun("run_1");
+
+    const response = await call(await tokenFor("run_1"), listBody);
+    const text = await response.text();
+
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    expect(text).toContain('"name":"echo"');
+    expect(text).not.toContain("shout");
   });
 });
