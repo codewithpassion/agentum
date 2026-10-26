@@ -128,13 +128,17 @@ function Desk() {
     [navigate]
   );
 
+  // An answered approval leaves the desk at once, so a mail that was allowed
+  // and then failed to send is told here.
+  const [sendError, setSendError] = useState<string | null>(null);
   const answer = useCallback(
     async (view: RequestView, payload: AnswerPayload) => {
       try {
-        await getTrpc().requests.answer.mutate({
+        const record = await getTrpc().requests.answer.mutate({
           ...payload,
           requestId: view.id,
         });
+        setSendError(record.sendError);
       } catch (cause) {
         if (!isConflict(cause)) {
           throw cause;
@@ -168,6 +172,11 @@ function Desk() {
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}
+        </p>
+      )}
+      {sendError === null ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          Allowed, but the mail could not be sent: {sendError}
         </p>
       )}
       {data === null ? null : <MailStrip agent={agent} rows={data.mail} />}

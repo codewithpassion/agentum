@@ -7,11 +7,13 @@ import {
   isConflict,
   mailApprovalFields,
   questionAnswer,
+  type Settled,
   settledFromEvent,
   settledLine,
   toggledChoices,
   viewFromOpened,
   viewFromRecord,
+  withSendError,
 } from "./request-card-logic";
 
 const NOW = Date.parse("2026-10-26T12:00:00.000Z");
@@ -77,6 +79,41 @@ describe("settledLine", () => {
     ).toBe("Denied by Dom in the web app: too risky");
   });
 
+  test("an allow whose mail failed to send says so, with the error", () => {
+    expect(
+      settledLine(
+        "approval",
+        {
+          ...answered({ decision: "allow_once" }, "web"),
+          sendError: "send_failed",
+        },
+        "Dom"
+      )
+    ).toBe(
+      "Allowed once by Dom in the web app, but sending failed: send_failed"
+    );
+    expect(
+      settledLine(
+        "approval",
+        {
+          ...answered({ decision: "always_allow" }, "slack"),
+          sendError: "send_failed",
+        },
+        "Dom"
+      )
+    ).toBe("Always allowed by Dom in Slack, but sending failed: send_failed");
+  });
+
+  test("a denial ignores a send error", () => {
+    expect(
+      settledLine(
+        "approval",
+        { ...answered({ decision: "deny" }, "web"), sendError: "send_failed" },
+        "Dom"
+      )
+    ).toBe("Denied by Dom in the web app");
+  });
+
   test("a question reads as answered", () => {
     expect(
       settledLine("question", answered({ answers: { Q: "A" } }, "slack"), "Dom")
@@ -93,6 +130,40 @@ describe("settledLine", () => {
     expect(settledLine("approval", { status: "conflict" }, null)).toBe(
       "Already answered somewhere else"
     );
+  });
+});
+
+describe("withSendError", () => {
+  const allow: Settled = {
+    answer: { decision: "allow_once" },
+    answeredBy: "user-1",
+    status: "answered",
+    via: "web",
+  };
+  const deny: Settled = {
+    answer: { decision: "deny" },
+    answeredBy: "user-1",
+    status: "answered",
+    via: "web",
+  };
+
+  test("adds the error to an answered outcome", () => {
+    expect(withSendError(allow, "send_failed")).toEqual({
+      ...allow,
+      sendError: "send_failed",
+    });
+  });
+
+  test("leaves a null outcome alone, and a denial still reads as denied", () => {
+    expect(withSendError(null, "send_failed")).toBeNull();
+    expect(
+      settledLine("approval", withSendError(deny, "send_failed") ?? deny, "Dom")
+    ).toBe("Denied by Dom in the web app");
+  });
+
+  test("leaves the outcome alone when there is no error", () => {
+    expect(withSendError(allow, null)).toBe(allow);
+    expect(withSendError(allow, "")).toBe(allow);
   });
 });
 

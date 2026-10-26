@@ -207,6 +207,58 @@ describe("the requests of a task", () => {
     });
   });
 
+  const sendFailed = (id = "e04") =>
+    eventFrame({
+      id,
+      payload: {
+        address: "bob@example.com",
+        error: "send_failed",
+        messageId: "m-1",
+        requestId: "req-1",
+        threadId: "t-1",
+      } as never,
+      type: "mail.failed",
+    });
+
+  test("a mail.failed event after an allow adds the send error to the settlement", () => {
+    let live = applyFrame(initialLive(makeTask({})), opened());
+    live = applyFrame(
+      live,
+      eventFrame({
+        id: "e03",
+        payload: {
+          answeredBy: "user-1",
+          decision: "allow_once",
+          requestId: "req-1",
+          via: "web",
+        } as never,
+        type: "request.answered",
+      })
+    );
+    live = applyFrame(live, sendFailed());
+    expect(requestViews(live).get("req-1")?.settled).toMatchObject({
+      answeredBy: "user-1",
+      sendError: "send_failed",
+      status: "answered",
+    });
+  });
+
+  test("a mail.failed event adds the send error to this browser's own answer", () => {
+    let live = applyFrame(initialLive(makeTask({})), opened());
+    live = applySettled(live, "req-1", {
+      answer: { decision: "always_allow" },
+      answeredBy: "user-1",
+      status: "answered",
+      via: "web",
+    });
+    live = applyFrame(live, sendFailed());
+    expect(requestViews(live).get("req-1")?.settled).toMatchObject({
+      answer: { decision: "always_allow" },
+      sendError: "send_failed",
+      status: "answered",
+    });
+  });
+
   test("an expired request settles as expired", () => {
     let live = applyFrame(initialLive(makeTask({})), opened());
     live = applyFrame(

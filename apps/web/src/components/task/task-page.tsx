@@ -180,6 +180,9 @@ export function TaskPage({ initial }: { initial: TaskView }) {
             answeredBy: record.answeredBy,
             status: "answered",
             via: "web",
+            ...(record.sendError === null
+              ? {}
+              : { sendError: record.sendError }),
           },
         });
       } catch (cause) {
