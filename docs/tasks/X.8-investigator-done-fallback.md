@@ -3,7 +3,7 @@ id: X.8
 title: Escalate fallback for investigator runs that finish without reporting
 milestone: X
 size: S
-status: todo
+status: in_progress
 depends_on: []
 branch: task/X.8-investigator-done-fallback
 lane: services
@@ -24,3 +24,4 @@ Found by X.4's staging check on 26 Oct 2026. X.3 added a server-side escalate fa
 
 ## Log
 - 2026-10-26: added from X.4's staging check.
+- 2026-10-26: dispatched.
