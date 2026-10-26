@@ -163,6 +163,7 @@ export function toFlowEdges(graph: MapGraph<unknown>): MapFlowEdge[] {
 
 export interface FlowNodeContext {
   agents: Map<string, { runtime: AgentRuntime }>;
+  qaOpenCount: number;
   runCounts: Map<string, number>;
   selectedKey: string | null;
 }
@@ -268,7 +269,10 @@ function outputNode(
     ...NODE_SIZE.output,
     connectable: false,
     data: {
-      detail: wireLabel({ count7d, kind: subkind }),
+      detail:
+        subkind === "qa"
+          ? `${ctx.qaOpenCount} open`
+          : wireLabel({ count7d, kind: subkind }),
       label: node.label,
       subkind,
       tone: toneOf(node.key),

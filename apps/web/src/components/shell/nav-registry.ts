@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Map as MapIcon,
+  MessageCircleQuestion,
   MessagesSquare,
   ScrollText,
   Server,
@@ -26,6 +27,12 @@ export const mainNavItems: readonly NavItem[] = [
   { icon: LayoutDashboard, id: "desk", label: "Desk", to: "/desk" },
   { icon: Bot, id: "agents", label: "Agents", to: "/agents" },
   { icon: MapIcon, id: "map", label: "Map", to: "/map" },
+  {
+    icon: MessageCircleQuestion,
+    id: "qa",
+    label: "Q&A",
+    to: "/qa",
+  },
   { icon: FolderOpen, id: "library", label: "Library", to: "/library" },
   { icon: Sparkles, id: "skills", label: "Skills", to: "/skills" },
   // `/machines` redirects to `/settings/machines`, so this item never shows

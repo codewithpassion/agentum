@@ -38,10 +38,19 @@ function AppLayout() {
     null,
     DESK_POLL_INTERVAL_MS
   );
+  const { data: openQaCount } = usePolledQuery(
+    () => getTrpc().qa.openCount.query(),
+    null,
+    DESK_POLL_INTERVAL_MS
+  );
 
   return (
     <SidebarProvider>
-      <AppSidebar agents={agents} needsYouCount={needsYouCount ?? 0} />
+      <AppSidebar
+        agents={agents}
+        needsYouCount={needsYouCount ?? 0}
+        openQaCount={openQaCount ?? 0}
+      />
       <SidebarInset>
         <div className="flex h-12 items-center border-border border-b px-4">
           <SidebarTrigger />

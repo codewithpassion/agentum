@@ -917,7 +917,7 @@ test("recordScript keeps the code, args and output out of the event", async () =
 
 test("recordConflict logs a run's conflict with its run id in the payload", async () => {
   await service.recordConflict(runPrincipal, {
-    conflictPath: "/notes/a (conflict).md",
+    conflictPath: "/notes/a.md.conflict-r1",
     path: "/notes/a.md",
   });
   const log = libraryEvents().map((event) => ({
@@ -934,7 +934,7 @@ test("recordConflict logs a run's conflict with its run id in the payload", asyn
       actorKind: "agent",
       agentId: AGENT,
       payload: {
-        conflictPath: "notes/a (conflict).md",
+        conflictPath: "notes/a.md.conflict-r1",
         path: "notes/a.md",
         runId: RUN,
       },

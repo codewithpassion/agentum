@@ -48,18 +48,20 @@ export function MapCanvas({
   agents,
   graph,
   onSelect,
+  qaOpenCount,
   runCounts,
   selectedKey,
 }: {
   agents: Map<string, { runtime: AgentRuntime }>;
   graph: MapGraphView;
   onSelect: (key: string | null) => void;
+  qaOpenCount: number;
   runCounts: Map<string, number>;
   selectedKey: string | null;
 }) {
   const nodes = useMemo(
-    () => toFlowNodes(graph, { agents, runCounts, selectedKey }),
-    [graph, agents, runCounts, selectedKey]
+    () => toFlowNodes(graph, { agents, qaOpenCount, runCounts, selectedKey }),
+    [graph, agents, qaOpenCount, runCounts, selectedKey]
   );
   const edges = useMemo(() => toFlowEdges(graph), [graph]);
   const theme = usePageTheme();

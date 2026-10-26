@@ -63,6 +63,10 @@ const fakePorts = (overrides: Partial<McpPorts> = {}): McpPorts => ({
   inboxPost: uncalled("inboxPost"),
   inboxRead: uncalled("inboxRead"),
   libraryBash: uncalled("libraryBash"),
+  libraryList: uncalled("libraryList"),
+  libraryRead: uncalled("libraryRead"),
+  libraryVersions: uncalled("libraryVersions"),
+  libraryWrite: uncalled("libraryWrite"),
   listAgents: uncalled("listAgents"),
   listRoutines: uncalled("listRoutines"),
   listSessions: uncalled("listSessions"),
@@ -84,6 +88,8 @@ const fakePorts = (overrides: Partial<McpPorts> = {}): McpPorts => ({
   slackSearch: uncalled("slackSearch"),
   slackSend: uncalled("slackSend"),
   unassignSkill: uncalled("unassignSkill"),
+  wikiRead: uncalled("wikiRead"),
+  wikiSuggestEdit: uncalled("wikiSuggestEdit"),
   ...overrides,
 });
 

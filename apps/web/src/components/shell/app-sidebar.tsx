@@ -34,6 +34,8 @@ interface AppSidebarProps {
   agents: readonly SidebarAgent[];
   /** Tasks waiting on the user. */
   needsYouCount: number;
+  /** Open Q&A questions. */
+  openQaCount: number;
 }
 
 function isActive(pathname: string, to: string) {
@@ -42,10 +44,12 @@ function isActive(pathname: string, to: string) {
 
 function NavMenuItem({
   badge,
+  badgeLabel = "need you",
   item,
   pathname,
 }: {
   badge?: number;
+  badgeLabel?: string;
   item: NavItem;
   pathname: string;
 }) {
@@ -58,7 +62,7 @@ function NavMenuItem({
         </Link>
       </SidebarMenuButton>
       {badge === undefined ? null : (
-        <SidebarMenuBadge aria-label={`${badge} need you`}>
+        <SidebarMenuBadge aria-label={`${badge} ${badgeLabel}`}>
           {badge}
         </SidebarMenuBadge>
       )}
@@ -110,6 +114,20 @@ function AgentsSection({
   );
 }
 
+/** Badge count and label for a main nav item, or none. */
+function mainNavBadge(
+  item: NavItem,
+  counts: { needsYou: number; openQa: number }
+): { badge?: number; badgeLabel?: string } {
+  if (item.id === "desk") {
+    return { badge: counts.needsYou };
+  }
+  if (item.id === "qa") {
+    return { badge: counts.openQa, badgeLabel: "open" };
+  }
+  return {};
+}
+
 function MoreSection({ pathname }: { pathname: string }) {
   return (
     <Collapsible className="group/collapsible">
@@ -134,7 +152,11 @@ function MoreSection({ pathname }: { pathname: string }) {
   );
 }
 
-export function AppSidebar({ agents, needsYouCount }: AppSidebarProps) {
+export function AppSidebar({
+  agents,
+  needsYouCount,
+  openQaCount,
+}: AppSidebarProps) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -147,7 +169,10 @@ export function AppSidebar({ agents, needsYouCount }: AppSidebarProps) {
             <SidebarMenu>
               {mainNavItems.map((item) => (
                 <NavMenuItem
-                  badge={item.id === "desk" ? needsYouCount : undefined}
+                  {...mainNavBadge(item, {
+                    needsYou: needsYouCount,
+                    openQa: openQaCount,
+                  })}
                   item={item}
                   key={item.id}
                   pathname={pathname}

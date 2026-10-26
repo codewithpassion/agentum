@@ -718,7 +718,19 @@ export const composeWith = ({
     people: infra.people,
     requests,
   });
-  const map = createMapService({ clock: infra.clock, db, requests });
+  const map = createMapService({
+    agents,
+    atomic: infra.atomic,
+    clock: infra.clock,
+    connectors,
+    db,
+    events,
+    machines,
+    requests,
+    routines,
+    skillsStore,
+    triggers,
+  });
   // The desk's Needs you logic is shared: the web desk and the desk API read the same items.
   const desk = createDeskService({
     clock: infra.clock,

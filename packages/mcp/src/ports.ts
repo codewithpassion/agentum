@@ -133,6 +133,44 @@ export interface TriggerChange {
   trigger: TriggerInfo;
 }
 
+/** Public library metadata, matching the library service without exposing storage keys. */
+export interface LibraryEntryInfo {
+  etag: string | null;
+  kind: "file" | "dir";
+  mtime: string;
+  path: string;
+  size: number;
+  updatedBy: { id: string; kind: "agent" | "user" };
+}
+
+export interface LibraryVersionInfo {
+  authorId: string;
+  authorKind: string;
+  createdAt: string;
+  etag: string;
+  id: string;
+  op: "write" | "delete" | "restore" | "move";
+  path: string;
+  runId: string | null;
+  sha256: string;
+  size: number;
+  version: number;
+}
+
+export interface WikiPageInfo {
+  backlinks: { path: string; title: string }[];
+  body: string;
+  links: {
+    index: number;
+    slug: string;
+    title: string;
+    path: string;
+    broken: boolean;
+  }[];
+  path: string;
+  title: string;
+}
+
 /** What a `bash` call returns. A non-zero exit code is a normal result, not an error. */
 export interface LibraryBashResult {
   exitCode: number;
@@ -500,6 +538,17 @@ export interface McpPorts {
   inboxRead: (input: { threadId: string }) => Promise<ThreadTranscript>;
   /** Runs a bash script over the workspace file library. */
   libraryBash: (input: { script: string }) => Promise<LibraryBashResult>;
+  /** Adapters normalize paths, enforce caller access and translate service failures to ToolError. */
+  libraryList: (input: { dir: string }) => Promise<LibraryEntryInfo[]>;
+  libraryRead: (input: {
+    path: string;
+  }) => Promise<{ bytes: Uint8Array; entry: LibraryEntryInfo }>;
+  libraryVersions: (input: { path: string }) => Promise<LibraryVersionInfo[]>;
+  libraryWrite: (input: {
+    path: string;
+    bytes: Uint8Array;
+    ifEtag?: string;
+  }) => Promise<LibraryEntryInfo>;
   listAgents: () => Promise<AgentInfo[]>;
   listRoutines: (input: { agentId?: string }) => Promise<RoutineInfo[]>;
   listSessions: (input: { agent: string }) => Promise<SessionInfo[]>;
@@ -584,6 +633,12 @@ export interface McpPorts {
     to: string;
   }) => Promise<SlackSendResult>;
   unassignSkill: (input: { agent: string; skillId: string }) => Promise<void>;
+  wikiRead: (input: { path: string }) => Promise<WikiPageInfo>;
+  wikiSuggestEdit: (input: {
+    path: string;
+    body: string;
+    summary: string;
+  }) => Promise<{ id: string }>;
 }
 
 /** The longest a send_message call waits, in milliseconds. */
