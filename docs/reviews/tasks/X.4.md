@@ -6,7 +6,9 @@ Round 1, at 2a14cb3: must-fix, one item. The guardrail was only in the skill's t
 
 Round 2, at 675a47b (fix commit only): must-fix, two items. The skill told the model to ask with `ask_user` only for tools without a rule, which it cannot know. The rule list left out `web_fetch`, which can send POST requests and so can post or send mail through any HTTP API. The fix: the skill says to ask unless it knows the tool has a rule (a double ask is the cheaper failure), and `web_fetch` joins the list. The reviewer also confirmed that all 19 platform keys are real, match `toolKey` and the cloud gate, and that no rule belongs on `run_skill_script`.
 
-Round 3: pending.
+Round 3, at f749cab (fix commit only): must-fix, three items. The note that `run_script` holds no secrets was wrong, because it fetches through the same fetcher as `web_fetch`. `run_script` was missing from the rule list. Check steps 3 and 4 failed if the tester denied the `ask_user` question the skill now asks first. The fix: `run_script` is ruled like `web_fetch` with the trade-off recorded, the steps approve the `ask_user` question and then deny the tool request, the skill says to read through connectors, and the connector-key note is explicit.
+
+Round 4, at 874ad06 (fix commit only, after merging main): clean. Nits it left: the skill's remark that `web_fetch` and `run_script` calls wait for Dom is true only once setup step 4 has added those rules (the setup is a required step).
 
 ## What was built
 
@@ -30,8 +32,9 @@ The code in this task does not call V1. The guardrail relies on V1's rules, and 
 - A signed-out visitor to the run link is not returned to it after sign-in.
 - Approval requests from a trigger-started run have no person to DM. Where the card shows for such a run (the agent's chat page, Slack) is part of the check below. Approvals expire after an hour by default, after which the call is denied and the skill says to escalate.
 - Each step costs one `run_skill_script` call and one ingest request. A chatty run posts many. The skill asks for one per check, retry or re-run, with no hard cap.
-- `run_script` fetches through the same fetcher as `web_fetch`, with the same secret placeholders, and network is on by default. It is therefore ruled like `web_fetch`. The rule costs the investigator its ad hoc scripts (each one asks). It does not touch `run_skill_script`, a separate tool, so the step and report scripts run freely.
 - The step script has no timeout of its own, as the report script (the sandbox's 30 s wall time ends it).
+
+- The skill's text that `web_fetch` and `run_script` calls wait for Dom holds only after setup step 4 adds those rules. A decision, not a defect: `run_script` is ruled like `web_fetch` (same fetcher and secret placeholders, network on by default), so the investigator's ad hoc scripts each ask, and `run_skill_script` is untouched.
 
 ## Beyond the scope
 
