@@ -11,6 +11,7 @@ import type { AgentRecord, AgentsService } from "../agents.ts";
 import { CLOUD_DEFAULT_MODEL } from "../cloud/models.ts";
 import type { ConnectorsService } from "../connectors.ts";
 import { isServiceError, ServiceError } from "../errors.ts";
+import type { LibraryAccessService } from "../library/access.ts";
 import type { RoutinesService } from "../routines.ts";
 import type { RunsService } from "../runs.ts";
 import type { SkillsStoreService } from "../skills-store.ts";
@@ -66,7 +67,6 @@ const rowValues = (
   handsTo: string[];
   instructions: string;
   name: string;
-  runtimeConfig: Record<string, string[]>;
   soul: string;
 } => ({
   handsTo: draft.handsTo,
@@ -75,8 +75,6 @@ const rowValues = (
       ? draft.does
       : `${draft.does}\n\nRules:\n${draft.rules.map((rule) => `- ${rule}`).join("\n")}`,
   name: draft.name,
-  runtimeConfig:
-    draft.library.length > 0 ? { libraryPaths: draft.library } : {},
   soul: VOICE_SOUL[draft.voice],
 });
 
@@ -106,6 +104,7 @@ export interface LifecycleDeps {
   >;
   catalog: (principal: Principal) => Promise<BuilderCatalog>;
   connectors: Pick<ConnectorsService, "assign">;
+  libraryAccess: Pick<LibraryAccessService, "setGrant">;
   routines: Pick<RoutinesService, "create">;
   runs: Pick<RunsService, "startRun">;
   skillsStore: Pick<SkillsStoreService, "assign">;
@@ -117,6 +116,7 @@ export const createDraftLifecycle = ({
   agents,
   catalog,
   connectors,
+  libraryAccess,
   routines,
   runs,
   skillsStore,
@@ -198,6 +198,11 @@ export const createDraftLifecycle = ({
       ...draft.skills.map((skillId) => ({
         label: `Give it the ${nameOf(names.skills, skillId)} skill`,
         run: () => skillsStore.assign(principal, { agentId, skillId }),
+      })),
+      // The builder offers write access to a folder, as it always has.
+      ...draft.library.map((path) => ({
+        label: `Give it write access to ${path}`,
+        run: () => libraryAccess.setGrant(principal, agentId, path, "write"),
       })),
       // A mail start creates nothing until V5, and a Slack mention needs no row.
       ...draft.startsOn.flatMap((start) =>
@@ -283,7 +288,6 @@ export const createDraftLifecycle = ({
       machineId: runsOn.runtime === "machine" ? runsOn.machineId : null,
       model: CLOUD_DEFAULT_MODEL,
       runtime: runsOn.runtime,
-      runtimeConfig: rowValues(draft).runtimeConfig,
     });
     await runSteps(
       activated,
