@@ -60,6 +60,7 @@ describe("isReadOnlyCall for built-in tools", () => {
   test.each([
     "read",
     "activate_skill",
+    "desktop_screenshot",
     "read_input_file",
     "read_skill_resource",
   ])("%s is read-only", (name) => {

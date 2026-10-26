@@ -10,6 +10,8 @@ import {
   agentTileColour,
 } from "#/components/shell/agent-tile.ts";
 import { buttonVariants } from "#/components/ui/button.tsx";
+import { SuggestionReview } from "#/components/wiki-suggestions/suggestion-review.tsx";
+import { ConflictResolver } from "./conflict-resolver.tsx";
 import { ProposalActions } from "./proposal-actions.tsx";
 
 const BOX_CLASS =
@@ -77,6 +79,7 @@ function ThreadBody({ card }: { card: DeskCard }) {
 }
 
 interface NeedsYouBodyProps {
+  agentName: string;
   card: DeskCard;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
@@ -86,6 +89,7 @@ interface NeedsYouBodyProps {
 }
 
 function NeedsYouBody({
+  agentName,
   card,
   nowMs,
   onAnswer,
@@ -117,6 +121,16 @@ function NeedsYouBody({
       );
     case "inbox_reply":
       return <ThreadBody card={card} />;
+    case "wiki_suggestion":
+      return (
+        <SuggestionReview
+          agentName={agentName}
+          id={card.id}
+          onDecided={onChanged}
+        />
+      );
+    case "library_conflict":
+      return <ConflictResolver card={card} onChanged={onChanged} />;
     default:
       return <CardSummary card={card} />;
   }
@@ -157,6 +171,7 @@ export function NeedsYouCard({
         </h3>
       </header>
       <NeedsYouBody
+        agentName={agentName}
         card={card}
         nowMs={nowMs}
         onAnswer={onAnswer}

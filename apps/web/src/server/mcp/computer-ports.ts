@@ -5,7 +5,12 @@
 // holds no output and no file content.
 
 import type { ComputerExecPayload, ComputerFilePayload } from "@repo/db/shared";
-import type { ComputerPort, PortFailure } from "@repo/mcp/ports";
+import type {
+  ComputerPort,
+  PortFailure,
+  PortResult,
+  ToolImage,
+} from "@repo/mcp/ports";
 import {
   type ExecResultPayload,
   FILE_CHUNK_BYTES,
@@ -153,6 +158,30 @@ const parseListing = (stdout: string) =>
 /** The host path for a logical path under the agent's directory. */
 const hostPathOf = (agentDir: string, path: string): string =>
   path === "/" ? agentDir : `${agentDir}${path}`;
+
+/** A picture of the whole desktop of one machine, as the platform tools return it. */
+export const takeDesktopScreenshot = async (
+  relay: MachineRelayPort,
+  machineId: string,
+  principal: ComputerPrincipal
+): Promise<PortResult<{ image: ToolImage }>> => {
+  const reply = parseReply(
+    await relay.desktopScreenshot(machineId, principal, {
+      quality: null,
+    }),
+    parseDesktopScreenshotResult
+  );
+  if (!reply.ok) {
+    return reply;
+  }
+  return {
+    image: {
+      data: reply.value.data_b64,
+      mimeType: reply.value.media_type,
+    },
+    ok: true,
+  };
+};
 
 export const createComputerPorts = ({
   machineId,
@@ -404,24 +433,7 @@ export const createComputerPorts = ({
       return { content: new TextDecoder().decode(bytes), ok: true, size };
     },
 
-    screenshot: async () => {
-      const reply = parseReply(
-        await relay.desktopScreenshot(machineId, agentPrincipal, {
-          quality: null,
-        }),
-        parseDesktopScreenshotResult
-      );
-      if (!reply.ok) {
-        return reply;
-      }
-      return {
-        image: {
-          data: reply.value.data_b64,
-          mimeType: reply.value.media_type,
-        },
-        ok: true,
-      };
-    },
+    screenshot: () => takeDesktopScreenshot(relay, machineId, agentPrincipal),
 
     writeFile: async ({ content, path }) => {
       const base = await agentDir();

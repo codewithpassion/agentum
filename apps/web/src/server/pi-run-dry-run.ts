@@ -12,9 +12,14 @@ export const DRY_RUN_SUMMARY_MAX = 200;
 export const ASK_USER_DRY_RUN_TEXT =
   "Nobody answers in a dry run. Go on with a stated assumption.";
 
+/** The answer a `request_human_takeover` call gets in a dry run. */
+export const TAKEOVER_DRY_RUN_TEXT =
+  "Nobody takes over the computer in a dry run. Go on without it and say what you could not do.";
+
 const ELLIPSIS = "…";
 const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "activate_skill",
+  "desktop_screenshot",
   "read",
   "read_input_file",
   "read_skill_resource",
