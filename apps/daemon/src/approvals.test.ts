@@ -8,16 +8,18 @@ import type {
   CreateRequestResponse,
   WaitRequestResponse,
 } from "@repo/protocol/machine";
+import { createRequestBodySchema } from "@repo/protocol/machine";
 import { outcomeText, type RequestOutcome } from "@repo/protocol/requests";
 import {
   createApprovalGate,
   gateOptions,
   HOOK_TIMEOUT_SECONDS,
+  MAX_RETRIES,
   type ToolCall,
   type Verdict,
 } from "./approvals.ts";
 import { nextBackoffMs } from "./backoff.ts";
-import { type RunApi, RunApiError } from "./run-api.ts";
+import { type RunApi, RunApiError, UNREADABLE_ANSWER } from "./run-api.ts";
 
 const FIXED_RANDOM = 0.5;
 const random = (): number => FIXED_RANDOM;
@@ -560,6 +562,124 @@ describe("gateOptions", () => {
         permissionDecision: "deny",
         permissionDecisionReason: "A person denied this call. too risky",
       },
+    });
+  });
+});
+
+describe("createApprovalGate.decide, limits and later calls", () => {
+  test("denies after MAX_RETRIES failed attempts in a row", async () => {
+    const h = harness({
+      create: Array.from(
+        { length: MAX_RETRIES + 1 },
+        () => new RunApiError("x", UNAVAILABLE)
+      ),
+    });
+
+    const verdict = await h.gate.decide(bashCall());
+
+    expect(verdict).toEqual({ kind: "deny", reason: PLATFORM_REFUSED });
+    expect(h.creates).toHaveLength(MAX_RETRIES + 1);
+    expect(h.delays).toHaveLength(MAX_RETRIES);
+    expect(h.delays).toEqual(
+      Array.from({ length: MAX_RETRIES }, (_, attempt) =>
+        nextBackoffMs(attempt, random)
+      )
+    );
+  });
+
+  test("denies at once when the answer cannot be read", async () => {
+    const h = harness({ create: [new RunApiError("x", UNREADABLE_ANSWER)] });
+
+    const verdict = await h.gate.decide(bashCall());
+
+    expect(verdict).toEqual({ kind: "deny", reason: PLATFORM_REFUSED });
+    expect(h.delays).toHaveLength(0);
+  });
+
+  test("always_allow lets the same tool run unasked for the rest of the run", async () => {
+    const h = harness({
+      create: [pendingCreate],
+      wait: [
+        finished({
+          answer: { decision: "always_allow" },
+          status: "answered",
+        }),
+      ],
+    });
+
+    expect(await h.gate.decide(bashCall())).toEqual({ kind: "allow" });
+    expect(await h.gate.decide(bashCall("pwd"))).toBeUndefined();
+    expect(h.creates).toHaveLength(1);
+  });
+
+  test("allow_once asks again for the next call", async () => {
+    const h = harness({
+      create: [pendingCreate, pendingCreate],
+      wait: [finished(ALLOW_ONCE), finished(ALLOW_ONCE)],
+    });
+
+    await h.gate.decide(bashCall());
+    await h.gate.decide(bashCall("pwd"));
+
+    expect(h.creates).toHaveLength(2);
+  });
+
+  test("a question answered with an approval answer is denied", async () => {
+    const h = harness({
+      create: [pendingCreate],
+      wait: [finished(ALLOW_ONCE)],
+    });
+
+    const verdict = await h.gate.decide(questionCall());
+
+    expect(verdict).toEqual({ kind: "deny", reason: PLATFORM_REFUSED });
+  });
+
+  test("the bodies it sends satisfy the request protocol", async () => {
+    const h = harness({
+      create: [pendingCreate, pendingCreate],
+      rules: ["bash"],
+      wait: [finished(ALLOW_ONCE), finished(ALLOW_ONCE)],
+    });
+
+    await h.gate.decide(bashCall());
+    await h.gate.decide(
+      questionCall({
+        questions: [
+          {
+            header: "",
+            options: [{ label: "" }, { label: "Red" }],
+            question: "Which?",
+          },
+        ],
+      })
+    );
+
+    expect(h.creates).toHaveLength(2);
+    for (const { body } of h.creates) {
+      expect(createRequestBodySchema.safeParse(body).success).toBe(true);
+    }
+    expect(h.creates[1]?.body.display).toEqual({
+      questions: [{ choices: ["Red"], question: "Which?" }],
+    });
+  });
+
+  test("an MCP call is summarised by its rule key", async () => {
+    const h = harness({
+      create: [pendingCreate],
+      rules: ["github/create_issue"],
+      serverKeys: ["github"],
+      wait: [finished(ALLOW_ONCE)],
+    });
+
+    await h.gate.decide({
+      input: { title: "x" },
+      name: "mcp__github__create_issue",
+      toolUseId: TOOL_USE_ID,
+    });
+
+    expect(h.creates[0]?.body.display).toMatchObject({
+      summary: "Call github/create_issue",
     });
   });
 });

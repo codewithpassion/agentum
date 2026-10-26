@@ -10,7 +10,7 @@ import type {
 } from "@repo/protocol/machine";
 import { createMasker } from "@repo/protocol/masker";
 import { file } from "bun";
-import { createRunApi, RunApiError } from "./run-api.ts";
+import { createRunApi, RunApiError, UNREADABLE_ANSWER } from "./run-api.ts";
 
 const CREDENTIAL = "hm_mach_credential_for_tests_0123456789";
 const SECRET = "sk-live-do-not-leak";
@@ -390,11 +390,11 @@ describe("createRequest", () => {
     }
   );
 
-  test("an answer that fails the protocol gives status 0", async () => {
+  test("an answer that fails the protocol gives status 422, which is not retried", async () => {
     const { fetch } = recordingFetch(() => jsonResponse({}));
     const error = await rejectionOf(makeApi(fetch).createRequest(requestBody));
     expect(error).toBeInstanceOf(RunApiError);
-    expect((error as RunApiError).status).toBe(0);
+    expect((error as RunApiError).status).toBe(UNREADABLE_ANSWER);
   });
 
   test("a thrown fetch gives status 0", async () => {
@@ -461,11 +461,11 @@ describe("waitRequest", () => {
     }
   );
 
-  test("an answer that fails the protocol gives status 0", async () => {
+  test("an answer that fails the protocol gives status 422, which is not retried", async () => {
     const { fetch } = recordingFetch(() => jsonResponse({}));
     const error = await rejectionOf(makeApi(fetch).waitRequest(REQUEST_ID));
     expect(error).toBeInstanceOf(RunApiError);
-    expect((error as RunApiError).status).toBe(0);
+    expect((error as RunApiError).status).toBe(UNREADABLE_ANSWER);
   });
 
   test("a thrown fetch gives status 0", async () => {

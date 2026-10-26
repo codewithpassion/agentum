@@ -45,8 +45,14 @@ export const HOOK_TIMEOUT_SECONDS = 25 * 60 * 60;
 const INPUT_MAX_BYTES = 8192;
 const INPUT_PREVIEW_CHARS = 1300;
 const SERVER_ERROR = 500;
-/** Statuses that clear up by themselves: no answer, request timeout, rate limit and a server fault. */
+/** Statuses that clear up by themselves: no answer, request timeout and rate limit. Any 5xx does too. */
 const RETRYABLE_STATUSES = new Set([0, 408, 429]);
+/**
+ * Consecutive failures of one call after which the call is denied. With the
+ * backoff that is about five minutes. Without a limit the hook could outlast
+ * its own timeout, and a hook that times out lets the tool run.
+ */
+export const MAX_RETRIES = 10;
 
 const encoder = new TextEncoder();
 
@@ -144,7 +150,9 @@ const questionsOf = (input: unknown): Question[] | undefined => {
     }
     const choices = Array.isArray(item.options)
       ? item.options.flatMap((option: unknown) =>
-          isRecord(option) && typeof option.label === "string"
+          isRecord(option) &&
+          typeof option.label === "string" &&
+          option.label !== ""
             ? [option.label]
             : []
         )
@@ -167,7 +175,10 @@ const questionsOf = (input: unknown): Question[] | undefined => {
 export const createApprovalGate = (
   options: ApprovalGateOptions
 ): ApprovalGate => {
-  const { api, log, rules, serverKeys } = options;
+  const { api, log, serverKeys } = options;
+  // "Always allow" in an answer drops the key for the rest of the run, as the
+  // platform stores the rule as allow.
+  const asking = new Set(options.rules);
   const random = options.random ?? Math.random;
   const sleep = options.sleep ?? sleepUnlessAborted;
 
@@ -182,7 +193,7 @@ export const createApprovalGate = (
         // biome-ignore lint/performance/noAwaitInLoops: a retry waits for the attempt before it.
         return await step();
       } catch (error) {
-        if (signal.aborted || !isTransient(error)) {
+        if (signal.aborted || !isTransient(error) || attempt >= MAX_RETRIES) {
           throw error;
         }
         log(`${label} will retry: ${messageOf(error)}`);
@@ -219,7 +230,10 @@ export const createApprovalGate = (
       {
         display: {
           input: displayInput(call.input),
-          summary: approvalSummary(call.name, call.input),
+          summary: approvalSummary(
+            key.includes("/") ? key : call.name,
+            call.input
+          ),
           toolKey: key,
           toolName: call.name,
         },
@@ -230,7 +244,17 @@ export const createApprovalGate = (
       signal
     );
     const reason = outcomeText("approval", outcome);
-    return reason === null ? { kind: "allow" } : { kind: "deny", reason };
+    if (reason !== null) {
+      return { kind: "deny", reason };
+    }
+    if (
+      outcome.status === "answered" &&
+      "decision" in outcome.answer &&
+      outcome.answer.decision === "always_allow"
+    ) {
+      asking.delete(key);
+    }
+    return { kind: "allow" };
   };
 
   const question = async (
@@ -248,6 +272,9 @@ export const createApprovalGate = (
       signal
     );
     if (outcome.status !== "answered" || !("answers" in outcome.answer)) {
+      if (outcome.status === "answered") {
+        log(`${call.name} was answered with something other than answers`);
+      }
       return {
         kind: "deny",
         reason: outcomeText("question", outcome) ?? REASONS.unavailable,
@@ -263,7 +290,7 @@ export const createApprovalGate = (
   const decide = async (call: ToolCall): Promise<Verdict | undefined> => {
     const asks = isAskUserCall("machine", call.name);
     const key = toolKey({ name: call.name, runtime: "machine", serverKeys });
-    if (!(asks || rules.includes(key))) {
+    if (!(asks || asking.has(key))) {
       return;
     }
     const signal =

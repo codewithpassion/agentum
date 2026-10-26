@@ -23,6 +23,8 @@ import type { Masker } from "@repo/protocol/masker";
 const CONFLICT = 409;
 /** The status a RunApiError carries when no HTTP answer was usable. */
 const NO_ANSWER = 0;
+/** The status of an answer the Worker sent that this daemon cannot read. Not 0 or 5xx, so a caller that retries on those does not retry it. */
+export const UNREADABLE_ANSWER = 422;
 const ERROR_TEXT_LIMIT = 200;
 const CREDENTIAL_PLACEHOLDER = "[secret:machine_credential]";
 const TRAILING_SLASHES = /\/+$/;
@@ -203,7 +205,7 @@ export const createRunApi = (options: RunApiOptions): RunApi => {
     if (!(parsed.success && parsed.data !== undefined)) {
       throw new RunApiError(
         scrub(`run ${route} answer does not match the protocol`),
-        NO_ANSWER
+        UNREADABLE_ANSWER
       );
     }
     return parsed.data;
