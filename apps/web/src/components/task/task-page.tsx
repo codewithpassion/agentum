@@ -18,6 +18,8 @@ import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TaskView } from "#/integrations/trpc/types";
 import { ActionLog } from "./action-log.tsx";
+import { mailTriggerOf, withMailTrigger } from "./mail-logic.ts";
+import { MailSlot } from "./mail-slot.tsx";
 import { Receipt } from "./receipt.tsx";
 import { ComputerSlot, FilesSlot, SlotCard } from "./slots.tsx";
 import {
@@ -45,6 +47,7 @@ import {
 import { ThreadRuns } from "./thread-runs.tsx";
 import { useNowMs } from "./use-now-ms.ts";
 import { useSessionEvents } from "./use-session-events.ts";
+import { useTaskMail } from "./use-task-mail.ts";
 
 const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
@@ -102,7 +105,8 @@ function Fact({
  * One task, as a receipt of steps with the action log beside it. It starts
  * from `tasks.get` and follows the session stream, rebuilding the receipt and
  * the log from the event list on each event. The thread folds the same frames
- * (deltas included) into messages. The files slot reads the task folder itself.
+ * (deltas included) into messages. The files slot reads the task folder itself, and the mail card reads the
+ * thread linked to the task.
  */
 export function TaskPage({ initial }: { initial: TaskView }) {
   const runId = initial.run.id;
@@ -212,9 +216,23 @@ export function TaskPage({ initial }: { initial: TaskView }) {
     () => receiptRunOf(task, runStatus),
     [task, runStatus]
   );
+  const {
+    address: mailAddress,
+    error: mailError,
+    thread: mailThread,
+  } = useTaskMail(runId, task.agent.id, isActive(runStatus));
+  const mailTrigger = useMemo(
+    () =>
+      task.startedBy.kind === "mail" &&
+      mailThread !== null &&
+      mailAddress !== null
+        ? mailTriggerOf(mailThread, runId, mailAddress)
+        : null,
+    [task.startedBy.kind, mailThread, mailAddress, runId]
+  );
   const steps = useMemo(
-    () => buildReceipt(receiptRun, events),
-    [receiptRun, events]
+    () => withMailTrigger(buildReceipt(receiptRun, events), mailTrigger),
+    [receiptRun, events, mailTrigger]
   );
   const log = useMemo(() => toActionLog(events), [events]);
   const requests = useMemo(() => requestViews(live), [live]);
@@ -285,6 +303,11 @@ export function TaskPage({ initial }: { initial: TaskView }) {
             takeover={takeover}
           />
           <FilesSlot runId={runId} running={isActive(runStatus)} />
+          <MailSlot
+            agentId={task.agent.id}
+            error={mailError}
+            thread={mailThread}
+          />
           <ActionLog entries={log} />
           <SlotCard testId="slot-thread" title="Thread">
             <TaskThread

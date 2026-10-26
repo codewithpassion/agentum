@@ -7,6 +7,7 @@
 import type { Database } from "@repo/db";
 import { type Atomic, d1Atomic } from "@repo/db/atomic";
 import type { ModelProvider } from "@repo/db/shared";
+import { TRANSFER_HELPER_SOURCE } from "@repo/library-sync/transfer-bundle";
 import {
   type AgentBuilderService,
   createAgentBuilderService,
@@ -571,8 +572,10 @@ export const composeWith = ({
     db,
     defer: infra.defer,
     fetch: connectorFetch,
+    publicBaseUrl: infra.publicBaseUrl,
     requests: {
       answer: (principal, input) => requests.answer(principal, input),
+      cancel: (principal, requestId) => requests.cancel(principal, requestId),
       outcome: (principal, requestId) => requests.outcome(principal, requestId),
     },
     secretsKey: infra.secretsKey,
@@ -670,6 +673,7 @@ export const composeWith = ({
     gatewayFor: infra.managedGatewayFor ?? noGateway,
     keys: managedKeys,
     library,
+    libraryTransfer: { helper: TRANSFER_HELPER_SOURCE },
     poller: infra.managedPoller ?? noopPoller,
     publicBaseUrl: infra.publicBaseUrl,
     requests,
