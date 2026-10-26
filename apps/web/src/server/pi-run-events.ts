@@ -46,6 +46,9 @@ const eventOfPart = (
   if (part.type === "text" && part.text !== "") {
     return [{ payload: { text: part.text }, type: "message.assistant" }];
   }
+  if (part.type === "thinking" && part.thinking !== "" && !part.redacted) {
+    return [{ payload: { text: part.thinking }, type: "message.reasoning" }];
+  }
   if (part.type === "toolCall") {
     return [
       {

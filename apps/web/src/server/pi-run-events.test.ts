@@ -119,12 +119,45 @@ describe("toRunEvents", () => {
     expect(toRunEvents(slice)).toEqual(toRunEvents(slice));
   });
 
-  test("drops thinking parts and empty text parts", () => {
+  test("an assistant message with thinking, text and a tool call gives three events in order", () => {
     const events = toRunEvents([
       entry(
         "a1",
         assistant([
-          { thinking: "hmm", type: "thinking" },
+          { thinking: "Plan: list files.", type: "thinking" },
+          { text: "Listing.", type: "text" },
+          {
+            arguments: { cmd: "ls" },
+            id: "call-1",
+            name: "bash",
+            type: "toolCall",
+          },
+        ])
+      ),
+    ]);
+    expect(events).toEqual([
+      {
+        payload: { text: "Plan: list files." },
+        seq: 1,
+        type: "message.reasoning",
+      },
+      { payload: { text: "Listing." }, seq: 2, type: "message.assistant" },
+      {
+        payload: { input: { cmd: "ls" }, name: "bash", toolUseId: "call-1" },
+        seq: 3,
+        type: "tool.call",
+      },
+    ]);
+  });
+
+  test("drops empty, redacted and signature-only thinking and empty text parts", () => {
+    const events = toRunEvents([
+      entry(
+        "a1",
+        assistant([
+          { thinking: "", type: "thinking" },
+          { redacted: true, thinking: "opaque", type: "thinking" },
+          { thinking: "", thinkingSignature: "sig", type: "thinking" },
           { text: "", type: "text" },
         ])
       ),
