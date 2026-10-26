@@ -9,7 +9,7 @@
 // through). New: listThreads, findByDedupeKey, insertInbound and findThreadByIds.
 
 import type { ThreadSummary } from "@repo/services/mail/types";
-import { asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { asc, desc, eq, getTableColumns, inArray, or, sql } from "drizzle-orm";
 import { attachments, emails, type MailboxDb } from "./schema.ts";
 import {
   normalizeSubject,
@@ -35,6 +35,10 @@ const DAY_MS = 24 * HOUR_MS;
 const SUBJECT_WINDOW_MS = 7 * DAY_MS;
 const MAX_PAGE_SIZE = 100;
 const THREAD_CANDIDATES = 50;
+
+/** A Durable Object's SQLite refuses a statement that binds more than this many parameters. */
+export const DO_MAX_BOUND_PARAMS = 100;
+const ATTACHMENT_COLUMNS = Object.keys(getTableColumns(attachments)).length;
 
 export type EmailRow = typeof emails.$inferSelect;
 export type AttachmentRow = typeof attachments.$inferSelect;
@@ -88,6 +92,8 @@ export type EmailChanges = Partial<
 >;
 
 export interface MailboxStoreOptions {
+  /** The most parameters one statement may bind. Tests pass a smaller number to force chunking. */
+  maxBoundParams?: number;
   now?: () => Date;
 }
 
@@ -100,18 +106,49 @@ const splitAddresses = (value: string | null): string[] =>
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
 
+const chunked = <T>(items: T[], size: number): T[][] => {
+  const parts: T[][] = [];
+  for (let start = 0; start < items.length; start += size) {
+    parts.push(items.slice(start, start + size));
+  }
+  return parts;
+};
+
 export const createMailboxStore = (
   db: MailboxDb,
-  { now = () => new Date() }: MailboxStoreOptions = {}
+  {
+    maxBoundParams = DO_MAX_BOUND_PARAMS,
+    now = () => new Date(),
+  }: MailboxStoreOptions = {}
 ) => {
+  /** Rows per attachment insert, one bound parameter per column. */
+  const attachmentRowsPerInsert = Math.max(
+    1,
+    Math.floor(maxBoundParams / ATTACHMENT_COLUMNS)
+  );
+  /** Ids per `findThreadByIds` query: two `IN` lists and the `LIMIT` bind `2n + 1` parameters. */
+  const threadIdsPerQuery = Math.max(1, Math.floor((maxBoundParams - 1) / 2));
+
+  const insertAttachments = (
+    tx: Pick<MailboxDb, "insert">,
+    emailId: string,
+    files: AttachmentInput[]
+  ): void => {
+    for (const part of chunked(files, attachmentRowsPerInsert)) {
+      tx.insert(attachments)
+        .values(part.map((file) => ({ ...file, emailId })))
+        .run();
+    }
+  };
+
   const attachmentsOf = (emailIds: string[]): AttachmentRow[] =>
-    emailIds.length === 0
-      ? []
-      : db
-          .select()
-          .from(attachments)
-          .where(inArray(attachments.emailId, emailIds))
-          .all();
+    chunked(emailIds, Math.max(1, maxBoundParams)).flatMap((part) =>
+      db
+        .select()
+        .from(attachments)
+        .where(inArray(attachments.emailId, part))
+        .all()
+    );
 
   const withAttachments = (rows: EmailRow[]): StoredEmail[] => {
     const byEmail = new Map<string, AttachmentRow[]>();
@@ -168,17 +205,26 @@ export const createMailboxStore = (
 
   /** The thread of the newest stored mail whose `Message-ID` or thread id is one of `ids`. */
   const findThreadByIds = (ids: string[]): string | null => {
-    if (ids.length === 0) {
-      return null;
+    let newest: { date: string; thread: string } | null = null;
+    for (const part of chunked(ids, threadIdsPerQuery)) {
+      const [row] = db
+        .select({
+          date: emails.date,
+          id: emails.id,
+          threadId: emails.threadId,
+        })
+        .from(emails)
+        .where(
+          or(inArray(emails.messageId, part), inArray(emails.threadId, part))
+        )
+        .orderBy(desc(emails.date))
+        .limit(1)
+        .all();
+      if (row && (newest === null || (row.date ?? "") > newest.date)) {
+        newest = { date: row.date ?? "", thread: row.threadId ?? row.id };
+      }
     }
-    const [row] = db
-      .select({ id: emails.id, threadId: emails.threadId })
-      .from(emails)
-      .where(or(inArray(emails.messageId, ids), inArray(emails.threadId, ids)))
-      .orderBy(desc(emails.date))
-      .limit(1)
-      .all();
-    return row ? (row.threadId ?? row.id) : null;
+    return newest?.thread ?? null;
   };
 
   /**
@@ -255,11 +301,7 @@ export const createMailboxStore = (
     ): void => {
       db.transaction((tx) => {
         tx.insert(emails).values(emailValues(folder, email)).run();
-        if (files.length > 0) {
-          tx.insert(attachments)
-            .values(files.map((file) => ({ ...file, emailId: email.id })))
-            .run();
-        }
+        insertAttachments(tx, email.id, files);
       });
     },
 
@@ -326,11 +368,7 @@ export const createMailboxStore = (
           }
           throw new Error(`Mail ${rest.id} was not stored`);
         }
-        if (files.length > 0) {
-          tx.insert(attachments)
-            .values(files.map((file) => ({ ...file, emailId: rest.id })))
-            .run();
-        }
+        insertAttachments(tx, rest.id, files);
         return {
           attachments: files.map((file) => ({ ...file, emailId: rest.id })),
           duplicate: false,

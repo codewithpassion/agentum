@@ -88,8 +88,19 @@ describe("safeFilename", () => {
     expect(safeFilename("a\u0000b\u001fc\nd\te")).toBe("a_b_c_d_e");
   });
 
+  test("replaces DEL with an underscore", () => {
+    expect(safeFilename("a\u007fb")).toBe("a_b");
+  });
+
   test("keeps ordinary names unchanged", () => {
     expect(safeFilename("report 2026-10.pdf")).toBe("report 2026-10.pdf");
+  });
+
+  test("caps a long name at 255 bytes without splitting a character", () => {
+    expect(safeFilename("a".repeat(5000))).toBe("a".repeat(255));
+    const capped = safeFilename("é".repeat(300));
+    expect(encoder.encode(capped).byteLength).toBeLessThanOrEqual(255);
+    expect(capped).toBe("é".repeat(127));
   });
 });
 

@@ -10,6 +10,7 @@ import { sql } from "drizzle-orm";
 import {
   type AttachmentInput,
   createMailboxStore,
+  DO_MAX_BOUND_PARAMS,
   type EmailInput,
   type FolderId,
   type InboundInsert,
@@ -675,5 +676,106 @@ describe("findThreadBySubject participants and thread starters", () => {
       threadId: "lonely",
     });
     expect(store.findThreadBySubject("Daily report", "bob@x.com")).toBeNull();
+  });
+});
+
+describe("bound parameters", () => {
+  // A Durable Object's SQLite refuses a statement with more than 100 bound parameters.
+  const guarded = (
+    maxBoundParams = DO_MAX_BOUND_PARAMS
+  ): { db: Db; store: MailboxStore } => {
+    const db = testMailboxDb({ maxBoundParams });
+    return {
+      db,
+      store: createMailboxStore(db, { maxBoundParams, now: () => NOW }),
+    };
+  };
+  const files = (count: number, prefix: string): AttachmentInput[] =>
+    Array.from({ length: count }, (_, index) => file(`${prefix}-${index}`));
+
+  test("the guard rejects a statement above the limit", () => {
+    const { db } = guarded();
+    const ids = Array.from({ length: 101 }, (_, index) => `id-${index}`);
+    expect(() =>
+      db.all(sql`SELECT * FROM emails WHERE id IN (${sql.join(ids, sql`, `)})`)
+    ).toThrow("bound parameters");
+  });
+
+  test("stores inbound mail with 20 attachments", () => {
+    const { db, store } = guarded();
+    const result = store.insertInbound(
+      inbound({ attachments: files(20, "in-att"), id: "in-many" })
+    );
+    expect(result.attachments).toHaveLength(20);
+    expect(countAttachments(db)).toBe(20);
+    expect(must(store.getEmail("in-many")).attachments).toHaveLength(20);
+  });
+
+  test("stores a created mail with 20 attachments", () => {
+    const { db, store } = guarded();
+    store.createEmail("sent", email({ id: "out-many" }), files(20, "out-att"));
+    expect(countAttachments(db)).toBe(20);
+  });
+
+  test("resolves a thread from a References header of 120 ids", () => {
+    const { store } = guarded();
+    store.createEmail(
+      "inbox",
+      email({ id: "root", messageId: "root@ext.example", threadId: "th-root" }),
+      []
+    );
+    const references = [
+      ...Array.from({ length: 119 }, (_, index) => `gone-${index}@ext.example`),
+      "root@ext.example",
+    ];
+    const result = store.insertInbound(
+      inbound({ id: "reply-120", references })
+    );
+    expect(result.threadId).toBe("th-root");
+  });
+
+  test("picks the newest match across id chunks", () => {
+    const { store } = guarded();
+    store.createEmail(
+      "inbox",
+      email({ date: iso(2 * DAY), id: "old", messageId: "old@ext.example" }),
+      []
+    );
+    store.createEmail(
+      "inbox",
+      email({ date: iso(HOUR), id: "new", messageId: "new@ext.example" }),
+      []
+    );
+    const ids = [
+      "old@ext.example",
+      ...Array.from({ length: 120 }, (_, index) => `gone-${index}`),
+      "new@ext.example",
+    ];
+    expect(store.findThreadByIds(ids)).toBe("new");
+  });
+
+  test("reads back a thread of 150 messages with their attachments", () => {
+    const { store } = guarded();
+    for (let index = 0; index < 150; index += 1) {
+      store.createEmail(
+        "inbox",
+        email({
+          date: iso(DAY - index * MINUTE),
+          id: `big-${index}`,
+          threadId: "th-big",
+        }),
+        [file(`big-att-${index}`)]
+      );
+    }
+    const thread = store.getThreadEmails("th-big");
+    expect(thread).toHaveLength(150);
+    expect(thread.every((mail) => mail.attachments.length === 1)).toBe(true);
+  });
+
+  test("chunks by the configured limit", () => {
+    const { db, store } = guarded(30);
+    store.createEmail("sent", email({ id: "small-limit" }), files(5, "sl"));
+    expect(countAttachments(db)).toBe(5);
+    expect(must(store.getEmail("small-limit")).attachments).toHaveLength(5);
   });
 });
