@@ -39,11 +39,13 @@ export const createPollerCore = ({
   step,
   storage,
 }: PollerCoreDeps) => {
-  /** Starts polling the run now, unless an alarm is already pending. */
+  /** Polls the run now. An alarm already due sooner stays; a later one moves up. */
   const kick = async (runId: string): Promise<void> => {
     await storage.put(RUN_ID_KEY, runId);
-    if ((await storage.getAlarm()) === null) {
-      await storage.setAlarm(now());
+    const pending = await storage.getAlarm();
+    const at = now();
+    if (pending === null || pending > at) {
+      await storage.setAlarm(at);
     }
   };
 

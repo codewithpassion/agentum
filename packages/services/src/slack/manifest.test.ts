@@ -7,6 +7,7 @@ import {
   SLACK_BOT_EVENTS,
   SLACK_BOT_SCOPES,
   slackEventsUrl,
+  slackInteractionsUrl,
 } from "./manifest.ts";
 
 const ORIGIN = "https://harbour.example.com";
@@ -73,6 +74,16 @@ test("the events URL has one slash before the path for any trailing slashes", ()
   ).toBe(`${ORIGIN}/api/slack/events`);
 });
 
+test("the interactions URL has one slash before the path for any trailing slashes", () => {
+  expect(slackInteractionsUrl(ORIGIN)).toBe(`${ORIGIN}/api/slack/interactions`);
+  expect(slackInteractionsUrl(`${ORIGIN}/`)).toBe(
+    `${ORIGIN}/api/slack/interactions`
+  );
+  expect(slackInteractionsUrl(`${ORIGIN}///`)).toBe(
+    `${ORIGIN}/api/slack/interactions`
+  );
+});
+
 test("the scopes and events are exactly the lists", () => {
   const manifest = buildManifest(input());
   expect(manifest.oauth_config.scopes.bot).toEqual([
@@ -121,9 +132,12 @@ test("the bot events include app_home_opened for agent_view apps", () => {
   );
 });
 
-test("interactivity is disabled and the other settings are fixed", () => {
+test("interactivity is enabled with the interactions URL and the other settings are fixed", () => {
   const { settings, features } = buildManifest(input());
-  expect(settings.interactivity).toEqual({ is_enabled: false });
+  expect(settings.interactivity).toEqual({
+    is_enabled: true,
+    request_url: `${ORIGIN}/api/slack/interactions`,
+  });
   expect(settings.org_deploy_enabled).toBe(false);
   expect(settings.socket_mode_enabled).toBe(false);
   expect(settings.token_rotation_enabled).toBe(false);
