@@ -518,6 +518,18 @@ test("askBefore lists the built-ins and the connector tools that change things",
     actions.find((row) => row.action === "xero-2/send-invoice")?.label
   ).toBe("Xero: send invoice");
   expect(actions.every((row) => row.ask === false)).toBe(true);
+  expect(actions.find((row) => row.action === "bash")?.covers).toBe(
+    "Also the library script shell and the computer shell."
+  );
+  expect(actions.find((row) => row.action === "write")?.covers).toBe(
+    "Also writing library files, and the library script shell, since a script there can write files."
+  );
+  expect(actions.find((row) => row.action === "edit")?.covers).toBe(
+    "Also editing a file on the computer."
+  );
+  expect(
+    actions.find((row) => row.action === "xero/create_bill")
+  ).not.toHaveProperty("covers");
 });
 
 test("toggling ask before round-trips through V1's rules", async () => {
@@ -592,6 +604,92 @@ test("a rule in mode allow shows as off, and turning it off removes it", async (
   });
 
   expect(await requests.listRules(user(), { agentId: a1 })).toEqual([]);
+});
+
+test("turning a switch on clears an Always allow on the platform tools it covers", async () => {
+  await requests.setRule(user(), {
+    agentId: a1,
+    mode: "allow",
+    toolKey: "harbourmaster/bash",
+  });
+  await requests.setRule(user(), {
+    agentId: a1,
+    mode: "allow",
+    toolKey: "harbourmaster/library_read",
+  });
+
+  await service.setAskBefore(user(), {
+    action: "bash",
+    agentId: a1,
+    ask: true,
+  });
+
+  const rules = await requests.listRules(user(), { agentId: a1 });
+  expect(rules.map((rule) => `${rule.toolKey}:${rule.mode}`).sort()).toEqual([
+    "bash:ask",
+    "harbourmaster/library_read:allow",
+  ]);
+});
+
+test("the write switch clears an Always allow on the platform tools it covers, and the profile lists such a rule", async () => {
+  await service.setAskBefore(user(), {
+    action: "write",
+    agentId: a1,
+    ask: true,
+  });
+  await requests.setRule(user(), {
+    agentId: a1,
+    mode: "allow",
+    toolKey: "harbourmaster/library_write",
+  });
+
+  const row = (await service.askBefore(user(), { agentId: a1 })).find(
+    (item) => item.action === "write"
+  );
+  expect(row?.allowed).toEqual(["writing library files"]);
+
+  await service.setAskBefore(user(), {
+    action: "write",
+    agentId: a1,
+    ask: true,
+  });
+
+  const after = (await service.askBefore(user(), { agentId: a1 })).find(
+    (item) => item.action === "write"
+  );
+  expect(after).not.toHaveProperty("allowed");
+  expect(
+    (await requests.listRules(user(), { agentId: a1 })).map((r) => r.toolKey)
+  ).toEqual(["write"]);
+});
+
+test("turning a switch off leaves an Always allow on a covered platform tool alone", async () => {
+  await requests.setRule(user(), {
+    agentId: a1,
+    mode: "allow",
+    toolKey: "harbourmaster/bash",
+  });
+  await service.setAskBefore(user(), {
+    action: "bash",
+    agentId: a1,
+    ask: true,
+  });
+  await requests.setRule(user(), {
+    agentId: a1,
+    mode: "allow",
+    toolKey: "harbourmaster/bash",
+  });
+
+  await service.setAskBefore(user(), {
+    action: "bash",
+    agentId: a1,
+    ask: false,
+  });
+
+  const rules = await requests.listRules(user(), { agentId: a1 });
+  expect(rules.map((r) => `${r.toolKey}:${r.mode}`)).toEqual([
+    "harbourmaster/bash:allow",
+  ]);
 });
 
 test("a revoked trigger is left out of Starts on", async () => {

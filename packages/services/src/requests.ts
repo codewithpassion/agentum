@@ -30,6 +30,7 @@ import {
   mailSendError,
   notMailApproval,
 } from "./mail/approval.ts";
+import { askKeysOf } from "./requests/ask-keys.ts";
 import {
   answerInputSchema,
   answerSchemas,
@@ -280,17 +281,10 @@ export const createRequestsService = ({
     } else {
       writer(principal, run);
     }
-    const [rule] = await db
-      .select()
-      .from(agentToolRules)
-      .where(
-        and(
-          eq(agentToolRules.agentId, run.agentId),
-          eq(agentToolRules.toolKey, input.toolKey),
-          eq(agentToolRules.workspaceId, run.workspaceId)
-        )
-      );
-    return rule?.mode === "ask";
+    // The ask keys include the platform tools a switch covers (SWITCH_COVERS).
+    return (
+      await askKeysOf(db, { id: run.agentId, workspaceId: run.workspaceId })
+    ).includes(input.toolKey);
   };
   const markRunningIfSettled = async (runId: string) => {
     const [pending] = await db

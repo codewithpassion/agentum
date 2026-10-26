@@ -537,3 +537,119 @@ test("mail approvals do not keep ordinary requests waiting after their answer", 
   expect(await status(runId)).toBe("running");
   expect(resumed).toEqual([ordinary.id]);
 });
+
+test("an ask switch gates the platform tools it covers", async () => {
+  const runId = await start();
+  await requests.setRule(user, { agentId, mode: "ask", toolKey: "bash" });
+  expect(
+    await requests.needsApproval(system, {
+      runId,
+      toolKey: "harbourmaster/bash",
+    })
+  ).toBe(true);
+  expect(
+    await requests.needsApproval(system, {
+      runId,
+      toolKey: "harbourmaster/computer_exec",
+    })
+  ).toBe(true);
+  expect(
+    await requests.needsApproval(system, {
+      runId,
+      toolKey: "harbourmaster/library_write",
+    })
+  ).toBe(false);
+});
+
+test("a write switch gates the platform write tools and bash", async () => {
+  const runId = await start();
+  await requests.setRule(user, { agentId, mode: "ask", toolKey: "write" });
+  expect(
+    await Promise.all(
+      [
+        "harbourmaster/library_write",
+        "harbourmaster/bash",
+        "harbourmaster/computer_write_file",
+      ].map((toolKey) => requests.needsApproval(system, { runId, toolKey }))
+    )
+  ).toEqual([true, true, true]);
+});
+
+test("an edit switch gates the platform edit tool", async () => {
+  const runId = await start();
+  await requests.setRule(user, { agentId, mode: "ask", toolKey: "edit" });
+  expect(
+    await requests.needsApproval(system, {
+      runId,
+      toolKey: "harbourmaster/computer_edit_file",
+    })
+  ).toBe(true);
+});
+
+test("with no switch on, platform tools need no approval", async () => {
+  const runId = await start();
+  expect(
+    await Promise.all(
+      [
+        "harbourmaster/bash",
+        "harbourmaster/library_write",
+        "harbourmaster/computer_exec",
+      ].map((toolKey) => requests.needsApproval(system, { runId, toolKey }))
+    )
+  ).toEqual([false, false, false]);
+});
+
+test("a switch on one agent does not gate another agent's platform tools", async () => {
+  const runId = await start();
+  const other = (
+    await createAgentsService({ db, events }).create(user, {
+      model: "m",
+      name: "Other",
+      runtime: "cloud",
+    })
+  ).id;
+  await requests.setRule(user, {
+    agentId: other,
+    mode: "ask",
+    toolKey: "bash",
+  });
+  expect(
+    await requests.needsApproval(system, {
+      runId,
+      toolKey: "harbourmaster/bash",
+    })
+  ).toBe(false);
+});
+
+test("a per-tool ask rule gates only its own key, and an allow rule beats a covering switch", async () => {
+  const runId = await start();
+  await requests.setRule(user, {
+    agentId,
+    mode: "ask",
+    toolKey: "harbourmaster/bash",
+  });
+  expect(
+    await requests.needsApproval(system, {
+      runId,
+      toolKey: "harbourmaster/bash",
+    })
+  ).toBe(true);
+  expect(
+    await requests.needsApproval(system, {
+      runId,
+      toolKey: "harbourmaster/library_write",
+    })
+  ).toBe(false);
+  await requests.setRule(user, { agentId, mode: "ask", toolKey: "bash" });
+  await requests.setRule(user, {
+    agentId,
+    mode: "allow",
+    toolKey: "harbourmaster/bash",
+  });
+  expect(
+    await requests.needsApproval(system, {
+      runId,
+      toolKey: "harbourmaster/bash",
+    })
+  ).toBe(false);
+});

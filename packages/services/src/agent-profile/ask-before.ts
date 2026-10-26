@@ -4,15 +4,44 @@
 // bare name for a built-in tool.
 import { connectorServerKeys } from "@repo/protocol/server-keys";
 
+export interface BuiltinAction {
+  /** What else the switch gates, in one plain sentence. */
+  covers?: string;
+  key: string;
+  label: string;
+}
+
 /** Built-in tools with a side effect, by rule key, with the label a person reads. */
-export const BUILTIN_ACTIONS = [
-  { key: "bash", label: "Run a shell command" },
-  { key: "write", label: "Write a file" },
-  { key: "edit", label: "Edit a file" },
+export const BUILTIN_ACTIONS: readonly BuiltinAction[] = [
+  {
+    covers: "Also the library script shell and the computer shell.",
+    key: "bash",
+    label: "Run a shell command",
+  },
+  {
+    covers:
+      "Also writing library files, and the library script shell, since a script there can write files.",
+    key: "write",
+    label: "Write a file",
+  },
+  {
+    covers: "Also editing a file on the computer.",
+    key: "edit",
+    label: "Edit a file",
+  },
   { key: "web_fetch", label: "Fetch a web page" },
   { key: "run_script", label: "Run a script" },
   { key: "run_skill_script", label: "Run a skill's script" },
-] as const;
+];
+
+/** What a person reads for a platform tool a switch covers, by rule key. */
+export const PLATFORM_TOOL_LABELS: Readonly<Record<string, string>> = {
+  "harbourmaster/bash": "the library script shell",
+  "harbourmaster/computer_edit_file": "editing a file on the computer",
+  "harbourmaster/computer_exec": "the computer shell",
+  "harbourmaster/computer_write_file": "writing a file on the computer",
+  "harbourmaster/library_write": "writing library files",
+};
 
 const WORD_SEPARATORS = /[_-]+/g;
 
@@ -28,6 +57,8 @@ export interface ActionConnector {
 }
 
 export interface GateableAction {
+  /** What else the switch gates, when a built-in says so. */
+  covers?: string;
   key: string;
   kind: "builtin" | "connector";
   /** "Xero: create bill". */
@@ -60,7 +91,7 @@ export const gateableActions = (
   );
   return [
     ...BUILTIN_ACTIONS.map(
-      ({ key, label }): GateableAction => ({ key, kind: "builtin", label })
+      (action): GateableAction => ({ ...action, kind: "builtin" })
     ),
     ...connectorActions,
   ];

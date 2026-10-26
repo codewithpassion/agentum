@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { Button } from "#/components/ui/button.tsx";
 import { Switch } from "#/components/ui/switch.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
@@ -19,6 +20,7 @@ function AskBeforeRow({
 }) {
   const [ask, setAsk] = useState(item.ask);
   const [saving, setSaving] = useState(false);
+  const [allowed, setAllowed] = useState(item.allowed ?? []);
   const [error, setError] = useState<string | undefined>();
 
   const toggle = useCallback(
@@ -33,6 +35,10 @@ function AskBeforeRow({
           agentId,
           ask: next,
         });
+        if (next) {
+          // Turning a switch on clears any Always allow on the tools it covers.
+          setAllowed([]);
+        }
       } catch (cause) {
         setAsk(previous);
         setError(errorMessage(cause));
@@ -42,6 +48,8 @@ function AskBeforeRow({
     },
     [agentId, ask, item.action]
   );
+
+  const askAgain = useCallback(() => toggle(true), [toggle]);
 
   return (
     <li className="flex flex-col gap-1 border-border border-t border-dashed py-2.5 first:border-t-0">
@@ -54,6 +62,23 @@ function AskBeforeRow({
           onCheckedChange={toggle}
         />
       </div>
+      {item.covers === undefined ? null : (
+        <p className="text-muted-foreground text-xs">{item.covers}</p>
+      )}
+      {ask && allowed.length > 0 ? (
+        <p className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+          <span>You chose Always allow for {allowed.join(", ")}.</span>
+          <Button
+            disabled={saving}
+            onClick={askAgain}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Ask again
+          </Button>
+        </p>
+      ) : null}
       {error === undefined ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}

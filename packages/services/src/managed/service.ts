@@ -29,7 +29,6 @@ import {
 } from "@repo/db/schema/managed";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs } from "@repo/db/schema/runs";
-import { agentToolRules } from "@repo/db/schema/tool-rules";
 import { CHOICES_MAX, taskFolderPath } from "@repo/db/shared";
 import {
   computerInstructions,
@@ -63,6 +62,7 @@ import type { EventsService } from "../events.ts";
 import { agentHomePath, ensureAgentHome } from "../library/home.ts";
 import type { LibraryService } from "../library.ts";
 import { notMailApproval } from "../mail/approval.ts";
+import { askKeysOf as askKeysOfAgent } from "../requests/ask-keys.ts";
 import { outcomeOf } from "../requests/records.ts";
 import type { RequestsService } from "../requests.ts";
 import { importRunTokenKey, signSessionToken } from "../run-tokens.ts";
@@ -416,21 +416,9 @@ export const createManagedService = ({
     return mcpServerUrls({ connectors: assigned, platformUrl: base });
   };
 
-  /** The tool keys the agent's rules ask about, sorted. */
-  const askKeysOf = async (agent: AgentRecord): Promise<string[]> => {
-    const rows = await db
-      .select({ toolKey: agentToolRules.toolKey })
-      .from(agentToolRules)
-      .where(
-        and(
-          eq(agentToolRules.agentId, agent.id),
-          eq(agentToolRules.workspaceId, agent.workspaceId),
-          eq(agentToolRules.mode, "ask")
-        )
-      )
-      .orderBy(asc(agentToolRules.toolKey));
-    return rows.map((row) => row.toolKey);
-  };
+  /** The tool keys the agent's rules ask about, sorted, with the platform tools a switch covers. */
+  const askKeysOf = (agent: AgentRecord): Promise<string[]> =>
+    askKeysOfAgent(db, agent);
 
   /** The computer an agent has, and whether it reports a desktop. Null when it has none. */
   const computerOf = async (agent: {
