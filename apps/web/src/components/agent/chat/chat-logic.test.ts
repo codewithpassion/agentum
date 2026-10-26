@@ -58,6 +58,7 @@ describe("isRunActive", () => {
     ["queued", true],
     ["offered", true],
     ["running", true],
+    ["waiting", true],
     ["done", false],
     ["failed", false],
     ["cancelled", false],
@@ -76,6 +77,7 @@ describe("canCancel", () => {
     ["queued", true],
     ["offered", true],
     ["running", true],
+    ["waiting", true],
     ["done", false],
     ["failed", false],
     ["cancelled", false],
@@ -191,6 +193,9 @@ describe("statusLine", () => {
       "Queued, waiting for the machine"
     );
     expect(statusLine(makeRun({ status: "running" }), null)).toBe("Running");
+    expect(statusLine(makeRun({ status: "waiting" }), null)).toBe(
+      "Waiting for an answer"
+    );
     expect(statusLine(makeRun({ status: "done" }), null)).toBe("Done");
     expect(statusLine(makeRun({ status: "cancelled" }), null)).toBe(
       "Cancelled"
