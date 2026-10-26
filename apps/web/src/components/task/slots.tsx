@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DesktopScreen,
   type TakeoverControls,
 } from "#/components/computer/desktop-screen.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { TaskFilesList, type TaskFilesView } from "./task-files.tsx";
 import type { TakeoverRequest } from "./task-logic.ts";
 
 /** A card with a heading, for a slot of the task view. */
@@ -31,13 +32,67 @@ export function SlotCard({
   );
 }
 
-/** The files slot of the task view. */
-export function FilesSlot() {
+/** How often the files slot reads the task folder again while the run is going. */
+export const FILES_REFRESH_MS = 5000;
+
+/**
+ * The files slot of the task view: the task folder, the edits outside it and
+ * the open conflicts. Library events never reach the session stream, so it
+ * reads `tasks.files` on mount, every 5 s while the run is running, and once
+ * more when the run stops running (the end frame flips `running`).
+ */
+export function FilesSlot({
+  runId,
+  running,
+}: {
+  runId: string;
+  running: boolean;
+}) {
+  const [files, setFiles] = useState<TaskFilesView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let current = true;
+    const load = async () => {
+      try {
+        const next = await getTrpc().tasks.files.query({ runId });
+        if (current) {
+          setFiles(next);
+          setError(null);
+        }
+      } catch (cause) {
+        if (current) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+        }
+      }
+    };
+    load();
+    if (!running) {
+      return () => {
+        current = false;
+      };
+    }
+    const timer = setInterval(load, FILES_REFRESH_MS);
+    return () => {
+      current = false;
+      clearInterval(timer);
+    };
+  }, [runId, running]);
+
   return (
     <SlotCard testId="slot-files" title="Files">
-      <p className="text-muted-foreground text-sm">
-        Files for this task show up here. Coming with the library sync (V4).
-      </p>
+      {error === null ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          {error}
+        </p>
+      )}
+      {files === null ? (
+        error === null && (
+          <p className="text-muted-foreground text-sm">Loading files…</p>
+        )
+      ) : (
+        <TaskFilesList files={files} />
+      )}
     </SlotCard>
   );
 }
