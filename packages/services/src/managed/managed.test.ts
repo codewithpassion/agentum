@@ -1545,6 +1545,12 @@ describe("a poller outage and the reaper", () => {
     const first = await start(dom, "one");
     gateway.turns = [[gateway.running()]];
     await managed.step(first.runId);
+    gateway.sessions
+      .get("sesn_1")
+      ?.events.push(gateway.say("one"), gateway.idle());
+    nowMs += POLL_MS;
+    await managed.step(first.runId);
+    expect(runRow(first.runId)?.status).toBe("done");
     const second = await start(dom, "two");
 
     nowMs += 61 * 60 * SECOND;
