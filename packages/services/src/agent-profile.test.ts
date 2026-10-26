@@ -155,6 +155,7 @@ beforeEach(async () => {
     db,
     machines: createMachinesService({
       allowedOrgIds: ["org_w1", "org_w2"],
+      atomic,
       clock,
       db,
       events,

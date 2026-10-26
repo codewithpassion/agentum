@@ -1,10 +1,17 @@
 import { beforeEach, expect, test } from "bun:test";
-import { machineEnrollTokens, machines } from "@repo/db/schema/machines";
+import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
+import {
+  machineCredentials,
+  machineEnrollTokens,
+  machines,
+} from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
 import type { RunStatus } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
+import type { HelloMessage } from "@repo/protocol/computer";
 import { eq } from "drizzle-orm";
 import { createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
@@ -72,11 +79,13 @@ const seedMachine = (
   id: string,
   {
     capabilities = "{}",
+    computerStatus = null,
     name = id,
     status = "offline",
     workspaceId = WORKSPACE,
   }: {
     capabilities?: string;
+    computerStatus?: "offline" | "online" | null;
     name?: string;
     status?: "offline" | "online" | "revoked";
     workspaceId?: string;
@@ -86,6 +95,7 @@ const seedMachine = (
     .insert(machines)
     .values({
       capabilities,
+      computerStatus,
       createdAt: START,
       credentialHash: `hash-${id}`,
       enrolledBy: "u1",
@@ -103,12 +113,25 @@ const machineRow = (id: string) =>
 
 const machineStatus = (id: string) => machineRow(id)?.status;
 
-const eventsOf = (type: "machine.online" | "machine.offline") =>
-  events.query(system, WORKSPACE, { types: [type] });
+const eventsOf = (
+  type:
+    | "machine.online"
+    | "machine.offline"
+    | "computer.online"
+    | "computer.offline"
+    | "agent.updated"
+) => events.query(system, WORKSPACE, { types: [type] });
 
 /** Builds the service, with `allowedOrgIds` overridable for the org check. */
 const build = (allowedOrgIds: string[] = [ORG]): Service =>
-  createMachinesService({ allowedOrgIds, clock, db, events, relay });
+  createMachinesService({
+    allowedOrgIds,
+    atomic: sqliteAtomic(db),
+    clock,
+    db,
+    events,
+    relay,
+  });
 
 beforeEach(() => {
   db = migrated();
@@ -487,4 +510,523 @@ test("pendingOffers returns the queued and offered runs of this machine's agents
   await expect(service.pendingOffers(user)).rejects.toBeInstanceOf(
     ForbiddenError
   );
+});
+
+const computerHello = (desktop = false): HelloMessage => ({
+  arch: "arm64",
+  capabilities: {
+    desktop,
+    desktop_unavailable_reason: null,
+    git: true,
+    python3: true,
+    skills: false,
+  },
+  hostname: "box",
+  os: "linux",
+  protocol_version: 1,
+  run_as_user: "agent",
+  type: "hello",
+  version: "1.2.3",
+  workdir: "/home/agent/sessions",
+});
+
+const computerBody = (code: string) => ({
+  arch: "arm64",
+  clientVersion: "1.2.3",
+  code,
+  hostname: "box",
+  os: "linux",
+  role: "computer" as const,
+});
+
+/** A computer-only machine, enrolled through a code. */
+const enrollComputerOnly = async (machineName: string) => {
+  const { code } = await service.createEnrollToken(user, {
+    machineName,
+    role: "computer",
+  });
+  const enrolled = await service.enroll(computerBody(code));
+  if (!enrolled) {
+    throw new Error("computer enroll returned null");
+  }
+  return { ...enrolled, code };
+};
+
+/** A daemon machine that also holds the computer role. */
+const enrollBoth = async (machineName: string) => {
+  const daemon = await enrollOne(machineName, false);
+  const { code } = await service.createEnrollToken(user, {
+    machineId: daemon.machineId,
+    role: "computer",
+  });
+  const computer = await service.enroll(computerBody(code));
+  if (!computer) {
+    throw new Error("computer enroll returned null");
+  }
+  return { computer, daemon };
+};
+
+test("createEnrollToken stores the role and takes a machine's own name for the computer role", async () => {
+  seedMachine("m1", { name: "Laptop" });
+  const minted = await service.createEnrollToken(user, {
+    machineId: "m1",
+    role: "computer",
+  });
+  const [row] = db.select().from(machineEnrollTokens).all();
+  expect(row).toMatchObject({
+    machineId: "m1",
+    machineName: "Laptop",
+    role: "computer",
+    tokenHash: await hashToken(minted.code),
+  });
+
+  await service.createEnrollToken(user, {
+    machineName: "New",
+    role: "computer",
+  });
+  await service.createEnrollToken(user, { machineName: "Daemon" });
+  expect(
+    db
+      .select({
+        machineId: machineEnrollTokens.machineId,
+        role: machineEnrollTokens.role,
+      })
+      .from(machineEnrollTokens)
+      .all()
+      .slice(1)
+  ).toEqual([
+    { machineId: null, role: "computer" },
+    { machineId: null, role: "agent_host" },
+  ]);
+});
+
+test("createEnrollToken refuses a daemon code for an existing machine and a machine that cannot take the computer role", async () => {
+  seedMachine("m1");
+  seedMachine("m-computer", { computerStatus: "offline" });
+  seedMachine("m-revoked", { status: "revoked" });
+  seedMachine("m-other", { workspaceId: OTHER_WORKSPACE });
+
+  await expect(
+    service.createEnrollToken(user, { machineId: "m1", role: "agent_host" })
+  ).rejects.toMatchObject({ code: "invalid" });
+  await expect(
+    service.createEnrollToken(user, {
+      machineId: "m-computer",
+      role: "computer",
+    })
+  ).rejects.toMatchObject({ code: "conflict" });
+  await Promise.all(
+    ["m-revoked", "m-other", "missing"].map((machineId) =>
+      expect(
+        service.createEnrollToken(user, { machineId, role: "computer" })
+      ).rejects.toMatchObject({ code: "not_found" })
+    )
+  );
+  await expect(
+    service.createEnrollToken(user, { role: "computer" })
+  ).rejects.toThrow();
+  expect(db.select().from(machineEnrollTokens).all()).toHaveLength(0);
+});
+
+test("enroll makes a computer-only machine whose credential opens the computer role only", async () => {
+  const enrolled = await enrollComputerOnly("Desk");
+
+  expect(enrolled.credential.startsWith(MACHINE_CREDENTIAL_PREFIX)).toBe(true);
+  const row = machineRow(enrolled.machineId);
+  expect(row).toMatchObject({
+    computerStatus: "offline",
+    enrolledBy: "u1",
+    name: "Desk",
+    status: "offline",
+    workspaceId: WORKSPACE,
+  });
+  // No bearer token hashes to the daemon credential of a computer-only machine.
+  expect(row?.credentialHash).not.toBe(await hashToken(enrolled.credential));
+  const [credential] = db.select().from(machineCredentials).all();
+  expect(credential).toMatchObject({
+    credentialHash: await hashToken(enrolled.credential),
+    machineId: enrolled.machineId,
+    role: "computer",
+    workspaceId: WORKSPACE,
+  });
+  expect(JSON.stringify([row, credential])).not.toContain(enrolled.credential);
+
+  expect(
+    await service.authenticate(`Bearer ${enrolled.credential}`, "computer")
+  ).toEqual({
+    kind: "machine",
+    machineId: enrolled.machineId,
+    workspaceId: WORKSPACE,
+  });
+  expect(
+    await service.authenticate(`Bearer ${enrolled.credential}`)
+  ).toBeNull();
+  expect(
+    await service.authenticate(`Bearer ${enrolled.credential}`, "agent_host")
+  ).toBeNull();
+
+  const [listed] = await service.list(user);
+  expect(listed).toMatchObject({
+    computerStatus: "offline",
+    roles: ["computer"],
+  });
+});
+
+test("a code only enrols the role it was minted for, and a refused body leaves it unspent", async () => {
+  const daemonCode = (
+    await service.createEnrollToken(user, { machineName: "A" })
+  ).code;
+  const computerCode = (
+    await service.createEnrollToken(user, {
+      machineName: "B",
+      role: "computer",
+    })
+  ).code;
+
+  expect(await service.enroll(computerBody(daemonCode))).toBeNull();
+  expect(
+    await service.enroll({ code: computerCode, singleUser: false })
+  ).toBeNull();
+  expect(db.select().from(machines).all()).toHaveLength(0);
+  expect(
+    db
+      .select()
+      .from(machineEnrollTokens)
+      .all()
+      .map((token) => token.usedAt)
+  ).toEqual([null, null]);
+
+  expect(
+    await service.enroll({ code: daemonCode, singleUser: false })
+  ).not.toBeNull();
+  expect(await service.enroll(computerBody(computerCode))).not.toBeNull();
+});
+
+test("enroll adds the computer role to a daemon machine and keeps both credentials apart", async () => {
+  const { computer, daemon } = await enrollBoth("Both");
+
+  expect(computer.machineId).toBe(daemon.machineId);
+  expect(db.select().from(machines).all()).toHaveLength(1);
+  expect(machineRow(daemon.machineId)).toMatchObject({
+    computerStatus: "offline",
+    credentialHash: daemon.credentialHash,
+  });
+  expect(
+    await service.authenticate(`Bearer ${computer.credential}`, "computer")
+  ).toMatchObject({ machineId: daemon.machineId });
+  expect(
+    await service.authenticate(`Bearer ${computer.credential}`)
+  ).toBeNull();
+  expect(
+    await service.authenticate(`Bearer ${daemon.credential}`)
+  ).toMatchObject({
+    machineId: daemon.machineId,
+  });
+  expect(
+    await service.authenticate(`Bearer ${daemon.credential}`, "computer")
+  ).toBeNull();
+  expect(
+    await build(["org_other"]).authenticate(
+      `Bearer ${computer.credential}`,
+      "computer"
+    )
+  ).toBeNull();
+
+  const [listed] = await service.list(user);
+  expect(listed?.roles).toEqual(["agent_host", "computer"]);
+});
+
+test("enroll adds no computer to a machine that was revoked or took one since the code was minted", async () => {
+  seedMachine("m-revoked");
+  seedMachine("m-twice");
+  const revokedCode = (
+    await service.createEnrollToken(user, {
+      machineId: "m-revoked",
+      role: "computer",
+    })
+  ).code;
+  const firstCode = (
+    await service.createEnrollToken(user, {
+      machineId: "m-twice",
+      role: "computer",
+    })
+  ).code;
+  const secondCode = (
+    await service.createEnrollToken(user, {
+      machineId: "m-twice",
+      role: "computer",
+    })
+  ).code;
+  await service.revoke(user, "m-revoked");
+
+  expect(await service.enroll(computerBody(revokedCode))).toBeNull();
+  expect(await service.enroll(computerBody(firstCode))).not.toBeNull();
+  expect(await service.enroll(computerBody(secondCode))).toBeNull();
+  expect(db.select().from(machineCredentials).all()).toHaveLength(1);
+});
+
+test("authenticate refuses a revoked machine for either role", async () => {
+  const { computer, daemon } = await enrollBoth("Both");
+  await service.revoke(user, daemon.machineId);
+
+  expect(await service.authenticate(`Bearer ${daemon.credential}`)).toBeNull();
+  expect(
+    await service.authenticate(`Bearer ${computer.credential}`, "computer")
+  ).toBeNull();
+});
+
+test("markComputerOnline stores the hello, writes one computer.online and leaves the daemon alone", async () => {
+  const { machineId } = await enrollComputerOnly("Desk");
+  const me = machinePrincipal(machineId);
+
+  nowMs += 5000;
+  expect(await service.markComputerOnline(me, computerHello(true))).toBe("ok");
+  const row = machineRow(machineId);
+  expect(row).toMatchObject({
+    computerLastSeenAt: clock.now().toISOString(),
+    computerStatus: "online",
+    lastSeenAt: null,
+    status: "offline",
+  });
+  expect(JSON.parse(row?.computerCapabilities ?? "null")).toEqual({
+    arch: "arm64",
+    clientVersion: "1.2.3",
+    desktop: true,
+    os: "linux",
+    workdir: "/home/agent/sessions",
+  });
+  const online = await eventsOf("computer.online");
+  expect(online).toHaveLength(1);
+  expect(online[0]?.payload).toEqual({ machineId });
+
+  nowMs += MINUTE;
+  expect(await service.markComputerOnline(me, computerHello())).toBe("ok");
+  expect(await eventsOf("computer.online")).toHaveLength(1);
+  expect(machineRow(machineId)?.computerLastSeenAt).toBe(
+    clock.now().toISOString()
+  );
+  expect(
+    JSON.parse(machineRow(machineId)?.computerCapabilities ?? "{}")
+  ).toMatchObject({
+    desktop: false,
+  });
+
+  await expect(
+    service.markComputerOnline(user, computerHello())
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("markComputerOnline answers revoked for a revoked machine, a machine without a computer and another workspace", async () => {
+  seedMachine("m-revoked", { computerStatus: "offline", status: "revoked" });
+  seedMachine("m-daemon");
+  seedMachine("m-computer", { computerStatus: "offline" });
+
+  expect(
+    await service.markComputerOnline(
+      machinePrincipal("m-revoked"),
+      computerHello()
+    )
+  ).toBe("revoked");
+  expect(
+    await service.markComputerOnline(
+      machinePrincipal("m-daemon"),
+      computerHello()
+    )
+  ).toBe("revoked");
+  expect(
+    await service.markComputerOnline(
+      machinePrincipal("m-computer", OTHER_WORKSPACE),
+      computerHello()
+    )
+  ).toBe("revoked");
+  expect(machineRow("m-revoked")?.computerStatus).toBe("offline");
+  expect(machineRow("m-daemon")?.computerStatus).toBeNull();
+  expect(await eventsOf("computer.online")).toHaveLength(0);
+});
+
+test("markComputerOffline takes an online computer offline once", async () => {
+  seedMachine("m1", { computerStatus: "online", status: "online" });
+  seedMachine("m2", { computerStatus: "offline" });
+
+  await service.markComputerOffline(machinePrincipal("m1"));
+  expect(machineRow("m1")).toMatchObject({
+    computerStatus: "offline",
+    status: "online",
+  });
+  const offline = await eventsOf("computer.offline");
+  expect(offline).toHaveLength(1);
+  expect(offline[0]?.payload).toEqual({ machineId: "m1" });
+
+  await service.markComputerOffline(machinePrincipal("m1"));
+  await service.markComputerOffline(machinePrincipal("m2"));
+  expect(await eventsOf("computer.offline")).toHaveLength(1);
+  await expect(service.markComputerOffline(user)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+});
+
+test("revoke ends both roles, closes the sockets and reports an online computer once", async () => {
+  const { computer, daemon } = await enrollBoth("Both");
+  await service.markComputerOnline(
+    machinePrincipal(computer.machineId),
+    computerHello()
+  );
+
+  await service.revoke(user, daemon.machineId);
+  expect(machineRow(daemon.machineId)).toMatchObject({
+    computerStatus: "offline",
+    status: "revoked",
+  });
+  expect(relayCalls.revoke).toEqual([daemon.machineId]);
+  expect(await eventsOf("computer.offline")).toHaveLength(1);
+  expect(
+    await service.authenticate(`Bearer ${computer.credential}`, "computer")
+  ).toBeNull();
+  expect(await service.authenticate(`Bearer ${daemon.credential}`)).toBeNull();
+  expect(
+    await service.markComputerOnline(
+      machinePrincipal(daemon.machineId),
+      computerHello()
+    )
+  ).toBe("revoked");
+
+  await service.revoke(user, daemon.machineId);
+  expect(await eventsOf("computer.offline")).toHaveLength(1);
+});
+
+test("list tells a daemon machine from a computer-only one and a machine with both", async () => {
+  await enrollOne("Daemon", false);
+  await enrollComputerOnly("Desk");
+  await enrollBoth("Both");
+
+  const listed = await service.list(user);
+  expect(
+    listed.map(({ name, roles, computerStatus }) => ({
+      computerStatus,
+      name,
+      roles,
+    }))
+  ).toEqual([
+    {
+      computerStatus: "offline",
+      name: "Both",
+      roles: ["agent_host", "computer"],
+    },
+    { computerStatus: null, name: "Daemon", roles: ["agent_host"] },
+    { computerStatus: "offline", name: "Desk", roles: ["computer"] },
+  ]);
+  for (const machine of listed) {
+    expect(machine).not.toHaveProperty("credentialHash");
+  }
+});
+
+const createAgent = (
+  runtime: "cloud" | "managed" | "machine",
+  name: string,
+  principal: Principal = user
+) =>
+  createAgentsService({ db, events }).create(principal, {
+    ...(runtime === "machine" ? { machineId: "m-daemon" } : {}),
+    model: "claude-sonnet-4-5",
+    name,
+    runtime,
+  });
+
+const computerOf = (agentId: string) =>
+  db.select().from(agentRows).where(eq(agentRows.id, agentId)).get()
+    ?.computerMachineId;
+
+test("attachComputer attaches a computer to a cloud and a managed agent and detaches it again", async () => {
+  seedMachine("m-computer", { computerStatus: "offline" });
+  seedMachine("m-both", { computerStatus: "online", status: "online" });
+  const cloud = await createAgent("cloud", "Cloud");
+  const managed = await createAgent("managed", "Managed");
+
+  await service.attachComputer(user, cloud.id, "m-computer");
+  await service.attachComputer(user, managed.id, "m-both");
+  expect(computerOf(cloud.id)).toBe("m-computer");
+  expect(computerOf(managed.id)).toBe("m-both");
+  const updated = await eventsOf("agent.updated");
+  expect(updated).toHaveLength(2);
+  expect(updated[0]).toMatchObject({ agentId: cloud.id });
+  expect(updated[0]?.payload).toEqual({ changed: ["computerMachineId"] });
+
+  await service.attachComputer(user, cloud.id, "m-computer");
+  expect(await eventsOf("agent.updated")).toHaveLength(2);
+
+  await service.attachComputer(user, cloud.id, null);
+  expect(computerOf(cloud.id)).toBeNull();
+  expect(await eventsOf("agent.updated")).toHaveLength(3);
+  await service.attachComputer(user, managed.id, "m-computer");
+  expect(computerOf(managed.id)).toBe("m-computer");
+});
+
+test("attachComputer refuses a machine agent, a machine without a computer role and a machine of another workspace", async () => {
+  seedMachine("m-daemon");
+  seedMachine("m-computer", { computerStatus: "offline" });
+  seedMachine("m-revoked", { computerStatus: "offline", status: "revoked" });
+  seedMachine("m-other", {
+    computerStatus: "offline",
+    workspaceId: OTHER_WORKSPACE,
+  });
+  const onMachine = await createAgent("machine", "On machine");
+  const cloud = await createAgent("cloud", "Cloud");
+
+  await expect(
+    service.attachComputer(user, onMachine.id, "m-computer")
+  ).rejects.toMatchObject({ code: "invalid" });
+  await Promise.all(
+    ["m-daemon", "m-revoked", "m-other", "missing"].map((machineId) =>
+      expect(
+        service.attachComputer(user, cloud.id, machineId)
+      ).rejects.toMatchObject({ code: "invalid" })
+    )
+  );
+  await expect(
+    service.attachComputer(otherUser, cloud.id, "m-other")
+  ).rejects.toMatchObject({ code: "not_found" });
+  await expect(
+    service.attachComputer(user, "missing", "m-computer")
+  ).rejects.toMatchObject({ code: "not_found" });
+  await expect(
+    service.attachComputer(system, cloud.id, "m-computer")
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    service.attachComputer(
+      machinePrincipal("m-computer"),
+      cloud.id,
+      "m-computer"
+    )
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(computerOf(cloud.id)).toBeNull();
+  expect(await eventsOf("agent.updated")).toHaveLength(0);
+});
+
+test("attachComputer detaches a computer from an agent that is no longer cloud or managed", async () => {
+  seedMachine("m-computer", { computerStatus: "offline" });
+  const agent = await createAgent("cloud", "Cloud");
+  await service.attachComputer(user, agent.id, "m-computer");
+  db.update(agentRows)
+    .set({ machineId: "m-computer", runtime: "machine" })
+    .where(eq(agentRows.id, agent.id))
+    .run();
+
+  await service.attachComputer(user, agent.id, null);
+  expect(computerOf(agent.id)).toBeNull();
+});
+
+test("attachComputer gives a computer to one agent at a time", async () => {
+  seedMachine("m-computer", { computerStatus: "offline" });
+  const first = await createAgent("cloud", "First");
+  const second = await createAgent("managed", "Second");
+
+  await service.attachComputer(user, first.id, "m-computer");
+  await expect(
+    service.attachComputer(user, second.id, "m-computer")
+  ).rejects.toMatchObject({ code: "conflict" });
+  expect(computerOf(second.id)).toBeNull();
+
+  await service.attachComputer(user, first.id, null);
+  await service.attachComputer(user, second.id, "m-computer");
+  expect(computerOf(second.id)).toBe("m-computer");
 });
