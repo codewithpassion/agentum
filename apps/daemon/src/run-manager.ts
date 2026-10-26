@@ -23,6 +23,8 @@ export interface RunManager {
   cancel: (runId: string) => void;
   /** Resolves when no run is running or being claimed. */
   idle: () => Promise<void>;
+  /** Tells every running execution the library changed at these paths. Queued offers have none yet. */
+  libraryChanged: (paths: readonly string[]) => void;
   offer: (frame: Pick<Offer, "agentId" | "runId">) => void;
   /** Like abortAll, and every later offer is refused: the daemon is going down. */
   stop: (reason: string) => void;
@@ -133,6 +135,12 @@ export const createRunManager = (options: RunManagerOptions): RunManager => {
     }
   };
 
+  const libraryChanged: RunManager["libraryChanged"] = (paths) => {
+    for (const slot of slots.values()) {
+      slot.execution?.libraryChanged(paths);
+    }
+  };
+
   const stop: RunManager["stop"] = (reason) => {
     stopped = true;
     abortAll(reason);
@@ -147,5 +155,5 @@ export const createRunManager = (options: RunManagerOptions): RunManager => {
     await idle();
   };
 
-  return { abortAll, cancel, idle, offer, stop };
+  return { abortAll, cancel, idle, libraryChanged, offer, stop };
 };

@@ -12,13 +12,12 @@ import {
   claimResponseSchema,
   createRequestResponseSchema,
   DAEMON_FEATURES_HEADER,
-  FEATURE_LIBRARY_SYNC,
-  FEATURE_REQUESTS,
   type RunEventInput,
   type WaitRequestResponse,
   waitRequestResponseSchema,
 } from "@repo/protocol/machine";
 import type { Masker } from "@repo/protocol/masker";
+import { DAEMON_FEATURES } from "./version.ts";
 
 const CONFLICT = 409;
 /** The status a RunApiError carries when no HTTP answer was usable. */
@@ -170,7 +169,7 @@ export const createRunApi = (options: RunApiOptions): RunApi => {
   const claim = async (): Promise<ClaimResponse> => {
     // Tells the Worker which optional parts of the claim this daemon can read.
     const response = await send("claim", undefined, {
-      [DAEMON_FEATURES_HEADER]: `${FEATURE_LIBRARY_SYNC},${FEATURE_REQUESTS}`,
+      [DAEMON_FEATURES_HEADER]: DAEMON_FEATURES.join(","),
     });
     await expectOk("claim", response);
     const parsed = claimResponseSchema.safeParse(

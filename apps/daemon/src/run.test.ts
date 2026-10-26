@@ -330,6 +330,26 @@ describe("runCommand", () => {
     expect(timers.find("heartbeat")).toBeUndefined();
   });
 
+  test("a library_changed frame is logged without throwing and leaves the running run alone", async () => {
+    const { lines, runs, sockets } = setup("hang");
+    const socket = connectAndAck(sockets.created);
+    socket.fireMessage(
+      JSON.stringify({ agentId: "agt_1", runId: "run_1", type: "offer" })
+    );
+    await until(() => runs.calls.some((call) => call.route === "claim"));
+
+    const frame = {
+      paths: ["docs/a.md", "docs/b.md"],
+      type: "library_changed",
+    };
+    expect(() => socket.fireMessage(JSON.stringify(frame))).not.toThrow();
+    expect(lines).toContain("library changed: 2 path(s)");
+    expect(runs.calls.some((call) => call.route === "complete")).toBe(false);
+
+    socket.fireClose(1012, "Replaced");
+    await until(() => runs.calls.some((call) => call.route === "complete"));
+  });
+
   test("a 1012 close aborts the running run and posts aborted", async () => {
     const { runs, sockets } = setup("hang");
     const socket = connectAndAck(sockets.created);
