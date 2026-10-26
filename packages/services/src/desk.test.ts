@@ -1,6 +1,7 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { inboxPosts } from "@repo/db/schema/inbox";
+import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -752,4 +753,35 @@ test("a dry run never shows in Running or Done today, even to the person who sta
   expect(ids(view.running)).toEqual([live]);
   expect(ids(view.done)).toEqual([done]);
   expect(view.doneMore).toBe(0);
+});
+
+test("takeovers appear in Needs you with their reason", async () => {
+  const { requestId } = await waitingOnApproval();
+  await db
+    .update(runRequests)
+    .set({
+      display: JSON.stringify({
+        machineId: "computer",
+        reason: "Please log in",
+      }),
+      kind: "takeover",
+    })
+    .where(eq(runRequests.id, requestId));
+  expect(
+    (
+      await desk.pendingRequests({
+        kind: "user",
+        userId: "u1",
+        via: "session",
+        workspaceId: "w1",
+      })
+    )[0]
+  ).toMatchObject({
+    detail: "Please log in",
+    kind: "takeover",
+  });
+  expect((await get()).needsYou[0]).toMatchObject({
+    needsYouKind: "takeover",
+    title: "Take over the computer",
+  });
 });

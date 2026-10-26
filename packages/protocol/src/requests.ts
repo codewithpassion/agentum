@@ -227,7 +227,7 @@ const takeoverText = (outcome: RequestOutcome): string => {
     return "Nobody took over the computer in time. Go on without it or stop and say what you need.";
   }
   if (outcome.status === "cancelled") {
-    return "The takeover request was withdrawn because the run is ending.";
+    return "The person cancelled the takeover request. Go on without the computer or stop and say what you need.";
   }
   const { answer } = outcome;
   if ("decision" in answer || "answers" in answer) {

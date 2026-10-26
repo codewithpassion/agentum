@@ -96,6 +96,7 @@ function NeedsYouBody({
   switch (card.needsYouKind) {
     case "approval":
     case "question":
+    case "takeover":
       return request === null ? (
         <AskFallback card={card} />
       ) : (

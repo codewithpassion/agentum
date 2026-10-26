@@ -25,8 +25,24 @@ const takeoverRow: RequestRow = {
   workspaceId: "w1",
 };
 
-test("a takeover row is refused until V6.7 reads it", () => {
-  expect(() => requestRecord(takeoverRow)).toThrow("takeover");
+test("a takeover row parses its display and answer", () => {
+  expect(requestRecord(takeoverRow).display).toEqual({
+    machineId: "m1",
+    reason: "log in",
+  });
+  expect(
+    requestRecord({
+      ...takeoverRow,
+      answer: JSON.stringify({ note: "done" }),
+      status: "answered",
+    }).answer
+  ).toEqual({ note: "done" });
+  expect(() =>
+    requestRecord({
+      ...takeoverRow,
+      answer: JSON.stringify({ decision: "deny" }),
+    })
+  ).toThrow();
 });
 
 test("a takeover answer keeps its note, scrubbed, and an empty one stays empty", () => {

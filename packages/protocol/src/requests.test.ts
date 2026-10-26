@@ -438,7 +438,7 @@ describe("outcomeText", () => {
       "Nobody took over the computer in time. Go on without it or stop and say what you need."
     );
     expect(outcomeText("takeover", { status: "cancelled" })).toBe(
-      "The takeover request was withdrawn because the run is ending."
+      "The person cancelled the takeover request. Go on without the computer or stop and say what you need."
     );
   });
 
