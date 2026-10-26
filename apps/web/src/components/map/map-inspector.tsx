@@ -129,6 +129,35 @@ function SecretRow({ profile }: { profile: AgentProfileView }) {
   );
 }
 
+function ComputerRow({ node }: { node: MapNodeView }) {
+  const computer = node.ports.find((port) => port.kind === "computer");
+  return (
+    <InfoRow label="Computer">
+      {computer === undefined ? (
+        <NoneText />
+      ) : (
+        <span className="text-sm">
+          {computer.label}
+          {computer.status ? ` · ${computer.status}` : ""}
+        </span>
+      )}
+    </InfoRow>
+  );
+}
+
+function BrowserRow({ node }: { node: MapNodeView }) {
+  const hasBrowser = node.ports.some((port) => port.kind === "browser");
+  return (
+    <InfoRow label="Browser">
+      {hasBrowser ? (
+        <span className={CHIP}>Browser</span>
+      ) : (
+        <span className="text-muted-foreground text-sm">Off</span>
+      )}
+    </InfoRow>
+  );
+}
+
 function PluggedIn({
   node,
   profile,
@@ -136,8 +165,6 @@ function PluggedIn({
   node: MapNodeView;
   profile: AgentProfileView;
 }) {
-  const computer = node.ports.find((port) => port.kind === "computer");
-  const hasBrowser = node.ports.some((port) => port.kind === "browser");
   return (
     <>
       <p className="mt-3 font-medium text-muted-foreground text-xs uppercase tracking-wide">
@@ -148,23 +175,8 @@ function PluggedIn({
           <span className={CHIP}>{profile.header.model}</span>
         </InfoRow>
         <ConnectorRow profile={profile} />
-        <InfoRow label="Computer">
-          {computer === undefined ? (
-            <NoneText />
-          ) : (
-            <span className="text-sm">
-              {computer.label}
-              {computer.status ? ` · ${computer.status}` : ""}
-            </span>
-          )}
-        </InfoRow>
-        <InfoRow label="Browser">
-          {hasBrowser ? (
-            <span className={CHIP}>Browser</span>
-          ) : (
-            <span className="text-muted-foreground text-sm">Off</span>
-          )}
-        </InfoRow>
+        <ComputerRow node={node} />
+        <BrowserRow node={node} />
         <SkillRow profile={profile} />
         <SecretRow profile={profile} />
       </div>
@@ -272,11 +284,17 @@ function AgentBody({
   let plugged: ReactNode;
   if (editor !== null) {
     plugged = (
-      <EditableProfile
-        editor={editor}
-        profile={profile}
-        profileError={profileError}
-      />
+      <>
+        <EditableProfile
+          editor={editor}
+          profile={profile}
+          profileError={profileError}
+        />
+        <div className="mt-3">
+          <ComputerRow node={node} />
+          <BrowserRow node={node} />
+        </div>
+      </>
     );
   } else if (profile === null) {
     plugged = <ProfileStatus error={profileError} />;

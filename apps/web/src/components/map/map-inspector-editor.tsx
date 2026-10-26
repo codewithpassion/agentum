@@ -48,6 +48,7 @@ export function AgentEditor({
         <ProfileRows
           agent={agent}
           mailbox={mailbox}
+          onChanged={onChanged}
           onOpen={setSheet}
           onOpenMail={openMail}
           profile={profile}
