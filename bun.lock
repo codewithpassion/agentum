@@ -47,6 +47,7 @@
         "@modelcontextprotocol/server": "^2.0.0",
         "@repo/db": "workspace:*",
         "@repo/library-sync": "workspace:*",
+        "@repo/mailbox": "workspace:*",
         "@repo/mcp": "workspace:*",
         "@repo/protocol": "workspace:*",
         "@repo/services": "workspace:*",
@@ -121,6 +122,18 @@
         "typescript": "^5.9.2",
       },
     },
+    "packages/mailbox": {
+      "name": "@repo/mailbox",
+      "dependencies": {
+        "@repo/services": "workspace:*",
+        "drizzle-orm": "^0.44.7",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.9.2",
+      },
+    },
+
     "packages/mcp": {
       "name": "@repo/mcp",
       "version": "0.1.0",
@@ -737,6 +750,8 @@
     "@repo/db": ["@repo/db@workspace:packages/db"],
 
     "@repo/library-sync": ["@repo/library-sync@workspace:packages/library-sync"],
+
+    "@repo/mailbox": ["@repo/mailbox@workspace:packages/mailbox"],
 
     "@repo/mcp": ["@repo/mcp@workspace:packages/mcp"],
 
