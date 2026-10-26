@@ -306,6 +306,8 @@ export interface ReceiptStep {
   index: number;
   kind: ReceiptStepKind;
   out: KeyChip[];
+  /** The V1 request this approval or question links to, when available. */
+  requestId?: string;
   state: ReceiptStepState;
   title: string;
 }
