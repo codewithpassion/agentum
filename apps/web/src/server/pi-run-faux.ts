@@ -11,6 +11,7 @@ import {
   type Message,
   type TranscriptContext,
 } from "@earendil-works/pi-ai";
+import { GATED_TOOL } from "./pi-run-dev-tools.ts";
 
 export const FAUX_MODEL = "faux";
 
@@ -21,6 +22,8 @@ const BASH_PREFIX = "bash ";
 const SLOW_BASH_PREFIX = "slow-bash ";
 const FAIL_PREFIX = "fail ";
 const CALL_PREFIX = "call ";
+const ASK_PREFIX = "ask ";
+const GATED_PROMPT = "gated";
 
 /** The arguments of a `call` prompt: a JSON object, or `{}` when it is missing or not one. */
 const argsOf = (json: string): JsonObject => {
@@ -57,9 +60,10 @@ const textOf = (content: Message["content"] | undefined): string => {
  * slow answer and then the same tool call in one message, so a run is still streaming when a
  * test stops the server in the middle. `call <tool> <json>`: calls the Pi tool named `<tool>`
  * with the JSON object as its arguments (`{}` when the JSON is missing or invalid), then
- * repeats what it said.
+ * repeats what it said. `ask <question>`: calls the Pi tool `ask_user` with the question, then
+ * repeats what it said. `gated`: calls the dev tool `dev_gated`, then repeats what it said.
  */
-const script = (context: TranscriptContext): AssistantMessage => {
+export const fauxScript = (context: TranscriptContext): AssistantMessage => {
   const last = context.messages.at(-1);
   if (last?.role === "toolResult") {
     return fauxAssistantMessage([
@@ -105,6 +109,21 @@ const script = (context: TranscriptContext): AssistantMessage => {
       stopReason: "toolUse",
     });
   }
+  if (prompt.startsWith(ASK_PREFIX)) {
+    return fauxAssistantMessage(
+      [
+        fauxToolCall("ask_user", {
+          question: prompt.slice(ASK_PREFIX.length),
+        }),
+      ],
+      { stopReason: "toolUse" }
+    );
+  }
+  if (prompt === GATED_PROMPT) {
+    return fauxAssistantMessage([fauxToolCall(GATED_TOOL, {})], {
+      stopReason: "toolUse",
+    });
+  }
   if (prompt === "slow") {
     return fauxAssistantMessage([fauxText("tick ".repeat(SLOW_REPEATS))]);
   }
@@ -117,6 +136,6 @@ export const createFaux = () => {
     tokenSize: { max: 4, min: 2 },
     tokensPerSecond: TOKENS_PER_SECOND,
   });
-  faux.setResponses(Array.from({ length: RESPONSES }, () => script));
+  faux.setResponses(Array.from({ length: RESPONSES }, () => fauxScript));
   return faux;
 };

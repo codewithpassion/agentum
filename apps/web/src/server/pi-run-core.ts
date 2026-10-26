@@ -385,8 +385,9 @@ export const createRunCore = ({
   };
 
   /**
-   * Completes the run. "waiting" means the platform put the run back for
-   * another claim, so the report waits for the second start.
+   * Completes the run. "waiting" means the platform refused the report and
+   * the run is neither running nor waiting, so the report waits for the
+   * next start.
    */
   const completeRun = async (
     runId: string,
@@ -405,8 +406,9 @@ export const createRunCore = ({
         if (TERMINAL_STATUSES.includes(status)) {
           return "over";
         }
-        // Claimed again between the refusal and the read: one more try.
-        if (status !== "running" || round >= COMPLETE_ATTEMPTS) {
+        // Still live (running, or waiting on a person) between the refusal and the read: one more try.
+        const live = status === "running" || status === "waiting";
+        if (!live || round >= COMPLETE_ATTEMPTS) {
           return "waiting";
         }
       }

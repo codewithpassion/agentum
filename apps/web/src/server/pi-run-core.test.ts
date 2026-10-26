@@ -5,10 +5,25 @@ import type {
   ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import type { EntryRecord } from "@earendil-works/pi-durable";
+import { sqliteAtomic } from "@repo/db/atomic";
+import { runs as runRows } from "@repo/db/schema/runs";
+import { workspaces } from "@repo/db/schema/workspaces";
 import type { RunStatus } from "@repo/db/shared";
+import { migrated } from "@repo/db/test-db";
+import { createMasker } from "@repo/protocol/masker";
+import { createAgentsService } from "@repo/services/agents";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { ServiceError } from "@repo/services/errors";
-import type { RunEventInput, RunResult } from "@repo/services/runs/types";
+import { createEventsService } from "@repo/services/events";
+import { createRequestsService } from "@repo/services/requests";
+import { createRunsService } from "@repo/services/runs";
+import type {
+  RunEventInput,
+  RunResult,
+  RuntimeAdapter,
+} from "@repo/services/runs/types";
+import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
+import { eq } from "drizzle-orm";
 import {
   createRunCore,
   type PiOutcome,
@@ -878,6 +893,27 @@ describe("a platform that fails while the runner reads the run's status", () => 
       state: "finished",
     });
   });
+
+  test("a completion refused while the run waits on a person is tried again and goes through", async () => {
+    let attempts = 0;
+    const h = build({
+      complete: () => {
+        attempts += 1;
+        return attempts === 1 ? Promise.reject(conflict()) : Promise.resolve();
+      },
+      status: () => "waiting",
+    });
+    await h.core.start(startOf("run-1"));
+    h.fake.finish("run-1", { status: "done", text: "ok" });
+    await settle();
+
+    expect(attempts).toBe(2);
+    expect(h.fake.aborted).toEqual([]);
+    expect(h.completed).toHaveLength(1);
+    expect(await h.storage.get("run:run-1")).toMatchObject({
+      state: "finished",
+    });
+  });
 });
 
 describe("the last report", () => {
@@ -1599,5 +1635,145 @@ describe("safeguards", () => {
         stop: { count: 5, kind: "repeat", tool: "search" },
       });
     });
+  });
+});
+
+describe("a run that waits on a person, on the real services", () => {
+  test("goes running, waiting, running, done, and logs run.waiting then run.resumed", async () => {
+    const db = migrated();
+    let now = Date.parse("2026-10-26T00:00:00Z");
+    await db.insert(workspaces).values({
+      clerkOrgId: "org1",
+      createdAt: new Date(now).toISOString(),
+      id: "w1",
+      name: "Test",
+      timezone: "UTC",
+    });
+    const clock = {
+      now: () => new Date(now),
+      sleep: (ms: number) => {
+        now += ms;
+        return Promise.resolve();
+      },
+    };
+    const blobs = {
+      get: () => Promise.resolve(null),
+      put: () => Promise.resolve(),
+    };
+    const user = {
+      kind: "user",
+      userId: "u1",
+      via: "session",
+      workspaceId: "w1",
+    } as const;
+    const events = createEventsService({ blobs, db });
+    const resumed: string[] = [];
+    const adapter: RuntimeAdapter = {
+      cancel: () => Promise.resolve(),
+      dispatch: () => Promise.resolve(),
+      kind: "cloud",
+      resume: (_run, closed) => {
+        resumed.push(closed.id);
+        return Promise.resolve();
+      },
+    };
+    const runs = createRunsService({
+      adapters: [adapter],
+      atomic: sqliteAtomic(db),
+      blobs,
+      clock,
+      db,
+      devFakeRuntime: false,
+      gateways: [],
+    });
+    const requests = createRequestsService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+      events,
+      runs,
+      secrets: {
+        maskerFor: () => Promise.resolve(createMasker({})),
+      },
+    });
+    const agent = await createAgentsService({ db, events }).create(user, {
+      model: "claude-test",
+      name: "Cloud",
+      runtime: "cloud",
+    });
+    const { runId } = await runs.startRun(user, {
+      agentId: agent.id,
+      input: { text: "go" },
+      session: { origin: "ui" },
+    });
+    await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+
+    const statusOf = async (id: string): Promise<RunStatus> => {
+      const [row] = await db.select().from(runRows).where(eq(runRows.id, id));
+      if (!row) {
+        throw new Error(`run ${id} is missing`);
+      }
+      const { status } = row;
+      return status;
+    };
+    const seen: RunStatus[] = [await statusOf(runId)];
+
+    const fake = createFakePi();
+    const core = createRunCore({
+      complete: (id, result) => runs.completeRun(SYSTEM_PRINCIPAL, id, result),
+      heartbeat: (id) => runs.heartbeatRun(SYSTEM_PRINCIPAL, id),
+      ingest: (id, batch) => runs.ingestRunEvents(SYSTEM_PRINCIPAL, id, batch),
+      inputOf: (_run, text) => Promise.resolve(text),
+      installSkills: () => Promise.resolve(),
+      installTools: () => Promise.resolve(),
+      modelError: () => undefined,
+      outputsOf: (_run, text) => Promise.resolve({ fileIds: [], text }),
+      pi: fake.pi,
+      sleep: () => Promise.resolve(),
+      statusOf,
+      storage: memoryStorage(),
+    });
+    const input = startOf(runId);
+    await core.start({
+      ...input,
+      agent: { ...input.agent, id: agent.id },
+      run: { ...input.run, agentId: agent.id, workspaceId: "w1" },
+    });
+    await fake.say("Let me list the files.");
+    await settle();
+
+    const request = await requests.open(SYSTEM_PRINCIPAL, {
+      input: { command: "ls" },
+      kind: "approval",
+      runId,
+      toolKey: "bash",
+      toolName: "bash",
+      toolUseId: "call1",
+    });
+    await settle();
+    seen.push(await statusOf(runId));
+
+    await requests.answer(user, {
+      answer: { decision: "allow_once" },
+      requestId: request.id,
+      via: "web",
+    });
+    await settle();
+    seen.push(await statusOf(runId));
+
+    fake.finish(runId, { status: "done", text: "Listed." });
+    await settle();
+    seen.push(await statusOf(runId));
+
+    expect(seen).toEqual(["running", "waiting", "running", "done"]);
+    expect(resumed).toEqual([request.id]);
+    const log = await events.query(user, "w1", {
+      runId,
+      types: ["run.waiting", "run.resumed"],
+    });
+    expect(log.map((event) => event.type)).toEqual([
+      "run.waiting",
+      "run.resumed",
+    ]);
   });
 });

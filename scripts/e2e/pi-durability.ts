@@ -15,7 +15,12 @@ import { runCli, WEB_DIR } from "../dev/local.ts";
 //      runs (`replay: "safe"`, apps/web/src/server/pi-run-dev-tools.ts). After
 //      the restart Pi runs it again, so its output says `started 2 times` and
 //      the model answers with that text;
-//   4. long outage: the object is down for 120 s with the lease reaper still
+//   4. approval wait: a tool rule `ask` on the dev-only `dev_gated` tool
+//      (not replay safe, its output counts its runs in the object's storage)
+//      opens one request, and the run waits. The server is killed and started
+//      again while it waits. The request is still pending and the run still
+//      waiting. Then the answer resumes the run, and the tool runs once;
+//   5. long outage: the object is down for 120 s with the lease reaper still
 //      sweeping, and the run still ends `done` (scripts/e2e/cloud-outage.ts).
 // The faux model (apps/web/src/server/pi-run-faux.ts) calls the tool named in
 // its `call <tool> <json>` prompt.
@@ -28,6 +33,8 @@ import { runCli, WEB_DIR } from "../dev/local.ts";
 //   bun run e2e:pi-durability [--port 3917] [--log-dir <dir>]
 import { CloudError, type SeqEvent } from "./cloud.ts";
 import {
+  describeError,
+  isTerminal,
   type OutageDeps,
   parseHarnessArgs,
   type RunState,
@@ -62,6 +69,13 @@ const POLL_MS = 250;
 const TOOL_SLEEP_MS = 8000;
 const UNSAFE_SCRIPT = `printf '%s\\n' ran-$((20+22)); sleep ${TOOL_SLEEP_MS / 1000}`;
 const UNSAFE_PROMPT = `bash ${UNSAFE_SCRIPT}`;
+// The dev-only tool behind an approval (pi-run-dev-tools.ts). The faux prompt `gated` makes the model call it.
+export const GATED_PROMPT = "gated";
+export const GATED_TOOL = "dev_gated";
+export const GATED_RAN_TEXT = "gated ran 1 times";
+const WAITING_TIMEOUT_MS = 60_000;
+// After the restart the run must still wait on its request for this long.
+const RESTART_SETTLE_MS = 5000;
 
 /** What the script reads from the package manifest and the install. */
 export interface PinDeps {
@@ -215,6 +229,107 @@ export const runUnsafe = async (deps: OutageDeps): Promise<void> => {
   deps.out("ok 4: the model gets the interrupted result");
 };
 
+/** Polls until the run waits on a pending request. Throws when the run ends first. */
+const waitUntilWaiting = async (
+  deps: OutageDeps,
+  runId: string,
+  label: string
+): Promise<string> => {
+  const deadline = deps.now().getTime() + WAITING_TIMEOUT_MS;
+  for (;;) {
+    // biome-ignore lint/performance/noAwaitInLoops: polling is sequential by nature
+    const state = await deps.runOf(runId);
+    const requestId = deps.pendingRequestId(runId);
+    if (requestId !== undefined && state.status === "waiting") {
+      return requestId;
+    }
+    if (isTerminal(state.status)) {
+      throw new CloudError(
+        `${label}: run ${runId} is ${state.status}${describeError(state)} before it waited for an answer`
+      );
+    }
+    if (deps.now().getTime() > deadline) {
+      throw new CloudError(
+        `${label}: run ${runId} never waited for an answer (status ${state.status}, pending request ${requestId ?? "none"})`
+      );
+    }
+    await deps.sleep(POLL_MS);
+  }
+};
+
+/** The approval case. Throws a CloudError naming the first assertion that fails. */
+export const runWaiting = async (deps: OutageDeps): Promise<void> => {
+  const label = "waiting";
+  await deps.setRule(GATED_TOOL, "ask");
+  const runId = await deps.send(GATED_PROMPT);
+  await deps.drive("offer", runId);
+  const requestId = await waitUntilWaiting(deps, runId, label);
+  deps.out("ok 1: the run waits on one approval request");
+
+  await deps.killServer();
+  await deps.startServer();
+  await deps.sleep(RESTART_SETTLE_MS);
+  const before = await deps.runOf(runId);
+  if (deps.pendingRequestId(runId) !== requestId) {
+    throw new CloudError(
+      `${label}: request ${requestId} is no longer pending after the restart`
+    );
+  }
+  if (before.status !== "waiting") {
+    throw new CloudError(
+      `${label}: run ${runId} is ${before.status}${describeError(before)} after the restart, expected waiting`
+    );
+  }
+  deps.out(
+    "ok 2: the request is still pending and the run waits after the restart"
+  );
+
+  await deps.answer(requestId, "allow_once");
+  const { state } = await waitForEnd(deps, runId);
+  if (state.status !== "done") {
+    throw new CloudError(
+      `${label}: run ${runId} is ${state.status}${describeError(state)} after the answer, expected done`
+    );
+  }
+  deps.out("ok 3: the run ends done once the request is answered");
+
+  const events = deps.eventsOf(runId);
+  const types = deps.eventTypesOf(runId);
+  const countOf = (type: string) =>
+    types.filter((other) => other === type).length;
+  const opened = countOf("request.opened");
+  const waiting = countOf("run.waiting");
+  const resumed = countOf("run.resumed");
+  if (opened !== 1 || waiting < 1 || resumed < 1) {
+    throw new CloudError(
+      `${label}: expected one request.opened, a run.waiting and a run.resumed, got ${opened}, ${waiting} and ${resumed}`
+    );
+  }
+  deps.out("ok 4: the run opens one request, waits and resumes");
+
+  const results = ofType(events, "tool.result");
+  const [result] = results;
+  if (results.length !== 1 || result === undefined) {
+    throw new CloudError(
+      `${label}: expected one tool.result, got ${results.length}`
+    );
+  }
+  const output = String(result.payload.output ?? "");
+  if (!output.includes(GATED_RAN_TEXT)) {
+    throw new CloudError(
+      `${label}: expected the gated tool to run once (${GATED_RAN_TEXT}), got ${JSON.stringify(output)}`
+    );
+  }
+  deps.out("ok 5: the gated tool runs once");
+
+  if (!state.resultText?.includes(GATED_RAN_TEXT)) {
+    throw new CloudError(
+      `${label}: the model should have seen the gated result (${GATED_RAN_TEXT}), its answer was ${JSON.stringify(state.resultText)}`
+    );
+  }
+  deps.out("ok 6: the model gets the gated result");
+};
+
 /** The safe case. Throws a CloudError naming the first assertion that fails. */
 export const runSafe = async (deps: OutageDeps): Promise<void> => {
   const label = "safe tool";
@@ -261,6 +376,8 @@ export const main = async (argv: string[]): Promise<void> => {
     await runUnsafe(deps);
     deps.out("-- safe tool");
     await runSafe(deps);
+    deps.out("-- waiting for an answer");
+    await runWaiting(deps);
     deps.out("-- long outage");
     await runOutage(deps);
   });
