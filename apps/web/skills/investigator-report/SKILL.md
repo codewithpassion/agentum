@@ -17,7 +17,7 @@ Post a step for every check, every retry and every re-run, in the order you do t
 
 ## What you may do on your own
 
-- Read: logs, job and workflow status, configuration, dashboards, mailbox and chat history.
+- Read: logs, job and workflow status, configuration, dashboards, mailbox and chat history. Read through your connectors, not with `web_fetch` or `run_script`: those two can also send requests, so each call waits for Dom's approval.
 - Retry a failed job.
 - Re-run a workflow.
 - Run this skill's scripts. Posting to control-plane through them is the only post you may make without asking.
