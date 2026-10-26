@@ -1,5 +1,6 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { libraryConflicts } from "@repo/db/schema/library";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import {
   agentMailboxes,
@@ -832,4 +833,19 @@ test("takeovers appear in Needs you with their reason", async () => {
     needsYouKind: "takeover",
     title: "Take over the computer",
   });
+});
+
+
+test("Needs you includes only open library conflicts in the workspace and agent filter", async () => {
+  const createdAt = new Date(NOW).toISOString();
+  await db.insert(libraryConflicts).values([
+    { agentId: a1, conflictPath: "a.conflict-r", createdAt, id: "open", path: "a", status: "open", workspaceId: "w1" },
+    { agentId: a2, conflictPath: "b.conflict-r", createdAt, id: "closed", path: "b", status: "resolved", workspaceId: "w1" },
+    { agentId: b1, conflictPath: "c.conflict-r", createdAt, id: "other", path: "c", status: "open", workspaceId: "w2" },
+  ]);
+  const cards = (await get()).needsYou;
+  expect(cards).toHaveLength(1);
+  expect(cards[0]).toMatchObject({ agentId: a1, id: "open", kind: "conflict", needsYouKind: "library_conflict", title: "a" });
+  expect(await desk.needsYouCount(user())).toBe(1);
+  expect((await get({ agentId: a2 })).needsYou).toEqual([]);
 });
