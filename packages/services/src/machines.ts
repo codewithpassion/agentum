@@ -722,7 +722,9 @@ export const createMachinesService = ({
     if (!agent) {
       throw new ServiceError("not_found", "Agent not found");
     }
-    if (!ATTACHABLE_RUNTIMES.includes(agent.runtime)) {
+    // Detaching is always allowed, so a computer never stays pinned to an agent
+    // whose runtime changed after the attach.
+    if (machineId !== null && !ATTACHABLE_RUNTIMES.includes(agent.runtime)) {
       throw new ServiceError(
         "invalid",
         `A "${agent.runtime}" agent cannot have a computer. Only cloud and managed agents can.`

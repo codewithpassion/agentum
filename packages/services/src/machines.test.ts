@@ -1001,6 +1001,19 @@ test("attachComputer refuses a machine agent, a machine without a computer role 
   expect(await eventsOf("agent.updated")).toHaveLength(0);
 });
 
+test("attachComputer detaches a computer from an agent that is no longer cloud or managed", async () => {
+  seedMachine("m-computer", { computerStatus: "offline" });
+  const agent = await createAgent("cloud", "Cloud");
+  await service.attachComputer(user, agent.id, "m-computer");
+  db.update(agentRows)
+    .set({ machineId: "m-computer", runtime: "machine" })
+    .where(eq(agentRows.id, agent.id))
+    .run();
+
+  await service.attachComputer(user, agent.id, null);
+  expect(computerOf(agent.id)).toBeNull();
+});
+
 test("attachComputer gives a computer to one agent at a time", async () => {
   seedMachine("m-computer", { computerStatus: "offline" });
   const first = await createAgent("cloud", "First");
