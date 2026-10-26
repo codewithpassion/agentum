@@ -23,6 +23,7 @@ import { appRouter } from "./server/trpc/router.ts";
 // biome-ignore lint/performance/noBarrelFile: the Worker entry must export the Durable Object class; the class lives in its own module so bun can test it
 export { DirectoryBackupGateway } from "@cloudflare/sandbox";
 export { VmSession } from "./server/linux-vm/vm-session.ts";
+export { MailboxDO } from "./server/mailbox.ts";
 export { ManagedPoller } from "./server/managed-poller.ts";
 export { PiRun } from "./server/pi-run.ts";
 export { MachineRelay } from "./server/relay.ts";

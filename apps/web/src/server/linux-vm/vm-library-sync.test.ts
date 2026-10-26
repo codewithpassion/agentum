@@ -3,7 +3,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
-import { libraryEntries } from "@repo/db/schema/library";
+import { agentLibraryAccess, libraryEntries } from "@repo/db/schema/library";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
@@ -181,6 +181,15 @@ test("sync in copies the agent folder and a named library path, and keeps the re
   await service.write(user, "agents/ada/sub/deep.md", bytes("deep"));
   await service.write(user, "shared/brand/logo.md", bytes("logo"));
   await service.write(user, "other/x.md", bytes("x"));
+  db.insert(agentLibraryAccess)
+    .values({
+      agentId: AGENT,
+      createdAt: START,
+      mode: "read",
+      path: "shared/brand",
+      workspaceId: WORKSPACE,
+    })
+    .run();
   const vm = createFakeVm();
   const storage = memoryStorage();
 

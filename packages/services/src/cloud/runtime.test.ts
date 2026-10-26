@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { slackApps } from "@repo/db/schema/slack";
@@ -410,6 +411,60 @@ describe("a dry run", () => {
       false,
       true,
     ]);
+  });
+});
+
+describe("the model a run starts on", () => {
+  const startedModel = () => {
+    const [input] = runner.startCalls.slice(-1);
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    return input.agent.model;
+  };
+
+  test("a dry run on a model that is not a cloud model starts on the default cloud model", async () => {
+    db.update(agentRows)
+      .set({ model: "not-a-model" })
+      .where(eq(agentRows.id, agentId))
+      .run();
+
+    await start({}, { dryRun: true });
+
+    expect(startedModel()).toBe("claude-sonnet-5-5");
+  });
+
+  test("a dry run on a cloud model alias keeps the model", async () => {
+    db.update(agentRows)
+      .set({ model: "opus" })
+      .where(eq(agentRows.id, agentId))
+      .run();
+
+    await start({}, { dryRun: true });
+
+    expect(startedModel()).toBe("opus");
+  });
+
+  test("a dry run on a cloud model id keeps the model", async () => {
+    db.update(agentRows)
+      .set({ model: "claude-opus-5-5" })
+      .where(eq(agentRows.id, agentId))
+      .run();
+
+    await start({}, { dryRun: true });
+
+    expect(startedModel()).toBe("claude-opus-5-5");
+  });
+
+  test("a normal run keeps a model that is not a cloud model", async () => {
+    db.update(agentRows)
+      .set({ model: "gpt-5" })
+      .where(eq(agentRows.id, agentId))
+      .run();
+
+    await start();
+
+    expect(startedModel()).toBe("gpt-5");
   });
 });
 

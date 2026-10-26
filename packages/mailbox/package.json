@@ -1,0 +1,28 @@
+{
+  "name": "@repo/mailbox",
+  "private": true,
+  "license": "MIT AND Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./inbound": "./src/inbound.ts",
+    "./migrations": "./src/migrations.ts",
+    "./port": "./src/port.ts",
+    "./schema": "./src/schema.ts",
+    "./send": "./src/send.ts",
+    "./store": "./src/store.ts",
+    "./test-db": "./src/test-db.ts",
+    "./threading": "./src/threading.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@repo/services": "workspace:*",
+    "drizzle-orm": "^0.44.7"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.2"
+  }
+}

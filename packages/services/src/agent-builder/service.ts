@@ -4,6 +4,8 @@
  * skills and agents as the only choices. The reply goes through `reconcileDraft`,
  * so a choice the model invented comes back as a gap, not as an id.
  *
+ * Saving, dry-running, creating and discarding a draft live in `lifecycle.ts`.
+ *
  * Drafting logs no event, because the agent does not exist yet. The description
  * and the key never reach an error message or a log line.
  */
@@ -22,6 +24,8 @@ import { ServiceError } from "../errors.ts";
 import type { MachinesService } from "../machines.ts";
 import { type ManagedKeysService, NO_KEY_MESSAGE } from "../managed/keys.ts";
 import type { ModelKeysService } from "../model-keys.ts";
+import type { RoutinesService } from "../routines.ts";
+import type { RunsService } from "../runs.ts";
 import type { SkillsStoreService } from "../skills-store.ts";
 import type { Principal } from "../workspaces.ts";
 import {
@@ -30,6 +34,7 @@ import {
   type BuilderCatalog,
   reconcileDraft,
 } from "./draft.ts";
+import { createDraftLifecycle, type LifecycleDeps } from "./lifecycle.ts";
 import { templates } from "./templates.ts";
 
 const ACTION = "agent_builder.draft";
@@ -61,13 +66,15 @@ export interface DraftResult {
 type Resolvable = Pick<ManagedKeysService, "resolve" | "status">;
 
 export interface AgentBuilderDeps {
-  agents: Pick<AgentsService, "list">;
-  connectors: Pick<ConnectorsService, "list">;
+  agents: Pick<AgentsService, "list"> & LifecycleDeps["agents"];
+  connectors: Pick<ConnectorsService, "list"> & LifecycleDeps["connectors"];
   fetch: Fetcher;
   machines: Pick<MachinesService, "list">;
   managedKeys: Resolvable;
   modelKeys: Pick<ModelKeysService, "status">;
-  skillsStore: Pick<SkillsStoreService, "list">;
+  routines: Pick<RoutinesService, "create">;
+  runs: Pick<RunsService, "startRun">;
+  skillsStore: Pick<SkillsStoreService, "list"> & LifecycleDeps["skillsStore"];
 }
 
 /** The workspace of a person or run. The system principal has none and may not draft. */
@@ -137,6 +144,8 @@ export const createAgentBuilderService = ({
   machines,
   managedKeys,
   modelKeys,
+  routines,
+  runs,
   skillsStore,
 }: AgentBuilderDeps) => {
   const catalog = async (principal: Principal): Promise<BuilderCatalog> => {
@@ -260,7 +269,17 @@ export const createAgentBuilderService = ({
     throw new ServiceError("invalid", FAILED_MESSAGE);
   };
 
-  return { catalog, draft };
+  const lifecycle = createDraftLifecycle({
+    agents,
+    catalog,
+    connectors,
+    routines,
+    runs,
+    skillsStore,
+    workspaceOf,
+  });
+
+  return { catalog, draft, ...lifecycle };
 };
 
 export type AgentBuilderService = ReturnType<typeof createAgentBuilderService>;

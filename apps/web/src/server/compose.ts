@@ -63,6 +63,10 @@ import {
   type LibraryBlobs,
   type LibraryService,
 } from "@repo/services/library";
+import {
+  createLibraryAccessService,
+  type LibraryAccessService,
+} from "@repo/services/library/access";
 import { memoryLibraryBlobs } from "@repo/services/library/memory";
 import {
   createLibraryLinksService,
@@ -172,6 +176,11 @@ import {
   createTriggersService,
   type TriggersService,
 } from "@repo/services/triggers";
+import {
+  createWikiLinkIndex,
+  createWikiService,
+  type WikiService,
+} from "@repo/services/wiki/service";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { clerkPeople } from "./clerk-people.ts";
@@ -251,6 +260,7 @@ export interface Services {
   files: FilesService;
   inbox: InboxService;
   library: LibraryService;
+  libraryAccess: LibraryAccessService;
   libraryLinks: LibraryLinksService;
   machines: MachinesService;
   managed: ManagedService;
@@ -273,6 +283,7 @@ export interface Services {
   slackSend: SlackSendService;
   tasks: TasksService;
   triggers: TriggersService;
+  wiki: WikiService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
 
@@ -404,6 +415,14 @@ export const composeWith = ({
   const library = createLibraryService({
     atomic: infra.atomic,
     blobs: infra.libraryBlobs ?? memoryLibraryBlobs(),
+    clock: infra.clock,
+    db,
+    events,
+    linkIndex: createWikiLinkIndex({ db }),
+  });
+  const wiki = createWikiService({ db, library });
+  const libraryAccess = createLibraryAccessService({
+    atomic: infra.atomic,
     clock: infra.clock,
     db,
     events,
@@ -615,6 +634,8 @@ export const composeWith = ({
     machines,
     managedKeys,
     modelKeys,
+    routines,
+    runs,
     skillsStore,
   });
   const agentProfile = createAgentProfileService({
@@ -657,6 +678,7 @@ export const composeWith = ({
       files,
       inbox,
       library,
+      libraryAccess,
       libraryLinks,
       machines,
       managed,
@@ -679,6 +701,7 @@ export const composeWith = ({
       slackSend,
       tasks,
       triggers,
+      wiki,
       workspaces,
     },
   };
