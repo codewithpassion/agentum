@@ -21,4 +21,24 @@ export const mailRouter = router({
         ctx.services.mail.provision(ctx.principal, input.agentId)
       ),
   }),
+  setTrigger: workspaceProcedure
+    .input(agentInput.extend({ on: z.boolean() }))
+    .mutation(({ ctx, input }) =>
+      ctx.services.mail.setTrigger(ctx.principal, input.agentId, input.on)
+    ),
+  thread: workspaceProcedure
+    .input(z.strictObject({ id: z.string().min(1).max(200) }))
+    .query(({ ctx, input }) =>
+      ctx.services.mail.thread(ctx.principal, input.id)
+    ),
+  threadForTask: workspaceProcedure
+    .input(z.strictObject({ taskId: z.string().min(1).max(200) }))
+    .query(({ ctx, input }) =>
+      ctx.services.mail.threadForTask(ctx.principal, input.taskId)
+    ),
+  threads: workspaceProcedure
+    .input(agentInput)
+    .query(({ ctx, input }) =>
+      ctx.services.mail.threads(ctx.principal, input.agentId)
+    ),
 });

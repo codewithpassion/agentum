@@ -8,8 +8,11 @@ import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { isUniqueViolation, ServiceError } from "../errors.ts";
 import type { EventsService } from "../events.ts";
+import type { LibraryService } from "../library.ts";
 import type { Clock } from "../runs/types.ts";
+import type { RunsService } from "../runs.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
+import { createInboundMail } from "./inbound.ts";
 import {
   type EmailRoutingPort,
   type MailboxPort,
@@ -41,6 +44,8 @@ export const createMailService = ({
   mailbox,
   routing,
   domain,
+  runs,
+  library,
 }: {
   db: Database;
   atomic: Atomic;
@@ -49,6 +54,8 @@ export const createMailService = ({
   mailbox?: MailboxPort;
   routing?: EmailRoutingPort;
   domain?: string;
+  runs?: Pick<RunsService, "startRun" | "offerQueuedRun">;
+  library?: Pick<LibraryService, "write" | "mkdir">;
 }) => {
   const findAgent = async (
     principal: Principal,
@@ -367,6 +374,12 @@ export const createMailService = ({
       await provision(SYSTEM_PRINCIPAL, agent.id);
     }
   });
-  return { disable, get, provision, provisionPending };
+  return {
+    disable,
+    get,
+    provision,
+    provisionPending,
+    ...createInboundMail({ atomic, clock, db, events, library, mailbox, runs }),
+  };
 };
 export type MailService = ReturnType<typeof createMailService>;

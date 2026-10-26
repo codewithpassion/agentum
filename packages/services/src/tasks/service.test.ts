@@ -3,6 +3,11 @@ import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { inboxThreads } from "@repo/db/schema/inbox";
 import { machines as machineRows } from "@repo/db/schema/machines";
+import {
+  agentMailboxes,
+  mailMessages,
+  mailThreads,
+} from "@repo/db/schema/mail";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { triggers as triggerRows } from "@repo/db/schema/triggers";
@@ -813,4 +818,47 @@ test("list hides a dry run, even from the person who started it", async () => {
   const items = await tasks.list(user(), { limit: 10 });
 
   expect(items.map((item) => item.id)).toEqual(["run-live"]);
+});
+
+test("mail run labels its sender and subject", async () => {
+  const started = await runs.startRun(user(), {
+    agentId: a1,
+    input: { text: "mail" },
+    session: { externalKey: "mail:box:t", origin: "mail" },
+  });
+  await db.insert(agentMailboxes).values({
+    address: "agent@example.com",
+    agentId: a1,
+    createdAt: new Date(now).toISOString(),
+    id: "box",
+    status: "active",
+    workspaceId: "w1",
+  });
+  await db.insert(mailThreads).values({
+    externalThreadId: "t",
+    id: "thread",
+    lastMessageAt: new Date(now).toISOString(),
+    mailboxId: "box",
+    sessionId: started.sessionId,
+    subject: "Help",
+    workspaceId: "w1",
+  });
+  await db.insert(mailMessages).values({
+    ccAddresses: "[]",
+    createdAt: new Date(now).toISOString(),
+    direction: "in",
+    externalMessageId: "m",
+    fromAddress: '{"address":"sender@example.net"}',
+    id: "mail",
+    runId: started.runId,
+    snippet: "",
+    status: "received",
+    subject: "Help",
+    threadId: "thread",
+    toAddresses: '["recipient@example.net"]',
+    workspaceId: "w1",
+  });
+  expect((await tasks.get(user(), { runId: started.runId })).startedBy).toEqual(
+    { kind: "mail", label: "Mail from sender@example.net: Help" }
+  );
 });
