@@ -193,3 +193,22 @@ test("a desktop nobody holds is not released", async () => {
   await composed.services.takeover.cancel(user, requestId);
   expect(calls).toEqual([]);
 });
+
+test("take then hand-back runs the whole flow through the relay", async () => {
+  const { takeover } = composed.services;
+  await takeover.take(user, requestId);
+  control = { expiresAt: 1, holder: { kind: "human", userId: "user_a" } };
+  await takeover.handBack(user, requestId, "done");
+  expect(calls).toEqual([
+    ["take", machineId, "user_a"],
+    ["release", machineId, "user_a"],
+  ]);
+  const events = await composed.services.events.query(
+    user,
+    user.workspaceId,
+    {}
+  );
+  const types = events.map((event) => event.type);
+  expect(types).toContain("computer.taken");
+  expect(types).toContain("computer.handed_back");
+});
