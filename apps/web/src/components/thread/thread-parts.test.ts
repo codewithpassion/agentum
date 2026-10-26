@@ -6,6 +6,7 @@ import type {
   ThreadStatus,
 } from "@repo/protocol/thread";
 import { messageStatusOf, toThreadMessageLike } from "./thread-parts.ts";
+import { fileIdsOfAppend } from "./thread-send.ts";
 
 const assistant = (
   parts: ThreadMessage["parts"],
@@ -302,4 +303,21 @@ test("converting does not change the input message", () => {
   expect(first).not.toBe(second);
   expect(frozen.parts).toHaveLength(2);
   expect(frozen.status).toBe("running");
+});
+
+test("the file ids of a user message come back out of its attachments", () => {
+  const result = toThreadMessageLike(
+    user([
+      { text: "See these", type: "text" },
+      { fileId: "file-a", type: "attachment" },
+      { fileId: "file-b", type: "attachment" },
+    ])
+  );
+  const attachments = (result.attachments ?? []).map((item) => ({
+    ...item,
+    content: [...item.content],
+  }));
+  expect(
+    fileIdsOfAppend({ attachments } as Parameters<typeof fileIdsOfAppend>[0])
+  ).toEqual(["file-a", "file-b"]);
 });

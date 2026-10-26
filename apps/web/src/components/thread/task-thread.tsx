@@ -81,7 +81,7 @@ export function TaskThread({
     async ({ fileIds: ids, text }: ThreadSendInput, onStarted?: () => void) => {
       // One send at a time, so a second Ctrl+Enter cannot start a second run.
       if (starting.current !== null) {
-        return;
+        throw new Error("The last message is still being sent.");
       }
       const begin = async () => {
         const result = await getTrpc().runs.start.mutate(
