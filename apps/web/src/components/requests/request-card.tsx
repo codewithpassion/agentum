@@ -4,6 +4,7 @@ import { type ChangeEvent, useCallback, useId, useState } from "react";
 import { Button } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
+import { getTrpc } from "#/integrations/trpc/client";
 import {
   type AnswerPayload,
   approvalAnswer,
@@ -309,6 +310,102 @@ function ApprovalCard({
   );
 }
 
+function TakeoverCard({
+  view,
+  nowMs,
+}: {
+  view: Extract<RequestView, { kind: "takeover" }>;
+  nowMs: number;
+}) {
+  const [note, setNote] = useState("");
+  const [pending, setPending] = useState(false);
+  const [taken, setTaken] = useState(false);
+  const [closed, setClosed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const noteId = useId();
+  const act = useCallback(
+    async (action: "take" | "handBack" | "cancel") => {
+      setPending(true);
+      setError(null);
+      try {
+        const { takeover } = getTrpc();
+        if (action === "take") {
+          await takeover.take.mutate({ requestId: view.id });
+          setTaken(true);
+        } else if (action === "handBack") {
+          await takeover.handBack.mutate({ note, requestId: view.id });
+          setClosed(true);
+        } else {
+          await takeover.cancel.mutate({ requestId: view.id });
+          setClosed(true);
+        }
+      } catch (cause) {
+        setError(errorMessage(cause));
+      } finally {
+        setPending(false);
+      }
+    },
+    [note, view.id]
+  );
+  const take = useCallback(() => act("take"), [act]);
+  const handBack = useCallback(() => act("handBack"), [act]);
+  const cancel = useCallback(() => act("cancel"), [act]);
+  const changeNote = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => setNote(event.target.value),
+    []
+  );
+  if (closed) {
+    return (
+      <p className="text-muted-foreground text-sm">Takeover request closed</p>
+    );
+  }
+  return (
+    <div
+      className="flex flex-col gap-3 rounded-md border border-border px-3 py-2 text-sm"
+      data-testid="request-card"
+    >
+      <p>Take over the computer</p>
+      <p>{view.display.reason}</p>
+      <p className="text-muted-foreground text-xs">
+        {expiryText(view.expiresAt, nowMs)}
+      </p>
+      <Label htmlFor={noteId}>Note for the agent (optional)</Label>
+      <Input
+        disabled={pending}
+        id={noteId}
+        onChange={changeNote}
+        value={note}
+      />
+      <div className="flex flex-wrap gap-2">
+        <Button disabled={pending || taken} onClick={take} type="button">
+          {taken ? "Taken" : "Take over"}
+        </Button>
+        <Button
+          disabled={pending}
+          onClick={handBack}
+          type="button"
+          variant="outline"
+        >
+          Hand back
+        </Button>
+        <Button
+          disabled={pending}
+          onClick={cancel}
+          type="button"
+          variant="outline"
+        >
+          Cancel
+        </Button>
+      </div>
+      {error === null ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function RequestCard({
   view,
   nowMs,
@@ -329,6 +426,9 @@ export function RequestCard({
         {settledLine(view.kind, view.settled, answeredBy(view.settled, user))}
       </p>
     );
+  }
+  if (view.kind === "takeover") {
+    return <TakeoverCard nowMs={nowMs} view={view} />;
   }
   if (view.kind === "approval") {
     return <ApprovalCard nowMs={nowMs} onAnswer={onAnswer} view={view} />;

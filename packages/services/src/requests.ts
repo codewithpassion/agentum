@@ -1,11 +1,14 @@
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
+import { agents } from "@repo/db/schema/agents";
 import { runRequests } from "@repo/db/schema/requests";
 import { sessions } from "@repo/db/schema/sessions";
 import { agentToolRules } from "@repo/db/schema/tool-rules";
 import {
   APPROVAL_TTL_MS,
+  type ComputerTakeoverRequestedPayload,
   QUESTION_TTL_MS,
+  TAKEOVER_TTL_MS,
   TOOL_RULE_MODES,
 } from "@repo/db/shared";
 import {
@@ -14,7 +17,7 @@ import {
   toolKey as canonicalToolKey,
   questionAnswerSchema,
 } from "@repo/protocol/requests";
-import { and, eq, inArray, lte } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, lte, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -24,9 +27,11 @@ import { redactToolPayload } from "./events/scrub.ts";
 import type { EventInput, EventsService } from "./events.ts";
 import {
   answerInputSchema,
+  answerSchemas,
   capInput,
   openInputSchema,
   outcomeOf,
+  type RequestRecord,
   type RequestRow,
   requestRecord,
   runtimeAnswers,
@@ -55,6 +60,11 @@ export const webAnswerInputSchema = z.union([
   questionAnswerSchema.extend({ requestId: id }),
 ]);
 
+const TTL = {
+  approval: APPROVAL_TTL_MS,
+  question: QUESTION_TTL_MS,
+  takeover: TAKEOVER_TTL_MS,
+};
 const WAIT_POLL_MS = 500;
 const ended = [
   "run.finished",
@@ -308,6 +318,82 @@ export const createRequestsService = ({
       runtime: agent?.runtime ?? "machine",
     });
   };
+  const takeoverComputer = async (run: RunRecord) => {
+    const [agent] = await db
+      .select({ computerMachineId: agents.computerMachineId })
+      .from(agents)
+      .where(
+        and(eq(agents.id, run.agentId), eq(agents.workspaceId, run.workspaceId))
+      );
+    const computerMachineId = agent?.computerMachineId ?? null;
+    if (!computerMachineId) {
+      throw new ServiceError("conflict", "Agent has no computer");
+    }
+    return computerMachineId;
+  };
+  const prepareOpen = async (
+    run: RunRecord,
+    input: z.infer<typeof openInputSchema>
+  ): Promise<RequestRecord["display"]> => {
+    const masker = await secrets.maskerFor(run.workspaceId, run.agentId);
+    const toolKey = await approvalToolKey(run, input);
+    if (input.kind === "takeover") {
+      return {
+        machineId: await takeoverComputer(run),
+        reason: scrubText(masker, input.reason),
+      };
+    }
+    if (input.kind === "approval") {
+      const clean = redactToolPayload(
+        masker?.maskDeep(input.input) ?? input.input
+      );
+      return {
+        input: capInput(clean),
+        summary: approvalSummary(input.toolName, clean),
+        toolKey,
+        toolName: input.toolName,
+      };
+    }
+    return {
+      questions: input.questions.map((question) => ({
+        ...question,
+        ...(question.choices && {
+          choices: question.choices.map((choice) => scrubText(masker, choice)),
+        }),
+        ...(question.header !== undefined && {
+          header: scrubText(masker, question.header),
+        }),
+        question: scrubText(masker, question.question),
+      })),
+    };
+  };
+  const insertPending = (row: RequestRow) => {
+    if (row.kind !== "takeover") {
+      return db
+        .insert(runRequests)
+        .values(row)
+        .onConflictDoNothing({
+          target: [runRequests.runId, runRequests.toolUseId],
+        })
+        .returning();
+    }
+    // Test exclusivity in the insert statement so concurrent runtimes cannot
+    // both open a takeover. The refinement defines exclusivity per agent.
+    const keys = Object.keys(
+      getTableColumns(runRequests)
+    ) as (keyof RequestRow)[];
+    return db
+      .insert(runRequests)
+      .select(sql`select ${sql.join(
+        keys.map((key) => sql`${row[key]}`),
+        sql`, `
+      )}
+      where not exists (select 1 from ${runRequests} where ${runRequests.agentId} = ${row.agentId} and ${runRequests.kind} = 'takeover' and ${runRequests.status} = 'pending')`)
+      .onConflictDoNothing({
+        target: [runRequests.runId, runRequests.toolUseId],
+      })
+      .returning();
+  };
   const open = async (
     principal: Principal,
     raw: z.input<typeof openInputSchema>
@@ -326,69 +412,40 @@ export const createRequestsService = ({
     if (!["running", "waiting"].includes(run.status)) {
       throw new ServiceError("conflict", "Run is not running");
     }
-    // Keep the shared masker convention: granted values display as [secret:NAME].
-    const masker = await secrets.maskerFor(run.workspaceId, run.agentId);
-    const clean =
-      input.kind === "approval"
-        ? redactToolPayload(masker?.maskDeep(input.input) ?? input.input)
-        : null;
-    const toolKey = await approvalToolKey(run, input);
-    const display =
-      input.kind === "approval"
-        ? {
-            input: capInput(clean as NonNullable<typeof clean>),
-            summary: approvalSummary(input.toolName, clean),
-            toolKey,
-            toolName: input.toolName,
-          }
-        : {
-            questions: input.questions.map((question) => ({
-              ...question,
-              ...(question.choices && {
-                choices: question.choices.map((choice) =>
-                  scrubText(masker, choice)
-                ),
-              }),
-              ...(question.header !== undefined && {
-                header: scrubText(masker, question.header),
-              }),
-              question: scrubText(masker, question.question),
-            })),
-          };
+    const display = await prepareOpen(run, input);
+    const toolKey = "toolKey" in display ? display.toolKey : null;
     const now = clock.now();
-    const [row] = await db
-      .insert(runRequests)
-      .values({
-        agentId: run.agentId,
-        createdAt: now.toISOString(),
-        display: JSON.stringify(display),
-        expiresAt: new Date(
-          now.getTime() +
-            (input.kind === "approval" ? APPROVAL_TTL_MS : QUESTION_TTL_MS)
-        ).toISOString(),
-        id: ulid(),
-        kind: input.kind,
-        // The runtime's own question texts; answers come back keyed by them.
-        questionKeys:
-          input.kind === "question"
-            ? JSON.stringify(input.questions.map(({ question }) => question))
-            : null,
-        runId: run.id,
-        sessionId: run.sessionId,
-        status: "pending",
-        toolKey: input.kind === "approval" ? toolKey : null,
-        toolName: input.toolName,
-        toolUseId: input.toolUseId,
-        workspaceId: run.workspaceId,
-      })
-      .onConflictDoNothing({
-        target: [runRequests.runId, runRequests.toolUseId],
-      })
-      .returning();
+    const [row] = await insertPending({
+      agentId: run.agentId,
+      answer: null,
+      answeredAt: null,
+      answeredBy: null,
+      answeredVia: null,
+      createdAt: now.toISOString(),
+      deliveredAt: null,
+      display: JSON.stringify(display),
+      expiresAt: new Date(now.getTime() + TTL[input.kind]).toISOString(),
+      id: ulid(),
+      kind: input.kind,
+      // The runtime's own question texts; answers come back keyed by them.
+      questionKeys:
+        input.kind === "question"
+          ? JSON.stringify(input.questions.map(({ question }) => question))
+          : null,
+      runId: run.id,
+      sessionId: run.sessionId,
+      slackMessage: null,
+      status: "pending",
+      toolKey: input.kind === "approval" ? toolKey : null,
+      toolName:
+        input.kind === "takeover" ? "request_human_takeover" : input.toolName,
+      toolUseId: input.toolUseId,
+      workspaceId: run.workspaceId,
+    });
     if (!row) {
       const [winner] = await db.select().from(runRequests).where(key);
       if (!winner) {
-        throw new ServiceError("not_found", "Request not found");
+        throw new ServiceError("conflict", "A takeover is already pending");
       }
       return requestRecord(winner);
     }
@@ -400,6 +457,13 @@ export const createRequestsService = ({
       toolName: row.toolName,
       toolUseId: row.toolUseId,
     });
+    if ("machineId" in display) {
+      const payload: ComputerTakeoverRequestedPayload = {
+        ...display,
+        requestId: row.id,
+      };
+      await announce(row, "computer.takeover_requested", { ...payload });
+    }
     await runs.markWaiting(SYSTEM_PRINCIPAL, run.id);
     // An append listener can answer before markWaiting; reconcile without delivering twice.
     await markRunningIfSettled(run.id);
@@ -419,10 +483,7 @@ export const createRequestsService = ({
     if (principal.kind !== "user") {
       throw new ForbiddenError("requests.answer");
     }
-    const parsed =
-      row.kind === "approval"
-        ? approvalAnswerSchema.parse(input.answer)
-        : questionAnswerSchema.parse(input.answer);
+    const parsed = answerSchemas[row.kind].parse(input.answer);
     const masker = await secrets.maskerFor(row.workspaceId, row.agentId);
     // The row keeps what the person typed, which the runtime hands to the
     // model. Only the event and the clients' records are scrubbed.
@@ -456,11 +517,32 @@ export const createRequestsService = ({
     await announce(
       closed,
       "request.answered",
-      { ...clean, answeredBy: principal.userId, via: input.via },
+      {
+        ...clean,
+        answeredBy: principal.userId,
+        kind: closed.kind,
+        via: input.via,
+      },
       principal.userId
     );
     await resume(closed);
     return scrubbedRecord(closed, masker);
+  };
+  const cancel = async (principal: Principal, requestId: string) => {
+    const { row } = await requireRequest(principal, requestId);
+    if (principal.kind !== "user") {
+      throw new ForbiddenError("requests.answer");
+    }
+    const [closed] = await db
+      .update(runRequests)
+      .set({ status: "cancelled" })
+      .where(and(eq(runRequests.id, row.id), eq(runRequests.status, "pending")))
+      .returning();
+    if (!closed) {
+      throw new ServiceError("conflict", "Already answered");
+    }
+    await announce(closed, "request.cancelled", {}, principal.userId);
+    await resume(closed);
   };
   const outcome = async (principal: Principal, requestId: string) =>
     outcomeOf((await requireRequest(principal, requestId)).row);
@@ -562,6 +644,7 @@ export const createRequestsService = ({
   };
   return {
     answer,
+    cancel,
     cancelForRun,
     expireDue,
     listPending,

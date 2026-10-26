@@ -1048,7 +1048,15 @@ export const createManagedService = ({
           eq(runRequests.runId, run.id),
           eq(runRequests.workspaceId, run.workspaceId),
           isNull(runRequests.deliveredAt),
-          inArray(runRequests.status, ["answered", "expired"])
+          or(
+            inArray(runRequests.status, ["answered", "expired"]),
+            // A person's cancel of a takeover wakes the tool call; a cancel
+            // because the run ended never does.
+            and(
+              eq(runRequests.status, "cancelled"),
+              eq(runRequests.kind, "takeover")
+            )
+          )
         )
       )
       .orderBy(asc(runRequests.createdAt), asc(runRequests.id));

@@ -10,6 +10,8 @@ import {
   questionDisplaySchema,
   requestOutcomeSchema,
   type TakeoverAnswer,
+  takeoverAnswerSchema,
+  takeoverDisplaySchema,
 } from "@repo/protocol/requests";
 import { z } from "zod";
 import { payloadSchema } from "../events/payload.ts";
@@ -29,9 +31,19 @@ export const openInputSchema = z.discriminatedUnion("kind", [
     kind: z.literal("question"),
     questions: questionDisplaySchema.shape.questions,
   }),
+  z.strictObject({
+    kind: z.literal("takeover"),
+    reason: takeoverDisplaySchema.shape.reason,
+    runId: id,
+    toolUseId: id,
+  }),
 ]);
 export const answerInputSchema = z.strictObject({
-  answer: z.union([approvalAnswerSchema, questionAnswerSchema]),
+  answer: z.union([
+    approvalAnswerSchema,
+    questionAnswerSchema,
+    takeoverAnswerSchema,
+  ]),
   requestId: id,
   via: z.enum(ANSWER_SURFACES),
 });
@@ -43,23 +55,25 @@ export const outcomeOf = (row: RequestRow) =>
         status: row.status,
         ...(row.answer ? { answer: JSON.parse(row.answer) } : {}),
       });
+export const answerSchemas = {
+  approval: approvalAnswerSchema,
+  question: questionAnswerSchema,
+  takeover: takeoverAnswerSchema,
+};
+const displaySchemas = {
+  approval: approvalDisplaySchema,
+  question: questionDisplaySchema,
+  takeover: takeoverDisplaySchema,
+};
 /** The record a runtime gets: the answer is raw, as the person typed it. */
 export const requestRecord = (row: RequestRow) => {
-  // V6.7 teaches the services and the desk to read a takeover row. Nothing
-  // opens one before then, so a takeover here is a bug worth failing on.
-  if (row.kind === "takeover") {
-    throw new Error(`Request ${row.id} is a takeover, which is not read yet`);
-  }
   const { questionKeys: _keys, ...rest } = row;
   return {
     ...rest,
     answer: row.answer
-      ? answerInputSchema.shape.answer.parse(JSON.parse(row.answer))
+      ? answerSchemas[row.kind].parse(JSON.parse(row.answer))
       : null,
-    display:
-      row.kind === "approval"
-        ? approvalDisplaySchema.parse(JSON.parse(row.display))
-        : questionDisplaySchema.parse(JSON.parse(row.display)),
+    display: displaySchemas[row.kind].parse(JSON.parse(row.display)),
     kind: row.kind,
     outcome: outcomeOf(row),
   };
