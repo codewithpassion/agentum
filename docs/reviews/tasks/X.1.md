@@ -37,7 +37,7 @@ The sample mapping used a placeholder user id and the Harbour Edge Intelligence 
 
 Round 2 at e3982f6 (fix for false positives found on the staging copy): must-fix, two findings. `--ignore-unresolved` ignored every unresolved id, including real dev ids with no single production match or hit by a Clerk API error, and it printed nothing about what it ignored. Fixed in the next commit: it ignores only ids Clerk reports as 404, prints each, and any other Clerk error stops the run. Also validated an existing `ignore` list, and added tests for `_` neighbours and for that flag.
 
-Round 3: pending.
+Round 3 at b524bf2: clean. Nits left: the builder prints only the message of a Clerk error (no id), the never-ignore test covers a user with no match but not an org or several matches, and the 404 check sits in the untested Clerk wrapper.
 
 ## Staging copy dry run
 
