@@ -1,5 +1,10 @@
 /** What the machines service and the machine runtime adapter ask of the relay. */
 export interface MachineRelayPort {
+  /**
+   * Tells the daemon that library paths changed. Does nothing when no socket
+   * is open or the daemon did not name `library-live`.
+   */
+  announce: (machineId: string, paths: string[]) => Promise<void>;
   /** Tells the daemon to stop a run. Does nothing when no socket is open. */
   cancel: (machineId: string, runId: string) => Promise<void>;
   /** Offers a run to the daemon. Does nothing when no socket is open. */
@@ -13,6 +18,7 @@ export interface MachineRelayPort {
 
 /** A relay with no daemon behind it: scripts and tests that only need the port filled. */
 export const noopRelay: MachineRelayPort = {
+  announce: () => Promise.resolve(),
   cancel: () => Promise.resolve(),
   offer: () => Promise.resolve(),
   revoke: () => Promise.resolve(),

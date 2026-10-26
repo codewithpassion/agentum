@@ -84,6 +84,11 @@ export class MachineRelay extends DurableObject<Env> {
     return Promise.resolve();
   }
 
+  announce(paths: string[]): Promise<void> {
+    this.#relay().announce(paths);
+    return Promise.resolve();
+  }
+
   cancelRun(runId: string): Promise<void> {
     this.#relay().cancel(runId);
     return Promise.resolve();

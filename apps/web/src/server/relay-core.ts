@@ -5,6 +5,7 @@
 import {
   CLOSE_CODES,
   daemonFrameSchema,
+  FEATURE_LIBRARY_LIVE,
   LEASE_SECONDS,
   type RelayFrame,
 } from "@repo/protocol/machine";
@@ -33,8 +34,22 @@ const LAST_WRITE_KEY = "lastSeenWrittenAt";
 
 export interface RelaySocket {
   close: (code?: number, reason?: string) => void;
+  deserializeAttachment: () => unknown;
   send: (data: string) => void;
+  serializeAttachment: (value: unknown) => void;
 }
+
+/** What the socket keeps about its daemon. It survives hibernation. */
+interface SocketAttachment {
+  features: string[];
+}
+
+const isSocketAttachment = (value: unknown): value is SocketAttachment =>
+  typeof value === "object" &&
+  value !== null &&
+  "features" in value &&
+  Array.isArray(value.features) &&
+  value.features.every((feature) => typeof feature === "string");
 
 /** The part of `DurableObjectStorage` the relay uses. */
 export interface RelayStorage {
@@ -73,6 +88,14 @@ export const createRelayCore = ({
       workspaceId: string;
     }>(IDENTITY_KEY);
     return stored ? { kind: "machine", ...stored } : null;
+  };
+
+  const takesLibraryFrames = (socket: RelaySocket): boolean => {
+    const attachment = socket.deserializeAttachment();
+    return (
+      isSocketAttachment(attachment) &&
+      attachment.features.includes(FEATURE_LIBRARY_LIVE)
+    );
   };
 
   const send = (socket: RelaySocket, frame: RelayFrame) => {
@@ -209,6 +232,7 @@ export const createRelayCore = ({
     }
     const at = now();
     if (frame.type === "hello") {
+      socket.serializeAttachment({ features: frame.features ?? [] });
       await heard(at, true);
       const status = await markOnline(who, {
         ...frame.capabilities,
@@ -272,6 +296,15 @@ export const createRelayCore = ({
     }
   };
 
+  /** Tells the open sockets whose daemon named `library-live` that these paths changed. */
+  const announce = (paths: string[]): void => {
+    for (const socket of sockets()) {
+      if (takesLibraryFrames(socket)) {
+        send(socket, { paths, type: "library_changed" });
+      }
+    }
+  };
+
   const cancel = (runId: string): void => {
     for (const socket of sockets()) {
       send(socket, { runId, type: "cancel" });
@@ -285,7 +318,16 @@ export const createRelayCore = ({
     }
   };
 
-  return { alarm, cancel, closed, connect, message, offer, revoke };
+  return {
+    alarm,
+    announce,
+    cancel,
+    closed,
+    connect,
+    message,
+    offer,
+    revoke,
+  };
 };
 
 export type RelayCore = ReturnType<typeof createRelayCore>;
