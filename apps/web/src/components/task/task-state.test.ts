@@ -43,6 +43,7 @@ const makeTask = (overrides: {
 }): TaskView =>
   ({
     agent: {
+      computerMachineId: null,
       id: "agent-1",
       machine: null,
       name: "Bookkeeper",
