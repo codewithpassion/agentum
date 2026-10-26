@@ -1,6 +1,7 @@
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useMemo } from "react";
+import { ImportGithubForm } from "#/components/skills/import-github-form.tsx";
 import { SkillNewForm } from "#/components/skills/skill-new-form.tsx";
 import { SkillsList } from "#/components/skills/skills-list.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
@@ -44,6 +45,7 @@ function SkillsIndex() {
     <section className="mx-auto flex max-w-3xl flex-col gap-8">
       <h1 className="font-heading text-3xl text-foreground">Skills</h1>
       <SkillNewForm onDone={refresh} />
+      <ImportGithubForm onDone={refresh} />
       <SkillsList
         agentNames={agentNames}
         assignments={assignments}

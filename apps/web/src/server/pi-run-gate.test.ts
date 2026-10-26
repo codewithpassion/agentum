@@ -622,6 +622,130 @@ describe("the ask_user tool", () => {
   });
 });
 
+describe("the request_human_takeover tool", () => {
+  const apiOf = (callId: string) => ({ callId }) as ToolExecutionApi;
+  const HANDED_BACK: RequestOutcome = {
+    answer: { note: "Logged in." },
+    status: "answered",
+  };
+
+  test("is replay safe and takes the shared definition", () => {
+    const gate = gateOf(fakeRequests([]).port);
+
+    expect(gate.requestTakeover.name).toBe("request_human_takeover");
+    expect(gate.requestTakeover.replay).toBe("safe");
+  });
+
+  test("opens a takeover request on the call id, waits, and resumes with the note", async () => {
+    const fake = fakeRequests([]);
+    const gate = gateOf(fake.port);
+    const run = gate.requestTakeover.execute(
+      { reason: "Log in with the code on my phone." },
+      apiOf("call9"),
+      BACKGROUND_CONTEXT
+    );
+
+    expect(await resultOf(run)).toBe("pending");
+    expect(fake.opens).toEqual([
+      {
+        kind: "takeover",
+        reason: "Log in with the code on my phone.",
+        runId: RUN,
+        toolUseId: "call9",
+      },
+    ]);
+    fake.close("req1", HANDED_BACK);
+    gate.answered("req1");
+    expect(await run).toEqual({
+      isError: false,
+      output: [
+        {
+          text: "A person took over the computer and handed it back. Note: Logged in.",
+          type: "text",
+        },
+      ],
+    });
+  });
+
+  test("returns the expiry text as an error result", async () => {
+    const fake = fakeRequests([]);
+    const gate = gateOf(fake.port);
+    const run = gate.requestTakeover.execute(
+      { reason: "CAPTCHA" },
+      apiOf("call9"),
+      BACKGROUND_CONTEXT
+    );
+    await settle();
+
+    fake.close("req1", EXPIRED);
+    gate.answered("req1");
+
+    expect(await run).toEqual({
+      isError: true,
+      output: [
+        {
+          text: "Nobody took over the computer in time. Go on without it or stop and say what you need.",
+          type: "text",
+        },
+      ],
+    });
+  });
+
+  test("run again after a restart it finds its request and does not open a second", async () => {
+    const fake = fakeRequests([]);
+    const args = { reason: "CAPTCHA" };
+    const first = gateOf(fake.port).requestTakeover.execute(
+      args,
+      apiOf("call9"),
+      withAbortSignal(new AbortController().signal, BACKGROUND_CONTEXT)
+    );
+    first.catch(() => undefined);
+    await settle();
+    fake.close("req1", HANDED_BACK);
+
+    const again = await gateOf(fake.port).requestTakeover.execute(
+      args,
+      apiOf("call9"),
+      BACKGROUND_CONTEXT
+    );
+
+    expect(fake.rows).toHaveLength(1);
+    expect(again.isError).toBe(false);
+  });
+
+  test("a dry run blocks the call and opens nothing", async () => {
+    const fake = fakeRequests([]);
+    const gate = gateOf(fake.port, { dry: { dryRun: true } });
+
+    const value = await gate.beforeTool(
+      callOf("request_human_takeover", "call9", { reason: "CAPTCHA" }),
+      HOOK_API,
+      BACKGROUND_CONTEXT
+    );
+
+    expect(value).toEqual({
+      block:
+        "Nobody takes over the computer in a dry run. Go on without it and say what you could not do.",
+    });
+    expect(fake.opens).toEqual([]);
+    expect(fake.ruleReads).toEqual([]);
+  });
+
+  test("outside a dry run the hook lets the call through without a rule lookup", async () => {
+    const fake = fakeRequests([]);
+    const gate = gateOf(fake.port);
+
+    const value = await gate.beforeTool(
+      callOf("request_human_takeover", "call9", { reason: "CAPTCHA" }),
+      HOOK_API,
+      BACKGROUND_CONTEXT
+    );
+
+    expect(value).toBeUndefined();
+    expect(fake.ruleReads).toEqual([]);
+  });
+});
+
 describe("the extension", () => {
   test("brings the hook, the tool and one sentence for the prompt", async () => {
     const extension = gateExtension(gateOf(fakeRequests([]).port));

@@ -11,6 +11,10 @@ import { z } from "zod";
 import { SkillEditor } from "#/components/skills/skill-editor";
 import { SkillHistory } from "#/components/skills/skill-history";
 import {
+  SkillSourceLine,
+  SkillUpdateNotice,
+} from "#/components/skills/skill-source";
+import {
   ownerLabel,
   statusLabel,
   versionLabel,
@@ -23,6 +27,7 @@ import { getTrpc } from "#/integrations/trpc/client";
 const TABS = ["files", "history"] as const;
 
 const searchSchema = z.object({
+  review: z.number().int().positive().optional().catch(undefined),
   tab: z.enum(TABS).optional().catch(undefined),
 });
 
@@ -74,7 +79,7 @@ function SkillNotFound() {
 
 function SkillPage() {
   const { agents, skill, versions } = Route.useLoaderData();
-  const { tab = "files" } = Route.useSearch();
+  const { review, tab = "files" } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
 
@@ -83,6 +88,13 @@ function SkillPage() {
     [agents]
   );
   const refresh = useCallback(() => router.invalidate(), [router]);
+  const proposed = useCallback(
+    async (version: number) => {
+      await router.invalidate();
+      return navigate({ search: { review: version, tab: "history" } });
+    },
+    [navigate, router]
+  );
   const selectTab = useCallback(
     (next: string) => {
       const parsed = searchSchema.parse({ tab: next });
@@ -115,6 +127,7 @@ function SkillPage() {
               : `Latest approved ${versionLabel(skill.latestApprovedVersion)}`}
           </span>
         </p>
+        {skill.source ? <SkillSourceLine source={skill.source} /> : null}
       </header>
       {head === undefined || head.status !== "proposed" ? null : (
         <p
@@ -126,6 +139,13 @@ function SkillPage() {
           on it.
         </p>
       )}
+      {skill.source ? (
+        <SkillUpdateNotice
+          onProposed={proposed}
+          skillId={skill.id}
+          source={skill.source}
+        />
+      ) : null}
       <Tabs onValueChange={selectTab} value={tab}>
         <TabsList>
           <TabsTrigger value="files">Files</TabsTrigger>
@@ -147,6 +167,7 @@ function SkillPage() {
             agentNames={agentNames}
             key={skill.id}
             onChanged={refresh}
+            reviewVersion={review}
             skill={skill}
             versions={versions}
           />
