@@ -99,6 +99,15 @@ test.each([
   ["password=[redacted]", "password=[redacted]"],
   ["token: [secret:abc123]", "token: [secret:abc123]"],
   ["token:\nnext line", "token:\nnext line"],
+  [
+    "run hm_mach_abcdefghijklmnopqrstuvwxyz0123456789 now",
+    "run [redacted] now",
+  ],
+  [
+    "use hm_run_abcdefghijklmnop1234.abcdefghijklmnop5678 here",
+    "use [redacted] here",
+  ],
+  ["the hm_mach_ prefix alone", "the hm_mach_ prefix alone"],
 ])("redacts credential fields written as text: %s", (input, expected) => {
   expect(redactText(input)).toBe(expected);
   expect(scrubInput(input)).toBe(expected);

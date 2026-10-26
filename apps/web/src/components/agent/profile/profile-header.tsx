@@ -10,8 +10,13 @@ import type {
   MailboxRecord,
 } from "#/integrations/trpc/types";
 import { AddressChip } from "./address-chip.tsx";
+import { MailProvisionButton } from "./mail-provision-button.tsx";
 import { MailStatus } from "./mail-status.tsx";
-import { runtimeWords, statusText } from "./profile-logic.ts";
+import {
+  mailProvisionLabel,
+  runtimeWords,
+  statusText,
+} from "./profile-logic.ts";
 
 /** Tile, name, address, runtime and status, with Edit and Run now. */
 export function ProfileHeader({
@@ -28,6 +33,11 @@ export function ProfileHeader({
   onStarted: (runId: string) => void;
 }) {
   const status = statusText(header);
+  const setUpLabel = mailProvisionLabel(
+    header.status,
+    header.emailLocal,
+    mailbox?.status ?? null
+  );
   const agents = [{ id: header.id, name: header.name }];
   return (
     <header className="flex flex-wrap items-center gap-3.5">
@@ -40,14 +50,21 @@ export function ProfileHeader({
         <h1 className="font-heading text-2xl text-foreground">{header.name}</h1>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {mailbox === null ? (
-            <AddressChip
-              agentId={header.id}
-              emailLocal={header.emailLocal}
-              suggestion={header.slug}
-            />
+            <>
+              <AddressChip
+                agentId={header.id}
+                emailLocal={header.emailLocal}
+                suggestion={header.slug}
+              />
+              {setUpLabel === null ? null : (
+                <MailProvisionButton agentId={header.id} label={setUpLabel} />
+              )}
+            </>
           ) : (
             <MailStatus
               agentId={header.id}
+              agentStatus={header.status}
+              emailLocal={header.emailLocal}
               mailbox={mailbox}
               onOpenMail={onOpenMail}
             />

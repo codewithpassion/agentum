@@ -214,6 +214,33 @@ test("tool.call text keeps its command and loses the credential in it", async ()
   });
 });
 
+const MACHINE_TOKEN = "hm_mach_abcdefghijklmnopqrstuvwxyz0123456789";
+
+test("computer.exec command loses a bearer token and a machine credential", async () => {
+  const event = await service.append({
+    ...base,
+    payload: {
+      command: `curl -H "Authorization: Bearer sk-test-1234567890abcdef" https://x && echo run with ${MACHINE_TOKEN} done`,
+    },
+    sessionId: "s1",
+    type: "computer.exec",
+  });
+  const command = String(event.payload.command);
+  expect(command).not.toContain("sk-test-1234567890abcdef");
+  expect(command).not.toContain(MACHINE_TOKEN);
+  expect(command).toContain("https://x");
+});
+
+test("browser.action url loses a token in its query", async () => {
+  const event = await service.append({
+    ...base,
+    payload: { url: "https://x.example/cb?token=abc123def456ghi789&a=1" },
+    sessionId: "s1",
+    type: "browser.action",
+  });
+  expect(String(event.payload.url)).not.toContain("abc123def456ghi789");
+});
+
 test("tool.result output loses the bearer token, a JWT and a GitHub token", async () => {
   const event = await service.append({
     ...base,
