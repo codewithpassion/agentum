@@ -212,7 +212,11 @@ type CredentialRow = Pick<
 >;
 
 const toolSchema = z.array(
-  z.object({ description: z.string().nullable(), name: z.string() })
+  z.object({
+    description: z.string().nullable(),
+    name: z.string(),
+    readOnly: z.boolean().default(false),
+  })
 );
 
 const toCredentialSummary = (row: CredentialRow): CredentialSummary => ({

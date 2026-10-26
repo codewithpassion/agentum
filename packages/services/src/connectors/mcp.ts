@@ -3,6 +3,8 @@ import { assertSafeUrl } from "./url.ts";
 export interface CachedTool {
   description: string | null;
   name: string;
+  /** True only when the server marks the tool `annotations.readOnlyHint: true`. */
+  readOnly: boolean;
 }
 
 /**
@@ -195,7 +197,15 @@ const toolsFrom = (
 ): CachedTool[] =>
   Array.isArray(result?.tools)
     ? result.tools.flatMap((entry) => {
-        const tool = entry as { description?: unknown; name?: unknown };
+        const tool = entry as {
+          annotations?: unknown;
+          description?: unknown;
+          name?: unknown;
+        };
+        const annotations = tool.annotations as
+          | { readOnlyHint?: unknown }
+          | null
+          | undefined;
         return typeof tool.name === "string"
           ? [
               {
@@ -204,6 +214,10 @@ const toolsFrom = (
                     ? tool.description
                     : null,
                 name: tool.name,
+                readOnly:
+                  typeof annotations === "object" &&
+                  annotations !== null &&
+                  annotations.readOnlyHint === true,
               },
             ]
           : [];
