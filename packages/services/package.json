@@ -20,6 +20,7 @@
     "./connectors/url": "./src/connectors/url.ts",
     "./credentials": "./src/credentials.ts",
     "./crypto": "./src/crypto.ts",
+    "./desk": "./src/desk.ts",
     "./desk-api": "./src/desk-api.ts",
     "./errors": "./src/errors.ts",
     "./events": "./src/events.ts",

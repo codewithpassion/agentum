@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
+import { createDeskService } from "./desk.ts";
 import { createDeskApiService, type MemberDirectory } from "./desk-api.ts";
 import { ServiceError } from "./errors.ts";
 import { createEventsService } from "./events.ts";
@@ -117,7 +118,25 @@ beforeEach(async () => {
         Promise.resolve(createMasker({ NAME: "granted-value-123" })),
     },
   });
-  desk = createDeskApiService({ agents, clock, db, directory, requests, runs });
+  // Only `pendingRequests` is used here, so the other lanes' sources are empty.
+  const none = () => Promise.resolve([]);
+  const deskLanes = createDeskService({
+    clock,
+    db,
+    inbox: { listThreads: none },
+    requests,
+    routines: { list: none },
+    skillsStore: { proposals: none },
+    triggers: { list: none },
+  });
+  desk = createDeskApiService({
+    agents,
+    db,
+    desk: deskLanes,
+    directory,
+    requests,
+    runs,
+  });
   member = await desk.actingMember(deskKey, email);
   directoryCalls = [];
 });
