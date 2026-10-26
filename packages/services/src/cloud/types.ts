@@ -10,6 +10,8 @@ export interface CloudStart {
     runtimeConfig: Record<string, unknown>;
     slug: string;
   };
+  /** The computer attached to the agent, absent when none (or when it is revoked). */
+  computer?: { desktop: boolean; machineId: string };
   inputFileIds: string[];
   library?: {
     roots: import("@repo/db/shared").LibraryAccessGrant[];

@@ -440,6 +440,7 @@ export const composeWith = ({
   const runSkills = createRunSkillsService({ skillsStore });
   const machines = createMachinesService({
     allowedOrgIds,
+    atomic: infra.atomic,
     clock: infra.clock,
     db,
     events,
