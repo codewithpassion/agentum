@@ -36,6 +36,8 @@ const validDraft: AgentDraft = {
 interface ApiBody {
   messages: { content: string; role: string }[];
   model: string;
+  system: string;
+  tool_choice: { type: string };
   tools: { input_schema: { type?: string }; name: string }[];
 }
 
@@ -221,6 +223,9 @@ describe("draft", () => {
       (entry) => entry.name === "draft_agent_profile"
     );
     expect(tool?.input_schema.type).toBe("object");
+    // The default model rejects a forced tool, so the prompt names it instead.
+    expect(call.body.tool_choice).toEqual({ type: "auto" });
+    expect(call.body.system).toContain("draft_agent_profile");
 
     const userMessage = call.body.messages[0]?.content;
     expect(userMessage).toContain("conn_mail");
