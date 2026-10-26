@@ -11,6 +11,8 @@ import {
   approvalAnswer,
   canSubmitAnswers,
   expiryText,
+  type MailApprovalFields,
+  mailApprovalFields,
   type QuestionInputs,
   questionAnswer,
   type RequestView,
@@ -224,6 +226,31 @@ function QuestionCard({
   );
 }
 
+function MailFields({ mail }: { mail: MailApprovalFields }) {
+  return (
+    <div
+      className="flex flex-col gap-2 text-sm"
+      data-testid="mail-approval-fields"
+    >
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+        <dt className="text-muted-foreground">From</dt>
+        <dd>{mail.from}</dd>
+        <dt className="text-muted-foreground">To</dt>
+        <dd>{mail.to.join(", ")}</dd>
+        {mail.cc.length === 0 ? null : (
+          <>
+            <dt className="text-muted-foreground">Cc</dt>
+            <dd>{mail.cc.join(", ")}</dd>
+          </>
+        )}
+        <dt className="text-muted-foreground">Subject</dt>
+        <dd>{mail.subject}</dd>
+      </dl>
+      <pre className="whitespace-pre-wrap">{mail.body}</pre>
+    </div>
+  );
+}
+
 function ApprovalCard({
   view,
   nowMs,
@@ -239,6 +266,7 @@ function ApprovalCard({
   const { input } = view.display;
   const inputText =
     typeof input === "string" ? input : JSON.stringify(input, null, 2);
+  const mail = mailApprovalFields(view.display);
 
   const allowOnce = useCallback(
     () => submit(approvalAnswer("allow_once", note)),
@@ -266,12 +294,16 @@ function ApprovalCard({
       <p className="text-muted-foreground text-xs">
         {expiryText(view.expiresAt, nowMs)}
       </p>
-      <details className="text-muted-foreground text-xs">
-        <summary className="cursor-pointer">Input</summary>
-        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap">
-          {inputText}
-        </pre>
-      </details>
+      {mail === null ? (
+        <details className="text-muted-foreground text-xs">
+          <summary className="cursor-pointer">Input</summary>
+          <pre className="mt-1 overflow-x-auto whitespace-pre-wrap">
+            {inputText}
+          </pre>
+        </details>
+      ) : (
+        <MailFields mail={mail} />
+      )}
       <div className="flex flex-col gap-1">
         <Label htmlFor={noteId}>Note for Deny (optional)</Label>
         <Input

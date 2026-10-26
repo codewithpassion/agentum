@@ -21,6 +21,9 @@ export const mailRouter = router({
         ctx.services.mail.provision(ctx.principal, input.agentId)
       ),
   }),
+  mailToday: workspaceProcedure.query(({ ctx }) =>
+    ctx.services.mail.today(ctx.principal)
+  ),
   setTrigger: workspaceProcedure
     .input(agentInput.extend({ on: z.boolean() }))
     .mutation(({ ctx, input }) =>

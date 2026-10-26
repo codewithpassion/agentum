@@ -399,11 +399,21 @@ test("today counts incoming and currently held per address on the workspace's ca
     },
   ]);
   expect(await mail.today(user)).toEqual([
-    { address: "agent@example.com", held: 1, in: 1 },
+    {
+      address: "agent@example.com",
+      agentId: expect.any(String),
+      held: 1,
+      in: 1,
+    },
   ]);
   await answer("deny");
   expect(await mail.today(user)).toEqual([
-    { address: "agent@example.com", held: 0, in: 1 },
+    {
+      address: "agent@example.com",
+      agentId: expect.any(String),
+      held: 0,
+      in: 1,
+    },
   ]);
   await expect(mail.today({ ...user, workspaceId: "other" })).rejects.toThrow();
 });

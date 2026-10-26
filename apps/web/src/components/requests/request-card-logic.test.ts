@@ -5,6 +5,7 @@ import {
   canSubmitAnswers,
   expiryText,
   isConflict,
+  mailApprovalFields,
   questionAnswer,
   settledFromEvent,
   settledLine,
@@ -335,4 +336,64 @@ test("takeover cards use their own display and settlement", () => {
   expect(
     settledFromEvent("request.answered", { kind: "takeover" })
   ).toMatchObject({ answer: {}, status: "answered" });
+});
+
+describe("mailApprovalFields", () => {
+  const mail = {
+    cc: ["carol@example.com"],
+    from: "me@example.com",
+    preview: "Hi Bob,\n\nSee the attached plan.",
+    subject: "Plan",
+    to: ["bob@example.com"],
+  };
+  const display = (
+    toolName: string,
+    input: unknown
+  ): Parameters<typeof mailApprovalFields>[0] => ({
+    input: input as Parameters<typeof mailApprovalFields>[0]["input"],
+    summary: "Send a mail",
+    toolKey: "mail",
+    toolName,
+  });
+
+  test("reads the fields of a held mail", () => {
+    expect(mailApprovalFields(display("mail_send", mail))).toEqual({
+      body: "Hi Bob,\n\nSee the attached plan.",
+      cc: ["carol@example.com"],
+      from: "me@example.com",
+      subject: "Plan",
+      to: ["bob@example.com"],
+    });
+  });
+
+  test("an absent cc reads as none", () => {
+    const { cc: _cc, ...withoutCc } = mail;
+    expect(mailApprovalFields(display("mail_send", withoutCc))?.cc).toEqual([]);
+  });
+
+  test("keeps the first six lines of the preview", () => {
+    const lines = Array.from({ length: 10 }, (_, index) => `line ${index + 1}`);
+    const body = mailApprovalFields(
+      display("mail_send", { ...mail, preview: lines.join("\n") })
+    )?.body;
+    expect(body).toBe(lines.slice(0, 6).join("\n"));
+  });
+
+  test("is null for another tool", () => {
+    expect(mailApprovalFields(display("bash", mail))).toBeNull();
+  });
+
+  test("is null when the input does not have the mail shape", () => {
+    expect(mailApprovalFields(display("mail_send", "text"))).toBeNull();
+    expect(mailApprovalFields(display("mail_send", null))).toBeNull();
+    expect(
+      mailApprovalFields(display("mail_send", { ...mail, to: "bob" }))
+    ).toBeNull();
+    expect(
+      mailApprovalFields(display("mail_send", { ...mail, cc: [1] }))
+    ).toBeNull();
+    expect(
+      mailApprovalFields(display("mail_send", { ...mail, subject: undefined }))
+    ).toBeNull();
+  });
 });
