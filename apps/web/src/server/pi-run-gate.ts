@@ -38,14 +38,17 @@ import {
   outcomeText,
   type Question,
   questionSchema,
+  REQUEST_TAKEOVER_TOOL,
   type RequestOutcome,
   toolKey,
 } from "@repo/protocol/requests";
+import { z } from "zod";
 import {
   ASK_USER_DRY_RUN_TEXT,
   isReadOnlyCall,
   skippedText,
   summaryOf,
+  TAKEOVER_DRY_RUN_TEXT,
 } from "./pi-run-dry-run.ts";
 import type { ToolOrigin } from "./pi-run-mcp.ts";
 
@@ -54,6 +57,8 @@ export const GATE_EXTENSION = "hm-request-gate";
 
 /** How long a rule lookup is trusted. An answer that sets a rule clears it at once. */
 export const RULE_CACHE_MS = 30_000;
+
+const takeoverArgsSchema = z.object({ reason: z.string().min(1) });
 
 const ASK_USER_SECTION = "ask-user";
 const ASK_USER_PROMPT =
@@ -74,6 +79,12 @@ export type OpenRequest =
       questions: Question[];
       runId: string;
       toolName: string;
+      toolUseId: string;
+    }
+  | {
+      kind: "takeover";
+      reason: string;
+      runId: string;
       toolUseId: string;
     };
 
@@ -247,6 +258,9 @@ export const createGate = ({
     if (call.name === ASK_USER_TOOL.name) {
       return dryRun ? { block: ASK_USER_DRY_RUN_TEXT } : undefined;
     }
+    if (call.name === REQUEST_TAKEOVER_TOOL.name) {
+      return dryRun ? { block: TAKEOVER_DRY_RUN_TEXT } : undefined;
+    }
     const key = keyOf(call);
     const runId = await runIdOf();
     if (dryRun) {
@@ -293,6 +307,34 @@ export const createGate = ({
     replay: "safe",
   };
 
+  /**
+   * Replay safe, like `ask_user`: after an eviction it opens the same request again and waits again.
+   * The run waits inside the call, and the person's hand-back wakes it. Not part of `gateExtension`,
+   * because only an agent with a desktop computer has it (`pi-run-computer.ts`).
+   */
+  const requestTakeover: ToolRegistration = {
+    description: REQUEST_TAKEOVER_TOOL.description,
+    execute: async (args, api, context) => {
+      const { reason } = takeoverArgsSchema.parse(args);
+      const request = await requests.open({
+        kind: "takeover",
+        reason,
+        runId: await runIdOf(),
+        toolUseId: api.callId,
+      });
+      const outcome = await outcomeOf(request, context);
+      return {
+        isError: outcome.status !== "answered",
+        output: [
+          { text: outcomeText("takeover", outcome) ?? "", type: "text" },
+        ],
+      };
+    },
+    name: REQUEST_TAKEOVER_TOOL.name,
+    parameters: Type.Unsafe(REQUEST_TAKEOVER_TOOL.inputSchema),
+    replay: "safe",
+  };
+
   return {
     /** A request was closed: wakes its waiter, and drops the rule lookups because an answer can set a rule. */
     answered: (requestId: string) => {
@@ -307,6 +349,7 @@ export const createGate = ({
       rules.clear();
       waiters.wakeAll();
     },
+    requestTakeover,
   };
 };
 
