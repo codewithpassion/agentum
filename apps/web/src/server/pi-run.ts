@@ -7,6 +7,7 @@ import {
   type EntryRecord,
   Harness,
 } from "@earendil-works/pi-durable";
+import type { Masker } from "@repo/protocol/masker";
 import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
 import { CLOUD_LEASE_MS } from "@repo/services/cloud/lease";
 import {
@@ -50,6 +51,7 @@ import {
   SERVERS_KEY,
 } from "./pi-run-core.ts";
 import { workspaceKeyStore } from "./pi-run-credentials.ts";
+import { deltaPublisher, type LiveDoc } from "./pi-run-deltas.ts";
 import {
   filesExtension,
   inputContent,
@@ -76,6 +78,7 @@ import {
 } from "./pi-run-skills.ts";
 import { createStartQueue } from "./pi-run-start.ts";
 import { RunStartAlarm } from "./pi-run-start-alarm.ts";
+import { streamPublisher } from "./session-stream-port.ts";
 
 import { dynamicWorkerSandbox } from "./skill-scripts/dynamic-worker-sandbox.ts";
 import type { RunScriptDeps } from "./skill-scripts/run-script.ts";
@@ -94,6 +97,8 @@ const TOOLS_KEY = "mcp-tools";
 const WORKSPACE_KEY = "workspace";
 /** The newest run of the session. Its principal reads and writes the library for Pi's file tools, which know no run of their own. */
 const RUN_KEY = "run";
+/** The id of the session this object serves, as the stream names it. Stored beside the run, because the run reference has no session. */
+const SESSION_KEY = "session";
 /** The slug of the agent of the newest run: its library home is `agents/<slug>`. */
 const AGENT_SLUG_KEY = "agent-slug";
 /** The skills of the run that loaded them last, with that run: a tool call knows no run of its own. The text is read again on each call. */
@@ -161,6 +166,7 @@ export class PiRun extends DurableObject<Env> {
   /** The agent's Linux VM, when the agent runs in one. */
   #vm: LinuxVm | undefined;
   #composed: ReturnType<typeof compose> | undefined;
+  #streams: ReturnType<typeof streamPublisher> | undefined;
 
   /**
    * The workspace's provider keys, read from the workspace secrets store for
@@ -858,9 +864,65 @@ export class PiRun extends DurableObject<Env> {
             await onChange();
           }
         });
-        return () => stream.stop();
+        const stopDeltas = await this.#streamDeltas();
+        return async () => {
+          stopDeltas();
+          await stream.stop();
+        };
       },
     };
+  }
+
+  /**
+   * Sends the partial answer Pi commits every 100 ms to the session stream as
+   * `delta` frames. Only the text of the answer is read: tool arguments and
+   * output reach the stream as the stored, scrubbed `tool.call` and
+   * `tool.result` events. Returns the function that stops it. A failure here
+   * never reaches the run.
+   */
+  async #streamDeltas(): Promise<() => void> {
+    try {
+      const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
+      const sessionId = await this.ctx.storage.get<string>(SESSION_KEY);
+      if (!(run && sessionId)) {
+        return () => undefined;
+      }
+      this.#streams ??= streamPublisher(this.env.SESSION_STREAM, (work) =>
+        this.ctx.waitUntil(work)
+      );
+      const streams = this.#streams;
+      // Read once for the run. A failed read is dropped, and the next frame reads again.
+      let masker: Promise<Masker | null> | undefined;
+      const deltas = deltaPublisher({
+        clock: () => Date.now(),
+        maskerOf: () => {
+          masker ??= this.#services()
+            .secrets.maskerFor(run.workspaceId, run.agentId)
+            .catch((error: unknown) => {
+              masker = undefined;
+              throw error;
+            });
+          return masker;
+        },
+        publish: (frame) => streams.publish(sessionId, frame),
+        runId: run.runId,
+      });
+      const root = await (await this.harness.pi()).root(BACKGROUND_CONTEXT);
+      const view = await root.viewState(BACKGROUND_CONTEXT);
+      const unsubscribe = view.subscribe((value) => {
+        deltas.offer(value.docs["pi.live"] as LiveDoc | undefined);
+      });
+      return () => {
+        unsubscribe();
+        view.dispose();
+      };
+    } catch (error) {
+      console.warn(
+        "PiRun: streaming partial text failed",
+        error instanceof Error ? error.name : "unknown error"
+      );
+      return () => undefined;
+    }
   }
 
   #services() {
@@ -957,6 +1019,7 @@ export class PiRun extends DurableObject<Env> {
   async #prepareRun(input: CloudStart): Promise<void> {
     await this.ctx.storage.put(WORKSPACE_KEY, input.run.workspaceId);
     await this.ctx.storage.put(RUN_KEY, runRefOf(input));
+    await this.ctx.storage.put(SESSION_KEY, input.run.sessionId);
     await this.ctx.storage.put(AGENT_SLUG_KEY, input.agent.slug);
     await this.#selectEnvironment(input);
     try {
