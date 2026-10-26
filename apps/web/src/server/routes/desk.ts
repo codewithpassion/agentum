@@ -249,6 +249,22 @@ export const deskRoutes = ({
     }
   });
 
+  routes.get("/runs/:runId", async (c) => {
+    const acting = await memberOrRefusal(c);
+    if (acting instanceof Response) {
+      return acting;
+    }
+    try {
+      const run = await c
+        .get("composed")
+        .services.deskApi.readRun(acting.member, c.req.param("runId"));
+      recordUse(c, acting.credential);
+      return c.json(run);
+    } catch (error) {
+      return refusal(c, error);
+    }
+  });
+
   routes.post("/requests/:id/decision", async (c) => {
     const acting = await memberOrRefusal(c);
     if (acting instanceof Response) {
