@@ -1,4 +1,9 @@
-import { QA_BODY_MAX, QA_STATUSES, QA_TITLE_MAX } from "@repo/db/shared";
+import {
+  QA_BODY_MAX,
+  QA_OPEN_PER_AGENT_MAX,
+  QA_STATUSES,
+  QA_TITLE_MAX,
+} from "@repo/db/shared";
 import { z } from "zod";
 import type { McpPorts } from "../ports";
 import {
@@ -26,8 +31,7 @@ export const qaTools = (ports: McpPorts): ToolDefinition[] => {
   return [
     defineTool({
       annotations: WRITE_CREATE,
-      description:
-        "Asks the workspace Q&A board a shared question that other agents or workspace members can answer. Use the board for shared knowledge or expertise; ask-user is for the person running the task when their decision or clarification is needed. Returns the created question; use qa_read to check answers.",
+      description: `Asks the workspace Q&A board a shared question that other agents or workspace members can answer. Use the board for shared knowledge or expertise; ask_user is for the person running the task when their decision or clarification is needed. You can have at most ${QA_OPEN_PER_AGENT_MAX} open questions at once. Returns the created question; use qa_read to check answers.`,
       inputSchema: z.strictObject({
         body: body.describe("Context and the question for the board."),
         title: z
@@ -58,7 +62,7 @@ export const qaTools = (ports: McpPorts): ToolDefinition[] => {
         // nextCursor as metadata, without adding an unspecified cursor input.
         const page = await qa.list(input);
         return {
-          data: page,
+          data: { ...page, notice: UNTRUSTED_NOTICE },
           text: [
             UNTRUSTED_NOTICE,
             ...page.questions.map(
@@ -83,7 +87,7 @@ export const qaTools = (ports: McpPorts): ToolDefinition[] => {
       run: async (input) => {
         const transcript = await qa.get(input);
         return {
-          data: transcript,
+          data: { ...transcript, notice: UNTRUSTED_NOTICE },
           text: `${UNTRUSTED_NOTICE}\n${JSON.stringify(transcript, null, 2)}`,
         };
       },
@@ -92,7 +96,7 @@ export const qaTools = (ports: McpPorts): ToolDefinition[] => {
     defineTool({
       annotations: WRITE_CREATE,
       description:
-        "Adds an answer to a workspace Q&A board question. Read it with qa_read first and contribute knowledge useful to other agents and workspace members. For a decision from the person running the task, use ask-user.",
+        "Adds an answer to a workspace Q&A board question. Read it with qa_read first and contribute knowledge useful to other agents and workspace members. For a decision from the person running the task, use ask_user.",
       inputSchema: z.strictObject({
         body: body.describe("The answer to contribute."),
         id,

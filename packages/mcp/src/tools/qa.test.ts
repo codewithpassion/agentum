@@ -77,7 +77,7 @@ describe("Q&A registration", () => {
         expect(tool.description).toContain("board");
       }
       const ask = qa.find((tool) => tool.name === "qa_ask");
-      expect(ask?.description).toContain("ask-user");
+      expect(ask?.description).toContain("ask_user");
       expect(ask?.description).toContain("person running the task");
       expect(ask?.inputSchema).toMatchObject({
         properties: {
@@ -144,7 +144,10 @@ describe("Q&A results", () => {
     );
     for (const result of results) {
       expect(result.isError).toBeFalsy();
-      expect(result.structuredContent).toEqual(page);
+      expect(result.structuredContent).toEqual({
+        ...page,
+        notice: UNTRUSTED_NOTICE,
+      });
       expect(textOf(result)).toContain(QUESTION.title);
       expect(textOf(result)).toContain(UNTRUSTED_NOTICE);
     }
@@ -186,7 +189,10 @@ describe("Q&A results", () => {
     );
     expect(received).toEqual([{ id: "q1" }]);
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toEqual(transcript);
+    expect(result.structuredContent).toEqual({
+      ...transcript,
+      notice: UNTRUSTED_NOTICE,
+    });
     expect(textOf(result)).toContain(UNTRUSTED_NOTICE);
     expect(textOf(result)).toContain(QUESTION.body);
     expect(textOf(result)).toContain(ANSWER.body);
