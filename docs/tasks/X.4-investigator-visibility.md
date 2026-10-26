@@ -27,3 +27,4 @@ Dom decided (26 Oct 2026) that control-plane starts the investigator automatical
 - 2026-10-26: blocked after 2 fix rounds on documentation (run_script claim, rule list, check step order); controller allowed a third round.
 - 2026-10-26: review clean after 3 fix rounds; code merged at 4fb57fb. Open: staging check for X.3 and X.4 (needs a cpt_ ingest token and control-plane staging on feat/investigator-visibility; setup in docs/reviews/tasks/X.4.md). For control-plane: steps[] in the result are re-added to the timeline, so live steps show twice.
 - 2026-10-26: deployed to staging (4a3e1503) and production (955ef460). Staging check dispatched.
+- 2026-10-26: staging check blocked: tmp/X.3 trigger token was removed by clean, and the dev user is not in HEI. Needs an HEI sign-in to rotate the trigger token.
