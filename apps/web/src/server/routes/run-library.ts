@@ -1,10 +1,12 @@
-// Library HTTP routes for the daemon, under `/api/runs/:id/library`: list,
-// stat, read, write and delete a file, and record a conflict. Only a run token
-// (`hm_run_`, bearer) authenticates them, and it must name the run in the URL.
-// The cookie session is never read. The services decide what the run may do,
-// so this file only authenticates and maps refusals to statuses. Mount with
-// `runtimeRoutes.route("/", runLibraryRoutes())`, because the paths are full,
-// not prefixed.
+// Library HTTP routes for the daemon. Two prefixes serve the same handlers:
+// `/api/runs/:id/library` takes a run token (`hm_run_`, bearer) that must name
+// the run in the URL, and `/api/session/library` takes a run or managed
+// session token (`hm_run_` or `hm_ses_`, bearer) and checks no run id, because
+// a managed session's run changes every turn. `/api/session/library/run` answers
+// the id of the run the token names. The cookie session is never read. The
+// services decide what the caller may do, so this file only authenticates and
+// maps refusals to statuses. Mount with `runtimeRoutes.route("/", runLibraryRoutes())`,
+// because the paths are full, not prefixed.
 
 import {
   LIBRARY_ETAG_HEADER,
@@ -18,6 +20,7 @@ import {
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import type { LibraryEntry } from "@repo/services/library";
+import { importRunTokenKey, verifyAgentToken } from "@repo/services/run-tokens";
 import { bearerToken, type Principal } from "@repo/services/workspaces";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -35,7 +38,15 @@ const PATH_REQUIRED = "Expected a path query parameter.";
 const CONFLICT_BODY = "Expected JSON with path and conflictPath.";
 
 type RouteContext = Context<AppEnv>;
-type RunHandler = (c: RouteContext, principal: Principal) => Promise<Response>;
+type RunPrincipal = Extract<Principal, { kind: "run" }>;
+type RunHandler = (
+  c: RouteContext,
+  principal: RunPrincipal
+) => Promise<Response>;
+type Authenticate = (
+  c: RouteContext,
+  token: string
+) => Promise<RunPrincipal | null>;
 
 const jsonError = (
   c: RouteContext,
@@ -55,18 +66,22 @@ const refusal = (c: RouteContext, error: unknown): Response => {
 };
 
 /**
- * A route for a run's own library. The bearer run token must verify, and its
- * run must be the `:id` in the URL. The handler gets that run's principal.
+ * Wraps a handler in a bearer check. The token must authenticate, and `mayUse`
+ * must allow that run for this URL. The handler gets the authenticated run.
  */
-const runRoute =
+const guarded =
+  (
+    authenticate: Authenticate,
+    mayUse: (c: RouteContext, principal: RunPrincipal) => boolean
+  ) =>
   (handler: RunHandler) =>
   async (c: RouteContext): Promise<Response> => {
     const token = bearerToken(c.req.header("Authorization") ?? null);
-    const principal = token ? await runPrincipal(c, token) : null;
+    const principal = token ? await authenticate(c, token) : null;
     if (!principal) {
       return jsonError(c, UNAUTHORIZED, INVALID_TOKEN);
     }
-    if (principal.kind !== "run" || principal.runId !== c.req.param("id")) {
+    if (!mayUse(c, principal)) {
       return jsonError(c, FORBIDDEN, NOT_ALLOWED);
     }
     try {
@@ -75,6 +90,41 @@ const runRoute =
       return refusal(c, error);
     }
   };
+
+/** A run token that names the run in the `:id` URL parameter. */
+const runRoute = guarded(
+  async (c, token) => {
+    const principal = await runPrincipal(c, token);
+    return principal?.kind === "run" ? principal : null;
+  },
+  (c, principal) => principal.runId === c.req.param("id")
+);
+
+/** A run or managed session token. The run it names is whatever is live now. */
+const sessionRoute = guarded(
+  async (c, token) => {
+    if (!c.env.RUN_TOKEN_KEY) {
+      return null;
+    }
+    let key: CryptoKey;
+    try {
+      key = await importRunTokenKey(c.env.RUN_TOKEN_KEY);
+    } catch {
+      return null;
+    }
+    const result = await verifyAgentToken({
+      db: c.get("composed").db,
+      key,
+      token,
+    });
+    if (!result.ok) {
+      return null;
+    }
+    const { agentId, runId, workspaceId } = result.claims;
+    return { agentId, kind: "run", runId, workspaceId };
+  },
+  () => true
+);
 
 /** The `path` query parameter, or null when it is absent. An empty string is the root. */
 const pathParam = (c: RouteContext): string | null =>
@@ -95,12 +145,15 @@ const wireEntry = ({
   size,
 }: LibraryEntry): LibraryEntryWire => ({ etag, kind, path, size });
 
-export const runLibraryRoutes = (): Hono<AppEnv> => {
-  const routes = new Hono<AppEnv>();
-
+/** The six library routes under `base`, each behind `guard`. */
+const registerLibraryRoutes = (
+  routes: Hono<AppEnv>,
+  base: string,
+  guard: (handler: RunHandler) => (c: RouteContext) => Promise<Response>
+) => {
   routes.get(
-    "/api/runs/:id/library/list",
-    runRoute(async (c, principal) => {
+    `${base}/list`,
+    guard(async (c, principal) => {
       const path = pathParam(c);
       if (path === null) {
         return jsonError(c, BAD_REQUEST, PATH_REQUIRED);
@@ -115,8 +168,8 @@ export const runLibraryRoutes = (): Hono<AppEnv> => {
   );
 
   routes.get(
-    "/api/runs/:id/library/stat",
-    runRoute(async (c, principal) => {
+    `${base}/stat`,
+    guard(async (c, principal) => {
       const path = pathParam(c);
       if (path === null) {
         return jsonError(c, BAD_REQUEST, PATH_REQUIRED);
@@ -131,8 +184,8 @@ export const runLibraryRoutes = (): Hono<AppEnv> => {
   );
 
   routes.get(
-    "/api/runs/:id/library/file",
-    runRoute(async (c, principal) => {
+    `${base}/file`,
+    guard(async (c, principal) => {
       const path = pathParam(c);
       if (path === null) {
         return jsonError(c, BAD_REQUEST, PATH_REQUIRED);
@@ -155,8 +208,8 @@ export const runLibraryRoutes = (): Hono<AppEnv> => {
   );
 
   routes.put(
-    "/api/runs/:id/library/file",
-    runRoute(async (c, principal) => {
+    `${base}/file`,
+    guard(async (c, principal) => {
       const path = pathParam(c);
       if (path === null) {
         return jsonError(c, BAD_REQUEST, PATH_REQUIRED);
@@ -176,8 +229,8 @@ export const runLibraryRoutes = (): Hono<AppEnv> => {
   );
 
   routes.delete(
-    "/api/runs/:id/library/file",
-    runRoute(async (c, principal) => {
+    `${base}/file`,
+    guard(async (c, principal) => {
       const path = pathParam(c);
       if (path === null) {
         return jsonError(c, BAD_REQUEST, PATH_REQUIRED);
@@ -188,8 +241,8 @@ export const runLibraryRoutes = (): Hono<AppEnv> => {
   );
 
   routes.post(
-    "/api/runs/:id/library/conflicts",
-    runRoute(async (c, principal) => {
+    `${base}/conflicts`,
+    guard(async (c, principal) => {
       const parsed = libraryConflictRequestSchema.safeParse(
         await c.req.json<unknown>().catch(() => null)
       );
@@ -201,6 +254,20 @@ export const runLibraryRoutes = (): Hono<AppEnv> => {
         .services.library.recordConflict(principal, parsed.data);
       return c.json({});
     })
+  );
+};
+
+export const runLibraryRoutes = (): Hono<AppEnv> => {
+  const routes = new Hono<AppEnv>();
+
+  registerLibraryRoutes(routes, "/api/runs/:id/library", runRoute);
+  registerLibraryRoutes(routes, "/api/session/library", sessionRoute);
+
+  routes.get(
+    "/api/session/library/run",
+    sessionRoute((c, principal) =>
+      Promise.resolve(c.json({ runId: principal.runId }))
+    )
   );
 
   return routes;
