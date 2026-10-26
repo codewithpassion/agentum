@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type Anthropic from "@anthropic-ai/sdk";
-import { ASK_USER_TOOL } from "@repo/protocol/requests";
+import { ASK_USER_TOOL, REQUEST_TAKEOVER_TOOL } from "@repo/protocol/requests";
 import { AGENT_MODEL, modelFor } from "./config.ts";
-import { createManagedGateway, type IdCache } from "./gateway.ts";
+import {
+  createManagedGateway,
+  DESKTOP_SCREENSHOT_TOOL,
+  type IdCache,
+} from "./gateway.ts";
 
 /**
  * The SDK is faked down to the handful of calls the gateway makes. Casting the
@@ -53,6 +57,21 @@ const ASK_USER_CUSTOM_TOOL = {
   name: ASK_USER_TOOL.name,
   type: "custom",
 };
+
+const DESKTOP_CUSTOM_TOOLS = [
+  {
+    description: DESKTOP_SCREENSHOT_TOOL.description,
+    input_schema: DESKTOP_SCREENSHOT_TOOL.inputSchema,
+    name: "desktop_screenshot",
+    type: "custom",
+  },
+  {
+    description: REQUEST_TAKEOVER_TOOL.description,
+    input_schema: REQUEST_TAKEOVER_TOOL.inputSchema,
+    name: "request_human_takeover",
+    type: "custom",
+  },
+];
 
 describe("ensureEnvironment", () => {
   const environments = (
@@ -176,6 +195,27 @@ describe("syncAgent", () => {
         url: "https://a.example.com/mcp",
       },
     ]);
+  });
+
+  test("adds the screenshot and takeover tools when the computer has a desktop, and drops them when it does not", async () => {
+    const input = {
+      anthropicAgentId: "agt_1",
+      askKeys: [],
+      mcpServers: [],
+      model: AGENT_MODEL,
+      name: "Ada",
+      skills: [],
+      system: "be helpful",
+    };
+
+    await gateway.syncAgent({ ...input, desktop: true });
+    const withDesktop = lastUpdate().tools as unknown[];
+    await gateway.syncAgent({ ...input, desktop: false });
+    const without = lastUpdate().tools as unknown[];
+
+    expect(withDesktop.slice(2)).toEqual(DESKTOP_CUSTOM_TOOLS);
+    // `tools` replaces the whole array, so leaving the desktop removes the tools.
+    expect(without).toHaveLength(2);
   });
 
   test("gives every declared server a matching always-allow toolset", async () => {
@@ -326,6 +366,46 @@ describe("registerAgent", () => {
       mcp_server_name: "connector_aaaa",
       type: "mcp_toolset",
     });
+  });
+
+  test("declares the screenshot and takeover tools after ask_user when the computer has a desktop", async () => {
+    await gateway.registerAgent({
+      askKeys: [],
+      desktop: true,
+      instructions: "be helpful",
+      mcpServers: [],
+      model: AGENT_MODEL,
+      name: "Ada",
+      skills: [],
+      system: "be helpful",
+    });
+
+    const tools = created.at(-1)?.tools as { name?: string; type: string }[];
+    expect(tools.map((tool) => tool.name ?? tool.type)).toEqual([
+      "agent_toolset_20260401",
+      "ask_user",
+      "desktop_screenshot",
+      "request_human_takeover",
+    ]);
+    expect(tools.slice(2)).toEqual(DESKTOP_CUSTOM_TOOLS);
+  });
+
+  test("declares neither desktop tool without a desktop", async () => {
+    await gateway.registerAgent({
+      askKeys: [],
+      instructions: "be helpful",
+      mcpServers: [],
+      model: AGENT_MODEL,
+      name: "Ada",
+      skills: [],
+      system: "be helpful",
+    });
+
+    const tools = created.at(-1)?.tools as { name?: string }[];
+    expect(tools.map((tool) => tool.name)).not.toContain("desktop_screenshot");
+    expect(tools.map((tool) => tool.name)).not.toContain(
+      "request_human_takeover"
+    );
   });
 
   test("sends no mcp_servers and only the agent toolset without servers", async () => {
@@ -909,6 +989,38 @@ describe("confirmTool and sendCustomToolResult", () => {
               result: "deny",
               tool_use_id: "evt_use",
               type: "user.tool_confirmation",
+            },
+          ],
+        },
+        sessionId: "sesn_1",
+      },
+    ]);
+  });
+
+  test("sendCustomToolImageResult sends the picture as one base64 image block", async () => {
+    sent.length = 0;
+    await gateway.sendCustomToolImageResult("sesn_1", "evt_use", {
+      data: "iVBORw0KGgo=",
+      mediaType: "image/png",
+    });
+
+    expect(sent).toEqual([
+      {
+        params: {
+          events: [
+            {
+              content: [
+                {
+                  source: {
+                    data: "iVBORw0KGgo=",
+                    media_type: "image/png",
+                    type: "base64",
+                  },
+                  type: "image",
+                },
+              ],
+              custom_tool_use_id: "evt_use",
+              type: "user.custom_tool_result",
             },
           ],
         },

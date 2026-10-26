@@ -31,6 +31,7 @@ export const systemClock: Clock = {
 export const SESSION_ORIGINS = [
   "ui",
   "slack",
+  "mail",
   "inbox",
   "routine",
   "trigger",

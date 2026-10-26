@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { BetaManagedAgentsSessionEvent } from "@anthropic-ai/sdk/resources/beta/sessions/events";
-import { ASK_USER_TOOL } from "@repo/protocol/requests";
+import { ASK_USER_TOOL, REQUEST_TAKEOVER_TOOL } from "@repo/protocol/requests";
 import {
   AGENT_TOOL_NAMES,
   AGENT_TOOLSET,
@@ -54,6 +54,23 @@ export interface CreatedSession {
   sessionId: string;
   status: SessionStatus;
 }
+
+/** A picture for a tool result. `data` is base64, without a data: prefix. */
+export interface ToolResultImage {
+  data: string;
+  mediaType: string;
+}
+
+/**
+ * Declared when the agent's computer has a desktop. Managed Agents ignore image
+ * blocks in MCP results, so the picture comes back through this custom tool.
+ */
+export const DESKTOP_SCREENSHOT_TOOL = {
+  description:
+    "Take a screenshot of the computer's desktop. The picture comes back in the tool result.",
+  inputSchema: { additionalProperties: false, properties: {}, type: "object" },
+  name: "desktop_screenshot",
+} as const;
 
 export interface PolledEvents {
   cursor: EventCursor | undefined;
@@ -120,6 +137,8 @@ export interface ManagedGateway {
   registerAgent: (input: {
     /** Tool keys whose rule is "ask": `<tool>` for a built-in, `<server>/<tool>` for an MCP tool. */
     askKeys: readonly string[];
+    /** The agent's computer reports a desktop, so it gets the screenshot and takeover tools. */
+    desktop?: boolean;
     instructions: string;
     mcpServers: readonly McpServerRef[];
     model: string;
@@ -127,6 +146,12 @@ export interface ManagedGateway {
     skills: readonly SkillRef[];
     system: string;
   }) => Promise<{ anthropicAgentId: string }>;
+  /** Returns a picture as the result of a custom tool call. Managed Agents ignore MCP images, so this is the way one reaches the model. */
+  sendCustomToolImageResult: (
+    sessionId: string,
+    toolUseId: string,
+    image: ToolResultImage
+  ) => Promise<void>;
   /** Returns the text of a custom tool call the session is waiting on. */
   sendCustomToolResult: (
     sessionId: string,
@@ -139,6 +164,8 @@ export interface ManagedGateway {
     anthropicAgentId: string;
     /** Tool keys whose rule is "ask": `<tool>` for a built-in, `<server>/<tool>` for an MCP tool. */
     askKeys: readonly string[];
+    /** The agent's computer reports a desktop, so it gets the screenshot and takeover tools. */
+    desktop?: boolean;
     mcpServers: readonly McpServerRef[];
     model: string;
     name: string;
@@ -217,14 +244,41 @@ const askNamesFor = (
   return { agent, servers };
 };
 
+/** A custom tool as the API takes it. */
+const customTool = ({
+  description,
+  inputSchema: { required, ...schema },
+  name,
+}: {
+  description: string;
+  inputSchema: {
+    properties: Record<string, unknown>;
+    required?: readonly string[];
+    type: "object";
+  };
+  name: string;
+}) => ({
+  description,
+  input_schema: {
+    ...structuredClone(schema),
+    // The screenshot tool takes no input, so it sends no `required`.
+    ...(required ? { required: [...required] } : {}),
+  },
+  name,
+  type: "custom" as const,
+});
+
 /**
  * Every declared server must be referenced by an `mcp_toolset`, so the toolsets
- * are built from the same list. The ask_user custom tool comes last: it is how
- * the agent asks a person a question, and nothing else carries that.
+ * are built from the same list. The custom tools come last. `ask_user` is how
+ * the agent asks a person a question, and nothing else carries that. An agent
+ * whose computer has a desktop also gets `desktop_screenshot` and
+ * `request_human_takeover`, because a picture and a wait both need a custom tool.
  */
 const toolsFor = (
   mcpServers: readonly McpServerRef[],
-  askKeys: readonly string[]
+  askKeys: readonly string[],
+  desktop: boolean
 ) => {
   const asks = askNamesFor(mcpServers, askKeys);
   return [
@@ -232,15 +286,10 @@ const toolsFor = (
     ...mcpServers.map((server) =>
       mcpToolset(server.name, asks.servers.get(server.name) ?? [])
     ),
-    {
-      description: ASK_USER_TOOL.description,
-      input_schema: {
-        ...structuredClone(ASK_USER_TOOL.inputSchema),
-        required: [...ASK_USER_TOOL.inputSchema.required],
-      },
-      name: ASK_USER_TOOL.name,
-      type: "custom" as const,
-    },
+    customTool(ASK_USER_TOOL),
+    ...(desktop
+      ? [customTool(DESKTOP_SCREENSHOT_TOOL), customTool(REQUEST_TAKEOVER_TOOL)]
+      : []),
   ];
 };
 
@@ -636,10 +685,35 @@ export const createManagedGateway = (
         name: input.name,
         ...(input.skills.length > 0 ? { skills: skillsFor(input.skills) } : {}),
         system: input.system,
-        tools: toolsFor(input.mcpServers, input.askKeys),
+        tools: toolsFor(
+          input.mcpServers,
+          input.askKeys,
+          input.desktop === true
+        ),
       });
 
       return { anthropicAgentId: agent.id };
+    },
+
+    async sendCustomToolImageResult(sessionId, toolUseId, image) {
+      await client.beta.sessions.events.send(sessionId, {
+        events: [
+          {
+            content: [
+              {
+                source: {
+                  data: image.data,
+                  media_type: image.mediaType,
+                  type: "base64",
+                },
+                type: "image",
+              },
+            ],
+            custom_tool_use_id: toolUseId,
+            type: "user.custom_tool_result",
+          },
+        ],
+      });
     },
 
     async sendCustomToolResult(sessionId, toolUseId, text) {
@@ -676,7 +750,11 @@ export const createManagedGateway = (
         ...(input.mcpServers.length > 0
           ? { mcp_servers: mcpServersFor(input.mcpServers) }
           : {}),
-        tools: toolsFor(input.mcpServers, input.askKeys),
+        tools: toolsFor(
+          input.mcpServers,
+          input.askKeys,
+          input.desktop === true
+        ),
       });
     },
   };
