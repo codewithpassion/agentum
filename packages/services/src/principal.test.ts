@@ -339,7 +339,7 @@ test("a trigger token resolves to a trigger principal", async () => {
 
 test("an api key resolves to the user who minted it, when that user is still a member", async () => {
   expect(await resolverFor().resolve(bearer(tokens.apiKey))).toEqual({
-    apiKey: { access: "write", id: "key_a" },
+    apiKey: { access: "write", id: "key_a", name: "key_a" },
     kind: "user",
     userId: "user_1",
     via: "api_key",

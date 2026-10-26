@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/tanstack-react-start";
 import { API_KEY_ACCESS, type ApiKeyAccess } from "@repo/db/shared";
 import { type ChangeEvent, useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
@@ -17,6 +18,13 @@ import {
 } from "#/components/ui/native-select";
 import { getTrpc } from "#/integrations/trpc/client";
 
+const ACCESS_LABELS: Record<ApiKeyAccess, string> = {
+  admin: "Admin",
+  desk: "Desk",
+  read: "Read",
+  write: "Write",
+};
+
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Something went wrong.";
 
@@ -30,6 +38,10 @@ export function CreateKeyDialog({
   onClose: () => void;
   onCreated: (secret: string) => void;
 }) {
+  const { orgRole } = useAuth();
+  const accessOptions = API_KEY_ACCESS.filter(
+    (option) => option !== "admin" || orgRole === "org:admin"
+  );
   const [name, setName] = useState("");
   const [access, setAccess] = useState<ApiKeyAccess>("read");
   const [pending, setPending] = useState(false);
@@ -81,6 +93,7 @@ export function CreateKeyDialog({
           <DialogDescription>
             Read keys can list and read. Write keys can also send messages. Desk
             keys are for another app's desk panel and work only on the desk API.
+            Admin keys can also set up secrets, machines and keys.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
@@ -95,9 +108,9 @@ export function CreateKeyDialog({
               onChange={handleAccessChange}
               value={access}
             >
-              {API_KEY_ACCESS.map((option) => (
+              {accessOptions.map((option) => (
                 <NativeSelectOption key={option} value={option}>
-                  {option}
+                  {ACCESS_LABELS[option]}
                 </NativeSelectOption>
               ))}
             </NativeSelect>

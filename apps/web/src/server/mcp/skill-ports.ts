@@ -101,10 +101,10 @@ export const createSkillPorts = ({
   findAgent,
 }: {
   principal: Principal;
-  services: Pick<Services, "agents" | "skillsStore">;
+  services: Pick<Services, "admin" | "agents" | "skillsStore">;
   findAgent: (reference: string) => Promise<AgentInfo>;
 }): SkillPorts => {
-  const { agents, skillsStore } = services;
+  const { admin, agents, skillsStore } = services;
 
   /** The name of a skill the caller can see, or its id when it is not listed. */
   const skillNameOf = async (skillId: string): Promise<string> => {
@@ -124,9 +124,11 @@ export const createSkillPorts = ({
     assignSkill: ({ agent, skillId }) =>
       guarded(async () => {
         const target = await findAgent(agent);
-        return toAssignment(
+        const assignment = toAssignment(
           await skillsStore.assign(principal, { agentId: target.id, skillId })
         );
+        await admin.audit(principal, "assign_skill", { skillId }, target.id);
+        return assignment;
       }),
 
     commitSkill: ({ baseVersion, deletes, message, skillId, writes }) =>
@@ -308,6 +310,7 @@ export const createSkillPorts = ({
           agentId: target.id,
           skillId,
         });
+        await admin.audit(principal, "unassign_skill", { skillId }, target.id);
       }),
   };
 };

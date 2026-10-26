@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import packageJson from "../package.json";
 import type { McpPorts } from "./ports";
 import { registerTools } from "./register";
+import { adminSetupTools, adminWriteTools } from "./tools/admin";
 import { agentTools, agentWriteTools } from "./tools/agents";
 import { browserTools } from "./tools/browser";
 import { computerTools } from "./tools/computer";
@@ -19,6 +20,8 @@ import { triggerTools } from "./tools/triggers";
 import { wikiTools } from "./tools/wiki";
 
 export interface ServerOptions {
+  /** The key's access; set by the route only for an API key with write or admin access. */
+  admin?: "admin" | "write";
   browser?: boolean;
   computer?: { desktop: boolean };
   /** Record skipped writes without calling their ports. */
@@ -63,6 +66,7 @@ export const harbourmasterTools = (
     qa = false,
     computer,
     browser = false,
+    admin,
   }: ServerOptions = {}
 ): readonly ToolDefinition[] => [
   ...(computer && !readOnly && ports.computer
@@ -89,6 +93,10 @@ export const harbourmasterTools = (
     ? qaTools(ports).filter(
         (tool) => !readOnly || tool.annotations.readOnlyHint === true
       )
+    : []),
+  ...(admin && !readOnly && ports.admin ? adminWriteTools(ports.admin) : []),
+  ...(admin === "admin" && !readOnly && ports.admin
+    ? adminSetupTools(ports.admin)
     : []),
 ];
 

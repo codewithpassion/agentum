@@ -543,6 +543,58 @@ export const createSecretsService = ({
     return ids.sort();
   };
 
+  /** Adds one secret to the agent's grants. Granting again changes nothing. */
+  const grant = async (
+    principal: Principal,
+    agentId: string,
+    secretId: string
+  ): Promise<void> => {
+    const user = requireUser(principal, WRITE_ACTION);
+    const { workspaceId } = user;
+    authorize(user, WRITE_ACTION, {
+      id: secretId,
+      kind: SECRET_KIND,
+      workspaceId,
+    });
+    await requireAgent(workspaceId, agentId);
+    await requireSecret(workspaceId, secretId);
+    await db
+      .insert(agentSecrets)
+      .values({
+        agentId,
+        createdAt: clock.now().toISOString(),
+        secretId,
+        workspaceId,
+      })
+      .onConflictDoNothing();
+  };
+
+  /** Takes one secret out of the agent's grants. Does nothing when it was not granted. */
+  const revoke = async (
+    principal: Principal,
+    agentId: string,
+    secretId: string
+  ): Promise<void> => {
+    const user = requireUser(principal, WRITE_ACTION);
+    const { workspaceId } = user;
+    authorize(user, WRITE_ACTION, {
+      id: secretId,
+      kind: SECRET_KIND,
+      workspaceId,
+    });
+    await requireAgent(workspaceId, agentId);
+    await requireSecret(workspaceId, secretId);
+    await db
+      .delete(agentSecrets)
+      .where(
+        and(
+          eq(agentSecrets.agentId, agentId),
+          eq(agentSecrets.secretId, secretId),
+          eq(agentSecrets.workspaceId, workspaceId)
+        )
+      );
+  };
+
   /** The agent's granted secrets, decrypted. Internal: callers keep the values out of anything stored or shown. */
   const grantedTo = async (
     workspaceId: string,
@@ -766,6 +818,7 @@ export const createSecretsService = ({
     announceInjection,
     create,
     envGrantsFor,
+    grant,
     grantsOf,
     list,
     maskerFor,
@@ -773,6 +826,7 @@ export const createSecretsService = ({
     proxyFor,
     remove,
     resolveForAgent,
+    revoke,
     setGrants,
     update,
   };

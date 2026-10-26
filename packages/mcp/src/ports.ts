@@ -528,7 +528,103 @@ export interface QaPort {
   }>;
 }
 
+/** An agent as the admin tools show it. */
+export interface AdminAgentInfo {
+  id: string;
+  model: string;
+  name: string;
+  runtime: string;
+  slug: string;
+}
+
+/** A secret as the admin tools show it: never its value. `hosts` are the hosts it applies to. */
+export interface AdminSecretInfo {
+  hosts: string[];
+  id: string;
+  mode: "env" | "proxy";
+  name: string;
+}
+
+/** An API key after it was made. `secret` is the only copy. */
+export interface AdminKeyCreated {
+  access: string;
+  id: string;
+  name: string;
+  prefix: string;
+  secret: string;
+}
+
+export interface AdminKeyRevoked {
+  id: string;
+  name: string;
+  revokedAt: string | null;
+}
+
+/** One header rule of a proxy secret. `template` holds the `{value}` placeholder. */
+export interface AdminSecretRule {
+  header: string;
+  host: string;
+  template: string;
+}
+
+/**
+ * The setup calls for an `hm_key_` key (X.10). Offered only to a write key
+ * (`createAgent`, `updateAgent`, `createInboxThread`) or an admin key (all).
+ * `agent` is a slug or an id.
+ */
+export interface AdminPort {
+  createAgent: (input: {
+    connectors?: string[];
+    environment?: "isolate" | "linux-vm";
+    instructions?: string;
+    machineId?: string;
+    maxTurns?: number;
+    model: string;
+    name: string;
+    networkAccess?: boolean;
+    runtime: "cloud" | "machine" | "managed";
+    slug?: string;
+  }) => Promise<AdminAgentInfo>;
+  createApiKey: (input: {
+    access: "admin" | "desk" | "read" | "write";
+    name: string;
+  }) => Promise<AdminKeyCreated>;
+  createEnrolmentCode: (input: {
+    machineId?: string;
+    machineName?: string;
+    role?: "agent_host" | "computer";
+  }) => Promise<{ code: string; expiresAt: string }>;
+  createInboxThread: (input: { title: string }) => Promise<ThreadInfo>;
+  createSecret: (
+    input:
+      | { allowedHosts?: string[]; mode: "env"; name: string; value: string }
+      | {
+          mode: "proxy";
+          name: string;
+          rules: AdminSecretRule[];
+          value: string;
+        }
+  ) => Promise<AdminSecretInfo>;
+  grantSecret: (input: { agent: string; secretId: string }) => Promise<void>;
+  revokeApiKey: (input: { keyId: string }) => Promise<AdminKeyRevoked>;
+  revokeSecret: (input: { agent: string; secretId: string }) => Promise<void>;
+  updateAgent: (input: {
+    agent: string;
+    connectors?: string[];
+    environment?: "isolate" | "linux-vm";
+    instructions?: string;
+    machineId?: string | null;
+    maxTurns?: number;
+    model?: string;
+    name?: string;
+    networkAccess?: boolean;
+    slug?: string;
+  }) => Promise<AdminAgentInfo>;
+}
+
 export interface McpPorts {
+  /** Set for every key principal; the server offers the tools its access allows. */
+  admin?: AdminPort;
   approveSkillVersion: (input: {
     skillId: string;
     version: number;

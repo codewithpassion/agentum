@@ -10,6 +10,7 @@ import { API_KEY_ACCESS, type ApiKeyAccess } from "@repo/db/shared";
 import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
+import { requireKey, withinScope } from "./admin-access.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { hashedToken } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
@@ -57,12 +58,29 @@ const summaryColumns = {
   revokedAt: apiKeys.revokedAt,
 };
 
-/** Keys are managed from a signed-in session: a key cannot mint or revoke keys. */
+/** Keys are managed from a signed-in session, or by an admin key (X.10). */
 const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user" || principal.via !== "session") {
+  if (principal.kind === "user" && principal.via === "session") {
+    return principal;
+  }
+  return requireKey(principal, action, "admin");
+};
+
+/**
+ * A session mints an admin key only as an organisation admin. A key mints up
+ * to its own access.
+ */
+const requireScope = (
+  user: UserPrincipal,
+  access: ApiKeyAccess,
+  action: string
+): void => {
+  const allowed = user.apiKey
+    ? withinScope(user.apiKey.access, access)
+    : access !== "admin" || user.isAdmin === true;
+  if (!allowed) {
     throw new ForbiddenError(action);
   }
-  return principal;
 };
 
 export const createApiKeysService = ({
@@ -85,6 +103,7 @@ export const createApiKeysService = ({
       kind: API_KEY_KIND,
       workspaceId: user.workspaceId,
     });
+    requireScope(user, access, CREATE_ACTION);
     const now = clock.now();
     const { hash, token } = await hashedToken(API_KEY_PREFIX);
     const key: ApiKeySummary = {

@@ -41,6 +41,7 @@ import {
   runWebFetcher,
 } from "../web-fetch/run-fetcher.ts";
 import type { WebFetcher } from "../web-fetch/types.ts";
+import { createAdminPorts } from "./admin-ports.ts";
 import { createBrowserPorts } from "./browser-ports.ts";
 import { createComputerPorts } from "./computer-ports.ts";
 import { guarded } from "./guarded.ts";
@@ -289,6 +290,10 @@ export const createMcpPorts = ({
 
   return {
     ...createLibraryPorts({ principal, services }),
+    // The route offers the tools only to a key whose access allows them.
+    ...(principal.kind === "user" && principal.apiKey
+      ? { admin: createAdminPorts({ principal, services }) }
+      : {}),
     ...createSkillPorts({ findAgent, principal, services }),
     // The Q&A board is shared: any principal reads it, the service decides who writes.
     qa: createQaPorts({ principal, services }),

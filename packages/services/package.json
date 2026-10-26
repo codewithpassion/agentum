@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./admin": "./src/admin.ts",
+    "./admin-access": "./src/admin-access.ts",
     "./agent-builder/draft": "./src/agent-builder/draft.ts",
     "./agent-builder/lifecycle": "./src/agent-builder/lifecycle.ts",
     "./agent-builder/service": "./src/agent-builder/service.ts",

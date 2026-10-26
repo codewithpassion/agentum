@@ -63,7 +63,13 @@ function ApiKeyRow({
         {keyRecord.prefix}…
       </TableCell>
       <TableCell>
-        <Badge variant={keyRecord.access === "write" ? "default" : "outline"}>
+        <Badge
+          variant={
+            keyRecord.access === "read" || keyRecord.access === "desk"
+              ? "outline"
+              : "default"
+          }
+        >
           {keyRecord.access}
         </Badge>
       </TableCell>
