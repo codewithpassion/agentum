@@ -177,6 +177,11 @@ its key from `apps/web/.env.production.local` or the process environment, and
 `--email` must name a user on that instance (the dev user is not there). The URL is a one-time credential: open it in a fresh
 browser session and don't paste it into logs or reports. The key is never
 printed. The session lands on the signed-in pages only when the user has an
-allowed organisation active. The dev user has one, and Clerk activates it for
-the Agent Task session, so nothing extra is set. Code: `apps/web/scripts/agent-login.ts`,
+allowed organisation active. On the production instance (staging, production) Clerk
+does not activate it for an Agent Task session: the session stays
+`pending` with the `choose-organization` task, which the app treats as signed
+out. `PendingSessionGate` (`src/integrations/clerk/pending-session-gate.tsx`)
+handles it. It activates the user's only organisation and reloads the page you
+asked for, and sends a user with several or none to `/choose-organization`.
+Code: `apps/web/scripts/agent-login.ts`,
 pure helpers in `agent-login-helpers.ts`.

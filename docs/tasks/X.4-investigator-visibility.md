@@ -24,3 +24,4 @@ Dom decided (26 Oct 2026) that control-plane starts the investigator automatical
 ## Log
 - 2026-10-26: requested by the integration coordinator after Dom's decision on auto-start with visibility.
 - 2026-10-26: dispatched. Its staging check also covers X.3's; controller runs it after merge.
+- 2026-10-26: blocked after 2 fix rounds on documentation (run_script claim, rule list, check step order); controller allowed a third round.
