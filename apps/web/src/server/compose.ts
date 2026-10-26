@@ -118,6 +118,7 @@ import {
   createOAuthClientsService,
   type OAuthClientsService,
 } from "@repo/services/oauth-clients";
+import { createQaService, type QaService } from "@repo/services/qa";
 import {
   createRequestsService,
   type RequestsService,
@@ -289,6 +290,7 @@ export interface Services {
   modelKeys: ModelKeysService;
   network: NetworkService;
   oauthClients: OAuthClientsService;
+  qa: QaService;
   requests: RequestsService;
   routines: RoutinesService;
   runSkills: RunSkillsService;
@@ -750,6 +752,13 @@ export const composeWith = ({
       modelKeys,
       network,
       oauthClients,
+      qa: createQaService({
+        atomic: infra.atomic,
+        clock: infra.clock,
+        db,
+        events,
+        runs,
+      }),
       requests,
       routines,
       runSkills,
