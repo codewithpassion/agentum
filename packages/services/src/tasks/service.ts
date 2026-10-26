@@ -9,6 +9,7 @@ import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { machines } from "@repo/db/schema/machines";
+import { mailMessages } from "@repo/db/schema/mail";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
@@ -75,6 +76,7 @@ export interface StartedBy {
   kind:
     | "person"
     | "slack"
+    | "mail"
     | "inbox"
     | "trigger"
     | "routine"
@@ -242,6 +244,33 @@ export const createTasksService = ({
     } satisfies StartedBy;
   };
 
+  const mailStarter = async (run: RunRecord): Promise<StartedBy> => {
+    const [mail] = await db
+      .select()
+      .from(mailMessages)
+      .where(
+        and(
+          eq(mailMessages.runId, run.id),
+          eq(mailMessages.direction, "in"),
+          eq(mailMessages.workspaceId, run.workspaceId)
+        )
+      )
+      .limit(1);
+    let sender = "unknown sender";
+    try {
+      const from = JSON.parse(mail?.fromAddress ?? "null") as {
+        address?: string;
+      } | null;
+      sender = from?.address ?? sender;
+    } catch {
+      /* Older malformed address rows keep a readable fallback. */
+    }
+    return {
+      kind: "mail",
+      label: `Mail from ${sender}: ${mail?.subject ?? "(no subject)"}`,
+    };
+  };
+
   /**
    * Who started the run. A run another run started is a handoff. Otherwise its
    * origin decides for Slack and the inbox, and its actor for the rest.
@@ -259,6 +288,9 @@ export const createTasksService = ({
       .where(and(eq(eventRows.runId, run.id), eq(eventRows.type, "run.queued")))
       .limit(1);
     const origin = originOf(queued?.payload ?? null) ?? session.origin;
+    if (origin === "mail") {
+      return await mailStarter(run);
+    }
     if (origin === "slack") {
       return { kind: "slack", label: "Slack" };
     }

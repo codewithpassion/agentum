@@ -12,6 +12,7 @@
 import type { Database } from "@repo/db";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { inboxPosts } from "@repo/db/schema/inbox";
+import { mailMessages } from "@repo/db/schema/mail";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { skills } from "@repo/db/schema/skills";
@@ -536,6 +537,45 @@ export const createDeskService = ({
       db,
       rows.filter((run) => run.status === "running").map((run) => run.id)
     );
+    const bounced = rows.length
+      ? await db
+          .select({ runId: mailMessages.runId, to: mailMessages.toAddresses })
+          .from(mailMessages)
+          .where(
+            and(
+              eq(mailMessages.workspaceId, member.workspaceId),
+              eq(mailMessages.direction, "out"),
+              eq(mailMessages.status, "bounced"),
+              inArray(
+                mailMessages.runId,
+                rows.map((run) => run.id)
+              )
+            )
+          )
+      : [];
+    const bouncedBands = new Map(
+      bounced.map((message) => {
+        let address = "recipient";
+        try {
+          const recipients = JSON.parse(message.to) as (
+            | string
+            | { address: string }
+          )[];
+          address =
+            recipients
+              .map((recipient) =>
+                typeof recipient === "string" ? recipient : recipient.address
+              )
+              .join(", ") || address;
+        } catch {
+          /* Keep the error visible even for a malformed historic address. */
+        }
+        return [
+          message.runId,
+          { text: `Mail to ${address} bounced`, tone: "error" as const },
+        ] as const;
+      })
+    );
     const drafts = rows.map(
       (run): Draft => ({
         agentId: run.agentId,
@@ -543,11 +583,13 @@ export const createDeskService = ({
           lane === "done"
             ? (run.finishedAt ?? run.createdAt)
             : (run.startedAt ?? run.createdAt),
-        band: statusBand(
-          run,
-          eventsByRun.get(run.id) ?? [],
-          pending.filter((record) => record.runId === run.id)
-        ),
+        band:
+          bouncedBands.get(run.id) ??
+          statusBand(
+            run,
+            eventsByRun.get(run.id) ?? [],
+            pending.filter((record) => record.runId === run.id)
+          ),
         id: run.id,
         kind: "run",
         lane,

@@ -380,15 +380,6 @@ export const composeWith = ({
     people: infra.people,
   });
   const agents = createAgentsService({ db, events });
-  const mail = createMailService({
-    atomic: infra.atomic,
-    clock: infra.clock,
-    db,
-    domain: infra.mailDomain,
-    events,
-    mailbox: infra.mailbox,
-    routing: infra.mailRouting,
-  });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
   // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
   const connectorFetch: Fetcher =
@@ -540,6 +531,17 @@ export const composeWith = ({
     library,
     runTokenKey: infra.runTokenKey,
     secrets,
+  });
+  const mail = createMailService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    domain: infra.mailDomain,
+    events,
+    library,
+    mailbox: infra.mailbox,
+    routing: infra.mailRouting,
+    runs,
   });
   const requests = createRequestsService({
     atomic: infra.atomic,

@@ -1,6 +1,11 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { inboxPosts } from "@repo/db/schema/inbox";
+import {
+  agentMailboxes,
+  mailMessages,
+  mailThreads,
+} from "@repo/db/schema/mail";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -752,4 +757,47 @@ test("a dry run never shows in Running or Done today, even to the person who sta
   expect(ids(view.running)).toEqual([live]);
   expect(ids(view.done)).toEqual([done]);
   expect(view.doneMore).toBe(0);
+});
+
+test("mail run shows a bounced outbound error band", async () => {
+  const started = await runs.startRun(user(), {
+    agentId: a1,
+    input: { text: "mail" },
+    session: { externalKey: "mail:box:t", origin: "mail" },
+  });
+  await db.insert(agentMailboxes).values({
+    address: "agent@example.com",
+    agentId: a1,
+    createdAt: new Date(now).toISOString(),
+    id: "box",
+    status: "active",
+    workspaceId: "w1",
+  });
+  await db.insert(mailThreads).values({
+    externalThreadId: "t",
+    id: "thread",
+    lastMessageAt: new Date(now).toISOString(),
+    mailboxId: "box",
+    sessionId: started.sessionId,
+    subject: "Help",
+    workspaceId: "w1",
+  });
+  await db.insert(mailMessages).values({
+    ccAddresses: "[]",
+    createdAt: new Date(now).toISOString(),
+    direction: "out",
+    externalMessageId: "m",
+    fromAddress: '{"address":"sender@example.net"}',
+    id: "mail",
+    runId: started.runId,
+    snippet: "",
+    status: "bounced",
+    subject: "Help",
+    threadId: "thread",
+    toAddresses: '["recipient@example.net"]',
+    workspaceId: "w1",
+  });
+  expect(
+    (await get()).running.find((card) => card.id === started.runId)?.band
+  ).toEqual({ text: "Mail to recipient@example.net bounced", tone: "error" });
 });
