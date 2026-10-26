@@ -46,6 +46,7 @@ import {
 import { createInboxService, type InboxService } from "@repo/services/inbox";
 import {
   createInvestigatorReportBack,
+  createReportedReader,
   createRunRequestReader,
 } from "@repo/services/investigator-report";
 import {
@@ -490,12 +491,13 @@ export const composeWith = ({
   });
   // Catches the run and tool events the runs service writes through its own events instance.
   runs.onEvent(slackStatus.onEvent);
-  // An investigator run that ends before it reported tells control-plane to escalate.
+  // An investigator run that ends, or finishes, without having reported tells control-plane to escalate.
   runs.onEvent(
     createInvestigatorReportBack({
       defer: infra.defer,
       fetch: connectorFetch,
       now: () => infra.clock.now(),
+      reported: createReportedReader(db),
       requestOf: createRunRequestReader(db),
       secrets,
     }).onEvent
