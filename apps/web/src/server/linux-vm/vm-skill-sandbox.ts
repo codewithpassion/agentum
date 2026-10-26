@@ -65,9 +65,11 @@ export const vmSkillSandbox = (vm: LinuxVm): SkillScriptSandbox => ({
       };
     }
     const note = `timed out after ${input.timeoutMs / 1000} s`;
+    const separator =
+      result.stderr === "" || result.stderr.endsWith("\n") ? "" : "\n";
     return {
       exitCode: TIMEOUT_EXIT_CODE,
-      stderr: result.stderr === "" ? note : `${note}\n${result.stderr}`,
+      stderr: `${result.stderr}${separator}${note}`,
       stdout: result.stdout,
     };
   },

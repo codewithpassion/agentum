@@ -5,6 +5,8 @@ tags: ["harbourmaster","agentum","analysis"]
 visibility: "private"
 ---
 
+> **Lifted 26 Oct 2026:** Dom dropped this rule because Harbourmaster becomes Agentum v2. Agentum's UI may now be used as a source or example. The original rule follows for history.
+>
 > **Constraint from Dom (16 Oct 2026):** do not use Agentum's user interface (`components/`, `routes/`, `lib/` UI code, the Slack-like workspace shell, agent rail, dialogs, wizards) as an example or source for Harbourmaster's UI. Only its backend modules, protocols and the Go computer daemon are candidates for reuse. UI rows in the tables below are kept for reference only.
 
 # Agentum (`/home/roboto/devel/agentum`)

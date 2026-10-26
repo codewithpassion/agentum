@@ -111,7 +111,7 @@ describe("vmSkillSandbox", () => {
     });
   });
 
-  test("a timeout is exit 124 with the note first in stderr", async () => {
+  test("a timeout is exit 124 with the note last in stderr", async () => {
     const { sandbox, vm } = setup();
     vm.onExec = () => ({
       exitCode: 137,
@@ -122,8 +122,24 @@ describe("vmSkillSandbox", () => {
     });
     expect(await sandbox.run(inputOf({ timeoutMs: 2500 }))).toEqual({
       exitCode: TIMEOUT_EXIT_CODE,
-      stderr: "timed out after 2.5 s\nreal stderr",
+      stderr: "real stderr\ntimed out after 2.5 s",
       stdout: "partial",
+    });
+  });
+
+  test("a timeout after stderr that already ends in a newline adds no blank line", async () => {
+    const { sandbox, vm } = setup();
+    vm.onExec = () => ({
+      exitCode: 137,
+      stderr: "real stderr\n",
+      stdout: "",
+      timedOut: true,
+      truncated: false,
+    });
+    expect(await sandbox.run(inputOf({ timeoutMs: 2500 }))).toEqual({
+      exitCode: TIMEOUT_EXIT_CODE,
+      stderr: "real stderr\ntimed out after 2.5 s",
+      stdout: "",
     });
   });
 

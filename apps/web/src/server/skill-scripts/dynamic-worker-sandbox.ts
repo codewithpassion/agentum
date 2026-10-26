@@ -1,6 +1,7 @@
 /**
  * Runs a skill script in a Dynamic Worker (Worker Loader): a fresh isolate for
- * each call, gone when the call returns. It gets only the `env` the run names,
+ * each call. A run that is stopped at its time limit is asked, once, for what
+ * it printed so far. It gets only the `env` the run names,
  * so it holds no binding or token of ours. It has the network. When the run
  * asks for `proxy`, `outbound` supplies the `globalOutbound` that adds the
  * agent's credentials to requests, so the isolate never holds them. Without
@@ -28,10 +29,13 @@ const MAX_SUBREQUESTS = 50;
 const CPU_LIMIT_MESSAGE = /CPU time limit/i;
 /** What the harness keeps of each stream, so a script that prints forever cannot fill the isolate. */
 const HARNESS_STREAM_BYTES = 1024 * 1024;
+/** How long a stopped run may take to report its output, so a dead isolate cannot hold the result. */
+const OUTPUT_WAIT_MS = 1000;
 
 /**
  * The module the Worker starts from. `run` points `process.argv`, `console`
  * and `process.exit` at the run, imports the entry and calls its function.
+ * `output` reports what the current run has printed so far.
  */
 const HARNESS_SOURCE = `
 import { WorkerEntrypoint } from "cloudflare:workers";
@@ -60,10 +64,14 @@ const stream = (limit) => {
   };
 };
 
+/** The streams of the run in progress. They stay readable after a run that never returns. */
+let current = { err: stream(0), out: stream(0) };
+
 export class Runner extends WorkerEntrypoint {
   async run(entry, args, limit, stdin) {
     const out = stream(limit);
     const err = stream(limit);
+    current = { err, out };
     const line = (target) => (...values) => target.write(format(...values) + "\\n");
     console.log = console.info = console.debug = line(out);
     console.warn = console.error = line(err);
@@ -108,6 +116,10 @@ export class Runner extends WorkerEntrypoint {
     }
     return { exitCode, stderr: err.text(), stdout: out.text() };
   }
+
+  async output() {
+    return { stderr: current.err.text(), stdout: current.out.text() };
+  }
 }
 
 export default {
@@ -131,6 +143,50 @@ const timer = (ms: number) => {
     handle = setTimeout(() => resolve(undefined), ms);
   });
   return { clear: () => clearTimeout(handle), expired };
+};
+
+interface RunOutput {
+  stderr: string;
+  stdout: string;
+}
+
+interface SandboxRunner {
+  output: () => Promise<RunOutput>;
+  run: (
+    entry: string,
+    args: string[],
+    limit: number,
+    stdin: string
+  ) => Promise<SandboxRunResult>;
+}
+
+const NO_OUTPUT: RunOutput = { stderr: "", stdout: "" };
+
+/** Adds a newline unless `text` is empty or already ends in one. */
+const endLine = (text: string): string =>
+  text === "" || text.endsWith("\n") ? text : `${text}\n`;
+
+/** What a run that was stopped printed before it stopped, with the reason on stderr. */
+const stoppedRun = (printed: RunOutput, reason: string): SandboxRunResult => ({
+  exitCode: TIMEOUT_EXIT_CODE,
+  stderr: `${endLine(printed.stderr)}${reason}\n`,
+  stdout: printed.stdout,
+});
+
+/** Asks the run for its output so far. A call that fails or takes longer than `OUTPUT_WAIT_MS` gives none. */
+const outputOf = async (runner: SandboxRunner): Promise<RunOutput> => {
+  const wait = timer(OUTPUT_WAIT_MS);
+  try {
+    const answer = await Promise.race([
+      Promise.resolve()
+        .then(() => runner.output())
+        .catch(() => undefined),
+      wait.expired,
+    ]);
+    return answer ?? NO_OUTPUT;
+  } finally {
+    wait.clear();
+  }
 };
 
 export const dynamicWorkerSandbox = (
@@ -164,14 +220,7 @@ export const dynamicWorkerSandbox = (
       modules: { ...modules, [HARNESS]: { js: HARNESS_SOURCE } },
       ...network,
     });
-    const runner = worker.getEntrypoint("Runner") as unknown as {
-      run: (
-        entry: string,
-        args: string[],
-        limit: number,
-        stdin: string
-      ) => Promise<SandboxRunResult>;
-    };
+    const runner = worker.getEntrypoint("Runner") as unknown as SandboxRunner;
     const wall = timer(input.timeoutMs);
     try {
       const finished = await Promise.race([
@@ -184,17 +233,21 @@ export const dynamicWorkerSandbox = (
         wall.expired,
       ]);
       if (finished === undefined) {
-        return failure(
-          `timed out after ${input.timeoutMs / 1000} s`,
-          TIMEOUT_EXIT_CODE
+        return stoppedRun(
+          await outputOf(runner),
+          `timed out after ${input.timeoutMs / 1000} s`
         );
       }
       return finished;
     } catch (error) {
       const message = messageOf(error);
-      return CPU_LIMIT_MESSAGE.test(message)
-        ? failure(`exceeded the CPU time limit: ${message}`, TIMEOUT_EXIT_CODE)
-        : failure(message);
+      if (!CPU_LIMIT_MESSAGE.test(message)) {
+        return failure(message);
+      }
+      return stoppedRun(
+        await outputOf(runner),
+        `exceeded the CPU time limit: ${message}`
+      );
     } finally {
       wall.clear();
     }

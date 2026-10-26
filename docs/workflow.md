@@ -10,8 +10,9 @@ How Harbourmaster gets built. The controller follows all of it. Subagents get th
 | Dispatcher | `model: "sonnet"`, `effort: "high"` | Controller, one per task | Splits its task into units, runs workers, integrates, runs the task's check, commits, runs the review loop and makes review fixes. |
 | Worker | `model: "haiku"`, `effort: "medium"` | Dispatcher, one per unit | Does one unit in the dispatcher's worktree and runs the unit's check. |
 | Reviewer | `model: "opus"`, `effort: "medium"` | Dispatcher for a task, controller for a milestone | Reviews a task branch or a milestone. Reads only. |
+| Codex | `scripts/codex-task.sh` (Codex CLI, `gpt-6.1-sol`, medium) | Dispatcher of an `executor: codex` task | Implements the whole task in the dispatcher's worktree from a brief file and commits as it goes. Can't ask questions or use a browser. |
 
-At most 3 dispatchers run at once, each with at most 4 workers. Raise a role's effort for a task only after a run at the listed level fell short.
+At most 6 dispatchers run at once, each with at most 4 workers, and at most 3 of them driving a Codex job. Two tasks with the same `lane` never run at once, because their files overlap and their merges would conflict. Raise a role's effort for a task only after a run at the listed level fell short.
 
 ## Tasks
 
@@ -25,7 +26,11 @@ size: M            # S, M or L
 status: todo       # todo | in_progress | review | done | blocked
 depends_on: []     # task ids
 branch: null       # set when dispatched
+lane: services     # v2 tasks: db, services, worker, web, daemon, mcp, slack, computer, email, ops or docs
+executor: claude   # v2 tasks: claude (Haiku workers) or codex (one Codex job)
 ```
+
+v2 tasks (`V<n>.<k>`) carry `lane` and `executor`. Their scope comes from `docs/v2/build-plan.md` and the task file itself. Each v2 milestone starts with a contract task, `V<n>.1`, which alone changes `packages/db/src/schema` and generates migrations, so parallel tasks never collide on migration numbers.
 
 A task is ready when it is `todo` and every task in `depends_on` is `done`. `bun run tasks` lists all tasks, marks the ready ones with `*`, and fails on an unknown status or dependency.
 
@@ -48,7 +53,7 @@ Dom starts the controller session in `/home/roboto/devel/harbourmaster`. The con
 
 The controller's context is the scarce resource. Everything about a task goes through its dispatcher: worktree setup, workers, review, fixes and follow-up notes. The controller reads only the dispatcher's two-line report and the exit code of its own merge check. It doesn't read reviews, diffs or logs, and it doesn't fix or edit anything a task touches.
 
-1. Take the ready task with the lowest id.
+1. Take the ready task with the lowest id whose `lane` no running task holds. Repeat while dispatcher slots are free.
 2. Set `status: in_progress` and `branch`, and start a dispatcher with the dispatcher brief.
 3. The dispatcher sets up its worktree, builds, and runs the review loop on its own branch until the verdict is clean. It records the verdict, nits and follow-ups in `docs/reviews/tasks/<id>.md` on its branch, brings `main` in, and reports ready with the head SHA.
 4. A dispatcher still at must-fix after two fix rounds reports blocked with a one-line reason, and the controller decides.
@@ -111,7 +116,7 @@ Keep working until the check passes. A check counts only if it exercises the cha
 Review Harbourmaster task <id> at commit <sha> (branch task/<id>-<slug>).
 Task file: /home/roboto/devel/harbourmaster/docs/tasks/<file>.
 <Re-review only: Review the commits after <previous sha>.>
-<Milestone gate instead: Review git diff <milestone>-start..<sha> as a whole against the milestone's section of docs/architecture/build-plan.html.>
+<Milestone gate instead: Review git diff <milestone>-start..<sha> as a whole against the milestone's section of docs/architecture/build-plan.html (v1) or docs/v2/build-plan.md (v2).>
 
 Check out the commit with `git -C /home/roboto/devel/harbourmaster worktree add --detach /home/roboto/devel/harbourmaster-wt/review-<id>-<sha> <sha>` and remove it with `git worktree remove` when done. Review against the task file's scope and check, CLAUDE.md in that checkout, and "Rules that are easy to break" in docs/HANDOVER.md. Change no files.
 
@@ -128,6 +133,35 @@ Rules for this build:
 - Stop processes only by the PIDs you started.
 - Deploys, remote D1, Worker secrets and git push are for Dom and the controller.
 - Deliver your report by ending your turn, not with SendMessage. Report what you did, commit SHAs, checks run with their results, and blockers. Leave out code, diffs and logs.
+```
+
+### Dispatcher, Codex addendum
+
+For an `executor: codex` task, the controller appends this to the dispatcher brief:
+
+```text
+This task's implementation runs in Codex, not Haiku workers. Replace steps 2 to 4:
+2. Write the Codex brief to /home/roboto/devel/harbourmaster-wt/tmp/<id>/codex-brief.md from the Codex template in docs/workflow.md, with the task file's text pasted in.
+3. Start it in the background: `scripts/codex-task.sh <worktree> <brief file> <log dir>`, as a Bash background command. It exits when Codex ends or after 90 minutes.
+4. Read the last message file it names. If Codex stopped short, hit a usage limit or left changes uncommitted, commit what it left ("<id>: codex leftovers") and finish the task yourself with Haiku workers.
+Then continue at step 5. The review in step 7 is never skipped for Codex code, and a Codex PASS line is not evidence: run the checks yourself.
+```
+
+### Codex
+
+```text
+You implement Harbourmaster task <id>, <title>, in this git worktree. The task file below is the whole spec.
+
+Rules:
+- Read CLAUDE.md at the worktree root first, then the files the task names.
+- Write the tests first, then the code. Commit as you go with `git commit --no-verify -m "<id>: ..."`, at least once before your final answer. Uncommitted work is lost.
+- Run only the affected package's tests and `bun run check`. Never run `bun run test` or `bun run build` for the whole repo.
+- Never change packages/db/src/schema or migrations, wrangler.jsonc, secrets or deploy anything. Never push.
+- No browser. For UI, use the existing shadcn and app components.
+- If the spec is ambiguous, pick the reading that fits the task and the code's conventions, note it in a code comment, and list it in your answer. Don't stop to ask.
+- Final answer in at most 8 lines: commits, PASS or FAIL per check bullet, tests run, tests you couldn't run, ambiguities resolved.
+
+<task file text>
 ```
 
 ## Checks
