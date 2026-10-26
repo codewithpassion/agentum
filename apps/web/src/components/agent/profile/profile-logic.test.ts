@@ -8,6 +8,7 @@ import {
   handsToChips,
   LIBRARY_NOTE,
   machineAgentWords,
+  mailProvisionLabel,
   receivesFromText,
   runtimeOptions,
   runtimeWords,
@@ -627,5 +628,37 @@ describe("computerChoices", () => {
   test("says not connected yet when the computer has never said hello", () => {
     const fresh = computer({ computerCapabilities: null, id: "m_new" });
     expect(computerChoices(null, [fresh])[0]?.kind).toBe("Not connected yet");
+  });
+});
+
+describe("mailProvisionLabel", () => {
+  test("a provisioning mailbox offers Try again", () => {
+    expect(mailProvisionLabel("active", "robo", "provisioning")).toBe(
+      "Try again"
+    );
+  });
+
+  test("a failed mailbox offers Retry", () => {
+    expect(mailProvisionLabel("active", "robo", "failed")).toBe("Retry");
+  });
+
+  test("an active mailbox offers nothing", () => {
+    expect(mailProvisionLabel("active", "robo", "active")).toBeNull();
+  });
+
+  test("a disabled mailbox offers nothing", () => {
+    expect(mailProvisionLabel("active", "robo", "disabled")).toBeNull();
+  });
+
+  test("an active agent with an address and no mailbox offers Set up mail", () => {
+    expect(mailProvisionLabel("active", "robo", null)).toBe("Set up mail");
+  });
+
+  test("an active agent with no address offers nothing", () => {
+    expect(mailProvisionLabel("active", null, null)).toBeNull();
+  });
+
+  test("a draft agent with no mailbox offers nothing", () => {
+    expect(mailProvisionLabel("draft", "robo", null)).toBeNull();
   });
 });
