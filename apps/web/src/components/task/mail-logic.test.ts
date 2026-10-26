@@ -64,12 +64,12 @@ test("the trigger is the inbound message of the given run, among several", () =>
       subject: "  Two  ",
     },
   ]);
-  expect(mailTriggerOf(view, "run_1")).toEqual({
+  expect(mailTriggerOf(view, "run_1", AGENT)).toEqual({
     address: AGENT,
     sender: "first@example.com",
     subject: "One",
   });
-  expect(mailTriggerOf(view, "run_2")).toEqual({
+  expect(mailTriggerOf(view, "run_2", AGENT)).toEqual({
     address: AGENT,
     sender: "second@example.com",
     subject: "Two",
@@ -78,24 +78,17 @@ test("the trigger is the inbound message of the given run, among several", () =>
 
 test("a run with no inbound message in the thread has no trigger", () => {
   const view = thread([{ runId: "run_1" }]);
-  expect(mailTriggerOf(view, "run_9")).toBeNull();
+  expect(mailTriggerOf(view, "run_9", AGENT)).toBeNull();
 });
 
 test("an outbound-only thread has no trigger", () => {
   const view = thread([{ direction: "out", runId: "run_1" }]);
-  expect(mailTriggerOf(view, "run_1")).toBeNull();
-});
-
-test("unreadable recipients give no trigger", () => {
-  const view = thread([{ runId: "run_1", toAddresses: "not json" }]);
-  expect(mailTriggerOf(view, "run_1")).toBeNull();
-  const empty = thread([{ runId: "run_1", toAddresses: "[]" }]);
-  expect(mailTriggerOf(empty, "run_1")).toBeNull();
+  expect(mailTriggerOf(view, "run_1", AGENT)).toBeNull();
 });
 
 test("a blank subject reads as no subject", () => {
   const view = thread([{ runId: "run_1", subject: "   " }]);
-  expect(mailTriggerOf(view, "run_1")?.subject).toBe("(no subject)");
+  expect(mailTriggerOf(view, "run_1", AGENT)?.subject).toBe("(no subject)");
 });
 
 test("the trigger step takes the mail's address, sender and subject", () => {
@@ -169,21 +162,18 @@ test("message rows show the sender for inbound and the recipients for outbound",
       chip: null,
       id: "in1",
       label: "Received",
-      subject: "Hello",
       who: "client@example.com",
     },
     {
       chip: { label: "Sent", tone: "on" },
       id: "out1",
       label: "Sent",
-      subject: "Re: Hello",
       who: "a@example.com, b@example.com",
     },
     {
       chip: { label: "Held", tone: "warn" },
       id: "out2",
       label: "Sent",
-      subject: "Follow up",
       who: "unknown",
     },
   ]);

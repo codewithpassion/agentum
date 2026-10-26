@@ -7,16 +7,40 @@ export const MAIL_REFRESH_MS = 5000;
 
 /**
  * The mail thread linked to the task, or null when it has none. It reads
- * `mail.threadForTask` on mount, every 5 s while the run is running, and once
+ * `threadForTask` on mount, every 5 s while the run is running, and once
  * more when the run stops running, since mail the agent sends does not reach
  * the session stream.
  */
 export function useTaskMail(
   runId: string,
+  agentId: string,
   running: boolean
-): { error: string | null; thread: MailThreadView | null } {
+): {
+  /** The agent's own mailbox address, read once, or null until it arrives. */
+  address: string | null;
+  error: string | null;
+  thread: MailThreadView | null;
+} {
+  const [address, setAddress] = useState<string | null>(null);
   const [thread, setThread] = useState<MailThreadView | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let current = true;
+    getTrpc()
+      .mailbox.get.query({ agentId })
+      .then((box) => {
+        if (current) {
+          setAddress(box?.address ?? null);
+        }
+      })
+      .catch(() => {
+        // Without the address the trigger step keeps its plain wording.
+      });
+    return () => {
+      current = false;
+    };
+  }, [agentId]);
 
   useEffect(() => {
     let current = true;
@@ -46,5 +70,5 @@ export function useTaskMail(
     };
   }, [runId, running]);
 
-  return { error, thread };
+  return { address, error, thread };
 }

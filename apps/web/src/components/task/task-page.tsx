@@ -216,16 +216,19 @@ export function TaskPage({ initial }: { initial: TaskView }) {
     () => receiptRunOf(task, runStatus),
     [task, runStatus]
   );
-  const { error: mailError, thread: mailThread } = useTaskMail(
-    runId,
-    isActive(runStatus)
-  );
+  const {
+    address: mailAddress,
+    error: mailError,
+    thread: mailThread,
+  } = useTaskMail(runId, task.agent.id, isActive(runStatus));
   const mailTrigger = useMemo(
     () =>
-      task.startedBy.kind === "mail" && mailThread !== null
-        ? mailTriggerOf(mailThread, runId)
+      task.startedBy.kind === "mail" &&
+      mailThread !== null &&
+      mailAddress !== null
+        ? mailTriggerOf(mailThread, runId, mailAddress)
         : null,
-    [task.startedBy.kind, mailThread, runId]
+    [task.startedBy.kind, mailThread, mailAddress, runId]
   );
   const steps = useMemo(
     () => withMailTrigger(buildReceipt(receiptRun, events), mailTrigger),
