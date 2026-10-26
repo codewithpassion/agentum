@@ -3,8 +3,9 @@
 // down to the allowed tools. The answer is JSON or an SSE stream of JSON
 // messages, and a body that cannot be read is refused rather than passed on.
 
-const SSE_EVENT_BREAK = /\r?\n\r?\n/;
-const SSE_LINE_BREAK = /\r?\n/;
+const SSE_NEWLINE = /\r\n|\r/g;
+const SSE_EVENT_BREAK = /\n\n/;
+const SSE_LINE_BREAK = /\n/;
 const SSE_DATA_PREFIX = /^data: ?/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -33,8 +34,11 @@ const filterMessage = (
   };
 };
 
-/** One SSE event with each JSON `data` payload filtered. Anything that is not JSON stays as sent. */
-const filterEvent = (event: string, allowed: ReadonlySet<string>): string => {
+/** One SSE event with its JSON `data` payload filtered. Null when the payload is not JSON. */
+const filterEvent = (
+  event: string,
+  allowed: ReadonlySet<string>
+): string | null => {
   const lines = event.split(SSE_LINE_BREAK);
   const data = lines.filter((line) => SSE_DATA_PREFIX.test(line));
   if (data.length === 0) {
@@ -47,7 +51,7 @@ const filterEvent = (event: string, allowed: ReadonlySet<string>): string => {
   try {
     message = JSON.parse(payload);
   } catch {
-    return event;
+    return null;
   }
   const rewritten = `data: ${JSON.stringify(filterMessage(message, allowed))}`;
   let placed = false;
@@ -76,10 +80,11 @@ export const filterToolsList = (
 ): string | null => {
   const type = (contentType ?? "").toLowerCase();
   if (type.includes("text/event-stream")) {
-    return text
+    const events = text
+      .replace(SSE_NEWLINE, "\n")
       .split(SSE_EVENT_BREAK)
-      .map((event) => filterEvent(event, allowed))
-      .join("\n\n");
+      .map((event) => filterEvent(event, allowed));
+    return events.includes(null) ? null : events.join("\n\n");
   }
   if (type.includes("json")) {
     try {

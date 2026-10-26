@@ -141,7 +141,7 @@ export type ConnectorCallTimeoutInput = z.input<
 
 export const assignmentInputSchema = z.strictObject({
   agentId: idString,
-  allowedTools: z.array(z.string().min(1).max(200)).max(500).optional(),
+  allowedTools: z.array(z.string().trim().min(1).max(200)).max(500).optional(),
   connectorId: idString,
   credentialMode: z.enum(CREDENTIAL_MODES).default("user_or_agent"),
 });

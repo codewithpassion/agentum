@@ -45,7 +45,7 @@ describe("filterToolsList", () => {
   test("an SSE answer changes only the tools/list event and passes the rest through", () => {
     const text = [
       `id: 1\ndata: ${JSON.stringify(listAnswer(1, [ECHO, SHOUT]))}`,
-      "data: not json",
+      ": keep-alive",
       `event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress" })}`,
     ].join("\n\n");
 
@@ -54,10 +54,25 @@ describe("filterToolsList", () => {
     expect(out).toBe(
       [
         `id: 1\ndata: ${JSON.stringify(listAnswer(1, [ECHO]))}`,
-        "data: not json",
+        ": keep-alive",
         `event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress" })}`,
       ].join("\n\n")
     );
+  });
+
+  test("an SSE event whose data is not JSON makes the answer unreadable", () => {
+    const text = `data: ${JSON.stringify(listAnswer(1, [ECHO, SHOUT]))}\n\ndata: not json`;
+
+    expect(filterToolsList(text, "text/event-stream", ALLOWED)).toBeNull();
+  });
+
+  test("an SSE answer with bare CR line breaks is filtered", () => {
+    const text = `id: 1\rdata: ${JSON.stringify(listAnswer(1, [ECHO, SHOUT]))}\r\r`;
+
+    const out = filterToolsList(text, "text/event-stream", ALLOWED);
+
+    expect(out).toContain(`data: ${JSON.stringify(listAnswer(1, [ECHO]))}`);
+    expect(out).not.toContain("shout");
   });
 
   test("an SSE answer with CRLF line breaks is filtered", () => {

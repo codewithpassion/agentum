@@ -87,10 +87,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 interface RpcCall {
-  /** A JSON-RPC batch, which the proxy cannot check one tool at a time. */
-  batch: boolean;
   id: string | number | null;
   method: string | null;
+  /** The body is a batch or not a JSON object with a method, so the proxy cannot say which tool it calls. An empty body (DELETE) is not. */
+  opaque: boolean;
   tool: string | null;
 }
 
@@ -103,12 +103,12 @@ const describeCall = (bytes: Uint8Array): RpcCall => {
     // Not JSON: the connector answers the parse error itself.
   }
   if (!isRecord(body)) {
-    return { batch: Array.isArray(body), id: null, method: null, tool: null };
+    return { id: null, method: null, opaque: bytes.length > 0, tool: null };
   }
   const { id, method, params } = body;
   const name = isRecord(params) ? params.name : undefined;
   return {
-    batch: false,
+    opaque: typeof method !== "string",
     id: typeof id === "string" || typeof id === "number" ? id : null,
     method: typeof method === "string" ? method : null,
     tool: method === "tools/call" && typeof name === "string" ? name : null,
@@ -127,7 +127,12 @@ const rpcError = (
     jsonrpc: "2.0",
   });
 
-/** Whether the agent's tool allowlist (null: every tool) refuses this call. A batch is refused, since its tools are not checked. */
+/**
+ * Whether the agent's tool allowlist (null: every tool) refuses this call. A
+ * body the proxy cannot read as one call is refused: a connector may accept
+ * more than `JSON.parse` does (NaN, UTF-16), so "not a tools/call" is only
+ * known for a body that parsed.
+ */
 const toolRefused = (
   call: RpcCall,
   allowedTools: readonly string[] | null
@@ -136,7 +141,7 @@ const toolRefused = (
     return false;
   }
   return (
-    call.batch ||
+    call.opaque ||
     (call.method === "tools/call" &&
       (call.tool === null || !allowedTools.includes(call.tool)))
   );

@@ -1096,6 +1096,36 @@ describe("tool allowlist", () => {
     expect(stubOf().stats().calls).toHaveLength(0);
   });
 
+  test("a body JSON.parse cannot read as one call is refused when the allowlist is set", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential(CONNECTOR, ["echo"]);
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+    const nan =
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"shout","arguments":{"text":"hi","n":NaN}}}';
+
+    const responses = await Promise.all(
+      [nan, "not json", '{"id":1}', "[1]", '"tools/call"'].map((body) =>
+        call(token, body)
+      )
+    );
+
+    expect(responses.map((response) => response.status)).toEqual([
+      403, 403, 403, 403, 403,
+    ]);
+    expect(stubOf().stats().calls).toHaveLength(0);
+  });
+
+  test("a body JSON.parse cannot read still goes upstream with no allowlist", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential();
+    addRun("run_1");
+
+    const response = await call(await tokenFor("run_1"), "not json");
+
+    expect(response.status).not.toBe(403);
+  });
+
   test("with no allowlist the same stub lists both tools and shout works", async () => {
     startStub({ shout: true });
     await seedHeaderCredential();
