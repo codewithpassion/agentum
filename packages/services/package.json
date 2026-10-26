@@ -80,7 +80,10 @@
     "./slack/status": "./src/slack/status.ts",
     "./slack/threads": "./src/slack/threads.ts",
     "./triggers": "./src/triggers.ts",
-    "./workspaces": "./src/workspaces.ts"
+    "./workspaces": "./src/workspaces.ts",
+    "./tasks/receipt": "./src/tasks/receipt.ts",
+    "./tasks/action-log": "./src/tasks/action-log.ts",
+    "./tasks/status-band": "./src/tasks/status-band.ts"
   },
   "scripts": {
     "test": "bun test",
