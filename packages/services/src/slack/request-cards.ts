@@ -8,7 +8,6 @@ import {
   type QuestionAnswer,
   type QuestionDisplay,
   questionAnswerSchema,
-  questionDisplaySchema,
   type RequestOutcome,
 } from "@repo/protocol/requests";
 import { z } from "zod";
@@ -26,7 +25,6 @@ interface Button {
   style?: "danger";
   text: PlainText;
   type: "button";
-  value?: string;
 }
 type Block = Section | { type: "actions"; elements: Button[] };
 export interface RequestCard {
@@ -57,11 +55,10 @@ const section = (text: string): Section => ({
   text: { text: cut(text, 3000), type: "mrkdwn" },
   type: "section",
 });
-const button = (label: string, action_id: string, value?: string): Button => ({
+const button = (label: string, action_id: string): Button => ({
   action_id,
   text: plain(cut(label, 75)),
   type: "button",
-  ...(value === undefined ? {} : { value }),
 });
 const expiry = (expiresAt: number): Section =>
   section(
@@ -96,7 +93,7 @@ export const approvalCard = (request: ApprovalRequest): RequestCard => ({
       type: "actions",
     },
   ],
-  text: `${request.agentName}: ${request.summary}`,
+  text: escapeSlack(`${request.agentName}: ${request.summary}`),
 });
 
 export const questionCard = (request: QuestionRequest): RequestCard => ({
@@ -108,12 +105,13 @@ export const questionCard = (request: QuestionRequest): RequestCard => ({
       ),
       {
         elements:
-          q.choices?.length && !q.multiSelect
+          // A choice button settles the whole request, so it is only safe when
+          // there is nothing else to ask. Several questions go through the modal.
+          q.choices?.length && !q.multiSelect && request.questions.length === 1
             ? q.choices.map((choice, i) =>
                 button(
                   choice,
-                  `hm_req:${request.requestId}:choice:${index}:${i}`,
-                  JSON.stringify({ choice, question: q.question })
+                  `hm_req:${request.requestId}:choice:${index}:${i}`
                 )
               )
             : [button("Answer", `hm_req:${request.requestId}:modal`)],
@@ -122,7 +120,9 @@ export const questionCard = (request: QuestionRequest): RequestCard => ({
     ]),
     expiry(request.expiresAt),
   ],
-  text: `${request.agentName}: ${request.questions.map((q) => q.question).join("; ")}`,
+  text: escapeSlack(
+    `${request.agentName}: ${request.questions.map((q) => q.question).join("; ")}`
+  ),
 });
 
 interface Option {
@@ -133,7 +133,8 @@ interface InputBlock {
   block_id: string;
   element:
     | { type: "plain_text_input"; action_id: "text"; multiline: true }
-    | { type: "checkboxes"; action_id: "choices"; options: Option[] };
+    | { type: "checkboxes"; action_id: "choices"; options: Option[] }
+    | { type: "radio_buttons"; action_id: "choice"; options: Option[] };
   label: PlainText;
   optional: boolean;
   type: "input";
@@ -142,45 +143,58 @@ export interface RequestModal {
   blocks: InputBlock[];
   callback_id: string;
   close: PlainText;
-  private_metadata: string;
   submit: PlainText;
   title: PlainText;
   type: "modal";
 }
 
 export const modalView = (request: QuestionRequest): RequestModal => ({
-  blocks: request.questions.flatMap((q, index): InputBlock[] => [
-    {
-      block_id: `q${index}`,
-      element: { action_id: "text", multiline: true, type: "plain_text_input" },
-      label: plain(cut(q.question, 2000)),
-      optional: Boolean(q.multiSelect && q.choices?.length),
-      type: "input",
-    },
-    ...(q.multiSelect && q.choices?.length
-      ? [
-          {
-            block_id: `c${index}`,
-            element: {
-              action_id: "choices" as const,
-              options: q.choices.map((choice, i) => ({
-                text: plain(cut(choice, 75)),
-                value: String(i),
-              })),
-              type: "checkboxes" as const,
+  blocks: request.questions.flatMap((q, index): InputBlock[] => {
+    const options = (q.choices ?? []).map((choice, i) => ({
+      text: plain(cut(choice, 75)),
+      value: String(i),
+    }));
+    return [
+      {
+        block_id: `q${index}`,
+        element: {
+          action_id: "text",
+          multiline: true,
+          type: "plain_text_input",
+        },
+        label: plain(cut(q.question, 2000)),
+        optional: Boolean(q.choices?.length),
+        type: "input",
+      },
+      ...(q.choices?.length
+        ? [
+            {
+              block_id: `c${index}`,
+              element: q.multiSelect
+                ? {
+                    action_id: "choices" as const,
+                    options,
+                    type: "checkboxes" as const,
+                  }
+                : {
+                    action_id: "choice" as const,
+                    options,
+                    type: "radio_buttons" as const,
+                  },
+              label: plain(
+                q.multiSelect
+                  ? "Choose any, or enter an answer above"
+                  : "Choose one, or enter an answer above"
+              ),
+              optional: true,
+              type: "input" as const,
             },
-            label: plain("Choose any, or enter an answer above"),
-            optional: true,
-            type: "input" as const,
-          },
-        ]
-      : []),
-  ]),
+          ]
+        : []),
+    ];
+  }),
   callback_id: `hm_req_modal:${request.requestId}`,
   close: plain("Cancel"),
-  // The modal answers the entire request. Indices keep Slack IDs short while
-  // metadata preserves the original question text used as the answer key.
-  private_metadata: JSON.stringify({ questions: request.questions }),
   submit: plain("Submit"),
   title: plain("Answer questions"),
   type: "modal",
@@ -228,16 +242,14 @@ const identitySchema = z.object({
   user: z.object({ id: z.string().min(1) }),
 });
 const actionSchema = z.object({
-  actions: z
-    .array(z.object({ action_id: z.string(), value: z.string().optional() }))
-    .length(1),
+  actions: z.array(z.object({ action_id: z.string() })).length(1),
+  trigger_id: z.string().optional(),
   type: z.literal("block_actions"),
 });
 const submissionSchema = z.object({
   type: z.literal("view_submission"),
   view: z.object({
     callback_id: z.string(),
-    private_metadata: z.string(),
     state: z.object({
       values: z.record(z.string(), z.record(z.string(), z.unknown())),
     }),
@@ -247,117 +259,182 @@ const textState = z.object({
   type: z.literal("plain_text_input"),
   value: z.string().nullable(),
 });
-const choiceState = z.object({
+const choicesState = z.object({
   selected_options: z.array(z.object({ value: z.string() })),
   type: z.literal("checkboxes"),
 });
-const choiceValue = z.object({
-  choice: z.string().min(1),
-  question: z.string().min(1),
+const choiceState = z.object({
+  selected_option: z.object({ value: z.string() }).nullable(),
+  type: z.literal("radio_buttons"),
 });
+
+export type Questions = QuestionDisplay["questions"];
+interface Identity {
+  appId: string;
+  teamId: string;
+  userId: string;
+}
 export type InteractionResult =
-  | {
+  | ({
       ok: true;
       requestId: string;
-      userId: string;
-      teamId: string;
-      appId: string;
       answer: ApprovalAnswer | QuestionAnswer;
+    } & Identity)
+  | ({
+      ok: false;
+      reason: "modal_required";
+      requestId: string;
+      triggerId: string | undefined;
+    } & Identity)
+  | {
+      ok: false;
+      reason: "questions_required";
+      requestId: string;
     }
   | {
       ok: false;
-      reason: "foreign" | "invalid" | "modal_required";
+      reason: "foreign" | "invalid";
       requestId?: string;
     };
 
+const optionIndex = (value: string, count: number): number => {
+  const index = INDEX.test(value) ? Number(value) : -1;
+  if (index < 0 || index >= count) {
+    throw new Error("Unknown choice");
+  }
+  return index;
+};
+
 const modalAnswer = (
-  view: z.infer<typeof submissionSchema>["view"]
+  view: z.infer<typeof submissionSchema>["view"],
+  questions: Questions
 ): QuestionAnswer => {
-  const { questions } = questionDisplaySchema.parse(
-    JSON.parse(view.private_metadata)
-  );
   const answers = questions.map((q, i): [string, string] => {
     const text = textState.parse(view.state.values[`q${i}`]?.text).value;
     // Free text is always permitted by V1.1, and takes precedence over choices.
-    if (text) {
-      return [q.question, text];
+    let answer = text ?? "";
+    if (!answer && q.choices?.length) {
+      const { choices } = q;
+      const picked = q.multiSelect
+        ? choicesState
+            .parse(view.state.values[`c${i}`]?.choices)
+            .selected_options.map((option) => option.value)
+        : [
+            choiceState.parse(view.state.values[`c${i}`]?.choice)
+              .selected_option?.value,
+          ].filter((value): value is string => value !== undefined);
+      answer = picked
+        .map((value) => choices[optionIndex(value, choices.length)])
+        .join(", ");
     }
-    if (q.multiSelect && q.choices?.length) {
-      const selected = choiceState.parse(view.state.values[`c${i}`]?.choices);
-      return [
-        q.question,
-        selected.selected_options
-          .map((option) => {
-            if (!INDEX.test(option.value)) {
-              throw new Error("Invalid choice");
-            }
-            const choice = q.choices?.[Number(option.value)];
-            if (choice === undefined) {
-              throw new Error("Unknown choice");
-            }
-            return choice;
-          })
-          .join(", "),
-      ];
+    if (!answer) {
+      throw new Error("Empty answer");
     }
-    return [q.question, text ?? ""];
+    return [q.question, answer];
   });
   return questionAnswerSchema.parse({ answers: Object.fromEntries(answers) });
 };
 
-/** Parsing only: the caller must verify Slack's signature, app/team ownership,
- * request state and answer authorization before accepting these untrusted values. */
-export const parseInteraction = (payload: unknown): InteractionResult => {
+type Parsed =
+  | { answer: ApprovalAnswer | QuestionAnswer; requestId: string }
+  | Exclude<InteractionResult, { ok: true }>;
+
+const parseAction = (
+  action: z.infer<typeof actionSchema>,
+  payload: unknown,
+  questions: Questions | undefined
+): Parsed => {
+  const [clicked] = action.actions;
+  const parts = (clicked?.action_id ?? "").split(":");
+  if (parts[0] !== "hm_req") {
+    return { ok: false, reason: clicked ? "foreign" : "invalid" };
+  }
+  const requestId = z.string().min(1).parse(parts[1]);
+  if (parts.length === 3 && parts[2] === "modal") {
+    const identity = identitySchema.parse(payload);
+    return {
+      appId: identity.api_app_id,
+      ok: false,
+      reason: "modal_required",
+      requestId,
+      teamId: identity.team.id,
+      triggerId: action.trigger_id,
+      userId: identity.user.id,
+    };
+  }
+  if (isChoiceAction(parts)) {
+    if (questions === undefined) {
+      return { ok: false, reason: "questions_required", requestId };
+    }
+    const question = questions[Number(parts[3])];
+    const choice = question?.choices?.[Number(parts[4])];
+    if (question === undefined || choice === undefined) {
+      return { ok: false, reason: "invalid", requestId };
+    }
+    return {
+      answer: questionAnswerSchema.parse({
+        answers: { [question.question]: choice },
+      }),
+      requestId,
+    };
+  }
+  if (parts.length !== 3) {
+    return { ok: false, reason: "invalid" };
+  }
+  return {
+    answer: approvalAnswerSchema.parse({ decision: parts[2] }),
+    requestId,
+  };
+};
+
+const parseSubmission = (
+  view: z.infer<typeof submissionSchema>["view"],
+  questions: Questions | undefined
+): Parsed => {
+  const parts = view.callback_id.split(":");
+  if (parts[0] !== "hm_req_modal") {
+    return { ok: false, reason: "foreign" };
+  }
+  if (parts.length !== 2) {
+    return { ok: false, reason: "invalid" };
+  }
+  const requestId = z.string().min(1).parse(parts[1]);
+  if (questions === undefined) {
+    return { ok: false, reason: "questions_required", requestId };
+  }
+  return { answer: modalAnswer(view, questions), requestId };
+};
+
+/**
+ * Parsing only: the caller must verify Slack's signature, app/team ownership,
+ * request state and answer authorization before accepting these untrusted values.
+ * Choice buttons and modal submissions carry indices, not text, because Slack caps
+ * button values and private metadata. The caller loads the request's questions
+ * from its stored display and parses again with them; without them those two
+ * interactions answer `questions_required`.
+ */
+export const parseInteraction = (
+  payload: unknown,
+  questions?: Questions
+): InteractionResult => {
   try {
-    let requestId: string;
-    let answer: ApprovalAnswer | QuestionAnswer;
     const action = actionSchema.safeParse(payload);
+    const submission = submissionSchema.safeParse(payload);
+    let parsed: Parsed = { ok: false, reason: "invalid" };
     if (action.success) {
-      const [clicked] = action.data.actions;
-      if (!clicked) {
-        return { ok: false, reason: "invalid" };
-      }
-      const parts = clicked.action_id.split(":");
-      if (parts[0] !== "hm_req") {
-        return { ok: false, reason: "foreign" };
-      }
-      requestId = z.string().min(1).parse(parts[1]);
-      if (parts.length === 3 && parts[2] === "modal") {
-        identitySchema.parse(payload);
-        return { ok: false, reason: "modal_required", requestId };
-      }
-      if (isChoiceAction(parts)) {
-        const value = choiceValue.parse(JSON.parse(clicked.value ?? ""));
-        answer = questionAnswerSchema.parse({
-          answers: { [value.question]: value.choice },
-        });
-      } else {
-        if (parts.length !== 3) {
-          return { ok: false, reason: "invalid" };
-        }
-        answer = approvalAnswerSchema.parse({ decision: parts[2] });
-      }
-    } else {
-      const submission = submissionSchema.safeParse(payload);
-      if (!submission.success) {
-        return { ok: false, reason: "invalid" };
-      }
-      const parts = submission.data.view.callback_id.split(":");
-      if (parts[0] !== "hm_req_modal") {
-        return { ok: false, reason: "foreign" };
-      }
-      if (parts.length !== 2) {
-        return { ok: false, reason: "invalid" };
-      }
-      requestId = z.string().min(1).parse(parts[1]);
-      answer = modalAnswer(submission.data.view);
+      parsed = parseAction(action.data, payload, questions);
+    } else if (submission.success) {
+      parsed = parseSubmission(submission.data.view, questions);
+    }
+    if ("ok" in parsed) {
+      return parsed;
     }
     const identity = identitySchema.parse(payload);
     return {
-      answer,
+      answer: parsed.answer,
       appId: identity.api_app_id,
       ok: true,
-      requestId,
+      requestId: parsed.requestId,
       teamId: identity.team.id,
       userId: identity.user.id,
     };

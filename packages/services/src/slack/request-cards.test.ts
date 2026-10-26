@@ -26,6 +26,10 @@ const question = {
     { choices: ["A", "B"], multiSelect: true, question: "Which?" },
   ],
 };
+const single = {
+  ...base,
+  questions: [{ choices: ["Here", "There"], question: "Where?" }],
+};
 const identity = { api_app_id: "A1", team: { id: "T1" }, user: { id: "U1" } };
 const click = (action: unknown) => ({
   ...identity,
@@ -73,46 +77,89 @@ describe("request cards", () => {
     expect(code.text.text.slice(3, -3)).not.toContain("```");
   });
 
-  test("question buttons and modal launch", () => {
-    const card = questionCard(question);
+  test("a single question gets choice buttons that carry indices only", () => {
+    const card = questionCard(single);
     expect(card.text).toContain("Where?");
     const actions = card.blocks.filter((block) => block.type === "actions");
     expect(actions[0]?.elements.map((button) => button.action_id)).toEqual([
       "hm_req:req1:choice:0:0",
       "hm_req:req1:choice:0:1",
     ]);
-    expect(parseInteraction(click(actions[0]?.elements[1]))).toMatchObject({
+    expect(JSON.stringify(card.blocks)).not.toContain('"value"');
+    const clicked = click(actions[0]?.elements[1]);
+    expect(parseInteraction(clicked)).toEqual({
+      ok: false,
+      reason: "questions_required",
+      requestId: "req1",
+    });
+    expect(parseInteraction(clicked, single.questions)).toMatchObject({
       answer: { answers: { "Where?": "There" } },
       ok: true,
     });
-    expect(actions[1]?.elements[0]?.text.text).toBe("Answer");
-    expect(parseInteraction(click(actions[1]?.elements[0]))).toEqual({
+    expect(
+      parseInteraction(
+        click({ action_id: "hm_req:req1:choice:0:9" }),
+        single.questions
+      ).ok
+    ).toBe(false);
+  });
+
+  test("several questions all go through the modal", () => {
+    const card = questionCard(question);
+    const actions = card.blocks.filter((block) => block.type === "actions");
+    expect(actions).toHaveLength(3);
+    for (const row of actions) {
+      expect(row.elements.map((button) => button.action_id)).toEqual([
+        "hm_req:req1:modal",
+      ]);
+      expect(row.elements[0]?.text.text).toBe("Answer");
+    }
+    expect(
+      parseInteraction({
+        ...click(actions[1]?.elements[0]),
+        trigger_id: "trig",
+      })
+    ).toEqual({
+      appId: "A1",
       ok: false,
       reason: "modal_required",
       requestId: "req1",
+      teamId: "T1",
+      triggerId: "trig",
+      userId: "U1",
     });
   });
 
-  test("modal has text for every question and checkboxes, then parses both", () => {
+  test("modal has text for every question, radios and checkboxes, then parses", () => {
     const view = modalView(question);
     expect(view.callback_id).toBe("hm_req_modal:req1");
+    expect(JSON.stringify(view)).not.toContain("private_metadata");
     expect(
       view.blocks.filter((block) => block.element.type === "plain_text_input")
     ).toHaveLength(3);
     const multi = view.blocks.find(
       (block) => block.element.type === "checkboxes"
     );
-    if (multi?.element.type !== "checkboxes") {
-      throw new Error("missing checkboxes");
+    const radio = view.blocks.find(
+      (block) => block.element.type === "radio_buttons"
+    );
+    if (multi?.element.type !== "checkboxes" || !radio) {
+      throw new Error("missing choice inputs");
     }
     const values = {
+      c0: {
+        choice: {
+          selected_option: { value: "0" },
+          type: "radio_buttons",
+        },
+      },
       c2: {
         choices: {
           selected_options: multi.element.options,
           type: "checkboxes",
         },
       },
-      q0: { text: { type: "plain_text_input", value: "Here" } },
+      q0: { text: { type: "plain_text_input", value: null as string | null } },
       q1: { text: { type: "plain_text_input", value: "Because" } },
       q2: { text: { type: "plain_text_input", value: null as string | null } },
     };
@@ -121,17 +168,35 @@ describe("request cards", () => {
       type: "view_submission",
       view: { ...view, state: { values } },
     };
-    expect(parseInteraction(payload)).toMatchObject({
+    expect(parseInteraction(payload)).toEqual({
+      ok: false,
+      reason: "questions_required",
+      requestId: "req1",
+    });
+    expect(parseInteraction(payload, question.questions)).toMatchObject({
       answer: {
         answers: { "Where?": "Here", "Which?": "A, B", "Why?": "Because" },
       },
       ok: true,
     });
     values.q2.text.value = "Other";
-    expect(parseInteraction(payload)).toMatchObject({
+    expect(parseInteraction(payload, question.questions)).toMatchObject({
       answer: { answers: { "Which?": "Other" } },
       ok: true,
     });
+    values.q1.text.value = "";
+    expect(parseInteraction(payload, question.questions).ok).toBe(false);
+  });
+
+  test("long agent text keeps buttons and modal inside Slack limits", () => {
+    const long = "x".repeat(5000);
+    const big = {
+      ...base,
+      questions: [{ choices: [long, "b"], question: long }],
+    };
+    const card = questionCard(big);
+    expect(JSON.stringify(card.blocks)).not.toContain(long);
+    expect(JSON.stringify(modalView(big))).not.toContain(long);
   });
 
   test("settled messages preserve content and remove buttons", () => {
@@ -158,18 +223,17 @@ describe("request cards", () => {
       {},
       click({ action_id: "foreign" }),
       click({ action_id: "hm_req:req1:bogus" }),
-      click({ action_id: "hm_req:req1:choice:0:0", value: "bad json" }),
+      click({ action_id: "hm_req:req1:choice:0" }),
       {
         ...identity,
         type: "view_submission",
         view: {
           callback_id: "hm_req_modal:req1",
-          private_metadata: "{}",
           state: { values: {} },
         },
       },
     ]) {
-      expect(parseInteraction(payload).ok).toBe(false);
+      expect(parseInteraction(payload, single.questions).ok).toBe(false);
     }
   });
 });
