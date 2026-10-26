@@ -14,14 +14,14 @@ import { AskRules } from "#/components/agent/settings/ask-rules";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { MachineRecord } from "#/integrations/trpc/types";
-import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
+import type { AgentPanelProps } from "../profile/sheets/props.ts";
 
 interface SettingsData {
   machines: MachineRecord[];
   providerKeys: Record<ModelProvider, boolean>;
 }
 
-function SettingsPanel({ agent }: AgentTabProps) {
+export function SettingsPanel({ agent }: AgentPanelProps) {
   const router = useRouter();
   const [data, setData] = useState<SettingsData | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -121,9 +121,3 @@ function SettingsPanel({ agent }: AgentTabProps) {
     </section>
   );
 }
-
-export const settingsTab: AgentTab = {
-  id: "settings",
-  label: "Settings",
-  Panel: SettingsPanel,
-};

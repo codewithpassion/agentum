@@ -31,7 +31,7 @@ import type {
   SkillSummary,
   SkillVersion,
 } from "#/integrations/trpc/types";
-import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
+import type { AgentPanelProps } from "./props.ts";
 
 const SELECT_CLASS =
   "h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
@@ -384,12 +384,6 @@ function AgentSkills({ agentId }: { agentId: string }) {
   );
 }
 
-function SkillsPanel({ agent }: AgentTabProps) {
+export function SkillsPanel({ agent }: AgentPanelProps) {
   return <AgentSkills agentId={agent.id} key={agent.id} />;
 }
-
-export const skillsTab: AgentTab = {
-  id: "skills",
-  label: "Skills",
-  Panel: SkillsPanel,
-};

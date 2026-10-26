@@ -1,28 +1,26 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import { z } from "zod";
-import { agentTabs } from "#/components/agent/agent-tabs";
-import { NewTaskDialog } from "#/components/desk/new-task-dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
+import { ManageSheet } from "#/components/agent/profile/manage-sheet";
+import { ProfileHeader } from "#/components/agent/profile/profile-header";
+import { ProfileRows } from "#/components/agent/profile/profile-rows";
+import { SHEET_IDS, type SheetId } from "#/components/agent/profile/sheet-ids";
 import { getTrpc } from "#/integrations/trpc/client";
 
-const tabIds = agentTabs.map((tab) => tab.id);
-const defaultTab = tabIds[0] ?? "";
-
 const searchSchema = z.object({
-  tab: z
-    .string()
-    .refine((id) => tabIds.includes(id))
-    .optional()
-    .catch(undefined),
+  sheet: z.enum(SHEET_IDS).optional().catch(undefined),
 });
 
 export const Route = createFileRoute("/_app/agents/$agentId")({
   validateSearch: (search) => searchSchema.parse(search),
   loader: async ({ params }) => {
     try {
-      return await getTrpc().agents.get.query({ id: params.agentId });
+      const [agent, profile] = await Promise.all([
+        getTrpc().agents.get.query({ id: params.agentId }),
+        getTrpc().agentProfile.profile.query({ agentId: params.agentId }),
+      ]);
+      return { agent, profile };
     } catch (error) {
       if (
         error instanceof TRPCClientError &&
@@ -37,58 +35,34 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
 });
 
 function AgentPage() {
-  const agent = Route.useLoaderData();
-  const search = Route.useSearch();
-  const active = search.tab ?? defaultTab;
+  const { agent, profile } = Route.useLoaderData();
+  const { sheet } = Route.useSearch();
   const navigate = Route.useNavigate();
 
-  const selectTab = useCallback(
-    (next: string) =>
-      navigate({ search: (previous) => ({ ...previous, tab: next }) }),
+  const openSheet = useCallback(
+    (next: SheetId | undefined) =>
+      navigate({ search: { sheet: next }, replace: true }),
     [navigate]
   );
-
+  const edit = useCallback(() => openSheet("edit"), [openSheet]);
+  const close = useCallback(() => openSheet(undefined), [openSheet]);
   const openTask = useCallback(
     (runId: string) => navigate({ params: { runId }, to: "/tasks/$runId" }),
     [navigate]
   );
 
-  const agents = useMemo(
-    () => [{ id: agent.id, name: agent.name }],
-    [agent.id, agent.name]
-  );
-
   return (
-    <section className="mx-auto max-w-3xl">
-      <header className="mb-6">
-        <div className="flex items-center justify-between gap-4">
-          <h1 className="font-heading text-3xl text-foreground">
-            {agent.name}
-          </h1>
-          <NewTaskDialog
-            agents={agents}
-            onStarted={openTask}
-            triggerLabel="Run now"
-          />
-        </div>
-        <p className="text-muted-foreground text-sm">
-          <code>{agent.slug}</code>
-        </p>
-      </header>
-      <Tabs onValueChange={selectTab} value={active}>
-        <TabsList>
-          {agentTabs.map((agentTab) => (
-            <TabsTrigger key={agentTab.id} value={agentTab.id}>
-              {agentTab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        {agentTabs.map((agentTab) => (
-          <TabsContent className="pt-6" key={agentTab.id} value={agentTab.id}>
-            <agentTab.Panel agent={agent} />
-          </TabsContent>
-        ))}
-      </Tabs>
+    <section className="mx-auto flex max-w-6xl flex-col gap-4">
+      <ProfileHeader
+        header={profile.header}
+        onEdit={edit}
+        onStarted={openTask}
+      />
+      <div className="flex flex-wrap items-start gap-4">
+        <ProfileRows agent={agent} onOpen={openSheet} profile={profile} />
+        {/* The side cards (Runs on, Ask me before, Recent tasks) arrive in V3.11. */}
+      </div>
+      <ManageSheet agent={agent} onClose={close} sheet={sheet} />
     </section>
   );
 }
