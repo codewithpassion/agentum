@@ -1,3 +1,4 @@
+import type { LibraryAccessGrant } from "@repo/db/shared";
 // The library paths an agent syncs into its working copy, listed in its
 // `runtimeConfig` under `libraryPaths`. The agent's own home is always a root.
 import { isServiceError } from "../errors.ts";
@@ -6,9 +7,6 @@ import { normalizePath } from "./path.ts";
 
 /** The key in an agent's `runtimeConfig`. */
 export const LIBRARY_PATHS_KEY = "libraryPaths";
-
-const WHOLE_LIBRARY =
-  "A library path cannot be the whole library. Name a folder or file in it.";
 
 /** Cleans one raw path. Returns the path, the empty string for the whole library, or the reason it is refused. */
 const cleanPath = (raw: string): { path: string } | { problem: string } => {
@@ -26,28 +24,6 @@ const cleanPath = (raw: string): { path: string } | { problem: string } => {
 
 const isPathItem = (value: unknown): value is string =>
   typeof value === "string" && value !== "";
-
-/** A message when `runtimeConfig` holds bad library paths, undefined when the key is absent or every path is valid. */
-export const libraryPathsError = (
-  runtimeConfig: Record<string, unknown>
-): string | undefined => {
-  const value = runtimeConfig[LIBRARY_PATHS_KEY];
-  if (value === undefined) {
-    return;
-  }
-  if (!(Array.isArray(value) && value.every(isPathItem))) {
-    return `"${LIBRARY_PATHS_KEY}" must be a list of non-empty library paths.`;
-  }
-  for (const raw of value) {
-    const cleaned = cleanPath(raw);
-    if ("problem" in cleaned) {
-      return cleaned.problem;
-    }
-    if (cleaned.path === "") {
-      return WHOLE_LIBRARY;
-    }
-  }
-};
 
 /** The library paths in `runtimeConfig`, normalised and de-duplicated in order. Invalid entries are left out. */
 export const libraryPathsOf = (
@@ -81,4 +57,22 @@ export const librarySyncRoots = (
   return roots.filter(
     (root) => !roots.some((other) => root.startsWith(`${other}/`))
   );
+};
+
+/** Home and wiki are implicit grants. Explicit grants add access, never revoke it. */
+export const librarySyncScope = (
+  slug: string,
+  grants: readonly LibraryAccessGrant[]
+): LibraryAccessGrant[] => {
+  const byPath = new Map<string, LibraryAccessGrant>();
+  for (const grant of [{ path: agentHomePath(slug), mode: "write" as const }, { path: "wiki", mode: "read" as const }, ...grants]) {
+    const path = normalizePath(grant.path);
+    const previous = byPath.get(path);
+    byPath.set(path, { path, mode: previous?.mode === "write" ? "write" : grant.mode });
+  }
+  const roots = [...byPath.values()];
+  // Drop covered roots only when the outer grant conveys at least as much access.
+  // A nested write under a read grant must survive to preserve the service rule.
+  return roots.filter(root => !roots.some(other => other !== root &&
+    root.path.startsWith(other.path + "/") && (other.mode === "write" || root.mode === "read")));
 };

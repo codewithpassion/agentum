@@ -1,3 +1,5 @@
+import { agentGrants } from "../library/access.ts";
+import { librarySyncScope } from "../library/sync-paths.ts";
 import type { Database } from "@repo/db";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { and, eq } from "drizzle-orm";
@@ -74,6 +76,7 @@ export const createCloudRuntime = ({
         runtimeConfig: agent.runtimeConfig,
         slug: agent.slug,
       },
+      library: { roots: librarySyncScope(agent.slug, await agentGrants(db, run.workspaceId, agent.id)) },
       inputFileIds: run.inputFileIds,
       mcpServers: buildMcpServers({
         connectors: assigned,

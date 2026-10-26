@@ -11,6 +11,14 @@ const pathInput = z.strictObject({ path: z.string() });
 const ifEtag = z.string().optional();
 
 export const libraryRouter = router({
+  access: router({
+    list: workspaceProcedure.input(z.strictObject({ agentId: z.string().min(1) })).query(({ ctx, input }) =>
+      ctx.services.libraryAccess.listGrants(ctx.principal, input.agentId)),
+    set: workspaceProcedure.input(z.strictObject({ agentId: z.string().min(1), path: z.string(), mode: z.enum(["read", "write"]) })).mutation(({ ctx, input }) =>
+      ctx.services.libraryAccess.setGrant(ctx.principal, input.agentId, input.path, input.mode)),
+    remove: workspaceProcedure.input(z.strictObject({ agentId: z.string().min(1), path: z.string() })).mutation(({ ctx, input }) =>
+      ctx.services.libraryAccess.removeGrant(ctx.principal, input.agentId, input.path)),
+  }),
   compare: workspaceProcedure
     .input(z.strictObject({ a: z.string(), b: z.string() }))
     .query(({ ctx, input }) =>

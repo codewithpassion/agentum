@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
-import { libraryEntries } from "@repo/db/schema/library";
+import { agentLibraryAccess, libraryEntries } from "@repo/db/schema/library";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
@@ -126,6 +126,7 @@ beforeEach(() => {
       workspaceId: A,
     })
     .run();
+  db.insert(agentLibraryAccess).values(["a", "notes"].map(path => ({ agentId: AGENT, workspaceId: A, path, mode: "write" as const, createdAt: START }))).run();
   db.insert(sessionRows)
     .values({
       actorId: "u1",

@@ -20,7 +20,8 @@ import { findAgent, handsToNames } from "../agents.ts";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { ServiceError } from "../errors.ts";
-import { librarySyncRoots } from "../library/sync-paths.ts";
+import { agentGrants } from "../library/access.ts";
+import { librarySyncScope } from "../library/sync-paths.ts";
 import type { LibraryService } from "../library.ts";
 import type { RunTokenClaims } from "../run-tokens.ts";
 import { secretsGuidance } from "../secrets/guidance.ts";
@@ -63,6 +64,7 @@ export const claimForMachine = async (
   runId: string,
   options: {
     libraryForDaemon?: boolean;
+    libraryLiveForDaemon?: boolean;
     requestsForDaemon?: boolean;
     platformUrl: string;
   }
@@ -104,9 +106,10 @@ export const claimForMachine = async (
 
   // The library folders the daemon copies, and the conflict copies waiting in
   // them. Read before the claim write, like the token and the secrets.
-  const libraryPaths = librarySyncRoots(agent.slug, agent.runtimeConfig);
+  const roots = librarySyncScope(agent.slug, await agentGrants(db, run.workspaceId, agent.id));
+  const libraryPaths = roots.map(root => root.path);
   const library =
-    deps.library && options.libraryForDaemon === true
+    deps.library && (options.libraryForDaemon === true || options.libraryLiveForDaemon === true)
       ? {
           conflicts: await deps.library.pendingConflicts(
             {
@@ -118,6 +121,7 @@ export const claimForMachine = async (
             libraryPaths
           ),
           paths: libraryPaths,
+          ...(options.libraryLiveForDaemon === true ? { roots } : {}),
         }
       : undefined;
 

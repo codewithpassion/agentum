@@ -188,5 +188,16 @@ test("runs use home, wiki and grants; denied paths and history are hidden", asyn
   await expect(access.setGrant(user(), AGENT, "/", "write")).rejects.toMatchObject({ code: "invalid" });
   await access.removeGrant(user(), AGENT, "shared/read");
   expect(await access.listGrants(user(), AGENT)).toMatchObject([{ path: "shared/write", mode: "write" }]);
-  expect(libraryEvents().filter(event => event.type === "library.access")).toHaveLength(3);
+  expect(libraryEvents().filter(event => event.type === "library.access")).toHaveLength(4);
+});
+
+test("read-only people cannot mutate files or grants", async () => {
+  const { createLibraryAccessService } = await import("./library/access.ts");
+  const access = createLibraryAccessService({ db, atomic: sqliteAtomic(db), clock: systemClock, events: createEventsService({ db, blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() } }) });
+  const reader: Principal = { kind: "user", workspaceId: A, userId: "u1", via: "api_key", apiKey: { id: "key", access: "read" } };
+  await service.write(user(), "private/a", bytes("ok"));
+  expect((await service.read(reader, "private/a")).entry.path).toBe("private/a");
+  await expect(service.write(reader, "private/a", bytes("no"))).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(access.setGrant(reader, AGENT, "private", "write")).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(access.removeGrant(reader, AGENT, "private")).rejects.toBeInstanceOf(ForbiddenError);
 });

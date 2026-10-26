@@ -11,6 +11,7 @@ import {
   eventsRequestSchema,
   eventsResponseSchema,
   FEATURE_LIBRARY_SYNC,
+  FEATURE_LIBRARY_LIVE,
   FEATURE_REQUESTS,
   hasDaemonFeature,
   waitRequestResponseSchema,
@@ -98,6 +99,7 @@ export const machineRunRoutes = () => {
         .services.runs.claimRunForMachine(principal, runId, {
           // Only a daemon that says so gets the library part of the claim; an
           // older one rejects a key it does not know.
+          libraryLiveForDaemon: hasDaemonFeature(c.req.header(DAEMON_FEATURES_HEADER), FEATURE_LIBRARY_LIVE),
           libraryForDaemon: hasDaemonFeature(
             c.req.header(DAEMON_FEATURES_HEADER),
             FEATURE_LIBRARY_SYNC
