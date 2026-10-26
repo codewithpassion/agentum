@@ -122,7 +122,8 @@ const SYSTEM_PROMPT = `You draft the profile of an AI agent from a person's desc
 Call the ${TOOL_NAME} tool exactly once with the draft, and write nothing else.
 Pick connectors (tools), skills and agents (handsTo) only by the ids in the workspace's choices. When nothing fits, leave the list empty instead of inventing an id.
 Pick runsOn only from the runtimes on offer, and a machineId only from the machines listed. When none fits, set runsOn to null.
-Write a cron expression in five fields for any schedule, and a short label for it.`;
+Write a cron expression in five fields for any schedule, and a short label for it.
+Keep the rules only in the rules field. The does text describes the work in prose and never holds a Rules: block.`;
 
 interface MessagesResponse {
   content?: { input?: unknown; name?: string; type?: string }[];
