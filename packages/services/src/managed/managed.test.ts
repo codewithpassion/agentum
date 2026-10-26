@@ -47,6 +47,7 @@ import type {
   ToolResultImage,
 } from "./gateway.ts";
 import { createManagedKeysService, NO_KEY_MESSAGE } from "./keys.ts";
+import { LIBRARY_TOKEN_ENV } from "./library-transfer.ts";
 import { createManagedRuntime } from "./runtime.ts";
 import {
   BUSY_RETRY_MS,
@@ -489,7 +490,10 @@ const skillsSource = () => ({
     ),
 });
 
-const buildManaged = (publicBaseUrl: string) => {
+const buildManaged = (
+  publicBaseUrl: string,
+  extra: Partial<ManagedServiceOptions> = {}
+) => {
   library = createLibraryService({
     atomic: sqliteAtomic(db),
     blobs: memoryLibraryBlobs(),
@@ -519,6 +523,7 @@ const buildManaged = (publicBaseUrl: string) => {
     runTokenKey: RUN_TOKEN_KEY,
     secrets,
     skills: skillsSource,
+    ...extra,
   });
 };
 
@@ -2479,5 +2484,108 @@ describe("the agent's computer", () => {
     ]);
     expect(runRow(runId)?.status).toBe("running");
     expect(await requests.listPending(dom)).toEqual([]);
+  });
+});
+
+describe("library transfer", () => {
+  const HELPER = "console.log('library helper')";
+
+  const withHelper = () => {
+    managed = buildManaged(BASE, { libraryTransfer: { helper: HELPER } });
+  };
+
+  test("without the helper, no library token and no library skill", async () => {
+    await finishRun();
+
+    expect(gateway.envCredentials).toEqual([]);
+    expect(gateway.registered[0]?.skills).toEqual([]);
+    expect(gateway.registered[0]?.system).not.toContain("library-transfer");
+  });
+
+  test("the session vault gets the session token as a library token limited to the platform host", async () => {
+    withHelper();
+
+    await finishRun();
+
+    expect(
+      gateway.envCredentials.map(({ hosts, name, vaultId }) => ({
+        hosts,
+        name,
+        vaultId,
+      }))
+    ).toEqual([
+      { hosts: ["hm.example"], name: LIBRARY_TOKEN_ENV, vaultId: "vlt_1" },
+    ]);
+    const credential = gateway.envCredentials.at(0);
+    expect(credential?.value === tokenOf("vlt_1")).toBe(true);
+    expect(credential?.value.startsWith(SESSION_TOKEN_PREFIX)).toBe(true);
+  });
+
+  test("the built-in skill carries SKILL.md and the helper, and the system text says when to run it", async () => {
+    withHelper();
+
+    await finishRun();
+
+    const [upload] = [...gateway.skillStore.values()];
+    const files = upload?.[0]?.files ?? [];
+    expect(files.map((file) => file.path).sort()).toEqual([
+      "SKILL.md",
+      "scripts/library.js",
+    ]);
+    expect(
+      new TextDecoder().decode(
+        files.find((file) => file.path === "scripts/library.js")?.content
+      )
+    ).toBe(HELPER);
+    expect(gateway.registered[0]?.skills).toHaveLength(1);
+    const system = gateway.registered[0]?.system;
+    expect(system).toContain("library-transfer");
+    expect(system).toContain(`--url ${BASE}`);
+    expect(system).toContain("agents/pelican");
+    expect(system).toContain(`$${LIBRARY_TOKEN_ENV}`);
+    expect(versionRows()).toMatchObject([
+      { skillId: "builtin-library-transfer-w1", version: expect.any(Number) },
+    ]);
+  });
+
+  test("it sits beside the agent's own skills, and is uploaded once", async () => {
+    withHelper();
+    carry("ts-hello");
+
+    await finishRun();
+    await finishRun("again");
+
+    expect(gateway.registered[0]?.skills).toHaveLength(2);
+    expect(gateway.skillStore.size).toBe(2);
+    expect(versionRows()).toHaveLength(2);
+  });
+
+  test("a new helper is a new version of the built-in skill", async () => {
+    withHelper();
+    await finishRun();
+
+    managed = buildManaged(BASE, {
+      libraryTransfer: { helper: "console.log('v2')" },
+    });
+    await finishRun("again");
+
+    expect(versionRows().map((row) => row.skillId)).toEqual([
+      "builtin-library-transfer-w1",
+      "builtin-library-transfer-w1",
+    ]);
+    expect(gateway.synced.length).toBeGreaterThan(0);
+  });
+
+  test("an agent already at the skill limit gets neither the skill nor the guidance", async () => {
+    withHelper();
+    for (let index = 0; index < 20; index += 1) {
+      carry(`skill-${index}`);
+    }
+
+    const runId = await finishRun();
+
+    expect(runRow(runId)?.status).toBe("done");
+    expect(gateway.registered[0]?.skills).toHaveLength(20);
+    expect(gateway.registered[0]?.system).not.toContain("--url");
   });
 });

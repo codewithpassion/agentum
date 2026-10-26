@@ -11,7 +11,10 @@ import {
   createWriteTool,
 } from "@earendil-works/pi-durable/tools";
 import type { LibraryAccessGrant } from "@repo/db/shared";
-import { workspaceInstructions } from "@repo/protocol/attachments";
+import {
+  computerInstructions,
+  workspaceInstructions,
+} from "@repo/protocol/attachments";
 import type { ScriptTexts } from "../skill-scripts/run-skill-script.ts";
 import { VM_HOME_DIR, VM_LIBRARY_DIR, VM_WORKDIR } from "./vm-port.ts";
 
@@ -59,16 +62,23 @@ export const VM_SCRIPT_TEXTS: ScriptTexts = {
  * A read changes nothing, so it may run again after a restart. The others may
  * not. `libraryOf` answers the synced library copy's state, including the run's
  * task folder, when the prompt renders, or undefined when there is none, and
- * then the section leaves the library path and the task folder out.
+ * then the section leaves the library path and the task folder out. `computerOf`
+ * answers the agent's attached computer when the prompt renders, and the section
+ * then adds how to use it.
  */
 export const linuxVmToolsExtension = (
-  libraryOf?: () => Promise<VmLibraryState | undefined>
+  libraryOf?: () => Promise<VmLibraryState | undefined>,
+  computerOf?: () => Promise<{ desktop: boolean } | undefined>
 ): Extension => ({
   name: LINUX_VM_TOOLS_EXTENSION,
   sections: [
     {
       key: SECTION_KEY,
-      render: async () => sectionText(await libraryOf?.()),
+      render: async () => {
+        const text = sectionText(await libraryOf?.());
+        const computer = await computerOf?.();
+        return computer ? `${text}\n\n${computerInstructions(computer)}` : text;
+      },
     },
   ],
   tools: [

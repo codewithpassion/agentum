@@ -9,7 +9,10 @@ import {
 } from "@repo/services/machines/types";
 import type { Principal } from "@repo/services/workspaces";
 import type { Services } from "../compose.ts";
-import { createComputerPorts } from "./computer-ports.ts";
+import {
+  createComputerPorts,
+  takeDesktopScreenshot,
+} from "./computer-ports.ts";
 
 const run: Extract<Principal, { kind: "run" }> = {
   agentId: "agent-1",
@@ -420,6 +423,40 @@ test("screenshot returns the image", async () => {
     image: { data: "QUJD", mimeType: "image/jpeg" },
     ok: true,
   });
+});
+
+test("takeDesktopScreenshot returns the image of the desktop", async () => {
+  const relay = relayWith({
+    desktopScreenshot: () =>
+      ok({
+        data_b64: "QUJD",
+        height: 800,
+        media_type: "image/jpeg",
+        width: 1280,
+      }),
+  });
+  expect(await takeDesktopScreenshot(relay, "m-1", { kind: "agent" })).toEqual({
+    image: { data: "QUJD", mimeType: "image/jpeg" },
+    ok: true,
+  });
+});
+
+test("takeDesktopScreenshot reports a human in control as human_in_control", async () => {
+  const relay = relayWith({
+    desktopScreenshot: () =>
+      fail("human_in_control", null, "A person has the desktop."),
+  });
+  expect(await takeDesktopScreenshot(relay, "m-1", { kind: "agent" })).toEqual({
+    code: "human_in_control",
+    ok: false,
+    reason: "A person has the desktop.",
+  });
+});
+
+test("takeDesktopScreenshot on an offline computer reports offline", async () => {
+  expect(
+    await takeDesktopScreenshot(noopRelay, "m-1", { kind: "agent" })
+  ).toMatchObject({ code: "offline", ok: false });
 });
 
 test("a reply the server cannot parse is a conflict", async () => {

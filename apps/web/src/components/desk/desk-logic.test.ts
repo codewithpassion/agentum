@@ -3,9 +3,11 @@ import {
   bandClass,
   cardLink,
   cardSubtitle,
+  conflictStatusText,
   elapsedText,
   laneLabel,
   localMidnightIso,
+  suggestionStatusText,
 } from "./desk-logic.ts";
 
 test("local midnight is the start of the local day, whatever the timezone", () => {
@@ -86,4 +88,23 @@ test("each lane has its label", () => {
   expect(laneLabel("needs_you")).toBe("Needs you");
   expect(laneLabel("running")).toBe("Running");
   expect(laneLabel("done")).toBe("Done today");
+});
+
+test("a pending suggestion shows its summary", () => {
+  expect(suggestionStatusText("pending", "Fix the intro")).toBe(
+    "Fix the intro"
+  );
+});
+
+test("a stale suggestion says the page changed and asks for an edit", () => {
+  const text = suggestionStatusText("stale", "Fix the intro");
+  expect(text).toContain("page changed");
+  expect(text).toContain("edit it first");
+  expect(text).not.toContain("Fix the intro");
+});
+
+test("a conflict card names the path and the choice", () => {
+  const text = conflictStatusText("notes/a.md");
+  expect(text).toContain("notes/a.md");
+  expect(text).toContain("choose which to keep");
 });

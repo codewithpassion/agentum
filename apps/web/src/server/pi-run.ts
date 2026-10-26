@@ -45,6 +45,12 @@ import {
   placeSkills,
   withPlacedPaths,
 } from "./linux-vm/vm-workdir.ts";
+import { takeDesktopScreenshot } from "./mcp/computer-ports.ts";
+import {
+  DESKTOP_SCREENSHOT_TOOL,
+  installComputer,
+  type StoredComputer,
+} from "./pi-run-computer.ts";
 import {
   createRunCore,
   type PiPort,
@@ -113,6 +119,8 @@ const TASK_FOLDER_KEY = "task-folder";
 const SKILLS_KEY = "skills";
 /** The agent id, stored only when the agent runs in a Linux VM: the VM is named by it, so every session of the agent shares one VM. Absent means the isolate. */
 const VM_KEY = "linux-vm";
+/** The agent's computer as the newest run's `CloudStart` gave it, so the wake path installs the same computer tools and prompt paragraph. Absent means none. */
+const COMPUTER_KEY = "computer";
 /** Whether the isolate's agent may reach the network, so the wake path installs the same `web_fetch` the run did. Absent means true. */
 const NETWORK_KEY = "network-access";
 /** The run an input file belongs to, so `read_input_file` reads it as that run. */
@@ -225,6 +233,9 @@ export class PiRun extends DurableObject<Env> {
       this.#switchEnvironment(
         await this.ctx.storage.get<string>(VM_KEY),
         (await this.ctx.storage.get<boolean>(NETWORK_KEY)) ?? true
+      );
+      this.#installComputer(
+        await this.ctx.storage.get<StoredComputer>(COMPUTER_KEY)
       );
       this.#installTools(
         (await this.ctx.storage.get<ServerTools>(TOOLS_KEY)) ?? {}
@@ -440,8 +451,25 @@ export class PiRun extends DurableObject<Env> {
         placeholdersOf: () => this.#secretPlaceholders(),
       },
       this.#runScriptDeps(),
-      () => this.ctx.storage.get<string>(TASK_FOLDER_KEY)
+      () => this.ctx.storage.get<string>(TASK_FOLDER_KEY),
+      () => this.ctx.storage.get<StoredComputer>(COMPUTER_KEY)
     );
+  }
+
+  /**
+   * Gives the session the computer tools when the agent's computer has a desktop,
+   * and takes them out otherwise. They go in right after the environment's tools,
+   * the same place on a start and on a wake, so Pi does not re-declare the tools.
+   */
+  #installComputer(computer: StoredComputer | undefined) {
+    installComputer(this.registry, computer, {
+      screenshot: async (machineId) =>
+        takeDesktopScreenshot(this.#compose().relay, machineId, {
+          agentId: (await this.#storedRun(DESKTOP_SCREENSHOT_TOOL)).agentId,
+          kind: "agent",
+        }),
+      takeover: this.#gate.requestTakeover,
+    });
   }
 
   /**
@@ -1057,12 +1085,16 @@ export class PiRun extends DurableObject<Env> {
     });
   }
 
-  #services() {
+  #compose() {
     // A library write from the object announces itself after the write returns.
     this.#composed ??= compose(this.env, import.meta.env.DEV, (work) =>
       this.ctx.waitUntil(work)
     );
-    return this.#composed.services;
+    return this.#composed;
+  }
+
+  #services() {
+    return this.#compose().services;
   }
 
   #runCore() {
@@ -1151,7 +1183,13 @@ export class PiRun extends DurableObject<Env> {
     } else {
       await this.ctx.storage.delete(TASK_FOLDER_KEY);
     }
+    if (input.computer) {
+      await this.ctx.storage.put(COMPUTER_KEY, input.computer);
+    } else {
+      await this.ctx.storage.delete(COMPUTER_KEY);
+    }
     await this.#selectEnvironment(input);
+    this.#installComputer(input.computer);
     try {
       await this.#vm?.setRun(runRefOf(input));
     } catch (error) {
