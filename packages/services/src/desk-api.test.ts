@@ -215,7 +215,7 @@ test("actingMember refuses a desk key with no member, a blank or unknown member,
   ).rejects.toBeInstanceOf(ForbiddenError);
 });
 
-test("an OAuth principal acts as itself and ignores the email", async () => {
+test("an OAuth principal is refused, with or without an email", async () => {
   const oauth = {
     kind: "user",
     oauthClient: { access: "write", clientId: "c1" },
@@ -223,8 +223,12 @@ test("an OAuth principal acts as itself and ignores the email", async () => {
     via: "oauth",
     workspaceId: "w1",
   } as const;
-  expect(await desk.actingMember(oauth, email)).toEqual(oauth);
-  expect(await desk.actingMember(oauth, null)).toEqual(oauth);
+  await expect(desk.actingMember(oauth, email)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  await expect(desk.actingMember(oauth, null)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
   expect(directoryCalls).toEqual([]);
 });
 
@@ -484,4 +488,16 @@ test("sendToController refuses empty text and a read-only key", async () => {
   await expect(
     desk.sendToController(readOnly, { text: "hello" })
   ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("decide on a request in another member's private session is not found, whatever the body", async () => {
+  const question = await openQuestion(await start(), [
+    { question: "Which db?" },
+  ]);
+  members.set("eli@example.com|org1", "u2");
+  const other = await desk.actingMember(deskKey, "eli@example.com");
+
+  await expect(
+    desk.decide(other, question.id, { decision: "allow_once" })
+  ).rejects.toMatchObject({ code: "not_found" });
 });

@@ -3,7 +3,9 @@
  * on a person, a decision on it, and a message to the workspace's controller.
  * Thin over the requests and runs services. The outside app holds an `hm_key_`
  * key with the `desk` scope and names the member it acts for by email. A
- * member's own Clerk OAuth token is accepted as that member, with no email.
+ * connected app's OAuth token is refused: any approved MCP app would gain a
+ * person's power to answer approvals. The member's own token on the shared
+ * Clerk instance waits for a way to tell flightdex's client from the rest.
  */
 import type { Database } from "@repo/db";
 import { agents as agentRows } from "@repo/db/schema/agents";
@@ -111,13 +113,12 @@ export const createDeskApiService = ({
   clock: Clock;
   db: Database;
   directory: MemberDirectory;
-  requests: Pick<RequestsService, "answer" | "listPending">;
+  requests: Pick<RequestsService, "answer" | "listPending" | "outcome">;
   runs: Pick<RunsService, "startRun">;
 }) => {
   /**
    * The member a request acts for. A desk key acts for the member its
-   * `X-On-Behalf-Of` email names, who must belong to the key's workspace. A
-   * member's own OAuth token acts as that member and ignores the email. Any
+   * `X-On-Behalf-Of` email names, who must belong to the key's workspace. Any
    * other credential is refused.
    */
   const actingMember = async (
@@ -126,9 +127,6 @@ export const createDeskApiService = ({
   ): Promise<UserPrincipal> => {
     if (credential.kind !== "user") {
       throw new ForbiddenError(SCOPE_ACTION);
-    }
-    if (credential.via === "oauth") {
-      return credential;
     }
     if (credential.via !== "api_key" || credential.apiKey?.access !== "desk") {
       throw new ForbiddenError(SCOPE_ACTION);
@@ -221,6 +219,9 @@ export const createDeskApiService = ({
     requireWriter(member, DECIDE_ACTION);
     const id = idString.parse(requestId);
     const input = deskDecisionInputSchema.parse(rawInput);
+    // The requests service hides a request in a session the member cannot see
+    // (not found), before the body decides anything.
+    await requests.outcome(member, id);
     const [row] = await db
       .select({ display: runRequests.display, kind: runRequests.kind })
       .from(runRequests)

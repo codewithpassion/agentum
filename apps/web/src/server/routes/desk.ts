@@ -1,8 +1,9 @@
 // The external desk API (contract C4), `/api/desk/*`. An outside app (flightdex)
 // calls it from its own server with an `hm_key_` key that has the `desk` scope
 // and an `X-On-Behalf-Of: <email>` header naming the member it acts for. A
-// member's own Clerk OAuth token is accepted too, and the header is then
-// ignored. The service decides who may do what, so this file authenticates,
+// connected app's OAuth token is not a credential here: it is never sent to
+// Clerk, so it cannot register a client either. The service decides who may do
+// what, so this file authenticates,
 // parses the body and maps what the services refuse to a status. The live
 // stream is `GET /api/desk/stream`, added later. Mount with
 // `accessRoutes.route("/api/desk", deskRoutes({ ... }))`.
@@ -17,8 +18,6 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 import { readCappedBody } from "../mcp/body.ts";
-import { OAuthVerificationUnavailableError } from "../mcp/clerk-oauth.ts";
-import { OAuthDeniedError } from "../mcp/oauth-auth.ts";
 import {
   authenticateBearer,
   type BearerAuthOptions,
@@ -37,7 +36,8 @@ const RETRY_AFTER_SECONDS = "30";
 
 type LogEntry = Record<string, unknown>;
 
-export interface DeskRouteOptions extends BearerAuthOptions {
+export interface DeskRouteOptions
+  extends Pick<BearerAuthOptions, "isOrgMember"> {
   /** Runs work after the response. `executionCtx.waitUntil` by default. */
   defer?: (c: RouteContext, work: Promise<unknown>) => void;
   /** Structured log line. `console.log` of JSON by default (`wrangler tail`). */
@@ -117,12 +117,16 @@ const readJson = async (
   }
 };
 
+/** Keys only: a token that is not an `hm_` credential verifies to nothing. */
+const noOAuth = {
+  clientName: () => () => Promise.resolve(null),
+  verifyOAuthToken: () => () => Promise.resolve(null),
+} satisfies Omit<BearerAuthOptions, "isOrgMember">;
+
 export const deskRoutes = ({
-  clientName,
   defer = defaultDefer,
   isOrgMember,
   log = defaultLog,
-  verifyOAuthToken,
 }: DeskRouteOptions) => {
   const routes = bearerGroup();
 
@@ -135,21 +139,14 @@ export const deskRoutes = ({
     try {
       credential = await authenticateBearer(
         { composed: c.get("composed"), env: c.env },
-        { clientName, isOrgMember, verifyOAuthToken },
+        { ...noOAuth, isOrgMember },
         authorization
       );
     } catch (error: unknown) {
-      if (error instanceof OAuthDeniedError) {
-        log({ event: "desk.denied", reason: error.reason, via: "oauth" });
-        return c.json({ error: "forbidden" }, FORBIDDEN);
-      }
       // D1 or Clerk failed, or a key is not configured: an outage, not a bad token.
       log({
         event: "desk.error",
         message: error instanceof Error ? error.message : String(error),
-        misconfigured:
-          error instanceof OAuthVerificationUnavailableError &&
-          error.misconfigured,
         phase: "authenticate",
       });
       return c.json({ error: "temporarily_unavailable" }, UNAVAILABLE, {

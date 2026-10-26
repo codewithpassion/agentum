@@ -11,7 +11,6 @@ import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Composed, composeWith } from "../compose.ts";
-import type { VerifiedOAuthToken } from "../mcp/clerk-oauth.ts";
 import { deskRoutes } from "./desk.ts";
 import type { AppEnv } from "./groups.ts";
 
@@ -23,7 +22,6 @@ const env = {
   ALLOWED_ORG_IDS: "org_a",
   RUN_TOKEN_KEY,
 } as unknown as Env;
-const CLIENT_ID = "client_flightdex";
 const MEMBER_EMAIL = "u2@example.com";
 const DECISION = JSON.stringify({ decision: "allow_once" });
 
@@ -32,7 +30,6 @@ let composed: Composed;
 let workspaceId: string;
 let members: Set<string>;
 let emails: Map<string, string>;
-let oauthTokens: Map<string, VerifiedOAuthToken>;
 let directoryCalls: { clerkOrgId: string; email: string }[];
 let deferred: Promise<unknown>[];
 let logs: Record<string, unknown>[];
@@ -53,17 +50,6 @@ const mintKey = async (access: "desk" | "read" | "write") =>
       name: `${access} key`,
     })
   ).secret;
-
-const oauthToken = (userId: string): string => {
-  const token = `oat_${userId}_${CLIENT_ID}`;
-  oauthTokens.set(token, {
-    clientId: CLIENT_ID,
-    expiresAt: null,
-    scopes: ["profile", "email"],
-    userId,
-  });
-  return token;
-};
 
 interface CallOptions {
   body?: string;
@@ -125,7 +111,6 @@ beforeEach(async () => {
     [MEMBER_EMAIL, "u2"],
     ["u9@example.com", "u9"],
   ]);
-  oauthTokens = new Map();
   directoryCalls = [];
   deferred = [];
   logs = [];
@@ -190,15 +175,12 @@ beforeEach(async () => {
   app.route(
     ROUTE,
     deskRoutes({
-      clientName: () => (clientId) => Promise.resolve(`App ${clientId}`),
       defer: (_c, work) => {
         deferred.push(work);
       },
       isOrgMember: () => (userId, clerkOrgId) =>
         Promise.resolve(members.has(`${userId}@${clerkOrgId}`)),
       log: (entry) => logs.push(entry),
-      verifyOAuthToken: () => (token) =>
-        Promise.resolve(oauthTokens.get(token) ?? null),
     })
   );
 });
@@ -534,19 +516,9 @@ describe("POST /api/desk/controller/messages", () => {
 });
 
 describe("OAuth token", () => {
-  test("a member of an approved client lists needs-you with no X-On-Behalf-Of header", async () => {
-    const token = oauthToken("u2");
-    const pending = await send("GET", "/needs-you", { token });
-    expect(pending.status).toBe(403);
-
-    await composed.services.oauthClients.setAccess(sessionUser("u1"), {
-      access: "write",
-      clientId: CLIENT_ID,
-    });
-
-    const res = await send("GET", "/needs-you", { token });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual([]);
+  test("a Clerk OAuth token is not a credential here: 401, and Clerk is never asked", async () => {
+    const res = await send("GET", "/needs-you", { token: "oat_u2_client" });
+    expect(res.status).toBe(401);
   });
 });
 
