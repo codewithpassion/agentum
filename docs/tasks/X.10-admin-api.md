@@ -3,9 +3,9 @@ id: X.10
 title: Key-authenticated admin API for setup that is UI-only today
 milestone: X
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/X.10-admin-api
 lane: admin-api
 executor: claude
 ---
@@ -30,3 +30,4 @@ The integration coordinator sets up agents, routines and machines from Morosini 
 
 ## Log
 - 2026-10-27: requested by the integration coordinator, so production rollouts stop waiting on UI clicks.
+- 2026-10-27: dispatched.
