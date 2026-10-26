@@ -33,7 +33,7 @@ const json = (body: unknown, status = 200) =>
     status,
   });
 
-const envelope = (result: unknown, resultInfo?: { total_pages: number }) =>
+const envelope = (result: unknown, resultInfo?: { total_pages?: number }) =>
   json({
     errors: [],
     messages: [],
@@ -151,6 +151,31 @@ describe("findRule", () => {
       `${BASE}?page=2&per_page=50`,
     ]);
     expect(calls.every((call) => call.init.method === undefined)).toBe(true);
+  });
+
+  test("pages on when result_info has no total_pages, until a short page", async () => {
+    const full = Array.from({ length: 50 }, (_, i) =>
+      rule(`r-${i}`, "other", `u${i}@example.com`)
+    );
+    const { calls, port } = portWith([
+      envelope(full, {}),
+      envelope(
+        [
+          rule(
+            "rule-9",
+            "harbourmaster:agent@example.com",
+            "agent@example.com"
+          ),
+        ],
+        {}
+      ),
+    ]);
+
+    expect(await port.findRule("agent@example.com")).toEqual({
+      id: "rule-9",
+      managed: true,
+    });
+    expect(calls).toHaveLength(2);
   });
 
   test("reports managed false for a rule with another name", async () => {

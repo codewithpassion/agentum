@@ -33,7 +33,7 @@ const errorSchema = z.object({
 const envelopeSchema = z.object({
   errors: z.array(errorSchema).default([]),
   result: z.unknown(),
-  result_info: z.object({ total_pages: z.number() }).optional(),
+  result_info: z.object({ total_pages: z.number().optional() }).optional(),
   success: z.boolean(),
 });
 
@@ -193,9 +193,12 @@ export const createEmailRoutingPort = ({
         if (match) {
           return { id: match.id, managed: match.name === name };
         }
+        // Some list endpoints send no total_pages, so then a short page ends the list.
+        const lastPage = resultInfo?.total_pages;
         if (
-          rules.length === 0 ||
-          (resultInfo && page >= resultInfo.total_pages)
+          lastPage === undefined
+            ? rules.length < PAGE_SIZE
+            : page >= lastPage || rules.length === 0
         ) {
           return null;
         }

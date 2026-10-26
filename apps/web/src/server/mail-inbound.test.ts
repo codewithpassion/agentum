@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { MAIL_MAX_INBOUND_BYTES } from "@repo/mailbox/inbound";
 import type { InboundMessage } from "@repo/services/mail/types";
+import PostalMime from "postal-mime";
 import {
   handleInboundEmail,
   type InboundDeps,
@@ -306,5 +307,20 @@ describe("handleInboundEmail", () => {
       )
     ).rejects.toThrow("store unavailable");
     expect(rejections).toEqual([]);
+  });
+
+  test("rejects a message the parser throws on, so the sender does not retry it", async () => {
+    const parse = spyOn(PostalMime, "parse").mockRejectedValueOnce(
+      new Error("too deeply nested")
+    );
+    const { email, rejections, received } = setup(
+      mime(["From: a@example.com", "To: agent@rockyshoreslabs.io", "", "x"])
+    );
+
+    await handleInboundEmail(email, deps(received));
+    parse.mockRestore();
+
+    expect(rejections).toEqual(["Message could not be read"]);
+    expect(received).toEqual([]);
   });
 });

@@ -48,12 +48,17 @@ const readCapped = async (
   while (!result.done) {
     total += result.value.byteLength;
     if (total > maxBytes) {
-      return null;
+      break;
     }
     chunks.push(result.value);
     // Each read waits for the chunk before, so the reads cannot run in parallel.
     // biome-ignore lint/performance/noAwaitInLoops: reads are sequential
     result = await reader.read();
+  }
+
+  if (total > maxBytes) {
+    await reader.cancel();
+    return null;
   }
 
   const bytes = new Uint8Array(total);
@@ -229,6 +234,13 @@ export const handleInboundEmail = async (
     return;
   }
 
-  const parsed = await PostalMime.parse(raw);
+  let parsed: Email;
+  try {
+    parsed = await PostalMime.parse(raw);
+  } catch {
+    // A message that cannot be parsed never will, so the sender should not retry it.
+    email.setReject("Message could not be read");
+    return;
+  }
   await deps.receive(toInboundMessage(parsed, raw, { from: email.from, to }));
 };
