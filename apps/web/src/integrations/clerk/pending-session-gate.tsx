@@ -1,5 +1,6 @@
 import {
   RedirectToTasks,
+  useClerk,
   useOrganizationList,
   useSession,
 } from "@clerk/tanstack-react-start";
@@ -28,6 +29,7 @@ export function PendingSessionGate() {
 
 function ResolveChooseOrganization() {
   const { pathname } = useLocation();
+  const clerk = useClerk();
   const { isLoaded, setActive, userMemberships } = useOrganizationList({
     userMemberships: true,
   });
@@ -37,19 +39,36 @@ function ResolveChooseOrganization() {
     userMemberships.count
   );
   const onPicker = pathname === CHOOSE_ORGANIZATION_PATH;
+  // While the list is fetching it reads as empty, which must not look like
+  // "no organisation".
+  const loading =
+    !isLoaded || userMemberships.isLoading || userMemberships.isFetching;
 
   useEffect(() => {
-    if (!(isLoaded && organizationId) || started.current) {
+    if (loading || !organizationId || started.current) {
       return;
     }
     started.current = true;
-    setActive({ organization: organizationId }).then(() => {
-      // A full load so the server sees the active organisation.
-      window.location.assign(onPicker ? "/" : window.location.href);
-    });
-  }, [isLoaded, onPicker, organizationId, setActive]);
+    // Read before setActive, which moves the page to the task URL itself.
+    const target = onPicker ? "/" : window.location.href;
+    setActive({ organization: organizationId })
+      .then(() => {
+        // setActive can resolve with the server still pending (it skips the
+        // server call in an unfocused tab). Reloading then would loop, so the
+        // session is left for the picker.
+        if (clerk.session?.status !== "pending") {
+          // A full load so the server sees the active organisation.
+          window.location.assign(target);
+        }
+      })
+      .catch(() => {
+        if (!onPicker) {
+          window.location.assign(CHOOSE_ORGANIZATION_PATH);
+        }
+      });
+  }, [clerk, loading, onPicker, organizationId, setActive]);
 
-  if (isLoaded && !organizationId && !onPicker) {
+  if (!(loading || organizationId || onPicker)) {
     return <RedirectToTasks />;
   }
   return null;
