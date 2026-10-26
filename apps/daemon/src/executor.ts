@@ -40,6 +40,7 @@ import {
   stopMessage,
 } from "@repo/protocol/safeguards";
 import { buildAgentEnv } from "./agent-env.ts";
+import { createApprovalGate, gateOptions } from "./approvals.ts";
 import type { Timers } from "./client.ts";
 import type { CommandRunner } from "./command.ts";
 import type { DaemonConfig } from "./config.ts";
@@ -298,6 +299,15 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
     });
   };
 
+  const approvalGate = (rules: readonly string[]) =>
+    createApprovalGate({
+      api,
+      log: runLog,
+      rules,
+      serverKeys: Object.keys(claim.mcpServers),
+      signal: abortController.signal,
+    });
+
   const buildOptions = (
     workDir: string,
     claudeBinary: string,
@@ -333,6 +343,11 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
         preset: "claude_code",
         type: "preset",
       },
+      // A claim without `toolRules` comes from a Worker that predates requests,
+      // so such a run keeps its ungated bypassPermissions.
+      ...(claim.toolRules === undefined
+        ? {}
+        : gateOptions(approvalGate(claim.toolRules))),
       ...(budget === undefined ? {} : { maxBudgetUsd: budget }),
       ...(resume === undefined ? {} : { resume }),
     };

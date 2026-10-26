@@ -14,6 +14,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
+  HookCallback,
+  HookInput,
   Options,
   Query,
   SDKMessage,
@@ -32,9 +34,12 @@ import {
 import type {
   ClaimResponse,
   CompleteRequest,
+  CreateRequestBody,
   RunEventInput,
+  WaitRequestResponse,
 } from "@repo/protocol/machine";
 import type { Masker } from "@repo/protocol/masker";
+import type { RequestOutcome } from "@repo/protocol/requests";
 import {
   AGENT_DD,
   AGENT_HEAD,
@@ -45,6 +50,7 @@ import {
   AGENT_STAT,
   AS_AGENT,
 } from "./agent-user.ts";
+import { HOOK_TIMEOUT_SECONDS } from "./approvals.ts";
 import type { Timers } from "./client.ts";
 import type { CommandRunner } from "./command.ts";
 import { type ExecuteRunDeps, executeRun, type QueryFn } from "./executor.ts";
@@ -153,7 +159,7 @@ interface Harness {
     inbox: Record<string, string> | undefined;
     skills: Record<string, string> | undefined;
   };
-  heartbeat: { reject: unknown };
+  heartbeat: { reject: unknown; sent: number };
   lines: string[];
   maskerSeen: Masker[];
   optionsSeen: Options[];
@@ -163,8 +169,12 @@ interface Harness {
   proc: FakeProcess;
   /** The conflicts the run reported to the Worker. */
   recordedConflicts: { conflictPath: string; path: string }[];
+  /** Answers the wait the run is holding (`holdWaits`), with `outcome` or the default. */
+  releaseWait: (outcome?: RequestOutcome) => void;
   /** What the fake hm-agent work directory holds (path to text), as the sudo calls left it. */
   remoteFiles: Map<string, string>;
+  /** The request bodies the run raised through the gate, in order. */
+  requests: CreateRequestBody[];
   run: CommandRunner;
   runCommands: string[][];
   sendStderr: (text: string) => void;
@@ -182,6 +192,8 @@ interface SetupOptions {
   hang?: boolean;
   /** Keeps the process alive after an abort until the test lets it go. */
   holdExit?: boolean;
+  /** Waits for a raised request stay open until the test calls `releaseWait`. */
+  holdWaits?: boolean;
   /** The library the run syncs with. The claim names the paths to sync. */
   library?: {
     /** Runs once the first message is read, with the work directory: the agent working. */
@@ -194,6 +206,8 @@ interface SetupOptions {
   mcpHangsUntilClose?: boolean;
   /** Files already in the fake hm-agent work directory, by absolute path. */
   remoteFiles?: Record<string, string>;
+  /** The outcome every request answers with. Default: allow once. */
+  requestOutcome?: RequestOutcome;
   script: Step[];
   singleUser?: boolean;
   /** The skills the fake Worker lists, or `listFails`: the HTTP status the list answers with. */
@@ -207,6 +221,11 @@ interface SetupOptions {
   /** When set, the run talks to the relay through the real run API client over this fetch. */
   wireFetch?: typeof fetch;
 }
+
+const ALLOW_ONCE: RequestOutcome = {
+  answer: { decision: "allow_once" },
+  status: "answered",
+};
 
 let home: string;
 beforeEach(() => {
@@ -263,7 +282,7 @@ const setup = (setupOptions: SetupOptions) => {
   const events: RunEventInput[][] = [];
   const lines: string[] = [];
   const runCommands: string[][] = [];
-  const heartbeat: Harness["heartbeat"] = { reject: undefined };
+  const heartbeat: Harness["heartbeat"] = { reject: undefined, sent: 0 };
   const downloaded: string[] = [];
   const uploaded: Harness["uploaded"] = [];
   const firstMessage: Harness["firstMessage"] = {
@@ -275,6 +294,8 @@ const setup = (setupOptions: SetupOptions) => {
   const maskerSeen: Masker[] = [];
   const preserveEnvSeen: (readonly string[])[] = [];
   const recordedConflicts: Harness["recordedConflicts"] = [];
+  const requests: CreateRequestBody[] = [];
+  let releaseHeld: (response: WaitRequestResponse) => void = () => undefined;
 
   const api: RunApi = {
     claim: () => Promise.reject(new Error("not used")),
@@ -283,14 +304,44 @@ const setup = (setupOptions: SetupOptions) => {
       completions.push({ body, processExited: proc.exitCode !== null });
       return Promise.resolve();
     },
+    createRequest: (body) => {
+      requests.push(body);
+      return Promise.resolve({
+        requestId: `req-${requests.length}`,
+        status: "pending",
+      });
+    },
     events: (batch) => {
       events.push(batch);
       return Promise.resolve();
     },
-    heartbeat: () =>
-      heartbeat.reject === undefined
+    heartbeat: () => {
+      heartbeat.sent += 1;
+      return heartbeat.reject === undefined
         ? Promise.resolve()
-        : Promise.reject(heartbeat.reject),
+        : Promise.reject(heartbeat.reject);
+    },
+    waitRequest: (_requestId, signal) => {
+      const answer = (outcome: RequestOutcome): WaitRequestResponse => ({
+        outcome,
+        status: "answered",
+      });
+      if (!setupOptions.holdWaits) {
+        return Promise.resolve(
+          answer(setupOptions.requestOutcome ?? ALLOW_ONCE)
+        );
+      }
+      // Like fetch: a wait that starts after the abort rejects at once.
+      if (signal?.aborted) {
+        return Promise.reject(signal.reason);
+      }
+      return new Promise((resolve, reject) => {
+        releaseHeld = (response) => resolve(response);
+        signal?.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
+    },
   };
 
   const filesApi: FilesApi = {
@@ -581,7 +632,10 @@ const setup = (setupOptions: SetupOptions) => {
     preserveEnvSeen,
     proc,
     recordedConflicts,
+    releaseWait: (outcome = setupOptions.requestOutcome ?? ALLOW_ONCE) =>
+      releaseHeld({ outcome, status: "answered" }),
     remoteFiles,
+    requests,
     run,
     runCommands,
     sendStderr: (text) => stderr(text),
@@ -1679,5 +1733,210 @@ describe("the library copy", () => {
     expect(
       run.lines.filter((line) => line.includes("syncing the library"))
     ).toHaveLength(1);
+  });
+});
+
+/** The PreToolUse input the SDK sends for one tool call. */
+const preToolUseInput = (
+  toolName: string,
+  toolInput: Record<string, unknown>
+): HookInput => ({
+  cwd: "/",
+  hook_event_name: "PreToolUse",
+  session_id: "s",
+  tool_input: toolInput,
+  tool_name: toolName,
+  tool_use_id: "toolu_1",
+  transcript_path: "",
+});
+
+/** The single PreToolUse hook the executor put in the options of the run's query. */
+const preToolUseHookOf = (options: Options | undefined): HookCallback => {
+  const [matcher] = options?.hooks?.PreToolUse ?? [];
+  const [hook] = matcher?.hooks ?? [];
+  if (hook === undefined) {
+    throw new Error("the executor must pass a PreToolUse hook");
+  }
+  return hook;
+};
+
+const callHook = (
+  hook: HookCallback,
+  toolName: string,
+  toolInput: Record<string, unknown>
+) =>
+  hook(preToolUseInput(toolName, toolInput), "toolu_1", {
+    signal: new AbortController().signal,
+  });
+
+/** A claim whose `toolRules` make Bash wait for a person. */
+const gated = () =>
+  claimWith((c) => {
+    c.toolRules = ["bash"];
+  });
+
+const BASH_LS = { command: "ls" };
+const ASK_INPUT = {
+  questions: [
+    {
+      header: "Pick",
+      multiSelect: false,
+      options: [{ description: "first", label: "A" }],
+      question: "Which?",
+    },
+  ],
+};
+
+describe("the tool-call gate", () => {
+  test("a claim with toolRules keeps bypassPermissions and adds canUseTool and one PreToolUse hook", async () => {
+    const run = setup({ claim: gated(), script: toolRunScript() });
+    await run.execution.finished;
+    const [options] = run.optionsSeen;
+    expect(options?.permissionMode).toBe("bypassPermissions");
+    expect(typeof options?.canUseTool).toBe("function");
+    const matchers = options?.hooks?.PreToolUse ?? [];
+    expect(matchers).toHaveLength(1);
+    expect(matchers[0]?.hooks).toHaveLength(1);
+    expect(matchers[0]?.timeout).toBe(HOOK_TIMEOUT_SECONDS);
+  });
+
+  test("a ruled call raises an approval request and the hook allows it", async () => {
+    const run = setup({ claim: gated(), script: toolRunScript() });
+    await run.execution.finished;
+    const hook = preToolUseHookOf(run.optionsSeen[0]);
+
+    const output = await callHook(hook, "Bash", BASH_LS);
+
+    expect(output).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+      },
+    });
+    expect(run.requests).toEqual([
+      expect.objectContaining({
+        kind: "approval",
+        toolName: "Bash",
+        toolUseId: "toolu_1",
+      }),
+    ]);
+    expect(run.requests[0]?.display).toEqual(
+      expect.objectContaining({ toolKey: "bash" })
+    );
+  });
+
+  test("a call that no rule names passes through without a request", async () => {
+    const run = setup({ claim: gated(), script: toolRunScript() });
+    await run.execution.finished;
+    const hook = preToolUseHookOf(run.optionsSeen[0]);
+
+    const output = await callHook(hook, "Read", { file_path: "a.txt" });
+
+    expect(output).toEqual({});
+    expect(run.requests).toEqual([]);
+  });
+
+  test("a claim without toolRules gets no hook and no canUseTool", async () => {
+    const run = setup({ script: toolRunScript() });
+    await run.execution.finished;
+    const [options] = run.optionsSeen;
+    expect(options && "hooks" in options).toBe(false);
+    expect(options?.canUseTool).toBeUndefined();
+  });
+
+  test("a claim with empty toolRules still gets the hook, and AskUserQuestion is raised as a question", async () => {
+    const run = setup({
+      claim: claimWith((c) => {
+        c.toolRules = [];
+      }),
+      requestOutcome: {
+        answer: { answers: { "Which?": "A" } },
+        status: "answered",
+      },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+    const [options] = run.optionsSeen;
+    expect(typeof options?.canUseTool).toBe("function");
+    const hook = preToolUseHookOf(options);
+
+    const output = await callHook(hook, "AskUserQuestion", ASK_INPUT);
+
+    expect(run.requests).toEqual([
+      expect.objectContaining({
+        kind: "question",
+        toolName: "AskUserQuestion",
+        toolUseId: "toolu_1",
+      }),
+    ]);
+    expect(output).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        updatedInput: { ...ASK_INPUT, answers: { "Which?": "A" } },
+      },
+    });
+  });
+
+  test("a ruled call that waits keeps the heartbeat and the event batches going", async () => {
+    const run = setup({
+      claim: gated(),
+      hang: true,
+      holdWaits: true,
+      script: toolRunScript(),
+    });
+    await until(() => run.optionsSeen.length > 0);
+    const hook = preToolUseHookOf(run.optionsSeen[0]);
+    const verdict = callHook(hook, "Bash", BASH_LS);
+    await until(() => run.requests.length === 1);
+    await sleep(10);
+    const beatsBefore = run.heartbeat.sent;
+    const postedBefore = run.events.length;
+
+    run.timers.fire("heartbeat");
+    run.timers.fire("event-batch");
+    await sleep(10);
+
+    expect(run.heartbeat.sent).toBe(beatsBefore + 1);
+    expect(run.events.length).toBeGreaterThan(postedBefore);
+    run.releaseWait();
+    expect(await verdict).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+      },
+    });
+    run.execution.abort("test over");
+    await run.execution.finished;
+  });
+
+  test("aborting the run while a ruled call waits denies the call and posts aborted", async () => {
+    const run = setup({
+      claim: gated(),
+      hang: true,
+      holdWaits: true,
+      script: [INIT],
+    });
+    await until(() => run.optionsSeen.length > 0);
+    const verdict = callHook(
+      preToolUseHookOf(run.optionsSeen[0]),
+      "Bash",
+      BASH_LS
+    );
+    await until(() => run.requests.length === 1);
+
+    run.execution.abort("cancelled");
+
+    expect(await verdict).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: expect.any(String),
+      },
+    });
+    await run.execution.finished;
+    expect(run.completions.map((entry) => entry.body)).toEqual([
+      { status: "aborted" },
+    ]);
   });
 });
