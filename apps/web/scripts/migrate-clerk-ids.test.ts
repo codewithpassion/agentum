@@ -382,9 +382,35 @@ describe("what counts as a Clerk id", () => {
       ignoreUnresolved: true,
     });
     expect(all.unresolved).toEqual([]);
+    expect(all.ignored).toEqual([
+      `${mk("org", "gone")} (not found on the dev instance)`,
+    ]);
     expect(all.mapping.ignore).toEqual([BRAIN_USER, mk("org", "gone")].sort());
     expect(
       parseMapping(JSON.stringify(all.mapping)).ignore.has(BRAIN_USER)
     ).toBe(true);
+  });
+
+  test("--ignore-unresolved never hides an id that exists on dev", async () => {
+    // On dev, found by email, but nobody with that email on production.
+    const lookup = {
+      ...fakeLookup(),
+      userIdsByEmail: () => Promise.resolve([]),
+    };
+    const result = await buildMapping([OLD_USER], lookup, lookup, {
+      ignoreUnresolved: true,
+    });
+    expect(result.mapping.ignore).toBeUndefined();
+    expect(result.ignored).toEqual([]);
+    expect(result.unresolved).toHaveLength(1);
+  });
+
+  test("an id joined to other characters by _ is not an id", async () => {
+    db.client.run("CREATE TABLE later (id TEXT, a TEXT)");
+    db.client.run(
+      `INSERT INTO later VALUES ('l1', 'oat_${OLD_USER}_c1 ${OLD_ORG}_x')`
+    );
+    const { occurrences } = await discover(sqliteDriver(db.client));
+    expect(occurrences.filter((o) => o.table === "later")).toEqual([]);
   });
 });

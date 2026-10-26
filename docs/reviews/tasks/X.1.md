@@ -35,7 +35,9 @@ The copy is `tmp/X.1/prod-d1.sql`, loaded into a local SQLite file. It holds one
 
 The sample mapping used a placeholder user id and the Harbour Edge Intelligence org as the target, because the real targets do not exist yet (see below). Do not apply it.
 
-Round 2 (fix for false positives found on the staging copy): pending.
+Round 2 at e3982f6 (fix for false positives found on the staging copy): must-fix, two findings. `--ignore-unresolved` ignored every unresolved id, including real dev ids with no single production match or hit by a Clerk API error, and it printed nothing about what it ignored. Fixed in the next commit: it ignores only ids Clerk reports as 404, prints each, and any other Clerk error stops the run. Also validated an existing `ignore` list, and added tests for `_` neighbours and for that flag.
+
+Round 3: pending.
 
 ## Staging copy dry run
 
@@ -73,7 +75,7 @@ Cutover, staging first. Run the commands from `apps/web`. Between the D1 step an
 
 1. Save the old values so each step can be undone: `VITE_CLERK_PUBLISHABLE_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` (the dev values now in `.env.production.local`) and the current `ALLOWED_ORG_IDS` secret, into a file outside the repo, for example `~/.config/harbourmaster/rollback-clerk.env` (mode 600). Worker secrets can't be read back, so the secret values come from the file and from the Clerk dev dashboard.
 2. Export the database: `bunx wrangler d1 export DB --remote --env staging --output ../../../tmp/staging.sql` (same without `--env staging` for production). Load it into a SQLite file: `bun -e 'import {Database} from "bun:sqlite"; import {readFileSync} from "fs"; new Database("../../../tmp/staging.sqlite",{create:true}).exec(readFileSync("../../../tmp/staging.sql","utf8"))'`.
-3. Build and read the mapping: `bun run build-clerk-id-map --db ../../../tmp/staging.sqlite --out ../../../tmp/staging-map.json`. Fix anything it lists as `UNRESOLVED` by hand. An id that belongs to another system goes in the file's `ignore` list: add it by hand and re-run (the builder keeps the list and skips those ids), or pass `--ignore-unresolved` to put everything it could not resolve there, after checking the list it printed. Staging and production each need their own run, because their data differs.
+3. Build and read the mapping: `bun run build-clerk-id-map --db ../../../tmp/staging.sqlite --out ../../../tmp/staging-map.json`. Fix anything it lists as `UNRESOLVED` by hand. An id that belongs to another system goes in the file's `ignore` list. Two ways: pass `--ignore-unresolved`, which ignores only ids the dev instance reports as not found (404) and prints each as `IGNORED` with its reason, so read that list; or add them to `ignore` by hand. The builder keeps an existing `ignore` list and skips those ids, but a re-run rewrites `orgs` and `users`, so make hand edits to those last and don't re-run afterwards. An id that exists on dev but has no single match on production is never ignored automatically. A Clerk API error other than 404 stops the run.
 4. Dry run on the copy, then on the real database: `bun run migrate-clerk-ids --map ../../../tmp/staging-map.json --db ../../../tmp/staging.sqlite`, then `bun run migrate-clerk-ids --map ../../../tmp/staging-map.json --d1 DB --remote --env staging`. Both must exit 0 with no `UNMAPPED` or `PROBLEM` lines.
 5. Note a D1 Time Travel bookmark: `bunx wrangler d1 time-travel info DB --env staging`.
 6. Put the production keys into `apps/web/.env.production.local` (`VITE_CLERK_PUBLISHABLE_KEY` and `CLERK_PUBLISHABLE_KEY` as `pk_live_...`, `CLERK_SECRET_KEY` as `sk_live_...`). The publishable and secret key must change together: the MCP OAuth metadata takes its issuer from the publishable key. `VITE_CLERK_PUBLISHABLE_KEY` is read at build time, so a `wrangler secret put` alone leaves the old key in the client bundle.

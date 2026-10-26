@@ -124,7 +124,7 @@ const entries = (
   });
 };
 
-const ignoreList = (value: unknown): string[] => {
+export const ignoreList = (value: unknown): string[] => {
   if (value === undefined) {
     return [];
   }
@@ -438,9 +438,12 @@ export const sqliteDriver = (db: Database): Driver => ({
 
 /** What the mapping builder needs from Clerk. Fakes in tests, the SDK in the CLI. */
 export interface ClerkLookup {
-  /** The primary email of a user, or undefined when the user is gone. */
+  /**
+   * The primary email of a user, or undefined when Clerk says the user does
+   * not exist. Any other failure must throw.
+   */
   emailOf: (userId: string) => Promise<string | undefined>;
-  /** The name of an organisation, or undefined when it is gone. */
+  /** The name of an organisation, or undefined when Clerk says it doesn't exist. Any other failure must throw. */
   nameOf: (orgId: string) => Promise<string | undefined>;
   /** The ids of organisations with exactly this name. */
   orgIdsByName: (name: string) => Promise<string[]>;
@@ -449,6 +452,8 @@ export interface ClerkLookup {
 }
 
 export interface BuiltMapping {
+  /** Ids added to the ignore list this run, with the reason. */
+  ignored: string[];
   mapping: MappingFile;
   unresolved: string[];
 }
@@ -456,14 +461,18 @@ export interface BuiltMapping {
 export interface BuildOptions {
   /** Ids to skip, kept in the file's ignore list. */
   ignore?: readonly string[];
-  /** Put ids that don't resolve in the ignore list instead of reporting them. */
+  /**
+   * Put ids that the dev instance doesn't know in the ignore list instead of
+   * reporting them. An id that exists on dev but has no single match on the
+   * production instance is always reported: it is a real id.
+   */
   ignoreUnresolved?: boolean;
 }
 
 type Resolved =
   | { id: string; kind: "org"; name: string; oldId: string }
   | { email: string; id: string; kind: "user"; oldId: string }
-  | { oldId: string; why: string };
+  | { foreign: boolean; oldId: string; why: string };
 
 const resolveOrg = async (
   oldId: string,
@@ -472,12 +481,13 @@ const resolveOrg = async (
 ): Promise<Resolved> => {
   const name = await dev.nameOf(oldId);
   if (name === undefined) {
-    return { oldId, why: "not found on the dev instance" };
+    return { foreign: true, oldId, why: "not found on the dev instance" };
   }
   const [id, ...others] = await prod.orgIdsByName(name);
   return id !== undefined && others.length === 0
     ? { id, kind: "org", name, oldId }
     : {
+        foreign: false,
         oldId,
         why: `${others.length + (id === undefined ? 0 : 1)} organisation(s) named "${name}" on the production instance`,
       };
@@ -490,12 +500,13 @@ const resolveUser = async (
 ): Promise<Resolved> => {
   const email = (await dev.emailOf(oldId))?.toLowerCase();
   if (email === undefined) {
-    return { oldId, why: "not found on the dev instance" };
+    return { foreign: true, oldId, why: "not found on the dev instance" };
   }
   const [id, ...others] = await prod.userIdsByEmail(email);
   return id !== undefined && others.length === 0
     ? { email, id, kind: "user", oldId }
     : {
+        foreign: false,
         oldId,
         why: `${others.length + (id === undefined ? 0 : 1)} user(s) with ${email} on the production instance`,
       };
@@ -525,10 +536,12 @@ export const buildMapping = async (
   );
   const mapping: MappingFile = { orgs: {}, users: {} };
   const unresolved: string[] = [];
+  const ignored: string[] = [];
   for (const item of resolved) {
     if ("why" in item) {
-      if (options.ignoreUnresolved) {
+      if (options.ignoreUnresolved && item.foreign) {
         ignore.add(item.oldId);
+        ignored.push(`${item.oldId} (${item.why})`);
       } else {
         unresolved.push(`${item.oldId} (${item.why})`);
       }
@@ -541,5 +554,5 @@ export const buildMapping = async (
   if (ignore.size > 0) {
     mapping.ignore = [...ignore].sort();
   }
-  return { mapping, unresolved };
+  return { ignored, mapping, unresolved };
 };
