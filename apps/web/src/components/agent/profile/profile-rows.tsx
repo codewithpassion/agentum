@@ -6,10 +6,12 @@ import type {
 } from "#/integrations/trpc/types";
 import { ChipList } from "./chip-list.tsx";
 import { LibraryRow } from "./library-row.tsx";
+import { MailProvisionButton } from "./mail-provision-button.tsx";
 import { MailStartChip } from "./mail-start-chip.tsx";
 import {
   channelChips,
   handsToChips,
+  mailProvisionLabel,
   receivesFromText,
   skillChips,
   startChips,
@@ -44,6 +46,11 @@ export function ProfileRows({
       }
     },
     [onOpenMail]
+  );
+  const setUpLabel = mailProvisionLabel(
+    profile.header.status,
+    profile.header.emailLocal,
+    mailbox?.status ?? null
   );
   const mailPaused = mailbox !== null && mailbox.triggerDisabledAt !== null;
   return (
@@ -106,6 +113,11 @@ export function ProfileRows({
             profile.header.emailLocal,
             mailbox?.status ?? null
           )}
+          extra={
+            mailbox === null && setUpLabel !== null ? (
+              <MailProvisionButton agentId={agent.id} label={setUpLabel} />
+            ) : null
+          }
           onChipClick={handleChipClick}
         />
       </Row>

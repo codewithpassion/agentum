@@ -1,5 +1,6 @@
 import type {
   AgentRuntime,
+  AgentStatus,
   MachineStatus,
   MailboxStatus,
 } from "@repo/db/shared";
@@ -190,6 +191,24 @@ export const startChips = (startsOn: Starts): Chip[] => {
       ? []
       : [{ key: "slack", label: "Slack mention", tone: "default" }];
   return [...triggers, ...routines, ...slack];
+};
+
+/** The label of the mail provisioning action, or null when there is nothing to do. */
+export const mailProvisionLabel = (
+  agentStatus: AgentStatus,
+  emailLocal: string | null,
+  mailStatus: MailboxStatus | null
+): string | null => {
+  if (mailStatus === "failed") {
+    return "Retry";
+  }
+  if (mailStatus === "provisioning") {
+    return "Try again";
+  }
+  if (mailStatus === null && agentStatus === "active" && emailLocal !== null) {
+    return "Set up mail";
+  }
+  return null;
 };
 
 const emailChip = (
