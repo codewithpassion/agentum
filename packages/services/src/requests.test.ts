@@ -504,3 +504,18 @@ test("only the machine that claimed the run can open and poll its requests", asy
     requests.outcome({ ...user, workspaceId: "foreign" }, request.id)
   ).rejects.toMatchObject({ code: "not_found" });
 });
+
+test("user cancellation settles once, resumes, and respects session visibility", async () => {
+  const request = await open(await start());
+  await expect(
+    requests.cancel({ ...user, userId: "other" }, request.id)
+  ).rejects.toMatchObject({ code: "not_found" });
+  await requests.cancel(user, request.id);
+  expect(await requests.outcome(system, request.id)).toEqual({
+    status: "cancelled",
+  });
+  expect(resumed).toEqual([request.id]);
+  await expect(answer(request.id)).rejects.toMatchObject({
+    message: "Already answered",
+  });
+});
