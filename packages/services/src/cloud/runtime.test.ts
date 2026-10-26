@@ -306,6 +306,7 @@ describe("dispatch", () => {
     };
     expect(input.run).toEqual({
       agentId,
+      dryRun: false,
       id: runId,
       inputText: "Summarise the inbox",
       sessionId,
@@ -391,6 +392,23 @@ describe("a start that fails", () => {
     expect(runner.startCalls.map((call) => call.run.id)).toEqual([
       runId,
       runId,
+    ]);
+  });
+});
+
+describe("a dry run", () => {
+  test("is handed to the runner with its flag, read from the run row", async () => {
+    runner.startFailure = new Error("runner unavailable");
+    const { runId } = await start();
+    db.update(runRows).set({ dryRun: true }).where(eq(runRows.id, runId)).run();
+
+    runner.startFailure = null;
+    nowMs += STALE_QUEUE_MS + SECOND;
+    await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+
+    expect(runner.startCalls.map((call) => call.run.dryRun)).toEqual([
+      false,
+      true,
     ]);
   });
 });

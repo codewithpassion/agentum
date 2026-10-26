@@ -3,7 +3,7 @@ import { agents } from "@repo/db/schema/agents";
 import { machines } from "@repo/db/schema/machines";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
-import { createAgentsService } from "./agents.ts";
+import { createAgentsService, findAgent } from "./agents.ts";
 import { createEventsService } from "./events.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -560,4 +560,73 @@ test("update changes a model only when the runtime allows it", async () => {
 
   const renamed = await service.update(user, managed.id, { name: "Renamed" });
   expect(renamed).toMatchObject({ model: "sonnet", name: "Renamed" });
+});
+
+test("a created agent has no soul, no hand-offs and no email address", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Plain",
+    runtime: "fake",
+  });
+  expect(agent).toMatchObject({ emailLocal: null, handsTo: [], soul: "" });
+});
+
+test("drafts are missing from list, with or without archived, and findAgent returns them", async () => {
+  await service.create(user, { model: "m", name: "Live", runtime: "fake" });
+  db.insert(agents)
+    .values({
+      createdAt: NOW,
+      createdBy: "u1",
+      emailLocal: null,
+      handsTo: "[]",
+      id: "draft-1",
+      instructions: "",
+      machineId: null,
+      model: "m",
+      name: "Drafted",
+      runtime: "fake",
+      runtimeConfig: "{}",
+      slug: "drafted",
+      soul: "",
+      status: "draft",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+
+  expect((await service.list(user)).map((a) => a.name)).toEqual(["Live"]);
+  expect(
+    (await service.list(user, { includeArchived: true })).map((a) => a.name)
+  ).toEqual(["Live"]);
+  expect(await findAgent(db, { id: "draft-1" })).toMatchObject({
+    name: "Drafted",
+    status: "draft",
+  });
+});
+
+test("a row with soul, hands-to and an email address maps to the record fields", async () => {
+  db.insert(agents)
+    .values({
+      createdAt: NOW,
+      createdBy: "u1",
+      emailLocal: "digest",
+      handsTo: '["a"]',
+      id: "profiled-1",
+      instructions: "",
+      machineId: null,
+      model: "m",
+      name: "Profiled",
+      runtime: "fake",
+      runtimeConfig: "{}",
+      slug: "profiled",
+      soul: "Warm and brief.",
+      status: "active",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+
+  expect(await service.get(user, "profiled-1")).toMatchObject({
+    emailLocal: "digest",
+    handsTo: ["a"],
+    soul: "Warm and brief.",
+  });
 });

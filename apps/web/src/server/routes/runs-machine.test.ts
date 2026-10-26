@@ -323,6 +323,7 @@ test("a run token resolves while heartbeats keep the lease, and stops once the l
   const resolve = () => resolver.resolve(`Bearer ${claimed.runToken}`);
   const runPrincipal: Principal = {
     agentId,
+    dryRun: false,
     kind: "run",
     runId: started.runId,
     workspaceId,

@@ -360,6 +360,7 @@ const startOf = (runId: string, text = "hello"): CloudStart => ({
   },
   run: {
     agentId: "agent-1",
+    dryRun: false,
     id: runId,
     inputText: text,
     sessionId: "session-1",

@@ -28,6 +28,9 @@ export const runs = sqliteTable(
     claimedBy: text("claimed_by"),
     createdAt: createdAt(),
     depth: integer("depth").notNull().default(0),
+    // A dry run reads and thinks but skips every write, and records what it
+    // would have done as `run.dry_run_skipped` events.
+    dryRun: integer("dry_run", { mode: "boolean" }).notNull().default(false),
     error: text("error"),
     finishedAt: text("finished_at"),
     id: id(),

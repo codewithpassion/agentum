@@ -252,9 +252,19 @@ beforeEach(async () => {
 test("a run token resolves to a run principal", async () => {
   expect(await resolverFor().resolve(bearer(runToken))).toEqual({
     agentId: "agent_1",
+    dryRun: false,
     kind: "run",
     runId: "run_1",
     workspaceId: "ws_a",
+  });
+});
+
+test("a run token of a dry run resolves to a run principal with dryRun set, read from the live row", async () => {
+  db.update(runs).set({ dryRun: true }).where(eq(runs.id, "run_1")).run();
+  expect(await resolverFor().resolve(bearer(runToken))).toMatchObject({
+    dryRun: true,
+    kind: "run",
+    runId: "run_1",
   });
 });
 
@@ -285,6 +295,7 @@ test("a managed session token resolves to a run principal for the session's runn
 
   expect(await resolverFor().resolve(bearer(token))).toEqual({
     agentId: "agent_1",
+    dryRun: false,
     kind: "run",
     runId: "run_1",
     workspaceId: "ws_a",

@@ -132,6 +132,17 @@ test("a token minted at claim is accepted while the run is running on a live lea
   expect(token.startsWith(RUN_TOKEN_PREFIX)).toBe(true);
   expect(await verify(token, CLAIMED_AT)).toEqual({
     claims: claimsFor(),
+    dryRun: false,
+    ok: true,
+  });
+});
+
+test("a token reports the dry-run flag of the live run row", async () => {
+  const token = await signRunToken(key, claimsFor());
+  db.update(runs).set({ dryRun: true }).where(eq(runs.id, "run_1")).run();
+  expect(await verify(token, CLAIMED_AT)).toEqual({
+    claims: claimsFor(),
+    dryRun: true,
     ok: true,
   });
 });
@@ -157,6 +168,7 @@ test("a token is accepted while the run is waiting on a live lease", async () =>
   db.update(runs).set({ status: "waiting" }).where(eq(runs.id, "run_1")).run();
   expect(await verify(token, CLAIMED_AT)).toEqual({
     claims: claimsFor(),
+    dryRun: false,
     ok: true,
   });
 });

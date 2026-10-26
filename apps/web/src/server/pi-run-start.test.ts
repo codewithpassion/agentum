@@ -30,6 +30,7 @@ const startOf = (runId: string, runToken = "token"): CloudStart => ({
   mcpServers: {},
   run: {
     agentId: "a1",
+    dryRun: false,
     id: runId,
     inputText: "Hello",
     sessionId: "s1",

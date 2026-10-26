@@ -34,6 +34,7 @@ export const SESSION_ORIGINS = [
   "routine",
   "trigger",
   "mcp",
+  "dry_run",
 ] as const;
 export type SessionOrigin = (typeof SESSION_ORIGINS)[number];
 
@@ -106,6 +107,8 @@ export interface RunRecord {
   claimedBy: string | null;
   createdAt: string;
   depth: number;
+  /** A dry run reads and thinks, and skips every write. */
+  dryRun: boolean;
   error: string | null;
   finishedAt: string | null;
   id: string;

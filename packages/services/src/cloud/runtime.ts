@@ -81,6 +81,7 @@ export const createCloudRuntime = ({
       }),
       run: {
         agentId: run.agentId,
+        dryRun: run.dryRun,
         id: run.id,
         inputText: run.inputText,
         sessionId: run.sessionId,
