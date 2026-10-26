@@ -183,5 +183,5 @@ does not activate it for an Agent Task session: the session stays
 out. `PendingSessionGate` (`src/integrations/clerk/pending-session-gate.tsx`)
 handles it. It activates the user's only organisation and reloads the page you
 asked for, and sends a user with several or none to `/choose-organization`.
-Nothing extra is set. Code: `apps/web/scripts/agent-login.ts`,
+Code: `apps/web/scripts/agent-login.ts`,
 pure helpers in `agent-login-helpers.ts`.
