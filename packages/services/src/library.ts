@@ -16,10 +16,11 @@
  */
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
-import { libraryEntries } from "@repo/db/schema/library";
+import { libraryEntries, libraryVersions } from "@repo/db/schema/library";
 import {
   LIBRARY_FILE_MAX_BYTES,
   LIBRARY_MAX_BYTES,
+  type LibraryChange,
   type LibraryEntryKind,
 } from "@repo/db/shared";
 import { isConflictPath } from "@repo/library-sync/types";
@@ -28,6 +29,11 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { ancestorsOf, normalizePath, parentOf } from "./library/path.ts";
+import {
+  compareVersionBytes,
+  createVersionStore,
+  type VersionRow,
+} from "./library/versions.ts";
 import type { Clock } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -152,13 +158,74 @@ export const createLibraryService = ({
   clock,
   db,
   events,
+  notify,
 }: {
+  notify?: (change: LibraryChange) => void | Promise<void>;
   atomic: Atomic;
   blobs: LibraryBlobs;
   clock: Clock;
   db: Database;
   events: Pick<EventsService, "insertStatement">;
 }) => {
+  const history = createVersionStore({ atomic, blobs, db });
+  /** Runs after the commit, so a failing listener must not fail the change. */
+  const changed = async (member: Member, paths: string[]) => {
+    try {
+      await notify?.({
+        byRunId: member.kind === "run" ? member.runId : null,
+        paths,
+        workspaceId: member.workspaceId,
+      });
+    } catch {
+      // The change is already committed. V4.6 wires the listener and owns its retry.
+    }
+  };
+  const versionOf = (
+    member: Member,
+    row: EntryRow,
+    version: number,
+    op: VersionRow["op"],
+    bytes: Uint8Array | null
+  ) =>
+    history.row(
+      {
+        authorId: actorOf(member).id,
+        authorKind: actorOf(member).kind,
+        createdAt: row.mtime,
+        etag: row.etag ?? "",
+        op,
+        path: row.path,
+        runId: member.kind === "run" ? member.runId : null,
+        size: bytes?.byteLength ?? 0,
+        version,
+        workspaceId: member.workspaceId,
+      },
+      bytes
+    );
+  const historyMember = (principal: Principal, action: string) => {
+    const member = requireMember(principal, action);
+    authorize(member, action, {
+      kind: LIBRARY_KIND,
+      workspaceId: member.workspaceId,
+    });
+    return member;
+  };
+  const versions = async (principal: Principal, rawPath: string) => {
+    const member = historyMember(principal, "library.read");
+    // History is newest first and remains readable after deletion.
+    return await history.list(member.workspaceId, normalizePath(rawPath));
+  };
+  const readVersion = async (principal: Principal, id: string) => {
+    const member = historyMember(principal, "library.read");
+    return await history.read(member.workspaceId, id);
+  };
+  const compare = async (principal: Principal, a: string, b: string) => {
+    const [left, right] = await Promise.all([
+      readVersion(principal, a),
+      readVersion(principal, b),
+    ]);
+    return compareVersionBytes(left.bytes, right.bytes);
+  };
   const entryAt = async (
     workspaceId: string,
     path: string
@@ -252,7 +319,7 @@ export const createLibraryService = ({
 
   const eventStatement = (
     member: Member,
-    type: "library.delete" | "library.write",
+    type: "library.delete" | "library.write" | "library.restore",
     path: string,
     size: number
   ): Statement =>
@@ -353,11 +420,12 @@ export const createLibraryService = ({
     };
   };
 
-  const write = async (
+  const writeFile = async (
     principal: Principal,
     rawPath: string,
     bytes: Uint8Array,
-    options: { ifEtag?: string } = {}
+    options: { ifEtag?: string } = {},
+    op: "write" | "restore" = "write"
   ): Promise<LibraryEntry> => {
     const member = requireWriter(principal, "library.write");
     authorize(member, "library.write", {
@@ -383,6 +451,8 @@ export const createLibraryService = ({
     if (used - (existing?.size ?? 0) + bytes.byteLength > LIBRARY_MAX_BYTES) {
       throw invalid("The library is limited to 1 GB");
     }
+    const seeds = await history.seed(existing);
+    const previous = await history.list(member.workspaceId, path);
     const stored = await blobs.put(
       objectKey(member.workspaceId, path),
       bytes,
@@ -396,7 +466,16 @@ export const createLibraryService = ({
       kind: "file",
       size: bytes.byteLength,
     });
+    const version = await versionOf(
+      member,
+      row,
+      (previous[0]?.version ?? seeds[0]?.version ?? 0) + 1,
+      op,
+      bytes
+    );
     await atomic([
+      ...seeds.map(history.insertSeed),
+      history.insertNext(version),
       ...folderStatements(member, folders),
       db
         .insert(libraryEntries)
@@ -411,9 +490,31 @@ export const createLibraryService = ({
           },
           target: [libraryEntries.workspaceId, libraryEntries.path],
         }),
-      eventStatement(member, "library.write", path, row.size),
+      eventStatement(
+        member,
+        op === "restore" ? "library.restore" : "library.write",
+        path,
+        row.size
+      ),
     ]);
+    await changed(member, [path]);
     return toEntry(row);
+  };
+
+  const write = (
+    principal: Principal,
+    path: string,
+    bytes: Uint8Array,
+    options: { ifEtag?: string } = {}
+  ) => writeFile(principal, path, bytes, options);
+  const restore = async (
+    principal: Principal,
+    versionId: string,
+    options: { ifEtag?: string } = {}
+  ) => {
+    requireWriter(principal, "library.restore");
+    const { bytes, version } = await readVersion(principal, versionId);
+    return writeFile(principal, version.path, bytes, options, "restore");
   };
 
   const mkdir = async (
@@ -475,8 +576,26 @@ export const createLibraryService = ({
       throw new ServiceError("conflict", "The folder is not empty");
     }
     const removed = [row, ...below];
+    const versionStatements: Statement[] = [];
+    for (const entry of removed.filter((item) => item.kind === "file")) {
+      // biome-ignore lint/performance/noAwaitInLoops: snapshot one file at a time
+      const seeds = await history.seed(entry);
+      const previous = await history.list(member.workspaceId, entry.path);
+      const tombstone = await versionOf(
+        member,
+        { ...entry, mtime: clock.now().toISOString() },
+        (previous[0]?.version ?? seeds[0]?.version ?? 0) + 1,
+        "delete",
+        null
+      );
+      versionStatements.push(
+        ...seeds.map(history.insertSeed),
+        history.insertNext(tombstone)
+      );
+    }
     const size = removed.reduce((total, entry) => total + entry.size, 0);
     await atomic([
+      ...versionStatements,
       db
         .delete(libraryEntries)
         .where(
@@ -490,6 +609,10 @@ export const createLibraryService = ({
         ),
       eventStatement(member, "library.delete", path, size),
     ]);
+    await changed(
+      member,
+      removed.map((entry) => entry.path)
+    );
     const keys = removed
       .filter((entry) => entry.kind === "file")
       .map((entry) => objectKey(member.workspaceId, entry.path));
@@ -535,6 +658,57 @@ export const createLibraryService = ({
     return copied;
   };
 
+  const prepareMoveVersions = async (
+    member: Member,
+    moved: EntryRow[],
+    from: string,
+    to: string
+  ) => {
+    const versionStatements: Statement[] = [];
+    const moveVersions: VersionRow[] = [];
+    for (const entry of moved.filter((item) => item.kind === "file")) {
+      const path = `${to}${entry.path.slice(from.length)}`;
+      // biome-ignore lint/performance/noAwaitInLoops: snapshot one file at a time
+      const seeds = await history.seed(entry);
+      const previous = await history.list(member.workspaceId, entry.path);
+      const destination = await entryAt(member.workspaceId, path);
+      const targetSeeds = await history.seed(destination);
+      const targetHistory = await history.list(member.workspaceId, path);
+      const offset = targetHistory[0]?.version ?? targetSeeds[0]?.version ?? 0;
+      // Overwrite moves retain both histories: destination first, then source, then move.
+      versionStatements.push(...targetSeeds.map(history.insert));
+      versionStatements.push(
+        db
+          .update(libraryVersions)
+          .set({ path, version: sql`${libraryVersions.version} + ${offset}` })
+          .where(
+            and(
+              eq(libraryVersions.workspaceId, member.workspaceId),
+              eq(libraryVersions.path, entry.path)
+            )
+          )
+      );
+      versionStatements.push(
+        ...seeds.map((seed) =>
+          history.insert({ ...seed, path, version: seed.version + offset })
+        )
+      );
+      const object = await blobs.get(objectKey(member.workspaceId, entry.path));
+      if (!object) {
+        throw notFound();
+      }
+      const version = await versionOf(
+        member,
+        { ...entry, mtime: clock.now().toISOString(), path },
+        offset + (previous[0]?.version ?? seeds[0]?.version ?? 0) + 1,
+        "move",
+        object.bytes
+      );
+      moveVersions.push(version);
+    }
+    return { moveVersions, versionStatements };
+  };
+
   const move = async (
     principal: Principal,
     rawFrom: string,
@@ -560,9 +734,30 @@ export const createLibraryService = ({
     const below =
       source.kind === "dir" ? await subtree(member.workspaceId, from) : [];
     const moved = [source, ...below];
+    const { versionStatements, moveVersions } = await prepareMoveVersions(
+      member,
+      moved,
+      from,
+      to
+    );
     const copies = await copyRows(member, moved, from, to);
+    const copiesByPath = new Map(copies.map((row) => [row.path, row]));
+    for (const version of moveVersions) {
+      const copy = copiesByPath.get(version.path);
+      if (!copy) {
+        throw notFound();
+      }
+      versionStatements.push(
+        history.insert({
+          ...version,
+          createdAt: copy.mtime,
+          etag: copy.etag ?? "",
+        })
+      );
+    }
     const size = moved.reduce((total, entry) => total + entry.size, 0);
     await atomic([
+      ...versionStatements,
       db
         .delete(libraryEntries)
         .where(
@@ -581,6 +776,7 @@ export const createLibraryService = ({
       eventStatement(member, "library.delete", from, size),
       eventStatement(member, "library.write", to, size),
     ]);
+    await changed(member, [from, to]);
     await blobs.delete(
       moved
         .filter((entry) => entry.kind === "file")
@@ -739,16 +935,21 @@ export const createLibraryService = ({
   };
 
   return {
+    compare,
     list,
     mkdir,
     move,
     pendingConflicts,
+    pruneVersions: history.prune,
     read,
+    readVersion,
     recordCommand,
     recordConflict,
     recordScript,
     remove,
+    restore,
     stat,
+    versions,
     write,
   };
 };
