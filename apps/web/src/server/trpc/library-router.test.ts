@@ -150,3 +150,17 @@ test("a caller without a session gets UNAUTHORIZED", async () => {
     code: "UNAUTHORIZED",
   });
 });
+
+test("version procedures compare and restore history after move and delete", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  await caller.library.write({ path: "a", encoding: "text", data: "old" });
+  await caller.library.write({ path: "a", encoding: "text", data: "new" });
+  const [second, first] = await caller.library.versions({ path: "a" });
+  expect(await caller.library.compare({ a: first!.id, b: second!.id })).toEqual({ kind: "text", a: "old", b: "new" });
+  expect((await caller.library.readVersion({ versionId: first!.id })).text).toBe("old");
+  await caller.library.move({ from: "a", to: "b" });
+  await caller.library.remove({ path: "b" });
+  await caller.library.restore({ versionId: first!.id });
+  expect((await caller.library.stat({ path: "b" })).kind).toBe("file");
+  expect((await caller.library.read({ path: "b" })).text).toBe("old");
+});
