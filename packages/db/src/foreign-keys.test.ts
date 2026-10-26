@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { agents } from "./schema/agents.ts";
+import { agents, browserSessions } from "./schema/agents.ts";
 import {
   agentLibraryAccess,
   libraryConflicts,
@@ -8,6 +8,11 @@ import {
   libraryVersions,
   wikiSuggestions,
 } from "./schema/library.ts";
+import {
+  machineCredentials,
+  machineEnrollTokens,
+  machines,
+} from "./schema/machines.ts";
 import { agentMailboxes, mailMessages, mailThreads } from "./schema/mail.ts";
 import { runRequests } from "./schema/requests.ts";
 import { runs } from "./schema/runs.ts";
@@ -528,4 +533,110 @@ test("a mail message is unique per thread and external id, and refuses an unknow
         .run()
     ).toThrow("FOREIGN KEY constraint failed");
   }
+});
+
+const machine = (id: string, workspaceId: string) => ({
+  capabilities: "{}",
+  createdAt: NOW,
+  credentialHash: `hash_${id}`,
+  enrolledBy: "u1",
+  id,
+  name: id,
+  singleUser: false,
+  status: "offline" as const,
+  workspaceId,
+});
+
+test("a computer credential refuses an unknown machine, and its hash is unique", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  const credential = (machineId: string, credentialHash: string) => ({
+    createdAt: NOW,
+    credentialHash,
+    machineId,
+    role: "computer" as const,
+    workspaceId: "w1",
+  });
+  expect(() =>
+    db.insert(machineCredentials).values(credential("nope", "h1")).run()
+  ).toThrow("FOREIGN KEY constraint failed");
+  db.insert(machines).values(machine("m1", "w1")).run();
+  db.insert(machines).values(machine("m2", "w1")).run();
+  db.insert(machineCredentials).values(credential("m1", "h1")).run();
+  expect(() =>
+    db.insert(machineCredentials).values(credential("m2", "h1")).run()
+  ).toThrow("UNIQUE constraint failed");
+});
+
+test("a computer serves at most one agent, and null does not collide", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  db.insert(machines).values(machine("m1", "w1")).run();
+  expect(() =>
+    db
+      .insert(agents)
+      .values({ ...agent("a0", "w1"), computerMachineId: "nope" })
+      .run()
+  ).toThrow("FOREIGN KEY constraint failed");
+  db.insert(agents).values(agent("a1", "w1")).run();
+  db.insert(agents).values(agent("a2", "w1")).run();
+  db.insert(agents)
+    .values({ ...agent("a3", "w1"), computerMachineId: "m1" })
+    .run();
+  expect(() =>
+    db
+      .insert(agents)
+      .values({ ...agent("a4", "w1"), computerMachineId: "m1" })
+      .run()
+  ).toThrow("UNIQUE constraint failed");
+});
+
+test("a browser session belongs to an agent and goes with it", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  const session = {
+    agentId: "a1",
+    sessionId: "s1",
+    updatedAt: NOW,
+    workspaceId: "w1",
+  };
+  expect(() => db.insert(browserSessions).values(session).run()).toThrow(
+    "FOREIGN KEY constraint failed"
+  );
+  db.insert(agents).values(agent("a1", "w1")).run();
+  db.insert(browserSessions).values(session).run();
+  expect(() => db.insert(browserSessions).values(session).run()).toThrow(
+    "UNIQUE constraint failed"
+  );
+  db.delete(agents).where(eq(agents.id, "a1")).run();
+  expect(db.select().from(browserSessions).all()).toHaveLength(0);
+});
+
+test("an enrol token can name a machine to add the computer role to", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  const token = (id: string, machineId: string | null) => ({
+    createdAt: NOW,
+    createdBy: "u1",
+    expiresAt: NOW,
+    id,
+    machineId,
+    machineName: "m",
+    role: "computer" as const,
+    tokenHash: `t_${id}`,
+    workspaceId: "w1",
+  });
+  expect(() =>
+    db.insert(machineEnrollTokens).values(token("t1", "nope")).run()
+  ).toThrow("FOREIGN KEY constraint failed");
+  db.insert(machines).values(machine("m1", "w1")).run();
+  db.insert(machineEnrollTokens).values(token("t1", "m1")).run();
+  db.insert(machineEnrollTokens).values(token("t2", null)).run();
+  const { role: _role, ...bare } = token("t3", null);
+  db.insert(machineEnrollTokens).values(bare).run();
+  const stored = db
+    .select({ id: machineEnrollTokens.id, role: machineEnrollTokens.role })
+    .from(machineEnrollTokens)
+    .all();
+  expect(stored.find((row) => row.id === "t3")?.role).toBe("agent_host");
 });

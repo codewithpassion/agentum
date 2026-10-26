@@ -54,9 +54,29 @@ export const questionAnswerSchema = z.strictObject({
 });
 export type QuestionAnswer = z.infer<typeof questionAnswerSchema>;
 
+/**
+ * A takeover row: toolName "request_human_takeover", toolUseId the runtime's
+ * call id, toolKey null, display = takeoverDisplaySchema, answer =
+ * takeoverAnswerSchema.
+ */
+export const takeoverDisplaySchema = z.strictObject({
+  machineId: z.string().min(1),
+  reason: z.string().min(1),
+});
+export type TakeoverDisplay = z.infer<typeof takeoverDisplaySchema>;
+
+export const takeoverAnswerSchema = z.strictObject({
+  note: z.string().optional(),
+});
+export type TakeoverAnswer = z.infer<typeof takeoverAnswerSchema>;
+
 export const requestOutcomeSchema = z.discriminatedUnion("status", [
   z.strictObject({
-    answer: z.union([approvalAnswerSchema, questionAnswerSchema]),
+    answer: z.union([
+      approvalAnswerSchema,
+      questionAnswerSchema,
+      takeoverAnswerSchema,
+    ]),
     status: z.literal("answered"),
   }),
   z.strictObject({ status: z.literal("expired") }),
@@ -151,6 +171,21 @@ export const ASK_USER_TOOL = {
   name: "ask_user",
 } as const;
 
+/** Registered by cloud and managed runtimes without a schema library adapter. */
+export const REQUEST_TAKEOVER_TOOL = {
+  description:
+    "Ask a person to take over the computer when you are blocked on something only a human can do, such as a login or a CAPTCHA.",
+  inputSchema: {
+    additionalProperties: false,
+    properties: {
+      reason: { minLength: 1, type: "string" },
+    },
+    required: ["reason"],
+    type: "object",
+  },
+  name: "request_human_takeover",
+} as const;
+
 /** `machine` runs Claude Code, whose own question tool is `AskUserQuestion`. */
 export const isAskUserCall = (runtime: AgentRuntime, name: string): boolean =>
   name === "ask_user" || (runtime === "machine" && name === "AskUserQuestion");
@@ -187,11 +222,28 @@ export const approvalSummary = (toolName: string, input: unknown): string => {
     : line;
 };
 
+const takeoverText = (outcome: RequestOutcome): string => {
+  if (outcome.status === "expired") {
+    return "Nobody took over the computer in time. Go on without it or stop and say what you need.";
+  }
+  if (outcome.status === "cancelled") {
+    return "The takeover request was withdrawn because the run is ending.";
+  }
+  const { answer } = outcome;
+  if ("decision" in answer || "answers" in answer) {
+    throw new TypeError("Answer does not match request kind: takeover");
+  }
+  return `A person took over the computer and handed it back.${answer.note ? ` Note: ${answer.note}` : ""}`;
+};
+
 /** The model sees text only when the approval does not permit the tool to run. */
 export const outcomeText = (
-  kind: "approval" | "question",
+  kind: "approval" | "question" | "takeover",
   outcome: RequestOutcome
 ): string | null => {
+  if (kind === "takeover") {
+    return takeoverText(outcome);
+  }
   if (outcome.status === "expired") {
     return kind === "approval"
       ? "Nobody answered within the time limit, so the call did not run."

@@ -59,6 +59,18 @@ export interface ProfileGap {
 export const MACHINE_STATUSES = ["online", "offline", "revoked"] as const;
 export type MachineStatus = (typeof MACHINE_STATUSES)[number];
 
+/**
+ * The jobs one machine can hold. `agent_host` runs agents through the daemon.
+ * `computer` is a client an agent drives (shell, files, desktop). One machine
+ * can hold both roles, and a revoke ends both.
+ */
+export const MACHINE_ROLES = ["agent_host", "computer"] as const;
+export type MachineRole = (typeof MACHINE_ROLES)[number];
+
+/** Presence of a machine's computer role. `machines.computer_status` is null when the machine has none. */
+export const COMPUTER_STATUSES = ["online", "offline"] as const;
+export type ComputerStatus = (typeof COMPUTER_STATUSES)[number];
+
 export const RUN_STATUSES = [
   "queued",
   "offered",
@@ -214,6 +226,14 @@ export const EVENT_TYPES = [
   "mailbox.failed",
   "machine.online",
   "machine.offline",
+  "computer.online",
+  "computer.offline",
+  "computer.exec",
+  "computer.file",
+  "computer.takeover_requested",
+  "computer.taken",
+  "computer.handed_back",
+  "browser.action",
   "agent.created",
   "agent.updated",
   "agent.address_reserved",
@@ -281,6 +301,52 @@ export const MAIL_SEND_TOOL = "mail_send";
 export const mailToolKey = (address: string): string =>
   `mail:${address.trim().toLowerCase()}`;
 
+/**
+ * Payloads of the computer and browser events. None carries command output or
+ * file bytes: those stay in the run's tool result and the files service.
+ */
+export interface ComputerPresencePayload {
+  machineId: string;
+}
+
+export interface ComputerExecPayload {
+  command: string;
+  durationMs: number;
+  /** Null when the process was killed or timed out. */
+  exitCode: number | null;
+  machineId: string;
+}
+
+export interface ComputerFilePayload {
+  bytes: number;
+  machineId: string;
+  op: "get" | "put";
+  path: string;
+}
+
+export interface ComputerTakeoverRequestedPayload {
+  machineId: string;
+  reason: string;
+  requestId: string;
+}
+
+export interface ComputerTakenPayload {
+  machineId: string;
+  /** Clerk user id of the person who took over. */
+  userId: string;
+}
+
+export interface ComputerHandedBackPayload {
+  machineId: string;
+  note?: string;
+  userId: string;
+}
+
+export interface BrowserActionPayload {
+  action: string;
+  url?: string;
+}
+
 export const EVENT_ACTOR_KINDS = [
   "user",
   "agent",
@@ -343,7 +409,7 @@ export const SKILL_VERSION_STATUSES = [
 ] as const;
 export type SkillVersionStatus = (typeof SKILL_VERSION_STATUSES)[number];
 
-export const REQUEST_KINDS = ["approval", "question"] as const;
+export const REQUEST_KINDS = ["approval", "question", "takeover"] as const;
 export type RequestKind = (typeof REQUEST_KINDS)[number];
 
 export const REQUEST_STATUSES = [
@@ -373,6 +439,9 @@ export const APPROVAL_TTL_MS = 60 * 60_000;
 
 /** How long a question stays open: one day. */
 export const QUESTION_TTL_MS = 24 * 60 * 60_000;
+
+/** How long a takeover request stays open: as long as a question. */
+export const TAKEOVER_TTL_MS = QUESTION_TTL_MS;
 
 /** Most questions in one ask-user request. */
 export const QUESTIONS_MAX = 4;
@@ -404,6 +473,7 @@ export const NEEDS_YOU_KINDS = [
   "inbox_reply",
   "library_conflict",
   "wiki_suggestion",
+  "takeover",
 ] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
