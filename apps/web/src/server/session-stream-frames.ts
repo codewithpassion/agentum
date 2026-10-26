@@ -13,6 +13,7 @@ import type { EventRecord } from "@repo/services/events";
 export const STREAM_EVENT_TYPES = [
   "message.user",
   "message.assistant",
+  "message.reasoning",
   "tool.call",
   "tool.result",
   "run.queued",

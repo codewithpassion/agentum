@@ -153,6 +153,7 @@ export const TERMINAL_STATUSES: readonly RunStatus[] = [
 /** What an agent may append to its own run. */
 export const RUN_EVENT_TYPES = [
   "message.assistant",
+  "message.reasoning",
   "tool.call",
   "tool.result",
 ] as const;

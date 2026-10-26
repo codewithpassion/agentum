@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "17500ce0-b990-4662-89f1-cd8fecff2381",
+  "id": "50e44341-2461-4de6-a4d1-53cd63643fdc",
   "prevId": "8fc55524-5664-4d0a-afb0-ee70344bcdc7",
   "tables": {
     "agents": {
@@ -227,13 +227,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "allowed_tools": {
-          "name": "allowed_tools",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "connector_id": {
@@ -2443,6 +2436,21 @@
         "runs_actor_idx": {
           "name": "runs_actor_idx",
           "columns": ["actor_id", "id"],
+          "isUnique": false
+        },
+        "runs_workspace_status_idx": {
+          "name": "runs_workspace_status_idx",
+          "columns": ["workspace_id", "status"],
+          "isUnique": false
+        },
+        "runs_workspace_finished_idx": {
+          "name": "runs_workspace_finished_idx",
+          "columns": ["workspace_id", "finished_at"],
+          "isUnique": false
+        },
+        "runs_agent_status_idx": {
+          "name": "runs_agent_status_idx",
+          "columns": ["agent_id", "status"],
           "isUnique": false
         }
       },

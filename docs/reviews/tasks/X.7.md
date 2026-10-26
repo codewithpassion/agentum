@@ -10,7 +10,7 @@ Round 3, at f6fdb7d (the fix): clean, no must-fix. Two fix rounds.
 
 ## What changed
 
-- `agent_connectors.allowed_tools` is a nullable JSON array of tool names (migration 0015 after the merge with main's 0014). Null and an empty list both mean every tool.
+- `agent_connectors.allowed_tools` is a nullable JSON array of tool names (migration 0016 after the merges with main's 0014 and 0015). Null and an empty list both mean every tool.
 - `connectors.assign` takes an optional `allowedTools`. Leaving it out keeps the stored list, so changing the credential mode does not wipe it. An empty array clears it. Names are trimmed and deduplicated. `assignments` returns the list and `credentials.resolve` hands it to the proxy.
 - The proxy (`routes/proxy.ts`, `routes/proxy-allowlist.ts`), when a list is set: answers 403 `tool_not_allowed` to a `tools/call` for any other tool and records a `connector.call` event with outcome `denied`. It cuts the `tools/list` answer (JSON, JSON batch, SSE) to the allowed names, and answers with an error when the answer cannot be read. It also refuses a body it cannot read as one call: a batch, invalid JSON, no method, or a key that is a case or non-ASCII variant of a protocol key.
 - The `mcpServers` builder is unchanged. Every runtime (cloud, machine claim, managed agents) builds proxy URLs, so the proxy is the one place the list is enforced.
