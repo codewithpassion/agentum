@@ -1,4 +1,10 @@
+import { REQUEST_KINDS, REQUEST_STATUSES } from "@repo/db/shared";
 import { z } from "zod";
+import {
+  approvalDisplaySchema,
+  questionDisplaySchema,
+  requestOutcomeSchema,
+} from "./requests.ts";
 import { runStopSchema } from "./safeguards.ts";
 
 /**
@@ -11,6 +17,9 @@ export const DAEMON_FEATURES_HEADER = "X-Daemon-Features";
 
 /** The daemon copies the claim's `library` folders to disk and syncs them (W.8). */
 export const FEATURE_LIBRARY_SYNC = "library-sync";
+
+/** The daemon can raise approval and question requests and wait for them (V1.9). */
+export const FEATURE_REQUESTS = "requests";
 
 /** Whether the value of `DAEMON_FEATURES_HEADER` names `feature`. */
 export const hasDaemonFeature = (
@@ -141,6 +150,9 @@ export const claimResponseSchema = z.strictObject({
     runtimeMachineId: z.string().nullable(),
     runtimeRef: z.string().nullable(),
   }),
+  // The agent's ask tool keys, sent only to a daemon that names FEATURE_REQUESTS
+  // (the schema is strict, so an older daemon would reject the key).
+  toolRules: z.array(z.string()).optional(),
 });
 export type ClaimResponse = z.infer<typeof claimResponseSchema>;
 
@@ -194,3 +206,24 @@ export type CompleteRequest = z.infer<typeof completeRequestSchema>;
 
 export const completeResponseSchema = z.strictObject({});
 export type CompleteResponse = z.infer<typeof completeResponseSchema>;
+
+export const createRequestBodySchema = z.strictObject({
+  display: z.union([approvalDisplaySchema, questionDisplaySchema]),
+  kind: z.enum(REQUEST_KINDS),
+  toolName: z.string(),
+  toolUseId: z.string().min(1),
+});
+export type CreateRequestBody = z.infer<typeof createRequestBodySchema>;
+
+export const createRequestResponseSchema = z.strictObject({
+  outcome: requestOutcomeSchema.optional(),
+  requestId: z.string(),
+  status: z.enum(REQUEST_STATUSES),
+});
+export type CreateRequestResponse = z.infer<typeof createRequestResponseSchema>;
+
+export const waitRequestResponseSchema = z.strictObject({
+  outcome: requestOutcomeSchema.optional(),
+  status: z.enum(REQUEST_STATUSES),
+});
+export type WaitRequestResponse = z.infer<typeof waitRequestResponseSchema>;

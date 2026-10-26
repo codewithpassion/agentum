@@ -6,6 +6,7 @@ const ACTIVE_RUN_STATUSES: readonly RunStatus[] = [
   "queued",
   "offered",
   "running",
+  "waiting",
 ];
 /** The events that open a run. The button sits on them only, and `cancelEntryIds` puts it on one per run. */
 const RUN_START_TYPES: readonly EventType[] = ["run.queued", "run.started"];
