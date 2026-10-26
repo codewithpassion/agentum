@@ -8,8 +8,14 @@
 // Neither the watcher nor the sync out throws into the run.
 
 import type { EventEmitter } from "node:events";
-import { mkdirSync, watch } from "node:fs";
-import { sep } from "node:path";
+import {
+  type FSWatcher,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  watch,
+} from "node:fs";
+import { join, relative, sep } from "node:path";
 import {
   type CoalescerClock,
   createCoalescer,
@@ -87,7 +93,22 @@ export type LibraryWatcher = (
   onPath: (libraryPath: string) => void
 ) => () => void;
 
-/** A watcher on the library folder `dir` (made when it is missing), built on `fs.watch`. Watch errors go to `onError`. */
+const isFolder = (path: string): boolean => {
+  try {
+    return lstatSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * A watcher on the library folder `dir` (made when it is missing), built on
+ * `fs.watch`. It watches each folder on its own and adds a watch for each
+ * folder that appears, because Bun's recursive watch on Linux reports nothing
+ * for a folder made after it started, such as the run's task folder. What a
+ * new folder already holds is reported when its watch starts. Links are not
+ * followed. Watch errors go to `onError`.
+ */
 export const fsLibraryWatcher =
   (
     dir: string,
@@ -96,20 +117,71 @@ export const fsLibraryWatcher =
   (onPath) => {
     // A library with nothing in it yet leaves no folder to watch.
     mkdirSync(dir, { recursive: true });
-    const watcher = watch(dir, { recursive: true }, (_event, filename) => {
-      if (filename === null) {
-        return;
-      }
-      const libraryPath = filename.split(sep).join("/");
+    const watchers = new Map<string, FSWatcher>();
+    let stopped = false;
+
+    const report = (path: string) => {
+      const libraryPath = relative(dir, path).split(sep).join("/");
       if (!isConflictPath(libraryPath)) {
         onPath(libraryPath);
       }
-    });
-    // Bun's type of the watcher leaves out the EventEmitter it is at runtime.
-    // An unhandled `error` event would end the daemon.
-    (watcher as unknown as EventEmitter).on("error", onError);
+    };
+
+    const unwatch = (folder: string) => {
+      for (const [path, watcher] of watchers) {
+        if (path === folder || path.startsWith(`${folder}${sep}`)) {
+          watcher.close();
+          watchers.delete(path);
+        }
+      }
+    };
+
+    // `announce` is false for the folders that were there when the watch began.
+    const watchFolder = (folder: string, announce: boolean): void => {
+      if (stopped || watchers.has(folder)) {
+        return;
+      }
+      const watcher = watch(folder, (_event, name) => {
+        if (name === null || stopped) {
+          return;
+        }
+        const child = join(folder, name);
+        try {
+          if (isFolder(child)) {
+            watchFolder(child, true);
+          } else {
+            unwatch(child);
+          }
+          report(child);
+        } catch (error) {
+          onError(error);
+        }
+      });
+      // Bun's type of the watcher leaves out the EventEmitter it is at runtime.
+      // An unhandled `error` event would end the daemon.
+      (watcher as unknown as EventEmitter).on("error", onError);
+      watchers.set(folder, watcher);
+      for (const entry of readdirSync(folder, { withFileTypes: true })) {
+        const child = join(folder, entry.name);
+        if (entry.isDirectory()) {
+          watchFolder(child, announce);
+        }
+        if (announce) {
+          report(child);
+        }
+      }
+    };
+
+    try {
+      watchFolder(dir, false);
+    } catch (error) {
+      stopped = true;
+      unwatch(dir);
+      throw error;
+    }
     return () => {
-      watcher.close();
+      stopped = true;
+      unwatch(dir);
     };
   };
 
@@ -212,6 +284,8 @@ export const createDaemonLibrarySync = (
     }
   };
 
+  const refusedBefore = new Set<string>();
+
   const syncOut = () =>
     inTurn(async () => {
       try {
@@ -219,9 +293,16 @@ export const createDaemonLibrarySync = (
         log(
           `library synced out: ${result.written.length} written, ${result.deleted.length} deleted, ${result.conflicts.length} conflict(s), ${result.skipped.length} skipped for size`
         );
-        if (result.refused.length > 0) {
+        // A read-only edit stays refused at every sync, so each path is named once.
+        const newlyRefused = result.refused.filter(
+          (path) => !refusedBefore.has(path)
+        );
+        for (const path of newlyRefused) {
+          refusedBefore.add(path);
+        }
+        if (newlyRefused.length > 0) {
           log(
-            `warning: ${result.refused.length} change(s) under read-only library paths were not sent: ${result.refused.join(", ")}`
+            `warning: ${newlyRefused.length} change(s) under read-only library paths were not sent: ${newlyRefused.join(", ")}`
           );
         }
         await Promise.all(result.conflicts.map(recordConflict));

@@ -683,6 +683,41 @@ describe("fsLibraryWatcher", () => {
     }
   });
 
+  test("reports files in a folder made after the watch started, including ones written before its watch armed", async () => {
+    const dir = join(workDir, LIBRARY_DIR);
+    mkdirSync(dir, { recursive: true });
+    const reported: string[] = [];
+    const stop = fsLibraryWatcher(dir)((libraryPath) => {
+      reported.push(libraryPath);
+    });
+    try {
+      mkdirSync(join(dir, "agents/ada/tasks/run1"), { recursive: true });
+      writeFileSync(join(dir, "agents/ada/tasks/run1/early.md"), "early");
+      await waitFor(() => reported.includes("agents/ada/tasks/run1/early.md"));
+      writeFileSync(join(dir, "agents/ada/tasks/run1/late.md"), "late");
+      await waitFor(() => reported.includes("agents/ada/tasks/run1/late.md"));
+
+      expect(reported).toContain("agents/ada/tasks/run1/early.md");
+      expect(reported).toContain("agents/ada/tasks/run1/late.md");
+    } finally {
+      stop();
+    }
+  });
+
+  test("reports nothing after it was stopped", async () => {
+    const dir = join(workDir, LIBRARY_DIR);
+    mkdirSync(join(dir, "agents/ada"), { recursive: true });
+    const reported: string[] = [];
+    const stop = fsLibraryWatcher(dir)((libraryPath) => {
+      reported.push(libraryPath);
+    });
+    stop();
+    writeFileSync(join(dir, NOTES), "edit");
+    await waitFor(() => false, 5);
+
+    expect(reported).toEqual([]);
+  });
+
   test("makes the folder when the library has nothing in it yet", () => {
     const dir = join(workDir, LIBRARY_DIR);
     const stop = fsLibraryWatcher(dir)(() => undefined);

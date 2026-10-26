@@ -1576,6 +1576,46 @@ describe("the library copy", () => {
     await run.execution.finished;
   });
 
+  test("a pull keeps an edit of the agent that was not sent yet", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    const run = setup({
+      claim: claimWithLibrary(),
+      hang: true,
+      library: { remote },
+      script: toolRunScript(),
+    });
+    await until(() =>
+      run.order.some((entry) => entry.startsWith("first-message"))
+    );
+    const local = localFile(workDirOf(run.claim), NOTES);
+    writeFileSync(local, "mine");
+    remote.put(NOTES, "n2");
+    run.execution.libraryChanged([NOTES]);
+    await sleep(100);
+
+    expect(readFileSync(local, "utf8")).toBe("mine");
+
+    run.execution.abort("test over");
+    await run.execution.finished;
+  });
+
+  test("an announcement after the run's work ended pulls nothing", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    const run = setup({
+      claim: claimWithLibrary(),
+      library: { remote },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+    remote.calls.length = 0;
+    run.execution.libraryChanged([NOTES]);
+    await sleep(50);
+
+    expect(remote.calls).toEqual([]);
+  });
+
   test("the agent's changes go back after the process exited and before the completion", async () => {
     const remote = createMemoryRemote();
     remote.put(NOTES, "n1");

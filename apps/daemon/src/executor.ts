@@ -229,6 +229,8 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
 
   let abortReason: string | undefined;
   let child: SpawnedProcess | undefined;
+  // True once the process has exited and the final library sync is next.
+  let workEnded = false;
   // True once the watcher pushes the agent's library edits within seconds.
   let liveSync = false;
   let stderrTail = "";
@@ -325,7 +327,6 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   ): Options => {
     const budget = budgetOf(claim.agent.runtimeConfig);
     const resume = resumeOf(claim, config);
-    // The daemon only collects attachments inside the work dir, so say so.
     // The task folder is a library path; the agent reaches it in the local copy.
     const taskFolder = library
       ? `${workDir}/${LIBRARY_DIR}/${library.taskFolder ?? taskFolderPath(claim.agent.slug, claim.run.id)}`
@@ -485,14 +486,18 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       log: runLog,
       // A Worker that predates the library roots names only `paths`: the
       // agent's folder and the paths its config lists, all writable.
-      roots:
-        library.roots ??
-        library.paths.map((path) => ({ mode: "write" as const, path })),
+      roots: library.roots?.length
+        ? library.roots
+        : library.paths.map((path) => ({ mode: "write" as const, path })),
       runId: claim.run.id,
-      watcher: (deps.libraryWatcher ?? fsLibraryWatcher)(
-        `${workDir}/${LIBRARY_DIR}`,
-        (error) => runLog(`warning: library watcher: ${messageOf(error)}`)
-      ),
+      // hm-agent owns the work directory of a multi-user machine, and the
+      // daemon user cannot watch it: its edits go back at the checkpoints.
+      watcher: config.singleUser
+        ? (deps.libraryWatcher ?? fsLibraryWatcher)(
+            `${workDir}/${LIBRARY_DIR}`,
+            (error) => runLog(`warning: library watcher: ${messageOf(error)}`)
+          )
+        : undefined,
     });
     // Without a copy there is nothing to send back, and a machine whose sudo
     // rule lacks `find` would fail the same way again at the end of the run.
@@ -582,6 +587,7 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
         failure = messageOf(error);
       }
     } finally {
+      workEnded = true;
       batcher.stop();
       librarySync?.stopWatching();
       cancelCheckpoint();
@@ -611,7 +617,9 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   });
 
   const libraryChanged = (paths: readonly string[]) => {
-    if (abortReason === undefined) {
+    // After the work ends the final sync out is the last one: the run token
+    // stops working with the completion.
+    if (abortReason === undefined && !workEnded) {
       librarySync?.pull(paths).catch(() => undefined);
     }
   };
