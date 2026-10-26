@@ -139,6 +139,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@modelcontextprotocol/server": "^2.0.0",
+        "@repo/protocol": "workspace:*",
         "zod": "^4.6.5",
       },
       "devDependencies": {

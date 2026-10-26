@@ -1,8 +1,11 @@
+import type { DesktopAction } from "@repo/protocol/computer";
+
 /**
  * What the platform tools need from the app. The app builds one `McpPorts` per
  * request, already bound to the caller's principal and workspace, so a tool
  * never sees who is asking. A port throws `ToolError` for a failure the agent
- * should read (see result.ts). This package imports no service.
+ * should read (see result.ts); computer and browser ports instead return typed
+ * failure values. This package imports no service.
  */
 
 /** An agent the caller may message. `slug` is what tools take as `agent`. */
@@ -370,6 +373,82 @@ export type MailSendResult =
     }
   | { messageId: string; status: "held"; threadId: string };
 
+/** Transport failures are values; tools supply the action the agent should take next. */
+export interface PortFailure {
+  code:
+    | "offline"
+    | "desktop_unavailable"
+    | "desktop_busy"
+    | "human_in_control"
+    | "timeout"
+    | "validation"
+    | "not_found"
+    | "conflict";
+  ok: false;
+  reason?: string;
+}
+export type PortResult<T extends object> = ({ ok: true } & T) | PortFailure;
+
+/** Base64 image content ready for MCP, with no runtime-specific binary objects. */
+export interface ToolImage {
+  data: string;
+  mimeType: string;
+}
+
+/** Paths are absolute logical computer paths, resolved by the bound adapter. */
+export interface ComputerPort {
+  desktopInput: (input: {
+    actions: DesktopAction[];
+  }) => Promise<PortResult<{ applied?: number }>>;
+  exec: (input: {
+    command: string;
+    timeout_ms: number;
+  }) => Promise<
+    PortResult<{ exitCode: number; stdout: string; stderr: string }>
+  >;
+  listDir: (input: { path: string }) => Promise<
+    PortResult<{
+      entries: { name: string; directory: boolean; size: number }[];
+    }>
+  >;
+  readFile: (input: {
+    path: string;
+  }) => Promise<PortResult<{ content: string; size: number }>>;
+  /** For native runtime tools; deliberately not registered as an MCP tool. */
+  screenshot: () => Promise<PortResult<{ image: ToolImage }>>;
+  writeFile: (input: {
+    path: string;
+    content: string;
+  }) => Promise<PortResult<{ created: boolean; size: number }>>;
+}
+
+export interface BrowserSnapshot {
+  links: { href: string; text: string }[];
+  linksTruncated: boolean;
+  text: string;
+  textTruncated: boolean;
+  title: string;
+  url: string;
+}
+
+/** The adapter enforces public http(s) destinations, including redirects and DNS resolution. */
+export interface BrowserPort {
+  click: (input: {
+    selector: string;
+  }) => Promise<PortResult<{ snapshot: BrowserSnapshot }>>;
+  fill: (input: {
+    selector: string;
+    value: string;
+  }) => Promise<PortResult<{ selector: string; url: string }>>;
+  navigate: (input: {
+    url: string;
+  }) => Promise<PortResult<{ snapshot: BrowserSnapshot }>>;
+  screenshot: () => Promise<
+    PortResult<{ image: ToolImage; pageUrl: string; url?: string }>
+  >;
+  snapshot: () => Promise<PortResult<{ snapshot: BrowserSnapshot }>>;
+}
+
 export interface McpPorts {
   approveSkillVersion: (input: {
     skillId: string;
@@ -379,6 +458,7 @@ export interface McpPorts {
     agent: string;
     skillId: string;
   }) => Promise<SkillAssignment>;
+  browser?: BrowserPort;
   /** Cancels a queued, offered or running run and returns the run as it is afterwards. */
   cancelRun: (input: { runId: string }) => Promise<RunInfo>;
   commitSkill: (input: {
@@ -388,6 +468,7 @@ export interface McpPorts {
     skillId: string;
     writes: SkillFileWrite[];
   }) => Promise<SkillVersionInfo>;
+  computer?: ComputerPort;
   createRoutine: (input: {
     agentId: string;
     cron: string;

@@ -289,7 +289,7 @@ describe("workspaceInstructions", () => {
   });
 });
 
- describe("computerInstructions", () => {
+describe("computerInstructions", () => {
   test("file and shell guidance without desktop", () => {
     const text = computerInstructions({ desktop: false });
     expect(text).toContain("computer_exec");
@@ -300,7 +300,17 @@ describe("workspaceInstructions", () => {
   });
   test("desktop display, background launch, screenshot and runtime takeover guidance", () => {
     const text = computerInstructions({ desktop: true });
-    for (const part of [":99", "DISPLAY", "background", "xterm &", "desktop_screenshot", "request_human_takeover", "CAPTCHA"]) { expect(text).toContain(part); }
+    for (const part of [
+      ":99",
+      "DISPLAY",
+      "background",
+      "xterm &",
+      "desktop_screenshot",
+      "request_human_takeover",
+      "CAPTCHA",
+    ]) {
+      expect(text).toContain(part);
+    }
     expect(text.split("request_human_takeover")).toHaveLength(2);
   });
 });

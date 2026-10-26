@@ -247,17 +247,40 @@ describe("computer and browser capabilities", () => {
   test("requires opt-in and a port and never offers takeover", () => {
     const ports: McpPorts = {
       ...fakePorts,
-      computer: { exec: uncalled, readFile: uncalled, writeFile: uncalled, listDir: uncalled, desktopInput: uncalled, screenshot: uncalled },
-      browser: { navigate: uncalled, snapshot: uncalled, click: uncalled, fill: uncalled, screenshot: uncalled },
+      browser: {
+        click: uncalled,
+        fill: uncalled,
+        navigate: uncalled,
+        screenshot: uncalled,
+        snapshot: uncalled,
+      },
+      computer: {
+        desktopInput: uncalled,
+        exec: uncalled,
+        listDir: uncalled,
+        readFile: uncalled,
+        screenshot: uncalled,
+        writeFile: uncalled,
+      },
     };
     for (const computer of [undefined, { desktop: false }, { desktop: true }]) {
       for (const browser of [false, true]) {
         for (const readOnly of [false, true]) {
           for (const bound of [fakePorts, ports]) {
-            const names = harbourmasterTools(bound, { computer, browser, readOnly }).map((tool) => tool.name);
-            expect(names.includes("computer_exec")).toBe(Boolean(computer && bound.computer && !readOnly));
-            expect(names.includes("desktop_input")).toBe(Boolean(computer?.desktop && bound.computer && !readOnly));
-            expect(names.includes("browser_snapshot")).toBe(Boolean(browser && bound.browser && !readOnly));
+            const names = harbourmasterTools(bound, {
+              browser,
+              computer,
+              readOnly,
+            }).map((tool) => tool.name);
+            expect(names.includes("computer_exec")).toBe(
+              Boolean(computer && bound.computer && !readOnly)
+            );
+            expect(names.includes("desktop_input")).toBe(
+              Boolean(computer?.desktop && bound.computer && !readOnly)
+            );
+            expect(names.includes("browser_snapshot")).toBe(
+              Boolean(browser && bound.browser && !readOnly)
+            );
             expect(names).not.toContain("request_human_takeover");
             expect(names).not.toContain("desktop_screenshot");
           }
@@ -265,4 +288,109 @@ describe("computer and browser capabilities", () => {
       }
     }
   });
+});
+
+test("computer and browser calls work over MCP and writes respect dry run", async () => {
+  const writes: unknown[] = [];
+  const ports: McpPorts = {
+    ...fakePorts,
+    browser: {
+      click: uncalled,
+      fill: uncalled,
+      navigate: uncalled,
+      screenshot: () =>
+        Promise.resolve({
+          image: { data: "aGk=", mimeType: "image/png" },
+          ok: true,
+          pageUrl: "https://example.com",
+        }),
+      snapshot: uncalled,
+    },
+    computer: {
+      desktopInput: uncalled,
+      exec: uncalled,
+      listDir: uncalled,
+      readFile: (input) =>
+        Promise.resolve({
+          content: input.path,
+          ok: true,
+          size: input.path.length,
+        }),
+      screenshot: uncalled,
+      writeFile: (input) => {
+        writes.push(input);
+        return Promise.resolve({
+          created: true,
+          ok: true,
+          size: input.content.length,
+        });
+      },
+    },
+  };
+  const { client, close } = await connectClient(
+    createHarbourmasterMcpServer(ports, {
+      browser: true,
+      computer: { desktop: true },
+    })
+  );
+  try {
+    const read = await client.callTool({
+      arguments: { path: "//notes///" },
+      name: "computer_read_file",
+    });
+    expect(read.isError).toBeFalsy();
+    expect(read.structuredContent).toEqual({
+      content: "/notes",
+      path: "/notes",
+      size: 6,
+    });
+    expect(
+      (
+        await client.callTool({
+          arguments: { path: "/../a" },
+          name: "computer_read_file",
+        })
+      ).isError
+    ).toBe(true);
+    const shot = await client.callTool({
+      arguments: {},
+      name: "browser_screenshot",
+    });
+    expect(shot.content).toContainEqual({
+      data: "aGk=",
+      mimeType: "image/png",
+      type: "image",
+    });
+  } finally {
+    await close();
+  }
+  const skipped: unknown[] = [];
+  const dry = await connectClient(
+    createHarbourmasterMcpServer(ports, {
+      browser: true,
+      computer: { desktop: true },
+      dryRun: {
+        record: (skip) => {
+          skipped.push(skip);
+          return Promise.resolve();
+        },
+      },
+    })
+  );
+  try {
+    const result = await dry.client.callTool({
+      arguments: { content: "hi", path: "/a" },
+      name: "computer_write_file",
+    });
+    expect(result.structuredContent).toMatchObject({ skipped: true });
+    expect(writes).toEqual([]);
+    expect(skipped).toHaveLength(1);
+    const read = await dry.client.callTool({
+      arguments: { path: "/a" },
+      name: "computer_read_file",
+    });
+    expect(read.structuredContent).toMatchObject({ content: "/a" });
+  } finally {
+    await dry.close();
+  }
 });
