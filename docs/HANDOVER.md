@@ -48,7 +48,6 @@ The v1 decisions still hold where v2 doesn't replace them: `bypassPermissions` a
 ## Things nobody has verified yet
 
 - Production run live (the Worker exists, nobody has used it).
-- Codex as an implementation lane on this host. Its sandbox (bwrap) fails here, and V0 decides how Codex runs.
 - Whether Managed Agents' sandbox can run the library sync helper (V4).
 - A 4-minute MCP call held open through the deployed Worker (M3.3).
 
