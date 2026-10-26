@@ -9,7 +9,7 @@ import { addressText } from "./profile-logic.ts";
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Something went wrong.";
 
-const CHIP_CLASS =
+export const CHIP_CLASS =
   "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs";
 
 /** The agent's address, or a way to reserve one. */

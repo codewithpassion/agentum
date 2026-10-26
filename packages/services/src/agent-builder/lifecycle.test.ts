@@ -77,6 +77,7 @@ const draft: AgentDraft = {
 };
 
 const agentRecord = (overrides: Partial<AgentRecord> = {}): AgentRecord => ({
+  computerMachineId: null,
   createdAt: "2026-10-27T09:00:00.000Z",
   createdBy: "user_1",
   emailLocal: null,

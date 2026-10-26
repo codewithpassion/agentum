@@ -1287,7 +1287,6 @@ export const createRunsService = ({
       .set({
         error,
         finishedAt,
-        outputFileIds: JSON.stringify(fileIds),
         resultText: result.text ?? null,
         status: result.status,
         usage: result.usage ? JSON.stringify(result.usage) : null,
@@ -1312,9 +1311,7 @@ export const createRunsService = ({
       await offerNextWaiting(run);
       return;
     }
-    await appendRunEvent(run, "run.finished", agentActor(run), {
-      outputFileIds: fileIds,
-    });
+    await appendRunEvent(run, "run.finished", agentActor(run));
     try {
       await deliverReply(run, { fileIds, text: result.text ?? "" });
     } finally {

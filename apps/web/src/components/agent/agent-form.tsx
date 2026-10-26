@@ -325,8 +325,8 @@ export function AgentForm({
               network access and no secrets of yours (a script imports only its
               own skill files, and stops after 30 seconds). It sees attached
               images (about 1 MB in total) and can read attached text files. It
-              returns a file when it writes it to the library and puts
-              [ATTACHMENT:/library/path] in its answer.
+              returns a file when it writes it to its task folder in the
+              library, and everything there shows in the task's Files panel.
             </FieldDescription>
           )}
         </Field>

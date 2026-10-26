@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import type { MachineRecord } from "#/integrations/trpc/types";
 import {
   addressText,
   channelChips,
+  computerChoices,
   folderLabel,
   handsToChips,
   LIBRARY_NOTE,
+  machineAgentWords,
   receivesFromText,
   runtimeOptions,
   runtimeWords,
@@ -426,7 +429,7 @@ describe("channelChips", () => {
   });
 
   test("no Slack app and no email address", () => {
-    expect(channelChips(noSlack, null)).toEqual([
+    expect(channelChips(noSlack, null, null)).toEqual([
       { key: "slack", label: "Slack · not set up", tone: "default" },
       { key: "email", label: "Email · no address yet", tone: "default" },
       { key: "whatsapp", label: "WhatsApp (later)", tone: "default" },
@@ -434,7 +437,7 @@ describe("channelChips", () => {
   });
 
   test("an installed Slack app and an email address are on", () => {
-    expect(channelChips(slackWith("installed"), "robo")).toEqual([
+    expect(channelChips(slackWith("installed"), "robo", "active")).toEqual([
       { key: "slack", label: "Slack app", tone: "on" },
       { key: "email", label: "Email", tone: "on" },
       { key: "whatsapp", label: "WhatsApp (later)", tone: "default" },
@@ -442,7 +445,7 @@ describe("channelChips", () => {
   });
 
   test("a created Slack app is not installed yet", () => {
-    expect(channelChips(slackWith("created"), null)[0]).toEqual({
+    expect(channelChips(slackWith("created"), null, null)[0]).toEqual({
       key: "slack",
       label: "Slack app · not installed",
       tone: "default",
@@ -450,10 +453,50 @@ describe("channelChips", () => {
   });
 
   test("a revoked Slack app is a warning", () => {
-    expect(channelChips(slackWith("revoked"), null)[0]).toEqual({
+    expect(channelChips(slackWith("revoked"), null, null)[0]).toEqual({
       key: "slack",
       label: "Slack app · revoked",
       tone: "warn",
+    });
+  });
+
+  test("an email address with no mailbox row yet is reserved", () => {
+    expect(channelChips(noSlack, "robo", null)[1]).toEqual({
+      key: "email",
+      label: "Email · reserved",
+      tone: "default",
+    });
+  });
+
+  test("a provisioning mailbox is being set up", () => {
+    expect(channelChips(noSlack, "robo", "provisioning")[1]).toEqual({
+      key: "email",
+      label: "Email · setting up",
+      tone: "default",
+    });
+  });
+
+  test("a failed mailbox is a warning", () => {
+    expect(channelChips(noSlack, "robo", "failed")[1]).toEqual({
+      key: "email",
+      label: "Email · failed",
+      tone: "warn",
+    });
+  });
+
+  test("a disabled mailbox is off", () => {
+    expect(channelChips(noSlack, "robo", "disabled")[1]).toEqual({
+      key: "email",
+      label: "Email · off",
+      tone: "default",
+    });
+  });
+
+  test("no address wins over the mailbox status", () => {
+    expect(channelChips(noSlack, null, "active")[1]).toEqual({
+      key: "email",
+      label: "Email · no address yet",
+      tone: "default",
     });
   });
 });
@@ -493,5 +536,96 @@ describe("addressText", () => {
 
   test("is null without a local part", () => {
     expect(addressText(null, "agents.example.com")).toBeNull();
+  });
+});
+
+describe("machineAgentWords", () => {
+  test("names the machine the agent runs on", () => {
+    expect(machineAgentWords({ name: "laptop" })).toBe(
+      "This agent runs on laptop."
+    );
+  });
+
+  test("falls back when there is no machine", () => {
+    expect(machineAgentWords(null)).toBe("This agent runs on a machine.");
+  });
+});
+
+describe("computerChoices", () => {
+  const computer = (overrides: Partial<MachineRecord> = {}): MachineRecord => ({
+    capabilities: {},
+    computerCapabilities: { desktop: true },
+    computerLastSeenAt: null,
+    computerStatus: "online",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    enrolledBy: "user_1",
+    id: "m_desk",
+    lastSeenAt: null,
+    name: "desk",
+    roles: ["computer"],
+    singleUser: false,
+    status: "offline",
+    workspaceId: "ws_1",
+    ...overrides,
+  });
+
+  test("is empty when no machine has a computer role", () => {
+    const plain = computer({ id: "m_plain", roles: ["agent_host"] });
+    expect(computerChoices(null, [plain])).toEqual([]);
+    expect(computerChoices(null, [])).toEqual([]);
+  });
+
+  test("marks only the attached computer", () => {
+    const other = computer({ id: "m_other", name: "other" });
+    const choices = computerChoices("m_desk", [computer(), other]);
+    expect(choices.map((choice) => [choice.id, choice.attached])).toEqual([
+      ["m_desk", true],
+      ["m_other", false],
+    ]);
+  });
+
+  test("shows desktop and headless computers, with the status of the computer role", () => {
+    const headless = computer({
+      computerCapabilities: { desktop: false },
+      computerStatus: "offline",
+      id: "m_head",
+      name: "server",
+    });
+    const choices = computerChoices(null, [computer(), headless]);
+    expect(choices).toEqual([
+      {
+        attached: false,
+        id: "m_desk",
+        kind: "Desktop",
+        name: "desk",
+        status: "Online",
+        tone: "good",
+      },
+      {
+        attached: false,
+        id: "m_head",
+        kind: "Headless",
+        name: "server",
+        status: "Offline",
+        tone: "muted",
+      },
+    ]);
+  });
+
+  test("leaves out a revoked machine", () => {
+    const revoked = computer({ id: "m_gone", status: "revoked" });
+    expect(computerChoices(null, [revoked])).toEqual([]);
+  });
+
+  test("keeps a revoked machine the agent still holds, so it can be detached", () => {
+    const revoked = computer({ id: "m_gone", status: "revoked" });
+    expect(computerChoices("m_gone", [revoked])).toMatchObject([
+      { attached: true, id: "m_gone", status: "Revoked", tone: "bad" },
+    ]);
+  });
+
+  test("says not connected yet when the computer has never said hello", () => {
+    const fresh = computer({ computerCapabilities: null, id: "m_new" });
+    expect(computerChoices(null, [fresh])[0]?.kind).toBe("Not connected yet");
   });
 });

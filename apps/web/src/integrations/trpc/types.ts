@@ -41,3 +41,7 @@ export type AgentSkill = RouterOutputs["skillStore"]["forAgent"][number];
 export type DeskView = RouterOutputs["desk"]["get"];
 export type TaskView = RouterOutputs["tasks"]["get"];
 export type AgentProfileView = RouterOutputs["agentProfile"]["profile"];
+export type MailboxRecord = NonNullable<RouterOutputs["mailbox"]["get"]>;
+export type MailThreadRow = RouterOutputs["threads"][number];
+export type MailThreadView = RouterOutputs["thread"];
+export type MailToolRule = RouterOutputs["requests"]["rules"]["list"][number];

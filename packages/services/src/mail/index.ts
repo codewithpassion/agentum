@@ -12,6 +12,7 @@ import type { LibraryService } from "../library.ts";
 import type { Clock } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
+import { createMailAgent } from "./agent.ts";
 import { createInboundMail } from "./inbound.ts";
 import {
   type EmailRoutingPort,
@@ -100,9 +101,18 @@ export const createMailService = ({
       .where(eq(agentMailboxes.agentId, agentId));
     return row ?? null;
   };
+  /** The mailbox row, plus when its mail trigger was paused (null while it runs). */
   const get = async (principal: Principal, agentId: string) => {
     await findAgent(principal, agentId);
-    return await read(agentId);
+    const row = await read(agentId);
+    if (!row) {
+      return null;
+    }
+    const [trigger] = await db
+      .select({ disabledAt: triggers.disabledAt })
+      .from(triggers)
+      .where(and(eq(triggers.agentId, agentId), eq(triggers.kind, "mail")));
+    return { ...row, triggerDisabledAt: trigger?.disabledAt ?? null };
   };
   const prepareFailed = async (
     error: unknown,
@@ -375,6 +385,7 @@ export const createMailService = ({
     }
   });
   return {
+    agent: createMailAgent({ db, mailbox }),
     disable,
     get,
     provision,

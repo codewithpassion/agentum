@@ -16,6 +16,10 @@ export const runtimeJobs: readonly TickJob[] = [
     run: ({ services }) => services.requests.expireDue(SYSTEM_PRINCIPAL),
   },
   {
+    name: "mail.provision-pending",
+    run: ({ services }) => services.mail.provisionPending(SYSTEM_PRINCIPAL),
+  },
+  {
     name: "managed.rearm",
     run: ({ services }) => services.managed.rearm(),
   },

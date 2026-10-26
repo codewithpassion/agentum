@@ -69,6 +69,7 @@ import {
 } from "@repo/services/library/access";
 import { createLibraryAudience } from "@repo/services/library/audience";
 import { memoryLibraryBlobs } from "@repo/services/library/memory";
+import { createTaskFiles } from "@repo/services/library/task-files";
 import {
   createLibraryLinksService,
   type LibraryLinksService,
@@ -77,6 +78,7 @@ import {
   createMachinesService,
   type MachinesService,
 } from "@repo/services/machines";
+import { createTakeoverLease } from "@repo/services/machines/lease";
 import { createMachineRuntime } from "@repo/services/machines/runtime";
 import type { MachineRelayPort } from "@repo/services/machines/types";
 import { createMailService, type MailService } from "@repo/services/mail";
@@ -116,6 +118,7 @@ import {
   createOAuthClientsService,
   type OAuthClientsService,
 } from "@repo/services/oauth-clients";
+import { createQaService, type QaService } from "@repo/services/qa";
 import {
   createRequestsService,
   type RequestsService,
@@ -197,6 +200,7 @@ import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { clerkPeople } from "./clerk-people.ts";
 import { libraryNotifier } from "./library-notifier.ts";
+import { type MailEnv, mailInfra } from "./mail-infra.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
 import { clerkEmailMemberLookup } from "./mcp/clerk-email-member.ts";
 import { durableRunnerPort } from "./pi-run-port.ts";
@@ -286,6 +290,7 @@ export interface Services {
   modelKeys: ModelKeysService;
   network: NetworkService;
   oauthClients: OAuthClientsService;
+  qa: QaService;
   requests: RequestsService;
   routines: RoutinesService;
   runSkills: RunSkillsService;
@@ -327,7 +332,8 @@ export type ComposeEnv = Pick<
   | "RUN_TOKEN_KEY"
   | "SECRETS_KEY"
   | "SESSION_STREAM"
->;
+> &
+  MailEnv;
 
 /** Splits a comma separated list of ids, trimmed, dropping empty entries. */
 export const parseOrgIds = (raw: string | undefined): string[] =>
@@ -500,8 +506,10 @@ export const composeWith = ({
     events,
     fetch: connectorFetch,
     files,
+    library,
     publicBaseUrl: infra.publicBaseUrl,
     secretsKey: infra.secretsKey,
+    taskFiles: createTaskFiles({ db }).taskFiles,
   });
   // The working status in the thread of a Slack-started run.
   const slackStatus = createSlackStatus({
@@ -572,7 +580,14 @@ export const composeWith = ({
     memberDirectory: infra.memberDirectory,
     requests,
   });
-  const takeover = createTakeoverService({ db, events, requests });
+  const takeover = createTakeoverService({
+    db,
+    events,
+    lease: createTakeoverLease(infra.relay),
+    requests,
+  });
+  // A takeover that expires, or whose run ends, lets go of the desktop too.
+  events.onAppend(takeover.onEvent);
   // Catches the run and tool events the runs service writes through its own events instance.
   runs.onEvent(slackStatus.onEvent);
   // An investigator run that ends, or finishes, without having reported tells control-plane to escalate.
@@ -737,6 +752,13 @@ export const composeWith = ({
       modelKeys,
       network,
       oauthClients,
+      qa: createQaService({
+        atomic: infra.atomic,
+        clock: infra.clock,
+        db,
+        events,
+        runs,
+      }),
       requests,
       routines,
       runSkills,
@@ -781,6 +803,7 @@ export const compose = (
       devFakeRuntime,
       fileBlobs: r2FileBlobs(env.FILES),
       libraryBlobs: r2LibraryBlobs(env.FILES),
+      ...mailInfra(env),
       managedGatewayFor: ({ apiKey, environment }) =>
         connectManagedGateway(apiKey, {
           cache: environment,
