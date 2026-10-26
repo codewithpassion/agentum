@@ -11,6 +11,7 @@ import {
 import { runs as runRows } from "@repo/db/schema/runs";
 import { slackApps } from "@repo/db/schema/slack";
 import { workspaces } from "@repo/db/schema/workspaces";
+import { APPROVAL_TTL_MS, QUESTION_TTL_MS } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { asc, eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "../agents.ts";
@@ -24,6 +25,7 @@ import { importSecretsKey } from "../crypto.ts";
 import { createEventsService } from "../events.ts";
 import { memoryLibraryBlobs } from "../library/memory.ts";
 import { createLibraryService, type LibraryService } from "../library.ts";
+import { createRequestsService, type RequestsService } from "../requests.ts";
 import {
   importRunTokenKey,
   SESSION_TOKEN_PREFIX,
@@ -45,6 +47,8 @@ import {
   FAILURE_LIMIT,
   type ManagedService,
   POLL_MS,
+  RUN_MAX_MS,
+  WAITING_POLL_MS,
 } from "./service.ts";
 import { MANAGED_LEASE_MS, type ManagedPollerPort } from "./types.ts";
 
@@ -83,6 +87,17 @@ interface FakeSession {
  */
 class FakeGateway implements ManagedGateway {
   agentSeq = 0;
+  /** The tool keys each registration or sync asked about. */
+  askKeysSent: (readonly string[])[] = [];
+  confirmations: {
+    decision: "allow" | "deny";
+    denyMessage: string | undefined;
+    sessionId: string;
+    toolUseId: string;
+  }[] = [];
+  customResults: { sessionId: string; text: string; toolUseId: string }[] = [];
+  /** Fails the next `confirmTool`, once. */
+  confirmFailure: Error | null = null;
   credentials: { token: string; url: string; vaultId: string }[] = [];
   /** Environment variable credentials. `value` is kept for checks, never printed. */
   envCredentials: {
@@ -145,6 +160,42 @@ class FakeGateway implements ManagedGateway {
 
   call(name: string, input: Record<string, unknown>, id: string) {
     return this.event("agent.mcp_tool_use", { tool: { id, input, name } });
+  }
+
+  /** A built-in tool call that waits for approval. */
+  builtinCall(name: string, input: Record<string, unknown>, id: string) {
+    return this.event("agent.tool_use", { tool: { id, input, name } }, id);
+  }
+
+  /** An MCP call, which names its server. */
+  serverCall(
+    server: string,
+    name: string,
+    input: Record<string, unknown>,
+    id: string
+  ) {
+    return this.event(
+      "agent.mcp_tool_use",
+      { tool: { id, input, name, server } },
+      id
+    );
+  }
+
+  /** A call to a custom tool, which waits for the client's result. */
+  customCall(name: string, input: Record<string, unknown>, id: string) {
+    return this.event(
+      "agent.custom_tool_use",
+      { customToolName: name, tool: { id, input, name } },
+      id
+    );
+  }
+
+  /** The session stops, blocked on these calls. */
+  blockedOn(...ids: string[]) {
+    return this.event("session.status_idle", {
+      requiredEventIds: ids,
+      stopReason: "requires_action",
+    });
   }
 
   result(toolUseId: string, text: string, isError = false) {
@@ -246,6 +297,34 @@ class FakeGateway implements ManagedGateway {
     });
   }
 
+  confirmTool(
+    sessionId: string,
+    toolUseId: string,
+    decision: "allow" | "deny",
+    denyMessage?: string
+  ) {
+    if (this.confirmFailure) {
+      const failure = this.confirmFailure;
+      this.confirmFailure = null;
+      return Promise.reject(failure);
+    }
+    this.confirmations.push({ decision, denyMessage, sessionId, toolUseId });
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      this.play(session);
+    }
+    return Promise.resolve();
+  }
+
+  sendCustomToolResult(sessionId: string, toolUseId: string, text: string) {
+    this.customResults.push({ sessionId, text, toolUseId });
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      this.play(session);
+    }
+    return Promise.resolve();
+  }
+
   createSkill(input: { files: readonly SkillUploadFile[] }) {
     const skillId = `skill_${this.skillStore.size + 1}`;
     this.skillStore.set(skillId, [{ files: input.files, version: "1" }]);
@@ -270,6 +349,7 @@ class FakeGateway implements ManagedGateway {
   }
 
   registerAgent(input: {
+    askKeys: readonly string[];
     instructions: string;
     mcpServers: readonly { name: string; url: string }[];
     name: string;
@@ -277,6 +357,7 @@ class FakeGateway implements ManagedGateway {
     system: string;
   }) {
     this.agentSeq += 1;
+    this.askKeysSent.push(input.askKeys);
     this.registered.push({
       instructions: input.instructions,
       name: input.name,
@@ -298,10 +379,12 @@ class FakeGateway implements ManagedGateway {
 
   syncAgent(input: {
     anthropicAgentId: string;
+    askKeys: readonly string[];
     skills: readonly SkillRef[];
     system: string;
   }) {
     this.synced.push(input.anthropicAgentId);
+    this.askKeysSent.push(input.askKeys);
     this.syncedAgents.push({ skills: input.skills, system: input.system });
     return Promise.resolve();
   }
@@ -313,6 +396,7 @@ let gateway: FakeGateway;
 let agents: AgentsService;
 let runs: RunsService;
 let managed: ManagedService;
+let requests: RequestsService;
 let library: LibraryService;
 let kicks: string[];
 let cancels: string[];
@@ -393,6 +477,7 @@ const buildManaged = (publicBaseUrl: string) => {
     library,
     poller,
     publicBaseUrl,
+    requests,
     runs,
     runTokenKey: RUN_TOKEN_KEY,
     secrets,
@@ -531,6 +616,14 @@ beforeEach(async () => {
     db,
     devFakeRuntime: false,
     gateways: [],
+  });
+  requests = createRequestsService({
+    atomic,
+    clock,
+    db,
+    events,
+    runs,
+    secrets,
   });
   managed = buildManaged(BASE);
 });
@@ -708,9 +801,15 @@ describe("a run that stops early", () => {
     ).toBe(FAILURE_LIMIT);
   });
 
-  test("an idle that waits on an approval fails the run, since nothing answers it", async () => {
+  test("an idle that waits on a custom tool this platform did not register fails the run", async () => {
     const { runId } = await start(dom);
-    gateway.turns = [[gateway.running(), gateway.idle("requires_action")]];
+    gateway.turns = [
+      [
+        gateway.running(),
+        gateway.customCall("desktop_screenshot", {}, "evt_use"),
+        gateway.blockedOn("evt_use"),
+      ],
+    ];
 
     await drive(runId);
 
@@ -1454,6 +1553,322 @@ describe("a poller outage and the reaper", () => {
     expect(runRow(second.runId)?.status).toBe("failed");
     expect(gateway.interrupted).toEqual([]);
     expect(sessionRow(first.sessionId)?.closedAt).toBeNull();
+  });
+});
+
+describe("approvals and questions", () => {
+  const ask = (toolKey: string) =>
+    requests.setRule(dom, { agentId, mode: "ask", toolKey });
+
+  const pending = () => requests.listPending(dom);
+
+  /** Starts a run whose first turn stops on a built-in call that needs approval. */
+  const blockedOnBash = async () => {
+    await ask("bash");
+    const run = await start(dom);
+    gateway.turns = [
+      [
+        gateway.running(),
+        gateway.builtinCall("bash", { command: "ls" }, "evt_bash"),
+        gateway.blockedOn("evt_bash"),
+      ],
+      [gateway.running()],
+    ];
+    await managed.step(run.runId);
+    return run;
+  };
+
+  const answerApproval = async (
+    decision: "allow_once" | "deny" | "always_allow",
+    note?: string
+  ) => {
+    const [request] = await pending();
+    await requests.answer(dom, {
+      answer: { decision, ...(note === undefined ? {} : { note }) },
+      requestId: request?.id ?? "",
+      via: "web",
+    });
+  };
+
+  test("a requires_action idle opens one request and the run waits", async () => {
+    const { runId } = await blockedOnBash();
+
+    expect(runRow(runId)?.error).toBeNull();
+    expect(runRow(runId)?.status).toBe("waiting");
+    const [request, ...rest] = await pending();
+    expect(rest).toEqual([]);
+    expect(request).toMatchObject({
+      kind: "approval",
+      status: "pending",
+      toolKey: "bash",
+      toolName: "bash",
+      toolUseId: "evt_bash",
+    });
+    expect(request?.display).toMatchObject({ input: { command: "ls" } });
+
+    // Stepping again neither opens another request nor leaves the wait.
+    expect(await managed.step(runId)).toEqual({ next: WAITING_POLL_MS });
+    expect(await pending()).toHaveLength(1);
+    expect(gateway.confirmations).toEqual([]);
+    expect(runRow(runId)?.status).toBe("waiting");
+  });
+
+  test("the first step answers with the slow interval, and a run with no request keeps the fast one", async () => {
+    await ask("bash");
+    const waiting = await start(dom);
+    gateway.turns = [
+      [
+        gateway.running(),
+        gateway.builtinCall("bash", {}, "evt_bash"),
+        gateway.blockedOn("evt_bash"),
+      ],
+    ];
+
+    expect(await managed.step(waiting.runId)).toEqual({
+      next: WAITING_POLL_MS,
+    });
+  });
+
+  test("an allow sends one tool confirmation, even over two steps", async () => {
+    const { runId } = await blockedOnBash();
+    await answerApproval("allow_once");
+
+    expect(kicks).toContain(runId);
+    await managed.step(runId);
+    await managed.step(runId);
+    await managed.step(runId);
+
+    expect(gateway.confirmations).toEqual([
+      {
+        decision: "allow",
+        denyMessage: undefined,
+        sessionId: "sesn_1",
+        toolUseId: "evt_bash",
+      },
+    ]);
+    expect(runRow(runId)?.status).toBe("running");
+  });
+
+  test("a deny sends the note, and the run finishes on what the agent says next", async () => {
+    const { runId } = await blockedOnBash();
+    await answerApproval("deny", "Not on production");
+
+    await managed.step(runId);
+
+    const [confirmation] = gateway.confirmations;
+    expect(confirmation?.decision).toBe("deny");
+    expect(confirmation?.denyMessage).toContain("Not on production");
+    gateway.sessions
+      .get("sesn_1")
+      ?.events.push(gateway.say("Understood"), gateway.idle());
+    nowMs += POLL_MS;
+    expect(await managed.step(runId)).toEqual({ next: null });
+    expect(runRow(runId)?.status).toBe("done");
+  });
+
+  test("always allow sends allow, and the next sync clears the rule from the toolset", async () => {
+    const { runId } = await blockedOnBash();
+    expect(gateway.askKeysSent).toEqual([["bash"]]);
+    await answerApproval("always_allow");
+
+    await managed.step(runId);
+    gateway.sessions
+      .get("sesn_1")
+      ?.events.push(gateway.say("ok"), gateway.idle());
+    nowMs += POLL_MS;
+    await managed.step(runId);
+    expect(runRow(runId)?.status).toBe("done");
+    expect(gateway.confirmations.map((sent) => sent.decision)).toEqual([
+      "allow",
+    ]);
+
+    const next = await start(dom, "again");
+    await managed.step(next.runId);
+
+    expect(gateway.synced).toEqual(["agent_1"]);
+    expect(gateway.askKeysSent.at(-1)).toEqual([]);
+  });
+
+  test("a failed send is given back and sent on the next step", async () => {
+    const { runId } = await blockedOnBash();
+    await answerApproval("allow_once");
+    gateway.confirmFailure = new Error("boom");
+    const errors = spyOn(console, "error").mockImplementation(() => undefined);
+
+    const failed = await managed.step(runId);
+    expect(failed.next).not.toBeNull();
+    expect(gateway.confirmations).toEqual([]);
+    await managed.step(runId);
+    await managed.step(runId);
+    errors.mockRestore();
+
+    expect(gateway.confirmations).toHaveLength(1);
+  });
+
+  test("an expired approval sends a deny that says nobody answered", async () => {
+    const { runId } = await blockedOnBash();
+    nowMs += APPROVAL_TTL_MS + SECOND;
+    await requests.expireDue(SYSTEM_PRINCIPAL);
+
+    expect(kicks).toContain(runId);
+    await managed.step(runId);
+
+    const [confirmation] = gateway.confirmations;
+    expect(confirmation?.decision).toBe("deny");
+    expect(confirmation?.denyMessage).toContain("Nobody answered");
+    expect(runRow(runId)?.status).toBe("running");
+  });
+
+  test("an MCP call is keyed by its server and shown with its name", async () => {
+    await ask("harbourmaster/post_message");
+    const { runId } = await start(dom);
+    gateway.turns = [
+      [
+        gateway.running(),
+        gateway.serverCall(
+          "harbourmaster",
+          "post_message",
+          { text: "hi" },
+          "evt_post"
+        ),
+        gateway.blockedOn("evt_post"),
+      ],
+    ];
+
+    await managed.step(runId);
+
+    expect(gateway.askKeysSent).toEqual([["harbourmaster/post_message"]]);
+    expect(await pending()).toMatchObject([
+      {
+        toolKey: "harbourmaster/post_message",
+        toolName: "harbourmaster/post_message",
+      },
+    ]);
+  });
+
+  test("a blocked call from an earlier page is still found", async () => {
+    await ask("bash");
+    const { runId } = await start(dom);
+    gateway.turns = [
+      [
+        gateway.running(),
+        gateway.builtinCall("bash", { command: "pwd" }, "evt_bash"),
+      ],
+    ];
+    await managed.step(runId);
+    gateway.sessions.get("sesn_1")?.events.push(gateway.blockedOn("evt_bash"));
+    nowMs += POLL_MS;
+
+    await managed.step(runId);
+
+    expect(await pending()).toMatchObject([{ toolUseId: "evt_bash" }]);
+    expect(runRow(runId)?.status).toBe("waiting");
+  });
+
+  test("an ask_user call opens a question and its answer comes back as the tool result", async () => {
+    const { runId } = await start(dom);
+    gateway.turns = [
+      [
+        gateway.running(),
+        gateway.customCall(
+          "ask_user",
+          { choices: ["staging", "production"], question: "Which one?" },
+          "evt_q"
+        ),
+        gateway.blockedOn("evt_q"),
+      ],
+      [gateway.running()],
+    ];
+    await managed.step(runId);
+
+    const [request] = await pending();
+    expect(request).toMatchObject({ kind: "question", toolUseId: "evt_q" });
+    expect(request?.display).toEqual({
+      questions: [
+        { choices: ["staging", "production"], question: "Which one?" },
+      ],
+    });
+    await requests.answer(dom, {
+      answer: { answers: { "Which one?": "staging" } },
+      requestId: request?.id ?? "",
+      via: "slack",
+    });
+    await managed.step(runId);
+    await managed.step(runId);
+
+    expect(gateway.customResults).toEqual([
+      {
+        sessionId: "sesn_1",
+        text: "Q: Which one? A: staging",
+        toolUseId: "evt_q",
+      },
+    ]);
+    expect(gateway.confirmations).toEqual([]);
+  });
+
+  test("an unanswered question sends the expiry text as the tool result", async () => {
+    const { runId } = await start(dom);
+    gateway.turns = [
+      [
+        gateway.running(),
+        gateway.customCall("ask_user", { question: "Which one?" }, "evt_q"),
+        gateway.blockedOn("evt_q"),
+      ],
+    ];
+    await managed.step(runId);
+    nowMs += QUESTION_TTL_MS + SECOND;
+    await requests.expireDue(SYSTEM_PRINCIPAL);
+
+    await managed.step(runId);
+
+    expect(gateway.customResults).toMatchObject([
+      { text: expect.stringContaining("Nobody answered"), toolUseId: "evt_q" },
+    ]);
+  });
+
+  test("the age limit ignores the time spent waiting", async () => {
+    const { runId } = await blockedOnBash();
+    nowMs += RUN_MAX_MS - SECOND;
+    await managed.step(runId);
+    await answerApproval("allow_once");
+    // The wait was nearly an hour and the run has worked a few seconds since.
+    nowMs += 2 * SECOND;
+    await managed.step(runId);
+
+    expect(runRow(runId)?.status).toBe("running");
+    expect(gateway.interrupted).toEqual([]);
+
+    nowMs += RUN_MAX_MS - SECOND;
+    await managed.step(runId);
+    expect(runRow(runId)?.status).toBe("failed");
+    expect(runRow(runId)?.error).toBe("The run took too long");
+  });
+
+  test("a run that waits longer than the limit is not stopped for it", async () => {
+    const { runId } = await blockedOnBash();
+
+    nowMs += RUN_MAX_MS + 10 * 60 * SECOND;
+    await managed.step(runId);
+
+    expect(runRow(runId)?.status).toBe("waiting");
+    expect(gateway.interrupted).toEqual([]);
+  });
+
+  test("a run with no rules still registers its toolsets without asking about any tool", async () => {
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(gateway.askKeysSent).toEqual([[]]);
+    expect(runRow(runId)?.status).toBe("done");
+  });
+
+  test("the minute tick wakes a run that waits for a person", async () => {
+    const { runId } = await blockedOnBash();
+
+    const { kicked } = await managed.rearm();
+
+    expect(kicked).toEqual([runId]);
   });
 });
 

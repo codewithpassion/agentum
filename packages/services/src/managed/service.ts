@@ -25,8 +25,16 @@ import {
   managedRuns,
   managedSessions,
 } from "@repo/db/schema/managed";
+import { runRequests } from "@repo/db/schema/requests";
 import { runs } from "@repo/db/schema/runs";
+import { agentToolRules } from "@repo/db/schema/tool-rules";
+import { CHOICES_MAX } from "@repo/db/shared";
 import { workspaceInstructions } from "@repo/protocol/attachments";
+import {
+  ASK_USER_TOOL,
+  toolKey as canonicalToolKey,
+  outcomeText,
+} from "@repo/protocol/requests";
 import {
   and,
   asc,
@@ -43,9 +51,12 @@ import { type AgentRecord, findAgent } from "../agents.ts";
 import { mcpServerUrls } from "../connectors/mcp-servers.ts";
 import { hashToken } from "../crypto.ts";
 import { isServiceError } from "../errors.ts";
+import type { Payload } from "../events/payload.ts";
 import type { EventsService } from "../events.ts";
 import { agentHomePath, ensureAgentHome } from "../library/home.ts";
 import type { LibraryService } from "../library.ts";
+import { outcomeOf } from "../requests/records.ts";
+import type { RequestsService } from "../requests.ts";
 import { importRunTokenKey, signSessionToken } from "../run-tokens.ts";
 import { loadRun } from "../runs/queries.ts";
 import type { Clock, RunRecord } from "../runs/types.ts";
@@ -56,7 +67,12 @@ import type { SecretsService } from "../secrets.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
 import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { modelFor } from "./config.ts";
-import { type EventCursor, isAbnormalStop, reduceEvents } from "./events.ts";
+import {
+  type EventCursor,
+  isAbnormalStop,
+  reduceEvents,
+  type SessionEvent,
+} from "./events.ts";
 import type {
   IdCache,
   ManagedGateway,
@@ -81,6 +97,8 @@ import {
 
 /** How often a running run's session is read. */
 export const POLL_MS = 2000;
+/** How often a run that waits for a person is read. Nothing happens in the session until an answer is sent. */
+export const WAITING_POLL_MS = 15_000;
 /** The wait before trying a run that must wait for its session's previous run. */
 export const BUSY_RETRY_MS = 5000;
 /** Polls that fail in a row before the run fails. */
@@ -126,6 +144,8 @@ export interface ManagedServiceOptions {
   poller: ManagedPollerPort;
   /** `PUBLIC_BASE_URL`: where the Anthropic agent reaches `/mcp` and the proxy. */
   publicBaseUrl?: string;
+  /** Opens the approval or question a blocked call needs. */
+  requests: Pick<RequestsService, "open">;
   /** What the runs service lends. Lazy where the two services depend on each other. */
   runs: Pick<
     RunsService,
@@ -195,6 +215,7 @@ export const createManagedService = ({
   library,
   poller,
   publicBaseUrl,
+  requests,
   runs: runsApi,
   runTokenKey,
   secrets,
@@ -326,8 +347,25 @@ export const createManagedService = ({
     return mcpServerUrls({ connectors: assigned, platformUrl: base });
   };
 
+  /** The tool keys the agent's rules ask about, sorted. */
+  const askKeysOf = async (agent: AgentRecord): Promise<string[]> => {
+    const rows = await db
+      .select({ toolKey: agentToolRules.toolKey })
+      .from(agentToolRules)
+      .where(
+        and(
+          eq(agentToolRules.agentId, agent.id),
+          eq(agentToolRules.workspaceId, agent.workspaceId),
+          eq(agentToolRules.mode, "ask")
+        )
+      )
+      .orderBy(asc(agentToolRules.toolKey));
+    return rows.map((row) => row.toolKey);
+  };
+
   const ensureRegistered = async ({
     agent,
+    askKeys,
     fingerprint,
     gateway,
     model,
@@ -336,6 +374,7 @@ export const createManagedService = ({
     system,
   }: {
     agent: AgentRecord;
+    askKeys: string[];
     fingerprint: string;
     gateway: ManagedGateway;
     model: string;
@@ -349,6 +388,7 @@ export const createManagedService = ({
       .where(eq(managedAgents.agentId, agent.id))
       .limit(1);
     const input = {
+      askKeys,
       mcpServers: servers,
       model,
       name: agent.name,
@@ -732,8 +772,12 @@ export const createManagedService = ({
       slack,
       grants.guidance
     );
+    const askKeys = await askKeysOf(agent);
     const fingerprint = await hashToken(
       JSON.stringify({
+        // The rules and the ask_user tool are part of the registered agent.
+        askKeys,
+        askUser: ASK_USER_TOOL,
         model,
         name: agent.name,
         servers,
@@ -744,6 +788,7 @@ export const createManagedService = ({
     );
     const anthropicAgentId = await ensureRegistered({
       agent,
+      askKeys,
       fingerprint,
       gateway,
       model,
@@ -863,6 +908,213 @@ export const createManagedService = ({
     });
   };
 
+  /** The questions an `ask_user` call carries, whatever the model put in its input. */
+  const questionOf = (input: Record<string, unknown>) => {
+    const asked = input.question;
+    const choices = Array.isArray(input.choices)
+      ? input.choices.filter(
+          (choice): choice is string =>
+            typeof choice === "string" && choice !== ""
+        )
+      : [];
+    return {
+      ...(choices.length > 0 ? { choices: choices.slice(0, CHOICES_MAX) } : {}),
+      ...(input.multiSelect === true ? { multiSelect: true } : {}),
+      question:
+        typeof asked === "string" && asked.trim() !== ""
+          ? asked
+          : "The agent asked a question without any text.",
+    };
+  };
+
+  /** Opens the request one blocked call needs. False for a call nobody can answer. */
+  const openRequest = async (run: RunRecord, call: SessionEvent) => {
+    const { tool } = call;
+    if (!tool) {
+      return false;
+    }
+    if (call.type === "agent.custom_tool_use") {
+      if (tool.name !== ASK_USER_TOOL.name) {
+        return false;
+      }
+      await requests.open(SYSTEM_PRINCIPAL, {
+        kind: "question",
+        questions: [questionOf(tool.input)],
+        runId: run.id,
+        toolName: tool.name,
+        toolUseId: tool.id,
+      });
+      return true;
+    }
+    await requests.open(SYSTEM_PRINCIPAL, {
+      input: tool.input as Payload,
+      kind: "approval",
+      runId: run.id,
+      toolKey: canonicalToolKey({
+        name: tool.name,
+        runtime: "managed",
+        server: tool.server,
+      }),
+      toolName: tool.server ? `${tool.server}/${tool.name}` : tool.name,
+      toolUseId: tool.id,
+    });
+    return true;
+  };
+
+  /**
+   * Opens a request for each call the session is blocked on. A blocked call
+   * can sit in an earlier page than the idle that names it, so a call not in
+   * this page is looked for in the whole session. False when a call cannot be
+   * answered, such as a custom tool this platform did not register.
+   */
+  const openRequests = async (
+    run: RunRecord,
+    session: SessionRow,
+    gateway: ManagedGateway,
+    polled: PolledEvents,
+    blocked: readonly string[]
+  ): Promise<boolean> => {
+    const calls = new Map<string, SessionEvent>();
+    const collect = (page: readonly SessionEvent[]) => {
+      for (const event of page) {
+        if (event.tool) {
+          calls.set(event.id, event);
+        }
+      }
+    };
+    collect(polled.events);
+    if (blocked.some((id) => !calls.has(id)) && session.anthropicSessionId) {
+      collect(
+        (await gateway.pollEvents(session.anthropicSessionId, undefined)).events
+      );
+    }
+    for (const id of new Set(blocked)) {
+      const call = calls.get(id);
+      // biome-ignore lint/performance/noAwaitInLoops: requests open in the order the calls were made
+      if (!(call && (await openRequest(run, call)))) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  /**
+   * Sends each closed request's answer to the session, once. The delivery is
+   * claimed on `delivered_at` before it is sent, so a repeated step skips it,
+   * and given back when the send fails so the next step tries again.
+   */
+  const deliverAnswers = async (
+    run: RunRecord,
+    session: SessionRow,
+    gateway: ManagedGateway
+  ) => {
+    const { anthropicSessionId } = session;
+    if (!anthropicSessionId) {
+      return;
+    }
+    const closed = await db
+      .select()
+      .from(runRequests)
+      .where(
+        and(
+          eq(runRequests.runId, run.id),
+          eq(runRequests.workspaceId, run.workspaceId),
+          isNull(runRequests.deliveredAt),
+          inArray(runRequests.status, ["answered", "expired"])
+        )
+      )
+      .orderBy(asc(runRequests.createdAt), asc(runRequests.id));
+    for (const row of closed) {
+      // biome-ignore lint/performance/noAwaitInLoops: answers are sent in the order they were asked
+      const claimed = await db
+        .update(runRequests)
+        .set({ deliveredAt: nowIso() })
+        .where(and(eq(runRequests.id, row.id), isNull(runRequests.deliveredAt)))
+        .returning({ id: runRequests.id });
+      const result = outcomeOf(row);
+      if (claimed.length === 0 || !result) {
+        continue;
+      }
+      try {
+        const text = outcomeText(row.kind, result);
+        if (row.kind === "approval") {
+          await gateway.confirmTool(
+            anthropicSessionId,
+            row.toolUseId,
+            text === null ? "allow" : "deny",
+            text ?? undefined
+          );
+        } else {
+          await gateway.sendCustomToolResult(
+            anthropicSessionId,
+            row.toolUseId,
+            text ?? ""
+          );
+        }
+      } catch (error) {
+        await db
+          .update(runRequests)
+          .set({ deliveredAt: null })
+          .where(eq(runRequests.id, row.id));
+        throw error;
+      }
+    }
+  };
+
+  /** Time the run spent waiting for a person, and whether it still is. */
+  const waitingOf = async (run: RunRecord) => {
+    const rows = await db
+      .select({
+        answeredAt: runRequests.answeredAt,
+        createdAt: runRequests.createdAt,
+        expiresAt: runRequests.expiresAt,
+        status: runRequests.status,
+      })
+      .from(runRequests)
+      .where(
+        and(
+          eq(runRequests.runId, run.id),
+          eq(runRequests.workspaceId, run.workspaceId)
+        )
+      );
+    const now = clock.now().getTime();
+    let waitedMs = 0;
+    for (const row of rows) {
+      // An expired request has no answer time: it ended when it ran out.
+      const ended = row.answeredAt
+        ? Date.parse(row.answeredAt)
+        : Math.min(
+            now,
+            row.status === "pending" ? now : Date.parse(row.expiresAt)
+          );
+      waitedMs += Math.max(0, ended - Date.parse(row.createdAt));
+    }
+    return {
+      pending: rows.some((row) => row.status === "pending"),
+      waitedMs,
+    };
+  };
+
+  /** The session is still working: stop a run that has worked too long, else read again soon. */
+  const carryOn = async (
+    run: RunRecord,
+    session: SessionRow,
+    gateway: ManagedGateway
+  ): Promise<ManagedStepResult> => {
+    const waiting = await waitingOf(run);
+    // Time spent waiting for a person is not the agent's own.
+    const age =
+      clock.now().getTime() -
+      Date.parse(run.startedAt ?? run.createdAt) -
+      waiting.waitedMs;
+    if (age > RUN_MAX_MS && session.anthropicSessionId) {
+      await gateway.interrupt(session.anthropicSessionId);
+      await endFailed(run, session, gateway, "The run took too long");
+      return DONE;
+    }
+    return { next: waiting.pending ? WAITING_POLL_MS : POLL_MS };
+  };
+
   /** Whether the session finished the turn, and how. */
   const settle = async (
     run: RunRecord,
@@ -885,6 +1137,26 @@ export const createManagedService = ({
       );
       return DONE;
     }
+    if (outcome.status === "idle" && outcome.stopReason === "requires_action") {
+      if (
+        !(await openRequests(
+          run,
+          session,
+          gateway,
+          polled,
+          outcome.requiredEventIds
+        ))
+      ) {
+        await endFailed(
+          run,
+          session,
+          gateway,
+          stopMessage(outcome.stopReason, outcome.errors)
+        );
+        return DONE;
+      }
+      return { next: WAITING_POLL_MS };
+    }
     if (outcome.status === "idle") {
       const text = await finalReply(db, run);
       await runsApi.completeRun(SYSTEM_PRINCIPAL, run.id, {
@@ -894,14 +1166,7 @@ export const createManagedService = ({
       await offerNext(run);
       return DONE;
     }
-    const age =
-      clock.now().getTime() - Date.parse(run.startedAt ?? run.createdAt);
-    if (age > RUN_MAX_MS && session.anthropicSessionId) {
-      await gateway.interrupt(session.anthropicSessionId);
-      await endFailed(run, session, gateway, "The run took too long");
-      return DONE;
-    }
-    return { next: POLL_MS };
+    return await carryOn(run, session, gateway);
   };
 
   /** Reads the session once. Returns what the step answers. */
@@ -929,6 +1194,7 @@ export const createManagedService = ({
       return DONE;
     }
     const gateway = gatewayOf(run.workspaceId, key);
+    await deliverAnswers(run, session, gateway);
     const polled = await gateway.pollEvents(
       session.anthropicSessionId,
       cursorOf(session)
@@ -1095,15 +1361,19 @@ export const createManagedService = ({
   };
 
   /**
-   * The minute tick: wakes the poller of every managed run that is running, in
-   * case its alarm was lost. A poller that is already armed ignores the nudge.
+   * The minute tick: wakes the poller of every managed run that is running or
+   * waiting for a person, in case its alarm was lost. A poller that is already
+   * armed ignores the nudge.
    */
   const rearm = async (): Promise<{ kicked: string[] }> => {
     const active = await db
       .select({ id: runs.id })
       .from(runs)
       .where(
-        and(eq(runs.status, "running"), eq(runs.claimedBy, MANAGED_CLAIMER))
+        and(
+          inArray(runs.status, ["running", "waiting"]),
+          eq(runs.claimedBy, MANAGED_CLAIMER)
+        )
       )
       .limit(100);
     const kicked: string[] = [];

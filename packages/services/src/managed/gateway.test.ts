@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type Anthropic from "@anthropic-ai/sdk";
+import { ASK_USER_TOOL } from "@repo/protocol/requests";
 import { AGENT_MODEL, modelFor } from "./config.ts";
 import { createManagedGateway, type IdCache } from "./gateway.ts";
 
@@ -40,6 +41,18 @@ const MCP_SERVERS = [
   { name: "harbourmaster", url: "https://app.example.com/mcp" },
   { name: "connector_aaaa", url: "https://a.example.com/mcp" },
 ];
+
+const ALWAYS_ALLOW = {
+  enabled: true,
+  permission_policy: { type: "always_allow" },
+};
+
+const ASK_USER_CUSTOM_TOOL = {
+  description: ASK_USER_TOOL.description,
+  input_schema: ASK_USER_TOOL.inputSchema,
+  name: ASK_USER_TOOL.name,
+  type: "custom",
+};
 
 describe("ensureEnvironment", () => {
   const environments = (
@@ -143,6 +156,7 @@ describe("syncAgent", () => {
   test("declares every server in the array, in order", async () => {
     await gateway.syncAgent({
       anthropicAgentId: "agt_1",
+      askKeys: [],
       mcpServers: MCP_SERVERS,
       model: AGENT_MODEL,
       name: "Ada",
@@ -167,6 +181,7 @@ describe("syncAgent", () => {
   test("gives every declared server a matching always-allow toolset", async () => {
     await gateway.syncAgent({
       anthropicAgentId: "agt_1",
+      askKeys: [],
       mcpServers: MCP_SERVERS,
       model: AGENT_MODEL,
       name: "Ada",
@@ -200,6 +215,7 @@ describe("syncAgent", () => {
         mcp_server_name: "connector_aaaa",
         type: "mcp_toolset",
       },
+      ASK_USER_CUSTOM_TOOL,
     ]);
   });
 
@@ -208,6 +224,7 @@ describe("syncAgent", () => {
     // would quietly put a re-modelled agent back on Sonnet.
     await gateway.syncAgent({
       anthropicAgentId: "agt_1",
+      askKeys: [],
       mcpServers: [],
       model: "claude-opus-5-5",
       name: "Ada",
@@ -221,6 +238,7 @@ describe("syncAgent", () => {
   test("sends only the agent toolset and no mcp_servers when the array is empty", async () => {
     await gateway.syncAgent({
       anthropicAgentId: "agt_1",
+      askKeys: [],
       mcpServers: [],
       model: AGENT_MODEL,
       name: "Ada",
@@ -237,6 +255,7 @@ describe("syncAgent", () => {
         },
         type: "agent_toolset_20260401",
       },
+      ASK_USER_CUSTOM_TOOL,
     ]);
   });
 });
@@ -257,6 +276,7 @@ describe("registerAgent", () => {
 
   test("registers the agent on the model it was handed", async () => {
     const result = await gateway.registerAgent({
+      askKeys: [],
       instructions: "be helpful",
       mcpServers: [],
       model: "claude-haiku-5-5",
@@ -271,6 +291,7 @@ describe("registerAgent", () => {
 
   test("declares each MCP server and one always-allow toolset per server", async () => {
     await gateway.registerAgent({
+      askKeys: [],
       instructions: "be helpful",
       mcpServers: MCP_SERVERS,
       model: AGENT_MODEL,
@@ -309,6 +330,7 @@ describe("registerAgent", () => {
 
   test("sends no mcp_servers and only the agent toolset without servers", async () => {
     await gateway.registerAgent({
+      askKeys: [],
       instructions: "be helpful",
       mcpServers: [],
       model: AGENT_MODEL,
@@ -326,6 +348,7 @@ describe("registerAgent", () => {
         },
         type: "agent_toolset_20260401",
       },
+      ASK_USER_CUSTOM_TOOL,
     ]);
   });
 });
@@ -623,6 +646,7 @@ describe("pollEvents", () => {
       id: "evt_use",
       input: { text: "hi" },
       name: "echo",
+      server: "harbourmaster",
     });
     expect(events[1]?.result).toEqual({
       isError: false,
@@ -633,6 +657,45 @@ describe("pollEvents", () => {
       isError: true,
       text: "denied",
       toolUseId: "evt_bash",
+    });
+  });
+
+  test("names the MCP server on an MCP tool call, and no server on a built-in one", async () => {
+    const gateway = gatewayFor(
+      {
+        start: [
+          {
+            id: "evt_mcp",
+            input: { channel: "general" },
+            mcp_server_name: "harbourmaster",
+            name: "post_message",
+            processed_at: "t1",
+            type: "agent.mcp_tool_use",
+          },
+          {
+            id: "evt_bash",
+            input: { command: "ls" },
+            name: "bash",
+            processed_at: "t2",
+            type: "agent.tool_use",
+          },
+        ],
+      },
+      []
+    );
+
+    const { events } = await gateway.pollEvents("sesn_1", undefined);
+
+    expect(events[0]?.tool).toEqual({
+      id: "evt_mcp",
+      input: { channel: "general" },
+      name: "post_message",
+      server: "harbourmaster",
+    });
+    expect(events[1]?.tool).toEqual({
+      id: "evt_bash",
+      input: { command: "ls" },
+      name: "bash",
     });
   });
 
@@ -700,6 +763,181 @@ describe("pollEvents", () => {
   });
 });
 
+describe("tool confirmation rules", () => {
+  const created: Record<string, unknown>[] = [];
+  const updates: Record<string, unknown>[] = [];
+  const gateway = createManagedGateway(
+    client({
+      agents: {
+        create: (body: Record<string, unknown>) => {
+          created.push(body);
+          return Promise.resolve({ id: "agt_1" });
+        },
+        update: (_id: string, body: Record<string, unknown>) => {
+          updates.push(body);
+          return Promise.resolve({});
+        },
+      },
+    }),
+    { cache: memoryCache(), environmentName: "harbourmaster" }
+  );
+
+  const ASK_KEYS = [
+    "bash",
+    "harbourmaster/post_message",
+    "connector_aaaa/send",
+    "nope/x",
+    "run_script",
+  ];
+
+  test("puts each ask key on the toolset it belongs to, always_ask, and ignores the rest", async () => {
+    await gateway.registerAgent({
+      askKeys: ASK_KEYS,
+      instructions: "be helpful",
+      mcpServers: MCP_SERVERS,
+      model: AGENT_MODEL,
+      name: "Ada",
+      skills: [],
+      system: "be helpful",
+    });
+
+    expect(created.at(-1)?.tools).toEqual([
+      {
+        configs: [{ name: "bash", permission_policy: { type: "always_ask" } }],
+        default_config: ALWAYS_ALLOW,
+        type: "agent_toolset_20260401",
+      },
+      {
+        configs: [
+          { name: "post_message", permission_policy: { type: "always_ask" } },
+        ],
+        default_config: ALWAYS_ALLOW,
+        mcp_server_name: "harbourmaster",
+        type: "mcp_toolset",
+      },
+      {
+        configs: [{ name: "send", permission_policy: { type: "always_ask" } }],
+        default_config: ALWAYS_ALLOW,
+        mcp_server_name: "connector_aaaa",
+        type: "mcp_toolset",
+      },
+      ASK_USER_CUSTOM_TOOL,
+    ]);
+    const sent = JSON.stringify(created.at(-1)?.tools);
+    expect(sent).not.toContain("nope");
+    expect(sent).not.toContain("run_script");
+  });
+
+  test("syncAgent sends the same rules", async () => {
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      askKeys: ASK_KEYS,
+      mcpServers: MCP_SERVERS,
+      model: AGENT_MODEL,
+      name: "Ada",
+      skills: [],
+      system: "be helpful",
+    });
+
+    expect(updates.at(-1)?.tools).toEqual(created.at(-1)?.tools);
+  });
+
+  test("a run with no ask keys sends no configs on any toolset", async () => {
+    await gateway.registerAgent({
+      askKeys: [],
+      instructions: "be helpful",
+      mcpServers: MCP_SERVERS,
+      model: AGENT_MODEL,
+      name: "Ada",
+      skills: [],
+      system: "be helpful",
+    });
+
+    const tools = created.at(-1)?.tools as Record<string, unknown>[];
+    for (const tool of tools) {
+      expect(tool).not.toHaveProperty("configs");
+    }
+  });
+});
+
+describe("confirmTool and sendCustomToolResult", () => {
+  const sent: unknown[] = [];
+  const gateway = createManagedGateway(
+    client({
+      sessions: {
+        events: {
+          send: (sessionId: string, params: unknown) => {
+            sent.push({ params, sessionId });
+            return Promise.resolve({});
+          },
+        },
+      },
+    }),
+    { cache: memoryCache(), environmentName: "harbourmaster" }
+  );
+
+  test("confirmTool allows a call with no deny message", async () => {
+    sent.length = 0;
+    await gateway.confirmTool("sesn_1", "evt_use", "allow");
+
+    expect(sent).toEqual([
+      {
+        params: {
+          events: [
+            {
+              result: "allow",
+              tool_use_id: "evt_use",
+              type: "user.tool_confirmation",
+            },
+          ],
+        },
+        sessionId: "sesn_1",
+      },
+    ]);
+  });
+
+  test("confirmTool denies a call with the message", async () => {
+    sent.length = 0;
+    await gateway.confirmTool("sesn_1", "evt_use", "deny", "not today");
+
+    expect(sent).toEqual([
+      {
+        params: {
+          events: [
+            {
+              deny_message: "not today",
+              result: "deny",
+              tool_use_id: "evt_use",
+              type: "user.tool_confirmation",
+            },
+          ],
+        },
+        sessionId: "sesn_1",
+      },
+    ]);
+  });
+
+  test("sendCustomToolResult sends the text as one text block", async () => {
+    sent.length = 0;
+    await gateway.sendCustomToolResult("sesn_1", "evt_use", "yes, blue");
+
+    expect(sent).toEqual([
+      {
+        params: {
+          events: [
+            {
+              content: [{ text: "yes, blue", type: "text" }],
+              custom_tool_use_id: "evt_use",
+              type: "user.custom_tool_result",
+            },
+          ],
+        },
+        sessionId: "sesn_1",
+      },
+    ]);
+  });
+});
+
 describe("sendMessage", () => {
   const sendClient = (sent: unknown[]) => ({
     sessions: {
@@ -760,6 +998,7 @@ describe("agent skills", () => {
 
   test("registerAgent leaves skills out when there are none", async () => {
     await gateway.registerAgent({
+      askKeys: [],
       instructions: "be helpful",
       mcpServers: [],
       model: AGENT_MODEL,
@@ -773,6 +1012,7 @@ describe("agent skills", () => {
 
   test("registerAgent pins each skill to its version", async () => {
     await gateway.registerAgent({
+      askKeys: [],
       instructions: "be helpful",
       mcpServers: [],
       model: AGENT_MODEL,
@@ -789,6 +1029,7 @@ describe("agent skills", () => {
   test("syncAgent always sends skills, so an empty array detaches them", async () => {
     await gateway.syncAgent({
       anthropicAgentId: "agt_1",
+      askKeys: [],
       mcpServers: [],
       model: AGENT_MODEL,
       name: "Ada",
@@ -802,6 +1043,7 @@ describe("agent skills", () => {
   test("syncAgent pins each skill to its version", async () => {
     await gateway.syncAgent({
       anthropicAgentId: "agt_1",
+      askKeys: [],
       mcpServers: [],
       model: AGENT_MODEL,
       name: "Ada",
