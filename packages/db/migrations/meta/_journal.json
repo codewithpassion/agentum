@@ -99,6 +99,13 @@
       "when": 1792979970989,
       "tag": "0013_cynical_microchip",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1793004058045,
+      "tag": "0014_thick_gunslinger",
+      "breakpoints": true
     }
   ]
 }

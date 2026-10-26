@@ -345,3 +345,12 @@ describe("hasDaemonFeature", () => {
     expect(hasDaemonFeature("library-sync-v2", "library-sync")).toBe(false);
   });
 });
+
+describe("message.reasoning events", () => {
+  test("the daemon's upload accepts a reasoning event", () => {
+    const parsed = eventsRequestSchema.safeParse({
+      events: [{ payload: { text: "hm" }, seq: 1, type: "message.reasoning" }],
+    });
+    expect(parsed.success).toBe(true);
+  });
+});
