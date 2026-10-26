@@ -72,7 +72,7 @@ export interface StoredInbound {
   threadId: string;
 }
 
-/** The result of a sent mail. `rfcMessageId` is the RFC `Message-ID` header we wrote. */
+/** The result of a sent mail. `rfcMessageId` is the `Message-ID` Email Sending reported for the send, else an id we generated. Email Sending stamps the header itself. */
 export interface SentMail {
   messageId: string;
   rfcMessageId: string;

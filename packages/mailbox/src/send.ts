@@ -58,20 +58,20 @@ export const stripHtmlToText = (html: string): string => {
     .trim();
 };
 
-/** Builds the message the send binding takes from an outgoing draft. */
+/**
+ * Builds the message the send binding takes from an outgoing draft. It sets no
+ * `Message-ID`: Email Sending generates that header and rejects the whole send
+ * (`E_HEADER_NOT_ALLOWED`) when a caller supplies one.
+ */
 export const buildSendMessage = (
   draft: OutgoingDraft,
-  rfcMessageId: string,
   reply?: { inReplyTo: string; references: string[] }
 ): SendMessage => {
   const message: SendMessage = {
     from: draft.from,
-    headers: {
-      "Message-ID": `<${rfcMessageId}>`,
-      ...(reply
-        ? buildThreadingHeaders(reply.inReplyTo, reply.references)
-        : {}),
-    },
+    headers: reply
+      ? buildThreadingHeaders(reply.inReplyTo, reply.references)
+      : {},
     html: draft.html ? draft.html : textToHtml(draft.text),
     subject: draft.subject,
     text: draft.text,
