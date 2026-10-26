@@ -279,8 +279,54 @@ test("trigger off and inactive agent store only", async () => {
   expect(db.select().from(mailMessages).all()).toHaveLength(2);
   expect(db.select().from(runRows).all()).toHaveLength(0);
 });
-test("agent loops, auto replies and lists are ignored", async () => {
-  await service.receive({ ...message(), from: { address: "A@EXAMPLE.COM" } });
+test("mail from a workspace agent is stored and listed but starts no run", async () => {
+  db.insert(agents)
+    .values({
+      createdAt: now,
+      createdBy: "u",
+      id: "b",
+      instructions: "",
+      model: "fake",
+      name: "B",
+      runtime: "fake",
+      runtimeConfig: "{}",
+      slug: "b",
+      status: "active",
+      workspaceId: "w",
+    })
+    .run();
+  db.insert(agentMailboxes)
+    .values({
+      address: "b@example.com",
+      agentId: "b",
+      createdAt: now,
+      id: "box-b",
+      status: "active",
+      workspaceId: "w",
+    })
+    .run();
+  await service.receive({
+    ...message("from-b"),
+    envelopeFrom: "b@example.com",
+    from: { address: "B@Example.com" },
+  });
+  await service.receive({
+    ...message("from-self"),
+    from: { address: "A@EXAMPLE.COM" },
+  });
+  expect(db.select().from(mailMessages).all()).toHaveLength(2);
+  expect(db.select().from(runRows).all()).toHaveLength(0);
+  const [row] = await service.threads(user, "a");
+  expect(row).toMatchObject({ lastDirection: "in", messageCount: 2 });
+  expect(
+    db
+      .select()
+      .from(eventRows)
+      .all()
+      .filter((e) => e.type === "mail.received")
+  ).toHaveLength(2);
+});
+test("auto replies and lists are ignored, outside mail still starts a run", async () => {
   await service.receive({
     ...message(),
     headers: { autoSubmitted: "auto-replied" },
@@ -290,6 +336,11 @@ test("agent loops, auto replies and lists are ignored", async () => {
     headers: { listId: "list.example.net" },
   });
   await service.receive({ ...message(), headers: { precedence: "bulk" } });
+  await service.receive({
+    ...message(),
+    from: { address: "A@EXAMPLE.COM" },
+    headers: { autoSubmitted: "auto-replied" },
+  });
   expect(db.select().from(mailMessages).all()).toHaveLength(0);
   await service.receive({ ...message(), headers: { autoSubmitted: "no" } });
   expect(db.select().from(runRows).all()).toHaveLength(1);
