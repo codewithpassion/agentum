@@ -7,6 +7,7 @@ import {
   type EntryRecord,
   Harness,
 } from "@earendil-works/pi-durable";
+import type { Masker } from "@repo/protocol/masker";
 import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
 import { CLOUD_LEASE_MS } from "@repo/services/cloud/lease";
 import {
@@ -50,6 +51,7 @@ import {
   SERVERS_KEY,
 } from "./pi-run-core.ts";
 import { workspaceKeyStore } from "./pi-run-credentials.ts";
+import { deltaPublisher, type LivePartial } from "./pi-run-deltas.ts";
 import {
   filesExtension,
   inputContent,
@@ -76,6 +78,7 @@ import {
 } from "./pi-run-skills.ts";
 import { createStartQueue } from "./pi-run-start.ts";
 import { RunStartAlarm } from "./pi-run-start-alarm.ts";
+import { streamPublisher } from "./session-stream-port.ts";
 
 import { dynamicWorkerSandbox } from "./skill-scripts/dynamic-worker-sandbox.ts";
 import type { RunScriptDeps } from "./skill-scripts/run-script.ts";
@@ -94,6 +97,8 @@ const TOOLS_KEY = "mcp-tools";
 const WORKSPACE_KEY = "workspace";
 /** The newest run of the session. Its principal reads and writes the library for Pi's file tools, which know no run of their own. */
 const RUN_KEY = "run";
+/** The id of the session this object serves, as the stream names it. Stored beside the run, because the run reference has no session. */
+const SESSION_KEY = "session";
 /** The slug of the agent of the newest run: its library home is `agents/<slug>`. */
 const AGENT_SLUG_KEY = "agent-slug";
 /** The skills of the run that loaded them last, with that run: a tool call knows no run of its own. The text is read again on each call. */
@@ -113,6 +118,12 @@ const COMMIT_EVENTS = new Set([
   "message_end",
   "tool_execution_end",
 ]);
+
+/** The view the deltas are read from, shared by the followed runs. */
+interface SharedDeltas {
+  close: Promise<() => void>;
+  users: number;
+}
 
 interface StoredSkills {
   run: RunRef;
@@ -161,6 +172,9 @@ export class PiRun extends DurableObject<Env> {
   /** The agent's Linux VM, when the agent runs in one. */
   #vm: LinuxVm | undefined;
   #composed: ReturnType<typeof compose> | undefined;
+  #streams: ReturnType<typeof streamPublisher> | undefined;
+  /** The view the deltas are read from, and how many followed runs share it. */
+  #deltas: SharedDeltas | undefined;
 
   /**
    * The workspace's provider keys, read from the workspace secrets store for
@@ -194,12 +208,14 @@ export class PiRun extends DurableObject<Env> {
           this.registry.install(devToolsExtension(this.ctx.storage));
         }
       }
-      this.#installTools(
-        (await this.ctx.storage.get<ServerTools>(TOOLS_KEY)) ?? {}
-      );
+      // The environment's tools go in before the connectors', as on a fresh start. Pi lists the tools in
+      // install order, and a different order after an eviction makes it re-declare every tool.
       this.#switchEnvironment(
         await this.ctx.storage.get<string>(VM_KEY),
         (await this.ctx.storage.get<boolean>(NETWORK_KEY)) ?? true
+      );
+      this.#installTools(
+        (await this.ctx.storage.get<ServerTools>(TOOLS_KEY)) ?? {}
       );
       const skills = await this.ctx.storage.get<StoredSkills>(SKILLS_KEY);
       if (skills) {
@@ -858,9 +874,122 @@ export class PiRun extends DurableObject<Env> {
             await onChange();
           }
         });
-        return () => stream.stop();
+        const stopDeltas = await this.#streamDeltas();
+        return async () => {
+          stopDeltas();
+          await stream.stop();
+        };
       },
     };
+  }
+
+  /**
+   * Sends the partial answer Pi commits every 100 ms to the session stream as
+   * `delta` frames, labelled with the newest run like the rest of this object.
+   * Only the text of the answer is read: tool arguments and output reach the
+   * stream as the stored, scrubbed `tool.call` and `tool.result` events. One
+   * view serves every run followed at the same time, because a second would
+   * send the same text again. Returns the function that stops this caller's
+   * share, and the view closes with the last one. A failure never reaches the
+   * run.
+   */
+  async #streamDeltas(): Promise<() => void> {
+    if (!this.#deltas) {
+      const created: SharedDeltas = {
+        close: Promise.resolve(() => undefined),
+        users: 0,
+      };
+      this.#deltas = created;
+      created.close = this.#openDeltas(() => {
+        if (this.#deltas === created) {
+          this.#deltas = undefined;
+        }
+      });
+    }
+    const shared = this.#deltas;
+    shared.users += 1;
+    const close = await shared.close;
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      shared.users -= 1;
+      if (shared.users === 0) {
+        if (this.#deltas === shared) {
+          this.#deltas = undefined;
+        }
+        close();
+      }
+    };
+  }
+
+  /** Opens the view the deltas are read from. Resolves to the function that closes it, and never rejects. */
+  async #openDeltas(onFailure: () => void): Promise<() => void> {
+    try {
+      let current:
+        | { publisher: ReturnType<typeof deltaPublisher>; runId: string }
+        | undefined;
+      const publisherOfNewestRun = async () => {
+        const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
+        const sessionId = await this.ctx.storage.get<string>(SESSION_KEY);
+        if (!(run && sessionId)) {
+          return;
+        }
+        if (current?.runId !== run.runId) {
+          current = {
+            publisher: this.#deltaPublisher(run, sessionId),
+            runId: run.runId,
+          };
+        }
+        return current.publisher;
+      };
+      const root = await (await this.harness.pi()).root(BACKGROUND_CONTEXT);
+      const view = await root.viewState(BACKGROUND_CONTEXT);
+      // Returning the promise makes Pi wait for one offer before the next.
+      const unsubscribe = view.subscribe(async (value) => {
+        const live = value.docs["pi.live"] as LivePartial | undefined;
+        if (live?.generation?.message !== undefined) {
+          await (await publisherOfNewestRun())?.offer(live);
+        }
+      });
+      return () => {
+        unsubscribe();
+        view.dispose();
+      };
+    } catch (error) {
+      // The next caller tries again.
+      onFailure();
+      console.warn(
+        "PiRun: streaming partial text failed",
+        error instanceof Error ? error.name : "unknown error"
+      );
+      return () => undefined;
+    }
+  }
+
+  #deltaPublisher(run: RunRef, sessionId: string) {
+    this.#streams ??= streamPublisher(this.env.SESSION_STREAM, (work) =>
+      this.ctx.waitUntil(work)
+    );
+    const streams = this.#streams;
+    // Read once for the run. A failed read is dropped, and the next frame reads again.
+    let masker: Promise<Masker | null> | undefined;
+    return deltaPublisher({
+      clock: () => Date.now(),
+      maskerOf: () => {
+        masker ??= this.#services()
+          .secrets.maskerFor(run.workspaceId, run.agentId)
+          .catch((error: unknown) => {
+            masker = undefined;
+            throw error;
+          });
+        return masker;
+      },
+      publish: (frame) => streams.publish(sessionId, frame),
+      runId: run.runId,
+    });
   }
 
   #services() {
@@ -957,6 +1086,7 @@ export class PiRun extends DurableObject<Env> {
   async #prepareRun(input: CloudStart): Promise<void> {
     await this.ctx.storage.put(WORKSPACE_KEY, input.run.workspaceId);
     await this.ctx.storage.put(RUN_KEY, runRefOf(input));
+    await this.ctx.storage.put(SESSION_KEY, input.run.sessionId);
     await this.ctx.storage.put(AGENT_SLUG_KEY, input.agent.slug);
     await this.#selectEnvironment(input);
     try {

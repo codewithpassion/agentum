@@ -9,6 +9,7 @@ import type { AppEnv } from "./groups.ts";
 import { libraryRoutes } from "./library.ts";
 import { machineRoutes } from "./machines.ts";
 import { runLibraryRoutes } from "./run-library.ts";
+import { sessionStreamRoutes } from "./session-stream.ts";
 import { skillsRoutes } from "./skills.ts";
 import { slackRoutes } from "./slack.ts";
 
@@ -20,5 +21,9 @@ runtimeRoutes.route("/", filesRoutes({ session: (c) => getAuth(c) }));
 runtimeRoutes.route("/", libraryRoutes({ session: (c) => getAuth(c) }));
 runtimeRoutes.route("/", skillsRoutes());
 runtimeRoutes.route("/", runLibraryRoutes());
+runtimeRoutes.route(
+  "/api/sessions",
+  sessionStreamRoutes({ session: (c) => getAuth(c) })
+);
 // Slack calls the events URL with a signature, so the group is bearer style.
 runtimeRoutes.route("/api/slack", slackRoutes());

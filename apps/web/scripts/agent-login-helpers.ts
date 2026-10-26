@@ -173,17 +173,17 @@ const usable = (value: string | undefined): string | undefined => {
 };
 
 /**
- * Picks the Clerk secret key for the env. Local, staging and preview use the
- * dev key in apps/web/.env.local. Production uses its own key file, or the
- * process environment, which bun fills from .env.local. A process value equal
- * to the dev key is ignored for production.
+ * Picks the Clerk secret key for the env. Local and preview use the dev key in
+ * apps/web/.env.local. Staging and production share the production Clerk
+ * instance, so they use its key file, or the process environment, which bun
+ * fills from .env.local. A process value equal to the dev key is ignored.
  */
 export const resolveSecretKey = (
   env: AgentLoginEnv,
   sources: SecretSources
 ): string => {
   const devKey = usable(sources.envLocal.CLERK_SECRET_KEY);
-  if (env !== "production") {
+  if (env === "local" || env === "preview") {
     if (!devKey) {
       throw new Error(
         "CLERK_SECRET_KEY is missing or empty in apps/web/.env.local."
@@ -201,6 +201,6 @@ export const resolveSecretKey = (
     return processKey;
   }
   throw new Error(
-    "Production needs CLERK_SECRET_KEY in apps/web/.env.production.local or in the process environment."
+    "Staging and production need CLERK_SECRET_KEY in apps/web/.env.production.local or in the process environment."
   );
 };

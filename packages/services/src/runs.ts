@@ -661,6 +661,19 @@ export const createRunsService = ({
     const input = startRunInputSchema.parse(rawInput);
     const prepared = await prepareStart(principal, input);
     const { inserted, ...started } = await insertRun(prepared, input, options);
+    if (inserted && options.offerLater) {
+      // `queuedEvents` wrote these in the atomic write, which skips the
+      // listeners, so the stream hears of them here.
+      try {
+        await eventsService.notifyStored(
+          prepared.agent.workspaceId,
+          started.runId,
+          ["run.queued", "message.user"]
+        );
+      } catch (error) {
+        console.error("Run start listeners failed", error);
+      }
+    }
     if (!inserted || options.offerLater) {
       return started;
     }

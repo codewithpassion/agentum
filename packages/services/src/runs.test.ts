@@ -2217,6 +2217,26 @@ test("onEvent listeners hear the run events, each with the run's id", async () =
   });
 });
 
+test("onEvent listeners hear the run.queued and message.user of an offerLater start", async () => {
+  const heard: EventRecord[] = [];
+  runs.onEvent((event) => {
+    heard.push(event);
+    return Promise.resolve();
+  });
+  const { runId } = await start(user, spyAgentId, {}, "hello", {
+    offerLater: true,
+  });
+
+  expect(heard.map((event) => event.type)).toEqual([
+    "run.queued",
+    "message.user",
+  ]);
+  for (const event of heard) {
+    expect(event.runId).toBe(runId);
+  }
+  expect(heard[1]?.payload).toMatchObject({ text: "hello" });
+});
+
 test("onEvent listeners hear run.cancelled for a queued run and for a running one", async () => {
   const heard: EventRecord[] = [];
   runs.onEvent((event) => {

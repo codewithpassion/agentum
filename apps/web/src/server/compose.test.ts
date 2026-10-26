@@ -1,0 +1,189 @@
+import { beforeEach, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
+import { migrated } from "@repo/db/test-db";
+import type { StreamFrame } from "@repo/protocol/stream";
+import { noopRelay } from "@repo/services/machines/types";
+import { systemClock } from "@repo/services/runs/types";
+import type { Principal, Workspace } from "@repo/services/workspaces";
+import { type Composed, composeWith, type Infra } from "./compose.ts";
+import type { SessionStreamPort } from "./session-stream-port.ts";
+
+type User = Extract<Principal, { kind: "user" }>;
+
+let db: ReturnType<typeof migrated>;
+let composed: Composed;
+let user: User;
+let agentId: string;
+let seedSession: string;
+let published: { sessionId: string; frame: StreamFrame }[];
+let portFails = false;
+
+const port: SessionStreamPort = {
+  publish: (sessionId, frame) => {
+    if (portFails) {
+      return Promise.reject(new Error("stream is down"));
+    }
+    published.push({ frame, sessionId });
+    return Promise.resolve();
+  },
+};
+
+const infra = (): Infra => {
+  const store = new Map<string, string>();
+  return {
+    atomic: sqliteAtomic(db),
+    blobs: {
+      get: (key) => Promise.resolve(store.get(key) ?? null),
+      put: (key, body) => {
+        store.set(key, body);
+        return Promise.resolve();
+      },
+    },
+    clock: systemClock,
+    devFakeRuntime: false,
+    fileBlobs: {
+      delete: () => Promise.resolve(),
+      get: () => Promise.resolve(null),
+      put: () => Promise.resolve(),
+    },
+    relay: noopRelay,
+    streams: port,
+  };
+};
+
+beforeEach(async () => {
+  db = migrated();
+  published = [];
+  portFails = false;
+  composed = composeWith({
+    allowedOrgIds: ["org_a"],
+    db,
+    infra: infra(),
+  });
+  const workspace: Workspace | null = await composed.services.workspaces.forOrg(
+    { clerkOrgId: "org_a" }
+  );
+  if (!workspace) {
+    throw new Error("org_a must be allowed");
+  }
+  user = {
+    kind: "user",
+    userId: "user_a",
+    via: "session",
+    workspaceId: workspace.id,
+  };
+  // A session exists only once a run starts, and events may not point at a missing one.
+  const { machineId } = await composed.services.machines
+    .createEnrollToken(user, { machineName: "m1" })
+    .then(({ code }) =>
+      composed.services.machines.enroll({ code, singleUser: false })
+    )
+    .then((enrolled) => {
+      if (!enrolled) {
+        throw new Error("enrol failed");
+      }
+      return enrolled;
+    });
+  agentId = (
+    await composed.services.agents.create(user, {
+      machineId,
+      model: "m",
+      name: "Spy",
+      runtime: "machine",
+    })
+  ).id;
+  ({ sessionId: seedSession } = await composed.services.runs.startRun(user, {
+    agentId,
+    input: { text: "hello" },
+    session: { origin: "ui" },
+  }));
+  published = [];
+});
+
+const appendEvent = (
+  type: "agent.created" | "tool.call",
+  payload: Record<string, unknown>,
+  sessionId: string | null
+) =>
+  composed.services.events.append({
+    actor: { id: user.userId, kind: "user" },
+    payload,
+    sessionId,
+    type,
+    workspaceId: user.workspaceId,
+  });
+
+test("a stored event reaches the port as an event frame with the stored payload", async () => {
+  const record = await appendEvent(
+    "tool.call",
+    { input: { password: "hunter2" }, name: "bash", toolUseId: "t1" },
+    seedSession
+  );
+
+  expect(published).toEqual([
+    {
+      frame: {
+        actor: record.actor,
+        createdAt: record.createdAt,
+        frame: "event",
+        id: record.id,
+        payload: record.payload,
+        runId: null,
+        seq: null,
+        type: "tool.call",
+      },
+      sessionId: seedSession,
+    },
+  ]);
+});
+
+test("the streamed payload is the redacted one, and the raw secret is nowhere in the frames", async () => {
+  const record = await appendEvent(
+    "tool.call",
+    { input: { password: "hunter2" }, name: "bash", toolUseId: "t1" },
+    seedSession
+  );
+
+  expect(record.payload).toMatchObject({ input: { password: "[redacted]" } });
+  expect(published[0]?.frame).toMatchObject({ payload: record.payload });
+  expect(JSON.stringify(published)).not.toContain("hunter2");
+});
+
+test("an event without a session publishes nothing", async () => {
+  await appendEvent("tool.call", { name: "bash", toolUseId: "t1" }, null);
+
+  expect(published).toEqual([]);
+});
+
+test("an event type the stream does not carry publishes nothing", async () => {
+  await appendEvent("agent.created", { name: "Agent" }, seedSession);
+
+  expect(published).toEqual([]);
+});
+
+test("starting a run publishes its queued event, its run frame, then the user message", async () => {
+  const { runId } = await composed.services.runs.startRun(user, {
+    agentId,
+    input: { text: "hello" },
+    session: { origin: "ui" },
+  });
+
+  expect(published.map(({ frame }) => frame)).toEqual([
+    expect.objectContaining({ frame: "event", runId, type: "run.queued" }),
+    { frame: "run", runId, status: "queued" },
+    expect.objectContaining({ frame: "event", runId, type: "message.user" }),
+  ]);
+});
+
+test("a port that rejects does not fail the append", async () => {
+  portFails = true;
+
+  const record = await appendEvent(
+    "tool.call",
+    { name: "bash", toolUseId: "t1" },
+    seedSession
+  );
+
+  expect(record.type).toBe("tool.call");
+  expect(published).toEqual([]);
+});

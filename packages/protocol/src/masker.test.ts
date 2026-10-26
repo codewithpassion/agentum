@@ -170,3 +170,51 @@ describe("base64 and URL-encoded forms", () => {
     expect(masker.mask(form)).toBe("k=[secret:TOK]");
   });
 });
+
+describe("unfinishedTail", () => {
+  test("counts the end of the text that begins a value, spaces and newlines included", () => {
+    const masker = createMasker({ KEY: "line one\nline two" });
+    expect(masker.unfinishedTail("see line one\nli")).toBe(
+      "line one\nli".length
+    );
+    expect(masker.unfinishedTail("see line")).toBe("line".length);
+  });
+
+  test("is zero when the end begins no value or the value is whole", () => {
+    const masker = createMasker({ TOK: "hm_run_abc123" });
+    expect(masker.unfinishedTail("nothing here")).toBe(0);
+    expect(masker.unfinishedTail("")).toBe(0);
+    expect(masker.unfinishedTail("then hm_run_abc123")).toBe(0);
+  });
+
+  test("covers the encoded shapes of a value", () => {
+    const masker = createMasker({ TOK: "a b" });
+    expect(masker.unfinishedTail("x a%2")).toBe("a%2".length);
+  });
+
+  test("takes the longest start across values", () => {
+    const masker = createMasker({ ONE: "abcdef", TWO: "cdxyz" });
+    expect(masker.unfinishedTail("abcd")).toBe(4);
+  });
+});
+
+describe("cutBeforeWhole", () => {
+  test("keeps a cut that splits no value", () => {
+    const masker = createMasker({ KEY: "line one\nline two" });
+    expect(masker.cutBeforeWhole("abc line one\nline two end", 4)).toBe(4);
+    expect(masker.cutBeforeWhole("abc", 3)).toBe(3);
+  });
+
+  test("moves a cut inside a whole value to its start", () => {
+    const masker = createMasker({ KEY: "line one\nline two" });
+    const text = "abc line one\nline two";
+    expect(masker.cutBeforeWhole(text, text.length - 3)).toBe(4);
+    expect(masker.cutBeforeWhole(text, 5)).toBe(4);
+  });
+
+  test("follows nested and overlapping values back to the earliest start", () => {
+    const masker = createMasker({ INNER: "abc", OUTER: "xx abc yy" });
+    expect(masker.cutBeforeWhole("say xx abc yy", 9)).toBe(4);
+    expect(masker.cutBeforeWhole("say xx abc yy", 7)).toBe(4);
+  });
+});
