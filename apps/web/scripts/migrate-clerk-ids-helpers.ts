@@ -40,6 +40,8 @@ export interface Plan {
   /** Tokens already equal to a new id, left alone. */
   alreadyMapped: number;
   changes: Change[];
+  /** Cells holding an id from the ignore list, left alone. */
+  ignored: number;
   /** Reasons the plan can't be applied. */
   problems: string[];
   /** Write statements for `changes`, empty when there are none. */
@@ -47,8 +49,12 @@ export interface Plan {
   unmapped: Occurrence[];
 }
 
-const ID = /^(user|org)_[A-Za-z0-9]+$/;
-const TOKEN = /(?<![A-Za-z0-9_])(?:user|org)_[A-Za-z0-9]+/g;
+// A Clerk id is user_ or org_ plus 27 base62 characters, and not part of a
+// longer identifier. Anything else that starts with user_ or org_ is not one:
+// the enum value `user_or_agent`, or a path like `/mcp/org_user_<id>`.
+const CLERK_ID = "(?:user|org)_[A-Za-z0-9]{27}";
+const ID = new RegExp(`^${CLERK_ID}$`);
+const TOKEN = new RegExp(`(?<![A-Za-z0-9_])${CLERK_ID}(?![A-Za-z0-9_])`, "g");
 
 // events is append-only: these two triggers, created at the end of
 // 0000_init.sql, block UPDATE and DELETE. The script drops them around its
@@ -73,11 +79,18 @@ const quote = (name: string): string => `"${name.replaceAll('"', '""')}"`;
 
 /** The mapping file. `email` and `name` are notes for whoever reads it. */
 export interface MappingFile {
+  /** Ids of other systems that look like Clerk ids. Left untouched. */
+  ignore?: string[];
   orgs: Record<string, { id: string; name?: string }>;
   users: Record<string, { email?: string; id: string }>;
 }
 
 export type IdMap = ReadonlyMap<string, string>;
+
+export interface Mapping {
+  ids: IdMap;
+  ignore: ReadonlySet<string>;
+}
 
 const entries = (
   section: unknown,
@@ -111,13 +124,28 @@ const entries = (
   });
 };
 
-/** Parses the mapping file into one old id to new id map. */
-export const parseMapping = (text: string, invert = false): IdMap => {
+const ignoreList = (value: unknown): string[] => {
+  if (value === undefined) {
+    return [];
+  }
+  if (
+    !(
+      Array.isArray(value) &&
+      value.every((id) => typeof id === "string" && ID.test(id))
+    )
+  ) {
+    throw new Error('"ignore" must be a list of user_ and org_ ids.');
+  }
+  return value;
+};
+
+/** Parses the mapping file: the old to new id map, and the ids to leave alone. */
+export const parseMapping = (text: string, invert = false): Mapping => {
   const parsed: unknown = JSON.parse(text);
   if (typeof parsed !== "object" || parsed === null) {
     throw new Error("The mapping file must be a JSON object.");
   }
-  const { orgs, users } = parsed as Record<string, unknown>;
+  const { ignore, orgs, users } = parsed as Record<string, unknown>;
   const pairs = [...entries(orgs, "org"), ...entries(users, "user")];
   const forward = new Map(pairs);
   if (new Set(forward.values()).size !== forward.size) {
@@ -128,7 +156,16 @@ export const parseMapping = (text: string, invert = false): IdMap => {
       throw new Error(`${newId} is both an old and a new id.`);
     }
   }
-  return invert ? new Map(pairs.map(([a, b]) => [b, a])) : forward;
+  const ignored = new Set(ignoreList(ignore));
+  for (const id of ignored) {
+    if (forward.has(id) || [...forward.values()].includes(id)) {
+      throw new Error(`${id} is both mapped and ignored.`);
+    }
+  }
+  return {
+    ids: invert ? new Map(pairs.map(([a, b]) => [b, a])) : forward,
+    ignore: ignored,
+  };
 };
 
 const SKIP_TABLES = "m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\'";
@@ -231,12 +268,20 @@ const buildStatements = (changes: Change[]): string[] => {
 };
 
 /** Works out what to rewrite and what stops the rewrite. Pure. */
-export const buildPlan = (occurrences: Occurrence[], idMap: IdMap): Plan => {
+export const buildPlan = (
+  occurrences: Occurrence[],
+  { ids: idMap, ignore }: Mapping
+): Plan => {
   const newIds = new Set(idMap.values());
   const changes: Change[] = [];
   const unmapped: Occurrence[] = [];
   let alreadyMapped = 0;
+  let ignored = 0;
   for (const occurrence of occurrences) {
+    if (ignore.has(occurrence.token)) {
+      ignored += 1;
+      continue;
+    }
     const newId = idMap.get(occurrence.token);
     if (newId !== undefined) {
       changes.push({
@@ -283,6 +328,7 @@ export const buildPlan = (occurrences: Occurrence[], idMap: IdMap): Plan => {
   return {
     alreadyMapped,
     changes,
+    ignored,
     problems,
     statements: buildStatements(changes),
     unmapped,
@@ -297,7 +343,7 @@ export const formatPlan = (plan: Plan): string => {
   const tables = new Set(plan.changes.map((c) => c.table));
   const rows = new Set(plan.changes.map((c) => `${c.table}\0${c.key}`));
   lines.push(
-    `${plan.changes.length} cell(s) in ${rows.size} row(s) of ${tables.size} table(s) would change; ${plan.alreadyMapped} already hold a new id.`
+    `${plan.changes.length} cell(s) in ${rows.size} row(s) of ${tables.size} table(s) would change; ${plan.alreadyMapped} already hold a new id; ${plan.ignored} ignored.`
   );
   for (const o of plan.unmapped) {
     lines.push(`UNMAPPED  ${o.table}  ${o.key}  ${o.column}  ${o.token}`);
@@ -319,11 +365,11 @@ export interface RunResult {
  */
 export const run = async (
   driver: Driver,
-  idMap: IdMap,
+  mapping: Mapping,
   apply: boolean
 ): Promise<RunResult> => {
   const snapshot = await discover(driver);
-  const plan = buildPlan(snapshot.occurrences, idMap);
+  const plan = buildPlan(snapshot.occurrences, mapping);
   const report = [formatPlan(plan)];
   const triggersOk = (names: string[]): boolean =>
     names.length === EVENTS_TRIGGER_NAMES.length &&
@@ -354,7 +400,7 @@ export const run = async (
   }
   await driver.exec(plan.statements);
   const after = await discover(driver);
-  const left = buildPlan(after.occurrences, idMap);
+  const left = buildPlan(after.occurrences, mapping);
   const verified =
     left.changes.length === 0 &&
     left.problems.length === 0 &&
@@ -407,6 +453,13 @@ export interface BuiltMapping {
   unresolved: string[];
 }
 
+export interface BuildOptions {
+  /** Ids to skip, kept in the file's ignore list. */
+  ignore?: readonly string[];
+  /** Put ids that don't resolve in the ignore list instead of reporting them. */
+  ignoreUnresolved?: boolean;
+}
+
 type Resolved =
   | { id: string; kind: "org"; name: string; oldId: string }
   | { email: string; id: string; kind: "user"; oldId: string }
@@ -456,10 +509,13 @@ const resolveUser = async (
 export const buildMapping = async (
   oldIds: string[],
   dev: Pick<ClerkLookup, "emailOf" | "nameOf">,
-  prod: Pick<ClerkLookup, "orgIdsByName" | "userIdsByEmail">
+  prod: Pick<ClerkLookup, "orgIdsByName" | "userIdsByEmail">,
+  options: BuildOptions = {}
 ): Promise<BuiltMapping> => {
+  const ignore = new Set(options.ignore);
   const resolved = await Promise.all(
     [...new Set(oldIds)]
+      .filter((oldId) => !ignore.has(oldId))
       .sort()
       .map((oldId) =>
         oldId.startsWith("org_")
@@ -471,12 +527,19 @@ export const buildMapping = async (
   const unresolved: string[] = [];
   for (const item of resolved) {
     if ("why" in item) {
-      unresolved.push(`${item.oldId} (${item.why})`);
+      if (options.ignoreUnresolved) {
+        ignore.add(item.oldId);
+      } else {
+        unresolved.push(`${item.oldId} (${item.why})`);
+      }
     } else if (item.kind === "org") {
       mapping.orgs[item.oldId] = { id: item.id, name: item.name };
     } else {
       mapping.users[item.oldId] = { email: item.email, id: item.id };
     }
+  }
+  if (ignore.size > 0) {
+    mapping.ignore = [...ignore].sort();
   }
   return { mapping, unresolved };
 };

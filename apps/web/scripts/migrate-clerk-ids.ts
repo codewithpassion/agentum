@@ -97,7 +97,7 @@ const main = async () => {
       "Pass --map <file> and exactly one of --db <sqlite file> or --d1 <binding>."
     );
   }
-  const idMap = parseMapping(
+  const mapping = parseMapping(
     await file(mapPath).text(),
     flags.get("--invert") === true
   );
@@ -120,7 +120,7 @@ const main = async () => {
     );
   }
 
-  const result = await run(driver, idMap, flags.get("--apply") === true);
+  const result = await run(driver, mapping, flags.get("--apply") === true);
   console.log(result.report);
   process.exit(result.exitCode);
 };

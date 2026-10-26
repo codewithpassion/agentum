@@ -4,11 +4,14 @@
 // (by email) and organisations (by name) on the production instance. Reads the
 // old ids from the database. Read-only on both instances and on the database.
 // Usage, from apps/web:
-//   bun scripts/build-clerk-id-map.ts --out <file> --db <sqlite file>
+//   bun scripts/build-clerk-id-map.ts --out <file> --db <sqlite file> [--ignore-unresolved]
 // --db is a SQLite copy of the database: `wrangler d1 export` it and load the
 // dump into a file with sqlite3 or bun:sqlite.
 // Keys: the dev secret key is CLERK_SECRET_KEY in .env.local, the production
 // one is CLERK_SECRET_KEY in .env.production.local or CLERK_PROD_SECRET_KEY.
+// An "ignore" list in the output file (ids of other systems that look like
+// Clerk ids) is kept and skipped; --ignore-unresolved adds every id that does
+// not resolve to it. Review that list before using the flag.
 // Exits 1 when an id doesn't resolve to exactly one new id; the file still
 // holds the ones that did, so fill the rest in by hand.
 import { Database } from "bun:sqlite";
@@ -83,11 +86,19 @@ const main = async () => {
     );
   }
 
+  // Ids already in the file's ignore list stay there, so a person can add
+  // foreign ids by hand and re-run.
+  const existing = file(out);
+  const { ignore } = (await existing.exists())
+    ? ((await existing.json()) as { ignore?: string[] })
+    : { ignore: [] };
+
   const { occurrences } = await discover(driver);
   const { mapping, unresolved } = await buildMapping(
     occurrences.map((occurrence) => occurrence.token),
     lookup(devKey),
-    lookup(prodKey)
+    lookup(prodKey),
+    { ignore, ignoreUnresolved: argv.includes("--ignore-unresolved") }
   );
   await write(out, `${JSON.stringify(mapping, null, 2)}\n`);
   console.log(

@@ -6,7 +6,7 @@ import {
   buildPlan,
   type ClerkLookup,
   discover,
-  type IdMap,
+  type Mapping,
   parseMapping,
   run,
   sqliteDriver,
@@ -15,7 +15,7 @@ import {
 const OLD_ORG = "org_3KkfBN77ien6ryvH4YDBFjGNw0v";
 const NEW_ORG = "org_3LDLbiYGe7iohEccrRQuLeBqaX2";
 const OLD_USER = "user_3Kk8S5uJZvRLPGiEoZ8ZfJfCH8m";
-const NEW_USER = "user_3LDMnewUserIdForTheProdInstance";
+const NEW_USER = "user_3LDMnewUserIdProdInstance01";
 const WS = "01M5TXYDGQGMVK6BFFWA6MNDXD";
 const NOW = "2026-10-26T01:42:05.079Z";
 
@@ -23,7 +23,11 @@ const mapping = JSON.stringify({
   orgs: { [OLD_ORG]: { id: NEW_ORG, name: "Harbour Edge Intelligence" } },
   users: { [OLD_USER]: { email: "a@b.co", id: NEW_USER } },
 });
-const idMap: IdMap = parseMapping(mapping);
+const idMap: Mapping = parseMapping(mapping);
+
+// A Clerk-shaped id: prefix plus 27 base62 characters.
+const mk = (prefix: "org" | "user", tag: string) =>
+  `${prefix}_${tag.padEnd(27, "0")}`;
 
 let db: ReturnType<typeof migrated>;
 
@@ -71,23 +75,44 @@ beforeEach(() => {
 describe("parseMapping", () => {
   test("reads objects and plain strings, and inverts", () => {
     const plain = parseMapping(
-      JSON.stringify({ orgs: { org_a: "org_b" }, users: {} })
+      JSON.stringify({ orgs: { [mk("org", "a")]: mk("org", "b") }, users: {} })
     );
-    expect(plain.get("org_a")).toBe("org_b");
-    expect(idMap.get(OLD_USER)).toBe(NEW_USER);
-    expect(parseMapping(mapping, true).get(NEW_ORG)).toBe(OLD_ORG);
+    expect(plain.ids.get(mk("org", "a"))).toBe(mk("org", "b"));
+    expect(idMap.ids.get(OLD_USER)).toBe(NEW_USER);
+    expect(parseMapping(mapping, true).ids.get(NEW_ORG)).toBe(OLD_ORG);
   });
 
   test("rejects bad ids, self maps, duplicates and chains", () => {
     const parse = (value: unknown) => () => parseMapping(JSON.stringify(value));
-    expect(parse({ orgs: { user_a: "org_b" }, users: {} })).toThrow();
-    expect(parse({ orgs: {}, users: { user_a: "user_a" } })).toThrow();
-    expect(parse({ orgs: {}, users: { "user_a'; --": "user_b" } })).toThrow();
     expect(
-      parse({ orgs: {}, users: { user_a: "user_c", user_b: "user_c" } })
+      parse({ orgs: { [mk("user", "a")]: mk("org", "b") }, users: {} })
     ).toThrow();
     expect(
-      parse({ orgs: {}, users: { user_a: "user_b", user_b: "user_c" } })
+      parse({ orgs: {}, users: { [mk("user", "a")]: mk("user", "a") } })
+    ).toThrow();
+    expect(
+      parse({
+        orgs: {},
+        users: { [`${mk("user", "a")}'; --`]: mk("user", "b") },
+      })
+    ).toThrow();
+    expect(
+      parse({
+        orgs: {},
+        users: {
+          [mk("user", "a")]: mk("user", "c"),
+          [mk("user", "b")]: mk("user", "c"),
+        },
+      })
+    ).toThrow();
+    expect(
+      parse({
+        orgs: {},
+        users: {
+          [mk("user", "a")]: mk("user", "b"),
+          [mk("user", "b")]: mk("user", "c"),
+        },
+      })
     ).toThrow();
     expect(parse({ orgs: {} })).toThrow();
   });
@@ -126,12 +151,12 @@ describe("dry run", () => {
 
   test("an id it has no mapping for is reported and blocks the run", async () => {
     db.run(
-      `INSERT INTO oauth_clients (client_id, created_at, first_seen_by, id, workspace_id) VALUES ('c2', '${NOW}', 'user_3ZZZstranger', 'oc2', '${WS}')`
+      `INSERT INTO oauth_clients (client_id, created_at, first_seen_by, id, workspace_id) VALUES ('c2', '${NOW}', 'user_3ZZZstrangerxxxxxxxxxxxxxxx', 'oc2', '${WS}')`
     );
     const dry = await run(sqliteDriver(db.client), idMap, false);
     expect(dry.exitCode).toBe(1);
     expect(dry.report).toContain(
-      "UNMAPPED  oauth_clients  oc2  first_seen_by  user_3ZZZstranger"
+      "UNMAPPED  oauth_clients  oc2  first_seen_by  user_3ZZZstrangerxxxxxxxxxxxxxxx"
     );
     const before = dump();
     const applied = await run(sqliteDriver(db.client), idMap, true);
@@ -248,7 +273,7 @@ describe("buildMapping", () => {
   test("matches users by email and orgs by name, and lists what it can't", async () => {
     const lookup = fakeLookup();
     const result = await buildMapping(
-      [OLD_USER, OLD_ORG, OLD_USER, "user_gone", "org_gone"],
+      [OLD_USER, OLD_ORG, OLD_USER, mk("user", "gone"), mk("org", "gone")],
       lookup,
       lookup
     );
@@ -257,11 +282,11 @@ describe("buildMapping", () => {
       users: { [OLD_USER]: { email: "a@b.co", id: NEW_USER } },
     });
     expect(result.unresolved).toEqual([
-      "org_gone (not found on the dev instance)",
-      "user_gone (not found on the dev instance)",
+      `${mk("org", "gone")} (not found on the dev instance)`,
+      `${mk("user", "gone")} (not found on the dev instance)`,
     ]);
     // What it writes is what the migration reads.
-    expect(parseMapping(JSON.stringify(result.mapping)).get(OLD_USER)).toBe(
+    expect(parseMapping(JSON.stringify(result.mapping)).ids.get(OLD_USER)).toBe(
       NEW_USER
     );
   });
@@ -269,10 +294,97 @@ describe("buildMapping", () => {
   test("two matches on the production side are not guessed between", async () => {
     const lookup = {
       ...fakeLookup(),
-      userIdsByEmail: () => Promise.resolve(["user_x", "user_y"]),
+      userIdsByEmail: () => Promise.resolve([mk("user", "x"), mk("user", "y")]),
     };
     const result = await buildMapping([OLD_USER], lookup, lookup);
     expect(result.mapping.users).toEqual({});
     expect(result.unresolved[0]).toContain("2 user(s) with a@b.co");
+  });
+});
+
+const BRAIN_USER = "user_3FOGAZYIi6P6jPMEIOdR8XQ7MQ7";
+
+describe("what counts as a Clerk id", () => {
+  const seedLookalikes = () => {
+    db.client.run(
+      `INSERT INTO events (actor_id, actor_kind, created_at, id, payload, type, workspace_id) VALUES ('${BRAIN_USER}', 'x', '${NOW}', 'e3', '{"user":"${BRAIN_USER}"}', 't', '${WS}')`
+    );
+    db.client.run("CREATE TABLE later (id TEXT, a TEXT, b TEXT, c TEXT)");
+    db.client.run(
+      `INSERT INTO later VALUES ('l1', 'user_or_agent', 'https://brain.example/mcp/org_user_3FOGDavhnVCao6o4ZrfQArZ7Khb', 'x${OLD_USER}y')`
+    );
+  };
+
+  test("user_or_agent, org_user_<id> paths and ids inside longer words are not ids", async () => {
+    seedLookalikes();
+    const { occurrences } = await discover(sqliteDriver(db.client));
+    const later = occurrences.filter((o) => o.table === "later");
+    expect(later).toEqual([]);
+    // The brain's own id has Clerk's shape, so it is found.
+    expect(occurrences.map((o) => o.token)).toContain(BRAIN_USER);
+  });
+
+  test("a mapping file can't map or ignore something that isn't a Clerk id", () => {
+    for (const bad of [
+      { orgs: { org_user: "org_user" }, users: {} },
+      { orgs: {}, users: { user_or: mk("user", "a") } },
+      { ignore: ["user_or"], orgs: {}, users: {} },
+      { ignore: [OLD_USER], orgs: {}, users: { [OLD_USER]: NEW_USER } },
+    ]) {
+      expect(() => parseMapping(JSON.stringify(bad))).toThrow();
+    }
+  });
+
+  test("an ignored foreign id blocks nothing and is left as it is", async () => {
+    seedLookalikes();
+    const without = await run(sqliteDriver(db.client), idMap, true);
+    expect(without.exitCode).toBe(1);
+    expect(without.report).toContain(
+      `UNMAPPED  events  e3  actor_id  ${BRAIN_USER}`
+    );
+
+    const withIgnore = parseMapping(
+      JSON.stringify({ ...JSON.parse(mapping), ignore: [BRAIN_USER] })
+    );
+    const dry = await run(sqliteDriver(db.client), withIgnore, false);
+    expect(dry.exitCode).toBe(0);
+    expect(dry.report).toContain("2 ignored");
+    const applied = await run(sqliteDriver(db.client), withIgnore, true);
+    expect(applied.exitCode).toBe(0);
+    expect(
+      db.client
+        .query("SELECT actor_id, payload FROM events WHERE id = 'e3'")
+        .get()
+    ).toEqual({
+      actor_id: BRAIN_USER,
+      payload: `{"user":"${BRAIN_USER}"}`,
+    });
+    expect(db.client.query("SELECT a, b, c FROM later").get()).toEqual({
+      a: "user_or_agent",
+      b: "https://brain.example/mcp/org_user_3FOGDavhnVCao6o4ZrfQArZ7Khb",
+      c: `x${OLD_USER}y`,
+    });
+  });
+
+  test("the builder skips ignored ids and can ignore what it can't resolve", async () => {
+    const lookup = fakeLookup();
+    const ids = [OLD_USER, BRAIN_USER, mk("org", "gone")];
+    const kept = await buildMapping(ids, lookup, lookup, {
+      ignore: [BRAIN_USER],
+    });
+    expect(kept.mapping.ignore).toEqual([BRAIN_USER]);
+    expect(kept.unresolved).toEqual([
+      `${mk("org", "gone")} (not found on the dev instance)`,
+    ]);
+
+    const all = await buildMapping(ids, lookup, lookup, {
+      ignore: [BRAIN_USER],
+      ignoreUnresolved: true,
+    });
+    expect(all.unresolved).toEqual([]);
+    expect(all.mapping.ignore).toEqual([BRAIN_USER, mk("org", "gone")].sort());
+    expect(
+      parseMapping(JSON.stringify(all.mapping)).ignore.has(BRAIN_USER)
+    ).toBe(true);
   });
 });
