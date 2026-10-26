@@ -5,8 +5,8 @@
 // `agent-browser` CLI. It seeds two fake agents with one run each straight into
 // the local D1 database, as scripts/dev does, then drives the page as the dev
 // user: both runs' events show, the agent filter narrows them to one agent, the
-// type filter narrows them to `message.user`, and the first row's session link
-// opens the session transcript.
+// type filter narrows them to `message.user`, and the first row's task link
+// opens the task view.
 // Run from apps/web: `bun run e2e:log [--server <url>] [--session <name>]`.
 // The URL also comes from HM_SERVER; the default is http://localhost:3000.
 import { parseArgs } from "node:util";
@@ -30,7 +30,7 @@ const TRAILING_SLASHES = /\/+$/;
 
 const LOG_EVENT_TYPE = "message.user";
 const QUEUED_EVENT_TYPE = "run.queued";
-const SESSION_LINK = '[data-testid="log-session-link"]';
+const TASK_LINK = '[data-testid="log-task-link"]';
 
 class E2eError extends Error {}
 
@@ -185,18 +185,14 @@ const main = async (): Promise<void> => {
     );
     log("ok: the type filter leaves only message.user events");
 
-    await ab("find", "first", SESSION_LINK, "click");
-    await ab(
-      "wait",
-      "--fn",
-      "location.pathname === '/sessions' && location.search.includes('session=')"
-    );
+    await ab("find", "first", TASK_LINK, "click");
+    await ab("wait", "--fn", "location.pathname.startsWith('/tasks/')");
     await ab(
       "wait",
       "--fn",
       `document.body.innerText.includes(${JSON.stringify(seeded.alphaText)}) || document.body.innerText.includes(${JSON.stringify(seeded.betaText)})`
     );
-    log("ok: the session link opens the transcript");
+    log("ok: the task link opens the task view");
     log("log e2e passed");
   } finally {
     await ab("close").catch(() => undefined);

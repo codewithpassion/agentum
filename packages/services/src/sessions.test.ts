@@ -142,6 +142,16 @@ test("list shows the caller's sessions newest first, with title and status", asy
   });
 });
 
+test("list gives each session the id of its latest run", async () => {
+  const first = await send(user("u1"), "opening");
+  const next = await send(user("u1"), "follow up", first.sessionId);
+
+  const [item] = await sessions.list(user("u1"), { agentId });
+
+  expect(item?.latestRunId).toBe(next.runId);
+  expect(item?.latestRunId).not.toBe(first.runId);
+});
+
 test("list takes the title from the first message and the status from the last run", async () => {
   const first = await send(user("u1"), "opening");
   const next = await send(user("u1"), "follow up", first.sessionId);

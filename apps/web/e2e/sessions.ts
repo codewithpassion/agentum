@@ -4,16 +4,14 @@
 // apply DB --local`), the dev user from `bun run create-dev-user`, and the
 // `agent-browser` CLI. It seeds two sessions of two fake agents straight into
 // the local D1 database, as scripts/dev does, then drives the page as the dev
-// user: both sessions show in the list, the agent filter narrows it to one, the
-// session opens, and its transcript has a tool card and a file chip.
+// user: both sessions show in the list, the agent filter narrows it to one, and a
+// session row opens its latest run's task view.
 // Run from apps/web: `bun run e2e:sessions [--server <url>] [--session <name>]`.
 // The URL also comes from HM_SERVER; the default is http://localhost:3000.
 import { parseArgs } from "node:util";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { createAgentsService } from "@repo/services/agents";
 import { createEventsService } from "@repo/services/events";
-import { createFilesService } from "@repo/services/files";
-import { memoryFileBlobs } from "@repo/services/files/memory";
 import { createRunsService } from "@repo/services/runs";
 import { systemClock } from "@repo/services/runs/types";
 import { spawn } from "bun";
@@ -28,10 +26,6 @@ import {
 const DEFAULT_SERVER = "http://localhost:3000";
 const DEFAULT_BROWSER_SESSION = "m91-sessions";
 const TRAILING_SLASHES = /\/+$/;
-
-const TOOL_NAME = "Bash";
-const TOOL_OUTPUT = "e2e-tool-output";
-const FILE_NAME = "e2e-notes.txt";
 
 class E2eError extends Error {}
 
@@ -49,7 +43,7 @@ interface Seeded {
   betaTitle: string;
 }
 
-/** Two fake agents, one session each. Alpha's has a tool call and an input file. */
+/** Two fake agents, one session each. */
 const seed = async (): Promise<Seeded> => {
   const orgId = requireOrgId();
   const local = openLocalDatabase();
@@ -68,11 +62,6 @@ const seed = async (): Promise<Seeded> => {
       devFakeRuntime: true,
       gateways: [],
     });
-    const files = createFilesService({
-      blobs: memoryFileBlobs(),
-      clock: systemClock,
-      db,
-    });
     const create = (name: string) =>
       agents.create(principal, {
         instructions: "Echoes whatever it is told.",
@@ -86,38 +75,10 @@ const seed = async (): Promise<Seeded> => {
     const alphaTitle = `alpha question ${stamp}`;
     const betaTitle = `beta question ${stamp}`;
 
-    const file = await files.upload(principal, {
-      body: new Blob(["notes for the e2e check"]),
-      mime: "text/plain",
-      name: FILE_NAME,
-    });
-    const first = await runs.startRun(principal, {
+    await runs.startRun(principal, {
       agentId: alpha.id,
-      input: { fileIds: [file.id], text: alphaTitle },
+      input: { text: alphaTitle },
       session: { origin: "trigger" },
-    });
-    const toolEvent = (
-      type: "tool.call" | "tool.result",
-      payload: Record<string, string | boolean | Record<string, string>>
-    ) =>
-      events.append({
-        actor: { id: alpha.id, kind: "agent" },
-        agentId: alpha.id,
-        payload,
-        runId: first.runId,
-        sessionId: first.sessionId,
-        type,
-        workspaceId: principal.workspaceId,
-      });
-    await toolEvent("tool.call", {
-      input: { command: "ls" },
-      name: TOOL_NAME,
-      toolUseId: "toolu_e2e",
-    });
-    await toolEvent("tool.result", {
-      ok: true,
-      output: TOOL_OUTPUT,
-      toolUseId: "toolu_e2e",
     });
     await runs.startRun(principal, {
       agentId: beta.id,
@@ -199,21 +160,9 @@ const main = async (): Promise<void> => {
     log("ok: the agent filter leaves one session");
 
     await ab("find", "text", seeded.alphaTitle, "click");
-    await waitForText(TOOL_NAME);
-    await waitForText(FILE_NAME);
-    log("ok: the transcript has a tool card and a file chip");
-
-    expect(
-      !(await pageText()).includes(TOOL_OUTPUT),
-      "the tool card should start collapsed"
-    );
-    await ab("find", "text", TOOL_NAME, "click");
-    await ab(
-      "wait",
-      "--fn",
-      `document.body.innerText.includes(${JSON.stringify(TOOL_OUTPUT)})`
-    );
-    log("ok: the tool card opens to its input and output");
+    await ab("wait", "--fn", "location.pathname.startsWith('/tasks/')");
+    await waitForText(seeded.alphaTitle);
+    log("ok: the row opens the task view");
     log("sessions e2e passed");
   } finally {
     await ab("close").catch(() => undefined);

@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import type { AgentRecord } from "#/integrations/trpc/types";
-import { chatTab } from "./tabs/chat.tsx";
 import { connectorsTab } from "./tabs/connectors.tsx";
 import { secretsTab } from "./tabs/secrets.tsx";
 import { sessionsTab } from "./tabs/sessions.tsx";
@@ -12,10 +11,6 @@ import { triggersTab } from "./tabs/triggers.tsx";
 /** What the agent page hands every tab. */
 export interface AgentTabProps {
   agent: AgentRecord;
-  /** Opens a session in the chat tab, or a new chat when `sessionId` is undefined. */
-  openSession: (sessionId: string | undefined) => void;
-  /** The session the chat tab shows, from the `session` search param. */
-  sessionId: string | undefined;
 }
 
 export interface AgentTab {
@@ -25,7 +20,6 @@ export interface AgentTab {
 }
 
 export const agentTabs: readonly AgentTab[] = [
-  chatTab,
   sessionsTab,
   settingsTab,
   connectorsTab,

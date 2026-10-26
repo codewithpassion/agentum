@@ -63,6 +63,7 @@ export interface SessionRecord {
 
 /** A listed session with its title and the state of its latest run. */
 export interface SessionListItem extends SessionRecord {
+  latestRunId: string | null;
   status: RunStatus | null;
   title: string;
 }
@@ -379,6 +380,7 @@ export const createSessionsService = ({
     const titles = await titlesFor(rows, firstMessageBySession);
     return rows.map((row) => ({
       ...toSession(row),
+      latestRunId: bySession.get(row.id)?.at(-1)?.id ?? null,
       status: bySession.get(row.id)?.at(-1)?.status ?? null,
       title: titles.get(row.id) ?? "",
     }));

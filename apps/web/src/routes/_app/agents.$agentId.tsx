@@ -1,8 +1,9 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { z } from "zod";
 import { agentTabs } from "#/components/agent/agent-tabs";
+import { NewTaskDialog } from "#/components/desk/new-task-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { getTrpc } from "#/integrations/trpc/client";
 
@@ -15,7 +16,6 @@ const searchSchema = z.object({
     .refine((id) => tabIds.includes(id))
     .optional()
     .catch(undefined),
-  session: z.string().min(1).optional().catch(undefined),
 });
 
 export const Route = createFileRoute("/_app/agents/$agentId")({
@@ -48,16 +48,29 @@ function AgentPage() {
     [navigate]
   );
 
-  const openSession = useCallback(
-    (sessionId: string | undefined) =>
-      navigate({ search: { session: sessionId, tab: "chat" } }),
+  const openTask = useCallback(
+    (runId: string) => navigate({ params: { runId }, to: "/tasks/$runId" }),
     [navigate]
+  );
+
+  const agents = useMemo(
+    () => [{ id: agent.id, name: agent.name }],
+    [agent.id, agent.name]
   );
 
   return (
     <section className="mx-auto max-w-3xl">
       <header className="mb-6">
-        <h1 className="font-heading text-3xl text-foreground">{agent.name}</h1>
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="font-heading text-3xl text-foreground">
+            {agent.name}
+          </h1>
+          <NewTaskDialog
+            agents={agents}
+            onStarted={openTask}
+            triggerLabel="Run now"
+          />
+        </div>
         <p className="text-muted-foreground text-sm">
           <code>{agent.slug}</code>
         </p>
@@ -72,11 +85,7 @@ function AgentPage() {
         </TabsList>
         {agentTabs.map((agentTab) => (
           <TabsContent className="pt-6" key={agentTab.id} value={agentTab.id}>
-            <agentTab.Panel
-              agent={agent}
-              openSession={openSession}
-              sessionId={search.session}
-            />
+            <agentTab.Panel agent={agent} />
           </TabsContent>
         ))}
       </Tabs>

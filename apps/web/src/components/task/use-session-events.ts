@@ -1,8 +1,8 @@
 import type { StreamFrame } from "@repo/protocol/stream";
 import { useEffect, useRef, useState } from "react";
-import { parseFrame } from "#/components/agent/chat/stream-logic.ts";
 import {
   FALLBACK_POLL_MS,
+  parseFrame,
   shouldFallBack,
   streamUrl,
 } from "./session-events-logic.ts";
