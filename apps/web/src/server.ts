@@ -28,6 +28,7 @@ export { PiRun } from "./server/pi-run.ts";
 export { MachineRelay } from "./server/relay.ts";
 export { ScriptHost } from "./server/script-host.ts";
 export { SecretsOutbound } from "./server/secrets-outbound.ts";
+export { SessionStream } from "./server/session-stream.ts";
 
 const app = new Hono<AppEnv>();
 

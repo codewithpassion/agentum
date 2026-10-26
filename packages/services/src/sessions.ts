@@ -467,6 +467,31 @@ export const createSessionsService = ({
   };
 
   /**
+   * One session the reader may see, without its transcript. Hidden and unknown
+   * sessions both raise `not_found`, so a caller cannot tell them apart.
+   */
+  const get = async (
+    principal: Principal,
+    sessionId: string
+  ): Promise<SessionRecord> => {
+    const reader = requireReader(principal);
+    const [row] = await db
+      .select()
+      .from(sessions)
+      .where(and(await visibleTo(reader), eq(sessions.id, sessionId)))
+      .limit(1);
+    if (!row) {
+      throw new ServiceError("not_found", "Session not found");
+    }
+    authorize(reader, READ_ACTION, {
+      id: row.id,
+      kind: SESSION_KIND,
+      workspaceId: row.workspaceId,
+    });
+    return toSession(row);
+  };
+
+  /**
    * Sessions of one agent whose messages contain `query`, newest match first.
    * The query is matched against the payload JSON, so it is JSON-escaped first.
    * Payloads in blob storage are not searched.
@@ -535,7 +560,7 @@ export const createSessionsService = ({
     }));
   };
 
-  return { list, search, transcript };
+  return { get, list, search, transcript };
 };
 
 export type SessionsService = ReturnType<typeof createSessionsService>;

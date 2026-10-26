@@ -245,6 +245,17 @@ export const createEventsService = ({
     listeners.push(listener);
   };
 
+  const notify = async (record: EventRecord): Promise<void> => {
+    for (const listener of listeners) {
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: listeners run one at a time, in registration order
+        await listener(record);
+      } catch (error) {
+        console.error("Event listener failed", error);
+      }
+    }
+  };
+
   const append = async (input: EventInput): Promise<EventRecord> => {
     const parsed = eventInputSchema.parse(input);
     const now = new Date();
@@ -264,15 +275,39 @@ export const createEventsService = ({
     );
     await db.insert(events).values(row);
     const record = toRecord(row);
-    for (const listener of listeners) {
-      try {
-        // biome-ignore lint/performance/noAwaitInLoops: listeners run one at a time, in registration order
-        await listener(record);
-      } catch (error) {
-        console.error("Event listener failed", error);
-      }
-    }
+    await notify(record);
     return record;
+  };
+
+  /**
+   * Tells the `onAppend` listeners about events that were written without
+   * them, such as the `insertStatement` rows of an atomic write. The caller
+   * names the run and the types, and the stored rows are read back, oldest
+   * first, so the listeners see what was stored.
+   */
+  const notifyStored = async (
+    workspaceId: string,
+    runId: string,
+    types: readonly EventType[]
+  ): Promise<void> => {
+    if (listeners.length === 0) {
+      return;
+    }
+    const rows = await db
+      .select()
+      .from(events)
+      .where(
+        and(
+          eq(events.workspaceId, workspaceId),
+          eq(events.runId, runId),
+          inArray(events.type, [...types])
+        )
+      )
+      .orderBy(asc(events.id));
+    for (const row of rows) {
+      // biome-ignore lint/performance/noAwaitInLoops: listeners see the events in order
+      await notify(toRecord(row));
+    }
   };
 
   /**
@@ -459,6 +494,7 @@ export const createEventsService = ({
     append,
     insertStatement,
     list,
+    notifyStored,
     onAppend,
     query,
     readPayload,
