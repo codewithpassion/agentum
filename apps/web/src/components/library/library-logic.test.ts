@@ -8,7 +8,9 @@ import {
   formatSize,
   isConflict,
   joinPath,
+  lineDiff,
   parentDir,
+  remapPath,
 } from "./library-logic.ts";
 
 test("paths join and split at the root and below it", () => {
@@ -53,4 +55,77 @@ test("the download URL encodes the path", () => {
   expect(downloadUrl("my docs/a&b.txt")).toBe(
     "/api/library/download?path=my%20docs%2Fa%26b.txt"
   );
+});
+
+test("a line diff of identical text is all same lines", () => {
+  expect(lineDiff("a\nb\n", "a\nb\n")).toEqual([
+    { kind: "same", text: "a" },
+    { kind: "same", text: "b" },
+  ]);
+});
+
+test("a line diff shows an inserted line between the same lines", () => {
+  expect(lineDiff("a\nc\n", "a\nb\nc\n")).toEqual([
+    { kind: "same", text: "a" },
+    { kind: "add", text: "b" },
+    { kind: "same", text: "c" },
+  ]);
+});
+
+test("a line diff shows a deleted line between the same lines", () => {
+  expect(lineDiff("a\nb\nc\n", "a\nc\n")).toEqual([
+    { kind: "same", text: "a" },
+    { kind: "del", text: "b" },
+    { kind: "same", text: "c" },
+  ]);
+});
+
+test("a changed line is a del followed by an add", () => {
+  expect(lineDiff("a\nold\nc\n", "a\nnew\nc\n")).toEqual([
+    { kind: "same", text: "a" },
+    { kind: "del", text: "old" },
+    { kind: "add", text: "new" },
+    { kind: "same", text: "c" },
+  ]);
+});
+
+test("a line diff from empty text adds every line", () => {
+  expect(lineDiff("", "a\nb\n")).toEqual([
+    { kind: "add", text: "a" },
+    { kind: "add", text: "b" },
+  ]);
+});
+
+test("a line diff to empty text deletes every line", () => {
+  expect(lineDiff("a\nb\n", "")).toEqual([
+    { kind: "del", text: "a" },
+    { kind: "del", text: "b" },
+  ]);
+});
+
+test("a trailing newline does not add an empty line", () => {
+  expect(lineDiff("a", "a\n")).toEqual([{ kind: "same", text: "a" }]);
+  expect(lineDiff("a\n", "a\nb")).toEqual([
+    { kind: "same", text: "a" },
+    { kind: "add", text: "b" },
+  ]);
+  expect(lineDiff("\n", "")).toEqual([{ kind: "del", text: "" }]);
+});
+
+test("a line diff finds the longest common lines when edits interleave", () => {
+  expect(lineDiff("a\nx\nb\ny\nc\n", "a\nb\nz\nc\n")).toEqual([
+    { kind: "same", text: "a" },
+    { kind: "del", text: "x" },
+    { kind: "same", text: "b" },
+    { kind: "del", text: "y" },
+    { kind: "add", text: "z" },
+    { kind: "same", text: "c" },
+  ]);
+});
+
+test("a moved folder carries the paths below it and nothing else", () => {
+  expect(remapPath("docs", "docs", "notes")).toBe("notes");
+  expect(remapPath("docs/a.md", "docs", "notes")).toBe("notes/a.md");
+  expect(remapPath("docs2/a.md", "docs", "notes")).toBe("docs2/a.md");
+  expect(remapPath("a.md", "a.md", "b.md")).toBe("b.md");
 });

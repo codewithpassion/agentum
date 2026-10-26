@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { File, Folder, Trash2 } from "lucide-react";
+import { File, Folder, FolderInput, Pencil, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import {
   AlertDialog,
@@ -27,11 +27,13 @@ import {
   formatMtime,
   formatSize,
 } from "./library-logic.ts";
+import { LibraryMoveDialog, type MoveMode } from "./library-move-dialog.tsx";
 
 export interface LibraryListProps {
   busyPath: string | null;
   dir: string;
   entries: readonly LibraryEntryRecord[];
+  onMoved: (from: string, to: string) => void;
   onRemove: (entry: LibraryEntryRecord) => void;
 }
 
@@ -40,6 +42,7 @@ interface EntryRowProps {
   dir: string;
   entry: LibraryEntryRecord;
   onRequestDelete: (entry: LibraryEntryRecord) => void;
+  onRequestMove: (entry: LibraryEntryRecord, mode: MoveMode) => void;
 }
 
 function Crumbs({ dir }: { dir: string }) {
@@ -102,11 +105,25 @@ function EntryName({ dir, entry }: { dir: string; entry: LibraryEntryRecord }) {
   );
 }
 
-function EntryRow({ busy, dir, entry, onRequestDelete }: EntryRowProps) {
+function EntryRow({
+  busy,
+  dir,
+  entry,
+  onRequestDelete,
+  onRequestMove,
+}: EntryRowProps) {
   const name = baseName(entry.path);
   const requestDelete = useCallback(
     () => onRequestDelete(entry),
     [entry, onRequestDelete]
+  );
+  const requestRename = useCallback(
+    () => onRequestMove(entry, "rename"),
+    [entry, onRequestMove]
+  );
+  const requestMove = useCallback(
+    () => onRequestMove(entry, "move"),
+    [entry, onRequestMove]
   );
   return (
     <TableRow data-testid="library-row">
@@ -120,6 +137,26 @@ function EntryRow({ busy, dir, entry, onRequestDelete }: EntryRowProps) {
         {formatMtime(entry.mtime)}
       </TableCell>
       <TableCell className="text-right">
+        <Button
+          aria-label={`Rename ${name}`}
+          data-testid="library-rename"
+          disabled={busy}
+          onClick={requestRename}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <Pencil aria-hidden="true" />
+        </Button>
+        <Button
+          aria-label={`Move ${name}`}
+          data-testid="library-move"
+          disabled={busy}
+          onClick={requestMove}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <FolderInput aria-hidden="true" />
+        </Button>
         <Button
           aria-label={`Delete ${name}`}
           data-testid="library-delete"
@@ -189,9 +226,19 @@ export function LibraryList({
   busyPath,
   dir,
   entries,
+  onMoved,
   onRemove,
 }: LibraryListProps) {
   const [pending, setPending] = useState<LibraryEntryRecord | null>(null);
+  const [moving, setMoving] = useState<{
+    entry: LibraryEntryRecord;
+    mode: MoveMode;
+  } | null>(null);
+  const requestMove = useCallback(
+    (entry: LibraryEntryRecord, mode: MoveMode) => setMoving({ entry, mode }),
+    []
+  );
+  const closeMove = useCallback(() => setMoving(null), []);
   const requestDelete = useCallback(
     (entry: LibraryEntryRecord) => setPending(entry),
     []
@@ -230,6 +277,7 @@ export function LibraryList({
                 entry={entry}
                 key={entry.path}
                 onRequestDelete={requestDelete}
+                onRequestMove={requestMove}
               />
             ))}
           </TableBody>
@@ -239,6 +287,12 @@ export function LibraryList({
         entry={pending}
         onCancel={cancelDelete}
         onConfirm={confirmDelete}
+      />
+      <LibraryMoveDialog
+        entry={moving?.entry ?? null}
+        mode={moving?.mode ?? "rename"}
+        onClose={closeMove}
+        onMoved={onMoved}
       />
     </div>
   );
