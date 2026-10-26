@@ -1,9 +1,11 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
+import { askUserQuestionAnswers, outcomeText } from "@repo/protocol/requests";
 import { eq } from "drizzle-orm";
 import { createAgentsService } from "./agents.ts";
 import { createCloudRuntime } from "./cloud/runtime.ts";
@@ -246,9 +248,89 @@ test("question answers are scrubbed, polling is capped, and only the claimer can
     requestId: request.id,
     via: "web",
   });
+  // The runtime gets what the person typed.
   expect(JSON.stringify(await requests.outcome(system, request.id))).toContain(
-    "[redacted]"
+    "sk-12345678901234567890"
   );
+});
+
+test("a question is stored and announced scrubbed, and answers reach the runtime under its own text", async () => {
+  const runId = await start();
+  const asked = "Use sk-12345678901234567890 or granted-value-123?";
+  const payloads: Record<string, unknown>[] = [];
+  events.onAppend((event) => {
+    if (event.type.startsWith("request.")) {
+      payloads.push(event.payload);
+    }
+    return Promise.resolve();
+  });
+  const request = await requests.open(system, {
+    kind: "question",
+    questions: [
+      {
+        choices: ["granted-value-123", "none"],
+        header: "sk-12345678901234567890",
+        question: asked,
+      },
+    ],
+    runId,
+    toolName: "ask_user",
+    toolUseId: "q",
+  });
+  const shown = request.display as { questions: { question: string }[] };
+  const shownQuestion = "Use [redacted] or [secret:NAME]?";
+  expect(shown.questions[0]?.question).toBe(shownQuestion);
+  const [stored] = await db.select().from(runRequests);
+  expect(stored?.display).not.toContain("sk-1234");
+  expect(stored?.display).not.toContain("granted-value-123");
+  expect(JSON.stringify(payloads[0])).not.toContain("sk-1234");
+  expect(JSON.stringify(payloads[0])).not.toContain("granted-value-123");
+  expect(JSON.stringify(payloads[0])).toContain("[secret:NAME]");
+  const reply = await requests.answer(user, {
+    answer: {
+      answers: { [shownQuestion]: "sk-abcdefghijklmnopqrstuv" },
+    },
+    requestId: request.id,
+    via: "web",
+  });
+  const outcome = await requests.outcome(system, request.id);
+  expect(outcome).toEqual({
+    answer: { answers: { [asked]: "sk-abcdefghijklmnopqrstuv" } },
+    status: "answered",
+  });
+  if (outcome?.status !== "answered") {
+    throw new Error("expected an answer");
+  }
+  expect(outcomeText("question", outcome)).toBe(
+    `Q: ${asked} A: sk-abcdefghijklmnopqrstuv`
+  );
+  expect(
+    askUserQuestionAnswers(
+      { questions: [{ question: asked }] },
+      outcome.answer as { answers: Record<string, string> }
+    )
+  ).toEqual({ [asked]: "sk-abcdefghijklmnopqrstuv" });
+  const answered = payloads.find((payload) => "answers" in payload);
+  expect(JSON.stringify(answered)).not.toContain("sk-abcdef");
+  expect(JSON.stringify(answered)).toContain("[redacted]");
+  expect(JSON.stringify(reply)).not.toContain("sk-abcdef");
+  expect(JSON.stringify(reply)).not.toContain("sk-1234");
+  expect(reply).not.toHaveProperty("questionKeys");
+  expect(JSON.stringify(reply.outcome)).toContain("[redacted]");
+});
+
+test("an approval note stays raw for the runtime and is scrubbed in the answer result", async () => {
+  const runId = await start();
+  const request = await open(runId);
+  const reply = await requests.answer(user, {
+    answer: { decision: "deny", note: "sk-abcdefghijklmnopqrstuv" },
+    requestId: request.id,
+    via: "web",
+  });
+  expect(JSON.stringify(await requests.outcome(system, request.id))).toContain(
+    "sk-abcdefghijklmnopqrstuv"
+  );
+  expect(JSON.stringify(reply)).not.toContain("sk-abcdef");
 });
 
 test("simultaneous opens and answers have one winner", async () => {
