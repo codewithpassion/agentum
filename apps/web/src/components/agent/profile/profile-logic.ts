@@ -212,8 +212,13 @@ export const channelChips = (
 
 export const folderLabel = (folder: {
   home: boolean;
-  access: "read_write";
-}): string => (folder.home ? "home · read and write" : "read and write");
+  access: "read" | "write";
+}): string => {
+  if (folder.home) {
+    return "home · read and write";
+  }
+  return folder.access === "read" ? "read only" : "read and write";
+};
 
 export const addressText = (
   emailLocal: string | null,

@@ -20,7 +20,6 @@ import { CLOUD_DEFAULT_MODEL, isAnthropicModel } from "./cloud/models.ts";
 import { CLOUD_NETWORK_KEY, networkAccessError } from "./cloud/network.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import { libraryPathsError } from "./library/sync-paths.ts";
 import type { Principal } from "./workspaces.ts";
 
 const AGENT_CREATE = "agents.create";
@@ -56,10 +55,6 @@ const assertRuntimeConfig = (
   const networkIssue = networkAccessError(runtimeConfig);
   if (networkIssue !== undefined) {
     throw new ServiceError("invalid", networkIssue);
-  }
-  const pathIssue = libraryPathsError(runtimeConfig);
-  if (pathIssue !== undefined) {
-    throw new ServiceError("invalid", pathIssue);
   }
   if (runtime !== "cloud" && CLOUD_ENVIRONMENT_KEY in runtimeConfig) {
     throw new ServiceError(

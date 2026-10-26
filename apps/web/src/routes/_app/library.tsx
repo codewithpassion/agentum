@@ -4,8 +4,9 @@ import { useCallback, useState } from "react";
 import { z } from "zod";
 import { LibraryFilePanel } from "#/components/library/library-file-panel";
 import { LibraryList } from "#/components/library/library-list";
-import { errorMessage } from "#/components/library/library-logic";
+import { errorMessage, remapPath } from "#/components/library/library-logic";
 import { LibraryToolbar } from "#/components/library/library-toolbar";
+import { useLibraryRefresh } from "#/components/library/use-library-refresh";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { LibraryEntryRecord } from "#/integrations/trpc/types";
 
@@ -44,6 +45,43 @@ function LibraryPage() {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => router.invalidate(), [router]);
+  // The 5 s refresh reads the listing on its own instead of invalidating the router, so a failed
+  // read keeps the page as it is. A newer loader result replaces what it fetched.
+  const [polled, setPolled] = useState<{
+    from: typeof entries;
+    list: typeof entries;
+  } | null>(null);
+  const shown =
+    polled !== null && polled.from === entries ? polled.list : entries;
+  const pollListing = useCallback(async () => {
+    try {
+      const list = await getTrpc().library.list.query({ dir });
+      setPolled({ from: entries, list });
+    } catch {
+      // Keep the listing on screen. The next tick tries again.
+    }
+  }, [dir, entries]);
+  const refreshTick = useLibraryRefresh(pollListing);
+
+  const handleMoved = useCallback(
+    async (from: string, to: string) => {
+      // Follow the item: the open file and the current folder may be the one moved.
+      await navigate({
+        search: (previous) => ({
+          dir:
+            previous.dir === undefined
+              ? undefined
+              : remapPath(previous.dir, from, to),
+          file:
+            previous.file === undefined
+              ? undefined
+              : remapPath(previous.file, from, to),
+        }),
+      });
+      await refresh();
+    },
+    [navigate, refresh]
+  );
 
   const closeFile = useCallback(
     () =>
@@ -80,7 +118,8 @@ function LibraryPage() {
       <LibraryList
         busyPath={busyPath}
         dir={dir}
-        entries={entries}
+        entries={shown}
+        onMoved={handleMoved}
         onRemove={remove}
       />
       {file === undefined ? null : (
@@ -89,6 +128,7 @@ function LibraryPage() {
           onChanged={refresh}
           onClosed={closeFile}
           path={file}
+          refreshTick={refreshTick}
         />
       )}
     </section>

@@ -738,6 +738,7 @@ export const createRunsService = ({
     runId: string,
     options: {
       libraryForDaemon?: boolean;
+      libraryLiveForDaemon?: boolean;
       requestsForDaemon?: boolean;
       platformUrl: string;
     }

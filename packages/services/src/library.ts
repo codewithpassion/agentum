@@ -4,10 +4,10 @@
  * table indexes them, so listing, `stat` and walks never touch R2. Only reads
  * and writes of file bytes do.
  *
- * A user or a run of the workspace may read and write the whole library. The
- * rule for where a principal may write is `canWriteAt`, one function that
- * returns true for now. A path of another workspace is never reachable: the
- * workspace comes from the principal, so it is simply not found.
+ * People read and write everything. Runs read their home, wiki and granted
+ * folders, and write their home and write grants. canReadAt and canWriteAt
+ * apply the same resolved scope to every entry point. list and stat also let a
+ * run traverse a folder above a grant (canTraverse).
  *
  * The blob store is the source of truth for bytes and etags. A write lands in
  * the store first, then the row and the event land together through `atomic`.
@@ -16,7 +16,9 @@
  */
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
+import { agents } from "@repo/db/schema/agents";
 import { libraryEntries, libraryVersions } from "@repo/db/schema/library";
+import type { LibraryAccessGrant } from "@repo/db/shared";
 import {
   LIBRARY_FILE_MAX_BYTES,
   LIBRARY_MAX_BYTES,
@@ -28,7 +30,9 @@ import { and, asc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
+import { agentGrants } from "./library/access.ts";
 import { ancestorsOf, normalizePath, parentOf } from "./library/path.ts";
+import { librarySyncScope } from "./library/sync-paths.ts";
 import {
   compareVersionBytes,
   createVersionStore,
@@ -108,11 +112,23 @@ const requireWriter = (principal: Principal, action: string): Member => {
   return member;
 };
 
-/**
- * Where a principal may write. Per-agent write roots are an open question, so
- * every member may write everywhere. Change the rule here, nowhere else.
- */
-const canWriteAt = (_member: Member, _path: string): boolean => true;
+type AccessMember = Member & { scope?: LibraryAccessGrant[] };
+const within = (path: string, root: string) =>
+  path === root || path.startsWith(`${root}/`);
+const canWriteAt = (member: AccessMember, path: string): boolean =>
+  member.kind === "user" ||
+  (member.scope ?? []).some(
+    (root) => root.mode === "write" && within(path, root.path)
+  );
+// Contents, history and conflict names need a root that covers the path.
+const canReadAt = (member: AccessMember, path: string): boolean =>
+  member.kind === "user" ||
+  path === "" ||
+  (member.scope ?? []).some((root) => within(path, root.path));
+// A folder above a root is traversable so the root can be found. A file there is not.
+const canTraverse = (member: AccessMember, path: string): boolean =>
+  canReadAt(member, path) ||
+  (member.scope ?? []).some((root) => within(root.path, path));
 
 const actorOf = (member: Member): { id: string; kind: "agent" | "user" } =>
   member.kind === "user"
@@ -132,7 +148,11 @@ const underFolder = (workspaceId: string, path: string) =>
   );
 
 /** The paths of a move: neither is the root, neither holds the other, the member may write both. */
-const checkMovePaths = (member: Member, from: string, to: string): void => {
+const checkMovePaths = (
+  member: AccessMember,
+  from: string,
+  to: string
+): void => {
   if (from === ROOT || to === ROOT) {
     throw invalid("The library root cannot be moved");
   }
@@ -168,6 +188,29 @@ export const createLibraryService = ({
   events: Pick<EventsService, "insertStatement">;
 }) => {
   const history = createVersionStore({ atomic, blobs, db });
+  const resolveMember = async (member: Member): Promise<AccessMember> => {
+    if (member.kind === "user") {
+      return member;
+    }
+    const [[agent], grants] = await Promise.all([
+      db
+        .select({ slug: agents.slug })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.id, member.agentId),
+            eq(agents.workspaceId, member.workspaceId)
+          )
+        )
+        .limit(1),
+      agentGrants(db, member.workspaceId, member.agentId),
+    ]);
+    return {
+      ...member,
+      scope: agent ? librarySyncScope(agent.slug, grants) : [],
+    };
+  };
+
   /** Runs after the commit, so a failing listener must not fail the change. */
   const changed = async (member: Member, paths: string[]) => {
     try {
@@ -202,21 +245,29 @@ export const createLibraryService = ({
       },
       bytes
     );
-  const historyMember = (principal: Principal, action: string) => {
+  const historyMember = async (principal: Principal, action: string) => {
     const member = requireMember(principal, action);
     authorize(member, action, {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
     });
-    return member;
+    return await resolveMember(member);
   };
   const versions = async (principal: Principal, rawPath: string) => {
-    const member = historyMember(principal, "library.read");
+    const member = await historyMember(principal, "library.read");
     // History is newest first and remains readable after deletion.
-    return await history.list(member.workspaceId, normalizePath(rawPath));
+    const path = normalizePath(rawPath);
+    if (!canReadAt(member, path)) {
+      throw notFound();
+    }
+    return await history.list(member.workspaceId, path);
   };
   const readVersion = async (principal: Principal, id: string) => {
-    const member = historyMember(principal, "library.read");
+    const member = await historyMember(principal, "library.read");
+    const version = await history.get(member.workspaceId, id);
+    if (!canReadAt(member, version.path)) {
+      throw notFound();
+    }
     return await history.read(member.workspaceId, id);
   };
   const compare = async (principal: Principal, a: string, b: string) => {
@@ -336,12 +387,17 @@ export const createLibraryService = ({
     principal: Principal,
     dir: string
   ): Promise<LibraryEntry[]> => {
-    const member = requireMember(principal, "library.list");
+    const member = await resolveMember(
+      requireMember(principal, "library.list")
+    );
     authorize(member, "library.list", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
     });
     const path = normalizePath(dir);
+    if (!canTraverse(member, path)) {
+      throw notFound();
+    }
     if (path !== ROOT) {
       const folder = await entryAt(member.workspaceId, path);
       if (folder?.kind !== "dir") {
@@ -358,7 +414,13 @@ export const createLibraryService = ({
         )
       )
       .orderBy(asc(libraryEntries.path));
-    return rows.map(toEntry);
+    return rows
+      .filter(
+        (row) =>
+          canReadAt(member, row.path) ||
+          (row.kind === "dir" && canTraverse(member, row.path))
+      )
+      .map(toEntry);
   };
 
   /** The root has no row. It reads as an empty-handed folder dated at the epoch. */
@@ -366,12 +428,17 @@ export const createLibraryService = ({
     principal: Principal,
     rawPath: string
   ): Promise<LibraryEntry> => {
-    const member = requireMember(principal, "library.stat");
+    const member = await resolveMember(
+      requireMember(principal, "library.stat")
+    );
     authorize(member, "library.stat", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
     });
     const path = normalizePath(rawPath);
+    if (!canTraverse(member, path)) {
+      throw notFound();
+    }
     if (path === ROOT) {
       return {
         etag: null,
@@ -383,7 +450,7 @@ export const createLibraryService = ({
       };
     }
     const row = await entryAt(member.workspaceId, path);
-    if (!row) {
+    if (!row || (row.kind !== "dir" && !canReadAt(member, path))) {
       throw notFound();
     }
     return toEntry(row);
@@ -393,12 +460,17 @@ export const createLibraryService = ({
     principal: Principal,
     rawPath: string
   ): Promise<{ bytes: Uint8Array; entry: LibraryEntry }> => {
-    const member = requireMember(principal, "library.read");
+    const member = await resolveMember(
+      requireMember(principal, "library.read")
+    );
     authorize(member, "library.read", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
     });
     const path = normalizePath(rawPath);
+    if (!canReadAt(member, path)) {
+      throw notFound();
+    }
     const row = await entryAt(member.workspaceId, path);
     if (!row) {
       throw notFound();
@@ -427,7 +499,9 @@ export const createLibraryService = ({
     options: { ifEtag?: string } = {},
     op: "write" | "restore" = "write"
   ): Promise<LibraryEntry> => {
-    const member = requireWriter(principal, "library.write");
+    const member = await resolveMember(
+      requireWriter(principal, "library.write")
+    );
     authorize(member, "library.write", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
@@ -521,7 +595,9 @@ export const createLibraryService = ({
     principal: Principal,
     rawPath: string
   ): Promise<LibraryEntry> => {
-    const member = requireWriter(principal, "library.mkdir");
+    const member = await resolveMember(
+      requireWriter(principal, "library.mkdir")
+    );
     authorize(member, "library.mkdir", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
@@ -554,7 +630,9 @@ export const createLibraryService = ({
     rawPath: string,
     options: { recursive?: boolean } = {}
   ): Promise<void> => {
-    const member = requireWriter(principal, "library.delete");
+    const member = await resolveMember(
+      requireWriter(principal, "library.delete")
+    );
     authorize(member, "library.delete", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
@@ -714,7 +792,9 @@ export const createLibraryService = ({
     rawFrom: string,
     rawTo: string
   ): Promise<LibraryEntry> => {
-    const member = requireWriter(principal, "library.move");
+    const member = await resolveMember(
+      requireWriter(principal, "library.move")
+    );
     authorize(member, "library.move", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
@@ -799,7 +879,9 @@ export const createLibraryService = ({
     principal: Principal,
     roots: readonly string[]
   ): Promise<string[]> => {
-    const member = requireMember(principal, "library.list");
+    const member = await resolveMember(
+      requireMember(principal, "library.list")
+    );
     authorize(member, "library.list", {
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
@@ -830,7 +912,10 @@ export const createLibraryService = ({
         )
       )
       .orderBy(asc(libraryEntries.path));
-    return rows.map((row) => row.path).filter((path) => isConflictPath(path));
+    const access = await resolveMember(member);
+    return rows
+      .map((row) => row.path)
+      .filter((path) => canReadAt(access, path) && isConflictPath(path));
   };
 
   /**

@@ -1,50 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
-  LIBRARY_PATHS_KEY,
-  libraryPathsError,
   libraryPathsOf,
   librarySyncRoots,
+  librarySyncScope,
 } from "./sync-paths.ts";
-
-const NOT_A_LIST = /must be a list/;
-const LEAVES_LIBRARY = /not valid.*leaves the library/;
-const WHOLE_LIBRARY = /cannot be the whole library/;
-
-describe("libraryPathsError", () => {
-  test("accepts a list of paths and an absent key", () => {
-    expect(LIBRARY_PATHS_KEY).toBe("libraryPaths");
-    expect(libraryPathsError({})).toBeUndefined();
-    expect(
-      libraryPathsError({ libraryPaths: ["projects/alpha", "notes.md"] })
-    ).toBeUndefined();
-    expect(libraryPathsError({ libraryPaths: [] })).toBeUndefined();
-  });
-
-  test("refuses a value that is not a list", () => {
-    expect(libraryPathsError({ libraryPaths: "projects" })).toMatch(NOT_A_LIST);
-    expect(libraryPathsError({ libraryPaths: null })).toMatch(NOT_A_LIST);
-  });
-
-  test("refuses items that are not non-empty strings", () => {
-    expect(libraryPathsError({ libraryPaths: [3] })).toMatch(NOT_A_LIST);
-    expect(libraryPathsError({ libraryPaths: ["a", ""] })).toMatch(NOT_A_LIST);
-    expect(libraryPathsError({ libraryPaths: [{ path: "a" }] })).toMatch(
-      NOT_A_LIST
-    );
-  });
-
-  test("refuses a path that leaves the library", () => {
-    expect(libraryPathsError({ libraryPaths: ["../secrets"] })).toMatch(
-      LEAVES_LIBRARY
-    );
-  });
-
-  test("refuses a path that normalises to the whole library", () => {
-    for (const raw of ["/", ".", "a/..", "./"]) {
-      expect(libraryPathsError({ libraryPaths: [raw] })).toMatch(WHOLE_LIBRARY);
-    }
-  });
-});
 
 describe("libraryPathsOf", () => {
   test("is empty when the key is absent or not a list", () => {
@@ -109,4 +68,19 @@ describe("librarySyncRoots", () => {
       librarySyncRoots("ada", { libraryPaths: ["agents/ada-two"] })
     ).toEqual(["agents/ada", "agents/ada-two"]);
   });
+});
+
+test("scope preserves nested write exceptions", () => {
+  expect(
+    librarySyncScope("ada", [
+      { mode: "read", path: "docs" },
+      { mode: "read", path: "docs/api" },
+      { mode: "write", path: "docs/edit" },
+    ])
+  ).toEqual([
+    { mode: "write", path: "agents/ada" },
+    { mode: "read", path: "wiki" },
+    { mode: "read", path: "docs" },
+    { mode: "write", path: "docs/edit" },
+  ]);
 });
