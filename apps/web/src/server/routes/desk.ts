@@ -2,10 +2,9 @@
 // calls it from its own server with an `hm_key_` key that has the `desk` scope
 // and an `X-On-Behalf-Of: <email>` header naming the member it acts for. A
 // connected app's OAuth token is not a credential here: it is never sent to
-// Clerk, so it cannot register a client either. The service decides who may do
-// what, so this file authenticates,
-// parses the body and maps what the services refuse to a status. The live
-// stream is `GET /api/desk/stream`, added later. Mount with
+// Clerk, so it cannot register a client either. The service decides who may
+// do what, so this file authenticates, parses the body and maps what the
+// services refuse to a status. The live stream is `GET /api/desk/stream`, added later. Mount with
 // `accessRoutes.route("/api/desk", deskRoutes({ ... }))`.
 import { isForbiddenError } from "@repo/services/authz";
 import {
@@ -164,6 +163,15 @@ export const deskRoutes = ({
           credential,
           c.req.header("X-On-Behalf-Of") ?? null
         );
+      // The audit trail: who held the key, and who it acted for.
+      log({
+        actingUserId: member.userId,
+        event: "desk.request",
+        keyId: credential.kind === "user" ? credential.apiKey?.id : null,
+        keyOwnerId: credential.kind === "user" ? credential.userId : null,
+        method: c.req.method,
+        path: c.req.path,
+      });
       return { credential, member };
     } catch (error: unknown) {
       if (isForbiddenError(error)) {

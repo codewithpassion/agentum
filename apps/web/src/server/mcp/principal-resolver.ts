@@ -1,7 +1,8 @@
 // The principal for an `Authorization: Bearer` header, shared by the bearer
-// routes that accept an `hm_key_` key, a run token or a Clerk OAuth token
-// (`/mcp`, `/api/desk`). The membership check, the OAuth client gate and the
-// run token key come from the bindings of the request.
+// routes that take an `hm_key_` key, a run token or a Clerk OAuth token
+// (`/mcp`) and the ones that take keys only (`/api/desk`, which passes an
+// OAuth verifier that accepts nothing). The membership check, the OAuth client
+// gate and the run token key come from the bindings of the request.
 import { importRunTokenKey } from "@repo/services/run-tokens";
 import {
   createPrincipalResolver,
