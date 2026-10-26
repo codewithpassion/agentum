@@ -773,3 +773,20 @@ test("refuses a body with no payload field as malformed", async () => {
 
   expect(await gateway.interact(request)).toEqual({ kind: "malformed" });
 });
+
+test("takeover requests do not post Slack cards", async () => {
+  seedRun(slackReply);
+  seedRequest();
+  await db
+    .update(runRequests)
+    .set({
+      display: JSON.stringify({
+        machineId: "computer",
+        reason: "Please log in",
+      }),
+      kind: "takeover",
+    })
+    .where(eq(runRequests.id, REQUEST));
+  await gateway.onEvent(eventOf("request.opened", REQUEST));
+  expect(callsTo("chat.postMessage")).toHaveLength(0);
+});

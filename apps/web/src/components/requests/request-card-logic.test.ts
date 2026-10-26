@@ -306,3 +306,33 @@ describe("isConflict", () => {
     expect(isConflict(null)).toBe(false);
   });
 });
+
+test("takeover cards use their own display and settlement", () => {
+  const record = {
+    display: { machineId: "computer", reason: "Please log in" },
+    expiresAt: at(MIN),
+    id: "t",
+    kind: "takeover" as const,
+    runId: "r",
+  };
+  expect(viewFromRecord(record, null)).toMatchObject({
+    display: record.display,
+    kind: "takeover",
+  });
+  expect(
+    settledFromEvent("request.answered", {
+      answeredBy: "u",
+      kind: "takeover",
+      note: "done",
+      via: "web",
+    })
+  ).toEqual({
+    answer: { note: "done" },
+    answeredBy: "u",
+    status: "answered",
+    via: "web",
+  });
+  expect(
+    settledFromEvent("request.answered", { kind: "takeover" })
+  ).toMatchObject({ answer: {}, status: "answered" });
+});

@@ -11,6 +11,9 @@ import {
   type QuestionAnswer,
   type QuestionDisplay,
   questionDisplaySchema,
+  type TakeoverAnswer,
+  type TakeoverDisplay,
+  takeoverDisplaySchema,
 } from "@repo/protocol/requests";
 
 const MS_PER_MINUTE = 60_000;
@@ -19,7 +22,7 @@ const MINUTES_PER_HOUR = 60;
 /** How a request ended, as far as the chat knows. `conflict` means someone else answered first. */
 export type Settled =
   | {
-      answer: ApprovalAnswer | QuestionAnswer;
+      answer: ApprovalAnswer | QuestionAnswer | TakeoverAnswer;
       /** The Clerk user id of whoever answered. */
       answeredBy: string | null;
       status: "answered";
@@ -42,7 +45,8 @@ interface RequestBase {
 /** A request the chat shows, pending or settled. */
 export type RequestView =
   | (RequestBase & { display: ApprovalDisplay; kind: "approval" })
-  | (RequestBase & { display: QuestionDisplay; kind: "question" });
+  | (RequestBase & { display: QuestionDisplay; kind: "question" })
+  | (RequestBase & { display: TakeoverDisplay; kind: "takeover" });
 
 /** What the answer mutation takes, without the request id. */
 export type AnswerPayload = ApprovalAnswer | QuestionAnswer;
@@ -184,6 +188,12 @@ export const viewFromOpened = (
       ? { ...base, display: display.data, kind: "approval" }
       : null;
   }
+  if (payload.kind === "takeover") {
+    const display = takeoverDisplaySchema.safeParse(payload.display);
+    return display.success
+      ? { ...base, display: display.data, kind: "takeover" }
+      : null;
+  }
   if (payload.kind === "question") {
     const display = questionDisplaySchema.safeParse(payload.display);
     return display.success
@@ -196,10 +206,10 @@ export const viewFromOpened = (
 /** A pending request from `requests.pending`. */
 export const viewFromRecord = (
   record: {
-    display: ApprovalDisplay | QuestionDisplay;
+    display: ApprovalDisplay | QuestionDisplay | TakeoverDisplay;
     expiresAt: string;
     id: string;
-    kind: "approval" | "question";
+    kind: "approval" | "question" | "takeover";
     runId: string;
   },
   anchorId: string | null
@@ -243,6 +253,15 @@ export const settledFromEvent = (
         note === null
           ? { decision: payload.decision }
           : { decision: payload.decision, note },
+      answeredBy,
+      status: "answered",
+      via,
+    };
+  }
+  if (payload.kind === "takeover") {
+    const note = textOf(payload.note);
+    return {
+      answer: note === null ? {} : { note },
       answeredBy,
       status: "answered",
       via,

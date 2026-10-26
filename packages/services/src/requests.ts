@@ -517,7 +517,12 @@ export const createRequestsService = ({
     await announce(
       closed,
       "request.answered",
-      { ...clean, answeredBy: principal.userId, via: input.via },
+      {
+        ...clean,
+        answeredBy: principal.userId,
+        kind: closed.kind,
+        via: input.via,
+      },
       principal.userId
     );
     await resume(closed);
