@@ -231,21 +231,27 @@ export const createWikiSuggestionsService = ({
     // Stale proposals remain actionable in Needs you, with an edited body required.
     return await Promise.all(rows.map(refresh));
   };
-  const baseBytes = async (row: Suggestion) => {
-    if (!row.baseVersionId) {
-      return;
-    }
-    const version = await history.get(row.workspaceId, row.baseVersionId);
-    // A deletion is a version too; its diff base is an absent (empty) page.
+  const versionBytes = async (workspaceId: string, versionId: string) => {
+    const version = await history.get(workspaceId, versionId);
+    // A deletion is a version too; its text is an absent (empty) page.
     return version.op === "delete"
       ? undefined
-      : (await history.read(row.workspaceId, version.id)).bytes;
+      : (await history.read(workspaceId, version.id)).bytes;
+  };
+  const baseBytes = (row: Suggestion) =>
+    row.baseVersionId
+      ? versionBytes(row.workspaceId, row.baseVersionId)
+      : undefined;
+  const currentBytes = async (row: Suggestion) => {
+    const current = await latest(row.workspaceId, row.path);
+    return current ? versionBytes(row.workspaceId, current.id) : undefined;
   };
   const get = async (principal: Principal, id: string) => {
     const caller = member(principal);
     const row = await refresh(await find(caller.workspaceId, id));
-    const [base, proposed] = await Promise.all([
+    const [base, current, proposed] = await Promise.all([
       baseBytes(row),
+      currentBytes(row),
       blobs.get(row.blobKey),
     ]);
     if (!proposed) {
@@ -254,6 +260,7 @@ export const createWikiSuggestionsService = ({
     return {
       ...row,
       baseText: new TextDecoder().decode(base),
+      currentText: new TextDecoder().decode(current),
       proposedText: new TextDecoder().decode(proposed.bytes),
     };
   };
