@@ -184,6 +184,9 @@ test.each([
   ["Basic dXNlcjpwYXNz\nnext line", "Basic [redacted]\nnext line"],
   // Ordinary text.
   ["Basic authentication is required", "Basic authentication is required"],
+  ["We use Basic authentication.", "We use Basic authentication."],
+  ["Token expired.", "Token expired."],
+  ["The OAuth integration.", "The OAuth integration."],
   ["Bearer of bad news", "Bearer of bad news"],
   ["the token is used for auth", "the token is used for auth"],
   [

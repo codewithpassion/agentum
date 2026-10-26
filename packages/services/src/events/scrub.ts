@@ -22,10 +22,11 @@ const CREDENTIAL_MIN = 8;
 const CREDENTIAL_NAME =
   /(?:(?<![A-Za-z[])(?:authorization|cookie|token|secret|password|passwd|api[_-]?key)|(?<=[-_])key)(\\?["'])?[ \t]*[:=][ \t]*/gi;
 // A bare auth scheme word followed by something shaped like a credential: at
-// least 8 token characters, with at least one that is not a lowercase letter,
-// so prose such as "Basic authentication" stays as written.
+// least 8 token characters, with at least one uppercase letter, digit or one of
+// `_~+/=` (not a dot or hyphen, so prose such as "Basic authentication." stays
+// as written).
 const SCHEME_WORD = new RegExp(
-  String.raw`(?<![A-Za-z0-9_-])(?:[Bb]earer|BEARER|[Bb]asic|BASIC|[Oo][Aa]uth|OAUTH|[Tt]oken|TOKEN)[ \t]+(?=[A-Za-z0-9._~+/=-]{${CREDENTIAL_MIN},})(?=[a-z]*[^a-z\s])`,
+  String.raw`(?<![A-Za-z0-9_-])(?:[Bb]earer|BEARER|[Bb]asic|BASIC|[Oo][Aa]uth|OAUTH|[Tt]oken|TOKEN)[ \t]+(?=[A-Za-z0-9._~+/=-]{${CREDENTIAL_MIN},})(?=[a-z.-]*[A-Z0-9_~+/=])`,
   "g"
 );
 const WORD_CHAR = /[\w-]/;
