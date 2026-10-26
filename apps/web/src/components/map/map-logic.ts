@@ -152,7 +152,6 @@ export function toFlowEdges(
     return {
       animated: wire.active,
       data: { active: wire.active, carried, deletable, kind: wire.kind },
-      deletable,
       id: `${wire.kind}:${wire.from}:${wire.to}`,
       label: wireLabel(wire),
       markerEnd: {

@@ -165,7 +165,9 @@ export function MapPage() {
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // `known` is the node keys when the flow opened, so a poll cannot hide the new node.
   const [newTrigger, setNewTrigger] = useState<{
+    known: string[];
     position: MapPosition | null;
   } | null>(null);
   const { data, error, refresh } = usePolledQuery(
@@ -305,34 +307,37 @@ export function MapPage() {
     }
   }, [confirm, refresh]);
 
+  const nodeKeys = useMemo(
+    () => graph?.nodes.map((node) => node.key) ?? [],
+    [graph]
+  );
+
   const dropNew = useCallback(
     (kind: NewNodeKind, position: MapPosition) => {
       if (kind === "trigger") {
-        setNewTrigger({ position });
+        setNewTrigger({ known: nodeKeys, position });
         return;
       }
       rememberAgentDrop({
         at: Date.now(),
-        known: (graph?.nodes ?? [])
-          .map((node) => node.key)
-          .filter((key) => agentIdOf(key) !== null),
+        known: nodeKeys.filter((key) => agentIdOf(key) !== null),
         x: position.x,
         y: position.y,
       });
       navigate({ to: NEW_AGENT_PATH });
     },
-    [graph, navigate]
+    [navigate, nodeKeys]
   );
   const openNewTrigger = useCallback(
-    () => setNewTrigger({ position: null }),
-    []
+    () => setNewTrigger({ known: nodeKeys, position: null }),
+    [nodeKeys]
   );
 
   /** A trigger was made: put its node where it was dropped, when it was dropped. */
   const finishNewTrigger = useCallback(
     async (created: boolean) => {
       const position = newTrigger?.position ?? null;
-      const before = graph?.nodes.map((node) => node.key) ?? [];
+      const before = newTrigger?.known ?? [];
       setNewTrigger(null);
       if (!created) {
         return;
@@ -354,7 +359,7 @@ export function MapPage() {
       }
       await refresh();
     },
-    [edit, graph, newTrigger, refresh]
+    [edit, newTrigger, refresh]
   );
 
   // An agent made in the builder lands where "+ Agent" was dropped.
@@ -441,7 +446,6 @@ export function MapPage() {
                 editor={editor}
                 graph={data.graph}
                 onConnectWire={connectWire}
-                onDeleteWire={deleteWire}
                 onDropNew={dropNew}
                 onSavePositions={savePositions}
                 onSelect={setSelectedKey}

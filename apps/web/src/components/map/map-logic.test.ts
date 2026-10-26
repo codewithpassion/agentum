@@ -532,12 +532,12 @@ test("editor mode marks only the wires of http and routine triggers deletable", 
       wire({ from: "agent:a1", kind: "handoff", to: "agent:a1" }),
     ]
   );
-  expect(toFlowEdges(graph).map((edge) => edge.deletable)).toEqual([
+  expect(toFlowEdges(graph).map((edge) => edge.data?.deletable)).toEqual([
     false,
     false,
     false,
   ]);
-  expect(toFlowEdges(graph, true).map((edge) => edge.deletable)).toEqual([
+  expect(toFlowEdges(graph, true).map((edge) => edge.data?.deletable)).toEqual([
     true,
     false,
     false,

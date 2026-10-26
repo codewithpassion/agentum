@@ -38,7 +38,6 @@ const FIT_OPTIONS = { duration: 200, padding: 0.15 } as const;
 
 /** How long a drag settles before its positions are saved. */
 const SAVE_DEBOUNCE_MS = 500;
-const DELETE_KEYS = ["Backspace", "Delete"];
 
 type Theme = "dark" | "light";
 
@@ -164,7 +163,6 @@ export function MapCanvas({
   editor,
   graph,
   onConnectWire,
-  onDeleteWire,
   onDropNew,
   onSavePositions,
   onSelect,
@@ -177,8 +175,6 @@ export function MapCanvas({
   graph: MapGraphView;
   /** A wire was drawn from a trigger node to an agent node. */
   onConnectWire: (sourceKey: string, targetKey: string) => void;
-  /** Delete was pressed on a selected wire. `edgeId` is the xyflow edge id. */
-  onDeleteWire: (edgeId: string) => void;
   /** A "+ Trigger" or "+ Agent" button was dropped on the canvas. */
   onDropNew: (kind: NewNodeKind, position: MapPosition) => void;
   onSavePositions: (
@@ -231,16 +227,6 @@ export function MapCanvas({
       isValidTriggerConnection(graph, connection.source, connection.target),
     [graph]
   );
-  // A wire is deleted through the confirm, never straight from the key press.
-  const handleBeforeDelete = useCallback(
-    ({ edges: doomed }: { edges: { id: string }[] }) => {
-      for (const edge of doomed) {
-        onDeleteWire(edge.id);
-      }
-      return Promise.resolve(false);
-    },
-    [onDeleteWire]
-  );
   const handleDragOver = useCallback(
     (event: DragEvent) => {
       if (editor && event.dataTransfer.types.includes(NEW_NODE_MIME)) {
@@ -269,7 +255,7 @@ export function MapCanvas({
     <ReactFlow
       className="map-flow"
       colorMode={theme}
-      deleteKeyCode={editor ? DELETE_KEYS : null}
+      deleteKeyCode={null}
       edges={edges}
       edgeTypes={edgeTypes}
       elementsSelectable
@@ -283,7 +269,6 @@ export function MapCanvas({
       nodesDraggable={editor}
       nodesFocusable
       nodeTypes={nodeTypes}
-      onBeforeDelete={handleBeforeDelete}
       onConnect={handleConnect}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
