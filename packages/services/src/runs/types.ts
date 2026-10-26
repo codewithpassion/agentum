@@ -10,6 +10,7 @@ import type { RunStop } from "@repo/protocol/safeguards";
 import { z } from "zod";
 import type { AgentRecord } from "../agents.ts";
 import type { Payload } from "../events/payload.ts";
+import type { RequestRecord } from "../requests.ts";
 import type { Principal } from "../workspaces.ts";
 
 /** Time, injected so tests can move it. `sleep` is what `waitForRun` polls with. */
@@ -208,6 +209,8 @@ export interface MachineClaim {
     runtimeMachineId: string | null;
     runtimeRef: string | null;
   };
+  /** Ask keys supplied when the daemon supports requests. */
+  toolRules?: string[];
 }
 
 /**
@@ -256,6 +259,7 @@ export interface RuntimeAdapter {
    * as one of its runs ends. Only the cloud runtime sets it, to true.
    */
   offerNextOnEnd?: boolean;
+  resume?: (run: RunRecord, request: RequestRecord) => Promise<void>;
 }
 
 /** The trusted context `completeRun` gives a gateway. Never read from a post body. */

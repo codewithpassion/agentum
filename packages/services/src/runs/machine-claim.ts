@@ -3,6 +3,7 @@ import { agents } from "@repo/db/schema/agents";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import { agentToolRules } from "@repo/db/schema/tool-rules";
 import {
   and,
   eq,
@@ -59,7 +60,11 @@ export const claimForMachine = async (
   deps: MachineClaimDeps,
   principal: Principal,
   runId: string,
-  options: { libraryForDaemon?: boolean; platformUrl: string }
+  options: {
+    libraryForDaemon?: boolean;
+    requestsForDaemon?: boolean;
+    platformUrl: string;
+  }
 ): Promise<MachineClaim> => {
   if (principal.kind !== "machine") {
     throw new ForbiddenError(CLAIM_ACTION);
@@ -115,6 +120,22 @@ export const claimForMachine = async (
         }
       : undefined;
 
+  const toolRules =
+    options.requestsForDaemon === true
+      ? (
+          await db
+            .select({ toolKey: agentToolRules.toolKey })
+            .from(agentToolRules)
+            .where(
+              and(
+                eq(agentToolRules.agentId, agent.id),
+                eq(agentToolRules.workspaceId, run.workspaceId),
+                eq(agentToolRules.mode, "ask")
+              )
+            )
+            .orderBy(agentToolRules.toolKey)
+        ).map((rule) => rule.toolKey)
+      : undefined;
   const sibling = alias(runs, "sibling");
   const older = alias(runs, "older");
   const claimed = await db
@@ -265,6 +286,7 @@ export const claimForMachine = async (
       workspaceId: claimedRun.workspaceId,
     },
     runToken,
+    ...daemonRules(toolRules),
     session: {
       id: session.id,
       runtimeMachineId: session.runtimeMachineId,
@@ -272,3 +294,6 @@ export const claimForMachine = async (
     },
   };
 };
+
+const daemonRules = (toolRules: string[] | undefined) =>
+  toolRules ? { toolRules } : {};
