@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,6 +26,7 @@ import {
   type ToolHookCall,
 } from "@earendil-works/pi-durable";
 import { openNodeJsonlStorage } from "@earendil-works/pi-durable/storage/jsonl/node";
+import { createMasker } from "@repo/protocol/masker";
 import type { RequestOutcome } from "@repo/protocol/requests";
 import {
   createGate,
@@ -114,17 +115,37 @@ const fakeRequests = (ruledKeys: readonly string[]) => {
   return { close, opens, port, rows, ruleReads };
 };
 
+interface DryRunOptions {
+  dryRun?: boolean;
+  recordFails?: boolean;
+  secrets?: Record<string, string>;
+}
+
 const gateOf = (
   requests: GateRequests,
   options: {
+    dry?: DryRunOptions;
     now?: () => number;
     origins?: Record<string, ToolOrigin>;
     serverKeys?: string[];
+    skips?: { runId: string; summary: string; tool: string }[];
   } = {}
 ): Gate =>
   createGate({
+    isDryRun: () => Promise.resolve(options.dry?.dryRun ?? false),
+    maskerOf: () =>
+      Promise.resolve(
+        options.dry?.secrets ? createMasker(options.dry.secrets) : null
+      ),
     now: options.now,
     originOf: (name) => options.origins?.[name],
+    recordSkip: (runId, skip) => {
+      if (options.dry?.recordFails) {
+        return Promise.reject(new Error("run is not live"));
+      }
+      options.skips?.push({ runId, ...skip });
+      return Promise.resolve();
+    },
     requests,
     runIdOf: () => Promise.resolve(RUN),
     serverKeys: () => options.serverKeys ?? [],
@@ -306,7 +327,11 @@ describe("the gate hook", () => {
     const fake = fakeRequests(["my.server/Create Issue"]);
     const gate = gateOf(fake.port, {
       origins: {
-        my_server_Create_Issue: { name: "Create Issue", server: "my.server" },
+        my_server_Create_Issue: {
+          name: "Create Issue",
+          readOnly: false,
+          server: "my.server",
+        },
       },
       serverKeys: ["my.server"],
     });
@@ -365,6 +390,143 @@ describe("the gate hook", () => {
       await gate.beforeTool(callOf("ask_user"), HOOK_API, BACKGROUND_CONTEXT)
     ).toBeUndefined();
     expect(fake.ruleReads).toEqual([]);
+  });
+});
+
+describe("a dry run", () => {
+  const dry = (extra: Partial<DryRunOptions> = {}): DryRunOptions => ({
+    dryRun: true,
+    ...extra,
+  });
+  const origins: Record<string, ToolOrigin> = {
+    crm_find: { name: "find", readOnly: true, server: "crm" },
+    crm_send: { name: "send", readOnly: false, server: "crm" },
+  };
+  const skips: { runId: string; summary: string; tool: string }[] = [];
+  const run = (
+    name: string,
+    args: Record<string, string>,
+    options: { dry?: DryRunOptions } = { dry: dry() }
+  ) => {
+    skips.length = 0;
+    const fake = fakeRequests(["crm/find", "crm/send", "write", "read"]);
+    const gate = gateOf(fake.port, { ...options, origins, skips });
+    return {
+      fake,
+      value: gate.beforeTool(
+        callOf(name, "call1", args),
+        HOOK_API,
+        BACKGROUND_CONTEXT
+      ),
+    };
+  };
+
+  test("lets a read-only connector tool run, with no rule lookup and no event", async () => {
+    const { fake, value } = run("crm_find", { query: "studios" });
+
+    expect(await value).toBeUndefined();
+    expect(fake.ruleReads).toEqual([]);
+    expect(fake.opens).toEqual([]);
+    expect(skips).toEqual([]);
+  });
+
+  test("skips a connector tool that is not read-only, records the event and asks nobody", async () => {
+    const { fake, value } = run("crm_send", { to: "a@b.test" });
+
+    expect(await value).toEqual({
+      block: 'Skipped in dry run: would call crm/send with {"to":"a@b.test"}',
+    });
+    expect(skips).toEqual([
+      { runId: RUN, summary: '{"to":"a@b.test"}', tool: "crm/send" },
+    ]);
+    expect(fake.ruleReads).toEqual([]);
+    expect(fake.opens).toEqual([]);
+  });
+
+  test("skips a library write and an edit but lets a read through", async () => {
+    expect(await run("write", { path: "a.md" }).value).toEqual({
+      block: 'Skipped in dry run: would call write with {"path":"a.md"}',
+    });
+    expect(await run("edit", { path: "a.md" }).value).toEqual({
+      block: 'Skipped in dry run: would call edit with {"path":"a.md"}',
+    });
+    expect(await run("read", { path: "a.md" }).value).toBeUndefined();
+    expect(skips).toEqual([]);
+  });
+
+  test("skips run_script", async () => {
+    const { value } = run("run_script", { path: "x.ts" });
+
+    expect(await value).toEqual({
+      block: 'Skipped in dry run: would call run_script with {"path":"x.ts"}',
+    });
+    expect(skips).toHaveLength(1);
+  });
+
+  test("lets web_fetch run for a GET and skips it for a POST", async () => {
+    expect(
+      await run("web_fetch", { url: "https://a.test" }).value
+    ).toBeUndefined();
+    expect(
+      await run("web_fetch", { method: "GET", url: "https://a.test" }).value
+    ).toBeUndefined();
+    const post = run("web_fetch", { method: "POST", url: "https://a.test" });
+    expect(await post.value).toMatchObject({
+      block: expect.stringContaining(
+        "Skipped in dry run: would call web_fetch"
+      ),
+    });
+  });
+
+  test("masks a secret in the summary, in the event and in the text the model reads", async () => {
+    const secret = "sk-live-0123456789";
+    const { value } = run(
+      "crm_send",
+      { token: secret },
+      { dry: dry({ secrets: { CRM_TOKEN: secret } }) }
+    );
+
+    const outcome = (await value) as { block: string };
+    expect(outcome.block).toContain("[secret:CRM_TOKEN]");
+    expect(outcome.block).not.toContain(secret);
+    expect(JSON.stringify(skips)).not.toContain(secret);
+    expect(skips[0]?.summary).toContain("[secret:CRM_TOKEN]");
+  });
+
+  test("blocks the call all the same when the event cannot be written", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    const { value } = run(
+      "crm_send",
+      { to: "a@b.test" },
+      { dry: dry({ recordFails: true }) }
+    );
+
+    expect(await value).toMatchObject({
+      block: expect.stringContaining("Skipped in dry run"),
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  test("answers ask_user without opening a question", async () => {
+    const { fake, value } = run("ask_user", {});
+
+    expect(await value).toEqual({
+      block: "Nobody answers in a dry run. Go on with a stated assumption.",
+    });
+    expect(fake.opens).toEqual([]);
+  });
+
+  test("a run that is not a dry run still asks for a ruled tool", async () => {
+    const { fake, value } = run(
+      "write",
+      { path: "a.md" },
+      { dry: dry({ dryRun: false }) }
+    );
+
+    expect(await resultOf(value)).toBe("pending");
+    expect(fake.opens).toHaveLength(1);
+    expect(skips).toEqual([]);
   });
 });
 
@@ -503,9 +665,10 @@ describe("with Pi Durable", () => {
   const open = async (
     storage: Awaited<ReturnType<typeof openNodeJsonlStorage>> | MemoryStorage,
     requests: GateRequests,
-    effects: { runs: number }
+    effects: { runs: number },
+    gateOptions: Parameters<typeof gateOf>[1] = {}
   ) => {
-    const gate = gateOf(requests);
+    const gate = gateOf(requests, gateOptions);
     const faux = fauxProvider();
     faux.setResponses(Array.from({ length: 5 }, () => script));
     const models = createModels();
@@ -580,6 +743,35 @@ describe("with Pi Durable", () => {
     expect(settled.status).toBe("done");
     expect(effects.runs).toBe(1);
     expect(await finalText(root)).toBe("saw:did it");
+    await harness.close(BACKGROUND_CONTEXT);
+  });
+
+  test("a dry run never runs a tool with an effect and the model reads what was skipped", async () => {
+    const fake = fakeRequests([TOOL]);
+    const effects = { runs: 0 };
+    const skips: { runId: string; summary: string; tool: string }[] = [];
+    const { harness, root } = await open(
+      new MemoryStorage(),
+      fake.port,
+      effects,
+      {
+        dry: { dryRun: true },
+        skips,
+      }
+    );
+    const submission = await root.submit(
+      { content: "go", type: "input" },
+      BACKGROUND_CONTEXT
+    );
+    const settled = await submission.wait(BACKGROUND_CONTEXT);
+
+    expect(settled.status).toBe("done");
+    expect(effects.runs).toBe(0);
+    expect(fake.opens).toEqual([]);
+    expect(skips).toEqual([{ runId: RUN, summary: "no input", tool: TOOL }]);
+    expect(await finalText(root)).toContain(
+      `Skipped in dry run: would call ${TOOL} with no input`
+    );
     await harness.close(BACKGROUND_CONTEXT);
   });
 

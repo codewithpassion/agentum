@@ -16,9 +16,11 @@ import {
   enrollResponseSchema,
   eventsRequestSchema,
   eventsResponseSchema,
+  FEATURE_LIBRARY_LIVE,
   FEATURE_REQUESTS,
   hasDaemonFeature,
   heartbeatResponseSchema,
+  libraryChangedSchema,
   offerSchema,
   relayFrameSchema,
   relayHelloAckSchema,
@@ -35,6 +37,7 @@ const cases: ReadonlyArray<readonly [string, z.ZodType]> = [
   ["hello-ack", relayHelloAckSchema],
   ["offer", offerSchema],
   ["cancel", cancelSchema],
+  ["library-changed", libraryChangedSchema],
   ["claim-response", claimResponseSchema],
   ["events-request", eventsRequestSchema],
   ["events-response", eventsResponseSchema],
@@ -46,7 +49,7 @@ const cases: ReadonlyArray<readonly [string, z.ZodType]> = [
 ];
 
 const daemonFixtures = ["hello", "ping"];
-const relayFixtures = ["hello-ack", "offer", "cancel"];
+const relayFixtures = ["hello-ack", "offer", "cancel", "library-changed"];
 
 const fixturesDir = new URL("../fixtures/", import.meta.url);
 
@@ -329,6 +332,65 @@ describe("requests feature", () => {
     expect(
       waitRequestResponseSchema.safeParse({ status: "unknown" }).success
     ).toBe(false);
+  });
+});
+
+describe("library live feature", () => {
+  test("hello parses with features and without them", async () => {
+    const raw = (await loadFixture("hello")) as Record<string, unknown>;
+    const withFeatures = { ...raw, features: [FEATURE_LIBRARY_LIVE] };
+    expect(daemonHelloSchema.parse(withFeatures).features).toEqual([
+      FEATURE_LIBRARY_LIVE,
+    ]);
+    expect(daemonHelloSchema.parse(raw).features).toBeUndefined();
+  });
+
+  test("claim-response parses a library without roots or taskFolder", async () => {
+    const parsed = claimResponseSchema.parse(
+      await loadFixture("claim-response")
+    );
+    const library = { conflicts: [], paths: ["wiki"] };
+    expect(claimResponseSchema.parse({ ...parsed, library }).library).toEqual(
+      library
+    );
+  });
+
+  test("claim-response accepts roots and a taskFolder", async () => {
+    const parsed = claimResponseSchema.parse(
+      await loadFixture("claim-response")
+    );
+    const library = {
+      conflicts: [],
+      paths: ["wiki", "shared"],
+      roots: [
+        { mode: "read" as const, path: "wiki" },
+        { mode: "write" as const, path: "shared" },
+      ],
+      taskFolder: "agents/ada/tasks/r1",
+    };
+    expect(claimResponseSchema.parse({ ...parsed, library }).library).toEqual(
+      library
+    );
+  });
+
+  test("claim-response rejects a root with an unknown mode", async () => {
+    const parsed = claimResponseSchema.parse(
+      await loadFixture("claim-response")
+    );
+    const library = {
+      conflicts: [],
+      paths: ["wiki"],
+      roots: [{ mode: "admin", path: "wiki" }],
+    };
+    expect(claimResponseSchema.safeParse({ ...parsed, library }).success).toBe(
+      false
+    );
+  });
+
+  test("hasDaemonFeature finds the library-live feature in a header", () => {
+    expect(
+      hasDaemonFeature("library-sync, library-live", FEATURE_LIBRARY_LIVE)
+    ).toBe(true);
   });
 });
 

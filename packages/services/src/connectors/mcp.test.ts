@@ -64,13 +64,38 @@ describe("probeMcpServer", () => {
 
     expect(probe.serverName).toBe("linear");
     expect(probe.tools).toEqual([
-      { description: "Create an issue", name: "create_issue" },
-      { description: null, name: "list_issues" },
+      { description: "Create an issue", name: "create_issue", readOnly: false },
+      { description: null, name: "list_issues", readOnly: false },
     ]);
     expect(sent.map((call) => call.body.method)).toEqual([
       "initialize",
       "notifications/initialized",
       "tools/list",
+    ]);
+  });
+
+  test("reads readOnlyHint from tool annotations, true only when it is true", async () => {
+    const { fetchImpl } = recorder((method) => {
+      if (method === "initialize") {
+        return rpcResult(INITIALIZE);
+      }
+      if (method !== "tools/list") {
+        return new Response(null, { status: 202 });
+      }
+      return rpcResult({
+        tools: [
+          { annotations: { readOnlyHint: true }, name: "get" },
+          { annotations: { readOnlyHint: false }, name: "set" },
+          { name: "unannotated" },
+        ],
+      });
+    });
+
+    const probe = await probeMcpServer(URL_UNDER_TEST, { fetchImpl });
+    expect(probe.tools.map((tool) => [tool.name, tool.readOnly])).toEqual([
+      ["get", true],
+      ["set", false],
+      ["unannotated", false],
     ]);
   });
 

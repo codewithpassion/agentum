@@ -18,10 +18,12 @@ const BOX_CLASS =
 const HEADINGS: Record<NeedsYouKind, (agentName: string) => string> = {
   approval: (name) => `${name} asks for approval`,
   inbox_reply: (name) => `${name} replied`,
+  library_conflict: (name) => `${name} left a library conflict`,
   question: (name) => `${name} asks`,
   routine_proposal: (name) => `${name} proposed a routine`,
   skill_proposal: (name) => `${name} proposed a skill change`,
   trigger_proposal: (name) => `${name} proposed a trigger`,
+  wiki_suggestion: (name) => `${name} suggested a wiki edit`,
 };
 
 const headingFor = (agentName: string, kind: NeedsYouKind | undefined) =>

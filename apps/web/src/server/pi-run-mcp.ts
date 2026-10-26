@@ -391,6 +391,8 @@ const uniqueName = (name: string, taken: Set<string>): string => {
 /** The server and tool name an MCP tool was listed with, before Pi's name for it was made. */
 export interface ToolOrigin {
   name: string;
+  /** Whether the server marked the tool with `annotations.readOnlyHint`. */
+  readOnly: boolean;
   server: string;
 }
 
@@ -406,6 +408,7 @@ export const mcpToolOrigins = (tools: ServerTools): Map<string, ToolOrigin> => {
     for (const tool of listed) {
       origins.set(uniqueName(piToolName(server, tool.name), taken), {
         name: tool.name,
+        readOnly: tool.annotations?.readOnlyHint === true,
         server,
       });
     }

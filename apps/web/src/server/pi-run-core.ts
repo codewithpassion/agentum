@@ -15,6 +15,7 @@ import {
   stopMessage,
   streakOf,
 } from "@repo/protocol/safeguards";
+import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { isServiceError } from "@repo/services/errors";
 import { RUN_TOKEN_MAX_AGE_MS } from "@repo/services/run-tokens";
@@ -34,6 +35,14 @@ import {
   wantsAnotherTurn,
 } from "./pi-run-events.ts";
 import type { PiInput } from "./pi-run-files.ts";
+
+/**
+ * Whether a run works in the agent's Linux VM. A dry run never does: it
+ * always runs in the cloud isolate, where the gate can skip what writes.
+ */
+export const runsInVm = (input: Pick<CloudStart, "agent" | "run">): boolean =>
+  !input.run.dryRun &&
+  cloudEnvironmentOf(input.agent.runtimeConfig) === "linux-vm";
 
 /** How Pi ended one operation. */
 export interface PiOutcome {
