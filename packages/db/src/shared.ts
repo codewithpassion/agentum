@@ -684,6 +684,12 @@ export interface MapNode<TRequest = unknown> {
 export interface MapWire {
   /** True when a run is going over this wire now. */
   active: boolean;
+  /**
+   * True when today's configuration draws this wire: a `triggers` row or slack
+   * app, or a handoff in `hands_to`. A wire that only old events drew is
+   * historical and not configured.
+   */
+  configured: boolean;
   count7d: number;
   from: string;
   kind: MapWireKind;
