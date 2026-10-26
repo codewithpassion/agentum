@@ -1,7 +1,7 @@
 /**
  * The mail port contract. A mailbox is one agent's address, kept in a
  * per-mailbox store. These types are what the service and the port share.
- * They carry no runtime logic, except `MailError`.
+ * They carry no runtime logic, except the typed errors.
  */
 
 /** Names a mailbox. Every port call takes it first, because file keys carry the workspace. */
@@ -196,15 +196,32 @@ export class MailError extends Error {
   }
 }
 
+/** The routing adapter has no Cloudflare token yet; provisioning should remain pending. */
+export class RoutingNotConfiguredError extends Error {
+  constructor() {
+    super("Cloudflare Email Routing is not configured yet");
+    this.name = "RoutingNotConfiguredError";
+  }
+}
+
 /**
  * The port to the email routing rules of the zone. One literal rule routes each
- * agent address to the Worker.
+ * agent address to the Worker. Adapters must throw `RoutingNotConfiguredError`
+ * when the Cloudflare token is absent, so provisioning remains retryable.
  */
 export interface EmailRoutingPort {
-  /** Creates the routing rule for an address. */
+  /** Creates the routing rule for an address. The adapter names the rule `harbourmaster:<address>` so `findRule` can tell it is ours. */
   createRule: (address: string) => Promise<{ id: string }>;
   /** Deletes a routing rule by its id. */
   deleteRule: (ruleId: string) => Promise<void>;
-  /** Finds the routing rule for an address, or null when there is none. */
-  findRule: (address: string) => Promise<{ id: string } | null>;
+  /**
+   * Finds the routing rule for an address, or null when there is none.
+   * `managed` is required: true when the rule carries the `harbourmaster:<address>`
+   * name `createRule` gives, which lets a retry adopt a rule whose id never
+   * reached the mailbox row. An adapter that always says false makes such a
+   * retry fail with "Address in use outside Harbourmaster".
+   */
+  findRule: (
+    address: string
+  ) => Promise<{ id: string; managed: boolean } | null>;
 }
