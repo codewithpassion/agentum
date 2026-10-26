@@ -200,6 +200,109 @@ test("postMessage sends thread_ts and turns off unfurling", async () => {
   expect(body.channel).toBe("C1");
 });
 
+test("postMessage sends blocks unchanged and still escapes the fallback text", async () => {
+  const { calls, fetch } = fakeFetch(() => jsonResponse({ ok: true, ts: "1" }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+  const blocks = [
+    {
+      text: { text: "<!here> & <https://x|y>", type: "mrkdwn" },
+      type: "section",
+    },
+  ];
+
+  await client.postMessage({ blocks, channel: "C1", text: "<!here> fallback" });
+
+  const body = sentBody(firstCall(calls));
+  expect(body.blocks).toEqual(blocks);
+  expect(body.text).toBe("&lt;!here&gt; fallback");
+});
+
+test("postMessage omits blocks from the body when none are given", async () => {
+  const { calls, fetch } = fakeFetch(() => jsonResponse({ ok: true, ts: "1" }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  await client.postMessage({ channel: "C1", text: "hi" });
+
+  expect("blocks" in sentBody(firstCall(calls))).toBe(false);
+});
+
+test("updateMessage calls chat.update with escaped text and blocks and returns ok", async () => {
+  const { calls, fetch } = fakeFetch(() => jsonResponse({ ok: true }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+  const blocks = [{ type: "divider" }];
+
+  const result = await client.updateMessage({
+    blocks,
+    channel: "C1",
+    text: "<!here> & done",
+    ts: "1.2",
+  });
+
+  expect(result).toEqual({ kind: "ok" });
+  expect(firstCall(calls).url).toBe("https://slack.com/api/chat.update");
+  expect(firstCall(calls).init.method).toBe("POST");
+  expect(sentBody(firstCall(calls))).toEqual({
+    blocks,
+    channel: "C1",
+    text: "&lt;!here&gt; &amp; done",
+    ts: "1.2",
+  });
+});
+
+test("updateMessage maps message_not_found to rejected", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "message_not_found", ok: false })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.updateMessage({
+    channel: "C1",
+    text: "hello",
+    ts: "1.2",
+  });
+
+  expect(result).toEqual({ error: "message_not_found", kind: "rejected" });
+});
+
+test("updateMessage classifies invalid_auth as config", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "invalid_auth", ok: false })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.updateMessage({
+    channel: "C1",
+    text: "hello",
+    ts: "1.2",
+  });
+
+  expect(result).toEqual({ error: "invalid_auth", kind: "config" });
+});
+
+test("openView calls views.open with trigger_id and view and returns ok", async () => {
+  const { calls, fetch } = fakeFetch(() => jsonResponse({ ok: true }));
+  const client = createSlackClient({ fetch, token: TOKEN });
+  const view = { title: { text: "Edit", type: "plain_text" }, type: "modal" };
+
+  const result = await client.openView({ triggerId: "T1", view });
+
+  expect(result).toEqual({ kind: "ok" });
+  expect(firstCall(calls).url).toBe("https://slack.com/api/views.open");
+  expect(firstCall(calls).init.method).toBe("POST");
+  expect(sentBody(firstCall(calls))).toEqual({ trigger_id: "T1", view });
+});
+
+test("openView maps expired_trigger_id to rejected", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "expired_trigger_id", ok: false })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.openView({ triggerId: "T1", view: {} });
+
+  expect(result).toEqual({ error: "expired_trigger_id", kind: "rejected" });
+});
+
 test("postEphemeral escapes the text and sends user and thread_ts", async () => {
   const { calls, fetch } = fakeFetch(() =>
     jsonResponse({ message_ts: "2.3", ok: true })
