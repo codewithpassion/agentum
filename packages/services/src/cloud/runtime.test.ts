@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { slackApps } from "@repo/db/schema/slack";
@@ -247,6 +248,27 @@ describe("dispatch", () => {
     expect(input.agent.instructions).toBe(`Be brief.\n\n${SLACK_GUIDANCE}`);
   });
 
+  test("a non-dry run gets its own task folder in the library", async () => {
+    const { runId } = await start();
+
+    const [input] = runner.startCalls;
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    expect(input.library?.taskFolder).toBe(`agents/pelican/tasks/${runId}`);
+  });
+
+  test("a dry run gets no task folder in the library", async () => {
+    await start({}, { dryRun: true });
+
+    const [input] = runner.startCalls;
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    expect(input.library).toBeDefined();
+    expect(input.library && "taskFolder" in input.library).toBe(false);
+  });
+
   test("the runner gets the agent's own instructions when the agent has no Slack app", async () => {
     await start();
 
@@ -410,6 +432,60 @@ describe("a dry run", () => {
       false,
       true,
     ]);
+  });
+});
+
+describe("the model a run starts on", () => {
+  const startedModel = () => {
+    const [input] = runner.startCalls.slice(-1);
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    return input.agent.model;
+  };
+
+  test("a dry run on a model that is not a cloud model starts on the default cloud model", async () => {
+    db.update(agentRows)
+      .set({ model: "not-a-model" })
+      .where(eq(agentRows.id, agentId))
+      .run();
+
+    await start({}, { dryRun: true });
+
+    expect(startedModel()).toBe("claude-sonnet-5-5");
+  });
+
+  test("a dry run on a cloud model alias keeps the model", async () => {
+    db.update(agentRows)
+      .set({ model: "opus" })
+      .where(eq(agentRows.id, agentId))
+      .run();
+
+    await start({}, { dryRun: true });
+
+    expect(startedModel()).toBe("opus");
+  });
+
+  test("a dry run on a cloud model id keeps the model", async () => {
+    db.update(agentRows)
+      .set({ model: "claude-opus-5-5" })
+      .where(eq(agentRows.id, agentId))
+      .run();
+
+    await start({}, { dryRun: true });
+
+    expect(startedModel()).toBe("claude-opus-5-5");
+  });
+
+  test("a normal run keeps a model that is not a cloud model", async () => {
+    db.update(agentRows)
+      .set({ model: "gpt-5" })
+      .where(eq(agentRows.id, agentId))
+      .run();
+
+    await start();
+
+    expect(startedModel()).toBe("gpt-5");
   });
 });
 

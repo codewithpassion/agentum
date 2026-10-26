@@ -1,5 +1,6 @@
 import type { Database } from "@repo/db";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
+import { taskFolderPath } from "@repo/db/shared";
 import { and, eq } from "drizzle-orm";
 import { agentPrompt } from "../agent-prompt.ts";
 import { type AgentRecord, handsToNames } from "../agents.ts";
@@ -9,6 +10,7 @@ import { librarySyncScope } from "../library/sync-paths.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
 import type { AdapterDeps, RunRecord, RuntimeAdapter } from "../runs/types.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
+import { CLOUD_DEFAULT_MODEL, findCloudModel } from "./models.ts";
 import type { CloudRunnerPort } from "./types.ts";
 
 const describeError = (error: unknown): string =>
@@ -71,7 +73,10 @@ export const createCloudRuntime = ({
         instructions: [agentPrompt(agent, await handsToNames(db, agent)), slack]
           .filter((part) => part !== "")
           .join("\n\n"),
-        model: agent.model,
+        model:
+          run.dryRun && !findCloudModel(agent.model)
+            ? CLOUD_DEFAULT_MODEL
+            : agent.model,
         name: agent.name,
         runtimeConfig: agent.runtimeConfig,
         slug: agent.slug,
@@ -82,6 +87,9 @@ export const createCloudRuntime = ({
           agent.slug,
           await agentGrants(db, run.workspaceId, agent.id)
         ),
+        ...(run.dryRun
+          ? {}
+          : { taskFolder: taskFolderPath(agent.slug, run.id) }),
       },
       mcpServers: buildMcpServers({
         connectors: assigned,

@@ -67,6 +67,7 @@ import {
   createLibraryAccessService,
   type LibraryAccessService,
 } from "@repo/services/library/access";
+import { createLibraryAudience } from "@repo/services/library/audience";
 import { memoryLibraryBlobs } from "@repo/services/library/memory";
 import {
   createLibraryLinksService,
@@ -178,9 +179,15 @@ import {
   createTriggersService,
   type TriggersService,
 } from "@repo/services/triggers";
+import {
+  createWikiLinkIndex,
+  createWikiService,
+  type WikiService,
+} from "@repo/services/wiki/service";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { clerkPeople } from "./clerk-people.ts";
+import { libraryNotifier } from "./library-notifier.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
 import { clerkEmailMemberLookup } from "./mcp/clerk-email-member.ts";
 import { durableRunnerPort } from "./pi-run-port.ts";
@@ -284,6 +291,7 @@ export interface Services {
   slackSend: SlackSendService;
   tasks: TasksService;
   triggers: TriggersService;
+  wiki: WikiService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
 
@@ -427,7 +435,15 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     events,
+    linkIndex: createWikiLinkIndex({ db }),
+    notify: libraryNotifier({
+      audience: createLibraryAudience({ db }),
+      defer: infra.defer,
+      relay: infra.relay,
+      runner: infra.cloudRunner,
+    }),
   });
+  const wiki = createWikiService({ db, library });
   const libraryAccess = createLibraryAccessService({
     atomic: infra.atomic,
     clock: infra.clock,
@@ -641,6 +657,8 @@ export const composeWith = ({
     machines,
     managedKeys,
     modelKeys,
+    routines,
+    runs,
     skillsStore,
   });
   const agentProfile = createAgentProfileService({
@@ -707,6 +725,7 @@ export const composeWith = ({
       slackSend,
       tasks,
       triggers,
+      wiki,
       workspaces,
     },
   };

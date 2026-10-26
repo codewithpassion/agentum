@@ -1,0 +1,8 @@
+{
+  "arch": "arm64",
+  "clientVersion": "0.1.0",
+  "code": "hm_enr_test",
+  "hostname": "office-box",
+  "os": "linux",
+  "role": "computer"
+}

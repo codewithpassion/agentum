@@ -211,7 +211,9 @@ test("a run lists, stats and reads a file the user wrote", async () => {
   const rootBody = (await root.json()) as {
     entries: Record<string, unknown>[];
   };
+  // `agents` holds the run's own task folder, made when the run started.
   expect(rootBody.entries).toEqual([
+    { etag: null, kind: "dir", path: "agents", size: 0 },
     { etag: null, kind: "dir", path: "notes", size: 0 },
   ]);
 
@@ -434,8 +436,11 @@ test("a run in workspace B never sees workspace A's files", async () => {
   expect((await readOf(runB.runId, runB.runToken, "secret.md")).status).toBe(
     404
   );
+  // Only its own `agents` folder (the task folder) shows, none of workspace A's.
   const list = await listOf(runB.runId, runB.runToken, "");
-  expect(await list.json()).toEqual({ entries: [] });
+  expect(await list.json()).toEqual({
+    entries: [{ etag: null, kind: "dir", path: "agents", size: 0 }],
+  });
 });
 
 test("an ungranted folder is hidden and cannot be written", async () => {

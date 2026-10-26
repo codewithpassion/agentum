@@ -32,11 +32,16 @@ import { payloadSchema } from "./events/payload.ts";
 import type { EventRecord, EventsService } from "./events.ts";
 import { loadRun } from "./runs/queries.ts";
 import { toRecord, toSummary } from "./runs/records.ts";
-import type { RunSummary, SessionOrigin } from "./runs/types.ts";
+import {
+  DRY_RUN_ORIGIN,
+  type RunSummary,
+  type SessionOrigin,
+} from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
 
 const READ_ACTION = "sessions.read";
 const SESSION_KIND = "session";
+/** Dry-run sessions are private to their builder and never listed or searched. */
 /** Sessions one list call returns, newest first. */
 export const SESSION_LIST_LIMIT = 50;
 const TITLE_MAX = 60;
@@ -401,6 +406,7 @@ export const createSessionsService = ({
       .where(
         and(
           await visibleTo(reader),
+          ne(sessions.origin, DRY_RUN_ORIGIN),
           agentId === undefined ? undefined : eq(sessions.agentId, agentId),
           origin === undefined ? undefined : eq(sessions.origin, origin)
         )
@@ -556,6 +562,7 @@ export const createSessionsService = ({
       .where(
         and(
           await visibleTo(reader),
+          ne(sessions.origin, DRY_RUN_ORIGIN),
           eq(eventRows.workspaceId, reader.workspaceId),
           eq(eventRows.agentId, agentId),
           like(eventRows.type, "message.%"),

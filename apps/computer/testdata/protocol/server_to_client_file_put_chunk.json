@@ -1,0 +1,10 @@
+{
+  "id": "req-01HQ9",
+  "op": "file_put",
+  "transfer_id": "xfer-7",
+  "path": "/home/agentum/.agentum/sessions/sess-42/uploads/report.csv",
+  "seq": 0,
+  "data_b64": "aGVsbG8gd29ybGQ=",
+  "final": false,
+  "sha256": null
+}

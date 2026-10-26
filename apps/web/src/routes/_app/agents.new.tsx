@@ -1,18 +1,42 @@
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+import type { AgentTemplateId, ProfileGap, VoicePreset } from "@repo/db/shared";
+import type { AgentDraft } from "@repo/services/agent-builder/draft";
+import { templates } from "@repo/services/agent-builder/templates";
+import {
+  createFileRoute,
+  Link,
+  redirect,
+  useNavigate,
+  useRouter,
+} from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
-import { useCallback } from "react";
-import { runtimeConfigOf } from "#/components/agent/agent-config.ts";
-import { AgentForm, type AgentFormValues } from "#/components/agent/agent-form";
+import { useCallback, useState } from "react";
+import {
+  addressSuggestion,
+  applyEdit,
+  builderSteps,
+  type Locked,
+  openGaps,
+  redraftBlocker,
+} from "#/components/agent/builder/builder-logic.ts";
+import { DescribePanel } from "#/components/agent/builder/describe-panel";
+import { DraftCard } from "#/components/agent/builder/draft-card";
+import {
+  cleanSample,
+  createBlocker,
+  draftSaveKey,
+  type SampleChip,
+  serverDraft,
+} from "#/components/agent/builder/dry-run-logic.ts";
+import {
+  DryRunPanel,
+  type DryRunStep,
+} from "#/components/agent/builder/dry-run-panel";
 import { getTrpc } from "#/integrations/trpc/client";
 
 export const Route = createFileRoute("/_app/agents/new")({
   loader: async () => {
     try {
-      const [machines, providerKeys] = await Promise.all([
-        getTrpc().machines.list.query(),
-        getTrpc().agents.providerKeys.query(),
-      ]);
-      return { machines, providerKeys };
+      return { catalog: await getTrpc().agentBuilder.catalog.query() };
     } catch (error) {
       if (
         error instanceof TRPCClientError &&
@@ -26,43 +50,243 @@ export const Route = createFileRoute("/_app/agents/new")({
   component: NewAgent,
 });
 
-function NewAgent() {
-  const { machines, providerKeys } = Route.useLoaderData();
-  const navigate = Route.useNavigate();
-  const router = useRouter();
+interface Drafted {
+  didList: string[];
+  draft: AgentDraft;
+  gaps: ProfileGap[];
+}
 
-  const createAgent = useCallback(
-    async (values: AgentFormValues) => {
-      const runtimeConfig = runtimeConfigOf({}, values);
-      const sendsConfig =
-        (values.runtime === "cloud" || values.runtime === "machine") &&
-        Object.keys(runtimeConfig).length > 0;
-      const agent = await getTrpc().agents.create.mutate({
-        instructions: values.instructions,
-        model: values.model,
-        name: values.name,
-        runtime: values.runtime,
-        ...(values.runtime === "machine"
-          ? { machineId: values.machineId }
-          : {}),
-        ...(sendsConfig ? { runtimeConfig } : {}),
-      });
-      // Reload the sidebar's agent list.
-      await router.invalidate();
-      await navigate({ to: "/agents/$agentId", params: { agentId: agent.id } });
+const messageOf = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
+function NewAgent() {
+  const { catalog } = Route.useLoaderData();
+  const [description, setDescription] = useState("");
+  const [voice, setVoice] = useState<VoicePreset | undefined>();
+  const [templateId, setTemplateId] = useState<AgentTemplateId | undefined>();
+  const [drafted, setDrafted] = useState<Drafted | undefined>();
+  const [locked, setLocked] = useState<Locked>({});
+  const [addressEdit, setAddressEdit] = useState<string | undefined>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draftAgentId, setDraftAgentId] = useState<string | undefined>();
+  const [savedKey, setSavedKey] = useState<string | undefined>();
+  const [runId, setRunId] = useState<string | null>(null);
+  const [pending, setPending] = useState<DryRunStep | null>(null);
+  const [panelError, setPanelError] = useState<string | null>(null);
+  const router = useRouter();
+  const navigate = useNavigate();
+
+  const draft = drafted?.draft;
+  const address =
+    addressEdit ?? (draft === undefined ? "" : addressSuggestion(draft.name));
+
+  const pickTemplate = useCallback((id: AgentTemplateId) => {
+    setDescription(templates[id].description);
+    setVoice(templates[id].voice);
+    setTemplateId(id);
+  }, []);
+
+  const edit = useCallback(
+    (patch: Partial<AgentDraft>) => {
+      if (drafted === undefined) {
+        return;
+      }
+      const next = applyEdit(drafted.draft, locked, patch);
+      setDrafted({ ...drafted, draft: next.draft });
+      setLocked(next.locked);
     },
-    [navigate, router]
+    [drafted, locked]
+  );
+
+  const pickVoice = useCallback(
+    (next: VoicePreset) => {
+      setVoice(next);
+      edit({ voice: next });
+    },
+    [edit]
+  );
+
+  const runDraft = useCallback(async () => {
+    const blocker = draft === undefined ? null : redraftBlocker(draft);
+    setError(blocker);
+    if (blocker !== null) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const voicePreset = draft?.voice ?? voice;
+      setDrafted(
+        await getTrpc().agentBuilder.draft.mutate({
+          description,
+          ...(draft === undefined ? {} : { locked, previous: draft }),
+          ...(templateId === undefined ? {} : { templateId }),
+          ...(voicePreset === undefined ? {} : { voicePreset }),
+        })
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }, [description, draft, locked, templateId, voice]);
+
+  const gaps =
+    drafted === undefined ? [] : openGaps(drafted.gaps, drafted.draft, locked);
+
+  const editSample = useCallback(
+    (sampleInput: SampleChip[]) => edit({ sampleInput }),
+    [edit]
+  );
+
+  /** The draft's row id, saving the draft first when it is new or has changed since the last save. */
+  const ensureSaved = useCallback(
+    async (current: AgentDraft): Promise<string> => {
+      const sendable = serverDraft(current);
+      const key = draftSaveKey(sendable);
+      if (draftAgentId !== undefined && savedKey === key) {
+        return draftAgentId;
+      }
+      const saved = await getTrpc().agentBuilder.saveDraft.mutate({
+        draft: sendable,
+        ...(draftAgentId === undefined ? {} : { draftAgentId }),
+      });
+      setDraftAgentId(saved.id);
+      setSavedKey(key);
+      return saved.id;
+    },
+    [draftAgentId, savedKey]
+  );
+
+  /** Runs `action` as the panel's pending step and shows what fails. */
+  const act = useCallback(
+    async (step: DryRunStep, action: () => Promise<void>) => {
+      setPending(step);
+      setPanelError(null);
+      try {
+        await action();
+      } catch (cause) {
+        setPanelError(messageOf(cause));
+      } finally {
+        setPending(null);
+      }
+    },
+    []
+  );
+
+  const runDry = useCallback(async () => {
+    if (draft === undefined) {
+      return;
+    }
+    await act("run", async () => {
+      const id = await ensureSaved(draft);
+      const started = await getTrpc().agentBuilder.dryRun.mutate({
+        draftAgentId: id,
+        sample: cleanSample(draft.sampleInput),
+      });
+      setRunId(started.runId);
+    });
+  }, [act, draft, ensureSaved]);
+
+  const createAgent = useCallback(async () => {
+    if (draft === undefined) {
+      return;
+    }
+    await act("create", async () => {
+      const trpc = getTrpc();
+      // A taken address would fail after the agent is active, so ask first.
+      if (address !== "") {
+        const { available } = await trpc.agents.checkAddress.query({
+          local: address,
+        });
+        if (!available) {
+          throw new Error(`The address ${address} is taken. Pick another.`);
+        }
+      }
+      const id = await ensureSaved(draft);
+      const created = await trpc.agentBuilder.create.mutate({
+        ...(address === "" ? {} : { address }),
+        draft: serverDraft(draft),
+        draftAgentId: id,
+      });
+      await router.invalidate();
+      await navigate({
+        params: { agentId: created.id },
+        to: "/agents/$agentId",
+      });
+    });
+  }, [act, address, draft, ensureSaved, navigate, router]);
+
+  const discardDraft = useCallback(
+    () =>
+      act("discard", async () => {
+        if (draftAgentId !== undefined) {
+          await getTrpc().agentBuilder.discard.mutate({ draftAgentId });
+        }
+        await navigate({ to: "/agents" });
+      }),
+    [act, draftAgentId, navigate]
   );
 
   return (
-    <section className="mx-auto max-w-3xl">
-      <h1 className="mb-6 font-heading text-3xl text-foreground">New agent</h1>
-      <AgentForm
-        machines={machines}
-        onSubmit={createAgent}
-        providerKeys={providerKeys}
-        submitLabel="Create agent"
-      />
+    <section className="mx-auto flex max-w-6xl flex-col gap-4">
+      <div className="text-muted-foreground text-sm">
+        <Link className="hover:text-foreground" to="/agents">
+          Agents
+        </Link>
+        {" › New agent"}
+      </div>
+      <h1 className="font-heading text-3xl text-foreground">New agent</h1>
+      <div className="flex flex-wrap items-start gap-5">
+        <div className="flex min-w-0 flex-[1_1_380px] flex-col gap-3.5">
+          <DescribePanel
+            busy={busy}
+            description={description}
+            error={error}
+            hasDraft={draft !== undefined}
+            onDescription={setDescription}
+            onDraft={runDraft}
+            onTemplate={pickTemplate}
+            onVoice={pickVoice}
+            steps={
+              drafted === undefined ? [] : builderSteps(drafted.didList, gaps)
+            }
+            voice={draft?.voice ?? voice}
+          />
+        </div>
+        <div className="flex min-w-0 flex-[1_1_460px] flex-col gap-3.5">
+          {draft === undefined ? (
+            <p className="rounded-lg border border-border border-dashed p-6 text-muted-foreground text-sm">
+              Describe the agent and press Draft. The draft shows here, and
+              every part of it stays editable.
+            </p>
+          ) : (
+            <DraftCard
+              address={address}
+              catalog={catalog}
+              draft={draft}
+              gaps={gaps}
+              locked={locked}
+              onAddress={setAddressEdit}
+              onEdit={edit}
+            />
+          )}
+          {draft === undefined ? null : (
+            <DryRunPanel
+              createBlocker={createBlocker(gaps)}
+              error={panelError}
+              onCreate={createAgent}
+              onDiscard={discardDraft}
+              onRun={runDry}
+              onSample={editSample}
+              pending={pending}
+              runBlocker={redraftBlocker(draft)}
+              runId={runId}
+              sample={draft.sampleInput}
+            />
+          )}
+        </div>
+      </div>
     </section>
   );
 }

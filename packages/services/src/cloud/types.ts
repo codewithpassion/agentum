@@ -11,7 +11,11 @@ export interface CloudStart {
     slug: string;
   };
   inputFileIds: string[];
-  library?: { roots: import("@repo/db/shared").LibraryAccessGrant[] };
+  library?: {
+    roots: import("@repo/db/shared").LibraryAccessGrant[];
+    /** The library path of the run's own task folder, absent for a dry run (a dry run writes nothing, so it gets no folder). */
+    taskFolder?: string;
+  };
   mcpServers: Record<string, McpServerEntry>;
   run: {
     agentId: string;
@@ -37,6 +41,8 @@ export interface CloudRunnerPort {
   ) => Promise<void>;
   /** Stops the run's work. Best effort. */
   cancel: (runId: string, sessionId: string) => Promise<void>;
+  /** Tells a run in a Linux VM that library paths changed, so it pulls them. Best effort. */
+  libraryChanged?: (sessionId: string, paths: string[]) => Promise<void>;
   /** Starts working the run. Idempotent on `run.id`: a repeat start does nothing. */
   start: (input: CloudStart) => Promise<void>;
 }

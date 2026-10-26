@@ -59,6 +59,18 @@ export interface ProfileGap {
 export const MACHINE_STATUSES = ["online", "offline", "revoked"] as const;
 export type MachineStatus = (typeof MACHINE_STATUSES)[number];
 
+/**
+ * The jobs one machine can hold. `agent_host` runs agents through the daemon.
+ * `computer` is a client an agent drives (shell, files, desktop). One machine
+ * can hold both roles, and a revoke ends both.
+ */
+export const MACHINE_ROLES = ["agent_host", "computer"] as const;
+export type MachineRole = (typeof MACHINE_ROLES)[number];
+
+/** Presence of a machine's computer role. `machines.computer_status` is null when the machine has none. */
+export const COMPUTER_STATUSES = ["online", "offline"] as const;
+export type ComputerStatus = (typeof COMPUTER_STATUSES)[number];
+
 export const RUN_STATUSES = [
   "queued",
   "offered",
@@ -214,6 +226,14 @@ export const EVENT_TYPES = [
   "mailbox.failed",
   "machine.online",
   "machine.offline",
+  "computer.online",
+  "computer.offline",
+  "computer.exec",
+  "computer.file",
+  "computer.takeover_requested",
+  "computer.taken",
+  "computer.handed_back",
+  "browser.action",
   "agent.created",
   "agent.updated",
   "agent.address_reserved",
@@ -242,6 +262,12 @@ export const EVENT_TYPES = [
   "skill.unassigned",
   "skill.pinned",
   "skill.imported",
+  "skill.update_available",
+  "qa.asked",
+  "qa.answered",
+  "qa.accepted",
+  "qa.closed",
+  "map.edited",
   "workspace.snapshot",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -280,6 +306,87 @@ export const MAIL_SEND_TOOL = "mail_send";
 /** The tool key an "Always allow" on a mail recipient writes, one per address. */
 export const mailToolKey = (address: string): string =>
   `mail:${address.trim().toLowerCase()}`;
+
+/**
+ * Payloads of the computer and browser events. None carries command output or
+ * file bytes: those stay in the run's tool result and the files service.
+ */
+export interface ComputerPresencePayload {
+  machineId: string;
+}
+
+export interface ComputerExecPayload {
+  command: string;
+  durationMs: number;
+  /** Null when the process was killed or timed out. */
+  exitCode: number | null;
+  machineId: string;
+}
+
+export interface ComputerFilePayload {
+  bytes: number;
+  machineId: string;
+  op: "get" | "put";
+  path: string;
+}
+
+export interface ComputerTakeoverRequestedPayload {
+  machineId: string;
+  reason: string;
+  requestId: string;
+}
+
+export interface ComputerTakenPayload {
+  machineId: string;
+  /** Clerk user id of the person who took over. */
+  userId: string;
+}
+
+export interface ComputerHandedBackPayload {
+  machineId: string;
+  note?: string;
+  userId: string;
+}
+
+export interface BrowserActionPayload {
+  action: string;
+  url?: string;
+}
+
+/**
+ * Payloads of the Q&A, skill update and map events. Ids only, as `inbox.posted`
+ * does, so no question text lands in the event log.
+ */
+export interface QaAskedPayload {
+  questionId: string;
+}
+
+export interface QaAnsweredPayload {
+  answerId: string;
+  questionId: string;
+}
+
+export interface QaAcceptedPayload {
+  answerId: string;
+  questionId: string;
+}
+
+export interface QaClosedPayload {
+  questionId: string;
+}
+
+export interface SkillUpdateAvailablePayload {
+  commitSha: string;
+  skillId: string;
+}
+
+export const MAP_EDIT_ACTIONS = ["moved", "reset"] as const;
+export type MapEditAction = (typeof MAP_EDIT_ACTIONS)[number];
+
+export interface MapEditedPayload {
+  action: MapEditAction;
+  nodeKey: string;
+}
 
 export const EVENT_ACTOR_KINDS = [
   "user",
@@ -343,7 +450,25 @@ export const SKILL_VERSION_STATUSES = [
 ] as const;
 export type SkillVersionStatus = (typeof SKILL_VERSION_STATUSES)[number];
 
-export const REQUEST_KINDS = ["approval", "question"] as const;
+export const QA_STATUSES = ["open", "answered", "closed"] as const;
+export type QaStatus = (typeof QA_STATUSES)[number];
+
+/** Who wrote a question or answer: a person, or an agent's run. */
+export const QA_AUTHOR_KINDS = ["user", "agent"] as const;
+export type QaAuthorKind = (typeof QA_AUTHOR_KINDS)[number];
+
+/** Limits the ask and answer paths both enforce. */
+export const QA_TITLE_MAX = 200;
+export const QA_BODY_MAX = 20_000;
+
+/** Questions one agent may have open at once. */
+export const QA_OPEN_PER_AGENT_MAX = 5;
+
+/** Where a skill's files were imported from. GitHub only. */
+export const SKILL_SOURCE_PROVIDERS = ["github"] as const;
+export type SkillSourceProvider = (typeof SKILL_SOURCE_PROVIDERS)[number];
+
+export const REQUEST_KINDS = ["approval", "question", "takeover"] as const;
 export type RequestKind = (typeof REQUEST_KINDS)[number];
 
 export const REQUEST_STATUSES = [
@@ -373,6 +498,9 @@ export const APPROVAL_TTL_MS = 60 * 60_000;
 
 /** How long a question stays open: one day. */
 export const QUESTION_TTL_MS = 24 * 60 * 60_000;
+
+/** How long a takeover request stays open: as long as a question. */
+export const TAKEOVER_TTL_MS = QUESTION_TTL_MS;
 
 /** Most questions in one ask-user request. */
 export const QUESTIONS_MAX = 4;
@@ -404,6 +532,7 @@ export const NEEDS_YOU_KINDS = [
   "inbox_reply",
   "library_conflict",
   "wiki_suggestion",
+  "takeover",
 ] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
@@ -490,4 +619,73 @@ export interface DeskCard {
   startedBy: string;
   threadId?: string;
   title: string;
+}
+
+export const MAP_NODE_KINDS = ["trigger", "agent", "output"] as const;
+export type MapNodeKind = (typeof MAP_NODE_KINDS)[number];
+
+/** What starts an agent. `slack` is an agent's Slack app, which is not a `triggers` row. */
+export const MAP_TRIGGER_KINDS = ["http", "routine", "mail", "slack"] as const;
+export type MapTriggerKind = (typeof MAP_TRIGGER_KINDS)[number];
+
+/** Where an agent's work lands. */
+export const MAP_OUTPUT_KINDS = ["slack", "library", "qa", "email"] as const;
+export type MapOutputKind = (typeof MAP_OUTPUT_KINDS)[number];
+
+/** What an agent carries: a connector, its computer, its browser, or a skill. */
+export const MAP_PORT_KINDS = [
+  "connector",
+  "computer",
+  "browser",
+  "skill",
+] as const;
+export type MapPortKind = (typeof MAP_PORT_KINDS)[number];
+
+export const MAP_WIRE_KINDS = [
+  "trigger",
+  "handoff",
+  "slack",
+  "library",
+  "qa",
+  "email",
+] as const;
+export type MapWireKind = (typeof MAP_WIRE_KINDS)[number];
+
+/** A thing an agent node carries, drawn as a port on the node. */
+export interface MapPort {
+  /** The connector, machine or skill id, or the agent id for a browser. */
+  id: string;
+  kind: MapPortKind;
+  label: string;
+}
+
+/**
+ * One box on the map. `key` is what `map_positions.node_key` stores:
+ * `trigger:<id>`, `trigger:slack:<slackAppId>`, `agent:<id>`,
+ * `out:slack:<channel>`, `out:library:<folder>`, `out:qa` or `out:email:<agent>`.
+ * `subkind` names the trigger or output type and is null for an agent.
+ */
+export interface MapNode {
+  key: string;
+  kind: MapNodeKind;
+  label: string;
+  ports: MapPort[];
+  subkind: MapTriggerKind | MapOutputKind | null;
+  x: number;
+  y: number;
+}
+
+/** A line between two nodes, by key. `count7d` is the events over the last seven days. */
+export interface MapWire {
+  /** True when a run is going over this wire now. */
+  active: boolean;
+  count7d: number;
+  from: string;
+  kind: MapWireKind;
+  to: string;
+}
+
+export interface MapGraph {
+  nodes: MapNode[];
+  wires: MapWire[];
 }

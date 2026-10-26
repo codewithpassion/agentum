@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { files as fileRows } from "@repo/db/schema/files";
 import { machines } from "@repo/db/schema/machines";
@@ -22,6 +23,8 @@ import {
   type EventRecord,
   type EventsService,
 } from "./events.ts";
+import { memoryLibraryBlobs } from "./library/memory.ts";
+import { createLibraryService } from "./library.ts";
 import type {
   Clock,
   DeliveryContext,
@@ -2447,5 +2450,118 @@ describe("recordDryRunSkip", () => {
         tool: "t",
       })
     ).rejects.toMatchObject({ code: "conflict" });
+  });
+});
+
+describe("startRun with dryRun", () => {
+  let cloudDispatched: string[];
+
+  beforeEach(() => {
+    cloudDispatched = [];
+    runs = buildRuns({
+      adapters: [
+        spy,
+        {
+          ...spyAdapter(),
+          dispatch: (_db, run) => {
+            cloudDispatched.push(run.id);
+            return Promise.resolve();
+          },
+          kind: "cloud",
+        },
+      ],
+    });
+  });
+
+  test("a dry run starts on a draft cloud agent and is dispatched to cloud", async () => {
+    const draftId = (await agents.createDraft(user, { name: "Draft" })).id;
+    const { runId } = await start(user, draftId, {}, "hello", {
+      dryRun: true,
+    });
+    expect(runRow(runId)).toMatchObject({ dryRun: true, status: "queued" });
+    expect(cloudDispatched).toEqual([runId]);
+  });
+
+  test("a dry run on a machine agent is dispatched to cloud, not the machine", async () => {
+    const { runId } = await start(user, spyAgentId, {}, "hello", {
+      dryRun: true,
+    });
+    expect(runRow(runId)).toMatchObject({ dryRun: true });
+    expect(cloudDispatched).toEqual([runId]);
+    expect(dispatched).toEqual([]);
+  });
+
+  test("a draft agent without dryRun is not found", async () => {
+    const draftId = (await agents.createDraft(user, { name: "Draft" })).id;
+    await expect(start(user, draftId)).rejects.toThrow("Agent not found");
+    expect(runRowCount()).toBe(0);
+  });
+
+  test("a normal run has dryRun false", async () => {
+    const { runId } = await start(user, spyAgentId);
+    expect(runRow(runId)).toMatchObject({ dryRun: false });
+    expect(dispatched).toEqual([runId]);
+    expect(cloudDispatched).toEqual([]);
+  });
+});
+
+describe("the run task folder", () => {
+  const libraryFor = () =>
+    createLibraryService({
+      atomic: sqliteAtomic(db),
+      blobs: memoryLibraryBlobs(),
+      clock,
+      db,
+      events,
+    });
+
+  const slugOf = (agentId: string) =>
+    db
+      .select({ slug: agentRows.slug })
+      .from(agentRows)
+      .where(eq(agentRows.id, agentId))
+      .get()?.slug;
+
+  test("a new run gets its task folder", async () => {
+    const library = libraryFor();
+    runs = buildRuns({ library });
+    const { runId } = await start(user, spyAgentId);
+    const slug = slugOf(spyAgentId);
+    const entry = await library.stat(user, `agents/${slug}/tasks/${runId}`);
+    expect(entry.kind).toBe("dir");
+  });
+
+  test("a dry run gets no task folder", async () => {
+    const library = libraryFor();
+    runs = buildRuns({
+      adapters: [spy, { ...spyAdapter(), kind: "cloud" }],
+      library,
+    });
+    const { runId } = await start(user, spyAgentId, {}, "hello", {
+      dryRun: true,
+    });
+    const slug = slugOf(spyAgentId);
+    const error = await failure(
+      library.stat(user, `agents/${slug}/tasks/${runId}`)
+    );
+    expect(error).toMatchObject({ code: "not_found" });
+  });
+
+  test("a failing mkdir is logged and the run is still dispatched", async () => {
+    const logged = spyOn(console, "error").mockImplementation(() => undefined);
+    const library = {
+      ...libraryFor(),
+      mkdir: () => Promise.reject(new Error("disk on fire")),
+      pendingConflicts: () => Promise.resolve([]),
+    };
+    runs = buildRuns({ library });
+    const { runId } = await start(user, spyAgentId);
+    expect(runRow(runId)?.status).toBe("queued");
+    expect(dispatched).toEqual([runId]);
+    expect(logged).toHaveBeenCalledWith(
+      "Creating the run's task folder failed",
+      "Error"
+    );
+    logged.mockRestore();
   });
 });

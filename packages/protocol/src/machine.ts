@@ -54,6 +54,27 @@ export const enrollRequestSchema = z.strictObject({
 });
 export type EnrollRequest = z.infer<typeof enrollRequestSchema>;
 
+/**
+ * A computer client enrols with a code that adds the `computer` role to a
+ * machine. The daemon's body has no `role`, so the two never overlap.
+ */
+export const computerEnrollRequestSchema = z.strictObject({
+  arch: z.string().min(1).max(64),
+  clientVersion: z.string().min(1).max(64),
+  code: z.string().startsWith("hm_enr_").max(200),
+  hostname: z.string().min(1).max(255),
+  os: z.string().min(1).max(64),
+  role: z.literal("computer"),
+});
+export type ComputerEnrollRequest = z.infer<typeof computerEnrollRequestSchema>;
+
+/** What `/api/machines/enroll` parses. */
+export const machineEnrollRequestSchema = z.union([
+  enrollRequestSchema,
+  computerEnrollRequestSchema,
+]);
+export type MachineEnrollRequest = z.infer<typeof machineEnrollRequestSchema>;
+
 export const enrollResponseSchema = z.strictObject({
   credential: z.string().startsWith("hm_mach_"),
   machineId: z.string(),
