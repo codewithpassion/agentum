@@ -3,7 +3,7 @@ id: X.4
 title: Investigator runs are visible and stay inside the approval guardrail
 milestone: X
 size: S
-status: in_progress
+status: done
 depends_on: [X.3]
 branch: task/X.4-investigator-visibility
 lane: services
@@ -28,3 +28,4 @@ Dom decided (26 Oct 2026) that control-plane starts the investigator automatical
 - 2026-10-26: review clean after 3 fix rounds; code merged at 4fb57fb. Open: staging check for X.3 and X.4 (needs a cpt_ ingest token and control-plane staging on feat/investigator-visibility; setup in docs/reviews/tasks/X.4.md). For control-plane: steps[] in the result are re-added to the timeline, so live steps show twice.
 - 2026-10-26: deployed to staging (4a3e1503) and production (955ef460). Staging check dispatched.
 - 2026-10-26: staging check blocked: tmp/X.3 trigger token was removed by clean, and the dev user is not in HEI. Needs an HEI sign-in to rotate the trigger token.
+- 2026-10-26: staging check passed (signed in as Dom, HEI): steps and result reach control-plane staging, run link opens, ruled tools raise approvals and denial escalates. Not verified: incident timeline link-back (needs control-plane allowed_actions row and secret, control-plane's side). Gap found: a run ending done without reporting gets no fallback; filed X.8. Done.
