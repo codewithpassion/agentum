@@ -16,7 +16,7 @@ import {
   CLOUD_ENVIRONMENT_KEY,
   cloudEnvironmentError,
 } from "./cloud/environment.ts";
-import { isAnthropicModel } from "./cloud/models.ts";
+import { CLOUD_DEFAULT_MODEL, isAnthropicModel } from "./cloud/models.ts";
 import { CLOUD_NETWORK_KEY, networkAccessError } from "./cloud/network.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
@@ -156,6 +156,60 @@ export const agentCreateSchema = z.strictObject({
   soul: soulSchema.default(""),
 });
 export type AgentCreateInput = z.input<typeof agentCreateSchema>;
+
+// The builder chooses the final runtime on activation; draft input cannot override
+// the cloud runtime or its default model used by future dry runs.
+export const agentDraftSchema = agentCreateSchema.omit({
+  machineId: true,
+  model: true,
+  runtime: true,
+});
+export type AgentDraftInput = z.input<typeof agentDraftSchema>;
+
+// Activation uses the same defaults as create, including an empty runtimeConfig.
+export const agentActivateSchema = agentCreateSchema.pick({
+  machineId: true,
+  model: true,
+  runtime: true,
+  runtimeConfig: true,
+});
+export type AgentActivateInput = z.input<typeof agentActivateSchema>;
+
+// Only the specified character and length rules apply; punctuation is allowed
+// at either edge. Reserved operational mailboxes never belong to an agent.
+const addressSchema = z
+  .string()
+  .min(2)
+  .max(40)
+  .regex(/^[a-z0-9.-]+$/);
+const RESERVED_ADDRESSES = new Set(["postmaster", "abuse", "admin", "noreply"]);
+const assertAddress = (local: string): void => {
+  if (!addressSchema.safeParse(local).success) {
+    throw new ServiceError(
+      "invalid",
+      "Use 2 to 40 lowercase letters, digits, dots or dashes"
+    );
+  }
+  if (RESERVED_ADDRESSES.has(local)) {
+    throw new ServiceError("invalid", "That address is reserved");
+  }
+};
+const addressTaken = (): ServiceError =>
+  new ServiceError("conflict", "That address is taken");
+
+/** Suffixes stay within the length limit, including for a 40-character slug. */
+const freeName = async (
+  base: string,
+  taken: (candidate: string) => Promise<boolean>
+): Promise<string> => {
+  let candidate = base;
+  // biome-ignore lint/performance/noAwaitInLoops: Each suffix depends on whether the preceding candidate is taken.
+  for (let suffix = 2; await taken(candidate); suffix += 1) {
+    const ending = `-${suffix}`;
+    candidate = `${base.slice(0, SLUG_MAX - ending.length).replace(EDGE_DASHES, "")}${ending}`;
+  }
+  return candidate;
+};
 
 export const agentUpdateSchema = z
   .strictObject({
@@ -323,14 +377,10 @@ export const createAgentsService = ({
     }
   };
 
-  const create = async (
-    principal: Principal,
-    input: AgentCreateInput
-  ): Promise<AgentRecord> => {
-    const user = requireUser(principal, AGENT_CREATE);
-    const parsed = agentCreateSchema.parse(input);
-    const { workspaceId } = user;
-    authorize(user, AGENT_CREATE, { kind: AGENT_KIND, workspaceId });
+  const validateRuntime = async (
+    parsed: z.output<typeof agentActivateSchema>,
+    workspaceId: string
+  ): Promise<string | null> => {
     assertRuntimeConfig(parsed.runtime, parsed.runtimeConfig);
     assertModelForRuntime(parsed.runtime, parsed.model);
 
@@ -347,8 +397,28 @@ export const createAgentsService = ({
       );
     }
 
-    const slug = resolveSlug(parsed.slug, parsed.name);
-    if (await isSlugTaken(workspaceId, slug)) {
+    return machineId;
+  };
+
+  const insertAgent = async (
+    principal: Principal,
+    input: AgentCreateInput,
+    status: "active" | "draft"
+  ): Promise<AgentRecord> => {
+    const user = requireUser(principal, AGENT_CREATE);
+    const parsed = agentCreateSchema.parse(input);
+    const { workspaceId } = user;
+    authorize(user, AGENT_CREATE, { kind: AGENT_KIND, workspaceId });
+    const machineId = await validateRuntime(parsed, workspaceId);
+
+    const base = resolveSlug(parsed.slug, parsed.name);
+    const slug =
+      status === "draft"
+        ? await freeName(base, (candidate) =>
+            isSlugTaken(workspaceId, candidate)
+          )
+        : base;
+    if (status === "active" && (await isSlugTaken(workspaceId, slug))) {
       throw slugTaken(slug);
     }
 
@@ -368,26 +438,48 @@ export const createAgentsService = ({
       runtimeConfig: JSON.stringify(parsed.runtimeConfig),
       slug,
       soul: parsed.soul,
-      status: "active",
+      status,
       workspaceId,
     };
     try {
       await db.insert(agents).values(row);
     } catch (error) {
       if (isUniqueViolation(error)) {
+        if (status === "draft") {
+          // Another builder may have taken the suggestion before the insert.
+          return await insertAgent(principal, input, status);
+        }
         throw slugTaken(slug);
       }
       throw error;
     }
 
-    await events.append({
-      actor: { id: user.userId, kind: "user" },
-      agentId: row.id,
-      payload: { name: row.name, runtime: row.runtime, slug },
-      type: "agent.created",
-      workspaceId,
-    });
+    if (status === "active") {
+      await events.append({
+        actor: { id: user.userId, kind: "user" },
+        agentId: row.id,
+        payload: { name: row.name, runtime: row.runtime, slug },
+        type: "agent.created",
+        workspaceId,
+      });
+    }
     return toRecord(row);
+  };
+
+  const create = (principal: Principal, input: AgentCreateInput) =>
+    insertAgent(principal, input, "active");
+
+  const createDraft = async (principal: Principal, input: AgentDraftInput) => {
+    const parsed = agentDraftSchema.parse(input);
+    return await insertAgent(
+      principal,
+      {
+        ...parsed,
+        model: CLOUD_DEFAULT_MODEL,
+        runtime: "cloud",
+      },
+      "draft"
+    );
   };
 
   const get = async (
@@ -401,6 +493,156 @@ export const createAgentsService = ({
       throw new ServiceError("not_found", "Agent not found");
     }
     return agent;
+  };
+
+  /** Global availability deliberately reveals only taken/free, never the owner. */
+  const isAddressTaken = async (local: string): Promise<boolean> => {
+    const [row] = await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.emailLocal, local))
+      .limit(1);
+    return row !== undefined;
+  };
+
+  const suggestAddress = async (slug: string): Promise<string> => {
+    const base = slugSchema.parse(slug);
+    return await freeName(
+      base,
+      async (candidate) =>
+        RESERVED_ADDRESSES.has(candidate) || (await isAddressTaken(candidate))
+    );
+  };
+
+  const checkAddress = async (principal: Principal, local: string) => {
+    const workspaceId = readableWorkspace(principal, AGENT_READ);
+    authorize(principal, AGENT_READ, { kind: AGENT_KIND, workspaceId });
+    assertAddress(local);
+    return { available: !(await isAddressTaken(local)) };
+  };
+
+  const reserveAddress = async (
+    principal: Principal,
+    agentId: string,
+    local: string
+  ) => {
+    const user = requireUser(principal, AGENT_UPDATE);
+    const current = await get(user, agentId);
+    authorize(user, AGENT_UPDATE, {
+      kind: AGENT_KIND,
+      workspaceId: user.workspaceId,
+    });
+    assertAddress(local);
+    // Retrying the same reservation on its owner is idempotent.
+    if (current.emailLocal === local) {
+      return current;
+    }
+    let row: AgentRow | undefined;
+    try {
+      [row] = await db
+        .update(agents)
+        .set({ emailLocal: local })
+        .where(
+          and(eq(agents.id, agentId), eq(agents.workspaceId, user.workspaceId))
+        )
+        .returning();
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw addressTaken();
+      }
+      throw error;
+    }
+    if (!row) {
+      throw new ServiceError("not_found", "Agent not found");
+    }
+    await events.append({
+      actor: { id: user.userId, kind: "user" },
+      agentId,
+      payload: { emailLocal: local },
+      type: "agent.address_reserved",
+      workspaceId: user.workspaceId,
+    });
+    return toRecord(row);
+  };
+
+  const activate = async (
+    principal: Principal,
+    agentId: string,
+    input: AgentActivateInput
+  ) => {
+    const user = requireUser(principal, AGENT_CREATE);
+    const current = await get(user, agentId);
+    authorize(user, AGENT_CREATE, {
+      kind: AGENT_KIND,
+      workspaceId: user.workspaceId,
+    });
+    const parsed = agentActivateSchema.parse(input);
+    const machineId = await validateRuntime(parsed, user.workspaceId);
+    // Lifecycle transitions only accept drafts, so a retry cannot reconfigure
+    // an already active agent or append another agent.created event.
+    const [row] = await db
+      .update(agents)
+      .set({
+        machineId,
+        model: parsed.model,
+        runtime: parsed.runtime,
+        runtimeConfig: JSON.stringify(parsed.runtimeConfig),
+        status: "active",
+      })
+      .where(
+        and(
+          eq(agents.id, current.id),
+          eq(agents.workspaceId, user.workspaceId),
+          eq(agents.status, "draft")
+        )
+      )
+      .returning();
+    if (!row) {
+      throw new ServiceError("invalid", "That agent is not a draft");
+    }
+    await events.append({
+      actor: { id: user.userId, kind: "user" },
+      agentId,
+      payload: { name: row.name, runtime: row.runtime, slug: row.slug },
+      type: "agent.created",
+      workspaceId: user.workspaceId,
+    });
+    return toRecord(row);
+  };
+
+  const discardDraft = async (principal: Principal, agentId: string) => {
+    const user = requireUser(principal, AGENT_ARCHIVE);
+    const current = await get(user, agentId);
+    authorize(user, AGENT_ARCHIVE, {
+      kind: AGENT_KIND,
+      workspaceId: user.workspaceId,
+    });
+    // Discard retries keep the archived row, its slug and all event references.
+    if (current.status === "archived") {
+      return current;
+    }
+    const [row] = await db
+      .update(agents)
+      .set({ status: "archived" })
+      .where(
+        and(
+          eq(agents.id, agentId),
+          eq(agents.workspaceId, user.workspaceId),
+          eq(agents.status, "draft")
+        )
+      )
+      .returning();
+    if (!row) {
+      throw new ServiceError("invalid", "That agent is not a draft");
+    }
+    await events.append({
+      actor: { id: user.userId, kind: "user" },
+      agentId,
+      payload: { status: "archived" },
+      type: "agent.updated",
+      workspaceId: user.workspaceId,
+    });
+    return toRecord(row);
   };
 
   const list = async (
@@ -576,7 +818,19 @@ export const createAgentsService = ({
     return toRecord(row);
   };
 
-  return { archive, create, get, list, update };
+  return {
+    activate,
+    archive,
+    checkAddress,
+    create,
+    createDraft,
+    discardDraft,
+    get,
+    list,
+    reserveAddress,
+    suggestAddress,
+    update,
+  };
 };
 
 export type AgentsService = ReturnType<typeof createAgentsService>;

@@ -14,7 +14,7 @@ import { type StubMcp, startStubMcp } from "../../../scripts/dev/stub-mcp.ts";
 import { type AgentRecord, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import type { Fetcher } from "./connectors/mcp.ts";
-import { createConnectorsService } from "./connectors.ts";
+import { createConnectorsService, loadActiveAgent } from "./connectors.ts";
 import { decryptSecret, importSecretsKey } from "./crypto.ts";
 import { createEventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
@@ -742,4 +742,12 @@ test("another workspace cannot change a connector's call timeout", async () => {
   ).rejects.toMatchObject({ code: "not_found" });
 
   expect(only(await service.list(dom)).callTimeoutSeconds).toBe(60);
+});
+
+test("a draft connector assignment explains that the agent is not active", async () => {
+  const draft = await agents.createDraft(dom, { name: "Draft" });
+  await expect(loadActiveAgent(db, draft.id, WORKSPACE)).rejects.toMatchObject({
+    code: "invalid",
+    message: "That agent is not active",
+  });
 });
