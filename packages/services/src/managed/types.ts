@@ -1,3 +1,5 @@
+import type { ToolResultImage } from "./gateway.ts";
+
 /** The services' view of the poller: one Durable Object per managed run, by run id. */
 export interface ManagedPollerPort {
   /** Stops polling the run and tells Anthropic to stop its session. Best effort. */
@@ -24,3 +26,8 @@ export const MANAGED_CLAIMER = "managed";
  * run `interrupted`.
  */
 export const MANAGED_LEASE_MS = 10 * 60_000;
+
+/** What a screenshot of a computer's desktop came to: a picture, or the reason there is none, as text for the model. */
+export type DesktopScreenshot =
+  | { image: ToolResultImage; ok: true }
+  | { message: string; ok: false };

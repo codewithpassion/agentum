@@ -67,8 +67,10 @@ class FakeSocket implements RelaySocket {
     return this.attachment;
   }
 
-  send(data: string) {
-    this.sent.push(data);
+  send(data: string | ArrayBuffer) {
+    if (typeof data === "string") {
+      this.sent.push(data);
+    }
   }
 
   serializeAttachment(value: unknown) {
@@ -176,7 +178,7 @@ let user: Extract<Principal, { kind: "user" }>;
 type TestCore = ReturnType<typeof buildCore>;
 let core: TestCore;
 
-const buildCore = (store: RelayStorage = storage) =>
+const buildCore = (store: RelayStorage = storage, statusChanged?: () => void) =>
   createComputerRelayCore<FakeSocket>({
     background: (work) => {
       background.push(work);
@@ -190,6 +192,7 @@ const buildCore = (store: RelayStorage = storage) =>
     now: () => nowMs,
     scheduler,
     sockets: () => open,
+    statusChanged,
     storage: store,
   });
 
@@ -1099,5 +1102,71 @@ describe("typed wrappers", () => {
       text: "hi",
     });
     expect(frame.timeout_ms).toBe(DESKTOP_CLIPBOARD_TIMEOUT_MS);
+  });
+});
+
+describe("status hook", () => {
+  let calls: number;
+
+  beforeEach(() => {
+    calls = 0;
+    core = buildCore(storage, () => {
+      calls += 1;
+    });
+  });
+
+  test("the hook fires when a hello arrives", async () => {
+    const identity = await enrolComputer();
+    const socket = await dial(identity);
+    const before = calls;
+
+    await core.message(socket, hello());
+
+    expect(calls).toBeGreaterThan(before);
+  });
+
+  test("the hook fires when a person takes the desktop and when they release it", async () => {
+    const { socket } = await connectOnline();
+    const beforeTake = calls;
+    await core.takeHumanLease("u1");
+    expect(calls).toBeGreaterThan(beforeTake);
+
+    const beforeRelease = calls;
+    const release = watch(core.releaseHumanLease("u1"));
+    await settle();
+    await answer(socket, idOf(lastOp(socket, "desktop_clipboard_set")));
+    await settle();
+
+    expect(release.value).toEqual({ clipboardCleared: true, released: true });
+    expect(calls).toBeGreaterThan(beforeRelease);
+  });
+
+  test("the hook fires when the computer's socket closes", async () => {
+    const { socket } = await connectOnline();
+    const before = calls;
+
+    await hangUp(socket);
+
+    expect(calls).toBeGreaterThan(before);
+  });
+
+  test("a hook that throws does not break the call", async () => {
+    const logged = console.error;
+    console.error = () => undefined;
+    try {
+      core = buildCore(storage, () => {
+        throw new Error("viewer hub is down");
+      });
+      const { socket } = await connectOnline();
+
+      expect(await core.takeHumanLease("u1")).toMatchObject({
+        control: { holder: { kind: "human", userId: "u1" } },
+        ok: true,
+      });
+      await hangUp(socket);
+      expect(open).toHaveLength(0);
+    } finally {
+      console.error = logged;
+    }
   });
 });

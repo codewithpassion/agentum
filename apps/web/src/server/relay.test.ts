@@ -38,8 +38,11 @@ class FakeSocket implements RelaySocket {
     return this.attachment;
   }
 
-  send(data: string) {
-    this.sent.push(data);
+  send(data: string | ArrayBuffer) {
+    // Only the text frames matter to these tests. A viewer also gets binary frames.
+    if (typeof data === "string") {
+      this.sent.push(data);
+    }
   }
 
   serializeAttachment(value: unknown) {
@@ -503,6 +506,8 @@ describe("MachineRelay with a daemon and a computer on one object", () => {
       heartbeatAt: (socket) => heartbeats.get(socket) ?? null,
       machines: services.machines,
       now: () => nowMs,
+      // The viewer pump takes one step and then waits, so no timer outlives a test.
+      sleep: () => new Promise<void>(() => undefined),
       sockets: () => live,
       storage,
       tagsOf: (socket) => socket.tags,
@@ -783,5 +788,127 @@ describe("MachineRelay with a daemon and a computer on one object", () => {
 
     expect(machineRow(identity.machineId)?.status).toBe("offline");
     expect(sentTypes(daemonSocket)).toEqual(["hello_ack"]);
+  });
+  /** A person's socket, which also receives binary frames. */
+  class ViewerSocket extends TaggedSocket {
+    constructor() {
+      super(["viewer"]);
+    }
+
+    messages() {
+      return this.sent.map((raw) => JSON.parse(raw));
+    }
+  }
+
+  const desktopHelloFrame = JSON.stringify({
+    ...JSON.parse(computerHelloFrame),
+    capabilities: {
+      desktop: true,
+      desktop_unavailable_reason: null,
+      git: true,
+      python3: true,
+      skills: false,
+    },
+  });
+
+  const dialViewer = async (
+    identity: { machineId: string; workspaceId: string },
+    userId: string
+  ) => {
+    await relay.connect("viewer", identity);
+    const socket = new ViewerSocket();
+    live.push(socket);
+    relay.acceptViewer(socket, userId);
+    await settleViewers();
+    return socket;
+  };
+
+  /** Viewer pushes run in microtasks that wait on storage reads, so give them a turn of the event loop. */
+  const settleViewers = async () => {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    await settle();
+  };
+
+  const input = JSON.stringify({
+    actions: [{ type: "mouse_move", x: 10, y: 20 }],
+    t: "input",
+  });
+
+  test("a viewer connecting changes nothing about the daemon or the computer", async () => {
+    const identity = await enrolBoth();
+    const daemonSocket = await dialDaemon(identity);
+    await relay.message(daemonSocket, helloFrame);
+    const computerSocket = await dialComputer(identity);
+    await relay.message(computerSocket, computerHelloFrame);
+    const generation = storage.values.get("computer:generation");
+
+    const viewer = await dialViewer(identity, "user_1");
+
+    expect(storage.values.get("computer:generation")).toBe(generation);
+    expect(daemonSocket.closes).toEqual([]);
+    expect(computerSocket.closes).toEqual([]);
+    expect(viewer.closes).toEqual([]);
+
+    await hangUp(viewer);
+    expect(machineRow(identity.machineId)?.computerStatus).toBe("online");
+    expect(relay.viewers.viewerCount).toBe(0);
+  });
+
+  test("a viewer is told the status, and again when a person takes the desktop", async () => {
+    const identity = await enrolBoth();
+    const computerSocket = await dialComputer(identity);
+    await relay.message(computerSocket, desktopHelloFrame);
+
+    const viewer = await dialViewer(identity, "user_1");
+    expect(viewer.messages().at(-1)).toMatchObject({
+      connected: true,
+      desktop: true,
+      t: "status",
+      youHaveControl: false,
+    });
+
+    await relay.computer.takeHumanLease("user_1");
+    await settleViewers();
+    expect(viewer.messages().at(-1)).toMatchObject({
+      t: "status",
+      youHaveControl: true,
+    });
+  });
+
+  test("a viewer's input is refused without the lease and sent to the computer once it holds it", async () => {
+    const identity = await enrolBoth();
+    const computerSocket = await dialComputer(identity);
+    await relay.message(computerSocket, desktopHelloFrame);
+    const viewer = await dialViewer(identity, "user_1");
+    const sentOps = () =>
+      computerSocket.sent.map((raw) => JSON.parse(raw).op as string);
+
+    await relay.message(viewer, input);
+    await settleViewers();
+    expect(viewer.messages().at(-1)).toMatchObject({
+      code: "lease_required",
+      t: "error",
+    });
+    expect(sentOps()).not.toContain("desktop_input");
+
+    await relay.computer.takeHumanLease("user_1");
+    await relay.message(viewer, input);
+    await settleViewers();
+    expect(sentOps()).toContain("desktop_input");
+  });
+
+  test("the alarm takes viewers that outlived the object's memory back into the pump", async () => {
+    const identity = await enrolBoth();
+    const computerSocket = await dialComputer(identity);
+    await relay.message(computerSocket, desktopHelloFrame);
+    const viewer = await dialViewer(identity, "user_1");
+    relay.viewers.close(viewer);
+    expect(relay.viewers.viewerCount).toBe(0);
+
+    await fireMachineAlarm();
+
+    expect(relay.viewers.viewerCount).toBe(1);
   });
 });

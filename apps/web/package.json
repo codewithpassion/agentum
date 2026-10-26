@@ -51,6 +51,7 @@
     "@tanstack/react-start": "latest",
     "@trpc/client": "^11.19.0",
     "@trpc/server": "^11.19.0",
+    "@xyflow/react": "12.11.6",
     "acorn": "^8.19.0",
     "agents": "0.28.1",
     "class-variance-authority": "^0.7.1",

@@ -33,7 +33,11 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { hashedToken, hashToken, toBase64Url } from "./crypto.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import type { MachineRelayPort } from "./machines/types.ts";
+import type {
+  ComputerOutcome,
+  ComputerStatus as ComputerRelayStatus,
+  MachineRelayPort,
+} from "./machines/types.ts";
 import type { Clock } from "./runs/types.ts";
 import {
   bearerToken,
@@ -801,10 +805,79 @@ export const createMachinesService = ({
       .limit(OFFER_BATCH);
   };
 
+  /**
+   * The computer role of a machine the caller may watch. A machine of another
+   * workspace, a revoked one and one without the computer role all answer
+   * `not_found`, so the caller cannot tell them apart from a missing machine.
+   */
+  const requireComputer = async (
+    principal: Principal,
+    machineId: string
+  ): Promise<void> => {
+    const user = requireUser(principal, READ_ACTION);
+    authorize(user, READ_ACTION, {
+      id: machineId,
+      kind: MACHINE_KIND,
+      workspaceId: user.workspaceId,
+    });
+    const [machine] = await db
+      .select({ id: machines.id })
+      .from(machines)
+      .where(
+        and(
+          eq(machines.id, machineId),
+          eq(machines.workspaceId, user.workspaceId),
+          ne(machines.status, "revoked"),
+          isNotNull(machines.computerStatus)
+        )
+      )
+      .limit(1);
+    if (!machine) {
+      throw new ServiceError("not_found", "Machine not found");
+    }
+  };
+
+  const desktopStatus = async (
+    principal: Principal,
+    machineId: string
+  ): Promise<ComputerRelayStatus> => {
+    await requireComputer(principal, machineId);
+    return await relay.computerStatus(machineId);
+  };
+
+  const clipboardRead = async (
+    principal: Principal,
+    machineId: string
+  ): Promise<ComputerOutcome> => {
+    await requireComputer(principal, machineId);
+    const user = requireUser(principal, READ_ACTION);
+    return await relay.clipboardGet(machineId, {
+      kind: "human",
+      userId: user.userId,
+    });
+  };
+
+  const clipboardWrite = async (
+    principal: Principal,
+    machineId: string,
+    text: string
+  ): Promise<ComputerOutcome> => {
+    await requireComputer(principal, machineId);
+    const user = requireUser(principal, READ_ACTION);
+    return await relay.clipboardSet(
+      machineId,
+      { kind: "human", userId: user.userId },
+      { selections: ["clipboard", "primary"], text }
+    );
+  };
+
   return {
     attachComputer,
     authenticate,
+    clipboardRead,
+    clipboardWrite,
     createEnrollToken,
+    desktopStatus,
     enroll,
     list,
     markComputerOffline,
@@ -812,6 +885,7 @@ export const createMachinesService = ({
     markOffline,
     markOnline,
     pendingOffers,
+    requireComputer,
     revoke,
   };
 };

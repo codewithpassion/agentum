@@ -519,3 +519,21 @@ test("user cancellation settles once, resumes, and respects session visibility",
     message: "Already answered",
   });
 });
+
+test("mail approvals do not keep ordinary requests waiting after their answer", async () => {
+  const runId = await start();
+  await requests.open(system, {
+    input: {},
+    kind: "approval",
+    runId,
+    toolKey: "mail:outside@example.com",
+    toolName: "mail_send",
+    toolUseId: "mail:message",
+  });
+  expect(await status(runId)).toBe("running");
+  const ordinary = await open(runId);
+  expect(await status(runId)).toBe("waiting");
+  await answer(ordinary.id);
+  expect(await status(runId)).toBe("running");
+  expect(resumed).toEqual([ordinary.id]);
+});
