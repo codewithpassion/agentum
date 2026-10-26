@@ -149,8 +149,8 @@ export const setup = (github?: GithubSkillFetcher) => {
     clock: systemClock,
     db,
     events,
-    library,
     github,
+    library,
   });
   return { atomic, blobs, db, events, library, libraryBlobs, service };
 };
