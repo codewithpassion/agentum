@@ -65,12 +65,17 @@ reports the desktop as unavailable.
 
 ```sh
 docker run -d --restart unless-stopped --name hm-computer-desktop \
-  --shm-size=256m --cap-drop ALL --security-opt no-new-privileges \
+  --shm-size=256m --cap-drop ALL --cap-add SYS_CHROOT \
+  --security-opt no-new-privileges \
   --security-opt seccomp=packaging/desktop/seccomp.json \
   -v hm-computer-desktop:/var/lib/hm-computer \
   ghcr.io/<owner>/harbourmaster-computer-desktop:latest \
   --url https://harbourmaster.example.com --code hm_enr_YOUR_CODE
 ```
+
+`--cap-add SYS_CHROOT` is required with `--cap-drop ALL`. Chromium's sandbox calls `chroot`, and the
+profile in `packaging/desktop/seccomp.json` allows that call only for a container that holds `CAP_SYS_CHROOT`.
+Without it the self-test aborts and the daemon reports the desktop as unavailable.
 
 To keep the code off the `docker run` command line, pass `--env-file` with `HM_URL` and `HM_ENROLL_CODE` instead of the two flags. Do not use `--code-stdin` in a detached container: it reads an empty stdin and exits on every start.
 Pin a host to one build with the commit tag instead of `latest`. Podman should work the same but
