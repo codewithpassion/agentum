@@ -91,6 +91,47 @@ describe("installEnvironmentTools", () => {
     expect(text).toContain("/library/agents/ada/tasks/run-1");
   });
 
+  test.each([
+    ["linux-vm", LINUX_VM_TOOLS_EXTENSION],
+    ["isolate", LIBRARY_TOOLS_EXTENSION],
+  ] as const)(
+    "%s adds the computer paragraph only when computerOf answers",
+    async (environment, extensionName) => {
+      const sectionText = async (
+        computerOf?: () => Promise<{ desktop: boolean } | undefined>
+      ) => {
+        const registry = createRegistry();
+        installEnvironmentTools(
+          registry,
+          environment,
+          slugOf,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          computerOf
+        );
+        const extension = registry
+          .snapshot()
+          .installed()
+          .find((installed) => installed.name === extensionName);
+        const [section] = extension?.sections ?? [];
+        return await section?.render(undefined as never, BACKGROUND_CONTEXT);
+      };
+
+      expect(await sectionText()).not.toContain("computer_exec");
+      expect(await sectionText(async () => undefined)).not.toContain(
+        "computer_exec"
+      );
+      const plain = await sectionText(async () => ({ desktop: false }));
+      expect(plain).toContain("computer_exec");
+      expect(plain).not.toContain("desktop_screenshot");
+      expect(await sectionText(async () => ({ desktop: true }))).toContain(
+        "desktop_screenshot"
+      );
+    }
+  );
+
   test("switching environments leaves one set of tools each time", () => {
     const registry = createRegistry();
     installEnvironmentTools(registry, "isolate", slugOf);

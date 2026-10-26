@@ -7,7 +7,10 @@ import {
   createReadTool,
   createWriteTool,
 } from "@earendil-works/pi-durable/tools";
-import { workspaceInstructions } from "@repo/protocol/attachments";
+import {
+  computerInstructions,
+  workspaceInstructions,
+} from "@repo/protocol/attachments";
 import { agentHomePath } from "@repo/services/library/home";
 import { LIBRARY_MOUNT } from "../library-bash/run.ts";
 
@@ -42,18 +45,21 @@ const taskFolderLine = async (
 
 /**
  * A read changes nothing, so it may run again after a restart. A write and an edit may not.
- * `slugOf` and `taskFolderOf` are read when the prompt renders.
+ * `slugOf`, `taskFolderOf` and `computerOf` are read when the prompt renders.
+ * `computerOf` answers the agent's attached computer, and the section then adds
+ * how to use it.
  */
 export const libraryToolsExtension = (
   slugOf: () => Promise<string | undefined>,
-  taskFolderOf?: () => Promise<string | undefined>
+  taskFolderOf?: () => Promise<string | undefined>,
+  computerOf?: () => Promise<{ desktop: boolean } | undefined>
 ): Extension => ({
   name: LIBRARY_TOOLS_EXTENSION,
   sections: [
     {
       key: SECTION_KEY,
-      render: async () =>
-        workspaceInstructions({
+      render: async () => {
+        const text = workspaceInstructions({
           attachments: false,
           home: await homeFor(slugOf),
           homeIsLocal: true,
@@ -61,7 +67,10 @@ export const libraryToolsExtension = (
           runScript: true,
           scratch: { lasts: "call", path: null },
           taskFolder: await taskFolderLine(taskFolderOf),
-        }),
+        });
+        const computer = await computerOf?.();
+        return computer ? `${text}\n\n${computerInstructions(computer)}` : text;
+      },
     },
   ],
   tools: [
