@@ -23,6 +23,7 @@ import {
 import {
   RELAY_HEADER_MACHINE_ID,
   RELAY_HEADER_ROLE,
+  RELAY_HEADER_VIEWER_USER,
   RELAY_HEADER_WORKSPACE_ID,
   RELAY_ROLES,
   type RelayRole,
@@ -38,7 +39,7 @@ const isRelayRole = (value: string | null): value is RelayRole =>
 /**
  * One Durable Object per machine (`idFromName(machineId)`), not one per role.
  * It holds every socket of the machine, tagged by who is on the other end:
- * `daemon` (agent host), `computer` (the computer client), and later `viewer`
+ * `daemon` (agent host), `computer` (the computer client) and `viewer`
  * (people watching the desktop). One object gives the machine one identity and
  * one presence, and one `revoke` closes every socket. The viewer hub pumps
  * frames out of the computer socket, so it needs that socket in the same
@@ -51,7 +52,10 @@ const isRelayRole = (value: string | null): value is RelayRole =>
  * The daemon dials `/api/machines/connect` and the computer client
  * `/api/machines/computer`. Each route checks the credential for its role and
  * hands the upgrade here with the machine's identity and the role in headers
- * only the Worker can set. The socket is accepted with the hibernation API
+ * only the Worker can set. A person watching the desktop opens
+ * `/api/machines/:id/desktop/stream`, which checks their Clerk session and
+ * hands the upgrade here as role `viewer`, with their user id in a header of
+ * the same kind. The socket is accepted with the hibernation API
  * under the role as its tag, so an idle machine costs nothing and survives
  * this object being evicted: identity, the computer's hello and the desktop
  * lease live in durable storage. A computer's bare `ping` is answered by the
@@ -95,6 +99,9 @@ export class MachineRelay extends DurableObject<Env> {
     if (!isRelayRole(role)) {
       return new Response("No relay role.", { status: BAD_REQUEST });
     }
+    if (role === "viewer") {
+      return this.#acceptViewer(request.headers.get(RELAY_HEADER_VIEWER_USER));
+    }
     const { generation } = await this.#relay().connect(role, {
       machineId,
       workspaceId,
@@ -111,6 +118,23 @@ export class MachineRelay extends DurableObject<Env> {
       );
     }
     await this.#relay().accepted(role, server, generation);
+    return new Response(null, {
+      status: SWITCHING_PROTOCOLS,
+      webSocket: pair[0],
+    });
+  }
+
+  /** A person's socket: frames go out and input comes in. Needs no connect, generation or heartbeat. */
+  #acceptViewer(userId: string | null): Response {
+    if (!userId) {
+      return new Response("No viewer.", { status: BAD_REQUEST });
+    }
+    // biome-ignore lint/correctness/noUndeclaredVariables: WebSocketPair is a Workers runtime global
+    const pair = new WebSocketPair();
+    // biome-ignore lint/style/useDestructuring: WebSocketPair is an indexed object, not an iterable
+    const server = pair[1];
+    this.ctx.acceptWebSocket(server, ["viewer"]);
+    this.#relay().acceptViewer(server, userId);
     return new Response(null, {
       status: SWITCHING_PROTOCOLS,
       webSocket: pair[0],
