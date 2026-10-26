@@ -122,6 +122,26 @@ const only = <T>(items: readonly T[]): T => {
 const addHeaderConnector = () =>
   service.create(dom, { name: "Stub", url: `${PUBLIC_ORIGIN}/mcp` });
 
+test("a stored tool list reads back readOnly, and a row written before the field counts as not read-only", async () => {
+  const connector = await addHeaderConnector();
+  const storeTools = (tools: unknown[]) =>
+    db
+      .update(connectors)
+      .set({ tools: JSON.stringify(tools) })
+      .where(eq(connectors.id, connector.id));
+  const readBack = async () => only(await service.list(dom)).tools;
+
+  await storeTools([{ description: null, name: "old_row" }]);
+  expect(await readBack()).toEqual([
+    { description: null, name: "old_row", readOnly: false },
+  ]);
+
+  await storeTools([{ description: null, name: "get", readOnly: true }]);
+  expect(await readBack()).toEqual([
+    { description: null, name: "get", readOnly: true },
+  ]);
+});
+
 test("a server that wants a bearer is a header connector, waiting for a credential", async () => {
   const connector = await addHeaderConnector();
 
