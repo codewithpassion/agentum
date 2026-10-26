@@ -72,8 +72,25 @@ const scriptedFetch = (replies: Response[]) => {
   return { calls, fetcher };
 };
 
+/** Methods the catalog and drafting paths never call. */
+const unused = (): Promise<never> => Promise.reject(new Error("unused"));
+
+const unusedAgents = {
+  activate: unused,
+  createDraft: unused,
+  discardDraft: unused,
+  get: unused,
+  reserveAddress: unused,
+  suggestAddress: unused,
+  update: unused,
+};
+
+const unusedConnectors = { assign: unused };
+const unusedSkillsStore = { assign: unused };
+
 const catalogFixtures = () => ({
   agents: {
+    ...unusedAgents,
     list: async () => [
       {
         id: "agent_1",
@@ -83,6 +100,7 @@ const catalogFixtures = () => ({
     ],
   },
   connectors: {
+    ...unusedConnectors,
     list: async () => [
       {
         id: "conn_mail",
@@ -100,6 +118,7 @@ const catalogFixtures = () => ({
     ],
   },
   skillsStore: {
+    ...unusedSkillsStore,
     list: async () => [
       {
         id: "skill_people",
@@ -154,6 +173,8 @@ const buildDeps = (
         updatedAt: null,
       }),
     },
+    routines: { create: unused },
+    runs: { startRun: unused },
     skillsStore: base.skillsStore,
   };
 };

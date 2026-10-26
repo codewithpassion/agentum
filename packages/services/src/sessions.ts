@@ -37,6 +37,8 @@ import type { Principal } from "./workspaces.ts";
 
 const READ_ACTION = "sessions.read";
 const SESSION_KIND = "session";
+/** Dry-run sessions are private to their builder and never listed or searched. */
+const DRY_RUN_ORIGIN = "dry_run";
 /** Sessions one list call returns, newest first. */
 export const SESSION_LIST_LIMIT = 50;
 const TITLE_MAX = 60;
@@ -401,6 +403,7 @@ export const createSessionsService = ({
       .where(
         and(
           await visibleTo(reader),
+          ne(sessions.origin, DRY_RUN_ORIGIN),
           agentId === undefined ? undefined : eq(sessions.agentId, agentId),
           origin === undefined ? undefined : eq(sessions.origin, origin)
         )
@@ -556,6 +559,7 @@ export const createSessionsService = ({
       .where(
         and(
           await visibleTo(reader),
+          ne(sessions.origin, DRY_RUN_ORIGIN),
           eq(eventRows.workspaceId, reader.workspaceId),
           eq(eventRows.agentId, agentId),
           like(eventRows.type, "message.%"),
