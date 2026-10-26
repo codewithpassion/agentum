@@ -3,6 +3,7 @@ import {
   EVENT_TYPES,
   MACHINE_ROLES,
   NEEDS_YOU_KINDS,
+  QA_STATUSES,
   REQUEST_KINDS,
 } from "./shared.ts";
 import { migrated } from "./test-db.ts";
@@ -54,14 +55,18 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "managed_sessions",
     "managed_skill_versions",
     "managed_skills",
+    "map_positions",
     "oauth_clients",
     "oauth_states",
+    "qa_answers",
+    "qa_questions",
     "run_requests",
     "runs",
     "secrets",
     "sessions",
     "skill_assignments",
     "skill_library_migrations",
+    "skill_sources",
     "skill_version_files",
     "skill_versions",
     "skills",
@@ -86,7 +91,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(48);
+  expect(tables.length).toBe(52);
 
   for (const table of tables) {
     const column = client
@@ -157,4 +162,105 @@ test("the shared module names the machine roles, the computer events and the tak
   }
   expect(REQUEST_KINDS).toContain("takeover");
   expect(NEEDS_YOU_KINDS).toContain("takeover");
+});
+
+const indexColumns = (
+  client: ReturnType<typeof migrated>["client"],
+  index: string
+) =>
+  client
+    .query<{ name: string }, []>(`PRAGMA index_info(${index})`)
+    .all()
+    .map((row) => row.name);
+
+test("the Q&A tables carry the questions index, the answers index and no accepted-answer key", () => {
+  const { client } = migrated();
+  expect(indexColumns(client, "qa_questions_status_idx")).toEqual([
+    "workspace_id",
+    "status",
+    "created_at",
+  ]);
+  expect(indexColumns(client, "qa_answers_question_idx")).toEqual([
+    "question_id",
+    "created_at",
+  ]);
+  const keys = client
+    .query<{ from: string; table: string }, []>(
+      "PRAGMA foreign_key_list(qa_questions)"
+    )
+    .all();
+  expect(keys.map((key) => key.from).sort()).toEqual([
+    "run_id",
+    "workspace_id",
+  ]);
+  const column = client
+    .query<Column, []>("PRAGMA table_info(qa_questions)")
+    .all()
+    .find((c) => c.name === "accepted_answer_id");
+  expect(column?.notnull).toBe(0);
+  expect(QA_STATUSES).toEqual(["open", "answered", "closed"]);
+});
+
+test("a skill source is keyed by its skill and indexed by checked_at", () => {
+  const { client } = migrated();
+  const columns = client
+    .query<Column & { pk: number }, []>("PRAGMA table_info(skill_sources)")
+    .all();
+  expect(columns.find((c) => c.pk === 1)?.name).toBe("skill_id");
+  expect(columns.find((c) => c.name === "path")?.notnull).toBe(0);
+  expect(columns.find((c) => c.name === "latest_commit_sha")?.notnull).toBe(0);
+  expect(columns.find((c) => c.name === "commit_sha")?.notnull).toBe(1);
+  expect(indexColumns(client, "skill_sources_checked_idx")).toEqual([
+    "checked_at",
+  ]);
+  const version = client
+    .query<Column, []>("PRAGMA table_info(skill_versions)")
+    .all()
+    .find((c) => c.name === "source_commit_sha");
+  expect(version?.notnull).toBe(0);
+});
+
+test("map positions are keyed by workspace and node", () => {
+  const { client } = migrated();
+  const keyed = client
+    .query<{ name: string; pk: number }, []>("PRAGMA table_info(map_positions)")
+    .all()
+    .filter((c) => c.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((c) => c.name);
+  expect(keyed).toEqual(["workspace_id", "node_key"]);
+});
+
+test("the events type index exists and the events triggers survived the migration", () => {
+  const { client } = migrated();
+  expect(indexColumns(client, "events_workspace_type_created_idx")).toEqual([
+    "workspace_id",
+    "type",
+    "created_at",
+  ]);
+  const triggers = client
+    .query<{ name: string }, []>(
+      "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'events'"
+    )
+    .all();
+  expect(triggers).toHaveLength(2);
+  const rebuilt = client
+    .query<{ name: string }, []>(
+      "SELECT name FROM sqlite_master WHERE name LIKE '%__new_%'"
+    )
+    .all();
+  expect(rebuilt).toEqual([]);
+});
+
+test("the shared module names the Q&A, skill update and map events", () => {
+  for (const type of [
+    "qa.asked",
+    "qa.answered",
+    "qa.accepted",
+    "qa.closed",
+    "skill.update_available",
+    "map.edited",
+  ]) {
+    expect(EVENT_TYPES).toContain(type as never);
+  }
 });
