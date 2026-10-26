@@ -177,7 +177,7 @@ export const createLibraryService = ({
         workspaceId: member.workspaceId,
       });
     } catch {
-      // The change is already committed; the listener's own retry covers it.
+      // The change is already committed. V4.6 wires the listener and owns its retry.
     }
   };
   const versionOf = (
