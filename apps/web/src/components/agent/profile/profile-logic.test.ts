@@ -477,8 +477,10 @@ describe("folderLabel", () => {
 });
 
 describe("LIBRARY_NOTE", () => {
-  test("says access per folder comes later", () => {
-    expect(LIBRARY_NOTE).toBe("Access per folder comes later.");
+  test("says the folders sync live and tasks write to their task folder", () => {
+    expect(LIBRARY_NOTE).toBe(
+      "On a machine or VM these folders sync live. Each task writes to its task folder."
+    );
   });
 });
 
