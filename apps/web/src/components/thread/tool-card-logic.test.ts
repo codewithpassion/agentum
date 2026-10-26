@@ -232,13 +232,15 @@ test("a group of the same name counts its calls", () => {
   expect(groupLabel(["bash", "bash", "bash"])).toBe("bash ×3");
 });
 
-test("a group of different names counts its calls", () => {
-  expect(groupLabel(["bash", "read"])).toBe("2 tool calls");
+test("a group of different names lists each run of the same name", () => {
+  expect(groupLabel(["bash", "read"])).toBe("bash, read");
+  expect(groupLabel(["Read", "Read", "Read", "Bash"])).toBe("Read ×3, Bash");
+  expect(groupLabel(["a", "b", "b", "a"])).toBe("a, b ×2, a");
 });
 
-test("unnamed calls never count as the same name", () => {
-  expect(groupLabel([null, null])).toBe("2 tool calls");
-  expect(groupLabel(["bash", null])).toBe("2 tool calls");
+test("unnamed calls read as Tool", () => {
+  expect(groupLabel([null, null])).toBe("Tool ×2");
+  expect(groupLabel(["bash", null])).toBe("bash, Tool");
 });
 
 test("an empty group reads as no tool calls", () => {

@@ -153,17 +153,22 @@ export const toolCardInfo = (call: ToolCall): ToolCardInfo => {
   };
 };
 
-/** The label of a group of tool calls, by their names. */
+/** The label of a group of tool calls: runs of the same name count as "name ×n", so "Read ×3, Bash". */
 export const groupLabel = (names: readonly (string | null)[]): string => {
   if (names.length === 0) {
     return "No tool calls";
   }
-  const [first] = names;
-  if (names.length === 1) {
-    return first ?? "Tool";
+  const runs: { count: number; name: string }[] = [];
+  for (const raw of names) {
+    const name = raw ?? "Tool";
+    const last = runs.at(-1);
+    if (last?.name === name) {
+      last.count += 1;
+    } else {
+      runs.push({ count: 1, name });
+    }
   }
-  if (first !== null && names.every((name) => name === first)) {
-    return `${first} ×${names.length}`;
-  }
-  return `${names.length} tool calls`;
+  return runs
+    .map(({ count, name }) => (count === 1 ? name : `${name} ×${count}`))
+    .join(", ");
 };
