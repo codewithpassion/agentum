@@ -1591,9 +1591,12 @@ describe("the library copy", () => {
     const local = localFile(workDirOf(run.claim), NOTES);
     writeFileSync(local, "mine");
     remote.put(NOTES, "n2");
+    remote.calls.length = 0;
     run.execution.libraryChanged([NOTES]);
     await sleep(100);
 
+    // The pull ran and still left the edit alone.
+    expect(remote.calls.length).toBeGreaterThan(0);
     expect(readFileSync(local, "utf8")).toBe("mine");
 
     run.execution.abort("test over");

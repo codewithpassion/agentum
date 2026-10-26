@@ -704,6 +704,27 @@ describe("fsLibraryWatcher", () => {
     }
   });
 
+  test("reports what a folder holds that was deleted and made again under the same name", async () => {
+    const dir = join(workDir, LIBRARY_DIR);
+    mkdirSync(join(dir, "x/y"), { recursive: true });
+    const reported: string[] = [];
+    const stop = fsLibraryWatcher(dir)((libraryPath) => {
+      reported.push(libraryPath);
+    });
+    try {
+      rmSync(join(dir, "x"), { force: true, recursive: true });
+      mkdirSync(join(dir, "x/y"), { recursive: true });
+      writeFileSync(join(dir, "x/y/c.md"), "c");
+      await waitFor(() => reported.includes("x/y/c.md"));
+
+      // Bun does not report later edits in a folder that was deleted and made
+      // again under the same name; the checkpoint sends those.
+      expect(reported).toContain("x/y/c.md");
+    } finally {
+      stop();
+    }
+  });
+
   test("reports nothing after it was stopped", async () => {
     const dir = join(workDir, LIBRARY_DIR);
     mkdirSync(join(dir, "agents/ada"), { recursive: true });

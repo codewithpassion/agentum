@@ -147,10 +147,13 @@ export const fsLibraryWatcher =
         }
         const child = join(folder, name);
         try {
+          // A folder that was deleted and made again under the same name is a
+          // new folder, so its old watch goes before the new one starts. Bun
+          // then reports nothing more from it, and its later edits wait for
+          // the next checkpoint.
+          unwatch(child);
           if (isFolder(child)) {
             watchFolder(child, true);
-          } else {
-            unwatch(child);
           }
           report(child);
         } catch (error) {
@@ -161,14 +164,19 @@ export const fsLibraryWatcher =
       // An unhandled `error` event would end the daemon.
       (watcher as unknown as EventEmitter).on("error", onError);
       watchers.set(folder, watcher);
-      for (const entry of readdirSync(folder, { withFileTypes: true })) {
-        const child = join(folder, entry.name);
-        if (entry.isDirectory()) {
-          watchFolder(child, announce);
+      try {
+        for (const entry of readdirSync(folder, { withFileTypes: true })) {
+          const child = join(folder, entry.name);
+          if (entry.isDirectory()) {
+            watchFolder(child, announce);
+          }
+          if (announce) {
+            report(child);
+          }
         }
-        if (announce) {
-          report(child);
-        }
+      } catch (error) {
+        unwatch(folder);
+        throw error;
       }
     };
 
