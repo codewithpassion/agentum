@@ -362,7 +362,7 @@ export const run = async (
   report.push(
     verified
       ? "Applied. Verified: no mapped id is left and the events triggers are in place."
-      : `PROBLEM  after the write ${left.changes.length} cell(s) still hold an old id and the events triggers are ${after.eventsTriggers.join(", ") || "missing"}. Re-run the script.`
+      : `PROBLEM  after the write ${left.changes.length} cell(s) still hold an old id and the events triggers are ${after.eventsTriggers.join(", ") || "missing"}. Re-run the script for old ids; if the triggers are missing, recreate events_no_update and events_no_delete from packages/db/migrations/0000_init.sql.`
   );
   return { exitCode: verified ? 0 : 1, report: report.join("\n") };
 };

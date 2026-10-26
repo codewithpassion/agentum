@@ -104,6 +104,9 @@ const main = async () => {
 
   let driver: Driver;
   if (typeof dbPath === "string") {
+    if (!(await file(dbPath).exists())) {
+      throw new Error(`${dbPath} does not exist.`);
+    }
     driver = sqliteDriver(new Database(dbPath));
   } else {
     const env = flags.get("--env");
