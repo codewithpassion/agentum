@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  GATED_COUNT_KEY,
+  GATED_TOOL,
   SLOW_READ_COUNT_KEY,
   SLOW_READ_TOOL,
 } from "../src/server/pi-run-dev-tools.ts";
@@ -29,6 +31,15 @@ describe("findDevOnly", () => {
         { path: "dist/server/b.json", text: `"${SLOW_READ_COUNT_KEY}"` },
       ])
     ).toEqual(["dist/server/b.json"]);
+  });
+
+  test("the gated tool's name and storage key are reported", () => {
+    expect(
+      findDevOnly([
+        { path: "dist/server/c.js", text: `name: "${GATED_TOOL}"` },
+        { path: "dist/server/d.json", text: `"${GATED_COUNT_KEY}"` },
+      ])
+    ).toEqual(["dist/server/c.js", "dist/server/d.json"]);
   });
 
   test("only the offending paths are returned", () => {

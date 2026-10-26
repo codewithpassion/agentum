@@ -388,6 +388,31 @@ const uniqueName = (name: string, taken: Set<string>): string => {
   return candidate;
 };
 
+/** The server and tool name an MCP tool was listed with, before Pi's name for it was made. */
+export interface ToolOrigin {
+  name: string;
+  server: string;
+}
+
+/**
+ * The origin of every Pi tool the servers' lists install, by Pi's name. The name
+ * cannot be parsed back (`piToolName` replaces characters and cuts, `uniqueName`
+ * may add a number), so whoever needs the real server and tool keeps this map.
+ */
+export const mcpToolOrigins = (tools: ServerTools): Map<string, ToolOrigin> => {
+  const origins = new Map<string, ToolOrigin>();
+  for (const [server, listed] of Object.entries(tools)) {
+    const taken = new Set<string>();
+    for (const tool of listed) {
+      origins.set(uniqueName(piToolName(server, tool.name), taken), {
+        name: tool.name,
+        server,
+      });
+    }
+  }
+  return origins;
+};
+
 interface ToolCallOutput {
   isError: boolean;
   output: { text: string; type: "text" }[];

@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { Context } from "@earendil-works/chord/context";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
-import { SLOW_READ_TOOL, slowReadTool } from "./pi-run-dev-tools.ts";
+import {
+  GATED_TOOL,
+  gatedTool,
+  SLOW_READ_TOOL,
+  slowReadTool,
+} from "./pi-run-dev-tools.ts";
 
 // The slow read tool never reads the API, so the tests pass an empty one.
 const NO_API = {} as ToolExecutionApi;
@@ -60,5 +65,38 @@ describe("slowReadTool", () => {
     );
 
     expect(result.isError).toBe(false);
+  });
+});
+
+describe("gatedTool", () => {
+  test("is named dev_gated and is not safe to replay", () => {
+    const tool = gatedTool({ countRun: () => Promise.resolve(1) });
+
+    expect(tool.name).toBe(GATED_TOOL);
+    expect(tool.name).toBe("dev_gated");
+    expect(tool.replay).toBeUndefined();
+  });
+
+  test("execute counts one run per call and says the total", async () => {
+    let runs = 0;
+    const tool = gatedTool({
+      countRun: () => {
+        runs += 1;
+        return Promise.resolve(runs);
+      },
+    });
+
+    const first = await tool.execute({}, NO_API, contextWith());
+    const second = await tool.execute({}, NO_API, contextWith());
+
+    expect(first).toEqual({
+      isError: false,
+      output: [{ text: "gated ran 1 times", type: "text" }],
+    });
+    expect(second).toEqual({
+      isError: false,
+      output: [{ text: "gated ran 2 times", type: "text" }],
+    });
+    expect(runs).toBe(2);
   });
 });

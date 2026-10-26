@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 /// <reference types="bun" />
 /**
- * Production build guard. Dev builds register the dev-only slow read tool
- * (src/server/pi-run-dev-tools.ts). A production build must not contain it,
- * so this script fails the build when a built server file mentions its name
- * or its storage key.
+ * Production build guard. Dev builds register the dev-only slow read and
+ * gated tools (src/server/pi-run-dev-tools.ts). A production build must not
+ * contain them, so this script fails the build when a built server file
+ * mentions a tool's name or its storage key.
  *
  *   bun scripts/check-dev-only.ts   # after `vite build`, reads dist/server
  */
@@ -12,6 +12,8 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import {
+  GATED_COUNT_KEY,
+  GATED_TOOL,
   SLOW_READ_COUNT_KEY,
   SLOW_READ_TOOL,
 } from "../src/server/pi-run-dev-tools.ts";
@@ -19,7 +21,12 @@ import {
 const APP_DIR = resolve(import.meta.dir, "..");
 const SERVER_DIR = join(APP_DIR, "dist/server");
 const TEXT_FILE = /\.(js|mjs|json)$/;
-const MARKERS = [SLOW_READ_TOOL, SLOW_READ_COUNT_KEY];
+const MARKERS = [
+  SLOW_READ_TOOL,
+  SLOW_READ_COUNT_KEY,
+  GATED_TOOL,
+  GATED_COUNT_KEY,
+];
 
 /** The paths of the files whose text contains a dev-only marker. */
 export const findDevOnly = (
