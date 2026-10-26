@@ -187,7 +187,9 @@ test("relaunches after rejected reconnect and after the idle deadline", async ()
   expect(driver.connections).toEqual(["session-1"]);
 });
 test("screenshots are library files in the run task folder with missing folders created", async () => {
-  const entry = await service.screenshot(principal);
+  const { entry, bytes, pageUrl } = await service.screenshot(principal);
+  expect(bytes).toEqual(png);
+  expect(pageUrl).toBe(driver.url);
   expect(entry.path.startsWith(`${taskFolderPath("agent", "r")}/`)).toBe(true);
   expect(entry.path.endsWith(".png")).toBe(true);
   expect((await library.read(principal, entry.path)).bytes).toEqual(png);

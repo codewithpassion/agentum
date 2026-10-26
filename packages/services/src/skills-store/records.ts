@@ -1,4 +1,4 @@
-import type { skillVersions } from "@repo/db/schema/skills";
+import type { skillSources, skillVersions } from "@repo/db/schema/skills";
 import type { SkillAuthorKind, SkillVersionStatus } from "@repo/db/shared";
 import { z } from "zod";
 
@@ -100,6 +100,7 @@ export interface SkillRecord {
   name: string;
   /** Null: owned by people. */
   ownerAgentId: string | null;
+  source?: typeof skillSources.$inferSelect | null;
   updatedAt: string;
 }
 
@@ -128,6 +129,7 @@ export interface FileRecord {
 
 export interface ShownVersion {
   files: FileRecord[];
+  source?: typeof skillSources.$inferSelect | null;
   version: VersionRecord;
 }
 

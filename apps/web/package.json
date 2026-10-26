@@ -31,6 +31,7 @@
     "@clerk/backend": "^3.16.8",
     "@clerk/hono": "^0.1.69",
     "@clerk/tanstack-react-start": "^1.4.21",
+    "@cloudflare/playwright": "1.3.5",
     "@cloudflare/sandbox": "1.0.1",
     "@earendil-works/chord": "1.3.0",
     "@earendil-works/pi-ai": "1.3.0",

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { BandTone, ReceiptStepState, RunStatus } from "@repo/db/shared";
+import type { RequestView } from "#/components/requests/request-card-logic.ts";
 import type { TaskView } from "#/integrations/trpc/types";
 import {
   canStop,
@@ -8,6 +9,7 @@ import {
   countText,
   kindLabel,
   logTagClass,
+  pendingTakeover,
   receiptRunOf,
   runsOnText,
   splitOtherRuns,
@@ -147,4 +149,41 @@ test("every log kind has its own tag colour", () => {
     "error",
   ] as const;
   expect(new Set(kinds.map(logTagClass)).size).toBe(kinds.length);
+});
+
+test("the pending takeover is the run's open request of that kind", () => {
+  const takeover = (id: string, settled: RequestView["settled"]) =>
+    [
+      id,
+      {
+        anchorId: null,
+        display: { machineId: "m1", reason: `Reason ${id}` },
+        expiresAt: "",
+        id,
+        kind: "takeover",
+        runId: "run_1",
+        settled,
+      },
+    ] as const;
+  const question = [
+    "q1",
+    {
+      anchorId: null,
+      display: { questions: [] },
+      expiresAt: "",
+      id: "q1",
+      kind: "question",
+      runId: "run_1",
+      settled: null,
+    },
+  ] as unknown as readonly [string, RequestView];
+  expect(pendingTakeover(new Map([question]))).toBeNull();
+  expect(
+    pendingTakeover(new Map([takeover("t1", { status: "expired" })]))
+  ).toBeNull();
+  expect(
+    pendingTakeover(
+      new Map([takeover("t1", { status: "expired" }), takeover("t2", null)])
+    )
+  ).toEqual({ reason: "Reason t2", requestId: "t2" });
 });

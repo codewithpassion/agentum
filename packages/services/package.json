@@ -103,7 +103,9 @@
     "./tasks/receipt": "./src/tasks/receipt.ts",
     "./tasks/action-log": "./src/tasks/action-log.ts",
     "./tasks/service": "./src/tasks/service.ts",
-    "./tasks/status-band": "./src/tasks/status-band.ts"
+    "./tasks/status-band": "./src/tasks/status-band.ts",
+    "./skills-store/github": "./src/skills-store/github.ts",
+    "./wiki/suggestions": "./src/wiki/suggestions.ts"
   },
   "scripts": {
     "test": "bun test",

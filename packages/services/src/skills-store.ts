@@ -23,6 +23,7 @@ import { agents } from "@repo/db/schema/agents";
 import {
   skillAssignments,
   skillLibraryMigrations,
+  skillSources,
   skills,
   skillVersionFiles,
   skillVersions,
@@ -31,6 +32,7 @@ import type { EventType, SkillAuthorKind } from "@repo/db/shared";
 import { SKILLS_MAX_BYTES, SKILLS_MAX_FILES } from "@repo/protocol/skills";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
+import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
@@ -38,6 +40,12 @@ import type { EventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
 import { packArchive, unpackArchive } from "./skills-store/archive.ts";
 import { isTextBytes, unifiedDiff } from "./skills-store/diff.ts";
+import {
+  type GithubSkillFetcher,
+  githubLocation,
+  hasGithubUpdate,
+  type ImportGithubInput,
+} from "./skills-store/github.ts";
 import {
   readLibrarySkills,
   type SkillsSourceLibrary,
@@ -132,6 +140,14 @@ interface Publication {
   /** The tree the version was made on. A version equal to it is refused. */
   previous: readonly TreeFile[] | null;
   skill: { id: string; name: string };
+  source?: {
+    repoUrl: string;
+    path: string | null;
+    ref: string;
+    commitSha: string;
+  };
+  sourceCommitSha?: string;
+  status?: "approved" | "proposed";
 }
 
 const notFound = () => new ServiceError("not_found", "Not found");
@@ -228,7 +244,11 @@ export const createSkillsStoreService = ({
   db,
   events,
   library,
+  github,
+  githubToken,
 }: {
+  github?: GithubSkillFetcher;
+  githubToken?: string;
   atomic: Atomic;
   blobs: SkillBlobs;
   clock: Clock;
@@ -434,7 +454,9 @@ export const createSkillsStoreService = ({
   /** The inserts that make one version: the skill row when new, the version, its files and the event. */
   const publicationStatements = (p: Publication, now: string): Statement[] => {
     const { caller } = p;
-    const approved = caller.kind !== "agent";
+    const approved = p.status
+      ? p.status === "approved"
+      : caller.kind !== "agent";
     const authorKind: SkillAuthorKind = caller.kind;
     const statements: Statement[] = [];
     if (p.newSkill) {
@@ -471,10 +493,35 @@ export const createSkillsStoreService = ({
         number: p.number,
         parentNumber: p.parentNumber,
         skillId: p.skill.id,
+        sourceCommitSha: p.sourceCommitSha,
         status: approved ? "approved" : "proposed",
         workspaceId: caller.workspaceId,
       })
     );
+    if (p.source) {
+      const source = {
+        ...p.source,
+        checkedAt: null,
+        latestCommitSha: null,
+        provider: "github" as const,
+        skillId: p.skill.id,
+        updatedAt: now,
+        workspaceId: caller.workspaceId,
+      };
+      // A proposed version leaves an existing source alone: the pin moves when
+      // `decide` approves the version.
+      const insert = db
+        .insert(skillSources)
+        .values({ ...source, createdAt: now });
+      statements.push(
+        approved
+          ? insert.onConflictDoUpdate({
+              set: source,
+              target: skillSources.skillId,
+            })
+          : insert.onConflictDoNothing()
+      );
+    }
     for (const rows of chunks(p.files, ROWS_PER_INSERT)) {
       statements.push(
         db.insert(skillVersionFiles).values(
@@ -521,7 +568,8 @@ export const createSkillsStoreService = ({
   /** Checks the tree, stores the bytes and writes the version, the files and the event together. */
   const publish = async (p: Publication): Promise<VersionRecord> => {
     assertTree(p.skill.name, p.files);
-    if (p.previous && sameTree(p.previous, p.files)) {
+    // A different upstream commit is reviewable even when its skill files are identical.
+    if (!p.sourceCommitSha && p.previous && sameTree(p.previous, p.files)) {
       throw invalid("Nothing changed from the base version");
     }
     await storeBlobs(p.files);
@@ -534,7 +582,9 @@ export const createSkillsStoreService = ({
       }
       throw error;
     }
-    const approved = p.caller.kind !== "agent";
+    const approved = p.status
+      ? p.status === "approved"
+      : p.caller.kind !== "agent";
     return {
       approvedAt: approved ? now : null,
       approvedBy: approved ? p.caller.id : null,
@@ -780,6 +830,13 @@ export const createSkillsStoreService = ({
       .from(skillVersions)
       .where(and(eq(skillVersions.workspaceId, c.workspaceId), seen))
       .groupBy(skillVersions.skillId);
+    const sources = await db
+      .select()
+      .from(skillSources)
+      .where(eq(skillSources.workspaceId, c.workspaceId));
+    const sourceBySkill = new Map(
+      sources.map((source) => [source.skillId, source])
+    );
     const numbers = new Map(latest.map((row) => [row.skillId, row]));
     return rows
       .filter(
@@ -795,6 +852,7 @@ export const createSkillsStoreService = ({
         latestVersion: numbers.get(row.id)?.latest ?? null,
         name: row.name,
         ownerAgentId: row.ownerAgentId,
+        source: sourceBySkill.get(row.id) ?? null,
         updatedAt: row.updatedAt,
       }));
   };
@@ -836,6 +894,7 @@ export const createSkillsStoreService = ({
     const tree = await treeOf(version.id);
     return {
       files: await asRecords(tree, parsed.withContents),
+      source: await sourceOf(skill.id),
       version: toVersionRecord(version),
     };
   };
@@ -1135,6 +1194,14 @@ export const createSkillsStoreService = ({
             eq(skillVersions.status, "proposed")
           )
         ),
+      ...(outcome === "approved" && target.sourceCommitSha
+        ? [
+            db
+              .update(skillSources)
+              .set({ commitSha: target.sourceCommitSha, updatedAt: now })
+              .where(eq(skillSources.skillId, skill.id)),
+          ]
+        : []),
       ...settled.map((version) =>
         eventStatement(
           c,
@@ -1485,6 +1552,216 @@ export const createSkillsStoreService = ({
       .map(toVersionRecord);
   };
 
+  const sourceOf = async (skillId: string) =>
+    (
+      await db
+        .select()
+        .from(skillSources)
+        .where(eq(skillSources.skillId, skillId))
+        .limit(1)
+    )[0] ?? null;
+
+  const githubFetcher = () => {
+    if (!github) {
+      throw invalid("GitHub import is not set up");
+    }
+    return github;
+  };
+
+  const githubFiles = async (
+    source: { repoUrl: string; path: string | null },
+    commitSha: string
+  ): Promise<PlannedFile[]> => {
+    try {
+      const files = await githubFetcher().tree({
+        ...source,
+        commitSha,
+        githubToken,
+      });
+      return await Promise.all(
+        files.map(async (file) => ({
+          ...file,
+          hash: await sha256Hex(file.bytes),
+          size: file.bytes.byteLength,
+        }))
+      );
+    } catch (error) {
+      throw invalid(
+        error instanceof Error ? error.message : "GitHub skill fetch failed"
+      );
+    }
+  };
+
+  const resolveGithub = async (source: { repoUrl: string; ref: string }) => {
+    try {
+      return await githubFetcher().resolve({ ...source, githubToken });
+    } catch (error) {
+      throw invalid(
+        error instanceof Error ? error.message : "GitHub commit lookup failed"
+      );
+    }
+  };
+
+  const importGithub = async (
+    principal: Principal,
+    input: ImportGithubInput
+  ) => {
+    const c = memberOf(principal, "skills.import", true);
+    githubFetcher();
+    const location = githubLocation(input);
+    assertSkillName(location.name);
+    await ensureMigrated(principal);
+    const commitSha = await resolveGithub(location);
+    const files = await githubFiles(location, commitSha);
+    const [existing] = await db
+      .select({ id: skills.id })
+      .from(skills)
+      .where(
+        and(
+          eq(skills.workspaceId, c.workspaceId),
+          eq(skills.name, location.name),
+          c.agentId === null
+            ? isNull(skills.ownerAgentId)
+            : eq(skills.ownerAgentId, c.agentId)
+        )
+      )
+      .limit(1);
+    if (existing && c.kind === "agent") {
+      // A proposal can't carry a new location, so an agent keeps the one it has.
+      const current = await sourceOf(existing.id);
+      if (
+        current &&
+        (current.repoUrl !== location.repoUrl ||
+          current.path !== location.path ||
+          current.ref !== location.ref)
+      ) {
+        throw invalid("An agent can't change a skill's GitHub source");
+      }
+    }
+    const publication = {
+      message: "Imported from GitHub",
+      source: {
+        commitSha,
+        path: location.path,
+        ref: location.ref,
+        repoUrl: location.repoUrl,
+      },
+      sourceCommitSha: commitSha,
+    };
+    const version = existing
+      ? await importOver(c, existing.id, files, publication)
+      : await importNew(c, location.name, files, publication);
+    return { created: !existing, name: location.name, version };
+  };
+
+  const importUpdate = async (principal: Principal, skillId: string) => {
+    const c = memberOf(principal, "skills.import", true);
+    githubFetcher();
+    await ensureMigrated(principal);
+    const skill = await skillFor(c, skillRefSchema.parse({ skillId }).skillId);
+    // Check ownership before any upstream request, as archive imports do.
+    await headFor(c, skill.id, "skills.import");
+    const source = await sourceOf(skill.id);
+    if (
+      !source?.latestCommitSha ||
+      source.latestCommitSha === source.commitSha
+    ) {
+      throw invalid("No GitHub update available");
+    }
+    const files = await githubFiles(source, source.latestCommitSha);
+    return importOver(c, skill.id, files, {
+      message: "Proposed update from GitHub",
+      sourceCommitSha: source.latestCommitSha,
+      status: "proposed",
+    });
+  };
+
+  const checkUpdates = async (
+    principal: Principal,
+    input: { limit: number }
+  ) => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError("skills.checkUpdates");
+    }
+    authorize(principal, "skills.checkUpdates", {
+      kind: SKILL_KIND,
+      workspaceId: "*",
+    });
+    const { limit } = z
+      .strictObject({ limit: z.int().min(1).max(1000) })
+      .parse(input);
+    const rows = await db
+      .select({ name: skills.name, source: skillSources })
+      .from(skillSources)
+      .innerJoin(skills, eq(skills.id, skillSources.skillId))
+      .where(
+        and(eq(skillSources.provider, "github"), eq(skills.deleted, false))
+      )
+      .orderBy(asc(skillSources.checkedAt), asc(skillSources.skillId))
+      .limit(limit);
+    const failures: { skillId: string; message: string }[] = [];
+    let available = 0;
+    for (const { source, name } of rows) {
+      const now = clock.now().toISOString();
+      let resolved: string;
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: Keep scheduled checks bounded and stamp failures before continuing.
+        resolved = await resolveGithub(source);
+      } catch (error) {
+        await atomic([
+          db
+            .update(skillSources)
+            .set({ checkedAt: now })
+            .where(eq(skillSources.skillId, source.skillId)),
+        ]);
+        failures.push({
+          message:
+            error instanceof Error
+              ? error.message
+              : "GitHub update check failed",
+          skillId: source.skillId,
+        });
+        continue;
+      }
+      // latestCommitSha is the last notified commit, retained when upstream returns to the pin.
+      const changed = hasGithubUpdate(
+        source.commitSha,
+        source.latestCommitSha,
+        resolved
+      );
+      const c: Caller = {
+        agentId: null,
+        id: "system",
+        kind: "system",
+        runId: null,
+        workspaceId: source.workspaceId,
+      };
+      await atomic([
+        db
+          .update(skillSources)
+          .set({
+            checkedAt: now,
+            ...(changed ? { latestCommitSha: resolved, updatedAt: now } : {}),
+          })
+          .where(eq(skillSources.skillId, source.skillId)),
+        ...(changed
+          ? [
+              eventStatement(c, "skill.update_available", {
+                commitSha: source.commitSha,
+                latestCommitSha: resolved,
+                name,
+                skillId: source.skillId,
+              }),
+            ]
+          : []),
+      ]);
+      if (changed) {
+        available += 1;
+      }
+    }
+    return { available, checked: rows.length, failures };
+  };
+
   // --- archives ---
 
   const IMPORT_MESSAGE = "Imported from a .skill file";
@@ -1493,7 +1770,10 @@ export const createSkillsStoreService = ({
   const importNew = async (
     c: Caller,
     name: string,
-    files: PlannedFile[]
+    files: PlannedFile[],
+    githubPublication: Partial<
+      Pick<Publication, "source" | "sourceCommitSha" | "status" | "message">
+    > = {}
   ): Promise<VersionRecord> =>
     publish({
       caller: c,
@@ -1508,19 +1788,30 @@ export const createSkillsStoreService = ({
       parentNumber: null,
       previous: null,
       skill: { id: ulid(), name },
+      ...githubPublication,
     });
 
   /** A new version of an existing skill that holds exactly the archive's tree. */
   const importOver = async (
     c: Caller,
     skillId: string,
-    files: PlannedFile[]
+    files: PlannedFile[],
+    githubPublication: Partial<
+      Pick<Publication, "source" | "sourceCommitSha" | "status" | "message">
+    > = {}
   ): Promise<VersionRecord> => {
     const { parent, previous, skill, versions } = await headFor(
       c,
       skillId,
       "skills.import"
     );
+    if (
+      githubPublication.sourceCommitSha &&
+      headOf(versions)?.sourceCommitSha === githubPublication.sourceCommitSha &&
+      sameTree(previous, files)
+    ) {
+      throw invalid("Nothing changed from the base version");
+    }
     const before = new Map(previous.map((file) => [file.path, file.hash]));
     return publish({
       caller: c,
@@ -1538,6 +1829,7 @@ export const createSkillsStoreService = ({
       parentNumber: parent,
       previous,
       skill: { id: skill.id, name: skill.name },
+      ...githubPublication,
     });
   };
 
@@ -1621,12 +1913,15 @@ export const createSkillsStoreService = ({
     approve,
     assign,
     assignments,
+    checkUpdates,
     commit,
     create,
     diff,
     exportSkillArchive,
     forAgent,
+    importGithub,
     importSkillArchive,
+    importUpdate,
     list,
     log,
     migrateLibrary,

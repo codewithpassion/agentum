@@ -23,6 +23,7 @@ import { ComputerSlot, FilesSlot, SlotCard } from "./slots.tsx";
 import {
   canStop,
   costText,
+  pendingTakeover,
   pillClass,
   receiptRunOf,
   runsOnText,
@@ -101,8 +102,7 @@ function Fact({
  * One task, as a receipt of steps with the action log beside it. It starts
  * from `tasks.get` and follows the session stream, rebuilding the receipt and
  * the log from the event list on each event. The thread folds the same frames
- * (deltas included) into messages. The slots for the files (V4) and the
- * computer (V6) are placeholders.
+ * (deltas included) into messages. The files slot (V4) is a placeholder.
  */
 export function TaskPage({ initial }: { initial: TaskView }) {
   const runId = initial.run.id;
@@ -218,6 +218,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
   );
   const log = useMemo(() => toActionLog(events), [events]);
   const requests = useMemo(() => requestViews(live), [live]);
+  const takeover = useMemo(() => pendingTakeover(requests), [requests]);
   const { earlier, later } = useMemo(
     () => splitOtherRuns(task.otherRuns, runId),
     [task.otherRuns, runId]
@@ -278,7 +279,11 @@ export function TaskPage({ initial }: { initial: TaskView }) {
         <div className="flex min-w-0 flex-[1_1_380px] flex-col gap-4">
           <ThreadRuns heading="Earlier in this thread" runs={earlier} />
           <ThreadRuns heading="Later in this thread" runs={later} />
-          <ComputerSlot />
+          <ComputerSlot
+            agentName={task.agent.name}
+            computerMachineId={task.agent.computerMachineId}
+            takeover={takeover}
+          />
           <FilesSlot />
           <ActionLog entries={log} />
           <SlotCard testId="slot-thread" title="Thread">

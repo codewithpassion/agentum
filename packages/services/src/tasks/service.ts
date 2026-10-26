@@ -100,6 +100,8 @@ export interface TaskListItem {
 
 export interface TaskView {
   agent: {
+    /** The computer the agent is attached to, or null. Not the machine the session runs on. */
+    computerMachineId: string | null;
     id: string;
     machine: { id: string; name: string } | null;
     name: string;
@@ -349,6 +351,7 @@ export const createTasksService = ({
     const [row] = await db
       .select({
         agentName: agents.name,
+        computerMachineId: agents.computerMachineId,
         machineId: machines.id,
         machineName: machines.name,
         run: runs,
@@ -384,6 +387,7 @@ export const createTasksService = ({
     ]);
     return {
       agent: {
+        computerMachineId: row.computerMachineId,
         id: run.agentId,
         machine:
           row.machineId === null

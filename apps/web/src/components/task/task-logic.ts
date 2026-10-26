@@ -12,6 +12,7 @@ import type {
   RunStatus,
 } from "@repo/db/shared";
 import type { ReceiptRun } from "@repo/services/tasks/receipt";
+import type { RequestView } from "#/components/requests/request-card-logic.ts";
 import type { TaskView } from "#/integrations/trpc/types";
 
 const STEP_TONES: Record<ReceiptStepState, BandTone> = {
@@ -168,3 +169,20 @@ const PILL_CLASSES: Record<BandTone, string> = {
 
 /** The Tailwind classes of a status pill of the given tone. */
 export const pillClass = (tone: BandTone): string => PILL_CLASSES[tone];
+
+export interface TakeoverRequest {
+  reason: string;
+  requestId: string;
+}
+
+/** The run's open takeover request, or null when the agent is not waiting for a person. */
+export const pendingTakeover = (
+  requests: ReadonlyMap<string, RequestView>
+): TakeoverRequest | null => {
+  for (const view of requests.values()) {
+    if (view.kind === "takeover" && view.settled === null) {
+      return { reason: view.display.reason, requestId: view.id };
+    }
+  }
+  return null;
+};
