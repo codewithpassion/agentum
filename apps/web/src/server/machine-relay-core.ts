@@ -1,7 +1,8 @@
-// One machine's relay, the daemon's socket and the computer's together. A
-// machine has one Durable Object (V6.1's decision, written out at the top of
-// `relay.ts`), so this is where a socket is told apart by the tag it was
-// accepted under and handed to the core for its role. Kept free of
+// One machine's relay, the daemon's socket, the computer's and the people
+// watching its desktop. A machine has one Durable Object (V6.1's decision,
+// written out at the top of `relay.ts`), so this is where a socket is told
+// apart by the tag it was accepted under and handed to the core for its role.
+// Kept free of
 // `cloudflare:workers` so bun can test both roles on one object with fake
 // sockets, like `relay-core.ts` does for one.
 
@@ -17,6 +18,11 @@ import {
   type RelayRole,
   type RelaySocket,
 } from "./relay-core.ts";
+import {
+  createViewerHub,
+  VIEWER_TAG,
+  type ViewerAttachment,
+} from "./viewer-hub.ts";
 
 /** The socket tag the daemon is accepted under. The computer's is `COMPUTER_TAG`. */
 export const DAEMON_TAG = "daemon";
@@ -28,6 +34,8 @@ export interface MachineRelayCoreDeps<S extends RelaySocket> {
   newId?: ComputerRelayDeps<S>["newId"];
   now: () => number;
   scheduler?: ComputerRelayDeps<S>["scheduler"];
+  /** Pauses the viewer pump between frames. Tests pass their own. */
+  sleep?: (ms: number) => Promise<void>;
   /** Every socket the object holds, whatever its tag. */
   sockets: () => S[];
   storage: RelayCoreDeps["storage"];
@@ -42,6 +50,7 @@ export const createMachineRelayCore = <S extends RelaySocket>({
   newId,
   now,
   scheduler,
+  sleep,
   sockets,
   storage,
   tagsOf,
@@ -70,8 +79,21 @@ export const createMachineRelayCore = <S extends RelaySocket>({
     now,
     scheduler,
     sockets: () => tagged(COMPUTER_TAG),
+    // The hub is built next and only used once a status changes, after this returns.
+    statusChanged: () => viewers.statusChanged(),
     storage: alarms.view(COMPUTER_TAG),
   });
+  // The people watching the desktop. The hub asks the computer core for frames
+  // and input as the person, so the desktop lease decides what they may do.
+  const viewers = createViewerHub<S>(
+    {
+      desktopInput: computer.desktopInput,
+      desktopScreenshot: computer.desktopScreenshot,
+      status: computer.status,
+      viewerSockets: () => tagged(VIEWER_TAG),
+    },
+    { clock: now, sleep }
+  );
 
   /** The handler for a socket by its tag, or null for a tag this object does not serve. */
   const coreOf = (socket: S) => {
@@ -79,7 +101,22 @@ export const createMachineRelayCore = <S extends RelaySocket>({
     if (tags.includes(COMPUTER_TAG)) {
       return computer;
     }
+    if (tags.includes(VIEWER_TAG)) {
+      return viewerCore;
+    }
     return tags.includes(DAEMON_TAG) ? daemon : null;
+  };
+
+  /** A viewer socket only sends acks and input, and nothing is owed when it closes. */
+  const viewerCore = {
+    closed: (socket: S): Promise<void> => {
+      viewers.close(socket);
+      return Promise.resolve();
+    },
+    message: (socket: S, raw: ArrayBuffer | string): Promise<void> => {
+      viewers.message(socket, raw);
+      return Promise.resolve();
+    },
   };
 
   /**
@@ -93,6 +130,11 @@ export const createMachineRelayCore = <S extends RelaySocket>({
     if (role === COMPUTER_TAG) {
       return await computer.connect(who);
     }
+    // A viewer changes nothing about the machine: it must not bump the
+    // computer's generation, replace its socket or rewrite the daemon's identity.
+    if (role === VIEWER_TAG) {
+      return { generation: 0 };
+    }
     await daemon.connect(who);
     return { generation: 0 };
   };
@@ -105,6 +147,13 @@ export const createMachineRelayCore = <S extends RelaySocket>({
     role === COMPUTER_TAG
       ? computer.accepted(socket, generation)
       : Promise.resolve();
+
+  /** A person's socket, accepted under `viewer`: remember who they are and start sending frames. */
+  const acceptViewer = (socket: S, userId: string): void => {
+    const attachment: ViewerAttachment = { kind: "viewer", userId };
+    socket.serializeAttachment(attachment);
+    viewers.open(socket);
+  };
 
   const message = (socket: S, raw: ArrayBuffer | string): Promise<void> => {
     const core = coreOf(socket);
@@ -122,6 +171,8 @@ export const createMachineRelayCore = <S extends RelaySocket>({
    * have run, so the runtime retries.
    */
   const alarm = async (): Promise<void> => {
+    // Viewers that outlived this object's memory have no pump until something reminds it of them.
+    viewers.adoptAll(tagged(VIEWER_TAG));
     const failures: unknown[] = [];
     for (const name of await alarms.fire()) {
       try {
@@ -144,6 +195,7 @@ export const createMachineRelayCore = <S extends RelaySocket>({
 
   return {
     accepted,
+    acceptViewer,
     alarm,
     closed,
     computer,
@@ -151,6 +203,7 @@ export const createMachineRelayCore = <S extends RelaySocket>({
     daemon,
     message,
     revoke,
+    viewers,
   };
 };
 

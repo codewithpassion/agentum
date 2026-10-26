@@ -77,6 +77,7 @@ import {
   createMachinesService,
   type MachinesService,
 } from "@repo/services/machines";
+import { createTakeoverLease } from "@repo/services/machines/lease";
 import { createMachineRuntime } from "@repo/services/machines/runtime";
 import type { MachineRelayPort } from "@repo/services/machines/types";
 import { createMailService, type MailService } from "@repo/services/mail";
@@ -572,7 +573,14 @@ export const composeWith = ({
     memberDirectory: infra.memberDirectory,
     requests,
   });
-  const takeover = createTakeoverService({ db, events, requests });
+  const takeover = createTakeoverService({
+    db,
+    events,
+    lease: createTakeoverLease(infra.relay),
+    requests,
+  });
+  // A takeover that expires, or whose run ends, lets go of the desktop too.
+  events.onAppend(takeover.onEvent);
   // Catches the run and tool events the runs service writes through its own events instance.
   runs.onEvent(slackStatus.onEvent);
   // An investigator run that ends, or finishes, without having reported tells control-plane to escalate.

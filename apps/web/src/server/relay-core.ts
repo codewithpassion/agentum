@@ -17,9 +17,11 @@ import type {
 /** The headers the Worker stamps on the upgrade it hands the relay. */
 export const RELAY_HEADER_MACHINE_ID = "x-hm-machine-id";
 export const RELAY_HEADER_WORKSPACE_ID = "x-hm-workspace-id";
-/** Which role's socket this is: `daemon` or `computer`. Only the Worker sets it. */
+/** Which role's socket this is: `daemon`, `computer` or `viewer`. Only the Worker sets it. */
 export const RELAY_HEADER_ROLE = "x-hm-role";
-export const RELAY_ROLES = ["daemon", "computer"] as const;
+/** The signed-in person behind a `viewer` socket. Only the Worker sets it. */
+export const RELAY_HEADER_VIEWER_USER = "x-hm-viewer-user";
+export const RELAY_ROLES = ["daemon", "computer", "viewer"] as const;
 export type RelayRole = (typeof RELAY_ROLES)[number];
 
 /** A machine that sends nothing for this long is offline. Same span as a run lease. */
@@ -40,7 +42,7 @@ const LAST_WRITE_KEY = "lastSeenWrittenAt";
 export interface RelaySocket {
   close: (code?: number, reason?: string) => void;
   deserializeAttachment: () => unknown;
-  send: (data: string) => void;
+  send: (data: string | ArrayBuffer) => void;
   serializeAttachment: (value: unknown) => void;
 }
 

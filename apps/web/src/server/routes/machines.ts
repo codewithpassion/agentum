@@ -21,7 +21,7 @@ import { machineRunRoutes } from "./machine-runs.ts";
 const UPGRADE_REQUIRED = 426;
 
 /** The only client headers that reach the relay. The rest, Authorization included, stay here. */
-const UPGRADE_HEADERS = [
+export const UPGRADE_HEADERS = [
   "connection",
   "sec-websocket-extensions",
   "sec-websocket-key",

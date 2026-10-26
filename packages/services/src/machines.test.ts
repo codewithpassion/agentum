@@ -1031,3 +1031,107 @@ test("attachComputer gives a computer to one agent at a time", async () => {
   await service.attachComputer(user, second.id, "m-computer");
   expect(computerOf(second.id)).toBe("m-computer");
 });
+
+test("the desktop reads need a live computer of the caller's workspace", async () => {
+  seedMachine("m-computer", { computerStatus: "online" });
+  seedMachine("m-daemon");
+  seedMachine("m-revoked", { computerStatus: "online", status: "revoked" });
+  seedMachine("m-other", {
+    computerStatus: "online",
+    workspaceId: OTHER_WORKSPACE,
+  });
+
+  await expect(
+    service.desktopStatus(user, "m-computer")
+  ).resolves.toMatchObject({ connected: false });
+
+  await Promise.all(
+    ["m-other", "m-revoked", "m-daemon", "missing"].flatMap((machineId) => [
+      expect(service.desktopStatus(user, machineId)).rejects.toMatchObject({
+        code: "not_found",
+        message: "Machine not found",
+      }),
+      expect(service.clipboardRead(user, machineId)).rejects.toMatchObject({
+        code: "not_found",
+      }),
+      expect(
+        service.clipboardWrite(user, machineId, "x")
+      ).rejects.toMatchObject({ code: "not_found" }),
+    ])
+  );
+  await Promise.all(
+    [system, machinePrincipal("m-computer")].flatMap((principal) => [
+      expect(
+        service.desktopStatus(principal, "m-computer")
+      ).rejects.toBeInstanceOf(ForbiddenError),
+      expect(
+        service.clipboardRead(principal, "m-computer")
+      ).rejects.toBeInstanceOf(ForbiddenError),
+      expect(
+        service.clipboardWrite(principal, "m-computer", "x")
+      ).rejects.toBeInstanceOf(ForbiddenError),
+    ])
+  );
+});
+
+test("desktopStatus returns the relay's status for the machine asked for", async () => {
+  seedMachine("m-computer", { computerStatus: "online" });
+  const asked: string[] = [];
+  relay = {
+    ...relay,
+    computerStatus: (machineId) => {
+      asked.push(machineId);
+      return Promise.resolve({
+        capabilities: null,
+        connected: true,
+        control: null,
+        hostname: "box",
+        inFlightExec: 0,
+        lastSeenAt: 5,
+        queued: 0,
+        version: "1",
+        workdir: null,
+      });
+    },
+  };
+  service = build();
+
+  await expect(
+    service.desktopStatus(user, "m-computer")
+  ).resolves.toMatchObject({ connected: true, hostname: "box" });
+  expect(asked).toEqual(["m-computer"]);
+});
+
+test("clipboardRead and clipboardWrite act as the caller and return the relay's outcome", async () => {
+  seedMachine("m-computer", { computerStatus: "online" });
+  const gets: [string, unknown][] = [];
+  const sets: [string, unknown, unknown][] = [];
+  const outcome = { ok: true, resultJson: "{}" } as const;
+  relay = {
+    ...relay,
+    clipboardGet: (machineId, principal) => {
+      gets.push([machineId, principal]);
+      return Promise.resolve(outcome);
+    },
+    clipboardSet: (machineId, principal, input) => {
+      sets.push([machineId, principal, input]);
+      return Promise.resolve(outcome);
+    },
+  };
+  service = build();
+
+  await expect(service.clipboardRead(user, "m-computer")).resolves.toEqual(
+    outcome
+  );
+  await expect(
+    service.clipboardWrite(user, "m-computer", "hello")
+  ).resolves.toEqual(outcome);
+  expect(gets).toEqual([["m-computer", { kind: "human", userId: "u1" }]]);
+  expect(sets).toEqual([
+    [
+      "m-computer",
+      { kind: "human", userId: "u1" },
+      { selections: ["clipboard", "primary"], text: "hello" },
+    ],
+  ]);
+});
