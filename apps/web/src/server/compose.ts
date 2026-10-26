@@ -63,6 +63,10 @@ import {
   type LibraryBlobs,
   type LibraryService,
 } from "@repo/services/library";
+import {
+  createLibraryAccessService,
+  type LibraryAccessService,
+} from "@repo/services/library/access";
 import { memoryLibraryBlobs } from "@repo/services/library/memory";
 import {
   createLibraryLinksService,
@@ -256,6 +260,7 @@ export interface Services {
   files: FilesService;
   inbox: InboxService;
   library: LibraryService;
+  libraryAccess: LibraryAccessService;
   libraryLinks: LibraryLinksService;
   machines: MachinesService;
   managed: ManagedService;
@@ -416,6 +421,12 @@ export const composeWith = ({
     linkIndex: createWikiLinkIndex({ db }),
   });
   const wiki = createWikiService({ db, library });
+  const libraryAccess = createLibraryAccessService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+  });
   const libraryLinks = createLibraryLinksService({ files, library });
   const skills = createSkillsService({ agents, library });
   const skillsStore = createSkillsStoreService({
@@ -665,6 +676,7 @@ export const composeWith = ({
       files,
       inbox,
       library,
+      libraryAccess,
       libraryLinks,
       machines,
       managed,

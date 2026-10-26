@@ -1,7 +1,4 @@
-import {
-  libraryPathsError,
-  libraryPathsOf,
-} from "@repo/services/library/sync-paths";
+import { libraryPathsOf } from "@repo/services/library/sync-paths";
 
 /** The list after adding `added`, or the reason it cannot be added. */
 export const nextLibraryPaths = (
@@ -13,9 +10,9 @@ export const nextLibraryPaths = (
     return { error: "Type a folder or file path." };
   }
   const libraryPaths = [...current, trimmed];
-  const error = libraryPathsError({ libraryPaths });
-  if (error !== undefined) {
-    return { error };
+  // `libraryPathsOf` leaves out a path that is invalid or the whole library.
+  if (libraryPathsOf({ libraryPaths: [trimmed] }).length === 0) {
+    return { error: `"${trimmed}" is not a folder or file in the library.` };
   }
   return { paths: libraryPathsOf({ libraryPaths }) };
 };

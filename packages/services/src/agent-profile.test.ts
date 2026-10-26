@@ -2,6 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { connectors as connectorRows } from "@repo/db/schema/connectors";
+import { agentLibraryAccess } from "@repo/db/schema/library";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
@@ -286,6 +287,22 @@ test("profile fills every row from seeded data", async () => {
       soul: "Warm and brief.",
     })
     .where(eq(agentRows.id, a1));
+  await db.insert(agentLibraryAccess).values([
+    {
+      agentId: a1,
+      createdAt: NOW,
+      mode: "read",
+      path: "shared/notes",
+      workspaceId: "w1",
+    },
+    {
+      agentId: a1,
+      createdAt: NOW,
+      mode: "write",
+      path: "docs",
+      workspaceId: "w1",
+    },
+  ]);
   await connect("c1", "Xero", [
     tool("create_bill", false),
     tool("list_bills", true),
@@ -380,9 +397,10 @@ test("profile fills every row from seeded data", async () => {
     slack: { id: "sa1", listenMode: "mentions", status: "installed" },
   });
   expect(profile.library.folders).toEqual([
-    { access: "read_write", home: true, path: "agents/alpha" },
-    { access: "read_write", home: false, path: "shared/notes" },
-    { access: "read_write", home: false, path: "docs" },
+    { access: "write", home: true, path: "agents/alpha" },
+    { access: "read", home: false, path: "wiki" },
+    { access: "write", home: false, path: "docs" },
+    { access: "read", home: false, path: "shared/notes" },
   ]);
   expect(profile.recentTasks.map((task) => task.id)).toEqual([done, waiting]);
 });
@@ -482,6 +500,22 @@ test("askBefore lists the built-ins and the connector tools that change things",
 });
 
 test("toggling ask before round-trips through V1's rules", async () => {
+  await db.insert(agentLibraryAccess).values([
+    {
+      agentId: a1,
+      createdAt: NOW,
+      mode: "read",
+      path: "shared/notes",
+      workspaceId: "w1",
+    },
+    {
+      agentId: a1,
+      createdAt: NOW,
+      mode: "write",
+      path: "docs",
+      workspaceId: "w1",
+    },
+  ]);
   await connect("c1", "Xero", [tool("create_bill", false)]);
   const asking = async () =>
     (await service.askBefore(user(), { agentId: a1 }))
@@ -553,6 +587,22 @@ test("a revoked trigger is left out of Starts on", async () => {
 });
 
 test("two workspaces never see each other's agents or data", async () => {
+  await db.insert(agentLibraryAccess).values([
+    {
+      agentId: a1,
+      createdAt: NOW,
+      mode: "read",
+      path: "shared/notes",
+      workspaceId: "w1",
+    },
+    {
+      agentId: a1,
+      createdAt: NOW,
+      mode: "write",
+      path: "docs",
+      workspaceId: "w1",
+    },
+  ]);
   await connect("c1", "Xero", [tool("create_bill", false)]);
   await seedRun(a1, "waiting");
 
