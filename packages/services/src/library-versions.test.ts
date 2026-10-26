@@ -213,6 +213,57 @@ test("prune keeps newest 20 and recent versions, clears expired tombstoned histo
   expect(db.select().from(libraryVersions).all()).toHaveLength(23);
 });
 
+/** Counts the rows every statement returns, to show what prune loads. */
+const countRowsLoaded = (run: () => Promise<void>) => {
+  const { client } = db;
+  const prepare = client.prepare.bind(client);
+  let loaded = 0;
+  client.prepare = ((sql: string) => {
+    const statement = prepare(sql);
+    for (const method of ["all", "values"] as const) {
+      const original = statement[method].bind(statement);
+      statement[method] = ((...args: never[]) => {
+        const rows = original(...args);
+        loaded += rows.length;
+        return rows;
+      }) as never;
+    }
+    return statement;
+  }) as never;
+  return run()
+    .then(() => loaded)
+    .finally(() => {
+      client.prepare = prepare as never;
+    });
+};
+
+test("prune loads no row newer than the cutoff", async () => {
+  for (let i = 0; i < 25; i += 1) {
+    await service.write(principal, "recent", bytes(String(i)));
+  }
+  expect(
+    await countRowsLoaded(() => service.pruneVersions(new Date(now)))
+  ).toBe(0);
+  expect(await service.versions(principal, "recent")).toHaveLength(25);
+
+  // Once January's rows are past the cutoff, 5 + 2 of them expire. The 30
+  // fresh rows stay unread and the kept old ones are filtered in SQL.
+  for (let i = 0; i < 22; i += 1) {
+    await service.write(principal, "old", bytes(String(i)));
+  }
+  now = "2026-03-01T00:00:00.000Z";
+  for (let i = 0; i < 30; i += 1) {
+    await service.write(principal, "fresh", bytes(String(i)));
+  }
+  const loaded = await countRowsLoaded(() =>
+    service.pruneVersions(new Date(now))
+  );
+  expect(loaded).toBe(7);
+  expect(await service.versions(principal, "recent")).toHaveLength(20);
+  expect(await service.versions(principal, "old")).toHaveLength(20);
+  expect(await service.versions(principal, "fresh")).toHaveLength(30);
+});
+
 test("failed delete, move and restore batches leave entries, events, history and notifications unchanged", async () => {
   await service.write(principal, "a", bytes("original"));
   const [version] = await service.versions(principal, "a");
@@ -258,6 +309,28 @@ test("a prune retry finishes an expired tombstone history spanning multiple batc
   await service.pruneVersions(new Date(now));
   expect(await service.versions(principal, "a")).toEqual([]);
   expect(blobs.objects.size).toBe(0);
+});
+
+test("a prune does not delete a version written after the tombstone it is clearing", async () => {
+  for (let i = 0; i < 95; i += 1) {
+    await service.write(principal, "a", bytes(String(i)));
+  }
+  await service.remove(principal, "a");
+  now = "2026-03-01T00:00:00.000Z";
+  const remove = blobs.delete;
+  let revived = false;
+  blobs.delete = async (keys) => {
+    if (!revived) {
+      revived = true;
+      await service.write(principal, "a", bytes("back"));
+    }
+    return remove(keys);
+  };
+  await service.pruneVersions(new Date(now));
+  const [kept, ...rest] = await service.versions(principal, "a");
+  expect(rest).toEqual([]);
+  expect(kept).toMatchObject({ op: "write", version: 97 });
+  expect((await service.read(principal, "a")).bytes).toEqual(bytes("back"));
 });
 
 test("concurrent writes to one path get distinct version numbers", async () => {
