@@ -41,7 +41,7 @@ import {
 import { createInboxService, type InboxService } from "@repo/services/inbox";
 import {
   createInvestigatorReportBack,
-  createRequestIdReader,
+  createRunRequestReader,
 } from "@repo/services/investigator-report";
 import {
   createLibraryService,
@@ -487,7 +487,7 @@ export const composeWith = ({
       defer: infra.defer,
       fetch: connectorFetch,
       now: () => infra.clock.now(),
-      requestIdOf: createRequestIdReader(db),
+      requestOf: createRunRequestReader(db),
       secrets,
     }).onEvent
   );

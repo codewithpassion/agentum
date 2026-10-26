@@ -220,10 +220,14 @@ const grantIngestToken = async () => {
   await composed.services.secrets.setGrants(user, agentId, [secret.id]);
 };
 
-const startAndCancel = async (requestId: string) => {
+/** control-plane sends its approval id as the request id, and the incident id in the prompt. */
+const startAndCancel = async (
+  requestId: string,
+  text = `Investigate incident ${INCIDENT} on billing`
+) => {
   const { runId } = await composed.services.runs.startRun(user, {
     agentId,
-    input: { text: "investigate" },
+    input: { text },
     requestId,
     session: { origin: "trigger" },
   });
@@ -234,7 +238,9 @@ const startAndCancel = async (requestId: string) => {
 test("a cancelled trigger run of an incident tells control-plane to escalate, with the token added", async () => {
   await grantIngestToken();
 
-  const runId = await startAndCancel(`trigger:trg1:${INCIDENT}`);
+  const runId = await startAndCancel(
+    "trigger:trg1:apr_01HZX3Y5N7Q9R2T4V6W8A0B1C2"
+  );
 
   expect(posted).toHaveLength(1);
   expect(posted[0]?.url).toBe("https://cp.example.com/ingest/events");
@@ -249,16 +255,20 @@ test("a cancelled trigger run of an incident tells control-plane to escalate, wi
   });
 });
 
-test("a cancelled run that is not an incident's posts nothing", async () => {
+test("a cancelled run that no trigger started, or whose prompt names no incident, posts nothing", async () => {
   await grantIngestToken();
 
   await startAndCancel("plain-request-id");
+  await startAndCancel(
+    "trigger:trg1:apr_01HZX3Y5N7Q9R2T4V6W8A0B1C3",
+    "Investigate the billing job"
+  );
 
   expect(posted).toEqual([]);
 });
 
 test("a cancelled incident run of an agent without the ingest token posts nothing", async () => {
-  await startAndCancel(`trigger:trg1:${INCIDENT}`);
+  await startAndCancel("trigger:trg1:apr_01HZX3Y5N7Q9R2T4V6W8A0B1C2");
 
   expect(posted).toEqual([]);
 });

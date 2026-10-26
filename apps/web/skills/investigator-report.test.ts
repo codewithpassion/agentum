@@ -89,15 +89,27 @@ describe("parseReportInput", () => {
     expect(parseReportInput(reportJson({ steps: ["ok", 3] })).ok).toBe(false);
   });
 
-  test("cuts the summary to 2000 code points", () => {
+  test("cuts the summary to 2000 UTF-16 units, the way control-plane counts, without a lone surrogate", () => {
     const result = parseReportInput(reportJson({ summary: "😀".repeat(2500) }));
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(Array.from(result.input.summary)).toHaveLength(2000);
+      expect(result.input.summary.length).toBeLessThanOrEqual(2000);
+      expect(result.input.summary.isWellFormed()).toBe(true);
+      expect(Array.from(result.input.summary)).toHaveLength(1000);
     }
   });
 
-  test("keeps the first 50 steps and cuts each to 500 code points", () => {
+  test("a cut through a surrogate pair drops the orphan half", () => {
+    const result = parseReportInput(
+      reportJson({ summary: `${"x".repeat(1999)}😀` })
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.input.summary).toBe("x".repeat(1999));
+    }
+  });
+
+  test("keeps the first 50 steps and cuts each to 500 UTF-16 units", () => {
     const steps = Array.from(
       { length: 60 },
       (_, i) => `${i}-${"x".repeat(600)}`
@@ -109,7 +121,7 @@ describe("parseReportInput", () => {
       expect(result.input.steps[0]?.startsWith("0-")).toBe(true);
       expect(result.input.steps[49]?.startsWith("49-")).toBe(true);
       for (const step of result.input.steps) {
-        expect(Array.from(step)).toHaveLength(500);
+        expect(step).toHaveLength(500);
       }
     }
   });
@@ -162,6 +174,18 @@ describe("buildEvent", () => {
       runId: "r",
     });
     expect(Array.from(event.summary)).toHaveLength(200);
+  });
+
+  test("the event summary has no format characters or lone surrogates, which control-plane refuses", () => {
+    const event = buildEvent({
+      input: {
+        ...input,
+        summary: "soft\u00ADhyphen\u200Bzero\uFEFFbom lone\uD83D end",
+      },
+      now,
+      runId: "r",
+    });
+    expect(event.summary).toBe("softhyphenzero bom lone end");
   });
 
   test("falls back to Investigation <outcome> when the summary is empty after cleanup", () => {

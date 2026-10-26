@@ -2,12 +2,14 @@
  * The fallback report for an investigator run that ended without reporting.
  * When the run failed, was cancelled or was interrupted, this posts one
  * `investigation.result` event with outcome "escalate" to control-plane, so
- * the incident goes to a person. The incident id comes from the run's trigger
- * request id, and the ingest token from the workspace's proxy secret.
+ * the incident goes to a person. The incident id comes from the run's input
+ * text (control-plane's request id is its approval id, not the incident), and
+ * the ingest token from the workspace's proxy secret.
  */
 import type { Database } from "@repo/db";
 import { runs } from "@repo/db/schema/runs";
 import { and, eq } from "drizzle-orm";
+import { redactText } from "./events/scrub.ts";
 import type { EventRecord } from "./events.ts";
 import type { SecretsService } from "./secrets.ts";
 
@@ -16,29 +18,53 @@ export const INGEST_TOKEN_SECRET = "CONTROL_PLANE_INGEST_TOKEN";
 export const INGEST_PATH = "/ingest/events";
 
 const AGENT_ID = "harbourmaster-investigator";
-const TRIGGER_REQUEST_ID = /^trigger:[^:]+:(inc_[0-9A-HJKMNP-TV-Z]{26})$/;
+const TRIGGER_REQUEST_PREFIX = "trigger:";
+const INCIDENT_IN_TEXT = /\binc_[0-9A-HJKMNP-TV-Z]{26}\b/;
+/** A slow control-plane must not hold the write that ended the run. */
+const POST_TIMEOUT_MS = 5000;
 const SUMMARY_MAX = 200;
 const PAYLOAD_SUMMARY_MAX = 2000;
 const STEP_MAX = 500;
 const NO_RESULT_STEP = "The run ended without reporting a result.";
-const CONTROL_CHAR = /\p{Cc}/gu;
+const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/gu;
 const SPACE_CHAR = /\s/u;
 const WHITESPACE_RUN = /\s+/gu;
+const LONE_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/gu;
 
 type EndStatus = "failed" | "cancelled" | "interrupted";
 
-/** The incident id of a trigger request id such as `trigger:<triggerId>:inc_...`, or null. */
-export const incidentIdOf = (requestId: string | null): string | null =>
-  requestId?.match(TRIGGER_REQUEST_ID)?.[1] ?? null;
+/** What a run was started with: the trigger's request id and the prompt text. */
+export interface RunRequest {
+  inputText: string;
+  requestId: string | null;
+}
 
-/** Cuts text to `max` code points, so no surrogate pair is split. */
+/**
+ * The incident id (`inc_` and 26 characters) in the prompt of a run that a
+ * trigger started, or null. The request id only tells that a trigger started
+ * the run: control-plane sets it to its approval id.
+ */
+export const incidentIdOf = (run: RunRequest | null): string | null =>
+  run?.requestId?.startsWith(TRIGGER_REQUEST_PREFIX)
+    ? (run.inputText.match(INCIDENT_IN_TEXT)?.[0] ?? null)
+    : null;
+
+const withoutLoneSurrogates = (text: string): string =>
+  text.replace(LONE_SURROGATE, "");
+
+/** control-plane's payload limits count UTF-16 units. A pair cut in half loses its orphan half. */
+const firstUnits = (text: string, max: number): string =>
+  withoutLoneSurrogates(text.slice(0, max));
+
+/** control-plane's envelope summary limit counts code points. */
 const firstCodePoints = (text: string, max: number): string =>
   Array.from(text).slice(0, max).join("");
 
-/** One line: control characters dropped, whitespace runs collapsed, trimmed. */
+/** One line: control and format characters dropped, whitespace runs collapsed, trimmed. */
 const oneLine = (text: string): string =>
-  text
-    .replace(CONTROL_CHAR, (char) => (SPACE_CHAR.test(char) ? " " : ""))
+  withoutLoneSurrogates(text)
+    .replace(CONTROL_OR_FORMAT, (char) => (SPACE_CHAR.test(char) ? " " : ""))
     .replace(WHITESPACE_RUN, " ")
     .trim();
 
@@ -56,13 +82,13 @@ export const escalationEvent = ({
   status: EndStatus;
 }): Record<string, unknown> => {
   const sentence = `The investigator run ended ${status} before it reported.`;
-  const text = firstCodePoints(
+  const text = firstUnits(
     error === null ? sentence : `${sentence} Error: ${error}`,
     PAYLOAD_SUMMARY_MAX
   );
   const steps = [NO_RESULT_STEP];
   if (error !== null) {
-    steps.push(firstCodePoints(`Error: ${error}`, STEP_MAX));
+    steps.push(firstUnits(`Error: ${error}`, STEP_MAX));
   }
   return {
     actor: { id: AGENT_ID, kind: "agent" },
@@ -104,7 +130,7 @@ export interface ReportBackDeps {
   defer?: (work: Promise<void>) => void;
   fetch: (url: string, init: RequestInit) => Promise<Response>;
   now: () => Date;
-  requestIdOf: (workspaceId: string, runId: string) => Promise<string | null>;
+  requestOf: (workspaceId: string, runId: string) => Promise<RunRequest | null>;
   secrets: Pick<SecretsService, "proxyFor" | "resolveForAgent">;
 }
 
@@ -120,7 +146,7 @@ export const createInvestigatorReportBack = (deps: ReportBackDeps) => {
     status: EndStatus
   ): Promise<void> => {
     const { workspaceId } = event;
-    const incidentId = incidentIdOf(await deps.requestIdOf(workspaceId, runId));
+    const incidentId = incidentIdOf(await deps.requestOf(workspaceId, runId));
     if (incidentId === null) {
       return;
     }
@@ -141,7 +167,7 @@ export const createInvestigatorReportBack = (deps: ReportBackDeps) => {
     const raw = event.payload.error;
     const error =
       typeof raw === "string" && raw.length > 0
-        ? resolved.masker.mask(raw)
+        ? redactText(resolved.masker.mask(raw))
         : null;
     const response = await deps.fetch(`https://${host}${INGEST_PATH}`, {
       body: JSON.stringify(
@@ -158,6 +184,7 @@ export const createInvestigatorReportBack = (deps: ReportBackDeps) => {
         [match.header]: match.headerValue,
       },
       method: "POST",
+      signal: AbortSignal.timeout(POST_TIMEOUT_MS),
     });
     if (!response.ok) {
       console.warn(
@@ -191,14 +218,14 @@ export const createInvestigatorReportBack = (deps: ReportBackDeps) => {
   return { onEvent };
 };
 
-/** Reads the request id of a run, scoped to its workspace. */
-export const createRequestIdReader =
+/** Reads the request id and prompt of a run, scoped to its workspace. */
+export const createRunRequestReader =
   (db: Database) =>
-  async (workspaceId: string, runId: string): Promise<string | null> => {
+  async (workspaceId: string, runId: string): Promise<RunRequest | null> => {
     const [row] = await db
-      .select({ requestId: runs.requestId })
+      .select({ inputText: runs.inputText, requestId: runs.requestId })
       .from(runs)
       .where(and(eq(runs.id, runId), eq(runs.workspaceId, workspaceId)))
       .limit(1);
-    return row?.requestId ?? null;
+    return row ?? null;
   };

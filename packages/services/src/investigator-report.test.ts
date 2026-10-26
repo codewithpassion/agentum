@@ -16,11 +16,12 @@ import { createAgentsService } from "./agents.ts";
 import { createEventsService, type EventRecord } from "./events.ts";
 import {
   createInvestigatorReportBack,
-  createRequestIdReader,
+  createRunRequestReader,
   escalationEvent,
   INGEST_PATH,
   INGEST_TOKEN_SECRET,
   incidentIdOf,
+  type RunRequest,
 } from "./investigator-report.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -33,7 +34,12 @@ const NOW = new Date("2026-10-17T11:00:00.000Z");
 const AGENT = "ag-investigator";
 const RUN = "run-1";
 const INCIDENT = "inc_01HZ8Q3M5V7W9XBCDFGJKMNPQR";
-const TRIGGER_REQUEST = `trigger:trg_1:${INCIDENT}`;
+const PROMPT = `Investigate incident ${INCIDENT} on billing (severity action): no beat`;
+/** control-plane sends its approval id as the request id, not the incident id. */
+const TRIGGER_RUN = {
+  inputText: PROMPT,
+  requestId: "trigger:trg_1:apr_01HZ8Q3M5V7W9XBCDFGJKMNPQR",
+};
 const INGEST_HOST = "control.example.com";
 const INGEST_TOKEN = "ingest-token-0123456789";
 const MASK = `[secret:${INGEST_TOKEN_SECRET}]`;
@@ -113,13 +119,13 @@ afterEach(() => {
 const harness = ({
   defer,
   rejects,
-  requestId = TRIGGER_REQUEST,
+  request = TRIGGER_RUN,
   secrets = secretsWith(),
   status = 202,
 }: {
   defer?: Deps["defer"];
   rejects?: Error;
-  requestId?: string | null;
+  request?: RunRequest | null;
   secrets?: Secrets;
   status?: number;
 } = {}) => {
@@ -133,22 +139,29 @@ const harness = ({
         : Promise.resolve(new Response(null, { status }));
     },
     now: () => NOW,
-    requestIdOf: async () => requestId,
+    requestOf: async () => request,
     secrets,
   });
   return { calls, report };
 };
 
 describe("incidentIdOf", () => {
-  test("gives the incident id of a trigger request id", () => {
-    expect(incidentIdOf(TRIGGER_REQUEST)).toBe(INCIDENT);
+  test("gives the incident id in the prompt of a trigger run", () => {
+    expect(incidentIdOf(TRIGGER_RUN)).toBe(INCIDENT);
   });
 
-  test("gives null for another prefix, a null id or a bad incident id", () => {
-    expect(incidentIdOf(`run:trg_1:${INCIDENT}`)).toBeNull();
-    expect(incidentIdOf("trigger:trg_1:inc_short")).toBeNull();
-    expect(incidentIdOf(`trigger:trg_1:inc_${"I".repeat(26)}`)).toBeNull();
+  test("gives null for a run no trigger started, or none", () => {
+    expect(incidentIdOf({ ...TRIGGER_RUN, requestId: null })).toBeNull();
+    expect(incidentIdOf({ ...TRIGGER_RUN, requestId: "ui-1" })).toBeNull();
     expect(incidentIdOf(null)).toBeNull();
+  });
+
+  test("gives null when the prompt has no well-formed incident id", () => {
+    const run = (inputText: string) => ({ ...TRIGGER_RUN, inputText });
+    expect(incidentIdOf(run("Investigate the billing job"))).toBeNull();
+    expect(incidentIdOf(run("incident inc_short"))).toBeNull();
+    expect(incidentIdOf(run(`incident inc_${"I".repeat(26)}`))).toBeNull();
+    expect(incidentIdOf(run(`incident ${INCIDENT}X`))).toBeNull();
   });
 });
 
@@ -233,7 +246,7 @@ describe("escalationEvent", () => {
     );
   });
 
-  test("cuts the payload summary to 2000 and each step to 500 code points", () => {
+  test("cuts the payload summary to 2000 and each step to 500 UTF-16 units", () => {
     const event = escalationEvent({
       error: "x".repeat(3000),
       incidentId: INCIDENT,
@@ -245,8 +258,36 @@ describe("escalationEvent", () => {
       steps: string[];
       summary: string;
     };
-    expect(Array.from(payload.summary)).toHaveLength(2000);
+    expect(payload.summary).toHaveLength(2000);
     expect(payload.steps[1]).toBe(`Error: ${"x".repeat(493)}`);
+  });
+
+  test("counts UTF-16 units as control-plane does, and never leaves half a pair", () => {
+    const event = escalationEvent({
+      error: EMOJI.repeat(1500),
+      incidentId: INCIDENT,
+      now: NOW,
+      runId: RUN,
+      status: "failed",
+    });
+    const payload = event.payload as { steps: string[]; summary: string };
+    expect(payload.summary.length).toBeLessThanOrEqual(2000);
+    expect(payload.summary.isWellFormed()).toBe(true);
+    expect(payload.steps[1]?.length).toBeLessThanOrEqual(500);
+    expect(payload.steps[1]?.isWellFormed()).toBe(true);
+  });
+
+  test("the envelope summary has no format characters or lone surrogates", () => {
+    const event = escalationEvent({
+      error: "soft\u00ADhyphen lone\uD83D end",
+      incidentId: INCIDENT,
+      now: NOW,
+      runId: RUN,
+      status: "failed",
+    });
+    expect(event.summary).toBe(
+      "The investigator run ended failed before it reported. Error: softhyphen lone end"
+    );
   });
 });
 
@@ -292,14 +333,31 @@ describe("onEvent", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test.each([null, "trigger:trg_1:req-42"])(
-    "does nothing when the request id is %p",
-    async (requestId) => {
-      const { calls, report } = harness({ requestId });
-      await report.onEvent(eventOf("run.failed"));
-      expect(calls).toHaveLength(0);
-    }
-  );
+  test.each([
+    ["no run", null],
+    ["a run no trigger started", { ...TRIGGER_RUN, requestId: null }],
+    ["a prompt without an incident id", { ...TRIGGER_RUN, inputText: "hi" }],
+  ])("does nothing for %s", async (_name, request) => {
+    const { calls, report } = harness({ request });
+    await report.onEvent(eventOf("run.failed"));
+    expect(calls).toHaveLength(0);
+  });
+
+  test("gives the post a timeout signal", async () => {
+    const { calls, report } = harness();
+    await report.onEvent(eventOf("run.failed"));
+    expect(calls[0]?.init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("scrubs a credential-shaped string the agent does not hold from the error text", async () => {
+    const { calls, report } = harness();
+    await report.onEvent(
+      eventOf("run.failed", {
+        error: "failed with Bearer abcdefghijklmnop1234",
+      })
+    );
+    expect(String(calls[0]?.init.body)).not.toContain("abcdefghijklmnop1234");
+  });
 
   test("does nothing when the agent has no ingest token", async () => {
     const { calls, report } = harness({
@@ -372,7 +430,7 @@ describe("onEvent", () => {
   });
 });
 
-describe("createRequestIdReader", () => {
+describe("createRunRequestReader", () => {
   let db: ReturnType<typeof migrated>;
 
   const seed = async () => {
@@ -425,8 +483,8 @@ describe("createRequestIdReader", () => {
         agentId: agent.id,
         createdAt: START,
         id: RUN,
-        inputText: "hi",
-        requestId: TRIGGER_REQUEST,
+        inputText: PROMPT,
+        requestId: TRIGGER_RUN.requestId,
         sessionId: "s1",
         status: "failed",
         workspaceId: WORKSPACE,
@@ -435,10 +493,10 @@ describe("createRequestIdReader", () => {
     return db;
   };
 
-  test("reads the request id of a run in its workspace only", async () => {
+  test("reads the request id and prompt of a run in its workspace only", async () => {
     await seed();
-    const read = createRequestIdReader(db);
-    expect(await read(WORKSPACE, RUN)).toBe(TRIGGER_REQUEST);
+    const read = createRunRequestReader(db);
+    expect(await read(WORKSPACE, RUN)).toEqual(TRIGGER_RUN);
     expect(await read("w2", RUN)).toBeNull();
     expect(await read(WORKSPACE, "missing")).toBeNull();
   });

@@ -45,6 +45,20 @@ export type PostResult =
   | { ok: true; message: string }
   | { ok: false; message: string };
 
+const LONE_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/gu;
+const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/gu;
+
+function withoutLoneSurrogates(text: string): string {
+  return text.replace(LONE_SURROGATE, "");
+}
+
+/** control-plane's string limits count UTF-16 code units, so cut by those. A pair cut in half loses its orphan. */
+function cutUnits(text: string, max: number): string {
+  return withoutLoneSurrogates(text.slice(0, max));
+}
+
+/** control-plane's envelope summary limit counts code points. */
 function cutCodePoints(text: string, max: number): string {
   return Array.from(text).slice(0, max).join("");
 }
@@ -95,7 +109,7 @@ export function parseReportInput(raw: string | undefined): ParseResult {
     }
     cleanSteps = steps
       .slice(0, STEPS_MAX)
-      .map((step) => cutCodePoints(step, STEP_MAX));
+      .map((step) => cutUnits(step, STEP_MAX));
   }
 
   return {
@@ -103,16 +117,16 @@ export function parseReportInput(raw: string | undefined): ParseResult {
       incidentId,
       outcome,
       steps: cleanSteps,
-      summary: cutCodePoints(summary, SUMMARY_MAX),
+      summary: cutUnits(summary, SUMMARY_MAX),
     },
     ok: true,
   };
 }
 
 function eventSummary(input: ReportInput): string {
-  const line = input.summary
+  const line = withoutLoneSurrogates(input.summary)
     .replace(/\s+/gu, " ")
-    .replace(/\p{Cc}/gu, "")
+    .replace(CONTROL_OR_FORMAT, "")
     .trim();
   const cut = cutCodePoints(line, EVENT_SUMMARY_MAX).trim();
   return cut === "" ? `Investigation ${input.outcome}` : cut;
