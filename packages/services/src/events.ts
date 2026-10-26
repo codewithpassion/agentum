@@ -152,8 +152,8 @@ const TOOL_EVENT_TYPES: ReadonlySet<EventType> = new Set([
 
 /**
  * The payload as it is stored. Every type loses its secret keys and values.
- * Tool events also lose credentials and token formats inside their text, which
- * the stripping above does not reach.
+ * Tool, computer.exec and browser.action events also lose credentials and token
+ * formats inside their text, which the stripping above does not reach.
  */
 const redactPayload = (type: EventType, payload: Payload): Payload => {
   const stripped = payloadSchema.parse(stripSecrets(payload));
