@@ -1,4 +1,11 @@
-import { useCallback, useMemo, useState } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import {
+  type DragEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   DESK_POLL_INTERVAL_MS,
   usePolledQuery,
@@ -9,11 +16,36 @@ import {
   type RequestView,
 } from "#/components/requests/request-card-logic.ts";
 import { useNowMs } from "#/components/task/use-now-ms.ts";
-import { Button } from "#/components/ui/button.tsx";
+import { errorMessage } from "#/components/triggers/format.ts";
+import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
-import { FitViewButton, MapCanvas } from "./map-canvas.tsx";
+import {
+  disconnectMessage,
+  encodeNewNode,
+  isDeletableWire,
+  type MapTool,
+  moveWireMessage,
+  NEW_NODE_MIME,
+  type NewNodeKind,
+  newNodeKeys,
+  triggerIdOfKey,
+} from "./editor-logic.ts";
+import { FitViewButton, MapCanvas, type MapPosition } from "./map-canvas.tsx";
+import {
+  type ConfirmRequest,
+  MapConfirmDialog,
+} from "./map-confirm-dialog.tsx";
+import { MapEditContext } from "./map-edit-context.ts";
 import { MapInspectorPane } from "./map-inspector-pane.tsx";
-import { runCountsByAgent } from "./map-logic.ts";
+import { agentIdOf, runCountsByAgent } from "./map-logic.ts";
+import { NewTriggerFlow } from "./new-trigger-flow.tsx";
+import {
+  forgetAgentDrop,
+  recallAgentDrop,
+  rememberAgentDrop,
+  resolveAgentDrop,
+} from "./pending-drop.ts";
+import { ToolPalette } from "./tool-palette.tsx";
 
 const TASK_WINDOW = 100;
 
@@ -36,29 +68,40 @@ const loadMap = async () => {
   };
 };
 
-/** Editor and Runs. Editor comes with a later task, so it stays off. */
-function ModeToggle() {
+type Mode = "editor" | "runs";
+
+/** Editor and Runs. */
+function ModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: Mode;
+  onChange: (mode: Mode) => void;
+}) {
+  const showEditor = useCallback(() => onChange("editor"), [onChange]);
+  const showRuns = useCallback(() => onChange("runs"), [onChange]);
   return (
     <fieldset
       aria-label="View"
       className="m-0 inline-flex overflow-hidden rounded-lg border border-border p-0"
     >
       <Button
+        aria-pressed={mode === "editor"}
         className="rounded-none"
-        disabled
+        onClick={showEditor}
         size="sm"
-        title="Editor mode comes later"
         type="button"
-        variant="ghost"
+        variant={mode === "editor" ? "secondary" : "ghost"}
       >
         Editor
       </Button>
       <Button
-        aria-pressed
+        aria-pressed={mode === "runs"}
         className="rounded-none"
+        onClick={showRuns}
         size="sm"
         type="button"
-        variant="secondary"
+        variant={mode === "runs" ? "secondary" : "ghost"}
       >
         Runs · last 7 days
       </Button>
@@ -66,14 +109,72 @@ function ModeToggle() {
   );
 }
 
+/** "+ Trigger" and "+ Agent": click to make one, or drag one onto the canvas to make it there. */
+function NewNodeButtons({ onNewTrigger }: { onNewTrigger: () => void }) {
+  const dragTrigger = useCallback((event: DragEvent) => {
+    event.dataTransfer.setData(NEW_NODE_MIME, encodeNewNode("trigger"));
+    event.dataTransfer.effectAllowed = "copy";
+  }, []);
+  const dragAgent = useCallback((event: DragEvent) => {
+    event.dataTransfer.setData(NEW_NODE_MIME, encodeNewNode("agent"));
+    event.dataTransfer.effectAllowed = "copy";
+  }, []);
+  return (
+    <>
+      <Button
+        draggable
+        onClick={onNewTrigger}
+        onDragStart={dragTrigger}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        + Trigger
+      </Button>
+      <Link
+        className={buttonVariants({ size: "sm", variant: "outline" })}
+        draggable
+        onDragStart={dragAgent}
+        to="/agents/new"
+      >
+        + Agent
+      </Link>
+    </>
+  );
+}
+
+/** The agents a new trigger can start, from the map's own agent nodes. */
+const agentOptions = (graph: {
+  nodes: { key: string; kind: string; label: string }[];
+}): { id: string; name: string }[] =>
+  graph.nodes.flatMap((node) => {
+    const id = agentIdOf(node.key);
+    return node.kind === "agent" && id !== null
+      ? [{ id, name: node.label }]
+      : [];
+  });
+
+const NEW_AGENT_PATH = "/agents/new";
+
 export function MapPage() {
   const nowMs = useNowMs();
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<Mode>("runs");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [newTrigger, setNewTrigger] = useState<{
+    position: MapPosition | null;
+  } | null>(null);
   const { data, error, refresh } = usePolledQuery(
     loadMap,
     null,
     DESK_POLL_INTERVAL_MS
   );
+  const editor = mode === "editor";
+  const graph = data?.graph ?? null;
 
   const runCounts = useMemo(
     () =>
@@ -100,7 +201,206 @@ export function MapPage() {
     [refresh]
   );
 
+  /** Runs an edit, shows its failure in the banner and reloads the graph. */
+  const edit = useCallback(
+    async (change: () => Promise<unknown>) => {
+      setEditError(null);
+      try {
+        await change();
+      } catch (cause) {
+        setEditError(errorMessage(cause));
+      }
+      await refresh();
+    },
+    [refresh]
+  );
+
+  const savePositions = useCallback(
+    (positions: { key: string; x: number; y: number }[]) =>
+      edit(() => getTrpc().map.savePositions.mutate(positions)),
+    [edit]
+  );
+
+  const plug = useCallback(
+    (agentId: string, tool: MapTool) =>
+      edit(() => getTrpc().map.plugTool.mutate({ agentId, tool })),
+    [edit]
+  );
+  const unplug = useCallback(
+    (agentId: string, tool: MapTool) =>
+      edit(() => getTrpc().map.unplugTool.mutate({ agentId, tool })),
+    [edit]
+  );
+
+  const askConfirm = useCallback((request: ConfirmRequest) => {
+    setConfirmError(null);
+    setConfirm(request);
+  }, []);
+
+  const connectWire = useCallback(
+    (sourceKey: string, targetKey: string) => {
+      const triggerId = triggerIdOfKey(sourceKey);
+      const agentId = agentIdOf(targetKey);
+      if (graph === null || triggerId === null || agentId === null) {
+        return;
+      }
+      const message = moveWireMessage(graph, sourceKey, targetKey);
+      askConfirm({
+        body: message.body,
+        confirm: "Connect",
+        destructive: false,
+        run: async () => {
+          await getTrpc().map.connectTrigger.mutate({ agentId, triggerId });
+        },
+        title: message.title,
+      });
+    },
+    [askConfirm, graph]
+  );
+
+  const deleteWire = useCallback(
+    (edgeId: string) => {
+      const wire = graph?.wires.find(
+        (candidate) =>
+          `${candidate.kind}:${candidate.from}:${candidate.to}` === edgeId
+      );
+      const triggerId = wire === undefined ? null : triggerIdOfKey(wire.from);
+      if (
+        graph === null ||
+        wire === undefined ||
+        triggerId === null ||
+        !isDeletableWire(graph, wire)
+      ) {
+        return;
+      }
+      const message = disconnectMessage(graph, wire.from);
+      askConfirm({
+        body: message.body,
+        confirm: message.confirm,
+        destructive: true,
+        run: async () => {
+          await getTrpc().map.disconnectTrigger.mutate({ triggerId });
+        },
+        title: message.title,
+      });
+    },
+    [askConfirm, graph]
+  );
+
+  const cancelConfirm = useCallback(() => setConfirm(null), []);
+  const runConfirm = useCallback(async () => {
+    if (confirm === null) {
+      return;
+    }
+    setConfirming(true);
+    setConfirmError(null);
+    try {
+      await confirm.run();
+      setConfirm(null);
+      await refresh();
+    } catch (cause) {
+      setConfirmError(errorMessage(cause));
+    } finally {
+      setConfirming(false);
+    }
+  }, [confirm, refresh]);
+
+  const dropNew = useCallback(
+    (kind: NewNodeKind, position: MapPosition) => {
+      if (kind === "trigger") {
+        setNewTrigger({ position });
+        return;
+      }
+      rememberAgentDrop({
+        at: Date.now(),
+        known: (graph?.nodes ?? [])
+          .map((node) => node.key)
+          .filter((key) => agentIdOf(key) !== null),
+        x: position.x,
+        y: position.y,
+      });
+      navigate({ to: NEW_AGENT_PATH });
+    },
+    [graph, navigate]
+  );
+  const openNewTrigger = useCallback(
+    () => setNewTrigger({ position: null }),
+    []
+  );
+
+  /** A trigger was made: put its node where it was dropped, when it was dropped. */
+  const finishNewTrigger = useCallback(
+    async (created: boolean) => {
+      const position = newTrigger?.position ?? null;
+      const before = graph?.nodes.map((node) => node.key) ?? [];
+      setNewTrigger(null);
+      if (!created) {
+        return;
+      }
+      if (position !== null) {
+        await edit(async () => {
+          const next = await getTrpc().map.graph.query({ days: 7 });
+          const [key] = newNodeKeys(
+            before,
+            next.nodes.map((node) => node.key)
+          );
+          if (key !== undefined) {
+            await getTrpc().map.savePositions.mutate([
+              { key, x: Math.round(position.x), y: Math.round(position.y) },
+            ]);
+          }
+        });
+        return;
+      }
+      await refresh();
+    },
+    [edit, graph, newTrigger, refresh]
+  );
+
+  // An agent made in the builder lands where "+ Agent" was dropped.
+  useEffect(() => {
+    const drop = recallAgentDrop();
+    if (drop === null || graph === null) {
+      return;
+    }
+    const outcome = resolveAgentDrop(
+      drop,
+      graph.nodes.map((node) => node.key),
+      Date.now()
+    );
+    if (outcome.kind === "wait") {
+      return;
+    }
+    forgetAgentDrop();
+    if (outcome.kind === "place") {
+      savePositions([
+        {
+          key: outcome.key,
+          x: Math.round(outcome.x),
+          y: Math.round(outcome.y),
+        },
+      ]);
+    }
+  }, [graph, savePositions]);
+
+  const editApi = useMemo(
+    () => ({
+      editor,
+      onDeleteWire: deleteWire,
+      onPlug: plug,
+      onUnplug: unplug,
+    }),
+    [editor, deleteWire, plug, unplug]
+  );
+
+  const changeMode = useCallback((next: Mode) => {
+    setMode(next);
+    setEditError(null);
+  }, []);
   const closeInspector = useCallback(() => setSelectedKey(null), []);
+  const reload = useCallback(() => {
+    refresh();
+  }, [refresh]);
   const selected =
     data?.graph.nodes.find((node) => node.key === selectedKey) ?? null;
 
@@ -113,12 +413,18 @@ export function MapPage() {
             Who starts what, who hands to whom, and where the results go
           </p>
         </div>
-        <ModeToggle />
+        <ModeToggle mode={mode} onChange={changeMode} />
+        {editor ? <NewNodeButtons onNewTrigger={openNewTrigger} /> : null}
         <FitViewButton />
       </header>
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}
+        </p>
+      )}
+      {editError === null ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          {editError}
         </p>
       )}
       {data === null || nowMs === null ? (
@@ -129,33 +435,63 @@ export function MapPage() {
             className="h-[min(70vh,640px)] min-w-0 flex-[999_1_600px] overflow-hidden rounded-xl border border-border"
             data-testid="map-board"
           >
-            <MapCanvas
-              agents={data.agents}
-              graph={data.graph}
-              onSelect={setSelectedKey}
-              qaOpenCount={data.qaOpenCount}
-              runCounts={runCounts}
-              selectedKey={selectedKey}
-            />
-          </div>
-          {selected === null ? null : (
-            <div className="min-w-0 flex-[1_1_300px]">
-              <MapInspectorPane
+            <MapEditContext.Provider value={editApi}>
+              <MapCanvas
+                agents={data.agents}
+                editor={editor}
                 graph={data.graph}
-                key={selected.key}
-                node={selected}
-                nowMs={nowMs}
-                onAnswer={answer}
-                onClose={closeInspector}
+                onConnectWire={connectWire}
+                onDeleteWire={deleteWire}
+                onDropNew={dropNew}
+                onSavePositions={savePositions}
+                onSelect={setSelectedKey}
+                qaOpenCount={data.qaOpenCount}
+                runCounts={runCounts}
+                selectedKey={selectedKey}
               />
+            </MapEditContext.Provider>
+          </div>
+          {editor || selected !== null ? (
+            <div className="flex min-w-0 flex-[1_1_300px] flex-col gap-4 lg:min-w-[360px]">
+              {editor ? <ToolPalette /> : null}
+              {selected === null ? null : (
+                <MapInspectorPane
+                  editor={editor}
+                  graph={data.graph}
+                  key={`${selected.key}:${editor}`}
+                  node={selected}
+                  nowMs={nowMs}
+                  onAnswer={answer}
+                  onChanged={reload}
+                  onClose={closeInspector}
+                />
+              )}
             </div>
-          )}
+          ) : null}
         </div>
       )}
       <p className="text-muted-foreground text-xs">
         Green wires carried work in the last 7 days, grey ones are idle. Counts
         are items passed along each wire.
+        {editor
+          ? " Drag nodes to move them, draw a wire from a trigger to an agent, and drop a tool on an agent to plug it in."
+          : ""}
       </p>
+      {confirm === null ? null : (
+        <MapConfirmDialog
+          error={confirmError}
+          onCancel={cancelConfirm}
+          onConfirm={runConfirm}
+          pending={confirming}
+          request={confirm}
+        />
+      )}
+      {newTrigger === null || data === null ? null : (
+        <NewTriggerFlow
+          agents={agentOptions(data.graph)}
+          onDone={finishNewTrigger}
+        />
+      )}
     </section>
   );
 }

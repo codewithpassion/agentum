@@ -200,7 +200,7 @@ test("agent ports map to kind and label", () => {
   const graph = graphOf([agentNode("a1")]);
   const [node] = toFlowNodes(graph, EMPTY_CTX);
   expect(node?.type === "agent" && node.data.ports).toEqual([
-    { kind: "connector", label: "Gmail" },
+    { id: "c1", kind: "connector", label: "Gmail" },
   ]);
   expect(node?.type === "agent" && node.data.initials).toBe("TB");
 });
@@ -365,15 +365,30 @@ test("toFlowEdges gives each wire an id, a label and its data", () => {
   expect(live?.type).toBe("count");
   expect(live?.label).toBe("0 runs");
   expect(live?.animated).toBe(true);
-  expect(live?.data).toEqual({ active: true, carried: true, kind: "trigger" });
+  expect(live?.data).toEqual({
+    active: true,
+    carried: true,
+    deletable: false,
+    kind: "trigger",
+  });
 
   expect(carried?.id).toBe("qa:agent:a1:out:qa");
   expect(carried?.label).toBe("3 questions");
   expect(carried?.animated).toBe(false);
-  expect(carried?.data).toEqual({ active: false, carried: true, kind: "qa" });
+  expect(carried?.data).toEqual({
+    active: false,
+    carried: true,
+    deletable: false,
+    kind: "qa",
+  });
 
   expect(idle?.label).toBe("0 emails");
-  expect(idle?.data).toEqual({ active: false, carried: false, kind: "email" });
+  expect(idle?.data).toEqual({
+    active: false,
+    carried: false,
+    deletable: false,
+    kind: "email",
+  });
 });
 
 test("toFlowEdges runs handoffs vertically and other wires left to right", () => {
@@ -487,4 +502,44 @@ test("toneOf is stable and stays within 1 to 4", () => {
     expect(tone).toBeLessThanOrEqual(4);
     expect(toneOf(key)).toBe(tone);
   }
+});
+
+test("editor mode makes every node draggable and none deletable", () => {
+  const graph = graphOf([agentNode("a1")]);
+  const [readOnly] = toFlowNodes(graph, EMPTY_CTX);
+  const [editing] = toFlowNodes(graph, { ...EMPTY_CTX, editor: true });
+  expect(readOnly?.draggable).toBe(false);
+  expect(editing?.draggable).toBe(true);
+  expect(editing?.connectable).toBe(true);
+  expect(editing?.deletable).toBe(false);
+});
+
+test("editor mode marks only the wires of http and routine triggers deletable", () => {
+  const trigger = (id: string, subkind: "http" | "mail"): MapNode => ({
+    key: `trigger:${id}`,
+    kind: "trigger",
+    label: id,
+    ports: [],
+    subkind,
+    x: 0,
+    y: 0,
+  });
+  const graph = graphOf(
+    [agentNode("a1"), trigger("h", "http"), trigger("m", "mail")],
+    [
+      wire({ from: "trigger:h" }),
+      wire({ from: "trigger:m" }),
+      wire({ from: "agent:a1", kind: "handoff", to: "agent:a1" }),
+    ]
+  );
+  expect(toFlowEdges(graph).map((edge) => edge.deletable)).toEqual([
+    false,
+    false,
+    false,
+  ]);
+  expect(toFlowEdges(graph, true).map((edge) => edge.deletable)).toEqual([
+    true,
+    false,
+    false,
+  ]);
 });

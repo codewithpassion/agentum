@@ -9,6 +9,7 @@ import type {
   MapWireKind,
 } from "@repo/db/shared";
 import { MarkerType } from "@xyflow/react";
+import { isDeletableWire } from "./editor-logic.ts";
 import {
   type AgentFlowNode,
   type MapFlowEdge,
@@ -140,13 +141,18 @@ function handlesOf(
     : { sourceHandle: "top-out", targetHandle: "bottom-in" };
 }
 
-export function toFlowEdges(graph: MapGraph<unknown>): MapFlowEdge[] {
+export function toFlowEdges(
+  graph: MapGraph<unknown>,
+  editor = false
+): MapFlowEdge[] {
   const nodes = new Map(graph.nodes.map((node) => [node.key, node] as const));
   return graph.wires.map((wire) => {
     const carried = wire.active || wire.count7d > 0;
+    const deletable = editor && isDeletableWire(graph, wire);
     return {
       animated: wire.active,
-      data: { active: wire.active, carried, kind: wire.kind },
+      data: { active: wire.active, carried, deletable, kind: wire.kind },
+      deletable,
       id: `${wire.kind}:${wire.from}:${wire.to}`,
       label: wireLabel(wire),
       markerEnd: {
@@ -163,6 +169,8 @@ export function toFlowEdges(graph: MapGraph<unknown>): MapFlowEdge[] {
 
 export interface FlowNodeContext {
   agents: Map<string, { runtime: AgentRuntime }>;
+  /** Editor mode: nodes drag and the ends of a wire connect. */
+  editor?: boolean;
   qaOpenCount: number;
   runCounts: Map<string, number>;
   selectedKey: string | null;
@@ -216,16 +224,21 @@ function agentNode(
     position: { x: node.x, y: node.y },
     type: "agent",
     ...NODE_SIZE.agent,
-    connectable: false,
+    connectable: ctx.editor === true,
     data: {
       initials: initialsOf(node.label),
       label: node.label,
-      ports: node.ports.map((port) => ({ kind: port.kind, label: port.label })),
+      ports: node.ports.map((port) => ({
+        id: port.id,
+        kind: port.kind,
+        label: port.label,
+      })),
       status,
       statusText: agentStatusText(node, ctx, status),
       tone: toneOf(node.key),
     },
-    draggable: false,
+    deletable: false,
+    draggable: ctx.editor === true,
     selected: node.key === ctx.selectedKey,
   };
 }
@@ -240,7 +253,7 @@ function triggerNode(
     position: { x: node.x, y: node.y },
     type: "trigger",
     ...NODE_SIZE.trigger,
-    connectable: false,
+    connectable: ctx.editor === true,
     data: {
       active: wires.some((wire) => wire.from === node.key && wire.active),
       detail: "",
@@ -248,7 +261,8 @@ function triggerNode(
       subkind: (node.subkind ?? "http") as MapTriggerKind,
       tone: toneOf(node.key),
     },
-    draggable: false,
+    deletable: false,
+    draggable: ctx.editor === true,
     selected: node.key === ctx.selectedKey,
   };
 }
@@ -267,7 +281,7 @@ function outputNode(
     position: { x: node.x, y: node.y },
     type: "output",
     ...NODE_SIZE.output,
-    connectable: false,
+    connectable: ctx.editor === true,
     data: {
       detail:
         subkind === "qa"
@@ -277,7 +291,8 @@ function outputNode(
       subkind,
       tone: toneOf(node.key),
     },
-    draggable: false,
+    deletable: false,
+    draggable: ctx.editor === true,
     selected: node.key === ctx.selectedKey,
   };
 }
