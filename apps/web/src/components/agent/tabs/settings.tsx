@@ -10,6 +10,7 @@ import {
 } from "#/components/agent/agent-config.ts";
 import { AgentForm, type AgentFormValues } from "#/components/agent/agent-form";
 import { ArchiveAgentDialog } from "#/components/agent/archive-agent-dialog";
+import { AskRules } from "#/components/agent/settings/ask-rules";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { MachineRecord } from "#/integrations/trpc/types";
@@ -102,6 +103,9 @@ function SettingsPanel({ agent }: AgentTabProps) {
   return (
     <section className="max-w-3xl">
       {body}
+      <div className="mt-10 border-border border-t pt-6">
+        <AskRules agentId={agent.id} />
+      </div>
       <div className="mt-10 border-border border-t pt-6">
         <Button onClick={openArchive} variant="outline">
           Archive agent

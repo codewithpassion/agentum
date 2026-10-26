@@ -1,0 +1,264 @@
+// The logic behind the answer card (V1.14): what a request looks like in the
+// chat, how its expiry and its settled line read, and the payload an answer
+// sends. Pure: `stream-logic.ts` keeps the requests, `request-card.tsx` draws them.
+
+import type { AnswerSurface, ApprovalDecision } from "@repo/db/shared";
+import {
+  type ApprovalAnswer,
+  type ApprovalDisplay,
+  approvalDisplaySchema,
+  type Question,
+  type QuestionAnswer,
+  type QuestionDisplay,
+  questionDisplaySchema,
+} from "@repo/protocol/requests";
+
+const MS_PER_MINUTE = 60_000;
+const MINUTES_PER_HOUR = 60;
+
+/** How a request ended, as far as the chat knows. `conflict` means someone else answered first. */
+export type Settled =
+  | {
+      answer: ApprovalAnswer | QuestionAnswer;
+      /** The Clerk user id of whoever answered. */
+      answeredBy: string | null;
+      status: "answered";
+      via: AnswerSurface | null;
+    }
+  | { status: "cancelled" }
+  | { status: "conflict" }
+  | { status: "expired" };
+
+interface RequestBase {
+  /** The id of the transcript entry the card sits after, or null for the end. */
+  anchorId: string | null;
+  expiresAt: string;
+  id: string;
+  runId: string;
+  /** Null while the request waits for an answer. */
+  settled: Settled | null;
+}
+
+/** A request the chat shows, pending or settled. */
+export type RequestView =
+  | (RequestBase & { display: ApprovalDisplay; kind: "approval" })
+  | (RequestBase & { display: QuestionDisplay; kind: "question" });
+
+/** What the answer mutation takes, without the request id. */
+export type AnswerPayload = ApprovalAnswer | QuestionAnswer;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const textOf = (value: unknown): string | null =>
+  typeof value === "string" && value !== "" ? value : null;
+
+/** "expires in 42 min", or "expired" once the time has passed. */
+export const expiryText = (expiresAt: string, nowMs: number): string => {
+  const left = Date.parse(expiresAt) - nowMs;
+  if (Number.isNaN(left) || left <= 0) {
+    return "expired";
+  }
+  const minutes = Math.ceil(left / MS_PER_MINUTE);
+  if (minutes < MINUTES_PER_HOUR) {
+    return `expires in ${minutes} min`;
+  }
+  const hours = Math.round(minutes / MINUTES_PER_HOUR);
+  return `expires in ${hours} h`;
+};
+
+const DECISION_TEXT: Record<ApprovalDecision, string> = {
+  allow_once: "Allowed once",
+  always_allow: "Always allowed",
+  deny: "Denied",
+};
+
+const SURFACE_TEXT: Record<AnswerSurface, string> = {
+  slack: "Slack",
+  web: "the web app",
+};
+
+/**
+ * The line a settled card shows, such as "Allowed once by Dom in Slack".
+ * `by` is the answerer's name, or null when it is not known.
+ */
+export const settledLine = (
+  kind: RequestView["kind"],
+  settled: Settled,
+  by: string | null
+): string => {
+  switch (settled.status) {
+    case "expired":
+      return "Expired, nobody answered";
+    case "cancelled":
+      return "Withdrawn, the run ended";
+    case "conflict":
+      return "Already answered somewhere else";
+    default: {
+      const { answer, via } = settled;
+      const who = by === null ? "" : ` by ${by}`;
+      const where = via === null ? "" : ` in ${SURFACE_TEXT[via]}`;
+      if ("decision" in answer) {
+        const note =
+          answer.decision === "deny" && answer.note ? `: ${answer.note}` : "";
+        return `${DECISION_TEXT[answer.decision]}${who}${where}${note}`;
+      }
+      return `${kind === "question" ? "Answered" : "Handled"}${who}${where}`;
+    }
+  }
+};
+
+/** The answer to an approval. A blank note is left out. */
+export const approvalAnswer = (
+  decision: ApprovalDecision,
+  note: string
+): ApprovalAnswer => {
+  const trimmed = note.trim();
+  return trimmed === "" || decision !== "deny"
+    ? { decision }
+    : { decision, note: trimmed };
+};
+
+/** What a person picked and typed for each question, by question text. */
+export interface QuestionInputs {
+  choices: Readonly<Record<string, readonly string[]>>;
+  text: Readonly<Record<string, string>>;
+}
+
+const answerText = (question: Question, inputs: QuestionInputs): string => {
+  const picked = (question.choices ?? []).filter((choice) =>
+    (inputs.choices[question.question] ?? []).includes(choice)
+  );
+  const typed = (inputs.text[question.question] ?? "").trim();
+  return [...picked, ...(typed === "" ? [] : [typed])].join(", ");
+};
+
+/** True when every question has a picked choice or typed text. */
+export const canSubmitAnswers = (
+  questions: readonly Question[],
+  inputs: QuestionInputs
+): boolean =>
+  questions.length > 0 &&
+  questions.every((question) => answerText(question, inputs) !== "");
+
+/** The answer to a question request: picked choices and free text joined with ", ". */
+export const questionAnswer = (
+  questions: readonly Question[],
+  inputs: QuestionInputs
+): QuestionAnswer => ({
+  answers: Object.fromEntries(
+    questions.map((question) => [
+      question.question,
+      answerText(question, inputs),
+    ])
+  ),
+});
+
+/** The choices after one is toggled. A single-choice question holds at most one. */
+export const toggledChoices = (
+  question: Question,
+  current: readonly string[],
+  choice: string
+): string[] => {
+  if (current.includes(choice)) {
+    return current.filter((item) => item !== choice);
+  }
+  return question.multiSelect === true ? [...current, choice] : [choice];
+};
+
+/** The request a `request.opened` event describes, or null when the payload is not one. */
+export const viewFromOpened = (
+  payload: Record<string, unknown>,
+  runId: string | null,
+  anchorId: string | null
+): RequestView | null => {
+  const id = textOf(payload.requestId);
+  const expiresAt = textOf(payload.expiresAt);
+  if (id === null || expiresAt === null || runId === null) {
+    return null;
+  }
+  const base = { anchorId, expiresAt, id, runId, settled: null };
+  if (payload.kind === "approval") {
+    const display = approvalDisplaySchema.safeParse(payload.display);
+    return display.success
+      ? { ...base, display: display.data, kind: "approval" }
+      : null;
+  }
+  if (payload.kind === "question") {
+    const display = questionDisplaySchema.safeParse(payload.display);
+    return display.success
+      ? { ...base, display: display.data, kind: "question" }
+      : null;
+  }
+  return null;
+};
+
+/** A pending request from `requests.pending`. */
+export const viewFromRecord = (
+  record: {
+    display: ApprovalDisplay | QuestionDisplay;
+    expiresAt: string;
+    id: string;
+    kind: "approval" | "question";
+    runId: string;
+  },
+  anchorId: string | null
+): RequestView | null =>
+  viewFromOpened(
+    {
+      display: record.display,
+      expiresAt: record.expiresAt,
+      kind: record.kind,
+      requestId: record.id,
+    },
+    record.runId,
+    anchorId
+  );
+
+/** The outcome a `request.answered`, `request.expired` or `request.cancelled` event records. */
+export const settledFromEvent = (
+  type: string,
+  payload: Record<string, unknown>
+): Settled | null => {
+  if (type === "request.expired") {
+    return { status: "expired" };
+  }
+  if (type === "request.cancelled") {
+    return { status: "cancelled" };
+  }
+  if (type !== "request.answered") {
+    return null;
+  }
+  const via =
+    payload.via === "slack" || payload.via === "web" ? payload.via : null;
+  const answeredBy = textOf(payload.answeredBy);
+  if (
+    payload.decision === "allow_once" ||
+    payload.decision === "always_allow" ||
+    payload.decision === "deny"
+  ) {
+    const note = textOf(payload.note);
+    return {
+      answer:
+        note === null
+          ? { decision: payload.decision }
+          : { decision: payload.decision, note },
+      answeredBy,
+      status: "answered",
+      via,
+    };
+  }
+  if (isRecord(payload.answers)) {
+    const answers = Object.fromEntries(
+      Object.entries(payload.answers).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string"
+      )
+    );
+    return { answer: { answers }, answeredBy, status: "answered", via };
+  }
+  return null;
+};
+
+/** True when a tRPC error says the request was answered already. */
+export const isConflict = (cause: unknown): boolean =>
+  isRecord(cause) && isRecord(cause.data) && cause.data.code === "CONFLICT";

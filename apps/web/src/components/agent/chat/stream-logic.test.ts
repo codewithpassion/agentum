@@ -5,6 +5,8 @@ import type { ChatEntry } from "./chat-logic";
 import { statusLine, toChatItems } from "./chat-logic";
 import {
   applyFrame,
+  applyPending,
+  applySettled,
   applyTranscript,
   type ChatTranscript,
   initialState,
@@ -254,6 +256,220 @@ describe("applyFrame deltas", () => {
     const state = applyFrame(initial, makeDelta("late"));
     expect(state).toEqual(initial);
     expect(streamItems(state)).toEqual([]);
+  });
+});
+
+describe("late deltas", () => {
+  const stored = makeEvent({
+    id: "ev-9",
+    payload: { text: "Hello there" },
+    type: "message.assistant",
+  });
+
+  test("drops a delta that follows the stored message it was a copy of", () => {
+    const initial = initialState(makeTranscript({ latestRun: makeRun({}) }));
+    const state = [makeDelta("Hello"), stored, makeDelta("Hello there")].reduce(
+      applyFrame,
+      initial
+    );
+    expect(state.deltas).toEqual({});
+    expect(streamItems(state)).toEqual([
+      { fileIds: [], id: "ev-9", kind: "assistant", text: "Hello there" },
+    ]);
+  });
+
+  test("drops it even when no delta was seen before the stored message", () => {
+    const initial = initialState(makeTranscript({ latestRun: makeRun({}) }));
+    const state = [stored, makeDelta("Hello")].reduce(applyFrame, initial);
+    expect(state.deltas).toEqual({});
+  });
+
+  test("keeps a delta of the next message of the run", () => {
+    const initial = initialState(makeTranscript({ latestRun: makeRun({}) }));
+    const next: StreamFrame = {
+      frame: "delta",
+      messageKey: "msg-2",
+      runId: "run-1",
+      text: "Next up",
+    };
+    const state = [makeDelta("Hello"), stored, next].reduce(
+      applyFrame,
+      initial
+    );
+    expect(Object.keys(state.deltas)).toEqual(["run-1"]);
+    expect(streamItems(state).at(-1)?.kind).toBe("assistant");
+  });
+
+  test("a fetched transcript that holds the message clears its delta", () => {
+    const streamed = applyFrame(
+      initialState(makeTranscript({ latestRun: makeRun({}) })),
+      makeDelta("Hello")
+    );
+    const state = applyTranscript(
+      streamed,
+      makeTranscript({
+        entries: [
+          {
+            id: "ev-9",
+            payload: { text: "Hello there" },
+            payloadRef: null,
+            runId: "run-1",
+            type: "message.assistant",
+          },
+        ],
+        latestRun: makeRun({}),
+      })
+    );
+    expect(state.deltas).toEqual({});
+    expect(applyFrame(state, makeDelta("Hello")).deltas).toEqual({});
+  });
+});
+
+describe("requests", () => {
+  const display = {
+    input: { command: "ls" },
+    summary: "Run `ls`",
+    toolKey: "bash",
+    toolName: "Bash",
+  };
+  const opened = makeEvent({
+    id: "ev-5",
+    payload: {
+      display,
+      expiresAt: "2026-10-16T13:00:00.000Z",
+      kind: "approval",
+      requestId: "req-1",
+      toolKey: "bash",
+      toolName: "Bash",
+      toolUseId: "t1",
+    },
+    type: "request.opened",
+  });
+  const entries: ChatEntry[] = [
+    {
+      id: "ev-1",
+      payload: { fileIds: [], text: "hi" },
+      payloadRef: null,
+      runId: "run-1",
+      type: "message.user",
+    },
+    {
+      id: "ev-4",
+      payload: { input: "ls", name: "Bash", toolUseId: "t1" },
+      payloadRef: null,
+      runId: "run-1",
+      type: "tool.call",
+    },
+  ];
+  const start = () =>
+    initialState(makeTranscript({ entries, latestRun: makeRun({}) }));
+
+  test("request.opened shows a card after the run's last entry", () => {
+    const state = applyFrame(start(), opened);
+    expect(state.requests).toHaveLength(1);
+    expect(state.requests[0]?.anchorId).toBe("ev-4");
+    expect(streamItems(state).map((item) => item.kind)).toEqual([
+      "user",
+      "tool",
+      "request",
+    ]);
+  });
+
+  test("a replayed opened event does not add a second card", () => {
+    const state = [opened, opened].reduce(applyFrame, start());
+    expect(state.requests).toHaveLength(1);
+  });
+
+  test("request.answered turns the card into a settled line", () => {
+    const state = [
+      opened,
+      makeEvent({
+        id: "ev-6",
+        payload: {
+          answeredBy: "user-1",
+          decision: "allow_once",
+          requestId: "req-1",
+          via: "slack",
+        },
+        type: "request.answered",
+      }),
+    ].reduce(applyFrame, start());
+    expect(state.requests[0]?.settled).toEqual({
+      answer: { decision: "allow_once" },
+      answeredBy: "user-1",
+      status: "answered",
+      via: "slack",
+    });
+  });
+
+  test("the first outcome stays, but a conflict gives way to the real one", () => {
+    const expired = makeEvent({
+      id: "ev-7",
+      payload: { requestId: "req-1" },
+      type: "request.expired",
+    });
+    const cancelled = makeEvent({
+      id: "ev-8",
+      payload: { requestId: "req-1" },
+      type: "request.cancelled",
+    });
+    const first = [opened, expired, cancelled].reduce(applyFrame, start());
+    expect(first.requests[0]?.settled).toEqual({ status: "expired" });
+    const conflicted = applySettled(applyFrame(start(), opened), "req-1", {
+      status: "conflict",
+    });
+    expect(applyFrame(conflicted, expired).requests[0]?.settled).toEqual({
+      status: "expired",
+    });
+  });
+
+  test("a pending request frame for an unknown request asks for the pending list", () => {
+    const state = applyFrame(start(), {
+      frame: "request",
+      kind: "approval",
+      requestId: "req-9",
+      runId: "run-1",
+      status: "pending",
+    });
+    expect(state.needsRequests).toBe(true);
+  });
+
+  test("applyPending adds unknown requests and keeps settled ones settled", () => {
+    const record = {
+      display,
+      expiresAt: "2026-10-16T13:00:00.000Z",
+      id: "req-1",
+      kind: "approval" as const,
+      runId: "run-1",
+    };
+    const settled = applySettled(applyFrame(start(), opened), "req-1", {
+      status: "expired",
+    });
+    const state = applyPending({ ...settled, needsRequests: true }, [
+      record,
+      { ...record, id: "req-2" },
+    ]);
+    expect(state.needsRequests).toBe(false);
+    expect(state.requests.map((view) => view.id)).toEqual(["req-1", "req-2"]);
+    expect(state.requests[0]?.settled).toEqual({ status: "expired" });
+    expect(state.requests[1]?.anchorId).toBe("ev-4");
+  });
+
+  test("a card keeps its place when the run goes on", () => {
+    const state = [
+      opened,
+      makeEvent({
+        id: "ev-6",
+        payload: { text: "done" },
+        type: "message.assistant",
+      }),
+    ].reduce(applyFrame, start());
+    expect(streamItems(state).map((item) => item.kind)).toEqual([
+      "user",
+      "tool",
+      "request",
+      "assistant",
+    ]);
   });
 });
 
