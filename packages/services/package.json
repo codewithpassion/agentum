@@ -38,6 +38,7 @@
     "./library": "./src/library.ts",
     "./library-links": "./src/library-links.ts",
     "./library/access": "./src/library/access.ts",
+    "./library/audience": "./src/library/audience.ts",
     "./library/home": "./src/library/home.ts",
     "./library/memory": "./src/library/memory.ts",
     "./library/skill-file": "./src/library/skill-file.ts",

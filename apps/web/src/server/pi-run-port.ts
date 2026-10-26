@@ -11,6 +11,8 @@ export const durableRunnerPort = (
     answered: (runId, sessionId, requestId) =>
       runnerOf(sessionId).requestAnswered(runId, requestId),
     cancel: (runId, sessionId) => runnerOf(sessionId).cancelRun(runId),
+    libraryChanged: (sessionId, paths) =>
+      runnerOf(sessionId).libraryChanged(paths),
     start: (input) => runnerOf(input.run.sessionId).startRun(input),
   };
 };
