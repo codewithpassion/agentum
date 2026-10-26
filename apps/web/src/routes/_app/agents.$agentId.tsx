@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback } from "react";
 import { z } from "zod";
@@ -38,6 +38,7 @@ function AgentPage() {
   const { agent, profile } = Route.useLoaderData();
   const { sheet } = Route.useSearch();
   const navigate = Route.useNavigate();
+  const router = useRouter();
 
   const openSheet = useCallback(
     (next: SheetId | undefined) =>
@@ -45,7 +46,11 @@ function AgentPage() {
     [navigate]
   );
   const edit = useCallback(() => openSheet("edit"), [openSheet]);
-  const close = useCallback(() => openSheet(undefined), [openSheet]);
+  // The panels change what the rows show, so reload the profile as the sheet closes.
+  const close = useCallback(async () => {
+    await openSheet(undefined);
+    await router.invalidate();
+  }, [openSheet, router]);
   const openTask = useCallback(
     (runId: string) => navigate({ params: { runId }, to: "/tasks/$runId" }),
     [navigate]

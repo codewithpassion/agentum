@@ -19,13 +19,26 @@ import { TriggersPanel } from "./sheets/triggers.tsx";
 
 const SECTION_CLASS = "flex flex-col gap-8";
 
+function Section({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="font-heading text-foreground text-lg">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
 function SheetBody({ agent, sheet }: { agent: AgentRecord; sheet: SheetId }) {
   switch (sheet) {
     case "tools":
       return (
         <div className={SECTION_CLASS}>
-          <ConnectorsPanel agent={agent} />
-          <SecretsPanel agent={agent} />
+          <Section title="Connectors">
+            <ConnectorsPanel agent={agent} />
+          </Section>
+          <Section title="Secrets">
+            <SecretsPanel agent={agent} />
+          </Section>
         </div>
       );
     case "skills":
@@ -35,8 +48,12 @@ function SheetBody({ agent, sheet }: { agent: AgentRecord; sheet: SheetId }) {
     case "startsOn":
       return (
         <div className={SECTION_CLASS}>
-          <TriggersPanel agent={agent} />
-          <RoutinesPanel agent={agent} />
+          <Section title="Triggers">
+            <TriggersPanel agent={agent} />
+          </Section>
+          <Section title="Routines">
+            <RoutinesPanel agent={agent} />
+          </Section>
         </div>
       );
     case "channels":
