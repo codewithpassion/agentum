@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildEvent,
+  buildStepEvent,
   ingestUrl,
   parseReportInput,
+  parseStepInput,
   postResult,
 } from "./investigator-report/scripts/lib.ts";
 
@@ -127,6 +129,79 @@ describe("parseReportInput", () => {
   });
 });
 
+function stepJson(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    incidentId: ID,
+    text: "Checked the logs.",
+    ...overrides,
+  });
+}
+
+describe("parseStepInput", () => {
+  test("accepts a valid step", () => {
+    expect(parseStepInput(stepJson())).toEqual({
+      input: { incidentId: ID, text: "Checked the logs." },
+      ok: true,
+    });
+  });
+
+  test("rejects an incident id that does not match", () => {
+    expect(parseStepInput(stepJson({ incidentId: "inc_short" })).ok).toBe(
+      false
+    );
+    expect(
+      parseStepInput(stepJson({ incidentId: "xyz_01HZX0Y1Z2A3B4C5D6E7F8G9H0" }))
+        .ok
+    ).toBe(false);
+    expect(parseStepInput(stepJson({ incidentId: 42 })).ok).toBe(false);
+  });
+
+  test("rejects text that is not a string, empty, or only whitespace", () => {
+    expect(parseStepInput(stepJson({ text: 7 })).ok).toBe(false);
+    expect(parseStepInput(stepJson({ text: "" })).ok).toBe(false);
+    expect(parseStepInput(stepJson({ text: " \n\t " })).ok).toBe(false);
+  });
+
+  test("rejects undefined input, non-JSON input, and input that is not an object", () => {
+    expect(parseStepInput(undefined).ok).toBe(false);
+    expect(parseStepInput("not json").ok).toBe(false);
+    expect(parseStepInput("[]").ok).toBe(false);
+    expect(parseStepInput("null").ok).toBe(false);
+  });
+
+  test("cuts the text to 500 UTF-16 units", () => {
+    const result = parseStepInput(stepJson({ text: "x".repeat(600) }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.input.text).toHaveLength(500);
+    }
+  });
+
+  test("a cut through a surrogate pair drops the orphan half", () => {
+    const result = parseStepInput(stepJson({ text: `${"x".repeat(499)}😀` }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.input.text).toBe("x".repeat(499));
+      expect(result.input.text.isWellFormed()).toBe(true);
+    }
+  });
+
+  test("keeps whole emoji when the cut lands on a pair boundary", () => {
+    const result = parseStepInput(stepJson({ text: "😀".repeat(300) }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.input.text).toHaveLength(500);
+      expect(Array.from(result.input.text)).toHaveLength(250);
+      expect(result.input.text.isWellFormed()).toBe(true);
+    }
+  });
+
+  test("rejects text that is only whitespace once cut", () => {
+    const result = parseStepInput(stepJson({ text: `${" ".repeat(499)}😀` }));
+    expect(result.ok).toBe(false);
+  });
+});
+
 describe("buildEvent", () => {
   const now = new Date("2026-10-26T10:00:00.000Z");
   const input = {
@@ -198,6 +273,63 @@ describe("buildEvent", () => {
   });
 });
 
+describe("buildStepEvent", () => {
+  const now = new Date("2026-10-26T10:00:00.000Z");
+
+  test("builds the exact event object", () => {
+    expect(
+      buildStepEvent({
+        input: { incidentId: ID, text: "Checked the logs." },
+        now,
+        runId: "run_1",
+      })
+    ).toEqual({
+      actor: { id: "harbourmaster-investigator", kind: "agent" },
+      correlation_id: ID,
+      fingerprint: `hm-investigator:${ID}`,
+      payload: {
+        incidentId: ID,
+        runId: "run_1",
+        text: "Checked the logs.",
+      },
+      severity: "info",
+      source: "agent",
+      summary: "Checked the logs.",
+      system_id: null,
+      ts: "2026-10-26T10:00:00.000Z",
+      type: "investigation.step",
+    });
+  });
+
+  test("makes the summary one line", () => {
+    const event = buildStepEvent({
+      input: { incidentId: ID, text: "Line one\n\nline\ttwo\u0007" },
+      now,
+      runId: "run_1",
+    });
+    expect(event.summary).toBe("Line one line two");
+    expect(event.payload.text).toBe("Line one\n\nline\ttwo\u0007");
+  });
+
+  test("cuts the summary to 200 code points", () => {
+    const event = buildStepEvent({
+      input: { incidentId: ID, text: "😀".repeat(300) },
+      now,
+      runId: "r",
+    });
+    expect(Array.from(event.summary)).toHaveLength(200);
+  });
+
+  test("falls back to Investigation step when the summary is empty after cleanup", () => {
+    const event = buildStepEvent({
+      input: { incidentId: ID, text: "\n\u0001 \t" },
+      now,
+      runId: "r",
+    });
+    expect(event.summary).toBe("Investigation step");
+  });
+});
+
 describe("ingestUrl", () => {
   test("appends the ingest path and drops trailing slashes", () => {
     expect(ingestUrl("https://controlplane.example.com")).toBe(
@@ -266,6 +398,31 @@ describe("postResult", () => {
 
     expect(result.ok).toBe(false);
     expect(result.message).toBe(`HTTP 503: ${"e".repeat(200)}`);
+  });
+
+  test("posts a step event to the same url", async () => {
+    const stepEvent = buildStepEvent({
+      input: { incidentId: ID, text: "Checked the logs." },
+      now: new Date("2026-10-26T10:00:00.000Z"),
+      runId: "run_1",
+    });
+    const calls: { url: string; body: unknown }[] = [];
+    const fakeFetch = (
+      requestUrl: string,
+      init: RequestInit
+    ): Promise<Response> => {
+      calls.push({ body: init.body, url: requestUrl });
+      return Promise.resolve(new Response("{}", { status: 202 }));
+    };
+
+    const result = await postResult({
+      event: stepEvent,
+      fetchFn: fakeFetch,
+      url,
+    });
+
+    expect(result).toEqual({ message: "HTTP 202", ok: true });
+    expect(calls).toEqual([{ body: JSON.stringify(stepEvent), url }]);
   });
 
   test("reports a rejected fetch as request failed", async () => {

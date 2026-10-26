@@ -9,6 +9,7 @@ import {
   createOAuthClientsService,
   MAX_OAUTH_CLIENT_NAME_LENGTH,
   type OAuthClientsService,
+  oauthClientSetAccessInputSchema,
   sanitizeOAuthClientName,
 } from "./oauth-clients.ts";
 import type { Clock } from "./runs/types.ts";
@@ -556,4 +557,13 @@ test("a failed name lookup for a nameless client is retried after five minutes, 
   nowMs += 5 * 60 * 1000;
   const retried = await request(() => Promise.resolve("Late Name"));
   expect(retried).toEqual({ name: "Late Name", status: "pending" });
+});
+
+test("a connected app cannot be given the desk access", () => {
+  expect(
+    oauthClientSetAccessInputSchema.safeParse({
+      access: "desk",
+      clientId: CLIENT,
+    }).success
+  ).toBe(false);
 });

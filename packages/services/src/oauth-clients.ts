@@ -8,7 +8,7 @@
  */
 import type { Database } from "@repo/db";
 import { oauthClients } from "@repo/db/schema/oauth-clients";
-import { API_KEY_ACCESS, type ApiKeyAccess } from "@repo/db/shared";
+import { OAUTH_CLIENT_ACCESS, type OAuthClientAccess } from "@repo/db/shared";
 import { and, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
@@ -58,7 +58,7 @@ export const sanitizeOAuthClientName = (
 const clientIdSchema = z.string().min(1).max(200);
 
 export const oauthClientSetAccessInputSchema = z.strictObject({
-  access: z.enum(API_KEY_ACCESS),
+  access: z.enum(OAUTH_CLIENT_ACCESS),
   clientId: clientIdSchema,
 });
 export const oauthClientRevokeInputSchema = z.strictObject({
@@ -74,7 +74,7 @@ export type OAuthClientStatus = "approved" | "pending" | "revoked";
 /** An OAuth client as its owner sees it in Settings. */
 export interface OAuthClientSummary {
   /** Null unless approved. */
-  access: ApiKeyAccess | null;
+  access: OAuthClientAccess | null;
   approvedAt: string | null;
   clientId: string;
   /** When the client was first seen. */
@@ -88,7 +88,7 @@ export interface OAuthClientSummary {
 
 export type OAuthClientResolution =
   | {
-      access: ApiKeyAccess;
+      access: OAuthClientAccess;
       status: "approved";
       /** The workspace the client is approved in: it selects the workspace. */
       workspaceId: string;

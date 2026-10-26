@@ -95,7 +95,11 @@ import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 export const LEASE_MS = 90_000;
 /** A run still `queued` or `offered` after this long is offered again. */
 export const STALE_QUEUE_MS = 60_000;
-/** A run still `queued` or `offered` after this long, from `created_at`, is failed. */
+/**
+ * A run still `queued` or `offered` after this long is failed, counted from
+ * `created_at` or from when its agent was last free, whichever is later. An
+ * agent is not free while one of its runs is `running` or `waiting`.
+ */
 export const UNCLAIMED_EXPIRY_MS = 60 * 60_000;
 const NEVER_CLAIMED_ERROR = "Never claimed";
 export const WAIT_MAX_MS = 120_000;
@@ -1544,19 +1548,40 @@ export const createRunsService = ({
   };
 
   /**
-   * Fails every run that nobody claimed within `UNCLAIMED_EXPIRY_MS`. The
-   * write is conditional on the starting statuses, so a claim that wins is
-   * kept.
+   * Fails every run that nobody claimed within `UNCLAIMED_EXPIRY_MS`. A run
+   * queued behind a `running` or `waiting` run of its agent is spared, and
+   * the hour restarts when that run ends, so the agent gets the chance to
+   * take it. The write is conditional on the starting statuses, so a claim
+   * that wins is kept.
    */
   const expireUnclaimedRuns = async (
     expiryCutoff: string,
     result: SweepResult
   ) => {
+    const busy = alias(runs, "busy");
     const expired = await db
       .select()
       .from(runs)
       .where(
-        and(inArray(runs.status, STARTING), lt(runs.createdAt, expiryCutoff))
+        and(
+          inArray(runs.status, STARTING),
+          lt(runs.createdAt, expiryCutoff),
+          notExists(
+            db
+              .select({ id: busy.id })
+              .from(busy)
+              .where(
+                and(
+                  eq(busy.agentId, runs.agentId),
+                  isNotNull(busy.startedAt),
+                  or(
+                    inArray(busy.status, LIVE),
+                    gte(busy.finishedAt, expiryCutoff)
+                  )
+                )
+              )
+          )
+        )
       )
       .orderBy(asc(runs.createdAt), asc(runs.id))
       .limit(SWEEP_BATCH);

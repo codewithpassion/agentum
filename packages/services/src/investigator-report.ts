@@ -1,12 +1,14 @@
 /**
  * The fallback report for an investigator run that ended without reporting.
- * When the run failed, was cancelled or was interrupted, this posts one
+ * When the run failed, was cancelled, was interrupted, or finished without a
+ * `report.ts` call that went through, this posts one
  * `investigation.result` event with outcome "escalate" to control-plane, so
  * the incident goes to a person. The incident id comes from the run's input
  * text (control-plane's request id is its approval id, not the incident), and
  * the ingest token from the workspace's proxy secret.
  */
 import type { Database } from "@repo/db";
+import { events } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { and, eq } from "drizzle-orm";
 import { redactText } from "./events/scrub.ts";
@@ -32,7 +34,7 @@ const WHITESPACE_RUN = /\s+/gu;
 const LONE_SURROGATE =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/gu;
 
-type EndStatus = "failed" | "cancelled" | "interrupted";
+type EndStatus = "failed" | "cancelled" | "interrupted" | "done";
 
 /** What a run was started with: the trigger's request id and the prompt text. */
 export interface RunRequest {
@@ -81,7 +83,10 @@ export const escalationEvent = ({
   runId: string;
   status: EndStatus;
 }): Record<string, unknown> => {
-  const sentence = `The investigator run ended ${status} before it reported.`;
+  const sentence =
+    status === "done"
+      ? "The investigator run finished before it reported."
+      : `The investigator run ended ${status} before it reported.`;
   const text = firstUnits(
     error === null ? sentence : `${sentence} Error: ${error}`,
     PAYLOAD_SUMMARY_MAX
@@ -118,6 +123,8 @@ const endStatusOf = (type: EventRecord["type"]): EndStatus | null => {
       return "cancelled";
     case "run.interrupted":
       return "interrupted";
+    case "run.finished":
+      return "done";
     default:
       return null;
   }
@@ -130,6 +137,12 @@ export interface ReportBackDeps {
   defer?: (work: Promise<void>) => void;
   fetch: (url: string, init: RequestInit) => Promise<Response>;
   now: () => Date;
+  /** True when the run already posted its result: `report.ts` printed its success line. */
+  reported: (
+    workspaceId: string,
+    runId: string,
+    incidentId: string
+  ) => Promise<boolean>;
   requestOf: (workspaceId: string, runId: string) => Promise<RunRequest | null>;
   secrets: Pick<SecretsService, "proxyFor" | "resolveForAgent">;
 }
@@ -148,6 +161,15 @@ export const createInvestigatorReportBack = (deps: ReportBackDeps) => {
     const { workspaceId } = event;
     const incidentId = incidentIdOf(await deps.requestOf(workspaceId, runId));
     if (incidentId === null) {
+      return;
+    }
+    // A run that failed, was cancelled or was interrupted may have reported
+    // first, and the second result is ignored. A run that finished is only
+    // covered when it did not report, so that it posts one result in all.
+    if (
+      status === "done" &&
+      (await deps.reported(workspaceId, runId, incidentId))
+    ) {
       return;
     }
     const resolved = await secrets.resolveForAgent(workspaceId, agentId);
@@ -228,4 +250,40 @@ export const createRunRequestReader =
       .where(and(eq(runs.id, runId), eq(runs.workspaceId, workspaceId)))
       .limit(1);
     return row ?? null;
+  };
+
+/**
+ * Whether a run's own `report.ts` succeeded. The script prints
+ * `reported <outcome> for <incident>: <answer>` only after control-plane
+ * accepted the post, and the run's `tool.result` events keep that line.
+ */
+export const createReportedReader =
+  (db: Database) =>
+  async (
+    workspaceId: string,
+    runId: string,
+    incidentId: string
+  ): Promise<boolean> => {
+    const rows = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(
+        and(
+          eq(events.runId, runId),
+          eq(events.workspaceId, workspaceId),
+          eq(events.type, "tool.result")
+        )
+      );
+    const line = new RegExp(
+      `^reported (?:fixed|escalate) for ${incidentId}: `,
+      "mu"
+    );
+    return rows.some(({ payload }) => {
+      const parsed: unknown = payload === null ? null : JSON.parse(payload);
+      if (typeof parsed !== "object" || parsed === null) {
+        return false;
+      }
+      const { ok, output } = parsed as { ok?: unknown; output?: unknown };
+      return ok === true && typeof output === "string" && line.test(output);
+    });
   };

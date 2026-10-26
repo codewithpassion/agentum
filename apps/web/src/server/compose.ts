@@ -28,6 +28,11 @@ import {
   createCredentialsService,
 } from "@repo/services/credentials";
 import {
+  createDeskApiService,
+  type DeskApiService,
+  type MemberDirectory,
+} from "@repo/services/desk-api";
+import {
   type Blobs,
   createEventsService,
   type EventsService,
@@ -41,6 +46,7 @@ import {
 import { createInboxService, type InboxService } from "@repo/services/inbox";
 import {
   createInvestigatorReportBack,
+  createReportedReader,
   createRunRequestReader,
 } from "@repo/services/investigator-report";
 import {
@@ -157,6 +163,7 @@ import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { clerkPeople } from "./clerk-people.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
+import { clerkEmailMemberLookup } from "./mcp/clerk-email-member.ts";
 import { durableRunnerPort } from "./pi-run-port.ts";
 import { r2Blobs } from "./r2-blobs.ts";
 import { r2FileBlobs } from "./r2-files.ts";
@@ -190,6 +197,8 @@ export interface Infra {
   managedGatewayFor?: ManagedServiceOptions["gatewayFor"];
   /** Wakes the poller of a managed run. Without it, `managed` agents cannot run. */
   managedPoller?: ManagedPollerPort;
+  /** Finds the workspace member behind a verified email, for the desk API. Without one, no desk key resolves a member. */
+  memberDirectory?: MemberDirectory;
   /** Names the people behind user ids in the Log. Without it, the Log shows ids. */
   people?: PeopleLookup;
   /** `PUBLIC_BASE_URL`. A Connect path posted to Slack becomes a link under it. */
@@ -220,6 +229,7 @@ export interface Services {
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
   credentials: CredentialsService;
+  deskApi: DeskApiService;
   events: EventsService;
   files: FilesService;
   inbox: InboxService;
@@ -481,12 +491,13 @@ export const composeWith = ({
   });
   // Catches the run and tool events the runs service writes through its own events instance.
   runs.onEvent(slackStatus.onEvent);
-  // An investigator run that ends before it reported tells control-plane to escalate.
+  // An investigator run that ends, or finishes, without having reported tells control-plane to escalate.
   runs.onEvent(
     createInvestigatorReportBack({
       defer: infra.defer,
       fetch: connectorFetch,
       now: () => infra.clock.now(),
+      reported: createReportedReader(db),
       requestOf: createRunRequestReader(db),
       secrets,
     }).onEvent
@@ -511,6 +522,15 @@ export const composeWith = ({
     runTokenKey: infra.runTokenKey,
     secrets,
     skills: (run) => createManagedSkillsSource({ runSkills, skillsStore }, run),
+  });
+  const deskApi = createDeskApiService({
+    agents,
+    clock: infra.clock,
+    db,
+    // Without a directory no email names a member, so a desk key resolves nobody.
+    directory: infra.memberDirectory ?? (() => Promise.resolve(null)),
+    requests,
+    runs,
   });
   const routines = createRoutinesService({
     allowedOrgIds,
@@ -570,6 +590,7 @@ export const composeWith = ({
       connectorOAuth,
       connectors,
       credentials,
+      deskApi,
       events,
       files,
       inbox,
@@ -628,6 +649,7 @@ export const compose = (
           environmentName: ENVIRONMENT_NAME,
         }),
       managedPoller: durablePollerPort(env.MANAGED_POLLER),
+      memberDirectory: clerkEmailMemberLookup(env.CLERK_SECRET_KEY),
       people: clerkPeople(env.CLERK_SECRET_KEY),
       publicBaseUrl: env.PUBLIC_BASE_URL,
       relay: durableRelayPort(env.MACHINE_RELAY),

@@ -8,6 +8,7 @@ import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import {
   type ApiKeyAccess,
   isPendingProposal,
+  type OAuthClientAccess,
   ROUTINE_ERROR_LIMIT,
 } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
@@ -840,7 +841,7 @@ const apiKeyUser = (access: ApiKeyAccess): Principal => ({
   via: "api_key",
   workspaceId: WORKSPACE,
 });
-const oauthUser = (access: ApiKeyAccess): Principal => ({
+const oauthUser = (access: OAuthClientAccess): Principal => ({
   kind: "user",
   oauthClient: { access, clientId: "c1" },
   userId: "u1",

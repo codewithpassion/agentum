@@ -16,6 +16,7 @@ import { createAgentsService } from "./agents.ts";
 import { createEventsService, type EventRecord } from "./events.ts";
 import {
   createInvestigatorReportBack,
+  createReportedReader,
   createRunRequestReader,
   escalationEvent,
   INGEST_PATH,
@@ -119,12 +120,14 @@ afterEach(() => {
 const harness = ({
   defer,
   rejects,
+  reported = false,
   request = TRIGGER_RUN,
   secrets = secretsWith(),
   status = 202,
 }: {
   defer?: Deps["defer"];
   rejects?: Error;
+  reported?: boolean;
   request?: RunRequest | null;
   secrets?: Secrets;
   status?: number;
@@ -139,6 +142,7 @@ const harness = ({
         : Promise.resolve(new Response(null, { status }));
     },
     now: () => NOW,
+    reported: async () => reported,
     requestOf: async () => request,
     secrets,
   });
@@ -166,6 +170,23 @@ describe("incidentIdOf", () => {
 });
 
 describe("escalationEvent", () => {
+  test("says a finished run ended without reporting, not that it ended done", () => {
+    const event = escalationEvent({
+      error: null,
+      incidentId: INCIDENT,
+      now: NOW,
+      runId: RUN,
+      status: "done",
+    });
+    expect(event.summary).toBe(
+      "The investigator run finished before it reported."
+    );
+    expect(event.payload).toMatchObject({
+      outcome: "escalate",
+      steps: ["The run ended without reporting a result."],
+    });
+  });
+
   test("builds the exact envelope without an error", () => {
     expect(
       escalationEvent({
@@ -318,9 +339,39 @@ describe("onEvent", () => {
     );
   });
 
+  test("posts one escalate for a run that finished without reporting", async () => {
+    const { calls, report } = harness();
+    await report.onEvent(eventOf("run.finished", { outputFileIds: [] }));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0] ? bodyOf(calls[0]) : null).toEqual(
+      escalationEvent({
+        error: null,
+        incidentId: INCIDENT,
+        now: NOW,
+        runId: RUN,
+        status: "done",
+      })
+    );
+  });
+
+  test("posts nothing for a run that finished after it reported", async () => {
+    const { calls, report } = harness({ reported: true });
+    await report.onEvent(eventOf("run.finished"));
+    expect(calls).toHaveLength(0);
+  });
+
+  test.each(["run.failed", "run.cancelled", "run.interrupted"] as const)(
+    "still posts for %s when the run reported",
+    async (type) => {
+      const { calls, report } = harness({ reported: true });
+      await report.onEvent(eventOf(type));
+      expect(calls).toHaveLength(1);
+    }
+  );
+
   test("ignores other event types", async () => {
     const { calls, report } = harness();
-    await report.onEvent(eventOf("run.finished"));
     await report.onEvent(eventOf("run.started"));
     await report.onEvent(eventOf("tool.call", { name: "bash" }));
     expect(calls).toHaveLength(0);
@@ -499,5 +550,112 @@ describe("createRunRequestReader", () => {
     expect(await read(WORKSPACE, RUN)).toEqual(TRIGGER_RUN);
     expect(await read("w2", RUN)).toBeNull();
     expect(await read(WORKSPACE, "missing")).toBeNull();
+  });
+});
+
+describe("createReportedReader", () => {
+  const seedEvents = async (
+    outputs: { ok: boolean; output: string; runId?: string }[]
+  ) => {
+    const db = migrated();
+    db.insert(workspaces)
+      .values({
+        clerkOrgId: "org_w1",
+        createdAt: START,
+        id: WORKSPACE,
+        name: WORKSPACE,
+        timezone: "UTC",
+      })
+      .run();
+    const events = createEventsService({
+      blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+      db,
+    });
+    const principal: Principal = {
+      kind: "user",
+      userId: "u1",
+      via: "session",
+      workspaceId: WORKSPACE,
+    };
+    const agent = await createAgentsService({ db, events }).create(principal, {
+      model: "m",
+      name: "Investigator",
+      runtime: "fake",
+    });
+    db.insert(sessionRows)
+      .values({
+        actorId: "u1",
+        actorKind: "user",
+        agentId: agent.id,
+        createdAt: START,
+        id: "s1",
+        origin: "ui",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    for (const id of [RUN, "run-2"]) {
+      db.insert(runRows)
+        .values({
+          actorId: "u1",
+          actorKind: "user",
+          agentId: agent.id,
+          createdAt: START,
+          id,
+          inputText: PROMPT,
+          requestId: `${TRIGGER_RUN.requestId}:${id}`,
+          sessionId: "s1",
+          status: "done",
+          workspaceId: WORKSPACE,
+        })
+        .run();
+    }
+    for (const { ok, output, runId = RUN } of outputs) {
+      // biome-ignore lint/performance/noAwaitInLoops: events are stored in order
+      await events.append({
+        actor: { id: agent.id, kind: "agent" },
+        agentId: agent.id,
+        payload: { ok, output, toolUseId: "t1" },
+        runId,
+        sessionId: "s1",
+        type: "tool.result",
+        workspaceId: WORKSPACE,
+      });
+    }
+    return createReportedReader(db);
+  };
+
+  test("is true after the report script printed its success line", async () => {
+    const reported = await seedEvents([
+      { ok: true, output: `reported escalate for ${INCIDENT}: HTTP 202` },
+    ]);
+    expect(await reported(WORKSPACE, RUN, INCIDENT)).toBe(true);
+  });
+
+  test("is false with no tool results, or other output", async () => {
+    const none = await seedEvents([]);
+    expect(await none(WORKSPACE, RUN, INCIDENT)).toBe(false);
+    const other = await seedEvents([
+      { ok: true, output: `step posted for ${INCIDENT}` },
+      { ok: true, output: "report failed: HTTP 500" },
+      { ok: false, output: `reported fixed for ${INCIDENT}: HTTP 202` },
+      {
+        ok: true,
+        output: `reported fixed for inc_${"0".repeat(26)}: HTTP 202`,
+      },
+    ]);
+    expect(await other(WORKSPACE, RUN, INCIDENT)).toBe(false);
+  });
+
+  test("looks at the given run and workspace only", async () => {
+    const reported = await seedEvents([
+      {
+        ok: true,
+        output: `reported fixed for ${INCIDENT}: HTTP 202`,
+        runId: "run-2",
+      },
+    ]);
+    expect(await reported(WORKSPACE, RUN, INCIDENT)).toBe(false);
+    expect(await reported(WORKSPACE, "run-2", INCIDENT)).toBe(true);
+    expect(await reported("w2", "run-2", INCIDENT)).toBe(false);
   });
 });
