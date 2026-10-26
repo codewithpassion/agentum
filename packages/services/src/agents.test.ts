@@ -737,3 +737,77 @@ test("hands to names preserve configured order and drop archived or foreign targ
   ).toEqual(["Alpha"]);
   expect(await handsToNames(db, { ...source, handsTo: [] })).toEqual([]);
 });
+
+test("address suggestions and checks see reservations in every workspace, including archived agents", async () => {
+  const owner = await createFake("Owner", otherUser);
+  expect(await service.suggestAddress("digest")).toBe("digest");
+  expect(await service.checkAddress(user, "digest")).toEqual({ available: true });
+  await service.reserveAddress(otherUser, owner.id, "digest");
+  await service.archive(otherUser, owner.id);
+  expect(await service.checkAddress(user, "digest")).toEqual({ available: false });
+  expect(await service.suggestAddress("digest")).toBe("digest-2");
+  const second = await createFake("Second");
+  await service.reserveAddress(user, second.id, "digest-2");
+  expect(await service.suggestAddress("digest")).toBe("digest-3");
+  expect(Object.keys(await service.checkAddress(user, "digest"))).toEqual(["available"]);
+});
+
+test("address syntax and reserved words are refused by checks and reservations", async () => {
+  const agent = await createFake("Address");
+  for (const local of ["a", "a".repeat(41), "Upper", "with_space", "a@b", "ab\n", "postmaster", "abuse", "admin", "noreply"]) {
+    await expect(service.checkAddress(user, local)).rejects.toMatchObject({ code: "invalid" });
+    await expect(service.reserveAddress(user, agent.id, local)).rejects.toMatchObject({ code: "invalid" });
+  }
+  for (const local of ["ab", "a.b-c9", "a".repeat(40)]) {
+    expect(await service.checkAddress(user, local)).toEqual({ available: true });
+  }
+  expect(await service.suggestAddress("admin")).toBe("admin-2");
+  expect((await service.get(user, agent.id)).emailLocal).toBeNull();
+});
+
+test("reservation writes the address and event; a second reservation conflicts without an event", async () => {
+  const first = await service.createDraft(user, { name: "First" });
+  const second = await createFake("Second", otherUser);
+  expect(await service.reserveAddress(user, first.id, "reserved")).toMatchObject({ emailLocal: "reserved" });
+  await expect(service.reserveAddress(otherUser, second.id, "reserved")).rejects.toMatchObject({ code: "conflict", message: "That address is taken" });
+  expect(await events.query(user, WORKSPACE, { agentId: first.id, types: ["agent.address_reserved"] })).toHaveLength(1);
+  expect(await events.query(otherUser, OTHER_WORKSPACE, { agentId: second.id, types: ["agent.address_reserved"] })).toHaveLength(0);
+  await expect(service.reserveAddress(otherUser, first.id, "other")).rejects.toMatchObject({ code: "not_found" });
+});
+
+test("drafts use cloud defaults, remain readable, and choose slugs including discarded drafts", async () => {
+  const first = await service.createDraft(user, { name: "Builder", runtimeConfig: { environment: "isolate", networkAccess: false } });
+  expect(first).toMatchObject({ status: "draft", runtime: "cloud", model: "claude-sonnet-5-5", runtimeConfig: { environment: "isolate", networkAccess: false } });
+  expect(await service.get(user, first.id)).toEqual(first);
+  expect(await service.list(user)).toEqual([]);
+  expect(await service.list(user, { includeArchived: true })).toEqual([]);
+  expect(await events.query(user, WORKSPACE, { types: ["agent.created"] })).toHaveLength(0);
+  expect((await service.discardDraft(user, first.id)).status).toBe("archived");
+  expect((await service.discardDraft(user, first.id)).status).toBe("archived");
+  expect((await service.createDraft(user, { name: "Builder" })).slug).toBe("builder-2");
+  expect((await service.createDraft(otherUser, { name: "Builder" })).slug).toBe("builder");
+  const long = "a".repeat(40);
+  await service.createDraft(user, { name: long });
+  expect((await service.createDraft(user, { name: long })).slug).toBe(`${"a".repeat(38)}-2`);
+});
+
+test("activation validates the chosen runtime and retains the draft identity and address", async () => {
+  const draft = await service.createDraft(user, { name: "Builder", soul: "Brief" });
+  await service.reserveAddress(user, draft.id, "builder");
+  for (const config of [
+    { runtime: "machine" as const, model: "sonnet" },
+    { runtime: "machine" as const, machineId: "missing", model: "sonnet" },
+    { runtime: "managed" as const, model: "openrouter:other" },
+    { runtime: "fake" as const, model: "m", runtimeConfig: { networkAccess: false } },
+    { runtime: "cloud" as const, model: "sonnet", machineId: "missing" },
+  ]) {
+    await expect(service.activate(user, draft.id, config)).rejects.toMatchObject({ code: "invalid" });
+  }
+  await expect(service.activate(otherUser, draft.id, { runtime: "fake", model: "m" })).rejects.toMatchObject({ code: "not_found" });
+  insertMachine("chosen", WORKSPACE);
+  expect(await service.activate(user, draft.id, { runtime: "machine", machineId: "chosen", model: "sonnet", runtimeConfig: { maxTurns: 20 } })).toMatchObject({ id: draft.id, status: "active", emailLocal: "builder", soul: "Brief", runtime: "machine", machineId: "chosen", model: "sonnet", runtimeConfig: { maxTurns: 20 } });
+  expect(await service.list(user)).toHaveLength(1);
+  expect(await events.query(user, WORKSPACE, { agentId: draft.id, types: ["agent.created"] })).toHaveLength(1);
+  await expect(service.discardDraft(user, draft.id)).rejects.toMatchObject({ code: "invalid" });
+  await expect(service.activate(user, draft.id, { runtime: "fake", model: "m" })).rejects.toMatchObject({ code: "invalid" });
+});

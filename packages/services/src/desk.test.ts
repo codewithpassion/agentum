@@ -690,3 +690,16 @@ test("only a person reads the desk", async () => {
     ForbiddenError
   );
 });
+
+test("draft dry-run history is absent from desk lanes and counts", async () => {
+  const draft = await agents.createDraft(user(), { name: "Draft" });
+  await seed({ agentId: draft.id, status: "running" });
+  await seed({ agentId: draft.id, status: "done", finishedAt: DAY_START });
+  const live = await seed({ status: "running" });
+  const view = await get();
+  expect(ids(view.running)).toEqual([live]);
+  expect(view.done).toEqual([]);
+  expect(view.doneMore).toBe(0);
+  expect(view.needsYou).toEqual([]);
+  expect(await desk.needsYouCount(user())).toBe(0);
+});
