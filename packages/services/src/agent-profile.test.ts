@@ -631,6 +631,67 @@ test("turning a switch on clears an Always allow on the platform tools it covers
   ]);
 });
 
+test("the write switch clears an Always allow on the platform tools it covers, and the profile lists such a rule", async () => {
+  await service.setAskBefore(user(), {
+    action: "write",
+    agentId: a1,
+    ask: true,
+  });
+  await requests.setRule(user(), {
+    agentId: a1,
+    mode: "allow",
+    toolKey: "harbourmaster/library_write",
+  });
+
+  const row = (await service.askBefore(user(), { agentId: a1 })).find(
+    (item) => item.action === "write"
+  );
+  expect(row?.allowed).toEqual(["writing library files"]);
+
+  await service.setAskBefore(user(), {
+    action: "write",
+    agentId: a1,
+    ask: true,
+  });
+
+  const after = (await service.askBefore(user(), { agentId: a1 })).find(
+    (item) => item.action === "write"
+  );
+  expect(after).not.toHaveProperty("allowed");
+  expect(
+    (await requests.listRules(user(), { agentId: a1 })).map((r) => r.toolKey)
+  ).toEqual(["write"]);
+});
+
+test("turning a switch off leaves an Always allow on a covered platform tool alone", async () => {
+  await requests.setRule(user(), {
+    agentId: a1,
+    mode: "allow",
+    toolKey: "harbourmaster/bash",
+  });
+  await service.setAskBefore(user(), {
+    action: "bash",
+    agentId: a1,
+    ask: true,
+  });
+  await requests.setRule(user(), {
+    agentId: a1,
+    mode: "allow",
+    toolKey: "harbourmaster/bash",
+  });
+
+  await service.setAskBefore(user(), {
+    action: "bash",
+    agentId: a1,
+    ask: false,
+  });
+
+  const rules = await requests.listRules(user(), { agentId: a1 });
+  expect(rules.map((r) => `${r.toolKey}:${r.mode}`)).toEqual([
+    "harbourmaster/bash:allow",
+  ]);
+});
+
 test("a revoked trigger is left out of Starts on", async () => {
   const live = await triggers.create(user(), { agentId: a1, name: "Live" });
   const revoked = await triggers.create(user(), {

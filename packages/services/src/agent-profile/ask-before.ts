@@ -34,6 +34,15 @@ export const BUILTIN_ACTIONS: readonly BuiltinAction[] = [
   { key: "run_skill_script", label: "Run a skill's script" },
 ];
 
+/** What a person reads for a platform tool a switch covers, by rule key. */
+export const PLATFORM_TOOL_LABELS: Readonly<Record<string, string>> = {
+  "harbourmaster/bash": "the library script shell",
+  "harbourmaster/computer_edit_file": "editing a file on the computer",
+  "harbourmaster/computer_exec": "the computer shell",
+  "harbourmaster/computer_write_file": "writing a file on the computer",
+  "harbourmaster/library_write": "writing library files",
+};
+
 const WORD_SEPARATORS = /[_-]+/g;
 
 /** A tool name as words: `create_bill` is "create bill". */

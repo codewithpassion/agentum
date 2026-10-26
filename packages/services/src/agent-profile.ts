@@ -20,7 +20,10 @@ import {
 import { SWITCH_COVERS } from "@repo/protocol/requests";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { gateableActions } from "./agent-profile/ask-before.ts";
+import {
+  gateableActions,
+  PLATFORM_TOOL_LABELS,
+} from "./agent-profile/ask-before.ts";
 import type { AgentRecord, AgentsService } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import type { ConnectorsService } from "./connectors.ts";
@@ -150,6 +153,11 @@ export interface AgentProfile {
 export interface AskBeforeAction {
   /** The rule key. */
   action: string;
+  /**
+   * Platform tools the switch covers that the person chose Always allow for, in
+   * plain words. Only set while the switch is on, since those tools run unasked.
+   */
+  allowed?: string[];
   /** True when the agent waits for a person before doing it. */
   ask: boolean;
   /** What else the switch gates, when a built-in says so. */
@@ -158,6 +166,10 @@ export interface AskBeforeAction {
   /** "Xero: create bill". */
   label: string;
 }
+
+/** The platform tool keys a switch also gates. */
+const coveredKeys = (action: string): readonly string[] =>
+  Object.hasOwn(SWITCH_COVERS, action) ? (SWITCH_COVERS[action] ?? []) : [];
 
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
@@ -465,13 +477,25 @@ export const createAgentProfileService = ({
         )
         .map((rule) => rule.toolKey)
     );
-    return gateableActions(assignedConnectors).map((action) => ({
-      action: action.key,
-      ask: asking.has(action.key),
-      kind: action.kind,
-      label: action.label,
-      ...(action.covers === undefined ? {} : { covers: action.covers }),
-    }));
+    const allowing = new Set(
+      rules.filter((rule) => rule.mode === "allow").map((rule) => rule.toolKey)
+    );
+    return gateableActions(assignedConnectors).map((action) => {
+      const ask = asking.has(action.key);
+      const allowed = ask
+        ? coveredKeys(action.key)
+            .filter((key) => allowing.has(key))
+            .map((key) => PLATFORM_TOOL_LABELS[key] ?? key)
+        : [];
+      return {
+        action: action.key,
+        ask,
+        kind: action.kind,
+        label: action.label,
+        ...(allowed.length === 0 ? {} : { allowed }),
+        ...(action.covers === undefined ? {} : { covers: action.covers }),
+      };
+    });
   };
 
   /** Turns "ask me before" on or off. Off removes the rule, since no rule means allow. */
@@ -493,9 +517,7 @@ export const createAgentProfileService = ({
     });
     // An Always allow on a platform tool the switch covers would keep that tool
     // ungated while the switch reads on, so turning the switch on clears it.
-    const covered = Object.hasOwn(SWITCH_COVERS, action)
-      ? (SWITCH_COVERS[action] ?? [])
-      : [];
+    const covered = coveredKeys(action);
     if (covered.length === 0) {
       return;
     }
