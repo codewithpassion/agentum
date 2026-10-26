@@ -45,7 +45,23 @@ function LibraryPage() {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => router.invalidate(), [router]);
-  const refreshTick = useLibraryRefresh(refresh);
+  // The 5 s refresh reads the listing on its own instead of invalidating the router, so a failed
+  // read keeps the page as it is. A newer loader result replaces what it fetched.
+  const [polled, setPolled] = useState<{
+    from: typeof entries;
+    list: typeof entries;
+  } | null>(null);
+  const shown =
+    polled !== null && polled.from === entries ? polled.list : entries;
+  const pollListing = useCallback(async () => {
+    try {
+      const list = await getTrpc().library.list.query({ dir });
+      setPolled({ from: entries, list });
+    } catch {
+      // Keep the listing on screen. The next tick tries again.
+    }
+  }, [dir, entries]);
+  const refreshTick = useLibraryRefresh(pollListing);
 
   const handleMoved = useCallback(
     async (from: string, to: string) => {
@@ -102,7 +118,7 @@ function LibraryPage() {
       <LibraryList
         busyPath={busyPath}
         dir={dir}
-        entries={entries}
+        entries={shown}
         onMoved={handleMoved}
         onRemove={remove}
       />

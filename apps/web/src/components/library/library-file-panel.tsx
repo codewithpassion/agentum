@@ -96,6 +96,8 @@ export function LibraryFilePanel({
   const [generation, setGeneration] = useState(0);
   // The path this panel shows. Null after unmount, so a late response is dropped.
   const shownPath = useRef<string | null>(null);
+  // Bumped by every read, save and adopt, so a refresh read that started earlier is dropped.
+  const readSeq = useRef(0);
 
   useEffect(() => {
     shownPath.current = path;
@@ -105,6 +107,7 @@ export function LibraryFilePanel({
   }, [path]);
 
   const load = useCallback(async () => {
+    readSeq.current += 1;
     try {
       const next = await source.read();
       if (shownPath.current !== path) {
@@ -126,9 +129,11 @@ export function LibraryFilePanel({
   }, [load]);
 
   const checkRemote = useCallback(async () => {
+    readSeq.current += 1;
+    const seq = readSeq.current;
     try {
       const next = await source.read();
-      if (shownPath.current === path) {
+      if (shownPath.current === path && readSeq.current === seq) {
         setRemote(next);
       }
     } catch {
@@ -143,6 +148,7 @@ export function LibraryFilePanel({
   }, [refreshTick, io, checkRemote]);
 
   const adoptRemote = useCallback((next: LibraryFileView) => {
+    readSeq.current += 1;
     setFile(next);
     setRemote(null);
     setError(null);
@@ -153,6 +159,9 @@ export function LibraryFilePanel({
     async (draft: string, ifEtag: string | undefined) => {
       const entry = await source.write(draft, ifEtag);
       if (shownPath.current === path) {
+        // Any read from before this save is older than the file now.
+        readSeq.current += 1;
+        setRemote(null);
         setFile({ entry, text: draft });
         onChanged();
       }

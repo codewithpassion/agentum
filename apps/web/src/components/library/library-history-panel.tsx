@@ -57,16 +57,16 @@ export function LibraryHistory({
   onRestored,
 }: LibraryHistoryProps) {
   const [versions, setVersions] = useState<LibraryVersionRecord[] | null>(null);
-  const [reloads, setReloads] = useState(0);
   const [selected, setSelected] = useState<string[]>([]);
   const [comparison, setComparison] = useState<Comparison | null>(null);
   const [comparing, setComparing] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Bumped on every selection change, so a late compare is dropped. The panel is keyed by path, so a new file starts clean.
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  // Bumped on every selection change, so a late compare is dropped. The parent keys the file panel by path, so a new file starts clean.
   const epoch = useRef(0);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey and reloads only trigger a refetch
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey only triggers a refetch
   useEffect(() => {
     let current = true;
     const load = async () => {
@@ -86,7 +86,7 @@ export function LibraryHistory({
     return () => {
       current = false;
     };
-  }, [path, refreshKey, reloads]);
+  }, [path, refreshKey]);
 
   const toggle = useCallback((id: string) => {
     epoch.current += 1;
@@ -146,14 +146,15 @@ export function LibraryHistory({
 
   const restore = useCallback(
     async (versionId: string) => {
+      setRestoreError(null);
       try {
         await getTrpc().library.restore.mutate({ versionId });
       } catch (cause) {
-        setError(errorMessage(cause));
+        setRestoreError(errorMessage(cause));
         return;
       }
+      // The panel rereads the file, which bumps refreshKey and so refetches the history.
       onRestored();
-      setReloads((count) => count + 1);
     },
     [onRestored]
   );
@@ -182,6 +183,11 @@ export function LibraryHistory({
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}
+        </p>
+      )}
+      {restoreError === null ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          {restoreError}
         </p>
       )}
       <VersionList
@@ -312,7 +318,7 @@ function RestoreVersion({
           <AlertDialogTitle>Restore v{number}?</AlertDialogTitle>
           <AlertDialogDescription>
             The file goes back to this version. The current content stays in the
-            history.
+            history. Unsaved edits in the editor are discarded.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

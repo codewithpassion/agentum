@@ -10,6 +10,7 @@ import { Button } from "#/components/ui/button.tsx";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -146,6 +147,11 @@ function MoveForm({
         <DialogTitle>
           {verb} {name}
         </DialogTitle>
+        <DialogDescription>
+          {mode === "rename"
+            ? "Pick a new name. The history moves with it."
+            : "Type the full new path. Missing folders are created, and the history moves with it."}
+        </DialogDescription>
       </DialogHeader>
       <div className="flex flex-col gap-2">
         <Label htmlFor={inputId}>
