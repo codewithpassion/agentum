@@ -130,6 +130,14 @@ const RUNTIME_LEASE_MS: Partial<Record<AgentRuntime, number>> = {
 const READ_ACTION = "runs.read";
 const RUN_KIND = "run";
 
+/** Longest summary of a skipped call, in characters. */
+const DRY_RUN_SUMMARY_MAX = 200;
+
+const dryRunSkipSchema = z.strictObject({
+  summary: z.string(),
+  tool: z.string().min(1).max(200),
+});
+
 const runResultSchema = z.strictObject({
   error: z.string().max(10_000).optional(),
   fileIds: z.array(z.string().min(1).max(200)).max(100).optional(),
@@ -958,6 +966,47 @@ export const createRunsService = ({
   };
 
   /**
+   * Records what a dry run would have done instead of doing it, as a
+   * `run.dry_run_skipped` event. The summary is masked with the agent's
+   * secrets, then cut to `DRY_RUN_SUMMARY_MAX` characters. It bypasses
+   * `ingestRunEvents`, whose `seq` numbering belongs to `toRunEvents`. Only
+   * the run itself, or the system, may write it, and only on a live dry run.
+   */
+  const recordDryRunSkip = async (
+    principal: Principal,
+    runId: string,
+    skip: { summary: string; tool: string }
+  ): Promise<void> => {
+    const { summary, tool } = dryRunSkipSchema.parse(skip);
+    const run = await requireRun(principal, runId);
+    authorize(principal, "runs.dry_run_skip", {
+      id: run.id,
+      kind: RUN_KIND,
+      workspaceId: run.workspaceId,
+    });
+    if (
+      principal.kind !== "system" &&
+      !(principal.kind === "run" && principal.runId === run.id)
+    ) {
+      throw new ForbiddenError("runs.dry_run_skip");
+    }
+    if (!run.dryRun) {
+      throw new ServiceError("conflict", "Run is not a dry run");
+    }
+    if (!LIVE.includes(run.status)) {
+      throw new ServiceError("conflict", `Run is ${run.status}, not running`);
+    }
+    const masker = await runMasker(run);
+    await appendRunEvent(run, "run.dry_run_skipped", agentActor(run), {
+      summary: (masker ? masker.mask(summary) : summary).slice(
+        0,
+        DRY_RUN_SUMMARY_MAX
+      ),
+      tool: masker ? masker.mask(tool) : tool,
+    });
+  };
+
+  /**
    * Ends a run that repeats one failing call `REPEAT_STOP_AT` times in a row, as
    * counted over its recent tool events. A cloud run is stopped by its own
    * runner, which keeps its usage, so it is left alone here. The stop is
@@ -1724,6 +1773,7 @@ export const createRunsService = ({
      */
     onEvent: eventsService.onAppend,
     reapExpiredLeases,
+    recordDryRunSkip,
     releaseRun,
     resumeRequest,
     startRun,

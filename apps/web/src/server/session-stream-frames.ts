@@ -24,6 +24,7 @@ export const STREAM_EVENT_TYPES = [
   "run.failed",
   "run.cancelled",
   "run.interrupted",
+  "run.dry_run_skipped",
   "run.limit_reached",
   "run.repeat_stopped",
   "request.opened",
@@ -46,9 +47,11 @@ export const TASK_EVENT_TYPES = [
 
 const STREAM_TYPES: ReadonlySet<EventType> = new Set(STREAM_EVENT_TYPES);
 
-/** The event types the desk stream carries: requests and runs, not messages or tool calls. */
+/** The event types the desk stream carries: requests and runs, not messages, tool calls or dry-run skips. */
 export const DESK_EVENT_TYPES = STREAM_EVENT_TYPES.filter(
-  (type) => type.startsWith("request.") || type.startsWith("run.")
+  (type) =>
+    (type.startsWith("request.") || type.startsWith("run.")) &&
+    type !== "run.dry_run_skipped"
 );
 
 /** The name of the one SessionStream Durable Object per workspace that carries the desk frames. */

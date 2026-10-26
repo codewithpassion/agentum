@@ -15,8 +15,46 @@ export type SlackListenMode = (typeof SLACK_LISTEN_MODES)[number];
 export const AGENT_RUNTIMES = ["machine", "managed", "cloud", "fake"] as const;
 export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
 
-export const AGENT_STATUSES = ["active", "archived"] as const;
+export const AGENT_STATUSES = ["active", "archived", "draft"] as const;
 export type AgentStatus = (typeof AGENT_STATUSES)[number];
+
+/** How an agent speaks. The builder offers one of these. */
+export const VOICE_PRESETS = [
+  "brief",
+  "careful",
+  "friendly",
+  "formal",
+] as const;
+export type VoicePreset = (typeof VOICE_PRESETS)[number];
+
+/** The starting points the builder offers. */
+export const AGENT_TEMPLATE_IDS = [
+  "sort_inbox",
+  "chase_invoices",
+  "research_topic",
+] as const;
+export type AgentTemplateId = (typeof AGENT_TEMPLATE_IDS)[number];
+
+/** The parts of an agent's profile the builder fills in and asks about. */
+export const PROFILE_FIELDS = [
+  "does",
+  "voice",
+  "rules",
+  "tools",
+  "skills",
+  "starts_on",
+  "hands_to",
+  "runs_on",
+  "library",
+  "address",
+] as const;
+export type ProfileField = (typeof PROFILE_FIELDS)[number];
+
+/** A profile field the builder cannot fill yet, and the question that would. */
+export interface ProfileGap {
+  field: ProfileField;
+  question: string;
+}
 
 export const MACHINE_STATUSES = ["online", "offline", "revoked"] as const;
 export type MachineStatus = (typeof MACHINE_STATUSES)[number];
@@ -83,6 +121,7 @@ export const EVENT_TYPES = [
   "run.repeat_stopped",
   "run.waiting",
   "run.resumed",
+  "run.dry_run_skipped",
   "request.opened",
   "request.answered",
   "request.expired",
@@ -117,6 +156,7 @@ export const EVENT_TYPES = [
   "machine.offline",
   "agent.created",
   "agent.updated",
+  "agent.address_reserved",
   "credential.created",
   "credential.revoked",
   "api_key.created",

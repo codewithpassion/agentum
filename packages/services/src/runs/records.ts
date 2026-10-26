@@ -20,6 +20,7 @@ export const toRecord = (row: RunRow): RunRecord => ({
   claimedBy: row.claimedBy,
   createdAt: row.createdAt,
   depth: row.depth,
+  dryRun: row.dryRun,
   error: row.error,
   finishedAt: row.finishedAt,
   id: row.id,

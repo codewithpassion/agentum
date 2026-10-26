@@ -9,6 +9,7 @@ export const run = (
   claimedBy: null,
   createdAt: "2026-10-26T00:00:00Z",
   depth: 0,
+  dryRun: false,
   error: null,
   finishedAt: null,
   id: "run",
