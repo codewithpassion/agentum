@@ -384,6 +384,9 @@ export const mcpRoutes = ({
       requestHost: new URL(c.req.url).hostname,
       services: composed.services,
     });
+    // The mail tools are for a run whose agent has an active mailbox.
+    const hasMailbox =
+      await composed.services.mail.agent.hasActiveMailbox(principal);
     const handler = createMcpHandler(
       () =>
         createHarbourmasterMcpServer(ports, {
@@ -398,6 +401,7 @@ export const mcpRoutes = ({
                     ),
                 }
               : undefined,
+          mail: hasMailbox,
           readOnly: isReadOnly(principal),
         }),
       options

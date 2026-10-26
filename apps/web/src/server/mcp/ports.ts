@@ -41,6 +41,7 @@ import {
 } from "../web-fetch/run-fetcher.ts";
 import type { WebFetcher } from "../web-fetch/types.ts";
 import { guarded } from "./guarded.ts";
+import { createMailPorts } from "./mail-ports.ts";
 import { createSkillPorts } from "./skill-ports.ts";
 
 const TITLE_MAX = 80;
@@ -234,6 +235,10 @@ export const createMcpPorts = ({
 
   return {
     ...createSkillPorts({ findAgent, principal, services }),
+    // Only a run has a mailbox of its own. The route turns the tools on when it is active.
+    ...(principal.kind === "run"
+      ? { mail: createMailPorts({ principal, services }) }
+      : {}),
 
     cancelRun: ({ runId }) =>
       guarded(async () => {

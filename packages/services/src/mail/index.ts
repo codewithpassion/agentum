@@ -12,6 +12,7 @@ import type { LibraryService } from "../library.ts";
 import type { Clock } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
+import { createMailAgent } from "./agent.ts";
 import { createInboundMail } from "./inbound.ts";
 import {
   type EmailRoutingPort,
@@ -375,6 +376,7 @@ export const createMailService = ({
     }
   });
   return {
+    agent: createMailAgent({ db, mailbox }),
     disable,
     get,
     provision,
