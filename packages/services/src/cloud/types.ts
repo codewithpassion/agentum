@@ -14,6 +14,7 @@ export interface CloudStart {
   mcpServers: Record<string, McpServerEntry>;
   run: {
     agentId: string;
+    dryRun: boolean;
     id: string;
     inputText: string;
     sessionId: string;

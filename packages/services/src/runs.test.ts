@@ -1,4 +1,4 @@
-import { beforeEach, expect, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { files as fileRows } from "@repo/db/schema/files";
@@ -2367,4 +2367,85 @@ test("machine claim includes only ask keys when the daemon supports requests", a
     platformUrl: "https://example.test",
   });
   expect(legacy.toolRules).toBeUndefined();
+});
+
+describe("recordDryRunSkip", () => {
+  const startDryRun = async (service: RunsService = runs) => {
+    const { runId } = await start(user, spyAgentId);
+    db.update(runRows).set({ dryRun: true }).where(eq(runRows.id, runId)).run();
+    await service.claimRun(SYSTEM_PRINCIPAL, runId);
+    return runId;
+  };
+
+  const skips = (runId: string) =>
+    runEvents(runId).filter((event) => event.type === "run.dry_run_skipped");
+
+  test("appends a run.dry_run_skipped event with the tool and summary", async () => {
+    const runId = await startDryRun();
+    await runs.recordDryRunSkip(runPrincipal(runId, spyAgentId), runId, {
+      summary: "Would send a mail to ann@example.test",
+      tool: "gmail_send",
+    });
+    const [event] = skips(runId);
+    expect(JSON.parse(event?.payload ?? "{}")).toEqual({
+      summary: "Would send a mail to ann@example.test",
+      tool: "gmail_send",
+    });
+    // It does not use the run's seq numbering.
+    expect(event?.seq).toBeNull();
+  });
+
+  test("masks granted secrets and caps the summary at 200 characters", async () => {
+    const masking = await maskingRuns([spyAgentId]);
+    const runId = await startDryRun(masking);
+    await masking.recordDryRunSkip(SYSTEM_PRINCIPAL, runId, {
+      summary: `${GRANTED_VALUE} ${"x".repeat(500)}`,
+      tool: "http_post",
+    });
+    const stored = skips(runId)[0]?.payload ?? "";
+    expect(stored).not.toContain(GRANTED_VALUE);
+    const { summary } = JSON.parse(stored) as { summary: string };
+    expect(summary.startsWith("[secret:OPENAI_API_KEY] x")).toBe(true);
+    expect(summary).toHaveLength(200);
+  });
+
+  test("refuses a run that is not a dry run", async () => {
+    const { runId } = await start(user, spyAgentId);
+    await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+    await expect(
+      runs.recordDryRunSkip(SYSTEM_PRINCIPAL, runId, {
+        summary: "s",
+        tool: "t",
+      })
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(skips(runId)).toHaveLength(0);
+  });
+
+  test("refuses another run's principal and a user", async () => {
+    const runId = await startDryRun();
+    await expect(
+      runs.recordDryRunSkip(runPrincipal("other", spyAgentId), runId, {
+        summary: "s",
+        tool: "t",
+      })
+    ).rejects.toThrow("Not allowed");
+    await expect(
+      runs.recordDryRunSkip(user, runId, { summary: "s", tool: "t" })
+    ).rejects.toThrow("Not allowed");
+    expect(skips(runId)).toHaveLength(0);
+  });
+
+  test("refuses a dry run that has ended", async () => {
+    const runId = await startDryRun();
+    await runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+      status: "done",
+      text: "ok",
+    });
+    await expect(
+      runs.recordDryRunSkip(SYSTEM_PRINCIPAL, runId, {
+        summary: "s",
+        tool: "t",
+      })
+    ).rejects.toMatchObject({ code: "conflict" });
+  });
 });

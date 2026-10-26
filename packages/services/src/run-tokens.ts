@@ -65,8 +65,9 @@ export interface RunTokenClaims {
  */
 export type RunTokenRefusal = "expired" | "invalid" | "not_running";
 
+/** `dryRun` is read from the live run row, never from the token. */
 export type RunTokenResult =
-  | { claims: RunTokenClaims; ok: true }
+  | { claims: RunTokenClaims; dryRun: boolean; ok: true }
   | { ok: false; reason: RunTokenRefusal };
 
 /** The HMAC key from `RUN_TOKEN_KEY` (standard base64 of 32 bytes). */
@@ -212,7 +213,7 @@ export const verifyRunToken = async ({
     return { ok: false, reason: "expired" };
   }
   const live = await db
-    .select({ id: runs.id })
+    .select({ dryRun: runs.dryRun, id: runs.id })
     .from(runs)
     .where(
       and(
@@ -224,8 +225,8 @@ export const verifyRunToken = async ({
       )
     )
     .limit(1);
-  return live.length > 0
-    ? { claims, ok: true }
+  return live[0]
+    ? { claims, dryRun: live[0].dryRun, ok: true }
     : { ok: false, reason: "not_running" };
 };
 
@@ -277,7 +278,7 @@ export const verifySessionToken = async ({
     return { ok: false, reason: "invalid" };
   }
   const [live] = await db
-    .select({ id: runs.id })
+    .select({ dryRun: runs.dryRun, id: runs.id })
     .from(runs)
     .where(
       and(
@@ -292,7 +293,11 @@ export const verifySessionToken = async ({
     )
     .limit(1);
   return live
-    ? { claims: { agentId, issuedAt, runId: live.id, workspaceId }, ok: true }
+    ? {
+        claims: { agentId, issuedAt, runId: live.id, workspaceId },
+        dryRun: live.dryRun,
+        ok: true,
+      }
     : { ok: false, reason: "not_running" };
 };
 

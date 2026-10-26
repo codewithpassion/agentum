@@ -8,7 +8,7 @@ import {
   type AgentStatus,
 } from "@repo/db/shared";
 import { MAX_TURNS_KEY, maxTurnsError } from "@repo/protocol/safeguards";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -41,6 +41,7 @@ const modelSchema = z.string().min(1).max(100);
 const machineIdSchema = z.string().min(1).max(200);
 const runtimeConfigSchema = z.record(z.string(), z.json());
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
+const handsToSchema = z.array(z.string());
 
 /** Fails an agent whose `runtimeConfig` names a cloud environment that does not exist, or that sets one on an agent that does not run in the cloud, or whose network setting is not a boolean or is set on an agent that does not run in the cloud, or whose library paths are invalid, or whose turn limit is out of range, or that sets a turn limit on a managed agent, which has no turn count. */
 const assertRuntimeConfig = (
@@ -96,6 +97,8 @@ const assertModelForRuntime = (runtime: AgentRuntime, model: string): void => {
 export interface AgentRecord {
   createdAt: string;
   createdBy: string;
+  emailLocal: string | null;
+  handsTo: string[];
   id: string;
   instructions: string;
   machineId: string | null;
@@ -104,6 +107,7 @@ export interface AgentRecord {
   runtime: AgentRuntime;
   runtimeConfig: RuntimeConfig;
   slug: string;
+  soul: string;
   status: AgentStatus;
   workspaceId: string;
 }
@@ -161,6 +165,8 @@ export type AgentUpdateInput = z.input<typeof agentUpdateSchema>;
 const toRecord = (row: AgentRow): AgentRecord => ({
   createdAt: row.createdAt,
   createdBy: row.createdBy,
+  emailLocal: row.emailLocal,
+  handsTo: handsToSchema.parse(JSON.parse(row.handsTo)),
   id: row.id,
   instructions: row.instructions,
   machineId: row.machineId,
@@ -169,6 +175,7 @@ const toRecord = (row: AgentRow): AgentRecord => ({
   runtime: row.runtime,
   runtimeConfig: runtimeConfigSchema.parse(JSON.parse(row.runtimeConfig)),
   slug: row.slug,
+  soul: row.soul,
   status: statusSchema.parse(row.status),
   workspaceId: row.workspaceId,
 });
@@ -297,6 +304,8 @@ export const createAgentsService = ({
     const row: AgentRow = {
       createdAt: new Date().toISOString(),
       createdBy: user.userId,
+      emailLocal: null,
+      handsTo: "[]",
       id: ulid(),
       instructions: parsed.instructions,
       machineId,
@@ -305,6 +314,7 @@ export const createAgentsService = ({
       runtime: parsed.runtime,
       runtimeConfig: JSON.stringify(parsed.runtimeConfig),
       slug,
+      soul: "",
       status: "active",
       workspaceId,
     };
@@ -352,7 +362,9 @@ export const createAgentsService = ({
       .where(
         and(
           eq(agents.workspaceId, workspaceId),
-          includeArchived ? undefined : eq(agents.status, "active")
+          includeArchived
+            ? ne(agents.status, "draft")
+            : eq(agents.status, "active")
         )
       )
       .orderBy(asc(agents.name), asc(agents.id));

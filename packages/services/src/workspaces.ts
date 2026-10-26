@@ -30,7 +30,14 @@ export type Principal =
       userId: string;
       via: "session" | "api_key" | "oauth" | "slack";
     }
-  | { kind: "run"; workspaceId: string; runId: string; agentId: string }
+  | {
+      kind: "run";
+      workspaceId: string;
+      runId: string;
+      agentId: string;
+      /** Set when the run is a dry run: it reads and thinks, and skips every write. Absent means false. */
+      dryRun?: boolean;
+    }
   | { kind: "machine"; workspaceId: string; machineId: string }
   | {
       kind: "trigger";
@@ -264,7 +271,13 @@ export const createPrincipalResolver = ({
       return null;
     }
     const { agentId, runId, workspaceId } = result.claims;
-    return { agentId, kind: "run", runId, workspaceId } as const;
+    return {
+      agentId,
+      dryRun: result.dryRun,
+      kind: "run",
+      runId,
+      workspaceId,
+    } as const;
   };
 
   const lookupApiKey = async (token: string) => {
