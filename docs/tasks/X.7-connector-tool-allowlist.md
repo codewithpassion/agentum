@@ -3,7 +3,7 @@ id: X.7
 title: Per-agent tool allowlist on a connector
 milestone: X
 size: S
-status: in_progress
+status: done
 depends_on: [M3.1, V1.3]
 branch: task/X.7-connector-tool-allowlist
 lane: worker
@@ -25,3 +25,4 @@ Requested by the morning-sweep work loop (ai-os-integration). The sweep reads Do
 ## Log
 - 2026-10-26: planned (from the morning-sweep loop).
 - 2026-10-26: dispatched. Note: the `allowed_tools` column needs a migration while V2.1 (the V2 schema task) may run at the same time. Whichever merges second drops its own migration on `git merge main` and regenerates it with `bun run generate`, so numbers stay in order.
+- 2026-10-26: review clean after 2 fix rounds; merged. Migration 0016 (agent_connectors.allowed_tools).
