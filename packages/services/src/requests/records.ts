@@ -77,15 +77,7 @@ export const scrubAnswer = <
   answer: T,
   masker: MaskText | null
 ): T => {
-  if ("decision" in answer) {
-    return {
-      ...answer,
-      ...(answer.note === undefined
-        ? {}
-        : { note: scrubText(masker, answer.note) }),
-    };
-  }
-  if (!("answers" in answer)) {
+  if ("decision" in answer || !("answers" in answer)) {
     return {
       ...answer,
       ...(answer.note === undefined
