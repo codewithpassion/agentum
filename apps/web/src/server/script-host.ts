@@ -30,7 +30,10 @@ export class ScriptHost
   implements ScriptHostApi
 {
   #host(): ScriptHostApi {
-    const { services } = compose(this.env, import.meta.env.DEV);
+    // A library write from a script announces itself after the write returns.
+    const { services } = compose(this.env, import.meta.env.DEV, (work) =>
+      this.ctx.waitUntil(work)
+    );
     const { home, network, run } = this.ctx.props;
     const principal: Principal = {
       agentId: run.agentId,

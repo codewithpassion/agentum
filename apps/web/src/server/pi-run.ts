@@ -1040,7 +1040,10 @@ export class PiRun extends DurableObject<Env> {
   }
 
   #services() {
-    this.#composed ??= compose(this.env, import.meta.env.DEV);
+    // A library write from the object announces itself after the write returns.
+    this.#composed ??= compose(this.env, import.meta.env.DEV, (work) =>
+      this.ctx.waitUntil(work)
+    );
     return this.#composed.services;
   }
 

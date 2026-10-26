@@ -188,6 +188,18 @@ describe("library notifier", () => {
     expect(announced).toEqual([]);
   });
 
+  test("a run waiting on a person still hears about changes", async () => {
+    const ada = await machineAgent("ada");
+    db.update(runRows)
+      .set({ status: "waiting" })
+      .where(eq(runRows.id, ada.run.runId))
+      .run();
+
+    await composed.services.library.write(user, "wiki/index.md", bytes("hi"));
+
+    expect(announced.map((a) => a.machineId)).toEqual([ada.machineId]);
+  });
+
   test("a run that is not running hears nothing", async () => {
     const ada = await machineAgent("ada");
     db.update(runRows)

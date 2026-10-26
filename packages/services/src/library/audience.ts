@@ -60,7 +60,7 @@ const isCovered = (root: string, path: string): boolean =>
   root === "" || path === root || path.startsWith(`${root}/`);
 
 /**
- * The running runs of the change's workspace whose agent syncs one of the
+ * The live (running or waiting) runs of the change's workspace whose agent syncs one of the
  * changed paths, leaving out the run that made the change. A machine run goes
  * by the machine that claimed it. A cloud run counts only in a Linux VM,
  * because an isolate reads the library directly.
@@ -84,7 +84,7 @@ export const createLibraryAudience =
       .where(
         and(
           eq(runs.workspaceId, change.workspaceId),
-          eq(runs.status, "running"),
+          inArray(runs.status, ["running", "waiting"]),
           inArray(agents.runtime, ["machine", "cloud"])
         )
       );
