@@ -1116,6 +1116,53 @@ describe("tool allowlist", () => {
     expect(stubOf().stats().calls).toHaveLength(0);
   });
 
+  test("keys a looser parser could read as protocol keys are refused when the allowlist is set", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential(CONNECTOR, ["echo"]);
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+    const bodies = [
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","NAME":"shout"}}',
+      '{"jsonrpc":"2.0","id":1,"method":"ping","METHOD":"tools/list"}',
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","paramſ":{"name":"shout"},"params":{"name":"echo"}}',
+    ];
+
+    const responses = await Promise.all(
+      bodies.map((body) => call(token, body))
+    );
+
+    expect(responses.map((response) => response.status)).toEqual([
+      403, 403, 403,
+    ]);
+    expect(stubOf().stats().calls).toHaveLength(0);
+  });
+
+  test("initialize, notifications and an empty DELETE still pass when the allowlist is set", async () => {
+    startStub({ shout: true });
+    await seedHeaderCredential(CONNECTOR, ["echo"]);
+    addRun("run_1");
+    const token = await tokenFor("run_1");
+    const init = JSON.stringify({
+      id: 1,
+      jsonrpc: "2.0",
+      method: "initialize",
+      params: { capabilities: {}, protocolVersion: "2025-06-18" },
+    });
+    const note = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    });
+
+    expect((await call(token, init)).status).toBe(200);
+    expect((await call(token, note)).status).toBe(202);
+    const deleted = await app.request(
+      `https://hm.example/api/proxy/${CONNECTOR}`,
+      { headers: { Authorization: `Bearer ${token}` }, method: "DELETE" },
+      env
+    );
+    expect(deleted.status).not.toBe(403);
+  });
+
   test("a body JSON.parse cannot read still goes upstream with no allowlist", async () => {
     startStub({ shout: true });
     await seedHeaderCredential();

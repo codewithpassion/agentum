@@ -94,6 +94,19 @@ interface RpcCall {
   tool: string | null;
 }
 
+const PROTOCOL_KEYS = new Set(["id", "jsonrpc", "method", "name", "params"]);
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matches any non-ASCII character
+const NON_ASCII = /[^\u0000-\u007f]/;
+
+/**
+ * Whether a key could be read as a protocol key by a parser that is looser than
+ * `JSON.parse`: Go's decoder matches struct keys without case and with Unicode
+ * folding (`paramſ` is `params`). Exact protocol keys are fine.
+ */
+const ambiguousKey = (key: string): boolean =>
+  !PROTOCOL_KEYS.has(key) &&
+  (NON_ASCII.test(key) || PROTOCOL_KEYS.has(key.toLowerCase()));
+
 /** The JSON-RPC id, method and (for `tools/call`) tool name, for the answer and the event. */
 const describeCall = (bytes: Uint8Array): RpcCall => {
   let body: unknown = null;
@@ -107,8 +120,12 @@ const describeCall = (bytes: Uint8Array): RpcCall => {
   }
   const { id, method, params } = body;
   const name = isRecord(params) ? params.name : undefined;
+  const keys = [
+    ...Object.keys(body),
+    ...(isRecord(params) ? Object.keys(params) : []),
+  ];
   return {
-    opaque: typeof method !== "string",
+    opaque: typeof method !== "string" || keys.some(ambiguousKey),
     id: typeof id === "string" || typeof id === "number" ? id : null,
     method: typeof method === "string" ? method : null,
     tool: method === "tools/call" && typeof name === "string" ? name : null,
