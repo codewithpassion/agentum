@@ -224,6 +224,7 @@ export function SuggestionReview({
           onClick={handleEditOpen}
           size="sm"
           type="button"
+          variant="outline"
         >
           Edit first
         </Button>
