@@ -7,6 +7,7 @@
 import type { Database } from "@repo/db";
 import { type Atomic, d1Atomic } from "@repo/db/atomic";
 import type { ModelProvider } from "@repo/db/shared";
+import { TRANSFER_HELPER_SOURCE } from "@repo/library-sync/transfer-bundle";
 import {
   type AgentBuilderService,
   createAgentBuilderService,
@@ -213,6 +214,7 @@ import { libraryNotifier } from "./library-notifier.ts";
 import { type MailEnv, mailInfra } from "./mail-infra.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
 import { clerkEmailMemberLookup } from "./mcp/clerk-email-member.ts";
+import { takeDesktopScreenshot } from "./mcp/computer-ports.ts";
 import { durableRunnerPort } from "./pi-run-port.ts";
 import { r2Blobs } from "./r2-blobs.ts";
 import { r2FileBlobs } from "./r2-files.ts";
@@ -570,8 +572,10 @@ export const composeWith = ({
     db,
     defer: infra.defer,
     fetch: connectorFetch,
+    publicBaseUrl: infra.publicBaseUrl,
     requests: {
       answer: (principal, input) => requests.answer(principal, input),
+      cancel: (principal, requestId) => requests.cancel(principal, requestId),
       outcome: (principal, requestId) => requests.outcome(principal, requestId),
     },
     secretsKey: infra.secretsKey,
@@ -650,10 +654,26 @@ export const composeWith = ({
     atomic: infra.atomic,
     clock: infra.clock,
     db,
+    desktopScreenshot: async (machineId) => {
+      const result = await takeDesktopScreenshot(infra.relay, machineId, {
+        kind: "agent",
+      });
+      if (!result.ok) {
+        return {
+          message: result.reason ?? "The desktop screenshot failed.",
+          ok: false,
+        };
+      }
+      return {
+        image: { data: result.image.data, mediaType: result.image.mimeType },
+        ok: true,
+      };
+    },
     events,
     gatewayFor: infra.managedGatewayFor ?? noGateway,
     keys: managedKeys,
     library,
+    libraryTransfer: { helper: TRANSFER_HELPER_SOURCE },
     poller: infra.managedPoller ?? noopPoller,
     publicBaseUrl: infra.publicBaseUrl,
     requests,

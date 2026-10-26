@@ -1,9 +1,20 @@
 import { beforeEach, expect, test } from "bun:test";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
+import { managedSessions } from "@repo/db/schema/managed";
+import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import { migrated } from "@repo/db/test-db";
+import { runTransfer } from "@repo/library-sync/transfer";
 import { noopRelay } from "@repo/services/machines/types";
-import { importRunTokenKey, signRunToken } from "@repo/services/run-tokens";
+import {
+  importRunTokenKey,
+  signRunToken,
+  signSessionToken,
+} from "@repo/services/run-tokens";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal, Workspace } from "@repo/services/workspaces";
 import { eq } from "drizzle-orm";
@@ -137,6 +148,69 @@ const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const libraryUrl = (runId: string, route: string, path?: string) => {
   const query = path === undefined ? "" : `?path=${encodeURIComponent(path)}`;
   return `/api/runs/${runId}/library/${route}${query}`;
+};
+
+const sessionUrl = (route: string, path?: string) => {
+  const query = path === undefined ? "" : `?path=${encodeURIComponent(path)}`;
+  return `/api/session/library/${route}${query}`;
+};
+
+/**
+ * A managed session of the owner's agent with one live run. Returns the run id
+ * and the session token, the way a managed session's turn reaches the library.
+ */
+const managedRun = async (owner: User, agentId: string) => {
+  const nowMs = Date.now();
+  const sessionId = "session_managed";
+  const runId = "run_managed";
+  const createdAt = new Date(nowMs).toISOString();
+  db.insert(sessions)
+    .values({
+      actorId: owner.userId,
+      actorKind: "user",
+      agentId,
+      createdAt,
+      externalKey: sessionId,
+      id: sessionId,
+      origin: "mcp",
+      workspaceId: owner.workspaceId,
+    })
+    .run();
+  db.insert(runs)
+    .values({
+      actorId: owner.userId,
+      actorKind: "user",
+      agentId,
+      claimedBy: "managed",
+      createdAt,
+      id: runId,
+      inputText: "work",
+      leaseUntil: new Date(nowMs + 30 * 60 * 1000).toISOString(),
+      onBehalfOfUserId: owner.userId,
+      sessionId,
+      status: "running",
+      workspaceId: owner.workspaceId,
+    })
+    .run();
+  db.insert(managedSessions)
+    .values({
+      agentFingerprint: "fp",
+      anthropicSessionId: "sesn_1",
+      createdAt,
+      currentRunId: runId,
+      sessionId,
+      tokenIssuedAt: nowMs,
+      vaultId: "vlt_1",
+      workspaceId: owner.workspaceId,
+    })
+    .run();
+  const sessionToken = await signSessionToken(await importRunTokenKey(KEY), {
+    agentId,
+    issuedAt: nowMs,
+    sessionId,
+    workspaceId: owner.workspaceId,
+  });
+  return { runId, sessionToken };
 };
 
 const listOf = (runId: string, token: string, path: string) =>
@@ -453,4 +527,181 @@ test("an ungranted folder is hidden and cannot be written", async () => {
   expect((await readOf(runId, runToken, "private/a")).status).toBe(404);
   expect((await listOf(runId, runToken, "private")).status).toBe(404);
   expect((await writeOf(runId, runToken, "private/a", "no")).status).toBe(403);
+});
+
+test("a managed session token reads and writes like a run of its agent", async () => {
+  const agentId = await newAgent(userA, "Box");
+  const { slug } = await composed.services.agents.get(userA, agentId);
+  const { sessionToken } = await managedRun(userA, agentId);
+  const home = `agents/${slug}/notes.md`;
+
+  const write = await app.request(
+    sessionUrl("file", home),
+    {
+      body: TEXT.encode("from session"),
+      headers: bearer(sessionToken),
+      method: "PUT",
+    },
+    WORKER_ENV
+  );
+  expect(write.status).toBe(200);
+  const { etag } = (await write.json()) as { etag: string };
+
+  const read = await app.request(
+    sessionUrl("file", home),
+    { headers: bearer(sessionToken) },
+    WORKER_ENV
+  );
+  expect(read.status).toBe(200);
+  expect(DECODE.decode(await read.arrayBuffer())).toBe("from session");
+
+  const list = await app.request(
+    sessionUrl("list", `agents/${slug}`),
+    { headers: bearer(sessionToken) },
+    WORKER_ENV
+  );
+  expect(list.status).toBe(200);
+  expect(await list.json()).toEqual({
+    entries: [
+      {
+        etag,
+        kind: "file",
+        path: home,
+        size: 12,
+      },
+    ],
+  });
+
+  const refused = await app.request(
+    sessionUrl("file", "private/a"),
+    { body: TEXT.encode("no"), headers: bearer(sessionToken), method: "PUT" },
+    WORKER_ENV
+  );
+  expect(refused.status).toBe(403);
+});
+
+test("a managed session token answers 401 once its run has ended", async () => {
+  const agentId = await newAgent(userA, "Box");
+  const { runId, sessionToken } = await managedRun(userA, agentId);
+  db.update(runs).set({ status: "done" }).where(eq(runs.id, runId)).run();
+
+  const res = await app.request(
+    sessionUrl("list", ""),
+    { headers: bearer(sessionToken) },
+    WORKER_ENV
+  );
+  expect(res.status).toBe(401);
+  expect(await res.json()).toEqual({ error: "Invalid run token." });
+});
+
+test("a run token works on the session routes, and no or garbage tokens answer 401", async () => {
+  const { runToken } = await runInA();
+  await composed.services.library.write(userA, "notes/a.md", TEXT.encode("hi"));
+
+  const res = await app.request(
+    sessionUrl("stat", "notes/a.md"),
+    { headers: bearer(runToken) },
+    WORKER_ENV
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({
+    entry: {
+      etag: (await composed.services.library.stat(userA, "notes/a.md")).etag,
+      kind: "file",
+      path: "notes/a.md",
+      size: 2,
+    },
+  });
+
+  const bare = await app.request(sessionUrl("list", ""), {}, WORKER_ENV);
+  expect(bare.status).toBe(401);
+
+  for (const token of ["hm_ses_nonsense.sig", "hm_run_nonsense.sig", "abc"]) {
+    // biome-ignore lint/performance/noAwaitInLoops: one request at a time keeps the order obvious
+    const garbage = await app.request(
+      sessionUrl("list", ""),
+      { headers: bearer(token) },
+      WORKER_ENV
+    );
+    expect(garbage.status).toBe(401);
+  }
+
+  // Without a key the token cannot be checked, so it is refused.
+  const noKey = await app.request(
+    sessionUrl("list", ""),
+    { headers: bearer(runToken) },
+    {}
+  );
+  expect(noKey.status).toBe(401);
+});
+
+test("the session run route answers the id of the token's run", async () => {
+  const agentId = await newAgent(userA, "Session");
+  const managed = await managedRun(userA, agentId);
+
+  const res = await app.request(
+    "/api/session/library/run",
+    { headers: bearer(managed.sessionToken) },
+    WORKER_ENV
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ runId: managed.runId });
+
+  const { runId, runToken } = await runInA();
+  const fromRun = await app.request(
+    "/api/session/library/run",
+    { headers: bearer(runToken) },
+    WORKER_ENV
+  );
+  expect(await fromRun.json()).toEqual({ runId });
+});
+
+test("a managed session token is refused on the run-id routes", async () => {
+  const agentId = await newAgent(userA, "Box");
+  const { runId, sessionToken } = await managedRun(userA, agentId);
+
+  const res = await app.request(
+    libraryUrl(runId, "list", ""),
+    { headers: bearer(sessionToken) },
+    WORKER_ENV
+  );
+  expect(res.status).toBe(401);
+});
+
+test("the sandbox helper pushes and pulls through the session routes with a session token", async () => {
+  const agentId = await newAgent(userA, "Box");
+  const { slug } = await composed.services.agents.get(userA, agentId);
+  const { sessionToken } = await managedRun(userA, agentId);
+  const origin = "https://hm.example";
+  const toApp = ((input: Request | string | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    return Promise.resolve(
+      app.request(`${url.pathname}${url.search}`, init, WORKER_ENV)
+    );
+  }) as typeof fetch;
+  const root = await mkdtemp(join(tmpdir(), "helper-e2e-"));
+  const lines: string[] = [];
+  const run = (argv: string[]) =>
+    runTransfer({
+      argv,
+      env: { HM_LIBRARY_TOKEN: sessionToken, HM_LIBRARY_URL: origin },
+      fetch: toApp,
+      log: (line) => lines.push(line),
+    });
+  try {
+    const first = join(root, "first");
+    const second = join(root, "second");
+    const path = `agents/${slug}/out/report.bin`;
+    const bytes = Uint8Array.from({ length: 4096 }, (_, index) => index % 251);
+    await mkdir(join(first, dirname(path)), { recursive: true });
+    await writeFile(join(first, path), bytes);
+
+    expect(await run(["push", "--dir", first, `agents/${slug}`])).toBe(0);
+    expect(await run(["pull", "--dir", second, `agents/${slug}`])).toBe(0);
+
+    expect(new Uint8Array(await readFile(join(second, path)))).toEqual(bytes);
+    expect(lines.join("\n")).not.toContain(sessionToken);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });

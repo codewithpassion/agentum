@@ -11,6 +11,8 @@ import {
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import type {
   AgentProfileView,
+  AgentRecord,
+  MailboxRecord,
   RouterOutputs,
 } from "#/integrations/trpc/types";
 import {
@@ -26,6 +28,7 @@ import {
   wiresFrom,
   wiresInto,
 } from "./inspector-logic.ts";
+import { AgentEditor } from "./map-inspector-editor.tsx";
 import { agentIdOf, initialsOf } from "./map-logic.ts";
 
 const CHIP = "rounded-full border border-border px-2 py-0.5 text-xs";
@@ -169,6 +172,38 @@ function PluggedIn({
   );
 }
 
+/** What the editor needs: the agent and mailbox it edits, and the reload after a change. */
+interface EditorState {
+  agent: AgentRecord | null;
+  mailbox: MailboxRecord | null;
+  onChanged: () => void;
+}
+
+const doNothing = (): void => undefined;
+
+/** The editable rows in place of the read-only "Plugged in" block. */
+function EditableProfile({
+  editor,
+  profile,
+  profileError,
+}: {
+  editor: EditorState;
+  profile: AgentProfileView | null;
+  profileError: string | null;
+}) {
+  if (profile === null || editor.agent === null) {
+    return <ProfileStatus error={profileError} />;
+  }
+  return (
+    <AgentEditor
+      agent={editor.agent}
+      mailbox={editor.mailbox}
+      onChanged={editor.onChanged}
+      profile={profile}
+    />
+  );
+}
+
 function LastRun({
   node,
   nowMs,
@@ -216,12 +251,14 @@ function LastRun({
 }
 
 function AgentBody({
+  editor,
   node,
   nowMs,
   onAnswer,
   profile,
   profileError,
 }: {
+  editor: EditorState | null;
   node: MapNodeView;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
@@ -232,13 +269,23 @@ function AgentBody({
     node.pendingRequest?.runId,
     profile?.recentTasks ?? []
   );
+  let plugged: ReactNode;
+  if (editor !== null) {
+    plugged = (
+      <EditableProfile
+        editor={editor}
+        profile={profile}
+        profileError={profileError}
+      />
+    );
+  } else if (profile === null) {
+    plugged = <ProfileStatus error={profileError} />;
+  } else {
+    plugged = <PluggedIn node={node} profile={profile} />;
+  }
   return (
     <>
-      {profile === null ? (
-        <ProfileStatus error={profileError} />
-      ) : (
-        <PluggedIn node={node} profile={profile} />
-      )}
+      {plugged}
       {profile === null && run === null ? null : (
         <>
           <p className="mt-3 font-medium text-muted-foreground text-xs uppercase tracking-wide">
@@ -373,26 +420,51 @@ const subtitleOf = (
 };
 
 export interface MapInspectorProps {
+  editor?: boolean;
+  editorAgent?: AgentRecord | null;
+  editorMailbox?: MailboxRecord | null;
   graph: MapGraphView;
   node: MapNodeView;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
+  onChanged?: () => void;
   onClose: () => void;
   profile: AgentProfileView | null;
+  /** The agent whose profile the node shows: its own, or the one a trigger starts. */
+  profileAgentId?: string | null;
   profileError: string | null;
 }
 
 /** The panel beside the map that describes the selected node. */
 export function MapInspector({
+  editor,
+  editorAgent,
+  editorMailbox,
   graph,
   node,
   nowMs,
   onAnswer,
+  onChanged,
   onClose,
   profile,
+  profileAgentId = null,
   profileError,
 }: MapInspectorProps) {
   const agentId = agentIdOf(node.key);
+  const editing: EditorState | null =
+    editor === true
+      ? {
+          agent: editorAgent ?? null,
+          mailbox: editorMailbox ?? null,
+          onChanged: onChanged ?? doNothing,
+        }
+      : null;
+  let profileLinkId: string | null = null;
+  if (node.kind === "agent") {
+    profileLinkId = agentId;
+  } else if (editor === true) {
+    profileLinkId = profileAgentId;
+  }
   return (
     <aside
       aria-label="Selected node"
@@ -405,16 +477,19 @@ export function MapInspector({
           <p className="truncate text-muted-foreground text-xs">
             {subtitleOf(node, profile)}
           </p>
+          {editor === true ? (
+            <p className="font-medium text-primary text-xs">Editing</p>
+          ) : null}
         </div>
-        {node.kind === "agent" && agentId !== null ? (
+        {profileLinkId === null ? null : (
           <Link
             className={buttonVariants({ size: "sm", variant: "outline" })}
-            params={{ agentId }}
+            params={{ agentId: profileLinkId }}
             to="/agents/$agentId"
           >
             Profile
           </Link>
-        ) : null}
+        )}
         <Button
           aria-label="Close inspector"
           onClick={onClose}
@@ -428,6 +503,7 @@ export function MapInspector({
       <div className="px-4 pb-4">
         {node.kind === "agent" ? (
           <AgentBody
+            editor={editing}
             node={node}
             nowMs={nowMs}
             onAnswer={onAnswer}
@@ -436,7 +512,16 @@ export function MapInspector({
           />
         ) : null}
         {node.kind === "trigger" ? (
-          <TriggerBody graph={graph} node={node} profile={profile} />
+          <>
+            <TriggerBody graph={graph} node={node} profile={profile} />
+            {editing !== null && profileAgentId !== null ? (
+              <EditableProfile
+                editor={editing}
+                profile={profile}
+                profileError={profileError}
+              />
+            ) : null}
+          </>
         ) : null}
         {node.kind === "output" ? (
           <OutputBody graph={graph} node={node} />

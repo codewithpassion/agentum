@@ -1,15 +1,32 @@
 import {
   Background,
   BackgroundVariant,
+  type Connection,
+  type NodeChange,
   ReactFlow,
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./map-flow.css";
 import type { AgentRuntime } from "@repo/db/shared";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type DragEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "#/components/ui/button.tsx";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import {
+  decodeNewNode,
+  isValidTriggerConnection,
+  NEW_NODE_MIME,
+  type NewNodeKind,
+  type PendingPositions,
+  positionsToSave,
+} from "./editor-logic.ts";
 import { edgeTypes } from "./map-edge.tsx";
 import { toFlowEdges, toFlowNodes } from "./map-logic.ts";
 import { nodeTypes } from "./map-nodes.tsx";
@@ -18,6 +35,9 @@ import type { MapFlowNode } from "./map-types.ts";
 type MapGraphView = RouterOutputs["map"]["graph"];
 
 const FIT_OPTIONS = { duration: 200, padding: 0.15 } as const;
+
+/** How long a drag settles before its positions are saved. */
+const SAVE_DEBOUNCE_MS = 500;
 
 type Theme = "dark" | "light";
 
@@ -43,27 +63,145 @@ function usePageTheme(): Theme {
   return theme;
 }
 
-/** The map as a read-only xyflow canvas, with the Runs toolbar above it. */
+export interface MapPosition {
+  x: number;
+  y: number;
+}
+
+/**
+ * Where nodes sit while a person drags them. A drag moves a local copy at once
+ * and the save follows after a pause, so the graph poll cannot snap a node
+ * back in between. The copy is dropped once its save is in.
+ */
+function usePositionOverrides(
+  save: (positions: { key: string; x: number; y: number }[]) => Promise<void>
+) {
+  const [overrides, setOverrides] = useState<PendingPositions>(new Map());
+  const pending = useRef<PendingPositions>(new Map());
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveRef = useRef(save);
+  useEffect(() => {
+    saveRef.current = save;
+  });
+
+  const flush = useCallback(async () => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    const batch = new Map(pending.current);
+    pending.current.clear();
+    const positions = positionsToSave(batch);
+    if (positions.length === 0) {
+      return;
+    }
+    try {
+      await saveRef.current(positions);
+    } finally {
+      setOverrides((previous) => {
+        const next = new Map(previous);
+        for (const key of batch.keys()) {
+          // A node dragged again since stays where it is.
+          if (!pending.current.has(key)) {
+            next.delete(key);
+          }
+        }
+        return next;
+      });
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      flush();
+    },
+    [flush]
+  );
+
+  const move = useCallback((changes: NodeChange<MapFlowNode>[]) => {
+    const moves = changes.flatMap((change) =>
+      change.type === "position" && change.position !== undefined
+        ? [{ id: change.id, position: change.position }]
+        : []
+    );
+    if (moves.length === 0) {
+      return;
+    }
+    setOverrides((previous) => {
+      const next = new Map(previous);
+      for (const entry of moves) {
+        next.set(entry.id, entry.position);
+      }
+      return next;
+    });
+  }, []);
+
+  const drop = useCallback(
+    (nodes: { id: string; position: MapPosition }[]) => {
+      for (const node of nodes) {
+        pending.current.set(node.id, node.position);
+      }
+      if (timer.current !== null) {
+        clearTimeout(timer.current);
+      }
+      timer.current = setTimeout(() => {
+        flush();
+      }, SAVE_DEBOUNCE_MS);
+    },
+    [flush]
+  );
+
+  return { drop, move, overrides };
+}
+
+/**
+ * The map as an xyflow canvas. In Editor mode nodes drag, a trigger's wire is
+ * drawn to an agent, and "+ Trigger" and "+ Agent" can be dropped on it.
+ */
 export function MapCanvas({
   agents,
+  editor,
   graph,
+  onConnectWire,
+  onDropNew,
+  onSavePositions,
   onSelect,
   qaOpenCount,
   runCounts,
   selectedKey,
 }: {
   agents: Map<string, { runtime: AgentRuntime }>;
+  editor: boolean;
   graph: MapGraphView;
+  /** A wire was drawn from a trigger node to an agent node. */
+  onConnectWire: (sourceKey: string, targetKey: string) => void;
+  /** A "+ Trigger" or "+ Agent" button was dropped on the canvas. */
+  onDropNew: (kind: NewNodeKind, position: MapPosition) => void;
+  onSavePositions: (
+    positions: { key: string; x: number; y: number }[]
+  ) => Promise<void>;
   onSelect: (key: string | null) => void;
   qaOpenCount: number;
   runCounts: Map<string, number>;
   selectedKey: string | null;
 }) {
+  const { screenToFlowPosition } = useReactFlow();
+  const { drop, move, overrides } = usePositionOverrides(onSavePositions);
   const nodes = useMemo(
-    () => toFlowNodes(graph, { agents, qaOpenCount, runCounts, selectedKey }),
-    [graph, agents, qaOpenCount, runCounts, selectedKey]
+    () =>
+      toFlowNodes(graph, {
+        agents,
+        editor,
+        qaOpenCount,
+        runCounts,
+        selectedKey,
+      }).map((node) => {
+        const position = overrides.get(node.id);
+        return position === undefined ? node : { ...node, position };
+      }),
+    [graph, agents, editor, qaOpenCount, runCounts, selectedKey, overrides]
   );
-  const edges = useMemo(() => toFlowEdges(graph), [graph]);
+  const edges = useMemo(() => toFlowEdges(graph, editor), [graph, editor]);
   const theme = usePageTheme();
 
   const handleNodeClick = useCallback(
@@ -71,24 +209,72 @@ export function MapCanvas({
     [onSelect]
   );
   const handlePaneClick = useCallback(() => onSelect(null), [onSelect]);
+  const handleNodeDragStop = useCallback(
+    (
+      _event: unknown,
+      _node: MapFlowNode,
+      dragged: { id: string; position: MapPosition }[]
+    ) => drop(dragged),
+    [drop]
+  );
+  const handleConnect = useCallback(
+    (connection: Connection) =>
+      onConnectWire(connection.source, connection.target),
+    [onConnectWire]
+  );
+  const isValidConnection = useCallback(
+    (connection: { source: string; target: string }) =>
+      isValidTriggerConnection(graph, connection.source, connection.target),
+    [graph]
+  );
+  const handleDragOver = useCallback(
+    (event: DragEvent) => {
+      if (editor && event.dataTransfer.types.includes(NEW_NODE_MIME)) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }
+    },
+    [editor]
+  );
+  const handleDrop = useCallback(
+    (event: DragEvent) => {
+      const kind = decodeNewNode(event.dataTransfer.getData(NEW_NODE_MIME));
+      if (!editor || kind === null) {
+        return;
+      }
+      event.preventDefault();
+      onDropNew(
+        kind,
+        screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      );
+    },
+    [editor, onDropNew, screenToFlowPosition]
+  );
 
   return (
     <ReactFlow
       className="map-flow"
       colorMode={theme}
+      deleteKeyCode={null}
       edges={edges}
       edgeTypes={edgeTypes}
       elementsSelectable
       fitView
       fitViewOptions={FIT_OPTIONS}
+      isValidConnection={isValidConnection}
       maxZoom={1.5}
       minZoom={0.3}
       nodes={nodes}
-      nodesConnectable={false}
-      nodesDraggable={false}
+      nodesConnectable={editor}
+      nodesDraggable={editor}
       nodesFocusable
       nodeTypes={nodeTypes}
+      onConnect={handleConnect}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       onNodeClick={handleNodeClick}
+      onNodeDragStop={handleNodeDragStop}
+      onNodesChange={move}
       onPaneClick={handlePaneClick}
     >
       <Background gap={18} size={1.2} variant={BackgroundVariant.Dots} />

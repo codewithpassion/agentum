@@ -9,6 +9,7 @@ import {
   type QuestionDisplay,
   questionAnswerSchema,
   type RequestOutcome,
+  type TakeoverDisplay,
 } from "@repo/protocol/requests";
 import { z } from "zod";
 
@@ -25,6 +26,7 @@ interface Button {
   style?: "danger";
   text: PlainText;
   type: "button";
+  url?: string;
 }
 type Block = Section | { type: "actions"; elements: Button[] };
 export interface RequestCard {
@@ -39,7 +41,13 @@ interface Base {
 }
 type ApprovalRequest = Base & Pick<ApprovalDisplay, "input" | "summary">;
 type QuestionRequest = Base & QuestionDisplay;
-export type CardRequest = ApprovalRequest | QuestionRequest;
+type TakeoverRequest = Base &
+  Pick<TakeoverDisplay, "reason"> & {
+    publicBaseUrl: string;
+    runId: string;
+  };
+export type CardRequest = ApprovalRequest | QuestionRequest | TakeoverRequest;
+const TRAILING_SLASHES = /\/+$/;
 const INDEX = /^(0|[1-9]\d*)$/;
 const isChoiceAction = (parts: string[]): boolean =>
   parts.length === 5 &&
@@ -124,6 +132,40 @@ export const questionCard = (request: QuestionRequest): RequestCard => ({
     `${request.agentName}: ${request.questions.map((q) => q.question).join("; ")}`
   ),
 });
+
+export const takeoverCard = (request: TakeoverRequest): RequestCard => ({
+  blocks: [
+    section(
+      `*${escapeSlack(request.agentName)}* requests a take-over\n${escapeSlack(request.reason)}`
+    ),
+    expiry(request.expiresAt),
+    {
+      elements: [
+        ...(request.publicBaseUrl
+          ? [
+              {
+                ...button("Open screen", `hm_req:${request.requestId}:screen`),
+                url: `${request.publicBaseUrl.replace(TRAILING_SLASHES, "")}/tasks/${encodeURIComponent(request.runId)}#computer`,
+              },
+            ]
+          : []),
+        {
+          ...button("Cancel request", `hm_req:${request.requestId}:cancel`),
+          style: "danger",
+        },
+      ],
+      type: "actions",
+    },
+  ],
+  text: escapeSlack(`${request.agentName}: ${request.reason}`),
+});
+
+export const requestCard = (request: CardRequest): RequestCard => {
+  if ("reason" in request) {
+    return takeoverCard(request);
+  }
+  return "questions" in request ? questionCard(request) : approvalCard(request);
+};
 
 interface Option {
   text: PlainText;
@@ -215,18 +257,19 @@ export const settledCard = (
     status = "Cancelled";
   } else {
     const { answer } = outcome;
-    const action =
-      "decision" in answer
-        ? {
-            allow_once: "Allowed once",
-            always_allow: "Always allowed",
-            deny: "Denied",
-          }[answer.decision]
-        : "Answered";
+    let action = "Answered";
+    if ("reason" in request) {
+      action = "Handed back";
+    } else if ("decision" in answer) {
+      action = {
+        allow_once: "Allowed once",
+        always_allow: "Always allowed",
+        deny: "Denied",
+      }[answer.decision];
+    }
     status = `${action}${by ? ` by ${by}` : ""}${via ? ` on ${via === "web" ? "the web" : "Slack"}` : ""}`;
   }
-  const card =
-    "questions" in request ? questionCard(request) : approvalCard(request);
+  const card = requestCard(request);
   return {
     blocks: [
       ...card.blocks.filter((block) => block.type !== "actions"),
@@ -274,12 +317,16 @@ interface Identity {
   teamId: string;
   userId: string;
 }
+type ParsedAnswer =
+  | { answer: ApprovalAnswer | QuestionAnswer; cancel?: never }
+  | { cancel: true; answer?: never };
+
 export type InteractionResult =
   | ({
       ok: true;
       requestId: string;
-      answer: ApprovalAnswer | QuestionAnswer;
-    } & Identity)
+    } & Identity &
+      ParsedAnswer)
   | ({
       ok: false;
       reason: "modal_required";
@@ -336,7 +383,7 @@ const modalAnswer = (
 };
 
 type Parsed =
-  | { answer: ApprovalAnswer | QuestionAnswer; requestId: string }
+  | ({ requestId: string } & ParsedAnswer)
   | Exclude<InteractionResult, { ok: true }>;
 
 const parseAction = (
@@ -380,6 +427,9 @@ const parseAction = (
   }
   if (parts.length !== 3) {
     return { ok: false, reason: "invalid" };
+  }
+  if (parts[2] === "cancel") {
+    return { cancel: true, requestId };
   }
   return {
     answer: approvalAnswerSchema.parse({ decision: parts[2] }),
@@ -431,7 +481,9 @@ export const parseInteraction = (
     }
     const identity = identitySchema.parse(payload);
     return {
-      answer: parsed.answer,
+      ...(parsed.cancel
+        ? { cancel: true as const }
+        : { answer: parsed.answer }),
       appId: identity.api_app_id,
       ok: true,
       requestId: parsed.requestId,

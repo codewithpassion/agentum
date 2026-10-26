@@ -13,6 +13,8 @@ export type TileStatus = "idle" | "ok" | "running" | "waiting";
 export type TileTone = 1 | 2 | 3 | 4;
 
 export interface MapPortData {
+  /** The connector, machine or skill id; the agent id for a browser. */
+  id: string;
   kind: MapPortKind;
   label: string;
 }
@@ -54,6 +56,8 @@ export interface MapEdgeData extends Record<string, unknown> {
   active: boolean;
   /** True when the wire carried work in the window, so it draws green. */
   carried: boolean;
+  /** True in Editor mode on a wire the editor may delete (a movable trigger's wire). */
+  deletable: boolean;
   kind: MapWireKind;
 }
 export type MapFlowEdge = Edge<MapEdgeData, "count">;
