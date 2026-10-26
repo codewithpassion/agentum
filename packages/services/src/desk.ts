@@ -12,7 +12,7 @@
 import type { Database } from "@repo/db";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { inboxPosts } from "@repo/db/schema/inbox";
-import { libraryConflicts } from "@repo/db/schema/library";
+import { libraryConflicts, wikiSuggestions } from "@repo/db/schema/library";
 import { mailMessages } from "@repo/db/schema/mail";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
@@ -329,6 +329,8 @@ export const createDeskService = ({
       threads,
       drafts,
       conflicts,
+
+      suggestions,
     ] = await Promise.all([
       pendingRecords(member),
       skillsStore.proposals(member),
@@ -343,6 +345,15 @@ export const createDeskService = ({
           and(
             eq(libraryConflicts.workspaceId, member.workspaceId),
             eq(libraryConflicts.status, "open")
+          )
+        ),
+      db
+        .select()
+        .from(wikiSuggestions)
+        .where(
+          and(
+            eq(wikiSuggestions.workspaceId, member.workspaceId),
+            inArray(wikiSuggestions.status, ["pending", "stale"])
           )
         ),
     ]);
@@ -395,6 +406,9 @@ export const createDeskService = ({
       pending,
       proposedRoutines,
       proposedTriggers,
+      suggestions: suggestions.filter(
+        (suggestion) => !drafts.has(suggestion.agentId)
+      ),
       versions: versions.filter(
         (version) =>
           version.author.kind !== "agent" || !drafts.has(version.author.id)
@@ -461,6 +475,20 @@ export const createDeskService = ({
           ...(conflict.runId ? { runId: conflict.runId } : {}),
           starter: { id: conflict.agentId, kind: "agent" },
           title: conflict.path,
+        })
+      ),
+      ...sources.suggestions.map(
+        (suggestion): Draft => ({
+          agentId: suggestion.agentId,
+          at: suggestion.createdAt,
+          band: { text: clip(suggestion.summary, TITLE_MAX), tone: "waiting" },
+          id: suggestion.id,
+          kind: "proposal",
+          lane: "needs_you",
+          needsYouKind: "wiki_suggestion",
+          ...(suggestion.runId ? { runId: suggestion.runId } : {}),
+          starter: { id: suggestion.agentId, kind: "agent" },
+          title: suggestion.path,
         })
       ),
       ...sources.pending.map(
@@ -711,6 +739,7 @@ export const createDeskService = ({
     const sources = await needsYouSources(member);
     return (
       sources.conflicts.length +
+      sources.suggestions.length +
       sources.pending.length +
       sources.versions.length +
       sources.proposedTriggers.length +

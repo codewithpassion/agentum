@@ -1,7 +1,8 @@
 import { useUser } from "@clerk/tanstack-react-start";
 import type { Question } from "@repo/protocol/requests";
+import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, useCallback, useId, useState } from "react";
-import { Button } from "#/components/ui/button.tsx";
+import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
@@ -317,43 +318,21 @@ function TakeoverCard({
   view: Extract<RequestView, { kind: "takeover" }>;
   nowMs: number;
 }) {
-  const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
-  const [taken, setTaken] = useState(false);
   const [closed, setClosed] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const noteId = useId();
-  const act = useCallback(
-    async (action: "take" | "handBack" | "cancel") => {
-      setPending(true);
-      setError(null);
-      try {
-        const { takeover } = getTrpc();
-        if (action === "take") {
-          await takeover.take.mutate({ requestId: view.id });
-          setTaken(true);
-        } else if (action === "handBack") {
-          await takeover.handBack.mutate({ note, requestId: view.id });
-          setClosed(true);
-        } else {
-          await takeover.cancel.mutate({ requestId: view.id });
-          setClosed(true);
-        }
-      } catch (cause) {
-        setError(errorMessage(cause));
-      } finally {
-        setPending(false);
-      }
-    },
-    [note, view.id]
-  );
-  const take = useCallback(() => act("take"), [act]);
-  const handBack = useCallback(() => act("handBack"), [act]);
-  const cancel = useCallback(() => act("cancel"), [act]);
-  const changeNote = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setNote(event.target.value),
-    []
-  );
+  const cancel = useCallback(async () => {
+    setPending(true);
+    setError(null);
+    try {
+      await getTrpc().takeover.cancel.mutate({ requestId: view.id });
+      setClosed(true);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setPending(false);
+    }
+  }, [view.id]);
   if (closed) {
     return (
       <p className="text-muted-foreground text-sm">Takeover request closed</p>
@@ -369,25 +348,15 @@ function TakeoverCard({
       <p className="text-muted-foreground text-xs">
         {expiryText(view.expiresAt, nowMs)}
       </p>
-      <Label htmlFor={noteId}>Note for the agent (optional)</Label>
-      <Input
-        disabled={pending}
-        id={noteId}
-        onChange={changeNote}
-        value={note}
-      />
       <div className="flex flex-wrap gap-2">
-        <Button disabled={pending || taken} onClick={take} type="button">
-          {taken ? "Taken" : "Take over"}
-        </Button>
-        <Button
-          disabled={pending}
-          onClick={handBack}
-          type="button"
-          variant="outline"
+        <Link
+          className={buttonVariants({ size: "default" })}
+          hash="computer"
+          params={{ runId: view.runId }}
+          to="/tasks/$runId"
         >
-          Hand back
-        </Button>
+          Open screen
+        </Link>
         <Button
           disabled={pending}
           onClick={cancel}
