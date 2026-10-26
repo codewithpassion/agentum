@@ -3,7 +3,7 @@ id: X.3
 title: Investigator agent that control-plane starts and that reports back
 milestone: X
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/X.3-investigator-report-back
 lane: services
@@ -26,3 +26,4 @@ control-plane watches for expected events that don't arrive. On a miss it opens 
 - 2026-10-26: requested by the integration coordinator (contract C3).
 - 2026-10-26: Dom: next free services slot (after V1.5).
 - 2026-10-26: dispatched. The staging trigger check is the controller's after merge.
+- 2026-10-26: review clean after 1 fix round; merged at f130996. Built to C3: source "agent", incident id read from the trigger text (control-plane sends its approval id as requestId), server-side escalate fallback for failed or cancelled runs. Staging trigger check folded into X.4's staging check, which covers the same flow; setup steps in docs/reviews/tasks/X.3.md.

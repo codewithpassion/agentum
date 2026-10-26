@@ -3,9 +3,9 @@ id: X.4
 title: Investigator runs are visible and stay inside the approval guardrail
 milestone: X
 size: S
-status: todo
+status: in_progress
 depends_on: [X.3]
-branch: null
+branch: task/X.4-investigator-visibility
 lane: services
 executor: claude
 ---
@@ -23,3 +23,4 @@ Dom decided (26 Oct 2026) that control-plane starts the investigator automatical
 
 ## Log
 - 2026-10-26: requested by the integration coordinator after Dom's decision on auto-start with visibility.
+- 2026-10-26: dispatched. Its staging check also covers X.3's; controller runs it after merge.
