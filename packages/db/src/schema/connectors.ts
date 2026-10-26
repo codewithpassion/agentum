@@ -87,13 +87,17 @@ export const credentials = sqliteTable(
   ]
 );
 
-/** Which connectors an agent may call, and whose credential it uses. */
+/**
+ * Which connectors an agent may call, and whose credential it uses.
+ * `allowedTools` is a JSON array of tool names. Null means every tool.
+ */
 export const agentConnectors = sqliteTable(
   "agent_connectors",
   {
     agentId: text("agent_id")
       .notNull()
       .references(() => agents.id),
+    allowedTools: text("allowed_tools"),
     connectorId: text("connector_id")
       .notNull()
       .references(() => connectors.id),

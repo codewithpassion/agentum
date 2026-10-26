@@ -40,6 +40,7 @@ import type {
 } from "@repo/db/shared";
 import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 import { z } from "zod";
+import { decodeAllowedTools } from "./connectors/allowed-tools.ts";
 import type { Fetcher } from "./connectors/mcp.ts";
 import { OAuthTokenError, refreshTokens } from "./connectors/oauth.ts";
 import { parseOAuthConfig } from "./connectors/oauth-config.ts";
@@ -93,6 +94,8 @@ export interface NeedsAuth {
 
 export type Resolution =
   | {
+      /** Tool names the agent may use through this connector, null for every tool. */
+      allowedTools: string[] | null;
       /** Where to send the call. */
       connector: {
         callTimeoutSeconds: number;
@@ -589,6 +592,7 @@ export const createCredentialsService = ({
     const { agentId, connectorId, workspaceId } = input;
     const [link] = await db
       .select({
+        allowedTools: agentConnectors.allowedTools,
         connector: connectors,
         mode: agentConnectors.credentialMode,
       })
@@ -607,6 +611,7 @@ export const createCredentialsService = ({
       return { ok: false, reason: "not_assigned" };
     }
     const { connector } = link;
+    const allowedTools = decodeAllowedTools(link.allowedTools);
     const summary = {
       callTimeoutSeconds: connector.callTimeoutSeconds,
       id: connector.id,
@@ -615,6 +620,7 @@ export const createCredentialsService = ({
     };
     if (connector.authKind === "none") {
       return {
+        allowedTools,
         connector: summary,
         credential: null,
         note: null,
@@ -654,6 +660,7 @@ export const createCredentialsService = ({
     const ready = await refreshedAhead(row, connector, current.credential);
     return ready.ok
       ? {
+          allowedTools,
           connector: summary,
           credential: ready.credential,
           note: chosen.note,

@@ -21,6 +21,7 @@ import { importRunTokenKey, verifyAgentToken } from "@repo/services/run-tokens";
 import type { Context } from "hono";
 import { readCappedBody } from "../mcp/body.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
+import { filterToolsList } from "./proxy-allowlist.ts";
 
 /** Largest JSON-RPC request body forwarded; a real one is a few KB. */
 export const MAX_PROXY_BODY_BYTES = 1024 * 1024;
@@ -31,6 +32,8 @@ const MS_PER_SECOND = 1000;
 const RETRY_AFTER_SECONDS = "30";
 const UNAUTHORIZED = 401;
 const FORBIDDEN = 403;
+const EMPTY_ACCEPTED = 202;
+const EMPTY_NO_CONTENT = 204;
 const REDIRECT_MIN = 300;
 const REDIRECT_MAX = 399;
 const RPC_ERROR = -32_000;
@@ -86,8 +89,23 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 interface RpcCall {
   id: string | number | null;
   method: string | null;
+  /** The body is a batch, not a JSON object with a method, or has a key a looser parser could read as a protocol key, so the proxy cannot say which tool it calls. An empty body (DELETE) is not. */
+  opaque: boolean;
   tool: string | null;
 }
+
+const PROTOCOL_KEYS = new Set(["id", "jsonrpc", "method", "name", "params"]);
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matches any non-ASCII character
+const NON_ASCII = /[^\u0000-\u007f]/;
+
+/**
+ * Whether a key could be read as a protocol key by a parser that is looser than
+ * `JSON.parse`: Go's decoder matches struct keys without case and with Unicode
+ * folding (`paramſ` is `params`). Exact protocol keys are fine.
+ */
+const ambiguousKey = (key: string): boolean =>
+  !PROTOCOL_KEYS.has(key) &&
+  (NON_ASCII.test(key) || PROTOCOL_KEYS.has(key.toLowerCase()));
 
 /** The JSON-RPC id, method and (for `tools/call`) tool name, for the answer and the event. */
 const describeCall = (bytes: Uint8Array): RpcCall => {
@@ -98,11 +116,16 @@ const describeCall = (bytes: Uint8Array): RpcCall => {
     // Not JSON: the connector answers the parse error itself.
   }
   if (!isRecord(body)) {
-    return { id: null, method: null, tool: null };
+    return { id: null, method: null, opaque: bytes.length > 0, tool: null };
   }
   const { id, method, params } = body;
   const name = isRecord(params) ? params.name : undefined;
+  const keys = [
+    ...Object.keys(body),
+    ...(isRecord(params) ? Object.keys(params) : []),
+  ];
   return {
+    opaque: typeof method !== "string" || keys.some(ambiguousKey),
     id: typeof id === "string" || typeof id === "number" ? id : null,
     method: typeof method === "string" ? method : null,
     tool: method === "tools/call" && typeof name === "string" ? name : null,
@@ -120,6 +143,40 @@ const rpcError = (
     id: call.id,
     jsonrpc: "2.0",
   });
+
+/**
+ * Whether the agent's tool allowlist (null: every tool) refuses this call. A
+ * body the proxy cannot read as one call is refused: a connector may accept
+ * more than `JSON.parse` does (NaN, UTF-16), so "not a tools/call" is only
+ * known for a body that parsed.
+ */
+const toolRefused = (
+  call: RpcCall,
+  allowedTools: readonly string[] | null
+): boolean => {
+  if (allowedTools === null) {
+    return false;
+  }
+  return (
+    call.opaque ||
+    (call.method === "tools/call" &&
+      (call.tool === null || !allowedTools.includes(call.tool)))
+  );
+};
+
+/** The tools/list answer cut to the allowed tools; null when it cannot be read. */
+const limitToolsList = (
+  bytes: Uint8Array<ArrayBuffer>,
+  response: Response,
+  allowedTools: readonly string[]
+): Uint8Array<ArrayBuffer> | null => {
+  const filtered = filterToolsList(
+    new TextDecoder().decode(bytes),
+    response.headers.get("content-type"),
+    new Set(allowedTools)
+  );
+  return filtered === null ? null : new TextEncoder().encode(filtered);
+};
 
 const needsAuthText = (refusal: NeedsAuth, origin: string): string => {
   const link = refusal.connectPath ? `${origin}${refusal.connectPath}` : null;
@@ -295,6 +352,7 @@ const outcomeOf = (status: number): "ok" | "redirect" | "refused" => {
 
 /** The answer for a call that got through, with its event. */
 const answer = async ({
+  allowedTools,
   call,
   note,
   ownerKind,
@@ -302,6 +360,7 @@ const answer = async ({
   sent,
   started,
 }: {
+  allowedTools: readonly string[] | null;
   call: RpcCall;
   note: string | null;
   ownerKind: string | null;
@@ -332,6 +391,23 @@ const answer = async ({
       call,
       "The connector answered with a redirect, which the proxy does not follow."
     );
+  }
+  if (
+    allowedTools &&
+    call.method === "tools/list" &&
+    response.ok &&
+    status !== EMPTY_ACCEPTED &&
+    status !== EMPTY_NO_CONTENT
+  ) {
+    const limited = limitToolsList(bytes, response, allowedTools);
+    if (limited === null) {
+      return rpcError(
+        call,
+        "The connector's tool list could not be limited to the tools this agent may use.",
+        { code: "tool_list_unreadable" }
+      );
+    }
+    return relay(response, limited);
   }
   return relay(response, bytes);
 };
@@ -438,6 +514,28 @@ const responders = ({
     });
   };
 
+  const addressBlocked = async (): Promise<Response> => {
+    await record("connector.call", {
+      method: call.method,
+      outcome: "blocked",
+      tool: call.tool,
+    });
+    return rpcError(call, "That connector's address is no longer allowed.");
+  };
+
+  const toolDenied = async (): Promise<Response> => {
+    await record("connector.call", {
+      method: call.method,
+      note: "tool_not_allowed",
+      outcome: "denied",
+      tool: call.tool,
+    });
+    return Response.json(
+      { error: "forbidden", reason: "tool_not_allowed" },
+      { status: FORBIDDEN }
+    );
+  };
+
   const timedOut = async ({
     connectorName,
     limitSeconds,
@@ -475,6 +573,8 @@ const responders = ({
   };
 
   return {
+    addressBlocked,
+    toolDenied,
     declined: (result: Declined): Promise<Response> =>
       result.reason === "needs_auth" ? refuse(result) : askAgain(),
     /** A send that failed: a timeout gets the limit's message, a dead connection the other one. */
@@ -552,7 +652,7 @@ export const proxyRoutes = ({
       log,
       sessionId: context.sessionId,
     });
-    const { declined, failed } = responders({
+    const { addressBlocked, declined, failed, toolDenied } = responders({
       call,
       origin: new URL(c.req.url).origin,
       record,
@@ -561,14 +661,12 @@ export const proxyRoutes = ({
     if (!resolution.ok) {
       return await declined(resolution);
     }
+    if (toolRefused(call, resolution.allowedTools)) {
+      return await toolDenied();
+    }
     const url = allowedUrl(resolution.connector.url);
     if (url === null) {
-      await record("connector.call", {
-        method: call.method,
-        outcome: "blocked",
-        tool: call.tool,
-      });
-      return rpcError(call, "That connector's address is no longer allowed.");
+      return await addressBlocked();
     }
 
     const limitSeconds = resolution.connector.callTimeoutSeconds;
@@ -592,18 +690,20 @@ export const proxyRoutes = ({
       return await declined(tried.declined);
     }
     const { sent, used } = tried;
+    const ownerKind = used ? used.ownerKind : null;
     if (!sent.ok) {
       return await failed(sent.kind, {
         connectorName: resolution.connector.name,
         limitSeconds,
         ms: Date.now() - started,
-        ownerKind: used ? used.ownerKind : null,
+        ownerKind,
       });
     }
     return await answer({
+      allowedTools: resolution.allowedTools,
       call,
       note: resolution.note,
-      ownerKind: used ? used.ownerKind : null,
+      ownerKind,
       record,
       sent,
       started,

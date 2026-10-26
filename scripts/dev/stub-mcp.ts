@@ -2,8 +2,9 @@
 import { Buffer } from "node:buffer";
 import { parseArgs } from "node:util";
 // A stub remote MCP server for tests and hand testing. It speaks MCP Streamable
-// HTTP with JSON responses only, on POST /mcp, and offers one tool, `echo`. Auth
-// is a bearer token. `failOnce` expires the token on first use, so a client has
+// HTTP with JSON responses only, on POST /mcp, and offers one tool, `echo`.
+// `shout` adds a second tool, `shout`, which upper-cases its text. Auth is a
+// bearer token. `failOnce` expires the token on first use, so a client has
 // to call POST /token to get a new one. `oauth` swaps that for an OAuth 2.1
 // authorization server (PKCE, dynamic client registration), and /mcp then takes
 // only the access tokens it issued. `stateful` hands out an Mcp-Session-Id on
@@ -35,6 +36,12 @@ const ECHO_TOOL = {
   name: "echo",
 };
 
+const SHOUT_TOOL = {
+  ...ECHO_TOOL,
+  description: "Echo the text back in upper case",
+  name: "shout",
+};
+
 export interface StubStats {
   calls: { method: string; headers: Record<string, string> }[];
   tokenCalls: number;
@@ -52,6 +59,8 @@ export interface StubMcpOptions {
   oauth?: boolean;
   /** Port to listen on. 0 picks a free port. */
   port?: number;
+  /** Also offer `shout`, which answers with its `text` upper-cased. */
+  shout?: boolean;
   /** Seconds that `tools/call` waits before it answers. */
   sleepSeconds?: number;
   /**
@@ -136,10 +145,11 @@ const plainBadRequest = (message: string): Response =>
 const requestIdOf = (body: Record<string, unknown>): string | number | null =>
   typeof body.id === "string" || typeof body.id === "number" ? body.id : null;
 
-const callEcho = async (
+const callText = async (
   id: string | number | null,
   params: unknown,
-  sleepSeconds: number
+  sleepSeconds: number,
+  transform: (text: string) => string
 ): Promise<Response> => {
   const args = isRecord(params) ? params.arguments : undefined;
   const text = isRecord(args) ? args.text : undefined;
@@ -149,12 +159,15 @@ const callEcho = async (
   if (sleepSeconds > 0) {
     await sleep(sleepSeconds * 1000);
   }
-  return jsonRpcResult(id, { content: [{ text, type: "text" }] });
+  return jsonRpcResult(id, {
+    content: [{ text: transform(text), type: "text" }],
+  });
 };
 
 const handleRpc = (
   body: Record<string, unknown>,
-  sleepSeconds: number
+  sleepSeconds: number,
+  shout: boolean
 ): Promise<Response> | Response => {
   const { method } = body;
   if (typeof method !== "string") {
@@ -172,14 +185,19 @@ const handleRpc = (
         serverInfo: { name: "stub-mcp", version: "1.0.0" },
       });
     case "tools/list":
-      return jsonRpcResult(id, { tools: [ECHO_TOOL] });
+      return jsonRpcResult(id, {
+        tools: shout ? [ECHO_TOOL, SHOUT_TOOL] : [ECHO_TOOL],
+      });
     case "tools/call": {
       const { params } = body;
       const name = isRecord(params) ? params.name : undefined;
-      if (name !== ECHO_TOOL.name) {
-        return jsonRpcError(id, -32_601, "Method not found");
+      if (name === ECHO_TOOL.name) {
+        return callText(id, params, sleepSeconds, (text) => text);
       }
-      return callEcho(id, params, sleepSeconds);
+      if (shout && name === SHOUT_TOOL.name) {
+        return callText(id, params, sleepSeconds, (text) => text.toUpperCase());
+      }
+      return jsonRpcError(id, -32_601, "Method not found");
     }
     default:
       return jsonRpcError(id, -32_601, "Method not found");
@@ -444,6 +462,7 @@ const parseSleep = (value: string | undefined): number => {
 export const startStubMcp = (options: StubMcpOptions = {}): StubMcp => {
   const token = options.token === undefined ? DEFAULT_TOKEN : options.token;
   const sleepSeconds = options.sleepSeconds ?? 0;
+  const shout = options.shout ?? false;
   const failOnce = options.failOnce ?? false;
   const countTokenCalls = options.countTokenCalls ?? false;
   const sessions = options.stateful === true ? new Set<string>() : undefined;
@@ -538,7 +557,7 @@ export const startStubMcp = (options: StubMcpOptions = {}): StubMcp => {
         return rejected;
       }
     }
-    const response = await handleRpc(body, sleepSeconds);
+    const response = await handleRpc(body, sleepSeconds, shout);
     if (sessions !== undefined && body.method === "initialize" && response.ok) {
       const sessionId = crypto.randomUUID();
       sessions.add(sessionId);
@@ -617,6 +636,7 @@ const runCli = (argv: string[]): void => {
       "no-auth": { type: "boolean" },
       oauth: { type: "boolean" },
       port: { type: "string" },
+      shout: { type: "boolean" },
       sleep: { type: "string" },
       stateful: { type: "boolean" },
       token: { type: "string" },
@@ -630,14 +650,16 @@ const runCli = (argv: string[]): void => {
     failOnce: flags["fail-once"] === true,
     oauth: flags.oauth === true,
     port: parsePort(flags.port),
+    shout: flags.shout === true,
     sleepSeconds: parseSleep(flags.sleep),
     stateful: flags.stateful === true,
     token,
   });
   const oauthLine = flags.oauth === true ? "oauth: on\n" : "";
   const statefulLine = flags.stateful === true ? "stateful: on\n" : "";
+  const shoutLine = flags.shout === true ? "shout: on\n" : "";
   process.stdout.write(
-    `url: ${stub.url}\ntoken: ${token ?? "(none, no auth)"}\n${oauthLine}${statefulLine}`
+    `url: ${stub.url}\ntoken: ${token ?? "(none, no auth)"}\n${oauthLine}${statefulLine}${shoutLine}`
   );
 };
 

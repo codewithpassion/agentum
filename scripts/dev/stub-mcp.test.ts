@@ -67,6 +67,53 @@ test("tools/call echo returns the text", async () => {
   expect(body.result.content).toEqual([{ text: "hi there", type: "text" }]);
 });
 
+test("shout: tools/list names echo and shout", async () => {
+  const stub = start({ shout: true });
+  const list = await post(stub.url, listRequest, bearer("stub-token"));
+  const listBody = await list.json();
+  expect(
+    listBody.result.tools.map((tool: { name: string }) => tool.name)
+  ).toEqual(["echo", "shout"]);
+});
+
+test("shout: tools/call shout upper-cases the text", async () => {
+  const stub = start({ shout: true });
+  const response = await post(
+    stub.url,
+    {
+      id: 3,
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: { arguments: { text: "hi" }, name: "shout" },
+    },
+    bearer("stub-token")
+  );
+  const body = await response.json();
+  expect(body.result.content).toEqual([{ text: "HI", type: "text" }]);
+});
+
+test("without shout: tools/list is echo only and shout is not found", async () => {
+  const stub = start();
+  const list = await post(stub.url, listRequest, bearer("stub-token"));
+  const listBody = await list.json();
+  expect(
+    listBody.result.tools.map((tool: { name: string }) => tool.name)
+  ).toEqual(["echo"]);
+
+  const call = await post(
+    stub.url,
+    {
+      id: 4,
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: { arguments: { text: "hi" }, name: "shout" },
+    },
+    bearer("stub-token")
+  );
+  const callBody = await call.json();
+  expect(callBody.error.message).toBe("Method not found");
+});
+
 test("a request without the bearer is 401 with WWW-Authenticate", async () => {
   const stub = start();
   const response = await post(stub.url, listRequest);
