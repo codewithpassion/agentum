@@ -48,6 +48,25 @@ export const libraryRouter = router({
     .query(({ ctx, input }) =>
       ctx.services.library.compare(ctx.principal, input.a, input.b)
     ),
+  conflicts: router({
+    list: workspaceProcedure.query(({ ctx }) =>
+      ctx.services.library.listConflicts(ctx.principal)
+    ),
+    resolve: workspaceProcedure
+      .input(
+        z.strictObject({
+          choice: z.enum(["keep-library", "keep-agent"]),
+          id: z.string().min(1),
+        })
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.services.library.resolveConflict(
+          ctx.principal,
+          input.id,
+          input.choice
+        )
+      ),
+  }),
   list: workspaceProcedure
     .input(z.strictObject({ dir: z.string().default("") }))
     .query(({ ctx, input }) =>

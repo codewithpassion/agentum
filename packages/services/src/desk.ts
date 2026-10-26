@@ -12,6 +12,7 @@
 import type { Database } from "@repo/db";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { inboxPosts } from "@repo/db/schema/inbox";
+import { libraryConflicts } from "@repo/db/schema/library";
 import { mailMessages } from "@repo/db/schema/mail";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
@@ -320,15 +321,31 @@ export const createDeskService = ({
 
   /** Everything in Needs you, before it becomes cards. */
   const needsYouSources = async (member: UserPrincipal) => {
-    const [pending, versions, triggerList, routineList, threads, drafts] =
-      await Promise.all([
-        pendingRecords(member),
-        skillsStore.proposals(member),
-        triggers.list(member),
-        routines.list(member),
-        inbox.listThreads(member),
-        draftIds(member.workspaceId),
-      ]);
+    const [
+      pending,
+      versions,
+      triggerList,
+      routineList,
+      threads,
+      drafts,
+      conflicts,
+    ] = await Promise.all([
+      pendingRecords(member),
+      skillsStore.proposals(member),
+      triggers.list(member),
+      routines.list(member),
+      inbox.listThreads(member),
+      draftIds(member.workspaceId),
+      db
+        .select()
+        .from(libraryConflicts)
+        .where(
+          and(
+            eq(libraryConflicts.workspaceId, member.workspaceId),
+            eq(libraryConflicts.status, "open")
+          )
+        ),
+    ]);
     // `list` keeps a rejected trigger, which stays unapproved but is revoked.
     const proposedTriggers = triggerList.filter(
       (trigger) =>
@@ -374,6 +391,7 @@ export const createDeskService = ({
     });
     return {
       answered,
+      conflicts: conflicts.filter((row) => !drafts.has(row.agentId)),
       pending,
       proposedRoutines,
       proposedTriggers,
@@ -431,6 +449,20 @@ export const createDeskService = ({
     const actorOf = new Map(runActors.map((run) => [run.id, run]));
     const skillOf = new Map(skillNames.map((skill) => [skill.id, skill]));
     const drafts: Draft[] = [
+      ...sources.conflicts.map(
+        (conflict): Draft => ({
+          agentId: conflict.agentId,
+          at: conflict.createdAt,
+          band: { text: "Choose which file to keep", tone: "waiting" },
+          id: conflict.id,
+          kind: "conflict",
+          lane: "needs_you",
+          needsYouKind: "library_conflict",
+          ...(conflict.runId ? { runId: conflict.runId } : {}),
+          starter: { id: conflict.agentId, kind: "agent" },
+          title: conflict.path,
+        })
+      ),
       ...sources.pending.map(
         (record): Draft => ({
           agentId: record.agentId,
@@ -678,6 +710,7 @@ export const createDeskService = ({
     const member = requireMember(principal);
     const sources = await needsYouSources(member);
     return (
+      sources.conflicts.length +
       sources.pending.length +
       sources.versions.length +
       sources.proposedTriggers.length +

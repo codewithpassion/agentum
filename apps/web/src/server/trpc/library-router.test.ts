@@ -178,3 +178,18 @@ test("version procedures compare and restore history after move and delete", asy
   expect((await caller.library.stat({ path: "b" })).kind).toBe("file");
   expect((await caller.library.read({ path: "b" })).text).toBe("old");
 });
+
+test("conflict procedures list workspace rows, validate choices and require a session", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  expect(await caller.library.conflicts.list()).toEqual([]);
+  await expect(
+    caller.library.conflicts.resolve({ choice: "keep-library", id: "missing" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const anonymous = await callerFor({ orgId: "org_a", userId: null });
+  await expect(anonymous.library.conflicts.list()).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(
+    anonymous.library.conflicts.resolve({ choice: "keep-agent", id: "missing" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});
