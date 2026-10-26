@@ -17,7 +17,15 @@ import {
   toolKey as canonicalToolKey,
   questionAnswerSchema,
 } from "@repo/protocol/requests";
-import { and, eq, getTableColumns, inArray, lte, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  getTableColumns,
+  inArray,
+  lte,
+  notLike,
+  sql,
+} from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -292,7 +300,11 @@ export const createRequestsService = ({
       .select({ id: runRequests.id })
       .from(runRequests)
       .where(
-        and(eq(runRequests.runId, runId), eq(runRequests.status, "pending"))
+        and(
+          eq(runRequests.runId, runId),
+          eq(runRequests.status, "pending"),
+          notLike(runRequests.toolUseId, "mail:%")
+        )
       )
       .limit(1);
     if (!pending) {
@@ -464,12 +476,22 @@ export const createRequestsService = ({
       };
       await announce(row, "computer.takeover_requested", { ...payload });
     }
-    await runs.markWaiting(SYSTEM_PRINCIPAL, run.id);
-    // An append listener can answer before markWaiting; reconcile without delivering twice.
-    await markRunningIfSettled(run.id);
+    await waitForRuntime(row);
     return requestRecord(row);
   };
+  const waitForRuntime = async (row: RequestRow) => {
+    // Mail approvals outlive the run; the tool returns immediately.
+    if (row.toolUseId.startsWith("mail:")) {
+      return;
+    }
+    await runs.markWaiting(SYSTEM_PRINCIPAL, row.runId);
+    // An append listener may already have answered; reconcile its state.
+    await markRunningIfSettled(row.runId);
+  };
   const resume = async (row: RequestRow) => {
+    if (row.toolUseId.startsWith("mail:")) {
+      return;
+    }
     await markRunningIfSettled(row.runId);
     // Each closed request needs delivery even while another keeps the run waiting.
     await runs.resumeRequest(SYSTEM_PRINCIPAL, row.runId, requestRecord(row));
@@ -592,6 +614,7 @@ export const createRequestsService = ({
         and(
           eq(runRequests.runId, run.id),
           eq(runRequests.workspaceId, run.workspaceId),
+          notLike(runRequests.toolUseId, "mail:%"),
           eq(runRequests.status, "pending")
         )
       )
