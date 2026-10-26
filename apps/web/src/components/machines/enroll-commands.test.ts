@@ -68,6 +68,7 @@ describe("dockerDesktopCommand", () => {
   test("keeps the hardening flags and the seccomp profile", () => {
     expect(command).toContain("--shm-size=256m");
     expect(command).toContain("--cap-drop ALL");
+    expect(command).toContain("--cap-add SYS_CHROOT");
     expect(command).toContain("--security-opt no-new-privileges");
     expect(command).toContain(
       "--security-opt seccomp=packaging/desktop/seccomp.json"

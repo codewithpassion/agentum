@@ -23,7 +23,8 @@ export const dockerHeadlessCommand = (origin: string, code: string): string =>
 export const dockerDesktopCommand = (origin: string, code: string): string =>
   joinArguments([
     "docker run -d --restart unless-stopped --name hm-computer-desktop",
-    "--shm-size=256m --cap-drop ALL --security-opt no-new-privileges",
+    "--shm-size=256m --cap-drop ALL --cap-add SYS_CHROOT",
+    "--security-opt no-new-privileges",
     "--security-opt seccomp=packaging/desktop/seccomp.json",
     "-v hm-computer-desktop:/var/lib/hm-computer",
     DESKTOP_IMAGE,
