@@ -363,6 +363,19 @@ describe("reply", () => {
     });
   });
 
+  test("a discarded draft is never the parent of a later reply", async () => {
+    const { port, sent } = setup();
+    const out = await port.send(REF, draft());
+    const held = await port.hold(REF, draft(), out.threadId);
+    await port.discard(REF, held.messageId);
+    await port.reply(REF, out.threadId, draft());
+
+    expect(sent[1]?.headers).toMatchObject({
+      "In-Reply-To": `<${out.rfcMessageId}>`,
+      References: `<${out.rfcMessageId}>`,
+    });
+  });
+
   test("an unknown thread is a bad_request", async () => {
     const { port } = setup();
     const error = await port
