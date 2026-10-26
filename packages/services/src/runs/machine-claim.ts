@@ -150,7 +150,7 @@ export const claimForMachine = async (
             .where(
               and(
                 eq(sibling.agentId, runs.agentId),
-                eq(sibling.status, "running")
+                inArray(sibling.status, ["running", "waiting"])
               )
             )
         ),

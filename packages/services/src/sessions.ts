@@ -408,7 +408,7 @@ export const createSessionsService = ({
         and(
           eq(runs.sessionId, session.id),
           eq(runs.workspaceId, session.workspaceId),
-          inArray(runs.status, ["offered", "running"]),
+          inArray(runs.status, ["offered", "running", "waiting"]),
           ne(runs.id, latest.id)
         )
       )

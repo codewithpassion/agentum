@@ -6,7 +6,8 @@
  *
  * The token alone proves who minted it, not that it is still good. A token is
  * valid on use when all of these hold: the signature checks, it is at most 12
- * hours old, and its run row is `running` with `lease_until` in the future.
+ * hours old, and its run row is `running` or `waiting` with `lease_until` in
+ * the future.
  * The token carries no lease, so heartbeats that extend the lease never need a
  * new token. `verifyRunToken` runs all three checks.
  *
@@ -16,7 +17,7 @@ import type { Database } from "@repo/db";
 import { managedSessions } from "@repo/db/schema/managed";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { CryptoError, fromBase64Url, toBase64Url } from "./crypto.ts";
 import { MANAGED_CLAIMER } from "./managed/types.ts";
@@ -27,7 +28,8 @@ export const RUN_TOKEN_PREFIX = "hm_run_";
  * run token over `[sessionId, agentId, workspaceId, issuedAtMs]`. A managed
  * agent's MCP servers are fixed when the Anthropic agent is registered, so a
  * run cannot hand it a token. The token rides in the session's own vault
- * instead, and each request resolves to the session's `running` run. It has
+ * instead, and each request resolves to the session's `running` or `waiting`
+ * run. It has
  * no age limit: the `managed_sessions` row says whether it is still good.
  */
 export const SESSION_TOKEN_PREFIX = "hm_ses_";
@@ -183,9 +185,9 @@ const openToken = async (
 
 /**
  * Whether `token` may act now: genuine, at most 12 hours old, and its run is
- * `running` with a lease that has not passed (`lease_until` is ISO 8601 UTC,
- * so text comparison orders it correctly). The run row must match the token's
- * workspace and agent too.
+ * `running` or `waiting` with a lease that has not passed (`lease_until` is
+ * ISO 8601 UTC, so text comparison orders it correctly). The run row must
+ * match the token's workspace and agent too.
  */
 export const verifyRunToken = async ({
   db,
@@ -217,7 +219,7 @@ export const verifyRunToken = async ({
         eq(runs.id, claims.runId),
         eq(runs.workspaceId, claims.workspaceId),
         eq(runs.agentId, claims.agentId),
-        eq(runs.status, "running"),
+        inArray(runs.status, ["running", "waiting"]),
         gt(runs.leaseUntil, now.toISOString())
       )
     )
@@ -231,8 +233,8 @@ export const verifyRunToken = async ({
  * Whether a session token may act now, and as which run. The signature checks,
  * the session's `managed_sessions` row is open and was made for exactly this
  * token (a newer session replaces it), and the run the session is serving
- * (`current_run_id`, set before its message is sent) is `running` with a live
- * lease. A run that is merely claimed, or an older run of the session whose
+ * (`current_run_id`, set before its message is sent) is `running` or `waiting`
+ * with a live lease. A run that is merely claimed, or an older run of the session whose
  * Anthropic session lingers, resolves to nothing. The claims are that run's, so everything downstream of a
  * run token (the platform MCP, the connector proxy, credentials) works on
  * them unchanged, and a session whose next run is for another person resolves
@@ -284,7 +286,7 @@ export const verifySessionToken = async ({
         eq(runs.workspaceId, workspaceId),
         eq(runs.agentId, agentId),
         eq(runs.claimedBy, MANAGED_CLAIMER),
-        eq(runs.status, "running"),
+        inArray(runs.status, ["running", "waiting"]),
         gt(runs.leaseUntil, now.toISOString())
       )
     )

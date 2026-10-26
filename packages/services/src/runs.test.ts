@@ -1557,6 +1557,168 @@ test("releaseRun leaves a cancelled run cancelled", async () => {
   expect(runRow(runId)).toMatchObject({ status: "cancelled" });
 });
 
+/** A run claimed by the system and moved to waiting. */
+const waitingRun = async (agentId = spyAgentId, externalKey = "chat") => {
+  const { runId } = await start(user, agentId, {
+    session: { externalKey, origin: "ui" },
+  });
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await runs.markWaiting(SYSTEM_PRINCIPAL, runId);
+  return runId;
+};
+
+test("a run goes from running to waiting and back, with both events and a fresh lease", async () => {
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+
+  advance(60 * SECOND);
+  expect(await runs.markWaiting(SYSTEM_PRINCIPAL, runId)).toBe(true);
+  expect(runRow(runId)?.status).toBe("waiting");
+
+  advance(60 * SECOND);
+  expect(await runs.markRunning(SYSTEM_PRINCIPAL, runId)).toBe(true);
+  expect(runRow(runId)).toMatchObject({
+    leaseUntil: new Date(nowMs + 90 * SECOND).toISOString(),
+    status: "running",
+  });
+  const types = runEvents(runId).map((event) => event.type);
+  expect(types).toContain("run.waiting");
+  expect(types).toContain("run.resumed");
+  expect(types.indexOf("run.waiting")).toBeLessThan(
+    types.indexOf("run.resumed")
+  );
+});
+
+test("markWaiting and markRunning are for the system and only move the matching status", async () => {
+  const { runId } = await start(user, spyAgentId);
+  expect(await runs.markWaiting(SYSTEM_PRINCIPAL, runId)).toBe(false);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  expect(await runs.markRunning(SYSTEM_PRINCIPAL, runId)).toBe(false);
+  expect(
+    await failure(runs.markWaiting(runPrincipal(runId, spyAgentId), runId))
+  ).toBeInstanceOf(ForbiddenError);
+  expect(
+    await failure(runs.markRunning(runPrincipal(runId, spyAgentId), runId))
+  ).toBeInstanceOf(ForbiddenError);
+  expect(runRow(runId)?.status).toBe("running");
+  expect(await runs.markWaiting(SYSTEM_PRINCIPAL, runId)).toBe(true);
+  expect(await runs.markWaiting(SYSTEM_PRINCIPAL, runId)).toBe(false);
+  expect(
+    runEvents(runId).filter((event) => event.type === "run.waiting")
+  ).toHaveLength(1);
+});
+
+test("markRunning on a cancelled run changes nothing", async () => {
+  const runId = await waitingRun();
+  await runs.cancelRun(user, runId);
+  const before = runRow(runId);
+  const eventCount = runEvents(runId).length;
+
+  expect(await runs.markRunning(SYSTEM_PRINCIPAL, runId)).toBe(false);
+  expect(runRow(runId)).toEqual(before);
+  expect(runEvents(runId)).toHaveLength(eventCount);
+});
+
+test("a heartbeat and an event batch on a waiting run are accepted", async () => {
+  const runId = await waitingRun();
+  advance(60 * SECOND);
+  await runs.heartbeatRun(SYSTEM_PRINCIPAL, runId);
+  expect(runRow(runId)).toMatchObject({
+    leaseUntil: new Date(nowMs + 90 * SECOND).toISOString(),
+    status: "waiting",
+  });
+  expect(
+    await runs.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+      { payload: { text: "still here" }, seq: 1, type: "message.assistant" },
+    ])
+  ).toEqual({ lastSeq: expect.any(Number) });
+  expect(runEvents(runId).map((event) => event.type)).toContain(
+    "message.assistant"
+  );
+});
+
+test("a waiting run blocks the agent's next claim until it resumes and finishes", async () => {
+  const waiting = await waitingRun(spyAgentId, "a");
+  const next = await start(user, spyAgentId, {
+    session: { externalKey: "b", origin: "ui" },
+  });
+  expect(
+    await failure(runs.claimRun(SYSTEM_PRINCIPAL, next.runId))
+  ).toMatchObject({ code: "conflict" });
+
+  await runs.markRunning(SYSTEM_PRINCIPAL, waiting);
+  await runs.completeRun(SYSTEM_PRINCIPAL, waiting, {
+    status: "done",
+    text: "ok",
+  });
+  await runs.claimRun(SYSTEM_PRINCIPAL, next.runId);
+  expect(runRow(next.runId)?.status).toBe("running");
+});
+
+test("a waiting run blocks the machine claim of the agent's next run", async () => {
+  await waitingRun(spyAgentId, "a");
+  const next = await start(user, spyAgentId, {
+    session: { externalKey: "b", origin: "ui" },
+  });
+  const machine: Principal = {
+    kind: "machine",
+    machineId: "m1",
+    workspaceId: WORKSPACE,
+  };
+  expect(
+    await failure(
+      buildRuns({ runTokenKey: RUN_TOKEN_KEY }).claimRunForMachine(
+        machine,
+        next.runId,
+        { platformUrl: "https://example.test" }
+      )
+    )
+  ).toMatchObject({ code: "conflict" });
+});
+
+test("a waiting run can be completed", async () => {
+  const runId = await waitingRun();
+  await runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    status: "done",
+    text: "answer",
+  });
+  expect(runRow(runId)).toMatchObject({ resultText: "answer", status: "done" });
+});
+
+test("an aborted completion from a waiting run interrupts it", async () => {
+  const runId = await waitingRun();
+  await runs.completeRun(SYSTEM_PRINCIPAL, runId, { status: "aborted" });
+  expect(runRow(runId)).toMatchObject({ status: "interrupted" });
+  expect(typeof runRow(runId)?.processEndedAt).toBe("string");
+});
+
+test("a user cancels a waiting run like a running one", async () => {
+  const runId = await waitingRun();
+  await runs.cancelRun(user, runId);
+  expect(runRow(runId)).toMatchObject({ status: "cancelled" });
+  expect(runEvents(runId).map((event) => event.type)).toContain(
+    "run.cancelled"
+  );
+});
+
+test("the reaper interrupts a waiting run whose lease passed and spares a live one", async () => {
+  const runId = await waitingRun();
+  advance(89 * SECOND);
+  expect(await runs.reapExpiredLeases(SYSTEM_PRINCIPAL)).toEqual({
+    interrupted: [],
+  });
+  expect(runRow(runId)?.status).toBe("waiting");
+
+  advance(2 * SECOND);
+  expect(await runs.reapExpiredLeases(SYSTEM_PRINCIPAL)).toEqual({
+    interrupted: [runId],
+  });
+  expect(runRow(runId)).toMatchObject({
+    error: "Lease expired",
+    status: "interrupted",
+  });
+});
+
 const GRANTED_VALUE = "granted-value-0123456789";
 const SPACED_VALUE = "granted value/with+chars&more=1";
 

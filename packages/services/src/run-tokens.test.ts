@@ -152,9 +152,31 @@ test("a token minted at claim is still accepted after three lease extensions", a
   expect(await extendAndVerify(12)).toBe(true);
 });
 
-test("a token for a run that is not running is refused", async () => {
+test("a token is accepted while the run is waiting on a live lease", async () => {
+  const token = await signRunToken(key, claimsFor());
+  db.update(runs).set({ status: "waiting" }).where(eq(runs.id, "run_1")).run();
+  expect(await verify(token, CLAIMED_AT)).toEqual({
+    claims: claimsFor(),
+    ok: true,
+  });
+});
+
+test("a token stops working once its waiting run ends", async () => {
+  const token = await signRunToken(key, claimsFor());
+  db.update(runs).set({ status: "waiting" }).where(eq(runs.id, "run_1")).run();
+  expect((await verify(token, CLAIMED_AT)).ok).toBe(true);
+  db.update(runs).set({ status: "done" }).where(eq(runs.id, "run_1")).run();
+  expect(await verify(token, CLAIMED_AT)).toEqual({
+    ok: false,
+    reason: "not_running",
+  });
+});
+
+test("a token for a run that is neither running nor waiting is refused", async () => {
   const lease = leaseAfter(CLAIMED_AT, 5 * 60 * 1000);
-  const others = RUN_STATUSES.filter((status) => status !== "running");
+  const others = RUN_STATUSES.filter(
+    (status) => status !== "running" && status !== "waiting"
+  );
   const results = await Promise.all(
     others.map(async (status) => {
       // A live lease does not help: the status alone refuses the token.

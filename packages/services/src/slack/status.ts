@@ -20,6 +20,7 @@ import {
 import { describeFailure } from "./post.ts";
 
 export const THINKING_STATUS = "is thinking…";
+export const WAITING_STATUS = "is waiting for an answer…";
 /** At most one status update per run in this many ms. */
 export const STATUS_MIN_INTERVAL_MS = 5000;
 
@@ -212,7 +213,10 @@ export const createSlackStatus = ({
         return update(runId, workspaceId, toolStatus(name));
       }
       case "run.started":
+      case "run.resumed":
         return update(runId, workspaceId, THINKING_STATUS);
+      case "run.waiting":
+        return update(runId, workspaceId, WAITING_STATUS);
       case "run.failed":
       case "run.cancelled":
       case "run.interrupted":

@@ -18,6 +18,7 @@ import {
   type StatusTarget,
   THINKING_STATUS,
   toolStatus,
+  WAITING_STATUS,
 } from "./status.ts";
 
 const START_MS = Date.parse("2026-10-16T10:00:00.000Z");
@@ -206,6 +207,26 @@ describe("slack status", () => {
 
     expect(fake.claims[0]?.label).toBe(THINKING_STATUS);
     expect(fake.statuses()).toEqual([THINKING_STATUS]);
+  });
+
+  test("run.waiting claims the waiting label and sends it", async () => {
+    const { fake, status } = setUp();
+
+    await status.onEvent(eventOf("run.waiting"));
+
+    expect(fake.claims[0]?.label).toBe(WAITING_STATUS);
+    expect(fake.statuses()).toEqual([WAITING_STATUS]);
+  });
+
+  test("run.resumed goes back to the thinking label after waiting", async () => {
+    const { fake, status, time } = setUp();
+    await status.onEvent(eventOf("run.waiting"));
+    time.advance(STATUS_MIN_INTERVAL_MS);
+
+    await status.onEvent(eventOf("run.resumed"));
+
+    expect(fake.claims[1]?.label).toBe(THINKING_STATUS);
+    expect(fake.statuses()).toEqual([WAITING_STATUS, THINKING_STATUS]);
   });
 
   describe("ending a run", () => {
