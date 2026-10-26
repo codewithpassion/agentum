@@ -9,6 +9,7 @@
     "./masker": "./src/masker.ts",
     "./requests": "./src/requests.ts",
     "./safeguards": "./src/safeguards.ts",
+    "./server-keys": "./src/server-keys.ts",
     "./skills": "./src/skills.ts",
     "./stream": "./src/stream.ts"
   },

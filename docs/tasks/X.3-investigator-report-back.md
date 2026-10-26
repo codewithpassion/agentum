@@ -3,9 +3,9 @@ id: X.3
 title: Investigator agent that control-plane starts and that reports back
 milestone: X
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/X.3-investigator-report-back
 lane: services
 executor: claude
 ---
@@ -25,3 +25,4 @@ control-plane watches for expected events that don't arrive. On a miss it opens 
 ## Log
 - 2026-10-26: requested by the integration coordinator (contract C3).
 - 2026-10-26: Dom: next free services slot (after V1.5).
+- 2026-10-26: dispatched. The staging trigger check is the controller's after merge.

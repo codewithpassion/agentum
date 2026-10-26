@@ -120,6 +120,7 @@ function StatusRow({
 
 function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
   const {
+    answer,
     error: loadError,
     items,
     reload,
@@ -394,7 +395,13 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
           </Button>
         </div>
       )}
-      <TranscriptView agentName={agent.name} files={files} items={items} />
+      <TranscriptView
+        agentName={agent.name}
+        files={files}
+        items={items}
+        nowMs={nowMs}
+        onAnswer={answer}
+      />
       {latestRun === null ? null : (
         <StatusRow
           cancelling={cancelling}

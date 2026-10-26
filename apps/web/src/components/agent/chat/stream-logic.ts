@@ -18,6 +18,13 @@ import {
   isRunActive,
   toChatItems,
 } from "./chat-logic.ts";
+import {
+  type RequestView,
+  type Settled,
+  settledFromEvent,
+  viewFromOpened,
+  viewFromRecord,
+} from "./request-card-logic.ts";
 
 export type ChatTranscript = Omit<SessionTranscript, "entries"> & {
   entries: ChatEntry[];
@@ -32,8 +39,14 @@ interface Delta {
 export interface StreamState {
   /** Partial assistant messages by run id. */
   deltas: Readonly<Record<string, Delta>>;
+  /** Message keys whose stored event is in, so a late delta for them is dropped. */
+  finishedKeys: readonly string[];
   /** True when the stream cannot show something and the transcript should be fetched again. */
   needsRefetch: boolean;
+  /** True when a request showed up that the chat does not know, so the pending ones should be fetched. */
+  needsRequests: boolean;
+  /** The requests the chat shows, pending or settled, oldest first. */
+  requests: readonly RequestView[];
   transcript: ChatTranscript;
 }
 
@@ -64,7 +77,10 @@ export const parseFrame = (data: string): StreamFrame | null => {
 
 export const initialState = (transcript: ChatTranscript): StreamState => ({
   deltas: {},
+  finishedKeys: [],
   needsRefetch: false,
+  needsRequests: false,
+  requests: [],
   transcript,
 });
 
@@ -90,19 +106,37 @@ export const applyTranscript = (
       ? state.transcript.entries
       : state.transcript.entries.filter((entry) => entry.id > lastId);
   const { latestRun } = transcript;
-  const deltas =
+  const entries = [...transcript.entries, ...newer];
+  const kept =
     latestRun !== null && isRunActive(latestRun.status)
-      ? Object.fromEntries(
-          Object.entries(state.deltas).filter(
-            ([runId]) => runId === latestRun.id
-          )
+      ? Object.entries(state.deltas).filter(
+          ([runId, delta]) =>
+            runId === latestRun.id && !isStored(entries, runId, delta.text)
         )
-      : {};
+      : [];
+  const finished = Object.entries(state.deltas)
+    .filter(([runId]) => !kept.some(([keptId]) => keptId === runId))
+    .map(([, delta]) => delta.messageKey);
   return {
-    deltas,
+    ...state,
+    deltas: Object.fromEntries(kept),
+    finishedKeys: [...state.finishedKeys, ...finished],
     needsRefetch: false,
-    transcript: { ...transcript, entries: [...transcript.entries, ...newer] },
+    transcript: { ...transcript, entries },
   };
+};
+
+/** True when the run's last stored assistant message already holds this partial text. */
+const isStored = (
+  entries: readonly ChatEntry[],
+  runId: string,
+  text: string
+): boolean => {
+  const last = entries.findLast(
+    (entry) => entry.type === "message.assistant" && entry.runId === runId
+  );
+  const stored = last?.payload.text;
+  return typeof stored === "string" && stored.startsWith(text);
 };
 
 const withRunStatus = (
@@ -138,7 +172,64 @@ const withoutDelta = (
   return rest;
 };
 
+/** The id of the last entry of the run, where a request of that run is shown after. */
+const anchorOf = (
+  entries: readonly ChatEntry[],
+  runId: string | null
+): string | null =>
+  runId === null
+    ? null
+    : (entries.findLast((entry) => entry.runId === runId)?.id ?? null);
+
+/** True when a request's line may still be replaced by a better one. */
+const isOpen = (view: RequestView): boolean =>
+  view.settled === null || view.settled.status === "conflict";
+
+const settleRequest = (
+  state: StreamState,
+  requestId: string,
+  settled: Settled
+): StreamState => {
+  const known = state.requests.find((view) => view.id === requestId);
+  if (known === undefined || !isOpen(known)) {
+    return state;
+  }
+  return {
+    ...state,
+    requests: state.requests.map((view) =>
+      view.id === requestId ? { ...view, settled } : view
+    ),
+  };
+};
+
+const applyRequestEvent = (
+  state: StreamState,
+  frame: EventFrame
+): StreamState => {
+  if ("truncated" in frame) {
+    return state;
+  }
+  const { payload, runId, type } = frame;
+  if (type === "request.opened") {
+    const view = viewFromOpened(
+      payload,
+      runId,
+      anchorOf(state.transcript.entries, runId)
+    );
+    return view === null || state.requests.some(({ id }) => id === view.id)
+      ? state
+      : { ...state, requests: [...state.requests, view] };
+  }
+  const settled = settledFromEvent(type, payload);
+  return settled === null || typeof payload.requestId !== "string"
+    ? state
+    : settleRequest(state, payload.requestId, settled);
+};
+
 const applyEvent = (state: StreamState, frame: EventFrame): StreamState => {
+  if (frame.type.startsWith("request.")) {
+    return applyRequestEvent(state, frame);
+  }
   if ("truncated" in frame) {
     // The payload is not in the frame: fetch the transcript to read it.
     return state.needsRefetch ? state : { ...state, needsRefetch: true };
@@ -156,12 +247,20 @@ const applyEvent = (state: StreamState, frame: EventFrame): StreamState => {
       runId: frame.runId,
       type: frame.type,
     };
+    const finishing =
+      frame.type === "message.assistant" && frame.runId !== null
+        ? next.deltas[frame.runId]
+        : undefined;
     next = {
       ...next,
       deltas:
         frame.type === "message.assistant"
           ? withoutDelta(next.deltas, frame.runId)
           : next.deltas,
+      finishedKeys:
+        finishing === undefined
+          ? next.finishedKeys
+          : [...next.finishedKeys, finishing.messageKey],
       transcript: { ...next.transcript, entries: [...entries, entry] },
     };
   }
@@ -175,6 +274,13 @@ const applyDelta = (state: StreamState, frame: DeltaFrame): StreamState => {
   const { latestRun } = state.transcript;
   // A delta that comes after its run ended is a late copy of a stored message.
   if (latestRun?.id === frame.runId && !isRunActive(latestRun.status)) {
+    return state;
+  }
+  // So is a delta for a message whose stored event is already in.
+  if (
+    state.finishedKeys.includes(frame.messageKey) ||
+    isStored(state.transcript.entries, frame.runId, frame.text)
+  ) {
     return state;
   }
   return {
@@ -198,18 +304,42 @@ export const applyFrame = (
     case "run":
       return withRunStatus(state, frame.runId, frame.status);
     case "request": {
+      const unknown = !state.requests.some(({ id }) => id === frame.requestId);
+      const known =
+        frame.status === "pending" && unknown && !state.needsRequests
+          ? { ...state, needsRequests: true }
+          : state;
       // The run frame that follows says the same; this shows it a moment sooner.
-      const { latestRun } = state.transcript;
+      const { latestRun } = known.transcript;
       return frame.status === "pending" && latestRun?.status === "running"
-        ? withRunStatus(state, frame.runId, "waiting")
-        : state;
+        ? withRunStatus(known, frame.runId, "waiting")
+        : known;
     }
     default:
       return state;
   }
 };
 
-/** The chat items of the state: the transcript's, then each run's partial message. */
+/** Puts each request after the last item that came before it. Items and anchors are event ids, which sort by time. */
+const withRequests = (
+  items: ChatItem[],
+  requests: readonly RequestView[]
+): ChatItem[] => {
+  const out = [...items];
+  for (const view of requests) {
+    const anchor = view.anchorId;
+    const after =
+      anchor === null
+        ? out.length
+        : out.findLastIndex(
+            (item) => item.kind === "request" || item.id <= anchor
+          ) + 1;
+    out.splice(after, 0, { id: `request-${view.id}`, kind: "request", view });
+  }
+  return out;
+};
+
+/** The chat items of the state: the transcript's with the requests among them, then each run's partial message. */
 export const streamItems = (state: StreamState): ChatItem[] => {
   const { entries, outputFileIds } = state.transcript;
   const partial = Object.entries(state.deltas).map(
@@ -220,5 +350,40 @@ export const streamItems = (state: StreamState): ChatItem[] => {
       text: stripAttachmentMarkers(delta.text),
     })
   );
-  return [...toChatItems(entries, outputFileIds), ...partial];
+  return [
+    ...withRequests(toChatItems(entries, outputFileIds), state.requests),
+    ...partial,
+  ];
 };
+
+/**
+ * The pending requests of a fetch. Ones the chat does not know are added;
+ * known ones keep their state, since an event may have settled them since.
+ */
+export const applyPending = (
+  state: StreamState,
+  records: Parameters<typeof viewFromRecord>[0][]
+): StreamState => {
+  const added = records.flatMap((record) => {
+    if (state.requests.some(({ id }) => id === record.id)) {
+      return [];
+    }
+    const view = viewFromRecord(
+      record,
+      anchorOf(state.transcript.entries, record.runId)
+    );
+    return view === null ? [] : [view];
+  });
+  return {
+    ...state,
+    needsRequests: false,
+    requests: [...state.requests, ...added],
+  };
+};
+
+/** A request settled by this browser's own answer. */
+export const applySettled = (
+  state: StreamState,
+  requestId: string,
+  settled: Settled
+): StreamState => settleRequest(state, requestId, settled);

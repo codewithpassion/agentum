@@ -1,6 +1,7 @@
 import { INPUT_FILES_MAX, type RunStatus } from "@repo/db/shared";
 import { stripAttachmentMarkers } from "@repo/protocol/attachments";
 import type { SessionTranscript } from "#/integrations/trpc/types";
+import type { RequestView } from "./request-card-logic.ts";
 
 /** The part of a stored event the chat reads, so a streamed event fits too. */
 export type ChatEntry = Pick<
@@ -27,7 +28,8 @@ export type ChatItem =
       kind: "tool";
       label: string;
       output: string | null;
-    };
+    }
+  | { id: string; kind: "request"; view: RequestView };
 
 export const isRunActive = (status: RunStatus): boolean =>
   status === "queued" ||
@@ -331,6 +333,8 @@ export const fileIdsOfRun = (entries: Entry[], runId: string): string[] => {
 /** Every file id the chat shows, in first-seen order, without repeats. */
 export const collectFileIds = (items: ChatItem[]): string[] => [
   ...new Set(
-    items.flatMap((item) => (item.kind === "tool" ? [] : item.fileIds))
+    items.flatMap((item) =>
+      item.kind === "user" || item.kind === "assistant" ? item.fileIds : []
+    )
   ),
 ];
