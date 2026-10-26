@@ -3,15 +3,20 @@ import type { Atomic } from "@repo/db/atomic";
 import { runRequests } from "@repo/db/schema/requests";
 import { sessions } from "@repo/db/schema/sessions";
 import { agentToolRules } from "@repo/db/schema/tool-rules";
-import { APPROVAL_TTL_MS, QUESTION_TTL_MS } from "@repo/db/shared";
+import {
+  APPROVAL_TTL_MS,
+  QUESTION_TTL_MS,
+  TOOL_RULE_MODES,
+} from "@repo/db/shared";
 import {
   approvalAnswerSchema,
   approvalSummary,
+  toolKey as canonicalToolKey,
   questionAnswerSchema,
 } from "@repo/protocol/requests";
 import { and, eq, inArray, lte } from "drizzle-orm";
 import { ulid } from "ulidx";
-import type { z } from "zod";
+import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
@@ -22,12 +27,8 @@ import {
   capInput,
   openInputSchema,
   outcomeOf,
-  pendingInputSchema,
   type RequestRow,
   requestRecord,
-  ruleKeyInputSchema,
-  ruleSetInputSchema,
-  rulesListInputSchema,
 } from "./requests/records.ts";
 import { loadRun } from "./runs/queries.ts";
 import type { Clock, RunRecord } from "./runs/types.ts";
@@ -37,14 +38,18 @@ import { visibleSessions } from "./sessions.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 export type { RequestRecord } from "./requests/records.ts";
-// biome-ignore lint/performance/noBarrelFile: public service schemas used by thin routers
-export {
-  pendingInputSchema,
-  ruleKeyInputSchema,
-  ruleSetInputSchema,
-  rulesListInputSchema,
-  webAnswerInputSchema,
-} from "./requests/records.ts";
+
+const id = z.string().min(1).max(200);
+export const pendingInputSchema = z.strictObject({ sessionId: id.optional() });
+export const rulesListInputSchema = z.strictObject({ agentId: id });
+export const ruleKeyInputSchema = rulesListInputSchema.extend({ toolKey: id });
+export const ruleSetInputSchema = ruleKeyInputSchema.extend({
+  mode: z.enum(TOOL_RULE_MODES),
+});
+export const webAnswerInputSchema = z.union([
+  approvalAnswerSchema.extend({ requestId: id }),
+  questionAnswerSchema.extend({ requestId: id }),
+]);
 
 const WAIT_POLL_MS = 500;
 const ended = [
@@ -280,6 +285,25 @@ export const createRequestsService = ({
       await runs.markRunning(SYSTEM_PRINCIPAL, runId);
     }
   };
+  const approvalToolKey = async (
+    run: RunRecord,
+    input: z.infer<typeof openInputSchema>
+  ) => {
+    if (input.kind !== "approval") {
+      return "";
+    }
+    if (input.toolKey) {
+      return input.toolKey;
+    }
+    const agent = await findAgent(db, {
+      id: run.agentId,
+      workspaceId: run.workspaceId,
+    });
+    return canonicalToolKey({
+      name: input.toolName,
+      runtime: agent?.runtime ?? "machine",
+    });
+  };
   const open = async (
     principal: Principal,
     raw: z.input<typeof openInputSchema>
@@ -304,12 +328,13 @@ export const createRequestsService = ({
       input.kind === "approval"
         ? redactToolPayload(masker?.maskDeep(input.input) ?? input.input)
         : null;
+    const toolKey = await approvalToolKey(run, input);
     const display =
       input.kind === "approval"
         ? {
             input: capInput(clean as NonNullable<typeof clean>),
             summary: approvalSummary(input.toolName, clean),
-            toolKey: input.toolKey ?? input.toolName.toLowerCase(),
+            toolKey,
             toolName: input.toolName,
           }
         : (masker?.maskDeep({ questions: input.questions }) ?? {
@@ -331,7 +356,7 @@ export const createRequestsService = ({
         runId: run.id,
         sessionId: run.sessionId,
         status: "pending",
-        toolKey: input.kind === "approval" ? displayToolKey(input) : null,
+        toolKey: input.kind === "approval" ? toolKey : null,
         toolName: input.toolName,
         toolUseId: input.toolUseId,
         workspaceId: run.workspaceId,
@@ -542,7 +567,4 @@ export const createRequestsService = ({
   };
 };
 
-// Without a supplied canonical key, use the runtime tool name in lowercase.
-const displayToolKey = (input: { toolKey?: string; toolName: string }) =>
-  input.toolKey ?? input.toolName.toLowerCase();
 export type RequestsService = ReturnType<typeof createRequestsService>;

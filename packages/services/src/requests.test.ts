@@ -169,6 +169,18 @@ test("the first surface wins, always allow changes the rule, and wake happens on
   expect(resumed).toEqual([request.id]);
 });
 
+test("open derives the canonical tool key when none is given", async () => {
+  const runId = await start();
+  const request = await requests.open(system, {
+    input: { url: "https://example.com" },
+    kind: "approval",
+    runId,
+    toolName: "WebFetch",
+    toolUseId: "call-key",
+  });
+  expect(request.toolKey).toBe("web_fetch");
+});
+
 test("two pending requests keep waiting until both close", async () => {
   const runId = await start();
   const first = await open(runId);

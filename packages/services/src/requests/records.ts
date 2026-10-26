@@ -1,5 +1,5 @@
 import type { runRequests } from "@repo/db/schema/requests";
-import { ANSWER_SURFACES, TOOL_RULE_MODES } from "@repo/db/shared";
+import { ANSWER_SURFACES } from "@repo/db/shared";
 import {
   approvalAnswerSchema,
   approvalDisplaySchema,
@@ -11,12 +11,6 @@ import { z } from "zod";
 import { payloadSchema } from "../events/payload.ts";
 
 const id = z.string().min(1).max(200);
-export const pendingInputSchema = z.strictObject({ sessionId: id.optional() });
-export const rulesListInputSchema = z.strictObject({ agentId: id });
-export const ruleKeyInputSchema = rulesListInputSchema.extend({ toolKey: id });
-export const ruleSetInputSchema = ruleKeyInputSchema.extend({
-  mode: z.enum(TOOL_RULE_MODES),
-});
 const base = { runId: id, toolName: id, toolUseId: id };
 export const openInputSchema = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -36,10 +30,6 @@ export const answerInputSchema = z.strictObject({
   requestId: id,
   via: z.enum(ANSWER_SURFACES),
 });
-export const webAnswerInputSchema = z.union([
-  approvalAnswerSchema.extend({ requestId: id }),
-  questionAnswerSchema.extend({ requestId: id }),
-]);
 export type RequestRow = typeof runRequests.$inferSelect;
 export const outcomeOf = (row: RequestRow) =>
   row.status === "pending"
