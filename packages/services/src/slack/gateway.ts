@@ -7,15 +7,18 @@
  */
 import type { Database } from "@repo/db";
 import { events as eventRows } from "@repo/db/schema/events";
+import { libraryVersions } from "@repo/db/schema/library";
 import { runs } from "@repo/db/schema/runs";
 import { identityLinks } from "@repo/db/schema/workspaces";
 import { MAX_FILE_BYTES } from "@repo/db/shared";
 import { stripAttachmentMarkers } from "@repo/protocol/attachments";
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, gte, lt } from "drizzle-orm";
 import { z } from "zod";
 import { type Payload, payloadSchema } from "../events/payload.ts";
 import type { EventRecord, EventsService } from "../events.ts";
 import type { FilesService } from "../files.ts";
+import type { TaskFiles } from "../library/task-files.ts";
+import type { LibraryService } from "../library.ts";
 import {
   type Clock,
   type DeliveryContext,
@@ -42,10 +45,21 @@ export interface SlackGatewayOptions {
   events: EventsService;
   fetch: SlackFetch;
   files: FilesService;
+  /** Reads the files a run left in its task folder. */
+  library: Pick<LibraryService, "read">;
   /** `PUBLIC_BASE_URL`. A Connect path becomes a link under it. */
   publicBaseUrl?: string;
   /** `SECRETS_KEY`, base64. */
   secretsKey?: string;
+  /** Lists a task's folder, as the tasks service does for a person. */
+  taskFiles: (principal: Principal, runId: string) => Promise<TaskFiles>;
+}
+
+/** A file the run left in its task folder. `label` is its path inside the folder. */
+interface TaskOutput {
+  label: string;
+  path: string;
+  size: number;
 }
 
 /** What is stored in `runs.pending_files` for each file of a Slack message. */
@@ -124,8 +138,10 @@ export const createSlackGateway = ({
   events,
   fetch: slackFetch,
   files,
+  library,
   publicBaseUrl,
   secretsKey,
+  taskFiles,
 }: SlackGatewayOptions): SlackGateway => {
   const secrets = createSecretReader(secretsKey);
 
@@ -180,26 +196,80 @@ export const createSlackGateway = ({
     );
   };
 
+  /** The person a Slack run is for, as the principal that lists and reads its task. */
+  const ownerOf = (workspaceId: string, userId: string) =>
+    ({ kind: "user", userId, via: "slack", workspaceId }) as const;
+
   /**
-   * Uploads one output file to the thread. A failure comes back as a
+   * The files the run wrote to its task folder: the folder's files that have a
+   * version made by this run. A file outside the folder, or one a person added
+   * to it, is not one of them. A failure to list comes back as a note.
+   */
+  const taskOutputs = async (
+    workspaceId: string,
+    context: DeliveryContext
+  ): Promise<{ failure?: string; files: TaskOutput[] }> => {
+    if (!context.onBehalfOfUserId) {
+      return { files: [] };
+    }
+    try {
+      const listing = await taskFiles(
+        ownerOf(workspaceId, context.onBehalfOfUserId),
+        context.runId
+      );
+      const written = await db
+        .selectDistinct({ path: libraryVersions.path })
+        .from(libraryVersions)
+        .where(
+          and(
+            eq(libraryVersions.workspaceId, workspaceId),
+            eq(libraryVersions.runId, context.runId),
+            gte(libraryVersions.path, `${listing.folder}/`),
+            lt(libraryVersions.path, `${listing.folder}0`)
+          )
+        );
+      const paths = new Set(written.map((row) => row.path));
+      return {
+        files: listing.entries.flatMap((entry) =>
+          entry.kind === "file" && paths.has(entry.path)
+            ? [
+                {
+                  label: entry.path.slice(listing.folder.length + 1),
+                  path: entry.path,
+                  size: entry.size,
+                },
+              ]
+            : []
+        ),
+      };
+    } catch (error) {
+      return {
+        failure: `task files: ${error instanceof Error ? error.message : String(error)}`,
+        files: [],
+      };
+    }
+  };
+
+  /**
+   * Uploads one task file to the thread. A failure comes back as a
    * `name: reason` string, so one bad file does not stop the others.
    */
   const uploadOutput = async (
     client: SlackClient,
     slack: Extract<ReplyTarget, { kind: "slack" }>,
     principal: Extract<Principal, { kind: "run" }>,
-    fileId: string
+    { label, path, size }: TaskOutput
   ): Promise<string | null> => {
-    let label = fileId;
+    if (size > MAX_FILE_BYTES) {
+      return `${label}: too large to upload, over ${MAX_FILE_BYTES / (1024 * 1024)} MB`;
+    }
     try {
-      const { body, file } = await files.download(principal, fileId);
-      label = file.name;
-      const bytes = new Uint8Array(await new Response(body).arrayBuffer());
+      const { bytes } = await library.read(principal, path);
       const uploaded = await withRetry(clock, () =>
         client.uploadFile({
-          bytes,
+          bytes: new Uint8Array(bytes),
           channel: slack.channel,
-          filename: file.name,
+          filename: path.slice(path.lastIndexOf("/") + 1),
           threadTs: slack.threadTs,
         })
       );
@@ -211,23 +281,23 @@ export const createSlackGateway = ({
     }
   };
 
-  /** Uploads the run's output files in order, one at a time, and returns the failures. */
+  /** Uploads the run's task files in order, one at a time, and returns the failures. */
   const uploadOutputs = async (
     client: SlackClient,
     slack: Extract<ReplyTarget, { kind: "slack" }>,
-    fileIds: string[],
+    outputs: TaskOutput[],
     run: { agentId: string; runId: string; workspaceId: string },
     deadline: number
   ): Promise<string[]> => {
     const principal = { ...run, kind: "run" } as const;
     const failures: string[] = [];
-    for (const fileId of fileIds) {
+    for (const output of outputs) {
       if (clock.now().getTime() >= deadline) {
-        failures.push(`${fileId}: not uploaded, out of time`);
+        failures.push(`${output.label}: not uploaded, out of time`);
         continue;
       }
       // biome-ignore lint/performance/noAwaitInLoops: one file in memory at a time
-      const failure = await uploadOutput(client, slack, principal, fileId);
+      const failure = await uploadOutput(client, slack, principal, output);
       if (failure) {
         failures.push(failure);
       }
@@ -238,7 +308,8 @@ export const createSlackGateway = ({
   /** Posts the answer, the Connect link it carries to its requester alone, then its files. */
   const post = async (
     slack: Extract<ReplyTarget, { kind: "slack" }>,
-    message: { fileIds: string[]; text: string },
+    message: { text: string },
+    outputs: { failure?: string; files: TaskOutput[] },
     context: DeliveryContext,
     workspaceId: string
   ): Promise<{ error?: string; ok: boolean }> => {
@@ -278,7 +349,7 @@ export const createSlackGateway = ({
     if (posted.kind !== "ok") {
       return { error: describeFailure(posted), ok: false };
     }
-    const failures: string[] = [];
+    const failures: string[] = outputs.failure ? [outputs.failure] : [];
     if (link && requester) {
       const sent = await sendConnectLink(client, slack, requester, link);
       if (sent.kind !== "ok") {
@@ -289,7 +360,7 @@ export const createSlackGateway = ({
       ...(await uploadOutputs(
         client,
         slack,
-        message.fileIds,
+        outputs.files,
         {
           agentId: context.agentId,
           runId: context.runId,
@@ -316,10 +387,17 @@ export const createSlackGateway = ({
     if (!run) {
       return;
     }
+    const outputs = await taskOutputs(run.workspaceId, context);
     const finish = async () => {
       let delivered: { error?: string; ok: boolean };
       try {
-        delivered = await post(slack, message, context, run.workspaceId);
+        delivered = await post(
+          slack,
+          message,
+          outputs,
+          context,
+          run.workspaceId
+        );
       } catch (error) {
         delivered = {
           error: error instanceof Error ? error.message : String(error),
@@ -344,7 +422,7 @@ export const createSlackGateway = ({
     };
     // Uploads can take longer than the request that completed the run is
     // allowed to, so with files the whole delivery runs after the response.
-    if (defer && message.fileIds.length > 0) {
+    if (defer && outputs.files.length > 0) {
       defer(
         finish().catch((error: unknown) => {
           console.error("Slack delivery failed", error);
@@ -371,12 +449,7 @@ export const createSlackGateway = ({
       teamId: first.teamId,
       workspaceId: context.workspaceId,
     });
-    const owner = {
-      kind: "user",
-      userId: context.onBehalfOfUserId,
-      via: "slack",
-      workspaceId: context.workspaceId,
-    } as const;
+    const owner = ownerOf(context.workspaceId, context.onBehalfOfUserId);
     const fileIds: string[] = [];
     for (const file of pending) {
       if (file.size > MAX_FILE_BYTES || !isAllowedMime(file.mimetype)) {

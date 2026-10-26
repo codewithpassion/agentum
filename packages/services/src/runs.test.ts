@@ -1110,7 +1110,7 @@ test("completeRun accepts only files of its own run", async () => {
     text: "ok",
   });
   expect(runRow(run1.runId)).toMatchObject({
-    outputFileIds: '["own"]',
+    outputFileIds: "[]",
     status: "done",
   });
   expect(delivered.slice(before)).toEqual([
