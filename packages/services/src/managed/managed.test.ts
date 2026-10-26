@@ -1863,6 +1863,32 @@ describe("approvals and questions", () => {
     expect(runRow(runId)?.status).toBe("done");
   });
 
+  test("a step that fails while opening the request reads the idle again", async () => {
+    await ask("bash");
+    const { runId } = await start(dom);
+    gateway.turns = [
+      [
+        gateway.running(),
+        gateway.builtinCall("bash", { command: "ls" }, "evt_bash"),
+        gateway.blockedOn("evt_bash"),
+      ],
+    ];
+    const open = spyOn(requests, "open").mockRejectedValueOnce(
+      new Error("boom")
+    );
+    const errors = spyOn(console, "error").mockImplementation(() => undefined);
+
+    const failed = await managed.step(runId);
+    expect(failed.next).not.toBeNull();
+    expect(await pending()).toEqual([]);
+    await managed.step(runId);
+    open.mockRestore();
+    errors.mockRestore();
+
+    expect(await pending()).toHaveLength(1);
+    expect(runRow(runId)?.status).toBe("waiting");
+  });
+
   test("the minute tick wakes a run that waits for a person", async () => {
     const { runId } = await blockedOnBash();
 

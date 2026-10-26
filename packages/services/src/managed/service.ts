@@ -1048,7 +1048,7 @@ export const createManagedService = ({
           await gateway.sendCustomToolResult(
             anthropicSessionId,
             row.toolUseId,
-            text ?? ""
+            text || "The person gave no answer."
           );
         }
       } catch (error) {
@@ -1120,7 +1120,8 @@ export const createManagedService = ({
     run: RunRecord,
     session: SessionRow,
     gateway: ManagedGateway,
-    polled: PolledEvents
+    polled: PolledEvents,
+    answerable: boolean
   ): Promise<ManagedStepResult> => {
     const outcome = reduceEvents(polled.events, "running");
     const stopped =
@@ -1138,15 +1139,7 @@ export const createManagedService = ({
       return DONE;
     }
     if (outcome.status === "idle" && outcome.stopReason === "requires_action") {
-      if (
-        !(await openRequests(
-          run,
-          session,
-          gateway,
-          polled,
-          outcome.requiredEventIds
-        ))
-      ) {
+      if (!answerable) {
         await endFailed(
           run,
           session,
@@ -1199,8 +1192,21 @@ export const createManagedService = ({
       session.anthropicSessionId,
       cursorOf(session)
     );
+    // The requests open before the cursor moves past the idle that names them,
+    // so a step that fails here reads the idle again. Opening is idempotent.
+    const blocked = reduceEvents(polled.events, "running");
+    const answerable =
+      blocked.status === "idle" && blocked.stopReason === "requires_action"
+        ? await openRequests(
+            run,
+            session,
+            gateway,
+            polled,
+            blocked.requiredEventIds
+          )
+        : true;
     await storeProgress(run, session, managedRun, polled);
-    return await settle(run, session, gateway, polled);
+    return await settle(run, session, gateway, polled, answerable);
   };
 
   const countFailure = async (run: RunRecord): Promise<ManagedStepResult> => {
