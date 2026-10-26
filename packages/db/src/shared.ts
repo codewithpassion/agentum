@@ -90,6 +90,7 @@ export const EVENT_TYPES = [
   "tool_rule.changed",
   "message.user",
   "message.assistant",
+  "message.reasoning",
   "tool.call",
   "tool.result",
   "connector.call",
@@ -238,3 +239,110 @@ export const QUESTIONS_MAX = 4;
 
 /** Most choices on one question. */
 export const CHOICES_MAX = 6;
+
+/** The kinds of line in a task's action log. */
+export const ACTION_LOG_KINDS = [
+  "thought",
+  "tool_call",
+  "tool_result",
+  "note",
+  "error",
+] as const;
+export type ActionLogKind = (typeof ACTION_LOG_KINDS)[number];
+
+/** The three lanes of the desk, left to right. */
+export const DESK_LANES = ["needs_you", "running", "done"] as const;
+export type DeskLane = (typeof DESK_LANES)[number];
+
+/** What a Needs you card asks of a person. Later milestones append theirs. */
+export const NEEDS_YOU_KINDS = [
+  "approval",
+  "question",
+  "skill_proposal",
+  "trigger_proposal",
+  "routine_proposal",
+  "inbox_reply",
+] as const;
+export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
+
+/** The colour of a status band. */
+export const BAND_TONES = ["ok", "waiting", "running", "error"] as const;
+export type BandTone = (typeof BAND_TONES)[number];
+
+/** One key and value shown as a chip on a receipt step. */
+export interface KeyChip {
+  key: string;
+  value: string;
+}
+
+export const RECEIPT_STEP_KINDS = [
+  "trigger",
+  "message",
+  "tool",
+  "skill",
+  "approval",
+  "question",
+  "result",
+  "error",
+] as const;
+export type ReceiptStepKind = (typeof RECEIPT_STEP_KINDS)[number];
+
+export const RECEIPT_STEP_STATES = [
+  "done",
+  "running",
+  "paused",
+  "failed",
+] as const;
+export type ReceiptStepState = (typeof RECEIPT_STEP_STATES)[number];
+
+/** One step of a task's receipt: what went in, what came out, and what it links to. */
+export interface ReceiptStep {
+  /** How many of the next kind of thing this step handed on, or null for the last step. */
+  countToNext: { n: number; noun: string } | null;
+  detail: string;
+  /** The events the step was built from. */
+  eventIds: string[];
+  in: KeyChip[];
+  index: number;
+  kind: ReceiptStepKind;
+  out: KeyChip[];
+  state: ReceiptStepState;
+  title: string;
+}
+
+/** One line of a task's action log. */
+export interface ActionLogEntry {
+  at: string;
+  eventId: string;
+  kind: ActionLogKind;
+  text: string;
+}
+
+/** The one sentence under a desk card or a task title, with the colour it takes. */
+export interface StatusBand {
+  text: string;
+  tone: BandTone;
+}
+
+export const DESK_CARD_KINDS = [
+  "run",
+  "thread",
+  "request",
+  "proposal",
+] as const;
+export type DeskCardKind = (typeof DESK_CARD_KINDS)[number];
+
+/** One card on the desk. */
+export interface DeskCard {
+  agentId: string;
+  at: string;
+  band: StatusBand;
+  id: string;
+  kind: DeskCardKind;
+  lane: DeskLane;
+  needsYouKind?: NeedsYouKind;
+  runId?: string;
+  startedBy: string;
+  threadId?: string;
+  title: string;
+}
