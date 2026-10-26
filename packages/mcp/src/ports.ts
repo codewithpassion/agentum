@@ -338,7 +338,7 @@ export interface MailThreadMessage {
   from: MailAddress;
   html: string | null;
   messageId: string;
-  /** The service merges the approval/delivery outcome into the stored message. */
+  /** The approval or delivery outcome. The app adapter fills it from the D1 message status (V5.7). */
   status?: string;
   subject: string;
   text: string | null;

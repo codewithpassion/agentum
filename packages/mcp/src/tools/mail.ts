@@ -81,7 +81,7 @@ export const mailReplySchema = z
 
 const sendText = (result: MailSendResult): string =>
   result.status === "held"
-    ? `Mail ${result.messageId} is held for a person, waiting for approval. You will be told the outcome; it shows in mail_read for thread ${result.threadId}. Do not send it again. You may continue working.`
+    ? `Mail ${result.messageId} is held for a person, waiting for approval. The outcome shows in mail_read for thread ${result.threadId}. Do not send it again. You may continue working.`
     : `Sent mail ${result.messageId} in thread ${result.threadId} (Message-ID ${result.rfcMessageId}).`;
 
 export const mailTools = (ports: McpPorts): ToolDefinition[] => {

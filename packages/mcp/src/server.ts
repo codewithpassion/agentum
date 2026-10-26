@@ -59,14 +59,14 @@ export const harbourmasterTools = (
   ...automationTools(ports, readOnly),
   ...skillTools(ports, readOnly),
   ...(readOnly ? [] : slackTools(ports)),
-  ...(mail && ports.mail ? mailTools(ports) : []),
+  ...(mail && !readOnly && ports.mail ? mailTools(ports) : []),
 ];
 
 /** Ports for reading tool names: the names do not depend on them, so none is ever called. */
 const unusedPort = (): Promise<never> =>
   Promise.reject(new Error("Only the tool names are read."));
 
-/** The name of every tool, in the order they are registered. */
+/** The name of every tool except the mail tools, which register only on request, in the order they are registered. */
 export const TOOL_NAMES = harbourmasterTools({
   approveSkillVersion: unusedPort,
   assignSkill: unusedPort,
