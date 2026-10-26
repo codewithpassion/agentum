@@ -29,6 +29,15 @@ test("the desk stream carries request and run events only", () => {
   }
 });
 
+test("a question asked or answered is carried on the session stream and the task view, not the desk", () => {
+  for (const type of ["qa.asked", "qa.answered"] as const) {
+    expect(STREAM_EVENT_TYPES).toContain(type);
+    expect(TASK_EVENT_TYPES).toContain(type);
+    expect(DESK_EVENT_TYPES).not.toContain(type);
+  }
+  expect(STREAM_EVENT_TYPES).not.toContain("qa.accepted");
+});
+
 test("the desk stream name is per workspace", () => {
   expect(deskStreamName("w1")).toBe("desk:w1");
 });
