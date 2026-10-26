@@ -48,6 +48,7 @@ import {
   type ManagedService,
   POLL_MS,
   RUN_MAX_MS,
+  taskFolderNote,
   WAITING_POLL_MS,
 } from "./service.ts";
 import { MANAGED_LEASE_MS, type ManagedPollerPort } from "./types.ts";
@@ -519,6 +520,10 @@ const runEvents = (runId: string) =>
     .orderBy(asc(eventRows.id))
     .all();
 
+/** What the agent is sent for a run: the input, then the run's task folder. */
+const told = (text: string, runId: string) =>
+  `${text}\n\n${taskFolderNote("pelican", runId)}`;
+
 const start = async (
   principal: Principal,
   text = "Reply with the word pelican",
@@ -652,7 +657,7 @@ describe("a run that finishes", () => {
     expect(gateway.registered).toHaveLength(1);
     expect(gateway.registered[0]?.urls).toEqual([`${BASE}/mcp`]);
     expect(gateway.sessions.get("sesn_1")?.messages).toEqual([
-      "Reply with the word pelican",
+      told("Reply with the word pelican", runId),
     ]);
 
     gateway.sessions
@@ -869,8 +874,12 @@ describe("a run that stops early", () => {
     await managed.step(second.runId);
 
     expect(gateway.sessions.size).toBe(2);
-    expect(gateway.sessions.get("sesn_1")?.messages).toEqual(["one"]);
-    expect(gateway.sessions.get("sesn_2")?.messages).toEqual(["two"]);
+    expect(gateway.sessions.get("sesn_1")?.messages).toEqual([
+      told("one", first.runId),
+    ]);
+    expect(gateway.sessions.get("sesn_2")?.messages).toEqual([
+      told("two", second.runId),
+    ]);
     expect(sessionRow(first.sessionId)?.closedAt).toBeNull();
     expect((await verify(tokenOf("vlt_2"))).ok).toBe(true);
   });
@@ -902,7 +911,10 @@ describe("sessions", () => {
     expect(answer).toEqual({ next: POLL_MS });
     expect(gateway.sessions.size).toBe(1);
     expect(gateway.vaults).toHaveLength(1);
-    expect(gateway.sessions.get("sesn_1")?.messages).toEqual(["one", "two"]);
+    expect(gateway.sessions.get("sesn_1")?.messages).toEqual([
+      told("one", first.runId),
+      told("two", second.runId),
+    ]);
     // The first run's idle is behind the cursor, so it does not end this run.
     expect(runRow(second.runId)?.status).toBe("running");
   });
@@ -1000,7 +1012,9 @@ describe("sessions", () => {
     expect(gateway.deletedVaults).toEqual([]);
     expect((await verify(tokenOf("vlt_1"))).ok).toBe(true);
     expect(runRow(second.runId)?.status).toBe("offered");
-    expect(gateway.sessions.get("sesn_1")?.messages).toEqual(["one"]);
+    expect(gateway.sessions.get("sesn_1")?.messages).toEqual([
+      told("one", first.runId),
+    ]);
   });
 
   test("when a run ends, the next run of its session is offered", async () => {
@@ -1282,6 +1296,23 @@ describe("agent home", () => {
     expect(gateway.registered[0]?.system).toContain("agents/pelican/");
     expect(gateway.registered[0]?.system).toContain("library tools");
     expect(gateway.registered[0]?.system).not.toContain("[ATTACHMENT:");
+  });
+
+  test("the message names the run's task folder as a library path, and the system text stays the same for every run", async () => {
+    const first = await start(dom, "one");
+    await drive(first.runId);
+    const second = await start(dom, "two");
+    await drive(second.runId);
+
+    const [message] = gateway.sessions.get("sesn_1")?.messages ?? [];
+    expect(message).toContain(`agents/pelican/tasks/${first.runId}`);
+    expect(message).toContain("library tools");
+    expect(gateway.sessions.get("sesn_1")?.messages[1]).toContain(
+      `agents/pelican/tasks/${second.runId}`
+    );
+    // The run id is not in the system text, so the agent and its session are reused.
+    expect(gateway.registered).toHaveLength(1);
+    expect(gateway.registered[0]?.system).not.toContain(first.runId);
   });
 
   test("the system text carries the Slack line when the agent has an installed Slack app", async () => {
@@ -1980,7 +2011,9 @@ describe("secrets", () => {
     await managed.step(second.runId);
 
     expect(gateway.sessions.size).toBe(2);
-    expect(gateway.sessions.get("sesn_2")?.messages).toEqual(["two"]);
+    expect(gateway.sessions.get("sesn_2")?.messages).toEqual([
+      told("two", second.runId),
+    ]);
     expect(gateway.deletedVaults).toEqual(["vlt_1"]);
     expect(envCredentialsOf("vlt_2")).toEqual([
       { hosts: undefined, name: "PLAIN_KEY", vaultId: "vlt_2" },

@@ -210,6 +210,8 @@ export interface MachineClaim {
     conflicts: string[];
     paths: string[];
     roots?: import("@repo/db/shared").LibraryAccessGrant[];
+    /** The library path of the run's own folder. Sent with `roots`, to a daemon that syncs the library live. */
+    taskFolder?: string;
   };
   mcpServers: Record<
     string,

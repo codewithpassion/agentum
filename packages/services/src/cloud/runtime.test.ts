@@ -248,6 +248,27 @@ describe("dispatch", () => {
     expect(input.agent.instructions).toBe(`Be brief.\n\n${SLACK_GUIDANCE}`);
   });
 
+  test("a non-dry run gets its own task folder in the library", async () => {
+    const { runId } = await start();
+
+    const [input] = runner.startCalls;
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    expect(input.library?.taskFolder).toBe(`agents/pelican/tasks/${runId}`);
+  });
+
+  test("a dry run gets no task folder in the library", async () => {
+    await start({}, { dryRun: true });
+
+    const [input] = runner.startCalls;
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    expect(input.library).toBeDefined();
+    expect(input.library && "taskFolder" in input.library).toBe(false);
+  });
+
   test("the runner gets the agent's own instructions when the agent has no Slack app", async () => {
     await start();
 
