@@ -70,6 +70,7 @@ interface Comparison {
 interface SkillHistoryProps {
   agentNames: AgentNames;
   onChanged: () => void;
+  reviewVersion?: number;
   skill: SkillSummary;
   versions: SkillVersion[];
 }
@@ -78,6 +79,7 @@ interface SkillHistoryProps {
 export function SkillHistory({
   agentNames,
   onChanged,
+  reviewVersion,
   skill,
   versions,
 }: SkillHistoryProps) {
@@ -86,13 +88,19 @@ export function SkillHistory({
   const [from, setFrom] = useState<number | undefined>();
   const [to, setTo] = useState<number | undefined>();
   const [comparison, setComparison] = useState<Comparison | undefined>();
-  const [reviewing, setReviewing] = useState<number | undefined>();
+  const [reviewing, setReviewing] = useState<number | undefined>(reviewVersion);
   const [error, setError] = useState<string | undefined>();
 
   const latestNumber = versions[0]?.number;
   const fromValue = from ?? versions[1]?.number ?? latestNumber;
   const toValue = to ?? latestNumber;
   const reviewed = versions.find((version) => version.number === reviewing);
+
+  useEffect(() => {
+    if (typeof reviewVersion === "number") {
+      setReviewing(reviewVersion);
+    }
+  }, [reviewVersion]);
 
   const changeFrom = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) =>
