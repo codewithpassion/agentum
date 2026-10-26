@@ -54,6 +54,9 @@ function AskBeforeRow({
           onCheckedChange={toggle}
         />
       </div>
+      {item.covers === undefined ? null : (
+        <p className="text-muted-foreground text-xs">{item.covers}</p>
+      )}
       {error === undefined ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}

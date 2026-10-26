@@ -6,6 +6,7 @@ import {
   approvalDisplaySchema,
   approvalSummary,
   askUserQuestionAnswers,
+  effectiveAskKeys,
   isAskUserCall,
   outcomeText,
   questionAnswerSchema,
@@ -517,5 +518,60 @@ describe("askUserQuestionAnswers", () => {
         askUserQuestionAnswers(input, { answers: { "Database?": "D1" } })
       ).toEqual({});
     }
+  });
+});
+
+describe("effectiveAskKeys", () => {
+  test("no rules ask about nothing", () => {
+    expect(effectiveAskKeys([])).toEqual([]);
+  });
+
+  test("the bash switch covers the platform bash and exec tools", () => {
+    expect(effectiveAskKeys([{ mode: "ask", toolKey: "bash" }])).toEqual([
+      "bash",
+      "harbourmaster/bash",
+      "harbourmaster/computer_exec",
+    ]);
+  });
+
+  test("the write switch covers the platform write tools and bash", () => {
+    expect(effectiveAskKeys([{ mode: "ask", toolKey: "write" }])).toEqual([
+      "harbourmaster/bash",
+      "harbourmaster/computer_write_file",
+      "harbourmaster/library_write",
+      "write",
+    ]);
+  });
+
+  test("the edit switch covers the platform edit tool", () => {
+    expect(effectiveAskKeys([{ mode: "ask", toolKey: "edit" }])).toEqual([
+      "edit",
+      "harbourmaster/computer_edit_file",
+    ]);
+  });
+
+  test("an allow rule on a switch key asks about nothing", () => {
+    expect(effectiveAskKeys([{ mode: "allow", toolKey: "bash" }])).toEqual([]);
+  });
+
+  test("an allow rule on a covered platform tool keeps it out of the list", () => {
+    expect(
+      effectiveAskKeys([
+        { mode: "ask", toolKey: "bash" },
+        { mode: "allow", toolKey: "harbourmaster/bash" },
+      ])
+    ).toEqual(["bash", "harbourmaster/computer_exec"]);
+  });
+
+  test("an explicit ask on a connector key is kept as is", () => {
+    expect(
+      effectiveAskKeys([{ mode: "ask", toolKey: "github/create_issue" }])
+    ).toEqual(["github/create_issue"]);
+  });
+
+  test("a key that names an Object prototype property does not throw", () => {
+    expect(effectiveAskKeys([{ mode: "ask", toolKey: "constructor" }])).toEqual(
+      ["constructor"]
+    );
   });
 });

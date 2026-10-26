@@ -151,6 +151,8 @@ export interface AskBeforeAction {
   action: string;
   /** True when the agent waits for a person before doing it. */
   ask: boolean;
+  /** What else the switch gates, when a built-in says so. */
+  covers?: string;
   kind: "builtin" | "connector";
   /** "Xero: create bill". */
   label: string;
@@ -467,6 +469,7 @@ export const createAgentProfileService = ({
       ask: asking.has(action.key),
       kind: action.kind,
       label: action.label,
+      ...(action.covers === undefined ? {} : { covers: action.covers }),
     }));
   };
 

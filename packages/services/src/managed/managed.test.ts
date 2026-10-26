@@ -1747,7 +1747,9 @@ describe("approvals and questions", () => {
 
   test("always allow sends allow, and the next sync clears the rule from the toolset", async () => {
     const { runId } = await blockedOnBash();
-    expect(gateway.askKeysSent).toEqual([["bash"]]);
+    expect(gateway.askKeysSent).toEqual([
+      ["bash", "harbourmaster/bash", "harbourmaster/computer_exec"],
+    ]);
     await answerApproval("always_allow");
 
     await managed.step(runId);
@@ -1997,6 +1999,33 @@ describe("approvals and questions", () => {
 
     expect(gateway.askKeysSent).toEqual([[]]);
     expect(runRow(runId)?.status).toBe("done");
+  });
+
+  test("the bash switch sends the platform bash tool to ask about", async () => {
+    await ask("bash");
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(gateway.askKeysSent.at(-1)).toContain("harbourmaster/bash");
+  });
+
+  test("the write switch sends the platform library write tool to ask about", async () => {
+    await ask("write");
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(gateway.askKeysSent.at(-1)).toContain("harbourmaster/library_write");
+  });
+
+  test("with neither switch on, no platform tool is sent to ask about", async () => {
+    await ask("read");
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(gateway.askKeysSent.at(-1)).toEqual(["read"]);
   });
 
   test("a step that fails while opening the request reads the idle again", async () => {

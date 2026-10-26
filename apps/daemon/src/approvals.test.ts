@@ -294,6 +294,40 @@ describe("createApprovalGate.decide", () => {
     });
   });
 
+  test("gates the platform bash tool when its rule key is set", async () => {
+    const h = harness({
+      create: [pendingCreate],
+      rules: ["harbourmaster/bash"],
+      serverKeys: ["harbourmaster"],
+      wait: [finished(ALLOW_ONCE)],
+    });
+
+    const verdict = await h.gate.decide({
+      input: { command: "ls" },
+      name: "mcp__harbourmaster__bash",
+      toolUseId: TOOL_USE_ID,
+    });
+
+    expect(verdict).toEqual({ kind: "allow" });
+    expect(h.creates).toHaveLength(1);
+  });
+
+  test("leaves a platform tool with no rule alone", async () => {
+    const h = harness({
+      rules: ["harbourmaster/bash"],
+      serverKeys: ["harbourmaster"],
+    });
+
+    const verdict = await h.gate.decide({
+      input: { id: "lib_1" },
+      name: "mcp__harbourmaster__library_read",
+      toolUseId: TOOL_USE_ID,
+    });
+
+    expect(verdict).toBeUndefined();
+    expect(h.creates).toHaveLength(0);
+  });
+
   test("leaves an MCP tool alone when no rule names it", async () => {
     const h = harness({ rules: [], serverKeys: ["github"] });
 

@@ -3,7 +3,6 @@ import { agents } from "@repo/db/schema/agents";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
-import { agentToolRules } from "@repo/db/schema/tool-rules";
 import { taskFolderPath } from "@repo/db/shared";
 import {
   and,
@@ -24,6 +23,7 @@ import { ServiceError } from "../errors.ts";
 import { agentGrants } from "../library/access.ts";
 import { librarySyncScope } from "../library/sync-paths.ts";
 import type { LibraryService } from "../library.ts";
+import { askKeysOf } from "../requests/ask-keys.ts";
 import type { RunTokenClaims } from "../run-tokens.ts";
 import { secretsGuidance } from "../secrets/guidance.ts";
 import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
@@ -142,19 +142,7 @@ export const claimForMachine = async (
 
   const toolRules =
     options.requestsForDaemon === true
-      ? (
-          await db
-            .select({ toolKey: agentToolRules.toolKey })
-            .from(agentToolRules)
-            .where(
-              and(
-                eq(agentToolRules.agentId, agent.id),
-                eq(agentToolRules.workspaceId, run.workspaceId),
-                eq(agentToolRules.mode, "ask")
-              )
-            )
-            .orderBy(agentToolRules.toolKey)
-        ).map((rule) => rule.toolKey)
+      ? await askKeysOf(db, { id: agent.id, workspaceId: run.workspaceId })
       : undefined;
   const sibling = alias(runs, "sibling");
   const older = alias(runs, "older");

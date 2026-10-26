@@ -518,6 +518,18 @@ test("askBefore lists the built-ins and the connector tools that change things",
     actions.find((row) => row.action === "xero-2/send-invoice")?.label
   ).toBe("Xero: send invoice");
   expect(actions.every((row) => row.ask === false)).toBe(true);
+  expect(actions.find((row) => row.action === "bash")?.covers).toBe(
+    "Also the library script shell and the computer shell."
+  );
+  expect(actions.find((row) => row.action === "write")?.covers).toBe(
+    "Also writing library files, and any library script, since a script can write files."
+  );
+  expect(actions.find((row) => row.action === "edit")?.covers).toBe(
+    "Also editing a file on the computer."
+  );
+  expect(
+    actions.find((row) => row.action === "xero/create_bill")
+  ).not.toHaveProperty("covers");
 });
 
 test("toggling ask before round-trips through V1's rules", async () => {

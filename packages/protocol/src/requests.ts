@@ -8,6 +8,7 @@ import {
   QUESTIONS_MAX,
 } from "@repo/db/shared";
 import { z } from "zod";
+import { PLATFORM_KEY } from "./server-keys.ts";
 
 /** Most UTF-8 bytes in an approval's tool input once serialised. */
 const APPROVAL_INPUT_MAX_BYTES = 8192;
@@ -295,4 +296,46 @@ export const askUserQuestionAnswers = (
     }
   }
   return Object.fromEntries(entries);
+};
+
+/**
+ * The platform MCP tools (`harbourmaster/<tool>`) that run the same kind of
+ * action as a built-in tool, by the built-in rule key whose "Ask me before it"
+ * switch also gates them. The platform shell is the library script sandbox and
+ * a script there can write library files, so the write switch covers it too.
+ */
+export const SWITCH_COVERS: Readonly<Record<string, readonly string[]>> = {
+  bash: [`${PLATFORM_KEY}/bash`, `${PLATFORM_KEY}/computer_exec`],
+  edit: [`${PLATFORM_KEY}/computer_edit_file`],
+  write: [
+    `${PLATFORM_KEY}/library_write`,
+    `${PLATFORM_KEY}/bash`,
+    `${PLATFORM_KEY}/computer_write_file`,
+  ],
+};
+
+/**
+ * The tool keys a run must ask a person about, from the agent's rules: every
+ * `ask` rule plus the platform tools its switch covers. A platform tool with a
+ * rule of its own (an Always allow, say) keeps that rule. Sorted.
+ */
+export const effectiveAskKeys = (
+  rules: readonly { mode: string; toolKey: string }[]
+): string[] => {
+  const ruled = new Set(rules.map(({ toolKey: key }) => key));
+  const asking = new Set<string>();
+  for (const { mode, toolKey: key } of rules) {
+    if (mode !== "ask") {
+      continue;
+    }
+    asking.add(key);
+    for (const covered of Object.hasOwn(SWITCH_COVERS, key)
+      ? (SWITCH_COVERS[key] ?? [])
+      : []) {
+      if (!ruled.has(covered)) {
+        asking.add(covered);
+      }
+    }
+  }
+  return [...asking].sort();
 };

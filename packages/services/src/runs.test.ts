@@ -2363,13 +2363,80 @@ test("machine claim includes only ask keys when the daemon supports requests", a
     platformUrl: "https://example.test",
     requestsForDaemon: true,
   });
-  expect(claim.toolRules).toEqual(["bash"]);
+  expect(claim.toolRules).toEqual([
+    "bash",
+    "harbourmaster/bash",
+    "harbourmaster/computer_exec",
+  ]);
   await machineRuns.completeRun(machine, first.runId, { status: "done" });
   const second = await start(user, spyAgentId);
   const legacy = await machineRuns.claimRunForMachine(machine, second.runId, {
     platformUrl: "https://example.test",
   });
   expect(legacy.toolRules).toBeUndefined();
+});
+
+describe("machine claim ask keys from the switches", () => {
+  const machine: Principal = {
+    kind: "machine",
+    machineId: "m1",
+    workspaceId: WORKSPACE,
+  };
+
+  const claimWithRules = async (
+    rules: { mode: "ask" | "allow"; toolKey: string }[]
+  ) => {
+    await db.insert(agentToolRules).values(
+      rules.map(({ mode, toolKey }) => ({
+        agentId: spyAgentId,
+        id: `${mode}:${toolKey}`,
+        mode,
+        toolKey,
+        updatedAt: START,
+        updatedBy: "u1",
+        workspaceId: WORKSPACE,
+      }))
+    );
+    const machineRuns = buildRuns({ runTokenKey: RUN_TOKEN_KEY });
+    const { runId } = await start(user, spyAgentId);
+    const claim = await machineRuns.claimRunForMachine(machine, runId, {
+      platformUrl: "https://example.test",
+      requestsForDaemon: true,
+    });
+    return claim.toolRules;
+  };
+
+  test("the bash switch adds the platform shell and exec tools", async () => {
+    expect(await claimWithRules([{ mode: "ask", toolKey: "bash" }])).toEqual([
+      "bash",
+      "harbourmaster/bash",
+      "harbourmaster/computer_exec",
+    ]);
+  });
+
+  test("the write switch adds the platform write tools", async () => {
+    expect(await claimWithRules([{ mode: "ask", toolKey: "write" }])).toEqual([
+      "harbourmaster/bash",
+      "harbourmaster/computer_write_file",
+      "harbourmaster/library_write",
+      "write",
+    ]);
+  });
+
+  test("no switch adds no platform tool", async () => {
+    expect(await claimWithRules([{ mode: "allow", toolKey: "bash" }])).toEqual(
+      []
+    );
+  });
+
+  test("an allow rule on a platform tool keeps it out of the ask keys", async () => {
+    expect(
+      await claimWithRules([
+        { mode: "allow", toolKey: "harbourmaster/bash" },
+        { mode: "ask", toolKey: "bash" },
+      ])
+    ).toEqual(["bash", "harbourmaster/computer_exec"]);
+  });
 });
 
 describe("recordDryRunSkip", () => {
