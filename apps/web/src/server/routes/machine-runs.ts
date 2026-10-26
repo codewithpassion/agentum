@@ -5,15 +5,20 @@
 import {
   claimResponseSchema,
   completeRequestSchema,
+  createRequestBodySchema,
+  createRequestResponseSchema,
   DAEMON_FEATURES_HEADER,
   eventsRequestSchema,
   eventsResponseSchema,
   FEATURE_LIBRARY_SYNC,
+  FEATURE_REQUESTS,
   hasDaemonFeature,
+  waitRequestResponseSchema,
 } from "@repo/protocol/machine";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import type { MachinePrincipal } from "@repo/services/machines";
+import type { RequestsService } from "@repo/services/requests";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
@@ -28,6 +33,7 @@ type RunHandler = (call: {
 
 const BAD_REQUEST = 400;
 const UNAUTHORIZED = 401;
+const MS_PER_SECOND = 1000;
 const FORBIDDEN = 403;
 
 /** What a service refused with, as a response. Anything else is a bug and rethrows. */
@@ -63,6 +69,12 @@ const withMachine =
     }
   };
 
+/** The `wait` query in seconds as milliseconds. The service caps it at 25 s. */
+const waitMsOf = (raw: string | undefined): number => {
+  const seconds = Number(raw);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * MS_PER_SECOND : 0;
+};
+
 const readJson = (c: RouteContext): Promise<unknown> =>
   c.req.json().catch(() => undefined);
 
@@ -80,6 +92,11 @@ export const machineRunRoutes = () => {
           libraryForDaemon: hasDaemonFeature(
             c.req.header(DAEMON_FEATURES_HEADER),
             FEATURE_LIBRARY_SYNC
+          ),
+          // Likewise the ask tools, so an older daemon keeps bypassPermissions.
+          requestsForDaemon: hasDaemonFeature(
+            c.req.header(DAEMON_FEATURES_HEADER),
+            FEATURE_REQUESTS
           ),
           // The address the daemon reached us at is one it can use for /mcp.
           platformUrl: new URL(c.req.url).origin,
@@ -127,6 +144,62 @@ export const machineRunRoutes = () => {
         .get("composed")
         .services.runs.completeRun(principal, runId, body.data);
       return c.json({});
+    })
+  );
+
+  routes.post(
+    "/:runId/requests",
+    withMachine(async ({ c, principal, runId }) => {
+      const body = createRequestBodySchema.safeParse(await readJson(c));
+      if (!body.success) {
+        return c.json({ error: "The request body is not valid." }, BAD_REQUEST);
+      }
+      const { display, kind, toolName, toolUseId } = body.data;
+      const base = { runId, toolName, toolUseId };
+      let input: Parameters<RequestsService["open"]>[1];
+      if (kind === "approval" && "input" in display) {
+        input = {
+          ...base,
+          input: display.input,
+          kind,
+          toolKey: display.toolKey || undefined,
+        };
+      } else if (kind === "question" && "questions" in display) {
+        input = { ...base, kind, questions: display.questions };
+      } else {
+        return c.json(
+          { error: "The display does not match the kind." },
+          BAD_REQUEST
+        );
+      }
+      const opened = await c
+        .get("composed")
+        .services.requests.open(principal, input);
+      return c.json(
+        createRequestResponseSchema.parse({
+          outcome: opened.outcome ?? undefined,
+          requestId: opened.id,
+          status: opened.status,
+        })
+      );
+    })
+  );
+
+  routes.get(
+    "/:runId/requests/:requestId",
+    withMachine(async ({ c, principal }) => {
+      const outcome = await c
+        .get("composed")
+        .services.requests.waitForOutcome(
+          principal,
+          c.req.param("requestId") ?? "",
+          { waitMs: waitMsOf(c.req.query("wait")) }
+        );
+      return c.json(
+        waitRequestResponseSchema.parse(
+          outcome ? { outcome, status: outcome.status } : { status: "pending" }
+        )
+      );
     })
   );
 

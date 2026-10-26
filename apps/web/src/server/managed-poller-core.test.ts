@@ -79,12 +79,34 @@ describe("kick", () => {
     expect(storage.alarm).toBe(START);
   });
 
-  test("a second kick while an alarm is pending does not move it", async () => {
+  test("a kick leaves an alarm that is already due where it is", async () => {
     const core = newCore();
     await core.kick(RUN);
     nowMs = START + 5000;
     await core.kick(RUN);
     expect(storage.alarm).toBe(START);
+  });
+
+  test("a kick moves a pending later alarm to now", async () => {
+    stepResult = () => Promise.resolve({ next: 15_000 });
+    const core = newCore();
+    await core.kick(RUN);
+    await core.alarm();
+    expect(storage.alarm).toBe(START + 15_000);
+    nowMs = START + 2000;
+    await core.kick(RUN);
+    expect(storage.alarm).toBe(START + 2000);
+  });
+
+  test("a kick after the alarm stopped schedules it again", async () => {
+    const core = newCore();
+    await core.kick(RUN);
+    await core.alarm();
+    expect(storage.alarm).toBeNull();
+    nowMs = START + 9000;
+    await core.kick(RUN);
+    expect(storage.values.get("runId")).toBe(RUN);
+    expect(storage.alarm).toBe(START + 9000);
   });
 });
 

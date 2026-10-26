@@ -79,6 +79,7 @@ const DEFAULT_NAME = "Agent";
 const DEFAULT_BOT_NAME = "agent";
 const BACKGROUND_COLOR = "#1a1a1a";
 const EVENTS_PATH = "/api/slack/events";
+const INTERACTIONS_PATH = "/api/slack/interactions";
 
 /** A trailing slash on a pasted origin, stripped before a URL is built. */
 const TRAILING_SLASHES = /\/+$/;
@@ -110,7 +111,7 @@ export interface SlackAppManifest {
       bot_events: readonly (typeof SLACK_BOT_EVENTS)[number][];
       request_url: string;
     };
-    interactivity: { is_enabled: boolean };
+    interactivity: { is_enabled: boolean; request_url: string };
     org_deploy_enabled: boolean;
     socket_mode_enabled: boolean;
     token_rotation_enabled: boolean;
@@ -129,6 +130,10 @@ export interface BuildManifestInput {
 /** The URL Slack posts events to, for a deployment origin. */
 export const slackEventsUrl = (origin: string): string =>
   `${origin.replace(TRAILING_SLASHES, "")}${EVENTS_PATH}`;
+
+/** The URL Slack posts button clicks and modal submissions to, for a deployment origin. */
+export const slackInteractionsUrl = (origin: string): string =>
+  `${origin.replace(TRAILING_SLASHES, "")}${INTERACTIONS_PATH}`;
 
 /**
  * A bot user name from a display name: lowercase, every run of characters
@@ -153,7 +158,8 @@ const botNameFrom = (name: string): string => {
  * exist. The Messages tab is not read-only, or nobody can send the agent a
  * message. No Home tab, since the agent publishes no home view.
  *
- * Interactivity is off, and token rotation is off: the owner pastes one
+ * Interactivity is on, so Slack sends button clicks and modal submissions to
+ * the interactions URL. Token rotation is off: the owner pastes one
  * long-lived bot token.
  */
 export const buildManifest = (input: BuildManifestInput): SlackAppManifest => {
@@ -182,7 +188,10 @@ export const buildManifest = (input: BuildManifestInput): SlackAppManifest => {
         bot_events: SLACK_BOT_EVENTS,
         request_url: slackEventsUrl(input.origin),
       },
-      interactivity: { is_enabled: false },
+      interactivity: {
+        is_enabled: true,
+        request_url: slackInteractionsUrl(input.origin),
+      },
       org_deploy_enabled: false,
       socket_mode_enabled: false,
       token_rotation_enabled: false,

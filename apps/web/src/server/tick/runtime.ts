@@ -12,6 +12,10 @@ export const runtimeJobs: readonly TickJob[] = [
     run: ({ services }) => services.runs.reapExpiredLeases(SYSTEM_PRINCIPAL),
   },
   {
+    name: "requests.expire",
+    run: ({ services }) => services.requests.expireDue(SYSTEM_PRINCIPAL),
+  },
+  {
     name: "managed.rearm",
     run: ({ services }) => services.managed.rearm(),
   },
