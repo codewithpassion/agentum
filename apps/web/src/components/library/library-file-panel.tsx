@@ -27,6 +27,7 @@ import {
 import { Button, buttonVariants } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { LibraryFileView } from "#/integrations/trpc/types";
+import { LibraryHistory } from "./library-history-panel.tsx";
 
 type LibraryEntry = LibraryFileView["entry"];
 
@@ -73,6 +74,8 @@ interface LibraryFilePanelProps {
   onChanged: () => void;
   onClosed: () => void;
   path: string;
+  /** Goes up when the page refetches. The panel then checks the file for changes made elsewhere. */
+  refreshTick?: number;
 }
 
 /** One file of the library: its details, a download, a delete, and a text editor. */
@@ -82,10 +85,13 @@ export function LibraryFilePanel({
   path,
   onChanged,
   onClosed,
+  refreshTick = 0,
 }: LibraryFilePanelProps) {
   const source = useMemo(() => io ?? libraryIo(path), [io, path]);
   const [file, setFile] = useState<LibraryFileView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The newest read from a refresh tick, which differs from `file` when the file changed elsewhere.
+  const [remote, setRemote] = useState<LibraryFileView | null>(null);
   // Bumped on every load, so the body remounts with the freshly read draft.
   const [generation, setGeneration] = useState(0);
   // The path this panel shows. Null after unmount, so a late response is dropped.
@@ -105,6 +111,7 @@ export function LibraryFilePanel({
         return;
       }
       setFile(next);
+      setRemote(null);
       setError(null);
       setGeneration((count) => count + 1);
     } catch (cause) {
@@ -118,6 +125,30 @@ export function LibraryFilePanel({
     load();
   }, [load]);
 
+  const checkRemote = useCallback(async () => {
+    try {
+      const next = await source.read();
+      if (shownPath.current === path) {
+        setRemote(next);
+      }
+    } catch {
+      // A failed refresh keeps what is on screen. The next tick tries again.
+    }
+  }, [path, source]);
+
+  useEffect(() => {
+    if (refreshTick > 0 && io === undefined) {
+      checkRemote();
+    }
+  }, [refreshTick, io, checkRemote]);
+
+  const adoptRemote = useCallback((next: LibraryFileView) => {
+    setFile(next);
+    setRemote(null);
+    setError(null);
+    setGeneration((count) => count + 1);
+  }, []);
+
   const saveText = useCallback(
     async (draft: string, ifEtag: string | undefined) => {
       const entry = await source.write(draft, ifEtag);
@@ -128,6 +159,11 @@ export function LibraryFilePanel({
     },
     [path, source, onChanged]
   );
+
+  const restored = useCallback(async () => {
+    await load();
+    onChanged();
+  }, [load, onChanged]);
 
   const remove = useCallback(async () => {
     try {
@@ -167,10 +203,19 @@ export function LibraryFilePanel({
           file={file}
           key={generation}
           labels={labels}
+          onAdopt={adoptRemote}
           onReload={load}
           onSave={saveText}
+          remote={remote}
         />
       )}
+      {io === undefined && file !== null ? (
+        <LibraryHistory
+          onRestored={restored}
+          path={path}
+          refreshKey={generation + refreshTick}
+        />
+      ) : null}
       <div className="flex justify-end">
         <Button onClick={onClosed} type="button" variant="ghost">
           Close
@@ -262,13 +307,17 @@ function DeleteFile({
 function FileBody({
   file,
   labels,
+  onAdopt,
   onReload,
   onSave,
+  remote,
 }: {
   file: LibraryFileView;
   labels: SaveLabels;
+  onAdopt: (next: LibraryFileView) => void;
   onReload: () => Promise<void>;
   onSave: (draft: string, ifEtag: string | undefined) => Promise<void>;
+  remote: LibraryFileView | null;
 }) {
   if (file.text === null) {
     return <p className="text-muted-foreground text-sm">{NOT_EDITABLE}</p>;
@@ -277,8 +326,10 @@ function FileBody({
     <TextEditor
       entry={file.entry}
       labels={labels}
+      onAdopt={onAdopt}
       onReload={onReload}
       onSave={onSave}
+      remote={remote}
       text={file.text}
     />
   );
@@ -287,14 +338,18 @@ function FileBody({
 function TextEditor({
   entry,
   labels,
+  onAdopt,
   onReload,
   onSave,
+  remote,
   text,
 }: {
   entry: LibraryEntry;
   labels: SaveLabels;
+  onAdopt: (next: LibraryFileView) => void;
   onReload: () => Promise<void>;
   onSave: (draft: string, ifEtag: string | undefined) => Promise<void>;
+  remote: LibraryFileView | null;
   text: string;
 }) {
   const [draft, setDraft] = useState(text);
@@ -302,6 +357,20 @@ function TextEditor({
   const [saved, setSaved] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The file changed elsewhere: take the new text when there is nothing unsaved, else offer a reload.
+  const changedElsewhere = remote !== null && remote.entry.etag !== entry.etag;
+  const clean = draft === text;
+  useEffect(() => {
+    if (!(changedElsewhere && remote !== null)) {
+      return;
+    }
+    if (clean) {
+      onAdopt(remote);
+    } else {
+      setConflict(true);
+    }
+  }, [changedElsewhere, clean, remote, onAdopt]);
 
   const save = useCallback(async () => {
     setSaving(true);

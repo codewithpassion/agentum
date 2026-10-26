@@ -4,8 +4,9 @@ import { useCallback, useState } from "react";
 import { z } from "zod";
 import { LibraryFilePanel } from "#/components/library/library-file-panel";
 import { LibraryList } from "#/components/library/library-list";
-import { errorMessage } from "#/components/library/library-logic";
+import { errorMessage, remapPath } from "#/components/library/library-logic";
 import { LibraryToolbar } from "#/components/library/library-toolbar";
+import { useLibraryRefresh } from "#/components/library/use-library-refresh";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { LibraryEntryRecord } from "#/integrations/trpc/types";
 
@@ -44,6 +45,27 @@ function LibraryPage() {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => router.invalidate(), [router]);
+  const refreshTick = useLibraryRefresh(refresh);
+
+  const handleMoved = useCallback(
+    async (from: string, to: string) => {
+      // Follow the item: the open file and the current folder may be the one moved.
+      await navigate({
+        search: (previous) => ({
+          dir:
+            previous.dir === undefined
+              ? undefined
+              : remapPath(previous.dir, from, to),
+          file:
+            previous.file === undefined
+              ? undefined
+              : remapPath(previous.file, from, to),
+        }),
+      });
+      await refresh();
+    },
+    [navigate, refresh]
+  );
 
   const closeFile = useCallback(
     () =>
@@ -81,6 +103,7 @@ function LibraryPage() {
         busyPath={busyPath}
         dir={dir}
         entries={entries}
+        onMoved={handleMoved}
         onRemove={remove}
       />
       {file === undefined ? null : (
@@ -89,6 +112,7 @@ function LibraryPage() {
           onChanged={refresh}
           onClosed={closeFile}
           path={file}
+          refreshTick={refreshTick}
         />
       )}
     </section>
