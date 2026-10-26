@@ -1,7 +1,12 @@
 import { beforeEach, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { files as fileRows } from "@repo/db/schema/files";
+import {
+  libraryEntries as entryRows,
+  libraryVersions as versionRows,
+} from "@repo/db/schema/library";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { slackApps } from "@repo/db/schema/slack";
@@ -20,10 +25,17 @@ import {
 } from "../events.ts";
 import { type MemoryFileBlobs, memoryFileBlobs } from "../files/memory.ts";
 import { createFilesService, type FilesService } from "../files.ts";
+import { memoryLibraryBlobs } from "../library/memory.ts";
+import { createTaskFiles } from "../library/task-files.ts";
+import { createLibraryService, type LibraryService } from "../library.ts";
 import type { Clock, DeliveryContext, ReplyTarget } from "../runs/types.ts";
 import { slackSecretBinding } from "./apps.ts";
 import type { SlackFetch } from "./client.ts";
-import { createSlackGateway, type SlackGateway } from "./gateway.ts";
+import {
+  createSlackGateway,
+  type SlackGateway,
+  type SlackGatewayOptions,
+} from "./gateway.ts";
 
 const WORKSPACE = "w1";
 const AGENT = "a1";
@@ -76,6 +88,8 @@ let calls: Recorded[];
 let respond: Responder;
 let gateway: SlackGateway;
 let files: FilesService;
+let library: LibraryService;
+let gatewayOptions: SlackGatewayOptions;
 
 const json = (body: unknown, init?: ResponseInit) =>
   new Response(JSON.stringify(body), {
@@ -243,15 +257,25 @@ beforeEach(async () => {
     db,
   });
   files = createFilesService({ blobs: fileBlobs, clock, db });
-  gateway = createSlackGateway({
+  library = createLibraryService({
+    atomic: sqliteAtomic(db),
+    blobs: memoryLibraryBlobs(),
+    clock,
+    db,
+    events,
+  });
+  gatewayOptions = {
     clock,
     db,
     events,
     fetch: slackFetch,
     files,
+    library,
     publicBaseUrl: PUBLIC_BASE_URL,
     secretsKey: SECRETS_KEY,
-  });
+    taskFiles: createTaskFiles({ db }).taskFiles,
+  };
+  gateway = createSlackGateway(gatewayOptions);
 });
 
 /** A connector.needs_auth event for a run, appended as the proxy appends it. */
@@ -588,62 +612,142 @@ const runPrincipal = {
   runId: RUN,
   workspaceId: WORKSPACE,
 } as const;
+const TASK_FOLDER = `agents/agent/tasks/${RUN}`;
 
-/** Stores a file the way a run writes an output. The run lists it only if asked to. */
-const storeOutput = async (name: string, text: string) => {
-  const stored = await files.upload(runPrincipal, {
-    body: new Blob([text]),
-    mime: "application/pdf",
-    name,
-  });
-  return stored.id;
+/** Writes a file the way a run does: through the library, as the run. */
+const writeTaskFile = async (path: string, text: string) => {
+  await library.write(runPrincipal, path, new TextEncoder().encode(text));
 };
 
-/** Sets the run row's output file ids, which is what a run may read. */
-const listOutputs = (ids: string[]) =>
-  db
-    .update(runRows)
-    .set({ outputFileIds: JSON.stringify(ids) })
-    .where(eq(runRows.id, RUN))
-    .run();
+const deliverTask = (text = "Done.") =>
+  gateway.deliver(slackTarget, { fileIds: [], text }, context);
 
-const deliverWithFiles = (fileIds: string[], text = "Done.") =>
-  gateway.deliver(slackTarget, { fileIds, text }, context);
+test("deliver posts the text first, then uploads each file of the task folder to the thread", async () => {
+  await writeTaskFile(`${TASK_FOLDER}/report.pdf`, "report body");
+  await writeTaskFile(`${TASK_FOLDER}/out/data.csv`, "a,b");
 
-test("deliver posts the text first, then uploads each output file to the thread", async () => {
-  const id = await storeOutput("report.pdf", "report body");
-  listOutputs([id]);
-
-  await deliverWithFiles([id]);
+  await deliverTask();
 
   const urls = calls.map((call) => call.url);
   expect(urls.indexOf(`${SLACK_API}chat.postMessage`)).toBeLessThan(
     urls.indexOf(UPLOAD_URL)
   );
-  const [upload] = calls.filter((call) => call.url === UPLOAD_URL);
-  expect(upload?.method).toBe("POST");
-  expect(upload?.bytes ? new TextDecoder().decode(upload.bytes) : null).toBe(
-    "report body"
-  );
-  const [complete] = callsTo("files.completeUploadExternal");
-  expect(complete?.body).toEqual({
-    channel_id: CHANNEL,
-    files: [{ id: "F9", title: "report.pdf" }],
-    thread_ts: THREAD,
-  });
+  const uploads = calls.filter((call) => call.url === UPLOAD_URL);
+  expect(
+    uploads.map((upload) =>
+      upload.bytes ? new TextDecoder().decode(upload.bytes) : null
+    )
+  ).toEqual(["a,b", "report body"]);
+  expect(uploads.every((upload) => upload.method === "POST")).toBe(true);
+  expect(
+    callsTo("files.completeUploadExternal").map((call) => call.body)
+  ).toEqual([
+    {
+      channel_id: CHANNEL,
+      files: [{ id: "F9", title: "data.csv" }],
+      thread_ts: THREAD,
+    },
+    {
+      channel_id: CHANNEL,
+      files: [{ id: "F9", title: "report.pdf" }],
+      thread_ts: THREAD,
+    },
+  ]);
   expect(deliveredEvents()).toEqual([
     { channel: CHANNEL, delivered: true, threadTs: THREAD },
   ]);
 });
 
 test("deliver sends the file bytes to the upload URL without the bot token", async () => {
-  const id = await storeOutput("report.pdf", "report body");
-  listOutputs([id]);
+  await writeTaskFile(`${TASK_FOLDER}/report.pdf`, "report body");
 
-  await deliverWithFiles([id]);
+  await deliverTask();
 
   const [upload] = calls.filter((call) => call.url === UPLOAD_URL);
   expect(upload?.authorization).toBeNull();
+});
+
+test("deliver does not post a file the run wrote outside its task folder", async () => {
+  await writeTaskFile(`${TASK_FOLDER}/report.pdf`, "report body");
+  await writeTaskFile("agents/agent/notes.md", "elsewhere");
+  await writeTaskFile(`agents/agent/tasks/${RUN}0/near.md`, "next door");
+
+  await deliverTask();
+
+  expect(callsTo("files.completeUploadExternal")).toHaveLength(1);
+  expect(callsTo("files.completeUploadExternal")[0]?.body).toMatchObject({
+    files: [{ title: "report.pdf" }],
+  });
+  expect(deliveredEvents()).toEqual([
+    { channel: CHANNEL, delivered: true, threadTs: THREAD },
+  ]);
+});
+
+test("deliver does not post a file in the folder that this run did not write", async () => {
+  await writeTaskFile(`${TASK_FOLDER}/report.pdf`, "report body");
+  await library.write(
+    { kind: "user", userId: "u1", via: "session", workspaceId: WORKSPACE },
+    `${TASK_FOLDER}/person.md`,
+    new TextEncoder().encode("added by a person")
+  );
+
+  await deliverTask();
+
+  expect(callsTo("files.completeUploadExternal")).toHaveLength(1);
+  expect(callsTo("files.completeUploadExternal")[0]?.body).toMatchObject({
+    files: [{ title: "report.pdf" }],
+  });
+});
+
+test("deliver names a file over the size limit and does not read or upload it", async () => {
+  await writeTaskFile(`${TASK_FOLDER}/small.md`, "fine");
+  // The library caps a file at 10 MB, so an over-limit one is put in the index directly.
+  const big = `${TASK_FOLDER}/big.bin`;
+  db.insert(entryRows)
+    .values({
+      etag: "e1",
+      kind: "file",
+      mtime: START,
+      parent: TASK_FOLDER,
+      path: big,
+      size: MAX_FILE_BYTES + 1,
+      updatedById: AGENT,
+      updatedByKind: "agent",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(versionRows)
+    .values({
+      authorId: AGENT,
+      authorKind: "agent",
+      blobKey: null,
+      createdAt: START,
+      etag: "e1",
+      id: "v-big",
+      op: "write",
+      path: big,
+      runId: RUN,
+      sha256: "0",
+      size: MAX_FILE_BYTES + 1,
+      version: 1,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+
+  await deliverTask();
+
+  expect(callsTo("files.completeUploadExternal")).toHaveLength(1);
+  expect(callsTo("files.completeUploadExternal")[0]?.body).toMatchObject({
+    files: [{ title: "small.md" }],
+  });
+  expect(deliveredEvents()).toEqual([
+    {
+      channel: CHANNEL,
+      delivered: true,
+      error: "big.bin: too large to upload, over 50 MB",
+      threadTs: THREAD,
+    },
+  ]);
 });
 
 test("deliver keeps uploading after one file fails and names that file in the event", async () => {
@@ -657,11 +761,10 @@ test("deliver keeps uploading after one file fails and names that file in the ev
     }
     return defaultResponder(call);
   };
-  const broken = await storeOutput("broken.pdf", "broken");
-  const good = await storeOutput("ok.pdf", "fine");
-  listOutputs([broken, good]);
+  await writeTaskFile(`${TASK_FOLDER}/broken.pdf`, "broken");
+  await writeTaskFile(`${TASK_FOLDER}/ok.pdf`, "fine");
 
-  await deliverWithFiles([broken, good]);
+  await deliverTask();
 
   expect(calls.filter((call) => call.url === FAILING_UPLOAD_URL)).toHaveLength(
     3
@@ -680,21 +783,40 @@ test("deliver keeps uploading after one file fails and names that file in the ev
   ]);
 });
 
-test("deliver does not upload a file the run does not list and reports it", async () => {
-  const unlisted = await storeOutput("secret.pdf", "not yours");
+test("deliver reports a task folder it could not list and still posts the text", async () => {
+  const broken = createSlackGateway({
+    ...gatewayOptions,
+    taskFiles: () => Promise.reject(new Error("folder unavailable")),
+  });
 
-  await deliverWithFiles([unlisted]);
+  await broken.deliver(slackTarget, { fileIds: [], text: "Done." }, context);
 
-  expect(calls.map((call) => call.url)).toEqual([
-    `${SLACK_API}chat.postMessage`,
-  ]);
+  expect(callsTo("chat.postMessage")).toHaveLength(1);
   expect(deliveredEvents()).toEqual([
     {
       channel: CHANNEL,
       delivered: true,
-      error: `${unlisted}: File not found`,
+      error: "task files: folder unavailable",
       threadTs: THREAD,
     },
+  ]);
+});
+
+test("deliver ignores the file ids a runtime reported", async () => {
+  const stored = await files.upload(runPrincipal, {
+    body: new Blob(["marker file"]),
+    mime: "application/pdf",
+    name: "marker.pdf",
+  });
+
+  await gateway.deliver(
+    slackTarget,
+    { fileIds: [stored.id], text: "Done." },
+    context
+  );
+
+  expect(calls.map((call) => call.url)).toEqual([
+    `${SLACK_API}chat.postMessage`,
   ]);
 });
 
@@ -703,10 +825,9 @@ test("deliver uploads no files when the text post fails", async () => {
     call.url === `${SLACK_API}chat.postMessage`
       ? json({ error: "internal_error", ok: false }, { status: 500 })
       : defaultResponder(call);
-  const id = await storeOutput("report.pdf", "report body");
-  listOutputs([id]);
+  await writeTaskFile(`${TASK_FOLDER}/report.pdf`, "report body");
 
-  await deliverWithFiles([id]);
+  await deliverTask();
 
   expect(calls.map((call) => call.url)).toEqual([
     `${SLACK_API}chat.postMessage`,
@@ -723,28 +844,17 @@ test("deliver uploads no files when the text post fails", async () => {
   ]);
 });
 
-test("deliver with files and a defer hook returns before uploading, and the deferred work uploads and records the event", async () => {
-  const id = await storeOutput("report.pdf", "report body");
-  listOutputs([id]);
+test("deliver with task files and a defer hook returns before uploading, and the deferred work uploads and records the event", async () => {
+  await writeTaskFile(`${TASK_FOLDER}/report.pdf`, "report body");
   const deferred: Promise<void>[] = [];
   const deferring = createSlackGateway({
-    clock,
-    db,
+    ...gatewayOptions,
     defer: (work) => {
       deferred.push(work);
     },
-    events,
-    fetch: slackFetch,
-    files,
-    publicBaseUrl: PUBLIC_BASE_URL,
-    secretsKey: SECRETS_KEY,
   });
 
-  await deferring.deliver(
-    slackTarget,
-    { fileIds: [id], text: "Done." },
-    context
-  );
+  await deferring.deliver(slackTarget, { fileIds: [], text: "Done." }, context);
 
   expect(calls).toHaveLength(0);
   expect(deliveredEvents()).toEqual([]);
@@ -759,19 +869,13 @@ test("deliver with files and a defer hook returns before uploading, and the defe
   ]);
 });
 
-test("deliver without files does not use the defer hook", async () => {
+test("deliver without task files does not use the defer hook", async () => {
   const deferred: Promise<void>[] = [];
   const deferring = createSlackGateway({
-    clock,
-    db,
+    ...gatewayOptions,
     defer: (work) => {
       deferred.push(work);
     },
-    events,
-    fetch: slackFetch,
-    files,
-    publicBaseUrl: PUBLIC_BASE_URL,
-    secretsKey: SECRETS_KEY,
   });
 
   await deferring.deliver(slackTarget, { fileIds: [], text: "Done." }, context);
@@ -781,12 +885,12 @@ test("deliver without files does not use the defer hook", async () => {
 });
 
 test("deliver reports the files it had no time to upload and still records the event", async () => {
-  const first = await storeOutput("a.pdf", "a");
-  const second = await storeOutput("b.pdf", "b");
-  listOutputs([first, second]);
+  await writeTaskFile(`${TASK_FOLDER}/a.pdf`, "a");
+  await writeTaskFile(`${TASK_FOLDER}/b.pdf`, "b");
   // Every look at the clock is ten seconds later than the one before.
   let ticks = 0;
   const slow = createSlackGateway({
+    ...gatewayOptions,
     clock: {
       now: () => {
         ticks += 1;
@@ -794,26 +898,16 @@ test("deliver reports the files it had no time to upload and still records the e
       },
       sleep: () => Promise.resolve(),
     },
-    db,
-    events,
-    fetch: slackFetch,
-    files,
-    publicBaseUrl: PUBLIC_BASE_URL,
-    secretsKey: SECRETS_KEY,
   });
 
-  await slow.deliver(
-    slackTarget,
-    { fileIds: [first, second], text: "Done." },
-    context
-  );
+  await slow.deliver(slackTarget, { fileIds: [], text: "Done." }, context);
 
   expect(callsTo("files.completeUploadExternal")).toHaveLength(1);
   expect(deliveredEvents()).toEqual([
     {
       channel: CHANNEL,
       delivered: true,
-      error: `${second}: not uploaded, out of time`,
+      error: "b.pdf: not uploaded, out of time",
       threadTs: THREAD,
     },
   ]);

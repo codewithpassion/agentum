@@ -10,6 +10,7 @@ import {
   slackThreads,
 } from "@repo/db/schema/slack";
 import { identityLinks } from "@repo/db/schema/workspaces";
+import { taskFolderPath } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { encryptSecret, importSecretsKey } from "@repo/services/crypto";
 import { memoryFileBlobs } from "@repo/services/files/memory";
@@ -812,7 +813,7 @@ test("a message with a file is not claimable until the download job has run", as
   ).toMatchObject({ status: "running" });
 });
 
-test("an output file of a finished run is uploaded to the thread after the answer", async () => {
+test("a file a run wrote to its task folder is uploaded to the thread after the answer", async () => {
   const { runId } = (await (await send(await fixture("dm-file"))).json()) as {
     runId: string;
   };
@@ -825,13 +826,12 @@ test("an output file of a finished run is uploaded to the thread after the answe
     runId,
     workspaceId,
   } as const;
-  const file = await composed.services.files.upload(runPrincipal, {
-    body: new Blob([SUMMARY_CONTENT]),
-    mime: "text/plain",
-    name: SUMMARY_NAME,
-  });
+  await composed.services.library.write(
+    runPrincipal,
+    `${taskFolderPath("bruce", runId)}/${SUMMARY_NAME}`,
+    new TextEncoder().encode(SUMMARY_CONTENT)
+  );
   await composed.services.runs.completeRun(SYSTEM_PRINCIPAL, runId, {
-    fileIds: [file.id],
     status: "done",
     text: SUMMARY_TEXT,
   });

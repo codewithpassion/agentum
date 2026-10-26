@@ -1,6 +1,14 @@
 import type { AgentRuntime, MachineStatus } from "@repo/db/shared";
+import {
+  computerKind,
+  computersOf,
+  roleRows,
+} from "#/components/machines/machine-logic.ts";
 import { describeCron } from "#/components/routines/describe-cron.ts";
-import type { AgentProfileView } from "#/integrations/trpc/types";
+import type {
+  AgentProfileView,
+  MachineRecord,
+} from "#/integrations/trpc/types";
 
 export interface Chip {
   key: string;
@@ -227,3 +235,47 @@ export const addressText = (
   emailLocal: string | null,
   domain: string
 ): string | null => (emailLocal === null ? null : `${emailLocal}@${domain}`);
+
+/** The Computer card's line about the machine the agent runs on. */
+export const machineAgentWords = (machine: { name: string } | null): string =>
+  machine
+    ? `This agent runs on ${machine.name}.`
+    : "This agent runs on a machine.";
+
+export interface ComputerChoice {
+  /** True for the computer the agent has now. */
+  attached: boolean;
+  id: string;
+  /** "Desktop", "Headless" or "Not connected yet". */
+  kind: string;
+  name: string;
+  /** "Online", "Offline" or "Revoked" for the computer role. */
+  status: string;
+  tone: "good" | "muted" | "bad";
+}
+
+/**
+ * The computers an agent can attach to, the attached one marked. A revoked
+ * computer stays in the list while the agent holds it, so it can be detached.
+ */
+export const computerChoices = (
+  attachedId: string | null,
+  machines: MachineRecord[]
+): ComputerChoice[] =>
+  machines
+    .filter((machine) =>
+      machine.id === attachedId
+        ? machine.roles.includes("computer")
+        : computersOf([machine]).length > 0
+    )
+    .map((machine) => {
+      const row = roleRows(machine).find((item) => item.role === "computer");
+      return {
+        attached: machine.id === attachedId,
+        id: machine.id,
+        kind: computerKind(machine) ?? "Not connected yet",
+        name: machine.name,
+        status: row?.status ?? "Offline",
+        tone: row?.tone ?? "muted",
+      };
+    });
