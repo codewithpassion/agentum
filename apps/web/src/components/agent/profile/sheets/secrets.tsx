@@ -16,11 +16,11 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { getTrpc } from "#/integrations/trpc/client";
-import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
-import { toggledIds } from "../secrets/grants.ts";
-import { RuntimeNotes } from "../secrets/runtime-notes.tsx";
-import { type SecretRecord, SecretRow } from "../secrets/secret-row.tsx";
-import { secretStatus } from "../secrets/status.ts";
+import type { AgentPanelProps } from "./props.ts";
+import { toggledIds } from "./secrets/grants.ts";
+import { RuntimeNotes } from "./secrets/runtime-notes.tsx";
+import { type SecretRecord, SecretRow } from "./secrets/secret-row.tsx";
+import { secretStatus } from "./secrets/status.ts";
 
 interface SecretsState {
   grantedIds: string[];
@@ -30,7 +30,7 @@ interface SecretsState {
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Something went wrong.";
 
-function SecretsPanel({ agent }: AgentTabProps) {
+export function SecretsPanel({ agent }: AgentPanelProps) {
   const agentId = agent.id;
   const [state, setState] = useState<SecretsState | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -155,9 +155,3 @@ function SecretsPanel({ agent }: AgentTabProps) {
     </section>
   );
 }
-
-export const secretsTab: AgentTab = {
-  id: "secrets",
-  label: "Secrets",
-  Panel: SecretsPanel,
-};

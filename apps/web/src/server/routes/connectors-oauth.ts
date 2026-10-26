@@ -110,7 +110,7 @@ export const connectorOAuthRoutes = (
     const as = c.req.query("as") ?? "user";
     if (as.startsWith(AGENT_PREFIX) && !isSameOrigin(c)) {
       const agentId = encodeURIComponent(as.slice(AGENT_PREFIX.length));
-      return c.redirect(`/agents/${agentId}?tab=connectors`, FOUND);
+      return c.redirect(`/agents/${agentId}?sheet=tools`, FOUND);
     }
     try {
       const { authorizeUrl } = await c

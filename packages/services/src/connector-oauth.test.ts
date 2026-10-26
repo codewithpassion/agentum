@@ -227,9 +227,7 @@ test("connecting as the user and as an agent leaves two credentials with differe
     error: null,
     returnTo: "/settings/connectors?connected=1",
   });
-  expect(second.returnTo).toBe(
-    `/agents/${agent.id}?tab=connectors&connected=1`
-  );
+  expect(second.returnTo).toBe(`/agents/${agent.id}?sheet=tools&connected=1`);
   const rows = credentialRows(connector.id);
   expect(
     rows.map((row) => [row.ownerKind, row.ownerId, row.version]).sort()
@@ -368,7 +366,7 @@ test("an off-site return_to is refused and starts nothing", async () => {
 
 test("isSameOriginPath accepts app paths with a query and refuses the rest", () => {
   expect(isSameOriginPath("/connectors")).toBe(true);
-  expect(isSameOriginPath("/agents/a1?tab=connectors")).toBe(true);
+  expect(isSameOriginPath("/agents/a1?sheet=tools")).toBe(true);
   expect(isSameOriginPath("/")).toBe(true);
   expect(isSameOriginPath("")).toBe(false);
   expect(isSameOriginPath("/%2F/evil")).toBe(true);

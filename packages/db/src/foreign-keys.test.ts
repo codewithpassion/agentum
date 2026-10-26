@@ -8,6 +8,7 @@ import {
   libraryVersions,
   wikiSuggestions,
 } from "./schema/library.ts";
+import { agentMailboxes, mailMessages, mailThreads } from "./schema/mail.ts";
 import { runRequests } from "./schema/requests.ts";
 import { runs } from "./schema/runs.ts";
 import { sessions } from "./schema/sessions.ts";
@@ -376,4 +377,155 @@ test("deleting a version a suggestion points at clears the reference", () => {
   const [row] = db.select().from(wikiSuggestions).all();
   expect(row?.baseVersionId).toBeNull();
   expect(row?.resultVersionId).toBeNull();
+});
+
+const mailbox = (
+  overrides: Partial<typeof agentMailboxes.$inferInsert> = {}
+) => ({
+  address: "ada@mail.example.com",
+  agentId: "a1",
+  createdAt: NOW,
+  id: "mb1",
+  status: "provisioning" as const,
+  workspaceId: "w1",
+  ...overrides,
+});
+
+const mailThread = (
+  overrides: Partial<typeof mailThreads.$inferInsert> = {}
+) => ({
+  externalThreadId: "t-ext-1",
+  id: "mt1",
+  lastMessageAt: NOW,
+  mailboxId: "mb1",
+  subject: "Hello",
+  workspaceId: "w1",
+  ...overrides,
+});
+
+const mailMessage = (
+  overrides: Partial<typeof mailMessages.$inferInsert> = {}
+) => ({
+  ccAddresses: "[]",
+  createdAt: NOW,
+  direction: "in" as const,
+  externalMessageId: "m-ext-1",
+  fromAddress: "sam@example.com",
+  id: "mm1",
+  snippet: "Hi there",
+  status: "received" as const,
+  subject: "Hello",
+  threadId: "mt1",
+  toAddresses: '["ada@mail.example.com"]',
+  workspaceId: "w1",
+  ...overrides,
+});
+
+test("a mailbox is unique per agent and per address, and refuses an unknown agent or workspace", () => {
+  const db = migrated();
+  seedRun(db);
+  db.insert(agents).values(agent("a2", "w1")).run();
+  db.insert(agentMailboxes).values(mailbox()).run();
+  expect(() =>
+    db
+      .insert(agentMailboxes)
+      .values(mailbox({ address: "other@mail.example.com", id: "mb2" }))
+      .run()
+  ).toThrow("UNIQUE constraint failed");
+  expect(() =>
+    db
+      .insert(agentMailboxes)
+      .values(mailbox({ agentId: "a2", id: "mb3" }))
+      .run()
+  ).toThrow("UNIQUE constraint failed");
+  for (const overrides of [{ agentId: "nope" }, { workspaceId: "nope" }]) {
+    expect(() =>
+      db
+        .insert(agentMailboxes)
+        .values(
+          mailbox({
+            address: "x@mail.example.com",
+            agentId: "a2",
+            id: "mb4",
+            ...overrides,
+          })
+        )
+        .run()
+    ).toThrow("FOREIGN KEY constraint failed");
+  }
+});
+
+test("a mail thread is unique per mailbox and external thread, and takes a null session", () => {
+  const db = migrated();
+  seedRun(db);
+  db.insert(agentMailboxes).values(mailbox()).run();
+  db.insert(mailThreads).values(mailThread()).run();
+  expect(() =>
+    db
+      .insert(mailThreads)
+      .values(mailThread({ id: "mt2" }))
+      .run()
+  ).toThrow("UNIQUE constraint failed");
+  db.insert(mailThreads)
+    .values(
+      mailThread({ externalThreadId: "t-ext-2", id: "mt3", sessionId: "s1" })
+    )
+    .run();
+  for (const overrides of [
+    { mailboxId: "nope" },
+    { sessionId: "nope" },
+    { workspaceId: "nope" },
+  ]) {
+    expect(() =>
+      db
+        .insert(mailThreads)
+        .values(
+          mailThread({ externalThreadId: "t-ext-3", id: "mt4", ...overrides })
+        )
+        .run()
+    ).toThrow("FOREIGN KEY constraint failed");
+  }
+});
+
+test("a mail message is unique per thread and external id, and refuses an unknown thread, run, request or workspace", () => {
+  const db = migrated();
+  seedRun(db);
+  db.insert(runRequests).values(request()).run();
+  db.insert(agentMailboxes).values(mailbox()).run();
+  db.insert(mailThreads).values(mailThread()).run();
+  db.insert(mailMessages).values(mailMessage()).run();
+  expect(() =>
+    db
+      .insert(mailMessages)
+      .values(mailMessage({ id: "mm2" }))
+      .run()
+  ).toThrow("UNIQUE constraint failed");
+  db.insert(mailMessages)
+    .values(
+      mailMessage({
+        direction: "out",
+        externalMessageId: "m-ext-2",
+        id: "mm3",
+        requestId: "q1",
+        rfcMessageId: "<abc@mail.example.com>",
+        runId: "r1",
+        status: "held",
+      })
+    )
+    .run();
+  for (const overrides of [
+    { threadId: "nope" },
+    { runId: "nope" },
+    { requestId: "nope" },
+    { workspaceId: "nope" },
+  ]) {
+    expect(() =>
+      db
+        .insert(mailMessages)
+        .values(
+          mailMessage({ externalMessageId: "m-ext-3", id: "mm4", ...overrides })
+        )
+        .run()
+    ).toThrow("FOREIGN KEY constraint failed");
+  }
 });

@@ -33,7 +33,7 @@ import type {
   ConnectorRecord,
   CredentialRecord,
 } from "#/integrations/trpc/types";
-import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
+import type { AgentPanelProps } from "./props.ts";
 
 type PasteAs = "me" | "agent";
 
@@ -134,12 +134,12 @@ function AssignedConnectorRow({
     const meHref = connectHref({
       as: "user",
       connectorId,
-      returnTo: `/agents/${agentId}?tab=connectors`,
+      returnTo: `/agents/${agentId}?sheet=tools`,
     });
     const agentHref = connectHref({
       as: `agent:${agentId}`,
       connectorId,
-      returnTo: `/agents/${agentId}?tab=connectors`,
+      returnTo: `/agents/${agentId}?sheet=tools`,
     });
     credentials = (
       <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -222,7 +222,7 @@ function AssignedConnectorRow({
   );
 }
 
-function ConnectorsPanel({ agent }: AgentTabProps) {
+export function ConnectorsPanel({ agent }: AgentPanelProps) {
   const agentId = agent.id;
   const agentName = agent.name;
   const agentRef = useMemo(
@@ -486,9 +486,3 @@ function ConnectorsPanel({ agent }: AgentTabProps) {
     </section>
   );
 }
-
-export const connectorsTab: AgentTab = {
-  id: "connectors",
-  label: "Connectors",
-  Panel: ConnectorsPanel,
-};
