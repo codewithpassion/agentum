@@ -3,6 +3,8 @@ import packageJson from "../package.json";
 import type { McpPorts } from "./ports";
 import { registerTools } from "./register";
 import { agentTools, agentWriteTools } from "./tools/agents";
+import { browserTools } from "./tools/browser";
+import { computerTools } from "./tools/computer";
 import type { ToolDefinition } from "./tools/define";
 import { inboxTools } from "./tools/inbox";
 import { libraryTools } from "./tools/library";
@@ -15,6 +17,8 @@ import { slackTools } from "./tools/slack";
 import { triggerTools } from "./tools/triggers";
 
 export interface ServerOptions {
+  browser?: boolean;
+  computer?: { desktop: boolean };
   /** Record skipped writes without calling their ports. */
   dryRun?: {
     record: (skip: { summary: string; tool: string }) => Promise<void>;
@@ -49,8 +53,17 @@ const skillTools = (ports: McpPorts, readOnly: boolean): ToolDefinition[] =>
 /** Every tool this server offers, bound to the ports it calls. */
 export const harbourmasterTools = (
   ports: McpPorts,
-  { readOnly = false, mail = false }: ServerOptions = {}
+  {
+    readOnly = false,
+    mail = false,
+    computer,
+    browser = false,
+  }: ServerOptions = {}
 ): readonly ToolDefinition[] => [
+  ...(computer && !readOnly && ports.computer
+    ? computerTools(ports, computer)
+    : []),
+  ...(browser && !readOnly && ports.browser ? browserTools(ports) : []),
   ...agentTools(ports),
   ...(readOnly ? [] : agentWriteTools(ports)),
   ...sessionTools(ports),
@@ -66,7 +79,7 @@ export const harbourmasterTools = (
 const unusedPort = (): Promise<never> =>
   Promise.reject(new Error("Only the tool names are read."));
 
-/** The name of every tool except the mail tools, which register only on request, in the order they are registered. */
+/** Default tool names in registration order; mail, computer and browser groups require opt-in. */
 export const TOOL_NAMES = harbourmasterTools({
   approveSkillVersion: unusedPort,
   assignSkill: unusedPort,

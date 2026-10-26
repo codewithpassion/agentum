@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
+import { machines as machineRows } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { slackApps } from "@repo/db/schema/slack";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -232,6 +233,81 @@ describe("a request that ends during the start", () => {
       run.id,
       run.id,
     ]);
+  });
+});
+
+/** Adds a computer machine and attaches it to the test agent. */
+const attachComputer = (
+  capabilities: string | null,
+  status: "online" | "revoked" = "online"
+) => {
+  db.insert(machineRows)
+    .values({
+      capabilities: "{}",
+      computerCapabilities: capabilities,
+      computerStatus: "online",
+      createdAt: START,
+      credentialHash: "hash-m1",
+      enrolledBy: "user_dom",
+      id: "m1",
+      lastSeenAt: START,
+      name: "Desk",
+      singleUser: false,
+      status,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.update(agentRows)
+    .set({ computerMachineId: "m1" })
+    .where(eq(agentRows.id, agentId))
+    .run();
+};
+
+describe("the attached computer", () => {
+  test("an agent with no computer gets no computer in the start input", async () => {
+    await start();
+
+    const [input] = runner.startCalls;
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    expect("computer" in input).toBe(false);
+  });
+
+  test("an attached computer with desktop capability is passed to the runner", async () => {
+    attachComputer('{"desktop":true}');
+
+    await start();
+
+    const [input] = runner.startCalls;
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    expect(input.computer).toEqual({ desktop: true, machineId: "m1" });
+  });
+
+  test("an attached computer with null capabilities has no desktop", async () => {
+    attachComputer(null);
+
+    await start();
+
+    const [input] = runner.startCalls;
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    expect(input.computer).toEqual({ desktop: false, machineId: "m1" });
+  });
+
+  test("a revoked computer is not passed to the runner", async () => {
+    attachComputer('{"desktop":true}', "revoked");
+
+    await start();
+
+    const [input] = runner.startCalls;
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    expect("computer" in input).toBe(false);
   });
 });
 

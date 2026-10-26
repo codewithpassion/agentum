@@ -1,3 +1,4 @@
+import { type ReactNode, useMemo } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 
@@ -6,6 +7,11 @@ const linkClassName = "underline underline-offset-2";
 // Only Harbourmaster's own image routes. Absolute URLs never match: the host is unknown during SSR.
 const OWN_IMAGE_SRC =
   /^\/files\/[A-Za-z0-9_-]+$|^\/api\/library\/download\?[^\s#]*$/;
+
+export interface MarkdownLinkProps {
+  children?: ReactNode;
+  href?: string;
+}
 
 const components: Components = {
   a: ({ href, children }) => (
@@ -62,11 +68,31 @@ const components: Components = {
   ),
 };
 
-/** Renders markdown as styled, sanitised HTML. Raw HTML in the source is dropped. */
-export function Markdown({ children }: { children: string }) {
+function linkRenderer(
+  renderLink: (props: MarkdownLinkProps) => ReactNode
+): Components["a"] {
+  return ({ href, children }) => renderLink({ children, href });
+}
+
+/**
+ * Renders markdown as styled, sanitised HTML. Raw HTML in the source is dropped.
+ * `renderLink` replaces the default anchor; pass a stable function.
+ */
+export function Markdown({
+  children,
+  renderLink,
+}: {
+  children: string;
+  renderLink?: (props: MarkdownLinkProps) => ReactNode;
+}) {
+  const mergedComponents = useMemo<Components>(
+    () =>
+      renderLink ? { ...components, a: linkRenderer(renderLink) } : components,
+    [renderLink]
+  );
   return (
     <div className="min-w-0 break-words">
-      <ReactMarkdown components={components} skipHtml>
+      <ReactMarkdown components={mergedComponents} skipHtml>
         {children}
       </ReactMarkdown>
     </div>

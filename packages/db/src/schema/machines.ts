@@ -27,10 +27,12 @@ export const machines = sqliteTable("machines", {
   // Presence of the computer role. Null when the machine has no computer role.
   computerStatus: text("computer_status", { enum: COMPUTER_STATUSES }),
   createdAt: createdAt(),
-  // The daemon's credential, always the hash of a bearer token. A computer-only
-  // machine gets the hash of 32 random bytes nobody is shown, so no bearer
-  // token hashes to it and the machine has no usable daemon credential. Computer
-  // credentials live in `machine_credentials`, never here.
+  // The daemon's credential, the hash of a bearer token. A computer-only machine
+  // gets `computer-only:` plus 32 random bytes nobody is shown. A SHA-256 hash is
+  // lowercase hex, so no bearer token hashes to it, the machine has no usable
+  // daemon credential, and the machines service reads the prefix to leave
+  // `agent_host` out of its `roles`. Computer credentials live in
+  // `machine_credentials`, never here.
   credentialHash: text("credential_hash").notNull(),
   // Clerk user who enrolled the machine.
   enrolledBy: text("enrolled_by").notNull(),

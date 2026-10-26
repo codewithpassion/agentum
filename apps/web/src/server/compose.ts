@@ -79,6 +79,8 @@ import {
 } from "@repo/services/machines";
 import { createMachineRuntime } from "@repo/services/machines/runtime";
 import type { MachineRelayPort } from "@repo/services/machines/types";
+import { createMailService, type MailService } from "@repo/services/mail";
+import type { EmailRoutingPort, MailboxPort } from "@repo/services/mail/types";
 import { ENVIRONMENT_NAME } from "@repo/services/managed/config";
 import {
   connectManagedGateway,
@@ -219,6 +221,9 @@ export interface Infra {
   fileBlobs: FileBlobs;
   /** Where the workspace library keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
   libraryBlobs?: LibraryBlobs;
+  mailbox?: MailboxPort;
+  mailDomain?: string;
+  mailRouting?: EmailRoutingPort;
   /** The Managed Agents gateway on a workspace's key. Without it, managed runs fail their step. */
   managedGatewayFor?: ManagedServiceOptions["gatewayFor"];
   /** Wakes the poller of a managed run. Without it, `managed` agents cannot run. */
@@ -266,6 +271,7 @@ export interface Services {
   libraryAccess: LibraryAccessService;
   libraryLinks: LibraryLinksService;
   machines: MachinesService;
+  mail: MailService;
   managed: ManagedService;
   managedKeys: ManagedKeysService;
   map: MapService;
@@ -376,6 +382,15 @@ export const composeWith = ({
     people: infra.people,
   });
   const agents = createAgentsService({ db, events });
+  const mail = createMailService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    domain: infra.mailDomain,
+    events,
+    mailbox: infra.mailbox,
+    routing: infra.mailRouting,
+  });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
   // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
   const connectorFetch: Fetcher =
@@ -450,6 +465,7 @@ export const composeWith = ({
   const runSkills = createRunSkillsService({ skillsStore });
   const machines = createMachinesService({
     allowedOrgIds,
+    atomic: infra.atomic,
     clock: infra.clock,
     db,
     events,
@@ -642,6 +658,7 @@ export const composeWith = ({
     agents,
     connectors,
     fetch: connectorFetch,
+    libraryAccess,
     machines,
     managedKeys,
     modelKeys,
@@ -692,6 +709,7 @@ export const composeWith = ({
       libraryAccess,
       libraryLinks,
       machines,
+      mail,
       managed,
       managedKeys,
       map,
