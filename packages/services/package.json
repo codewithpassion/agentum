@@ -66,6 +66,7 @@
     "./run-tokens": "./src/run-tokens.ts",
     "./routines": "./src/routines.ts",
     "./routines/cron": "./src/routines/cron.ts",
+    "./qa": "./src/qa.ts",
     "./requests": "./src/requests.ts",
     "./runs": "./src/runs.ts",
     "./runs/types": "./src/runs/types.ts",

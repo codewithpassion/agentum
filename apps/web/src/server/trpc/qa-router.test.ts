@@ -44,23 +44,43 @@ const callerFor = async (
 
 test("Q&A router delegates the complete board lifecycle", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
-  const question = await caller.qa.ask({ title: "Where?", body: "Which harbour?" });
-  const answer = await caller.qa.answer({ questionId: question.id, body: "Sydney" });
-  expect((await caller.qa.get({ questionId: question.id })).answers).toEqual([answer]);
-  expect((await caller.qa.list({ status: "open", author: "user_1" })).questions).toHaveLength(1);
+  const question = await caller.qa.ask({
+    body: "Which harbour?",
+    title: "Where?",
+  });
+  const answer = await caller.qa.answer({
+    body: "Sydney",
+    questionId: question.id,
+  });
+  expect((await caller.qa.get({ questionId: question.id })).answers).toEqual([
+    answer,
+  ]);
+  expect(
+    (await caller.qa.list({ author: "user_1", status: "open" })).questions
+  ).toHaveLength(1);
   expect(await caller.qa.openCount()).toBe(1);
-  expect(await caller.qa.accept({ questionId: question.id, answerId: answer.id })).toMatchObject({ status: "answered" });
+  expect(
+    await caller.qa.accept({ answerId: answer.id, questionId: question.id })
+  ).toMatchObject({ status: "answered" });
   expect(await caller.qa.openCount()).toBe(0);
-  expect(await caller.qa.close({ questionId: question.id })).toMatchObject({ status: "closed" });
+  expect(await caller.qa.close({ questionId: question.id })).toMatchObject({
+    status: "closed",
+  });
 });
 
 test("router isolates workspaces and requires a session", async () => {
   const owner = await callerFor({ orgId: "org_a", userId: "user_1" });
-  const question = await owner.qa.ask({ title: "Private", body: "Question" });
+  const question = await owner.qa.ask({ body: "Question", title: "Private" });
   const other = await callerFor({ orgId: "org_b", userId: "user_2" });
   expect((await other.qa.list({})).questions).toEqual([]);
-  await expect(other.qa.get({ questionId: question.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(other.qa.get({ questionId: question.id })).rejects.toMatchObject(
+    { code: "NOT_FOUND" }
+  );
   const anonymous = await callerFor({ userId: null });
-  await expect(anonymous.qa.list({})).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-  await expect(owner.qa.ask({ title: "", body: "invalid" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(anonymous.qa.list({})).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(
+    owner.qa.ask({ body: "invalid", title: "" })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });

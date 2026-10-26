@@ -33,6 +33,7 @@ export const SESSION_ORIGINS = [
   "slack",
   "mail",
   "inbox",
+  "qa",
   "routine",
   "trigger",
   "mcp",
