@@ -1,4 +1,5 @@
 // Runtime lane tRPC procedures. The lane adds its routers here and nowhere else.
+import { agentProfileRouter } from "./agent-profile-router.ts";
 import { agentsRouter } from "./agents-router.ts";
 import { deskRouter } from "./desk-router.ts";
 import { eventsRouter } from "./events-router.ts";
@@ -18,6 +19,7 @@ import { slackAppsRouter } from "./slack-apps-router.ts";
 import { tasksRouter } from "./tasks-router.ts";
 
 export const runtimeRouter = router({
+  agentProfile: agentProfileRouter,
   agents: agentsRouter,
   desk: deskRouter,
   events: eventsRouter,

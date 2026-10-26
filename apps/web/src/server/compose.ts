@@ -7,6 +7,10 @@
 import type { Database } from "@repo/db";
 import { type Atomic, d1Atomic } from "@repo/db/atomic";
 import type { ModelProvider } from "@repo/db/shared";
+import {
+  type AgentProfileService,
+  createAgentProfileService,
+} from "@repo/services/agent-profile";
 import { type AgentsService, createAgentsService } from "@repo/services/agents";
 import {
   type ApiKeysService,
@@ -230,6 +234,7 @@ export interface Infra {
 }
 
 export interface Services {
+  agentProfile: AgentProfileService;
   agents: AgentsService;
   apiKeys: ApiKeysService;
   connectorOAuth: ConnectorOAuthService;
@@ -598,6 +603,19 @@ export const composeWith = ({
     skillsStore,
     triggers,
   });
+  const agentProfile = createAgentProfileService({
+    agents,
+    connectors,
+    db,
+    machines,
+    requests,
+    routines,
+    secrets,
+    skillsStore,
+    slackApps,
+    tasks,
+    triggers,
+  });
   const deskApi = createDeskApiService({
     agents,
     db,
@@ -612,6 +630,7 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     services: {
+      agentProfile,
       agents,
       apiKeys,
       connectorOAuth,

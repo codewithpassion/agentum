@@ -1,0 +1,484 @@
+/**
+ * The agent profile page in one read, and the "Ask me before it..." switches.
+ * It composes the services that already answer each row, so it holds no
+ * queries of its own except the one for the run an agent is paused on.
+ * Reads and writes are for a signed-in person: the underlying services refuse
+ * a run or the system principal for most of them.
+ */
+import type { Database } from "@repo/db";
+import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
+import {
+  type AgentRuntime,
+  type AgentStatus,
+  isPendingProposal,
+  type MachineStatus,
+  type SecretMode,
+  type SlackAppStatus,
+  type SlackListenMode,
+} from "@repo/db/shared";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { z } from "zod";
+import { gateableActions } from "./agent-profile/ask-before.ts";
+import type { AgentRecord, AgentsService } from "./agents.ts";
+import { authorize, ForbiddenError } from "./authz.ts";
+import type { ConnectorsService } from "./connectors.ts";
+import { ServiceError } from "./errors.ts";
+import { agentHomePath } from "./library/home.ts";
+import { libraryPathsOf } from "./library/sync-paths.ts";
+import type { MachinesService } from "./machines.ts";
+import type { RequestsService } from "./requests.ts";
+import type { RoutinesService } from "./routines.ts";
+import type { SecretsService } from "./secrets.ts";
+import { visibleSessions } from "./sessions.ts";
+import type { SkillsStoreService } from "./skills-store.ts";
+import type { SlackAppsService } from "./slack-apps.ts";
+import type { TaskListItem, TasksService } from "./tasks/service.ts";
+import type { TriggersService } from "./triggers.ts";
+import type { Principal } from "./workspaces.ts";
+
+const READ_ACTION = "agent_profile.read";
+const WRITE_ACTION = "agent_profile.ask_before";
+const AGENT_KIND = "agent";
+const RECENT_TASKS = 5;
+
+const id = z.string().min(1).max(200);
+export const profileInputSchema = z.strictObject({ agentId: id });
+export const askBeforeInputSchema = profileInputSchema;
+export const setAskBeforeInputSchema = z.strictObject({
+  action: id,
+  agentId: id,
+  ask: z.boolean(),
+});
+export type ProfileInput = z.input<typeof profileInputSchema>;
+export type SetAskBeforeInput = z.input<typeof setAskBeforeInputSchema>;
+
+export interface AgentRef {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface ProfileHeader {
+  emailLocal: string | null;
+  id: string;
+  machine: { id: string; name: string; status: MachineStatus } | null;
+  model: string;
+  name: string;
+  runtime: AgentRuntime;
+  slug: string;
+  status: AgentStatus;
+  /** The newest run waiting on a person, if there is one. */
+  waitingRun: { createdAt: string; runId: string; sessionId: string } | null;
+}
+
+export interface ProfileConnector {
+  /** Tool names the agent may use, null for every tool. */
+  allowedTools: string[] | null;
+  connectorId: string;
+  name: string;
+  status: string;
+  toolCount: number;
+}
+
+/** A granted secret as a chip. The value is never read. */
+export interface ProfileSecret {
+  id: string;
+  mode: SecretMode;
+  name: string;
+}
+
+export interface ProfileSkill {
+  name: string;
+  pinnedVersion: number | null;
+  /** The newest version waiting for a decision, if any. */
+  proposedVersion: number | null;
+  skillId: string;
+}
+
+export interface ProfileTrigger {
+  id: string;
+  lastFiredAt: string | null;
+  name: string;
+  paused: boolean;
+}
+
+export interface ProfileRoutine extends ProfileTrigger {
+  cron: string;
+  nextRunAt: string | null;
+  timezone: string;
+}
+
+export interface ProfileSlackApp {
+  id: string;
+  listenMode: SlackListenMode;
+  status: SlackAppStatus;
+}
+
+export interface ProfileFolder {
+  access: "read_write";
+  /** The agent's own folder. */
+  home: boolean;
+  path: string;
+}
+
+export interface AgentProfile {
+  channels: {
+    /** Reserved until the mailbox arrives. */
+    email: "reserved";
+    slack: ProfileSlackApp | null;
+  };
+  /** The instructions. */
+  does: string;
+  handsTo: AgentRef[];
+  header: ProfileHeader;
+  library: { folders: ProfileFolder[] };
+  receivesFrom: AgentRef[];
+  recentTasks: TaskListItem[];
+  skills: ProfileSkill[];
+  startsOn: {
+    routines: ProfileRoutine[];
+    slackMention: ProfileSlackApp | null;
+    triggers: ProfileTrigger[];
+  };
+  tools: { connectors: ProfileConnector[]; secrets: ProfileSecret[] };
+  /** The soul. */
+  voice: string;
+}
+
+export interface AskBeforeAction {
+  /** The rule key. */
+  action: string;
+  /** True when the agent waits for a person before doing it. */
+  ask: boolean;
+  kind: "builtin" | "connector";
+  /** "Xero: create bill". */
+  label: string;
+}
+
+type UserPrincipal = Extract<Principal, { kind: "user" }>;
+
+const toRef = ({ id: refId, name, slug }: AgentRecord): AgentRef => ({
+  id: refId,
+  name,
+  slug,
+});
+
+export const createAgentProfileService = ({
+  agents,
+  connectors,
+  db,
+  machines,
+  requests,
+  routines,
+  secrets,
+  skillsStore,
+  slackApps,
+  tasks,
+  triggers,
+}: {
+  agents: Pick<AgentsService, "get" | "list">;
+  connectors: Pick<ConnectorsService, "assignments" | "list">;
+  db: Database;
+  machines: Pick<MachinesService, "list">;
+  requests: Pick<RequestsService, "listRules" | "removeRule" | "setRule">;
+  routines: Pick<RoutinesService, "list">;
+  secrets: Pick<SecretsService, "grantsOf" | "list">;
+  skillsStore: Pick<SkillsStoreService, "assignments" | "list" | "proposals">;
+  slackApps: Pick<SlackAppsService, "list">;
+  tasks: Pick<TasksService, "list">;
+  triggers: Pick<TriggersService, "list">;
+}) => {
+  const requireUser = (principal: Principal, action: string): UserPrincipal => {
+    if (principal.kind !== "user") {
+      throw new ForbiddenError(action);
+    }
+    return principal;
+  };
+
+  /** The agent, or not_found for one that is missing or still a draft. */
+  const loadAgent = async (
+    user: UserPrincipal,
+    action: string,
+    agentId: string
+  ): Promise<AgentRecord> => {
+    authorize(user, action, {
+      id: agentId,
+      kind: AGENT_KIND,
+      workspaceId: user.workspaceId,
+    });
+    const agent = await agents.get(user, agentId);
+    if (agent.status === "draft") {
+      throw new ServiceError("not_found", "Agent not found");
+    }
+    return agent;
+  };
+
+  const waitingRunOf = async (
+    user: UserPrincipal,
+    agentId: string
+  ): Promise<ProfileHeader["waitingRun"]> => {
+    const [row] = await db
+      .select({
+        createdAt: runs.createdAt,
+        runId: runs.id,
+        sessionId: runs.sessionId,
+      })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.workspaceId, user.workspaceId),
+          eq(runs.agentId, agentId),
+          eq(runs.status, "waiting"),
+          inArray(
+            runs.sessionId,
+            db
+              .select({ id: sessions.id })
+              .from(sessions)
+              .where(await visibleSessions(db, user))
+          )
+        )
+      )
+      .orderBy(desc(runs.id))
+      .limit(1);
+    return row ?? null;
+  };
+
+  const skillRows = async (
+    user: UserPrincipal,
+    agentId: string
+  ): Promise<ProfileSkill[]> => {
+    const [assigned, all, proposed] = await Promise.all([
+      skillsStore.assignments(user),
+      skillsStore.list(user),
+      skillsStore.proposals(user),
+    ]);
+    const names = new Map(all.map((skill) => [skill.id, skill.name]));
+    // `proposals` is newest first, so the first version seen per skill is the newest.
+    const proposedBySkill = new Map<string, number>();
+    for (const version of proposed) {
+      if (!proposedBySkill.has(version.skillId)) {
+        proposedBySkill.set(version.skillId, version.number);
+      }
+    }
+    return assigned
+      .filter((row) => row.agentId === agentId && names.has(row.skillId))
+      .map((row) => ({
+        name: names.get(row.skillId) ?? row.skillId,
+        pinnedVersion: row.pinnedVersion,
+        proposedVersion: proposedBySkill.get(row.skillId) ?? null,
+        skillId: row.skillId,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  };
+
+  const toolRows = async (
+    user: UserPrincipal,
+    agentId: string
+  ): Promise<AgentProfile["tools"]> => {
+    const [assigned, all, grantIds, secretList] = await Promise.all([
+      connectors.assignments(user, { agentId }),
+      connectors.list(user),
+      secrets.grantsOf(user, agentId),
+      secrets.list(user),
+    ]);
+    const byId = new Map(all.map((connector) => [connector.id, connector]));
+    const granted = new Set(grantIds);
+    return {
+      connectors: assigned.flatMap((assignment) => {
+        const connector = byId.get(assignment.connectorId);
+        return connector
+          ? [
+              {
+                allowedTools: assignment.allowedTools,
+                connectorId: connector.id,
+                name: connector.name,
+                status: connector.status,
+                toolCount: connector.tools.length,
+              },
+            ]
+          : [];
+      }),
+      secrets: secretList
+        .filter((secret) => granted.has(secret.id))
+        .map(({ id: secretId, mode, name }) => ({ id: secretId, mode, name })),
+    };
+  };
+
+  const startRows = async (user: UserPrincipal, agentId: string) => {
+    const [triggerList, routineList, appList] = await Promise.all([
+      triggers.list(user, { agentId }),
+      routines.list(user, { agentId }),
+      slackApps.list(user, { agentId }),
+    ]);
+    // A proposal waits in Needs you, and a revoked trigger is gone.
+    const liveTriggers = triggerList.filter(
+      (trigger) => trigger.revokedAt === null && !isPendingProposal(trigger)
+    );
+    const liveRoutines = routineList.filter(
+      (routine) => !isPendingProposal(routine)
+    );
+    const app = appList.find((candidate) => candidate.status !== "revoked");
+    const slack: ProfileSlackApp | null = app
+      ? { id: app.id, listenMode: app.listenMode, status: app.status }
+      : null;
+    return {
+      routines: liveRoutines.map(
+        (routine): ProfileRoutine => ({
+          cron: routine.cron,
+          id: routine.id,
+          lastFiredAt: routine.lastFiredAt,
+          name: routine.name,
+          nextRunAt: routine.nextRunAt,
+          paused: routine.disabledAt !== null,
+          timezone: routine.timezone,
+        })
+      ),
+      slack,
+      triggers: liveTriggers.map(
+        (trigger): ProfileTrigger => ({
+          id: trigger.id,
+          lastFiredAt: trigger.lastFiredAt,
+          name: trigger.name,
+          paused: trigger.disabledAt !== null,
+        })
+      ),
+    };
+  };
+
+  const profile = async (
+    principal: Principal,
+    raw: ProfileInput
+  ): Promise<AgentProfile> => {
+    const user = requireUser(principal, READ_ACTION);
+    const { agentId } = profileInputSchema.parse(raw);
+    const agent = await loadAgent(user, READ_ACTION, agentId);
+    const [
+      everyAgent,
+      machineList,
+      waitingRun,
+      toolList,
+      skillList,
+      starts,
+      recentTasks,
+    ] = await Promise.all([
+      agents.list(user, { includeArchived: true }),
+      agent.machineId === null ? Promise.resolve([]) : machines.list(user),
+      waitingRunOf(user, agent.id),
+      toolRows(user, agent.id),
+      skillRows(user, agent.id),
+      startRows(user, agent.id),
+      tasks.list(user, { agentId: agent.id, limit: RECENT_TASKS }),
+    ]);
+    const machine = machineList.find(
+      ({ id: machineId }) => machineId === agent.machineId
+    );
+    const byId = new Map(everyAgent.map((other) => [other.id, other]));
+    return {
+      channels: { email: "reserved", slack: starts.slack },
+      does: agent.instructions,
+      handsTo: agent.handsTo.flatMap((targetId) => {
+        const target = byId.get(targetId);
+        return target ? [toRef(target)] : [];
+      }),
+      header: {
+        emailLocal: agent.emailLocal,
+        id: agent.id,
+        machine: machine
+          ? { id: machine.id, name: machine.name, status: machine.status }
+          : null,
+        model: agent.model,
+        name: agent.name,
+        runtime: agent.runtime,
+        slug: agent.slug,
+        status: agent.status,
+        waitingRun,
+      },
+      library: {
+        folders: [
+          { access: "read_write", home: true, path: agentHomePath(agent.slug) },
+          ...libraryPathsOf(agent.runtimeConfig).map(
+            (path): ProfileFolder => ({
+              access: "read_write",
+              home: false,
+              path,
+            })
+          ),
+        ],
+      },
+      receivesFrom: everyAgent
+        .filter(
+          (other) => other.id !== agent.id && other.handsTo.includes(agent.id)
+        )
+        .map(toRef),
+      recentTasks,
+      skills: skillList,
+      startsOn: {
+        routines: starts.routines,
+        slackMention: starts.slack,
+        triggers: starts.triggers,
+      },
+      tools: toolList,
+      voice: agent.soul,
+    };
+  };
+
+  /** Each action the agent can be asked about, with whether it waits for a person today. */
+  const askBefore = async (
+    principal: Principal,
+    raw: ProfileInput
+  ): Promise<AskBeforeAction[]> => {
+    const user = requireUser(principal, READ_ACTION);
+    const { agentId } = askBeforeInputSchema.parse(raw);
+    const agent = await loadAgent(user, READ_ACTION, agentId);
+    const [assigned, all, rules] = await Promise.all([
+      connectors.assignments(user, { agentId: agent.id }),
+      connectors.list(user),
+      requests.listRules(user, { agentId: agent.id }),
+    ]);
+    const byId = new Map(all.map((connector) => [connector.id, connector]));
+    const assignedConnectors = assigned.flatMap((assignment) => {
+      const connector = byId.get(assignment.connectorId);
+      return connector
+        ? [
+            {
+              allowedTools: assignment.allowedTools,
+              name: connector.name,
+              tools: connector.tools,
+            },
+          ]
+        : [];
+    });
+    // A rule in mode "allow" (from Always allow) reads as off, the same as no rule.
+    const asking = new Set(
+      rules.filter((rule) => rule.mode === "ask").map((rule) => rule.toolKey)
+    );
+    return gateableActions(assignedConnectors).map((action) => ({
+      action: action.key,
+      ask: asking.has(action.key),
+      kind: action.kind,
+      label: action.label,
+    }));
+  };
+
+  /** Turns "ask me before" on or off. Off removes the rule, since no rule means allow. */
+  const setAskBefore = async (
+    principal: Principal,
+    raw: SetAskBeforeInput
+  ): Promise<void> => {
+    const user = requireUser(principal, WRITE_ACTION);
+    const { action, agentId, ask } = setAskBeforeInputSchema.parse(raw);
+    const agent = await loadAgent(user, WRITE_ACTION, agentId);
+    await (ask
+      ? requests.setRule(user, {
+          agentId: agent.id,
+          mode: "ask",
+          toolKey: action,
+        })
+      : requests.removeRule(user, { agentId: agent.id, toolKey: action }));
+  };
+
+  return { askBefore, profile, setAskBefore };
+};
+
+export type AgentProfileService = ReturnType<typeof createAgentProfileService>;
