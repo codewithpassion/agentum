@@ -25,6 +25,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import { redactToolPayload } from "./events/scrub.ts";
 import type { EventInput, EventsService } from "./events.ts";
+import { isMailApproval, notMailApproval } from "./mail/approval.ts";
 import {
   answerInputSchema,
   answerSchemas,
@@ -292,7 +293,11 @@ export const createRequestsService = ({
       .select({ id: runRequests.id })
       .from(runRequests)
       .where(
-        and(eq(runRequests.runId, runId), eq(runRequests.status, "pending"))
+        and(
+          eq(runRequests.runId, runId),
+          eq(runRequests.status, "pending"),
+          notMailApproval
+        )
       )
       .limit(1);
     if (!pending) {
@@ -464,12 +469,22 @@ export const createRequestsService = ({
       };
       await announce(row, "computer.takeover_requested", { ...payload });
     }
-    await runs.markWaiting(SYSTEM_PRINCIPAL, run.id);
-    // An append listener can answer before markWaiting; reconcile without delivering twice.
-    await markRunningIfSettled(run.id);
+    await waitForRuntime(row);
     return requestRecord(row);
   };
+  const waitForRuntime = async (row: RequestRow) => {
+    // Mail approvals outlive the run; the tool returns immediately.
+    if (isMailApproval(row)) {
+      return;
+    }
+    await runs.markWaiting(SYSTEM_PRINCIPAL, row.runId);
+    // An append listener may already have answered; reconcile its state.
+    await markRunningIfSettled(row.runId);
+  };
   const resume = async (row: RequestRow) => {
+    if (isMailApproval(row)) {
+      return;
+    }
     await markRunningIfSettled(row.runId);
     // Each closed request needs delivery even while another keeps the run waiting.
     await runs.resumeRequest(SYSTEM_PRINCIPAL, row.runId, requestRecord(row));
@@ -592,6 +607,7 @@ export const createRequestsService = ({
         and(
           eq(runRequests.runId, run.id),
           eq(runRequests.workspaceId, run.workspaceId),
+          notMailApproval,
           eq(runRequests.status, "pending")
         )
       )
