@@ -15,6 +15,7 @@
     "./cloud/types": "./src/cloud/types.ts",
     "./connector-oauth": "./src/connector-oauth.ts",
     "./connectors": "./src/connectors.ts",
+    "./connectors/mcp-servers": "./src/connectors/mcp-servers.ts",
     "./connectors/mcp": "./src/connectors/mcp.ts",
     "./connectors/test-seed": "./src/connectors/test-seed.ts",
     "./connectors/url": "./src/connectors/url.ts",

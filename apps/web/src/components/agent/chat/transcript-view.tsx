@@ -5,6 +5,8 @@ import { Message, MessageContent } from "#/components/ui/message.tsx";
 import type { FileInfo } from "#/integrations/trpc/types.ts";
 import type { ChatItem } from "./chat-logic.ts";
 import { FileChips } from "./file-chips.tsx";
+import { RequestCard } from "./request-card.tsx";
+import type { AnswerPayload, RequestView } from "./request-card-logic.ts";
 
 function ToolSection({ label, text }: { label: string; text: string }) {
   return (
@@ -95,12 +97,18 @@ export function TranscriptView({
   files,
   agentName,
   empty = "Send a message to start.",
+  nowMs = 0,
+  onAnswer,
 }: {
   items: ChatItem[];
   files: ReadonlyMap<string, FileInfo>;
   /** The agent whose output the assistant items show. Enables "Save to library" on their files. */
   agentName?: string;
   empty?: string;
+  /** The time the requests' expiry is counted from. */
+  nowMs?: number;
+  /** Sends the answer to a request card. Without it the transcript shows no requests. */
+  onAnswer?: (view: RequestView, payload: AnswerPayload) => Promise<void>;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const count = items.length;
@@ -117,18 +125,30 @@ export function TranscriptView({
 
   return (
     <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto">
-      {items.map((item) =>
-        item.kind === "tool" ? (
-          <ToolItem item={item} key={item.id} />
-        ) : (
-          <MessageItem
-            agentName={agentName}
-            files={files}
-            item={item}
-            key={item.id}
-          />
-        )
-      )}
+      {items.map((item) => {
+        switch (item.kind) {
+          case "tool":
+            return <ToolItem item={item} key={item.id} />;
+          case "request":
+            return onAnswer === undefined ? null : (
+              <RequestCard
+                key={item.id}
+                nowMs={nowMs}
+                onAnswer={onAnswer}
+                view={item.view}
+              />
+            );
+          default:
+            return (
+              <MessageItem
+                agentName={agentName}
+                files={files}
+                item={item}
+                key={item.id}
+              />
+            );
+        }
+      })}
       <div ref={endRef} />
     </div>
   );
