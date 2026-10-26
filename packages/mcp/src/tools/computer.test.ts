@@ -37,6 +37,23 @@ const call = (computer: ComputerPort, name: string, input: unknown = {}) => {
   return runSafely(async () => tool.run(tool.inputSchema.parse(input)));
 };
 describe("computer tools", () => {
+  test("reads and edits ask the port for at most MAX_READ_BYTES", async () => {
+    const limits: number[] = [];
+    const computer = port({
+      readFile: async ({ maxBytes }) => {
+        limits.push(maxBytes);
+        return { content: "one two", ok: true, size: 7 };
+      },
+    });
+    await call(computer, "computer_read_file", { path: "/a" });
+    await call(computer, "computer_edit_file", {
+      new_string: "x",
+      old_string: "one",
+      path: "/a",
+    });
+    expect(limits).toEqual([MAX_READ_BYTES, MAX_READ_BYTES]);
+  });
+
   test("capability lists omit native screenshots and takeover", () => {
     expect(computerTools({}, { desktop: true })).toEqual([]);
     const names = computerTools({ computer: port() }, { desktop: false }).map(

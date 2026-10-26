@@ -411,7 +411,9 @@ export interface ComputerPort {
       entries: { name: string; directory: boolean; size: number }[];
     }>
   >;
+  /** `maxBytes` is the most the adapter should fetch; it still reports the file's full `size`. */
   readFile: (input: {
+    maxBytes: number;
     path: string;
   }) => Promise<PortResult<{ content: string; size: number }>>;
   /** For native runtime tools; deliberately not registered as an MCP tool. */

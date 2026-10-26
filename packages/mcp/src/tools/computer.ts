@@ -121,7 +121,9 @@ export const computerTools = (
       inputSchema: pathInput,
       name: "computer_read_file",
       run: async ({ path }) => {
-        const result = portValue(await computer.readFile({ path }));
+        const result = portValue(
+          await computer.readFile({ maxBytes: MAX_READ_BYTES, path })
+        );
         if (result.size > MAX_READ_BYTES) {
           throw new ToolError(
             "validation",
@@ -157,20 +159,18 @@ export const computerTools = (
       }),
       name: "computer_edit_file",
       run: async ({ path, old_string, new_string }) => {
-        const result = portValue(await computer.readFile({ path }));
-        checkedContent(result.content, MAX_READ_BYTES);
+        const result = portValue(
+          await computer.readFile({ maxBytes: MAX_READ_BYTES, path })
+        );
         if (result.size > MAX_READ_BYTES) {
           throw new ToolError(
             "validation",
             "File is too large to edit; use computer_exec to edit a smaller section."
           );
         }
+        checkedContent(result.content, MAX_READ_BYTES);
         const index = result.content.indexOf(old_string);
-        if (
-          !old_string ||
-          index < 0 ||
-          result.content.indexOf(old_string, index + 1) >= 0
-        ) {
+        if (index < 0 || result.content.indexOf(old_string, index + 1) >= 0) {
           throw new ToolError(
             "conflict",
             "old_string must occur exactly once. Read the file and include more context before retrying."
