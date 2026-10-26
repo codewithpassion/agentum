@@ -745,13 +745,11 @@ describe("GET /stream", () => {
     };
 
     const resumed = await open({ "Last-Event-ID": lastId });
-    const frames = await readUntil(
-      resumed,
-      (seen) =>
-        seen.type === "request.opened" &&
-        seen.runId !== undefined &&
-        seen.runId === late?.runId
-    );
+    onSubscribe = () => undefined;
+    // The live copy of the late request is already queued. Reading on to a
+    // request opened after it shows the stream sends the late one only once.
+    const sentinel = await openApproval("t3", await anotherAgent("end-box"));
+    const frames = await readUntil(resumed, opened(sentinel.runId));
 
     const ids = frames.flatMap((seen) => (seen.id ? [seen.id] : []));
     expect(new Set(ids).size).toBe(ids.length);

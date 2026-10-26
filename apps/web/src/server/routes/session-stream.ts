@@ -120,40 +120,49 @@ export const relay = (
   const encoder = new TextEncoder();
   let buffer = "";
   let replaySent = false;
+  const pullOnce = async (
+    controller: ReadableStreamDefaultController<Uint8Array>
+  ): Promise<void> => {
+    if (!replaySent) {
+      replaySent = true;
+      if (replayed.text !== "") {
+        controller.enqueue(encoder.encode(replayed.text));
+        return;
+      }
+    }
+    for (;;) {
+      // biome-ignore lint/performance/noAwaitInLoops: the live body is read one chunk at a time
+      const { done, value } = await reader.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split(SSE_BLOCK_END);
+      buffer = blocks.pop() ?? "";
+      const fresh = blocks.filter((block) => !isReplayed(block, replayed.ids));
+      const kept = await Promise.all(
+        fresh.map((block) => keep?.(block) ?? true)
+      );
+      const forward = fresh
+        .filter((_block, index) => kept[index])
+        .map((block) => `${block}${SSE_BLOCK_END}`)
+        .join("");
+      if (forward !== "") {
+        controller.enqueue(encoder.encode(forward));
+        return;
+      }
+    }
+  };
   return new ReadableStream<Uint8Array>({
     cancel: (reason) => reader.cancel(reason),
     pull: async (controller) => {
-      if (!replaySent) {
-        replaySent = true;
-        if (replayed.text !== "") {
-          controller.enqueue(encoder.encode(replayed.text));
-          return;
-        }
-      }
-      for (;;) {
-        // biome-ignore lint/performance/noAwaitInLoops: the live body is read one chunk at a time
-        const { done, value } = await reader.read();
-        if (done) {
-          controller.close();
-          return;
-        }
-        buffer += decoder.decode(value, { stream: true });
-        const blocks = buffer.split(SSE_BLOCK_END);
-        buffer = blocks.pop() ?? "";
-        const fresh = blocks.filter(
-          (block) => !isReplayed(block, replayed.ids)
-        );
-        const kept = await Promise.all(
-          fresh.map((block) => keep?.(block) ?? true)
-        );
-        const forward = fresh
-          .filter((_block, index) => kept[index])
-          .map((block) => `${block}${SSE_BLOCK_END}`)
-          .join("");
-        if (forward !== "") {
-          controller.enqueue(encoder.encode(forward));
-          return;
-        }
+      try {
+        await pullOnce(controller);
+      } catch (error: unknown) {
+        // A failed pull does not run `cancel`, so end the subscription here.
+        await reader.cancel(error).catch(() => undefined);
+        throw error;
       }
     },
   });
