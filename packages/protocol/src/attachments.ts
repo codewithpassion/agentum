@@ -1,21 +1,9 @@
-// The `[ATTACHMENT:path]` marker convention, shared by the daemon and the web chat.
-//
-// An agent hands a file back to the chat by writing `[ATTACHMENT:path]` in its
-// reply. Skills rely on this exact syntax, so the pattern below is the contract.
-//
-// The workspace instructions builder lives here too, since it ends with the same marker line.
+// Shared workspace instructions and legacy `[ATTACHMENT:path]` parsing.
+// Runtimes move to task folders independently; old transcripts still use markers.
+
+import type { LibraryAccessGrant } from "@repo/db/shared";
 
 export const ATTACHMENT_MARKER_RE = /\[ATTACHMENT:([^\]]+)\]/g;
-/** Write a marker for `path`, the inverse of what `ATTACHMENT_MARKER_RE` reads. */
-export const formatAttachmentMarker = (path: string): string =>
-  `[ATTACHMENT:${path}]`;
-
-/**
- * The sentences that tell an agent how to return a file. Built from
- * `formatAttachmentMarker` so the wording and the parser cannot drift.
- */
-export const attachmentInstructions = (workDir: string): string =>
-  `To give the user a file, write it inside your work directory (${workDir}) and put ${formatAttachmentMarker("<absolute path>")} on its own line in your final answer.`;
 
 /** When the files in a runtime's scratch area disappear. */
 export type ScratchLifetime =
@@ -42,12 +30,18 @@ export interface WorkspaceInstructionsInput {
   homeIsLocal: boolean;
   /** The library folder on the agent's disk, or null when it is reached with the library tools only. */
   library: string | null;
+  /** True when changes to the local library copy sync within seconds. Default false. */
+  liveSync?: boolean;
+  /** Access modes for library roots; nonempty roots take precedence over syncedPaths. */
+  roots?: readonly LibraryAccessGrant[];
   /** True when the agent has the `run_script` tool, which only isolate agents have. Default false. */
   runScript?: boolean;
   /** The temporary area. `path` is null when the runtime has no scratch folder. */
   scratch: { path: string | null; lasts: ScratchLifetime };
   /** Library paths copied to the `library` folder. Only read when `library` is a path. */
   syncedPaths?: readonly string[];
+  /** Where to save user files: a local folder, or a library path without a local copy. */
+  taskFolder?: string;
 }
 
 const SCRATCH_ENDS: Record<ScratchLifetime, string> = {
@@ -79,14 +73,40 @@ const scratchLine = ({
 
 const libraryLine = ({
   library,
+  liveSync,
+  roots,
   syncedPaths,
 }: WorkspaceInstructionsInput): string => {
-  if (library && syncedPaths && syncedPaths.length > 0) {
-    return `- Library: ${library} holds a synced copy of ${syncedPaths.join(", ")} from the workspace library. The library is shared with every agent and person in this workspace and kept for good. Your changes go back to it when your run ends. If someone changed the same file meanwhile, their version stays and yours is saved next to it as <file>.conflict-<runId>. The rest of the library is not on your disk, so reach it with the library tools.`;
+  // Mode-bearing roots win when supplied; an empty list keeps legacy callers' wording.
+  const rootList = roots?.length
+    ? roots.map(({ path, mode }) => `${path} (${mode})`).join(", ")
+    : undefined;
+  const paths = rootList ?? syncedPaths?.join(", ");
+  if (library && paths) {
+    const when = liveSync ? "within seconds" : "when your run ends";
+    return `- Library: ${library} holds a synced copy of ${paths} from the workspace library. The library is shared with every agent and person in this workspace and kept for good. Your changes go back to it ${when}. If someone changed the same file meanwhile, their version stays and yours is saved next to it as <file>.conflict-<runId>. The rest of the library is not on your disk, so reach it with the library tools.`;
   }
+  const access = rootList ? ` Your access to library roots: ${rootList}.` : "";
   return library
-    ? `- Library: ${library}. It is shared with every agent and person in this workspace and kept for good. Put finished work that people or other agents should see there.`
-    : "- Library: the workspace library. It is shared with every agent and person in this workspace and kept for good. It is not a folder on your disk, so reach it with the library tools. Put finished work that people or other agents should see there.";
+    ? `- Library: ${library}. It is shared with every agent and person in this workspace and kept for good. Put finished work that people or other agents should see there.${access}`
+    : `- Library: the workspace library. It is shared with every agent and person in this workspace and kept for good. It is not a folder on your disk, so reach it with the library tools. Put finished work that people or other agents should see there.${access}`;
+};
+
+const userFilesLines = ({
+  attachments,
+  taskFolder,
+}: WorkspaceInstructionsInput): string[] => {
+  // attachments only controls legacy markers; task folders work without marker parsing.
+  if (taskFolder !== undefined) {
+    return [
+      `Save files for the user in ${taskFolder}. Everything there shows in the task's Files panel.`,
+    ];
+  }
+  return attachments === false
+    ? []
+    : [
+        "To give the user a file, put [ATTACHMENT:<absolute path>] on its own line in your final answer.",
+      ];
 };
 
 const conflictsLines = ({
@@ -106,9 +126,9 @@ const conflictsLines = ({
 
 /**
  * The files section of an agent's system prompt: the same three areas (home,
- * scratch, library) and the attachment line, worded for what each runtime has.
- * A library that is not local is never given a path, so an agent cannot
- * mistake it for a working directory.
+ * scratch, library) and user file guidance, worded for what each runtime has.
+ * A library that is not local is explicitly reached with library tools, so
+ * its paths cannot be mistaken for local working directories.
  */
 export const workspaceInstructions = (
   input: WorkspaceInstructionsInput
@@ -119,11 +139,7 @@ export const workspaceInstructions = (
     scratchLine(input),
     libraryLine(input),
     ...conflictsLines(input),
-    ...(input.attachments === false
-      ? []
-      : [
-          `To give the user a file, put ${formatAttachmentMarker("<absolute path>")} on its own line in your final answer.`,
-        ]),
+    ...userFilesLines(input),
     ...(input.runScript ? ["", RUN_SCRIPT_PARAGRAPH] : []),
   ].join("\n");
 

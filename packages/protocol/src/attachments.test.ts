@@ -91,7 +91,11 @@ describe("workspaceInstructions", () => {
       [managed, "agents/support/tasks/task-1/"],
     ] as const) {
       for (const attachments of [undefined, false, true]) {
-        const text = workspaceInstructions({ ...input, attachments, taskFolder });
+        const text = workspaceInstructions({
+          ...input,
+          attachments,
+          taskFolder,
+        });
         expect(text).toContain(
           `Save files for the user in ${taskFolder}. Everything there shows in the task's Files panel.`
         );
@@ -123,7 +127,11 @@ describe("workspaceInstructions", () => {
       { roots: [{ mode: "write" as const, path: "agents/support" }] },
       { syncedPaths: ["agents/support"] },
     ]) {
-      const text = workspaceInstructions({ ...isolate, ...paths, liveSync: true });
+      const text = workspaceInstructions({
+        ...isolate,
+        ...paths,
+        liveSync: true,
+      });
       expect(text).toContain("Your changes go back to it within seconds.");
       expect(text).not.toContain("when your run ends");
     }
