@@ -4,6 +4,12 @@ import type { TickJob } from "./registry.ts";
 export const libraryJobs: readonly TickJob[] = [
   {
     name: "library.prune-versions",
-    run: ({ clock, services }) => services.library.pruneVersions(clock.now()),
+    // Hourly, on the hour (UTC): the retention windows are days long.
+    run: ({ clock, services }) => {
+      const now = clock.now();
+      return now.getUTCMinutes() === 0
+        ? services.library.pruneVersions(now)
+        : Promise.resolve();
+    },
   },
 ];

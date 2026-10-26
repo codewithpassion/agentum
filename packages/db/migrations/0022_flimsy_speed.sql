@@ -1,0 +1,1 @@
+CREATE INDEX `library_versions_created_at_idx` ON `library_versions` (`created_at`);

@@ -7,7 +7,7 @@ import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import type { Clock } from "@repo/services/runs/types";
-import { composeWith } from "../compose.ts";
+import { composeWith, type Services } from "../compose.ts";
 import { tickJobs } from "./jobs.ts";
 import { runTick, type TickDeps, type TickJob } from "./registry.ts";
 
@@ -141,7 +141,7 @@ test("the library version prune drops an expired deleted file's history", async 
   expect(db.select().from(libraryVersions).all()).toHaveLength(2);
 
   const job = tickJobs.find((item) => item.name === "library.prune-versions");
-  const later = new Date(NOW.getTime() + 31 * 86_400_000);
+  const later = new Date("2026-11-16T10:00:00.000Z");
   const report = await runTick(job ? [job] : [], {
     ...deps,
     clock: { ...deps.clock, now: () => later },
@@ -149,6 +149,32 @@ test("the library version prune drops an expired deleted file's history", async 
 
   expect(report.jobs).toEqual([{ name: "library.prune-versions", ok: true }]);
   expect(db.select().from(libraryVersions).all()).toEqual([]);
+});
+
+test("a tick off the prune slot does not call pruneVersions", async () => {
+  const job = tickJobs.find((item) => item.name === "library.prune-versions");
+  const calls: Date[] = [];
+  const services = {
+    ...deps.services,
+    library: {
+      ...deps.services.library,
+      pruneVersions: (now: Date) => {
+        calls.push(now);
+        return Promise.resolve();
+      },
+    },
+  } as unknown as Services;
+  const at = (iso: string): TickDeps => ({
+    clock: { ...deps.clock, now: () => new Date(iso) },
+    services,
+  });
+
+  await runTick(job ? [job] : [], at("2026-11-16T10:01:00.000Z"));
+  await runTick(job ? [job] : [], at("2026-11-16T10:30:00.000Z"));
+  expect(calls).toEqual([]);
+
+  await runTick(job ? [job] : [], at("2026-11-16T10:00:00.000Z"));
+  expect(calls).toHaveLength(1);
 });
 
 test("the registered jobs append nothing to events when none has work", async () => {

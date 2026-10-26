@@ -6,10 +6,15 @@ import {
   LIBRARY_VERSION_KEEP_DAYS,
   LIBRARY_VERSION_KEEP_MIN,
 } from "@repo/db/shared";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, lte, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ServiceError } from "../errors.ts";
 import type { LibraryBlobs } from "../library.ts";
+
+/** Rows per delete, under D1's bound-parameter limit. */
+const PRUNE_BATCH = 90;
+/** Expired-delete files read per query. */
+const PRUNE_PAGE = 50;
 
 export type VersionRow = typeof libraryVersions.$inferSelect;
 type EntryRow = typeof libraryEntries.$inferSelect;
@@ -139,51 +144,120 @@ export const createVersionStore = ({
     ];
   };
 
+  // Correlated subqueries over the (workspace, path, version) unique index.
+  const inSameFile = sql`newer.workspace_id = ${libraryVersions.workspaceId} and newer.path = ${libraryVersions.path}`;
+
+  const dropRows = async (
+    batch: { blobKey: string | null; id: string }[]
+  ): Promise<void> => {
+    // Delete objects first: if storage fails, the rows remain for the next tick.
+    await blobs.delete(
+      batch.flatMap((version) => (version.blobKey ? [version.blobKey] : []))
+    );
+    await atomic([
+      db.delete(libraryVersions).where(
+        inArray(
+          libraryVersions.id,
+          batch.map((version) => version.id)
+        )
+      ),
+    ]);
+  };
+
+  /**
+   * Deletes a file's history up to its tombstone, oldest first so the
+   * tombstone goes last and a failed prune can resume. A version written after
+   * the tombstone (the file came back mid-prune) is not part of that history.
+   */
+  const dropHistory = async (
+    workspaceId: string,
+    path: string,
+    tombstone: number
+  ): Promise<void> => {
+    for (;;) {
+      const batch = await db
+        .select({ blobKey: libraryVersions.blobKey, id: libraryVersions.id })
+        .from(libraryVersions)
+        .where(
+          and(
+            eq(libraryVersions.workspaceId, workspaceId),
+            eq(libraryVersions.path, path),
+            lte(libraryVersions.version, tombstone)
+          )
+        )
+        .orderBy(libraryVersions.version)
+        .limit(PRUNE_BATCH);
+      if (batch.length === 0) {
+        return;
+      }
+      await dropRows(batch);
+    }
+  };
+
+  /** An expired delete ends the entire history, overriding the minimum count. */
+  const pruneExpiredDeletes = async (cutoff: string): Promise<void> => {
+    for (;;) {
+      const files = await db
+        .select({
+          path: libraryVersions.path,
+          version: libraryVersions.version,
+          workspaceId: libraryVersions.workspaceId,
+        })
+        .from(libraryVersions)
+        .where(
+          and(
+            eq(libraryVersions.op, "delete"),
+            lt(libraryVersions.createdAt, cutoff),
+            sql`${libraryVersions.version} = (select max(newer.version) from library_versions as newer where ${inSameFile})`
+          )
+        )
+        .limit(PRUNE_PAGE);
+      if (files.length === 0) {
+        return;
+      }
+      for (const { path, version, workspaceId } of files) {
+        await dropHistory(workspaceId, path, version);
+      }
+    }
+  };
+
+  /**
+   * Past the newest KEEP_MIN of a file, a version expires with its age.
+   * Ordered by `created_at` so SQLite walks the index. Only rows with at
+   * least KEEP_MIN newer versions are deleted, so the newest KEEP_MIN are never touched.
+   */
+  const pruneExcessVersions = async (cutoff: string): Promise<void> => {
+    for (;;) {
+      const batch = await db
+        .select({ blobKey: libraryVersions.blobKey, id: libraryVersions.id })
+        .from(libraryVersions)
+        .where(
+          and(
+            lt(libraryVersions.createdAt, cutoff),
+            sql`(select count(*) from library_versions as newer where ${inSameFile} and newer.version > ${libraryVersions.version}) >= ${LIBRARY_VERSION_KEEP_MIN}`
+          )
+        )
+        .orderBy(libraryVersions.createdAt, libraryVersions.version)
+        .limit(PRUNE_BATCH);
+      if (batch.length === 0) {
+        return;
+      }
+      await dropRows(batch);
+    }
+  };
+
+  /**
+   * Finds candidates through the `created_at` index, so it reads rows older
+   * than the cutoff, plus the files of expired tombstones. Each pass reads one
+   * batch, deletes its blobs, then its rows, so a failed pass leaves the rows
+   * for the next one.
+   */
   const prune = async (now: Date): Promise<void> => {
     const cutoff = new Date(
       now.getTime() - LIBRARY_VERSION_KEEP_DAYS * 86_400_000
     ).toISOString();
-    const all = await db
-      .select()
-      .from(libraryVersions)
-      .orderBy(desc(libraryVersions.version));
-    const groups = new Map<string, VersionRow[]>();
-    for (const version of all) {
-      const key = JSON.stringify([version.workspaceId, version.path]);
-      const group = groups.get(key) ?? [];
-      group.push(version);
-      groups.set(key, group);
-    }
-    for (const group of groups.values()) {
-      const [newest] = group;
-      // An expired delete ends the entire history, overriding the minimum count.
-      const expiredDelete =
-        newest?.op === "delete" && newest.createdAt < cutoff;
-      const expired = group.filter(
-        (version, index) =>
-          expiredDelete ||
-          (index >= LIBRARY_VERSION_KEEP_MIN && version.createdAt < cutoff)
-      );
-      // Keep the tombstone until the final batch so a failed prune can resume.
-      if (expiredDelete) {
-        expired.reverse();
-      }
-      for (let offset = 0; offset < expired.length; offset += 90) {
-        const batch = expired.slice(offset, offset + 90);
-        // Delete objects first: if storage fails, the rows remain for the next tick.
-        await blobs.delete(
-          batch.flatMap((version) => (version.blobKey ? [version.blobKey] : []))
-        );
-        await atomic([
-          db.delete(libraryVersions).where(
-            inArray(
-              libraryVersions.id,
-              batch.map((version) => version.id)
-            )
-          ),
-        ]);
-      }
-    }
+    await pruneExpiredDeletes(cutoff);
+    await pruneExcessVersions(cutoff);
   };
   return {
     get,
