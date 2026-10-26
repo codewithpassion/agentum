@@ -56,6 +56,9 @@ const SHOWN: EventType[] = [
   "request.answered",
   "request.expired",
   "request.cancelled",
+  "connector.call",
+  "connector.needs_auth",
+  "connector.timeout",
 ];
 
 let db: ReturnType<typeof migrated>;
@@ -539,6 +542,35 @@ test("get returns the events of every run in the session, oldest first, with the
     "ev-005",
   ]);
   expect(view.eventsTruncated).toBe(false);
+});
+
+test("get returns a failed connector call and a connector timeout in id order with the run's other events", async () => {
+  const session = await seedSession({ id: "s-connector" });
+  await seedRun({ id: "run-c1", sessionId: session, status: "failed" });
+  await seedEvent("ev-001", session, "run-c1", "message.user", { text: "go" });
+  await seedEvent("ev-002", session, "run-c1", "connector.call", {
+    connector: "github",
+    ok: false,
+    tool: "create_issue",
+  });
+  await seedEvent("ev-003", session, "run-c1", "tool.call", {
+    input: {},
+    name: "web_search",
+    toolUseId: "t1",
+  });
+  await seedEvent("ev-004", session, "run-c1", "connector.timeout", {
+    connector: "slack",
+    tool: "post_message",
+  });
+
+  const view = await tasks.get(user(), { runId: "run-c1" });
+
+  expect(view.events.map((event) => [event.id, event.type])).toEqual([
+    ["ev-001", "message.user"],
+    ["ev-002", "connector.call"],
+    ["ev-003", "tool.call"],
+    ["ev-004", "connector.timeout"],
+  ]);
 });
 
 test("get returns the open request of the run, with the request id", async () => {

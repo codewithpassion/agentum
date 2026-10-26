@@ -6,7 +6,11 @@ import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal, Workspace } from "@repo/services/workspaces";
 import { type Composed, composeWith, type Infra } from "./compose.ts";
-import { deskStreamName } from "./session-stream-frames.ts";
+import {
+  deskStreamName,
+  STREAM_EVENT_TYPES,
+  TASK_EVENT_TYPES,
+} from "./session-stream-frames.ts";
 import type { SessionStreamPort } from "./session-stream-port.ts";
 
 type User = Extract<Principal, { kind: "user" }>;
@@ -337,4 +341,43 @@ test("a trigger run that finished after it reported posts nothing more", async (
   ]);
 
   expect(posted).toEqual([]);
+});
+
+test("the task view carries connector events, and the stream's own types stay without them", async () => {
+  const { runId, sessionId } = await composed.services.runs.startRun(user, {
+    agentId,
+    input: { text: "hello" },
+    session: { origin: "ui" },
+  });
+  const append = (type: "connector.call" | "connector.timeout") =>
+    composed.services.events.append({
+      actor: { id: user.userId, kind: "user" },
+      payload: { ok: false },
+      runId,
+      sessionId,
+      type,
+      workspaceId: user.workspaceId,
+    });
+  await append("connector.call");
+  await append("connector.timeout");
+
+  const view = await composed.services.tasks.get(user, { runId });
+
+  expect(view.events.map(({ type }) => type)).toEqual(
+    expect.arrayContaining(["connector.call", "connector.timeout"])
+  );
+  expect(TASK_EVENT_TYPES).toEqual(
+    expect.arrayContaining([
+      ...STREAM_EVENT_TYPES,
+      "connector.call",
+      "connector.needs_auth",
+      "connector.timeout",
+    ])
+  );
+  expect(STREAM_EVENT_TYPES.some((t) => t.startsWith("connector."))).toBe(
+    false
+  );
+  expect(published.map(({ frame }) => frame)).not.toContainEqual(
+    expect.objectContaining({ type: "connector.call" })
+  );
 });
