@@ -13,7 +13,11 @@ import type {
   ThreadTranscript,
 } from "../ports";
 import { ToolError } from "../result";
-import { createHarbourmasterMcpServer } from "../server";
+import {
+  createHarbourmasterMcpServer,
+  harbourmasterTools,
+  type ServerOptions,
+} from "../server";
 import { connectClient, textOf } from "../testing";
 
 const UNTRUSTED =
@@ -194,9 +198,12 @@ const connect = (ports: McpPorts) =>
 const callTool = async (
   ports: McpPorts,
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  options: ServerOptions = {}
 ) => {
-  const { client, close } = await connect(ports);
+  const { client, close } = await connectClient(
+    createHarbourmasterMcpServer(ports, options)
+  );
   try {
     return await client.callTool({ arguments: args, name });
   } finally {
@@ -865,4 +872,201 @@ describe("invalid arguments", () => {
       expect(calls).toBe(0);
     }
   );
+});
+
+/** Minimal valid inputs; discovering tools from the definitions makes missing samples fail. */
+const DRY_RUN_INPUTS: Record<string, Record<string, unknown>> = {
+  ...Object.fromEntries(CALLS),
+  approve_skill_version: { skillId: "sk_1", version: 1 },
+  assign_skill: { agent: "ops-bot", skillId: "sk_1" },
+  commit_skill: { baseVersion: 1, message: "update", skillId: "sk_1" },
+  create_routine: {
+    agentId: "agt_1",
+    cron: "0 9 * * *",
+    name: "daily",
+    prompt: "status",
+  },
+  create_skill: {
+    files: [{ path: "SKILL.md", content: "hello" }],
+    message: "initial",
+    name: "ops",
+  },
+  create_trigger: { agentId: "agt_1", name: "hook" },
+  delete_routine: { routineId: "rt_1" },
+  delete_trigger: { triggerId: "tr_1" },
+  import_skill: { archiveBase64: "eA==" },
+  pin_skill: { agent: "ops-bot", skillId: "sk_1", version: null },
+  reject_skill_version: { skillId: "sk_1", version: 1 },
+  revert_skill: { skillId: "sk_1", toVersion: 1 },
+  set_routine_enabled: { enabled: false, routineId: "rt_1" },
+  set_trigger_enabled: { enabled: false, triggerId: "tr_1" },
+  slack_send: { text: "hi", to: "#ops" },
+  unassign_skill: { agent: "ops-bot", skillId: "sk_1" },
+};
+
+const countedPorts = (calls: string[]): McpPorts =>
+  Object.fromEntries(
+    Object.keys(fakePorts({})).map((name) => [
+      name,
+      () => {
+        calls.push(name);
+        return Promise.reject(new Error("Unexpected port call"));
+      },
+    ])
+  ) as McpPorts;
+
+describe("dry-run gate", () => {
+  for (const tool of harbourmasterTools(fakePorts({})).filter(
+    (definition) => definition.annotations.readOnlyHint !== true
+  )) {
+    test(`${tool.name} records a skip without calling any port`, async () => {
+      const input = DRY_RUN_INPUTS[tool.name];
+      if (!input) {
+        throw new Error(`Missing dry-run sample for write tool ${tool.name}`);
+      }
+      const calls: string[] = [];
+      const skips: { summary: string; tool: string }[] = [];
+      const result = await callTool(countedPorts(calls), tool.name, input, {
+        dryRun: {
+          record: (skip) => {
+            skips.push(skip);
+            return Promise.resolve();
+          },
+        },
+      });
+      const summary = JSON.stringify(tool.inputSchema.parse(input)).slice(
+        0,
+        200
+      );
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result).startsWith("Skipped in dry run: would ")).toBe(
+        true
+      );
+      expect(textOf(result)).toContain(
+        `${tool.title[0]?.toLowerCase()}${tool.title.slice(1)} ${summary}`
+      );
+      expect(result.structuredContent).toEqual({
+        skipped: true,
+        tool: tool.name,
+      });
+      expect(skips).toEqual([{ summary, tool: tool.name }]);
+      expect(calls).toEqual([]);
+      if (tool.name === "bash") {
+        expect(textOf(result)).toContain(
+          "dry run cannot use the library bash tool"
+        );
+        expect(textOf(result)).toContain(
+          "cloud runs read the library with Pi's read tool instead"
+        );
+      }
+    });
+  }
+
+  test("read tools still reach their port and return data", async () => {
+    const calls: string[] = [];
+    const skips: unknown[] = [];
+    const result = await callTool(
+      fakePorts({
+        listAgents: () => {
+          calls.push("listAgents");
+          return Promise.resolve([AGENT]);
+        },
+      }),
+      "list_agents",
+      {},
+      {
+        dryRun: {
+          record: (skip) => {
+            skips.push(skip);
+            return Promise.resolve();
+          },
+        },
+      }
+    );
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual({ agents: [AGENT] });
+    expect(calls).toEqual(["listAgents"]);
+    expect(skips).toEqual([]);
+  });
+
+  test("without dryRun a write still calls its port", async () => {
+    const calls: unknown[] = [];
+    const result = await callTool(
+      fakePorts({
+        cancelRun: (input) => {
+          calls.push(input);
+          return Promise.resolve(RUN);
+        },
+      }),
+      "cancel_run",
+      { runId: "run_1" }
+    );
+    expect(result.isError).toBeFalsy();
+    expect(calls).toEqual([{ runId: "run_1" }]);
+  });
+
+  test("summarizes validated input with defaults and truncates compact JSON to 200 characters", async () => {
+    const skips: unknown[] = [];
+    const input = { agent: " ops-bot ", text: "x".repeat(250) };
+    const result = await callTool(countedPorts([]), "send_message", input, {
+      dryRun: {
+        record: (skip) => {
+          skips.push(skip);
+          return Promise.resolve();
+        },
+      },
+    });
+    const summary = JSON.stringify({
+      agent: "ops-bot",
+      text: input.text,
+      waitMs: 0,
+    }).slice(0, 200);
+    expect(skips).toEqual([{ summary, tool: "send_message" }]);
+    expect(textOf(result)).toBe(
+      `Skipped in dry run: would send message ${summary}`
+    );
+  });
+
+  test("invalid input is refused before recording or calling a port", async () => {
+    const calls: string[] = [];
+    const skips: unknown[] = [];
+    const result = await callTool(
+      countedPorts(calls),
+      "cancel_run",
+      {},
+      {
+        dryRun: {
+          record: (skip) => {
+            skips.push(skip);
+            return Promise.resolve();
+          },
+        },
+      }
+    );
+    expect(result.isError).toBe(true);
+    expect(calls).toEqual([]);
+    expect(skips).toEqual([]);
+  });
+
+  test("a recorder failure returns an error and leaves ports uncalled", async () => {
+    const calls: string[] = [];
+    let records = 0;
+    const result = await callTool(
+      countedPorts(calls),
+      "cancel_run",
+      { runId: "run_1" },
+      {
+        dryRun: {
+          record: () => {
+            records += 1;
+            return Promise.reject(new Error("private recorder failure"));
+          },
+        },
+      }
+    );
+    expect(records).toBe(1);
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(GENERIC);
+    expect(calls).toEqual([]);
+  });
 });

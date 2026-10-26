@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { runs } from "@repo/db/schema/runs";
+import { events } from "@repo/db/schema/events";
 import { sessions } from "@repo/db/schema/sessions";
 import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
@@ -69,6 +70,7 @@ const mintKey = async (userId: string, access: "desk" | "read" | "write") =>
 const addRun = ({
   agentId,
   depth = 0,
+  dryRun = false,
   id,
   onBehalfOfUserId,
   origin = "mcp",
@@ -77,6 +79,7 @@ const addRun = ({
 }: {
   agentId: string;
   depth?: number;
+  dryRun?: boolean;
   id: string;
   onBehalfOfUserId: string | null;
   origin?: "mcp" | "ui";
@@ -104,6 +107,7 @@ const addRun = ({
       agentId,
       createdAt: now.toISOString(),
       depth,
+      dryRun,
       id,
       inputText: "work",
       leaseUntil: new Date(now.getTime() + 5 * MINUTE_MS).toISOString(),
@@ -922,4 +926,39 @@ describe("Clerk OAuth and the client gate", () => {
     const [client] = await clients();
     expect(client?.lastUsedAt).not.toBeNull();
   });
+});
+
+test("a dry-run token skips a write and records the event on its run", async () => {
+  addRun({
+    agentId: agentA,
+    dryRun: true,
+    id: "run_dry",
+    onBehalfOfUserId: "u1",
+  });
+  const token = await runToken("run_dry", agentA);
+  const result = await callTool(token, "send_message", {
+    agent: "agent-b",
+    text: "help",
+  });
+  expect(result.isError).toBeFalsy();
+  expect(result.structuredContent).toEqual({
+    skipped: true,
+    tool: "send_message",
+  });
+  expect(result.content?.[0]?.text).toStartWith("Skipped in dry run: would ");
+  expect(db.select().from(runs).all()).toHaveLength(1);
+  const skipped = db
+    .select()
+    .from(events)
+    .all()
+    .filter((event) => event.type === "run.dry_run_skipped");
+  expect(skipped).toHaveLength(1);
+  expect(skipped[0]?.runId).toBe("run_dry");
+  expect(JSON.parse(skipped[0]?.payload ?? "{}")).toEqual({
+    summary: JSON.stringify({ agent: "agent-b", text: "help", waitMs: 0 }),
+    tool: "send_message",
+  });
+  const read = await callTool(token, "list_agents", {});
+  expect(read.isError).toBeFalsy();
+  expect(JSON.stringify(read.structuredContent)).toContain("agent-a");
 });
