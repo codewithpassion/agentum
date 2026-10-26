@@ -25,16 +25,14 @@ import {
   fileIdsOfRun,
   isRunActive,
   MAX_ATTACHMENTS,
-  POLL_MS,
-  shouldPoll,
   statusLine,
-  toChatItems,
 } from "../chat/chat-logic.ts";
 import { FileChips } from "../chat/file-chips.tsx";
 import { LibraryPicker } from "../chat/library-picker.tsx";
 import { TranscriptView } from "../chat/transcript-view.tsx";
 import { uploadFile } from "../chat/upload-file.ts";
 import { useFileInfos } from "../chat/use-file-infos.ts";
+import { useSessionStream } from "../chat/use-session-stream.ts";
 
 const CLOCK_MS = 15_000;
 const BYTES_PER_MB = 1024 * 1024;
@@ -121,7 +119,12 @@ function StatusRow({
 }
 
 function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
-  const [transcript, setTranscript] = useState<SessionTranscript | null>(null);
+  const {
+    error: loadError,
+    items,
+    reload,
+    transcript,
+  } = useSessionStream(sessionId);
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -134,10 +137,6 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const latestRun = transcript?.latestRun ?? null;
-  const items = useMemo(
-    () => toChatItems(transcript?.entries ?? [], transcript?.outputFileIds),
-    [transcript]
-  );
   const shownFileIds = useMemo(() => collectFileIds(items), [items]);
   const { files, remember } = useFileInfos(shownFileIds);
   const readOnly = transcript !== null && transcript.session.origin !== "ui";
@@ -149,33 +148,6 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
     (latestRun?.status === "interrupted" && !canRetry(latestRun, nowMs));
   const sendDisabled =
     sending || uploading || attaching || input.trim() === "" || blocked;
-  const polling = shouldPoll(latestRun, nowMs);
-
-  const load = useCallback(async () => {
-    if (sessionId === undefined) {
-      return;
-    }
-    try {
-      setTranscript(await getTrpc().sessions.transcript.query({ sessionId }));
-      setError(null);
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }, [sessionId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    if (!polling) {
-      return;
-    }
-    const id = setInterval(() => {
-      load();
-    }, POLL_MS);
-    return () => clearInterval(id);
-  }, [load, polling]);
 
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), CLOCK_MS);
@@ -213,7 +185,7 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
       if (sessionId === undefined) {
         openSession(result.sessionId);
       } else {
-        await load();
+        await reload();
       }
     } catch (cause) {
       setInput((current) => current || text);
@@ -221,7 +193,7 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
     } finally {
       setSending(false);
     }
-  }, [attachments, input, load, openSession, sessionId, startRun]);
+  }, [attachments, input, openSession, reload, sessionId, startRun]);
 
   const retry = useCallback(async () => {
     if (latestRun === null || transcript === null) {
@@ -234,13 +206,13 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
         latestRun.inputText,
         fileIdsOfRun(transcript.entries, latestRun.id)
       );
-      await load();
+      await reload();
     } catch (cause) {
       setError(messageOf(cause));
     } finally {
       setSending(false);
     }
-  }, [latestRun, load, startRun, transcript]);
+  }, [latestRun, reload, startRun, transcript]);
 
   const cancel = useCallback(async () => {
     if (latestRun === null) {
@@ -249,13 +221,13 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
     setCancelling(true);
     try {
       await getTrpc().runs.cancel.mutate({ runId: latestRun.id });
-      await load();
+      await reload();
     } catch (cause) {
       toast.error(messageOf(cause));
     } finally {
       setCancelling(false);
     }
-  }, [latestRun, load]);
+  }, [latestRun, reload]);
 
   // The first failure is shown; the files that did upload stay attached.
   const attachFiles = useCallback(
@@ -434,11 +406,11 @@ function ChatView({ agent, openSession, sessionId }: AgentTabProps) {
           sending={sending}
         />
       )}
-      {error === null ? null : (
+      {(error ?? loadError) ? (
         <p className="text-destructive text-sm" role="alert">
-          {error}
+          {error ?? loadError}
         </p>
-      )}
+      ) : null}
       {composer}
       {pickerOpen ? (
         <LibraryPicker onClose={closeLibrary} onPick={attachFromLibrary} />
