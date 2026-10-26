@@ -45,6 +45,7 @@ import { createBrowserPorts } from "./browser-ports.ts";
 import { createComputerPorts } from "./computer-ports.ts";
 import { guarded } from "./guarded.ts";
 import { createMailPorts } from "./mail-ports.ts";
+import { createQaPorts } from "./qa-ports.ts";
 import { createSkillPorts } from "./skill-ports.ts";
 
 const TITLE_MAX = 80;
@@ -167,6 +168,22 @@ export const resolveRunComputer = async (
   };
 };
 
+/**
+ * Whether the browser tools are on for the run. Every run has a browser unless
+ * its agent's `runtimeConfig.browser` is `false` (the map's unplug, V7.4). A
+ * user or key principal has no run to act as.
+ */
+export const resolveRunBrowser = async (
+  services: Pick<Services, "agents">,
+  principal: Principal
+): Promise<boolean> => {
+  if (principal.kind !== "run") {
+    return false;
+  }
+  const agent = await services.agents.get(principal, principal.agentId);
+  return agent.runtimeConfig.browser !== false;
+};
+
 export const createMcpPorts = ({
   computerMachineId,
   fetch,
@@ -271,6 +288,8 @@ export const createMcpPorts = ({
 
   return {
     ...createSkillPorts({ findAgent, principal, services }),
+    // The Q&A board is shared: any principal reads it, the service decides who writes.
+    qa: createQaPorts({ principal, services }),
     // Only a run has a mailbox of its own. The route turns the tools on when it is active.
     ...(principal.kind === "run"
       ? { mail: createMailPorts({ principal, services }) }

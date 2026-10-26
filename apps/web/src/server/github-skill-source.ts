@@ -383,6 +383,13 @@ const githubResponse = async (response: Response): Promise<Response> => {
       "GitHub repository, ref or skill archive not found. Check the repository URL and ref."
     );
   }
+  // GitHub answers 422, not 404, when a branch, tag or commit does not exist.
+  if (response.status === 422) {
+    throw new GithubSkillSourceError(
+      "not_found",
+      "GitHub could not find that ref. Check the branch, tag or commit."
+    );
+  }
   if (
     response.status === 429 ||
     (response.status === 403 &&
