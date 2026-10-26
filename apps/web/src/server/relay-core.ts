@@ -17,6 +17,10 @@ import type {
 /** The headers the Worker stamps on the upgrade it hands the relay. */
 export const RELAY_HEADER_MACHINE_ID = "x-hm-machine-id";
 export const RELAY_HEADER_WORKSPACE_ID = "x-hm-workspace-id";
+/** Which role's socket this is: `daemon` or `computer`. Only the Worker sets it. */
+export const RELAY_HEADER_ROLE = "x-hm-role";
+export const RELAY_ROLES = ["daemon", "computer"] as const;
+export type RelayRole = (typeof RELAY_ROLES)[number];
 
 /** A machine that sends nothing for this long is offline. Same span as a run lease. */
 export const PRESENCE_TIMEOUT_MS = LEASE_SECONDS * 1000;
@@ -28,7 +32,8 @@ export const PRESENCE_TIMEOUT_MS = LEASE_SECONDS * 1000;
  */
 export const LAST_SEEN_WRITE_MS = 120_000;
 
-const IDENTITY_KEY = "identity";
+/** The machine named by the Worker's headers. Both roles of one machine share it. */
+export const IDENTITY_KEY = "identity";
 const LAST_PING_KEY = "lastPingAt";
 const LAST_WRITE_KEY = "lastSeenWrittenAt";
 

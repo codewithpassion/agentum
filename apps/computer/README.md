@@ -39,26 +39,54 @@ Use `--name` to override the hostname and `--desktop` to enable the virtual desk
 Run `hm-computer help` for command options. Root requires `--allow-root`.
 See `hm-computer run --help` for command and path policy flags.
 
-## Containers and services
+## Docker
+
+Two images carry the daemon. `harbourmaster-computer` is headless: the daemon on busybox, for
+commands and files. `harbourmaster-computer-desktop` adds Xvfb, Openbox, Chromium, xdotool and
+xclip on display `:99`, for agents that drive a screen. Both run as uid 1000 and keep private
+state in the `/var/lib/hm-computer` volume.
+
+Issue a single-use `hm_enr_` code in Harbourmaster, then enrol and run in one command. The
+entrypoints end in `hm-computer run`, so `--url` and `--code` enrol the computer on first start. The
+credential lands in the volume, and later starts ignore the spent code.
+
+Headless:
 
 ```sh
-cd apps/computer
-bun run docker:build
 docker run -d --restart unless-stopped --name hm-computer \
-  -e HM_URL=https://harbourmaster.example.com \
-  -e HM_ENROLL_CODE=hm_enr_YOUR_CODE \
-  -v hm-computer:/var/lib/hm-computer hm-computer:local
+  -v hm-computer:/var/lib/hm-computer \
+  ghcr.io/<owner>/harbourmaster-computer:latest \
+  --url https://harbourmaster.example.com --code hm_enr_YOUR_CODE
 ```
 
-The image runs as uid 1000 and stores private state in the named volume.
-Podman should work the same as Docker but is untested.
+Desktop. Chromium keeps its sandbox, which the default Docker seccomp profile refuses, so pass
+`packaging/desktop/seccomp.json` from this directory, which you can download from the repository. Without it the daemon still starts and
+reports the desktop as unavailable.
 
-For a desktop image, run `bun run docker:build:desktop`. It contains Xvfb,
-Openbox, Chromium and clipboard/input tools. Chromium retains its sandbox;
-run with `--shm-size=256m --cap-drop ALL --security-opt no-new-privileges`
-and `--security-opt seccomp=packaging/desktop/seccomp.json`.
-The desktop is reported unavailable if the host cannot support it.
-`bun run test:desktop-image` retains the source client's optional integration checks.
+```sh
+docker run -d --restart unless-stopped --name hm-computer-desktop \
+  --shm-size=256m --cap-drop ALL --security-opt no-new-privileges \
+  --security-opt seccomp=packaging/desktop/seccomp.json \
+  -v hm-computer-desktop:/var/lib/hm-computer \
+  ghcr.io/<owner>/harbourmaster-computer-desktop:latest \
+  --url https://harbourmaster.example.com --code hm_enr_YOUR_CODE
+```
+
+To keep the code off the `docker run` command line, pass `--env-file` with `HM_URL` and `HM_ENROLL_CODE` instead of the two flags. Do not use `--code-stdin` in a detached container: it reads an empty stdin and exits on every start.
+Pin a host to one build with the commit tag instead of `latest`. Podman should work the same but
+is untested.
+
+To build locally, run `bun run docker:build` or `bun run docker:build:desktop` in this
+directory, and use `hm-computer:local` or `hm-computer-desktop:local` in place of the ghcr names.
+`bun run test:desktop-image` builds the desktop image and runs its integration checks inside it,
+once with the seccomp profile and once with Docker's default.
+
+Publishing: the `computer images` workflow (`.github/workflows/computer.yml`) builds both images
+and pushes them to `ghcr.io/<owner>/harbourmaster-computer` and `-desktop`, tagged `latest` and
+the commit. It starts only by hand (`workflow_dispatch`). After the first run, set each package's
+visibility to public on GitHub so `docker pull` works without a login.
+
+## Host service
 
 For a host service, install `packaging/hm-computer.service`, the binary at
 `/usr/local/bin/hm-computer`, and an unprivileged `hm` user and group. Supply
