@@ -18,7 +18,7 @@ import {
 import { networkAccessOf } from "@repo/services/cloud/network";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { isServiceError } from "@repo/services/errors";
-import { agentHomePath, ensureAgentHome } from "@repo/services/library/home";
+import { agentHomePath } from "@repo/services/library/home";
 import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
@@ -61,6 +61,7 @@ import {
 } from "./pi-run-files.ts";
 import { createGate, gateExtension } from "./pi-run-gate.ts";
 import { repeatGuardExtension } from "./pi-run-guard.ts";
+import { prepareHome } from "./pi-run-home.ts";
 import { RunLeaseAlarm } from "./pi-run-lease.ts";
 import {
   type McpSessions,
@@ -549,11 +550,11 @@ export class PiRun extends DurableObject<Env> {
     return slug ? agentHomePath(slug) : "";
   }
 
-  /** The isolate's agent keeps its files in its library folder, made on the first run. */
+  /** The isolate's agent keeps its files in its library folder, made on the first run. A dry run makes none. */
   async #ensureHome(input: CloudStart) {
     const run = runRefOf(input);
     const ops = bindLibraryOps(this.#services().library, principalOf(run));
-    await ensureAgentHome(ops, input.agent.slug);
+    await prepareHome(ops, input.agent.slug, input.run.dryRun);
   }
 
   /**
