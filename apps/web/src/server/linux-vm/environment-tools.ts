@@ -35,7 +35,8 @@ import {
  *
  * `run_script` belongs to the isolate only, and only when `scripts` is given.
  * `taskFolderOf` is read by the isolate's library tools only. The Linux VM gets
- * its task folder through `libraryOf`.
+ * its task folder through `libraryOf`. Both environments' prompt sections add
+ * `computerInstructions` when `computerOf` answers a computer.
  */
 export const installEnvironmentTools = (
   registry: Pick<Registry, "install" | "uninstall">,
@@ -44,7 +45,8 @@ export const installEnvironmentTools = (
   libraryOf?: () => Promise<VmLibraryState | undefined>,
   network?: NetworkToolsOptions,
   scripts?: RunScriptDeps,
-  taskFolderOf?: () => Promise<string | undefined>
+  taskFolderOf?: () => Promise<string | undefined>,
+  computerOf?: () => Promise<{ desktop: boolean } | undefined>
 ): void => {
   // An extension that stays is installed over itself and keeps its place. Pi lists the tools in
   // install order, so taking it out first would move it to the end and make Pi re-declare every tool.
@@ -57,10 +59,10 @@ export const installEnvironmentTools = (
   }
   if (environment === "linux-vm") {
     registry.uninstall({ name: LIBRARY_TOOLS_EXTENSION });
-    registry.install(linuxVmToolsExtension(libraryOf));
+    registry.install(linuxVmToolsExtension(libraryOf, computerOf));
   } else {
     registry.uninstall({ name: LINUX_VM_TOOLS_EXTENSION });
-    registry.install(libraryToolsExtension(slugOf, taskFolderOf));
+    registry.install(libraryToolsExtension(slugOf, taskFolderOf, computerOf));
     if (network) {
       registry.install(networkToolsExtension(network));
     }

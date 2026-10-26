@@ -102,7 +102,7 @@ function Fact({
  * One task, as a receipt of steps with the action log beside it. It starts
  * from `tasks.get` and follows the session stream, rebuilding the receipt and
  * the log from the event list on each event. The thread folds the same frames
- * (deltas included) into messages. The files slot (V4) is a placeholder.
+ * (deltas included) into messages. The files slot reads the task folder itself.
  */
 export function TaskPage({ initial }: { initial: TaskView }) {
   const runId = initial.run.id;
@@ -284,7 +284,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
             computerMachineId={task.agent.computerMachineId}
             takeover={takeover}
           />
-          <FilesSlot />
+          <FilesSlot runId={runId} running={isActive(runStatus)} />
           <ActionLog entries={log} />
           <SlotCard testId="slot-thread" title="Thread">
             <TaskThread
