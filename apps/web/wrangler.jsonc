@@ -109,7 +109,7 @@
         "MAIL_DOMAIN": "rockyshoreslabs.io",
         // The zone id of rockyshoreslabs.io, from the zone's Overview page.
         // Mailboxes stay "provisioning pending" until it is set.
-        "MAIL_ZONE_ID": "",
+        "MAIL_ZONE_ID": "4dd028fe52d70f89e51383e1689d601a",
         "MAIL_WORKER_NAME": "harbourmaster-staging"
       },
       "r2_buckets": [
