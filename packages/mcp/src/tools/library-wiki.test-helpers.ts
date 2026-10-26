@@ -21,13 +21,11 @@ export const fakePorts = (overrides: Partial<McpPorts> = {}): McpPorts => ({
   inboxList: uncalled("inboxList"),
   inboxPost: uncalled("inboxPost"),
   inboxRead: uncalled("inboxRead"),
+  libraryBash: uncalled("libraryBash"),
   libraryList: uncalled("libraryList"),
   libraryRead: uncalled("libraryRead"),
-  libraryWrite: uncalled("libraryWrite"),
   libraryVersions: uncalled("libraryVersions"),
-  wikiRead: uncalled("wikiRead"),
-  wikiSuggestEdit: uncalled("wikiSuggestEdit"),
-  libraryBash: uncalled("libraryBash"),
+  libraryWrite: uncalled("libraryWrite"),
   listAgents: uncalled("listAgents"),
   listRoutines: uncalled("listRoutines"),
   listSessions: uncalled("listSessions"),
@@ -49,11 +47,23 @@ export const fakePorts = (overrides: Partial<McpPorts> = {}): McpPorts => ({
   slackSearch: uncalled("slackSearch"),
   slackSend: uncalled("slackSend"),
   unassignSkill: uncalled("unassignSkill"),
+  wikiRead: uncalled("wikiRead"),
+  wikiSuggestEdit: uncalled("wikiSuggestEdit"),
   ...overrides,
 });
 
-export const callTool = async (ports: McpPorts, name: string, args: Record<string, unknown>, options: ServerOptions = {}) => {
-  const { client, close } = await connectClient(createHarbourmasterMcpServer(ports, options));
-  try { return await client.callTool({ name, arguments: args }); }
-  finally { await close(); }
+export const callTool = async (
+  ports: McpPorts,
+  name: string,
+  args: Record<string, unknown>,
+  options: ServerOptions = {}
+) => {
+  const { client, close } = await connectClient(
+    createHarbourmasterMcpServer(ports, options)
+  );
+  try {
+    return await client.callTool({ arguments: args, name });
+  } finally {
+    await close();
+  }
 };
