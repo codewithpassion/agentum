@@ -940,6 +940,8 @@ export class PiRun extends DurableObject<Env> {
         view.dispose();
       };
     } catch (error) {
+      // The next caller tries again.
+      this.#deltas = undefined;
       console.warn(
         "PiRun: streaming partial text failed",
         error instanceof Error ? error.name : "unknown error"

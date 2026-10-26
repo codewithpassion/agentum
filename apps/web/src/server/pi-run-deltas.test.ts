@@ -198,3 +198,28 @@ test("an sk- token split across two partials is held, then redacted", async () =
   expect(h.frames[1]?.text).not.toContain("sk-abc");
   expect(h.frames[1]?.text).toContain("ok");
 });
+
+test("a whole secret at the end of the text is masked, not cut", async () => {
+  const pem = "-----BEGIN KEY-----\nMIIEvQIBADANBg\n-----END KEY-----";
+  const h = harness({ PEM: pem, PHRASE: "pass word pass" });
+  await h.offer(message([text(`Here: ${pem} ok`)]));
+  h.advance(300);
+  await h.offer(message([text(`Here: ${pem} and pass word pass ok`)]));
+
+  expect(h.frames.map((frame) => frame.text)).toEqual([
+    "Here: [secret:PEM] ",
+    "Here: [secret:PEM] and [secret:PHRASE] ",
+  ]);
+});
+
+test("a change that only moves the held end sends no repeat and keeps the window", async () => {
+  const h = harness();
+  await h.offer(message([text("one two thr")]));
+  h.advance(10);
+  await h.offer(message([text("one two three four")]));
+
+  expect(h.frames.map((frame) => frame.text)).toEqual(["one two "]);
+  h.advance(300);
+  await h.offer(message([text("one two three four")]));
+  expect(h.frames.at(-1)?.text).toBe("one two three ");
+});

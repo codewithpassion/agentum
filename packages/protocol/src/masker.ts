@@ -23,9 +23,10 @@ export interface Masker {
   /** Same over every string inside an object or array. Never throws. */
   maskDeep: <T>(value: T) => T;
   /**
-   * How many characters at the end of `text` begin a needle without finishing
-   * it. A stream holds those back, because the next chunk may complete the
-   * secret and `mask` can only replace a whole value.
+   * How many characters at the end of `text` are the start of a needle, short
+   * of the whole needle. A stream holds those back, because the next chunk may
+   * complete the secret and `mask` can only replace a whole value. Mask the
+   * text first: a whole value at the end also ends in a start of itself.
    */
   unfinishedTail: (text: string) => number;
 }
