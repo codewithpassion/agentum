@@ -73,7 +73,9 @@ docker run -d --restart unless-stopped --name hm-computer-desktop \
   --url https://harbourmaster.example.com --code hm_enr_YOUR_CODE
 ```
 
-`--cap-add SYS_CHROOT` is for hosts that block unprivileged user namespaces (Ubuntu 24.04 and later by default). Chromium then falls back to its setuid sandbox, which needs `chroot`, and with every capability dropped the self-test aborts and the desktop is reported as unavailable.
+`--cap-add SYS_CHROOT` is required with `--cap-drop ALL`. Chromium's sandbox calls `chroot`, and the
+profile in `packaging/desktop/seccomp.json` allows that call only for a container that holds `CAP_SYS_CHROOT`.
+Without it the self-test aborts and the daemon reports the desktop as unavailable.
 
 To keep the code off the `docker run` command line, pass `--env-file` with `HM_URL` and `HM_ENROLL_CODE` instead of the two flags. Do not use `--code-stdin` in a detached container: it reads an empty stdin and exits on every start.
 Pin a host to one build with the commit tag instead of `latest`. Podman should work the same but
