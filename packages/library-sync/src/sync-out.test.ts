@@ -8,7 +8,7 @@ import {
   createMemoryRemote,
   textOf,
 } from "./testing.ts";
-import type { SyncPorts } from "./types.ts";
+import type { SyncPorts, SyncRoot } from "./types.ts";
 
 const ROOT = "agents/ada";
 const NOTES = "agents/ada/notes.md";
@@ -37,10 +37,10 @@ const synced = async (ctx: Ctx, path: string, text: string) => {
 const syncOut = (
   ctx: Ctx,
   runId = "r1",
-  extra: { maxFileBytes?: number; roots?: string[] } = {}
+  extra: { maxFileBytes?: number; roots?: SyncRoot[] } = {}
 ) =>
   runSyncOut(ctx.ports, {
-    roots: extra.roots ?? [ROOT],
+    roots: extra.roots ?? [{ mode: "write", path: ROOT }],
     runId,
     ...(extra.maxFileBytes === undefined
       ? {}
@@ -319,5 +319,55 @@ describe("runSyncOut", () => {
     const second = await syncOut(ctx, "r2");
     expect(second.written).toEqual([NOTES]);
     expect(textOf(ctx.remote.files.get(NOTES)?.bytes)).toBe("mine");
+  });
+});
+
+describe("read root refusals", () => {
+  test("refuses edits, new files and deletes without touching the library or manifest", async () => {
+    const ctx = setup();
+    await synced(ctx, NOTES, "base");
+    await synced(ctx, "agents/ada/gone.md", "gone");
+    await synced(ctx, "agents/ada/same.md", "same");
+    const before = structuredClone(ctx.manifest.saved);
+    ctx.local.put(NOTES, "edited");
+    ctx.local.put("agents/ada/new.md", "new");
+    ctx.local.files.delete("agents/ada/gone.md");
+    ctx.remote.calls.length = 0;
+    const result = await syncOut(ctx, "r1", {
+      roots: [{ mode: "read", path: "/agents/ada/" }],
+    });
+    expect(result.refused).toEqual([
+      "agents/ada/gone.md",
+      "agents/ada/new.md",
+      NOTES,
+    ]);
+    expect(result.written).toEqual([]);
+    expect(result.conflicts).toEqual([]);
+    expect(result.failed).toEqual([]);
+    expect(result.deleted).toEqual([]);
+    expect(ctx.remote.calls).toEqual([]);
+    expect(ctx.manifest.saved).toEqual(before);
+    expect(textOf(ctx.local.files.get(NOTES))).toBe("edited");
+  });
+
+  test("longest root wins in both directions and read wins duplicate paths", async () => {
+    const ctx = setup();
+    for (const path of [
+      "agents/ada/a",
+      "agents/ada/sub/b",
+      "agents/ada/sub/read/c",
+    ]) {
+      ctx.local.put(path, "new");
+    }
+    const result = await syncOut(ctx, "r1", {
+      roots: [
+        { mode: "read", path: ROOT },
+        { mode: "write", path: "agents/ada/sub" },
+        { mode: "read", path: "/agents/ada/sub/read/" },
+        { mode: "write", path: "agents/ada/sub/read" },
+      ],
+    });
+    expect(result.written).toEqual(["agents/ada/sub/b"]);
+    expect(result.refused).toEqual(["agents/ada/a", "agents/ada/sub/read/c"]);
   });
 });

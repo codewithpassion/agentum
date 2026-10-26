@@ -5,6 +5,7 @@ import {
   cleanRoots,
   describe,
   inScope,
+  modeOf,
   openManifest,
   sha256Of,
   walkLocal,
@@ -39,6 +40,7 @@ export const runSyncOut = async (
   const deleteSkipped: string[] = [];
   const failed: SyncFailure[] = [];
   const skipped: string[] = [];
+  const refused: string[] = [];
   const written: string[] = [];
 
   const keep = async (path: string, etag: string, sha256: string) => {
@@ -81,6 +83,14 @@ export const runSyncOut = async (
   };
 
   const syncFile = async (path: string, size: number): Promise<void> => {
+    if (modeOf(path, options.roots) === "read") {
+      if (
+        entries.get(path)?.sha256 !== (await sha256Of(await local.read(path)))
+      ) {
+        refused.push(path);
+      }
+      return;
+    }
     if (size > max) {
       skipped.push(path);
       return;
@@ -128,6 +138,10 @@ export const runSyncOut = async (
     )
     .sort((a, b) => byPath(a.path, b.path));
   for (const gone of localDeletes) {
+    if (modeOf(gone.path, options.roots) === "read") {
+      refused.push(gone.path);
+      continue;
+    }
     try {
       // biome-ignore lint/performance/noAwaitInLoops: one delete at a time keeps the manifest save in step
       const existing = await remote.stat(gone.path);
@@ -150,6 +164,7 @@ export const runSyncOut = async (
     deleted: deleted.sort(byPath),
     deleteSkipped: deleteSkipped.sort(byPath),
     failed: failed.sort((a, b) => byPath(a.path, b.path)),
+    refused: refused.sort(byPath),
     skipped: skipped.sort(byPath),
     written: written.sort(byPath),
   };

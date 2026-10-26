@@ -110,7 +110,9 @@ export const createDaemonLibrarySync = (
   const syncIn = () =>
     inTurn(async () => {
       try {
-        const result = await sync.syncIn({ roots: paths });
+        const result = await sync.syncIn({
+          roots: paths.map((path) => ({ mode: "write", path })),
+        });
         log(
           `library synced in: ${result.pulled.length} pulled, ${result.removed.length} removed, ${result.kept.length} kept for local edits, ${result.skipped.length} skipped for size`
         );
@@ -144,7 +146,10 @@ export const createDaemonLibrarySync = (
   const syncOut = () =>
     inTurn(async () => {
       try {
-        const result = await sync.syncOut({ roots: paths, runId });
+        const result = await sync.syncOut({
+          roots: paths.map((path) => ({ mode: "write", path })),
+          runId,
+        });
         log(
           `library synced out: ${result.written.length} written, ${result.deleted.length} deleted, ${result.conflicts.length} conflict(s), ${result.skipped.length} skipped for size`
         );
