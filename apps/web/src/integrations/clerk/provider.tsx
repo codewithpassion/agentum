@@ -1,5 +1,6 @@
 import { ClerkProvider } from "@clerk/tanstack-react-start";
 import { useResolvedTheme } from "#/hooks/use-resolved-theme";
+import { PendingSessionGate } from "./pending-session-gate";
 
 // Brand tokens from styles.css (`:root` for light, `.dark` for dark), restated
 // here because Clerk renders its UI in a shadow root that the app stylesheet's
@@ -82,6 +83,7 @@ export default function AppClerkProvider({
           : { elements: lightElements, variables: light }
       }
     >
+      <PendingSessionGate />
       {children}
     </ClerkProvider>
   );
