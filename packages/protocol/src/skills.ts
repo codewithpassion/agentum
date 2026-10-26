@@ -23,8 +23,8 @@ export const skillsListResponseSchema = z.strictObject({
 });
 export type SkillsListResponse = z.infer<typeof skillsListResponseSchema>;
 
-// Adapted from trueforge, MIT licence
-// (packages/trueforge/src/schemas/skill.ts). GitHub only here.
+// Adapted from trueforge (packages/trueforge/src/schemas/skill.ts), MIT licence,
+// Copyright (c) 2024-2026 TrueFoundry. GitHub only here.
 const GITHUB_URL_REGEX =
   /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(\/|\.git)?$/;
 const GIT_REF_REGEX = /^[A-Za-z0-9._\-/]+$/;

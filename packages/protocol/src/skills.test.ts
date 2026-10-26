@@ -4,7 +4,7 @@ import {
   skillGitPathSchema,
   skillGitRefSchema,
   skillGitUrlSchema,
-} from "./skills";
+} from "./skills.ts";
 
 const base = {
   provider: "github",
