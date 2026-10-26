@@ -2,7 +2,12 @@ import { INPUT_FILES_MAX, type RunStatus } from "@repo/db/shared";
 import { stripAttachmentMarkers } from "@repo/protocol/attachments";
 import type { SessionTranscript } from "#/integrations/trpc/types";
 
-type Entry = SessionTranscript["entries"][number];
+/** The part of a stored event the chat reads, so a streamed event fits too. */
+export type ChatEntry = Pick<
+  SessionTranscript["entries"][number],
+  "id" | "payload" | "payloadRef" | "runId" | "type"
+>;
+type Entry = ChatEntry;
 type Run = NonNullable<SessionTranscript["latestRun"]>;
 
 export const POLL_MS = 1500;
@@ -25,7 +30,10 @@ export type ChatItem =
     };
 
 export const isRunActive = (status: RunStatus): boolean =>
-  status === "queued" || status === "offered" || status === "running";
+  status === "queued" ||
+  status === "offered" ||
+  status === "running" ||
+  status === "waiting";
 
 export const canCancel = (run: Run | null): boolean =>
   run !== null && isRunActive(run.status);
@@ -72,6 +80,8 @@ export const statusLine = (
       return "Queued, waiting for the machine";
     case "running":
       return "Running";
+    case "waiting":
+      return "Waiting for an answer";
     case "done":
       return "Done";
     case "failed":
