@@ -29,6 +29,8 @@ import { Route as AppTriggersRouteImport } from './routes/_app/triggers'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppAgentsNewRouteImport } from './routes/_app/agents.new'
+import { Route as AppQaIndexRouteImport } from './routes/_app/qa.index'
+import { Route as AppQaQuestionIdRouteImport } from './routes/_app/qa.$questionId'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings.index'
 import { Route as AppSettingsApiKeysRouteImport } from './routes/_app/settings.api-keys'
 import { Route as AppSettingsConnectedAppsRouteImport } from './routes/_app/settings.connected-apps'
@@ -140,6 +142,16 @@ const AppAgentsNewRoute = AppAgentsNewRouteImport.update({
   path: '/agents/new',
   getParentRoute: () => AppRoute,
 } as any)
+const AppQaIndexRoute = AppQaIndexRouteImport.update({
+  id: '/qa/',
+  path: '/qa/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppQaQuestionIdRoute = AppQaQuestionIdRouteImport.update({
+  id: '/qa/$questionId',
+  path: '/qa/$questionId',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -218,6 +230,7 @@ export interface FileRoutesByFullPath {
   '/triggers': typeof AppTriggersRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
+  '/qa/$questionId': typeof AppQaQuestionIdRoute
   '/settings/api-keys': typeof AppSettingsApiKeysRoute
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/settings/connectors': typeof AppSettingsConnectorsRoute
@@ -228,6 +241,7 @@ export interface FileRoutesByFullPath {
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
   '/agents/': typeof AppAgentsIndexRoute
+  '/qa/': typeof AppQaIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/skills/': typeof AppSkillsIndexRoute
 }
@@ -249,6 +263,7 @@ export interface FileRoutesByTo {
   '/triggers': typeof AppTriggersRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
+  '/qa/$questionId': typeof AppQaQuestionIdRoute
   '/settings/api-keys': typeof AppSettingsApiKeysRoute
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/settings/connectors': typeof AppSettingsConnectorsRoute
@@ -259,6 +274,7 @@ export interface FileRoutesByTo {
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
   '/agents': typeof AppAgentsIndexRoute
+  '/qa': typeof AppQaIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/skills': typeof AppSkillsIndexRoute
 }
@@ -283,6 +299,7 @@ export interface FileRoutesById {
   '/_app/triggers': typeof AppTriggersRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/agents/new': typeof AppAgentsNewRoute
+  '/_app/qa/$questionId': typeof AppQaQuestionIdRoute
   '/_app/settings/api-keys': typeof AppSettingsApiKeysRoute
   '/_app/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/_app/settings/connectors': typeof AppSettingsConnectorsRoute
@@ -293,6 +310,7 @@ export interface FileRoutesById {
   '/_app/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/_app/tasks/$runId': typeof AppTasksRunIdRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
+  '/_app/qa/': typeof AppQaIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/skills/': typeof AppSkillsIndexRoute
 }
@@ -317,6 +335,7 @@ export interface FileRouteTypes {
     | '/triggers'
     | '/agents/$agentId'
     | '/agents/new'
+    | '/qa/$questionId'
     | '/settings/api-keys'
     | '/settings/connected-apps'
     | '/settings/connectors'
@@ -327,6 +346,7 @@ export interface FileRouteTypes {
     | '/skills/$skillId'
     | '/tasks/$runId'
     | '/agents/'
+    | '/qa/'
     | '/settings/'
     | '/skills/'
   fileRoutesByTo: FileRoutesByTo
@@ -348,6 +368,7 @@ export interface FileRouteTypes {
     | '/triggers'
     | '/agents/$agentId'
     | '/agents/new'
+    | '/qa/$questionId'
     | '/settings/api-keys'
     | '/settings/connected-apps'
     | '/settings/connectors'
@@ -358,6 +379,7 @@ export interface FileRouteTypes {
     | '/skills/$skillId'
     | '/tasks/$runId'
     | '/agents'
+    | '/qa'
     | '/settings'
     | '/skills'
   id:
@@ -381,6 +403,7 @@ export interface FileRouteTypes {
     | '/_app/triggers'
     | '/_app/agents/$agentId'
     | '/_app/agents/new'
+    | '/_app/qa/$questionId'
     | '/_app/settings/api-keys'
     | '/_app/settings/connected-apps'
     | '/_app/settings/connectors'
@@ -391,6 +414,7 @@ export interface FileRouteTypes {
     | '/_app/skills/$skillId'
     | '/_app/tasks/$runId'
     | '/_app/agents/'
+    | '/_app/qa/'
     | '/_app/settings/'
     | '/_app/skills/'
   fileRoutesById: FileRoutesById
@@ -546,6 +570,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsNewRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/qa/': {
+      id: '/_app/qa/'
+      path: '/qa'
+      fullPath: '/qa/'
+      preLoaderRoute: typeof AppQaIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/qa/$questionId': {
+      id: '/_app/qa/$questionId'
+      path: '/qa/$questionId'
+      fullPath: '/qa/$questionId'
+      preLoaderRoute: typeof AppQaQuestionIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/': {
       id: '/_app/settings/'
       path: '/'
@@ -666,9 +704,11 @@ interface AppRouteChildren {
   AppTriggersRoute: typeof AppTriggersRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
   AppAgentsNewRoute: typeof AppAgentsNewRoute
+  AppQaQuestionIdRoute: typeof AppQaQuestionIdRoute
   AppSkillsSkillIdRoute: typeof AppSkillsSkillIdRoute
   AppTasksRunIdRoute: typeof AppTasksRunIdRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
+  AppQaIndexRoute: typeof AppQaIndexRoute
   AppSkillsIndexRoute: typeof AppSkillsIndexRoute
 }
 
@@ -686,9 +726,11 @@ const AppRouteChildren: AppRouteChildren = {
   AppTriggersRoute: AppTriggersRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
   AppAgentsNewRoute: AppAgentsNewRoute,
+  AppQaQuestionIdRoute: AppQaQuestionIdRoute,
   AppSkillsSkillIdRoute: AppSkillsSkillIdRoute,
   AppTasksRunIdRoute: AppTasksRunIdRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
+  AppQaIndexRoute: AppQaIndexRoute,
   AppSkillsIndexRoute: AppSkillsIndexRoute,
 }
 

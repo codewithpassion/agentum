@@ -344,6 +344,15 @@ function OutputBody({
       <InfoRow label="Last 7 days">
         <span className="text-sm">{itemsText(countOf(incoming))}</span>
       </InfoRow>
+      {node.subkind === "qa" ? (
+        <Link
+          className={buttonVariants({ size: "sm", variant: "outline" })}
+          search={{ status: undefined }}
+          to="/qa"
+        >
+          Open the Q&A board
+        </Link>
+      ) : null}
     </div>
   );
 }

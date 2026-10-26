@@ -45,3 +45,6 @@ export type MailboxRecord = NonNullable<RouterOutputs["mailbox"]["get"]>;
 export type MailThreadRow = RouterOutputs["threads"][number];
 export type MailThreadView = RouterOutputs["thread"];
 export type MailToolRule = RouterOutputs["requests"]["rules"]["list"][number];
+export type QaQuestionRecord = RouterOutputs["qa"]["list"]["questions"][number];
+export type QaQuestionView = RouterOutputs["qa"]["get"];
+export type QaAnswerRecord = QaQuestionView["answers"][number];
