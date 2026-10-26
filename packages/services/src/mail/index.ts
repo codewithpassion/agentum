@@ -110,7 +110,6 @@ export const createMailService = ({
     if (raced?.address === address) {
       return raced;
     }
-    // biome-ignore lint/style/useErrorCause: ServiceError has a fixed public constructor
     throw new ServiceError("conflict", "That address is taken");
   };
   const prepare = async (
