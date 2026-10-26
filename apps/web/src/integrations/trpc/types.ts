@@ -7,7 +7,6 @@ export type RouterOutputs = inferRouterOutputs<AppRouter>;
 export type AgentRecord = RouterOutputs["agents"]["get"];
 export type MachineRecord = RouterOutputs["machines"]["list"][number];
 export type SessionListItem = RouterOutputs["sessions"]["list"][number];
-export type SessionTranscript = RouterOutputs["sessions"]["transcript"];
 export type EventLogPage = RouterOutputs["events"]["list"];
 export type EventLogEntry = EventLogPage["entries"][number];
 export type ApiKeyRecord = RouterOutputs["apiKeys"]["list"][number];
