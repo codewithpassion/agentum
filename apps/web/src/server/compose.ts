@@ -8,6 +8,10 @@ import type { Database } from "@repo/db";
 import { type Atomic, d1Atomic } from "@repo/db/atomic";
 import type { ModelProvider } from "@repo/db/shared";
 import {
+  type AgentBuilderService,
+  createAgentBuilderService,
+} from "@repo/services/agent-builder/service";
+import {
   type AgentProfileService,
   createAgentProfileService,
 } from "@repo/services/agent-profile";
@@ -234,6 +238,7 @@ export interface Infra {
 }
 
 export interface Services {
+  agentBuilder: AgentBuilderService;
   agentProfile: AgentProfileService;
   agents: AgentsService;
   apiKeys: ApiKeysService;
@@ -603,6 +608,15 @@ export const composeWith = ({
     skillsStore,
     triggers,
   });
+  const agentBuilder = createAgentBuilderService({
+    agents,
+    connectors,
+    fetch: connectorFetch,
+    machines,
+    managedKeys,
+    modelKeys,
+    skillsStore,
+  });
   const agentProfile = createAgentProfileService({
     agents,
     connectors,
@@ -630,6 +644,7 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     services: {
+      agentBuilder,
       agentProfile,
       agents,
       apiKeys,
