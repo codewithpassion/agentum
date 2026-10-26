@@ -24,3 +24,4 @@ control-plane watches for expected events that don't arrive. On a miss it opens 
 
 ## Log
 - 2026-10-26: requested by the integration coordinator (contract C3).
+- 2026-10-26: Dom: next free services slot (after V1.5).
