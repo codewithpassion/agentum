@@ -14,12 +14,9 @@ import { createEventsService } from "../events.ts";
 import { memoryLibraryBlobs } from "../library/memory.ts";
 import { createLibraryService } from "../library.ts";
 import type { Principal } from "../workspaces.ts";
-import {
-  type BrowserDriver,
-  type BrowserPage,
-  createBrowserService,
-  KEEP_ALIVE_MS,
-} from "./index.ts";
+import { KEEP_ALIVE_MS } from "./rules.ts";
+import { createBrowserService } from "./service.ts";
+import type { BrowserDriver, BrowserPage } from "./types.ts";
 
 const START = "2026-10-27T00:00:00.000Z";
 const principal = {
