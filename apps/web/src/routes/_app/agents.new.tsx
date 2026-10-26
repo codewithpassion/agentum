@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback } from "react";
 import { runtimeConfigOf } from "#/components/agent/agent-config.ts";
@@ -29,6 +29,7 @@ export const Route = createFileRoute("/_app/agents/new")({
 function NewAgent() {
   const { machines, providerKeys } = Route.useLoaderData();
   const navigate = Route.useNavigate();
+  const router = useRouter();
 
   const createAgent = useCallback(
     async (values: AgentFormValues) => {
@@ -46,9 +47,11 @@ function NewAgent() {
           : {}),
         ...(sendsConfig ? { runtimeConfig } : {}),
       });
+      // Reload the sidebar's agent list.
+      await router.invalidate();
       await navigate({ to: "/agents/$agentId", params: { agentId: agent.id } });
     },
-    [navigate]
+    [navigate, router]
   );
 
   return (
