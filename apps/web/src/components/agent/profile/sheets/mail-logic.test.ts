@@ -4,7 +4,6 @@ import {
   allowedMailAddresses,
   approvalNote,
   directionLabel,
-  latestMessageState,
   mailboxStatusLabel,
   messageStatusChip,
   parseAddresses,
@@ -76,34 +75,6 @@ test("approvalNote explains the states that need a word", () => {
   expect(approvalNote("failed")).toBe("It could not be sent.");
   expect(approvalNote("received")).toBeNull();
   expect(approvalNote("sent")).toBeNull();
-});
-
-test("latestMessageState picks the newest message regardless of order", () => {
-  const messages = [
-    {
-      createdAt: "2026-10-02T10:00:00.000Z",
-      direction: "out" as const,
-      status: "sent" as const,
-    },
-    {
-      createdAt: "2026-10-03T08:00:00.000Z",
-      direction: "in" as const,
-      status: "received" as const,
-    },
-    {
-      createdAt: "2026-10-01T09:00:00.000Z",
-      direction: "out" as const,
-      status: "held" as const,
-    },
-  ];
-  expect(latestMessageState(messages)).toEqual({
-    direction: "in",
-    status: "received",
-  });
-});
-
-test("latestMessageState is null for an empty list", () => {
-  expect(latestMessageState([])).toBeNull();
 });
 
 test("mailboxStatusLabel maps each mailbox status", () => {

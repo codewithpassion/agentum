@@ -74,23 +74,6 @@ const APPROVAL_NOTES: Record<MailMessageStatus, string | null> = {
 export const approvalNote = (status: MailMessageStatus): string | null =>
   APPROVAL_NOTES[status];
 
-/** The newest message by `createdAt` (ISO strings), or null for an empty list. */
-export const latestMessageState = (
-  messages: readonly {
-    createdAt: string;
-    direction: MailDirection;
-    status: MailMessageStatus;
-  }[]
-): { direction: MailDirection; status: MailMessageStatus } | null => {
-  let latest: (typeof messages)[number] | null = null;
-  for (const message of messages) {
-    if (latest === null || message.createdAt > latest.createdAt) {
-      latest = message;
-    }
-  }
-  return latest && { direction: latest.direction, status: latest.status };
-};
-
 const MAILBOX_LABELS: Record<MailboxStatus, { label: string; tone: MailTone }> =
   {
     active: { label: "Active", tone: "on" },

@@ -60,7 +60,9 @@ export function MailThreadPanel({ onBack, threadId }: MailThreadPanelProps) {
   } else {
     body = (
       <>
-        <h3 className="font-medium text-base">{thread.subject}</h3>
+        <h3 className="font-medium text-base">
+          {thread.subject === "" ? "(no subject)" : thread.subject}
+        </h3>
         <ol className="flex flex-col gap-3">
           {thread.messages.map((message) => {
             const chip = messageStatusChip(message.status);

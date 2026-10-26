@@ -87,7 +87,7 @@ export function ProfileRows({
           action={{ ...open("startsOn"), label: "+" }}
           chips={startChips(profile.startsOn)}
           extra={
-            mailbox === null ? null : (
+            mailbox === null || mailbox.status === "disabled" ? null : (
               <MailStartChip
                 address={mailbox.address}
                 agentId={agent.id}

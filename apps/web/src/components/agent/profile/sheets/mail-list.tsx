@@ -4,23 +4,11 @@ import type { RouterOutputs } from "#/integrations/trpc/types";
 import { cn } from "#/lib/utils.ts";
 import {
   directionLabel,
-  latestMessageState,
   type MailTone,
   messageStatusChip,
 } from "./mail-logic.ts";
 
-/** How many threads get their messages fetched for the state chips. */
-const DETAIL_LIMIT = 30;
-
 type MailThreadRow = RouterOutputs["threads"][number];
-type ThreadDetail = RouterOutputs["thread"];
-type LatestState = NonNullable<ReturnType<typeof latestMessageState>>;
-
-interface MailListRow {
-  count: number | undefined;
-  state: LatestState | null;
-  thread: MailThreadRow;
-}
 
 const TONE_CLASS: Record<MailTone, string> = {
   bad: "border-destructive text-destructive",
@@ -29,30 +17,8 @@ const TONE_CLASS: Record<MailTone, string> = {
   warn: "border-amber-400 bg-amber-100 text-amber-900",
 };
 
-const rowFor = (
-  thread: MailThreadRow,
-  detail: PromiseSettledResult<ThreadDetail> | undefined
-): MailListRow => {
-  if (detail?.status !== "fulfilled") {
-    return { count: undefined, state: null, thread };
-  }
-  const { messages } = detail.value;
-  return {
-    count: messages.length,
-    state: latestMessageState(messages),
-    thread,
-  };
-};
-
-const loadRows = async (agentId: string): Promise<MailListRow[]> => {
-  const threads = await getTrpc().threads.query({ agentId });
-  const details = await Promise.allSettled(
-    threads
-      .slice(0, DETAIL_LIMIT)
-      .map((thread) => getTrpc().thread.query({ id: thread.id }))
-  );
-  return threads.map((thread, index) => rowFor(thread, details[index]));
-};
+const loadRows = (agentId: string): Promise<MailThreadRow[]> =>
+  getTrpc().threads.query({ agentId });
 
 function Chip({ label, tone }: { label: string; tone: MailTone }) {
   return (
@@ -68,16 +34,15 @@ function Chip({ label, tone }: { label: string; tone: MailTone }) {
 }
 
 function MailListItem({
-  row,
+  thread,
   onOpen,
 }: {
   onOpen: (threadId: string) => void;
-  row: MailListRow;
+  thread: MailThreadRow;
 }) {
-  const { thread } = row;
   const open = useCallback(() => onOpen(thread.id), [onOpen, thread.id]);
   const status =
-    row.state === null ? null : messageStatusChip(row.state.status);
+    thread.lastStatus === null ? null : messageStatusChip(thread.lastStatus);
   return (
     <li>
       <button
@@ -90,11 +55,11 @@ function MailListItem({
         </span>
         <span className="text-muted-foreground text-xs">
           {new Date(thread.lastMessageAt).toLocaleString()}
-          {row.count === undefined ? null : ` · ${row.count} messages`}
+          {` · ${thread.messageCount} messages`}
         </span>
-        {row.state === null ? null : (
+        {thread.lastDirection === null ? null : (
           <span className="flex flex-wrap gap-1.5">
-            <Chip label={directionLabel(row.state.direction)} tone="default" />
+            <Chip label={directionLabel(thread.lastDirection)} tone="default" />
             {status === null ? null : (
               <Chip label={status.label} tone={status.tone} />
             )}
@@ -113,7 +78,7 @@ export function MailList({
   agentId: string;
   onOpen: (threadId: string) => void;
 }) {
-  const [rows, setRows] = useState<MailListRow[] | undefined>();
+  const [rows, setRows] = useState<MailThreadRow[] | undefined>();
   const [error, setError] = useState<string | undefined>();
 
   useEffect(() => {
@@ -149,8 +114,8 @@ export function MailList({
   } else {
     body = (
       <ul className="flex flex-col">
-        {rows.map((row) => (
-          <MailListItem key={row.thread.id} onOpen={onOpen} row={row} />
+        {rows.map((thread) => (
+          <MailListItem key={thread.id} onOpen={onOpen} thread={thread} />
         ))}
       </ul>
     );
