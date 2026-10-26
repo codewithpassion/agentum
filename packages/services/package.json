@@ -22,6 +22,7 @@
     "./crypto": "./src/crypto.ts",
     "./errors": "./src/errors.ts",
     "./events": "./src/events.ts",
+    "./events/scrub": "./src/events/scrub.ts",
     "./files": "./src/files.ts",
     "./files/memory": "./src/files/memory.ts",
     "./inbox": "./src/inbox.ts",

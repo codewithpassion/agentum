@@ -18,10 +18,24 @@
 // replacement.
 
 export interface Masker {
+  /**
+   * The cut to use in place of `cut` so that it splits no whole needle in
+   * `text`: `cut` itself, or the start of the earliest needle that spans it.
+   * Costs a short scan around the cut per needle, not a pass over the text.
+   */
+  cutBeforeWhole: (text: string, cut: number) => number;
   /** Replaces every needle (raw, JSON, base64 and URL-encoded shapes) with `[secret:NAME]`. */
   mask: (text: string) => string;
   /** Same over every string inside an object or array. Never throws. */
   maskDeep: <T>(value: T) => T;
+  /**
+   * How many characters at the end of `text` are the start of a needle, short
+   * of the whole needle. A stream holds those back, because the next chunk may
+   * complete the secret and `mask` can only replace a whole value. It reads
+   * the raw text, and a whole value at the end also ends in a start of itself,
+   * so cut with `cutBeforeWhole` as well.
+   */
+  unfinishedTail: (text: string) => number;
 }
 
 interface Needle {
@@ -117,5 +131,41 @@ export const createMasker = (
     return value;
   };
 
-  return { mask, maskDeep };
+  const unfinishedTail = (text: string): number => {
+    const last = text.at(-1);
+    let longest = 0;
+    for (const { value } of needles) {
+      const most = Math.min(value.length - 1, text.length);
+      for (let length = most; length > longest; length -= 1) {
+        if (
+          value[length - 1] === last &&
+          text.endsWith(value.slice(0, length))
+        ) {
+          longest = length;
+          break;
+        }
+      }
+    }
+    return longest;
+  };
+
+  const cutBeforeWhole = (text: string, cut: number): number => {
+    let at = cut;
+    let moved = true;
+    while (moved) {
+      moved = false;
+      for (const { value } of needles) {
+        // A needle that spans `at` starts in (at - length, at) and ends before at + length.
+        const from = Math.max(0, at - value.length + 1);
+        const found = text.slice(from, at + value.length - 1).indexOf(value);
+        if (found !== -1) {
+          at = from + found;
+          moved = true;
+        }
+      }
+    }
+    return at;
+  };
+
+  return { cutBeforeWhole, mask, maskDeep, unfinishedTail };
 };
