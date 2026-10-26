@@ -1,18 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import {
   ASK_USER_TOOL,
-  askUserQuestionAnswers,
-  approvalSummary,
-  isAskUserCall,
-  outcomeText,
-  toolKey,
-  type ToolRuntime,
   approvalAnswerSchema,
   approvalDisplaySchema,
+  approvalSummary,
+  askUserQuestionAnswers,
+  isAskUserCall,
+  outcomeText,
   questionAnswerSchema,
   questionDisplaySchema,
   questionSchema,
   requestOutcomeSchema,
+  type ToolRuntime,
+  toolKey,
 } from "./requests.ts";
 
 const question = { question: "Which database?" };
@@ -152,51 +152,90 @@ describe("requestOutcomeSchema", () => {
   });
 });
 
-
 describe("toolKey", () => {
   test("normalises the built-in table across runtimes", () => {
     const aliases = {
       bash: ["Bash", "bash"],
-      write: ["Write", "write"],
       edit: ["Edit", "MultiEdit", "edit"],
       read: ["Read", "read"],
-      web_fetch: ["WebFetch", "web_fetch"],
-      web_search: ["WebSearch", "web_search"],
       run_script: ["run_script"],
       run_skill_script: ["run_skill_script"],
+      web_fetch: ["WebFetch", "web_fetch"],
+      web_search: ["WebSearch", "web_search"],
+      write: ["Write", "write"],
     };
     const runtimes: ToolRuntime[] = ["claude_code", "pi", "managed"];
     for (const runtime of runtimes) {
       for (const [key, names] of Object.entries(aliases)) {
         for (const name of names) {
-          expect(toolKey({ runtime, name })).toBe(key);
+          expect(toolKey({ name, runtime })).toBe(key);
         }
       }
-      expect(toolKey({ runtime, name: "UnknownTool" })).toBe("unknowntool");
+      expect(toolKey({ name: "UnknownTool", runtime })).toBe("unknowntool");
     }
   });
 
   test("gives MCP tools the same key across runtimes", () => {
-    expect(toolKey({ runtime: "claude_code", name: "mcp__github__create_issue", serverKeys: ["github"] })).toBe("github/create_issue");
-    expect(toolKey({ runtime: "pi", name: "github_create_issue", serverKeys: ["github"] })).toBe("github/create_issue");
-    expect(toolKey({ runtime: "managed", name: "create_issue", server: "github" })).toBe("github/create_issue");
+    expect(
+      toolKey({
+        name: "mcp__github__create_issue",
+        runtime: "claude_code",
+        serverKeys: ["github"],
+      })
+    ).toBe("github/create_issue");
+    expect(
+      toolKey({
+        name: "github_create_issue",
+        runtime: "pi",
+        serverKeys: ["github"],
+      })
+    ).toBe("github/create_issue");
+    expect(
+      toolKey({ name: "create_issue", runtime: "managed", server: "github" })
+    ).toBe("github/create_issue");
   });
 
   test("prefers the longest known server key, including underscores", () => {
-    expect(toolKey({ runtime: "pi", name: "my_server_create_issue", serverKeys: ["my", "my_server"] })).toBe("my_server/create_issue");
-    expect(toolKey({ runtime: "claude_code", name: "mcp__my__server__Read", serverKeys: ["my", "my__server"] })).toBe("my__server/Read");
+    expect(
+      toolKey({
+        name: "my_server_create_issue",
+        runtime: "pi",
+        serverKeys: ["my", "my_server"],
+      })
+    ).toBe("my_server/create_issue");
+    expect(
+      toolKey({
+        name: "mcp__my__server__Read",
+        runtime: "claude_code",
+        serverKeys: ["my", "my__server"],
+      })
+    ).toBe("my__server/Read");
   });
 
   test("matches Pi sanitisation and retains its reported, possibly cut tool name", () => {
-    expect(toolKey({ runtime: "pi", name: "my_server_create_issue", serverKeys: ["my.server"] })).toBe("my.server/create_issue");
+    expect(
+      toolKey({
+        name: "my_server_create_issue",
+        runtime: "pi",
+        serverKeys: ["my.server"],
+      })
+    ).toBe("my.server/create_issue");
     const name = `github_${"a".repeat(80)}`.slice(0, 64);
-    expect(toolKey({ runtime: "pi", name, serverKeys: ["github"] })).toBe(`github/${"a".repeat(57)}`);
+    expect(toolKey({ name, runtime: "pi", serverKeys: ["github"] })).toBe(
+      `github/${"a".repeat(57)}`
+    );
   });
 
   test("does not guess unknown servers or accept empty tool suffixes", () => {
-    expect(toolKey({ runtime: "claude_code", name: "mcp__Other__Read" })).toBe("mcp__other__read");
-    expect(toolKey({ runtime: "pi", name: "other_Read", serverKeys: ["github"] })).toBe("other_read");
-    expect(toolKey({ runtime: "pi", name: "github_", serverKeys: ["github"] })).toBe("github_");
+    expect(toolKey({ name: "mcp__Other__Read", runtime: "claude_code" })).toBe(
+      "mcp__other__read"
+    );
+    expect(
+      toolKey({ name: "other_Read", runtime: "pi", serverKeys: ["github"] })
+    ).toBe("other_read");
+    expect(
+      toolKey({ name: "github_", runtime: "pi", serverKeys: ["github"] })
+    ).toBe("github_");
   });
 });
 
@@ -205,14 +244,18 @@ describe("ask_user tool", () => {
     expect(ASK_USER_TOOL.name).toBe("ask_user");
     expect(ASK_USER_TOOL.description).toContain("cannot continue");
     expect(JSON.parse(JSON.stringify(ASK_USER_TOOL.inputSchema))).toEqual({
-      type: "object",
+      additionalProperties: false,
       properties: {
-        question: { type: "string", minLength: 1 },
-        choices: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 6 },
+        choices: {
+          items: { minLength: 1, type: "string" },
+          maxItems: 6,
+          type: "array",
+        },
         multiSelect: { type: "boolean" },
+        question: { minLength: 1, type: "string" },
       },
       required: ["question"],
-      additionalProperties: false,
+      type: "object",
     });
   });
 
@@ -220,7 +263,9 @@ describe("ask_user tool", () => {
     const runtimes: ToolRuntime[] = ["claude_code", "pi", "managed"];
     for (const runtime of runtimes) {
       expect(isAskUserCall(runtime, "ask_user")).toBe(true);
-      expect(isAskUserCall(runtime, "AskUserQuestion")).toBe(runtime === "claude_code");
+      expect(isAskUserCall(runtime, "AskUserQuestion")).toBe(
+        runtime === "claude_code"
+      );
       expect(isAskUserCall(runtime, "bash")).toBe(false);
     }
   });
@@ -228,12 +273,22 @@ describe("ask_user tool", () => {
 
 describe("approvalSummary", () => {
   test("summarises commands, MCP tools, and common built-in inputs on one line", () => {
-    expect(approvalSummary("Bash", { command: "git push\norigin main" })).toBe("Run `git push origin main`");
+    expect(approvalSummary("Bash", { command: "git push\norigin main" })).toBe(
+      "Run `git push origin main`"
+    );
     expect(approvalSummary("bash", { command: "pwd" })).toBe("Run `pwd`");
-    expect(approvalSummary("github/create_issue", {})).toBe("Call github/create_issue");
-    expect(approvalSummary("Read", { file_path: "README.md" })).toBe("Read README.md");
-    expect(approvalSummary("WebFetch", { url: "https://example.com" })).toBe("WebFetch https://example.com");
-    expect(approvalSummary("WebSearch", { query: "one\ntwo" })).toBe("WebSearch one two");
+    expect(approvalSummary("github/create_issue", {})).toBe(
+      "Call github/create_issue"
+    );
+    expect(approvalSummary("Read", { file_path: "README.md" })).toBe(
+      "Read README.md"
+    );
+    expect(approvalSummary("WebFetch", { url: "https://example.com" })).toBe(
+      "WebFetch https://example.com"
+    );
+    expect(approvalSummary("WebSearch", { query: "one\ntwo" })).toBe(
+      "WebSearch one two"
+    );
     for (const input of [null, [], "text", {}, { file_path: 3 }]) {
       expect(approvalSummary("Unknown", input)).toBe("Use Unknown");
     }
@@ -251,43 +306,104 @@ describe("approvalSummary", () => {
 describe("outcomeText", () => {
   test("allows approvals silently and includes denial notes", () => {
     for (const decision of ["allow_once", "always_allow"] as const) {
-      expect(outcomeText("approval", { status: "answered", answer: { decision } })).toBeNull();
+      expect(
+        outcomeText("approval", { answer: { decision }, status: "answered" })
+      ).toBeNull();
     }
-    expect(outcomeText("approval", { status: "answered", answer: { decision: "deny" } })).toBe("A person denied this call.");
-    expect(outcomeText("approval", { status: "answered", answer: { decision: "deny", note: "Use staging." } })).toBe("A person denied this call. Use staging.");
-    expect(outcomeText("approval", { status: "answered", answer: { decision: "deny", note: "" } })).toBe("A person denied this call.");
+    expect(
+      outcomeText("approval", {
+        answer: { decision: "deny" },
+        status: "answered",
+      })
+    ).toBe("A person denied this call.");
+    expect(
+      outcomeText("approval", {
+        answer: { decision: "deny", note: "Use staging." },
+        status: "answered",
+      })
+    ).toBe("A person denied this call. Use staging.");
+    expect(
+      outcomeText("approval", {
+        answer: { decision: "deny", note: "" },
+        status: "answered",
+      })
+    ).toBe("A person denied this call.");
   });
 
   test("puts each question and answer together on its own line", () => {
-    expect(outcomeText("question", { status: "answered", answer: { answers: { "Database?": "D1", "Regions?": "AU, US" } } })).toBe("Q: Database? A: D1\nQ: Regions? A: AU, US");
+    expect(
+      outcomeText("question", {
+        answer: { answers: { "Database?": "D1", "Regions?": "AU, US" } },
+        status: "answered",
+      })
+    ).toBe("Q: Database? A: D1\nQ: Regions? A: AU, US");
   });
 
   test("explains expiry and cancellation for each kind", () => {
-    expect(outcomeText("approval", { status: "expired" })).toBe("Nobody answered within the time limit, so the call did not run.");
-    expect(outcomeText("question", { status: "expired" })).toBe("Nobody answered the question in time. Go on without it or stop and say what you need.");
-    expect(outcomeText("question", { status: "cancelled" })).toBe("The question was withdrawn because the run is ending.");
-    expect(outcomeText("approval", { status: "cancelled" })).toBe("The call was withdrawn because the run is ending.");
+    expect(outcomeText("approval", { status: "expired" })).toBe(
+      "Nobody answered within the time limit, so the call did not run."
+    );
+    expect(outcomeText("question", { status: "expired" })).toBe(
+      "Nobody answered the question in time. Go on without it or stop and say what you need."
+    );
+    expect(outcomeText("question", { status: "cancelled" })).toBe(
+      "The question was withdrawn because the run is ending."
+    );
+    expect(outcomeText("approval", { status: "cancelled" })).toBe(
+      "The call was withdrawn because the run is ending."
+    );
   });
 
   test("rejects an answer for the wrong request kind", () => {
-    expect(() => outcomeText("approval", { status: "answered", answer: { answers: {} } })).toThrow();
-    expect(() => outcomeText("question", { status: "answered", answer: { decision: "allow_once" } })).toThrow();
+    expect(() =>
+      outcomeText("approval", { answer: { answers: {} }, status: "answered" })
+    ).toThrow();
+    expect(() =>
+      outcomeText("question", {
+        answer: { decision: "allow_once" },
+        status: "answered",
+      })
+    ).toThrow();
   });
 });
 
 describe("askUserQuestionAnswers", () => {
   test("maps single and already joined multi-select answers, omitting missing and unrelated questions", () => {
-    expect(askUserQuestionAnswers({ questions: [
-      { question: "Database?", options: [{ label: "D1" }], multiSelect: false },
-      { question: "Regions?", multiSelect: true },
-      { question: "Missing?" },
-      { question: "Empty?" },
-    ] }, { answers: { "Database?": "D1", "Regions?": "AU, US", "Unrelated?": "ignore", "Empty?": "" } })).toEqual({ "Database?": "D1", "Regions?": "AU, US", "Empty?": "" });
+    expect(
+      askUserQuestionAnswers(
+        {
+          questions: [
+            {
+              multiSelect: false,
+              options: [{ label: "D1" }],
+              question: "Database?",
+            },
+            { multiSelect: true, question: "Regions?" },
+            { question: "Missing?" },
+            { question: "Empty?" },
+          ],
+        },
+        {
+          answers: {
+            "Database?": "D1",
+            "Empty?": "",
+            "Regions?": "AU, US",
+            "Unrelated?": "ignore",
+          },
+        }
+      )
+    ).toEqual({ "Database?": "D1", "Empty?": "", "Regions?": "AU, US" });
   });
 
   test("handles malformed runtime input without inventing question keys", () => {
-    for (const input of [null, {}, { questions: [null, {}, { question: 1 }] }]) {
-      expect(askUserQuestionAnswers(input, { answers: { "Database?": "D1" } })).toEqual({});
+    for (const input of [
+      null,
+      {},
+      { questions: [null, {}, { question: 1 }] },
+    ]) {
+      expect(
+        askUserQuestionAnswers(input, { answers: { "Database?": "D1" } })
+      ).toEqual({});
     }
   });
 });
