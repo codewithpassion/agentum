@@ -12,7 +12,7 @@ import type { AdapterDeps, Clock } from "../runs/types.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { createMachineRuntime } from "./runtime.ts";
-import type { MachineRelayPort } from "./types.ts";
+import { type MachineRelayPort, noopRelay } from "./types.ts";
 
 const WORKSPACE = "w1";
 const START = "2026-10-16T10:00:00.000Z";
@@ -54,6 +54,7 @@ beforeEach(async () => {
   cancels = [];
   offerError = null;
   relay = {
+    ...noopRelay,
     announce: () => Promise.resolve(),
     cancel: (machineId, runId) => {
       cancels.push([machineId, runId]);

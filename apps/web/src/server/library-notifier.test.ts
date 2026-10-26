@@ -3,7 +3,10 @@ import { sqliteAtomic } from "@repo/db/atomic";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
-import type { MachineRelayPort } from "@repo/services/machines/types";
+import {
+  type MachineRelayPort,
+  noopRelay,
+} from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
 import { eq } from "drizzle-orm";
@@ -32,6 +35,7 @@ let failRelay: boolean;
 let useDefer: boolean;
 
 const relay = (): MachineRelayPort => ({
+  ...noopRelay,
   announce: (machineId, paths) => {
     if (failRelay) {
       return Promise.reject(new Error("relay down"));
@@ -39,9 +43,6 @@ const relay = (): MachineRelayPort => ({
     announced.push({ machineId, paths });
     return Promise.resolve();
   },
-  cancel: () => Promise.resolve(),
-  offer: () => Promise.resolve(),
-  revoke: () => Promise.resolve(),
 });
 
 const compose = () => {
