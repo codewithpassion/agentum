@@ -29,6 +29,10 @@ import { createLibraryApi } from "./library-api.ts";
 import {
   createDaemonLibrarySync,
   type DaemonLibrarySync,
+  type DaemonLibrarySyncOptions,
+  fsLibraryWatcher,
+  LIBRARY_DIR,
+  type LibraryWatcher,
 } from "./library-sync.ts";
 import { createWorkDisk } from "./work-disk.ts";
 
@@ -188,7 +192,9 @@ const remoteText = (path: string): string | undefined =>
   textOf(remote.files.get(path)?.bytes);
 
 /** A daemon sync over this work directory and the fake Worker. */
-const daemonSync = (): DaemonLibrarySync =>
+const daemonSync = (
+  extra: Partial<DaemonLibrarySyncOptions> = {}
+): DaemonLibrarySync =>
   createDaemonLibrarySync({
     api: createLibraryApi({
       fetch: worker.fetch,
@@ -201,9 +207,88 @@ const daemonSync = (): DaemonLibrarySync =>
     log: (message) => {
       lines.push(message);
     },
-    paths: [AGENT_PATH],
+    roots: [{ mode: "write", path: AGENT_PATH }],
     runId: RUN_ID,
+    ...extra,
   });
+
+/** A clock the test advances by hand. Timers fire in order of their due time. */
+const manualClock = () => {
+  let now = 0;
+  let next = 0;
+  const timers = new Map<number, { at: number; fn: () => void }>();
+  return {
+    advance: (ms: number) => {
+      const end = now + ms;
+      while (timers.size > 0) {
+        const [due] = [...timers].sort((a, b) => a[1].at - b[1].at);
+        if (!due || due[1].at > end) {
+          break;
+        }
+        now = due[1].at;
+        timers.delete(due[0]);
+        due[1].fn();
+      }
+      now = end;
+    },
+    clearTimeout: (handle: number) => {
+      timers.delete(handle);
+    },
+    setTimeout: (fn: () => void, ms: number) => {
+      next += 1;
+      timers.set(next, { at: now + ms, fn });
+      return next;
+    },
+  };
+};
+
+/** A watcher the test drives: `emit` reports a path to the callback the daemon gave it. */
+const fakeWatcher = () => {
+  const counts = { starts: 0, stops: 0 };
+  let onPath: ((libraryPath: string) => void) | undefined;
+  const watcher: LibraryWatcher = (callback) => {
+    counts.starts += 1;
+    onPath = callback;
+    return () => {
+      counts.stops += 1;
+    };
+  };
+  return {
+    counts,
+    emit: (libraryPath: string) => {
+      onPath?.(libraryPath);
+    },
+    watcher,
+  };
+};
+
+/** Lets the sync out that a fired timer started run to its end. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+
+/** Polls, letting real time pass between checks, until `check` holds or the wait gives up. */
+const waitFor = (check: () => boolean, tries = WAIT_TRIES): Promise<void> =>
+  check() || tries === 0
+    ? Promise.resolve()
+    : settle().then(() => waitFor(check, tries - 1));
+
+/** A daemon sync wired to a fake watcher and a clock the test advances. */
+const watchedSync = (extra: Partial<DaemonLibrarySyncOptions> = {}) => {
+  const watch = fakeWatcher();
+  const clock = manualClock();
+  const sync = daemonSync({
+    clock,
+    maxMs: MAX_MS,
+    quietMs: QUIET_MS,
+    watcher: watch.watcher,
+    ...extra,
+  });
+  return { clock, sync, watch };
+};
+
+const QUIET_MS = 100;
+const MAX_MS = 1000;
+const WAIT_TRIES = 200;
+const EDIT_ROUNDS = 10;
 
 beforeEach(() => {
   workDir = mkdtempSync(join(tmpdir(), "harbourmaster-library-sync-"));
@@ -394,5 +479,273 @@ describe("the manifest", () => {
       )
     ).toEqual([]);
     expect(lines.at(-1)).toContain("0 written, 0 deleted, 0 conflict(s)");
+  });
+});
+
+describe("pulling a path", () => {
+  test("covered keeps the paths that equal a root or sit under one, in any mode", () => {
+    const sync = daemonSync({
+      roots: [
+        { mode: "write", path: AGENT_PATH },
+        { mode: "read", path: "docs/guide.md" },
+      ],
+    });
+
+    expect(
+      sync.covered([NOTES, OUTSIDE, "agents/adaX/y.md", "docs/guide.md"])
+    ).toEqual([NOTES, "docs/guide.md"]);
+  });
+
+  test("pull fetches the covered paths and nothing else", async () => {
+    const sync = daemonSync();
+    remote.calls.splice(0);
+
+    await sync.pull([NOTES, OUTSIDE]);
+
+    expect(localText(NOTES)).toBe("v1 notes");
+    expect(existsSync(localPath(OUTSIDE))).toBe(false);
+    expect(remote.calls.some((call) => call.includes(OUTSIDE))).toBe(false);
+    expect(lines.at(-1)).toContain("library synced in");
+  });
+
+  test("pull with only paths outside every root fetches nothing", async () => {
+    const sync = daemonSync();
+    remote.calls.splice(0);
+    lines.splice(0);
+
+    await sync.pull([OUTSIDE]);
+
+    expect(remote.calls).toEqual([]);
+    expect(lines).toEqual([]);
+  });
+});
+
+describe("live sync", () => {
+  test("an edit is sent out once the quiet time after it has passed", async () => {
+    const { clock, sync, watch } = watchedSync();
+    await sync.syncIn();
+    expect(sync.startWatching()).toBe(true);
+
+    writeLocal(NOTES, "agent edit");
+    watch.emit(NOTES);
+    clock.advance(QUIET_MS - 1);
+    await settle();
+    expect(remoteText(NOTES)).toBe("v1 notes");
+
+    clock.advance(1);
+    await settle();
+    expect(remoteText(NOTES)).toBe("agent edit");
+    sync.stopWatching();
+  });
+
+  test("a burst of edits becomes one sync out", async () => {
+    const { clock, sync, watch } = watchedSync();
+    await sync.syncIn();
+    sync.startWatching();
+
+    writeLocal(NOTES, "agent edit");
+    watch.emit(NOTES);
+    clock.advance(QUIET_MS - 10);
+    writeLocal(NEW_FILE, "fresh");
+    watch.emit(NOTES);
+    watch.emit(NEW_FILE);
+    clock.advance(QUIET_MS);
+    await settle();
+
+    expect(
+      lines.filter((line) => line.startsWith("library synced out"))
+    ).toHaveLength(1);
+    expect(remote.calls.filter((call) => call.startsWith("write "))).toEqual(
+      expect.arrayContaining([`write ${NOTES}`, `write ${NEW_FILE}`])
+    );
+    expect(
+      remote.calls.filter((call) => call.startsWith("write "))
+    ).toHaveLength(2);
+    sync.stopWatching();
+  });
+
+  test("an edit under a read root is refused with a warning while a write root edit is sent", async () => {
+    const { clock, sync, watch } = watchedSync({
+      roots: [
+        { mode: "write", path: NOTES },
+        { mode: "read", path: "agents/ada/nested" },
+      ],
+    });
+    await sync.syncIn();
+    sync.startWatching();
+
+    writeLocal(NESTED, "local edit");
+    writeLocal(NOTES, "agent edit");
+    watch.emit(NESTED);
+    watch.emit(NOTES);
+    clock.advance(QUIET_MS);
+    await settle();
+
+    expect(remoteText(NOTES)).toBe("agent edit");
+    expect(remoteText(NESTED)).toBe("deep");
+    expect(lines).toContain(
+      `warning: 1 change(s) under read-only library paths were not sent: ${NESTED}`
+    );
+    sync.stopWatching();
+  });
+
+  test("a report after stopWatching does not sync", async () => {
+    const { clock, sync, watch } = watchedSync();
+    await sync.syncIn();
+    sync.startWatching();
+    sync.stopWatching();
+
+    writeLocal(NOTES, "agent edit");
+    watch.emit(NOTES);
+    clock.advance(MAX_MS * 2);
+    await settle();
+
+    expect(remoteText(NOTES)).toBe("v1 notes");
+    expect(lines.some((line) => line.startsWith("library synced out"))).toBe(
+      false
+    );
+  });
+
+  test("stopWatching cancels an edit that is waiting to be sent", async () => {
+    const { clock, sync, watch } = watchedSync();
+    await sync.syncIn();
+    expect(sync.startWatching()).toBe(true);
+    writeLocal(NOTES, "agent edit");
+    watch.emit(NOTES);
+
+    sync.stopWatching();
+    clock.advance(MAX_MS * 2);
+    await settle();
+
+    expect(remoteText(NOTES)).toBe("v1 notes");
+    expect(lines.some((line) => line.startsWith("library synced out"))).toBe(
+      false
+    );
+    expect(watch.counts.stops).toBe(1);
+  });
+
+  test("startWatching twice starts one watch", () => {
+    const { sync, watch } = watchedSync();
+
+    expect(sync.startWatching()).toBe(true);
+    expect(sync.startWatching()).toBe(true);
+
+    expect(watch.counts.starts).toBe(1);
+    sync.stopWatching();
+  });
+
+  test("startWatching returns false with a warning when the watcher throws", () => {
+    const sync = daemonSync({
+      watcher: () => {
+        throw new Error("no inotify");
+      },
+    });
+
+    expect(sync.startWatching()).toBe(false);
+    expect(lines).toContain(
+      "warning: watching the library failed, changes go back at the next checkpoint: no inotify"
+    );
+  });
+
+  test("startWatching returns false without a watcher", () => {
+    expect(daemonSync().startWatching()).toBe(false);
+  });
+});
+
+describe("fsLibraryWatcher", () => {
+  test("reports nested edits with / separators and leaves conflict copies out", async () => {
+    const dir = join(workDir, LIBRARY_DIR);
+    mkdirSync(join(dir, dirname(NESTED)), { recursive: true });
+    const reported: string[] = [];
+    const stop = fsLibraryWatcher(dir)((libraryPath) => {
+      reported.push(libraryPath);
+    });
+    try {
+      // Bun's recursive watch can drop a write that follows another write
+      // soon after, so the edit is written again until it is reported.
+      const editUntilReported = (round: number): Promise<void> => {
+        writeFileSync(join(dir, NESTED), `edit ${round}`);
+        return waitFor(() => reported.includes(NESTED), 10).then(() =>
+          reported.includes(NESTED) || round >= EDIT_ROUNDS
+            ? undefined
+            : editUntilReported(round + 1)
+        );
+      };
+      await editUntilReported(1);
+      expect(reported).toContain(NESTED);
+
+      reported.splice(0);
+      writeFileSync(join(dir, CONFLICT_COPY), "conflict");
+      await waitFor(() => false, 5);
+      expect(reported).not.toContain(CONFLICT_COPY);
+    } finally {
+      stop();
+    }
+  });
+
+  test("reports files in a folder made after the watch started, including ones written before its watch armed", async () => {
+    const dir = join(workDir, LIBRARY_DIR);
+    mkdirSync(dir, { recursive: true });
+    const reported: string[] = [];
+    const stop = fsLibraryWatcher(dir)((libraryPath) => {
+      reported.push(libraryPath);
+    });
+    try {
+      mkdirSync(join(dir, "agents/ada/tasks/run1"), { recursive: true });
+      writeFileSync(join(dir, "agents/ada/tasks/run1/early.md"), "early");
+      await waitFor(() => reported.includes("agents/ada/tasks/run1/early.md"));
+      writeFileSync(join(dir, "agents/ada/tasks/run1/late.md"), "late");
+      await waitFor(() => reported.includes("agents/ada/tasks/run1/late.md"));
+
+      expect(reported).toContain("agents/ada/tasks/run1/early.md");
+      expect(reported).toContain("agents/ada/tasks/run1/late.md");
+    } finally {
+      stop();
+    }
+  });
+
+  test("reports what a folder holds that was deleted and made again under the same name", async () => {
+    const dir = join(workDir, LIBRARY_DIR);
+    mkdirSync(join(dir, "x/y"), { recursive: true });
+    const reported: string[] = [];
+    const stop = fsLibraryWatcher(dir)((libraryPath) => {
+      reported.push(libraryPath);
+    });
+    try {
+      rmSync(join(dir, "x"), { force: true, recursive: true });
+      mkdirSync(join(dir, "x/y"), { recursive: true });
+      writeFileSync(join(dir, "x/y/c.md"), "c");
+      await waitFor(() => reported.includes("x/y/c.md"));
+
+      // Bun does not report later edits in a folder that was deleted and made
+      // again under the same name; the checkpoint sends those.
+      expect(reported).toContain("x/y/c.md");
+    } finally {
+      stop();
+    }
+  });
+
+  test("reports nothing after it was stopped", async () => {
+    const dir = join(workDir, LIBRARY_DIR);
+    mkdirSync(join(dir, "agents/ada"), { recursive: true });
+    const reported: string[] = [];
+    const stop = fsLibraryWatcher(dir)((libraryPath) => {
+      reported.push(libraryPath);
+    });
+    stop();
+    writeFileSync(join(dir, NOTES), "edit");
+    await waitFor(() => false, 5);
+
+    expect(reported).toEqual([]);
+  });
+
+  test("makes the folder when the library has nothing in it yet", () => {
+    const dir = join(workDir, LIBRARY_DIR);
+    const stop = fsLibraryWatcher(dir)(() => undefined);
+    try {
+      expect(existsSync(dir)).toBe(true);
+    } finally {
+      stop();
+    }
   });
 });

@@ -316,7 +316,7 @@ export const loadActiveAgent = async (
     throw new ServiceError("not_found", "Agent not found");
   }
   if (agent.status !== "active") {
-    throw new ServiceError("invalid", "That agent is archived");
+    throw new ServiceError("invalid", "That agent is not active");
   }
   return agent;
 };
