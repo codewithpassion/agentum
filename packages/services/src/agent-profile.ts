@@ -17,6 +17,7 @@ import {
   type SlackAppStatus,
   type SlackListenMode,
 } from "@repo/db/shared";
+import { SWITCH_COVERS } from "@repo/protocol/requests";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { gateableActions } from "./agent-profile/ask-before.ts";
@@ -481,13 +482,32 @@ export const createAgentProfileService = ({
     const user = requireUser(principal, WRITE_ACTION);
     const { action, agentId, ask } = setAskBeforeInputSchema.parse(raw);
     const agent = await loadAgent(user, WRITE_ACTION, agentId);
-    await (ask
-      ? requests.setRule(user, {
+    if (!ask) {
+      await requests.removeRule(user, { agentId: agent.id, toolKey: action });
+      return;
+    }
+    await requests.setRule(user, {
+      agentId: agent.id,
+      mode: "ask",
+      toolKey: action,
+    });
+    // An Always allow on a platform tool the switch covers would keep that tool
+    // ungated while the switch reads on, so turning the switch on clears it.
+    const covered = Object.hasOwn(SWITCH_COVERS, action)
+      ? (SWITCH_COVERS[action] ?? [])
+      : [];
+    if (covered.length === 0) {
+      return;
+    }
+    for (const rule of await requests.listRules(user, { agentId: agent.id })) {
+      if (rule.mode === "allow" && covered.includes(rule.toolKey)) {
+        // biome-ignore lint/performance/noAwaitInLoops: at most a few rules
+        await requests.removeRule(user, {
           agentId: agent.id,
-          mode: "ask",
-          toolKey: action,
-        })
-      : requests.removeRule(user, { agentId: agent.id, toolKey: action }));
+          toolKey: rule.toolKey,
+        });
+      }
+    }
   };
 
   return { askBefore, profile, setAskBefore };

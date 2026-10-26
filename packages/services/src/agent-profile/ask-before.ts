@@ -20,7 +20,7 @@ export const BUILTIN_ACTIONS: readonly BuiltinAction[] = [
   },
   {
     covers:
-      "Also writing library files, and any library script, since a script can write files.",
+      "Also writing library files, and the library script shell, since a script there can write files.",
     key: "write",
     label: "Write a file",
   },

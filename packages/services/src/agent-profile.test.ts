@@ -522,7 +522,7 @@ test("askBefore lists the built-ins and the connector tools that change things",
     "Also the library script shell and the computer shell."
   );
   expect(actions.find((row) => row.action === "write")?.covers).toBe(
-    "Also writing library files, and any library script, since a script can write files."
+    "Also writing library files, and the library script shell, since a script there can write files."
   );
   expect(actions.find((row) => row.action === "edit")?.covers).toBe(
     "Also editing a file on the computer."
@@ -604,6 +604,31 @@ test("a rule in mode allow shows as off, and turning it off removes it", async (
   });
 
   expect(await requests.listRules(user(), { agentId: a1 })).toEqual([]);
+});
+
+test("turning a switch on clears an Always allow on the platform tools it covers", async () => {
+  await requests.setRule(user(), {
+    agentId: a1,
+    mode: "allow",
+    toolKey: "harbourmaster/bash",
+  });
+  await requests.setRule(user(), {
+    agentId: a1,
+    mode: "allow",
+    toolKey: "harbourmaster/library_read",
+  });
+
+  await service.setAskBefore(user(), {
+    action: "bash",
+    agentId: a1,
+    ask: true,
+  });
+
+  const rules = await requests.listRules(user(), { agentId: a1 });
+  expect(rules.map((rule) => `${rule.toolKey}:${rule.mode}`).sort()).toEqual([
+    "bash:ask",
+    "harbourmaster/library_read:allow",
+  ]);
 });
 
 test("a revoked trigger is left out of Starts on", async () => {
