@@ -574,6 +574,7 @@ export const createMailOutbound = ({
       );
       return {
         address: box.address,
+        agentId: box.agentId,
         held: messages.filter((row) => row.status === "held").length,
         in: messages.filter((row) => row.direction === "in").length,
       };
