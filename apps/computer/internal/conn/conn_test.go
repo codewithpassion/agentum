@@ -156,8 +156,8 @@ func newClient(t *testing.T, relay *fakeRelay, sleep func(context.Context, time.
 
 func TestDialURLDerivation(t *testing.T) {
 	cases := map[string]string{
-		"https://hm.example.com":         "wss://hm.example.com/api/machines/computer",
-		"https://hm.example.com/":        "wss://hm.example.com/api/machines/computer",
+		"https://hm.example.com":              "wss://hm.example.com/api/machines/computer",
+		"https://hm.example.com/":             "wss://hm.example.com/api/machines/computer",
 		"http://127.0.0.1:8787":               "ws://127.0.0.1:8787/api/machines/computer",
 		"https://example.com/behind/a/prefix": "wss://example.com/behind/a/prefix/api/machines/computer",
 	}

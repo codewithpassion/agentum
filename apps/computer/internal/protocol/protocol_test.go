@@ -104,6 +104,7 @@ func TestHelloRoundTrip(t *testing.T) {
 	if hello.Type != "hello" {
 		t.Fatalf("type = %q, want hello", hello.Type)
 	}
+	// Shared v1 fixtures retain historical sample paths verbatim; these are not runtime defaults.
 	// Skills is the client's verdict, not python3 && git: this fixture has python3 and no git.
 	if !hello.Capabilities.Python3 || hello.Capabilities.Git || hello.Capabilities.Skills {
 		t.Fatalf("capabilities = %+v", hello.Capabilities)
@@ -412,5 +413,13 @@ func TestFrameGuardLeavesHeadroom(t *testing.T) {
 	worstCaseEscaped := protocol.ExecOutputMaxBytes * 6
 	if worstCaseEscaped > protocol.MaxFrameBytes {
 		t.Fatalf("a fully escaped %d byte output (%d) exceeds the guard", protocol.ExecOutputMaxBytes, worstCaseEscaped)
+	}
+}
+
+// The machine daemon has different heartbeat and replacement values; the computer
+// channel keeps frozen v1 values from packages/protocol/src/computer.ts.
+func TestFrozenComputerConstants(t *testing.T) {
+	if protocol.Version != 1 || protocol.HeartbeatPing != "ping" || protocol.HeartbeatPong != "pong" || protocol.HeartbeatIntervalMS != 10_000 || protocol.CloseRevoked != 4401 || protocol.CloseReplaced != 4409 || protocol.CloseStale != 4408 || protocol.ChunkBytes != 262_144 {
+		t.Fatal("frozen computer protocol constants changed")
 	}
 }

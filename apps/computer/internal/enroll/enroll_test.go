@@ -10,8 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
- "strings"
 
 	"harbourmaster.dev/computer/internal/enroll"
 )
@@ -53,7 +53,7 @@ func TestURLDerivation(t *testing.T) {
 // wherever the first server pointed — including, on an https-to-http hop, the network.
 func TestRedirectsAreRefused(t *testing.T) {
 	final := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		_, _ = writer.Write([]byte(`{"data":{"machineId":"c","credential":"m"}}`))
+		_, _ = writer.Write([]byte(`{"machineId":"c","credential":"hm_mach_test"}`))
 	}))
 	defer final.Close()
 	redirector := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -67,16 +67,15 @@ func TestRedirectsAreRefused(t *testing.T) {
 	}
 }
 
-// The request the client sends and the response it accepts are the committed fixtures, which
-// is the same pair the server's schemas are checked against.
+// The request and response fixtures encode the V6.1 computer enrollment contract.
 func TestSuccessfulEnrollmentMatchesTheFixtures(t *testing.T) {
 	var received []byte
 	var receivedPath string
- var method string
+	var method string
 	var contentType string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		receivedPath = request.URL.Path
- method = request.Method
+		method = request.Method
 		contentType = request.Header.Get("Content-Type")
 		body, err := io.ReadAll(request.Body)
 		if err != nil {
@@ -98,8 +97,10 @@ func TestSuccessfulEnrollmentMatchesTheFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enroll: %v", err)
 	}
-	if method != http.MethodPost { t.Fatalf("method = %q", method) }
- if receivedPath != "/api/machines/enroll" {
+	if method != http.MethodPost {
+		t.Fatalf("method = %q", method)
+	}
+	if receivedPath != "/api/machines/enroll" {
 		t.Fatalf("posted to %q, want %q", receivedPath, enroll.Path)
 	}
 	if contentType != "application/json" {
@@ -107,8 +108,10 @@ func TestSuccessfulEnrollmentMatchesTheFixtures(t *testing.T) {
 	}
 
 	var sent map[string]any
- var expectedRequest map[string]any
- if err := json.Unmarshal(fixture(t, "request.json"), &expectedRequest); err != nil { t.Fatal(err) }
+	var expectedRequest map[string]any
+	if err := json.Unmarshal(fixture(t, "request.json"), &expectedRequest); err != nil {
+		t.Fatal(err)
+	}
 	if err := json.Unmarshal(received, &sent); err != nil {
 		t.Fatalf("decode what was sent: %v", err)
 	}
@@ -154,7 +157,7 @@ func TestOtherFailuresCarryTheStatus(t *testing.T) {
 
 func TestAResponseWithoutACredentialIsRefused(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		_, _ = writer.Write([]byte(`{"data":{"machineId":"cmp_1"}}`))
+		_, _ = writer.Write([]byte(`{"machineId":"cmp_1"}`))
 	}))
 	defer server.Close()
 
@@ -177,17 +180,21 @@ func TestAnEmptyCodeIsRefusedWithoutACall(t *testing.T) {
 }
 
 func TestUnreachableServer(t *testing.T) {
- server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
- server.Close()
- if _, err := enroll.Do(context.Background(), server.Client(), server.URL, enroll.Request{Code: "hm_enr_test"}); err == nil { t.Fatal("unreachable server accepted") }
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.Close()
+	if _, err := enroll.Do(context.Background(), server.Client(), server.URL, enroll.Request{Code: "hm_enr_test"}); err == nil {
+		t.Fatal("unreachable server accepted")
+	}
 }
 
 func TestMalformedSuccess(t *testing.T) {
- for _, body := range []string{`not json`, `{"machineId":"m"}`, `{"machineId":"m","credential":"wrong_prefix"}`, `{"data":{"machineId":"m","credential":"hm_mach_old"}}`} {
-  t.Run(body, func(t *testing.T) {
-   server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
-   defer server.Close()
-   if _, err := enroll.Do(context.Background(), server.Client(), server.URL, enroll.Request{Code: "hm_enr_test"}); err == nil { t.Fatal("malformed response accepted") }
-  })
- }
+	for _, body := range []string{`not json`, `{"machineId":"m"}`, `{"machineId":"m","credential":"wrong_prefix"}`, `{"data":{"machineId":"m","credential":"hm_mach_old"}}`} {
+		t.Run(body, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
+			defer server.Close()
+			if _, err := enroll.Do(context.Background(), server.Client(), server.URL, enroll.Request{Code: "hm_enr_test"}); err == nil {
+				t.Fatal("malformed response accepted")
+			}
+		})
+	}
 }

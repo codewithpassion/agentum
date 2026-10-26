@@ -1,0 +1,8 @@
+! Appended to xterm's app-defaults in the desktop image.
+! An xterm selection lands in CLIPBOARD, which is the selection the clipboard ops read.
+XTerm*selectToClipboard: true
+! Pasting from the Screen view sets CLIPBOARD and presses Ctrl+V; xterm's own keys paste PRIMARY.
+XTerm*VT100.translations: #override \n\
+	Ctrl Shift <Key>V: insert-selection(CLIPBOARD) \n\
+	Ctrl <Key>V: insert-selection(CLIPBOARD) \n\
+	Shift <Key>Insert: insert-selection(CLIPBOARD)
