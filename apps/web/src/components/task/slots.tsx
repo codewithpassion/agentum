@@ -91,7 +91,11 @@ export function ComputerSlot({
           This agent has no computer.
         </p>
       ) : (
-        <DesktopScreen machineId={computerMachineId} takeover={controls} />
+        <DesktopScreen
+          key={computerMachineId}
+          machineId={computerMachineId}
+          takeover={controls}
+        />
       )}
     </SlotCard>
   );
