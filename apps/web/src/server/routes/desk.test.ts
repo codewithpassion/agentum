@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { runRequests } from "@repo/db/schema/requests";
+import { runs as runRows } from "@repo/db/schema/runs";
 import { migrated } from "@repo/db/test-db";
 import type { MemberDirectory, NeedsYouItem } from "@repo/services/desk-api";
 import { isServiceError } from "@repo/services/errors";
@@ -239,6 +240,7 @@ beforeEach(async () => {
 describe("authentication", () => {
   const routes: { method: "GET" | "POST"; path: string }[] = [
     { method: "GET", path: "/needs-you" },
+    { method: "GET", path: "/runs/run-1" },
     { method: "GET", path: "/stream" },
     { method: "POST", path: "/requests/req-1/decision" },
     { method: "POST", path: "/controller/messages" },
@@ -564,6 +566,102 @@ describe("POST /api/desk/controller/messages", () => {
     ).json()) as { sessionId: string };
 
     expect(second.sessionId).toBe(first.sessionId);
+  });
+});
+
+describe("GET /api/desk/runs/:runId", () => {
+  const controller = () =>
+    composed.services.agents.create(sessionUser("u1"), {
+      model: "fake",
+      name: "Controller",
+      runtime: "fake",
+      slug: "controller",
+    });
+
+  const readRun = (runId: string, token: string, email = MEMBER_EMAIL) =>
+    send("GET", `/runs/${runId}`, { headers: onBehalfOf(email), token });
+
+  const sendMessage = async (token: string) => {
+    const res = await send("POST", "/controller/messages", {
+      body: JSON.stringify({ text: "hello" }),
+      headers: onBehalfOf(MEMBER_EMAIL),
+      token,
+    });
+    return (await res.json()) as { runId: string; sessionId: string };
+  };
+
+  test("answers 403 for an email that names no member", async () => {
+    const token = await mintKey("desk");
+    const res = await readRun("run-1", token, "nobody@example.com");
+    expect(res.status).toBe(403);
+  });
+
+  test("answers 404 for an unknown run", async () => {
+    const token = await mintKey("desk");
+    const res = await readRun("no-such-run", token);
+    expect(res.status).toBe(404);
+  });
+
+  test("answers 404 for another member's private run", async () => {
+    const agent = await controller();
+    const token = await mintKey("desk");
+    const started = await composed.services.runs.startRun(sessionUser("u1"), {
+      agentId: agent.id,
+      input: { text: "private" },
+      session: { origin: "ui" },
+    });
+    const res = await readRun(started.runId, token);
+    expect(res.status).toBe(404);
+  });
+
+  test("reply is null while the run is not finished and set once it is", async () => {
+    await controller();
+    const token = await mintKey("desk");
+    const { runId, sessionId } = await sendMessage(token);
+    // The fake runtime answers at once, so put the run back to running.
+    await db
+      .update(runRows)
+      .set({ resultText: null, status: "running" })
+      .where(eq(runRows.id, runId));
+
+    const pending = await readRun(runId, token);
+    expect(pending.status).toBe(200);
+    expect(await pending.json()).toEqual({
+      error: null,
+      reply: null,
+      runId,
+      sessionId,
+      status: "running",
+    });
+
+    await db
+      .update(runRows)
+      .set({ resultText: "All done.", status: "done" })
+      .where(eq(runRows.id, runId));
+    const done = await readRun(runId, token);
+    expect(await done.json()).toEqual({
+      error: null,
+      reply: "All done.",
+      runId,
+      sessionId,
+      status: "finished",
+    });
+  });
+
+  test("a failed run carries its error and no reply", async () => {
+    await controller();
+    const token = await mintKey("desk");
+    const { runId } = await sendMessage(token);
+    await db
+      .update(runRows)
+      .set({ error: "It broke.", resultText: "partial", status: "failed" })
+      .where(eq(runRows.id, runId));
+    const res = await readRun(runId, token);
+    expect(await res.json()).toMatchObject({
+      error: "It broke.",
+      reply: null,
+      status: "failed",
+    });
   });
 });
 

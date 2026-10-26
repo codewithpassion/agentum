@@ -12,6 +12,7 @@ import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
+import type { RunStatus } from "@repo/db/shared";
 import { questionDisplaySchema } from "@repo/protocol/requests";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -60,6 +61,35 @@ export type MemberDirectory = (
 
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
+/** A run's status as the desk panel sees it. */
+export type DeskRunStatus =
+  | "queued"
+  | "running"
+  | "waiting"
+  | "finished"
+  | "failed"
+  | "cancelled";
+
+export interface DeskRun {
+  error: string | null;
+  reply: string | null;
+  runId: string;
+  sessionId: string;
+  status: DeskRunStatus;
+}
+
+const DESK_RUN_STATUS: Record<RunStatus, DeskRunStatus> = {
+  cancelled: "cancelled",
+  done: "finished",
+  failed: "failed",
+  // A run whose lease expired ended without a result.
+  interrupted: "failed",
+  offered: "queued",
+  queued: "queued",
+  running: "running",
+  waiting: "waiting",
+};
+
 export type { NeedsYouItem } from "./desk.ts";
 
 export const createDeskApiService = ({
@@ -75,7 +105,7 @@ export const createDeskApiService = ({
   desk: Pick<DeskService, "pendingRequests">;
   directory: MemberDirectory;
   requests: Pick<RequestsService, "answer" | "outcome">;
-  runs: Pick<RunsService, "startRun">;
+  runs: Pick<RunsService, "getRun" | "startRun">;
 }) => {
   /**
    * The member a request acts for. A desk key acts for the member its
@@ -246,10 +276,39 @@ export const createDeskApiService = ({
     return { runId: started.runId, sessionId: started.sessionId };
   };
 
+  /**
+   * A run's status, reply and error, for a run the member may see. Any other
+   * run, and an unknown one, is not found.
+   */
+  const readRun = async (
+    member: UserPrincipal,
+    runId: string
+  ): Promise<DeskRun> => {
+    if (!(await canSeeRun(member, idString.parse(runId)))) {
+      throw new ServiceError("not_found", "Run not found");
+    }
+    const run = await runs.getRun(member, runId);
+    const status = DESK_RUN_STATUS[run.status];
+    return {
+      error: status === "failed" ? run.error : null,
+      reply: status === "finished" ? run.resultText : null,
+      runId: run.id,
+      sessionId: run.sessionId,
+      status,
+    };
+  };
+
   /** What waits on the member now: the desk's pending requests. */
   const needsYou = (member: UserPrincipal) => desk.pendingRequests(member);
 
-  return { actingMember, canSeeRun, decide, needsYou, sendToController };
+  return {
+    actingMember,
+    canSeeRun,
+    decide,
+    needsYou,
+    readRun,
+    sendToController,
+  };
 };
 
 export type DeskApiService = ReturnType<typeof createDeskApiService>;

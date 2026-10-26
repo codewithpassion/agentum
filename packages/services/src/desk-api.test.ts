@@ -531,6 +531,47 @@ test("canSeeRun admits the opener's ui run and hides it from other members and u
   expect(await desk.canSeeRun(member, "no-such-run")).toBe(false);
 });
 
+test("readRun maps status and hides the reply until the run is done", async () => {
+  const runId = await start();
+  expect(await desk.readRun(member, runId)).toMatchObject({
+    error: null,
+    reply: null,
+    status: "running",
+  });
+
+  await db
+    .update(runRows)
+    .set({ resultText: "Hi.", status: "done" })
+    .where(eq(runRows.id, runId));
+  expect(await desk.readRun(member, runId)).toMatchObject({
+    reply: "Hi.",
+    status: "finished",
+  });
+
+  await db
+    .update(runRows)
+    .set({ error: "Lease expired", status: "interrupted" })
+    .where(eq(runRows.id, runId));
+  expect(await desk.readRun(member, runId)).toMatchObject({
+    error: "Lease expired",
+    reply: null,
+    status: "failed",
+  });
+});
+
+test("readRun refuses another member's run and unknown runs", async () => {
+  const runId = await start();
+  members.set("eli@example.com|org1", "u2");
+  const other = await desk.actingMember(deskKey, "eli@example.com");
+
+  await expect(desk.readRun(other, runId)).rejects.toMatchObject({
+    code: "not_found",
+  });
+  await expect(desk.readRun(member, "no-such-run")).rejects.toMatchObject({
+    code: "not_found",
+  });
+});
+
 test("desk decisions direct takeovers to Harbourmaster", async () => {
   const request = await openBash(await start(), "ls");
   await db
