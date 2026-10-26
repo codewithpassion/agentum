@@ -390,6 +390,7 @@ export const createTasksService = ({
     const { agentId, before, limit } = taskListInputSchema.parse(rawInput);
     const conditions: (SQL | undefined)[] = [
       eq(runs.workspaceId, member.workspaceId),
+      eq(runs.dryRun, false),
       inArray(
         runs.sessionId,
         db

@@ -4,9 +4,12 @@ import { and, eq } from "drizzle-orm";
 import { agentPrompt } from "../agent-prompt.ts";
 import { type AgentRecord, handsToNames } from "../agents.ts";
 import { buildMcpServers } from "../connectors/mcp-servers.ts";
+import { agentGrants } from "../library/access.ts";
+import { librarySyncScope } from "../library/sync-paths.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
 import type { AdapterDeps, RunRecord, RuntimeAdapter } from "../runs/types.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
+import { CLOUD_DEFAULT_MODEL, findCloudModel } from "./models.ts";
 import type { CloudRunnerPort } from "./types.ts";
 
 const describeError = (error: unknown): string =>
@@ -69,12 +72,21 @@ export const createCloudRuntime = ({
         instructions: [agentPrompt(agent, await handsToNames(db, agent)), slack]
           .filter((part) => part !== "")
           .join("\n\n"),
-        model: agent.model,
+        model:
+          run.dryRun && !findCloudModel(agent.model)
+            ? CLOUD_DEFAULT_MODEL
+            : agent.model,
         name: agent.name,
         runtimeConfig: agent.runtimeConfig,
         slug: agent.slug,
       },
       inputFileIds: run.inputFileIds,
+      library: {
+        roots: librarySyncScope(
+          agent.slug,
+          await agentGrants(db, run.workspaceId, agent.id)
+        ),
+      },
       mcpServers: buildMcpServers({
         connectors: assigned,
         platformUrl,
