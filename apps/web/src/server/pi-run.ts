@@ -119,6 +119,12 @@ const COMMIT_EVENTS = new Set([
   "tool_execution_end",
 ]);
 
+/** The view the deltas are read from, shared by the followed runs. */
+interface SharedDeltas {
+  close: Promise<() => void>;
+  users: number;
+}
+
 interface StoredSkills {
   run: RunRef;
   skills: SkillSummary[];
@@ -168,7 +174,7 @@ export class PiRun extends DurableObject<Env> {
   #composed: ReturnType<typeof compose> | undefined;
   #streams: ReturnType<typeof streamPublisher> | undefined;
   /** The view the deltas are read from, and how many followed runs share it. */
-  #deltas: { close: Promise<() => void>; users: number } | undefined;
+  #deltas: SharedDeltas | undefined;
 
   /**
    * The workspace's provider keys, read from the workspace secrets store for
@@ -886,7 +892,18 @@ export class PiRun extends DurableObject<Env> {
    * run.
    */
   async #streamDeltas(): Promise<() => void> {
-    this.#deltas ??= { close: this.#openDeltas(), users: 0 };
+    if (!this.#deltas) {
+      const created: SharedDeltas = {
+        close: Promise.resolve(() => undefined),
+        users: 0,
+      };
+      this.#deltas = created;
+      created.close = this.#openDeltas(() => {
+        if (this.#deltas === created) {
+          this.#deltas = undefined;
+        }
+      });
+    }
     const shared = this.#deltas;
     shared.users += 1;
     const close = await shared.close;
@@ -907,7 +924,7 @@ export class PiRun extends DurableObject<Env> {
   }
 
   /** Opens the view the deltas are read from. Resolves to the function that closes it, and never rejects. */
-  async #openDeltas(): Promise<() => void> {
+  async #openDeltas(onFailure: () => void): Promise<() => void> {
     try {
       let current:
         | { publisher: ReturnType<typeof deltaPublisher>; runId: string }
@@ -941,7 +958,7 @@ export class PiRun extends DurableObject<Env> {
       };
     } catch (error) {
       // The next caller tries again.
-      this.#deltas = undefined;
+      onFailure();
       console.warn(
         "PiRun: streaming partial text failed",
         error instanceof Error ? error.name : "unknown error"

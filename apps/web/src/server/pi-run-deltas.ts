@@ -40,20 +40,24 @@ const textOf = (content: readonly LiveBlock[] = []): string =>
     .join("");
 
 /**
- * The text as it may leave: granted values masked first, so a whole value at
- * the end is already a placeholder, then the unfinished end cut off. That end is
- * the last word, which may be a token still being typed, and anything that
- * begins a granted value, which may contain spaces or lines the word rule would
- * not catch. The pattern scrub runs last.
+ * The text as it may leave. The cut is chosen on the raw text: the last word,
+ * which may be a token still being typed, and anything that begins a granted
+ * value, which may contain spaces or lines the word rule would not catch. A cut
+ * that would split a whole granted value moves back to before it, found by
+ * masking: a clean cut masks to the start of what the whole text masks to. The
+ * pattern scrub runs last.
  */
 const settled = (joined: string, masker: Masker | null): string => {
-  const masked = masker === null ? joined : masker.mask(joined);
-  const word = TRAILING_WORD.exec(masked)?.[0].length ?? 0;
-  const held = Math.max(
-    word,
-    masker === null ? 0 : masker.unfinishedTail(masked)
-  );
-  return redactText(masked.slice(0, masked.length - held));
+  const word = TRAILING_WORD.exec(joined)?.[0].length ?? 0;
+  if (masker === null) {
+    return redactText(joined.slice(0, joined.length - word));
+  }
+  const whole = masker.mask(joined);
+  let end = joined.length - Math.max(word, masker.unfinishedTail(joined));
+  while (end > 0 && !whole.startsWith(masker.mask(joined.slice(0, end)))) {
+    end -= 1;
+  }
+  return redactText(masker.mask(joined.slice(0, end)));
 };
 
 /** Builds the publisher for one run. `offer` is called on each change to the live doc. */
@@ -86,14 +90,14 @@ export const deltaPublisher = (deps: DeltaPublisherDeps) => {
         lastSentAt = before;
         return;
       }
-      lastKey = messageKey;
-      lastText = text;
       await deps.publish({
         frame: "delta",
         messageKey,
         runId: deps.runId,
         text,
       });
+      lastKey = messageKey;
+      lastText = text;
     } catch {
       // Dropped quietly: a delta is a preview, and its text is never logged.
     }

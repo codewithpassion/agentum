@@ -199,17 +199,54 @@ test("an sk- token split across two partials is held, then redacted", async () =
   expect(h.frames[1]?.text).toContain("ok");
 });
 
-test("a whole secret at the end of the text is masked, not cut", async () => {
+test("a whole secret at the end of the text is held whole, then masked", async () => {
   const pem = "-----BEGIN KEY-----\nMIIEvQIBADANBg\n-----END KEY-----";
-  const h = harness({ PEM: pem, PHRASE: "pass word pass" });
-  await h.offer(message([text(`Here: ${pem} ok`)]));
+  const h = harness({ PEM: pem });
+  await h.offer(message([text(`Here: ${pem}`)]));
   h.advance(300);
-  await h.offer(message([text(`Here: ${pem} and pass word pass ok`)]));
+  await h.offer(message([text(`Here: ${pem} ok `)]));
 
   expect(h.frames.map((frame) => frame.text)).toEqual([
-    "Here: [secret:PEM] ",
-    "Here: [secret:PEM] and [secret:PHRASE] ",
+    "Here: ",
+    "Here: [secret:PEM] ok ",
   ]);
+});
+
+test("a granted value inside another one does not expose the outer value's start", async () => {
+  const h = harness({ INNER: "abc", OUTER: "correct abc post" });
+  await h.offer(message([text("say correct abc")]));
+  h.advance(300);
+  await h.offer(message([text("say correct abc po")]));
+  h.advance(300);
+  await h.offer(message([text("say correct abc post now ")]));
+
+  expect(h.frames.map((frame) => frame.text)).toEqual([
+    "say ",
+    "say [secret:OUTER] now ",
+  ]);
+});
+
+test("a failed publish does not count as sent", async () => {
+  const link: { down: boolean } = { down: true };
+  const frames: DeltaFrame[] = [];
+  let now = 0;
+  const publisher = deltaPublisher({
+    clock: () => now,
+    maskerOf: () => Promise.resolve(null),
+    publish: (frame) => {
+      if (link.down) {
+        return Promise.reject(new Error("down"));
+      }
+      frames.push(frame);
+      return Promise.resolve();
+    },
+    runId: RUN_ID,
+  });
+  await publisher.offer(message([text("same text ")]));
+  link.down = false;
+  now += 300;
+  await publisher.offer(message([text("same text ")]));
+  expect(frames.map((frame) => frame.text)).toEqual(["same text "]);
 });
 
 test("a change that only moves the held end sends no repeat and keeps the window", async () => {
