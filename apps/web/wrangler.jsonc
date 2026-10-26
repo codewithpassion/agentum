@@ -10,7 +10,8 @@
       { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
       { "name": "MANAGED_POLLER", "class_name": "ManagedPoller" },
       { "name": "PI_RUN", "class_name": "PiRun" },
-      { "name": "LINUX_VM", "class_name": "VmSession" }
+      { "name": "LINUX_VM", "class_name": "VmSession" },
+      { "name": "SESSION_STREAM", "class_name": "SessionStream" }
     ]
   },
   // The Linux VM of a cloud agent session (task C.14): a Sandbox SDK container,
@@ -32,7 +33,8 @@
     { "tag": "v1", "new_sqlite_classes": ["MachineRelay"] },
     { "tag": "v2", "new_sqlite_classes": ["PiRun"] },
     { "tag": "v3", "new_sqlite_classes": ["ManagedPoller"] },
-    { "tag": "v4", "new_sqlite_classes": ["VmSession"] }
+    { "tag": "v4", "new_sqlite_classes": ["VmSession"] },
+    { "tag": "v5", "new_sqlite_classes": ["SessionStream"] }
   ],
   // The minute tick (src/server/tick). Crons are not per environment either:
   // only the production Worker runs them.
@@ -76,7 +78,8 @@
           { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
           { "name": "MANAGED_POLLER", "class_name": "ManagedPoller" },
           { "name": "PI_RUN", "class_name": "PiRun" },
-          { "name": "LINUX_VM", "class_name": "VmSession" }
+          { "name": "LINUX_VM", "class_name": "VmSession" },
+          { "name": "SESSION_STREAM", "class_name": "SessionStream" }
         ]
       },
       "containers": [
@@ -112,7 +115,8 @@
             { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
             { "name": "MANAGED_POLLER", "class_name": "ManagedPoller" },
             { "name": "PI_RUN", "class_name": "PiRun" },
-            { "name": "LINUX_VM", "class_name": "VmSession" }
+            { "name": "LINUX_VM", "class_name": "VmSession" },
+            { "name": "SESSION_STREAM", "class_name": "SessionStream" }
           ]
         },
         // Wrangler accepts no Durable Object container for previews, so a Linux

@@ -151,6 +151,11 @@ import { r2FileBlobs } from "./r2-files.ts";
 import { r2LibraryBlobs } from "./r2-library.ts";
 import { r2SkillBlobs } from "./r2-skills.ts";
 import { durableRelayPort } from "./relay-port.ts";
+import {
+  type SessionStreamPort,
+  streamListener,
+  streamPublisher,
+} from "./session-stream-port.ts";
 import { clerkSlackDirectory } from "./slack-directory.ts";
 
 /** What the runs service needs besides a database. */
@@ -186,6 +191,8 @@ export interface Infra {
   skillBlobs?: SkillBlobs;
   /** Finds the Clerk user behind a Slack email. Without one, nobody is linked. */
   slackDirectory?: SlackDirectory;
+  /** Where the live frames of a session go: the SessionStream Durable Object in the app. Without it nothing is streamed. */
+  streams?: SessionStreamPort;
   /** Asks Anthropic whether a key works. Without it, `managedKeys` checks only the key's shape. */
   validateAnthropicKey?: (apiKey: string) => Promise<boolean>;
   /** Asks the provider whether a key works. Without it, `modelKeys` checks only the key's shape. */
@@ -247,6 +254,7 @@ export type ComposeEnv = Pick<
   | "PUBLIC_BASE_URL"
   | "RUN_TOKEN_KEY"
   | "SECRETS_KEY"
+  | "SESSION_STREAM"
 >;
 
 /** Splits a comma separated list of ids, trimmed, dropping empty entries. */
@@ -437,6 +445,11 @@ export const composeWith = ({
   });
   // Catches the run and tool events the runs service writes through its own events instance.
   runs.onEvent(slackStatus.onEvent);
+  if (infra.streams) {
+    const onStreamEvent = streamListener(infra.streams);
+    events.onAppend(onStreamEvent);
+    runs.onEvent(onStreamEvent);
+  }
   const managed = createManagedService({
     atomic: infra.atomic,
     clock: infra.clock,
@@ -573,6 +586,7 @@ export const compose = (
       secretsKey: env.SECRETS_KEY,
       skillBlobs: r2SkillBlobs(env.FILES),
       slackDirectory: clerkSlackDirectory(env.CLERK_SECRET_KEY),
+      streams: streamPublisher(env.SESSION_STREAM, defer),
       validateAnthropicKey,
       validateModelKey,
     },
