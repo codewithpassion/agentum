@@ -119,13 +119,15 @@ const canWriteAt = (member: AccessMember, path: string): boolean =>
   (member.scope ?? []).some(
     (root) => root.mode === "write" && within(path, root.path)
   );
-// Ancestors are traversable so nested grants can be discovered; list filters siblings.
+// Contents, history and conflict names need a root that covers the path.
 const canReadAt = (member: AccessMember, path: string): boolean =>
   member.kind === "user" ||
   path === "" ||
-  (member.scope ?? []).some(
-    (root) => within(path, root.path) || within(root.path, path)
-  );
+  (member.scope ?? []).some((root) => within(path, root.path));
+// A folder above a root is traversable so the root can be found. A file there is not.
+const canTraverse = (member: AccessMember, path: string): boolean =>
+  canReadAt(member, path) ||
+  (member.scope ?? []).some((root) => within(root.path, path));
 
 const actorOf = (member: Member): { id: string; kind: "agent" | "user" } =>
   member.kind === "user"
@@ -392,7 +394,7 @@ export const createLibraryService = ({
       workspaceId: member.workspaceId,
     });
     const path = normalizePath(dir);
-    if (!canReadAt(member, path)) {
+    if (!canTraverse(member, path)) {
       throw notFound();
     }
     if (path !== ROOT) {
@@ -411,7 +413,13 @@ export const createLibraryService = ({
         )
       )
       .orderBy(asc(libraryEntries.path));
-    return rows.filter((row) => canReadAt(member, row.path)).map(toEntry);
+    return rows
+      .filter(
+        (row) =>
+          canReadAt(member, row.path) ||
+          (row.kind === "dir" && canTraverse(member, row.path))
+      )
+      .map(toEntry);
   };
 
   /** The root has no row. It reads as an empty-handed folder dated at the epoch. */
@@ -427,7 +435,7 @@ export const createLibraryService = ({
       workspaceId: member.workspaceId,
     });
     const path = normalizePath(rawPath);
-    if (!canReadAt(member, path)) {
+    if (!canTraverse(member, path)) {
       throw notFound();
     }
     if (path === ROOT) {
@@ -441,7 +449,7 @@ export const createLibraryService = ({
       };
     }
     const row = await entryAt(member.workspaceId, path);
-    if (!row) {
+    if (!row || (row.kind !== "dir" && !canReadAt(member, path))) {
       throw notFound();
     }
     return toEntry(row);

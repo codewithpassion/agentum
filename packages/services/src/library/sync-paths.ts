@@ -1,6 +1,8 @@
+// The library folders an agent syncs into its working copy: its home, the wiki
+// and its grants (`librarySyncScope`). `librarySyncRoots` and `libraryPathsOf`
+// still read the legacy `runtimeConfig.libraryPaths` for the cloud VM sync,
+// until V4.7 removes the last caller.
 import type { LibraryAccessGrant } from "@repo/db/shared";
-// The library paths an agent syncs into its working copy, listed in its
-// `runtimeConfig` under `libraryPaths`. The agent's own home is always a root.
 import { isServiceError } from "../errors.ts";
 import { agentHomePath } from "./home.ts";
 import { normalizePath } from "./path.ts";

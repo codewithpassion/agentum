@@ -253,3 +253,31 @@ test("read-only people cannot mutate files or grants", async () => {
     access.removeGrant(reader, AGENT, "private")
   ).rejects.toBeInstanceOf(ForbiddenError);
 });
+
+test("a file above a grant is neither readable nor listed for a run", async () => {
+  const { createLibraryAccessService } = await import("./library/access.ts");
+  const access = createLibraryAccessService({
+    atomic: sqliteAtomic(db),
+    clock: systemClock,
+    db,
+    events: createEventsService({
+      blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+      db,
+    }),
+  });
+  await service.write(user(), "reports", bytes("secret"));
+  await access.setGrant(user(), AGENT, "reports/2027", "read");
+
+  await expect(service.read(runPrincipal, "reports")).rejects.toMatchObject({
+    code: "not_found",
+  });
+  await expect(service.stat(runPrincipal, "reports")).rejects.toMatchObject({
+    code: "not_found",
+  });
+  await expect(service.versions(runPrincipal, "reports")).rejects.toMatchObject(
+    { code: "not_found" }
+  );
+  expect(
+    (await service.list(runPrincipal, "")).map((row) => row.path)
+  ).not.toContain("reports");
+});
