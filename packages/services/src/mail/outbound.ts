@@ -28,6 +28,7 @@ import type {
   SentMail,
 } from "./types.ts";
 
+const MAX_ERROR_LENGTH = 500;
 const HEADER_NEWLINE = /[\r\n]/;
 const address = z.string().trim().toLowerCase().pipe(z.email());
 const draftSchema = z.strictObject({
@@ -119,7 +120,13 @@ export const createMailOutbound = ({
     message: Message,
     thread: Thread,
     box: Mailbox,
-    type: "mail.held" | "mail.sent" | "mail.rejected" | "mail.expired"
+    type:
+      | "mail.held"
+      | "mail.sent"
+      | "mail.rejected"
+      | "mail.expired"
+      | "mail.failed",
+    extra: Record<string, string> = {}
   ) =>
     events.append({
       actor: { id: box.agentId, kind: "agent" },
@@ -128,6 +135,7 @@ export const createMailOutbound = ({
         address: box.address,
         messageId: message.id,
         threadId: thread.id,
+        ...extra,
       },
       runId: message.runId,
       sessionId: thread.sessionId,
@@ -202,6 +210,7 @@ export const createMailOutbound = ({
       externalMessageId: result.messageId,
       fromAddress: JSON.stringify({ address: box.address }),
       id: ulid(),
+      lastError: null,
       requestId: null,
       rfcMessageId: "rfcMessageId" in result ? result.rfcMessageId : null,
       runId: run.id,
@@ -441,25 +450,35 @@ export const createMailOutbound = ({
         )
     );
   };
-  const releaseHeld = async (
-    adapter: MailboxPort,
-    ref: MailboxRef,
-    requestId: string,
-    message: Message
-  ) => {
-    try {
-      return await adapter.release(ref, message.externalMessageId);
-    } catch (error) {
-      // The person allowed it but it never left. Say so in the message status
-      // instead of leaving it held for good.
-      await atomic([
-        db
-          .update(mailMessages)
-          .set({ requestId, status: "failed" })
-          .where(eq(mailMessages.id, message.id)),
-      ]);
-      throw error;
-    }
+  const failRelease = async ({
+    box,
+    error,
+    message,
+    request,
+    thread,
+  }: {
+    box: Mailbox;
+    error: unknown;
+    message: Message;
+    request: typeof runRequests.$inferSelect;
+    thread: Thread;
+  }) => {
+    const reason = (
+      error instanceof Error ? error.message : String(error)
+    ).slice(0, MAX_ERROR_LENGTH);
+    await atomic([
+      db
+        .update(mailMessages)
+        .set({ lastError: reason, requestId: request.id, status: "failed" })
+        .where(eq(mailMessages.id, message.id)),
+    ]);
+    await announce(
+      message,
+      { ...thread, sessionId: request.sessionId },
+      box,
+      "mail.failed",
+      { error: reason, requestId: request.id }
+    );
   };
   const applyDecision = async ({
     request,
@@ -478,10 +497,17 @@ export const createMailOutbound = ({
       await allowOtherRecipients(request, message);
     }
     const adapter = port();
-    const sent = permitted
-      ? await releaseHeld(adapter, ref, request.id, message)
-      : null;
-    if (!permitted) {
+    let sent: SentMail | null = null;
+    if (permitted) {
+      try {
+        sent = await adapter.release(ref, message.externalMessageId);
+      } catch (error) {
+        // The person allowed it but it never left. Keep the message failed
+        // with the reason, and tell the task, so it does not read as sent.
+        await failRelease({ box, error, message, request, thread });
+        throw error;
+      }
+    } else {
       await adapter.discard(ref, message.externalMessageId);
     }
     const unsentStatus = request.status === "expired" ? "expired" : "rejected";

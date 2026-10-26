@@ -25,7 +25,11 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import { redactToolPayload } from "./events/scrub.ts";
 import type { EventInput, EventsService } from "./events.ts";
-import { isMailApproval, notMailApproval } from "./mail/approval.ts";
+import {
+  isMailApproval,
+  mailSendError,
+  notMailApproval,
+} from "./mail/approval.ts";
 import {
   answerInputSchema,
   answerSchemas,
@@ -541,7 +545,11 @@ export const createRequestsService = ({
       principal.userId
     );
     await resume(closed);
-    return scrubbedRecord(closed, masker);
+    // The mail release ran inside `announce`, so a failure is stored by now.
+    return {
+      ...scrubbedRecord(closed, masker),
+      sendError: await mailSendError(db, closed),
+    };
   };
   const cancel = async (principal: Principal, requestId: string) => {
     const { row } = await requireRequest(principal, requestId);

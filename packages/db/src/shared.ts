@@ -221,6 +221,7 @@ export const EVENT_TYPES = [
   "mail.sent",
   "mail.rejected",
   "mail.bounced",
+  "mail.failed",
   "mail.expired",
   "mailbox.provisioned",
   "mailbox.failed",

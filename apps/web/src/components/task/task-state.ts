@@ -13,6 +13,7 @@ import {
   settledFromEvent,
   viewFromOpened,
   viewFromRecord,
+  withSendError,
 } from "#/components/requests/request-card-logic.ts";
 import type { TaskView } from "#/integrations/trpc/types";
 
@@ -114,6 +115,23 @@ const statusAfter = (
     status
   );
 
+/** The send error of each request, from the `mail.failed` events that carry one. */
+const sendErrorsOf = (events: readonly EventRecord[]): Map<string, string> => {
+  const errors = new Map<string, string>();
+  for (const event of events) {
+    const { error, requestId } = event.payload;
+    if (
+      event.type === "mail.failed" &&
+      typeof requestId === "string" &&
+      typeof error === "string" &&
+      error !== ""
+    ) {
+      errors.set(requestId, error);
+    }
+  }
+  return errors;
+};
+
 /**
  * The requests of this run, by request id: the ones in `request.opened`
  * events and the fetched records, each settled by its `request.answered`,
@@ -142,10 +160,14 @@ export const requestViews = (live: TaskLive): Map<string, RequestView> => {
       }
     }
   }
+  const sendErrors = sendErrorsOf(live.events);
   for (const [id, view] of views) {
     views.set(id, {
       ...view,
-      settled: settledBy.get(id) ?? live.settled[id] ?? null,
+      settled: withSendError(
+        settledBy.get(id) ?? live.settled[id] ?? null,
+        sendErrors.get(id) ?? null
+      ),
     });
   }
   return views;

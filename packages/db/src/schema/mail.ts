@@ -85,6 +85,8 @@ export const mailMessages = sqliteTable(
     externalMessageId: text("external_message_id").notNull(),
     fromAddress: text("from_address").notNull(),
     id: id(),
+    // Why a `failed` message never left, in the sender's words. Null otherwise.
+    lastError: text("last_error"),
     requestId: text("request_id").references(() => runRequests.id),
     rfcMessageId: text("rfc_message_id"),
     runId: text("run_id").references(() => runs.id),

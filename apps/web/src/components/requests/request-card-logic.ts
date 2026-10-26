@@ -29,6 +29,8 @@ export type Settled =
       answer: ApprovalAnswer | QuestionAnswer | TakeoverAnswer;
       /** The Clerk user id of whoever answered. */
       answeredBy: string | null;
+      /** Set when a held mail failed to send after the answer allowed it. */
+      sendError?: string;
       status: "answered";
       via: AnswerSurface | null;
     }
@@ -107,6 +109,13 @@ export const settledLine = (
       const who = by === null ? "" : ` by ${by}`;
       const where = via === null ? "" : ` in ${SURFACE_TEXT[via]}`;
       if ("decision" in answer) {
+        if (
+          settled.sendError &&
+          (answer.decision === "allow_once" ||
+            answer.decision === "always_allow")
+        ) {
+          return `${DECISION_TEXT[answer.decision]}${who}${where}, but sending failed: ${settled.sendError}`;
+        }
         const note =
           answer.decision === "deny" && answer.note ? `: ${answer.note}` : "";
         return `${DECISION_TEXT[answer.decision]}${who}${where}${note}`;
@@ -329,6 +338,15 @@ export const settledFromEvent = (
   }
   return null;
 };
+
+/** The settled outcome with a failed send noted on an answered one. Any other outcome, or no error, is returned as it is. */
+export const withSendError = (
+  settled: Settled | null,
+  error: string | null
+): Settled | null =>
+  settled?.status === "answered" && error !== null && error !== ""
+    ? { ...settled, sendError: error }
+    : settled;
 
 /** True when a tRPC error says the request was answered already. */
 export const isConflict = (cause: unknown): boolean =>

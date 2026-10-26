@@ -31,6 +31,7 @@ export const STREAM_EVENT_TYPES = [
   "request.answered",
   "request.expired",
   "request.cancelled",
+  "mail.failed",
   "qa.asked",
   "qa.answered",
 ] as const satisfies readonly EventType[];

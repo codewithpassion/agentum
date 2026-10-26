@@ -306,6 +306,36 @@ test("an allowed mail that fails to send is marked failed instead of staying hel
   expect(message()?.status).toBe("failed");
 });
 
+test("a release that throws keeps the error and the settled view says the send failed", async () => {
+  await mail.send(principal, draft(["outside@example.com"]));
+  mailbox.release = () => Promise.reject(new Error("send_failed"));
+  const settled = await answer("always_allow");
+  expect(message()).toMatchObject({
+    lastError: "send_failed",
+    requestId: request()?.id,
+    status: "failed",
+  });
+  expect(settled.status).toBe("answered");
+  expect(settled.sendError).toBe("send_failed");
+  const failed = db
+    .select()
+    .from(eventRows)
+    .all()
+    .find((e) => e.type === "mail.failed");
+  expect(JSON.parse(failed?.payload ?? "{}")).toMatchObject({
+    error: "send_failed",
+    messageId: message()?.id,
+    requestId: request()?.id,
+  });
+  expect(failed?.sessionId).toBe(request()?.sessionId);
+});
+
+test("a sent or denied mail has no send error", async () => {
+  await mail.send(principal, draft(["outside@example.com"]));
+  expect((await answer("allow_once")).sendError).toBeNull();
+  expect(message()?.lastError).toBeNull();
+});
+
 test("a failed approval opening discards the held mail", async () => {
   const broken = createMailOutbound({
     atomic: sqliteAtomic(db),
