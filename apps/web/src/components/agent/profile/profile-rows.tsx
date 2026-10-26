@@ -1,6 +1,12 @@
-import type { AgentProfileView, AgentRecord } from "#/integrations/trpc/types";
+import { useCallback } from "react";
+import type {
+  AgentProfileView,
+  AgentRecord,
+  MailboxRecord,
+} from "#/integrations/trpc/types";
 import { ChipList } from "./chip-list.tsx";
 import { LibraryRow } from "./library-row.tsx";
+import { MailStartChip } from "./mail-start-chip.tsx";
 import {
   channelChips,
   handsToChips,
@@ -16,17 +22,30 @@ import { VoiceField } from "./voice-field.tsx";
 /** The profile card: one row per part of the agent, each with its own manage action. */
 export function ProfileRows({
   agent,
+  mailbox,
   onOpen,
+  onOpenMail,
   profile,
 }: {
   agent: AgentRecord;
+  mailbox: MailboxRecord | null;
   onOpen: (sheet: SheetId) => void;
+  onOpenMail: () => void;
   profile: AgentProfileView;
 }) {
   const open = (sheet: SheetId) => ({
     label: "",
     onClick: () => onOpen(sheet),
   });
+  const handleChipClick = useCallback(
+    (key: string) => {
+      if (key === "email") {
+        onOpenMail();
+      }
+    },
+    [onOpenMail]
+  );
+  const mailPaused = mailbox !== null && mailbox.triggerDisabledAt !== null;
   return (
     <section
       aria-label="Profile"
@@ -67,12 +86,27 @@ export function ProfileRows({
         <ChipList
           action={{ ...open("startsOn"), label: "+" }}
           chips={startChips(profile.startsOn)}
+          extra={
+            mailbox === null ? null : (
+              <MailStartChip
+                address={mailbox.address}
+                agentId={agent.id}
+                key={mailPaused ? "paused" : "running"}
+                paused={mailPaused}
+              />
+            )
+          }
         />
       </Row>
       <Row label="Channels">
         <ChipList
           action={{ ...open("channels"), label: "Manage" }}
-          chips={channelChips(profile.channels, profile.header.emailLocal)}
+          chips={channelChips(
+            profile.channels,
+            profile.header.emailLocal,
+            mailbox?.status ?? null
+          )}
+          onChipClick={handleChipClick}
         />
       </Row>
       <Row label="Library">

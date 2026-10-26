@@ -10,11 +10,21 @@ import { ProfileRows } from "#/components/agent/profile/profile-rows";
 import { RecentTasksCard } from "#/components/agent/profile/recent-tasks-card";
 import { RunsOnCard } from "#/components/agent/profile/runs-on-card";
 import { SHEET_IDS, type SheetId } from "#/components/agent/profile/sheet-ids";
+import { allowedMailAddresses } from "#/components/agent/profile/sheets/mail-logic";
+import { MailSheet } from "#/components/agent/profile/sheets/mail-sheet";
 import { getTrpc } from "#/integrations/trpc/client";
 
 const RECENT_TASKS = 5;
 
 const searchSchema = z.object({
+  // "1" opens the mail list, any other value opens that mail thread. The router
+  // parses ?mail=1 as a number, so turn it back into text before checking it.
+  mail: z
+    .preprocess(
+      (value) => (value === undefined ? undefined : String(value)),
+      z.string().min(1).max(200).optional()
+    )
+    .catch(undefined),
   sheet: z.enum(SHEET_IDS).optional().catch(undefined),
 });
 
@@ -23,14 +33,20 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
   loader: async ({ params }) => {
     try {
       const trpc = getTrpc();
-      const [agent, profile, askBefore, tasks, machines] = await Promise.all([
-        trpc.agents.get.query({ id: params.agentId }),
-        trpc.agentProfile.profile.query({ agentId: params.agentId }),
-        trpc.agentProfile.askBefore.query({ agentId: params.agentId }),
-        trpc.tasks.list.query({ agentId: params.agentId, limit: RECENT_TASKS }),
-        trpc.machines.list.query(),
-      ]);
-      return { agent, askBefore, machines, profile, tasks };
+      const [agent, profile, askBefore, tasks, machines, mailbox, rules] =
+        await Promise.all([
+          trpc.agents.get.query({ id: params.agentId }),
+          trpc.agentProfile.profile.query({ agentId: params.agentId }),
+          trpc.agentProfile.askBefore.query({ agentId: params.agentId }),
+          trpc.tasks.list.query({
+            agentId: params.agentId,
+            limit: RECENT_TASKS,
+          }),
+          trpc.machines.list.query(),
+          trpc.mailbox.get.query({ agentId: params.agentId }),
+          trpc.requests.rules.list.query({ agentId: params.agentId }),
+        ]);
+      return { agent, askBefore, machines, mailbox, profile, rules, tasks };
     } catch (error) {
       if (
         error instanceof TRPCClientError &&
@@ -52,9 +68,10 @@ function useNowMs(): number | null {
 }
 
 function AgentPage() {
-  const { agent, askBefore, machines, profile, tasks } = Route.useLoaderData();
+  const { agent, askBefore, machines, mailbox, profile, rules, tasks } =
+    Route.useLoaderData();
   const nowMs = useNowMs();
-  const { sheet } = Route.useSearch();
+  const { mail, sheet } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
 
@@ -69,6 +86,17 @@ function AgentPage() {
     await openSheet(undefined);
     await router.invalidate();
   }, [openSheet, router]);
+  const openMail = useCallback(
+    (next: string | undefined) =>
+      navigate({ search: { mail: next }, replace: true }),
+    [navigate]
+  );
+  const openMailList = useCallback(() => openMail("1"), [openMail]);
+  // A thread can change what the header and rows show, so reload as the sheet closes.
+  const closeMail = useCallback(async () => {
+    await openMail(undefined);
+    await router.invalidate();
+  }, [openMail, router]);
   const openTask = useCallback(
     (runId: string) => navigate({ params: { runId }, to: "/tasks/$runId" }),
     [navigate]
@@ -78,14 +106,26 @@ function AgentPage() {
     <section className="mx-auto flex max-w-6xl flex-col gap-4">
       <ProfileHeader
         header={profile.header}
+        mailbox={mailbox}
         onEdit={edit}
+        onOpenMail={openMailList}
         onStarted={openTask}
       />
       <div className="flex flex-wrap items-start gap-4">
-        <ProfileRows agent={agent} onOpen={openSheet} profile={profile} />
+        <ProfileRows
+          agent={agent}
+          mailbox={mailbox}
+          onOpen={openSheet}
+          onOpenMail={openMailList}
+          profile={profile}
+        />
         <aside className="flex min-w-0 flex-[1_1_300px] flex-col gap-4">
           <RunsOnCard header={profile.header} onAdvanced={edit} />
-          <AskBeforeCard actions={askBefore} agentId={agent.id} />
+          <AskBeforeCard
+            actions={askBefore}
+            agentId={agent.id}
+            mailAllowed={allowedMailAddresses(rules)}
+          />
           <RecentTasksCard agentId={agent.id} nowMs={nowMs} tasks={tasks} />
           <ComputerCard
             agent={agent}
@@ -95,6 +135,12 @@ function AgentPage() {
         </aside>
       </div>
       <ManageSheet agent={agent} onClose={close} sheet={sheet} />
+      <MailSheet
+        agent={agent}
+        mail={mail}
+        onChange={openMail}
+        onClose={closeMail}
+      />
     </section>
   );
 }

@@ -429,7 +429,7 @@ describe("channelChips", () => {
   });
 
   test("no Slack app and no email address", () => {
-    expect(channelChips(noSlack, null)).toEqual([
+    expect(channelChips(noSlack, null, null)).toEqual([
       { key: "slack", label: "Slack · not set up", tone: "default" },
       { key: "email", label: "Email · no address yet", tone: "default" },
       { key: "whatsapp", label: "WhatsApp (later)", tone: "default" },
@@ -437,7 +437,7 @@ describe("channelChips", () => {
   });
 
   test("an installed Slack app and an email address are on", () => {
-    expect(channelChips(slackWith("installed"), "robo")).toEqual([
+    expect(channelChips(slackWith("installed"), "robo", "active")).toEqual([
       { key: "slack", label: "Slack app", tone: "on" },
       { key: "email", label: "Email", tone: "on" },
       { key: "whatsapp", label: "WhatsApp (later)", tone: "default" },
@@ -445,7 +445,7 @@ describe("channelChips", () => {
   });
 
   test("a created Slack app is not installed yet", () => {
-    expect(channelChips(slackWith("created"), null)[0]).toEqual({
+    expect(channelChips(slackWith("created"), null, null)[0]).toEqual({
       key: "slack",
       label: "Slack app · not installed",
       tone: "default",
@@ -453,10 +453,50 @@ describe("channelChips", () => {
   });
 
   test("a revoked Slack app is a warning", () => {
-    expect(channelChips(slackWith("revoked"), null)[0]).toEqual({
+    expect(channelChips(slackWith("revoked"), null, null)[0]).toEqual({
       key: "slack",
       label: "Slack app · revoked",
       tone: "warn",
+    });
+  });
+
+  test("an email address with no mailbox row yet is reserved", () => {
+    expect(channelChips(noSlack, "robo", null)[1]).toEqual({
+      key: "email",
+      label: "Email · reserved",
+      tone: "default",
+    });
+  });
+
+  test("a provisioning mailbox is being set up", () => {
+    expect(channelChips(noSlack, "robo", "provisioning")[1]).toEqual({
+      key: "email",
+      label: "Email · setting up",
+      tone: "default",
+    });
+  });
+
+  test("a failed mailbox is a warning", () => {
+    expect(channelChips(noSlack, "robo", "failed")[1]).toEqual({
+      key: "email",
+      label: "Email · failed",
+      tone: "warn",
+    });
+  });
+
+  test("a disabled mailbox is off", () => {
+    expect(channelChips(noSlack, "robo", "disabled")[1]).toEqual({
+      key: "email",
+      label: "Email · off",
+      tone: "default",
+    });
+  });
+
+  test("no address wins over the mailbox status", () => {
+    expect(channelChips(noSlack, null, "active")[1]).toEqual({
+      key: "email",
+      label: "Email · no address yet",
+      tone: "default",
     });
   });
 });
