@@ -148,6 +148,15 @@ test("counts every wire kind and combines Q&A events", async () => {
   );
   expect(result.nodes.map((n) => n.key)).toContain("out:library:agents/a");
 });
+test("a trigger moved to another agent has one configured wire, to the new agent", async () => {
+  await event("trigger.fired");
+  await db.update(triggers).set({ agentId: "b" }).where(eq(triggers.id, "t"));
+  const wires = (await graph()).wires.filter((w) => w.from === "trigger:t");
+  expect(wires.map((w) => [w.to, w.configured, w.count7d]).sort()).toEqual([
+    ["agent:a", false, 1],
+    ["agent:b", true, 0],
+  ]);
+});
 test("inclusive seven day edge, idle wires, dry runs and workspace isolation", async () => {
   await event("trigger.fired", "a", {}, { createdAt: edge });
   await event(

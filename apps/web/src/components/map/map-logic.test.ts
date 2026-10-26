@@ -31,6 +31,7 @@ function agentNode(id: string, overrides: Partial<MapNode> = {}): MapNode {
 function wire(overrides: Partial<MapWire>): MapWire {
   return {
     active: false,
+    configured: true,
     count7d: 0,
     from: "trigger:t1",
     kind: "trigger",
@@ -403,6 +404,7 @@ test("toFlowEdges runs handoffs vertically and other wires left to right", () =>
   });
   const handoff = (from: string, to: string) => ({
     active: false,
+    configured: true,
     count7d: 1,
     from,
     kind: "handoff" as const,
