@@ -7,14 +7,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { getTrpc } from "#/integrations/trpc/client";
-import { type ChatItem, POLL_MS, shouldPoll } from "./chat-logic.ts";
 import {
   type AnswerPayload,
   isConflict,
   type RequestView,
   type Settled,
-} from "./request-card-logic.ts";
+} from "#/components/requests/request-card-logic.ts";
+import { getTrpc } from "#/integrations/trpc/client";
+import { type ChatItem, POLL_MS, shouldPoll } from "./chat-logic.ts";
 import {
   applyFrame,
   applyPending,

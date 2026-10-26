@@ -1,6 +1,10 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import Footer from "#/components/footer";
+import {
+  DESK_POLL_INTERVAL_MS,
+  usePolledQuery,
+} from "#/components/inbox/use-polled-query";
 import { AppSidebar } from "#/components/shell/app-sidebar";
 import {
   SidebarInset,
@@ -29,11 +33,15 @@ export const Route = createFileRoute("/_app")({
 
 function AppLayout() {
   const agents = Route.useLoaderData();
+  const { data: needsYouCount } = usePolledQuery(
+    () => getTrpc().desk.needsYouCount.query(),
+    null,
+    DESK_POLL_INTERVAL_MS
+  );
 
   return (
     <SidebarProvider>
-      {/* The Needs you count reads 0 until V2.8 lands. */}
-      <AppSidebar agents={agents} needsYouCount={0} />
+      <AppSidebar agents={agents} needsYouCount={needsYouCount ?? 0} />
       <SidebarInset>
         <div className="flex h-12 items-center border-border border-b px-4">
           <SidebarTrigger />

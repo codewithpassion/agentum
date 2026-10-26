@@ -36,3 +36,4 @@ export type SkillDiffResult = RouterOutputs["skillStore"]["diff"];
 export type SkillAssignment =
   RouterOutputs["skillStore"]["assignments"][number];
 export type AgentSkill = RouterOutputs["skillStore"]["forAgent"][number];
+export type DeskView = RouterOutputs["desk"]["get"];

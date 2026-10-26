@@ -39,6 +39,7 @@ import { Route as AppSettingsModelProvidersRouteImport } from './routes/_app/set
 import { Route as AppSettingsSecretsRouteImport } from './routes/_app/settings.secrets'
 import { Route as AppSkillsIndexRouteImport } from './routes/_app/skills.index'
 import { Route as AppSkillsSkillIdRouteImport } from './routes/_app/skills.$skillId'
+import { Route as AppTasksRunIdRouteImport } from './routes/_app/tasks.$runId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -192,6 +193,11 @@ const AppSkillsSkillIdRoute = AppSkillsSkillIdRouteImport.update({
   path: '/skills/$skillId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTasksRunIdRoute = AppTasksRunIdRouteImport.update({
+  id: '/tasks/$runId',
+  path: '/tasks/$runId',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -220,6 +226,7 @@ export interface FileRoutesByFullPath {
   '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
+  '/tasks/$runId': typeof AppTasksRunIdRoute
   '/agents/': typeof AppAgentsIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/skills/': typeof AppSkillsIndexRoute
@@ -250,6 +257,7 @@ export interface FileRoutesByTo {
   '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
+  '/tasks/$runId': typeof AppTasksRunIdRoute
   '/agents': typeof AppAgentsIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/skills': typeof AppSkillsIndexRoute
@@ -283,6 +291,7 @@ export interface FileRoutesById {
   '/_app/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/_app/settings/secrets': typeof AppSettingsSecretsRoute
   '/_app/skills/$skillId': typeof AppSkillsSkillIdRoute
+  '/_app/tasks/$runId': typeof AppTasksRunIdRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/skills/': typeof AppSkillsIndexRoute
@@ -316,6 +325,7 @@ export interface FileRouteTypes {
     | '/settings/model-providers'
     | '/settings/secrets'
     | '/skills/$skillId'
+    | '/tasks/$runId'
     | '/agents/'
     | '/settings/'
     | '/skills/'
@@ -346,6 +356,7 @@ export interface FileRouteTypes {
     | '/settings/model-providers'
     | '/settings/secrets'
     | '/skills/$skillId'
+    | '/tasks/$runId'
     | '/agents'
     | '/settings'
     | '/skills'
@@ -378,6 +389,7 @@ export interface FileRouteTypes {
     | '/_app/settings/model-providers'
     | '/_app/settings/secrets'
     | '/_app/skills/$skillId'
+    | '/_app/tasks/$runId'
     | '/_app/agents/'
     | '/_app/settings/'
     | '/_app/skills/'
@@ -604,6 +616,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSkillsSkillIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/tasks/$runId': {
+      id: '/_app/tasks/$runId'
+      path: '/tasks/$runId'
+      fullPath: '/tasks/$runId'
+      preLoaderRoute: typeof AppTasksRunIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -648,6 +667,7 @@ interface AppRouteChildren {
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
   AppAgentsNewRoute: typeof AppAgentsNewRoute
   AppSkillsSkillIdRoute: typeof AppSkillsSkillIdRoute
+  AppTasksRunIdRoute: typeof AppTasksRunIdRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
   AppSkillsIndexRoute: typeof AppSkillsIndexRoute
 }
@@ -667,6 +687,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
   AppAgentsNewRoute: AppAgentsNewRoute,
   AppSkillsSkillIdRoute: AppSkillsSkillIdRoute,
+  AppTasksRunIdRoute: AppTasksRunIdRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
   AppSkillsIndexRoute: AppSkillsIndexRoute,
 }
