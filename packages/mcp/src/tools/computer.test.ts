@@ -40,9 +40,9 @@ describe("computer tools", () => {
   test("reads and edits ask the port for at most MAX_READ_BYTES", async () => {
     const limits: number[] = [];
     const computer = port({
-      readFile: async ({ maxBytes }) => {
+      readFile: ({ maxBytes }) => {
         limits.push(maxBytes);
-        return { content: "one two", ok: true, size: 7 };
+        return Promise.resolve({ content: "one two", ok: true, size: 7 });
       },
     });
     await call(computer, "computer_read_file", { path: "/a" });
