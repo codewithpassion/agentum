@@ -39,13 +39,21 @@ Milestones run in order. Each milestone's contract task depends on every task of
 - **Milestone gate:** tag `v<n>-start`, then an Opus milestone review against that milestone's section below. Must-fix findings become new tasks in the same milestone.
 - **Refine before starting:** at each milestone's start, the controller reads its task files against the code as it is then, and tightens V2 to V7 scopes that earlier milestones changed.
 
+## Decided on 26 Oct 2026
+
+- Approvals expire after 1 hour and questions after 24 hours.
+- A run not started in Slack sends its Slack cards as a DM to the person the run acts for.
+- An agent reads only its home folder, `wiki/` and the folders granted to it.
+- One mail domain serves all workspaces, so agent addresses are unique across workspaces (V3.1 and V5).
+- V0.2: Dom approved the production deploy for the smoke test.
+
 ## Open questions for Dom (from the milestone drafts)
 
-- V1: expiry defaults of 1 hour for approvals and 24 hours for questions; a DM to the run's person for runs not started in Slack, or a fixed channel per agent; pasting each Slack app's manifest again by hand to turn on interactivity.
+- V1: pasting each Slack app's manifest again by hand to turn on interactivity.
 - V2: a task is one run, and a follow-up starts a new run (or should a task span the session?); "Edit and resend" starts a new run.
 - V3: dry runs always run on Cloudflare; should "Hands to" limit `send_message`; should the Pause button come back.
-- V4: agents read only their home, `wiki/` and folders they're granted (today they can read everything); keep versions 30 days, then the newest 20 per file.
-- V5: one mail domain for all workspaces, or one per workspace; should a list of company domains count as inside contacts.
+- V4: keep versions 30 days, then the newest 20 per file.
+- V5: should a list of company domains count as inside contacts.
 - V6: how a computer-only machine fills `machines.credential_hash` without leaving a usable daemon credential.
 
 
