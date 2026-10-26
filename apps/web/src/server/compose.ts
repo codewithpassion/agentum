@@ -67,6 +67,7 @@ import {
   createLibraryAccessService,
   type LibraryAccessService,
 } from "@repo/services/library/access";
+import { createLibraryAudience } from "@repo/services/library/audience";
 import { memoryLibraryBlobs } from "@repo/services/library/memory";
 import {
   createLibraryLinksService,
@@ -78,6 +79,8 @@ import {
 } from "@repo/services/machines";
 import { createMachineRuntime } from "@repo/services/machines/runtime";
 import type { MachineRelayPort } from "@repo/services/machines/types";
+import { createMailService, type MailService } from "@repo/services/mail";
+import type { EmailRoutingPort, MailboxPort } from "@repo/services/mail/types";
 import { ENVIRONMENT_NAME } from "@repo/services/managed/config";
 import {
   connectManagedGateway,
@@ -184,6 +187,7 @@ import {
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { clerkPeople } from "./clerk-people.ts";
+import { libraryNotifier } from "./library-notifier.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
 import { clerkEmailMemberLookup } from "./mcp/clerk-email-member.ts";
 import { durableRunnerPort } from "./pi-run-port.ts";
@@ -216,6 +220,9 @@ export interface Infra {
   fileBlobs: FileBlobs;
   /** Where the workspace library keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
   libraryBlobs?: LibraryBlobs;
+  mailbox?: MailboxPort;
+  mailDomain?: string;
+  mailRouting?: EmailRoutingPort;
   /** The Managed Agents gateway on a workspace's key. Without it, managed runs fail their step. */
   managedGatewayFor?: ManagedServiceOptions["gatewayFor"];
   /** Wakes the poller of a managed run. Without it, `managed` agents cannot run. */
@@ -263,6 +270,7 @@ export interface Services {
   libraryAccess: LibraryAccessService;
   libraryLinks: LibraryLinksService;
   machines: MachinesService;
+  mail: MailService;
   managed: ManagedService;
   managedKeys: ManagedKeysService;
   modelKeys: ModelKeysService;
@@ -372,6 +380,15 @@ export const composeWith = ({
     people: infra.people,
   });
   const agents = createAgentsService({ db, events });
+  const mail = createMailService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    domain: infra.mailDomain,
+    events,
+    mailbox: infra.mailbox,
+    routing: infra.mailRouting,
+  });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
   // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
   const connectorFetch: Fetcher =
@@ -419,6 +436,12 @@ export const composeWith = ({
     db,
     events,
     linkIndex: createWikiLinkIndex({ db }),
+    notify: libraryNotifier({
+      audience: createLibraryAudience({ db }),
+      defer: infra.defer,
+      relay: infra.relay,
+      runner: infra.cloudRunner,
+    }),
   });
   const wiki = createWikiService({ db, library });
   const libraryAccess = createLibraryAccessService({
@@ -682,6 +705,7 @@ export const composeWith = ({
       libraryAccess,
       libraryLinks,
       machines,
+      mail,
       managed,
       managedKeys,
       modelKeys,

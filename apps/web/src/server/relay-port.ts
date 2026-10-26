@@ -8,6 +8,7 @@ export const durableRelayPort = (
   const relayOf = (machineId: string) =>
     namespace.get(namespace.idFromName(machineId));
   return {
+    announce: (machineId, paths) => relayOf(machineId).announce(paths),
     cancel: (machineId, runId) => relayOf(machineId).cancelRun(runId),
     offer: (machineId, run) => relayOf(machineId).offer(run),
     revoke: (machineId) => relayOf(machineId).revoke(),

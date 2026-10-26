@@ -54,6 +54,7 @@ beforeEach(async () => {
   cancels = [];
   offerError = null;
   relay = {
+    announce: () => Promise.resolve(),
     cancel: (machineId, runId) => {
       cancels.push([machineId, runId]);
       return Promise.resolve();

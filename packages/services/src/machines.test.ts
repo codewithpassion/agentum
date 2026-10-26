@@ -156,6 +156,7 @@ beforeEach(() => {
   });
   relayCalls = { cancel: [], offer: [], revoke: [] };
   relay = {
+    announce: () => Promise.resolve(),
     cancel: (machineId, runId) => {
       relayCalls.cancel.push([machineId, runId]);
       return Promise.resolve();
