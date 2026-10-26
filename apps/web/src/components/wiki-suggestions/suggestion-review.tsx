@@ -20,11 +20,13 @@ import {
   DialogTitle,
 } from "#/components/ui/dialog.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { reviewDiff } from "./suggestion-review-logic.ts";
 
 type SuggestionState = "pending" | "stale" | "accepted" | "rejected";
 
 interface LoadedSuggestion {
   baseText: string;
+  currentText: string;
   path: string;
   proposedText: string;
   status: SuggestionState;
@@ -181,6 +183,13 @@ export function SuggestionReview({
     return <p className="text-muted-foreground text-sm">Already decided.</p>;
   }
 
+  const review = reviewDiff({
+    baseText: suggestion.baseText,
+    currentText: suggestion.currentText,
+    proposedText: suggestion.proposedText,
+    status,
+  });
+
   return (
     <section
       aria-label={`Suggestion from ${agentName}`}
@@ -191,9 +200,14 @@ export function SuggestionReview({
         {suggestionStatusText(status, suggestion.summary)}
       </p>
       <p className="font-mono text-xs">{suggestion.path}</p>
+      {review.note === null ? null : (
+        <p className="text-sm" data-testid="suggestion-stale-note" role="note">
+          {review.note}
+        </p>
+      )}
       <DiffLines
-        after={suggestion.proposedText}
-        before={suggestion.baseText}
+        after={review.after}
+        before={review.before}
         testId="suggestion-diff"
       />
       {loadError === null ? null : (

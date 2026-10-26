@@ -117,6 +117,7 @@ test("suggest stores bytes and base, emits an event, and supplies diff inputs", 
   );
   expect(await suggestions.get(person, row.id)).toMatchObject({
     baseText: "base",
+    currentText: "base",
     proposedText: "proposed",
   });
   expect(await suggestions.list(person)).toHaveLength(1);
@@ -187,6 +188,7 @@ test("a stale base requires edited text and stays available for review", async (
   expect((await suggestions.list(person))[0]?.status).toBe("stale");
   expect(await suggestions.get(person, row.id)).toMatchObject({
     baseText: "base",
+    currentText: "new base",
     proposedText: "proposed",
   });
   await expect(
@@ -251,6 +253,7 @@ test("a missing page has an empty base and can be accepted", async () => {
   expect(await suggestions.get(person, row.id)).toMatchObject({
     baseText: "",
     baseVersionId: null,
+    currentText: "",
   });
   expect(
     await suggestions.decide(person, row.id, { accept: true })
@@ -262,13 +265,19 @@ test("a deleted page supplies an empty base and a later deletion makes an edit s
   const row = await suggestions.suggest(run, path, "restored", "Restore");
   expect(await suggestions.get(person, row.id)).toMatchObject({
     baseText: "",
+    currentText: "",
     proposedText: "restored",
   });
   await suggestions.decide(person, row.id, { accept: true });
+  expect(await suggestions.get(person, row.id)).toMatchObject({
+    baseText: "",
+    currentText: "restored",
+  });
   const next = await suggestions.suggest(run, path, "another edit", "Edit");
   await library.remove(person, path);
   expect(await suggestions.get(person, next.id)).toMatchObject({
     baseText: "restored",
+    currentText: "",
     status: "stale",
   });
   await expect(
