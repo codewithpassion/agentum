@@ -3,7 +3,7 @@ id: C.19
 title: Hide secrets typed into tool inputs in run transcripts
 milestone: C
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/C.19-transcript-secret-scrub
 ---
@@ -30,3 +30,4 @@ Asked for by Dom on 19 Oct 2026. C.15's review noted that tool inputs for `bash`
 - 2026-10-19: added at Dom's request. dispatched.
 - 2026-10-26: re-dispatched to finish review; the previous controller session ended with 4 commits on the branch and no review.
 - 2026-10-26: review clean after 1 fix round; merged at 5c7fe21, deployed to staging (88d14bdf). Live staging check running.
+- 2026-10-26: done. Staging live check passed on machine and cloud runs: tool input shows [redacted], Log clean (report: harbourmaster-wt/tmp/C.19-staging/report.md). Staging Dev Workspace now has an Anthropic key.
