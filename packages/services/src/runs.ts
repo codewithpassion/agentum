@@ -714,7 +714,11 @@ export const createRunsService = ({
   const claimRunForMachine = (
     principal: Principal,
     runId: string,
-    options: { libraryForDaemon?: boolean; platformUrl: string }
+    options: {
+      libraryForDaemon?: boolean;
+      requestsForDaemon?: boolean;
+      platformUrl: string;
+    }
   ): Promise<MachineClaim> =>
     claimForMachine(
       {
@@ -885,6 +889,21 @@ export const createRunsService = ({
     }
     await appendRunEvent(run, "run.resumed", agentActor(run));
     return true;
+  };
+
+  /** Deliver a closed request through the runtime owned by this run. */
+  const resumeRequest = async (
+    principal: Principal,
+    runId: string,
+    request: import("./requests.ts").RequestRecord
+  ): Promise<void> => {
+    requireSystem(principal, "runs.resume");
+    const run = await requireRun(principal, runId);
+    if (TERMINAL_STATUSES.includes(run.status)) {
+      return;
+    }
+    const { adapter } = await adapterFor(run);
+    await adapter?.resume?.(run, request);
   };
 
   const ingestRunEvents = async (
@@ -1681,6 +1700,7 @@ export const createRunsService = ({
     onEvent: eventsService.onAppend,
     reapExpiredLeases,
     releaseRun,
+    resumeRequest,
     startRun,
     sweepQueuedRuns,
     waitForRun,

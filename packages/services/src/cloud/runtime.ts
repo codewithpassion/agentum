@@ -111,5 +111,8 @@ export const createCloudRuntime = ({
     },
     kind: "cloud",
     offerNextOnEnd: true,
+    resume: async (run, request) => {
+      await runner.answered?.(run.id, run.sessionId, request.id);
+    },
   };
 };

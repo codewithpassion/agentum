@@ -6,6 +6,7 @@ import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { slackEventsSeen } from "@repo/db/schema/slack";
+import { agentToolRules } from "@repo/db/schema/tool-rules";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eventsRequestSchema } from "@repo/protocol/machine";
@@ -2279,4 +2280,45 @@ test("a throwing onEvent listener does not fail completeRun or cancelRun", async
     expect.any(Error)
   );
   logged.mockRestore();
+});
+
+test("machine claim includes only ask keys when the daemon supports requests", async () => {
+  await db.insert(agentToolRules).values([
+    {
+      agentId: spyAgentId,
+      id: "ask",
+      mode: "ask",
+      toolKey: "bash",
+      updatedAt: START,
+      updatedBy: "u1",
+      workspaceId: WORKSPACE,
+    },
+    {
+      agentId: spyAgentId,
+      id: "allow",
+      mode: "allow",
+      toolKey: "read",
+      updatedAt: START,
+      updatedBy: "u1",
+      workspaceId: WORKSPACE,
+    },
+  ]);
+  const machine: Principal = {
+    kind: "machine",
+    machineId: "m1",
+    workspaceId: WORKSPACE,
+  };
+  const machineRuns = buildRuns({ runTokenKey: RUN_TOKEN_KEY });
+  const first = await start(user, spyAgentId);
+  const claim = await machineRuns.claimRunForMachine(machine, first.runId, {
+    platformUrl: "https://example.test",
+    requestsForDaemon: true,
+  });
+  expect(claim.toolRules).toEqual(["bash"]);
+  await machineRuns.completeRun(machine, first.runId, { status: "done" });
+  const second = await start(user, spyAgentId);
+  const legacy = await machineRuns.claimRunForMachine(machine, second.runId, {
+    platformUrl: "https://example.test",
+  });
+  expect(legacy.toolRules).toBeUndefined();
 });

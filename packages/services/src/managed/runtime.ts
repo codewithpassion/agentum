@@ -44,4 +44,7 @@ export const createManagedRuntime = ({
     }
   },
   kind: "managed",
+  resume: async (run) => {
+    await poller.kick(run.id);
+  },
 });

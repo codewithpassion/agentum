@@ -28,6 +28,11 @@ export interface CloudStart {
  * relay.
  */
 export interface CloudRunnerPort {
+  answered?: (
+    runId: string,
+    sessionId: string,
+    requestId: string
+  ) => Promise<void>;
   /** Stops the run's work. Best effort. */
   cancel: (runId: string, sessionId: string) => Promise<void>;
   /** Starts working the run. Idempotent on `run.id`: a repeat start does nothing. */

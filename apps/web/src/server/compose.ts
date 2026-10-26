@@ -86,6 +86,10 @@ import {
   type OAuthClientsService,
 } from "@repo/services/oauth-clients";
 import {
+  createRequestsService,
+  type RequestsService,
+} from "@repo/services/requests";
+import {
   createRoutinesService,
   type RoutinesService,
 } from "@repo/services/routines";
@@ -219,6 +223,7 @@ export interface Services {
   modelKeys: ModelKeysService;
   network: NetworkService;
   oauthClients: OAuthClientsService;
+  requests: RequestsService;
   routines: RoutinesService;
   runSkills: RunSkillsService;
   runs: RunsService;
@@ -443,6 +448,14 @@ export const composeWith = ({
     runTokenKey: infra.runTokenKey,
     secrets,
   });
+  const requests = createRequestsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    runs,
+    secrets,
+  });
   // Catches the run and tool events the runs service writes through its own events instance.
   runs.onEvent(slackStatus.onEvent);
   if (infra.streams) {
@@ -534,6 +547,7 @@ export const composeWith = ({
       modelKeys,
       network,
       oauthClients,
+      requests,
       routines,
       runSkills,
       runs,
