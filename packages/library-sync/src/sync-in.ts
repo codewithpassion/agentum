@@ -1,9 +1,11 @@
 // Copies the library into the working copy. A local edit that was not sent
-// yet is never overwritten: such a file is listed in `kept` and left alone.
+// yet is kept under write roots; under read roots the library is the truth.
 import {
+  cleanPaths,
   cleanRoots,
   describe,
   inScope,
+  modeOf,
   openManifest,
   sha256Of,
   walkRemote,
@@ -14,8 +16,8 @@ import {
   type RemoteEntry,
   SYNC_MAX_FILE_BYTES,
   type SyncFailure,
+  type SyncInOptions,
   type SyncInResult,
-  type SyncOptions,
   type SyncPorts,
 } from "./types.ts";
 
@@ -25,10 +27,20 @@ const FOLDER_IN_THE_WAY = "A folder is in the way";
 
 export const runSyncIn = async (
   ports: SyncPorts,
-  options: SyncOptions
+  options: SyncInOptions
 ): Promise<SyncInResult> => {
   const { local, remote } = ports;
-  const roots = cleanRoots(options.roots);
+  const configuredRoots = cleanRoots(options.roots);
+  // An only path must itself be inside a root; an ancestor announcement does
+  // not expand into roots beneath it. This keeps every walk within the request.
+  const roots =
+    options.only === undefined
+      ? configuredRoots
+      : cleanPaths(
+          options.only
+            .map((path) => path.replace(/^\/+|\/+$/g, ""))
+            .filter((path) => inScope(path, configuredRoots))
+        );
   const max = options.maxFileBytes ?? SYNC_MAX_FILE_BYTES;
   const { entries, save } = await openManifest(ports.manifest);
   const remoteFiles = [...(await walkRemote(remote, roots))].sort((a, b) =>
@@ -72,12 +84,26 @@ export const runSyncIn = async (
     await save();
   };
 
-  const syncFile = async (file: RemoteEntry): Promise<void> => {
+  const syncReadFile = async (file: RemoteEntry): Promise<void> => {
     const { path } = file;
-    if (file.size > max) {
-      result.skipped.push(path);
+    const entry = entries.get(path);
+    const stat = await local.stat(path);
+    if (stat?.kind === "dir") {
+      throw new Error(FOLDER_IN_THE_WAY);
+    }
+    if (
+      stat !== null &&
+      entry?.etag === file.etag &&
+      (await sha256Of(await local.read(path))) === entry.sha256
+    ) {
       return;
     }
+    // Library truth also resolves a collision before the first manifest entry.
+    await pull(path);
+  };
+
+  const syncWriteFile = async (file: RemoteEntry): Promise<void> => {
+    const { path } = file;
     const entry = entries.get(path);
     if (entry?.etag === file.etag) {
       return;
@@ -116,6 +142,18 @@ export const runSyncIn = async (
     }
   };
 
+  const syncFile = async (file: RemoteEntry): Promise<void> => {
+    if (file.size > max) {
+      result.skipped.push(file.path);
+      return;
+    }
+    if (modeOf(file.path, options.roots) === "read") {
+      await syncReadFile(file);
+    } else {
+      await syncWriteFile(file);
+    }
+  };
+
   const dropGone = async (entry: ManifestEntry): Promise<void> => {
     const { path } = entry;
     const stat = await local.stat(path);
@@ -128,7 +166,8 @@ export const runSyncIn = async (
       return;
     }
     const localHash = await sha256Of(await local.read(path));
-    if (localHash === entry.sha256) {
+    // A library deletion is authoritative under read roots, including local edits.
+    if (modeOf(path, options.roots) === "read" || localHash === entry.sha256) {
       await local.remove(path);
       result.removed.push(path);
     } else {

@@ -18,7 +18,7 @@ const setup = () => {
   return { local, manifest, ports, remote };
 };
 
-const ADA = [{ path: "agents/ada", mode: "write" }] as const;
+const ADA = [{ mode: "write", path: "agents/ada" }] as const;
 
 describe("runSyncIn", () => {
   test("first sync copies the files under the root and writes the manifest", async () => {
@@ -53,7 +53,9 @@ describe("runSyncIn", () => {
     remote.put("agents/ada/notes.md", "one");
     remote.put("agents/ada/other.md", "two");
 
-    const result = await runSyncIn(ports, { roots: [{ path: "agents/ada/notes.md", mode: "write" }] });
+    const result = await runSyncIn(ports, {
+      roots: [{ mode: "write", path: "agents/ada/notes.md" }],
+    });
 
     expect(result.pulled).toEqual(["agents/ada/notes.md"]);
     expect([...local.files.keys()]).toEqual(["agents/ada/notes.md"]);
@@ -63,7 +65,9 @@ describe("runSyncIn", () => {
     const { local, manifest, ports, remote } = setup();
     remote.put("agents/ada/notes.md", "hello");
 
-    const result = await runSyncIn(ports, { roots: [{ path: "agents/nobody", mode: "write" }] });
+    const result = await runSyncIn(ports, {
+      roots: [{ mode: "write", path: "agents/nobody" }],
+    });
 
     expect(result).toEqual({
       conflicts: [],
@@ -265,7 +269,7 @@ describe("runSyncIn", () => {
 });
 
 describe("targeted pulls and read roots", () => {
-  const ROOTS = [{ path: "/agents/ada/", mode: "read" }] as const;
+  const ROOTS = [{ mode: "read", path: "/agents/ada/" }] as const;
   const A = "agents/ada/a.md";
   const B = "agents/ada/sub/b.md";
 
@@ -274,7 +278,7 @@ describe("targeted pulls and read roots", () => {
     remote.put(A, "one");
     remote.put(B, "two");
     const result = await runSyncIn(ports, {
-      only: [A, A, "agents/bob"],
+      only: [A, A, "agents/bob", "agents"],
       roots: ADA,
     });
     expect(result.pulled).toEqual([A]);
@@ -299,7 +303,9 @@ describe("targeted pulls and read roots", () => {
     expect(result.kept).toEqual([B]);
     expect(textOf(local.files.get(B))).toBe("unsent");
     expect(textOf(local.files.get("agents/ada/outside.md"))).toBe("outside");
-    expect(manifest.saved.map((entry) => entry.path)).toEqual(["agents/ada/outside.md"]);
+    expect(manifest.saved.map((entry) => entry.path)).toEqual([
+      "agents/ada/outside.md",
+    ]);
     expect(remote.calls).toEqual([`stat ${A}`, "stat agents/ada/sub"]);
   });
 
@@ -309,7 +315,9 @@ describe("targeted pulls and read roots", () => {
     await runSyncIn(ports, { roots: ADA });
     remote.files.clear();
     remote.calls.length = 0;
-    local.stat = () => { throw new Error("outside only"); };
+    local.stat = () => {
+      throw new Error("outside only");
+    };
     const result = await runSyncIn(ports, { only: [], roots: ADA });
     expect(result.removed).toEqual([]);
     expect(remote.calls).toEqual([]);
@@ -347,7 +355,10 @@ describe("targeted pulls and read roots", () => {
 
   test("nested modes apply even though only the outer root is walked", async () => {
     const { local, ports, remote } = setup();
-    const roots = [...ROOTS, { path: "agents/ada/sub", mode: "write" }] as const;
+    const roots = [
+      ...ROOTS,
+      { mode: "write", path: "agents/ada/sub" },
+    ] as const;
     remote.put(A, "one");
     remote.put(B, "two");
     await runSyncIn(ports, { roots });
@@ -359,4 +370,29 @@ describe("targeted pulls and read roots", () => {
     expect(result.kept).toEqual([B]);
     expect(textOf(local.files.get(B))).toBe("unsent");
   });
+});
+
+test("targeted folders walk descendants once and preserve edits under write roots", async () => {
+  const { local, ports, remote } = setup();
+  const path = "agents/ada/sub/a";
+  remote.put(path, "base");
+  remote.put("agents/ada/other", "outside");
+  await runSyncIn(ports, { roots: ADA });
+  local.put(path, "unsent");
+  remote.put(path, "updated");
+  remote.put("agents/ada/sub/new", "new");
+  remote.put("agents/ada/other", "outside updated");
+  remote.calls.length = 0;
+  const result = await runSyncIn(ports, {
+    only: ["agents/ada/sub", path, "agents/ada/sub/"],
+    roots: ADA,
+  });
+  expect(result.kept).toEqual([path]);
+  expect(result.pulled).toEqual(["agents/ada/sub/new"]);
+  expect(textOf(local.files.get("agents/ada/other"))).toBe("outside");
+  expect(remote.calls).toEqual([
+    "stat agents/ada/sub",
+    "list agents/ada/sub",
+    "read agents/ada/sub/new",
+  ]);
 });

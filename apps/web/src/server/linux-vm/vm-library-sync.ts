@@ -328,7 +328,7 @@ export const syncLibraryIn = async (input: {
         local: vmLocalPort(input.vm),
         manifest: vmManifestStore(input.vm),
         remote: libraryRemotePort(input.ops),
-      }).syncIn({ roots });
+      }).syncIn({ roots: roots.map((path) => ({ mode: "write", path })) });
     });
     await input.storage.put<LibrarySyncState>(LIBRARY_SYNC_KEY, {
       conflicts: result.conflicts,
@@ -369,7 +369,10 @@ export const syncLibraryOut = async (input: {
         local: vmLocalPort(input.vm),
         manifest: vmManifestStore(input.vm),
         remote: libraryRemotePort(input.ops),
-      }).syncOut({ roots: state.roots, runId: input.runId })
+      }).syncOut({
+        roots: state.roots.map((path) => ({ mode: "write", path })),
+        runId: input.runId,
+      })
     );
     await Promise.all(
       result.conflicts.map(async (conflict) => {

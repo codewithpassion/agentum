@@ -6,16 +6,10 @@ const fakeClock = () => {
   let next = 0;
   const timers = new Map<number, { at: number; fn: () => void }>();
   return {
-    clearTimeout: (handle: number) => { timers.delete(handle); },
-    setTimeout: (fn: () => void, ms: number) => {
-      next += 1;
-      timers.set(next, { at: now + ms, fn });
-      return next;
-    },
     advance: (ms: number) => {
       const end = now + ms;
-      while (true) {
-        const due = [...timers].sort((a, b) => a[1].at - b[1].at)[0];
+      while (timers.size > 0) {
+        const [due] = [...timers].sort((a, b) => a[1].at - b[1].at);
         if (!due || due[1].at > end) {
           break;
         }
@@ -25,13 +19,26 @@ const fakeClock = () => {
       }
       now = end;
     },
+    clearTimeout: (handle: number) => {
+      timers.delete(handle);
+    },
+    setTimeout: (fn: () => void, ms: number) => {
+      next += 1;
+      timers.set(next, { at: now + ms, fn });
+      return next;
+    },
   };
 };
 
 test("bursts restart the quiet window and hand over sorted unique paths", () => {
   const clock = fakeClock();
   const batches: string[][] = [];
-  const coalescer = createCoalescer({ clock, onBatch: (paths) => { batches.push(paths); } });
+  const coalescer = createCoalescer({
+    clock,
+    onBatch: (paths) => {
+      batches.push(paths);
+    },
+  });
   coalescer.add("b");
   clock.advance(1000);
   coalescer.add("a");
@@ -50,7 +57,12 @@ test("bursts restart the quiet window and hand over sorted unique paths", () => 
 test("continuous adds flush at the five second cap and start fresh", () => {
   const clock = fakeClock();
   const batches: string[][] = [];
-  const coalescer = createCoalescer({ clock, onBatch: (paths) => { batches.push(paths); } });
+  const coalescer = createCoalescer({
+    clock,
+    onBatch: (paths) => {
+      batches.push(paths);
+    },
+  });
   coalescer.add("a");
   for (let i = 0; i < 4; i += 1) {
     clock.advance(1000);
@@ -66,7 +78,12 @@ test("continuous adds flush at the five second cap and start fresh", () => {
 test("flush and cancel clear timers, and empty batches are not delivered", () => {
   const clock = fakeClock();
   const batches: string[][] = [];
-  const coalescer = createCoalescer({ clock, onBatch: (paths) => { batches.push(paths); } });
+  const coalescer = createCoalescer({
+    clock,
+    onBatch: (paths) => {
+      batches.push(paths);
+    },
+  });
   coalescer.flush();
   coalescer.add("a");
   coalescer.flush();
@@ -83,7 +100,9 @@ test("rejections reach onError without blocking a new batch", async () => {
   const coalescer = createCoalescer({
     clock,
     onBatch: () => Promise.reject(error),
-    onError: (reason) => { errors.push(reason); },
+    onError: (reason) => {
+      errors.push(reason);
+    },
   });
   coalescer.add("a");
   coalescer.flush();

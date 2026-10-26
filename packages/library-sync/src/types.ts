@@ -77,11 +77,23 @@ export interface SyncPorts {
   remote: RemotePort;
 }
 
+export type SyncRootMode = "read" | "write";
+
+export interface SyncRoot {
+  mode: SyncRootMode;
+  path: string;
+}
+
 export interface SyncOptions {
   /** Files over this many bytes are skipped. Defaults to SYNC_MAX_FILE_BYTES. */
   maxFileBytes?: number;
   /** Library paths to sync: the agent's folder `agents/<slug>` and the paths its config names. A path may be a folder or a file. */
-  roots: readonly string[];
+  roots: readonly SyncRoot[];
+}
+
+export interface SyncInOptions extends SyncOptions {
+  /** Pull only these library files or folders within the roots. An empty list pulls nothing. */
+  only?: readonly string[];
 }
 
 export interface SyncOutOptions extends SyncOptions {
@@ -122,6 +134,8 @@ export interface SyncOutResult {
   /** Local deletes that did not run because the library file changed. */
   deleteSkipped: string[];
   failed: SyncFailure[];
+  /** Local changes under read roots, left out of the push. */
+  refused: string[];
   /** Files over the size limit. */
   skipped: string[];
   /** Files written to the library. */

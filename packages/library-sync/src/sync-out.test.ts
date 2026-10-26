@@ -40,7 +40,7 @@ const syncOut = (
   extra: { maxFileBytes?: number; roots?: SyncRoot[] } = {}
 ) =>
   runSyncOut(ctx.ports, {
-    roots: extra.roots ?? [{ path: ROOT, mode: "write" }],
+    roots: extra.roots ?? [{ mode: "write", path: ROOT }],
     runId,
     ...(extra.maxFileBytes === undefined
       ? {}
@@ -334,9 +334,13 @@ describe("read root refusals", () => {
     ctx.local.files.delete("agents/ada/gone.md");
     ctx.remote.calls.length = 0;
     const result = await syncOut(ctx, "r1", {
-      roots: [{ path: "/agents/ada/", mode: "read" }],
+      roots: [{ mode: "read", path: "/agents/ada/" }],
     });
-    expect(result.refused).toEqual(["agents/ada/gone.md", "agents/ada/new.md", NOTES]);
+    expect(result.refused).toEqual([
+      "agents/ada/gone.md",
+      "agents/ada/new.md",
+      NOTES,
+    ]);
     expect(result.written).toEqual([]);
     expect(result.conflicts).toEqual([]);
     expect(result.failed).toEqual([]);
@@ -348,15 +352,19 @@ describe("read root refusals", () => {
 
   test("longest root wins in both directions and read wins duplicate paths", async () => {
     const ctx = setup();
-    for (const path of ["agents/ada/a", "agents/ada/sub/b", "agents/ada/sub/read/c"]) {
+    for (const path of [
+      "agents/ada/a",
+      "agents/ada/sub/b",
+      "agents/ada/sub/read/c",
+    ]) {
       ctx.local.put(path, "new");
     }
     const result = await syncOut(ctx, "r1", {
       roots: [
-        { path: ROOT, mode: "read" },
-        { path: "agents/ada/sub", mode: "write" },
-        { path: "/agents/ada/sub/read/", mode: "read" },
-        { path: "agents/ada/sub/read", mode: "write" },
+        { mode: "read", path: ROOT },
+        { mode: "write", path: "agents/ada/sub" },
+        { mode: "read", path: "/agents/ada/sub/read/" },
+        { mode: "write", path: "agents/ada/sub/read" },
       ],
     });
     expect(result.written).toEqual(["agents/ada/sub/b"]);
