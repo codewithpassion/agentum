@@ -32,6 +32,18 @@ export const STREAM_EVENT_TYPES = [
   "request.cancelled",
 ] as const satisfies readonly EventType[];
 
+/**
+ * The event types the task view shows: the stream's, plus the connector
+ * outcomes its action log lists. They stay out of `STREAM_EVENT_TYPES`, which
+ * is also the live gate and the replay filter.
+ */
+export const TASK_EVENT_TYPES = [
+  ...STREAM_EVENT_TYPES,
+  "connector.call",
+  "connector.needs_auth",
+  "connector.timeout",
+] as const satisfies readonly EventType[];
+
 const STREAM_TYPES: ReadonlySet<EventType> = new Set(STREAM_EVENT_TYPES);
 
 /** The event types the desk stream carries: requests and runs, not messages or tool calls. */

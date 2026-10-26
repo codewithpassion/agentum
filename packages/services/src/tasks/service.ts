@@ -152,7 +152,7 @@ export const createTasksService = ({
 }: {
   clock: Clock;
   db: Database;
-  /** The event types a task view shows. The app passes the ones its session stream carries. */
+  /** The event types a task view shows. The app passes the stream's types plus the connector outcomes. */
   eventTypes: readonly EventType[];
   events: Pick<EventsService, "query">;
   people?: PeopleLookup;

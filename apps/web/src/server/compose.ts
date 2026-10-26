@@ -175,7 +175,7 @@ import { r2FileBlobs } from "./r2-files.ts";
 import { r2LibraryBlobs } from "./r2-library.ts";
 import { r2SkillBlobs } from "./r2-skills.ts";
 import { durableRelayPort } from "./relay-port.ts";
-import { STREAM_EVENT_TYPES } from "./session-stream-frames.ts";
+import { TASK_EVENT_TYPES } from "./session-stream-frames.ts";
 import {
   type SessionStreamPort,
   streamListener,
@@ -583,7 +583,7 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     events,
-    eventTypes: STREAM_EVENT_TYPES,
+    eventTypes: TASK_EVENT_TYPES,
     people: infra.people,
     requests,
   });
