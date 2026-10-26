@@ -7,6 +7,8 @@ import {
   claimResponseSchema,
   completeRequestSchema,
   completeResponseSchema,
+  createRequestBodySchema,
+  createRequestResponseSchema,
   daemonFrameSchema,
   daemonHelloSchema,
   daemonPingSchema,
@@ -14,11 +16,13 @@ import {
   enrollResponseSchema,
   eventsRequestSchema,
   eventsResponseSchema,
+  FEATURE_REQUESTS,
   hasDaemonFeature,
   heartbeatResponseSchema,
   offerSchema,
   relayFrameSchema,
   relayHelloAckSchema,
+  waitRequestResponseSchema,
 } from "./machine.ts";
 
 const JSON_SUFFIX = /\.json$/;
@@ -234,6 +238,97 @@ describe("machine protocol fixtures", () => {
       .sort();
     const listed = cases.map(([name]) => name).sort();
     expect(listed).toEqual(onDisk);
+  });
+});
+
+describe("claim toolRules", () => {
+  test("claim-response parses without toolRules and with them", async () => {
+    const parsed = claimResponseSchema.parse(
+      await loadFixture("claim-response")
+    );
+    expect(parsed.toolRules).toBeUndefined();
+    const toolRules = ["Bash", "Edit"];
+    expect(
+      claimResponseSchema.parse({ ...parsed, toolRules }).toolRules
+    ).toEqual(toolRules);
+  });
+
+  test("claim-response rejects toolRules that are not strings", async () => {
+    const parsed = claimResponseSchema.parse(
+      await loadFixture("claim-response")
+    );
+    expect(
+      claimResponseSchema.safeParse({ ...parsed, toolRules: [1] }).success
+    ).toBe(false);
+  });
+});
+
+describe("requests feature", () => {
+  test("hasDaemonFeature finds the requests feature in a header", () => {
+    expect(hasDaemonFeature("library-sync,requests", FEATURE_REQUESTS)).toBe(
+      true
+    );
+    expect(hasDaemonFeature("library-sync", FEATURE_REQUESTS)).toBe(false);
+  });
+
+  const approvalBody = {
+    display: {
+      input: { command: "ls" },
+      summary: "List files",
+      toolKey: "Bash",
+      toolName: "Bash",
+    },
+    kind: "approval",
+    toolName: "Bash",
+    toolUseId: "toolu_01",
+  };
+
+  test("create body accepts a good approval and a good question", () => {
+    expect(createRequestBodySchema.safeParse(approvalBody).success).toBe(true);
+    const question = {
+      display: {
+        questions: [{ question: "Which branch?" }],
+      },
+      kind: "question",
+      toolName: "AskUserQuestion",
+      toolUseId: "toolu_02",
+    };
+    expect(createRequestBodySchema.safeParse(question).success).toBe(true);
+  });
+
+  test("create body rejects a missing toolUseId and an empty one", () => {
+    const { toolUseId: _omitted, ...withoutId } = approvalBody;
+    expect(createRequestBodySchema.safeParse(withoutId).success).toBe(false);
+    expect(
+      createRequestBodySchema.safeParse({ ...approvalBody, toolUseId: "" })
+        .success
+    ).toBe(false);
+  });
+
+  test("create response refuses an unknown status", () => {
+    expect(
+      createRequestResponseSchema.safeParse({
+        requestId: "req_1",
+        status: "pending",
+      }).success
+    ).toBe(true);
+    expect(
+      createRequestResponseSchema.safeParse({
+        requestId: "req_1",
+        status: "unknown",
+      }).success
+    ).toBe(false);
+  });
+
+  test("wait response accepts an answered outcome and refuses an unknown status", () => {
+    const answered = {
+      outcome: { answer: { decision: "allow_once" }, status: "answered" },
+      status: "answered",
+    };
+    expect(waitRequestResponseSchema.safeParse(answered).success).toBe(true);
+    expect(
+      waitRequestResponseSchema.safeParse({ status: "unknown" }).success
+    ).toBe(false);
   });
 });
 

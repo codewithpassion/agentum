@@ -43,6 +43,8 @@ export const statusLabel = (status: SessionListItem["status"]): string => {
       return "Queued";
     case "running":
       return "Running";
+    case "waiting":
+      return "Waiting for you";
     case "done":
       return "Done";
     case "failed":

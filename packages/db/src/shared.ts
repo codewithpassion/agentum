@@ -25,6 +25,8 @@ export const RUN_STATUSES = [
   "queued",
   "offered",
   "running",
+  // At least one open request. The runtime keeps the lease going.
+  "waiting",
   "done",
   "failed",
   "cancelled",
@@ -74,6 +76,13 @@ export const EVENT_TYPES = [
   "run.interrupted",
   "run.limit_reached",
   "run.repeat_stopped",
+  "run.waiting",
+  "run.resumed",
+  "request.opened",
+  "request.answered",
+  "request.expired",
+  "request.cancelled",
+  "tool_rule.changed",
   "message.user",
   "message.assistant",
   "tool.call",
@@ -187,3 +196,40 @@ export const SKILL_VERSION_STATUSES = [
   "rejected",
 ] as const;
 export type SkillVersionStatus = (typeof SKILL_VERSION_STATUSES)[number];
+
+export const REQUEST_KINDS = ["approval", "question"] as const;
+export type RequestKind = (typeof REQUEST_KINDS)[number];
+
+export const REQUEST_STATUSES = [
+  "pending",
+  "answered",
+  "expired",
+  "cancelled",
+] as const;
+export type RequestStatus = (typeof REQUEST_STATUSES)[number];
+
+export const APPROVAL_DECISIONS = [
+  "allow_once",
+  "always_allow",
+  "deny",
+] as const;
+export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number];
+
+/** `ask` stops a tool call for a person's decision. No rule means `allow`. */
+export const TOOL_RULE_MODES = ["ask", "allow"] as const;
+export type ToolRuleMode = (typeof TOOL_RULE_MODES)[number];
+
+export const ANSWER_SURFACES = ["web", "slack"] as const;
+export type AnswerSurface = (typeof ANSWER_SURFACES)[number];
+
+/** How long an approval stays open: one hour. */
+export const APPROVAL_TTL_MS = 60 * 60_000;
+
+/** How long a question stays open: one day. */
+export const QUESTION_TTL_MS = 24 * 60 * 60_000;
+
+/** Most questions in one ask-user request. */
+export const QUESTIONS_MAX = 4;
+
+/** Most choices on one question. */
+export const CHOICES_MAX = 6;

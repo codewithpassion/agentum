@@ -7,14 +7,17 @@
     "./library": "./src/library.ts",
     "./machine": "./src/machine.ts",
     "./masker": "./src/masker.ts",
+    "./requests": "./src/requests.ts",
     "./safeguards": "./src/safeguards.ts",
-    "./skills": "./src/skills.ts"
+    "./skills": "./src/skills.ts",
+    "./stream": "./src/stream.ts"
   },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@repo/db": "workspace:*",
     "zod": "^4.6.5"
   },
   "devDependencies": {
