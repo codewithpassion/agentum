@@ -3,9 +3,12 @@ import {
   CalendarClock,
   FolderOpen,
   Inbox,
+  LayoutDashboard,
   type LucideIcon,
+  Map as MapIcon,
   MessagesSquare,
   ScrollText,
+  Server,
   Settings,
   Sparkles,
   Webhook,
@@ -18,49 +21,35 @@ export interface NavItem {
   to: string;
 }
 
-export interface NavGroup {
-  id: string;
-  items: readonly NavItem[];
-  label: string;
-}
+/** Work first. Desk is the landing page. */
+export const mainNavItems: readonly NavItem[] = [
+  { icon: LayoutDashboard, id: "desk", label: "Desk", to: "/desk" },
+  { icon: Bot, id: "agents", label: "Agents", to: "/agents" },
+  { icon: MapIcon, id: "map", label: "Map", to: "/map" },
+  { icon: FolderOpen, id: "library", label: "Library", to: "/library" },
+  { icon: Sparkles, id: "skills", label: "Skills", to: "/skills" },
+  // `/machines` redirects to `/settings/machines`, so this item never shows
+  // active on the settings page. Fine until V6.
+  { icon: Server, id: "machines", label: "Machines", to: "/machines" },
+];
 
-export const navGroups: readonly NavGroup[] = [
+/** Collapsed "More" group, until V3 and V7 absorb these. */
+export const moreNavItems: readonly NavItem[] = [
+  { icon: Inbox, id: "inbox", label: "Inbox", to: "/inbox" },
   {
-    id: "work",
-    items: [
-      { icon: Bot, id: "agents", label: "Agents", to: "/agents" },
-      {
-        icon: MessagesSquare,
-        id: "sessions",
-        label: "Sessions",
-        to: "/sessions",
-      },
-      { icon: Inbox, id: "inbox", label: "Inbox", to: "/inbox" },
-      { icon: ScrollText, id: "log", label: "Log", to: "/log" },
-    ],
-    label: "Work",
+    icon: MessagesSquare,
+    id: "sessions",
+    label: "Sessions",
+    to: "/sessions",
   },
+  { icon: ScrollText, id: "log", label: "Log", to: "/log" },
   {
-    id: "automation",
-    items: [
-      {
-        icon: CalendarClock,
-        id: "routines",
-        label: "Routines",
-        to: "/routines",
-      },
-      { icon: Webhook, id: "triggers", label: "Triggers", to: "/triggers" },
-    ],
-    label: "Automation",
+    icon: CalendarClock,
+    id: "routines",
+    label: "Routines",
+    to: "/routines",
   },
-  {
-    id: "knowledge",
-    items: [
-      { icon: FolderOpen, id: "library", label: "Library", to: "/library" },
-      { icon: Sparkles, id: "skills", label: "Skills", to: "/skills" },
-    ],
-    label: "Knowledge",
-  },
+  { icon: Webhook, id: "triggers", label: "Triggers", to: "/triggers" },
 ];
 
 export const settingsNavItem: NavItem = {

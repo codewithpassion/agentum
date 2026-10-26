@@ -4,7 +4,9 @@
 // connected app's OAuth token is not a credential here: it is never sent to
 // Clerk, so it cannot register a client either. The service decides who may
 // do what, so this file authenticates, parses the body and maps what the
-// services refuse to a status. The live stream is `GET /api/desk/stream`, added later. Mount with
+// services refuse to a status. `GET /api/desk/stream` is the live side: the
+// request.* and run.* frames of the workspace, from the `desk:<workspaceId>`
+// SessionStream instance, kept to the runs the member may see. Mount with
 // `accessRoutes.route("/api/desk", deskRoutes({ ... }))`.
 import { isForbiddenError } from "@repo/services/authz";
 import {
@@ -21,7 +23,15 @@ import {
   authenticateBearer,
   type BearerAuthOptions,
 } from "../mcp/principal-resolver.ts";
+import { DESK_EVENT_TYPES, deskStreamName } from "../session-stream-frames.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
+import {
+  NO_REPLAY,
+  RESUME_ID_MAX,
+  relay,
+  replay,
+  STREAM_HEADERS,
+} from "./session-stream.ts";
 
 type RouteContext = Context<AppEnv>;
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
@@ -32,6 +42,7 @@ const UNAUTHORIZED = 401;
 const UNAVAILABLE = 503;
 const MAX_BODY_BYTES = 64 * 1024;
 const RETRY_AFTER_SECONDS = "30";
+const DATA_LINE = /^data: (.+)$/m;
 
 type LogEntry = Record<string, unknown>;
 
@@ -113,6 +124,26 @@ const readJson = async (
       ok: false,
       response: c.json({ error: "The body must be JSON." }, BAD_REQUEST),
     };
+  }
+};
+
+/**
+ * The run a live SSE block belongs to: its `runId` when it names one, true
+ * for a ping, which belongs to nobody. Null for any other block.
+ */
+const runOfBlock = (block: string): string | true | null => {
+  const data = DATA_LINE.exec(block)?.[1];
+  if (data === undefined) {
+    return null;
+  }
+  try {
+    const frame = JSON.parse(data) as { frame?: unknown; runId?: unknown };
+    if (frame.frame === "ping") {
+      return true;
+    }
+    return typeof frame.runId === "string" ? frame.runId : null;
+  } catch {
+    return null;
   }
 };
 
@@ -264,6 +295,74 @@ export const deskRoutes = ({
     } catch (error) {
       return refusal(c, error);
     }
+  });
+
+  routes.get("/stream", async (c) => {
+    const acting = await memberOrRefusal(c);
+    if (acting instanceof Response) {
+      return acting;
+    }
+    const { member } = acting;
+    const resume = c.req.header("Last-Event-ID") || c.req.query("after");
+    if (resume && resume.length > RESUME_ID_MAX) {
+      return c.json({ error: "Invalid resume point." }, BAD_REQUEST);
+    }
+    const composed = c.get("composed");
+    // What the member may see is asked once per run for this connection.
+    const seen = new Map<string, Promise<boolean>>();
+    const canSee = (runId: string): Promise<boolean> => {
+      const known = seen.get(runId);
+      if (known) {
+        return known;
+      }
+      const answer = composed.services.deskApi.canSeeRun(member, runId);
+      seen.set(runId, answer);
+      return answer;
+    };
+
+    const namespace = c.env.SESSION_STREAM;
+    // Subscribe before the D1 read, so no event falls between the two.
+    const live = await namespace
+      .get(namespace.idFromName(deskStreamName(member.workspaceId)))
+      .fetch(
+        new Request("https://session-stream/stream", {
+          signal: c.req.raw.signal,
+        })
+      );
+    if (!live.body) {
+      throw new Error("The desk stream sent no body");
+    }
+    const liveBody = live.body;
+
+    let replayed = NO_REPLAY;
+    if (resume) {
+      try {
+        replayed = await replay(
+          composed.services.events,
+          member,
+          {
+            keep: ({ runId }) =>
+              runId === null ? Promise.resolve(false) : canSee(runId),
+            types: DESK_EVENT_TYPES,
+          },
+          resume
+        );
+      } catch (error: unknown) {
+        await liveBody.cancel();
+        return refusal(c, error);
+      }
+    }
+    recordUse(c, acting.credential);
+
+    return new Response(
+      relay(replayed, liveBody, (block) => {
+        const run = runOfBlock(block);
+        return run === null || run === true
+          ? Promise.resolve(run === true)
+          : canSee(run);
+      }),
+      { headers: STREAM_HEADERS }
+    );
   });
 
   return routes;

@@ -11,6 +11,8 @@ import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Composed, composeWith } from "../compose.ts";
+import type { SessionStream } from "../session-stream.ts";
+import { createStreamCore, type StreamCore } from "../session-stream-core.ts";
 import { deskRoutes } from "./desk.ts";
 import type { AppEnv } from "./groups.ts";
 
@@ -18,9 +20,50 @@ const ROUTE = "/api/desk";
 const RUN_TOKEN_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString(
   "base64"
 );
+// A stand-in for the SessionStream namespace: one core per instance name, and
+// each fetch subscribes to the named core the way the Durable Object does.
+const cores = new Map<string, StreamCore>();
+let subscriptions: string[] = [];
+/** Runs after a stream subscribes and before its D1 read. */
+let onSubscribe: () => Promise<void> | void = () => undefined;
+
+const coreOf = (name: string): StreamCore => {
+  let core = cores.get(name);
+  if (!core) {
+    core = createStreamCore({ every: () => () => undefined });
+    cores.set(name, core);
+  }
+  return core;
+};
+
+const fakeNamespace = {
+  get: (name: string) => ({
+    fetch: async (): Promise<Response> => {
+      subscriptions.push(name);
+      const { readable, writable } = new TransformStream<
+        Uint8Array,
+        Uint8Array
+      >();
+      const writer = writable.getWriter();
+      const encoder = new TextEncoder();
+      coreOf(name).add({
+        close: () => {
+          writer.close().catch(() => undefined);
+        },
+        write: (chunk) => writer.write(encoder.encode(chunk)),
+      });
+      await onSubscribe();
+      return new Response(readable);
+    },
+  }),
+  idFromName: (name: string) => name,
+};
+
 const env = {
   ALLOWED_ORG_IDS: "org_a",
   RUN_TOKEN_KEY,
+  SESSION_STREAM:
+    fakeNamespace as unknown as DurableObjectNamespace<SessionStream>,
 } as unknown as Env;
 const MEMBER_EMAIL = "u2@example.com";
 const DECISION = JSON.stringify({ decision: "allow_once" });
@@ -35,6 +78,7 @@ let deferred: Promise<unknown>[];
 let logs: Record<string, unknown>[];
 let app: Hono<AppEnv>;
 let machineAgentId: string;
+let machineId: string;
 
 const sessionUser = (userId: string): Principal => ({
   kind: "user",
@@ -82,9 +126,9 @@ const onBehalfOf = (email: string) => ({ "X-On-Behalf-Of": email });
  * An approval waiting on a machine run that is claimed, so it is running.
  * The machine runtime queues the run with a relay that delivers nothing.
  */
-const openApproval = async (toolUseId = "t1") => {
+const openApproval = async (toolUseId = "t1", agentId = machineAgentId) => {
   const started = await composed.services.runs.startRun(sessionUser("u2"), {
-    agentId: machineAgentId,
+    agentId,
     input: { text: "work" },
     session: { origin: "ui" },
   });
@@ -114,6 +158,9 @@ beforeEach(async () => {
   directoryCalls = [];
   deferred = [];
   logs = [];
+  cores.clear();
+  subscriptions = [];
+  onSubscribe = () => undefined;
   const memberDirectory: MemberDirectory = (email, clerkOrgId) => {
     directoryCalls.push({ clerkOrgId, email });
     const userId = emails.get(email) ?? null;
@@ -138,6 +185,9 @@ beforeEach(async () => {
       fileBlobs: memoryFileBlobs(),
       memberDirectory,
       relay: noopRelay,
+      streams: {
+        publish: (name, frame) => coreOf(name).publish(frame),
+      },
     },
   });
   const workspace = await composed.services.workspaces.forOrg({
@@ -158,9 +208,10 @@ beforeEach(async () => {
   if (!enrolled) {
     throw new Error("enrol failed");
   }
+  ({ machineId } = enrolled);
   machineAgentId = (
     await composed.services.agents.create(sessionUser("u1"), {
-      machineId: enrolled.machineId,
+      machineId,
       model: "m",
       name: "Laptop box",
       runtime: "machine",
@@ -188,6 +239,7 @@ beforeEach(async () => {
 describe("authentication", () => {
   const routes: { method: "GET" | "POST"; path: string }[] = [
     { method: "GET", path: "/needs-you" },
+    { method: "GET", path: "/stream" },
     { method: "POST", path: "/requests/req-1/decision" },
     { method: "POST", path: "/controller/messages" },
   ];
@@ -534,5 +586,181 @@ describe("key use", () => {
     await Promise.all(deferred);
     const [key] = await composed.services.apiKeys.list(sessionUser("u1"));
     expect(key?.lastUsedAt).not.toBeNull();
+  });
+});
+
+const DESK_TYPE = /^(request|run)\./;
+const ID_LINE = /^id: (.+)$/m;
+const DATA_LINE = /^data: (.+)$/m;
+
+describe("GET /stream", () => {
+  interface Seen {
+    frame: string;
+    id?: string;
+    runId?: string;
+    type?: string;
+  }
+
+  const seenOf = (block: string): Seen => {
+    const data = JSON.parse(DATA_LINE.exec(block)?.[1] ?? "{}") as Seen;
+    return { ...data, id: ID_LINE.exec(block)?.[1] };
+  };
+
+  const open = async (headers: Record<string, string> = {}) => {
+    const token = await mintKey("desk");
+    return send("GET", "/stream", {
+      headers: { ...onBehalfOf(MEMBER_EMAIL), ...headers },
+      token,
+    });
+  };
+
+  /** Reads frames from the body until `done` says so, and cancels the stream. */
+  const readUntil = async (
+    res: Response,
+    done: (seen: Seen) => boolean
+  ): Promise<Seen[]> => {
+    if (!res.body) {
+      throw new Error("expected a streamed body");
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    const frames: Seen[] = [];
+    let text = "";
+    for (;;) {
+      // biome-ignore lint/performance/noAwaitInLoops: one chunk at a time keeps the frame order
+      const chunk = await reader.read();
+      if (chunk.done) {
+        return frames;
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+      const blocks = text.split("\n\n");
+      text = blocks.pop() ?? "";
+      for (const block of blocks) {
+        const seen = seenOf(block);
+        frames.push(seen);
+        if (done(seen)) {
+          // biome-ignore lint/performance/noAwaitInLoops: the stream ends here
+          await reader.cancel();
+          return frames;
+        }
+      }
+    }
+  };
+
+  /** An agent on the same machine, so a second run may be claimed while the first runs. */
+  const anotherAgent = async (slug: string): Promise<string> =>
+    (
+      await composed.services.agents.create(sessionUser("u1"), {
+        machineId,
+        model: "m",
+        name: slug,
+        runtime: "machine",
+        slug,
+      })
+    ).id;
+
+  const opened = (runId: string) => (seen: Seen) =>
+    seen.type === "request.opened" && seen.runId === runId;
+
+  test("a read key or a desk key without a member is refused before any subscription", async () => {
+    const read = await send("GET", "/stream", {
+      headers: onBehalfOf(MEMBER_EMAIL),
+      token: await mintKey("read"),
+    });
+    const noMember = await send("GET", "/stream", {
+      token: await mintKey("desk"),
+    });
+    expect(read.status).toBe(403);
+    expect(noMember.status).toBe(403);
+    expect(subscriptions).toEqual([]);
+  });
+
+  test("a resume point over the id length is a 400", async () => {
+    const res = await open({ "Last-Event-ID": "x".repeat(201) });
+    expect(res.status).toBe(400);
+    expect(subscriptions).toEqual([]);
+  });
+
+  test("it streams a new request of the member as it opens, on the workspace's desk instance", async () => {
+    const res = await open();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+    expect(subscriptions).toEqual([`desk:${workspaceId}`]);
+
+    const request = await openApproval();
+    const frames = await readUntil(res, opened(request.runId));
+
+    expect(frames.at(-1)).toMatchObject({
+      frame: "event",
+      runId: request.runId,
+      type: "request.opened",
+    });
+    // Run status frames ride along, and only request.* and run.* events do.
+    expect(frames.some((seen) => seen.frame === "run")).toBe(true);
+    for (const seen of frames.filter(({ frame }) => frame === "event")) {
+      expect(seen.type).toMatch(DESK_TYPE);
+    }
+    await Promise.all(deferred);
+    const [key] = await composed.services.apiKeys.list(sessionUser("u1"));
+    expect(key?.lastUsedAt).not.toBeNull();
+  });
+
+  test("another member's ui session never reaches the stream", async () => {
+    const res = await open();
+    const theirs = await composed.services.runs.startRun(sessionUser("u1"), {
+      agentId: machineAgentId,
+      input: { text: "private" },
+      session: { origin: "ui" },
+    });
+    const mine = await openApproval();
+
+    const frames = await readUntil(res, opened(mine.runId));
+
+    expect(frames.length).toBeGreaterThan(0);
+    for (const seen of frames) {
+      expect(seen.runId).not.toBe(theirs.runId);
+    }
+  });
+
+  test("a resumed stream replays what came after Last-Event-ID, once, and skips what the member may not see", async () => {
+    const first = await open();
+    const before = await openApproval("t1");
+    const earlier = await readUntil(first, opened(before.runId));
+    const lastId = earlier.findLast((seen) => seen.id)?.id;
+    if (!lastId) {
+      throw new Error("the first stream sent no event");
+    }
+
+    const theirs = await composed.services.runs.startRun(sessionUser("u1"), {
+      agentId: machineAgentId,
+      input: { text: "private" },
+      session: { origin: "ui" },
+    });
+    // The request opens after the subscription and before the replay read, so
+    // it is in the live stream and in D1.
+    let late: { requestId: string; runId: string } | undefined;
+    const lateAgent = await anotherAgent("late-box");
+    onSubscribe = async () => {
+      late = await openApproval("t2", lateAgent);
+    };
+
+    const resumed = await open({ "Last-Event-ID": lastId });
+    onSubscribe = () => undefined;
+    // The live copy of the late request is already queued. Reading on to a
+    // request opened after it shows the stream sends the late one only once.
+    const sentinel = await openApproval("t3", await anotherAgent("end-box"));
+    const frames = await readUntil(resumed, opened(sentinel.runId));
+
+    const ids = frames.flatMap((seen) => (seen.id ? [seen.id] : []));
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of earlier.flatMap((seen) => (seen.id ? [seen.id] : []))) {
+      expect(ids).not.toContain(id);
+    }
+    expect(frames.some((seen) => seen.runId === theirs.runId)).toBe(false);
+    expect(
+      frames.filter(
+        (seen) => seen.type === "request.opened" && seen.runId === late?.runId
+      )
+    ).toHaveLength(1);
   });
 });

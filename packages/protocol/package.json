@@ -11,7 +11,8 @@
     "./safeguards": "./src/safeguards.ts",
     "./server-keys": "./src/server-keys.ts",
     "./skills": "./src/skills.ts",
-    "./stream": "./src/stream.ts"
+    "./stream": "./src/stream.ts",
+    "./thread": "./src/thread.ts"
   },
   "scripts": {
     "test": "bun test",
