@@ -6,6 +6,7 @@ import { agentTools, agentWriteTools } from "./tools/agents";
 import type { ToolDefinition } from "./tools/define";
 import { inboxTools } from "./tools/inbox";
 import { libraryTools } from "./tools/library";
+import { mailTools } from "./tools/mail";
 import { routineTools } from "./tools/routines";
 import { sessionTools } from "./tools/sessions";
 import { skillReadTools } from "./tools/skills-read";
@@ -18,6 +19,8 @@ export interface ServerOptions {
   dryRun?: {
     record: (skip: { summary: string; tool: string }) => Promise<void>;
   };
+  /** The route opts in only for a run principal whose agent has an active mailbox. */
+  mail?: boolean;
   /**
    * The caller is a read-only API key or connected app. It then gets the
    * list tools for routines and triggers and the read tools for skills, and
@@ -46,7 +49,7 @@ const skillTools = (ports: McpPorts, readOnly: boolean): ToolDefinition[] =>
 /** Every tool this server offers, bound to the ports it calls. */
 export const harbourmasterTools = (
   ports: McpPorts,
-  { readOnly = false }: ServerOptions = {}
+  { readOnly = false, mail = false }: ServerOptions = {}
 ): readonly ToolDefinition[] => [
   ...agentTools(ports),
   ...(readOnly ? [] : agentWriteTools(ports)),
@@ -56,13 +59,14 @@ export const harbourmasterTools = (
   ...automationTools(ports, readOnly),
   ...skillTools(ports, readOnly),
   ...(readOnly ? [] : slackTools(ports)),
+  ...(mail && !readOnly && ports.mail ? mailTools(ports) : []),
 ];
 
 /** Ports for reading tool names: the names do not depend on them, so none is ever called. */
 const unusedPort = (): Promise<never> =>
   Promise.reject(new Error("Only the tool names are read."));
 
-/** The name of every tool, in the order they are registered. */
+/** The name of every tool except the mail tools, which register only on request, in the order they are registered. */
 export const TOOL_NAMES = harbourmasterTools({
   approveSkillVersion: unusedPort,
   assignSkill: unusedPort,

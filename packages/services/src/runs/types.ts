@@ -27,6 +27,7 @@ export const systemClock: Clock = {
     }),
 };
 
+/** Origins a browser client may name. */
 export const SESSION_ORIGINS = [
   "ui",
   "slack",
@@ -34,9 +35,12 @@ export const SESSION_ORIGINS = [
   "routine",
   "trigger",
   "mcp",
-  "dry_run",
 ] as const;
-export type SessionOrigin = (typeof SESSION_ORIGINS)[number];
+/** Set in-process only (the agent builder's dry run), never by a browser client. */
+export const DRY_RUN_ORIGIN = "dry_run" as const;
+export type SessionOrigin =
+  | (typeof SESSION_ORIGINS)[number]
+  | typeof DRY_RUN_ORIGIN;
 
 const idString = z.string().min(1).max(200);
 
@@ -66,7 +70,7 @@ export const startRunInputSchema = z.strictObject({
   requestId: idString.optional(),
   session: z.strictObject({
     externalKey: idString.optional(),
-    origin: z.enum(SESSION_ORIGINS),
+    origin: z.enum([...SESSION_ORIGINS, DRY_RUN_ORIGIN]),
     private: z.boolean().optional(),
   }),
 });
@@ -206,6 +210,8 @@ export interface MachineClaim {
     conflicts: string[];
     paths: string[];
     roots?: import("@repo/db/shared").LibraryAccessGrant[];
+    /** The library path of the run's own folder. Sent with `roots`, to a daemon that syncs the library live. */
+    taskFolder?: string;
   };
   mcpServers: Record<
     string,

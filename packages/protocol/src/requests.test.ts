@@ -11,7 +11,10 @@ import {
   questionAnswerSchema,
   questionDisplaySchema,
   questionSchema,
+  REQUEST_TAKEOVER_TOOL,
   requestOutcomeSchema,
+  takeoverAnswerSchema,
+  takeoverDisplaySchema,
   toolKey,
 } from "./requests.ts";
 
@@ -145,10 +148,64 @@ describe("requestOutcomeSchema", () => {
     ).toBe(true);
   });
 
+  test("accepts each answer kind, including an empty takeover answer", () => {
+    for (const answer of [
+      { decision: "allow_once" },
+      { answers: { "Which database?": "D1" } },
+      {},
+      { note: "Done" },
+    ]) {
+      expect(
+        requestOutcomeSchema.safeParse({ answer, status: "answered" }).success
+      ).toBe(true);
+    }
+  });
+
   test("refuses an unknown status", () => {
     expect(requestOutcomeSchema.safeParse({ status: "lost" }).success).toBe(
       false
     );
+  });
+});
+
+describe("takeover schemas", () => {
+  const display = { machineId: "mac-1", reason: "Solve the CAPTCHA" };
+
+  test("display accepts a valid display and refuses extra or missing fields", () => {
+    expect(takeoverDisplaySchema.safeParse(display).success).toBe(true);
+    expect(
+      takeoverDisplaySchema.safeParse({ ...display, extra: true }).success
+    ).toBe(false);
+    expect(
+      takeoverDisplaySchema.safeParse({ reason: display.reason }).success
+    ).toBe(false);
+    expect(
+      takeoverDisplaySchema.safeParse({ machineId: display.machineId }).success
+    ).toBe(false);
+    expect(
+      takeoverDisplaySchema.safeParse({ ...display, reason: "" }).success
+    ).toBe(false);
+  });
+
+  test("answer accepts an empty object or a note and refuses extra fields", () => {
+    expect(takeoverAnswerSchema.safeParse({}).success).toBe(true);
+    expect(takeoverAnswerSchema.safeParse({ note: "Done" }).success).toBe(true);
+    expect(takeoverAnswerSchema.safeParse({ decision: "deny" }).success).toBe(
+      false
+    );
+  });
+
+  test("REQUEST_TAKEOVER_TOOL exports a plain JSON schema for a reason", () => {
+    expect(REQUEST_TAKEOVER_TOOL.name).toBe("request_human_takeover");
+    expect(REQUEST_TAKEOVER_TOOL.description).toContain("CAPTCHA");
+    expect(
+      JSON.parse(JSON.stringify(REQUEST_TAKEOVER_TOOL.inputSchema))
+    ).toEqual({
+      additionalProperties: false,
+      properties: { reason: { minLength: 1, type: "string" } },
+      required: ["reason"],
+      type: "object",
+    });
   });
 });
 
@@ -362,6 +419,44 @@ describe("outcomeText", () => {
     );
   });
 
+  test("explains takeover answers, with and without a note", () => {
+    expect(outcomeText("takeover", { answer: {}, status: "answered" })).toBe(
+      "A person took over the computer and handed it back."
+    );
+    expect(
+      outcomeText("takeover", {
+        answer: { note: "Logged in as admin." },
+        status: "answered",
+      })
+    ).toBe(
+      "A person took over the computer and handed it back. Note: Logged in as admin."
+    );
+  });
+
+  test("explains takeover expiry and cancellation", () => {
+    expect(outcomeText("takeover", { status: "expired" })).toBe(
+      "Nobody took over the computer in time. Go on without it or stop and say what you need."
+    );
+    expect(outcomeText("takeover", { status: "cancelled" })).toBe(
+      "The takeover request was withdrawn because the run is ending."
+    );
+  });
+
+  test("keeps approval and question outputs unchanged alongside takeover", () => {
+    expect(
+      outcomeText("approval", {
+        answer: { decision: "allow_once" },
+        status: "answered",
+      })
+    ).toBeNull();
+    expect(outcomeText("approval", { status: "cancelled" })).toBe(
+      "The call was withdrawn because the run is ending."
+    );
+    expect(outcomeText("question", { status: "expired" })).toBe(
+      "Nobody answered the question in time. Go on without it or stop and say what you need."
+    );
+  });
+
   test("rejects an answer for the wrong request kind", () => {
     expect(() =>
       outcomeText("approval", { answer: { answers: {} }, status: "answered" })
@@ -371,6 +466,15 @@ describe("outcomeText", () => {
         answer: { decision: "allow_once" },
         status: "answered",
       })
+    ).toThrow();
+    expect(() =>
+      outcomeText("takeover", {
+        answer: { decision: "allow_once" },
+        status: "answered",
+      })
+    ).toThrow();
+    expect(() =>
+      outcomeText("approval", { answer: {}, status: "answered" })
     ).toThrow();
   });
 });
