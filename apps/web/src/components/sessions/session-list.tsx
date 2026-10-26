@@ -56,7 +56,12 @@ function SessionItem({ agentName, session }: SessionItemProps) {
         <span className="truncate">{originLabel(session)}</span>
         <Badge variant="secondary">{statusLabel(session.status)}</Badge>
       </span>
-      <time className="text-muted-foreground text-xs" dateTime={activity}>
+      {/* The relative time reads the clock, so the server and browser can differ by a bucket. */}
+      <time
+        className="text-muted-foreground text-xs"
+        dateTime={activity}
+        suppressHydrationWarning
+      >
         {formatDistanceToNow(new Date(activity), { addSuffix: true })}
       </time>
     </>
