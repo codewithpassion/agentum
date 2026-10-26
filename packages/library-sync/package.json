@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./coalesce": "./src/coalesce.ts",
     "./testing": "./src/testing.ts",
     "./transfer": "./src/transfer.ts",
     "./transfer-bundle": "./src/transfer-bundle.generated.ts",

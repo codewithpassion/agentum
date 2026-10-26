@@ -112,9 +112,30 @@ const catalogFixtures = () => ({
   },
   machines: {
     list: async () => [
-      { id: "laptop", name: "Laptop", status: "online" } as MachineRecord,
-      { id: "desk", name: "Desk", status: "offline" } as MachineRecord,
-      { id: "old", name: "Old", status: "revoked" } as MachineRecord,
+      {
+        id: "laptop",
+        name: "Laptop",
+        roles: ["agent_host", "computer"],
+        status: "online",
+      } as MachineRecord,
+      {
+        id: "desk",
+        name: "Desk",
+        roles: ["agent_host"],
+        status: "offline",
+      } as MachineRecord,
+      {
+        id: "old",
+        name: "Old",
+        roles: ["agent_host"],
+        status: "revoked",
+      } as MachineRecord,
+      {
+        id: "kiosk",
+        name: "Kiosk",
+        roles: ["computer"],
+        status: "online",
+      } as MachineRecord,
     ],
   },
   skillsStore: {
@@ -217,6 +238,28 @@ describe("catalog", () => {
     const catalog = await service.catalog(user);
     expect(catalog.runtimes).toEqual([]);
     expect(catalog.machines).toEqual([]);
+  });
+});
+
+describe("catalog with a computer-only machine", () => {
+  test("offers neither the machine nor the machine runtime", async () => {
+    const service = createAgentBuilderService(
+      buildDeps({
+        anthropicConfigured: false,
+        machines: [
+          {
+            id: "kiosk",
+            name: "Kiosk",
+            roles: ["computer"],
+            status: "online",
+          } as MachineRecord,
+        ],
+        routerConfigured: false,
+      })
+    );
+    const catalog = await service.catalog(user);
+    expect(catalog.machines).toEqual([]);
+    expect(catalog.runtimes).toEqual([]);
   });
 });
 

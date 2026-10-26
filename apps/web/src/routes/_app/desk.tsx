@@ -5,6 +5,7 @@ import { z } from "zod";
 import { AgentFilter } from "#/components/desk/agent-filter";
 import { DeskBoard, type ProposedVersion } from "#/components/desk/desk-board";
 import { localMidnightIso } from "#/components/desk/desk-logic";
+import { MailStrip } from "#/components/desk/mail-strip";
 import { NewTaskDialog } from "#/components/desk/new-task-dialog";
 import {
   DESK_POLL_INTERVAL_MS,
@@ -48,13 +49,14 @@ export const Route = createFileRoute("/_app/desk")({
 /** The desk, the answerable requests behind its cards, and the skill versions proposed. */
 const loadDesk = async (agentId: string | undefined) => {
   const trpc = getTrpc();
-  const [desk, pending, proposals] = await Promise.all([
+  const [desk, pending, proposals, mail] = await Promise.all([
     trpc.desk.get.query({
       dayStart: localMidnightIso(new Date()),
       ...(agentId === undefined ? {} : { agentId }),
     }),
     trpc.requests.pending.query({}),
     trpc.skillStore.proposals.query(),
+    trpc.mailToday.query(),
   ]);
   const requests = new Map<string, RequestView>();
   for (const record of pending) {
@@ -69,7 +71,7 @@ const loadDesk = async (agentId: string | undefined) => {
       { number: version.number, skillId: version.skillId },
     ])
   );
-  return { desk, requests, versions };
+  return { desk, mail, requests, versions };
 };
 
 /** The current time, set after mount so server and browser markup match. */
@@ -168,6 +170,7 @@ function Desk() {
           {error}
         </p>
       )}
+      {data === null ? null : <MailStrip agent={agent} rows={data.mail} />}
       {data === null || nowMs === null ? (
         <p className="text-muted-foreground text-sm">Loading the desk…</p>
       ) : (

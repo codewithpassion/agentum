@@ -2,7 +2,11 @@
 // chat, how its expiry and its settled line read, and the payload an answer
 // sends. Pure: the session stream keeps the requests, `request-card.tsx` draws them.
 
-import type { AnswerSurface, ApprovalDecision } from "@repo/db/shared";
+import {
+  type AnswerSurface,
+  type ApprovalDecision,
+  MAIL_SEND_TOOL,
+} from "@repo/db/shared";
 import {
   type ApprovalAnswer,
   type ApprovalDisplay,
@@ -110,6 +114,54 @@ export const settledLine = (
       return `${kind === "question" ? "Answered" : "Handled"}${who}${where}`;
     }
   }
+};
+
+const MAIL_PREVIEW_LINES = 6;
+
+/** The fields a held outgoing mail shows in its approval card. */
+export interface MailApprovalFields {
+  body: string;
+  cc: string[];
+  from: string;
+  subject: string;
+  to: string[];
+}
+
+const addressList = (value: unknown): string[] | null =>
+  Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? value
+    : null;
+
+/**
+ * The mail fields of a `mail_send` approval, or null when the display is not a
+ * mail approval or its input does not have the shape a held mail has.
+ * `body` is the first lines of the preview. An absent `cc` reads as none.
+ */
+export const mailApprovalFields = (
+  display: ApprovalDisplay
+): MailApprovalFields | null => {
+  if (display.toolName !== MAIL_SEND_TOOL || !isRecord(display.input)) {
+    return null;
+  }
+  const { cc, from, preview, subject, to } = display.input;
+  const toList = addressList(to);
+  const ccList = cc === undefined ? [] : addressList(cc);
+  if (
+    typeof from !== "string" ||
+    typeof subject !== "string" ||
+    typeof preview !== "string" ||
+    toList === null ||
+    ccList === null
+  ) {
+    return null;
+  }
+  return {
+    body: preview.split("\n").slice(0, MAIL_PREVIEW_LINES).join("\n"),
+    cc: ccList,
+    from,
+    subject,
+    to: toList,
+  };
 };
 
 /** The answer to an approval. A blank note is left out. */

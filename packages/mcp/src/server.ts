@@ -9,6 +9,7 @@ import type { ToolDefinition } from "./tools/define";
 import { inboxTools } from "./tools/inbox";
 import { libraryTools } from "./tools/library";
 import { mailTools } from "./tools/mail";
+import { qaTools } from "./tools/qa";
 import { routineTools } from "./tools/routines";
 import { sessionTools } from "./tools/sessions";
 import { skillReadTools } from "./tools/skills-read";
@@ -26,6 +27,8 @@ export interface ServerOptions {
   };
   /** The route opts in only for a run principal whose agent has an active mailbox. */
   mail?: boolean;
+  /** Q&A is available to every agent once the app supplies its bound port. */
+  qa?: boolean;
   /**
    * The caller is a read-only API key or connected app. It then gets the
    * list tools for routines and triggers and the read tools for skills, and
@@ -57,6 +60,7 @@ export const harbourmasterTools = (
   {
     readOnly = false,
     mail = false,
+    qa = false,
     computer,
     browser = false,
   }: ServerOptions = {}
@@ -81,13 +85,18 @@ export const harbourmasterTools = (
   ...skillTools(ports, readOnly),
   ...(readOnly ? [] : slackTools(ports)),
   ...(mail && !readOnly && ports.mail ? mailTools(ports) : []),
+  ...(qa && ports.qa
+    ? qaTools(ports).filter(
+        (tool) => !readOnly || tool.annotations.readOnlyHint === true
+      )
+    : []),
 ];
 
 /** Ports for reading tool names: the names do not depend on them, so none is ever called. */
 const unusedPort = (): Promise<never> =>
   Promise.reject(new Error("Only the tool names are read."));
 
-/** Default tool names in registration order; mail, computer and browser groups require opt-in. */
+/** Default tool names in registration order; mail, Q&A, computer and browser groups require opt-in. */
 export const TOOL_NAMES = harbourmasterTools({
   approveSkillVersion: unusedPort,
   assignSkill: unusedPort,
