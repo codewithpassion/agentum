@@ -85,6 +85,81 @@ describe("workspaceInstructions", () => {
     scratch: { lasts: "run-start", path: "./tmp" },
   };
 
+  test("names a local or library task folder instead of asking for markers", () => {
+    for (const [input, taskFolder] of [
+      [vm, "/workspace/library/agents/support/tasks/task-1/"],
+      [managed, "agents/support/tasks/task-1/"],
+    ] as const) {
+      for (const attachments of [undefined, false, true]) {
+        const text = workspaceInstructions({
+          ...input,
+          attachments,
+          taskFolder,
+        });
+        expect(text).toContain(
+          `Save files for the user in ${taskFolder}. Everything there shows in the task's Files panel.`
+        );
+        expect(text).not.toContain("[ATTACHMENT:");
+        expect(text).not.toContain("on its own line in your final answer");
+      }
+    }
+  });
+
+  test("names each synced root's access mode and prefers roots over legacy paths", () => {
+    const text = workspaceInstructions({
+      ...isolate,
+      roots: [
+        { mode: "write", path: "agents/support" },
+        { mode: "read", path: "shared/brand" },
+      ],
+      syncedPaths: ["legacy/path"],
+    });
+    expect(text).toContain(
+      "holds a synced copy of agents/support (write), shared/brand (read) from the workspace library."
+    );
+    expect(text).not.toContain("legacy/path");
+    expect(text).toContain("Your changes go back to it when your run ends.");
+    expect(text).toContain("saved next to it as <file>.conflict-<runId>");
+  });
+
+  test("live sync describes changes going back within seconds for either root input", () => {
+    for (const paths of [
+      { roots: [{ mode: "write" as const, path: "agents/support" }] },
+      { syncedPaths: ["agents/support"] },
+    ]) {
+      const text = workspaceInstructions({
+        ...isolate,
+        ...paths,
+        liveSync: true,
+      });
+      expect(text).toContain("Your changes go back to it within seconds.");
+      expect(text).not.toContain("when your run ends");
+    }
+  });
+
+  test("empty roots fall back to legacy synced paths", () => {
+    const input = { ...isolate, syncedPaths: ["agents/support"] };
+    expect(workspaceInstructions({ ...input, roots: [] })).toBe(
+      workspaceInstructions(input)
+    );
+    expect(workspaceInstructions({ ...isolate, roots: [] })).toBe(
+      workspaceInstructions(isolate)
+    );
+    expect(workspaceInstructions({ ...input, liveSync: false })).toBe(
+      workspaceInstructions(input)
+    );
+  });
+
+  test("names root modes for a library reached through tools", () => {
+    const text = workspaceInstructions({
+      ...managed,
+      roots: [{ mode: "read", path: "shared/brand" }],
+    });
+    expect(text).toContain("shared/brand (read)");
+    expect(text).toContain("reach it with the library tools");
+    expect(text).not.toContain("synced copy");
+  });
+
   test("VM: home is cwd, scratch vanishes on sleep, library is tools only", () => {
     const text = workspaceInstructions(vm);
     expect(text).toContain("- Home: /workspace/home.");
