@@ -27,6 +27,7 @@ import {
   type CredentialsService,
   createCredentialsService,
 } from "@repo/services/credentials";
+import { createDeskService, type DeskService } from "@repo/services/desk";
 import {
   createDeskApiService,
   type DeskApiService,
@@ -229,6 +230,7 @@ export interface Services {
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
   credentials: CredentialsService;
+  desk: DeskService;
   deskApi: DeskApiService;
   events: EventsService;
   files: FilesService;
@@ -523,15 +525,6 @@ export const composeWith = ({
     secrets,
     skills: (run) => createManagedSkillsSource({ runSkills, skillsStore }, run),
   });
-  const deskApi = createDeskApiService({
-    agents,
-    clock: infra.clock,
-    db,
-    // Without a directory no email names a member, so a desk key resolves nobody.
-    directory: infra.memberDirectory ?? (() => Promise.resolve(null)),
-    requests,
-    runs,
-  });
   const routines = createRoutinesService({
     allowedOrgIds,
     clock: infra.clock,
@@ -580,6 +573,26 @@ export const composeWith = ({
     events,
     runs,
   });
+  // The desk's Needs you logic is shared: the web desk and the desk API read the same items.
+  const desk = createDeskService({
+    clock: infra.clock,
+    db,
+    inbox,
+    people: infra.people,
+    requests,
+    routines,
+    skillsStore,
+    triggers,
+  });
+  const deskApi = createDeskApiService({
+    agents,
+    db,
+    desk,
+    // Without a directory no email names a member, so a desk key resolves nobody.
+    directory: infra.memberDirectory ?? (() => Promise.resolve(null)),
+    requests,
+    runs,
+  });
   return {
     atomic: infra.atomic,
     clock: infra.clock,
@@ -590,6 +603,7 @@ export const composeWith = ({
       connectorOAuth,
       connectors,
       credentials,
+      desk,
       deskApi,
       events,
       files,

@@ -8,7 +8,6 @@
  * Clerk instance waits for a way to tell flightdex's client from the rest.
  */
 import type { Database } from "@repo/db";
-import { agents as agentRows } from "@repo/db/schema/agents";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
@@ -19,18 +18,16 @@ import { z } from "zod";
 import type { AgentsService } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { isReadOnly } from "./automation-access.ts";
+import type { DeskService } from "./desk.ts";
 import { ServiceError } from "./errors.ts";
-import type { RequestRecord, RequestsService } from "./requests.ts";
-import { type Clock, INPUT_TEXT_MAX } from "./runs/types.ts";
+import type { RequestsService } from "./requests.ts";
+import { INPUT_TEXT_MAX } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
 import { visibleSessions } from "./sessions.ts";
 import type { Principal } from "./workspaces.ts";
 
 /** The agent that receives controller messages, by name and ignoring case. */
 export const CONTROLLER_AGENT_NAME = "controller";
-
-/** Longest `detail` an item carries. */
-const DETAIL_MAX = 2000;
 
 const DECIDE_ACTION = "desk.decide";
 const MEMBER_ACTION = "desk.member";
@@ -63,60 +60,21 @@ export type MemberDirectory = (
 
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
-/** One thing waiting on the member, as C4 lists it. */
-export interface NeedsYouItem {
-  agent: string;
-  createdAt: string;
-  detail: string;
-  expiresAt: string;
-  kind: "approval" | "question";
-  requestId: string;
-  runId: string;
-  title: string;
-}
-
-const clip = (text: string): string =>
-  text.length > DETAIL_MAX ? `${text.slice(0, DETAIL_MAX - 1)}…` : text;
-
-/** Title and detail from the stored, already scrubbed display. */
-const describe = (record: RequestRecord): { detail: string; title: string } => {
-  const { display } = record;
-  if ("questions" in display) {
-    const [first] = display.questions;
-    return {
-      detail: clip(
-        display.questions
-          .map(({ choices, question }) =>
-            choices?.length ? `${question} (${choices.join(" / ")})` : question
-          )
-          .join("\n")
-      ),
-      title: clip(first?.header ?? first?.question ?? "Question"),
-    };
-  }
-  return {
-    detail: clip(
-      typeof display.input === "string"
-        ? display.input
-        : JSON.stringify(display.input, null, 2)
-    ),
-    title: display.summary,
-  };
-};
+export type { NeedsYouItem } from "./desk.ts";
 
 export const createDeskApiService = ({
   agents,
-  clock,
   db,
+  desk,
   directory,
   requests,
   runs,
 }: {
   agents: Pick<AgentsService, "list">;
-  clock: Clock;
   db: Database;
+  desk: Pick<DeskService, "pendingRequests">;
   directory: MemberDirectory;
-  requests: Pick<RequestsService, "answer" | "listPending" | "outcome">;
+  requests: Pick<RequestsService, "answer" | "outcome">;
   runs: Pick<RunsService, "startRun">;
 }) => {
   /**
@@ -156,36 +114,6 @@ export const createDeskApiService = ({
     if (isReadOnly(member)) {
       throw new ForbiddenError(action);
     }
-  };
-
-  /** What waits on the member now, oldest first. A request past its expiry is left out. */
-  const needsYou = async (member: UserPrincipal): Promise<NeedsYouItem[]> => {
-    const now = clock.now().toISOString();
-    const pending = (await requests.listPending(member)).filter(
-      (record) => record.expiresAt > now
-    );
-    if (pending.length === 0) {
-      return [];
-    }
-    const named = await db
-      .select({ id: agentRows.id, name: agentRows.name })
-      .from(agentRows)
-      .where(
-        and(
-          eq(agentRows.workspaceId, member.workspaceId),
-          inArray(agentRows.id, [...new Set(pending.map((r) => r.agentId))])
-        )
-      );
-    const names = new Map(named.map((agent) => [agent.id, agent.name]));
-    return pending.map((record) => ({
-      agent: names.get(record.agentId) ?? record.agentId,
-      createdAt: record.createdAt,
-      expiresAt: record.expiresAt,
-      kind: record.kind,
-      requestId: record.id,
-      runId: record.runId,
-      ...describe(record),
-    }));
   };
 
   /**
@@ -311,6 +239,9 @@ export const createDeskApiService = ({
     });
     return { runId: started.runId, sessionId: started.sessionId };
   };
+
+  /** What waits on the member now: the desk's pending requests. */
+  const needsYou = (member: UserPrincipal) => desk.pendingRequests(member);
 
   return { actingMember, canSeeRun, decide, needsYou, sendToController };
 };

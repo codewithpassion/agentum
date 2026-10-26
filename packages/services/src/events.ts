@@ -184,7 +184,7 @@ const toRow = (
 const isUserCancel = (record: EventRecord): boolean =>
   record.type === "run.cancelled" && record.actor.kind === "user";
 
-const toRecord = (row: EventRow): EventRecord => ({
+export const toRecord = (row: EventRow): EventRecord => ({
   actor: { id: row.actorId, kind: actorKindSchema.parse(row.actorKind) },
   agentId: row.agentId,
   createdAt: row.createdAt,
