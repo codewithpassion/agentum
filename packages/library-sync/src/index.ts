@@ -5,16 +5,16 @@
  * and the working copy come in as ports (see `types.ts`).
  *
  * `syncIn` copies the library into the working copy and never overwrites a
- * local edit that was not sent yet. `syncOut` sends local changes with a
- * compare-and-swap on the etag. A change that lost the race is saved in the
+ * local edit that was not sent yet under write roots. Read roots follow the
+ * library. `syncOut` sends local changes with a compare-and-swap on the etag. A change that lost the race is saved in the
  * library as `<path>.conflict-<runId>` and the library's file is kept, with no
  * merge and no last-write-wins.
  */
 import { runSyncIn } from "./sync-in.ts";
 import { runSyncOut } from "./sync-out.ts";
 import type {
+  SyncInOptions,
   SyncInResult,
-  SyncOptions,
   SyncOutOptions,
   SyncOutResult,
   SyncPorts,
@@ -29,18 +29,30 @@ export type {
   RemotePort,
   SyncConflict,
   SyncFailure,
+  SyncInOptions,
   SyncInResult,
   SyncOptions,
   SyncOutOptions,
   SyncOutResult,
   SyncPorts,
+  SyncRoot,
+  SyncRootMode,
 } from "./types.ts";
 
 export const createLibrarySync = (ports: SyncPorts) => ({
-  syncIn: (options: SyncOptions): Promise<SyncInResult> =>
+  syncIn: (options: SyncInOptions): Promise<SyncInResult> =>
     runSyncIn(ports, options),
   syncOut: (options: SyncOutOptions): Promise<SyncOutResult> =>
     runSyncOut(ports, options),
 });
 
 export type LibrarySync = ReturnType<typeof createLibrarySync>;
+
+export type {
+  Coalescer,
+  CoalescerClock,
+  CoalescerOptions,
+} from "./coalesce.ts";
+// biome-ignore lint/performance/noBarrelFile: this package exposes its shared sync API here
+export { createCoalescer } from "./coalesce.ts";
+export { isConflictPath } from "./types.ts";
