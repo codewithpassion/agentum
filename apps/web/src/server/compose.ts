@@ -22,10 +22,10 @@ import {
   createApiKeysService,
 } from "@repo/services/api-keys";
 import {
-  type BrowserDriver,
   type BrowserService,
   createBrowserService,
 } from "@repo/services/browser";
+import type { BrowserDriver } from "@repo/services/browser/types";
 import { createCloudRuntime } from "@repo/services/cloud/runtime";
 import type { CloudRunnerPort } from "@repo/services/cloud/types";
 import {

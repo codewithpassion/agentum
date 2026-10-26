@@ -5,7 +5,7 @@ import { machines } from "@repo/db/schema/machines";
 import { migrated } from "@repo/db/test-db";
 import { createHarbourmasterMcpServer } from "@repo/mcp/server";
 import { connectClient } from "@repo/mcp/testing";
-import type { BrowserDriver, BrowserPage } from "@repo/services/browser";
+import type { BrowserDriver, BrowserPage } from "@repo/services/browser/types";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";

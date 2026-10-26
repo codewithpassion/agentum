@@ -7,11 +7,8 @@ import {
   type WorkersConnectOptions,
   type WorkersLaunchOptions,
 } from "@cloudflare/playwright";
-import type {
-  BrowserDriver,
-  BrowserPage,
-  RawSnapshot,
-} from "@repo/services/browser";
+import type { RawSnapshot } from "@repo/services/browser/snapshot";
+import type { BrowserDriver, BrowserPage } from "@repo/services/browser/types";
 
 /**
  * The only place `@cloudflare/playwright` is imported. Browser Run is beta, so
