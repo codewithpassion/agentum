@@ -107,6 +107,58 @@ export const LIBRARY_MAX_BYTES = 1024 * 1024 * 1024;
 export const LIBRARY_ENTRY_KINDS = ["file", "dir"] as const;
 export type LibraryEntryKind = (typeof LIBRARY_ENTRY_KINDS)[number];
 
+/** Where wiki pages live: the `wiki/` folder of the library. */
+export const WIKI_ROOT = "wiki";
+
+/** What a grant in `agent_library_access` allows on its path and below. */
+export const LIBRARY_ACCESS_MODES = ["read", "write"] as const;
+export type LibraryAccessMode = (typeof LIBRARY_ACCESS_MODES)[number];
+
+/** One path an agent may read or write, as the claim and the settings page carry it. */
+export interface LibraryAccessGrant {
+  mode: LibraryAccessMode;
+  path: string;
+}
+
+/** What a version row records: a write, a delete tombstone, a restore of an older version, or a move. */
+export const LIBRARY_VERSION_OPS = [
+  "write",
+  "delete",
+  "restore",
+  "move",
+] as const;
+export type LibraryVersionOp = (typeof LIBRARY_VERSION_OPS)[number];
+
+export const LIBRARY_CONFLICT_STATUSES = ["open", "resolved"] as const;
+export type LibraryConflictStatus = (typeof LIBRARY_CONFLICT_STATUSES)[number];
+
+/** `stale` means the page changed after the suggestion's base version, so it can no longer apply as written. */
+export const WIKI_SUGGESTION_STATUSES = [
+  "pending",
+  "accepted",
+  "rejected",
+  "stale",
+] as const;
+export type WikiSuggestionStatus = (typeof WIKI_SUGGESTION_STATUSES)[number];
+
+/** Days a version is kept regardless of count. Older versions beyond the newest `LIBRARY_VERSION_KEEP_MIN` per file are pruned. */
+export const LIBRARY_VERSION_KEEP_DAYS = 30;
+
+/** Newest versions per file that survive pruning however old they are. */
+export const LIBRARY_VERSION_KEEP_MIN = 20;
+
+/** The folder a run writes its own task output to. A task is one run, so a follow-up run gets its own folder. */
+export const taskFolderPath = (slug: string, runId: string): string =>
+  `agents/${slug}/tasks/${runId}`;
+
+/** A change to library paths, for the notifier that tells open surfaces and daemons to refetch. */
+export interface LibraryChange {
+  /** The run that made the change, or null for a person's. */
+  byRunId: string | null;
+  paths: string[];
+  workspaceId: string;
+}
+
 export const FILE_SOURCES = ["upload", "slack", "run", "library"] as const;
 export type FileSource = (typeof FILE_SOURCES)[number];
 
@@ -164,6 +216,11 @@ export const EVENT_TYPES = [
   "library.delete",
   "library.command",
   "library.conflict",
+  "library.restore",
+  "library.access",
+  "library.conflict.resolved",
+  "wiki.suggestion",
+  "wiki.suggestion.decided",
   "secret.delivered",
   "secret.injected",
   "network.request",
@@ -302,6 +359,8 @@ export const NEEDS_YOU_KINDS = [
   "trigger_proposal",
   "routine_proposal",
   "inbox_reply",
+  "library_conflict",
+  "wiki_suggestion",
 ] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
@@ -371,6 +430,7 @@ export const DESK_CARD_KINDS = [
   "thread",
   "request",
   "proposal",
+  "conflict",
 ] as const;
 export type DeskCardKind = (typeof DESK_CARD_KINDS)[number];
 
