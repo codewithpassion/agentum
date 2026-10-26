@@ -21,7 +21,7 @@ import {
   isPendingProposal,
   type RunStatus,
 } from "@repo/db/shared";
-import { and, count, desc, eq, gte, inArray, max } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, max, ne } from "drizzle-orm";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { personLabel } from "./events/summary.ts";
@@ -262,13 +262,29 @@ export const createDeskService = ({
     }));
   };
 
+  const draftIds = async (workspaceId: string): Promise<Set<string>> =>
+    new Set(
+      (
+        await db
+          .select({ id: agentRows.id })
+          .from(agentRows)
+          .where(
+            and(
+              eq(agentRows.workspaceId, workspaceId),
+              eq(agentRows.status, "draft")
+            )
+          )
+      ).map((row) => row.id)
+    );
+
   /** The open requests that have not expired, oldest first. */
   const pendingRecords = async (
     member: UserPrincipal
   ): Promise<RequestRecord[]> => {
     const now = clock.now().toISOString();
+    const drafts = await draftIds(member.workspaceId);
     return (await requests.listPending(member)).filter(
-      (record) => record.expiresAt > now
+      (record) => record.expiresAt > now && !drafts.has(record.agentId)
     );
   };
 
@@ -300,19 +316,25 @@ export const createDeskService = ({
 
   /** Everything in Needs you, before it becomes cards. */
   const needsYouSources = async (member: UserPrincipal) => {
-    const [pending, versions, triggerList, routineList, threads] =
+    const [pending, versions, triggerList, routineList, threads, drafts] =
       await Promise.all([
         pendingRecords(member),
         skillsStore.proposals(member),
         triggers.list(member),
         routines.list(member),
         inbox.listThreads(member),
+        draftIds(member.workspaceId),
       ]);
     // `list` keeps a rejected trigger, which stays unapproved but is revoked.
     const proposedTriggers = triggerList.filter(
-      (trigger) => isPendingProposal(trigger) && trigger.revokedAt === null
+      (trigger) =>
+        isPendingProposal(trigger) &&
+        trigger.revokedAt === null &&
+        !drafts.has(trigger.agentId)
     );
-    const proposedRoutines = routineList.filter(isPendingProposal);
+    const proposedRoutines = routineList.filter(
+      (routine) => isPendingProposal(routine) && !drafts.has(routine.agentId)
+    );
     // The newest post of each listed thread, in one read.
     const threadIds = threads.map((thread) => thread.id);
     const latest = await inBatches(threadIds, (batch) =>
@@ -342,14 +364,19 @@ export const createDeskService = ({
     );
     const answered = threads.flatMap((thread) => {
       const post = latest.find((entry) => entry.threadId === thread.id);
-      return post?.authorKind === "agent" ? [{ post, thread }] : [];
+      return post?.authorKind === "agent" && !drafts.has(post.authorId)
+        ? [{ post, thread }]
+        : [];
     });
     return {
       answered,
       pending,
       proposedRoutines,
       proposedTriggers,
-      versions,
+      versions: versions.filter(
+        (version) =>
+          version.author.kind !== "agent" || !drafts.has(version.author.id)
+      ),
     };
   };
 
@@ -550,6 +577,19 @@ export const createDeskService = ({
     const mine = and(
       eq(runRows.workspaceId, member.workspaceId),
       visible,
+      // Dry runs on builder drafts stay in the builder, including their totals.
+      inArray(
+        runRows.agentId,
+        db
+          .select({ id: agentRows.id })
+          .from(agentRows)
+          .where(
+            and(
+              eq(agentRows.workspaceId, member.workspaceId),
+              ne(agentRows.status, "draft")
+            )
+          )
+      ),
       agentId === undefined ? undefined : eq(runRows.agentId, agentId)
     );
     const doneWhere = and(
