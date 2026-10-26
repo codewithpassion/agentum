@@ -81,6 +81,10 @@ import { createTakeoverLease } from "@repo/services/machines/lease";
 import { createMachineRuntime } from "@repo/services/machines/runtime";
 import type { MachineRelayPort } from "@repo/services/machines/types";
 import { createMailService, type MailService } from "@repo/services/mail";
+import {
+  createMailOutbound,
+  type MailOutbound,
+} from "@repo/services/mail/outbound";
 import type { EmailRoutingPort, MailboxPort } from "@repo/services/mail/types";
 import { ENVIRONMENT_NAME } from "@repo/services/managed/config";
 import {
@@ -276,7 +280,7 @@ export interface Services {
   libraryAccess: LibraryAccessService;
   libraryLinks: LibraryLinksService;
   machines: MachinesService;
-  mail: MailService;
+  mail: MailService & MailOutbound;
   managed: ManagedService;
   managedKeys: ManagedKeysService;
   map: MapService;
@@ -388,15 +392,6 @@ export const composeWith = ({
     people: infra.people,
   });
   const agents = createAgentsService({ db, events });
-  const mail = createMailService({
-    atomic: infra.atomic,
-    clock: infra.clock,
-    db,
-    domain: infra.mailDomain,
-    events,
-    mailbox: infra.mailbox,
-    routing: infra.mailRouting,
-  });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
   // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
   const connectorFetch: Fetcher =
@@ -550,6 +545,17 @@ export const composeWith = ({
     runTokenKey: infra.runTokenKey,
     secrets,
   });
+  const mail = createMailService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    domain: infra.mailDomain,
+    events,
+    library,
+    mailbox: infra.mailbox,
+    routing: infra.mailRouting,
+    runs,
+  });
   const requests = createRequestsService({
     atomic: infra.atomic,
     clock: infra.clock,
@@ -557,6 +563,15 @@ export const composeWith = ({
     events,
     runs,
     secrets,
+  });
+  const mailOutbound = createMailOutbound({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    mailbox: infra.mailbox,
+    memberDirectory: infra.memberDirectory,
+    requests,
   });
   const takeover = createTakeoverService({
     db,
@@ -723,7 +738,7 @@ export const composeWith = ({
       libraryAccess,
       libraryLinks,
       machines,
-      mail,
+      mail: { ...mail, ...mailOutbound },
       managed,
       managedKeys,
       map,

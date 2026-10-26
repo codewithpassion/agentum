@@ -1,33 +1,47 @@
 import { useRouter } from "@tanstack/react-router";
-import {
-  type ChangeEvent,
-  type FormEvent,
-  useCallback,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
+import { errorMessage } from "#/components/library/library-logic.ts";
 import { Button } from "#/components/ui/button";
-import { Input } from "#/components/ui/input";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { AgentProfileView, AgentRecord } from "#/integrations/trpc/types";
-import { nextLibraryPaths, withoutPath } from "./library-paths.ts";
-import { folderLabel, LIBRARY_NOTE } from "./profile-logic.ts";
+import {
+  type AccessMode,
+  modeLabel,
+  otherMode,
+  splitFolders,
+} from "./library-access.ts";
+import { LibraryFolderPicker } from "./library-folder-picker.tsx";
+import { folderLabel, LIBRARY_NOTE, WIKI_LABEL } from "./profile-logic.ts";
 
 type Folder = AgentProfileView["library"]["folders"][number];
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
+function FixedLine({ label, path }: { label: string; path: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1 text-sm">
+      <span className="font-mono text-xs">{path}</span>
+      <span className="rounded-full border px-2 py-0.5 text-muted-foreground text-xs">
+        {label}
+      </span>
+    </div>
+  );
+}
 
-function FolderLine({
+function GrantLine({
   disabled,
   folder,
   onRemove,
+  onSet,
 }: {
   disabled: boolean;
   folder: Folder;
   onRemove: (path: string) => void;
+  onSet: (path: string, mode: AccessMode) => void;
 }) {
+  const flip = useCallback(
+    () => onSet(folder.path, otherMode(folder.access)),
+    [folder.access, folder.path, onSet]
+  );
   const remove = useCallback(
     () => onRemove(folder.path),
     [folder.path, onRemove]
@@ -36,19 +50,18 @@ function FolderLine({
     <div className="flex items-center justify-between gap-3 py-1 text-sm">
       <span className="font-mono text-xs">{folder.path}</span>
       <span className="flex items-center gap-2">
-        <span className="rounded-full border px-2 py-0.5 text-muted-foreground text-xs">
-          {folderLabel(folder)}
-        </span>
-        {folder.home ? null : (
-          <Button
-            disabled={disabled}
-            onClick={remove}
-            size="sm"
-            variant="ghost"
-          >
-            Remove
-          </Button>
-        )}
+        <Button
+          aria-label={`${folder.path}: ${folderLabel(folder)}. Switch to ${modeLabel(otherMode(folder.access)).toLowerCase()}`}
+          disabled={disabled}
+          onClick={flip}
+          size="sm"
+          variant="outline"
+        >
+          {modeLabel(folder.access)}
+        </Button>
+        <Button disabled={disabled} onClick={remove} size="sm" variant="ghost">
+          Remove
+        </Button>
       </span>
     </div>
   );
@@ -62,113 +75,82 @@ export function LibraryRow({
   folders: AgentProfileView["library"]["folders"];
 }) {
   const router = useRouter();
-  const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | undefined>();
+  const [picking, setPicking] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { grants, home, wiki } = splitFolders(folders);
 
-  const extraPaths = useMemo(
-    () => folders.filter((folder) => !folder.home).map((folder) => folder.path),
-    [folders]
-  );
-
-  const save = useCallback(
-    async (libraryPaths: string[]): Promise<boolean> => {
+  const run = useCallback(
+    async (change: () => Promise<unknown>) => {
       setSaving(true);
-      setError(undefined);
       try {
-        await getTrpc().agents.update.mutate({
-          id: agent.id,
-          patch: {
-            runtimeConfig: { ...agent.runtimeConfig, libraryPaths },
-          },
-        });
+        await change();
         await router.invalidate();
         toast.success("Saved");
-        return true;
       } catch (cause) {
-        setError(errorMessage(cause));
-        return false;
+        toast.error(errorMessage(cause));
       } finally {
         setSaving(false);
       }
     },
-    [agent.id, agent.runtimeConfig, router]
+    [router]
   );
 
-  const openAdd = useCallback(() => setAdding(true), []);
+  const setMode = useCallback(
+    (path: string, mode: AccessMode) =>
+      run(() =>
+        getTrpc().library.access.set.mutate({ agentId: agent.id, mode, path })
+      ),
+    [agent.id, run]
+  );
 
-  const changeDraft = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setDraft(event.target.value),
-    []
+  const removeGrant = useCallback(
+    (path: string) =>
+      run(() =>
+        getTrpc().library.access.remove.mutate({ agentId: agent.id, path })
+      ),
+    [agent.id, run]
   );
 
   const addFolder = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const next = nextLibraryPaths(extraPaths, draft);
-      if ("error" in next) {
-        setError(next.error);
-        return;
-      }
-      if (await save(next.paths)) {
-        setDraft("");
-        setAdding(false);
-      }
+    async (path: string) => {
+      setPicking(false);
+      await setMode(path, "read");
     },
-    [draft, extraPaths, save]
+    [setMode]
   );
 
-  const removeFolder = useCallback(
-    (path: string) => {
-      save(withoutPath(extraPaths, path));
-    },
-    [extraPaths, save]
-  );
+  const openPicker = useCallback(() => setPicking(true), []);
 
   return (
     <div className="flex flex-col gap-1.5">
-      {folders.map((folder) => (
-        <FolderLine
+      {home ? <FixedLine label={folderLabel(home)} path={home.path} /> : null}
+      {wiki ? <FixedLine label={WIKI_LABEL} path={wiki.path} /> : null}
+      {grants.map((folder) => (
+        <GrantLine
           disabled={saving}
           folder={folder}
           key={folder.path}
-          onRemove={removeFolder}
+          onRemove={removeGrant}
+          onSet={setMode}
         />
       ))}
-
-      {adding ? (
-        <form className="flex flex-col gap-1" onSubmit={addFolder}>
-          <div className="flex items-center gap-2">
-            <Input
-              aria-invalid={error !== undefined}
-              autoFocus
-              disabled={saving}
-              onChange={changeDraft}
-              placeholder="finance/ or wiki/Finance"
-              value={draft}
-            />
-            <Button disabled={saving} size="sm" type="submit">
-              Add
-            </Button>
-          </div>
-          {error === undefined ? null : (
-            <p className="text-destructive text-xs">{error}</p>
-          )}
-        </form>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            className="rounded-full border-dashed"
-            onClick={openAdd}
-            size="sm"
-            variant="outline"
-          >
-            + Add folder
-          </Button>
-          <span className="text-muted-foreground text-xs">{LIBRARY_NOTE}</span>
-        </div>
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          className="rounded-full border-dashed"
+          disabled={saving}
+          onClick={openPicker}
+          size="sm"
+          variant="outline"
+        >
+          + Add folder
+        </Button>
+        <span className="text-muted-foreground text-xs">{LIBRARY_NOTE}</span>
+      </div>
+      <LibraryFolderPicker
+        onChoose={addFolder}
+        onOpenChange={setPicking}
+        open={picking}
+      />
     </div>
   );
 }

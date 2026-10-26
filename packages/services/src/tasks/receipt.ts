@@ -33,6 +33,7 @@ interface ReceiptContext {
 }
 const ORIGINS: Record<string, string> = {
   inbox: "Inbox",
+  mail: "Mail",
   mcp: "MCP",
   routine: "Routine",
   slack: "Slack",

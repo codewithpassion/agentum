@@ -456,7 +456,11 @@ export const createAgentProfileService = ({
     });
     // A rule in mode "allow" (from Always allow) reads as off, the same as no rule.
     const asking = new Set(
-      rules.filter((rule) => rule.mode === "ask").map((rule) => rule.toolKey)
+      rules
+        .filter(
+          (rule) => rule.mode === "ask" && !rule.toolKey.startsWith("mail:")
+        )
+        .map((rule) => rule.toolKey)
     );
     return gateableActions(assignedConnectors).map((action) => ({
       action: action.key,
