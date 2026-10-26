@@ -199,6 +199,12 @@ export const createDeskApiService = ({
     if (!row) {
       throw new ServiceError("not_found", "Request not found");
     }
+    if (row.kind === "takeover") {
+      throw new ServiceError(
+        "invalid",
+        "Take over the computer in Harbourmaster."
+      );
+    }
     const answer =
       row.kind === "approval"
         ? {

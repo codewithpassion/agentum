@@ -6,6 +6,7 @@ import {
   mailMessages,
   mailThreads,
 } from "@repo/db/schema/mail";
+import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -800,4 +801,35 @@ test("mail run shows a bounced outbound error band", async () => {
   expect(
     (await get()).running.find((card) => card.id === started.runId)?.band
   ).toEqual({ text: "Mail to recipient@example.net bounced", tone: "error" });
+});
+
+test("takeovers appear in Needs you with their reason", async () => {
+  const { requestId } = await waitingOnApproval();
+  await db
+    .update(runRequests)
+    .set({
+      display: JSON.stringify({
+        machineId: "computer",
+        reason: "Please log in",
+      }),
+      kind: "takeover",
+    })
+    .where(eq(runRequests.id, requestId));
+  expect(
+    (
+      await desk.pendingRequests({
+        kind: "user",
+        userId: "u1",
+        via: "session",
+        workspaceId: "w1",
+      })
+    )[0]
+  ).toMatchObject({
+    detail: "Please log in",
+    kind: "takeover",
+  });
+  expect((await get()).needsYou[0]).toMatchObject({
+    needsYouKind: "takeover",
+    title: "Take over the computer",
+  });
 });

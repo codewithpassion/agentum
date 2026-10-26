@@ -89,7 +89,7 @@ export interface NeedsYouItem {
   createdAt: string;
   detail: string;
   expiresAt: string;
-  kind: "approval" | "question";
+  kind: "approval" | "question" | "takeover";
   requestId: string;
   runId: string;
   title: string;
@@ -101,6 +101,9 @@ const clip = (value: string, limit: number = DETAIL_MAX): string =>
 /** Title and detail from the stored, already scrubbed display. */
 const describe = (record: RequestRecord): { detail: string; title: string } => {
   const { display } = record;
+  if ("machineId" in display) {
+    return { detail: display.reason, title: "Take over the computer" };
+  }
   if ("questions" in display) {
     const [first] = display.questions;
     return {

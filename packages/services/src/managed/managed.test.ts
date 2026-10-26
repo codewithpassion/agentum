@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
+import { machines } from "@repo/db/schema/machines";
 import {
   managedAgents,
   managedRuns,
@@ -1754,6 +1756,38 @@ describe("approvals and questions", () => {
     expect(confirmation?.decision).toBe("deny");
     expect(confirmation?.denyMessage).toContain("Nobody answered");
     expect(runRow(runId)?.status).toBe("running");
+  });
+
+  test("a cancelled takeover sends a tool result that says the person cancelled", async () => {
+    const { runId } = await blockedOnBash();
+    await db.insert(machines).values({
+      capabilities: "{}",
+      createdAt: new Date(nowMs).toISOString(),
+      credentialHash: "hash",
+      enrolledBy: "user_dom",
+      id: "computer",
+      name: "Computer",
+      singleUser: false,
+      status: "online",
+      workspaceId: WORKSPACE,
+    });
+    await db
+      .update(agentRows)
+      .set({ computerMachineId: "computer" })
+      .where(eq(agentRows.id, agentId));
+    const takeover = await requests.open(SYSTEM_PRINCIPAL, {
+      kind: "takeover",
+      reason: "log in",
+      runId,
+      toolUseId: "evt_takeover",
+    });
+    await requests.cancel(dom, takeover.id);
+
+    await managed.step(runId);
+
+    expect(gateway.customResults).toMatchObject([
+      { text: expect.stringContaining("cancelled"), toolUseId: "evt_takeover" },
+    ]);
   });
 
   test("an MCP call is keyed by its server and shown with its name", async () => {

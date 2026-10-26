@@ -1,7 +1,10 @@
 import type { Database } from "@repo/db";
+import { agents } from "@repo/db/schema/agents";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
+import { machines } from "@repo/db/schema/machines";
 import { taskFolderPath } from "@repo/db/shared";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
+import { z } from "zod";
 import { agentPrompt } from "../agent-prompt.ts";
 import { type AgentRecord, handsToNames } from "../agents.ts";
 import { buildMcpServers } from "../connectors/mcp-servers.ts";
@@ -15,6 +18,25 @@ import type { CloudRunnerPort } from "./types.ts";
 
 const describeError = (error: unknown): string =>
   error instanceof Error ? `${error.name}: ${error.message}` : "unknown error";
+
+const computerCapabilities = z.object({
+  desktop: z.boolean().default(false),
+});
+
+/** Reads `desktop` from a machine's computer capabilities JSON. Anything else is false. */
+const desktopOf = (json: string | null): boolean => {
+  if (json === null) {
+    return false;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return false;
+  }
+  const result = computerCapabilities.safeParse(parsed);
+  return result.success ? result.data.desktop : false;
+};
 
 /**
  * Runs in the cloud runner, one Durable Object per session. Dispatch only
@@ -40,12 +62,51 @@ export const createCloudRuntime = ({
     return importedKey;
   };
 
+  /** The agent's attached computer, absent when none is attached or it is revoked. */
+  const computerFor = async (
+    db: Database,
+    run: RunRecord
+  ): Promise<{ desktop: boolean; machineId: string } | undefined> => {
+    const [attached] = await db
+      .select({ machineId: agents.computerMachineId })
+      .from(agents)
+      .where(
+        and(eq(agents.id, run.agentId), eq(agents.workspaceId, run.workspaceId))
+      )
+      .limit(1);
+    if (!attached?.machineId) {
+      return;
+    }
+    const [machine] = await db
+      .select({
+        capabilities: machines.computerCapabilities,
+        id: machines.id,
+      })
+      .from(machines)
+      .where(
+        and(
+          eq(machines.id, attached.machineId),
+          eq(machines.workspaceId, run.workspaceId),
+          ne(machines.status, "revoked")
+        )
+      )
+      .limit(1);
+    if (!machine) {
+      return;
+    }
+    return {
+      desktop: desktopOf(machine.capabilities),
+      machineId: machine.id,
+    };
+  };
+
   const startRunner = async (
     db: Database,
     run: RunRecord,
     agent: AgentRecord,
     deps: AdapterDeps
   ): Promise<void> => {
+    const computer = await computerFor(db, run);
     const assigned = await db
       .select({ id: connectors.id, name: connectors.name })
       .from(agentConnectors)
@@ -81,6 +142,7 @@ export const createCloudRuntime = ({
         runtimeConfig: agent.runtimeConfig,
         slug: agent.slug,
       },
+      ...(computer ? { computer } : {}),
       inputFileIds: run.inputFileIds,
       library: {
         roots: librarySyncScope(

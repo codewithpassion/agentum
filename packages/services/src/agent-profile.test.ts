@@ -155,6 +155,7 @@ beforeEach(async () => {
     db,
     machines: createMachinesService({
       allowedOrgIds: ["org_w1", "org_w2"],
+      atomic,
       clock,
       db,
       events,
@@ -440,6 +441,26 @@ test("Receives from inverts hands_to", async () => {
   expect(gamma.handsTo).toEqual([]);
   expect(alpha.receivesFrom.map((ref) => ref.id)).toEqual([a2]);
   expect(alpha.handsTo.map((ref) => ref.id)).toEqual([a3]);
+});
+
+test("an archived agent is missing from Hands to and Receives from", async () => {
+  await db
+    .update(agentRows)
+    .set({ handsTo: JSON.stringify([a2, a3]) })
+    .where(eq(agentRows.id, a1));
+  await db
+    .update(agentRows)
+    .set({ handsTo: JSON.stringify([a1]) })
+    .where(eq(agentRows.id, a2));
+  await db
+    .update(agentRows)
+    .set({ status: "archived" })
+    .where(eq(agentRows.id, a2));
+
+  const alpha = await service.profile(user(), { agentId: a1 });
+
+  expect(alpha.handsTo.map((ref) => ref.id)).toEqual([a3]);
+  expect(alpha.receivesFrom).toEqual([]);
 });
 
 test("a draft agent is not found by any method", async () => {

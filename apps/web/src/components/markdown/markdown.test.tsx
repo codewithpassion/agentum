@@ -1,6 +1,18 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Markdown } from "./markdown.tsx";
+import { Markdown, type MarkdownLinkProps } from "./markdown.tsx";
+
+const spanLink = ({ children, href }: MarkdownLinkProps) => (
+  <span data-x={href}>{children}</span>
+);
+
+test("renderLink replaces the default anchor", () => {
+  const html = renderToStaticMarkup(
+    <Markdown renderLink={spanLink}>{"[a](/wiki/foo)"}</Markdown>
+  );
+  expect(html).toContain('<span data-x="/wiki/foo">a</span>');
+  expect(html).not.toContain("<a ");
+});
 
 test("bold text renders as strong", () => {
   expect(renderToStaticMarkup(<Markdown>{"**a**"}</Markdown>)).toContain(

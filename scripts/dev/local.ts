@@ -6,13 +6,14 @@ import { Database as Sqlite } from "bun:sqlite";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Database } from "@repo/db";
+import { sqliteAtomic } from "@repo/db/atomic";
 import { type Blobs, createEventsService } from "@repo/services/events";
 import { createMachinesService } from "@repo/services/machines";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
 import { createWorkspacesService } from "@repo/services/workspaces";
-import { drizzle } from "drizzle-orm/bun-sqlite";
+import { type BunSQLiteDatabase, drizzle } from "drizzle-orm/bun-sqlite";
 
 export const WEB_DIR = join(import.meta.dir, "..", "..", "apps", "web");
 export const ENV_FILE = join(WEB_DIR, ".env.local");
@@ -109,7 +110,7 @@ export const openSqlite = (file: string): Sqlite => {
  */
 export const openLocalDatabase = (): {
   close: () => void;
-  db: Database;
+  db: BunSQLiteDatabase;
   file: string;
 } => {
   const file = findLocalD1(D1_DIR);
@@ -151,9 +152,10 @@ export const localEvents = (db: Database) =>
   createEventsService({ blobs: memoryBlobs(), db });
 
 /** The machines service for the dev org, with a no-op relay. */
-export const localMachines = (db: Database, orgId: string) =>
+export const localMachines = (db: BunSQLiteDatabase, orgId: string) =>
   createMachinesService({
     allowedOrgIds: [orgId],
+    atomic: sqliteAtomic(db),
     clock: systemClock,
     db,
     events: localEvents(db),
