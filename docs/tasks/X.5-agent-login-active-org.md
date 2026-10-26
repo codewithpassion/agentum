@@ -27,3 +27,4 @@ Found in X.1's production sign-in check on 26 Oct 2026 (`harbourmaster-wt/tmp/X.
 ## Log
 - 2026-10-26: added from X.1's production sign-in check.
 - 2026-10-26: renamed from X.4 (the coordinator's X.4 came first). Dispatched; the staging sign-in check is the controller's after merge.
+- 2026-10-26: review clean after 1 fix round; merged at 0a9f192, deployed to staging (af40f5d0). Staging sign-in check running.
