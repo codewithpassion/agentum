@@ -48,7 +48,6 @@ The v1 decisions still hold where v2 doesn't replace them: `bypassPermissions` a
 ## Things nobody has verified yet
 
 - Production run live (the Worker exists, nobody has used it).
-- Codex as an implementation lane on this host. Its sandbox (bwrap) fails here, and V0 decides how Codex runs.
 - Whether Managed Agents' sandbox can run the library sync helper (V4).
 - A 4-minute MCP call held open through the deployed Worker (M3.3).
 
@@ -56,5 +55,5 @@ The v1 decisions still hold where v2 doesn't replace them: `bypassPermissions` a
 
 - `harbourmaster/.claude/settings.local.json` (gitignored) sets `teammateMode: "in-process"`. It also allows reads under `/home/roboto/devel/**` and edits under `docs/**`. Subagents therefore run without tmux panes. Stop idle subagents when they finish.
 - The pre-commit hook runs Ultracite. It reformats HTML in `docs/` and fails on lint errors, such as an SVG without a title. Fix the errors rather than skipping the hook.
-- The Codex sandbox (bwrap) fails on this host with `loopback: Failed RTM_NEWADDR: Operation not permitted`. V0.1 settles how Codex runs without it; see the Codex lane in `docs/workflow.md`.
+- Codex runs through `scripts/codex-task.sh <worktree> <brief file> <log dir>`, with `--dangerously-bypass-approvals-and-sandbox`, because its bwrap sandbox fails on this host (`loopback: Failed RTM_NEWADDR: Operation not permitted`) and a sandboxed `codex exec` could not write files. With the sandbox off, Codex runs as Dom's user with network access, limited only by the brief's rules and the script's check that the target is a git worktree under `/home/roboto/devel/harbourmaster-wt/`. The script stops a job after 90 minutes (`CODEX_TASK_TIMEOUT` overrides it) and prints the exit code, whether the usage limit was hit, and the path of `last-message.md`. Use the plain CLI, not the openai-codex Claude plugin, which passes its own sandbox flags.
 - The Brain wiki has the brief under `projects/harbourmaster`. The architecture lives only in this repo.
