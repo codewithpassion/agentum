@@ -208,12 +208,14 @@ export class PiRun extends DurableObject<Env> {
           this.registry.install(devToolsExtension(this.ctx.storage));
         }
       }
-      this.#installTools(
-        (await this.ctx.storage.get<ServerTools>(TOOLS_KEY)) ?? {}
-      );
+      // The environment's tools go in before the connectors', as on a fresh start. Pi lists the tools in
+      // install order, and a different order after an eviction makes it re-declare every tool.
       this.#switchEnvironment(
         await this.ctx.storage.get<string>(VM_KEY),
         (await this.ctx.storage.get<boolean>(NETWORK_KEY)) ?? true
+      );
+      this.#installTools(
+        (await this.ctx.storage.get<ServerTools>(TOOLS_KEY)) ?? {}
       );
       const skills = await this.ctx.storage.get<StoredSkills>(SKILLS_KEY);
       if (skills) {

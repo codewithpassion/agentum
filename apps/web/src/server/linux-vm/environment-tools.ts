@@ -42,8 +42,15 @@ export const installEnvironmentTools = (
   network?: NetworkToolsOptions,
   scripts?: RunScriptDeps
 ): void => {
-  registry.uninstall({ name: NETWORK_TOOLS_EXTENSION });
-  registry.uninstall({ name: RUN_SCRIPT_EXTENSION });
+  // An extension that stays is installed over itself and keeps its place. Pi lists the tools in
+  // install order, so taking it out first would move it to the end and make Pi re-declare every tool.
+  const isolate = environment !== "linux-vm";
+  if (!(isolate && network)) {
+    registry.uninstall({ name: NETWORK_TOOLS_EXTENSION });
+  }
+  if (!(isolate && scripts)) {
+    registry.uninstall({ name: RUN_SCRIPT_EXTENSION });
+  }
   if (environment === "linux-vm") {
     registry.uninstall({ name: LIBRARY_TOOLS_EXTENSION });
     registry.install(linuxVmToolsExtension(libraryOf));

@@ -86,6 +86,48 @@ describe("installEnvironmentTools", () => {
     expect(toolNames(registry)).toEqual(["bash", "edit", "read", "write"]);
   });
 
+  test("installing the isolate again keeps the tools in place", () => {
+    const registry = createRegistry();
+    const network = { enabled: true, fetcherOf };
+    const order = () =>
+      registry
+        .snapshot()
+        .tools()
+        .map(({ tool }) => tool.name);
+    installEnvironmentTools(
+      registry,
+      "isolate",
+      slugOf,
+      undefined,
+      network,
+      scriptsOf
+    );
+    registry.install({ name: "mcp-later", tools: [] });
+    const before = order();
+
+    installEnvironmentTools(
+      registry,
+      "isolate",
+      slugOf,
+      undefined,
+      network,
+      scriptsOf
+    );
+
+    expect(order()).toEqual(before);
+    expect(
+      registry
+        .snapshot()
+        .installed()
+        .map((extension) => extension.name)
+    ).toEqual([
+      LIBRARY_TOOLS_EXTENSION,
+      NETWORK_TOOLS_EXTENSION,
+      RUN_SCRIPT_EXTENSION,
+      "mcp-later",
+    ]);
+  });
+
   test("isolate with network access installs web_fetch", () => {
     const registry = createRegistry();
     installEnvironmentTools(registry, "isolate", slugOf, undefined, {
