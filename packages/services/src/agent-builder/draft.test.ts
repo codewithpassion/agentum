@@ -236,3 +236,10 @@ test("malformed draft structure is rejected", () => {
     expect(() => reconcileDraft(raw, catalog, {})).toThrow();
   }
 });
+
+test("a locked key set to undefined does not overwrite the model's value", () => {
+  const result = reconcileDraft(draft(), catalog, {
+    name: undefined,
+  } as Partial<AgentDraft>);
+  expect(result.draft.name).toBe("Inbox helper");
+});

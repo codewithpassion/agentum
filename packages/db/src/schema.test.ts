@@ -21,6 +21,7 @@ test("the foundation, connector and OAuth client tables exist", () => {
   expect(names).toEqual([
     "agent_connectors",
     "agent_library_access",
+    "agent_mailboxes",
     "agent_secrets",
     "agent_tool_rules",
     "agents",
@@ -38,6 +39,8 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "library_versions",
     "machine_enroll_tokens",
     "machines",
+    "mail_messages",
+    "mail_threads",
     "managed_agents",
     "managed_runs",
     "managed_sessions",
@@ -75,7 +78,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(43);
+  expect(tables.length).toBe(46);
 
   for (const table of tables) {
     const column = client

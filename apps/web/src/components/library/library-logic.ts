@@ -60,3 +60,117 @@ export const errorMessage = (error: unknown): string =>
 /** The URL that downloads a file through the cookie session. */
 export const downloadUrl = (path: string): string =>
   `/api/library/download?path=${encodeURIComponent(path)}`;
+
+export interface DiffLine {
+  kind: "add" | "del" | "same";
+  text: string;
+}
+
+/** `a\nb\n` is two lines and the empty string is none. */
+const splitLines = (text: string): string[] => {
+  if (text === "") {
+    return [];
+  }
+  const lines = text.split("\n");
+  if (lines.at(-1) === "") {
+    lines.pop();
+  }
+  return lines;
+};
+
+/**
+ * Diffs two runs of lines with no common prefix or suffix left to trim.
+ * Changed lines are emitted as deletes, then adds, between two same lines.
+ */
+const diffMiddle = (a: string[], b: string[]): DiffLine[] => {
+  const out: DiffLine[] = [];
+  const n = a.length;
+  const m = b.length;
+  const width = m + 1;
+
+  // lcs[i * width + j] is the longest common subsequence of a from i on
+  // and of b from j on.
+  const lcs = new Uint32Array((n + 1) * width);
+  const cell = (row: number, col: number): number =>
+    lcs[row * width + col] ?? 0;
+  for (let i = n - 1; i >= 0; i -= 1) {
+    for (let j = m - 1; j >= 0; j -= 1) {
+      lcs[i * width + j] =
+        a[i] === b[j]
+          ? cell(i + 1, j + 1) + 1
+          : Math.max(cell(i + 1, j), cell(i, j + 1));
+    }
+  }
+
+  let dels: string[] = [];
+  let adds: string[] = [];
+  const flush = () => {
+    for (const text of dels) {
+      out.push({ kind: "del", text });
+    }
+    for (const text of adds) {
+      out.push({ kind: "add", text });
+    }
+    dels = [];
+    adds = [];
+  };
+
+  let i = 0;
+  let j = 0;
+  while (i < n || j < m) {
+    const left = a[i];
+    const right = b[j];
+    if (left !== undefined && right !== undefined && left === right) {
+      flush();
+      out.push({ kind: "same", text: left });
+      i += 1;
+      j += 1;
+    } else if (
+      left !== undefined &&
+      (right === undefined || cell(i + 1, j) >= cell(i, j + 1))
+    ) {
+      dels.push(left);
+      i += 1;
+    } else if (right !== undefined) {
+      adds.push(right);
+      j += 1;
+    }
+  }
+  flush();
+  return out;
+};
+
+/**
+ * A line diff of `before` to `after`. Within a block of changed lines the
+ * deleted lines come before the added ones.
+ */
+export const lineDiff = (before: string, after: string): DiffLine[] => {
+  const a = splitLines(before);
+  const b = splitLines(after);
+
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) {
+    head += 1;
+  }
+  let aEnd = a.length;
+  let bEnd = b.length;
+  while (aEnd > head && bEnd > head && a[aEnd - 1] === b[bEnd - 1]) {
+    aEnd -= 1;
+    bEnd -= 1;
+  }
+
+  const same = (text: string): DiffLine => ({ kind: "same", text });
+  return [
+    ...a.slice(0, head).map(same),
+    ...diffMiddle(a.slice(head, aEnd), b.slice(head, bEnd)),
+    ...a.slice(aEnd).map(same),
+  ];
+};
+
+/** Where `path` lands after `from` moves to `to`. A path outside `from` is unchanged. */
+export const remapPath = (path: string, from: string, to: string): string => {
+  if (path === from) {
+    return to;
+  }
+  return path.startsWith(`${from}/`) ? `${to}${path.slice(from.length)}` : path;
+};

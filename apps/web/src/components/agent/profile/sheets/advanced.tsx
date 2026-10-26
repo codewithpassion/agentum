@@ -10,18 +10,18 @@ import {
 } from "#/components/agent/agent-config.ts";
 import { AgentForm, type AgentFormValues } from "#/components/agent/agent-form";
 import { ArchiveAgentDialog } from "#/components/agent/archive-agent-dialog";
-import { AskRules } from "#/components/agent/settings/ask-rules";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { MachineRecord } from "#/integrations/trpc/types";
-import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
+import type { AgentPanelProps } from "./props.ts";
 
 interface SettingsData {
   machines: MachineRecord[];
   providerKeys: Record<ModelProvider, boolean>;
 }
 
-function SettingsPanel({ agent }: AgentTabProps) {
+/** The model, machine, environment, network and turn-limit fields, and Archive. */
+export function AdvancedPanel({ agent }: AgentPanelProps) {
   const router = useRouter();
   const [data, setData] = useState<SettingsData | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -104,9 +104,6 @@ function SettingsPanel({ agent }: AgentTabProps) {
     <section className="max-w-3xl">
       {body}
       <div className="mt-10 border-border border-t pt-6">
-        <AskRules agentId={agent.id} />
-      </div>
-      <div className="mt-10 border-border border-t pt-6">
         <Button onClick={openArchive} variant="outline">
           Archive agent
         </Button>
@@ -121,9 +118,3 @@ function SettingsPanel({ agent }: AgentTabProps) {
     </section>
   );
 }
-
-export const settingsTab: AgentTab = {
-  id: "settings",
-  label: "Settings",
-  Panel: SettingsPanel,
-};
