@@ -6,7 +6,8 @@
  *
  * People read and write everything. Runs read their home, wiki and granted
  * folders, and write their home and write grants. canReadAt and canWriteAt
- * apply the same resolved scope to every entry point.
+ * apply the same resolved scope to every entry point. list and stat also let a
+ * run traverse a folder above a grant (canTraverse).
  *
  * The blob store is the source of truth for bytes and etags. A write lands in
  * the store first, then the row and the event land together through `atomic`.
