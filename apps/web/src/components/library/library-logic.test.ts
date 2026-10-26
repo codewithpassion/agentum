@@ -9,6 +9,7 @@ import {
   isConflict,
   joinPath,
   lineDiff,
+  MAX_DIFF_CELLS,
   parentDir,
   remapPath,
 } from "./library-logic.ts";
@@ -130,4 +131,40 @@ test("a moved folder carries the paths below it and nothing else", () => {
   expect(remapPath("docs/a.md", "docs", "notes")).toBe("notes/a.md");
   expect(remapPath("docs2/a.md", "docs", "notes")).toBe("docs2/a.md");
   expect(remapPath("a.md", "a.md", "b.md")).toBe("b.md");
+});
+
+const numbered = (prefix: string, count: number): string =>
+  Array.from({ length: count }, (_, i) => `${prefix}${i}`).join("\n");
+
+test("two huge texts with nothing in common fall back to deletes then adds", () => {
+  const before = numbered("a", 20_000);
+  const after = numbered("b", 20_000);
+  expect(20_001 * 20_001).toBeGreaterThan(MAX_DIFF_CELLS);
+  const diff = lineDiff(before, after);
+  expect(diff).toHaveLength(40_000);
+  expect(diff.slice(0, 20_000).every((line) => line.kind === "del")).toBe(true);
+  expect(diff.slice(20_000).every((line) => line.kind === "add")).toBe(true);
+  expect(diff[0]).toEqual({ kind: "del", text: "a0" });
+  expect(diff[39_999]).toEqual({ kind: "add", text: "b19999" });
+});
+
+test("the fallback still trims the common head and tail", () => {
+  const diff = lineDiff(
+    `top\n${numbered("a", 5000)}\nend`,
+    `top\n${numbered("b", 5000)}\nend`
+  );
+  expect(diff[0]).toEqual({ kind: "same", text: "top" });
+  expect(diff.at(-1)).toEqual({ kind: "same", text: "end" });
+  expect(diff).toHaveLength(10_002);
+});
+
+test("a small middle is still compared line by line", () => {
+  const diff = lineDiff("x\nkeep\ny", "p\nkeep\nq");
+  expect(diff).toEqual([
+    { kind: "del", text: "x" },
+    { kind: "add", text: "p" },
+    { kind: "same", text: "keep" },
+    { kind: "del", text: "y" },
+    { kind: "add", text: "q" },
+  ]);
 });
