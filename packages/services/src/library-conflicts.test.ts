@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
-import { libraryConflicts } from "@repo/db/schema/library";
+import { agentLibraryAccess, libraryConflicts } from "@repo/db/schema/library";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -80,6 +80,13 @@ beforeEach(async () => {
     inputText: "",
     sessionId: "s",
     status: "running",
+    workspaceId: "w",
+  });
+  await db.insert(agentLibraryAccess).values({
+    agentId: "a",
+    createdAt,
+    mode: "write",
+    path: "notes",
     workspaceId: "w",
   });
   const atomic = sqliteAtomic(db);
@@ -204,4 +211,27 @@ test("resolution requires a writing person and an open row in their workspace", 
     )
   ).rejects.toMatchObject({ code: "not_found" });
   expect(row()?.status).toBe("open");
+});
+
+test("a run cannot record a copy that is not its own, or of a file it cannot write", async () => {
+  const bad = [
+    { conflictPath: "notes/other", path },
+    { conflictPath: "notes/a.conflict-other", path },
+    { conflictPath: "secret.conflict-r", path: "secret" },
+  ];
+  await Promise.all(
+    bad.map((conflict) =>
+      expect(service.recordConflict(run, conflict)).rejects.toMatchObject({
+        code: "invalid",
+      })
+    )
+  );
+  expect(row()).toBeUndefined();
+});
+
+test("a move that overwrites a copy closes its row", async () => {
+  await record();
+  await service.write(user, "incoming", bytes("x"));
+  await service.move(user, "incoming", conflictPath);
+  expect(row()?.status).toBe("resolved");
 });

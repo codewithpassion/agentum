@@ -29,7 +29,7 @@ import {
   type LibraryChange,
   type LibraryEntryKind,
 } from "@repo/db/shared";
-import { isConflictPath } from "@repo/library-sync/types";
+import { conflictPathOf, isConflictPath } from "@repo/library-sync/types";
 import { and, asc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -951,10 +951,11 @@ export const createLibraryService = ({
       moved,
       copies
     );
-    // Moving a copy retires its old conflict path, including copies inside folders.
+    // Moving a copy retires its old conflict path, including copies inside
+    // folders. A copy that the move overwrites is deleted too.
     const conflictStatements = await closeConflicts(
       member,
-      moved.map((entry) => entry.path),
+      [...moved.map((entry) => entry.path), ...(target ? [to] : [])],
       "moved"
     );
     const size = moved.reduce((total, entry) => total + entry.size, 0);
@@ -1127,6 +1128,19 @@ export const createLibraryService = ({
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
     });
+    const conflictPath = normalizePath(conflict.conflictPath);
+    const path = normalizePath(conflict.path);
+    if (member.kind === "run") {
+      // A person resolves the row with their own rights, so a run may only
+      // name its own copy of a file it can write.
+      const access = await resolveMember(member);
+      if (
+        conflictPath !== conflictPathOf(path, member.runId) ||
+        !canWriteAt(access, path)
+      ) {
+        throw invalid("Not a conflict copy of a file this run can write");
+      }
+    }
     // Legacy person-originated calls remain event-only: conflict records require
     // an agent, and sync conflicts are always recorded by a run.
     const conflictRows: Statement[] =
@@ -1134,10 +1148,10 @@ export const createLibraryService = ({
         ? [
             db.insert(libraryConflicts).values({
               agentId: member.agentId,
-              conflictPath: normalizePath(conflict.conflictPath),
+              conflictPath,
               createdAt: clock.now().toISOString(),
               id: ulid(),
-              path: normalizePath(conflict.path),
+              path,
               runId: member.runId,
               status: "open",
               workspaceId: member.workspaceId,
@@ -1150,8 +1164,8 @@ export const createLibraryService = ({
         actor: actorOf(member),
         agentId: member.kind === "run" ? member.agentId : undefined,
         payload: {
-          conflictPath: normalizePath(conflict.conflictPath),
-          path: normalizePath(conflict.path),
+          conflictPath,
+          path,
           ...(member.kind === "run" ? { runId: member.runId } : {}),
         },
         runId: member.kind === "run" ? member.runId : undefined,
