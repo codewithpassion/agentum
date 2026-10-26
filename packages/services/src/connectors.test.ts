@@ -545,6 +545,69 @@ test("assign defaults to user_or_agent, changes the mode, and unassign removes i
   ).toEqual({ removed: false });
 });
 
+test("assign stores the allowed tools, and assignments lists them", async () => {
+  const connector = await addHeaderConnector();
+
+  const assigned = await service.assign(dom, {
+    agentId: agent.id,
+    allowedTools: ["echo", "search"],
+    connectorId: connector.id,
+  });
+  expect(assigned.allowedTools).toEqual(["echo", "search"]);
+  expect(await service.assignments(dom, { agentId: agent.id })).toEqual([
+    assigned,
+  ]);
+});
+
+test("re-assigning with only a new credential mode keeps the allowed tools", async () => {
+  const connector = await addHeaderConnector();
+  await service.assign(dom, {
+    agentId: agent.id,
+    allowedTools: ["echo"],
+    connectorId: connector.id,
+  });
+
+  const changed = await service.assign(dom, {
+    agentId: agent.id,
+    connectorId: connector.id,
+    credentialMode: "agent",
+  });
+  expect(changed).toMatchObject({
+    allowedTools: ["echo"],
+    credentialMode: "agent",
+  });
+});
+
+test("assigning an empty allowed tools list clears it to every tool", async () => {
+  const connector = await addHeaderConnector();
+  await service.assign(dom, {
+    agentId: agent.id,
+    allowedTools: ["echo"],
+    connectorId: connector.id,
+  });
+
+  const cleared = await service.assign(dom, {
+    agentId: agent.id,
+    allowedTools: [],
+    connectorId: connector.id,
+  });
+  expect(cleared.allowedTools).toBeNull();
+  expect(await service.assignments(dom, { agentId: agent.id })).toEqual([
+    cleared,
+  ]);
+});
+
+test("duplicate tool names are stored once", async () => {
+  const connector = await addHeaderConnector();
+
+  const assigned = await service.assign(dom, {
+    agentId: agent.id,
+    allowedTools: ["echo", "search", "echo"],
+    connectorId: connector.id,
+  });
+  expect(assigned.allowedTools).toEqual(["echo", "search"]);
+});
+
 test("another workspace cannot see or use a connector", async () => {
   const connector = await addHeaderConnector();
 
