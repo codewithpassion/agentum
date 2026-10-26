@@ -40,13 +40,17 @@ const seedWorkspace = (conn: ReturnType<typeof migrated>, id: string) =>
     })
     .run();
 
-const insertMachine = (id: string, workspaceId: string) =>
+const insertMachine = (
+  id: string,
+  workspaceId: string,
+  credentialHash = `hash-${id}`
+) =>
   db
     .insert(machines)
     .values({
       capabilities: "{}",
       createdAt: NOW,
-      credentialHash: `hash-${id}`,
+      credentialHash,
       enrolledBy: "u1",
       id,
       name: "laptop",
@@ -187,6 +191,31 @@ test("runtime machine needs a machine row of the same workspace", async () => {
     runtime: "machine",
   });
   expect(agent.machineId).toBe("m-mine");
+});
+
+test("a machine agent needs the agent_host role on its machine", async () => {
+  insertMachine("m-computer", WORKSPACE, "computer-only:abc");
+  insertMachine("m-both", WORKSPACE);
+  await expect(
+    service.create(user, {
+      machineId: "m-computer",
+      model: "m",
+      name: "Box",
+      runtime: "machine",
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+
+  const agent = await service.create(user, {
+    machineId: "m-both",
+    model: "m",
+    name: "Box",
+    runtime: "machine",
+  });
+  await expect(
+    service.update(user, agent.id, { machineId: "m-computer" })
+  ).rejects.toMatchObject({ code: "invalid" });
+  const moved = await service.update(user, agent.id, { machineId: "m-both" });
+  expect(moved.machineId).toBe("m-both");
 });
 
 test("get of an agent in another workspace is not_found", async () => {

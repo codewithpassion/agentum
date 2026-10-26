@@ -20,6 +20,7 @@ import { CLOUD_DEFAULT_MODEL, isAnthropicModel } from "./cloud/models.ts";
 import { CLOUD_NETWORK_KEY, networkAccessError } from "./cloud/network.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
+import { hasAgentHostRole } from "./machines.ts";
 import type { Principal } from "./workspaces.ts";
 
 const AGENT_CREATE = "agents.create";
@@ -361,7 +362,7 @@ export const createAgentsService = ({
     workspaceId: string
   ) => {
     const [row] = await db
-      .select({ id: machines.id })
+      .select({ credentialHash: machines.credentialHash })
       .from(machines)
       .where(
         and(eq(machines.id, machineId), eq(machines.workspaceId, workspaceId))
@@ -371,6 +372,12 @@ export const createAgentsService = ({
       throw new ServiceError(
         "invalid",
         `Machine ${machineId} is not in this workspace`
+      );
+    }
+    if (!hasAgentHostRole(row.credentialHash)) {
+      throw new ServiceError(
+        "invalid",
+        `Machine ${machineId} has no agent_host role, so it cannot run an agent`
       );
     }
   };
