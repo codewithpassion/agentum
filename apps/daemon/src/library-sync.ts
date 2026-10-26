@@ -17,15 +17,17 @@ import {
 } from "node:fs";
 import { join, relative, sep } from "node:path";
 import {
-  type CoalescerClock,
-  createCoalescer,
   createLibrarySync,
-  isConflictPath,
   type LocalPort,
   type ManifestEntry,
   type ManifestStore,
   type SyncRoot,
 } from "@repo/library-sync";
+import {
+  type CoalescerClock,
+  createCoalescer,
+} from "@repo/library-sync/coalesce";
+import { isConflictPath } from "@repo/library-sync/types";
 import type { LibraryApi } from "./library-api.ts";
 import type { WorkDisk } from "./work-disk.ts";
 
