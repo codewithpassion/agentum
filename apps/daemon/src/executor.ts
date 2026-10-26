@@ -343,6 +343,9 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
         preset: "claude_code",
         type: "preset",
       },
+      // Without a summary the thinking block arrives with empty text, and
+      // normalize.ts drops it, so a machine task shows no thoughts.
+      thinking: { display: "summarized", type: "adaptive" },
       // A claim without `toolRules` comes from a Worker that predates requests,
       // so such a run keeps its ungated bypassPermissions.
       ...(claim.toolRules === undefined

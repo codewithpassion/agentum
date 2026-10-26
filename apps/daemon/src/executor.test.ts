@@ -717,6 +717,10 @@ describe("the options passed to query", () => {
     expect(options?.allowDangerouslySkipPermissions).toBe(true);
     expect(options?.strictMcpConfig).toBe(true);
     expect(options?.settingSources).toEqual(["project"]);
+    expect(options?.thinking).toEqual({
+      display: "summarized",
+      type: "adaptive",
+    });
     expect(options?.systemPrompt).toEqual({
       append: expect.stringContaining(run.claim.instructions),
       preset: "claude_code",
