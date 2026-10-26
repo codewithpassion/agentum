@@ -109,8 +109,10 @@ const relay = (
     pull: async (controller) => {
       if (!replaySent) {
         replaySent = true;
-        controller.enqueue(encoder.encode(replayed.text));
-        return;
+        if (replayed.text !== "") {
+          controller.enqueue(encoder.encode(replayed.text));
+          return;
+        }
       }
       for (;;) {
         // biome-ignore lint/performance/noAwaitInLoops: the live body is read one chunk at a time

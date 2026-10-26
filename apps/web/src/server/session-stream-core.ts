@@ -5,6 +5,8 @@
 import type { StreamFrame } from "@repo/protocol/stream";
 
 export const PING_INTERVAL_MS = 25_000;
+/** Writes a client may leave unread before it is dropped as stalled. */
+export const MAX_PENDING_WRITES = 100;
 
 /** One open SSE connection. `write` rejects once the client is gone. */
 export interface FrameWriter {
@@ -26,12 +28,15 @@ export const encodeFrame = (frame: StreamFrame): string =>
 
 export const createStreamCore = ({
   every,
+  maxPending = MAX_PENDING_WRITES,
   pingMs = PING_INTERVAL_MS,
 }: {
   every: Every;
+  maxPending?: number;
   pingMs?: number;
 }) => {
-  const writers = new Set<FrameWriter>();
+  // Each writer with the number of its writes that have not finished.
+  const writers = new Map<FrameWriter, number>();
   let stopPing: (() => void) | undefined;
 
   const drop = (writer: FrameWriter): void => {
@@ -49,23 +54,41 @@ export const createStreamCore = ({
     }
   };
 
-  /** Sends one frame to every writer. A writer whose write fails is dropped. */
-  const publish = async (frame: StreamFrame): Promise<void> => {
-    const chunk = encodeFrame(frame);
-    await Promise.all(
-      [...writers].map(async (writer) => {
-        try {
-          await writer.write(chunk);
-        } catch {
-          drop(writer);
+  const send = (writer: FrameWriter, chunk: string): void => {
+    const pending = (writers.get(writer) ?? 0) + 1;
+    if (pending > maxPending) {
+      // A client that stopped reading never fails a write, it only stops finishing them.
+      drop(writer);
+      return;
+    }
+    writers.set(writer, pending);
+    writer
+      .write(chunk)
+      .catch(() => drop(writer))
+      .finally(() => {
+        const left = writers.get(writer);
+        if (left !== undefined) {
+          writers.set(writer, left - 1);
         }
-      })
-    );
+      });
+  };
+
+  /**
+   * Hands one frame to every writer and returns without waiting for the
+   * writes, so a slow client never holds up the publisher. A writer whose
+   * write fails, or that leaves too many writes unfinished, is dropped.
+   */
+  const publish = (frame: StreamFrame): Promise<void> => {
+    const chunk = encodeFrame(frame);
+    for (const writer of [...writers.keys()]) {
+      send(writer, chunk);
+    }
+    return Promise.resolve();
   };
 
   /** Adds a writer and returns the function that removes it. */
   const add = (writer: FrameWriter): (() => void) => {
-    writers.add(writer);
+    writers.set(writer, 0);
     stopPing ??= every(pingMs, () => {
       publish({ frame: "ping" }).catch(() => undefined);
     });

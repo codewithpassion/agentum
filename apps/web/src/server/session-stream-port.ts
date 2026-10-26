@@ -13,7 +13,8 @@ export interface SessionStreamPort {
 
 /**
  * The port over the SessionStream namespace. With `defer`, the publish is
- * handed to it and the call returns at once. Without it, the call awaits.
+ * handed to it and the call returns at once, the sends of one port keeping
+ * their order. Without it, the call awaits.
  */
 export const streamPublisher = (
   namespace: DurableObjectNamespace<SessionStream>,
@@ -26,14 +27,17 @@ export const streamPublisher = (
       console.error("Session stream publish failed", error);
     }
   };
+  // Deferred sends would otherwise be in flight together and could arrive out
+  // of order, so each one starts when the one before it has finished.
+  let tail: Promise<void> = Promise.resolve();
   return {
     publish: async (sessionId, frame) => {
-      const work = send(sessionId, frame);
       if (defer) {
-        defer(work);
+        tail = tail.then(() => send(sessionId, frame));
+        defer(tail);
         return;
       }
-      await work;
+      await send(sessionId, frame);
     },
   };
 };

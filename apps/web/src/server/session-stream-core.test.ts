@@ -40,6 +40,9 @@ class FakeWriter implements FrameWriter {
   }
 }
 
+/** Lets the writes that `publish` started finish. */
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
 const fakeEvery = () => {
   const calls: { ms: number; tick: () => void }[] = [];
   let cancelled = 0;
@@ -93,6 +96,7 @@ describe("createStreamCore fan-out", () => {
     broken.failing = true;
 
     await core.publish(eventFrame);
+    await flush();
 
     expect(core.size()).toBe(1);
     expect(broken.closed).toBe(true);
@@ -102,6 +106,31 @@ describe("createStreamCore fan-out", () => {
     await core.publish({ frame: "ping" });
     expect(broken.chunks).toHaveLength(0);
     expect(healthy.chunks).toHaveLength(2);
+  });
+});
+
+describe("createStreamCore stalled writers", () => {
+  test("publish does not wait for a writer that never finishes a write, and drops it past the limit", async () => {
+    const { every } = fakeEvery();
+    const core = createStreamCore({ every, maxPending: 3 });
+    const stalled = new FakeWriter();
+    stalled.write = (chunk: string) => {
+      stalled.chunks.push(chunk);
+      return new Promise<void>(() => undefined);
+    };
+    const healthy = new FakeWriter();
+    core.add(stalled);
+    core.add(healthy);
+
+    for (let i = 0; i < 4; i += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: frames go out in order
+      await core.publish({ frame: "ping" });
+    }
+
+    expect(stalled.chunks).toHaveLength(3);
+    expect(stalled.closed).toBe(true);
+    expect(core.size()).toBe(1);
+    expect(healthy.chunks).toHaveLength(4);
   });
 });
 

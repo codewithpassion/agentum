@@ -16,9 +16,13 @@ let user: User;
 let agentId: string;
 let seedSession: string;
 let published: { sessionId: string; frame: StreamFrame }[];
+let portFails = false;
 
 const port: SessionStreamPort = {
   publish: (sessionId, frame) => {
+    if (portFails) {
+      return Promise.reject(new Error("stream is down"));
+    }
     published.push({ frame, sessionId });
     return Promise.resolve();
   },
@@ -50,6 +54,7 @@ const infra = (): Infra => {
 beforeEach(async () => {
   db = migrated();
   published = [];
+  portFails = false;
   composed = composeWith({
     allowedOrgIds: ["org_a"],
     db,
@@ -168,4 +173,17 @@ test("starting a run publishes its queued event, its run frame, then the user me
     { frame: "run", runId, status: "queued" },
     expect.objectContaining({ frame: "event", runId, type: "message.user" }),
   ]);
+});
+
+test("a port that rejects does not fail the append", async () => {
+  portFails = true;
+
+  const record = await appendEvent(
+    "tool.call",
+    { name: "bash", toolUseId: "t1" },
+    seedSession
+  );
+
+  expect(record.type).toBe("tool.call");
+  expect(published).toEqual([]);
 });
