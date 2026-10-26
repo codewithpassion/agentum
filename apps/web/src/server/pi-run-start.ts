@@ -29,8 +29,8 @@ export interface StartQueueDeps {
   begin: (input: CloudStart) => Promise<void>;
   /**
    * Claims the run for the system. "conflict" when it cannot be claimed now,
-   * "running" when it already is running (claimed by an earlier try, or begun
-   * by an earlier wake).
+   * "running" when it already is running or waiting (claimed by an earlier try,
+   * or begun by an earlier wake). The dispatcher in pi-run.ts handles it.
    */
   claim: (runId: string) => Promise<"claimed" | "conflict" | "running">;
   /** Ends a claimed run as failed. */

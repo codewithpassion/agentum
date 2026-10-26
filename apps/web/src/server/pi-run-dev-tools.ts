@@ -11,6 +11,10 @@ export const SLOW_READ_MS = 8000;
 /** How many times the tool has started, kept in the object's storage so a restart does not reset it. */
 export const SLOW_READ_COUNT_KEY = "dev-slow-read-starts";
 
+export const GATED_TOOL = "dev_gated";
+/** How many times the gated tool has run, kept in the object's storage. */
+export const GATED_COUNT_KEY = "dev-gated-runs";
+
 /** The two calls the tool needs from its host: a start counter and a sleep that an abort ends. */
 export interface SlowReadDeps {
   /** Counts one start and returns the new total. */
@@ -59,23 +63,49 @@ export const slowReadTool = ({
   replay: "safe",
 });
 
-/** The storage calls the start counter needs. */
+/** The call the gated tool needs from its host: a run counter. */
+export interface GatedDeps {
+  /** Counts one run and returns the new total. */
+  countRun: () => Promise<number>;
+}
+
+/**
+ * A tool with an effect, so it is not replay safe: Pi does not run it again when
+ * the object dies in the middle. Its result names the run count.
+ */
+export const gatedTool = ({ countRun }: GatedDeps): ToolRegistration => ({
+  description: "Dev only. Does nothing, and says how many times it has run.",
+  execute: async () => {
+    const runs = await countRun();
+    return {
+      isError: false,
+      output: [{ text: `gated ran ${runs} times`, type: "text" }],
+    };
+  },
+  name: GATED_TOOL,
+  parameters: Type.Object({}),
+});
+
+/** The storage calls the counters need. */
 interface CounterStorage {
   get: (key: string) => Promise<unknown>;
   put: (key: string, value: number) => Promise<void>;
 }
 
+/** Adds one to the number stored under `key` and returns the new total. */
+const countIn =
+  (storage: CounterStorage, key: string) => async (): Promise<number> => {
+    const previous = await storage.get(key);
+    const total = (typeof previous === "number" ? previous : 0) + 1;
+    await storage.put(key, total);
+    return total;
+  };
+
 /** The registry extension `PiRun` installs in dev builds. */
 export const devToolsExtension = (storage: CounterStorage) => ({
   name: "dev-tools",
   tools: [
-    slowReadTool({
-      countStart: async () => {
-        const previous = await storage.get(SLOW_READ_COUNT_KEY);
-        const starts = (typeof previous === "number" ? previous : 0) + 1;
-        await storage.put(SLOW_READ_COUNT_KEY, starts);
-        return starts;
-      },
-    }),
+    slowReadTool({ countStart: countIn(storage, SLOW_READ_COUNT_KEY) }),
+    gatedTool({ countRun: countIn(storage, GATED_COUNT_KEY) }),
   ],
 });

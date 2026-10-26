@@ -59,13 +59,16 @@ import {
   uploadOutputs,
   uploadVmOutputs,
 } from "./pi-run-files.ts";
+import { createGate, gateExtension } from "./pi-run-gate.ts";
 import { repeatGuardExtension } from "./pi-run-guard.ts";
 import { RunLeaseAlarm } from "./pi-run-lease.ts";
 import {
   type McpSessions,
+  mcpToolOrigins,
   mcpToolRegistrations,
   type ServerTools,
   syncMcpTools,
+  type ToolOrigin,
   throttled,
   toolChanges,
 } from "./pi-run-mcp.ts";
@@ -162,6 +165,8 @@ export class PiRun extends DurableObject<Env> {
   #core: ReturnType<typeof createRunCore> | undefined;
   /** The tool lists now in the registry, by server key. */
   #installed: ServerTools = {};
+  /** The server and tool name of each installed MCP tool, by Pi's name: the gate keys its rules on them. */
+  #origins = new Map<string, ToolOrigin>();
   /** The MCP sessions this object holds, by server URL. Listing and tool calls share them. */
   readonly #mcpSessions: McpSessions = new Map();
   /** The servers of the newest run that reached a sync. A start syncs before it stores them, so storage can lag. */
@@ -240,8 +245,29 @@ export class PiRun extends DurableObject<Env> {
     },
   });
 
-  /** Moves the lease of the active runs from an alarm, so it outlives this object being down. */
-  readonly lease = new RunLeaseAlarm(() => this.#runCore().beat());
+  /** Asks a person before a ruled tool runs, and carries the `ask_user` tool. */
+  readonly #gate = createGate({
+    originOf: (piName) => this.#origins.get(piName),
+    requests: {
+      needsApproval: (input) =>
+        this.#services().requests.needsApproval(SYSTEM_PRINCIPAL, input),
+      open: (input) => this.#services().requests.open(SYSTEM_PRINCIPAL, input),
+      outcome: (requestId) =>
+        this.#services().requests.outcome(SYSTEM_PRINCIPAL, requestId),
+    },
+    runIdOf: async () => (await this.#storedRun("the request gate")).runId,
+    serverKeys: () => Object.keys(this.#installed),
+  });
+
+  /**
+   * Moves the lease of the active runs from an alarm, so it outlives this object
+   * being down. The same beat makes every call that waits for an answer read its
+   * request again, so an answer whose RPC was missed is found within one beat.
+   */
+  readonly lease = new RunLeaseAlarm(() => {
+    this.#gate.checkOpen();
+    return this.#runCore().beat();
+  });
 
   /**
    * The starts the platform handed over, saved until the claim and the setup
@@ -267,7 +293,10 @@ export class PiRun extends DurableObject<Env> {
             SYSTEM_PRINCIPAL,
             runId
           );
-          return run.status === "running" ? "running" : "conflict";
+          // A run that waits for an answer is still the one we claimed.
+          return run.status === "running" || run.status === "waiting"
+            ? "running"
+            : "conflict";
         }
         throw error;
       }
@@ -303,6 +332,7 @@ export class PiRun extends DurableObject<Env> {
     this.registry.install(filesExtension((fileId) => this.#readInput(fileId)));
     this.registry.install(libraryToolsExtension(() => this.#agentSlug()));
     this.registry.install(repeatGuardExtension());
+    this.registry.install(gateExtension(this.#gate));
   }
 
   /** Installs the servers whose list differs from the registry's, and removes the ones that are gone. */
@@ -333,6 +363,7 @@ export class PiRun extends DurableObject<Env> {
       });
     }
     this.#installed = tools;
+    this.#origins = mcpToolOrigins(tools);
   }
 
   /**
@@ -1108,5 +1139,15 @@ export class PiRun extends DurableObject<Env> {
   async cancelRun(runId: string): Promise<void> {
     await this.lifecycle.start();
     await this.#runCore().cancel(runId);
+  }
+
+  /**
+   * A request of the run was closed (answered, expired). Wakes the call that
+   * waits for it. An object that was evicted meanwhile has no waiter: its call
+   * runs again on start and reads the request, so waking it is all this does.
+   */
+  async requestAnswered(_runId: string, requestId: string): Promise<void> {
+    await this.lifecycle.start();
+    this.#gate.answered(requestId);
   }
 }

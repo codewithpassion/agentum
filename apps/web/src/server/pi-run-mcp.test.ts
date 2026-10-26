@@ -24,6 +24,7 @@ import {
   type McpFetch,
   type McpSessions,
   type McpTool,
+  mcpToolOrigins,
   mcpToolRegistrations,
   type ServerTools,
   syncMcpTools,
@@ -487,6 +488,36 @@ describe("parallel tools/call on one server", () => {
     const ids = callsTo(server.calls, "tools/call").map((call) => call.body.id);
     expect(ids).toHaveLength(words.length);
     expect(new Set(ids).size).toBe(words.length);
+  });
+});
+
+describe("mcpToolOrigins", () => {
+  test("names each Pi tool after its server and tool, as the registrations do", () => {
+    const tools: ServerTools = {
+      "my server": [
+        { ...SEARCH, name: "list.items/v2" },
+        { ...SEARCH, name: "list items v2" },
+      ],
+      s: [SEARCH],
+    };
+    const registered = Object.entries(tools).flatMap(([key, listed]) =>
+      mcpToolRegistrations(key, listed, () => Promise.resolve(SERVER)).map(
+        (registration) => registration.name
+      )
+    );
+    const origins = mcpToolOrigins(tools);
+
+    expect([...origins.keys()].sort()).toEqual(registered.sort());
+    expect(origins.get("my_server_list_items_v2")).toEqual({
+      name: "list.items/v2",
+      server: "my server",
+    });
+    // The second tool collides with the first and gets a number.
+    expect(origins.get("my_server_list_items_v2_2")).toEqual({
+      name: "list items v2",
+      server: "my server",
+    });
+    expect(origins.get("s_search")).toEqual({ name: "search", server: "s" });
   });
 });
 

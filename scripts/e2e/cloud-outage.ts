@@ -20,6 +20,7 @@ import { parseArgs } from "node:util";
 import type { Database } from "@repo/db";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { createAgentsService } from "@repo/services/agents";
+import { createRequestsService } from "@repo/services/requests";
 import { createRunsService } from "@repo/services/runs";
 import {
   type RunSummary,
@@ -69,26 +70,34 @@ export interface RunState {
 }
 
 export interface OutageDeps {
+  /** Answers a pending request as the dev user, through the requests service. */
+  answer: (requestId: string, decision: "allow_once" | "deny") => Promise<void>;
   drive: (action: string, runId: string) => Promise<void>;
   /** The run's events, with their seqs. */
   eventsOf: (runId: string) => SeqEvent[];
+  /** The types of all the run's events, also the platform's own, such as `run.waiting`, which carry no seq. */
+  eventTypesOf: (runId: string) => string[];
   killServer: () => Promise<void>;
   now: () => Date;
   out: (line: string) => void;
+  /** The id of the run's pending request, or undefined when it has none. */
+  pendingRequestId: (runId: string) => string | undefined;
   /** One lease sweep. Resolves with the ids of the runs it interrupted. */
   reap: () => Promise<string[]>;
   /** The run's status, lease and final text, as they are now. */
   runOf: (runId: string) => Promise<RunState>;
   /** Starts a run in the e2e session and leaves it queued. Returns the run id. */
   send: (text: string) => Promise<string>;
+  /** Sets the agent's tool rule for a tool key. */
+  setRule: (toolKey: string, mode: "ask" | "allow") => Promise<void>;
   sleep: (ms: number) => Promise<void>;
   startServer: () => Promise<void>;
 }
 
-const isTerminal = (status: RunStatus): boolean =>
+export const isTerminal = (status: RunStatus): boolean =>
   TERMINAL_STATUSES.includes(status);
 
-const describeError = (state: RunState): string =>
+export const describeError = (state: RunState): string =>
   state.error ? ` (${state.error})` : "";
 
 /** Polls until the run is running and holds a lease. */
@@ -404,9 +413,10 @@ export const withHarness = async (
     const { db } = local;
     try {
       const principal = await devUserPrincipal(db, orgId);
+      const atomic = sqliteAtomic(db as Database);
       const runs = createRunsService({
         adapters: [holdingCloudAdapter],
-        atomic: sqliteAtomic(db as Database),
+        atomic,
         blobs: memoryBlobs(),
         clock: systemClock,
         db,
@@ -425,8 +435,23 @@ export const withHarness = async (
         slug,
       });
       process.stdout.write(`agent ${agent.id}\n`);
+      const requests = createRequestsService({
+        atomic,
+        clock: systemClock,
+        db,
+        events: localEvents(db),
+        runs,
+        secrets: { maskerFor: () => Promise.resolve(null) },
+      });
       const sessionKey = `e2e-${slug}`;
       await body({
+        answer: async (requestId, decision) => {
+          await requests.answer(principal, {
+            answer: { decision },
+            requestId,
+            via: "web",
+          });
+        },
         drive: async (action, runId) => {
           const response = await fetch(
             `${originOf(port)}/api/dev/cloud/${action}`,
@@ -443,9 +468,22 @@ export const withHarness = async (
           }
         },
         eventsOf: (runId) => seqEventsOf(client, runId),
+        eventTypesOf: (runId) =>
+          client
+            .query<{ type: string }, [string]>(
+              "SELECT type FROM events WHERE run_id = ? ORDER BY id"
+            )
+            .all(runId)
+            .map((row) => row.type),
         killServer: server.kill,
         now: () => systemClock.now(),
         out: (line) => process.stdout.write(`${line}\n`),
+        pendingRequestId: (runId) =>
+          client
+            .query<{ id: string }, [string]>(
+              "SELECT id FROM run_requests WHERE run_id = ? AND status = 'pending' LIMIT 1"
+            )
+            .get(runId)?.id,
         reap: async () =>
           (await runs.reapExpiredLeases(SYSTEM_PRINCIPAL)).interrupted,
         runOf: async (runId) => {
@@ -470,6 +508,8 @@ export const withHarness = async (
           });
           return runId;
         },
+        setRule: (toolKey, mode) =>
+          requests.setRule(principal, { agentId: agent.id, mode, toolKey }),
         sleep: (ms) => systemClock.sleep(ms),
         startServer: server.start,
       });

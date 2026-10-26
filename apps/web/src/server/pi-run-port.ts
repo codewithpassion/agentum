@@ -8,6 +8,8 @@ export const durableRunnerPort = (
   const runnerOf = (sessionId: string) =>
     namespace.get(namespace.idFromName(sessionId));
   return {
+    answered: (runId, sessionId, requestId) =>
+      runnerOf(sessionId).requestAnswered(runId, requestId),
     cancel: (runId, sessionId) => runnerOf(sessionId).cancelRun(runId),
     start: (input) => runnerOf(input.run.sessionId).startRun(input),
   };
