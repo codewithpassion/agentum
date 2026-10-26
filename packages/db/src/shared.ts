@@ -657,6 +657,8 @@ export interface MapPort {
   id: string;
   kind: MapPortKind;
   label: string;
+  /** Computer presence, when this is a computer port. */
+  status?: string | null;
 }
 
 /**
@@ -665,12 +667,15 @@ export interface MapPort {
  * `out:slack:<channel>`, `out:library:<folder>`, `out:qa` or `out:email:<agent>`.
  * `subkind` names the trigger or output type and is null for an agent.
  */
-export interface MapNode {
+export interface MapNode<TRequest = unknown> {
   key: string;
   kind: MapNodeKind;
   label: string;
+  /** Oldest visible pending request for the inspector. */
+  pendingRequest?: TRequest;
   ports: MapPort[];
   subkind: MapTriggerKind | MapOutputKind | null;
+  waiting?: boolean;
   x: number;
   y: number;
 }
@@ -685,7 +690,7 @@ export interface MapWire {
   to: string;
 }
 
-export interface MapGraph {
-  nodes: MapNode[];
+export interface MapGraph<TRequest = unknown> {
+  nodes: MapNode<TRequest>[];
   wires: MapWire[];
 }

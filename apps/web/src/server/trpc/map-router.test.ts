@@ -51,10 +51,15 @@ const callerFor = async (session: {
 
 test("map requires a workspace session", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: null });
-  await expect(caller.map.graph({ days: 7 })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(caller.map.graph({ days: 7 })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
 });
 test("map validates its window and returns a graph", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
-  await expect(caller.map.graph({ days: 0 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  // @ts-expect-error Exercise runtime validation for an untyped client.
+  await expect(caller.map.graph({ days: 0 })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
   expect(await caller.map.graph({ days: 7 })).toEqual({ nodes: [], wires: [] });
 });

@@ -6,6 +6,7 @@
     ".": "./src/database.ts",
     "./atomic": "./src/atomic.ts",
     "./schema/*": "./src/schema/*.ts",
+    "./map": "./src/map.ts",
     "./shared": "./src/shared.ts",
     "./test-db": "./src/test-db.ts"
   },

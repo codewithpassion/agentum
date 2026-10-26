@@ -96,6 +96,7 @@ import {
 } from "@repo/services/managed/service";
 import { createManagedSkillsSource } from "@repo/services/managed/skills-source";
 import type { ManagedPollerPort } from "@repo/services/managed/types";
+import { createMapService, type MapService } from "@repo/services/map";
 import {
   createModelKeysService,
   type ModelKeysService,
@@ -267,6 +268,7 @@ export interface Services {
   machines: MachinesService;
   managed: ManagedService;
   managedKeys: ManagedKeysService;
+  map: MapService;
   modelKeys: ModelKeysService;
   network: NetworkService;
   oauthClients: OAuthClientsService;
@@ -624,6 +626,7 @@ export const composeWith = ({
     people: infra.people,
     requests,
   });
+  const map = createMapService({ clock: infra.clock, db, requests });
   // The desk's Needs you logic is shared: the web desk and the desk API read the same items.
   const desk = createDeskService({
     clock: infra.clock,
@@ -691,6 +694,7 @@ export const composeWith = ({
       machines,
       managed,
       managedKeys,
+      map,
       modelKeys,
       network,
       oauthClients,
