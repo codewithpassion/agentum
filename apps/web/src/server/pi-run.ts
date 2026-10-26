@@ -61,7 +61,7 @@ import {
 } from "./pi-run-files.ts";
 import { createGate, gateExtension } from "./pi-run-gate.ts";
 import { repeatGuardExtension } from "./pi-run-guard.ts";
-import { prepareHome, withMissingHomeEmpty } from "./pi-run-home.ts";
+import { prepareHome } from "./pi-run-home.ts";
 import { RunLeaseAlarm } from "./pi-run-lease.ts";
 import {
   type McpSessions,
@@ -617,18 +617,10 @@ export class PiRun extends DurableObject<Env> {
       return;
     }
     const slug = await this.#agentSlug();
-    const ops = bindLibraryOps(this.#services().library, principalOf(run));
     return createLibraryEnv({
       // Relative paths land in the agent's home. A session from before the slug was stored starts at the root.
       cwd: slug ? `${LIBRARY_MOUNT}/${agentHomePath(slug)}` : undefined,
-      // A dry run never made the home, so it lists as empty.
-      ops: slug
-        ? withMissingHomeEmpty(
-            ops,
-            slug,
-            (await this.ctx.storage.get<boolean>(DRY_RUN_KEY)) ?? false
-          )
-        : ops,
+      ops: bindLibraryOps(this.#services().library, principalOf(run)),
       workspaceId: run.workspaceId,
     });
   }

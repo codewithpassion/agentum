@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ServiceError } from "@repo/services/errors";
-import type { LibraryOps } from "./library-bash/library-fs.ts";
-import { prepareHome, withMissingHomeEmpty } from "./pi-run-home.ts";
+import { prepareHome } from "./pi-run-home.ts";
 
 /** A library with no folders, which records every call that writes. */
 const fakeLibrary = () => {
@@ -38,36 +37,5 @@ describe("prepareHome", () => {
     await prepareHome(ops, "pelican", true);
 
     expect(writes).toEqual([]);
-  });
-});
-
-describe("withMissingHomeEmpty", () => {
-  const listed = (dryRun: boolean, dir: string) => {
-    const { ops, writes } = fakeLibrary();
-    const bound = withMissingHomeEmpty(
-      ops as unknown as LibraryOps,
-      "pelican",
-      dryRun
-    );
-    return { result: bound.list(dir), writes };
-  };
-
-  test("a dry run lists a missing home as empty and writes nothing", async () => {
-    const { result, writes } = listed(true, "agents/pelican");
-
-    expect(await result).toEqual([]);
-    expect(writes).toEqual([]);
-  });
-
-  test("a dry run still fails for any other missing folder", async () => {
-    const { result } = listed(true, "agents/other");
-
-    await expect(result).rejects.toThrow("Not found");
-  });
-
-  test("a normal run keeps the not found answer", async () => {
-    const { result } = listed(false, "agents/pelican");
-
-    await expect(result).rejects.toThrow("Not found");
   });
 });
