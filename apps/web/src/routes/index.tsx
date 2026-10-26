@@ -23,7 +23,7 @@ export const Route = createFileRoute("/")({
       }
       throw error;
     }
-    throw redirect({ to: "/agents" });
+    throw redirect({ to: "/desk" });
   },
   component: Landing,
 });

@@ -16,10 +16,12 @@ import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as AppConnectorsRouteImport } from './routes/_app/connectors'
+import { Route as AppDeskRouteImport } from './routes/_app/desk'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
 import { Route as AppLibraryRouteImport } from './routes/_app/library'
 import { Route as AppLogRouteImport } from './routes/_app/log'
 import { Route as AppMachinesRouteImport } from './routes/_app/machines'
+import { Route as AppMapRouteImport } from './routes/_app/map'
 import { Route as AppRoutinesRouteImport } from './routes/_app/routines'
 import { Route as AppSessionsRouteImport } from './routes/_app/sessions'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
@@ -72,6 +74,11 @@ const AppConnectorsRoute = AppConnectorsRouteImport.update({
   path: '/connectors',
   getParentRoute: () => AppRoute,
 } as any)
+const AppDeskRoute = AppDeskRouteImport.update({
+  id: '/desk',
+  path: '/desk',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppInboxRoute = AppInboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
@@ -90,6 +97,11 @@ const AppLogRoute = AppLogRouteImport.update({
 const AppMachinesRoute = AppMachinesRouteImport.update({
   id: '/machines',
   path: '/machines',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMapRoute = AppMapRouteImport.update({
+  id: '/map',
+  path: '/map',
   getParentRoute: () => AppRoute,
 } as any)
 const AppRoutinesRoute = AppRoutinesRouteImport.update({
@@ -188,10 +200,12 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/sign-up': typeof SignUpRoute
   '/connectors': typeof AppConnectorsRoute
+  '/desk': typeof AppDeskRoute
   '/inbox': typeof AppInboxRoute
   '/library': typeof AppLibraryRoute
   '/log': typeof AppLogRoute
   '/machines': typeof AppMachinesRoute
+  '/map': typeof AppMapRoute
   '/routines': typeof AppRoutinesRoute
   '/sessions': typeof AppSessionsRoute
   '/settings': typeof AppSettingsRouteWithChildren
@@ -217,10 +231,12 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/sign-up': typeof SignUpRoute
   '/connectors': typeof AppConnectorsRoute
+  '/desk': typeof AppDeskRoute
   '/inbox': typeof AppInboxRoute
   '/library': typeof AppLibraryRoute
   '/log': typeof AppLogRoute
   '/machines': typeof AppMachinesRoute
+  '/map': typeof AppMapRoute
   '/routines': typeof AppRoutinesRoute
   '/sessions': typeof AppSessionsRoute
   '/triggers': typeof AppTriggersRoute
@@ -247,10 +263,12 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/sign-up': typeof SignUpRoute
   '/_app/connectors': typeof AppConnectorsRoute
+  '/_app/desk': typeof AppDeskRoute
   '/_app/inbox': typeof AppInboxRoute
   '/_app/library': typeof AppLibraryRoute
   '/_app/log': typeof AppLogRoute
   '/_app/machines': typeof AppMachinesRoute
+  '/_app/map': typeof AppMapRoute
   '/_app/routines': typeof AppRoutinesRoute
   '/_app/sessions': typeof AppSessionsRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
@@ -278,10 +296,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/sign-up'
     | '/connectors'
+    | '/desk'
     | '/inbox'
     | '/library'
     | '/log'
     | '/machines'
+    | '/map'
     | '/routines'
     | '/sessions'
     | '/settings'
@@ -307,10 +327,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/sign-up'
     | '/connectors'
+    | '/desk'
     | '/inbox'
     | '/library'
     | '/log'
     | '/machines'
+    | '/map'
     | '/routines'
     | '/sessions'
     | '/triggers'
@@ -336,10 +358,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/sign-up'
     | '/_app/connectors'
+    | '/_app/desk'
     | '/_app/inbox'
     | '/_app/library'
     | '/_app/log'
     | '/_app/machines'
+    | '/_app/map'
     | '/_app/routines'
     | '/_app/sessions'
     | '/_app/settings'
@@ -419,6 +443,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppConnectorsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/desk': {
+      id: '/_app/desk'
+      path: '/desk'
+      fullPath: '/desk'
+      preLoaderRoute: typeof AppDeskRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/inbox': {
       id: '/_app/inbox'
       path: '/inbox'
@@ -445,6 +476,13 @@ declare module '@tanstack/react-router' {
       path: '/machines'
       fullPath: '/machines'
       preLoaderRoute: typeof AppMachinesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/map': {
+      id: '/_app/map'
+      path: '/map'
+      fullPath: '/map'
+      preLoaderRoute: typeof AppMapRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/routines': {
@@ -597,10 +635,12 @@ const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
 
 interface AppRouteChildren {
   AppConnectorsRoute: typeof AppConnectorsRoute
+  AppDeskRoute: typeof AppDeskRoute
   AppInboxRoute: typeof AppInboxRoute
   AppLibraryRoute: typeof AppLibraryRoute
   AppLogRoute: typeof AppLogRoute
   AppMachinesRoute: typeof AppMachinesRoute
+  AppMapRoute: typeof AppMapRoute
   AppRoutinesRoute: typeof AppRoutinesRoute
   AppSessionsRoute: typeof AppSessionsRoute
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
@@ -614,10 +654,12 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppConnectorsRoute: AppConnectorsRoute,
+  AppDeskRoute: AppDeskRoute,
   AppInboxRoute: AppInboxRoute,
   AppLibraryRoute: AppLibraryRoute,
   AppLogRoute: AppLogRoute,
   AppMachinesRoute: AppMachinesRoute,
+  AppMapRoute: AppMapRoute,
   AppRoutinesRoute: AppRoutinesRoute,
   AppSessionsRoute: AppSessionsRoute,
   AppSettingsRoute: AppSettingsRouteWithChildren,
