@@ -242,3 +242,27 @@ describe("errorResult", () => {
     expect(textOf(result)).not.toContain("secret");
   });
 });
+
+describe("computer and browser capabilities", () => {
+  test("requires opt-in and a port and never offers takeover", () => {
+    const ports: McpPorts = {
+      ...fakePorts,
+      computer: { exec: uncalled, readFile: uncalled, writeFile: uncalled, listDir: uncalled, desktopInput: uncalled, screenshot: uncalled },
+      browser: { navigate: uncalled, snapshot: uncalled, click: uncalled, fill: uncalled, screenshot: uncalled },
+    };
+    for (const computer of [undefined, { desktop: false }, { desktop: true }]) {
+      for (const browser of [false, true]) {
+        for (const readOnly of [false, true]) {
+          for (const bound of [fakePorts, ports]) {
+            const names = harbourmasterTools(bound, { computer, browser, readOnly }).map((tool) => tool.name);
+            expect(names.includes("computer_exec")).toBe(Boolean(computer && bound.computer && !readOnly));
+            expect(names.includes("desktop_input")).toBe(Boolean(computer?.desktop && bound.computer && !readOnly));
+            expect(names.includes("browser_snapshot")).toBe(Boolean(browser && bound.browser && !readOnly));
+            expect(names).not.toContain("request_human_takeover");
+            expect(names).not.toContain("desktop_screenshot");
+          }
+        }
+      }
+    }
+  });
+});
