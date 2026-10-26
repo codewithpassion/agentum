@@ -8,7 +8,6 @@ import {
   Harness,
 } from "@earendil-works/pi-durable";
 import type { Masker } from "@repo/protocol/masker";
-import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
 import { CLOUD_LEASE_MS } from "@repo/services/cloud/lease";
 import {
   cloudModelError,
@@ -48,6 +47,7 @@ import {
   createRunCore,
   type PiPort,
   type RunRef,
+  runsInVm,
   SERVERS_KEY,
 } from "./pi-run-core.ts";
 import { workspaceKeyStore } from "./pi-run-credentials.ts";
@@ -100,6 +100,8 @@ const TOOLS_KEY = "mcp-tools";
 const WORKSPACE_KEY = "workspace";
 /** The newest run of the session. Its principal reads and writes the library for Pi's file tools, which know no run of their own. */
 const RUN_KEY = "run";
+/** Whether the newest run is a dry run, so the gate skips what is not read-only. */
+const DRY_RUN_KEY = "dry-run";
 /** The id of the session this object serves, as the stream names it. Stored beside the run, because the run reference has no session. */
 const SESSION_KEY = "session";
 /** The slug of the agent of the newest run: its library home is `agents/<slug>`. */
@@ -247,7 +249,18 @@ export class PiRun extends DurableObject<Env> {
 
   /** Asks a person before a ruled tool runs, and carries the `ask_user` tool. */
   readonly #gate = createGate({
+    isDryRun: async () =>
+      (await this.ctx.storage.get<boolean>(DRY_RUN_KEY)) ?? false,
+    maskerOf: async () => {
+      const run = await this.#storedRun("the dry-run gate");
+      return await this.#services().secrets.maskerFor(
+        run.workspaceId,
+        run.agentId
+      );
+    },
     originOf: (piName) => this.#origins.get(piName),
+    recordSkip: (runId, skip) =>
+      this.#services().runs.recordDryRunSkip(SYSTEM_PRINCIPAL, runId, skip),
     requests: {
       needsApproval: (input) =>
         this.#services().requests.needsApproval(SYSTEM_PRINCIPAL, input),
@@ -445,7 +458,7 @@ export class PiRun extends DurableObject<Env> {
 
   /** Stores which environment and network setting the agent of this run asks for, and switches to them. */
   async #selectEnvironment(input: CloudStart) {
-    const inVm = cloudEnvironmentOf(input.agent.runtimeConfig) === "linux-vm";
+    const inVm = runsInVm(input);
     if (inVm) {
       await this.ctx.storage.put(VM_KEY, input.run.agentId);
     } else {
@@ -1118,6 +1131,7 @@ export class PiRun extends DurableObject<Env> {
   async #prepareRun(input: CloudStart): Promise<void> {
     await this.ctx.storage.put(WORKSPACE_KEY, input.run.workspaceId);
     await this.ctx.storage.put(RUN_KEY, runRefOf(input));
+    await this.ctx.storage.put(DRY_RUN_KEY, input.run.dryRun);
     await this.ctx.storage.put(SESSION_KEY, input.run.sessionId);
     await this.ctx.storage.put(AGENT_SLUG_KEY, input.agent.slug);
     await this.#selectEnvironment(input);

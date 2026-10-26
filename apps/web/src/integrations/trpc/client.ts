@@ -15,6 +15,14 @@ import {
 } from "@trpc/client";
 import { createSsrContext } from "#/server/trpc/context";
 import { type AppRouter, appRouter } from "#/server/trpc/router";
+import { createUnloadSafeFetch } from "./unload-safe-fetch";
+
+// One wrapper for the page, since getTrpc() builds a client on every call.
+let browserFetch: ReturnType<typeof createUnloadSafeFetch> | undefined;
+const getBrowserFetch = () => {
+  browserFetch ??= createUnloadSafeFetch(window, (...args) => fetch(...args));
+  return browserFetch;
+};
 
 export const getTrpc = createIsomorphicFn()
   .server(() =>
@@ -29,6 +37,6 @@ export const getTrpc = createIsomorphicFn()
   )
   .client(() =>
     createTRPCClient<AppRouter>({
-      links: [httpBatchLink({ url: "/api/trpc" })],
+      links: [httpBatchLink({ fetch: getBrowserFetch(), url: "/api/trpc" })],
     })
   );
