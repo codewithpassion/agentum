@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Task 214</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+a{color:#0b5c5c}a:hover{color:#084646}
+.app{font-family:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.45;color:#1b2230;background:#f3f4f6;display:flex;flex-wrap:wrap;min-height:960px}
+.nav{flex:1 1 210px;max-width:240px;background:#fff;border-right:1px solid #e2e4e9;padding:20px 12px;display:flex;flex-direction:column;gap:2px}
+.brand{font-weight:700;font-size:15px;padding:4px 10px 16px;display:flex;align-items:center;gap:8px}
+.mark{width:22px;height:22px;border-radius:6px;background:#0d6e6e}
+.ni{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px;color:#3a4252;text-decoration:none}
+.ni:hover{background:#f3f4f6;color:#1b2230}
+.ni.on{background:#e2f2f1;color:#0b5c5c;font-weight:600}
+.main{flex:999 1 560px;min-width:0;padding:24px 28px 40px;display:flex;flex-direction:column;gap:16px}
+h1{margin:0;font-size:22px;letter-spacing:-.01em}
+h2{margin:0;font-size:15px}
+.sub{color:#5d6576;font-size:13px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid #cdd1d9;background:#fff;color:#1b2230;font-family:inherit;font-weight:600;font-size:13px;line-height:1.2;text-decoration:none;cursor:pointer}
+.btn.p{background:#0d6e6e;border-color:#0d6e6e;color:#fff}
+.btn.ok{background:#1c7a46;border-color:#1c7a46;color:#fff}
+.btn.no{color:#9b1c28;border-color:#e3a3aa}
+.btn.sm{padding:5px 9px;font-size:12px}
+.btn.y{background:#ffd54a;border-color:#ffd54a;color:#1b2230}
+.card{background:#fff;border:1px solid #e2e4e9;border-radius:10px;overflow:hidden}
+.card.paused{border-color:#f0c94a;box-shadow:0 0 0 3px #fff4cf}
+.hd{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.t{font-weight:600}
+.s{font-size:12px;color:#5d6576}
+.in{padding:0 12px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.band{padding:6px 12px;font-size:12.5px;border-top:1px solid #e2e4e9}
+.band.ok{background:#e3f4ea;color:#155c35;border-top-color:#cfe9d9}
+.band.w{background:#fff4cf;color:#6e4a00;border-top-color:#f0d98a}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid #d7dae1;border-radius:99px;background:#fff;font-size:12px;white-space:nowrap;color:#1b2230}
+.kv{display:inline-flex;border:1px solid #d7dae1;border-radius:6px;overflow:hidden;font-size:12px;max-width:100%}
+.kv b{background:#eceef2;color:#3a4252;padding:2px 7px;font-weight:500;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px}
+.kv span{padding:2px 7px;background:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.io{font-size:11px;color:#5d6576;font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-right:2px}
+.tile{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:8px;color:#fff;font-weight:700;font-size:12px;flex:none}
+.tile.sm{width:22px;height:22px;border-radius:6px;font-size:10px}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11.5px;font-weight:600;background:#eceef2;color:#3a4252;white-space:nowrap}
+.pill.w{background:#fff4cf;color:#6e4a00}.pill.ok{background:#e3f4ea;color:#155c35}
+.lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#5d6576;font-weight:600}
+.link{display:flex;flex-direction:column;align-items:center;height:34px;position:relative}
+.link:before{content:"";width:2px;flex:1;background:#3b9a62}
+.cnt{position:absolute;top:50%;left:calc(50% + 10px);transform:translateY(-50%);font-size:11px;font-weight:600;padding:0 7px;border-radius:99px;background:#fff;border:1px solid #9fd1b2;color:#155c35;line-height:18px;white-space:nowrap}
+.needs{background:#fff4cf;border-top:1px solid #f0d98a;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.desk{background:#1d2130;border-radius:10px;padding:10px;color:#dfe4f1;font-size:12px}
+.win{background:#f4f5f8;color:#1f2330;border-radius:6px;overflow:hidden}
+.wb{background:#dfe2ea;padding:4px 8px;font-size:11px;color:#3e4558;font-family:'IBM Plex Mono',monospace}
+.ghost{background:#d9dce5;border-radius:3px;height:8px;margin:7px 0}
+.log{list-style:none;margin:0;padding:0;font-size:12.5px}
+.log li{display:grid;grid-template-columns:92px 1fr;gap:8px;padding:6px 0;border-top:1px solid #eceef2;align-items:start}
+.log li:first-child{border-top:0}
+.tag{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;padding:1px 6px;border-radius:4px;white-space:nowrap;justify-self:start}
+.msg{display:flex;gap:10px;align-items:flex-start}
+.bubble{background:#f3f4f6;border-radius:10px;padding:8px 11px;font-size:13px}
+.tool{border:1px solid #e2e4e9;border-radius:8px;padding:6px 9px;display:flex;align-items:center;gap:8px;font-size:12px;background:#fff}
+</style>
+</helmet>
+<div class="app">
+  <nav class="nav" aria-label="Main">
+    <div class="brand"><span class="mark" aria-hidden="true"></span>harbourmaster</div>
+    <a class="ni on" href="Main.dc.html">Desk <span class="pill w">4</span></a>
+    <a class="ni" href="Agent.dc.html">Agents</a>
+    <a class="ni" href="Map.dc.html">Map</a>
+    <a class="ni" href="Library.dc.html">Library</a>
+    <a class="ni" href="Library.dc.html">Skills</a>
+    <a class="ni" href="Agent.dc.html">Machines</a>
+  </nav>
+
+  <main class="main">
+    <div class="sub"><a href="Main.dc.html">Desk</a> › Task #214</div>
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+      <h1 style="flex: 1 1 320px">#214 Pay October supplier bills</h1>
+      <span class="pill w">Paused, needs you</span>
+      <button class="btn sm" type="button">Stop task</button>
+    </div>
+    <div class="chips">
+      <span class="kv"><b>agent</b><span>Bookkeeper</span></span>
+      <span class="kv"><b>started by</b><span>handoff from Inbox Triage</span></span>
+      <span class="kv"><b>runs on</b><span>Cloudflare</span></span>
+      <span class="kv"><b>computer</b><span>Linux desktop (cloud)</span></span>
+      <span class="kv"><b>cost so far</b><span>$0.18</span></span>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+
+      <section style="flex: 1 1 460px; min-width: 0; display: flex; flex-direction: column" aria-label="Receipt">
+        <div class="lbl" style="margin-bottom: 8px">Receipt</div>
+
+        <div class="card">
+          <div class="hd"><span class="tile" style="background: #c2410c">@</span><div style="flex: 1; min-width: 0"><div class="t">1. Mail to triage@saltwater.co</div><div class="s">Trigger · 08:01</div></div></div>
+          <div class="band ok">23 new emails arrived since 07:00.</div>
+        </div>
+        <div class="link"><span class="cnt">23 emails</span></div>
+
+        <div class="card">
+          <div class="hd"><span class="tile" style="background: #c2410c">IT</span><div style="flex: 1; min-width: 0"><div class="t">2. Inbox Triage sorts the mail</div><div class="s">Skill: Sort supplier email v2</div></div></div>
+          <div class="in"><span class="io">out</span><span class="kv"><b>invoices</b><span>4</span></span><span class="kv"><b>urgent</b><span>2</span></span><span class="kv"><b>other</b><span>17</span></span></div>
+          <div class="band ok">Found 4 supplier invoices and handed them to Bookkeeper.</div>
+        </div>
+        <div class="link"><span class="cnt">4 invoices</span></div>
+
+        <div class="card">
+          <div class="hd"><span class="tile" style="background: #15803d">BK</span><div style="flex: 1; min-width: 0"><div class="t">3. Bookkeeper enters bills in Xero</div><div class="s">Tool: Xero · create bill ×3</div></div></div>
+          <div class="in"><span class="io">out</span><span class="kv"><b>total</b><span>$4,980</span></span><span class="kv"><b>files</b><span>invoices/2026-10/ v2</span></span></div>
+          <div class="band ok">Entered 3 bills. Acme Print's total is $40 over PO 5521.</div>
+        </div>
+        <div class="link"><span class="cnt">1 query</span></div>
+
+        <div class="card paused">
+          <div class="hd"><span class="tile" style="background: #15803d">BK</span><div style="flex: 1; min-width: 0"><div class="t">4. Email Acme about the difference</div><div class="s">Tool: send from bookkeeper@saltwater.co</div></div><span class="pill w">Needs you</span></div>
+          <div class="in"><span class="io">in</span><span class="kv"><b>to</b><span>accounts@acme.com</span></span><span class="kv"><b>subject</b><span>Invoice 1043 query</span></span></div>
+          <div class="needs">
+            <div style="font-size: 13px">"Hi Sam, the total on invoice 1043 is $40 over PO 5521. Could you send a corrected copy? Thanks, Saltwater Studio accounts."</div>
+            <div class="chips"><button class="btn ok sm" type="button">Allow once</button><button class="btn sm" type="button">Always allow for acme.com</button><button class="btn no sm" type="button">Deny</button><button class="btn sm" type="button">Edit draft</button></div>
+          </div>
+        </div>
+        <div class="link" style="opacity: .5"></div>
+
+        <div class="card" style="opacity: .65">
+          <div class="hd"><span class="tile" style="background: #15803d">BK</span><div style="flex: 1; min-width: 0"><div class="t">5. Pay the two bills due today</div><div class="s">Computer: bank portal in the browser</div></div></div>
+          <div class="band">Waiting for step 4.</div>
+        </div>
+      </section>
+
+      <section style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 16px" aria-label="Live computer, log and thread">
+        <div class="card" style="padding: 12px; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap"><h2>Bookkeeper's computer</h2><span class="pill" style="background: #fde8ea; color: #9b1c28">● Live</span></div>
+          <div class="desk">
+            <div class="win">
+              <div class="wb">netbank.example.com/login</div>
+              <div style="padding: 12px">
+                <div style="font-weight: 600; font-size: 13px">Enter the code we sent to your phone</div>
+                <div class="ghost" style="width: 70%"></div>
+                <div class="ghost" style="width: 45%"></div>
+                <span style="display: inline-block; background: #3d5afe; color: #fff; border-radius: 4px; padding: 3px 9px; font-size: 11px; font-weight: 600">Verify</span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap">
+              <button class="btn y sm" type="button">Take over</button>
+              <span style="opacity: .8">The agent waits while you drive. Hand back with "I'm done".</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="padding: 12px; display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap"><h2>Files</h2><span class="s">Live from the task folder · synced from the agent's computer</span></div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5d6576">library/agents/bookkeeper/tasks/214/</div>
+          <ul class="log">
+            <li><span class="tag" style="background: #e3f4ea; color: #155c35">new · v1</span><span><b>acme-1043-query.eml</b> <span class="s">draft · 2 KB · 10:01</span></span></li>
+            <li><span class="tag" style="background: #e3f4ea; color: #155c35">new · v1</span><span><b>bills-entered.csv</b> <span class="s">3 rows · 10:00</span></span></li>
+            <li><span class="tag" style="background: #e6effc; color: #1d4f9c">edited · v12</span><span><b>finance/ledger.csv</b> <span class="s">outside the task folder · read and write · 09:58</span></span></li>
+            <li><span class="tag" style="background: #fff4cf; color: #6e4a00">conflict</span><span><b>finance/suppliers.md</b> <span class="s">changed in the library while the agent edited it. Both versions kept.</span> <a href="Library.dc.html">Compare</a></span></li>
+          </ul>
+          <div class="chips"><a class="btn sm" href="Library.dc.html">Open in library</a><button class="btn sm" type="button">Download all</button></div>
+        </div>
+
+        <div class="card" style="padding: 12px">
+          <h2 style="margin-bottom: 6px">Action log</h2>
+          <ul class="log">
+            <li><span class="tag" style="background: #eceef2; color: #3a4252">thought</span><span>Two bills are due today. Pay those after the Acme query.</span></li>
+            <li><span class="tag" style="background: #e7e3fb; color: #3f2fa6">tool_call</span><span>xero.create_bill ×3</span></li>
+            <li><span class="tag" style="background: #e3f4ea; color: #155c35">tool_result</span><span>3 bills created, total $4,980</span></li>
+            <li><span class="tag" style="background: #e6effc; color: #1d4f9c">note</span><span>Asked Dom before emailing an outside contact.</span></li>
+            <li><span class="tag" style="background: #fde8ea; color: #9b1c28">error</span><span>Bank portal wants a 2FA code. Requested take-over.</span></li>
+          </ul>
+        </div>
+
+        <div class="card" style="padding: 12px; display: flex; flex-direction: column; gap: 10px">
+          <h2>Thread</h2>
+          <div class="msg"><span class="tile sm" style="background: #4b5563">D</span><div class="bubble">If a total differs from the PO, ask the supplier before paying.</div></div>
+          <div class="msg"><span class="tile sm" style="background: #15803d">BK</span><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <div class="tool"><span class="pill ok">done</span><span style="font-family: 'IBM Plex Mono', monospace">xero.create_bill</span><span class="s">3 calls · 2.1 s</span></div>
+            <div class="bubble">Done for Kiwi Print and Ply &amp; Co. Acme is $40 over the PO, so I drafted a query. It needs your OK because Acme is outside the studio.</div>
+          </div></div>
+          <div style="display: flex; gap: 8px; align-items: center; border: 1px solid #cdd1d9; border-radius: 10px; padding: 8px 10px">
+            <label for="reply" style="position: absolute; left: -9999px">Message Bookkeeper</label>
+            <input id="reply" type="text" placeholder="Message Bookkeeper about this task…" style="flex: 1; min-width: 0; border: 0; outline: 0; font: inherit; font-size: 13px; background: transparent">
+            <button class="btn sm" type="button">Attach</button>
+            <button class="btn p sm" type="button">Send</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

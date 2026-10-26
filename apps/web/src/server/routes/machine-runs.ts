@@ -15,6 +15,7 @@ import {
   hasDaemonFeature,
   waitRequestResponseSchema,
 } from "@repo/protocol/machine";
+import type { ApprovalDisplay } from "@repo/protocol/requests";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import type { MachinePrincipal } from "@repo/services/machines";
@@ -74,6 +75,14 @@ const waitMsOf = (raw: string | undefined): number => {
   const seconds = Number(raw);
   return Number.isFinite(seconds) && seconds > 0 ? seconds * MS_PER_SECOND : 0;
 };
+
+/**
+ * The tool input as `requests.open` takes it. For an input over its byte limit
+ * the daemon sends a text preview, which is not an object, so it goes in as
+ * `{ preview }`. The scrub and the masker still run on it.
+ */
+const openInputOf = (input: ApprovalDisplay["input"]) =>
+  typeof input === "string" ? { preview: input } : input;
 
 const readJson = (c: RouteContext): Promise<unknown> =>
   c.req.json().catch(() => undefined);
@@ -160,7 +169,7 @@ export const machineRunRoutes = () => {
       if (kind === "approval" && "input" in display) {
         input = {
           ...base,
-          input: display.input,
+          input: openInputOf(display.input),
           kind,
           toolKey: display.toolKey || undefined,
         };

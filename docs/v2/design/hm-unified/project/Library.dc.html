@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Library</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+a{color:#0b5c5c}a:hover{color:#084646}
+.app{font-family:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.45;color:#1b2230;background:#f3f4f6;display:flex;flex-wrap:wrap;min-height:960px}
+.nav{flex:1 1 210px;max-width:240px;background:#fff;border-right:1px solid #e2e4e9;padding:20px 12px;display:flex;flex-direction:column;gap:2px}
+.brand{font-weight:700;font-size:15px;padding:4px 10px 16px;display:flex;align-items:center;gap:8px}
+.mark{width:22px;height:22px;border-radius:6px;background:#0d6e6e}
+.ni{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px;color:#3a4252;text-decoration:none}
+.ni:hover{background:#f3f4f6;color:#1b2230}
+.ni.on{background:#e2f2f1;color:#0b5c5c;font-weight:600}
+.main{flex:999 1 560px;min-width:0;padding:24px 28px 40px;display:flex;flex-direction:column;gap:16px}
+h1{margin:0;font-size:22px;letter-spacing:-.01em}
+h2{margin:0;font-size:15px}
+.sub{color:#5d6576;font-size:13px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid #cdd1d9;background:#fff;color:#1b2230;font-family:inherit;font-weight:600;font-size:13px;line-height:1.2;text-decoration:none;cursor:pointer}
+.btn.p{background:#0d6e6e;border-color:#0d6e6e;color:#fff}
+.btn.ok{background:#1c7a46;border-color:#1c7a46;color:#fff}
+.btn.no{color:#9b1c28;border-color:#e3a3aa}
+.btn.sm{padding:5px 9px;font-size:12px}
+.card{background:#fff;border:1px solid #e2e4e9;border-radius:10px;overflow:hidden}
+.pad{padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.s{font-size:12px;color:#5d6576}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid #d7dae1;border-radius:99px;background:#fff;font-size:12px;white-space:nowrap;color:#1b2230}
+.tile{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;color:#fff;font-weight:700;font-size:10px;flex:none}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11.5px;font-weight:600;background:#eceef2;color:#3a4252;white-space:nowrap}
+.pill.w{background:#fff4cf;color:#6e4a00}.pill.a{background:#e2f2f1;color:#0b5c5c}
+.lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#5d6576;font-weight:600}
+.tree{font-size:13px;line-height:1.9}
+.tree div{padding-left:0}
+.tree .l1{padding-left:14px}
+.tree .l2{padding-left:28px}
+.tree .sel{background:#e2f2f1;color:#0b5c5c;font-weight:600;border-radius:5px;padding-left:28px}
+.wl{color:#0b5c5c;background:#e2f2f1;border-radius:4px;padding:0 4px;font-weight:600;white-space:nowrap}
+.wl.broken{color:#9b1c28;background:#fde8ea;text-decoration:underline dotted}
+.ins{background:#e3f4ea;color:#155c35;border-radius:3px;padding:0 3px}
+.del{background:#fde8ea;color:#9b1c28;border-radius:3px;padding:0 3px;text-decoration:line-through}
+.ver{display:grid;grid-template-columns:44px minmax(0,1fr);gap:10px;padding:8px 0;border-top:1px solid #eceef2;align-items:start;font-size:13px}
+.ver:first-child{border-top:0}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #eceef2}
+th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#5d6576}
+</style>
+</helmet>
+<div class="app">
+  <nav class="nav" aria-label="Main">
+    <div class="brand"><span class="mark" aria-hidden="true"></span>harbourmaster</div>
+    <a class="ni" href="Main.dc.html">Desk <span class="pill w">4</span></a>
+    <a class="ni" href="Agent.dc.html">Agents</a>
+    <a class="ni" href="Map.dc.html">Map</a>
+    <a class="ni on" href="Library.dc.html">Library</a>
+    <a class="ni" href="Library.dc.html">Skills</a>
+    <a class="ni" href="Agent.dc.html">Machines</a>
+  </nav>
+
+  <main class="main">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+      <div style="flex: 1 1 260px"><h1>Library</h1><div class="sub">One shared, versioned space for wiki pages, files and skills. Agents and people write here.</div></div>
+      <button class="btn sm" type="button">Upload</button>
+      <button class="btn p sm" type="button">+ New page</button>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+      <aside class="card" style="flex: 1 1 200px; max-width: 260px; min-width: 0" aria-label="Library tree">
+        <div class="pad tree">
+          <div class="lbl">Wiki</div>
+          <div>Company</div>
+          <div class="l1">Operations</div>
+          <div class="l2">Inbox playbook</div>
+          <div class="l1">Finance</div>
+          <div class="sel">Suppliers</div>
+          <div class="l2">Month-end</div>
+          <div class="lbl" style="margin-top: 8px">Files</div>
+          <div>invoices/2026-10 <span class="s">14</span></div>
+          <div>research/ <span class="s">6</span></div>
+          <div>finance/backups/ <span class="s">3</span></div>
+          <div class="lbl" style="margin-top: 8px">Skills</div>
+          <div>Month-end close <span class="pill w">v4?</span></div>
+          <div>Sort supplier email</div>
+          <div>Expense policy <span class="s">GitHub</span></div>
+        </div>
+      </aside>
+
+      <article class="card" style="flex: 999 1 460px; min-width: 0" aria-label="Wiki page">
+        <div class="pad">
+          <div class="s">Wiki › Company › Finance › Suppliers</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center"><h2 style="font-size: 20px; flex: 1 1 200px">Suppliers</h2><span class="pill a">v7</span><span class="s">Edited by Bookkeeper, 09:14</span><button class="btn sm" type="button">Edit</button></div>
+          <p style="margin: 0">Current list: <span class="wl">[[files/suppliers-2026.xlsx]]</span>. The 2025 list is archived. Bills go to Xero, receipts to <span class="wl">[[files/invoices]]</span>, following <span class="wl">[[Finance/Month-end]]</span>.</p>
+          <table>
+            <thead><tr><th>Supplier</th><th>Terms</th><th>Contact</th><th>Note</th></tr></thead>
+            <tbody>
+              <tr><td>Acme Print</td><td>14 days</td><td style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">accounts@acme.com</td><td>Totals must match the PO</td></tr>
+              <tr><td>Kiwi Print</td><td>30 days</td><td style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">ap@kiwiprint.co</td><td>Sends receipts by email</td></tr>
+              <tr><td>Fern &amp; Co</td><td>14 days</td><td style="font-family: 'IBM Plex Mono', monospace; font-size: 12px"><span class="del">ap@fernco.co.nz</span> <span class="ins">ap@fernco.nz</span></td><td>Old address bounced on 27 Oct</td></tr>
+            </tbody>
+          </table>
+          <p style="margin: 0" class="s">Linked from <span class="wl">[[Agents/Bookkeeper]]</span> <span class="wl">[[Inbox playbook]]</span> <span class="wl broken">[[Supplier onboarding]]</span> (page missing)</p>
+          <div style="background: #fff4cf; border: 1px solid #f0c94a; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px">
+            <div style="font-weight: 600; color: #6e4a00; display: flex; gap: 8px; align-items: center"><span class="tile" style="background: #c2410c">IT</span>Inbox Triage suggests an edit</div>
+            <div style="font-size: 13px">Fern &amp; Co's address changed: the bounce on task #210 came back with a forwarding note.</div>
+            <div class="chips"><button class="btn ok sm" type="button">Accept as v8</button><button class="btn sm" type="button">Edit first</button><button class="btn no sm" type="button">Reject</button></div>
+          </div>
+        </div>
+      </article>
+
+      <aside class="card" style="flex: 1 1 260px; min-width: 0" aria-label="History">
+        <div class="pad">
+          <h2>History</h2>
+          <div>
+            <div class="ver"><span class="pill w">v8?</span><span><b>Inbox Triage</b> · suggested<br><span class="s">Fern &amp; Co contact</span></span></div>
+            <div class="ver"><span class="pill a">v7</span><span><b>Bookkeeper</b> · 09:14<br><span class="s">Added Acme PO rule</span></span></div>
+            <div class="ver"><span class="pill">v6</span><span><b>Dom</b> · Fri<br><span class="s">Archived the 2025 list</span></span></div>
+            <div class="ver"><span class="pill">v5</span><span><b>Researcher</b> · Thu<br><span class="s">Added Kiwi Print terms</span></span></div>
+          </div>
+          <div class="chips"><button class="btn sm" type="button">Compare v6 and v7</button><button class="btn sm" type="button">Restore v6</button></div>
+          <div class="lbl" style="margin-top: 6px">Same history for files</div>
+          <div class="s">Every file in the library keeps its versions and who wrote them. Agents read and write pages through the same tools as files.</div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
