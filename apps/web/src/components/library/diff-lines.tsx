@@ -23,25 +23,34 @@ export function DiffLines({
   before: string;
   testId?: string;
 }) {
-  const lines = useMemo(
-    () => lineDiff(before, after).map((line, key) => ({ ...line, key })),
-    [before, after]
-  );
+  const lines = useMemo(() => {
+    try {
+      return lineDiff(before, after).map((line, key) => ({ ...line, key }));
+    } catch {
+      return null;
+    }
+  }, [before, after]);
   return (
     <pre
       className="max-h-96 overflow-auto rounded-lg border border-input p-2.5 font-mono text-sm"
       data-testid={testId}
     >
-      {lines.length === 0 ? (
-        <span className="text-muted-foreground">No changes.</span>
-      ) : (
-        lines.map((line) => (
-          <div className={DIFF_CLASS[line.kind]} key={line.key}>
-            {DIFF_PREFIX[line.kind]}
-            {line.text}
-          </div>
-        ))
+      {lines === null && (
+        <span className="text-muted-foreground">
+          This diff could not be computed.
+        </span>
       )}
+      {lines?.length === 0 && (
+        <span className="text-muted-foreground">No changes.</span>
+      )}
+      {lines?.length
+        ? lines.map((line) => (
+            <div className={DIFF_CLASS[line.kind]} key={line.key}>
+              {DIFF_PREFIX[line.kind]}
+              {line.text}
+            </div>
+          ))
+        : null}
     </pre>
   );
 }
