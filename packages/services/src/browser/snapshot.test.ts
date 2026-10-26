@@ -84,3 +84,19 @@ describe("summarizeSnapshot", () => {
     expect(summary).toContain("(untitled)");
   });
 });
+
+test("UTF-8 truncation stays within the byte budget without broken characters", () => {
+  const snapshot = buildSnapshot(
+    raw({ text: "🙂".repeat(MAX_SNAPSHOT_TEXT_BYTES) })
+  );
+  expect(
+    new TextEncoder().encode(snapshot.text).byteLength
+  ).toBeLessThanOrEqual(MAX_SNAPSHOT_TEXT_BYTES);
+  expect(snapshot.text).not.toContain("�");
+  expect(snapshot.textTruncated).toBe(true);
+});
+test("preserves aria tree indentation supplied as snapshot text", () => {
+  const text =
+    '- main:\n  - heading "Example" [level=1]\n  - button "Continue"';
+  expect(buildSnapshot(raw({ text })).text).toBe(text);
+});

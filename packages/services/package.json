@@ -12,6 +12,7 @@
     "./api-keys": "./src/api-keys.ts",
     "./authz": "./src/authz.ts",
     "./automation-access": "./src/automation-access.ts",
+    "./browser": "./src/browser/index.ts",
     "./cloud/environment": "./src/cloud/environment.ts",
     "./cloud/lease": "./src/cloud/lease.ts",
     "./cloud/models": "./src/cloud/models.ts",

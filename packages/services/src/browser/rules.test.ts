@@ -153,3 +153,13 @@ describe("isSessionStale", () => {
   });
 });
 
+test("normalizes encoded IPv4 and trailing-dot private hosts before checking", () => {
+  for (const url of [
+    "http://localhost./",
+    "http://app.local./",
+    "http://2130706433/",
+    "http://0x7f000001/",
+  ]) {
+    expect(validateUrl(url).ok).toBe(false);
+  }
+});
