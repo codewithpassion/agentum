@@ -13,6 +13,7 @@ import {
   isLocked,
   MAX_IMPORT_BYTES,
   openGaps,
+  redraftBlocker,
   rulesOf,
   runsOnOptions,
   toggleId,
@@ -52,6 +53,17 @@ describe("locked fields", () => {
   test("an empty list is still a lock", () => {
     const next = applyEdit(draft, {}, { tools: [] });
     expect(isLocked(next.locked, "tools")).toBe(true);
+  });
+});
+
+describe("redraftBlocker", () => {
+  test("a named draft with a does can go back", () => {
+    expect(redraftBlocker(draft)).toBeNull();
+  });
+
+  test("a blank name or does blocks the redraft", () => {
+    expect(redraftBlocker({ ...draft, name: "  " })).toContain("Name");
+    expect(redraftBlocker({ ...draft, does: "" })).toContain("what the agent");
   });
 });
 

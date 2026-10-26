@@ -10,6 +10,7 @@ import {
   builderSteps,
   type Locked,
   openGaps,
+  redraftBlocker,
 } from "#/components/agent/builder/builder-logic.ts";
 import { DescribePanel } from "#/components/agent/builder/describe-panel";
 import { DraftCard } from "#/components/agent/builder/draft-card";
@@ -80,8 +81,12 @@ function NewAgent() {
   );
 
   const runDraft = useCallback(async () => {
+    const blocker = draft === undefined ? null : redraftBlocker(draft);
+    setError(blocker);
+    if (blocker !== null) {
+      return;
+    }
     setBusy(true);
-    setError(null);
     try {
       const voicePreset = draft?.voice ?? voice;
       setDrafted(

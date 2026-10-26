@@ -27,6 +27,17 @@ export const applyEdit = (
   locked: { ...locked, ...patch },
 });
 
+/** Why the draft cannot go back to the builder yet, or null. The builder needs a name and a "does". */
+export const redraftBlocker = (draft: AgentDraft): string | null => {
+  if (draft.name.trim() === "") {
+    return "Name the agent before you redraft.";
+  }
+  if (draft.does.trim() === "") {
+    return "Say what the agent does before you redraft.";
+  }
+  return null;
+};
+
 export const isLocked = (locked: Locked, field: keyof AgentDraft): boolean =>
   locked[field] !== undefined;
 
