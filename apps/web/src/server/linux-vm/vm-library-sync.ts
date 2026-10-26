@@ -244,6 +244,14 @@ const realSleep = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
+/** Another sync held the lock for the whole wait. */
+export class LibraryBusyError extends Error {
+  constructor() {
+    super("Another sync holds the library lock");
+    this.name = "LibraryBusyError";
+  }
+}
+
 interface LockOptions {
   now?: () => number;
   retryMs?: number;
@@ -275,7 +283,7 @@ export const withLibraryLock = async <T>(
   // biome-ignore lint/performance/noAwaitInLoops: each try follows the failure of the one before
   while (!(await vm.lockLibrary(owner, ttlMs))) {
     if (now() >= giveUpAt) {
-      throw new Error("Another sync holds the library lock");
+      throw new LibraryBusyError();
     }
     await sleep(retryMs);
   }
@@ -449,7 +457,11 @@ export const syncLibraryPaths = async (input: {
   }
 };
 
-/** Sends the VM's changes back to the library and records each conflict. Never throws. */
+/**
+ * Sends the VM's changes back to the library and records each conflict. Never
+ * throws. With `waitMs: 0` a push that finds another sync holding the lock does
+ * nothing and says nothing, for a push that the next beat repeats anyway.
+ */
 export const syncLibraryOut = async (input: {
   ops: SyncOps;
   recordConflict: (conflict: {
@@ -459,17 +471,21 @@ export const syncLibraryOut = async (input: {
   runId: string;
   storage: Pick<RunStorage, "get">;
   vm: LinuxVm;
+  waitMs?: number;
 }): Promise<void> => {
   try {
     const state = await libraryStateOf(input.storage);
     if (state === undefined) {
       return;
     }
-    const result = await withLibraryLock(input.vm, () =>
-      librarySyncOf(input.vm, input.ops).syncOut({
-        roots: state.roots,
-        runId: input.runId,
-      })
+    const result = await withLibraryLock(
+      input.vm,
+      () =>
+        librarySyncOf(input.vm, input.ops).syncOut({
+          roots: state.roots,
+          runId: input.runId,
+        }),
+      input.waitMs === undefined ? {} : { waitMs: input.waitMs }
     );
     await Promise.all(
       result.conflicts.map(async (conflict) => {
@@ -485,6 +501,9 @@ export const syncLibraryOut = async (input: {
     );
     warnFailed(result.failed, "out of");
   } catch (error) {
+    if (input.waitMs === 0 && error instanceof LibraryBusyError) {
+      return;
+    }
     console.warn(
       "PiRun: syncing the library out of the VM failed",
       messageOf(error)

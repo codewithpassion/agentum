@@ -182,6 +182,8 @@ export class PiRun extends DurableObject<Env> {
   /** The agent's Linux VM, when the agent runs in one. */
   #vm: LinuxVm | undefined;
   #composed: ReturnType<typeof compose> | undefined;
+  /** The push of the VM's library changes that runs now, from the lease alarm. */
+  #checkpointing: Promise<void> | undefined;
   #streams: ReturnType<typeof streamPublisher> | undefined;
   /** The view the deltas are read from, and how many followed runs share it. */
   #deltas: SharedDeltas | undefined;
@@ -593,7 +595,7 @@ export class PiRun extends DurableObject<Env> {
    * newer library file is kept as a conflict copy and logged as a
    * `library.conflict` event on the run. Never throws.
    */
-  async #syncLibraryOut(runId: string) {
+  async #syncLibraryOut(runId: string, waitMs?: number) {
     const stored = await this.ctx.storage.get<RunRef>(RUN_KEY);
     if (!(this.#vm && stored)) {
       return;
@@ -607,7 +609,32 @@ export class PiRun extends DurableObject<Env> {
       runId,
       storage: this.ctx.storage,
       vm: this.#vm,
+      ...(waitMs === undefined ? {} : { waitMs }),
     });
+  }
+
+  /**
+   * The push from the lease alarm. It runs apart from the beat, so a slow walk
+   * of the VM never holds up the alarm's other jobs, and one push runs at a
+   * time. It gives way to a sync that holds the lock and tries again on the
+   * next beat.
+   */
+  #checkpointLibrary(runId: string): Promise<void> {
+    if (this.#vm && !this.#checkpointing) {
+      const push = this.#syncLibraryOut(runId, 0)
+        .catch((error: unknown) => {
+          console.warn(
+            "PiRun: the library checkpoint failed",
+            error instanceof Error ? error.message : String(error)
+          );
+        })
+        .finally(() => {
+          this.#checkpointing = undefined;
+        });
+      this.#checkpointing = push;
+      this.ctx.waitUntil(push);
+    }
+    return Promise.resolve();
   }
 
   /** The environment of Pi's file and shell tools: the VM, or the library for the newest run. Without a run there is no principal, so no library environment. */
@@ -1042,9 +1069,10 @@ export class PiRun extends DurableObject<Env> {
       const { runs } = this.#services();
       return createRunCore({
         // The VM's library changes go back to the library while the run goes on, from the lease alarm. A no-op outside a VM.
-        checkpointLibrary: (runId) => this.#syncLibraryOut(runId),
+        checkpointLibrary: (runId) => this.#checkpointLibrary(runId),
         complete: async (runId, result) => {
           // Before the run ends, so its library events come before run.finished. A retried completion syncs again, which sends nothing new.
+          await this.#checkpointing;
           await this.#syncLibraryOut(runId);
           await runs.completeRun(SYSTEM_PRINCIPAL, runId, result);
           await this.#checkpointVm(runId);

@@ -883,3 +883,42 @@ test("a pull of announced paths does nothing before the run has synced in", asyn
 
   expect(vm.files.has(`${LIBRARY_VM}/agents/ada/a.md`)).toBe(false);
 });
+
+test("a push with no wait does nothing and says nothing while another sync holds the lock", async () => {
+  await service.write(user, "agents/ada/notes.md", bytes("notes"));
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  const vm = createFakeVm();
+  const storage = memoryStorage();
+  await syncLibraryIn({
+    ops: opsFor(runAs("r1")),
+    roots: scope(),
+    slug: "ada",
+    storage,
+    vm,
+  });
+  vm.files.set(`${LIBRARY_VM}/agents/ada/notes.md`, bytes("edit"));
+  await vm.lockLibrary("another-sync", 60_000);
+
+  await syncLibraryOut({
+    ops: opsFor(runAs("r1")),
+    recordConflict: () => Promise.resolve(),
+    runId: "r1",
+    storage,
+    vm,
+    waitMs: 0,
+  });
+
+  expect(await readText("agents/ada/notes.md")).toBe("notes");
+  expect(warn).not.toHaveBeenCalled();
+
+  await vm.unlockLibrary("another-sync");
+  await syncLibraryOut({
+    ops: opsFor(runAs("r1")),
+    recordConflict: () => Promise.resolve(),
+    runId: "r1",
+    storage,
+    vm,
+    waitMs: 0,
+  });
+  expect(await readText("agents/ada/notes.md")).toBe("edit");
+});

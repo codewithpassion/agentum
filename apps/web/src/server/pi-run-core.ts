@@ -87,9 +87,10 @@ export interface RunRef {
 
 export interface RunCoreDeps {
   /**
-   * Sends the run's library changes back while it runs. Called by `beat` for
-   * one active run each time, so the VM's work reaches the library every
-   * HEARTBEAT_MS and not only at the end. It must not throw.
+   * Starts the push of the run's library changes while it runs. Called by
+   * `beat` for one active run each time, so the VM's work reaches the library
+   * about every HEARTBEAT_MS and not only at the end. It returns when the push
+   * is started, not when it ends, and must not throw.
    */
   checkpointLibrary: (runId: string) => Promise<void>;
   complete: (runId: string, result: RunResult) => Promise<void>;
@@ -614,8 +615,7 @@ export const createRunCore = ({
    * not following, so a run whose report or completion failed is tried again.
    * Resolves to whether any run is still active, so the caller knows whether to
    * keep the alarm. A failure on one run does not stop the others. Last, it
-   * sends the library changes back (`checkpointLibrary`), so a slow push never
-   * delays a heartbeat.
+   * starts the push of the library changes (`checkpointLibrary`).
    */
   const beat = async (): Promise<boolean> => {
     const active: [string, StoredRun][] = [];
