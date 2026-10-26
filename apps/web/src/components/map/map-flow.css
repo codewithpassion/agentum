@@ -1,0 +1,18 @@
+/* xyflow reads these custom properties. They point at the app's tokens, so
+   light and dark follow the theme class on <html>. */
+.map-flow {
+  --xy-background-color: var(--muted);
+  --xy-background-pattern-dots-color-default: var(--border);
+  --xy-node-border-radius: var(--radius-xl);
+}
+
+/* xyflow styles its built-in "output" node type. The map draws its own box. */
+.map-flow .react-flow__node-output {
+  width: auto;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
