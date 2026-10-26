@@ -309,7 +309,7 @@ export const createMailboxPort = ({
     await checkRateLimit(client);
     const { id, rfcMessageId } = generateMessageId(domain, newId);
     const chain = original ? buildReferencesChain(original) : undefined;
-    await deliver(buildSendMessage(draft, rfcMessageId, chain));
+    await deliver(buildSendMessage(draft, chain));
     const threadId = chain ? chain.threadId : rfcMessageId;
     await client.createEmail(
       FOLDERS.sent,
@@ -403,7 +403,7 @@ export const createMailboxPort = ({
         ? heldOriginal(await client.getThreadEmails(threadId), row)
         : null;
       const chain = original ? buildReferencesChain(original) : undefined;
-      await deliver(buildSendMessage(draftOf(row), rfcMessageId, chain));
+      await deliver(buildSendMessage(draftOf(row), chain));
       // The rate limit counts sent mail by date, so the date moves to the send.
       await client.updateEmail(row.id, {
         date: now().toISOString(),

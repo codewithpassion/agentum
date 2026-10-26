@@ -229,7 +229,7 @@ describe("storeInbound", () => {
 });
 
 describe("send", () => {
-  test("delivers with our Message-ID, records the mail in sent and starts a thread named by its RFC id", async () => {
+  test("delivers without a Message-ID header, records the mail in sent and starts a thread named by its RFC id", async () => {
     const { port, sent } = setup();
     const result = await port.send(REF, draft({ cc: ["Boss@ext.example"] }));
 
@@ -240,7 +240,7 @@ describe("send", () => {
     expect(sent[0]).toMatchObject({
       cc: ["Boss@ext.example"],
       from: AGENT,
-      headers: { "Message-ID": "<id1@mail.example>" },
+      headers: {},
       subject: "Hello there",
       text: "Hi person",
       to: ["person@ext.example"],
@@ -337,7 +337,6 @@ describe("reply", () => {
     expect(out.threadId).toBe(first.threadId);
     expect(sent[0]?.headers).toMatchObject({
       "In-Reply-To": "<m2@ext.example>",
-      "Message-ID": `<${out.rfcMessageId}>`,
       References: "<r0@ext.example> <m2@ext.example>",
     });
     expect(await foldersOf(port, first.threadId)).toEqual(["inbox", "sent"]);
@@ -403,9 +402,7 @@ describe("hold, release and discard", () => {
       threadId: held.threadId,
     });
     expect(sent).toHaveLength(1);
-    expect(sent[0]?.headers).toMatchObject({
-      "Message-ID": "<id1@mail.example>",
-    });
+    expect(sent[0]?.headers).toEqual({});
     const row = store.getEmail(held.messageId);
     expect(row?.folderId).toBe("sent");
     expect((row?.date ?? "") > draftDate).toBe(true);

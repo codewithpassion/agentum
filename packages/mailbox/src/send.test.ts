@@ -65,10 +65,10 @@ describe("stripHtmlToText", () => {
 
 describe("buildSendMessage", () => {
   test("builds a plain text draft with generated html and no cc", () => {
-    const message = buildSendMessage(plainDraft, "id-1@example.com");
+    const message = buildSendMessage(plainDraft);
     expect(message).toEqual({
       from: "agent@example.com",
-      headers: { "Message-ID": "<id-1@example.com>" },
+      headers: {},
       html: textToHtml("Line one\nLine two"),
       subject: "Hello",
       text: "Line one\nLine two",
@@ -78,29 +78,38 @@ describe("buildSendMessage", () => {
   });
 
   test("sets cc when the draft has recipients in cc", () => {
-    const message = buildSendMessage(
-      { ...plainDraft, cc: ["copy@example.org"] },
-      "id-1@example.com"
-    );
+    const message = buildSendMessage({
+      ...plainDraft,
+      cc: ["copy@example.org"],
+    });
     expect(message.cc).toEqual(["copy@example.org"]);
   });
 
   test("keeps the draft html when it is given", () => {
-    const message = buildSendMessage(
-      { ...plainDraft, html: "<p>Rich</p>" },
-      "id-2@example.com"
-    );
+    const message = buildSendMessage({ ...plainDraft, html: "<p>Rich</p>" });
     expect(message.html).toBe("<p>Rich</p>");
   });
 
+  test("never sets Message-ID, which Email Sending rejects", () => {
+    const plain = buildSendMessage(plainDraft);
+    const reply = buildSendMessage(plainDraft, {
+      inReplyTo: "orig@example.org",
+      references: ["orig@example.org"],
+    });
+    for (const message of [plain, reply]) {
+      expect(
+        Object.keys(message.headers ?? {}).map((key) => key.toLowerCase())
+      ).not.toContain("message-id");
+    }
+  });
+
   test("adds In-Reply-To and References for a reply", () => {
-    const message = buildSendMessage(plainDraft, "id-3@example.com", {
+    const message = buildSendMessage(plainDraft, {
       inReplyTo: "orig@example.org",
       references: ["first@example.org", "orig@example.org"],
     });
     expect(message.headers).toEqual({
       "In-Reply-To": "<orig@example.org>",
-      "Message-ID": "<id-3@example.com>",
       References: "<first@example.org> <orig@example.org>",
     });
   });
