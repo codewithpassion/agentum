@@ -1,6 +1,7 @@
 import { accessRouter } from "./access-router.ts";
 import { automationRouter } from "./automation-router.ts";
 import { mergeRouters, router, workspaceProcedure } from "./init.ts";
+import { mailRouter } from "./mail-router.ts";
 import { runtimeRouter } from "./runtime-router.ts";
 
 // One router per lane, merged here. A lane edits its own file, not this one.
@@ -17,7 +18,8 @@ export const appRouter = mergeRouters(
   }),
   runtimeRouter,
   accessRouter,
-  automationRouter
+  automationRouter,
+  mailRouter
 );
 
 export type AppRouter = typeof appRouter;

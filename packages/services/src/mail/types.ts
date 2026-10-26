@@ -1,7 +1,7 @@
 /**
  * The mail port contract. A mailbox is one agent's address, kept in a
  * per-mailbox store. These types are what the service and the port share.
- * They carry no runtime logic, except `MailError`.
+ * They carry no runtime logic, except the typed errors.
  */
 
 /** Names a mailbox. Every port call takes it first, because file keys carry the workspace. */
@@ -196,9 +196,18 @@ export class MailError extends Error {
   }
 }
 
+/** The routing adapter has no Cloudflare token yet; provisioning should remain pending. */
+export class RoutingNotConfiguredError extends Error {
+  constructor() {
+    super("Cloudflare Email Routing is not configured yet");
+    this.name = "RoutingNotConfiguredError";
+  }
+}
+
 /**
  * The port to the email routing rules of the zone. One literal rule routes each
- * agent address to the Worker.
+ * agent address to the Worker. Adapters must throw `RoutingNotConfiguredError`
+ * when the Cloudflare token is absent, so provisioning remains retryable.
  */
 export interface EmailRoutingPort {
   /** Creates the routing rule for an address. */
