@@ -17,6 +17,7 @@ let agentId: string;
 let seedSession: string;
 let published: { sessionId: string; frame: StreamFrame }[];
 let portFails = false;
+let posted: { body: unknown; headers: Headers; url: string }[];
 
 const port: SessionStreamPort = {
   publish: (sessionId, frame) => {
@@ -41,12 +42,23 @@ const infra = (): Infra => {
     },
     clock: systemClock,
     devFakeRuntime: false,
+    fetch: (url, init) => {
+      posted.push({
+        body: JSON.parse(String(init?.body ?? "null")),
+        headers: new Headers(init?.headers),
+        url: String(url),
+      });
+      return Promise.resolve(new Response("{}", { status: 202 }));
+    },
     fileBlobs: {
       delete: () => Promise.resolve(),
       get: () => Promise.resolve(null),
       put: () => Promise.resolve(),
     },
     relay: noopRelay,
+    secretsKey: Buffer.from(
+      crypto.getRandomValues(new Uint8Array(32))
+    ).toString("base64"),
     streams: port,
   };
 };
@@ -54,6 +66,7 @@ const infra = (): Infra => {
 beforeEach(async () => {
   db = migrated();
   published = [];
+  posted = [];
   portFails = false;
   composed = composeWith({
     allowedOrgIds: ["org_a"],
@@ -186,4 +199,66 @@ test("a port that rejects does not fail the append", async () => {
 
   expect(record.type).toBe("tool.call");
   expect(published).toEqual([]);
+});
+
+const INCIDENT = "inc_01HZX3Y5N7Q9R2T4V6W8A0B1C2";
+
+/** Grants the agent the investigator's ingest token, a proxy secret for the control-plane host. */
+const grantIngestToken = async () => {
+  const secret = await composed.services.secrets.create(user, {
+    mode: "proxy",
+    name: "CONTROL_PLANE_INGEST_TOKEN",
+    rules: [
+      {
+        header: "Authorization",
+        host: "cp.example.com",
+        template: "Bearer {value}",
+      },
+    ],
+    value: "cpt_test_token_0123456789",
+  });
+  await composed.services.secrets.setGrants(user, agentId, [secret.id]);
+};
+
+const startAndCancel = async (requestId: string) => {
+  const { runId } = await composed.services.runs.startRun(user, {
+    agentId,
+    input: { text: "investigate" },
+    requestId,
+    session: { origin: "trigger" },
+  });
+  await composed.services.runs.cancelRun(user, runId);
+  return runId;
+};
+
+test("a cancelled trigger run of an incident tells control-plane to escalate, with the token added", async () => {
+  await grantIngestToken();
+
+  const runId = await startAndCancel(`trigger:trg1:${INCIDENT}`);
+
+  expect(posted).toHaveLength(1);
+  expect(posted[0]?.url).toBe("https://cp.example.com/ingest/events");
+  expect(posted[0]?.headers.get("authorization")).toBe(
+    "Bearer cpt_test_token_0123456789"
+  );
+  expect(posted[0]?.body).toMatchObject({
+    correlation_id: INCIDENT,
+    payload: { incidentId: INCIDENT, outcome: "escalate", runId },
+    source: "agent",
+    type: "investigation.result",
+  });
+});
+
+test("a cancelled run that is not an incident's posts nothing", async () => {
+  await grantIngestToken();
+
+  await startAndCancel("plain-request-id");
+
+  expect(posted).toEqual([]);
+});
+
+test("a cancelled incident run of an agent without the ingest token posts nothing", async () => {
+  await startAndCancel(`trigger:trg1:${INCIDENT}`);
+
+  expect(posted).toEqual([]);
 });
