@@ -881,6 +881,52 @@ test("the sweep abandons a run it fails as never claimed", async () => {
   expect(abandoned).toEqual([runId]);
 });
 
+test("the sweep keeps a run queued behind a waiting run of its agent past an hour", async () => {
+  await waitingRun();
+  const { runId } = await start(user, spyAgentId, {
+    session: { externalKey: "other", origin: "ui" },
+  });
+  advance(3 * 60 * 60 * SECOND);
+
+  const swept = await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+  expect(swept.failed).toEqual([]);
+  expect(runRow(runId)?.status).toBe("queued");
+});
+
+test("the hour restarts when the run ahead of a queued run ends", async () => {
+  const ahead = await waitingRun();
+  const { runId } = await start(user, spyAgentId, {
+    session: { externalKey: "other", origin: "ui" },
+  });
+  advance(3 * 60 * 60 * SECOND);
+  await runs.completeRun(SYSTEM_PRINCIPAL, ahead, { status: "done" });
+
+  advance(30 * 60 * SECOND);
+  expect((await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL)).failed).toEqual([]);
+  expect(runRow(runId)?.status).toBe("queued");
+
+  advance(31 * 60 * SECOND);
+  const swept = await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+  expect(swept.failed).toEqual([{ message: "Never claimed", runId }]);
+});
+
+test("a waiting run of another agent does not spare a queued run", async () => {
+  const { runId } = await start(user, spyAgentId, {}, "hello", {
+    offerLater: true,
+  });
+  const { id: otherAgentId } = await agents.create(user, {
+    machineId: "m1",
+    model: "m",
+    name: "Other",
+    runtime: "machine",
+  });
+  await waitingRun(otherAgentId);
+  advance(61 * 60 * SECOND);
+
+  const swept = await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+  expect(swept.failed).toEqual([{ message: "Never claimed", runId }]);
+});
+
 test("a claim that lands before expiry keeps the run past the sweep", async () => {
   const { runId } = await start(user, spyAgentId);
   advance(59 * 60 * SECOND);
