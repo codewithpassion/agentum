@@ -1779,6 +1779,31 @@ describe("approvals and questions", () => {
     expect(gateway.confirmations).toHaveLength(1);
   });
 
+  test("a mail approval is never sent to the session, and it does not hold the run", async () => {
+    const run = await start(dom);
+    gateway.turns = [[gateway.running()]];
+    await managed.step(run.runId);
+    const opened = await requests.open(SYSTEM_PRINCIPAL, {
+      input: { to: ["outside@example.com"] },
+      kind: "approval",
+      runId: run.runId,
+      toolKey: "mail:outside@example.com",
+      toolName: "mail_send",
+      toolUseId: "mail:m1",
+    });
+    await requests.answer(dom, {
+      answer: { decision: "allow_once" },
+      requestId: opened.id,
+      via: "web",
+    });
+
+    await managed.step(run.runId);
+    await managed.step(run.runId);
+
+    expect(gateway.confirmations).toEqual([]);
+    expect(runRow(run.runId)?.status).toBe("running");
+  });
+
   test("an expired approval sends a deny that says nobody answered", async () => {
     const { runId } = await blockedOnBash();
     nowMs += APPROVAL_TTL_MS + SECOND;

@@ -15,7 +15,8 @@ type Starts = AgentProfileView["startsOn"];
 type Channels = AgentProfileView["channels"];
 type AgentRefs = AgentProfileView["handsTo"];
 
-export const LIBRARY_NOTE = "Access per folder comes later.";
+export const LIBRARY_NOTE =
+  "On a machine or VM these folders sync live. Each task writes to its task folder.";
 
 export const runtimeWords = (
   runtime: AgentRuntime,
@@ -219,6 +220,8 @@ export const folderLabel = (folder: {
   }
   return folder.access === "read" ? "read only" : "read and write";
 };
+
+export const WIKI_LABEL = "read · suggestions";
 
 export const addressText = (
   emailLocal: string | null,

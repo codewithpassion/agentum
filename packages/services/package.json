@@ -50,6 +50,7 @@
     "./machines/runtime": "./src/machines/runtime.ts",
     "./machines/types": "./src/machines/types.ts",
     "./mail": "./src/mail/index.ts",
+    "./mail/outbound": "./src/mail/outbound.ts",
     "./mail/types": "./src/mail/types.ts",
     "./managed/config": "./src/managed/config.ts",
     "./managed/gateway": "./src/managed/gateway.ts",
