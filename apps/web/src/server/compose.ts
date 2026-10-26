@@ -67,6 +67,7 @@ import {
   createLibraryAccessService,
   type LibraryAccessService,
 } from "@repo/services/library/access";
+import { createLibraryAudience } from "@repo/services/library/audience";
 import { memoryLibraryBlobs } from "@repo/services/library/memory";
 import {
   createLibraryLinksService,
@@ -184,6 +185,7 @@ import {
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { clerkPeople } from "./clerk-people.ts";
+import { libraryNotifier } from "./library-notifier.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
 import { clerkEmailMemberLookup } from "./mcp/clerk-email-member.ts";
 import { durableRunnerPort } from "./pi-run-port.ts";
@@ -419,6 +421,12 @@ export const composeWith = ({
     db,
     events,
     linkIndex: createWikiLinkIndex({ db }),
+    notify: libraryNotifier({
+      audience: createLibraryAudience({ db }),
+      defer: infra.defer,
+      relay: infra.relay,
+      runner: infra.cloudRunner,
+    }),
   });
   const wiki = createWikiService({ db, library });
   const libraryAccess = createLibraryAccessService({

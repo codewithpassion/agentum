@@ -106,6 +106,8 @@ const DRY_RUN_KEY = "dry-run";
 const SESSION_KEY = "session";
 /** The slug of the agent of the newest run: its library home is `agents/<slug>`. */
 const AGENT_SLUG_KEY = "agent-slug";
+/** The `runtimeConfig` of the agent of the newest run, so a library change can sync its roots again. */
+const RUNTIME_CONFIG_KEY = "runtime-config";
 /** The skills of the run that loaded them last, with that run: a tool call knows no run of its own. The text is read again on each call. */
 const SKILLS_KEY = "skills";
 /** The agent id, stored only when the agent runs in a Linux VM: the VM is named by it, so every session of the agent shares one VM. Absent means the isolate. */
@@ -1134,6 +1136,7 @@ export class PiRun extends DurableObject<Env> {
     await this.ctx.storage.put(DRY_RUN_KEY, input.run.dryRun);
     await this.ctx.storage.put(SESSION_KEY, input.run.sessionId);
     await this.ctx.storage.put(AGENT_SLUG_KEY, input.agent.slug);
+    await this.ctx.storage.put(RUNTIME_CONFIG_KEY, input.agent.runtimeConfig);
     await this.#selectEnvironment(input);
     try {
       await this.#vm?.setRun(runRefOf(input));
@@ -1148,6 +1151,31 @@ export class PiRun extends DurableObject<Env> {
     } else {
       await this.#ensureHome(input);
     }
+  }
+
+  /**
+   * Library paths changed under a run of the session. A run in a Linux VM
+   * syncs its roots in again, which brings the changes into the VM's working
+   * copy. An isolate reads the library directly, so it has nothing to do.
+   */
+  async libraryChanged(_paths: string[]): Promise<void> {
+    await this.lifecycle.start();
+    const { storage } = this.ctx;
+    const agentId = await storage.get<string>(VM_KEY);
+    const run = await storage.get<RunRef>(RUN_KEY);
+    const slug = await storage.get<string>(AGENT_SLUG_KEY);
+    const runtimeConfig =
+      await storage.get<Record<string, unknown>>(RUNTIME_CONFIG_KEY);
+    if (!(agentId && run && slug && runtimeConfig)) {
+      return;
+    }
+    await syncLibraryIn({
+      ops: bindLibraryOps(this.#services().library, principalOf(run)),
+      runtimeConfig,
+      slug,
+      storage,
+      vm: this.#vm ?? durableVm(this.env.LINUX_VM, agentId),
+    });
   }
 
   async cancelRun(runId: string): Promise<void> {

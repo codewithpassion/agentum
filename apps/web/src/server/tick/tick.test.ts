@@ -1,6 +1,8 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
+import { libraryVersions } from "@repo/db/schema/library";
+import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
@@ -108,6 +110,45 @@ test("the routine jobs are registered", () => {
   expect(tickJobs.map((job) => job.name)).toEqual(
     expect.arrayContaining(["routines.fire", "routines.settle"])
   );
+});
+
+test("the library version prune is registered", () => {
+  expect(tickJobs.map((job) => job.name)).toContain("library.prune-versions");
+});
+
+test("the library version prune drops an expired deleted file's history", async () => {
+  db.insert(workspaces)
+    .values({
+      clerkOrgId: "org1",
+      createdAt: NOW.toISOString(),
+      id: "w1",
+      name: "test",
+      timezone: "UTC",
+    })
+    .run();
+  const principal = {
+    kind: "user",
+    userId: "u1",
+    via: "session",
+    workspaceId: "w1",
+  } as const;
+  await deps.services.library.write(
+    principal,
+    "notes.txt",
+    new TextEncoder().encode("old")
+  );
+  await deps.services.library.remove(principal, "notes.txt");
+  expect(db.select().from(libraryVersions).all()).toHaveLength(2);
+
+  const job = tickJobs.find((item) => item.name === "library.prune-versions");
+  const later = new Date(NOW.getTime() + 31 * 86_400_000);
+  const report = await runTick(job ? [job] : [], {
+    ...deps,
+    clock: { ...deps.clock, now: () => later },
+  });
+
+  expect(report.jobs).toEqual([{ name: "library.prune-versions", ok: true }]);
+  expect(db.select().from(libraryVersions).all()).toEqual([]);
 });
 
 test("the registered jobs append nothing to events when none has work", async () => {
