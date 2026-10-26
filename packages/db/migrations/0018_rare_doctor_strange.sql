@@ -70,8 +70,8 @@ CREATE TABLE `wiki_suggestions` (
 	`summary` text NOT NULL,
 	`workspace_id` text NOT NULL,
 	FOREIGN KEY (`agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`base_version_id`) REFERENCES `library_versions`(`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`result_version_id`) REFERENCES `library_versions`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`base_version_id`) REFERENCES `library_versions`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`result_version_id`) REFERENCES `library_versions`(`id`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (`run_id`) REFERENCES `runs`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE no action
 );

@@ -353,3 +353,27 @@ test("a suggestion refuses an unknown agent, run or version, and takes null refe
     ).toThrow("FOREIGN KEY constraint failed");
   }
 });
+
+test("deleting a version a suggestion points at clears the reference", () => {
+  const db = migrated();
+  seedRun(db);
+  db.insert(libraryVersions).values(version()).run();
+  db.insert(wikiSuggestions)
+    .values({
+      agentId: "a1",
+      baseVersionId: "v1",
+      blobKey: "w1/wiki-suggestions/s1",
+      createdAt: NOW,
+      id: "s1",
+      path: "wiki/index.md",
+      resultVersionId: "v1",
+      status: "accepted",
+      summary: "Fix a typo",
+      workspaceId: "w1",
+    })
+    .run();
+  db.delete(libraryVersions).where(eq(libraryVersions.id, "v1")).run();
+  const [row] = db.select().from(wikiSuggestions).all();
+  expect(row?.baseVersionId).toBeNull();
+  expect(row?.resultVersionId).toBeNull();
+});

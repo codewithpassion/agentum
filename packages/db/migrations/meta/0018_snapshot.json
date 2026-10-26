@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "cbaa8b4c-f705-47a3-a8d3-c3eabfed039b",
+  "id": "9a3662c5-a00e-469d-be36-7f80bb88643f",
   "prevId": "9a192f50-814b-414d-b442-a8b262895ff0",
   "tables": {
     "agents": {
@@ -1708,7 +1708,7 @@
           "tableTo": "library_versions",
           "columnsFrom": ["base_version_id"],
           "columnsTo": ["id"],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "wiki_suggestions_result_version_id_library_versions_id_fk": {
@@ -1717,7 +1717,7 @@
           "tableTo": "library_versions",
           "columnsFrom": ["result_version_id"],
           "columnsTo": ["id"],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "wiki_suggestions_run_id_runs_id_fk": {

@@ -152,7 +152,7 @@ export const libraryLinks = sqliteTable(
  * An edit to a wiki page proposed by an agent that has no write access to it.
  * The proposed bytes live in R2 under `${workspaceId}/wiki-suggestions/<id>`.
  * A person accepts or rejects it. It goes `stale` once the page has moved on
- * from `base_version_id`.
+ * from `base_version_id`. Pruning an old version clears the references to it.
  */
 export const wikiSuggestions = sqliteTable(
   "wiki_suggestions",
@@ -161,7 +161,12 @@ export const wikiSuggestions = sqliteTable(
       .notNull()
       .references(() => agents.id),
     // The version the agent read. Null when the page did not exist yet.
-    baseVersionId: text("base_version_id").references(() => libraryVersions.id),
+    baseVersionId: text("base_version_id").references(
+      () => libraryVersions.id,
+      {
+        onDelete: "set null",
+      }
+    ),
     blobKey: text("blob_key").notNull(),
     createdAt: createdAt(),
     decidedAt: text("decided_at"),
@@ -171,7 +176,10 @@ export const wikiSuggestions = sqliteTable(
     path: text("path").notNull(),
     // The version an accepted suggestion wrote.
     resultVersionId: text("result_version_id").references(
-      () => libraryVersions.id
+      () => libraryVersions.id,
+      {
+        onDelete: "set null",
+      }
     ),
     runId: text("run_id").references(() => runs.id),
     status: text("status", { enum: WIKI_SUGGESTION_STATUSES }).notNull(),
