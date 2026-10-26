@@ -112,6 +112,13 @@ test("users and agents ask and answer with trusted authors and events", async ()
     body: "Melbourne",
     questionId: agentQuestion.id,
   });
+  expect(
+    db
+      .select()
+      .from(runRows)
+      .all()
+      .filter((row) => row.agentId === agent.agentId && row.id !== agent.runId)
+  ).toHaveLength(1);
   expect(personQuestion).toMatchObject({
     authorId: "u1",
     authorKind: "user",
@@ -145,11 +152,21 @@ test("users and agents ask and answer with trusted authors and events", async ()
     "qa.asked",
     "qa.answered",
   ]);
+  const agentSession = db
+    .select()
+    .from(runRows)
+    .where(eq(runRows.id, agent.runId))
+    .get()?.sessionId;
+  expect(agentSession).toBeTruthy();
   expect(events[1]).toMatchObject({
     actorId: agent.agentId,
     actorKind: "agent",
     runId: agent.runId,
+    sessionId: agentSession,
   });
+  expect(events[2]).toMatchObject({ sessionId: agentSession });
+  expect(events[0]?.sessionId).toBeNull();
+  expect(events[3]?.sessionId).toBeNull();
   expect(events.every((row) => !(row.payload ?? "").includes("harbour"))).toBe(
     true
   );
@@ -296,10 +313,13 @@ test("agent open cap survives concurrent asks and acceptance or closure frees a 
   ).questions;
   await qa.close(agent, { questionId: required(open).id });
   await ask(agent);
-  await ask(secondAgent);
-  await Promise.all(
+  await expect(ask(secondAgent)).resolves.toMatchObject({
+    authorId: secondAgent.agentId,
+  });
+  const userAsks = await Promise.all(
     Array.from({ length: QA_OPEN_PER_AGENT_MAX + 1 }, () => ask(user))
   );
+  expect(userAsks).toHaveLength(QA_OPEN_PER_AGENT_MAX + 1);
 });
 
 test("answer wakes the question agent in a per-question qa session and skips self-wakes", async () => {

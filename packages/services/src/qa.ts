@@ -17,6 +17,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { isServiceError, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { checkWakeRate, WAKE_LIMIT_WINDOW_MS } from "./inbox/loop-guard.ts";
+import { loadRun } from "./runs/queries.ts";
 import type { Clock } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
 import type { Principal } from "./workspaces.ts";
@@ -76,16 +77,6 @@ const authorOf = (member: Member) => ({
   authorKind: member.kind === "run" ? ("agent" as const) : ("user" as const),
   runId: member.kind === "run" ? member.runId : null,
 });
-const eventOrigin = (member: Member) => {
-  const author = authorOf(member);
-  return {
-    actor: { id: author.authorId, kind: author.authorKind },
-    agentId: member.kind === "run" ? member.agentId : null,
-    runId: author.runId,
-    workspaceId: member.workspaceId,
-  };
-};
-
 export interface QaServiceOptions {
   atomic: Atomic;
   clock: Clock;
@@ -101,6 +92,25 @@ export const createQaService = ({
   events,
   runs,
 }: QaServiceOptions) => {
+  // A run's events carry its session, so the session stream shows them live.
+  const eventOrigin = async (member: Member) => {
+    const author = authorOf(member);
+    let sessionId: string | null = null;
+    if (member.kind === "run") {
+      const run = await loadRun(db, member.runId, member.workspaceId);
+      if (!run) {
+        throw new ServiceError("not_found", "Run not found");
+      }
+      ({ sessionId } = run);
+    }
+    return {
+      actor: { id: author.authorId, kind: author.authorKind },
+      agentId: member.kind === "run" ? member.agentId : null,
+      runId: author.runId,
+      sessionId,
+      workspaceId: member.workspaceId,
+    };
+  };
   const requireQuestion = async (
     member: Member,
     id: string
@@ -170,14 +180,14 @@ export const createQaService = ({
       throw new ServiceError("conflict", "Agent open-question limit reached");
     }
     await events.append({
-      ...eventOrigin(member),
+      ...(await eventOrigin(member)),
       payload: { questionId: question.id },
       type: "qa.asked",
     });
     return question;
   };
 
-  const recordStop = (
+  const recordStop = async (
     member: Member,
     question: QuestionRecord,
     answerId: string,
@@ -186,7 +196,7 @@ export const createQaService = ({
   ) =>
     // There is no qa wake-stop type: reuse the existing wake diagnostic event.
     events.append({
-      ...eventOrigin(member),
+      ...(await eventOrigin(member)),
       agentId: question.authorId,
       payload: {
         answerId,
@@ -313,7 +323,7 @@ export const createQaService = ({
       throw new ServiceError("conflict", "Question is closed");
     }
     await events.append({
-      ...eventOrigin(member),
+      ...(await eventOrigin(member)),
       payload: { answerId: row.id, questionId: question.id },
       type: "qa.answered",
     });
@@ -361,7 +371,7 @@ export const createQaService = ({
       throw new ServiceError("conflict", "Question is closed");
     }
     await events.append({
-      ...eventOrigin(member),
+      ...(await eventOrigin(member)),
       payload: { answerId: answerRow.id, questionId: question.id },
       type: "qa.accepted",
     });
@@ -392,7 +402,7 @@ export const createQaService = ({
       return requireQuestion(member, question.id);
     }
     await events.append({
-      ...eventOrigin(member),
+      ...(await eventOrigin(member)),
       payload: { questionId: question.id },
       type: "qa.closed",
     });
