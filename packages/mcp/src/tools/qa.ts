@@ -15,7 +15,7 @@ import {
 } from "./define";
 
 // Match the service's id bounds and trimmed text validation. Port ids use the
-// public tool's `id`; V7.12 maps them to the service's questionId/rawId inputs.
+// public tool's `id`; the adapter in qa-ports.ts maps it to the service's `questionId`.
 const id = z
   .string()
   .min(1)
