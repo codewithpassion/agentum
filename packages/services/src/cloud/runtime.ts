@@ -1,5 +1,6 @@
 import type { Database } from "@repo/db";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
+import { taskFolderPath } from "@repo/db/shared";
 import { and, eq } from "drizzle-orm";
 import { agentPrompt } from "../agent-prompt.ts";
 import { type AgentRecord, handsToNames } from "../agents.ts";
@@ -86,6 +87,9 @@ export const createCloudRuntime = ({
           agent.slug,
           await agentGrants(db, run.workspaceId, agent.id)
         ),
+        ...(run.dryRun
+          ? {}
+          : { taskFolder: taskFolderPath(agent.slug, run.id) }),
       },
       mcpServers: buildMcpServers({
         connectors: assigned,

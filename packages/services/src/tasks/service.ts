@@ -29,6 +29,12 @@ import {
   type EventsService,
   type PeopleLookup,
 } from "../events.ts";
+import {
+  createTaskFiles,
+  type TaskFiles,
+  type TaskFilesInput,
+  taskFilesInputSchema,
+} from "../library/task-files.ts";
 import type { RequestRecord, RequestsService } from "../requests.ts";
 import { toRecord } from "../runs/records.ts";
 import type { Clock, RunRecord } from "../runs/types.ts";
@@ -444,7 +450,16 @@ export const createTasksService = ({
     });
   };
 
-  return { get, list };
+  const { taskFiles } = createTaskFiles({ db });
+
+  /** The files a task left in the library: its folder, edits outside it, and its open conflicts. */
+  const files = (
+    principal: Principal,
+    rawInput: TaskFilesInput
+  ): Promise<TaskFiles> =>
+    taskFiles(principal, taskFilesInputSchema.parse(rawInput).runId);
+
+  return { files, get, list };
 };
 
 export type TasksService = ReturnType<typeof createTasksService>;
