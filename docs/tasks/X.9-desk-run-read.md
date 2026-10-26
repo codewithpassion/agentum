@@ -3,7 +3,7 @@ id: X.9
 title: Desk API route to read a run's status and reply
 milestone: X
 size: S
-status: in_progress
+status: done
 depends_on: [X.2]
 branch: task/X.9-desk-run-read
 lane: services
@@ -25,3 +25,4 @@ The flightdex desk panel sends a message to the controller with `POST /api/desk/
 ## Log
 - 2026-10-27: requested by the integration coordinator (desk panel shows the controller's reply).
 - 2026-10-27: dispatched.
+- 2026-10-27: review clean after 0 fix rounds; merged. Optional runId on run.* frames not built.
