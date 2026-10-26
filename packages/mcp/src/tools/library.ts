@@ -44,8 +44,15 @@ const libraryText = (result: LibraryBashResult): string => {
 };
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
-const BASE64 =
-  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+// Linear check: a regex with a repeated group overflows the stack on multi-MB input.
+const BASE64_BODY = /^[A-Za-z0-9+/]*$/;
+const isBase64 = (value: string): boolean => {
+  if (value.length % 4 !== 0) {
+    return false;
+  }
+  const padding = value.endsWith("==") ? 2 : Number(value.endsWith("="));
+  return BASE64_BODY.test(value.slice(0, value.length - padding));
+};
 const path = z
   .string()
   .min(1)
@@ -141,7 +148,7 @@ export const libraryTools = (ports: McpPorts): ToolDefinition[] => [
         path,
       })
       .refine(
-        (input) => input.encoding !== "base64" || BASE64.test(input.content),
+        (input) => input.encoding !== "base64" || isBase64(input.content),
         "Content must be standard padded base64."
       ),
     name: "library_write",
@@ -156,11 +163,21 @@ export const libraryTools = (ports: McpPorts): ToolDefinition[] => [
           "Library files are limited to 10 MB."
         );
       }
-      const entry = await ports.libraryWrite({
-        bytes,
-        path: input.path,
-        ...(input.ifEtag === undefined ? {} : { ifEtag: input.ifEtag }),
-      });
+      const entry = await ports
+        .libraryWrite({
+          bytes,
+          path: input.path,
+          ...(input.ifEtag === undefined ? {} : { ifEtag: input.ifEtag }),
+        })
+        .catch((error: unknown) => {
+          if (error instanceof ToolError && error.code === "conflict") {
+            throw new ToolError(
+              "conflict",
+              `${error.message}. Call library_read for the current content and etag, reconcile your change, then retry library_write with that etag as ifEtag.`
+            );
+          }
+          throw error;
+        });
       return { data: { entry }, text: JSON.stringify({ entry }, null, 2) };
     },
     title: "Write a library file",

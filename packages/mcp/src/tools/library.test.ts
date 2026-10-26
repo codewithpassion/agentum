@@ -108,17 +108,17 @@ test("etag conflicts and refused paths retain actionable safe messages", async (
     fakePorts({
       libraryWrite: () =>
         Promise.reject(
-          new ToolError(
-            "conflict",
-            "File changed; read library_read again before retrying with its etag."
-          )
+          new ToolError("conflict", "The file changed since it was read")
         ),
     }),
     "library_write",
     { content: "new", ifEtag: "stale", path: entry.path }
   );
   expect(conflict.isError).toBe(true);
-  expect(textOf(conflict)).toContain("conflict: File changed");
+  expect(textOf(conflict)).toContain(
+    "conflict: The file changed since it was read. Call library_read"
+  );
+  expect(textOf(conflict)).toContain("ifEtag");
   const refused = await callTool(
     fakePorts({
       libraryRead: () =>
@@ -131,6 +131,28 @@ test("etag conflicts and refused paths retain actionable safe messages", async (
   );
   expect(refused.isError).toBe(true);
   expect(textOf(refused)).toContain("forbidden: Path is outside");
+});
+
+test("a base64 write near the 10 MB limit round trips", async () => {
+  const size = 10 * 1024 * 1024;
+  const bytes = new Uint8Array(size).map((_, index) => index % 251);
+  const written: Uint8Array[] = [];
+  const result = await callTool(
+    fakePorts({
+      libraryWrite: (input) => {
+        written.push(input.bytes);
+        return Promise.resolve(entry);
+      },
+    }),
+    "library_write",
+    {
+      content: Buffer.from(bytes).toString("base64"),
+      encoding: "base64",
+      path: entry.path,
+    }
+  );
+  expect(result.isError).toBeUndefined();
+  expect(written[0]).toEqual(bytes);
 });
 
 test("malformed encodings and extra arguments fail before calling ports", async () => {
