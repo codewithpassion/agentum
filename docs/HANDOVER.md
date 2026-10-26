@@ -4,7 +4,8 @@ Rewritten 26 October 2026. v1 is built (milestones M0 to M9 and the C, F, P, R, 
 
 ## Where things stand
 
-- Staging is live at https://harbourmaster-staging.rockyshoreslabs.io and passed its smoke test (O.1, 17 Oct). Production has a Worker at harbourmaster.rockyshoreslabs.io, but nobody has run it live.
+- Staging is live at https://harbourmaster-staging.rockyshoreslabs.io and passed its smoke test (O.1, 17 Oct). Production at harbourmaster.rockyshoreslabs.io passed its smoke test on 26 Oct 2026 (V0.2, Worker version 329adc56).
+- Production runs on the Clerk dev instance, with the Dev Workspace and Harbour Edge Intelligence orgs in `ALLOWED_ORG_IDS`, as staging does.
 - Three runtimes behind one run model: `machine` (the Bun daemon running Claude Code as `hm-agent`), `cloud` (Pi Durable in the `PiRun` DO, isolate or Linux VM through `VmSession`) and `managed` (Anthropic Managed Agents through `ManagedPoller`).
 - Built around them: connectors with OAuth and the user, colleague and agent credential modes; a secrets vault with egress placeholders; the git-like skill store; triggers and routines; per-agent Slack apps; the forum inbox; the workspace library with sync onto machines and VMs; the append-only event log; the platform MCP server.
 - Open from v1: C.19 (secret scrub, 4 commits on its branch, needs review and merge), M1.4s, M8.4, SK.5 and W.10 (blocked or backlog). `bun run tasks` has the list.
@@ -47,7 +48,6 @@ The v1 decisions still hold where v2 doesn't replace them: `bypassPermissions` a
 
 ## Things nobody has verified yet
 
-- Production run live (the Worker exists, nobody has used it).
 - Whether Managed Agents' sandbox can run the library sync helper (V4).
 - A 4-minute MCP call held open through the deployed Worker (M3.3).
 
