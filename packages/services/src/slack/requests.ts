@@ -16,7 +16,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { findAgent } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
-import { isServiceError } from "../errors.ts";
+import { isServiceError, ServiceError } from "../errors.ts";
 import type { EventRecord } from "../events.ts";
 import {
   outcomeOf,
@@ -146,6 +146,12 @@ export const createSlackRequests = ({
       workspaceId: row.workspaceId,
     });
     const { display } = requestRecord(row);
+    if ("machineId" in display) {
+      throw new ServiceError(
+        "invalid",
+        "Take over the computer in Harbourmaster."
+      );
+    }
     if (!agent) {
       throw new Error("The request's agent is gone");
     }
@@ -255,7 +261,12 @@ export const createSlackRequests = ({
   /** Posts the card of a request that just opened, where its run can be answered from. */
   const postCard = async (requestId: string): Promise<void> => {
     const row = await loadRow(requestId);
-    if (!row || row.slackMessage !== null || row.status !== "pending") {
+    if (
+      !row ||
+      row.kind === "takeover" ||
+      row.slackMessage !== null ||
+      row.status !== "pending"
+    ) {
       return;
     }
     const [run] = await db

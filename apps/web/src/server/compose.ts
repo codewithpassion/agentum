@@ -172,6 +172,10 @@ import {
   type SlackSendService,
 } from "@repo/services/slack-send";
 import {
+  createTakeoverService,
+  type TakeoverService,
+} from "@repo/services/takeover";
+import {
   createTasksService,
   type TasksService,
 } from "@repo/services/tasks/service";
@@ -289,6 +293,7 @@ export interface Services {
   slackHistory: SlackHistoryService;
   slackRequests: SlackRequests;
   slackSend: SlackSendService;
+  takeover: TakeoverService;
   tasks: TasksService;
   triggers: TriggersService;
   wiki: WikiService;
@@ -550,6 +555,7 @@ export const composeWith = ({
     runs,
     secrets,
   });
+  const takeover = createTakeoverService({ db, events, requests });
   // Catches the run and tool events the runs service writes through its own events instance.
   runs.onEvent(slackStatus.onEvent);
   // An investigator run that ends, or finishes, without having reported tells control-plane to escalate.
@@ -724,6 +730,7 @@ export const composeWith = ({
       slackHistory,
       slackRequests,
       slackSend,
+      takeover,
       tasks,
       triggers,
       wiki,

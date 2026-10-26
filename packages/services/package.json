@@ -94,6 +94,7 @@
     "./wiki/links": "./src/wiki/links.ts",
     "./wiki/service": "./src/wiki/service.ts",
     "./workspaces": "./src/workspaces.ts",
+    "./takeover": "./src/takeover.ts",
     "./tasks/receipt": "./src/tasks/receipt.ts",
     "./tasks/action-log": "./src/tasks/action-log.ts",
     "./tasks/service": "./src/tasks/service.ts",

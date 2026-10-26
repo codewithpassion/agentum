@@ -530,3 +530,24 @@ test("canSeeRun admits the opener's ui run and hides it from other members and u
   expect(await desk.canSeeRun(other, runId)).toBe(false);
   expect(await desk.canSeeRun(member, "no-such-run")).toBe(false);
 });
+
+test("desk decisions direct takeovers to Harbourmaster", async () => {
+  const request = await openBash(await start(), "ls");
+  await db
+    .update(runRequests)
+    .set({
+      display: JSON.stringify({
+        machineId: "computer",
+        reason: "Please log in",
+      }),
+      kind: "takeover",
+    })
+    .where(eq(runRequests.id, request.id));
+  await expect(
+    desk.decide(member, request.id, { decision: "allow_once" })
+  ).rejects.toMatchObject({
+    code: "invalid",
+    message: "Take over the computer in Harbourmaster.",
+  });
+  expect(await requests.outcome(system, request.id)).toBeNull();
+});
