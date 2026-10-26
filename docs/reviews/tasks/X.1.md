@@ -16,11 +16,14 @@ The mapping file shape:
 ```json
 {
   "orgs": { "org_<dev id>": { "id": "org_<prod id>", "name": "optional note" } },
-  "users": { "user_<dev id>": { "id": "user_<prod id>", "email": "optional note" } }
+  "users": { "user_<dev id>": { "id": "user_<prod id>", "email": "optional note" } },
+  "ignore": ["user_<an id from another system>"]
 }
 ```
 
-A plain string works in place of the object. Only `id` is read.
+A plain string works in place of the object. Only `id` is read. `ignore` is optional: ids that look like Clerk ids but belong to something else, such as the-brain's user id inside stored tool output. Both scripts leave them alone, and the dry run counts them. A mapped id can't also be ignored.
+
+A Clerk id is `user_` or `org_` plus 27 base62 characters, not part of a longer identifier. Anything else that starts with `user_` or `org_` (the enum value `user_or_agent`, the path `/mcp/org_user_<id>`) is not an id and is never scanned, mapped or reported. The mapping file rejects entries that don't have that shape.
 
 ## Verdicts
 
@@ -31,6 +34,14 @@ Round 1 at 8e91df2: clean. The reviewer ran the dry run, an apply and an inverte
 The copy is `tmp/X.1/prod-d1.sql`, loaded into a local SQLite file. It holds one workspace (the Dev Workspace org `org_3KkfBN77ien6ryvH4YDBFjGNw0v`, also stored as the workspace name) and one user (`user_3Kk8S5uJZvRLPGiEoZ8ZfJfCH8m`, dev@rockyshoreslabs.io). With a sample mapping the dry run lists 27 cells in 21 rows of 9 tables (agents, events x13, files, machine_enroll_tokens, machines, runs x6, sessions, triggers, workspaces x2). Applying it to a copy and scanning every row of every table leaves 0 rows holding a dev id, and both events triggers are back. The same dry run through `wrangler d1 execute --local` on a Miniflare D1 loaded with that data gives identical output, `--apply` works there, and `--invert` puts the old ids back exactly.
 
 The sample mapping used a placeholder user id and the Harbour Edge Intelligence org as the target, because the real targets do not exist yet (see below). Do not apply it.
+
+Round 2 at e3982f6 (fix for false positives found on the staging copy): must-fix, two findings. `--ignore-unresolved` ignored every unresolved id, including real dev ids with no single production match or hit by a Clerk API error, and it printed nothing about what it ignored. Fixed in the next commit: it ignores only ids Clerk reports as 404, prints each, and any other Clerk error stops the run. Also validated an existing `ignore` list, and added tests for `_` neighbours and for that flag.
+
+Round 3 at b524bf2: clean. Nits left: the builder prints only the message of a Clerk error (no id), the never-ignore test covers a user with no match but not an org or several matches, and the 404 check sits in the untested Clerk wrapper.
+
+## Staging copy dry run
+
+On the staging copy (`tmp/X.1/staging.sqlite`) the old scan reported `user_or` (the enum value `user_or_agent`), `org_user` (a the-brain MCP URL) and the-brain's own user id (136 cells in stored tool output) as unmapped. With the strict id shape and the-brain's id in `ignore`, the dry run lists 926 cells in 769 rows of 20 tables, 136 ignored, nothing unmapped, exit 0. Applying it to a copy and running the dry run again gives 0 cells to change. The dry run left the file byte-identical.
 
 ## Nits left
 
@@ -64,7 +75,7 @@ Cutover, staging first. Run the commands from `apps/web`. Between the D1 step an
 
 1. Save the old values so each step can be undone: `VITE_CLERK_PUBLISHABLE_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` (the dev values now in `.env.production.local`) and the current `ALLOWED_ORG_IDS` secret, into a file outside the repo, for example `~/.config/harbourmaster/rollback-clerk.env` (mode 600). Worker secrets can't be read back, so the secret values come from the file and from the Clerk dev dashboard.
 2. Export the database: `bunx wrangler d1 export DB --remote --env staging --output ../../../tmp/staging.sql` (same without `--env staging` for production). Load it into a SQLite file: `bun -e 'import {Database} from "bun:sqlite"; import {readFileSync} from "fs"; new Database("../../../tmp/staging.sqlite",{create:true}).exec(readFileSync("../../../tmp/staging.sql","utf8"))'`.
-3. Build and read the mapping: `bun run build-clerk-id-map --db ../../../tmp/staging.sqlite --out ../../../tmp/staging-map.json`. Fix anything it lists as `UNRESOLVED` by hand. Staging and production each need their own run, because their data differs.
+3. Build and read the mapping: `bun run build-clerk-id-map --db ../../../tmp/staging.sqlite --out ../../../tmp/staging-map.json`. Fix anything it lists as `UNRESOLVED` by hand. An id that belongs to another system goes in the file's `ignore` list. Two ways: pass `--ignore-unresolved`, which ignores only ids the dev instance reports as not found (404) and prints each as `IGNORED` with its reason, so read that list; or add them to `ignore` by hand. The builder keeps an existing `ignore` list and skips those ids, but a re-run rewrites `orgs` and `users`, so make hand edits to those last and don't re-run afterwards. An id that exists on dev but has no single match on production is never ignored automatically. A Clerk API error other than 404 stops the run.
 4. Dry run on the copy, then on the real database: `bun run migrate-clerk-ids --map ../../../tmp/staging-map.json --db ../../../tmp/staging.sqlite`, then `bun run migrate-clerk-ids --map ../../../tmp/staging-map.json --d1 DB --remote --env staging`. Both must exit 0 with no `UNMAPPED` or `PROBLEM` lines.
 5. Note a D1 Time Travel bookmark: `bunx wrangler d1 time-travel info DB --env staging`.
 6. Put the production keys into `apps/web/.env.production.local` (`VITE_CLERK_PUBLISHABLE_KEY` and `CLERK_PUBLISHABLE_KEY` as `pk_live_...`, `CLERK_SECRET_KEY` as `sk_live_...`). The publishable and secret key must change together: the MCP OAuth metadata takes its issuer from the publishable key. `VITE_CLERK_PUBLISHABLE_KEY` is read at build time, so a `wrangler secret put` alone leaves the old key in the client bundle.
