@@ -6,7 +6,7 @@ import {
   LIBRARY_VERSION_KEEP_DAYS,
   LIBRARY_VERSION_KEEP_MIN,
 } from "@repo/db/shared";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ServiceError } from "../errors.ts";
 import type { LibraryBlobs } from "../library.ts";
@@ -92,6 +92,20 @@ export const createVersionStore = ({
   const insert = (version: VersionRow): Statement =>
     db.insert(libraryVersions).values(version);
 
+  /**
+   * Numbers the version inside the batch, so two writes to one path that race
+   * between our read and the commit never collide on the unique index.
+   */
+  const insertNext = (version: VersionRow): Statement =>
+    db.insert(libraryVersions).values({
+      ...version,
+      version: sql`(select coalesce(max(${libraryVersions.version}), 0) + 1 from ${libraryVersions} where ${libraryVersions.workspaceId} = ${version.workspaceId} and ${libraryVersions.path} = ${version.path})`,
+    });
+
+  /** A concurrent writer may seed the same file first; its seed wins. */
+  const insertSeed = (version: VersionRow): Statement =>
+    db.insert(libraryVersions).values(version).onConflictDoNothing();
+
   /** V4.1 intentionally left old files unversioned; capture them only on mutation. */
   const seed = async (entry: EntryRow | null): Promise<VersionRow[]> => {
     if (
@@ -171,7 +185,17 @@ export const createVersionStore = ({
       }
     }
   };
-  return { get, insert, list, prune, read, row, seed };
+  return {
+    get,
+    insert,
+    insertNext,
+    insertSeed,
+    list,
+    prune,
+    read,
+    row,
+    seed,
+  };
 };
 
 /** Compare uses version IDs. NUL or invalid UTF-8 bytes make the whole comparison binary. */

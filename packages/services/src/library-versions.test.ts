@@ -259,3 +259,42 @@ test("a prune retry finishes an expired tombstone history spanning multiple batc
   expect(await service.versions(principal, "a")).toEqual([]);
   expect(blobs.objects.size).toBe(0);
 });
+
+test("concurrent writes to one path get distinct version numbers", async () => {
+  await Promise.all([
+    service.write(principal, "race", bytes("one")),
+    service.write(principal, "race", bytes("two")),
+  ]);
+  const versions = await service.versions(principal, "race");
+  expect(versions.map((version) => version.version)).toEqual([2, 1]);
+});
+
+test("restore with a stale etag conflicts and adds no version", async () => {
+  const first = await service.write(principal, "a", bytes("one"));
+  await service.write(principal, "a", bytes("two"));
+  const [, original] = await service.versions(principal, "a");
+  await expect(
+    service.restore(principal, required(original).id, {
+      ifEtag: required(first.etag),
+    })
+  ).rejects.toMatchObject({ code: "conflict" });
+  expect(await service.versions(principal, "a")).toHaveLength(2);
+});
+
+test("a throwing notify does not fail a committed change or skip blob cleanup", async () => {
+  const noisy = createLibraryService({
+    atomic: sqliteAtomic(db),
+    blobs,
+    clock: { now: () => new Date(now), sleep: async () => undefined },
+    db,
+    events: createEventsService({
+      blobs: { get: async () => null, put: async () => undefined },
+      db,
+    }),
+    notify: () => Promise.reject(new Error("listener down")),
+  });
+  await noisy.write(principal, "n", bytes("x"));
+  await noisy.remove(principal, "n");
+  expect(await blobs.get("w1/library/n")).toBeNull();
+  expect((await noisy.versions(principal, "n"))[0]?.op).toBe("delete");
+});

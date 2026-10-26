@@ -168,12 +168,18 @@ export const createLibraryService = ({
   events: Pick<EventsService, "insertStatement">;
 }) => {
   const history = createVersionStore({ atomic, blobs, db });
-  const changed = (member: Member, paths: string[]) =>
-    notify?.({
-      byRunId: member.kind === "run" ? member.runId : null,
-      paths,
-      workspaceId: member.workspaceId,
-    });
+  /** Runs after the commit, so a failing listener must not fail the change. */
+  const changed = async (member: Member, paths: string[]) => {
+    try {
+      await notify?.({
+        byRunId: member.kind === "run" ? member.runId : null,
+        paths,
+        workspaceId: member.workspaceId,
+      });
+    } catch {
+      // The change is already committed; the listener's own retry covers it.
+    }
+  };
   const versionOf = (
     member: Member,
     row: EntryRow,
@@ -468,8 +474,8 @@ export const createLibraryService = ({
       bytes
     );
     await atomic([
-      ...seeds.map(history.insert),
-      history.insert(version),
+      ...seeds.map(history.insertSeed),
+      history.insertNext(version),
       ...folderStatements(member, folders),
       db
         .insert(libraryEntries)
@@ -583,8 +589,8 @@ export const createLibraryService = ({
         null
       );
       versionStatements.push(
-        ...seeds.map(history.insert),
-        history.insert(tombstone)
+        ...seeds.map(history.insertSeed),
+        history.insertNext(tombstone)
       );
     }
     const size = removed.reduce((total, entry) => total + entry.size, 0);
