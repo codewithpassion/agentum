@@ -90,6 +90,12 @@ import {
   type SkillRef,
 } from "./gateway.ts";
 import { type ManagedKeysService, NO_KEY_MESSAGE } from "./keys.ts";
+import {
+  LIBRARY_SKILL_NAME,
+  LIBRARY_TOKEN_ENV,
+  libraryTransferGuidance,
+  withLibraryTransferSkill,
+} from "./library-transfer.ts";
 import { finalReply, toRunEvents } from "./run-events.ts";
 import {
   createSkillsSync,
@@ -156,6 +162,12 @@ export interface ManagedServiceOptions {
   keys: Pick<ManagedKeysService, "rememberEnvironment" | "resolve">;
   /** The workspace library. A run's agent keeps its home folder there. */
   library: Pick<LibraryService, "mkdir" | "stat">;
+  /**
+   * The helper script (`library.js`) that moves files between the sandbox
+   * disk and the library. With it, each session gets a library token in its
+   * vault and each agent a built-in skill that carries the script.
+   */
+  libraryTransfer?: { helper: string };
   poller: ManagedPollerPort;
   /** `PUBLIC_BASE_URL`: where the Anthropic agent reaches `/mcp` and the proxy. */
   publicBaseUrl?: string;
@@ -224,13 +236,14 @@ const hasDesktop = (computer: AgentComputer | null) =>
 const computerFingerprint = (computer: AgentComputer | null) =>
   computer ? { computer } : {};
 
-/** The Anthropic agent's system text: its instructions, its files, then what it is told about skills, Slack and secrets. */
+/** The Anthropic agent's system text: its instructions, its files, then what it is told about skills, Slack, secrets and moving files. */
 const systemOf = (
   agent: AgentRecord,
   handoffNames: string[],
   skillNames: string[],
   slackText: string,
   secretsText: string,
+  libraryText: string,
   computer: AgentComputer | null
 ): string =>
   [
@@ -253,6 +266,7 @@ const systemOf = (
     skillsGuidance(skillNames),
     slackText,
     secretsText,
+    libraryText,
     computer ? computerInstructions({ desktop: computer.desktop }) : "",
   ]
     .filter((part) => part !== "")
@@ -267,6 +281,7 @@ export const createManagedService = ({
   gatewayFor,
   keys,
   library,
+  libraryTransfer,
   poller,
   publicBaseUrl,
   requests,
@@ -643,6 +658,7 @@ export const createManagedService = ({
     env,
     fingerprint,
     gateway,
+    libraryHost,
     model,
     relayHost,
     run,
@@ -654,6 +670,8 @@ export const createManagedService = ({
     env: Record<string, string>;
     fingerprint: string;
     gateway: ManagedGateway;
+    /** The Worker's host, when the sandbox gets the library token. */
+    libraryHost: string | null;
     model: string;
     /** The host the relay listens on, when the agent has proxy secrets. */
     relayHost: string | null;
@@ -686,6 +704,14 @@ export const createManagedService = ({
         await gateway.createEnvironmentVariableCredential({
           name,
           value,
+          vaultId,
+        });
+      }
+      if (libraryHost !== null) {
+        await gateway.createEnvironmentVariableCredential({
+          hosts: [libraryHost],
+          name: LIBRARY_TOKEN_ENV,
+          value: token,
           vaultId,
         });
       }
@@ -754,8 +780,8 @@ export const createManagedService = ({
 
   /**
    * What the run's agent is granted, shaped for the launch. The vault holds one
-   * credential per MCP server, per env secret, and one for the relay token when
-   * there are proxy secrets. Null, with the run failed, when that is over the limit.
+   * credential per MCP server, per env secret, one for the relay token when
+   * there are proxy secrets, and one for the library token. Null, with the run failed, when that is over the limit.
    */
   const grantsFor = async (
     run: RunRecord,
@@ -775,7 +801,10 @@ export const createManagedService = ({
     const envNames = Object.keys(env);
     const proxy = granted?.proxy ?? [];
     const credentials =
-      servers.length + envNames.length + (proxy.length > 0 ? 1 : 0);
+      servers.length +
+      envNames.length +
+      (proxy.length > 0 ? 1 : 0) +
+      (libraryTransfer ? 1 : 0);
     if (credentials > MAX_SERVERS) {
       await failRun(
         run,
@@ -805,6 +834,32 @@ export const createManagedService = ({
       relayHost: proxy.length > 0 ? new URL(base).hostname : null,
     };
   };
+
+  /** The run's skills, with the library transfer skill when the service has its helper. */
+  const skillsWithLibrary = (
+    run: RunRecord
+  ): Promise<SkillsSource> | SkillsSource =>
+    libraryTransfer
+      ? withLibraryTransferSkill(skillsOf(run), {
+          helper: libraryTransfer.helper,
+          workspaceId: run.workspaceId,
+        })
+      : skillsOf(run);
+
+  /** The host the library token is limited to, when the service has the helper. */
+  const libraryHostOf = (base: string): string | null =>
+    libraryTransfer ? new URL(base).hostname : null;
+
+  /** What the agent is told about moving files, when its skills include the transfer skill. */
+  const libraryGuidanceOf = (
+    agent: AgentRecord,
+    base: string,
+    resolved: readonly { name: string }[]
+  ): string =>
+    libraryTransfer &&
+    resolved.some((skill) => skill.name === LIBRARY_SKILL_NAME)
+      ? libraryTransferGuidance({ base, slug: agent.slug })
+      : "";
 
   /** Sends the run's input to Anthropic. Returns false when the run was failed instead. */
   const launch = async (
@@ -842,7 +897,7 @@ export const createManagedService = ({
     if (!grants) {
       return false;
     }
-    const source = skillsOf(run);
+    const source = await skillsWithLibrary(run);
     const resolved = await source.list();
     if (resolved.length > MAX_SKILLS) {
       await failRun(
@@ -870,6 +925,7 @@ export const createManagedService = ({
       resolved.map((skill) => skill.name),
       slack,
       grants.guidance,
+      libraryGuidanceOf(agent, publicBaseUrl, resolved),
       computer
     );
     const askKeys = await askKeysOf(agent);
@@ -922,6 +978,7 @@ export const createManagedService = ({
         env: grants.env,
         fingerprint,
         gateway,
+        libraryHost: libraryHostOf(publicBaseUrl),
         model,
         relayHost: grants.relayHost,
         run,
