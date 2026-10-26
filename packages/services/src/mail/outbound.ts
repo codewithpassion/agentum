@@ -310,6 +310,7 @@ export const createMailOutbound = ({
       );
       return {
         messageId: message.id,
+        rfcMessageId: message.rfcMessageId ?? "",
         status: "sent" as const,
         threadId: storedThread.id,
       };

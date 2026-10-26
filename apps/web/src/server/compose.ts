@@ -198,6 +198,7 @@ import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { clerkPeople } from "./clerk-people.ts";
 import { libraryNotifier } from "./library-notifier.ts";
+import { type MailEnv, mailInfra } from "./mail-infra.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
 import { clerkEmailMemberLookup } from "./mcp/clerk-email-member.ts";
 import { durableRunnerPort } from "./pi-run-port.ts";
@@ -328,7 +329,8 @@ export type ComposeEnv = Pick<
   | "RUN_TOKEN_KEY"
   | "SECRETS_KEY"
   | "SESSION_STREAM"
->;
+> &
+  MailEnv;
 
 /** Splits a comma separated list of ids, trimmed, dropping empty entries. */
 export const parseOrgIds = (raw: string | undefined): string[] =>
@@ -789,6 +791,7 @@ export const compose = (
       devFakeRuntime,
       fileBlobs: r2FileBlobs(env.FILES),
       libraryBlobs: r2LibraryBlobs(env.FILES),
+      ...mailInfra(env),
       managedGatewayFor: ({ apiKey, environment }) =>
         connectManagedGateway(apiKey, {
           cache: environment,

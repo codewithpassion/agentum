@@ -2,11 +2,13 @@ import { createClerkClient } from "@clerk/backend";
 import { clerkMiddleware, getAuth } from "@clerk/hono";
 import { trpcServer } from "@hono/trpc-server";
 import { systemClock } from "@repo/services/runs/types";
+import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 import type { MiddlewareHandler } from "hono/types";
 import { compose } from "./server/compose.ts";
+import { handleInboundEmail } from "./server/mail-inbound.ts";
 import { accessRoutes } from "./server/routes/access.ts";
 import { automationRoutes } from "./server/routes/automation.ts";
 import { devRoutes } from "./server/routes/dev.ts";
@@ -154,4 +156,30 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (
   }
 };
 
-export default { fetch: app.fetch, scheduled } satisfies ExportedHandler<Env>;
+/**
+ * Mail for an agent address. Email Routing calls this for each message that a
+ * literal rule sends to the Worker. A thrown error makes the sender retry.
+ */
+const email: EmailExportedHandler<Env> = async (message, env) => {
+  const { services } = compose(env, import.meta.env.DEV);
+  await handleInboundEmail(
+    {
+      from: message.from,
+      raw: message.raw,
+      rawSize: message.rawSize,
+      setReject: (reason) => message.setReject(reason),
+      to: message.to,
+    },
+    {
+      isActive: (address) =>
+        services.mail.agent.isActiveAddress(SYSTEM_PRINCIPAL, address),
+      receive: (inbound) => services.mail.receive(inbound),
+    }
+  );
+};
+
+export default {
+  email,
+  fetch: app.fetch,
+  scheduled,
+} satisfies ExportedHandler<Env>;
