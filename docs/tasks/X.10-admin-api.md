@@ -33,3 +33,4 @@ The integration coordinator sets up agents, routines and machines from Morosini 
 - 2026-10-27: dispatched.
 - 2026-10-27: review clean after 1 fix round; merged. assign_skill stays open to write keys (it already was); admin keys can mint admin keys.
 - 2026-10-27: live check passed on staging (218c1a4f) with admin key coordinator-admin-staging: agent, proxy secret and grant, inbox thread, enrolment code, desk key minted and revoked (401 after); write key lacks the admin tools; 9 admin.action events; no secret value in responses. Test items cleaned up (agent archived). Follow-up nit: an invalid secret name shows the generic "The request failed". STATUS.md row added.
+- 2026-10-27: deployed to production (5052ffc, worker 2bad2bc6) at the coordinator's request; smoke check passed.

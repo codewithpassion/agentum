@@ -27,3 +27,4 @@ The flightdex desk panel sends a message to the controller with `POST /api/desk/
 - 2026-10-27: dispatched.
 - 2026-10-27: review clean after 0 fix rounds; merged. Optional runId on run.* frames not built.
 - 2026-10-27: live check passed on staging (e7222c86): controller message read back with reply set; STATUS.md row added.
+- 2026-10-27: deployed to production (5052ffc, worker 2bad2bc6) at the coordinator's request; smoke check passed.
