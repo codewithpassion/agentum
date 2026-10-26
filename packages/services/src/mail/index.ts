@@ -3,7 +3,7 @@ import type { Atomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { agentMailboxes } from "@repo/db/schema/mail";
 import { triggers } from "@repo/db/schema/triggers";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { isUniqueViolation, ServiceError } from "../errors.ts";
@@ -97,6 +97,22 @@ export const createMailService = ({
     await findAgent(principal, agentId);
     return await read(agentId);
   };
+  const prepareFailed = async (
+    error: unknown,
+    agentId: string,
+    address: string
+  ): Promise<Mailbox> => {
+    if (!isUniqueViolation(error)) {
+      throw error;
+    }
+    // A racing call (event listener and tick) may have inserted this agent's row first.
+    const raced = await read(agentId);
+    if (raced?.address === address) {
+      return raced;
+    }
+    // biome-ignore lint/style/useErrorCause: ServiceError has a fixed public constructor
+    throw new ServiceError("conflict", "That address is taken");
+  };
   const prepare = async (
     principal: Principal,
     agent: typeof agents.$inferSelect,
@@ -152,11 +168,7 @@ export const createMailService = ({
           : []),
       ]);
     } catch (error) {
-      if (isUniqueViolation(error)) {
-        // biome-ignore lint/style/useErrorCause: ServiceError has a fixed public constructor
-        throw new ServiceError("conflict", "That address is taken");
-      }
-      throw error;
+      return await prepareFailed(error, agentId, address);
     }
     const prepared = await read(agentId);
     if (!prepared) {
@@ -204,10 +216,13 @@ export const createMailService = ({
     try {
       if (!routingRuleId) {
         const existing = await port.findRule(row.address);
-        if (existing) {
+        if (existing && !existing.managed) {
           throw new Error("Address in use outside Harbourmaster");
         }
-        routingRuleId = (await port.createRule(row.address)).id;
+        // A managed rule is ours from an earlier try that died before it saved the id.
+        routingRuleId = existing
+          ? existing.id
+          : (await port.createRule(row.address)).id;
       }
     } catch (error) {
       const failure = routingFailure(error);
@@ -312,6 +327,7 @@ export const createMailService = ({
       .where(
         and(
           eq(agents.status, "active"),
+          isNotNull(agents.emailLocal),
           or(
             isNull(agentMailboxes.id),
             eq(agentMailboxes.status, "provisioning")
@@ -320,8 +336,13 @@ export const createMailService = ({
       );
     for (const row of rows) {
       if (row.emailLocal) {
-        // biome-ignore lint/performance/noAwaitInLoops: avoid flooding the routing API on a healing tick
-        await provision(principal, row.id);
+        try {
+          // biome-ignore lint/performance/noAwaitInLoops: avoid flooding the routing API on a healing tick
+          await provision(principal, row.id);
+        } catch (error) {
+          // One refused agent must not block the others on every tick.
+          console.error("Mailbox provisioning failed", row.id, error);
+        }
       }
     }
   };

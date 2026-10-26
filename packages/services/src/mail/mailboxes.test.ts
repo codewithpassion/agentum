@@ -31,6 +31,7 @@ let rules: Map<string, string>;
 let failure: Error | null;
 let failAt: "find" | "create";
 let creates: number;
+let managedRules: Set<string>;
 const mailbox: MailboxPort = {
   discard: () => Promise.resolve(),
   hold: async () => ({ messageId: "m", threadId: "t" }),
@@ -69,7 +70,9 @@ const routing: EmailRoutingPort = {
       throw failure;
     }
     const id = rules.get(address);
-    return Promise.resolve(id ? { id } : null);
+    return Promise.resolve(
+      id ? { id, managed: managedRules.has(address) } : null
+    );
   },
 };
 const options = () => ({
@@ -106,6 +109,7 @@ const insertAgent = (
 beforeEach(() => {
   db = migrated();
   rules = new Map();
+  managedRules = new Set();
   failure = null;
   failAt = "create";
   creates = 0;
@@ -359,4 +363,35 @@ test("a deployment-wide mailbox address conflict uses the V3 conflict error and 
   });
   expect(db.select().from(triggers).all()).toHaveLength(0);
   expect(db.select().from(agentMailboxes).all()).toHaveLength(1);
+});
+
+test("a retry adopts our own rule whose id never reached the row", async () => {
+  rules.set("a@example.com", "orphan");
+  managedRules.add("a@example.com");
+  expect(await service.provision(user, "a")).toMatchObject({
+    routingRuleId: "orphan",
+    status: "active",
+  });
+  expect(creates).toBe(0);
+});
+
+test("one refused agent does not stop the sweep", async () => {
+  insertAgent("b");
+  insertAgent("c");
+  await db.insert(agentMailboxes).values({
+    address: "b@example.com",
+    agentId: "a",
+    createdAt: now,
+    id: "stale",
+    status: "disabled",
+    workspaceId: "w",
+  });
+  const logged = console.error;
+  console.error = () => undefined;
+  try {
+    await service.provisionPending(SYSTEM_PRINCIPAL);
+  } finally {
+    console.error = logged;
+  }
+  expect((await service.get(user, "c"))?.status).toBe("active");
 });
