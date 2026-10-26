@@ -17,7 +17,11 @@
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
-import { libraryEntries, libraryVersions } from "@repo/db/schema/library";
+import {
+  libraryConflicts,
+  libraryEntries,
+  libraryVersions,
+} from "@repo/db/schema/library";
 import type { LibraryAccessGrant } from "@repo/db/shared";
 import {
   LIBRARY_FILE_MAX_BYTES,
@@ -25,8 +29,9 @@ import {
   type LibraryChange,
   type LibraryEntryKind,
 } from "@repo/db/shared";
-import { isConflictPath } from "@repo/library-sync/types";
+import { conflictPathOf, isConflictPath } from "@repo/library-sync/types";
 import { and, asc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
+import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
@@ -671,10 +676,63 @@ export const createLibraryService = ({
     return toEntry(created);
   };
 
+  const closeConflicts = async (
+    member: Member,
+    paths: string[],
+    resolution: string
+  ): Promise<Statement[]> => {
+    const rows = (
+      await Promise.all(
+        chunks(paths, 80).map((batch) =>
+          db
+            .select()
+            .from(libraryConflicts)
+            .where(
+              and(
+                eq(libraryConflicts.workspaceId, member.workspaceId),
+                eq(libraryConflicts.status, "open"),
+                inArray(libraryConflicts.conflictPath, batch)
+              )
+            )
+        )
+      )
+    ).flat();
+    return rows.flatMap((row) => [
+      db
+        .update(libraryConflicts)
+        .set({
+          resolution,
+          resolvedAt: clock.now().toISOString(),
+          status: "resolved",
+        })
+        .where(
+          and(
+            eq(libraryConflicts.id, row.id),
+            eq(libraryConflicts.workspaceId, member.workspaceId),
+            eq(libraryConflicts.status, "open")
+          )
+        ),
+      events.insertStatement({
+        actor: actorOf(member),
+        agentId: row.agentId,
+        payload: {
+          conflictPath: row.conflictPath,
+          id: row.id,
+          path: row.path,
+          resolution,
+        },
+        runId: row.runId ?? undefined,
+        type: "library.conflict.resolved",
+        workspaceId: member.workspaceId,
+      }),
+    ]);
+  };
+
   const remove = async (
     principal: Principal,
     rawPath: string,
-    options: { recursive?: boolean } = {}
+    options: { recursive?: boolean } = {},
+    resolution = "deleted"
   ): Promise<void> => {
     const member = await resolveMember(
       requireWriter(principal, "library.delete")
@@ -722,10 +780,16 @@ export const createLibraryService = ({
         member.workspaceId,
         removed.map((entry) => ({ bytes: null, path: entry.path }))
       ) ?? [];
+    const conflictStatements = await closeConflicts(
+      member,
+      removed.map((entry) => entry.path),
+      resolution
+    );
     const size = removed.reduce((total, entry) => total + entry.size, 0);
     await atomic([
       ...versionStatements,
       ...linkStatements,
+      ...conflictStatements,
       db
         .delete(libraryEntries)
         .where(
@@ -924,10 +988,18 @@ export const createLibraryService = ({
       moved,
       copies
     );
+    // Moving a copy retires its old conflict path, including copies inside
+    // folders. A copy that the move overwrites is deleted too.
+    const conflictStatements = await closeConflicts(
+      member,
+      [...moved.map((entry) => entry.path), ...(target ? [to] : [])],
+      "moved"
+    );
     const size = moved.reduce((total, entry) => total + entry.size, 0);
     await atomic([
       ...versionStatements,
       ...linkStatements,
+      ...conflictStatements,
       db
         .delete(libraryEntries)
         .where(
@@ -1093,13 +1165,44 @@ export const createLibraryService = ({
       kind: LIBRARY_KIND,
       workspaceId: member.workspaceId,
     });
+    const conflictPath = normalizePath(conflict.conflictPath);
+    const path = normalizePath(conflict.path);
+    if (member.kind === "run") {
+      // A person resolves the row with their own rights, so a run may only
+      // name its own copy of a file it can write.
+      const access = await resolveMember(member);
+      if (
+        conflictPath !== conflictPathOf(path, member.runId) ||
+        !canWriteAt(access, path)
+      ) {
+        throw invalid("Not a conflict copy of a file this run can write");
+      }
+    }
+    // Legacy person-originated calls remain event-only: conflict records require
+    // an agent, and sync conflicts are always recorded by a run.
+    const conflictRows: Statement[] =
+      member.kind === "run"
+        ? [
+            db.insert(libraryConflicts).values({
+              agentId: member.agentId,
+              conflictPath,
+              createdAt: clock.now().toISOString(),
+              id: ulid(),
+              path,
+              runId: member.runId,
+              status: "open",
+              workspaceId: member.workspaceId,
+            }),
+          ]
+        : [];
     await atomic([
+      ...conflictRows,
       events.insertStatement({
         actor: actorOf(member),
         agentId: member.kind === "run" ? member.agentId : undefined,
         payload: {
-          conflictPath: normalizePath(conflict.conflictPath),
-          path: normalizePath(conflict.path),
+          conflictPath,
+          path,
           ...(member.kind === "run" ? { runId: member.runId } : {}),
         },
         runId: member.kind === "run" ? member.runId : undefined,
@@ -1109,9 +1212,68 @@ export const createLibraryService = ({
     ]);
   };
 
+  const listConflicts = async (principal: Principal) => {
+    const member = await historyMember(principal, "library.list");
+    const rows = await db
+      .select()
+      .from(libraryConflicts)
+      .where(
+        and(
+          eq(libraryConflicts.workspaceId, member.workspaceId),
+          eq(libraryConflicts.status, "open")
+        )
+      )
+      .orderBy(asc(libraryConflicts.createdAt), asc(libraryConflicts.id));
+    return rows.filter(
+      (row) =>
+        canReadAt(member, row.path) && canReadAt(member, row.conflictPath)
+    );
+  };
+
+  const resolveConflict = async (
+    principal: Principal,
+    id: string,
+    choice: "keep-library" | "keep-agent"
+  ) => {
+    const member = requireWriter(principal, "library.conflict.resolve");
+    if (member.kind !== "user") {
+      throw new ForbiddenError("library.conflict.resolve");
+    }
+    authorize(member, "library.conflict.resolve", {
+      kind: LIBRARY_KIND,
+      workspaceId: member.workspaceId,
+    });
+    if (choice !== "keep-library" && choice !== "keep-agent") {
+      throw invalid("Unknown conflict resolution");
+    }
+    const [row] = await db
+      .select()
+      .from(libraryConflicts)
+      .where(
+        and(
+          eq(libraryConflicts.id, id),
+          eq(libraryConflicts.workspaceId, member.workspaceId)
+        )
+      )
+      .limit(1);
+    if (!row) {
+      throw notFound();
+    }
+    if (row.status !== "open") {
+      throw new ServiceError("conflict", "Conflict already resolved");
+    }
+    if (choice === "keep-agent") {
+      const copy = await read(member, row.conflictPath);
+      // Use the normal versioned write so the library's previous bytes survive.
+      await write(member, row.path, copy.bytes);
+    }
+    await remove(member, row.conflictPath, {}, choice);
+  };
+
   return {
     compare,
     list,
+    listConflicts,
     mkdir,
     move,
     pendingConflicts,
@@ -1122,6 +1284,7 @@ export const createLibraryService = ({
     recordConflict,
     recordScript,
     remove,
+    resolveConflict,
     restore,
     stat,
     versions,

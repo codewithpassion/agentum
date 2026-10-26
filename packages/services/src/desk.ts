@@ -12,7 +12,7 @@
 import type { Database } from "@repo/db";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { inboxPosts } from "@repo/db/schema/inbox";
-import { wikiSuggestions } from "@repo/db/schema/library";
+import { libraryConflicts, wikiSuggestions } from "@repo/db/schema/library";
 import { mailMessages } from "@repo/db/schema/mail";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
@@ -328,6 +328,8 @@ export const createDeskService = ({
       routineList,
       threads,
       drafts,
+      conflicts,
+
       suggestions,
     ] = await Promise.all([
       pendingRecords(member),
@@ -336,6 +338,15 @@ export const createDeskService = ({
       routines.list(member),
       inbox.listThreads(member),
       draftIds(member.workspaceId),
+      db
+        .select()
+        .from(libraryConflicts)
+        .where(
+          and(
+            eq(libraryConflicts.workspaceId, member.workspaceId),
+            eq(libraryConflicts.status, "open")
+          )
+        ),
       db
         .select()
         .from(wikiSuggestions)
@@ -391,6 +402,7 @@ export const createDeskService = ({
     });
     return {
       answered,
+      conflicts: conflicts.filter((row) => !drafts.has(row.agentId)),
       pending,
       proposedRoutines,
       proposedTriggers,
@@ -451,6 +463,20 @@ export const createDeskService = ({
     const actorOf = new Map(runActors.map((run) => [run.id, run]));
     const skillOf = new Map(skillNames.map((skill) => [skill.id, skill]));
     const drafts: Draft[] = [
+      ...sources.conflicts.map(
+        (conflict): Draft => ({
+          agentId: conflict.agentId,
+          at: conflict.createdAt,
+          band: { text: "Choose which file to keep", tone: "waiting" },
+          id: conflict.id,
+          kind: "conflict",
+          lane: "needs_you",
+          needsYouKind: "library_conflict",
+          ...(conflict.runId ? { runId: conflict.runId } : {}),
+          starter: { id: conflict.agentId, kind: "agent" },
+          title: conflict.path,
+        })
+      ),
       ...sources.suggestions.map(
         (suggestion): Draft => ({
           agentId: suggestion.agentId,
@@ -712,6 +738,7 @@ export const createDeskService = ({
     const member = requireMember(principal);
     const sources = await needsYouSources(member);
     return (
+      sources.conflicts.length +
       sources.suggestions.length +
       sources.pending.length +
       sources.versions.length +
