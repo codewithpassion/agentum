@@ -58,6 +58,7 @@ import { noneGateway } from "./runs/gateways.ts";
 import { claimForMachine } from "./runs/machine-claim.ts";
 import {
   findSession,
+  findSessionById,
   loadRun,
   loadRunByRequest,
   requireFiles,
@@ -561,6 +562,34 @@ export const createRunsService = ({
     }) ?? []),
   ];
 
+  /** The session this run continues, if any: the trusted `sessionId`, else the one for the key. */
+  const knownSession = async (
+    { agent, subject }: Prepared,
+    input: ParsedInput,
+    options: StartRunOptions
+  ) => {
+    if (options.sessionId) {
+      const session = await findSessionById(db, {
+        agentId: agent.id,
+        id: options.sessionId,
+        workspaceId: agent.workspaceId,
+      });
+      if (!session) {
+        throw new ServiceError("not_found", "Session not found");
+      }
+      return session;
+    }
+    return input.session.externalKey
+      ? await findSession(db, {
+          actor: subject.actor,
+          agentId: agent.id,
+          externalKey: input.session.externalKey,
+          origin: input.session.origin,
+          workspaceId: agent.workspaceId,
+        })
+      : null;
+  };
+
   /**
    * Writes the session (new, or its last-run time) and the run in one atomic
    * write. A duplicate `requestId` fails the unique index; the run that won is
@@ -576,15 +605,7 @@ export const createRunsService = ({
     const now = clock.now();
     const created = now.toISOString();
     const runId = ulid(now.getTime());
-    const known = input.session.externalKey
-      ? await findSession(db, {
-          actor: subject.actor,
-          agentId: agent.id,
-          externalKey: input.session.externalKey,
-          origin: input.session.origin,
-          workspaceId,
-        })
-      : null;
+    const known = await knownSession(prepared, input, options);
     const sessionId = known?.id ?? ulid(now.getTime());
     const sessionWrite: Statement = known
       ? db

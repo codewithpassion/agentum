@@ -79,6 +79,30 @@ export const findSession = async (
 };
 
 /**
+ * A session by id, for a trusted caller that already knows it belongs to the
+ * run's agent. It does not check the actor: unlike `findSession`, the caller
+ * has decided who may continue the session. Null when the id is not a session
+ * of that agent and workspace.
+ */
+export const findSessionById = async (
+  db: Database,
+  key: { agentId: string; id: string; workspaceId: string }
+) => {
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.id, key.id),
+        eq(sessions.workspaceId, key.workspaceId),
+        eq(sessions.agentId, key.agentId)
+      )
+    )
+    .limit(1);
+  return session ?? null;
+};
+
+/**
  * Throws "not found" for the first file id that is missing from the
  * workspace, or, when `ownerUserId` is given, not that user's own upload, or,
  * when `runId` is given, not an output of that run.
