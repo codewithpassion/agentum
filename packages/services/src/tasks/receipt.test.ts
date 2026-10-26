@@ -127,6 +127,23 @@ test("external payloads and malformed JSON render safely without chips", () => {
   expect(steps[1]).toMatchObject({ in: [], out: [] });
 });
 
+test("a done run settles a tool step whose result body went to R2", () => {
+  const offloaded = {
+    ...result("a", ""),
+    payload: {},
+    payloadRef: "payloads/a",
+  };
+  const events = [
+    call("a"),
+    offloaded,
+    event("message.assistant", { text: "ok" }),
+  ];
+  expect(buildReceipt(run({ status: "done" }), events)[1]?.state).toBe("done");
+  expect(buildReceipt(run({ status: "running" }), events)[1]?.state).toBe(
+    "running"
+  );
+});
+
 test("a folded step returns to running until its latest call resolves", () => {
   expect(
     buildReceipt(run(), [call("a"), result("a", "{}"), call("b")])[1]?.state
