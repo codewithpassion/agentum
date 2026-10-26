@@ -37,3 +37,4 @@ export type SkillAssignment =
 export type AgentSkill = RouterOutputs["skillStore"]["forAgent"][number];
 export type DeskView = RouterOutputs["desk"]["get"];
 export type TaskView = RouterOutputs["tasks"]["get"];
+export type AgentProfileView = RouterOutputs["agentProfile"]["profile"];

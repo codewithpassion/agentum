@@ -7,9 +7,9 @@ import { TriggerTable } from "#/components/triggers/trigger-table";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TriggerRecord } from "#/integrations/trpc/types";
-import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
+import type { AgentPanelProps } from "./props.ts";
 
-function TriggersPanel({ agent }: AgentTabProps) {
+export function TriggersPanel({ agent }: AgentPanelProps) {
   const agentId = agent.id;
   const [triggers, setTriggers] = useState<TriggerRecord[] | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -176,9 +176,3 @@ function TriggersPanel({ agent }: AgentTabProps) {
     </section>
   );
 }
-
-export const triggersTab: AgentTab = {
-  id: "triggers",
-  label: "Triggers",
-  Panel: TriggersPanel,
-};

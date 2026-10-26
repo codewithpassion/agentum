@@ -183,7 +183,7 @@ test("connecting as an agent stores a credential owned by the agent", async () =
   const done = await connectAt(callback);
 
   expect(done.headers.get("location")).toBe(
-    `/agents/${agentId}?tab=connectors&connected=1`
+    `/agents/${agentId}?sheet=tools&connected=1`
   );
   expect(credentialRows()).toMatchObject([
     { ownerId: agentId, ownerKind: "agent", version: 1 },
@@ -253,7 +253,7 @@ test("?as=agent without fetch metadata goes to the agent page and starts nothing
   const res = await connectAt(`/connect/${connectorId}?as=agent:${agentId}`);
 
   expect(res.status).toBe(302);
-  expect(res.headers.get("location")).toBe(`/agents/${agentId}?tab=connectors`);
+  expect(res.headers.get("location")).toBe(`/agents/${agentId}?sheet=tools`);
   expect(stateRows()).toHaveLength(0);
   expect(registrations()).toHaveLength(0);
 });
@@ -273,7 +273,7 @@ test("?as=agent with Sec-Fetch-Site same-origin starts the flow for that agent",
 
 test("without Sec-Fetch-Site, a Referer from this origin starts the agent flow", async () => {
   const res = await connectAt(`/connect/${connectorId}?as=agent:${agentId}`, {
-    Referer: `${APP}/agents/${agentId}?tab=connectors`,
+    Referer: `${APP}/agents/${agentId}?sheet=tools`,
   });
 
   expect(res.headers.get("location")).toStartWith(
@@ -295,9 +295,7 @@ test("a foreign Referer or a cross-site navigation to ?as=agent goes to the agen
 
   for (const res of responses) {
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe(
-      `/agents/${agentId}?tab=connectors`
-    );
+    expect(res.headers.get("location")).toBe(`/agents/${agentId}?sheet=tools`);
   }
   expect(stateRows()).toHaveLength(0);
   expect(registrations()).toHaveLength(0);
