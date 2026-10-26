@@ -223,8 +223,8 @@ export const createVersionStore = ({
 
   /**
    * Past the newest KEEP_MIN of a file, a version expires with its age.
-   * Ordered by `created_at` so SQLite walks the index. Deleting a row ranked
-   * KEEP_MIN or lower never drops another row's rank below KEEP_MIN.
+   * Ordered by `created_at` so SQLite walks the index. Only rows with at
+   * least KEEP_MIN newer versions are deleted, so the newest KEEP_MIN are never touched.
    */
   const pruneExcessVersions = async (cutoff: string): Promise<void> => {
     for (;;) {
