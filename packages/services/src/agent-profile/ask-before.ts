@@ -14,11 +14,6 @@ export const BUILTIN_ACTIONS = [
   { key: "run_skill_script", label: "Run a skill's script" },
 ] as const;
 
-/** The built-in tool keys, in the order the list shows them. */
-export const BUILTIN_TOOL_KEYS: string[] = BUILTIN_ACTIONS.map(
-  ({ key }) => key
-);
-
 const WORD_SEPARATORS = /[_-]+/g;
 
 /** A tool name as words: `create_bill` is "create bill". */
