@@ -10,17 +10,20 @@
 import type { Database } from "@repo/db";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { runRequests } from "@repo/db/schema/requests";
+import { runs as runRows } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { questionDisplaySchema } from "@repo/protocol/requests";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentsService } from "./agents.ts";
-import { ForbiddenError } from "./authz.ts";
+import { authorize, ForbiddenError } from "./authz.ts";
 import { isReadOnly } from "./automation-access.ts";
 import { ServiceError } from "./errors.ts";
 import type { RequestRecord, RequestsService } from "./requests.ts";
 import { type Clock, INPUT_TEXT_MAX } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
+import { visibleSessions } from "./sessions.ts";
 import type { Principal } from "./workspaces.ts";
 
 /** The agent that receives controller messages, by name and ignoring case. */
@@ -185,6 +188,39 @@ export const createDeskApiService = ({
     }));
   };
 
+  /**
+   * True when the member may see the run: it is in a session the requests
+   * list admits (`visibleSessions`). The stream asks it per frame, so another
+   * member's ui session or private DM never reaches this member's desk.
+   */
+  const canSeeRun = async (
+    member: UserPrincipal,
+    runId: string
+  ): Promise<boolean> => {
+    authorize(member, "requests.read", {
+      kind: "request",
+      workspaceId: member.workspaceId,
+    });
+    const [row] = await db
+      .select({ id: runRows.id })
+      .from(runRows)
+      .where(
+        and(
+          eq(runRows.id, runId),
+          eq(runRows.workspaceId, member.workspaceId),
+          inArray(
+            runRows.sessionId,
+            db
+              .select({ id: sessions.id })
+              .from(sessions)
+              .where(await visibleSessions(db, member))
+          )
+        )
+      )
+      .limit(1);
+    return row !== undefined;
+  };
+
   /** The answer to a question request, in the shape the requests service takes. */
   const questionAnswer = (
     display: unknown,
@@ -276,7 +312,7 @@ export const createDeskApiService = ({
     return { runId: started.runId, sessionId: started.sessionId };
   };
 
-  return { actingMember, decide, needsYou, sendToController };
+  return { actingMember, canSeeRun, decide, needsYou, sendToController };
 };
 
 export type DeskApiService = ReturnType<typeof createDeskApiService>;

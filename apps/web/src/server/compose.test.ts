@@ -6,6 +6,7 @@ import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal, Workspace } from "@repo/services/workspaces";
 import { type Composed, composeWith, type Infra } from "./compose.ts";
+import { deskStreamName } from "./session-stream-frames.ts";
 import type { SessionStreamPort } from "./session-stream-port.ts";
 
 type User = Extract<Principal, { kind: "user" }>;
@@ -181,11 +182,25 @@ test("starting a run publishes its queued event, its run frame, then the user me
     session: { origin: "ui" },
   });
 
-  expect(published.map(({ frame }) => frame)).toEqual([
+  const queued = [
     expect.objectContaining({ frame: "event", runId, type: "run.queued" }),
     { frame: "run", runId, status: "queued" },
+  ];
+  const onDesk = deskStreamName(user.workspaceId);
+  expect(
+    published
+      .filter(({ sessionId }) => sessionId !== onDesk)
+      .map(({ frame }) => frame)
+  ).toEqual([
+    ...queued,
     expect.objectContaining({ frame: "event", runId, type: "message.user" }),
   ]);
+  // The workspace's desk instance gets the run frames, not the message.
+  expect(
+    published
+      .filter(({ sessionId }) => sessionId === onDesk)
+      .map(({ frame }) => frame)
+  ).toEqual(queued);
 });
 
 test("a port that rejects does not fail the append", async () => {

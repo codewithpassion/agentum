@@ -6,6 +6,7 @@
 // relay drops the live copy of any event the replay already sent. Mount with
 // `runtimeRoutes.route("/api/sessions", sessionStreamRoutes({ session }))`.
 
+import type { EventType } from "@repo/db/shared";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import {
@@ -27,7 +28,7 @@ const NOT_FOUND = 404;
 const SIGN_IN = "Sign in required.";
 const NOT_FOUND_MESSAGE = "Not found.";
 
-const STREAM_HEADERS = {
+export const STREAM_HEADERS = {
   "Cache-Control": "no-cache, no-transform",
   "Content-Type": "text/event-stream",
   "X-Accel-Buffering": "no",
@@ -35,7 +36,7 @@ const STREAM_HEADERS = {
 
 const SSE_BLOCK_END = "\n\n";
 /** The longest event id the events query accepts. */
-const RESUME_ID_MAX = 200;
+export const RESUME_ID_MAX = 200;
 const ID_LINE = /^id: (.+)$/m;
 
 export interface SessionStreamRouteDeps {
@@ -55,13 +56,22 @@ interface Replay {
   text: string;
 }
 
-const NO_REPLAY: Replay = { ids: new Set(), text: "" };
+export const NO_REPLAY: Replay = { ids: new Set(), text: "" };
 
-/** The stored events of the session after `after`, as SSE text, read page by page. */
-const replay = async (
+/** Which stored events a replay reads, and which of them it keeps. */
+export interface ReplayScope {
+  /** Drops a stored event when it resolves false. Every event is kept by default. */
+  keep?: (record: EventRecord) => Promise<boolean>;
+  /** Only the events of this session. Every session of the workspace by default. */
+  sessionId?: string;
+  types: readonly EventType[];
+}
+
+/** The stored events in `scope` after `after`, as SSE text, read page by page. */
+export const replay = async (
   events: EventsService,
   principal: UserPrincipal,
-  sessionId: string,
+  scope: ReplayScope,
   after: string
 ): Promise<Replay> => {
   const ids = new Set<string>();
@@ -73,12 +83,17 @@ const replay = async (
     page = await events.query(principal, principal.workspaceId, {
       after: cursor,
       limit: EVENT_QUERY_MAX_LIMIT,
-      sessionId,
-      types: [...STREAM_EVENT_TYPES],
+      sessionId: scope.sessionId,
+      types: [...scope.types],
     });
-    for (const record of page) {
-      ids.add(record.id);
-      text += encodeFrame(eventFrame(record));
+    const kept = await Promise.all(
+      page.map((record) => scope.keep?.(record) ?? true)
+    );
+    for (const [index, record] of page.entries()) {
+      if (kept[index]) {
+        ids.add(record.id);
+        text += encodeFrame(eventFrame(record));
+      }
     }
     cursor = page.at(-1)?.id ?? cursor;
   } while (page.length === EVENT_QUERY_MAX_LIMIT);
@@ -95,9 +110,10 @@ const isReplayed = (block: string, replayed: ReadonlySet<string>): boolean => {
  * The replay, then the live body with the replayed events dropped. Cancelling
  * the response cancels the live body, which ends the Durable Object subscription.
  */
-const relay = (
+export const relay = (
   replayed: Replay,
-  live: ReadableStream<Uint8Array>
+  live: ReadableStream<Uint8Array>,
+  keep?: (block: string) => Promise<boolean>
 ): ReadableStream<Uint8Array> => {
   const reader = live.getReader();
   const decoder = new TextDecoder();
@@ -124,8 +140,14 @@ const relay = (
         buffer += decoder.decode(value, { stream: true });
         const blocks = buffer.split(SSE_BLOCK_END);
         buffer = blocks.pop() ?? "";
-        const forward = blocks
-          .filter((block) => !isReplayed(block, replayed.ids))
+        const fresh = blocks.filter(
+          (block) => !isReplayed(block, replayed.ids)
+        );
+        const kept = await Promise.all(
+          fresh.map((block) => keep?.(block) ?? true)
+        );
+        const forward = fresh
+          .filter((_block, index) => kept[index])
           .map((block) => `${block}${SSE_BLOCK_END}`)
           .join("");
         if (forward !== "") {
@@ -215,7 +237,7 @@ export const sessionStreamRoutes = (
         replayed = await replay(
           c.get("composed").services.events,
           principal,
-          sessionId,
+          { sessionId, types: STREAM_EVENT_TYPES },
           resume
         );
       } catch (error: unknown) {
