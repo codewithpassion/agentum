@@ -34,6 +34,7 @@ let db: ReturnType<typeof migrated>;
 let service: ReturnType<typeof createMailService>;
 let library: ReturnType<typeof createLibraryService>;
 let offered: string[];
+let runs: ReturnType<typeof createRunsService>;
 let port: MailboxPort;
 const message = (id = "m"): InboundMessage => ({
   attachments: [],
@@ -109,7 +110,7 @@ beforeEach(() => {
     db,
     events,
   });
-  const runs = createRunsService({
+  runs = createRunsService({
     adapters: [
       {
         cancel: () => Promise.resolve(),
@@ -197,6 +198,51 @@ test("first mail starts a task and reply reuses session; redelivery is idempoten
   ).toHaveLength(2);
   expect(await service.threadForTask(user, rows[1]?.id ?? "")).toMatchObject({
     subject: "Help",
+  });
+  expect(db.select().from(mailThreads).get()?.sessionId).toBe(
+    rows[0]?.sessionId
+  );
+});
+test("a reply on a thread an agent started continues the sending session", async () => {
+  const started = await runs.startRun(user, {
+    agentId: "a",
+    input: { text: "Write to them" },
+    session: { origin: "ui" },
+  });
+  db.insert(mailThreads)
+    .values({
+      externalThreadId: "t",
+      id: "thread",
+      lastMessageAt: now,
+      mailboxId: "box",
+      sessionId: started.sessionId,
+      subject: "Help",
+      workspaceId: "w",
+    })
+    .run();
+  await service.receive(message("reply"));
+  await service.receive(message("reply"));
+  const rows = db.select().from(runRows).all();
+  expect(rows).toHaveLength(2);
+  expect(rows.map((r) => r.sessionId)).toEqual([
+    started.sessionId,
+    started.sessionId,
+  ]);
+  expect(rows[1]).toMatchObject({
+    actorId: "mail:box",
+    actorKind: "trigger",
+    requestId: "mail:reply",
+  });
+  expect(db.select().from(sessions).all()).toHaveLength(1);
+  expect(db.select().from(mailThreads).get()?.sessionId).toBe(
+    started.sessionId
+  );
+  expect(db.select().from(mailMessages).get()?.runId).toBe(rows[1]?.id);
+  expect(await service.threadForTask(user, started.runId)).toMatchObject({
+    id: "thread",
+  });
+  expect(await service.threadForTask(user, rows[1]?.id ?? "")).toMatchObject({
+    id: "thread",
   });
 });
 test("threads carry the message count and the newest message's direction and status", async () => {

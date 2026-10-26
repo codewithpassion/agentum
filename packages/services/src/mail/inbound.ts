@@ -7,6 +7,7 @@ import {
   mailThreads,
 } from "@repo/db/schema/mail";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
 import { LIBRARY_FILE_MAX_BYTES, taskFolderPath } from "@repo/db/shared";
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
@@ -445,6 +446,48 @@ export const createInboundMail = ({
         0,
         INPUT_TEXT_MAX
       );
+    const externalKey = `mail:${box.id}:${stored.threadId}`;
+    // A thread an agent run started belongs to that run's session. The reply continues it.
+    const [owner] = conversation.sessionId
+      ? await db
+          .select({
+            externalKey: sessions.externalKey,
+            id: sessions.id,
+            origin: sessions.origin,
+          })
+          .from(sessions)
+          .where(eq(sessions.id, conversation.sessionId))
+      : [];
+    const continued =
+      owner && !(owner.origin === "mail" && owner.externalKey === externalKey)
+        ? owner.id
+        : undefined;
+    // The thread keeps the session it has. Only the thread's own mail session is recorded on it.
+    const links = ({
+      runId,
+      sessionId,
+    }: {
+      runId: string;
+      sessionId: string;
+    }) => [
+      ...(continued
+        ? []
+        : [
+            db
+              .update(mailThreads)
+              .set({ sessionId })
+              .where(eq(mailThreads.id, conversation.id)),
+          ]),
+      db
+        .update(mailMessages)
+        .set({ runId })
+        .where(
+          and(
+            eq(mailMessages.threadId, conversation.id),
+            eq(mailMessages.externalMessageId, stored.messageId)
+          )
+        ),
+    ];
     let started: Awaited<ReturnType<NonNullable<typeof runs>["startRun"]>>;
     try {
       started = await runs.startRun(
@@ -459,29 +502,9 @@ export const createInboundMail = ({
           input: { text: input },
           reply: { kind: "none" },
           requestId: `mail:${stored.messageId}`,
-          session: {
-            externalKey: `mail:${box.id}:${stored.threadId}`,
-            origin: "mail",
-          },
+          session: { externalKey, origin: "mail" },
         },
-        {
-          alongside: ({ runId, sessionId }) => [
-            db
-              .update(mailThreads)
-              .set({ sessionId })
-              .where(eq(mailThreads.id, conversation.id)),
-            db
-              .update(mailMessages)
-              .set({ runId })
-              .where(
-                and(
-                  eq(mailMessages.threadId, conversation.id),
-                  eq(mailMessages.externalMessageId, stored.messageId)
-                )
-              ),
-          ],
-          offerLater: true,
-        }
+        { alongside: links, offerLater: true, sessionId: continued }
       );
     } catch (error) {
       // prepareStart uses not_found for draft/archived agents. Their mail stays visible.
@@ -491,21 +514,7 @@ export const createInboundMail = ({
       throw error;
     }
     // A retry may return an existing run without executing alongside again; repair the links too.
-    await atomic([
-      db
-        .update(mailThreads)
-        .set({ sessionId: started.sessionId })
-        .where(eq(mailThreads.id, conversation.id)),
-      db
-        .update(mailMessages)
-        .set({ runId: started.runId })
-        .where(
-          and(
-            eq(mailMessages.threadId, conversation.id),
-            eq(mailMessages.externalMessageId, stored.messageId)
-          )
-        ),
-    ]);
+    await atomic(links(started));
     await saveAttachments(message, box, started.runId, names);
     await runs.offerQueuedRun(SYSTEM_PRINCIPAL, started.runId);
   };

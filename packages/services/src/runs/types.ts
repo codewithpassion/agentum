@@ -111,6 +111,14 @@ export interface StartRunOptions {
   offerLater?: boolean;
   /** File descriptors still to be fetched. The run is not claimable until they are. */
   pendingFiles?: unknown[];
+  /**
+   * Continue this session of the run's agent and workspace instead of finding
+   * or opening one by `session.externalKey`. It skips the `ui` and private
+   * actor check, so only a trusted caller that has decided who may continue
+   * the session passes it (an inbound mail reply on an agent-started thread).
+   * Not in `startRunInputSchema` on purpose. An unknown id is "not found".
+   */
+  sessionId?: string;
 }
 
 /** A run row with its JSON columns parsed. */
