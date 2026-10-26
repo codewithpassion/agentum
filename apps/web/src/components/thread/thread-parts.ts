@@ -1,0 +1,123 @@
+// Maps the protocol's thread messages (V2.12) to assistant-ui's ThreadMessageLike.
+// Pure: it reads its input and returns new objects.
+
+import type { ThreadMessageLike } from "@assistant-ui/react";
+import type {
+  ThreadMessage,
+  ThreadPart,
+  ThreadStatus,
+} from "@repo/protocol/thread";
+
+type Content = Exclude<ThreadMessageLike["content"], string>[number];
+type Status = NonNullable<ThreadMessageLike["status"]>;
+type Attachment = NonNullable<ThreadMessageLike["attachments"]>[number];
+type ToolArgs = NonNullable<Extract<Content, { type: "tool-call" }>["args"]>;
+type ToolCallPart = Extract<ThreadPart, { type: "tool-call" }>;
+
+const PLACEHOLDER_TEXT = "(content too large to show)";
+const DEFAULT_TOOL_NAME = "tool";
+
+const STATUS_OF: Record<ThreadStatus, Status> = {
+  cancelled: { reason: "cancelled", type: "incomplete" },
+  done: { reason: "stop", type: "complete" },
+  failed: { reason: "error", type: "incomplete" },
+  running: { type: "running" },
+  waiting: { reason: "interrupt", type: "requires-action" },
+};
+
+/** The assistant-ui status of a message, as a new object each call. */
+export const messageStatusOf = (status: ThreadStatus): Status => ({
+  ...STATUS_OF[status],
+});
+
+// Tool input comes from stored JSON events, so an object here is JSON-shaped.
+const isToolArgs = (value: unknown): value is ToolArgs =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const toolCallOf = (part: ToolCallPart): Content => {
+  const { input } = part;
+  const argsText =
+    isToolArgs(input) || input === null || input === undefined
+      ? {}
+      : { argsText: JSON.stringify(input) };
+  return {
+    args: isToolArgs(input) ? { ...input } : {},
+    ...argsText,
+    isError: part.ok === false,
+    // No result yet: leave it undefined so the call shows as running.
+    result: part.ok === null ? undefined : (part.result ?? ""),
+    toolCallId: part.toolUseId,
+    toolName: part.name ?? DEFAULT_TOOL_NAME,
+    type: "tool-call",
+  };
+};
+
+const assistantContent = (part: ThreadPart): Content[] => {
+  if (part.type === "tool-call") {
+    return [toolCallOf(part)];
+  }
+  if (part.type === "request") {
+    return [{ data: { requestId: part.requestId }, type: "data-request" }];
+  }
+  if (part.type === "placeholder") {
+    return [{ text: PLACEHOLDER_TEXT, type: "text" }];
+  }
+  if (part.type === "attachment") {
+    return [
+      {
+        data: "fileId" in part ? { fileId: part.fileId } : { path: part.path },
+        type: "data-attachment",
+      },
+    ];
+  }
+  return [{ text: part.text, type: part.type }];
+};
+
+// A user message's content holds text only. Files go to its attachments.
+const userContent = (part: ThreadPart): Content[] => {
+  if (part.type === "text") {
+    return [{ text: part.text, type: "text" }];
+  }
+  if (part.type === "placeholder") {
+    return [{ text: PLACEHOLDER_TEXT, type: "text" }];
+  }
+  return [];
+};
+
+const fileAttachment = (fileId: string): Attachment => ({
+  content: [],
+  id: fileId,
+  name: fileId,
+  status: { type: "complete" },
+  type: "file",
+});
+
+/** Converts a protocol thread message to a new assistant-ui message. */
+export const toThreadMessageLike = (
+  message: ThreadMessage
+): ThreadMessageLike => {
+  const base = {
+    createdAt:
+      message.createdAt === null ? undefined : new Date(message.createdAt),
+    id: message.id,
+    metadata: { custom: { runId: message.runId } },
+    role: message.role,
+  };
+  if (message.role === "assistant") {
+    return {
+      ...base,
+      content: message.parts.flatMap(assistantContent),
+      status: messageStatusOf(message.status),
+    };
+  }
+  const attachments = message.parts.flatMap((part) =>
+    part.type === "attachment" && "fileId" in part
+      ? [fileAttachment(part.fileId)]
+      : []
+  );
+  return {
+    ...base,
+    ...(attachments.length === 0 ? {} : { attachments }),
+    content: message.parts.flatMap(userContent),
+  };
+};
