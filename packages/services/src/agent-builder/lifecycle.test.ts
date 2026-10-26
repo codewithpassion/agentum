@@ -1,29 +1,37 @@
 import { describe, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agentLibraryAccess } from "@repo/db/schema/library";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
 import { eq } from "drizzle-orm";
+import { createAgentProfileService } from "../agent-profile.ts";
 import { type AgentRecord, createAgentsService } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
 import { CLOUD_DEFAULT_MODEL } from "../cloud/models.ts";
 import type { ConnectorSummary } from "../connectors.ts";
+import { createConnectorsService } from "../connectors.ts";
 import { createDeskService } from "../desk.ts";
 import { ServiceError } from "../errors.ts";
 import { createEventsService } from "../events.ts";
 import { createInboxService } from "../inbox.ts";
+import { createLibraryAccessService } from "../library/access.ts";
 import { memoryLibraryBlobs } from "../library/memory.ts";
 import { createLibraryService } from "../library.ts";
+import { noopRelay } from "../machines/types.ts";
+import { createMachinesService } from "../machines.ts";
 import { createRequestsService } from "../requests.ts";
 import { createRoutinesService } from "../routines.ts";
 import type { RuntimeAdapter } from "../runs/types.ts";
 import { createRunsService } from "../runs.ts";
+import { createSecretsService } from "../secrets.ts";
 import { createSessionsService } from "../sessions.ts";
 import { memorySkillBlobs } from "../skills-store/memory.ts";
 import type { SkillRecord } from "../skills-store/records.ts";
 import { createSkillsStoreService } from "../skills-store.ts";
+import { createSlackAppsService } from "../slack-apps.ts";
 import { createTasksService } from "../tasks/service.ts";
 import { createTriggersService } from "../triggers.ts";
 import type { Principal } from "../workspaces.ts";
@@ -169,6 +177,12 @@ const makeWorld = (options: WorldOptions = {}) => {
     ],
   };
 
+  const libraryAccess: AgentBuilderDeps["libraryAccess"] = {
+    setGrant: async (_principal, _agentId, path, mode) => {
+      await record(`grant:${path}:${mode}`);
+    },
+  };
+
   const skillsStore: AgentBuilderDeps["skillsStore"] = {
     assign: async (_principal, input) => {
       await record(`assignSkill:${input.skillId}`);
@@ -203,6 +217,7 @@ const makeWorld = (options: WorldOptions = {}) => {
     agents,
     connectors,
     fetch: () => Promise.reject(new Error("unused")),
+    libraryAccess,
     machines: { list: async () => [] },
     managedKeys: {
       resolve: async () => ({ apiKey: "sk-ant-test", environmentId: null }),
@@ -240,8 +255,8 @@ describe("saveDraft", () => {
       handsTo: [],
       instructions: "Sort the inbox\n\nRules:\n- Never send mail",
       name: "Inbox helper",
-      runtimeConfig: { libraryPaths: ["notes/research"] },
     });
+    expect(input?.runtimeConfig).toBeUndefined();
     expect(input?.soul).toStartWith("Be careful.");
 
     const brief = makeWorld();
@@ -333,6 +348,7 @@ describe("create", () => {
       "activate",
       "assign:conn_mail",
       "assignSkill:skill_people",
+      "grant:notes/research:write",
       "routine:Monday digest",
       "reserve:inbox-helper-2",
     ]);
@@ -342,7 +358,6 @@ describe("create", () => {
         machineId: null,
         model: CLOUD_DEFAULT_MODEL,
         runtime: "cloud",
-        runtimeConfig: { libraryPaths: ["notes/research"] },
       },
     ]);
     expect(world.routineInputs).toEqual([
@@ -381,6 +396,7 @@ describe("create", () => {
       "activate",
       "assign:conn_mail",
       "assignSkill:skill_people",
+      "grant:notes/research:write",
       "routine:Monday digest",
     ]);
     expect(world.suggestCalls).toEqual([]);
@@ -458,6 +474,32 @@ describe("create", () => {
       "assign:conn_mail",
       "assignSkill:skill_people",
     ]);
+  });
+});
+
+describe("create, library folders", () => {
+  test("a failed grant is named in the error, with what landed and what did not", async () => {
+    const world = makeWorld({
+      failures: {
+        "grant:notes/research:write": new ServiceError("not_found", "no way"),
+      },
+    });
+
+    const error = await world.service
+      .create(user, { draft, draftAgentId: "agent_1" })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ServiceError);
+    expect(error).toMatchObject({ code: "not_found" });
+    const { message } = error as Error;
+    expect(message).toContain(
+      '"Give it write access to notes/research" failed: no way'
+    );
+    expect(message).toContain("Done: Give it the Mail Connector connector");
+    expect(message).toContain(
+      "Not done: Give it write access to notes/research"
+    );
+    expect(message).toContain("Reserve its address");
   });
 });
 
@@ -613,6 +655,7 @@ describe("dry run on the real services", () => {
       agents,
       connectors: { assign: unused, list: unused },
       fetch: unused,
+      libraryAccess: { setGrant: unused },
       machines: { list: unused },
       managedKeys: { resolve: unused, status: unused },
       modelKeys: { status: unused },
@@ -669,5 +712,197 @@ describe("dry run on the real services", () => {
       origin: "dry_run",
       private: true,
     });
+  });
+});
+
+describe("create on the real services", () => {
+  const NOW = "2026-10-27T09:00:00.000Z";
+  const clock = { now: () => new Date(NOW), sleep: () => Promise.resolve() };
+
+  test("each library folder becomes a write grant, listed on the profile, and none lands in runtimeConfig", async () => {
+    const db = migrated();
+    await db.insert(workspaces).values({
+      clerkOrgId: "org_ws_1",
+      createdAt: NOW,
+      id: "ws_1",
+      name: "ws_1",
+      timezone: "UTC",
+    });
+    const blobs = {
+      get: () => Promise.resolve(null),
+      put: () => Promise.resolve(),
+    };
+    const atomic = sqliteAtomic(db);
+    const events = createEventsService({ blobs, db });
+    const adapter: RuntimeAdapter = {
+      cancel: () => Promise.resolve(),
+      dispatch: () => Promise.resolve(),
+      kind: "cloud",
+      resume: () => Promise.resolve(),
+    };
+    const runs = createRunsService({
+      adapters: [adapter],
+      atomic,
+      blobs,
+      clock,
+      db,
+      devFakeRuntime: false,
+      gateways: [],
+    });
+    const requests = createRequestsService({
+      atomic,
+      clock,
+      db,
+      events,
+      runs,
+      secrets: { maskerFor: () => Promise.resolve(createMasker({})) },
+    });
+    const library = createLibraryService({
+      atomic,
+      blobs: memoryLibraryBlobs(),
+      clock,
+      db,
+      events,
+    });
+    const skillsStore = createSkillsStoreService({
+      atomic,
+      blobs: memorySkillBlobs(),
+      clock,
+      db,
+      events,
+      library,
+    });
+    const triggers = createTriggersService({
+      allowedOrgIds: ["org_ws_1"],
+      clock,
+      db,
+      events,
+      runs,
+    });
+    const routines = createRoutinesService({
+      allowedOrgIds: ["org_ws_1"],
+      clock,
+      db,
+      events,
+      runs,
+    });
+    const agents = createAgentsService({ db, events });
+    const connectors = createConnectorsService({
+      atomic,
+      clock,
+      db,
+      events,
+      fetch: unused,
+    });
+    const machines = createMachinesService({
+      allowedOrgIds: ["org_ws_1"],
+      atomic,
+      clock,
+      db,
+      events,
+      relay: noopRelay,
+    });
+    const libraryAccess = createLibraryAccessService({
+      atomic,
+      clock,
+      db,
+      events,
+    });
+    const builder = createAgentBuilderService({
+      agents,
+      connectors,
+      fetch: unused,
+      libraryAccess,
+      machines,
+      managedKeys: {
+        resolve: unused,
+        status: () =>
+          Promise.resolve({ configured: true, hint: "sk-a", updatedAt: null }),
+      },
+      modelKeys: {
+        status: () =>
+          Promise.resolve({ configured: false, hint: null, updatedAt: null }),
+      },
+      routines,
+      runs,
+      skillsStore,
+    });
+    const profiles = createAgentProfileService({
+      agents,
+      connectors,
+      db,
+      machines,
+      requests,
+      routines,
+      secrets: createSecretsService({
+        atomic,
+        clock,
+        db,
+        events,
+        secretsKey: Buffer.from(
+          crypto.getRandomValues(new Uint8Array(32))
+        ).toString("base64"),
+      }),
+      skillsStore,
+      slackApps: createSlackAppsService({
+        atomic,
+        clock,
+        db,
+        events,
+        fetch: unused,
+        publicBaseUrl: "https://hm.example.com",
+        secretsKey: Buffer.from(
+          crypto.getRandomValues(new Uint8Array(32))
+        ).toString("base64"),
+      }),
+      tasks: createTasksService({
+        clock,
+        db,
+        events,
+        eventTypes: [],
+        requests,
+      }),
+      triggers,
+    });
+
+    const owner: Principal = {
+      kind: "user",
+      userId: "user_1",
+      via: "session",
+      workspaceId: "ws_1",
+    };
+    const draftAgent = await agents.createDraft(owner, { name: "Folders" });
+    const created = await builder.create(owner, {
+      draft: {
+        ...draft,
+        library: ["notes/research", "shared/brand"],
+        skills: [],
+        startsOn: [],
+        tools: [],
+      },
+      draftAgentId: draftAgent.id,
+    });
+
+    const grants = await db
+      .select({
+        mode: agentLibraryAccess.mode,
+        path: agentLibraryAccess.path,
+      })
+      .from(agentLibraryAccess)
+      .where(eq(agentLibraryAccess.agentId, created.id));
+    expect(grants.sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+      { mode: "write", path: "notes/research" },
+      { mode: "write", path: "shared/brand" },
+    ]);
+    expect(created.runtimeConfig).toEqual({});
+    const { library: folders } = await profiles.profile(owner, {
+      agentId: created.id,
+    });
+    expect(folders.folders).toEqual(
+      expect.arrayContaining([
+        { access: "write", home: false, path: "notes/research" },
+        { access: "write", home: false, path: "shared/brand" },
+      ])
+    );
   });
 });

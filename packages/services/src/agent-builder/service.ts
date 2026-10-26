@@ -69,6 +69,7 @@ export interface AgentBuilderDeps {
   agents: Pick<AgentsService, "list"> & LifecycleDeps["agents"];
   connectors: Pick<ConnectorsService, "list"> & LifecycleDeps["connectors"];
   fetch: Fetcher;
+  libraryAccess: LifecycleDeps["libraryAccess"];
   machines: Pick<MachinesService, "list">;
   managedKeys: Resolvable;
   modelKeys: Pick<ModelKeysService, "status">;
@@ -141,6 +142,7 @@ export const createAgentBuilderService = ({
   agents,
   connectors,
   fetch: fetcher,
+  libraryAccess,
   machines,
   managedKeys,
   modelKeys,
@@ -273,6 +275,7 @@ export const createAgentBuilderService = ({
     agents,
     catalog,
     connectors,
+    libraryAccess,
     routines,
     runs,
     skillsStore,
