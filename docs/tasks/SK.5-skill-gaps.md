@@ -3,9 +3,9 @@ id: SK.5
 title: Skill and connector delete, owner auto-assign, version numbers in the Log
 milestone: SK
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/SK.5-skill-gaps
 lane: skills
 executor: claude
 ---
@@ -33,3 +33,4 @@ Gaps from the SK staging check on 18 Oct 2026 and the P.5 trial on 19 Oct 2026:
 ## Log
 - 2026-10-19: added at Dom's request, backlog.
 - 2026-10-27: unblocked by the controller under Dom's overnight goal ("all the items"); scope rechecked against v2 by the dispatcher.
+- 2026-10-27: dispatched.
