@@ -137,8 +137,12 @@ describe("Q&A results", () => {
         return Promise.resolve(page);
       },
     });
-    for (const input of [{}, ...QA_STATUSES.map((status) => ({ status }))]) {
-      const result = await callTool(ports, "qa_list", input, { qa: true });
+    const results = await Promise.all(
+      [{}, ...QA_STATUSES.map((status) => ({ status }))].map((input) =>
+        callTool(ports, "qa_list", input, { qa: true })
+      )
+    );
+    for (const result of results) {
       expect(result.isError).toBeFalsy();
       expect(result.structuredContent).toEqual(page);
       expect(textOf(result)).toContain(QUESTION.title);
@@ -229,41 +233,46 @@ describe("Q&A validation and failures", () => {
       answer: () => Promise.resolve(ANSWER),
       ask: () => Promise.resolve(QUESTION),
     });
-    for (const [name, input] of [
-      ["qa_ask", { body, title: "x".repeat(QA_TITLE_MAX) }],
-      ["qa_answer", { body, id: "q1" }],
-    ] as const) {
-      expect(
-        (await callTool(ports, name, input, { qa: true })).isError
-      ).toBeFalsy();
+    const results = await Promise.all(
+      (
+        [
+          ["qa_ask", { body, title: "x".repeat(QA_TITLE_MAX) }],
+          ["qa_answer", { body, id: "q1" }],
+        ] as const
+      ).map(([name, input]) => callTool(ports, name, input, { qa: true }))
+    );
+    for (const result of results) {
+      expect(result.isError).toBeFalsy();
     }
   });
 
   test.each(CALLS)(
     "%s returns port failures as tool errors and hides internal errors",
     async (name, input) => {
-      for (const error of [
-        new ToolError("not_found", "Question not found."),
-        new Error("private database details"),
-      ]) {
-        const reject = (): Promise<never> => Promise.reject(error);
-        const result = await callTool(
-          qaPorts({ answer: reject, ask: reject, get: reject, list: reject }),
-          name,
-          input,
-          { qa: true }
-        );
-        expect(result.isError).toBe(true);
-        if (error instanceof ToolError) {
-          expect(result.structuredContent).toEqual({
-            code: "not_found",
-            message: error.message,
-          });
-        } else {
-          expect(textOf(result)).not.toContain(error.message);
-          expect(result.structuredContent).toBeUndefined();
-        }
-      }
+      await Promise.all(
+        [
+          new ToolError("not_found", "Question not found."),
+          new Error("private database details"),
+        ].map(async (error) => {
+          const reject = (): Promise<never> => Promise.reject(error);
+          const result = await callTool(
+            qaPorts({ answer: reject, ask: reject, get: reject, list: reject }),
+            name,
+            input,
+            { qa: true }
+          );
+          expect(result.isError).toBe(true);
+          if (error instanceof ToolError) {
+            expect(result.structuredContent).toEqual({
+              code: "not_found",
+              message: error.message,
+            });
+          } else {
+            expect(textOf(result)).not.toContain(error.message);
+            expect(result.structuredContent).toBeUndefined();
+          }
+        })
+      );
     }
   );
 

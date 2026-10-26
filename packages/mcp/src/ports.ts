@@ -1,3 +1,4 @@
+import type { QaAuthorKind, QaStatus } from "@repo/db/shared";
 import type { DesktopAction } from "@repo/protocol/computer";
 
 /**
@@ -489,6 +490,44 @@ export interface BrowserPort {
   snapshot: () => Promise<PortResult<{ snapshot: BrowserSnapshot }>>;
 }
 
+/** Board records mirror the service without storage or workspace details. */
+export interface QaQuestionInfo {
+  acceptedAnswerId: string | null;
+  authorId: string;
+  authorKind: QaAuthorKind;
+  body: string;
+  createdAt: string;
+  id: string;
+  runId: string | null;
+  status: QaStatus;
+  title: string;
+  updatedAt: string;
+}
+
+export interface QaAnswerInfo {
+  authorId: string;
+  authorKind: QaAuthorKind;
+  body: string;
+  createdAt: string;
+  id: string;
+  questionId: string;
+  runId: string | null;
+}
+
+/** Bound to the caller; adapters translate service failures to ToolError. */
+export interface QaPort {
+  answer: (input: { id: string; body: string }) => Promise<QaAnswerInfo>;
+  ask: (input: { title: string; body: string }) => Promise<QaQuestionInfo>;
+  get: (input: { id: string }) => Promise<{
+    answers: QaAnswerInfo[];
+    question: QaQuestionInfo;
+  }>;
+  list: (input: { status?: QaStatus }) => Promise<{
+    nextCursor: string | null;
+    questions: QaQuestionInfo[];
+  }>;
+}
+
 export interface McpPorts {
   approveSkillVersion: (input: {
     skillId: string;
@@ -569,6 +608,7 @@ export interface McpPorts {
     skillId: string;
     version: number | null;
   }) => Promise<SkillAssignment>;
+  qa?: QaPort;
   readSession: (input: { sessionId: string }) => Promise<SessionTranscript>;
   rejectSkillVersion: (input: {
     skillId: string;
