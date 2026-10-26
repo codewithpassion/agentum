@@ -57,3 +57,6 @@ export interface MapEdgeData extends Record<string, unknown> {
   kind: MapWireKind;
 }
 export type MapFlowEdge = Edge<MapEdgeData, "count">;
+
+/** Wire colours: green when the wire carried work in the window, grey when idle. */
+export const WIRE_COLOR = { carried: "#3b9a62", idle: "#9aa1ae" } as const;

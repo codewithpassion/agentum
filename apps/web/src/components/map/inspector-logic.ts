@@ -3,6 +3,7 @@
 // Pure: `map-inspector.tsx` draws what these return.
 
 import { formatDistanceToNow } from "date-fns";
+import { agentIdOf } from "./map-logic.ts";
 
 export interface WireLike {
   active: boolean;
@@ -140,10 +141,42 @@ export const agentIdForProfile = (
 ): string | null => {
   const agentKey =
     node.kind === "trigger"
-      ? wiresFrom(graph, node.key).find((wire) => wire.to.startsWith("agent:"))
+      ? wiresFrom(graph, node.key).find((wire) => agentIdOf(wire.to) !== null)
           ?.to
       : node.key;
-  return agentKey?.startsWith("agent:")
-    ? agentKey.slice("agent:".length)
-    : null;
+  return agentKey === undefined ? null : agentIdOf(agentKey);
+};
+
+/** The run the inspector's "Last run" block shows. */
+export interface ShownRun {
+  band: { text: string; tone: "error" | "ok" | "running" | "waiting" } | null;
+  id: string;
+  title: string;
+}
+
+interface RecentTask {
+  id: string;
+  statusBand: { text: string; tone: "error" | "ok" | "running" | "waiting" };
+  title: string;
+}
+
+/**
+ * The waiting run when the agent has a pending request, else its newest run.
+ * The waiting run can be older than the newest, or missing from the recent
+ * list, so it is found by id and never assumed to be the first.
+ */
+export const shownRunOf = (
+  waitingRunId: string | undefined,
+  recent: readonly RecentTask[]
+): ShownRun | null => {
+  const task =
+    waitingRunId === undefined
+      ? recent[0]
+      : recent.find((candidate) => candidate.id === waitingRunId);
+  if (task !== undefined) {
+    return { band: task.statusBand, id: task.id, title: task.title };
+  }
+  return waitingRunId === undefined
+    ? null
+    : { band: null, id: waitingRunId, title: "Waiting run" };
 };

@@ -19,21 +19,21 @@ import {
   labelOf,
   lastFiredText,
   outputWord,
+  type ShownRun,
+  shownRunOf,
   triggerFacts,
   triggerWord,
   wiresFrom,
   wiresInto,
 } from "./inspector-logic.ts";
-import { initialsOf } from "./map-logic.ts";
+import { agentIdOf, initialsOf } from "./map-logic.ts";
 
-const AGENT_PREFIX = "agent:";
 const CHIP = "rounded-full border border-border px-2 py-0.5 text-xs";
 const WARN_CHIP =
   "rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100";
 
 type MapGraphView = RouterOutputs["map"]["graph"];
 type MapNodeView = MapGraphView["nodes"][number];
-type Task = AgentProfileView["recentTasks"][number];
 
 function Tile({ label }: { label: string }) {
   return (
@@ -173,12 +173,12 @@ function LastRun({
   node,
   nowMs,
   onAnswer,
-  task,
+  run,
 }: {
   node: MapNodeView;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
-  task: Task;
+  run: ShownRun;
 }) {
   const pending =
     node.pendingRequest === undefined
@@ -187,12 +187,14 @@ function LastRun({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-        <p className="font-semibold text-sm">{task.title}</p>
-        <p
-          className={`truncate rounded-md border px-2 py-1 text-xs ${bandClass(task.statusBand.tone)}`}
-        >
-          {task.statusBand.text}
-        </p>
+        <p className="font-semibold text-sm">{run.title}</p>
+        {run.band === null ? null : (
+          <p
+            className={`truncate rounded-md border px-2 py-1 text-xs ${bandClass(run.band.tone)}`}
+          >
+            {run.band.text}
+          </p>
+        )}
         {pending === null ? null : (
           <RequestCard nowMs={nowMs} onAnswer={onAnswer} view={pending} />
         )}
@@ -204,7 +206,7 @@ function LastRun({
       </div>
       <Link
         className={buttonVariants({ size: "sm", variant: "outline" })}
-        params={{ runId: task.id }}
+        params={{ runId: run.id }}
         to="/tasks/$runId"
       >
         Open task
@@ -226,30 +228,47 @@ function AgentBody({
   profile: AgentProfileView | null;
   profileError: string | null;
 }) {
-  if (profile === null) {
-    return profileError === null ? (
-      <p className="mt-3 text-muted-foreground text-sm">Loading…</p>
-    ) : (
-      <p className="mt-3 text-destructive text-sm" role="alert">
-        {profileError}
-      </p>
-    );
-  }
-  const [task] = profile.recentTasks;
+  const run = shownRunOf(
+    node.pendingRequest?.runId,
+    profile?.recentTasks ?? []
+  );
   return (
     <>
-      <PluggedIn node={node} profile={profile} />
-      <p className="mt-3 font-medium text-muted-foreground text-xs uppercase tracking-wide">
-        Last run
-      </p>
-      <div className="mt-1">
-        {task === undefined ? (
-          <p className="text-muted-foreground text-sm">No runs yet.</p>
-        ) : (
-          <LastRun node={node} nowMs={nowMs} onAnswer={onAnswer} task={task} />
-        )}
-      </div>
+      {profile === null ? (
+        <ProfileStatus error={profileError} />
+      ) : (
+        <PluggedIn node={node} profile={profile} />
+      )}
+      {profile === null && run === null ? null : (
+        <>
+          <p className="mt-3 font-medium text-muted-foreground text-xs uppercase tracking-wide">
+            Last run
+          </p>
+          <div className="mt-1">
+            {run === null ? (
+              <p className="text-muted-foreground text-sm">No runs yet.</p>
+            ) : (
+              <LastRun
+                node={node}
+                nowMs={nowMs}
+                onAnswer={onAnswer}
+                run={run}
+              />
+            )}
+          </div>
+        </>
+      )}
     </>
+  );
+}
+
+function ProfileStatus({ error }: { error: string | null }) {
+  return error === null ? (
+    <p className="mt-3 text-muted-foreground text-sm">Loading…</p>
+  ) : (
+    <p className="mt-3 text-destructive text-sm" role="alert">
+      {error}
+    </p>
   );
 }
 
@@ -263,7 +282,10 @@ function TriggerBody({
   profile: AgentProfileView | null;
 }) {
   const outgoing = wiresFrom(graph, node.key);
-  const starts = outgoing.map((wire) => labelOf(graph, wire.to));
+  const starts = outgoing.map((wire) => ({
+    key: wire.to,
+    name: labelOf(graph, wire.to),
+  }));
   const facts = triggerFacts(node.key, profile);
   return (
     <div>
@@ -272,9 +294,9 @@ function TriggerBody({
           <NoneText />
         ) : (
           <Chips>
-            {starts.map((name) => (
-              <span className={CHIP} key={name}>
-                {name}
+            {starts.map((entry) => (
+              <span className={CHIP} key={entry.key}>
+                {entry.name}
               </span>
             ))}
           </Chips>
@@ -300,7 +322,10 @@ function OutputBody({
   node: MapNodeView;
 }) {
   const incoming = wiresInto(graph, node.key);
-  const fedBy = incoming.map((wire) => labelOf(graph, wire.from));
+  const fedBy = incoming.map((wire) => ({
+    key: wire.from,
+    name: labelOf(graph, wire.from),
+  }));
   return (
     <div>
       <InfoRow label="Fed by">
@@ -308,9 +333,9 @@ function OutputBody({
           <NoneText />
         ) : (
           <Chips>
-            {fedBy.map((name) => (
-              <span className={CHIP} key={name}>
-                {name}
+            {fedBy.map((entry) => (
+              <span className={CHIP} key={entry.key}>
+                {entry.name}
               </span>
             ))}
           </Chips>
@@ -358,9 +383,7 @@ export function MapInspector({
   profile,
   profileError,
 }: MapInspectorProps) {
-  const agentId = node.key.startsWith(AGENT_PREFIX)
-    ? node.key.slice(AGENT_PREFIX.length)
-    : null;
+  const agentId = agentIdOf(node.key);
   return (
     <aside
       aria-label="Selected node"

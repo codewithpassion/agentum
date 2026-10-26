@@ -355,8 +355,16 @@ test("toFlowEdges runs handoffs vertically and other wires left to right", () =>
     ],
   };
   const [down, up, side] = toFlowEdges(graph);
+  const [level] = toFlowEdges({
+    nodes: [node("agent:a", 0), node("agent:b", 0)],
+    wires: [handoff("agent:a", "agent:b")],
+  });
+  expect([level?.sourceHandle, level?.targetHandle]).toEqual(["right", "left"]);
   expect([down?.sourceHandle, down?.targetHandle]).toEqual(["bottom", "top"]);
-  expect([up?.sourceHandle, up?.targetHandle]).toEqual(["top", "bottom"]);
+  expect([up?.sourceHandle, up?.targetHandle]).toEqual([
+    "top-out",
+    "bottom-in",
+  ]);
   expect([side?.sourceHandle, side?.targetHandle]).toEqual(["right", "left"]);
 });
 

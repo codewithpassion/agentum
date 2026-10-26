@@ -172,6 +172,20 @@ export function AgentNode({ id, data, selected }: NodeProps<AgentFlowNode>) {
         position={Position.Bottom}
         type="source"
       />
+      <Handle
+        className={HANDLE_CLASS}
+        id="top-out"
+        isConnectable={false}
+        position={Position.Top}
+        type="source"
+      />
+      <Handle
+        className={HANDLE_CLASS}
+        id="bottom-in"
+        isConnectable={false}
+        position={Position.Bottom}
+        type="target"
+      />
     </div>
   );
 }

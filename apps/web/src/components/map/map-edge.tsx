@@ -4,10 +4,7 @@ import {
   type EdgeProps,
   getBezierPath,
 } from "@xyflow/react";
-import type { MapFlowEdge } from "./map-types.ts";
-
-const CARRIED_STROKE = "#3b9a62";
-const IDLE_STROKE = "#9aa1ae";
+import { type MapFlowEdge, WIRE_COLOR } from "./map-types.ts";
 
 export function CountEdge({
   sourceX,
@@ -40,7 +37,7 @@ export function CountEdge({
         markerEnd={markerEnd}
         path={path}
         style={{
-          stroke: carried ? CARRIED_STROKE : IDLE_STROKE,
+          stroke: carried ? WIRE_COLOR.carried : WIRE_COLOR.idle,
           strokeWidth: 2,
           ...(active ? { strokeDasharray: "6 4" } : {}),
         }}

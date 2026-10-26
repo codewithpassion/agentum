@@ -6,6 +6,7 @@ import {
   labelOf,
   lastFiredText,
   outputWord,
+  shownRunOf,
   triggerFacts,
   triggerWord,
   wiresFrom,
@@ -234,5 +235,34 @@ describe("agentIdForProfile", () => {
     expect(
       agentIdForProfile(agentGraph, { key: "out:library:x", kind: "output" })
     ).toBeNull();
+  });
+});
+
+describe("shownRunOf", () => {
+  const band = { text: "Done", tone: "ok" as const };
+  const recent = [
+    { id: "r3", statusBand: band, title: "Newest" },
+    { id: "r2", statusBand: band, title: "Waiting one" },
+  ];
+
+  test("shows the newest run when nothing waits", () => {
+    expect(shownRunOf(undefined, recent)?.id).toBe("r3");
+    expect(shownRunOf(undefined, [])).toBeNull();
+  });
+
+  test("shows the waiting run even when a newer run exists", () => {
+    expect(shownRunOf("r2", recent)).toEqual({
+      band,
+      id: "r2",
+      title: "Waiting one",
+    });
+  });
+
+  test("falls back to the waiting run id when it is not in the recent list", () => {
+    expect(shownRunOf("r9", recent)).toEqual({
+      band: null,
+      id: "r9",
+      title: "Waiting run",
+    });
   });
 });

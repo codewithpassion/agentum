@@ -8,14 +8,16 @@ import type {
   MapWire,
   MapWireKind,
 } from "@repo/db/shared";
-import type {
-  AgentFlowNode,
-  MapFlowEdge,
-  MapFlowNode,
-  OutputFlowNode,
-  TileStatus,
-  TileTone,
-  TriggerFlowNode,
+import { MarkerType } from "@xyflow/react";
+import {
+  type AgentFlowNode,
+  type MapFlowEdge,
+  type MapFlowNode,
+  type OutputFlowNode,
+  type TileStatus,
+  type TileTone,
+  type TriggerFlowNode,
+  WIRE_COLOR,
 } from "./map-types.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -129,27 +131,34 @@ function handlesOf(
   }
   const from = nodes.get(wire.from)?.y ?? 0;
   const to = nodes.get(wire.to)?.y ?? 0;
-  return to >= from
+  if (to === from) {
+    return { sourceHandle: "right", targetHandle: "left" };
+  }
+  // The upper edge has a source handle too, and the lower edge a target one.
+  return to > from
     ? { sourceHandle: "bottom", targetHandle: "top" }
-    : { sourceHandle: "top", targetHandle: "bottom" };
+    : { sourceHandle: "top-out", targetHandle: "bottom-in" };
 }
 
 export function toFlowEdges(graph: MapGraph<unknown>): MapFlowEdge[] {
   const nodes = new Map(graph.nodes.map((node) => [node.key, node] as const));
-  return graph.wires.map((wire) => ({
-    animated: wire.active,
-    data: {
-      active: wire.active,
-      carried: wire.active || wire.count7d > 0,
-      kind: wire.kind,
-    },
-    id: `${wire.kind}:${wire.from}:${wire.to}`,
-    label: wireLabel(wire),
-    source: wire.from,
-    target: wire.to,
-    type: "count",
-    ...handlesOf(wire, nodes),
-  }));
+  return graph.wires.map((wire) => {
+    const carried = wire.active || wire.count7d > 0;
+    return {
+      animated: wire.active,
+      data: { active: wire.active, carried, kind: wire.kind },
+      id: `${wire.kind}:${wire.from}:${wire.to}`,
+      label: wireLabel(wire),
+      markerEnd: {
+        color: carried ? WIRE_COLOR.carried : WIRE_COLOR.idle,
+        type: MarkerType.ArrowClosed,
+      },
+      source: wire.from,
+      target: wire.to,
+      type: "count",
+      ...handlesOf(wire, nodes),
+    };
+  });
 }
 
 export interface FlowNodeContext {
