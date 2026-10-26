@@ -252,8 +252,12 @@ export const createGate = ({
     },
     askUser,
     beforeTool,
-    /** Makes every waiting call read its request again. The lease beat calls it. */
-    checkOpen: () => waiters.wakeAll(),
+    /** Makes every waiting call read its request again, and drops the rule lookups. The lease beat calls it. */
+    checkOpen: () => {
+      // An answer found here may have set a rule, and the map should not grow for ever.
+      rules.clear();
+      waiters.wakeAll();
+    },
   };
 };
 

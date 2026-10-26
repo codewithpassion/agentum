@@ -351,6 +351,10 @@ describe("the gate hook", () => {
     now += RULE_CACHE_MS;
     await gate.beforeTool(callOf("read", "d"), HOOK_API, BACKGROUND_CONTEXT);
     expect(fake.ruleReads).toHaveLength(3);
+
+    gate.checkOpen();
+    await gate.beforeTool(callOf("read", "e"), HOOK_API, BACKGROUND_CONTEXT);
+    expect(fake.ruleReads).toHaveLength(4);
   });
 
   test("does not gate ask_user", async () => {

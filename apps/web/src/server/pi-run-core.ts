@@ -385,9 +385,9 @@ export const createRunCore = ({
   };
 
   /**
-   * Completes the run. "waiting" means the platform refused the report and
-   * the run is neither running nor waiting, so the report waits for the
-   * next start.
+   * Completes the run. The result "waiting" is not the run status: it means the
+   * platform refused the report and the run is neither running nor waiting for
+   * a person, so the report waits for the next start.
    */
   const completeRun = async (
     runId: string,

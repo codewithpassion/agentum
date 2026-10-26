@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { GATED_TOOL } from "../../apps/web/src/server/pi-run-dev-tools.ts";
 import { runCli, WEB_DIR } from "../dev/local.ts";
 // The Pi durability suite, live. Pi Durable is experimental and has broken
 // between minor versions, so run this on every bump of the Pi packages. It
@@ -71,7 +72,6 @@ const UNSAFE_SCRIPT = `printf '%s\\n' ran-$((20+22)); sleep ${TOOL_SLEEP_MS / 10
 const UNSAFE_PROMPT = `bash ${UNSAFE_SCRIPT}`;
 // The dev-only tool behind an approval (pi-run-dev-tools.ts). The faux prompt `gated` makes the model call it.
 export const GATED_PROMPT = "gated";
-export const GATED_TOOL = "dev_gated";
 export const GATED_RAN_TEXT = "gated ran 1 times";
 const WAITING_TIMEOUT_MS = 60_000;
 // After the restart the run must still wait on its request for this long.
