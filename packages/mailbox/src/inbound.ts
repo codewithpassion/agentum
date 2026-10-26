@@ -23,6 +23,9 @@ const decoder = new TextDecoder();
 
 const FORBIDDEN_FILENAME_CHARS = '/\\:*?"<>|';
 
+/** Keeps a file key well under R2's 1,024-byte limit, whatever the sender calls the file. */
+const MAX_FILENAME_BYTES = 255;
+
 // UTF-8 continuation bytes are 10xxxxxx, so the range 0x80 to 0xbf.
 const isContinuationByte = (byte: number): boolean =>
   byte >= 0x80 && byte <= 0xbf;
@@ -77,11 +80,22 @@ export const safeFilename = (name: string | null | undefined): string => {
     return "untitled";
   }
 
-  return Array.from(name, (char) =>
-    FORBIDDEN_FILENAME_CHARS.includes(char) || char.charCodeAt(0) < 32
+  const clean = Array.from(name, (char) => {
+    const code = char.charCodeAt(0);
+    return FORBIDDEN_FILENAME_CHARS.includes(char) || code < 32 || code === 127
       ? "_"
-      : char
-  ).join("");
+      : char;
+  }).join("");
+  const bytes = encoder.encode(clean);
+  if (bytes.byteLength <= MAX_FILENAME_BYTES) {
+    return clean;
+  }
+
+  let end = MAX_FILENAME_BYTES;
+  while (end > 0 && isContinuationByte(bytes[end] ?? 0)) {
+    end -= 1;
+  }
+  return decoder.decode(bytes.subarray(0, end));
 };
 
 export const rawMimeKey = (mailbox: MailboxRef, messageId: string): string =>
