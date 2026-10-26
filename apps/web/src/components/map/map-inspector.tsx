@@ -346,7 +346,7 @@ function OutputBody({
       </InfoRow>
       {node.subkind === "qa" ? (
         <Link
-          className={buttonVariants({ size: "sm", variant: "outline" })}
+          className={`${buttonVariants({ size: "sm", variant: "outline" })} mt-3`}
           search={{ status: undefined }}
           to="/qa"
         >
