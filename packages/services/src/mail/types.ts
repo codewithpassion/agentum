@@ -175,7 +175,7 @@ export interface MailboxPort {
   ) => Promise<SentMail>;
   /** Sends a new mail at once. */
   send: (mailbox: MailboxRef, draft: OutgoingDraft) => Promise<SentMail>;
-  /** Stores an inbound mail and its attachments. Idempotent on the RFC message id. */
+  /** Stores an inbound mail and its attachments. Idempotent on the RFC `Message-ID`, or a hash of the raw bytes when the mail has none. */
   storeInbound: (
     mailbox: MailboxRef,
     message: InboundMessage
