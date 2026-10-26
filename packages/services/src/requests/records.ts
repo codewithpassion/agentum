@@ -9,6 +9,7 @@ import {
   questionAnswerSchema,
   questionDisplaySchema,
   requestOutcomeSchema,
+  type TakeoverAnswer,
 } from "@repo/protocol/requests";
 import { z } from "zod";
 import { payloadSchema } from "../events/payload.ts";
@@ -44,6 +45,11 @@ export const outcomeOf = (row: RequestRow) =>
       });
 /** The record a runtime gets: the answer is raw, as the person typed it. */
 export const requestRecord = (row: RequestRow) => {
+  // V6.7 teaches the services and the desk to read a takeover row. Nothing
+  // opens one before then, so a takeover here is a bug worth failing on.
+  if (row.kind === "takeover") {
+    throw new Error(`Request ${row.id} is a takeover, which is not read yet`);
+  }
   const { questionKeys: _keys, ...rest } = row;
   return {
     ...rest,
@@ -54,6 +60,7 @@ export const requestRecord = (row: RequestRow) => {
       row.kind === "approval"
         ? approvalDisplaySchema.parse(JSON.parse(row.display))
         : questionDisplaySchema.parse(JSON.parse(row.display)),
+    kind: row.kind,
     outcome: outcomeOf(row),
   };
 };
@@ -64,11 +71,13 @@ export const scrubText = (masker: MaskText | null, text: string) =>
   redactText(masker ? masker.mask(text) : text);
 
 /** The answer with granted secrets masked and token shapes redacted, for events and for people. */
-export const scrubAnswer = <T extends ApprovalAnswer | QuestionAnswer>(
+export const scrubAnswer = <
+  T extends ApprovalAnswer | QuestionAnswer | TakeoverAnswer,
+>(
   answer: T,
   masker: MaskText | null
 ): T => {
-  if ("decision" in answer) {
+  if ("decision" in answer || !("answers" in answer)) {
     return {
       ...answer,
       ...(answer.note === undefined

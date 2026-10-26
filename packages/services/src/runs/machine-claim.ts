@@ -4,6 +4,7 @@ import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { agentToolRules } from "@repo/db/schema/tool-rules";
+import { taskFolderPath } from "@repo/db/shared";
 import {
   and,
   eq,
@@ -77,7 +78,7 @@ const claimLibrary = async (
       paths
     ),
     paths,
-    ...(live ? { roots } : {}),
+    ...(live ? { roots, taskFolder: taskFolderPath(agent.slug, run.id) } : {}),
   };
 };
 

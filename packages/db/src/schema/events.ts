@@ -32,5 +32,10 @@ export const events = sqliteTable(
     index("events_session_idx").on(t.sessionId, t.id),
     index("events_run_idx").on(t.runId, t.seq),
     index("events_workspace_created_idx").on(t.workspaceId, t.createdAt),
+    index("events_workspace_type_created_idx").on(
+      t.workspaceId,
+      t.type,
+      t.createdAt
+    ),
   ]
 );

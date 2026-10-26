@@ -11,7 +11,7 @@ import type { Atomic, Statement } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
-import type { AgentRuntime } from "@repo/db/shared";
+import { type AgentRuntime, taskFolderPath } from "@repo/db/shared";
 import type { Masker } from "@repo/protocol/masker";
 import {
   REPEAT_STOP_AT,
@@ -262,8 +262,12 @@ export interface RunsServiceOptions {
   /** Registers the echo runtime for agents whose runtime is `fake`. */
   devFakeRuntime: boolean;
   gateways: readonly Gateway[];
-  /** The workspace library. A machine claim lists the conflict copies waiting for the agent. Without it, the claim names no library paths. */
-  library?: Pick<LibraryService, "pendingConflicts">;
+  /**
+   * The workspace library. A machine claim lists the conflict copies waiting
+   * for the agent, and each new run gets its task folder. Without it, the claim
+   * names no library paths and runs get no folder.
+   */
+  library?: Pick<LibraryService, "mkdir" | "pendingConflicts">;
   /**
    * `RUN_TOKEN_KEY` (base64, 32 bytes). Only the machine claim needs it, which
    * mints the run token; leave it out where no machine claims runs.
@@ -671,6 +675,32 @@ export const createRunsService = ({
   };
 
   /**
+   * A run's task folder. A failure is logged and the run goes on: the folder
+   * is for the run's output, and the run can still do its work without it.
+   */
+  const makeTaskFolder = async (
+    agent: Prepared["agent"],
+    runId: string
+  ): Promise<void> => {
+    try {
+      await library?.mkdir(
+        {
+          agentId: agent.id,
+          kind: "run",
+          runId,
+          workspaceId: agent.workspaceId,
+        },
+        taskFolderPath(agent.slug, runId)
+      );
+    } catch (error) {
+      console.error(
+        "Creating the run's task folder failed",
+        error instanceof Error ? error.name : "unknown"
+      );
+    }
+  };
+
+  /**
    * `options` is for trusted callers inside the Worker, never the request:
    * the Slack route passes the file descriptors that are still to be fetched
    * and the rows that must land in the same atomic write as the run.
@@ -683,6 +713,9 @@ export const createRunsService = ({
     const input = startRunInputSchema.parse(rawInput);
     const prepared = await prepareStart(principal, input, options);
     const { inserted, ...started } = await insertRun(prepared, input, options);
+    if (inserted && options.dryRun !== true) {
+      await makeTaskFolder(prepared.agent, started.runId);
+    }
     if (inserted && options.offerLater) {
       // `queuedEvents` wrote these in the atomic write, which skips the
       // listeners, so the stream hears of them here.

@@ -1,0 +1,6 @@
+{
+  "id": "req-01HR5",
+  "op": "desktop_clipboard_set",
+  "text": "one-time code 481516",
+  "selections": ["clipboard", "primary"]
+}

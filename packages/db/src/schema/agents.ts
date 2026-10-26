@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
 import { AGENT_RUNTIMES } from "../shared.ts";
@@ -7,6 +8,11 @@ import { workspaces } from "./workspaces.ts";
 export const agents = sqliteTable(
   "agents",
   {
+    // The computer this agent drives. A computer serves one agent at a time
+    // (`agents_computer_machine_unique`).
+    computerMachineId: text("computer_machine_id").references(
+      () => machines.id
+    ),
     createdAt: createdAt(),
     // Clerk user id.
     createdBy: text("created_by").notNull(),
@@ -33,5 +39,23 @@ export const agents = sqliteTable(
   (t) => [
     uniqueIndex("agents_slug_unique").on(t.workspaceId, t.slug),
     uniqueIndex("agents_email_local_unique").on(t.emailLocal),
+    uniqueIndex("agents_computer_machine_unique")
+      .on(t.computerMachineId)
+      .where(sql`${t.computerMachineId} is not null`),
   ]
 );
+
+/**
+ * The one Browser Run session an agent has open, if any. A stale row is normal:
+ * Browser Run closes an idle session and the next call launches a new one.
+ */
+export const browserSessions = sqliteTable("browser_sessions", {
+  agentId: text("agent_id")
+    .primaryKey()
+    .references(() => agents.id, { onDelete: "cascade" }),
+  // Where the session was last left, for the status line.
+  currentUrl: text("current_url"),
+  sessionId: text("session_id").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  workspaceId: workspaceId().references(() => workspaces.id),
+});

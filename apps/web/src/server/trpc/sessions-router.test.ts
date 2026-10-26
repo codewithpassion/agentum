@@ -152,6 +152,14 @@ test("the origin filter returns only sessions with that origin", async () => {
   expect(items[0]?.origin).toBe("routine");
 });
 
+test("the origin filter refuses dry_run, which only the agent builder sets", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  await expect(
+    caller.sessions.list({ origin: "dry_run" as never })
+  ).rejects.toThrow();
+});
+
 test("a user sees the shared sessions of a colleague but not their UI chats", async () => {
   const composed = newComposed();
   const owner = await callerFor({ orgId: "org_a", userId: "user_1" }, composed);

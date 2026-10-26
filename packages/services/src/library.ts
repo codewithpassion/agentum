@@ -86,7 +86,7 @@ type Member = Extract<Principal, { kind: "run" | "user" }>;
 const notFound = () => new ServiceError("not_found", "Not found");
 const invalid = (message: string) => new ServiceError("invalid", message);
 
-const toEntry = (row: EntryRow): LibraryEntry => ({
+export const toEntry = (row: EntryRow): LibraryEntry => ({
   etag: row.etag,
   kind: row.kind,
   mtime: row.mtime,
@@ -145,7 +145,7 @@ const objectKey = (workspaceId: string, path: string): string =>
   `${workspaceId}/library/${path}`;
 
 /** The rows of a folder's subtree, not the folder itself. */
-const underFolder = (workspaceId: string, path: string) =>
+export const underFolder = (workspaceId: string, path: string) =>
   and(
     eq(libraryEntries.workspaceId, workspaceId),
     gte(libraryEntries.path, `${path}/`),
