@@ -637,3 +637,11 @@ test("an agent with an installed Slack app gets the Slack line, and one without 
   const withoutApp = await claim("m2", (await start(otherAgentId)).runId);
   expect(withoutApp.instructions).toBe("");
 });
+
+ test("machine claim composes voice and hands to before Slack guidance", async () => {
+  const agents = createAgentsService({ db, events: createEventsService({ db, blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() } }) });
+  await agents.update(user, agentId, { soul: "Speak warmly.", handsTo: [otherAgentId] });
+  installSlackApp(agentId);
+  const claimed = await claim("m1", (await start(agentId)).runId);
+  expect(claimed.instructions).toBe(`Be brief.\n\n## Voice\nSpeak warmly.\n\nYou can hand work to: Other (use send_message)\n\n${SLACK_GUIDANCE}`);
+});

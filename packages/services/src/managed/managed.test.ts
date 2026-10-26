@@ -2072,3 +2072,17 @@ describe("secrets", () => {
     quiet.mockRestore();
   });
 });
+
+test("managed voice and hands to enter system text and each change re-syncs", async () => {
+  const target = await agents.create(dom, { name: "Helper", model: "sonnet", runtime: "managed" });
+  await agents.update(dom, agentId, { soul: "Speak warmly.", handsTo: [target.id] });
+  await drive((await start(dom, "one")).runId);
+  expect(gateway.registered[0]?.system).toStartWith("Be brief.\n\n## Voice\nSpeak warmly.\n\nYou can hand work to: Helper (use send_message)\n\n");
+  await agents.update(dom, agentId, { soul: "Speak plainly." });
+  await drive((await start(dom, "two")).runId);
+  expect(gateway.syncedAgents.at(-1)?.system).toContain("## Voice\nSpeak plainly.");
+  await agents.update(dom, agentId, { handsTo: [] });
+  await drive((await start(dom, "three")).runId);
+  expect(gateway.syncedAgents).toHaveLength(2);
+  expect(gateway.syncedAgents.at(-1)?.system).not.toContain("You can hand work to:");
+});
