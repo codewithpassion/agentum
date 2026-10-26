@@ -1,7 +1,17 @@
 import type { MapOutputKind, MapTriggerKind } from "@repo/db/shared";
 import { Handle, type NodeProps, Position } from "@xyflow/react";
+import { type DragEvent, type MouseEvent, useCallback, useState } from "react";
+import {
+  decodeTool,
+  isMovableTrigger,
+  TOOL_MIME,
+  toolOfPort,
+} from "./editor-logic.ts";
+import { useMapEdit } from "./map-edit-context.ts";
+import { agentIdOf } from "./map-logic.ts";
 import type {
   AgentFlowNode,
+  MapPortData,
   OutputFlowNode,
   TileStatus,
   TileTone,
@@ -50,6 +60,9 @@ const AGENT_BADGE: Partial<
 const MAX_PORT_CHIPS = 4;
 
 const HANDLE_CLASS = "!size-1 !border-0 !bg-transparent";
+/** The ends of a wire that Editor mode lets a person draw: big enough to grab. */
+const EDIT_HANDLE_CLASS =
+  "!size-3 !border-2 !border-emerald-600 !bg-card hover:!bg-emerald-600";
 
 function Tile({ tone, children }: { tone: TileTone; children: string }) {
   return (
@@ -65,6 +78,8 @@ function Tile({ tone, children }: { tone: TileTone; children: string }) {
 }
 
 export function TriggerNode({ data }: NodeProps<TriggerFlowNode>) {
+  const { editor } = useMapEdit();
+  const wireable = editor && isMovableTrigger(data.subkind);
   return (
     <div
       className={cx(
@@ -82,9 +97,9 @@ export function TriggerNode({ data }: NodeProps<TriggerFlowNode>) {
         </div>
       </div>
       <Handle
-        className={HANDLE_CLASS}
+        className={wireable ? EDIT_HANDLE_CLASS : HANDLE_CLASS}
         id="right"
-        isConnectable={false}
+        isConnectable={wireable}
         position={Position.Right}
         type="source"
       />
@@ -92,20 +107,95 @@ export function TriggerNode({ data }: NodeProps<TriggerFlowNode>) {
   );
 }
 
+function PortChip({
+  agentId,
+  editor,
+  port,
+}: {
+  agentId: string | null;
+  editor: boolean;
+  port: MapPortData;
+}) {
+  const { onUnplug } = useMapEdit();
+  const remove = useCallback(
+    (event: MouseEvent) => {
+      event.stopPropagation();
+      if (agentId !== null) {
+        onUnplug(agentId, toolOfPort(port));
+      }
+    },
+    [agentId, onUnplug, port]
+  );
+  return (
+    <span className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 text-[10.5px] text-muted-foreground leading-4">
+      {port.label}
+      {editor && agentId !== null ? (
+        <button
+          aria-label={`Remove ${port.label}`}
+          className="nodrag nopan cursor-pointer leading-none hover:text-destructive"
+          onClick={remove}
+          type="button"
+        >
+          ×
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
 export function AgentNode({ id, data, selected }: NodeProps<AgentFlowNode>) {
+  const { editor, onPlug } = useMapEdit();
+  const agentId = agentIdOf(id);
+  const [over, setOver] = useState(false);
+  const acceptsDrop = useCallback(
+    (event: DragEvent) =>
+      editor && event.dataTransfer.types.includes(TOOL_MIME),
+    [editor]
+  );
+  const handleDragOver = useCallback(
+    (event: DragEvent) => {
+      if (acceptsDrop(event)) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        setOver(true);
+      }
+    },
+    [acceptsDrop]
+  );
+  const handleDragLeave = useCallback(() => setOver(false), []);
+  const handleDrop = useCallback(
+    (event: DragEvent) => {
+      setOver(false);
+      if (!acceptsDrop(event) || agentId === null) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const tool = decodeTool(event.dataTransfer.getData(TOOL_MIME));
+      if (tool !== null) {
+        onPlug(agentId, tool);
+      }
+    },
+    [acceptsDrop, agentId, onPlug]
+  );
   const badge = AGENT_BADGE[data.status];
   const shownPorts = data.ports.slice(0, MAX_PORT_CHIPS);
   const hiddenPorts = data.ports.length - shownPorts.length;
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/noNoninteractiveElementInteractions: a native drop target for tools dragged from the palette. The inspector's Tools row is the keyboard route.
     <div
       className={cx(
         "relative flex h-full w-full items-center gap-2.5 rounded-xl px-3 shadow-sm",
         AGENT_SURFACE[data.status],
-        selected && "ring-3 ring-ring/40"
+        selected && "ring-3 ring-ring/40",
+        over && "ring-4 ring-emerald-500/60"
       )}
       data-status={data.status}
       data-testid={`node-${id}`}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
       <Tile tone={data.tone}>{data.initials}</Tile>
       <div className="min-w-0 flex-1">
@@ -118,12 +208,12 @@ export function AgentNode({ id, data, selected }: NodeProps<AgentFlowNode>) {
         {data.ports.length > 0 && (
           <div className="mt-1 flex min-w-0 flex-wrap gap-1">
             {shownPorts.map((port) => (
-              <span
-                className="rounded border border-border px-1.5 text-[10.5px] text-muted-foreground leading-4"
-                key={`${port.kind}-${port.label}`}
-              >
-                {port.label}
-              </span>
+              <PortChip
+                agentId={agentId}
+                editor={editor}
+                key={`${port.kind}-${port.id}`}
+                port={port}
+              />
             ))}
             {hiddenPorts > 0 && (
               <span className="rounded border border-border px-1.5 text-[10.5px] text-muted-foreground leading-4">
@@ -145,9 +235,9 @@ export function AgentNode({ id, data, selected }: NodeProps<AgentFlowNode>) {
         </span>
       )}
       <Handle
-        className={HANDLE_CLASS}
+        className={editor ? EDIT_HANDLE_CLASS : HANDLE_CLASS}
         id="left"
-        isConnectable={false}
+        isConnectable={editor}
         position={Position.Left}
         type="target"
       />
