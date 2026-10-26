@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { MachineRecord } from "#/integrations/trpc/types";
 import {
   addressText,
+  browserChip,
+  browserConfig,
+  browserOn,
   channelChips,
   computerChoices,
   folderLabel,
@@ -660,5 +663,43 @@ describe("mailProvisionLabel", () => {
 
   test("a draft agent with no mailbox offers nothing", () => {
     expect(mailProvisionLabel("draft", "robo", null)).toBeNull();
+  });
+});
+
+describe("browser tool", () => {
+  test("is on unless the runtime config turns it off", () => {
+    expect(browserOn({})).toBe(true);
+    expect(browserOn({ browser: true })).toBe(true);
+    expect(browserOn({ browser: false })).toBe(false);
+  });
+
+  test("the chip shows on or off", () => {
+    expect(browserChip(true)).toEqual({
+      key: "browser",
+      label: "Browser",
+      tone: "on",
+    });
+    expect(browserChip(false)).toEqual({
+      key: "browser",
+      label: "Browser · off",
+      tone: "default",
+    });
+  });
+
+  test("turning it on removes the browser key and keeps the rest", () => {
+    const base = { browser: false, maxTurns: 5 };
+    const config = browserConfig(base, true);
+    expect(config).toEqual({ maxTurns: 5 });
+    expect("browser" in config).toBe(false);
+    expect(base).toEqual({ browser: false, maxTurns: 5 });
+  });
+
+  test("turning it off adds browser false and keeps the rest", () => {
+    const base = { maxTurns: 5 };
+    expect(browserConfig(base, false)).toEqual({
+      browser: false,
+      maxTurns: 5,
+    });
+    expect(base).toEqual({ maxTurns: 5 });
   });
 });

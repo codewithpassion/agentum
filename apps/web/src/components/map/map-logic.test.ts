@@ -9,6 +9,7 @@ import {
   toFlowEdges,
   toFlowNodes,
   toneOf,
+  visiblePorts,
   wireLabel,
 } from "./map-logic.ts";
 
@@ -544,4 +545,48 @@ test("editor mode marks only the wires of http and routine triggers deletable", 
     false,
     false,
   ]);
+});
+
+test("visiblePorts puts a browser port last in the input first and keeps it within max", () => {
+  const ports = [
+    { id: "c1", kind: "connector" },
+    { id: "c2", kind: "connector" },
+    { id: "b1", kind: "browser" },
+  ];
+  const result = visiblePorts(ports, 2);
+  expect(result.shown.map((port) => port.id)).toEqual(["b1", "c1"]);
+  expect(result.hidden).toBe(1);
+  expect(ports.map((port) => port.id)).toEqual(["c1", "c2", "b1"]);
+});
+
+test("visiblePorts keeps the original order when there is no browser port", () => {
+  const ports = [
+    { id: "c1", kind: "connector" },
+    { id: "k1", kind: "computer" },
+    { id: "c2", kind: "connector" },
+  ];
+  const result = visiblePorts(ports, 3);
+  expect(result.shown.map((port) => port.id)).toEqual(["c1", "k1", "c2"]);
+  expect(result.hidden).toBe(0);
+});
+
+test("visiblePorts hides nothing when there are fewer ports than max", () => {
+  const result = visiblePorts([{ id: "c1", kind: "connector" }], 4);
+  expect(result.shown).toEqual([{ id: "c1", kind: "connector" }]);
+  expect(result.hidden).toBe(0);
+  expect(visiblePorts([], 4)).toEqual({ hidden: 0, shown: [] });
+});
+
+test("visiblePorts counts the ports past max and still shows the browser port", () => {
+  const ports = [
+    { id: "c1", kind: "connector" },
+    { id: "c2", kind: "connector" },
+    { id: "c3", kind: "connector" },
+    { id: "k1", kind: "computer" },
+    { id: "c4", kind: "connector" },
+    { id: "b1", kind: "browser" },
+  ];
+  const result = visiblePorts(ports, 4);
+  expect(result.shown.map((port) => port.id)).toEqual(["b1", "c1", "c2", "c3"]);
+  expect(result.hidden).toBe(2);
 });

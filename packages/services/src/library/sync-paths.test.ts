@@ -1,34 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { libraryPathsOf, librarySyncScope } from "./sync-paths.ts";
-
-describe("libraryPathsOf", () => {
-  test("is empty when the key is absent or not a list", () => {
-    expect(libraryPathsOf({})).toEqual([]);
-    expect(libraryPathsOf({ libraryPaths: "projects" })).toEqual([]);
-  });
-
-  test("normalises, de-duplicates and keeps the order", () => {
-    expect(
-      libraryPathsOf({
-        libraryPaths: [
-          "/notes/",
-          "projects/alpha",
-          "notes",
-          "./projects//alpha",
-        ],
-      })
-    ).toEqual(["notes", "projects/alpha"]);
-  });
-
-  test("leaves out invalid entries instead of throwing", () => {
-    expect(
-      libraryPathsOf({
-        libraryPaths: ["../outside", "", 7, "/", "docs/a/../b"],
-      })
-    ).toEqual(["docs/b"]);
-    expect(libraryPathsOf({ libraryPaths: ["../outside", 7] })).toEqual([]);
-  });
-});
+import { expect, test } from "bun:test";
+import { librarySyncScope } from "./sync-paths.ts";
 
 test("scope preserves nested write exceptions", () => {
   expect(

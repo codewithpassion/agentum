@@ -362,12 +362,6 @@ export const createInboundMail = ({
       .from(agentMailboxes)
       .where(eq(agentMailboxes.workspaceId, box.workspaceId));
     if (
-      own.some((row) =>
-        [
-          normalize(message.from.address),
-          normalize(message.envelopeFrom),
-        ].includes(normalize(row.address))
-      ) ||
       (message.headers.autoSubmitted &&
         normalize(message.headers.autoSubmitted) !== "no") ||
       message.headers.listId ||
@@ -375,6 +369,13 @@ export const createInboundMail = ({
     ) {
       return;
     }
+    // Mail from a workspace agent is stored and shown, but starts no run: that is the loop guard against agent ping-pong.
+    const fromOwnAgent = own.some((row) =>
+      [
+        normalize(message.from.address),
+        normalize(message.envelopeFrom),
+      ].includes(normalize(row.address))
+    );
     if (!mailbox) {
       throw new ServiceError("invalid", "Mail is not set up here");
     }
@@ -383,7 +384,9 @@ export const createInboundMail = ({
       message
     );
     const conversation = await indexInbound(message, box, stored);
-    await startInbound(message, box, stored, conversation);
+    if (!fromOwnAgent) {
+      await startInbound(message, box, stored, conversation);
+    }
   };
   const saveAttachments = async (
     message: InboundMessage,
