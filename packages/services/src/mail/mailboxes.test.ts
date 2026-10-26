@@ -1,6 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
+import { events as eventsTable } from "@repo/db/schema/events";
 import { agentMailboxes } from "@repo/db/schema/mail";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -320,20 +321,38 @@ test("an explicit retry can re-enable a disabled mailbox without duplicating his
   });
   expect(db.select().from(agentMailboxes).all()).toHaveLength(1);
   expect(db.select().from(triggers).all()).toHaveLength(1);
+  expect(db.select().from(triggers).get()?.disabledAt).toBeNull();
+});
+
+test("provisioning logs mailbox.provisioned, a routing failure logs mailbox.failed, and a missing token logs nothing", async () => {
+  const types = () =>
+    db
+      .select()
+      .from(eventsTable)
+      .all()
+      .map((event) => event.type)
+      .filter((type) => type.startsWith("mailbox."));
+  failure = new RoutingNotConfiguredError();
+  await service.provision(user, "a");
+  expect(types()).toEqual([]);
+  failure = new Error("boom");
+  await service.provision(user, "a");
+  expect(types()).toEqual(["mailbox.failed"]);
+  failure = null;
+  await service.provision(user, "a");
+  expect(types()).toEqual(["mailbox.failed", "mailbox.provisioned"]);
 });
 
 test("a deployment-wide mailbox address conflict uses the V3 conflict error and writes no trigger", async () => {
   insertAgent("other");
-  await db
-    .insert(agentMailboxes)
-    .values({
-      address: "a@example.com",
-      agentId: "other",
-      createdAt: now,
-      id: "existing",
-      status: "disabled",
-      workspaceId: "w",
-    });
+  await db.insert(agentMailboxes).values({
+    address: "a@example.com",
+    agentId: "other",
+    createdAt: now,
+    id: "existing",
+    status: "disabled",
+    workspaceId: "w",
+  });
   await expect(service.provision(user, "a")).rejects.toMatchObject({
     code: "conflict",
     message: "That address is taken",

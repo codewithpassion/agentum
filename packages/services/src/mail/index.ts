@@ -139,6 +139,17 @@ export const createMailService = ({
             workspaceId: agent.workspaceId,
           })
           .onConflictDoNothing(),
+        // Provisioning a disabled mailbox again turns its mail trigger back on.
+        ...(row?.status === "disabled"
+          ? [
+              db
+                .update(triggers)
+                .set({ disabledAt: null })
+                .where(
+                  and(eq(triggers.agentId, agentId), eq(triggers.kind, "mail"))
+                ),
+            ]
+          : []),
       ]);
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -167,7 +178,25 @@ export const createMailService = ({
     }
     return updated;
   };
+  const record = async (
+    principal: Principal,
+    row: Mailbox,
+    type: "mailbox.failed" | "mailbox.provisioned",
+    payload: Record<string, string>
+  ): Promise<void> => {
+    await events.append({
+      actor:
+        principal.kind === "user"
+          ? { id: principal.userId, kind: "user" }
+          : { id: "mail", kind: "system" },
+      agentId: row.agentId,
+      payload: { address: row.address, ...payload },
+      type,
+      workspaceId: row.workspaceId,
+    });
+  };
   const route = async (
+    principal: Principal,
     row: Mailbox,
     port: EmailRoutingPort
   ): Promise<Mailbox> => {
@@ -181,13 +210,23 @@ export const createMailService = ({
         routingRuleId = (await port.createRule(row.address)).id;
       }
     } catch (error) {
-      return await updateState(row, routingFailure(error));
+      const failure = routingFailure(error);
+      const failed = await updateState(row, failure);
+      // A missing token is a wait, not a failure, so it logs nothing.
+      if (failure.status === "failed") {
+        await record(principal, failed, "mailbox.failed", {
+          error: failure.lastError ?? "",
+        });
+      }
+      return failed;
     }
-    return await updateState(row, {
+    const active = await updateState(row, {
       lastError: null,
       routingRuleId,
       status: "active",
     });
+    await record(principal, active, "mailbox.provisioned", {});
+    return active;
   };
   const provision = async (
     principal: Principal,
@@ -224,7 +263,11 @@ export const createMailService = ({
         return await updateState(row, routingFailure(error));
       }
     }
-    return await route(await prepare(principal, agent, row, address), routing);
+    return await route(
+      principal,
+      await prepare(principal, agent, row, address),
+      routing
+    );
   };
   const disable = async (principal: Principal, agentId: string) => {
     await findAgent(principal, agentId);
