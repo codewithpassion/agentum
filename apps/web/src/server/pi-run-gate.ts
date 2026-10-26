@@ -13,6 +13,10 @@
 // run and a safe one for the wait, and a tool has only one. A hook also covers
 // the MCP tools installed later, which a wrap by name cannot.
 //
+// A dry run answers before any of that: a call that is not read-only is blocked
+// with a "Skipped in dry run" text and recorded as a `run.dry_run_skipped`
+// event, so no rule lookup and no request is ever made, and nobody is asked.
+//
 // A wait ends in one of three ways: `answered(requestId)` (the RPC from the
 // platform after an answer, an expiry or a cancel), `checkOpen()` (the lease
 // beat, in case the RPC was missed or went to an object that has since been
@@ -28,6 +32,7 @@ import {
   type ToolRegistration,
   ToolTask,
 } from "@earendil-works/pi-durable";
+import type { Masker } from "@repo/protocol/masker";
 import {
   ASK_USER_TOOL,
   outcomeText,
@@ -36,6 +41,12 @@ import {
   type RequestOutcome,
   toolKey,
 } from "@repo/protocol/requests";
+import {
+  ASK_USER_DRY_RUN_TEXT,
+  isReadOnlyCall,
+  skippedText,
+  summaryOf,
+} from "./pi-run-dry-run.ts";
 import type { ToolOrigin } from "./pi-run-mcp.ts";
 
 /** The extension's name in the registry. */
@@ -82,9 +93,18 @@ export interface GateRequests {
 }
 
 export interface GateDeps {
+  /** Whether the run the call belongs to is a dry run. */
+  isDryRun: () => Promise<boolean>;
+  /** The masker for the secrets of the run's agent, or null when it has none. */
+  maskerOf: () => Promise<Masker | null>;
   now?: () => number;
   /** The MCP server and tool a Pi tool name came from, or undefined for any other tool. */
   originOf: (piName: string) => ToolOrigin | undefined;
+  /** Writes the `run.dry_run_skipped` event for a call a dry run did not make. */
+  recordSkip: (
+    runId: string,
+    skip: { summary: string; tool: string }
+  ) => Promise<void>;
   requests: GateRequests;
   /** The run a tool call belongs to: the session's newest. */
   runIdOf: () => Promise<string>;
@@ -131,8 +151,11 @@ const createWaiters = () => {
 };
 
 export const createGate = ({
+  isDryRun,
+  maskerOf,
   now = Date.now,
   originOf,
+  recordSkip,
   requests,
   runIdOf,
   serverKeys,
@@ -193,16 +216,42 @@ export const createGate = ({
     }
   };
 
+  /** A dry run lets a read-only call through and blocks every other with the text of what it would have done. */
+  const skipInDryRun = async (
+    call: ToolHookCall,
+    runId: string,
+    key: string
+  ): Promise<{ block: string } | undefined> => {
+    if (isReadOnlyCall(call, originOf(call.name))) {
+      return;
+    }
+    const summary = summaryOf(call.arguments, await maskerOf());
+    try {
+      await recordSkip(runId, { summary, tool: key });
+    } catch (error) {
+      // The call is blocked all the same: a dry run must never write.
+      console.warn(
+        "PiRun: recording a dry-run skip failed",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    return { block: skippedText(key, summary) };
+  };
+
   const beforeTool = async (
     call: ToolHookCall,
     _api: HookApi,
     context: Context
   ): Promise<{ block: string } | undefined> => {
+    const dryRun = await isDryRun();
     if (call.name === ASK_USER_TOOL.name) {
-      return;
+      return dryRun ? { block: ASK_USER_DRY_RUN_TEXT } : undefined;
     }
     const key = keyOf(call);
     const runId = await runIdOf();
+    if (dryRun) {
+      return await skipInDryRun(call, runId, key);
+    }
     if (!(await isRuled(runId, key))) {
       return;
     }

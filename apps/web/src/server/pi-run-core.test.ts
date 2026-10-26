@@ -31,6 +31,7 @@ import {
   type RunOutputs,
   type RunRef,
   type RunStorage,
+  runsInVm,
   SERVERS_KEY,
 } from "./pi-run-core.ts";
 import type { PiInput } from "./pi-run-files.ts";
@@ -1776,5 +1777,28 @@ describe("a run that waits on a person, on the real services", () => {
       "run.waiting",
       "run.resumed",
     ]);
+  });
+});
+
+describe("runsInVm", () => {
+  const vmStart = (dryRun: boolean): CloudStart => {
+    const input = startOf("run-vm");
+    return {
+      ...input,
+      agent: { ...input.agent, runtimeConfig: { environment: "linux-vm" } },
+      run: { ...input.run, dryRun },
+    };
+  };
+
+  test("a run of a Linux VM agent works in the VM", () => {
+    expect(runsInVm(vmStart(false))).toBe(true);
+  });
+
+  test("a dry run of a Linux VM agent never does", () => {
+    expect(runsInVm(vmStart(true))).toBe(false);
+  });
+
+  test("an isolate agent never does, dry or not", () => {
+    expect(runsInVm(startOf("run-iso"))).toBe(false);
   });
 });
