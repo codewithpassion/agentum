@@ -1,36 +1,48 @@
 import { expect, test } from "bun:test";
-import { navGroups, settingsNavItem } from "./nav-registry.ts";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+import { mainNavItems, moreNavItems, settingsNavItem } from "./nav-registry.ts";
 
-test("group labels appear in order", () => {
-  expect(navGroups.map((group) => group.label)).toEqual([
-    "Work",
-    "Automation",
-    "Knowledge",
+test("main items appear in order", () => {
+  expect(mainNavItems.map((item) => item.label)).toEqual([
+    "Desk",
+    "Agents",
+    "Map",
+    "Library",
+    "Skills",
+    "Machines",
+  ]);
+  expect(mainNavItems.map((item) => item.to)).toEqual([
+    "/desk",
+    "/agents",
+    "/map",
+    "/library",
+    "/skills",
+    "/machines",
   ]);
 });
 
-test("each group has 2 to 4 items", () => {
-  for (const group of navGroups) {
-    expect(group.items.length).toBeGreaterThanOrEqual(2);
-    expect(group.items.length).toBeLessThanOrEqual(4);
-  }
+test("More holds the five old items", () => {
+  expect(moreNavItems.map((item) => item.label)).toEqual([
+    "Inbox",
+    "Sessions",
+    "Log",
+    "Routines",
+    "Triggers",
+  ]);
 });
 
-test("no route repeats across groups and the settings item", () => {
-  const targets = [
-    ...navGroups.flatMap((group) => group.items.map((item) => item.to)),
-    settingsNavItem.to,
-  ];
+test("no route repeats across main, More and settings", () => {
+  const targets = [...mainNavItems, ...moreNavItems, settingsNavItem].map(
+    (item) => item.to
+  );
   expect(new Set(targets).size).toBe(targets.length);
 });
 
-test("no group item points into settings, machines or connectors", () => {
-  const forbidden = ["/settings", "/machines", "/connectors"];
-  for (const group of navGroups) {
-    for (const item of group.items) {
-      for (const prefix of forbidden) {
-        expect(item.to.startsWith(prefix)).toBe(false);
-      }
-    }
+test("every item points at a route file", () => {
+  const routeFiles = readdirSync(join(import.meta.dir, "../../routes/_app"));
+  const firstSegments = new Set(routeFiles.map((file) => file.split(".")[0]));
+  for (const item of [...mainNavItems, ...moreNavItems, settingsNavItem]) {
+    expect(firstSegments.has(item.to.slice(1))).toBe(true);
   }
 });
