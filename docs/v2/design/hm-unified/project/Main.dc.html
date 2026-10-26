@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desk</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+a{color:#0b5c5c}a:hover{color:#084646}
+.app{font-family:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.45;color:#1b2230;background:#f3f4f6;display:flex;flex-wrap:wrap;min-height:960px}
+.nav{flex:1 1 210px;max-width:240px;background:#fff;border-right:1px solid #e2e4e9;padding:20px 12px;display:flex;flex-direction:column;gap:2px}
+.brand{font-weight:700;font-size:15px;padding:4px 10px 16px;display:flex;align-items:center;gap:8px}
+.mark{width:22px;height:22px;border-radius:6px;background:#0d6e6e}
+.ni{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px;color:#3a4252;text-decoration:none}
+.ni:hover{background:#f3f4f6;color:#1b2230}
+.ni.on{background:#e2f2f1;color:#0b5c5c;font-weight:600}
+.nh{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#5d6576;font-weight:600;padding:16px 10px 6px}
+.main{flex:999 1 560px;min-width:0;padding:24px 28px 40px;display:flex;flex-direction:column;gap:18px}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+h1{margin:0;font-size:22px;letter-spacing:-.01em}
+h2{margin:0;font-size:15px}
+.sub{color:#5d6576;font-size:13px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid #cdd1d9;background:#fff;color:#1b2230;font-family:inherit;font-weight:600;font-size:13px;line-height:1.2;text-decoration:none;cursor:pointer}
+.btn.p{background:#0d6e6e;border-color:#0d6e6e;color:#fff}
+.btn.ok{background:#1c7a46;border-color:#1c7a46;color:#fff}
+.btn.no{color:#9b1c28;border-color:#e3a3aa}
+.btn.sm{padding:5px 9px;font-size:12px}
+.card{background:#fff;border:1px solid #e2e4e9;border-radius:10px;overflow:hidden}
+.hd{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.t{font-weight:600}
+.s{font-size:12px;color:#5d6576}
+.band{padding:6px 12px;font-size:12.5px;border-top:1px solid #e2e4e9}
+.band.ok{background:#e3f4ea;color:#155c35;border-top-color:#cfe9d9}
+.band.w{background:#fff4cf;color:#6e4a00;border-top-color:#f0d98a}
+.band.err{background:#fde8ea;color:#9b1c28;border-top-color:#f6c9ce}
+.band.run{background:#e6effc;color:#1d4f9c;border-top-color:#cbdcf6}
+.needs{background:#fff4cf;border:1px solid #f0c94a;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.nt{font-weight:600;color:#6e4a00;font-size:13px;display:flex;align-items:center;gap:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid #d7dae1;border-radius:99px;background:#fff;font-size:12px;white-space:nowrap;color:#1b2230}
+.chip.on{border-color:#0d6e6e;background:#e2f2f1;color:#0b5c5c}
+.kv{display:inline-flex;border:1px solid #d7dae1;border-radius:6px;overflow:hidden;font-size:12px;max-width:100%}
+.kv b{background:#eceef2;color:#3a4252;padding:2px 7px;font-weight:500;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px}
+.kv span{padding:2px 7px;background:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:8px;color:#fff;font-weight:700;font-size:12px;flex:none}
+.tile.sm{width:22px;height:22px;border-radius:6px;font-size:10px}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11.5px;font-weight:600;background:#eceef2;color:#3a4252;white-space:nowrap}
+.pill.w{background:#fff4cf;color:#6e4a00}.pill.ok{background:#e3f4ea;color:#155c35}.pill.run{background:#e6effc;color:#1d4f9c}.pill.err{background:#fde8ea;color:#9b1c28}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#5d6576;font-weight:600}
+.lane{background:#eceef2;border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.lh{display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:13px;padding:2px 4px}
+.ex{font-size:11.5px;color:#6e4a00}
+</style>
+</helmet>
+<div class="app">
+  <nav class="nav" aria-label="Main">
+    <div class="brand"><span class="mark" aria-hidden="true"></span>harbourmaster</div>
+    <a class="ni on" href="Main.dc.html">Desk <span class="pill w">4</span></a>
+    <a class="ni" href="Agent.dc.html">Agents</a>
+    <a class="ni" href="Map.dc.html">Map</a>
+    <a class="ni" href="Library.dc.html">Library</a>
+    <a class="ni" href="Library.dc.html">Skills</a>
+    <a class="ni" href="Agent.dc.html">Machines</a>
+    <div class="nh">Agents</div>
+    <a class="ni" href="Agent.dc.html"><span style="display: flex; align-items: center; gap: 8px"><span class="tile sm" style="background: #c2410c">IT</span>Inbox Triage</span><span class="dot" style="background: #1d4f9c" aria-label="Running"></span></a>
+    <a class="ni" href="Agent.dc.html"><span style="display: flex; align-items: center; gap: 8px"><span class="tile sm" style="background: #15803d">BK</span>Bookkeeper</span><span class="dot" style="background: #d79b00" aria-label="Needs you"></span></a>
+    <a class="ni" href="Agent.dc.html"><span style="display: flex; align-items: center; gap: 8px"><span class="tile sm" style="background: #1d4ed8">RS</span>Researcher</span><span class="dot" style="background: #1d4f9c" aria-label="Running"></span></a>
+    <a class="ni" href="NewAgent.dc.html" style="color: #0b5c5c">+ New agent</a>
+  </nav>
+
+  <main class="main">
+    <div class="top">
+      <div style="flex: 1 1 260px">
+        <h1>Desk</h1>
+        <div class="sub">Monday 27 October · Saltwater Studio · 3 agents</div>
+      </div>
+      <div class="chips">
+        <span class="chip on">All agents</span>
+        <span class="chip">Inbox Triage</span>
+        <span class="chip">Bookkeeper</span>
+        <span class="chip">Researcher</span>
+      </div>
+      <button class="btn" type="button">+ New task</button>
+      <a class="btn p" href="NewAgent.dc.html">+ New agent</a>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start">
+
+      <section class="lane" aria-label="Needs you">
+        <div class="lh"><span>Needs you</span><span class="pill w">4</span></div>
+
+        <div class="needs">
+          <div class="nt"><span class="tile sm" style="background: #15803d">BK</span>Bookkeeper wants to send an email</div>
+          <div class="chips">
+            <span class="kv"><b>from</b><span>bookkeeper@saltwater.co</span></span>
+            <span class="kv"><b>to</b><span>accounts@acme.com</span></span>
+            <span class="kv"><b>subject</b><span>Invoice 1043 query</span></span>
+          </div>
+          <div style="font-size: 13px">"Hi Sam, the total on invoice 1043 is $40 over PO 5521. Could you send a corrected copy?"</div>
+          <div class="chips"><button class="btn ok sm" type="button">Allow once</button><button class="btn sm" type="button">Always allow for acme.com</button><button class="btn no sm" type="button">Deny</button></div>
+          <div class="ex">Outside contact, so it waits for you. Asked 10:02.</div>
+        </div>
+
+        <div class="needs">
+          <div class="nt"><span class="tile sm" style="background: #1d4ed8">RS</span>Researcher asks</div>
+          <div style="font-size: 13px">Which market should the workshop pricing study cover?</div>
+          <div class="chips"><button class="btn sm" type="button">Australia</button><button class="btn sm" type="button">New Zealand</button><button class="btn sm" type="button">Both</button><button class="btn sm" type="button">Answer in words</button></div>
+        </div>
+
+        <div class="needs">
+          <div class="nt"><span class="tile sm" style="background: #15803d">BK</span>Bookkeeper needs a hand</div>
+          <div style="font-size: 13px">The bank asks for a 2FA code on task #214.</div>
+          <div class="chips"><a class="btn p sm" href="Task.dc.html">Open task and take over</a></div>
+        </div>
+
+        <div class="needs">
+          <div class="nt"><span class="tile sm" style="background: #15803d">BK</span>Skill change proposed</div>
+          <div style="font-size: 13px">Month-end close <span class="pill">v3</span> to <span class="pill w">v4</span>: export to Xero first, keep a CSV copy.</div>
+          <div class="chips"><button class="btn ok sm" type="button">Approve v4</button><a class="btn sm" href="Library.dc.html">See changes</a><button class="btn no sm" type="button">Reject</button></div>
+        </div>
+      </section>
+
+      <section class="lane" aria-label="Running">
+        <div class="lh"><span>Running</span><span class="pill run">3</span></div>
+        <a class="card" href="Task.dc.html" style="text-decoration: none; color: inherit">
+          <div class="hd"><span class="tile" style="background: #15803d">BK</span><div style="flex: 1; min-width: 0"><div class="t">#214 Pay October supplier bills</div><div class="s">Bookkeeper · started by Inbox Triage · 14 min</div></div><span class="pill w">Paused</span></div>
+          <div class="band w">Entered 3 bills in Xero. Waiting on your approval to email Acme.</div>
+        </a>
+        <div class="card">
+          <div class="hd"><span class="tile" style="background: #1d4ed8">RS</span><div style="flex: 1; min-width: 0"><div class="t">#219 Workshop pricing study</div><div class="s">Researcher · schedule · 22 min</div></div></div>
+          <div class="band run">Reading competitor site 4 of 7.</div>
+        </div>
+        <div class="card">
+          <div class="hd"><span class="tile" style="background: #c2410c">IT</span><div style="flex: 1; min-width: 0"><div class="t">#221 Afternoon inbox</div><div class="s">Inbox Triage · mail to triage@ · 1 min</div></div></div>
+          <div class="band run">Sorting 9 new emails.</div>
+        </div>
+      </section>
+
+      <section class="lane" aria-label="Done today">
+        <div class="lh"><span>Done today</span><span class="pill">7</span></div>
+        <div class="card">
+          <div class="hd"><span class="tile" style="background: #c2410c">IT</span><div style="flex: 1; min-width: 0"><div class="t">#212 Morning inbox</div><div class="s">08:04 · 3 min</div></div></div>
+          <div class="band ok">Sorted 23 emails. Handed 4 invoices to Bookkeeper.</div>
+        </div>
+        <div class="card">
+          <div class="hd"><span class="tile" style="background: #15803d">BK</span><div style="flex: 1; min-width: 0"><div class="t">#210 Chase Fern &amp; Co</div><div class="s">07:40 · 1 min</div></div></div>
+          <div class="band err">Email bounced. The address on file looks wrong.</div>
+        </div>
+        <div class="card">
+          <div class="hd"><span class="tile" style="background: #15803d">BK</span><div style="flex: 1; min-width: 0"><div class="t">#209 File Kiwi Print receipt</div><div class="s">07:30 · mail to bookkeeper@</div></div></div>
+          <div class="band ok">Filed under Suppliers. Saved receipt-0977.pdf v1.</div>
+        </div>
+        <div style="padding: 0 4px" class="sub">+ 4 more</div>
+      </section>
+    </div>
+
+    <section class="card" aria-label="Agent mail today">
+      <div class="hd" style="justify-content: space-between; flex-wrap: wrap"><h2>Agent mail today</h2><span class="sub">Each agent has its own address. New mail starts a task.</span></div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); border-top: 1px solid #e2e4e9">
+        <div style="padding: 12px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid #e2e4e9"><span class="mono" style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">triage@saltwater.co</span><span><b>32</b> in · <b>0</b> held</span></div>
+        <div style="padding: 12px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid #e2e4e9"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">bookkeeper@saltwater.co</span><span><b>4</b> in · <b style="color: #6e4a00">1</b> held for approval</span></div>
+        <div style="padding: 12px; display: flex; flex-direction: column; gap: 4px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">research@saltwater.co</span><span><b>0</b> in · <b>0</b> held</span></div>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

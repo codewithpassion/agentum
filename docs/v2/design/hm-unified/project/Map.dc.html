@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Map</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+a{color:#0b5c5c}a:hover{color:#084646}
+.app{font-family:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.45;color:#1b2230;background:#f3f4f6;display:flex;flex-wrap:wrap;min-height:960px}
+.nav{flex:1 1 210px;max-width:240px;background:#fff;border-right:1px solid #e2e4e9;padding:20px 12px;display:flex;flex-direction:column;gap:2px}
+.brand{font-weight:700;font-size:15px;padding:4px 10px 16px;display:flex;align-items:center;gap:8px}
+.mark{width:22px;height:22px;border-radius:6px;background:#0d6e6e}
+.ni{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px;color:#3a4252;text-decoration:none}
+.ni:hover{background:#f3f4f6;color:#1b2230}
+.ni.on{background:#e2f2f1;color:#0b5c5c;font-weight:600}
+.main{flex:999 1 560px;min-width:0;padding:24px 28px 40px;display:flex;flex-direction:column;gap:16px}
+h1{margin:0;font-size:22px;letter-spacing:-.01em}
+h2{margin:0;font-size:15px}
+.sub{color:#5d6576;font-size:13px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid #cdd1d9;background:#fff;color:#1b2230;font-family:inherit;font-weight:600;font-size:13px;line-height:1.2;text-decoration:none;cursor:pointer}
+.btn.p{background:#0d6e6e;border-color:#0d6e6e;color:#fff}
+.btn.ok{background:#1c7a46;border-color:#1c7a46;color:#fff}
+.btn.no{color:#9b1c28;border-color:#e3a3aa}
+.btn.sm{padding:5px 9px;font-size:12px}
+.seg{display:inline-flex;border:1px solid #cdd1d9;border-radius:8px;overflow:hidden;background:#fff}
+.seg span{padding:6px 12px;font-size:13px;font-weight:600;color:#5d6576}
+.seg span.on{background:#e2f2f1;color:#0b5c5c}
+.card{background:#fff;border:1px solid #e2e4e9;border-radius:10px;overflow:hidden}
+.pad{padding:14px;display:flex;flex-direction:column;gap:10px}
+.s{font-size:12px;color:#5d6576}
+.band{padding:6px 12px;font-size:12.5px;border-top:1px solid #e2e4e9}
+.band.w{background:#fff4cf;color:#6e4a00;border-top-color:#f0d98a}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid #d7dae1;border-radius:99px;background:#fff;font-size:12px;white-space:nowrap;color:#1b2230}
+.chip.w{border-color:#f0c94a;background:#fff4cf;color:#6e4a00}
+.chip.add{border-style:dashed;color:#5d6576;background:transparent}
+.tile{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:8px;color:#fff;font-weight:700;font-size:12px;flex:none}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11.5px;font-weight:600;background:#eceef2;color:#3a4252;white-space:nowrap}
+.pill.w{background:#fff4cf;color:#6e4a00}
+.lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#5d6576;font-weight:600}
+.board{background-color:#eef0f3;background-image:radial-gradient(#c9cdd5 1px,transparent 1.2px);background-size:18px 18px;border:1px solid #e2e4e9;border-radius:12px;overflow-x:auto}
+.cv{position:relative;width:960px;height:520px}
+.nd{position:absolute;background:#fff;border:1.5px solid #c9cdd5;border-radius:12px;display:flex;align-items:center;gap:10px;padding:0 12px;box-shadow:0 1px 2px rgba(20,24,35,.06)}
+.nd.trig{border-radius:30px 12px 12px 30px}
+.nd.wait{background:#fff4cf;border:2px solid #e6b422}
+.nd.ok{border-color:#3b9a62}
+.nd.sel{box-shadow:0 0 0 3px #bfe3e0}
+.nm{font-weight:600;font-size:13px;line-height:1.2}
+.ns{font-size:11.5px;color:#5d6576;line-height:1.25}
+.badge{position:absolute;top:-8px;right:-8px;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff}
+.wh{position:absolute;height:2px}
+.wv{position:absolute;width:2px}
+.ah{position:absolute;width:0;height:0;border-top:5px solid transparent;border-bottom:5px solid transparent}
+.av{position:absolute;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent}
+.cnt{position:absolute;transform:translate(-50%,-50%);font-size:11px;font-weight:600;padding:0 7px;border-radius:99px;background:#fff;border:1px solid #c9cdd5;color:#3a4252;line-height:18px;white-space:nowrap}
+.cnt.ok{border-color:#9fd1b2;color:#155c35}
+.port{display:inline-block;font-size:10.5px;padding:0 6px;border:1px solid #d7dae1;border-radius:4px;background:#fff;color:#3a4252;line-height:16px}
+.sn{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid #eceef2;font-size:13px}
+.sn:first-child{border-top:0}
+</style>
+</helmet>
+<div class="app">
+  <nav class="nav" aria-label="Main">
+    <div class="brand"><span class="mark" aria-hidden="true"></span>harbourmaster</div>
+    <a class="ni" href="Main.dc.html">Desk <span class="pill w">4</span></a>
+    <a class="ni" href="Agent.dc.html">Agents</a>
+    <a class="ni on" href="Map.dc.html">Map</a>
+    <a class="ni" href="Library.dc.html">Library</a>
+    <a class="ni" href="Library.dc.html">Skills</a>
+    <a class="ni" href="Agent.dc.html">Machines</a>
+  </nav>
+
+  <main class="main">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+      <div style="flex: 1 1 260px"><h1>Map</h1><div class="sub">Who starts what, who hands to whom, and where the results go</div></div>
+      <div class="seg" role="group" aria-label="View"><span>Editor</span><span class="on">Runs · last 7 days</span></div>
+      <button class="btn sm" type="button">+ Trigger</button>
+      <a class="btn sm" href="NewAgent.dc.html">+ Agent</a>
+      <button class="btn sm" type="button">Fit view</button>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+      <div class="board" style="flex: 999 1 600px; min-width: 0" role="img" aria-label="Map: mail and a schedule start three agents; Inbox Triage hands invoices to Bookkeeper, which is waiting for approval; results go to Slack, the library and the Q&amp;A board">
+        <div class="cv">
+          <div class="wh" style="left: 180px; top: 79px; width: 143px; background: #3b9a62"></div><div class="ah" style="left: 323px; top: 75px; border-left: 7px solid #3b9a62"></div>
+          <div class="wh" style="left: 180px; top: 259px; width: 143px; background: #3b9a62"></div><div class="ah" style="left: 323px; top: 255px; border-left: 7px solid #3b9a62"></div>
+          <div class="wh" style="left: 180px; top: 439px; width: 143px; background: #3b9a62"></div><div class="ah" style="left: 323px; top: 435px; border-left: 7px solid #3b9a62"></div>
+          <div class="wh" style="left: 530px; top: 79px; width: 193px; background: #3b9a62"></div><div class="ah" style="left: 723px; top: 75px; border-left: 7px solid #3b9a62"></div>
+          <div class="wh" style="left: 530px; top: 259px; width: 193px; background: #9aa1ae"></div><div class="ah" style="left: 723px; top: 255px; border-left: 7px solid #9aa1ae"></div>
+          <div class="wh" style="left: 530px; top: 439px; width: 193px; background: #3b9a62"></div><div class="ah" style="left: 723px; top: 435px; border-left: 7px solid #3b9a62"></div>
+          <div class="wv" style="left: 429px; top: 118px; height: 97px; background: #3b9a62"></div><div class="av" style="left: 425px; top: 215px; border-top: 7px solid #3b9a62"></div>
+          <div class="wv" style="left: 429px; top: 298px; height: 97px; background: #9aa1ae"></div><div class="av" style="left: 425px; top: 395px; border-top: 7px solid #9aa1ae"></div>
+
+          <span class="cnt ok" style="left: 255px; top: 80px">23 emails</span>
+          <span class="cnt ok" style="left: 255px; top: 260px">4 emails</span>
+          <span class="cnt ok" style="left: 255px; top: 440px">monthly</span>
+          <span class="cnt ok" style="left: 630px; top: 80px">2 urgent flags</span>
+          <span class="cnt" style="left: 630px; top: 260px">14 files</span>
+          <span class="cnt ok" style="left: 630px; top: 440px">2 questions</span>
+          <span class="cnt ok" style="left: 478px; top: 168px">14 invoices</span>
+          <span class="cnt" style="left: 478px; top: 348px">our prices</span>
+
+          <div class="nd trig ok" style="left: 30px; top: 50px; width: 150px; height: 60px"><span class="tile" style="background: #c2410c">@</span><div><div class="nm">Mail</div><div class="ns">triage@</div></div></div>
+          <div class="nd trig ok" style="left: 30px; top: 230px; width: 150px; height: 60px"><span class="tile" style="background: #15803d">@</span><div><div class="nm">Mail</div><div class="ns">bookkeeper@</div></div></div>
+          <div class="nd trig ok" style="left: 30px; top: 410px; width: 150px; height: 60px"><span class="tile" style="background: #4b5563">⏱</span><div><div class="nm">Schedule</div><div class="ns">1st, 09:00</div></div></div>
+
+          <div class="nd ok" style="left: 330px; top: 42px; width: 200px; height: 76px"><span class="tile" style="background: #c2410c">IT</span><div><div class="nm">Inbox Triage</div><div class="ns">31 runs · Anthropic cloud</div><div style="display: flex; gap: 4px; margin-top: 4px"><span class="port">Gmail</span><span class="port">Slack</span></div></div><span class="badge" style="background: #3b9a62">✓</span></div>
+          <div class="nd wait sel" style="left: 330px; top: 222px; width: 200px; height: 76px"><span class="tile" style="background: #15803d">BK</span><div><div class="nm">Bookkeeper</div><div class="ns">Paused, needs you</div><div style="display: flex; gap: 4px; margin-top: 4px"><span class="port">Xero</span><span class="port">Bank</span><span class="port">Desktop</span></div></div><span class="badge" style="background: #c98a00">!</span></div>
+          <div class="nd ok" style="left: 330px; top: 402px; width: 200px; height: 76px"><span class="tile" style="background: #1d4ed8">RS</span><div><div class="nm">Researcher</div><div class="ns">2 runs · Cloudflare</div><div style="display: flex; gap: 4px; margin-top: 4px"><span class="port">Web</span><span class="port">Browser</span></div></div><span class="badge" style="background: #3b9a62">✓</span></div>
+
+          <div class="nd" style="left: 730px; top: 50px; width: 170px; height: 60px"><span class="tile" style="background: #4a154b">S</span><div><div class="nm">Slack</div><div class="ns">#studio</div></div></div>
+          <div class="nd" style="left: 730px; top: 230px; width: 170px; height: 60px"><span class="tile" style="background: #8a6d1c">L</span><div><div class="nm">Library</div><div class="ns">finance/ · versioned</div></div></div>
+          <div class="nd" style="left: 730px; top: 410px; width: 170px; height: 60px"><span class="tile" style="background: #a0459e">?</span><div><div class="nm">Q&amp;A board</div><div class="ns">3 open</div></div></div>
+        </div>
+      </div>
+
+      <aside class="card" style="flex: 1 1 300px; min-width: 0" aria-label="Selected node">
+        <div class="pad">
+          <div style="display: flex; gap: 10px; align-items: center"><span class="tile" style="background: #15803d">BK</span><div style="flex: 1; min-width: 0"><h2>Bookkeeper</h2><div class="s">Agent · runs on Cloudflare</div></div><a class="btn sm" href="Agent.dc.html">Profile</a></div>
+          <div class="lbl">Plugged in</div>
+          <div>
+            <div class="sn"><span>Model</span><span class="chip">Sonnet</span></div>
+            <div class="sn"><span>Tools</span><span class="chips"><span class="chip">Xero</span><span class="chip">Gmail</span></span></div>
+            <div class="sn"><span>Computer</span><span class="chip">Linux desktop</span></div>
+            <div class="sn"><span>Skills</span><span class="chips"><span class="chip">Month-end v3</span><span class="chip w">v4 proposed</span></span></div>
+            <div class="sn"><span>Secrets</span><span class="chip">Bank login · hidden</span></div>
+          </div>
+          <div class="lbl">Last run</div>
+          <div class="card" style="border-color: #f0c94a">
+            <div style="padding: 8px 12px; font-size: 13px"><b>#214 Pay October supplier bills</b><div class="s">Wants to email accounts@acme.com</div></div>
+            <div class="band w">Paused at step 4 of 5.</div>
+            <div class="chips" style="padding: 8px 12px"><button class="btn ok sm" type="button">Allow once</button><button class="btn sm" type="button">Always allow</button><button class="btn no sm" type="button">Deny</button></div>
+          </div>
+          <a class="btn sm" href="Task.dc.html" style="align-self: flex-start">Open task</a>
+        </div>
+      </aside>
+    </div>
+
+    <div class="s">Green wires carried work in the last 7 days, grey ones are idle. Counts are items passed along each wire. In Editor mode the same nodes are dragged, wired and configured.</div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

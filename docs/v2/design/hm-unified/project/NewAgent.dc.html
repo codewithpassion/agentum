@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New agent</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+a{color:#0b5c5c}a:hover{color:#084646}
+.app{font-family:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.45;color:#1b2230;background:#f3f4f6;display:flex;flex-wrap:wrap;min-height:960px}
+.nav{flex:1 1 210px;max-width:240px;background:#fff;border-right:1px solid #e2e4e9;padding:20px 12px;display:flex;flex-direction:column;gap:2px}
+.brand{font-weight:700;font-size:15px;padding:4px 10px 16px;display:flex;align-items:center;gap:8px}
+.mark{width:22px;height:22px;border-radius:6px;background:#0d6e6e}
+.ni{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px;color:#3a4252;text-decoration:none}
+.ni:hover{background:#f3f4f6;color:#1b2230}
+.ni.on{background:#e2f2f1;color:#0b5c5c;font-weight:600}
+.main{flex:999 1 560px;min-width:0;padding:24px 28px 40px;display:flex;flex-direction:column;gap:16px}
+h1{margin:0;font-size:22px;letter-spacing:-.01em}
+h2{margin:0;font-size:15px}
+.sub{color:#5d6576;font-size:13px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid #cdd1d9;background:#fff;color:#1b2230;font-family:inherit;font-weight:600;font-size:13px;line-height:1.2;text-decoration:none;cursor:pointer}
+.btn.p{background:#0d6e6e;border-color:#0d6e6e;color:#fff}
+.btn.sm{padding:5px 9px;font-size:12px}
+.card{background:#fff;border:1px solid #e2e4e9;border-radius:10px;overflow:hidden}
+.card.draft{border:2px dashed #0d6e6e}
+.pad{padding:16px;display:flex;flex-direction:column;gap:12px}
+.s{font-size:12px;color:#5d6576}
+.band{padding:6px 12px;font-size:12.5px;border-top:1px solid #e2e4e9}
+.band.ok{background:#e3f4ea;color:#155c35;border-top-color:#cfe9d9}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid #d7dae1;border-radius:99px;background:#fff;font-size:12px;white-space:nowrap;color:#1b2230;font-family:inherit;cursor:pointer}
+.chip.on{border-color:#0d6e6e;background:#e2f2f1;color:#0b5c5c}
+.chip.w{border-color:#f0c94a;background:#fff4cf;color:#6e4a00}
+.chip.add{border-style:dashed;color:#5d6576;background:transparent}
+.tile{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:8px;color:#fff;font-weight:700;font-size:12px;flex:none}
+.tile.lg{width:44px;height:44px;border-radius:10px;font-size:16px}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11.5px;font-weight:600;background:#eceef2;color:#3a4252;white-space:nowrap}
+.pill.w{background:#fff4cf;color:#6e4a00}.pill.a{background:#e2f2f1;color:#0b5c5c}
+.lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#5d6576;font-weight:600}
+.row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:10px;padding:8px 0;border-top:1px dashed #e2e4e9;align-items:start}
+.row:first-of-type{border-top:0}
+.step{display:flex;gap:8px;align-items:center;font-size:13px}
+.box{width:16px;height:16px;border-radius:4px;border:1.5px solid #9aa1ae;display:inline-grid;place-items:center;font-size:10px;color:#fff;flex:none}
+.box.on{background:#0d6e6e;border-color:#0d6e6e}
+.needs{background:#fff4cf;border:1px solid #f0c94a;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.ins{background:#e3f4ea;color:#155c35;border-radius:3px;padding:0 3px}
+textarea{width:100%;min-height:150px;border:1.5px solid #0d6e6e;border-radius:10px;padding:12px;font:inherit;font-size:14px;line-height:1.5;resize:vertical;box-shadow:0 0 0 3px #e2f2f1;color:#1b2230}
+</style>
+</helmet>
+<div class="app">
+  <nav class="nav" aria-label="Main">
+    <div class="brand"><span class="mark" aria-hidden="true"></span>harbourmaster</div>
+    <a class="ni" href="Main.dc.html">Desk <span class="pill w">4</span></a>
+    <a class="ni on" href="Agent.dc.html">Agents</a>
+    <a class="ni" href="Map.dc.html">Map</a>
+    <a class="ni" href="Library.dc.html">Library</a>
+    <a class="ni" href="Library.dc.html">Skills</a>
+    <a class="ni" href="Agent.dc.html">Machines</a>
+  </nav>
+
+  <main class="main">
+    <div class="sub"><a href="Agent.dc.html">Agents</a> › New agent</div>
+    <h1>New agent</h1>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+      <section style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 14px" aria-label="Describe">
+        <div class="card"><div class="pad">
+          <label class="lbl" for="describe">1 · What should it do?</label>
+          <textarea id="describe">Once a month, find what other design studios charge for workshops in Sydney and Auckland. Write a one-page brief to the library and ask Bookkeeper for our own prices. Never sign up for anything or pay for a report.</textarea>
+          <div class="lbl">Or start from</div>
+          <div class="chips"><button class="chip add" type="button">Sort an inbox</button><button class="chip add" type="button">Chase late invoices</button><button class="chip add" type="button">Research a topic</button><button class="chip add" type="button">Import from a file</button></div>
+          <div class="lbl">2 · How should it write?</div>
+          <div class="chips"><button class="chip" type="button">Brief</button><button class="chip on" type="button">Careful, cites sources</button><button class="chip" type="button">Friendly</button><button class="chip" type="button">Formal</button></div>
+          <div class="chips"><button class="btn p" type="button">Redraft</button><span class="s">Edits on the right are kept.</span></div>
+        </div></div>
+
+        <div class="card"><div class="pad">
+          <h2>What the builder did</h2>
+          <div class="step"><span class="box on">✓</span>Wrote instructions and a voice</div>
+          <div class="step"><span class="box on">✓</span>Picked tools: Web search, Browser</div>
+          <div class="step"><span class="box on">✓</span>Added a monthly schedule</div>
+          <div class="step"><span class="box on">✓</span>Linked it to Bookkeeper and library/research/</div>
+          <div class="step"><span class="box on">✓</span>Reserved research@saltwater.co</div>
+          <div class="step"><span class="box"></span>Waiting for you: where it runs</div>
+        </div></div>
+      </section>
+
+      <section style="flex: 1 1 460px; min-width: 0; display: flex; flex-direction: column; gap: 14px" aria-label="Review the draft">
+        <div class="card draft">
+          <div class="pad">
+            <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap">
+              <span class="tile lg" style="background: #1d4ed8">RS</span>
+              <div style="flex: 1 1 200px; min-width: 0"><h2 style="font-size: 18px">Researcher</h2><div class="s" style="font-family: 'IBM Plex Mono', monospace">research@saltwater.co · reserved</div></div>
+              <span class="pill a">Draft</span>
+            </div>
+            <div>
+              <div class="row"><span class="lbl">Does</span><span>On the 1st of each month, searches workshop prices in Sydney and Auckland, opens each site, and writes <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">research/pricing-YYYY-MM.md</span>. <span class="ins">Asks Bookkeeper for our own prices before writing.</span></span></div>
+              <div class="row"><span class="lbl">Voice</span><span>Careful. Cites every source. Says "I don't know" instead of guessing.</span></div>
+              <div class="row"><span class="lbl">Rules</span><span>Never signs up for anything. Never pays for a report.</span></div>
+              <div class="row"><span class="lbl">Tools</span><span class="chips"><span class="chip">Web search</span><span class="chip">Browser</span><span class="chip add">+</span></span></div>
+              <div class="row"><span class="lbl">Starts on</span><span class="chips"><span class="chip">1st of the month, 09:00</span><span class="chip">Mail to research@</span></span></div>
+              <div class="row"><span class="lbl">Hands to</span><span class="chips"><span class="chip">Bookkeeper</span></span></div>
+              <div class="row"><span class="lbl">Runs on</span><span class="chips"><button class="chip w" type="button">Choose: Anthropic cloud</button><button class="chip w" type="button">Cloudflare</button><button class="chip w" type="button">studio-nuc</button></span></div>
+            </div>
+            <div class="needs"><b style="color: #6e4a00">1 thing to decide</b>Where it runs. Anthropic cloud is simplest. Cloudflare costs least for a monthly job.</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="padding: 12px 14px 8px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center"><h2>Dry run on a sample</h2><span class="s">Nothing is saved or sent</span></div>
+          <div style="padding: 0 14px 10px" class="chips"><span class="chip">city: Sydney</span><span class="chip">month: 2026-10</span></div>
+          <div class="band ok">Found 7 studios. Would write pricing-2026-10.md (1 page, 7 sources) and ask Bookkeeper 1 question.</div>
+        </div>
+
+        <div class="chips"><button class="btn" type="button">Run the dry run again</button><a class="btn p" href="Agent.dc.html">Create agent</a></div>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
