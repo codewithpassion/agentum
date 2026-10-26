@@ -1,52 +1,66 @@
+import { Link } from "@tanstack/react-router";
 import { formatDistanceToNow } from "date-fns";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { sessionTitle } from "#/components/sessions/sessions-logic.ts";
 import { Badge } from "#/components/ui/badge.tsx";
-import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { SessionListItem } from "#/integrations/trpc/types";
 import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
 
+const rowClass =
+  "flex w-full items-center justify-between gap-4 py-3 text-left";
+
+function RunLink({ children, runId }: { children: ReactNode; runId: string }) {
+  const params = useMemo(() => ({ runId }), [runId]);
+  return (
+    <Link
+      className={`${rowClass} text-foreground hover:text-primary`}
+      params={params}
+      to="/tasks/$runId"
+    >
+      {children}
+    </Link>
+  );
+}
+
 function SessionRow({
   agentName,
   item,
-  onOpen,
 }: {
   agentName: string;
   item: SessionListItem;
-  onOpen: (sessionId: string) => void;
 }) {
-  const open = useCallback(() => onOpen(item.id), [item.id, onOpen]);
+  const content = (
+    <>
+      <span className="min-w-0 truncate font-medium">
+        {sessionTitle({
+          agentName,
+          createdAt: item.createdAt,
+          title: item.title,
+        })}
+      </span>
+      <span className="flex shrink-0 items-center gap-2 text-muted-foreground text-sm">
+        <span>{item.origin}</span>
+        {item.status === null ? null : (
+          <Badge variant="outline">{item.status}</Badge>
+        )}
+        <span>{formatDistanceToNow(item.createdAt, { addSuffix: true })}</span>
+      </span>
+    </>
+  );
 
   return (
     <li>
-      <button
-        className="flex w-full items-center justify-between gap-4 py-3 text-left text-foreground hover:text-primary"
-        onClick={open}
-        type="button"
-      >
-        <span className="min-w-0 truncate font-medium">
-          {sessionTitle({
-            agentName,
-            createdAt: item.createdAt,
-            title: item.title,
-          })}
-        </span>
-        <span className="flex shrink-0 items-center gap-2 text-muted-foreground text-sm">
-          <span>{item.origin}</span>
-          {item.status === null ? null : (
-            <Badge variant="outline">{item.status}</Badge>
-          )}
-          <span>
-            {formatDistanceToNow(item.createdAt, { addSuffix: true })}
-          </span>
-        </span>
-      </button>
+      {item.latestRunId === null ? (
+        <div className={`${rowClass} text-muted-foreground`}>{content}</div>
+      ) : (
+        <RunLink runId={item.latestRunId}>{content}</RunLink>
+      )}
     </li>
   );
 }
 
-function SessionsPanel({ agent, openSession }: AgentTabProps) {
+function SessionsPanel({ agent }: AgentTabProps) {
   const [sessions, setSessions] = useState<SessionListItem[] | undefined>();
   const [error, setError] = useState<string | undefined>();
 
@@ -69,8 +83,6 @@ function SessionsPanel({ agent, openSession }: AgentTabProps) {
     };
   }, [agent.id]);
 
-  const newChat = useCallback(() => openSession(undefined), [openSession]);
-
   let body: ReactNode;
   if (error !== undefined) {
     body = <p className="text-destructive text-sm">{error}</p>;
@@ -82,27 +94,13 @@ function SessionsPanel({ agent, openSession }: AgentTabProps) {
     body = (
       <ul className="divide-y divide-border border-border border-y">
         {sessions.map((item) => (
-          <SessionRow
-            agentName={agent.name}
-            item={item}
-            key={item.id}
-            onOpen={openSession}
-          />
+          <SessionRow agentName={agent.name} item={item} key={item.id} />
         ))}
       </ul>
     );
   }
 
-  return (
-    <section className="flex flex-col gap-4">
-      <div>
-        <Button onClick={newChat} type="button">
-          New chat
-        </Button>
-      </div>
-      {body}
-    </section>
-  );
+  return <section className="flex flex-col gap-4">{body}</section>;
 }
 
 export const sessionsTab: AgentTab = {

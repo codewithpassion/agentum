@@ -1,6 +1,6 @@
 // The logic behind the answer card (V1.14): what a request looks like in the
 // chat, how its expiry and its settled line read, and the payload an answer
-// sends. Pure: `stream-logic.ts` keeps the requests, `request-card.tsx` draws them.
+// sends. Pure: the session stream keeps the requests, `request-card.tsx` draws them.
 
 import type { AnswerSurface, ApprovalDecision } from "@repo/db/shared";
 import {

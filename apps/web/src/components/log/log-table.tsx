@@ -1,5 +1,5 @@
 import { Link, useRouter } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -70,8 +70,22 @@ function CancelRunButton({ runId }: { runId: string }) {
   );
 }
 
+function TaskLink({ runId }: { runId: string }) {
+  const params = useMemo(() => ({ runId }), [runId]);
+  return (
+    <Link
+      className="mr-2 hover:underline"
+      data-testid="log-task-link"
+      params={params}
+      title={runId}
+      to="/tasks/$runId"
+    >
+      Task {runId.slice(-8)}
+    </Link>
+  );
+}
+
 function LogRow({ agentName, cancellable, entry }: LogRowProps) {
-  const hasLinks = entry.sessionId !== null || entry.runId !== null;
   return (
     <TableRow data-testid="log-row">
       <TableCell className="whitespace-nowrap">
@@ -85,22 +99,7 @@ function LogRow({ agentName, cancellable, entry }: LogRowProps) {
         {entry.summary === "" ? "-" : entry.summary}
       </TableCell>
       <TableCell className="whitespace-nowrap">
-        {hasLinks ? null : "-"}
-        {entry.sessionId === null ? null : (
-          <Link
-            className="mr-2 hover:underline"
-            data-testid="log-session-link"
-            search={{ session: entry.sessionId }}
-            to="/sessions"
-          >
-            Session
-          </Link>
-        )}
-        {entry.runId === null ? null : (
-          <span className="text-muted-foreground text-xs" title={entry.runId}>
-            Run {entry.runId.slice(-8)}
-          </span>
-        )}
+        {entry.runId === null ? "-" : <TaskLink runId={entry.runId} />}
         {entry.runId !== null && cancellable ? (
           <CancelRunButton runId={entry.runId} />
         ) : null}

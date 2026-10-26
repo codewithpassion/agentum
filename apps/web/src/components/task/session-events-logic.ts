@@ -1,6 +1,7 @@
 // The rules of the session event transport (V2.11), kept pure so they can be
-// tested. `use-session-events.ts` owns the EventSource and applies them. They
-// follow the chat's transport in `agent/chat/use-session-stream.ts` (V1.6).
+// tested. `use-session-events.ts` owns the EventSource and applies them.
+
+import { type StreamFrame, streamFrameSchema } from "@repo/protocol/stream";
 
 /** Failed connection attempts in a row before the page goes back to polling. */
 export const MAX_FAILURES = 3;
@@ -22,3 +23,13 @@ export const streamUrl = (sessionId: string, after: string | null): string =>
  */
 export const shouldFallBack = (failures: number, closed: boolean): boolean =>
   closed || failures >= MAX_FAILURES;
+
+/** Parses one frame of the stream. Returns null for bad JSON or an unknown frame. */
+export const parseFrame = (data: string): StreamFrame | null => {
+  try {
+    const parsed = streamFrameSchema.safeParse(JSON.parse(data));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+};

@@ -2,7 +2,7 @@
 // in the frames of the session stream, so the receipt and the action log can
 // be rebuilt from the event list on each event, without fetching the run
 // again. Pure: `use-session-events.ts` owns the EventSource, and the page owns
-// the reducer. Mirrors `agent/chat/stream-logic.ts`.
+// the reducer. Follows the fold rules of the chat's old stream reducer (V1.6).
 
 import type { EventType, RunStatus } from "@repo/db/shared";
 import type { EventFrame, StreamFrame } from "@repo/protocol/stream";

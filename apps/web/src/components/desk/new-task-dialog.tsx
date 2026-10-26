@@ -32,9 +32,11 @@ const errorMessage = (error: unknown): string =>
 export function NewTaskDialog({
   agents,
   onStarted,
+  triggerLabel = "+ New task",
 }: {
   agents: readonly { id: string; name: string }[];
   onStarted: (runId: string) => void;
+  triggerLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [agentChoice, setAgentChoice] = useState("");
@@ -97,7 +99,7 @@ export function NewTaskDialog({
     <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogTrigger asChild>
         <Button type="button" variant="outline">
-          + New task
+          {triggerLabel}
         </Button>
       </DialogTrigger>
       <DialogContent>
