@@ -42,6 +42,7 @@ const fakeOutage = (options: FakeOptions = {}) => {
   const iso = (ms: number) => new Date(ms).toISOString();
 
   const deps: OutageDeps = {
+    answer: () => Promise.resolve(),
     drive: (action, runId) => {
       calls.push(`${action} ${runId}`);
       status = "running";
@@ -63,6 +64,7 @@ const fakeOutage = (options: FakeOptions = {}) => {
             },
           ]
         : [],
+    eventTypesOf: (): string[] => [],
     killServer: () => {
       calls.push("kill");
       up = false;
@@ -70,6 +72,7 @@ const fakeOutage = (options: FakeOptions = {}) => {
     },
     now: () => new Date(clock),
     out: (line) => out.push(line),
+    pendingRequestId: () => undefined,
     reap: () => {
       calls.push("reap");
       if (
@@ -94,6 +97,7 @@ const fakeOutage = (options: FakeOptions = {}) => {
       status = "queued";
       return Promise.resolve("run-1");
     },
+    setRule: () => Promise.resolve(),
     sleep: (ms) => {
       clock += ms;
       if (up && status === "running") {

@@ -27,6 +27,7 @@
     "./files/memory": "./src/files/memory.ts",
     "./inbox": "./src/inbox.ts",
     "./inbox/wake-input": "./src/inbox/wake-input.ts",
+    "./investigator-report": "./src/investigator-report.ts",
     "./library": "./src/library.ts",
     "./library-links": "./src/library-links.ts",
     "./library/home": "./src/library/home.ts",

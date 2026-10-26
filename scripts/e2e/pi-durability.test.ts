@@ -4,10 +4,12 @@ import { CloudError, type SeqEvent } from "./cloud.ts";
 import type { OutageDeps, RunState, RunStatus } from "./cloud-outage.ts";
 import {
   checkPins,
+  GATED_RAN_TEXT,
   PI_PACKAGES,
   type PinDeps,
   runSafe,
   runUnsafe,
+  runWaiting,
 } from "./pi-durability.ts";
 
 const EXACT = "1.2.3";
@@ -85,6 +87,7 @@ const fakeRun = (options: FakeOptions = {}) => {
   });
 
   const deps: OutageDeps = {
+    answer: () => Promise.resolve(),
     drive: (action, runId) => {
       calls.push(`${action} ${runId}`);
       offeredAt = clock;
@@ -116,6 +119,7 @@ const fakeRun = (options: FakeOptions = {}) => {
     },
     now: () => new Date(clock),
     out: (line) => out.push(line),
+    pendingRequestId: () => undefined,
     reap: () => Promise.resolve([]),
     runOf: (): Promise<RunState> =>
       Promise.resolve({
@@ -128,6 +132,7 @@ const fakeRun = (options: FakeOptions = {}) => {
       status = "queued";
       return Promise.resolve("run-1");
     },
+    setRule: () => Promise.resolve(),
     sleep: (ms) => {
       clock += ms;
       if (restarted && status === "running") {
@@ -141,6 +146,134 @@ const fakeRun = (options: FakeOptions = {}) => {
     startServer: () => {
       calls.push("start");
       restarted = true;
+      return Promise.resolve();
+    },
+  };
+  return { calls, deps, out };
+};
+
+interface WaitingOptions {
+  /** True: the run ends without ever opening a request. */
+  endsWithoutWaiting?: boolean;
+  /** True: the pending request is gone once the server restarts. */
+  forgetsRequest?: boolean;
+  /** The output of the gated tool. Defaults to one run. */
+  output?: string;
+}
+
+const REQUEST_ID = "req-1";
+const GATED_TOOL_NAME = "dev_gated";
+
+/**
+ * A gated run in miniature. One second after the offer the run calls its tool
+ * and opens one request, then waits. An answer resumes it, and after
+ * RESUMED_MS the tool answers and the run ends. The clock only moves the run
+ * while the server is up.
+ */
+const fakeWaiting = (options: WaitingOptions = {}) => {
+  let clock = START_MS;
+  let status: RunStatus = "queued";
+  let up = true;
+  let offeredAt: number | null = null;
+  let resumedAt: number | null = null;
+  let pending: string | undefined;
+  const output = options.output ?? GATED_RAN_TEXT;
+  const events: SeqEvent[] = [];
+  const calls: string[] = [];
+  const out: string[] = [];
+
+  const emit = (type: string, payload: Record<string, unknown>) => {
+    events.push({ payload, seq: events.length + 1, type });
+  };
+
+  const tick = () => {
+    if (!up) {
+      return;
+    }
+    if (
+      status === "running" &&
+      resumedAt === null &&
+      offeredAt !== null &&
+      clock >= offeredAt + TOOL_CALL_MS
+    ) {
+      if (options.endsWithoutWaiting) {
+        status = "done";
+        return;
+      }
+      emit("tool.call", { name: GATED_TOOL_NAME, toolUseId: "call-1" });
+      emit("request.opened", { requestId: REQUEST_ID });
+      emit("run.waiting", {});
+      pending = REQUEST_ID;
+      status = "waiting";
+    }
+    if (
+      status === "running" &&
+      resumedAt !== null &&
+      clock >= resumedAt + RESUMED_MS
+    ) {
+      emit("tool.result", { ok: true, output, toolUseId: "call-1" });
+      status = "done";
+    }
+  };
+
+  const deps: OutageDeps = {
+    answer: (requestId, decision) => {
+      calls.push(`answer ${requestId} ${decision}`);
+      if (requestId === pending) {
+        pending = undefined;
+        emit("request.answered", { decision });
+        emit("run.resumed", {});
+        resumedAt = clock;
+        status = "running";
+      }
+      return Promise.resolve();
+    },
+    drive: (action, runId) => {
+      calls.push(`${action} ${runId}`);
+      offeredAt = clock;
+      status = "running";
+      return Promise.resolve();
+    },
+    eventsOf: () => [...events],
+    eventTypesOf: () => events.map((event) => event.type),
+    killServer: () => {
+      calls.push("kill");
+      up = false;
+      return Promise.resolve();
+    },
+    now: () => new Date(clock),
+    out: (line) => out.push(line),
+    pendingRequestId: () => pending,
+    reap: () => Promise.resolve([]),
+    runOf: (): Promise<RunState> =>
+      Promise.resolve({
+        error: null,
+        leaseUntil: null,
+        resultText:
+          status === "done" && resumedAt !== null
+            ? `tool said: ${output}`
+            : null,
+        status,
+      }),
+    send: () => {
+      status = "queued";
+      return Promise.resolve("run-1");
+    },
+    setRule: (toolKey, mode) => {
+      calls.push(`rule ${toolKey} ${mode}`);
+      return Promise.resolve();
+    },
+    sleep: (ms) => {
+      clock += ms;
+      tick();
+      return Promise.resolve();
+    },
+    startServer: () => {
+      calls.push("start");
+      up = true;
+      if (options.forgetsRequest) {
+        pending = undefined;
+      }
       return Promise.resolve();
     },
   };
@@ -222,6 +355,50 @@ describe("runUnsafe", () => {
     expect(await failureOf(runUnsafe(deps))).toContain(
       "run run-1 is failed (Tool crashed) after the restart, expected done"
     );
+  });
+});
+
+describe("runWaiting", () => {
+  test("passes when the request survives the restart and the tool runs once", async () => {
+    const { calls, deps, out } = fakeWaiting();
+    await runWaiting(deps);
+    expect(out.map((line) => line.slice(0, 4))).toEqual([
+      "ok 1",
+      "ok 2",
+      "ok 3",
+      "ok 4",
+      "ok 5",
+      "ok 6",
+    ]);
+    expect(calls).toEqual([
+      "rule dev_gated ask",
+      "offer run-1",
+      "kill",
+      "start",
+      "answer req-1 allow_once",
+    ]);
+  });
+
+  test("fails when the tool ran twice", async () => {
+    const { deps } = fakeWaiting({ output: "gated ran 2 times" });
+    expect(await failureOf(runWaiting(deps))).toContain(
+      'waiting: expected the gated tool to run once (gated ran 1 times), got "gated ran 2 times"'
+    );
+  });
+
+  test("fails when the run ends without ever waiting", async () => {
+    const { deps } = fakeWaiting({ endsWithoutWaiting: true });
+    expect(await failureOf(runWaiting(deps))).toContain(
+      "waiting: run run-1 is done before it waited for an answer"
+    );
+  });
+
+  test("fails when the request vanishes after the restart", async () => {
+    const { calls, deps } = fakeWaiting({ forgetsRequest: true });
+    expect(await failureOf(runWaiting(deps))).toContain(
+      "waiting: request req-1 is no longer pending after the restart"
+    );
+    expect(calls).not.toContain("answer req-1 allow_once");
   });
 });
 
