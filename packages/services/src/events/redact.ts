@@ -3,6 +3,7 @@ import type { z } from "zod";
 type JsonValue = z.infer<ReturnType<typeof z.json>>;
 const SECRET_KEYS = new Set([
   "authorization",
+  "proxyauthorization",
   "auth",
   "authtoken",
   "token",
