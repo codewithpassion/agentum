@@ -24,6 +24,7 @@ const REPLACED = 1012;
 const REJECTED = 4401;
 
 class FakeSocket implements RelaySocket {
+  attachment: unknown = null;
   closes: { code?: number; reason?: string }[] = [];
   sent: string[] = [];
 
@@ -31,8 +32,16 @@ class FakeSocket implements RelaySocket {
     this.closes.push({ code, reason });
   }
 
+  deserializeAttachment() {
+    return this.attachment;
+  }
+
   send(data: string) {
     this.sent.push(data);
+  }
+
+  serializeAttachment(value: unknown) {
+    this.attachment = value;
   }
 
   frames() {
@@ -78,6 +87,8 @@ const helloFrame = JSON.stringify({
   daemonVersion: "0.1.0",
   type: "hello",
 });
+const helloWithFeatures = (features: string[]) =>
+  JSON.stringify({ ...JSON.parse(helloFrame), features });
 const pingFrame = (at: number) =>
   JSON.stringify({ at: new Date(at).toISOString(), type: "ping" });
 
@@ -320,6 +331,44 @@ describe("MachineRelay connections", () => {
       { agentId: "agent_1", runId: "run_1", type: "offer" },
       { runId: "run_2", type: "cancel" },
     ]);
+  });
+});
+
+describe("MachineRelay library announcements", () => {
+  test("announce sends one library_changed frame to a socket whose hello named library-live", async () => {
+    const identity = await enrolMachine();
+    const socket = await dial(identity);
+    await core.message(
+      socket,
+      helloWithFeatures(["library-sync", "library-live"])
+    );
+    const sentBefore = socket.sent.length;
+
+    core.announce(["notes/a.md", "skills/b.md"]);
+
+    expect(socket.frames().slice(sentBefore)).toEqual([
+      { paths: ["notes/a.md", "skills/b.md"], type: "library_changed" },
+    ]);
+  });
+
+  test("announce skips a socket whose hello had no features", async () => {
+    const identity = await enrolMachine();
+    const socket = await dial(identity);
+    await core.message(socket, helloFrame);
+    const sentBefore = socket.sent.length;
+
+    core.announce(["notes/a.md"]);
+
+    expect(socket.sent.length).toBe(sentBefore);
+  });
+
+  test("announce skips a socket that sent no hello yet", async () => {
+    const identity = await enrolMachine();
+    const socket = await dial(identity);
+
+    core.announce(["notes/a.md"]);
+
+    expect(socket.sent).toEqual([]);
   });
 });
 
