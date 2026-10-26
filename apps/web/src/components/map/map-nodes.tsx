@@ -8,7 +8,7 @@ import {
   toolOfPort,
 } from "./editor-logic.ts";
 import { useMapEdit } from "./map-edit-context.ts";
-import { agentIdOf } from "./map-logic.ts";
+import { agentIdOf, visiblePorts } from "./map-logic.ts";
 import type {
   AgentFlowNode,
   MapPortData,
@@ -179,8 +179,10 @@ export function AgentNode({ id, data, selected }: NodeProps<AgentFlowNode>) {
     [acceptsDrop, agentId, onPlug]
   );
   const badge = AGENT_BADGE[data.status];
-  const shownPorts = data.ports.slice(0, MAX_PORT_CHIPS);
-  const hiddenPorts = data.ports.length - shownPorts.length;
+  const { hidden: hiddenPorts, shown: shownPorts } = visiblePorts(
+    data.ports,
+    MAX_PORT_CHIPS
+  );
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/noNoninteractiveElementInteractions: a native drop target for tools dragged from the palette. The inspector's Tools row is the keyboard route.

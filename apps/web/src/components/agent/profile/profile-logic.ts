@@ -4,6 +4,7 @@ import type {
   MachineStatus,
   MailboxStatus,
 } from "@repo/db/shared";
+import type { RuntimeConfig } from "@repo/services/agents";
 import {
   computerKind,
   computersOf,
@@ -133,6 +134,24 @@ export const toolChips = (tools: Tools): Chip[] => {
     })
   );
   return [...connectors, ...secrets];
+};
+
+/** The built-in browser is on unless the runtime config turns it off. */
+export const browserOn = (runtimeConfig: Record<string, unknown>): boolean =>
+  runtimeConfig.browser !== false;
+
+export const browserChip = (on: boolean): Chip =>
+  on
+    ? { key: "browser", label: "Browser", tone: "on" }
+    : { key: "browser", label: "Browser · off", tone: "default" };
+
+/** The runtime config with the browser switched on or off, all other keys kept. */
+export const browserConfig = (
+  base: RuntimeConfig,
+  on: boolean
+): RuntimeConfig => {
+  const { browser: _, ...rest } = base;
+  return on ? rest : { ...rest, browser: false };
 };
 
 export const skillChips = (skills: Skills): Chip[] =>

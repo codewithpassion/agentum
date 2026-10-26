@@ -4,11 +4,14 @@ import type {
   AgentRecord,
   MailboxRecord,
 } from "#/integrations/trpc/types";
+import { BrowserSwitch } from "./browser-switch.tsx";
 import { ChipList } from "./chip-list.tsx";
 import { LibraryRow } from "./library-row.tsx";
 import { MailProvisionButton } from "./mail-provision-button.tsx";
 import { MailStartChip } from "./mail-start-chip.tsx";
 import {
+  browserChip,
+  browserOn,
   channelChips,
   handsToChips,
   mailProvisionLabel,
@@ -25,12 +28,14 @@ import { VoiceField } from "./voice-field.tsx";
 export function ProfileRows({
   agent,
   mailbox,
+  onChanged,
   onOpen,
   onOpenMail,
   profile,
 }: {
   agent: AgentRecord;
   mailbox: MailboxRecord | null;
+  onChanged?: () => void;
   onOpen: (sheet: SheetId) => void;
   onOpenMail: () => void;
   profile: AgentProfileView;
@@ -73,7 +78,11 @@ export function ProfileRows({
       <Row label="Tools">
         <ChipList
           action={{ ...open("tools"), label: "+ Add tool" }}
-          chips={toolChips(profile.tools)}
+          chips={[
+            browserChip(browserOn(agent.runtimeConfig)),
+            ...toolChips(profile.tools),
+          ]}
+          extra={<BrowserSwitch agent={agent} onChanged={onChanged} />}
         />
       </Row>
       <Row label="Skills">

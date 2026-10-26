@@ -42,6 +42,22 @@ export function agentIdOf(key: string): string | null {
     : null;
 }
 
+/**
+ * The ports an agent node can show as chips: browser ports first, then the
+ * rest in their own order. `hidden` counts the ports that did not fit in `max`.
+ */
+export function visiblePorts<T extends { kind: string }>(
+  ports: readonly T[],
+  max: number
+): { hidden: number; shown: T[] } {
+  const ordered = [
+    ...ports.filter((port) => port.kind === "browser"),
+    ...ports.filter((port) => port.kind !== "browser"),
+  ];
+  const shown = ordered.slice(0, Math.max(0, max));
+  return { hidden: ordered.length - shown.length, shown };
+}
+
 const RUNTIME_SHORT: Record<AgentRuntime, string> = {
   cloud: "Cloudflare",
   fake: "Test runner",
