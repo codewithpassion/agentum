@@ -40,3 +40,4 @@ Dom's priority on 26 Oct: X.3, X.4, then X.2, then V2.8. V2.8 is three V2 tasks 
 - 2026-10-26: split; the stream route moved to X.6 (after V2.8). depends_on drops V2.8.
 - 2026-10-26: dispatched.
 - 2026-10-26: review clean after 1 fix round; code merged at c83542c. No migration needed. Open for Dom: any member can mint a desk key and act as any other member (no admin role). Clerk OAuth tokens refused on /api/desk until the coordinator names which client to allow. Staging deploy and curl check after V1.15.
+- 2026-10-26: Dom accepts the desk-key scope for now (any member mints, acts as any member). OAuth client for /api/desk left open, by Dom's decision. Deployed to staging (4a3e1503) and production (955ef460).
