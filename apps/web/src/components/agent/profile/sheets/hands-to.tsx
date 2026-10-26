@@ -4,6 +4,7 @@ import { Checkbox } from "#/components/ui/checkbox";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { AgentRecord } from "#/integrations/trpc/types";
+import { nextHandsTo } from "./hands-to-next.ts";
 import type { AgentPanelProps } from "./props.ts";
 
 export function HandsToPanel({ agent }: AgentPanelProps) {
@@ -35,10 +36,16 @@ export function HandsToPanel({ agent }: AgentPanelProps) {
 
   const toggle = useCallback(
     async (targetId: string, checked: boolean) => {
-      const current = agent.handsTo;
-      const next = checked
-        ? [...current, targetId]
-        : current.filter((id) => id !== targetId);
+      const next = nextHandsTo(
+        agent.handsTo,
+        new Set(
+          (agents ?? [])
+            .filter((other) => other.status === "active")
+            .map((other) => other.id)
+        ),
+        targetId,
+        checked
+      );
       setSaving(true);
       setError(undefined);
       try {
@@ -53,7 +60,7 @@ export function HandsToPanel({ agent }: AgentPanelProps) {
         setSaving(false);
       }
     },
-    [agent.handsTo, agentId, router]
+    [agent.handsTo, agentId, agents, router]
   );
 
   let body: ReactNode;

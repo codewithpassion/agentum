@@ -661,6 +661,7 @@ export const composeWith = ({
     agents,
     connectors,
     fetch: connectorFetch,
+    libraryAccess,
     machines,
     managedKeys,
     modelKeys,

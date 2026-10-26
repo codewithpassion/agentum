@@ -155,6 +155,7 @@ const buildDeps = (
     agents: base.agents,
     connectors: base.connectors,
     fetch: overrides.fetch ?? scriptedFetch([]).fetcher,
+    libraryAccess: { setGrant: async () => undefined },
     machines: overrides.machines
       ? { list: async () => overrides.machines ?? [] }
       : base.machines,
