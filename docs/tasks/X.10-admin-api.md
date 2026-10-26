@@ -3,7 +3,7 @@ id: X.10
 title: Key-authenticated admin API for setup that is UI-only today
 milestone: X
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/X.10-admin-api
 lane: admin-api
@@ -31,3 +31,4 @@ The integration coordinator sets up agents, routines and machines from Morosini 
 ## Log
 - 2026-10-27: requested by the integration coordinator, so production rollouts stop waiting on UI clicks.
 - 2026-10-27: dispatched.
+- 2026-10-27: review clean after 1 fix round; merged. assign_skill stays open to write keys (it already was); admin keys can mint admin keys.
