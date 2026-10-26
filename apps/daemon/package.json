@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.119",
+    "@repo/db": "workspace:*",
     "@repo/library-sync": "workspace:*",
     "@repo/protocol": "workspace:*",
     "zod": "^4.6.5"

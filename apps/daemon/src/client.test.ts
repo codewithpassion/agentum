@@ -228,6 +228,7 @@ describe("connection", () => {
       agents: [],
       capabilities: { agentSdk: "none", container: false },
       daemonVersion: DAEMON_VERSION,
+      features: ["library-sync", "requests", "library-live"],
       type: "hello",
     });
 
@@ -368,6 +369,17 @@ describe("inbound frames", () => {
     socket.fireMessage(JSON.stringify(offer));
 
     expect(frames).toEqual([offer]);
+  });
+
+  test("a library_changed frame reaches onFrame unchanged", () => {
+    const { client, frames, sockets } = setup();
+    client.start();
+    const socket = connectAndAck(sockets.created);
+
+    const changed = { paths: ["agents/ada/notes.md"], type: "library_changed" };
+    socket.fireMessage(JSON.stringify(changed));
+
+    expect(frames).toEqual([changed]);
   });
 
   test("garbage text and binary frames are dropped without throwing", () => {

@@ -7,6 +7,7 @@ import { createRunManager } from "./run-manager.ts";
 interface FakeRun {
   aborts: string[];
   finish: () => void;
+  libraryChanges: string[][];
   runId: string;
 }
 
@@ -33,11 +34,17 @@ const harness = (options: { claimFails?: Set<string> } = {}) => {
       const finished = new Promise<void>((resolve) => {
         finish = resolve;
       });
-      const run: FakeRun = { aborts: [], finish, runId: claim.run.id };
+      const run: FakeRun = {
+        aborts: [],
+        finish,
+        libraryChanges: [],
+        runId: claim.run.id,
+      };
       started.push(run);
       const execution: RunExecution = {
         abort: (reason) => run.aborts.push(reason),
         finished,
+        libraryChanged: (paths) => run.libraryChanges.push([...paths]),
       };
       return execution;
     },
@@ -128,6 +135,24 @@ test("after stop no offer starts a run", async () => {
   started[0]?.finish();
   await manager.idle();
   expect(claimed).toEqual(["r1"]);
+});
+
+test("a library change reaches every running run and not the queued offers", async () => {
+  const { manager, started } = harness();
+  manager.offer({ agentId: "a1", runId: "r1" });
+  manager.offer({ agentId: "a1", runId: "r2" });
+  manager.offer({ agentId: "a2", runId: "r3" });
+  await flush();
+  const paths = ["docs/a.md", "docs/b.md"];
+  expect(() => manager.libraryChanged(paths)).not.toThrow();
+  const runOf = (runId: string) => started.find((run) => run.runId === runId);
+  expect(runOf("r1")?.libraryChanges).toEqual([paths]);
+  expect(runOf("r3")?.libraryChanges).toEqual([paths]);
+
+  runOf("r1")?.finish();
+  await flush();
+  expect(runOf("r2")).toBeDefined();
+  expect(runOf("r2")?.libraryChanges).toEqual([]);
 });
 
 test("idle waits for the slots to be released", async () => {

@@ -6,15 +6,19 @@
 //
 // The agent's skills and its part of the workspace library are copied in
 // between preparing the work directory and the first message. The library
-// changes go back while the run works (a checkpoint every few minutes) and
-// once more after the process has exited, before the completion, because the
-// run token stops working when the run ends. A run that was aborted sends
+// changes go back while the run works (a watcher pushes an edit within
+// seconds, a checkpoint every few minutes is the fallback) and once more
+// after the process has exited, before the completion, because the run token
+// stops working when the run ends. The relay's `library_changed` frames pull
+// the changed files in while the run works. A run that was aborted sends
 // nothing back: its edits stay on disk and go with the next run's sync.
 //
+// Files for the user go to the task folder inside the synced library, so they
+// reach the library by sync and the daemon reads no attachment markers.
+//
 // Input files are downloaded between preparing the work directory and the first
-// message. Output files are uploaded after the process has exited and before
-// the completion; heartbeats go on until the completion body is built, so a slow
-// upload does not cost the run its lease.
+// message. Heartbeats go on until the completion body is built, so a slow final
+// library sync does not cost the run its lease.
 //
 // The local slot belongs to the caller. `finished` resolves after the
 // completion was posted, and the completion is posted after the Claude Code
@@ -27,6 +31,7 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
+import { taskFolderPath } from "@repo/db/shared";
 import { workspaceInstructions } from "@repo/protocol/attachments";
 import {
   type ClaimResponse,
@@ -50,7 +55,9 @@ import type { LibraryApi } from "./library-api.ts";
 import {
   createDaemonLibrarySync,
   type DaemonLibrarySync,
+  fsLibraryWatcher,
   LIBRARY_DIR,
+  type LibraryWatcher,
 } from "./library-sync.ts";
 import type { Logger } from "./log.ts";
 import {
@@ -60,11 +67,7 @@ import {
   summariseResult,
 } from "./normalize.ts";
 import type { RunApi } from "./run-api.ts";
-import {
-  fetchInputFiles,
-  messageWithFiles,
-  uploadOutputs,
-} from "./run-files.ts";
+import { fetchInputFiles, messageWithFiles } from "./run-files.ts";
 import type { SkillsApi } from "./skills-api.ts";
 import { syncSkills } from "./skills-sync.ts";
 import { createWorkDisk } from "./work-disk.ts";
@@ -96,6 +99,11 @@ export interface ExecuteRunDeps {
   daemonHome?: string;
   /** The daemon's own environment, filtered before it reaches Claude Code. */
   env: Record<string, string | undefined>;
+  /** Builds the watcher of the library copy at `dir`. Defaults to `fs.watch`. */
+  libraryWatcher?: (
+    dir: string,
+    onError: (error: unknown) => void
+  ) => LibraryWatcher;
   log: Logger;
   queryFn: QueryFn;
   run: CommandRunner;
@@ -118,6 +126,8 @@ export interface RunExecution {
   abort: (reason: string) => void;
   /** Never rejects. */
   finished: Promise<void>;
+  /** The library changed at these paths: pulls those under this run's roots. */
+  libraryChanged: (paths: readonly string[]) => void;
 }
 
 const HEARTBEAT_MS = HEARTBEAT_SECONDS * 1000;
@@ -167,8 +177,7 @@ const completionOf = (
   result: RunResult | undefined,
   failure: string | undefined,
   sessionId: string | undefined,
-  turnLimit: number,
-  fileIds: string[] = []
+  turnLimit: number
 ): CompleteRequest => {
   if (result && !result.isError) {
     return {
@@ -176,7 +185,6 @@ const completionOf = (
       status: "done",
       text: result.text,
       usage: result.usage,
-      ...(fileIds.length > 0 ? { fileIds } : {}),
     };
   }
   if (result?.turnLimitReached) {
@@ -221,6 +229,10 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
 
   let abortReason: string | undefined;
   let child: SpawnedProcess | undefined;
+  // True once the process has exited and the final library sync is next.
+  let workEnded = false;
+  // True once the watcher pushes the agent's library edits within seconds.
+  let liveSync = false;
   let stderrTail = "";
 
   const abort = (reason: string) => {
@@ -315,15 +327,22 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   ): Options => {
     const budget = budgetOf(claim.agent.runtimeConfig);
     const resume = resumeOf(claim, config);
-    // The daemon only collects attachments inside the work dir, so say so.
-    const files = `${workspaceInstructions({
+    // The task folder is a library path; the agent reaches it in the local copy.
+    const taskFolder = library
+      ? `${workDir}/${LIBRARY_DIR}/${library.taskFolder ?? taskFolderPath(claim.agent.slug, claim.run.id)}`
+      : undefined;
+    const files = workspaceInstructions({
+      attachments: false,
       conflicts: library?.conflicts,
       home: workDir,
       homeIsLocal: true,
       library: library ? `${workDir}/${LIBRARY_DIR}` : null,
+      liveSync,
+      roots: library?.roots,
       scratch: { lasts: "run-start", path: `${workDir}/${SCRATCH_DIR}` },
       syncedPaths: library?.paths,
-    })}\nA file can only be attached from inside ${workDir}.`;
+      taskFolder,
+    });
     return {
       abortController,
       allowDangerouslySkipPermissions: true,
@@ -423,7 +442,6 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
   };
 
   let failure: string | undefined;
-  let preparedFiles: WorkFiles | undefined;
   let librarySync: DaemonLibrarySync | undefined;
   let cancelCheckpoint: () => void = () => undefined;
 
@@ -448,8 +466,8 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
 
   /**
    * Copies the library folders the claim names into the work directory and
-   * starts the checkpoints. A failure is a warning: the run goes ahead without
-   * a library copy, and the prompt does not mention one.
+   * starts the watcher and the checkpoints. A failure is a warning: the run
+   * goes ahead without a library copy, and the prompt does not mention one.
    */
   const syncLibraryInto = async (
     workDir: string
@@ -466,8 +484,20 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
         workDir,
       }),
       log: runLog,
-      paths: library.paths,
+      // A Worker that predates the library roots names only `paths`: the
+      // agent's folder and the paths its config lists, all writable.
+      roots: library.roots?.length
+        ? library.roots
+        : library.paths.map((path) => ({ mode: "write" as const, path })),
       runId: claim.run.id,
+      // hm-agent owns the work directory of a multi-user machine, and the
+      // daemon user cannot watch it: its edits go back at the checkpoints.
+      watcher: config.singleUser
+        ? (deps.libraryWatcher ?? fsLibraryWatcher)(
+            `${workDir}/${LIBRARY_DIR}`,
+            (error) => runLog(`warning: library watcher: ${messageOf(error)}`)
+          )
+        : undefined,
     });
     // Without a copy there is nothing to send back, and a machine whose sudo
     // rule lacks `find` would fail the same way again at the end of the run.
@@ -475,6 +505,7 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       return;
     }
     librarySync = sync;
+    liveSync = sync.startWatching();
     cancelCheckpoint = timers.every(
       LIBRARY_CHECKPOINT_MS,
       () => {
@@ -503,7 +534,6 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       singleUser: config.singleUser,
       workDir: prepared,
     });
-    preparedFiles = files;
     if (abortReason !== undefined) {
       return;
     }
@@ -536,31 +566,7 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
     // The process has exited, so nothing changes under library/ any more. The
     // run token still works: the run ends only with the completion below.
     await librarySync?.syncOut();
-    if (result === undefined || result.isError || preparedFiles === undefined) {
-      return completionOf(result, failureDetail(), sessionId, turnLimit);
-    }
-    try {
-      const outputs = await uploadOutputs({
-        api: filesApi,
-        files: preparedFiles,
-        log: runLog,
-        signal: abortController.signal,
-        text: result.text,
-      });
-      return completionOf(
-        { ...result, text: outputs.text },
-        undefined,
-        sessionId,
-        turnLimit,
-        outputs.fileIds
-      );
-    } catch (error) {
-      if (abortReason === undefined) {
-        runLog(`attachments failed: ${messageOf(error)}`);
-        return completionOf(result, undefined, sessionId, turnLimit);
-      }
-      return { status: "aborted" };
-    }
+    return completionOf(result, failureDetail(), sessionId, turnLimit);
   };
 
   /** Why a run without a result failed, with what the process said last. */
@@ -581,7 +587,9 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
         failure = messageOf(error);
       }
     } finally {
+      workEnded = true;
       batcher.stop();
+      librarySync?.stopWatching();
       cancelCheckpoint();
     }
     await processExited();
@@ -608,5 +616,13 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
     runLog(`failed unexpectedly: ${messageOf(error)}`);
   });
 
-  return { abort, finished };
+  const libraryChanged = (paths: readonly string[]) => {
+    // After the work ends the final sync out is the last one: the run token
+    // stops working with the completion.
+    if (abortReason === undefined && !workEnded) {
+      librarySync?.pull(paths).catch(() => undefined);
+    }
+  };
+
+  return { abort, finished, libraryChanged };
 };

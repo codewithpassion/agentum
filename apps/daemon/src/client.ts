@@ -14,6 +14,7 @@ import {
 import { nextBackoffMs } from "./backoff.ts";
 import { EXIT_CREDENTIAL_REJECTED } from "./exit-codes.ts";
 import type { Logger } from "./log.ts";
+import { DAEMON_FEATURES } from "./version.ts";
 
 const HEARTBEAT_MS = HEARTBEAT_SECONDS * 1000;
 const ACK_TIMEOUT_MS = 2 * HEARTBEAT_MS;
@@ -245,6 +246,7 @@ export const createDaemonClient = (
       agents: [],
       capabilities: { agentSdk, container: false },
       daemonVersion,
+      features: [...DAEMON_FEATURES],
       type: "hello",
     });
     cancelPing = timers.every(HEARTBEAT_MS, sendPing, "ping");

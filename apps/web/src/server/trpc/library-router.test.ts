@@ -9,6 +9,13 @@ import { type Composed, composeWith, type Infra } from "../compose.ts";
 import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
 
+const required = <T>(value: T | null | undefined): T => {
+  if (value === null || value === undefined) {
+    throw new Error("Expected a value");
+  }
+  return value;
+};
+
 const ALLOWED_ORG_IDS = ["org_a", "org_b"];
 const MB = 1024 * 1024;
 
@@ -149,4 +156,25 @@ test("a caller without a session gets UNAUTHORIZED", async () => {
   await expect(caller.library.read({ path: "a.txt" })).rejects.toMatchObject({
     code: "UNAUTHORIZED",
   });
+});
+
+test("version procedures compare and restore history after move and delete", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  await caller.library.write({ data: "old", encoding: "text", path: "a" });
+  await caller.library.write({ data: "new", encoding: "text", path: "a" });
+  const [second, first] = await caller.library.versions({ path: "a" });
+  expect(
+    await caller.library.compare({
+      a: required(first).id,
+      b: required(second).id,
+    })
+  ).toEqual({ a: "old", b: "new", kind: "text" });
+  expect(
+    (await caller.library.readVersion({ versionId: required(first).id })).text
+  ).toBe("old");
+  await caller.library.move({ from: "a", to: "b" });
+  await caller.library.remove({ path: "b" });
+  await caller.library.restore({ versionId: required(first).id });
+  expect((await caller.library.stat({ path: "b" })).kind).toBe("file");
+  expect((await caller.library.read({ path: "b" })).text).toBe("old");
 });
