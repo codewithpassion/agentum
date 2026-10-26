@@ -1,7 +1,8 @@
 import type { Database } from "@repo/db";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { and, eq } from "drizzle-orm";
-import type { AgentRecord } from "../agents.ts";
+import { agentPrompt } from "../agent-prompt.ts";
+import { type AgentRecord, handsToNames } from "../agents.ts";
 import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
 import type { AdapterDeps, RunRecord, RuntimeAdapter } from "../runs/types.ts";
@@ -65,7 +66,7 @@ export const createCloudRuntime = ({
     await runner.start({
       agent: {
         id: agent.id,
-        instructions: [agent.instructions, slack]
+        instructions: [agentPrompt(agent, await handsToNames(db, agent)), slack]
           .filter((part) => part !== "")
           .join("\n\n"),
         model: agent.model,

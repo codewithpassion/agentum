@@ -547,3 +547,31 @@ describe("waking the next run when one ends", () => {
     expect(logged.join("\n")).toContain(second.runId);
   });
 });
+
+test("dispatch composes voice and hands to before Slack guidance", async () => {
+  const agents = createAgentsService({
+    db,
+    events: createEventsService({
+      blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+      db,
+    }),
+  });
+  const target = await agents.create(dom, {
+    model: "sonnet",
+    name: "Helper",
+    runtime: "cloud",
+  });
+  await agents.update(dom, agentId, {
+    handsTo: [target.id],
+    soul: "Speak warmly.",
+  });
+  installSlackApp(agentId);
+  await start();
+  const [input] = runner.startCalls;
+  if (!input) {
+    throw new Error("The runner was not started");
+  }
+  expect(input.agent.instructions).toBe(
+    `Be brief.\n\n## Voice\nSpeak warmly.\n\nYou can hand work to: Helper (use send_message)\n\n${SLACK_GUIDANCE}`
+  );
+});
