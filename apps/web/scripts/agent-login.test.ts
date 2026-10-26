@@ -204,15 +204,15 @@ describe("resolveSecretKey", () => {
     productionLocal: {},
   };
 
-  test("local, staging and preview use the dev key from .env.local", () => {
-    for (const env of ["local", "staging", "preview"] as const) {
+  test("local and preview use the dev key from .env.local", () => {
+    for (const env of ["local", "preview"] as const) {
       expect(resolveSecretKey(env, devOnly)).toBe(DEV_KEY);
     }
   });
 
   test("dev envs ignore the production sources", () => {
     expect(
-      resolveSecretKey("staging", {
+      resolveSecretKey("preview", {
         envLocal: { CLERK_SECRET_KEY: DEV_KEY },
         process: { CLERK_SECRET_KEY: PROD_KEY },
         productionLocal: { CLERK_SECRET_KEY: PROD_KEY },
@@ -236,34 +236,52 @@ describe("resolveSecretKey", () => {
     }
   });
 
-  test("production uses the production file key first", () => {
-    expect(
-      resolveSecretKey("production", {
-        envLocal: { CLERK_SECRET_KEY: DEV_KEY },
-        process: { CLERK_SECRET_KEY: "sk_live_from_process" },
-        productionLocal: { CLERK_SECRET_KEY: PROD_KEY },
-      })
-    ).toBe(PROD_KEY);
+  test("staging and production use the production file key first", () => {
+    for (const env of ["staging", "production"] as const) {
+      expect(
+        resolveSecretKey(env, {
+          envLocal: { CLERK_SECRET_KEY: DEV_KEY },
+          process: { CLERK_SECRET_KEY: "sk_live_from_process" },
+          productionLocal: { CLERK_SECRET_KEY: PROD_KEY },
+        })
+      ).toBe(PROD_KEY);
+    }
   });
 
-  test("production falls back to a process key that differs from the dev key", () => {
-    expect(
-      resolveSecretKey("production", {
-        envLocal: { CLERK_SECRET_KEY: DEV_KEY },
-        process: { CLERK_SECRET_KEY: PROD_KEY },
-        productionLocal: {},
-      })
-    ).toBe(PROD_KEY);
+  test("staging and production fall back to a process key that differs from the dev key", () => {
+    for (const env of ["staging", "production"] as const) {
+      expect(
+        resolveSecretKey(env, {
+          envLocal: { CLERK_SECRET_KEY: DEV_KEY },
+          process: { CLERK_SECRET_KEY: PROD_KEY },
+          productionLocal: {},
+        })
+      ).toBe(PROD_KEY);
+    }
   });
 
-  test("production ignores a process key equal to the dev key", () => {
+  test("staging and production ignore a process key equal to the dev key", () => {
+    for (const env of ["staging", "production"] as const) {
+      expect(() =>
+        resolveSecretKey(env, {
+          envLocal: { CLERK_SECRET_KEY: DEV_KEY },
+          process: { CLERK_SECRET_KEY: DEV_KEY },
+          productionLocal: {},
+        })
+      ).toThrow();
+    }
+  });
+
+  test("staging with no usable key throws a message naming both sources", () => {
     expect(() =>
-      resolveSecretKey("production", {
+      resolveSecretKey("staging", {
         envLocal: { CLERK_SECRET_KEY: DEV_KEY },
-        process: { CLERK_SECRET_KEY: DEV_KEY },
+        process: {},
         productionLocal: {},
       })
-    ).toThrow();
+    ).toThrow(
+      "Staging and production need CLERK_SECRET_KEY in apps/web/.env.production.local or in the process environment."
+    );
   });
 
   test("production with no usable key throws a message naming both sources", () => {
@@ -274,7 +292,7 @@ describe("resolveSecretKey", () => {
         productionLocal: {},
       })
     ).toThrow(
-      "Production needs CLERK_SECRET_KEY in apps/web/.env.production.local or in the process environment."
+      "Staging and production need CLERK_SECRET_KEY in apps/web/.env.production.local or in the process environment."
     );
   });
 
@@ -286,7 +304,7 @@ describe("resolveSecretKey", () => {
     };
     let message = "";
     try {
-      resolveSecretKey("production", sources);
+      resolveSecretKey("staging", sources);
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }

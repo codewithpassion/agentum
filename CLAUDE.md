@@ -140,6 +140,12 @@ and Organizations in the Clerk dashboard too.
 Set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`
 and `ALLOWED_ORG_IDS` on a deployed Worker with `wrangler secret put`.
 
+Org and user ids in D1 belong to one Clerk instance. Moving the app to another
+instance means rewriting them with `bun run migrate-clerk-ids` (dry run unless
+`--apply`; `build-clerk-id-map` writes its mapping file), as X.1 did for the
+shared production instance. The `events` triggers are dropped and put back
+around that rewrite. The runbook is `docs/reviews/tasks/X.1.md`.
+
 ## Dev login (testing)
 
 `apps/web` exposes a one-click dev login for local testing: `/login` has a
@@ -164,10 +170,11 @@ how agents and browser tests sign in on staging, preview and production, where
 dev login is off. Flags: `--env local|staging|preview|production` (default
 `local`), `--pr <n>` (required for preview), `--email <address>` (default
 `DEV_LOGIN_EMAIL` from `.env.local`), `--redirect <path>` (default `/`),
-`--base-url <url>` (overrides the environment's base URL). Local, staging and
+`--base-url <url>` (overrides the environment's base URL). Local and
 preview use `CLERK_SECRET_KEY` from `apps/web/.env.local` (the Clerk dev
-instance). Production reads it from `apps/web/.env.production.local` or the
-process environment. The URL is a one-time credential: open it in a fresh
+instance). Staging and production share the production Clerk instance and read
+its key from `apps/web/.env.production.local` or the process environment, and
+`--email` must name a user on that instance (the dev user is not there). The URL is a one-time credential: open it in a fresh
 browser session and don't paste it into logs or reports. The key is never
 printed. The session lands on the signed-in pages only when the user has an
 allowed organisation active. The dev user has one, and Clerk activates it for
