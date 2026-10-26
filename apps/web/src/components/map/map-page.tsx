@@ -20,16 +20,18 @@ const TASK_WINDOW = 100;
 /** The graph, the runtimes for the tiles and the recent runs for the counts. */
 const loadMap = async () => {
   const trpc = getTrpc();
-  const [graph, agents, tasks] = await Promise.all([
+  const [graph, agents, tasks, qaOpenCount] = await Promise.all([
     trpc.map.graph.query({ days: 7 }),
     trpc.agents.list.query({}),
     trpc.tasks.list.query({ limit: TASK_WINDOW }),
+    trpc.qa.openCount.query(),
   ]);
   return {
     agents: new Map(
       agents.map((agent) => [agent.id, { runtime: agent.runtime }] as const)
     ),
     graph,
+    qaOpenCount,
     tasks,
   };
 };
@@ -131,6 +133,7 @@ export function MapPage() {
               agents={data.agents}
               graph={data.graph}
               onSelect={setSelectedKey}
+              qaOpenCount={data.qaOpenCount}
               runCounts={runCounts}
               selectedKey={selectedKey}
             />
