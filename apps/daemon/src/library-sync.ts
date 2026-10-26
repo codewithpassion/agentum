@@ -3,13 +3,22 @@
 // routes. The agent's library folders are copied to `library/` in the work
 // directory, with the manifest beside that folder, so both stay across runs
 // like the rest of the agent's home. Neither call throws: a failed sync is
-// logged and the run goes on.
+// logged and the run goes on. While the run lasts, a watcher on `library/`
+// reports each edit, and the edits are sent out after a short quiet time.
+// Neither the watcher nor the sync out throws into the run.
 
+import type { EventEmitter } from "node:events";
+import { mkdirSync, watch } from "node:fs";
+import { sep } from "node:path";
 import {
+  type CoalescerClock,
+  createCoalescer,
   createLibrarySync,
+  isConflictPath,
   type LocalPort,
   type ManifestEntry,
   type ManifestStore,
+  type SyncRoot,
 } from "@repo/library-sync";
 import type { LibraryApi } from "./library-api.ts";
 import type { WorkDisk } from "./work-disk.ts";
@@ -68,21 +77,73 @@ export const diskManifestStore = (disk: WorkDisk): ManifestStore => ({
     disk.write(LIBRARY_MANIFEST, TEXT_ENCODER.encode(JSON.stringify(entries))),
 });
 
+/**
+ * Starts watching a folder and reports each changed library path, relative to
+ * the folder and with `/` separators. Conflict copies are left out. Calling the
+ * returned function starts the watch and returns the stop function. It throws
+ * when the folder cannot be watched.
+ */
+export type LibraryWatcher = (
+  onPath: (libraryPath: string) => void
+) => () => void;
+
+/** A watcher on the library folder `dir` (made when it is missing), built on `fs.watch`. Watch errors go to `onError`. */
+export const fsLibraryWatcher =
+  (
+    dir: string,
+    onError: (error: unknown) => void = () => undefined
+  ): LibraryWatcher =>
+  (onPath) => {
+    // A library with nothing in it yet leaves no folder to watch.
+    mkdirSync(dir, { recursive: true });
+    const watcher = watch(dir, { recursive: true }, (_event, filename) => {
+      if (filename === null) {
+        return;
+      }
+      const libraryPath = filename.split(sep).join("/");
+      if (!isConflictPath(libraryPath)) {
+        onPath(libraryPath);
+      }
+    });
+    // Bun's type of the watcher leaves out the EventEmitter it is at runtime.
+    // An unhandled `error` event would end the daemon.
+    (watcher as unknown as EventEmitter).on("error", onError);
+    return () => {
+      watcher.close();
+    };
+  };
+
 export interface DaemonLibrarySyncOptions {
   /** The library routes with the run token. */
   api: LibraryApi;
+  /** The clock the watch batches edits with. Defaults to the system timers. */
+  clock?: CoalescerClock<number>;
   disk: WorkDisk;
   /** Where progress and failures go, one line each. */
   log: (message: string) => void;
-  /** The library paths to sync: the agent's folder and the paths its config names. */
-  paths: readonly string[];
+  /** The longest an edit waits before it is sent, however often it changes. */
+  maxMs?: number;
+  /** Quiet time after the last edit before the edits are sent. */
+  quietMs?: number;
+  /** The library roots to sync: the agent's folder and the paths its config names, each read or write. */
+  roots: readonly SyncRoot[];
   /** Names the conflict copies a sync out makes. */
   runId: string;
+  /** Watches `library/` for edits. Without it, `startWatching` does nothing. */
+  watcher?: LibraryWatcher;
 }
 
 export interface DaemonLibrarySync {
-  /** Copies the library into the work directory. Resolves true when the copy is in place, false when the sync failed. Never rejects. */
-  syncIn: () => Promise<boolean>;
+  /** The given library paths that equal a root or sit under one, in any mode. */
+  covered: (paths: readonly string[]) => string[];
+  /** Syncs the given library paths in, the ones under a root. Resolves when done. Never rejects. */
+  pull: (paths: readonly string[]) => Promise<void>;
+  /** Starts watching the library. Returns true when watching, false when there is no watcher or it failed. Calling it again while watching does nothing. */
+  startWatching: () => boolean;
+  /** Stops the watch and drops the edits not sent yet. */
+  stopWatching: () => void;
+  /** Copies the library into the work directory, or only the `only` paths within the roots. Resolves true when the copy is in place, false when the sync failed. Never rejects. */
+  syncIn: (only?: readonly string[]) => Promise<boolean>;
   /** Sends the local changes to the library and records each conflict. Never rejects. */
   syncOut: () => Promise<void>;
 }
@@ -94,7 +155,7 @@ export interface DaemonLibrarySync {
 export const createDaemonLibrarySync = (
   options: DaemonLibrarySyncOptions
 ): DaemonLibrarySync => {
-  const { api, log, paths, runId } = options;
+  const { api, log, roots, runId, watcher } = options;
   const sync = createLibrarySync({
     local: diskLocalPort(options.disk),
     manifest: diskManifestStore(options.disk),
@@ -107,11 +168,19 @@ export const createDaemonLibrarySync = (
     return next;
   };
 
-  const syncIn = () =>
+  const covered = (paths: readonly string[]): string[] =>
+    paths.filter((path) =>
+      roots.some(
+        (root) => path === root.path || path.startsWith(`${root.path}/`)
+      )
+    );
+
+  const syncIn = (only?: readonly string[]) =>
     inTurn(async () => {
       try {
         const result = await sync.syncIn({
-          roots: paths.map((path) => ({ mode: "write", path })),
+          roots,
+          ...(only === undefined ? {} : { only }),
         });
         log(
           `library synced in: ${result.pulled.length} pulled, ${result.removed.length} removed, ${result.kept.length} kept for local edits, ${result.skipped.length} skipped for size`
@@ -146,13 +215,15 @@ export const createDaemonLibrarySync = (
   const syncOut = () =>
     inTurn(async () => {
       try {
-        const result = await sync.syncOut({
-          roots: paths.map((path) => ({ mode: "write", path })),
-          runId,
-        });
+        const result = await sync.syncOut({ roots, runId });
         log(
           `library synced out: ${result.written.length} written, ${result.deleted.length} deleted, ${result.conflicts.length} conflict(s), ${result.skipped.length} skipped for size`
         );
+        if (result.refused.length > 0) {
+          log(
+            `warning: ${result.refused.length} change(s) under read-only library paths were not sent: ${result.refused.join(", ")}`
+          );
+        }
         await Promise.all(result.conflicts.map(recordConflict));
         if (result.failed.length > 0) {
           log(
@@ -166,5 +237,62 @@ export const createDaemonLibrarySync = (
       }
     });
 
-  return { syncIn, syncOut };
+  const batcher = createCoalescer({
+    clock: options.clock,
+    maxMs: options.maxMs,
+    onBatch: () => syncOut(),
+    quietMs: options.quietMs,
+  });
+
+  // The token ties each watch to its callback, so a report that arrives after
+  // a stop, or from an earlier watch, is dropped.
+  let watching: { stop: () => void; token: object } | undefined;
+
+  const startWatching = (): boolean => {
+    if (watching !== undefined) {
+      return true;
+    }
+    if (watcher === undefined) {
+      return false;
+    }
+    const token = {};
+    try {
+      const stop = watcher((libraryPath) => {
+        if (watching?.token === token) {
+          batcher.add(libraryPath);
+        }
+      });
+      watching = { stop, token };
+      return true;
+    } catch (error) {
+      log(
+        `warning: watching the library failed, changes go back at the next checkpoint: ${messageOf(error)}`
+      );
+      return false;
+    }
+  };
+
+  const stopWatching = (): void => {
+    const current = watching;
+    watching = undefined;
+    batcher.cancel();
+    current?.stop();
+  };
+
+  const pull = async (paths: readonly string[]): Promise<void> => {
+    const only = covered(paths);
+    if (only.length === 0) {
+      return;
+    }
+    await syncIn(only);
+  };
+
+  return {
+    covered,
+    pull,
+    startWatching,
+    stopWatching,
+    syncIn,
+    syncOut,
+  };
 };
