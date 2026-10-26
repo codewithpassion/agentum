@@ -615,6 +615,8 @@ export const composeWith = ({
     machines,
     managedKeys,
     modelKeys,
+    routines,
+    runs,
     skillsStore,
   });
   const agentProfile = createAgentProfileService({

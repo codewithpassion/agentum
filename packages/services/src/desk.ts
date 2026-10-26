@@ -577,6 +577,8 @@ export const createDeskService = ({
     const mine = and(
       eq(runRows.workspaceId, member.workspaceId),
       visible,
+      // Dry runs never show on the desk, not even to the builder who started them.
+      eq(runRows.dryRun, false),
       // Dry runs on builder drafts stay in the builder, including their totals.
       inArray(
         runRows.agentId,

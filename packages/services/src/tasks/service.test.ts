@@ -14,6 +14,7 @@ import {
 } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
+import { eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
@@ -795,4 +796,21 @@ test("get rejects an empty run id", async () => {
   const error = await errorOf(tasks.get(user(), { runId: "" }));
 
   expect(error).toBeDefined();
+});
+
+test("list hides a dry run, even from the person who started it", async () => {
+  await seedTask("run-live");
+  await seedTask("run-dry");
+  await db
+    .update(sessionRows)
+    .set({ origin: "dry_run", private: true })
+    .where(eq(sessionRows.id, "s-run-dry"));
+  await db
+    .update(runRows)
+    .set({ dryRun: true })
+    .where(eq(runRows.id, "run-dry"));
+
+  const items = await tasks.list(user(), { limit: 10 });
+
+  expect(items.map((item) => item.id)).toEqual(["run-live"]);
 });

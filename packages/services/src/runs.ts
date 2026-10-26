@@ -438,7 +438,11 @@ export const createRunsService = ({
       id: run.agentId,
       workspaceId: run.workspaceId,
     });
-    return { adapter: agent && adapterByKind.get(agent.runtime), agent };
+    // A dry run is on the cloud runtime for good, even when its agent moves.
+    return {
+      adapter: agent && adapterByKind.get(run.dryRun ? "cloud" : agent.runtime),
+      agent,
+    };
   };
 
   const adapterDeps: AdapterDeps = {
@@ -454,20 +458,25 @@ export const createRunsService = ({
   type Prepared = Awaited<ReturnType<typeof prepareStart>>;
 
   /** Everything `startRun` checks before it writes. */
-  const prepareStart = async (principal: Principal, input: ParsedInput) => {
+  const prepareStart = async (
+    principal: Principal,
+    input: ParsedInput,
+    options: StartRunOptions
+  ) => {
     const agent = await findAgent(db, {
       id: input.agentId,
       workspaceId:
         principal.kind === "system" ? undefined : principal.workspaceId,
     });
-    if (agent?.status !== "active") {
+    const dryRunDraft = options.dryRun === true && agent?.status === "draft";
+    if (!agent || (agent.status !== "active" && !dryRunDraft)) {
       throw new ServiceError("not_found", "Agent not found");
     }
     authorize(principal, START_ACTION, {
       kind: RUN_KIND,
       workspaceId: agent.workspaceId,
     });
-    const adapter = adapterByKind.get(agent.runtime);
+    const adapter = adapterByKind.get(options.dryRun ? "cloud" : agent.runtime);
     if (!adapter) {
       throw new ServiceError(
         "invalid",
@@ -598,6 +607,7 @@ export const createRunsService = ({
       agentId: agent.id,
       createdAt: created,
       depth: subject.depth,
+      dryRun: options.dryRun ?? false,
       id: runId,
       inputFileIds: JSON.stringify(fileIds),
       inputText: input.input.text,
@@ -671,7 +681,7 @@ export const createRunsService = ({
     options: StartRunOptions = {}
   ): Promise<StartResult> => {
     const input = startRunInputSchema.parse(rawInput);
-    const prepared = await prepareStart(principal, input);
+    const prepared = await prepareStart(principal, input, options);
     const { inserted, ...started } = await insertRun(prepared, input, options);
     if (inserted && options.offerLater) {
       // `queuedEvents` wrote these in the atomic write, which skips the

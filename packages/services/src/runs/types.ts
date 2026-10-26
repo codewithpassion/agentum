@@ -90,6 +90,13 @@ export interface StartRunOptions {
    */
   alongside?: (ids: { runId: string; sessionId: string }) => Statement[];
   /**
+   * A dry run reads and thinks, and skips every write. It runs on the cloud
+   * runtime whatever the agent's runtime is, and may start on a `draft` agent.
+   * It is not in `startRunInputSchema` on purpose: the browser schema is built
+   * from that, so only a trusted in-process caller can ask for one.
+   */
+  dryRun?: boolean;
+  /**
    * Answer as soon as the atomic write is done: the `run.queued` and
    * `message.user` events join it, and the run is not offered to its runtime.
    * The caller does that afterwards with `offerQueuedRun` (the minute sweep

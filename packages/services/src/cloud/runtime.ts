@@ -7,6 +7,7 @@ import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
 import type { AdapterDeps, RunRecord, RuntimeAdapter } from "../runs/types.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
+import { CLOUD_DEFAULT_MODEL, findCloudModel } from "./models.ts";
 import type { CloudRunnerPort } from "./types.ts";
 
 const describeError = (error: unknown): string =>
@@ -69,7 +70,10 @@ export const createCloudRuntime = ({
         instructions: [agentPrompt(agent, await handsToNames(db, agent)), slack]
           .filter((part) => part !== "")
           .join("\n\n"),
-        model: agent.model,
+        model:
+          run.dryRun && !findCloudModel(agent.model)
+            ? CLOUD_DEFAULT_MODEL
+            : agent.model,
         name: agent.name,
         runtimeConfig: agent.runtimeConfig,
         slug: agent.slug,
