@@ -24,11 +24,20 @@ const routineSchema = z
 // Rules and library paths are lists; sample input uses the shared key-chip shape.
 // Cron syntax is reconciled into a gap rather than rejecting the entire draft.
 export const agentDraftSchema = z.strictObject({
-  does: z.string().min(1),
+  does: z
+    .string()
+    .min(1)
+    .describe(
+      "What the agent does, in plain prose. Do not put the rules here and do not add a Rules: block. Rules go in the rules field."
+    ),
   handsTo: z.array(id),
   library: z.array(id),
   name: z.string().min(1),
-  rules: z.array(z.string().min(1)),
+  rules: z
+    .array(z.string().min(1))
+    .describe(
+      "One rule per entry. This is the only place for rules, never repeat them in does."
+    ),
   runsOn: z
     .strictObject({ machineId: id.optional(), runtime: runtimeSchema })
     .nullable(),
@@ -172,6 +181,19 @@ const didListFor = (draft: AgentDraft, catalog: BuilderCatalog): string[] => {
   ];
 };
 
+// A line that opens a rules block: "Rules:", "**Rules:**" or a "## Rules" heading.
+const RULES_BLOCK =
+  /(?:^|\n)[ \t]*(?:#{1,6}[ \t]+[*_]*rules[*_]*[ \t]*:?[ \t]*(?:\n|$)|[*_]*rules[*_]*[ \t]*:)[\s\S]*$/i;
+
+/**
+ * The model sometimes repeats the rules as a last block of does. Keep them in
+ * rules only. When rules is empty the block is the only copy, so it stays.
+ */
+const stripRulesBlock = (does: string): string => {
+  const stripped = does.replace(RULES_BLOCK, "").trim();
+  return stripped === "" ? does : stripped;
+};
+
 /** Pure reconciliation: malformed structure throws ZodError; unresolved choices are gaps. */
 export const reconcileDraft = (
   raw: unknown,
@@ -186,6 +208,9 @@ export const reconcileDraft = (
       Object.entries(locked).filter(([, value]) => value !== undefined)
     ),
   });
+  if (locked.does === undefined && draft.rules.length > 0) {
+    draft.does = stripRulesBlock(draft.does);
+  }
   const gaps: ProfileGap[] = [];
   reconcileSelections(draft, catalog, locked, gaps);
   const startsOn = draft.startsOn.filter((start) => {
