@@ -197,3 +197,24 @@ describe("unfinishedTail", () => {
     expect(masker.unfinishedTail("abcd")).toBe(4);
   });
 });
+
+describe("cutBeforeWhole", () => {
+  test("keeps a cut that splits no value", () => {
+    const masker = createMasker({ KEY: "line one\nline two" });
+    expect(masker.cutBeforeWhole("abc line one\nline two end", 4)).toBe(4);
+    expect(masker.cutBeforeWhole("abc", 3)).toBe(3);
+  });
+
+  test("moves a cut inside a whole value to its start", () => {
+    const masker = createMasker({ KEY: "line one\nline two" });
+    const text = "abc line one\nline two";
+    expect(masker.cutBeforeWhole(text, text.length - 3)).toBe(4);
+    expect(masker.cutBeforeWhole(text, 5)).toBe(4);
+  });
+
+  test("follows nested and overlapping values back to the earliest start", () => {
+    const masker = createMasker({ INNER: "abc", OUTER: "xx abc yy" });
+    expect(masker.cutBeforeWhole("say xx abc yy", 9)).toBe(4);
+    expect(masker.cutBeforeWhole("say xx abc yy", 7)).toBe(4);
+  });
+});

@@ -43,20 +43,16 @@ const textOf = (content: readonly LiveBlock[] = []): string =>
  * The text as it may leave. The cut is chosen on the raw text: the last word,
  * which may be a token still being typed, and anything that begins a granted
  * value, which may contain spaces or lines the word rule would not catch. A cut
- * that would split a whole granted value moves back to before it, found by
- * masking: a clean cut masks to the start of what the whole text masks to. The
- * pattern scrub runs last.
+ * that would split a whole granted value moves back to before it. The pattern
+ * scrub runs last.
  */
 const settled = (joined: string, masker: Masker | null): string => {
   const word = TRAILING_WORD.exec(joined)?.[0].length ?? 0;
   if (masker === null) {
     return redactText(joined.slice(0, joined.length - word));
   }
-  const whole = masker.mask(joined);
-  let end = joined.length - Math.max(word, masker.unfinishedTail(joined));
-  while (end > 0 && !whole.startsWith(masker.mask(joined.slice(0, end)))) {
-    end -= 1;
-  }
+  const held = Math.max(word, masker.unfinishedTail(joined));
+  const end = masker.cutBeforeWhole(joined, joined.length - held);
   return redactText(masker.mask(joined.slice(0, end)));
 };
 
@@ -65,6 +61,9 @@ export const deltaPublisher = (deps: DeltaPublisherDeps) => {
   let lastSentAt = Number.NEGATIVE_INFINITY;
   let lastKey: string | undefined;
   let lastText: string | undefined;
+  // The newest text looked at, sent or not, so an unchanged one costs nothing.
+  let seenKey: string | undefined;
+  let seenJoined: string | undefined;
 
   const offer = async (live: LivePartial | undefined): Promise<void> => {
     const message = live?.generation?.message;
@@ -72,14 +71,14 @@ export const deltaPublisher = (deps: DeltaPublisherDeps) => {
       return;
     }
     const joined = textOf(message.content);
-    if (joined === "") {
+    const messageKey = `${deps.runId}:${message.timestamp ?? 0}`;
+    if (joined === "" || (messageKey === seenKey && joined === seenJoined)) {
       return;
     }
     const now = deps.clock();
     if (now - lastSentAt < DELTA_GAP_MS) {
       return;
     }
-    const messageKey = `${deps.runId}:${message.timestamp ?? 0}`;
     // Set before the first await, so an overlapping offer sees the throttle.
     const before = lastSentAt;
     lastSentAt = now;
@@ -88,6 +87,8 @@ export const deltaPublisher = (deps: DeltaPublisherDeps) => {
       if (text === "" || (messageKey === lastKey && text === lastText)) {
         // Nothing new left the object, so the window stays open.
         lastSentAt = before;
+        seenKey = messageKey;
+        seenJoined = joined;
         return;
       }
       await deps.publish({
@@ -98,6 +99,8 @@ export const deltaPublisher = (deps: DeltaPublisherDeps) => {
       });
       lastKey = messageKey;
       lastText = text;
+      seenKey = messageKey;
+      seenJoined = joined;
     } catch {
       // Dropped quietly: a delta is a preview, and its text is never logged.
     }

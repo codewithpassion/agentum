@@ -260,3 +260,25 @@ test("a change that only moves the held end sends no repeat and keeps the window
   await h.offer(message([text("one two three four")]));
   expect(h.frames.at(-1)?.text).toBe("one two three ");
 });
+
+test("a 60k text ending in a PEM settles quickly, and again when unchanged", async () => {
+  const pem = `-----BEGIN KEY-----\n${"MIIEvQIBADANBgkqhkiG9w0B\n".repeat(60)}-----END KEY-----`;
+  const others = Object.fromEntries(
+    Array.from({ length: 10 }, (_, n) => [`S${n}`, `secret value number ${n}`])
+  );
+  const h = harness({ PEM: pem, ...others });
+  const body = "plain words go here and there. ".repeat(2000);
+
+  const first = performance.now();
+  await h.offer(message([text(`${body}${pem}`)]));
+  const firstMs = performance.now() - first;
+  h.advance(300);
+  const second = performance.now();
+  await h.offer(message([text(`${body}${pem}`)]));
+  const secondMs = performance.now() - second;
+
+  expect(h.frames.length).toBe(1);
+  expect(h.frames[0]?.text).toBe(body);
+  expect(firstMs).toBeLessThan(50);
+  expect(secondMs).toBeLessThan(5);
+});
