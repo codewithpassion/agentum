@@ -98,7 +98,8 @@ function ReceiptCard({
   startedAt: string | null;
   step: ReceiptStep;
 }) {
-  const time = timeText(startedAt);
+  // The local time differs between server and browser, so it shows after mount.
+  const time = nowMs === null ? null : timeText(startedAt);
   const subtitle =
     time === null ? kindLabel(step.kind) : `${kindLabel(step.kind)} · ${time}`;
   const paused = step.state === "paused";
