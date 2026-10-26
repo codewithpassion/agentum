@@ -1,7 +1,13 @@
 import type { AgentTemplateId, ProfileGap, VoicePreset } from "@repo/db/shared";
 import type { AgentDraft } from "@repo/services/agent-builder/draft";
 import { templates } from "@repo/services/agent-builder/templates";
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Link,
+  redirect,
+  useNavigate,
+  useRouter,
+} from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useState } from "react";
 import {
@@ -14,6 +20,17 @@ import {
 } from "#/components/agent/builder/builder-logic.ts";
 import { DescribePanel } from "#/components/agent/builder/describe-panel";
 import { DraftCard } from "#/components/agent/builder/draft-card";
+import {
+  cleanSample,
+  createBlocker,
+  draftSaveKey,
+  type SampleChip,
+  serverDraft,
+} from "#/components/agent/builder/dry-run-logic.ts";
+import {
+  DryRunPanel,
+  type DryRunStep,
+} from "#/components/agent/builder/dry-run-panel";
 import { getTrpc } from "#/integrations/trpc/client";
 
 export const Route = createFileRoute("/_app/agents/new")({
@@ -39,6 +56,9 @@ interface Drafted {
   gaps: ProfileGap[];
 }
 
+const messageOf = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
 function NewAgent() {
   const { catalog } = Route.useLoaderData();
   const [description, setDescription] = useState("");
@@ -49,6 +69,13 @@ function NewAgent() {
   const [addressEdit, setAddressEdit] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draftAgentId, setDraftAgentId] = useState<string | undefined>();
+  const [savedKey, setSavedKey] = useState<string | undefined>();
+  const [runId, setRunId] = useState<string | null>(null);
+  const [pending, setPending] = useState<DryRunStep | null>(null);
+  const [panelError, setPanelError] = useState<string | null>(null);
+  const router = useRouter();
+  const navigate = useNavigate();
 
   const draft = drafted?.draft;
   const address =
@@ -107,6 +134,100 @@ function NewAgent() {
   const gaps =
     drafted === undefined ? [] : openGaps(drafted.gaps, drafted.draft, locked);
 
+  const editSample = useCallback(
+    (sampleInput: SampleChip[]) => edit({ sampleInput }),
+    [edit]
+  );
+
+  /** The draft's row id, saving the draft first when it is new or has changed since the last save. */
+  const ensureSaved = useCallback(
+    async (current: AgentDraft): Promise<string> => {
+      const sendable = serverDraft(current);
+      const key = draftSaveKey(sendable);
+      if (draftAgentId !== undefined && savedKey === key) {
+        return draftAgentId;
+      }
+      const saved = await getTrpc().agentBuilder.saveDraft.mutate({
+        draft: sendable,
+        ...(draftAgentId === undefined ? {} : { draftAgentId }),
+      });
+      setDraftAgentId(saved.id);
+      setSavedKey(key);
+      return saved.id;
+    },
+    [draftAgentId, savedKey]
+  );
+
+  /** Runs `action` as the panel's pending step and shows what fails. */
+  const act = useCallback(
+    async (step: DryRunStep, action: () => Promise<void>) => {
+      setPending(step);
+      setPanelError(null);
+      try {
+        await action();
+      } catch (cause) {
+        setPanelError(messageOf(cause));
+      } finally {
+        setPending(null);
+      }
+    },
+    []
+  );
+
+  const runDry = useCallback(async () => {
+    if (draft === undefined) {
+      return;
+    }
+    await act("run", async () => {
+      const id = await ensureSaved(draft);
+      const started = await getTrpc().agentBuilder.dryRun.mutate({
+        draftAgentId: id,
+        sample: cleanSample(draft.sampleInput),
+      });
+      setRunId(started.runId);
+    });
+  }, [act, draft, ensureSaved]);
+
+  const createAgent = useCallback(async () => {
+    if (draft === undefined) {
+      return;
+    }
+    await act("create", async () => {
+      const trpc = getTrpc();
+      // A taken address would fail after the agent is active, so ask first.
+      if (address !== "") {
+        const { available } = await trpc.agents.checkAddress.query({
+          local: address,
+        });
+        if (!available) {
+          throw new Error(`The address ${address} is taken. Pick another.`);
+        }
+      }
+      const id = await ensureSaved(draft);
+      const created = await trpc.agentBuilder.create.mutate({
+        ...(address === "" ? {} : { address }),
+        draft: serverDraft(draft),
+        draftAgentId: id,
+      });
+      await router.invalidate();
+      await navigate({
+        params: { agentId: created.id },
+        to: "/agents/$agentId",
+      });
+    });
+  }, [act, address, draft, ensureSaved, navigate, router]);
+
+  const discardDraft = useCallback(
+    () =>
+      act("discard", async () => {
+        if (draftAgentId !== undefined) {
+          await getTrpc().agentBuilder.discard.mutate({ draftAgentId });
+        }
+        await navigate({ to: "/agents" });
+      }),
+    [act, draftAgentId, navigate]
+  );
+
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-4">
       <div className="text-muted-foreground text-sm">
@@ -150,8 +271,20 @@ function NewAgent() {
               onEdit={edit}
             />
           )}
-          {/* V3.13 adds the dry-run panel and "Create agent" here. */}
-          <div data-slot="dry-run" />
+          {draft === undefined ? null : (
+            <DryRunPanel
+              createBlocker={createBlocker(gaps)}
+              error={panelError}
+              onCreate={createAgent}
+              onDiscard={discardDraft}
+              onRun={runDry}
+              onSample={editSample}
+              pending={pending}
+              runBlocker={redraftBlocker(draft)}
+              runId={runId}
+              sample={draft.sampleInput}
+            />
+          )}
         </div>
       </div>
     </section>
