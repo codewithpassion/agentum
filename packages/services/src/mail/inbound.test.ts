@@ -270,6 +270,38 @@ test("DSN finds original RFC id in attachment and marks outbound bounced once", 
   ).toHaveLength(1);
   expect(db.select().from(runRows).all()).toHaveLength(1);
 });
+test("a read receipt is not a bounce", async () => {
+  await service.receive(message());
+  const thread = db.select().from(mailThreads).get();
+  await db.insert(mailMessages).values({
+    ccAddresses: "[]",
+    createdAt: now,
+    direction: "out",
+    externalMessageId: "out-uuid",
+    fromAddress: "{}",
+    id: "out",
+    rfcMessageId: "<original@example.com>",
+    snippet: "",
+    status: "sent",
+    subject: "Help",
+    threadId: thread?.id ?? "",
+    toAddresses: '["recipient@example.net"]',
+    workspaceId: "w",
+  });
+  await service.receive({
+    ...message("receipt"),
+    headers: {
+      contentType: "multipart/report; report-type=disposition-notification",
+      reportType: "disposition-notification",
+    },
+    inReplyTo: "<original@example.com>",
+    text: "Original-Message-ID: <original@example.com>",
+  });
+  expect(
+    db.select().from(mailMessages).where(eq(mailMessages.id, "out")).get()
+      ?.status
+  ).toBe("sent");
+});
 test("attachments use each reply run folder, sanitize paths, skip oversized files", async () => {
   const mail = message();
   mail.attachments = [
@@ -305,6 +337,13 @@ test("workspace reads and trigger changes reject outsiders and nonpeople", async
   await expect(service.thread(outsider, thread?.id ?? "")).rejects.toThrow();
   await expect(
     service.setTrigger({ kind: "system" }, "a", false)
+  ).rejects.toThrow();
+  await expect(
+    service.setTrigger(
+      { ...user, apiKey: { access: "read", id: "k" } } as Principal,
+      "a",
+      false
+    )
   ).rejects.toThrow();
   expect(await service.threads(user, "a")).toHaveLength(1);
 });

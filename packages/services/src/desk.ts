@@ -537,8 +537,10 @@ export const createDeskService = ({
       db,
       rows.filter((run) => run.status === "running").map((run) => run.id)
     );
-    const bounced = rows.length
-      ? await db
+    const bounced = await inBatches(
+      rows.map((run) => run.id),
+      (batch) =>
+        db
           .select({ runId: mailMessages.runId, to: mailMessages.toAddresses })
           .from(mailMessages)
           .where(
@@ -546,13 +548,10 @@ export const createDeskService = ({
               eq(mailMessages.workspaceId, member.workspaceId),
               eq(mailMessages.direction, "out"),
               eq(mailMessages.status, "bounced"),
-              inArray(
-                mailMessages.runId,
-                rows.map((run) => run.id)
-              )
+              inArray(mailMessages.runId, batch)
             )
           )
-      : [];
+    );
     const bouncedBands = new Map(
       bounced.map((message) => {
         let address = "recipient";

@@ -12,24 +12,27 @@ import { LIBRARY_FILE_MAX_BYTES, taskFolderPath } from "@repo/db/shared";
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
+import { isReadOnly } from "../automation-access.ts";
 import { isUniqueViolation, ServiceError } from "../errors.ts";
 import type { EventsService } from "../events.ts";
 import type { LibraryService } from "../library.ts";
 import { type Clock, INPUT_TEXT_MAX } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
+import { inBatches } from "../tasks/reads.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import type { InboundMessage, MailboxPort, StoredInbound } from "./types.ts";
 
 type Mailbox = typeof agentMailboxes.$inferSelect;
 type Conversation = typeof mailThreads.$inferSelect;
-const REPORT_TYPE = /multipart\/report/i;
+const DELIVERY_STATUS_REPORT = /report-type\s*=\s*"?delivery-status/i;
 const LIST_PRECEDENCE = /^(bulk|list|junk)$/i;
 const normalize = (address: string) => address.trim().toLowerCase();
+// Only a delivery status report is a bounce. A read receipt or abuse report is also multipart/report.
 const isBounce = (message: InboundMessage) =>
   message.headers.reportType?.toLowerCase() === "delivery-status" ||
-  REPORT_TYPE.test(message.headers.contentType ?? "");
-const HEADER_ID =
-  /(?:Original-Message-ID|Message-ID|In-Reply-To|References):\s*([^\r\n]+)/gi;
+  DELIVERY_STATUS_REPORT.test(message.headers.contentType ?? "");
+// The returned original's own Message-ID names the failed mail. Its In-Reply-To and References name older mail.
+const HEADER_ID = /(?:Original-Message-ID|Message-ID):\s*([^\r\n]+)/gi;
 const RFC_ID = /<[^<>\s]+>/g;
 /** DSNs differ by transport; only inspect their ids, never interpret the report body as instructions. */
 export const bounceMessageIds = (message: InboundMessage): string[] => {
@@ -162,6 +165,9 @@ export const createInboundMail = ({
     on: boolean
   ) => {
     const member = requireMember(principal);
+    if (isReadOnly(member)) {
+      throw new ForbiddenError("mail.manage");
+    }
     const [row] = await db
       .update(triggers)
       .set({ disabledAt: on ? null : clock.now().toISOString() })
@@ -186,18 +192,20 @@ export const createInboundMail = ({
     if (!ids.length) {
       return;
     }
-    const originals = await db
-      .select()
-      .from(mailMessages)
-      .where(
-        and(
-          eq(mailMessages.workspaceId, box.workspaceId),
-          eq(mailMessages.direction, "out"),
-          inArray(mailMessages.rfcMessageId, ids),
-          ne(mailMessages.status, "bounced")
+    const originals = await inBatches(ids, (batch) =>
+      db
+        .select()
+        .from(mailMessages)
+        .where(
+          and(
+            eq(mailMessages.workspaceId, box.workspaceId),
+            eq(mailMessages.direction, "out"),
+            inArray(mailMessages.rfcMessageId, batch),
+            ne(mailMessages.status, "bounced")
+          )
         )
-      )
-      .innerJoin(mailThreads, eq(mailMessages.threadId, mailThreads.id));
+        .innerJoin(mailThreads, eq(mailMessages.threadId, mailThreads.id))
+    );
     for (const {
       mail_messages: original,
       mail_threads: originalThread,
