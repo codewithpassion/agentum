@@ -229,6 +229,20 @@ describe("slack status", () => {
     expect(fake.statuses()).toEqual([WAITING_STATUS, THINKING_STATUS]);
   });
 
+  test("run.waiting and run.resumed show at once, inside the update interval", async () => {
+    const { fake, status } = setUp();
+    await status.onEvent(eventOf("run.started"));
+
+    await status.onEvent(eventOf("run.waiting"));
+    await status.onEvent(eventOf("run.resumed"));
+
+    expect(fake.statuses()).toEqual([
+      THINKING_STATUS,
+      WAITING_STATUS,
+      THINKING_STATUS,
+    ]);
+  });
+
   describe("ending a run", () => {
     test.each(["run.failed", "run.cancelled", "run.interrupted"] as const)(
       "%s finishes the run and clears the status",

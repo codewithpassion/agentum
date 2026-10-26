@@ -11,6 +11,7 @@ import type { Atomic, Statement } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import type { AgentRuntime } from "@repo/db/shared";
 import type { Masker } from "@repo/protocol/masker";
 import {
   REPEAT_STOP_AT,
@@ -41,10 +42,12 @@ import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
+import { CLOUD_LEASE_MS } from "./cloud/lease.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
 import { type Blobs, createEventsService } from "./events.ts";
 import type { LibraryService } from "./library.ts";
+import { MANAGED_LEASE_MS } from "./managed/types.ts";
 import {
   importRunTokenKey,
   type RunTokenClaims,
@@ -113,6 +116,12 @@ const STARTING: RunRecord["status"][] = ["queued", "offered"];
 /** A claimed run: working, or waiting for a person's answer. */
 const LIVE: RunRecord["status"][] = ["running", "waiting"];
 const ACTIVE: RunRecord["status"][] = ["queued", "offered", ...LIVE];
+
+/** A lease longer than the machine default, by the agent runtime that needs it. */
+const RUNTIME_LEASE_MS: Partial<Record<AgentRuntime, number>> = {
+  cloud: CLOUD_LEASE_MS,
+  managed: MANAGED_LEASE_MS,
+};
 
 const READ_ACTION = "runs.read";
 const RUN_KIND = "run";
@@ -833,7 +842,9 @@ export const createRunsService = ({
 
   /**
    * The answer came: `waiting` moves back to `running` and the lease restarts
-   * from now, since the runtime's last heartbeat may be old. Returns false, and
+   * from now, since the runtime's last heartbeat may be old. The lease is the
+   * agent's runtime's own (90 seconds for a machine, 10 minutes for a cloud or
+   * managed run) unless `options.leaseMs` says otherwise. Returns false, and
    * changes nothing, for a run that is not `waiting`, such as a cancelled one.
    */
   const markRunning = async (
@@ -843,11 +854,14 @@ export const createRunsService = ({
   ): Promise<boolean> => {
     requireSystem(principal, "runs.resume");
     const run = await requireRun(principal, runId);
+    const { agent } = await adapterFor(run);
+    const runtimeLeaseMs =
+      (agent && RUNTIME_LEASE_MS[agent.runtime]) ?? LEASE_MS;
     const moved = await db
       .update(runs)
       .set({
         leaseUntil: new Date(
-          clock.now().getTime() + (options?.leaseMs ?? LEASE_MS)
+          clock.now().getTime() + (options?.leaseMs ?? runtimeLeaseMs)
         ).toISOString(),
         status: "running",
       })

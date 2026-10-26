@@ -1619,6 +1619,23 @@ test("markRunning on a cancelled run changes nothing", async () => {
   expect(runEvents(runId)).toHaveLength(eventCount);
 });
 
+test("markRunning restarts the lease at the agent runtime's own length", async () => {
+  runs = buildRuns({ adapters: [{ ...spyAdapter(), kind: "cloud" }] });
+  const cloudAgentId = (
+    await agents.create(user, {
+      model: "sonnet",
+      name: "Cloud",
+      runtime: "cloud",
+    })
+  ).id;
+  const runId = await waitingRun(cloudAgentId);
+  advance(60 * SECOND);
+  await runs.markRunning(SYSTEM_PRINCIPAL, runId);
+  expect(runRow(runId)?.leaseUntil).toBe(
+    new Date(nowMs + CLOUD_LEASE_MS).toISOString()
+  );
+});
+
 test("a heartbeat and an event batch on a waiting run are accepted", async () => {
   const runId = await waitingRun();
   advance(60 * SECOND);
