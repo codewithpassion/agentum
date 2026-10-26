@@ -608,6 +608,8 @@ export type DeskCardKind = (typeof DESK_CARD_KINDS)[number];
 
 /** One card on the desk. */
 export interface DeskCard {
+  /** "user" when a person started the card. Name them from `startedBy`, not `agentId`. */
+  actorKind?: "user";
   agentId: string;
   at: string;
   band: StatusBand;

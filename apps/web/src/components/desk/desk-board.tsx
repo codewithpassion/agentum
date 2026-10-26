@@ -1,3 +1,4 @@
+import type { DeskCard } from "@repo/db/shared";
 import type {
   AnswerPayload,
   RequestView,
@@ -31,15 +32,17 @@ export function DeskBoard({
   requests: ReadonlyMap<string, RequestView>;
   versions: ReadonlyMap<string, ProposedVersion>;
 }) {
-  const nameOf = (agentId: string): string =>
-    agentNames.get(agentId) ?? "An agent";
+  const nameOf = (card: DeskCard): string =>
+    card.actorKind === "user"
+      ? card.startedBy
+      : (agentNames.get(card.agentId) ?? "An agent");
 
   return (
     <div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] items-start gap-4">
       <DeskLaneColumn count={desk.needsYou.length} lane="needs_you">
         {desk.needsYou.map((card) => (
           <NeedsYouCard
-            agentName={nameOf(card.agentId)}
+            agentName={nameOf(card)}
             card={card}
             key={`${card.kind}-${card.id}`}
             nowMs={nowMs}
@@ -53,7 +56,7 @@ export function DeskBoard({
       <DeskLaneColumn count={desk.running.length} lane="running">
         {desk.running.map((card) => (
           <DeskCardView
-            agentName={nameOf(card.agentId)}
+            agentName={nameOf(card)}
             card={card}
             key={card.id}
             nowMs={nowMs}
@@ -67,7 +70,7 @@ export function DeskBoard({
       >
         {desk.done.map((card) => (
           <DeskCardView
-            agentName={nameOf(card.agentId)}
+            agentName={nameOf(card)}
             card={card}
             key={card.id}
             nowMs={nowMs}
