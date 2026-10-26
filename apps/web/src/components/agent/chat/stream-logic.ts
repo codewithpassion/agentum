@@ -11,6 +11,13 @@ import {
   type StreamFrame,
   streamFrameSchema,
 } from "@repo/protocol/stream";
+import {
+  type RequestView,
+  type Settled,
+  settledFromEvent,
+  viewFromOpened,
+  viewFromRecord,
+} from "#/components/requests/request-card-logic.ts";
 import type { SessionTranscript } from "#/integrations/trpc/types";
 import {
   type ChatEntry,
@@ -18,13 +25,6 @@ import {
   isRunActive,
   toChatItems,
 } from "./chat-logic.ts";
-import {
-  type RequestView,
-  type Settled,
-  settledFromEvent,
-  viewFromOpened,
-  viewFromRecord,
-} from "./request-card-logic.ts";
 
 export type ChatTranscript = Omit<SessionTranscript, "entries"> & {
   entries: ChatEntry[];

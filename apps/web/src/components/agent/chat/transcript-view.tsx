@@ -1,12 +1,15 @@
 import { useEffect, useRef } from "react";
 import { Markdown } from "#/components/markdown/markdown.tsx";
+import { RequestCard } from "#/components/requests/request-card.tsx";
+import type {
+  AnswerPayload,
+  RequestView,
+} from "#/components/requests/request-card-logic.ts";
 import { Bubble, BubbleContent } from "#/components/ui/bubble.tsx";
 import { Message, MessageContent } from "#/components/ui/message.tsx";
 import type { FileInfo } from "#/integrations/trpc/types.ts";
 import type { ChatItem } from "./chat-logic.ts";
 import { FileChips } from "./file-chips.tsx";
-import { RequestCard } from "./request-card.tsx";
-import type { AnswerPayload, RequestView } from "./request-card-logic.ts";
 
 function ToolSection({ label, text }: { label: string; text: string }) {
   return (

@@ -32,7 +32,7 @@ export interface SidebarAgent {
 
 interface AppSidebarProps {
   agents: readonly SidebarAgent[];
-  /** Tasks waiting on the user. Reads 0 until V2.8 lands. */
+  /** Tasks waiting on the user. */
   needsYouCount: number;
 }
 

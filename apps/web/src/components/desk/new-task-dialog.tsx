@@ -1,0 +1,152 @@
+import {
+  type ChangeEvent,
+  type FormEvent,
+  useCallback,
+  useId,
+  useState,
+} from "react";
+import { Button } from "#/components/ui/button.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "#/components/ui/dialog.tsx";
+import { Label } from "#/components/ui/label.tsx";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#/components/ui/select.tsx";
+import { Textarea } from "#/components/ui/textarea.tsx";
+import { getTrpc } from "#/integrations/trpc/client";
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Something went wrong.";
+
+/** Starts a task for an agent and reports the new run's id. */
+export function NewTaskDialog({
+  agents,
+  onStarted,
+}: {
+  agents: readonly { id: string; name: string }[];
+  onStarted: (runId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [agentChoice, setAgentChoice] = useState("");
+  const [text, setText] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const agentSelectId = useId();
+  const textId = useId();
+
+  // Falls back to the first agent until the user picks one.
+  const agentId = agents.some((agent) => agent.id === agentChoice)
+    ? agentChoice
+    : (agents[0]?.id ?? "");
+  const canStart = text.trim() !== "" && agentId !== "" && !pending;
+
+  const handleOpenChange = useCallback((next: boolean) => {
+    setOpen(next);
+  }, []);
+
+  const handleAgentChange = useCallback((next: string) => {
+    setAgentChoice(next);
+  }, []);
+
+  const handleTextChange = useCallback(
+    (event: ChangeEvent<HTMLTextAreaElement>) => {
+      setText(event.target.value);
+    },
+    []
+  );
+
+  const handleSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!canStart) {
+        return;
+      }
+      setPending(true);
+      setError(null);
+      try {
+        const result = await getTrpc().runs.start.mutate({
+          agentId,
+          input: { fileIds: [], text: text.trim() },
+          requestId: crypto.randomUUID(),
+          session: { origin: "ui" },
+        });
+        setText("");
+        setAgentChoice("");
+        setOpen(false);
+        onStarted(result.runId);
+      } catch (cause) {
+        setError(errorMessage(cause));
+      } finally {
+        setPending(false);
+      }
+    },
+    [agentId, canStart, onStarted, text]
+  );
+
+  return (
+    <Dialog onOpenChange={handleOpenChange} open={open}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline">
+          + New task
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New task</DialogTitle>
+        </DialogHeader>
+        {agents.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            Create an agent first.
+          </p>
+        ) : (
+          <form className="grid gap-4" onSubmit={handleSubmit}>
+            <div className="grid gap-2">
+              <Label htmlFor={agentSelectId}>Agent</Label>
+              <Select onValueChange={handleAgentChange} value={agentId}>
+                <SelectTrigger id={agentSelectId}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {agents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor={textId}>What should it do?</Label>
+              <Textarea
+                id={textId}
+                onChange={handleTextChange}
+                rows={4}
+                value={text}
+              />
+              {error === null ? null : (
+                <p className="text-destructive text-sm" role="alert">
+                  {error}
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button disabled={!canStart} type="submit">
+                Start task
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

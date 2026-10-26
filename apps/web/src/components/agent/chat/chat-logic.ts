@@ -1,7 +1,7 @@
 import { INPUT_FILES_MAX, type RunStatus } from "@repo/db/shared";
 import { stripAttachmentMarkers } from "@repo/protocol/attachments";
+import type { RequestView } from "#/components/requests/request-card-logic.ts";
 import type { SessionTranscript } from "#/integrations/trpc/types";
-import type { RequestView } from "./request-card-logic.ts";
 
 /** The part of a stored event the chat reads, so a streamed event fits too. */
 export type ChatEntry = Pick<
