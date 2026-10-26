@@ -10,6 +10,7 @@ import {
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import { skillVersions } from "@repo/db/schema/skills";
 import { workspaces } from "@repo/db/schema/workspaces";
 import type { RunStatus } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
@@ -524,6 +525,48 @@ test("proposals wait in Needs you until they are approved or rejected elsewhere"
   const after = await get();
   expect(ids(after.needsYou)).toEqual([keep.id]);
   expect(await desk.needsYouCount(user())).toBe(1);
+});
+
+test("a GitHub update a person proposed waits as a card from that person, not from an agent", async () => {
+  people = () =>
+    Promise.resolve(new Map([["u1", { email: "d@x.io", name: "Dom" }]]));
+  desk = buildDesk();
+  const { skill } = await skillsStore.create(user(), {
+    files: [
+      {
+        content: "---\nname: tidy\ndescription: Tidies up.\n---\n\n# tidy\n",
+        path: "SKILL.md",
+      },
+    ],
+    message: "Add tidy",
+    name: "tidy",
+  });
+  await db.insert(skillVersions).values({
+    authorId: "u1",
+    authorKind: "user",
+    createdAt: new Date(now).toISOString(),
+    id: "zz-update",
+    message: "Proposed update from GitHub",
+    number: 2,
+    parentNumber: 1,
+    skillId: skill.id,
+    sourceCommitSha: "b".repeat(40),
+    status: "proposed",
+    workspaceId: "w1",
+  });
+
+  const { needsYou } = await get();
+
+  expect(needsYou).toHaveLength(1);
+  expect(needsYou[0]).toMatchObject({
+    actorKind: "user",
+    id: "zz-update",
+    needsYouKind: "skill_proposal",
+    startedBy: "Dom",
+    title: "Update from GitHub to review",
+  });
+  expect(needsYou.map((card) => card.band.text).join()).toContain("tidy");
+  expect(JSON.stringify(needsYou)).not.toContain("An agent");
 });
 
 test("an inbox thread waits in Needs you while an agent's post is the newest, and leaves when a person replies", async () => {

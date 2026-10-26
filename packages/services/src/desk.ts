@@ -137,6 +137,9 @@ interface Starter {
 /** A card before its `startedBy` is named. */
 type Draft = Omit<DeskCard, "startedBy"> & { starter: Starter };
 
+/** The title of a card for a GitHub update that a person proposed. */
+const GITHUB_UPDATE_TITLE = "Update from GitHub to review";
+
 const byAge = (a: DeskCard, b: DeskCard): number =>
   a.at === b.at ? a.id.localeCompare(b.id) : a.at.localeCompare(b.at);
 
@@ -514,6 +517,26 @@ export const createDeskService = ({
       ),
       ...sources.versions.map((version): Draft => {
         const skill = skillOf.get(version.skillId);
+        const skillName = skill?.name ?? "Skill";
+        const proposes = `Proposes version ${version.number}`;
+        // Only a person's `importUpdate` proposes a version as a user.
+        if (version.author.kind === "user") {
+          return {
+            actorKind: "user",
+            agentId: skill?.ownerAgentId ?? "",
+            at: version.createdAt,
+            band: {
+              text: clip(`${skillName}: ${proposes}`, TITLE_MAX),
+              tone: "waiting",
+            },
+            id: version.id,
+            kind: "proposal",
+            lane: "needs_you",
+            needsYouKind: "skill_proposal",
+            starter: version.author,
+            title: GITHUB_UPDATE_TITLE,
+          };
+        }
         return {
           agentId:
             version.author.kind === "agent"
@@ -521,10 +544,7 @@ export const createDeskService = ({
               : (skill?.ownerAgentId ?? ""),
           at: version.createdAt,
           band: {
-            text: clip(
-              `Proposes version ${version.number}: ${version.message}`,
-              TITLE_MAX
-            ),
+            text: clip(`${proposes}: ${version.message}`, TITLE_MAX),
             tone: "waiting",
           },
           id: version.id,
@@ -532,7 +552,7 @@ export const createDeskService = ({
           lane: "needs_you",
           needsYouKind: "skill_proposal",
           starter: version.author,
-          title: skill?.name ?? "Skill",
+          title: skillName,
         };
       }),
       ...sources.proposedTriggers.map(
