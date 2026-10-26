@@ -10,7 +10,13 @@ import type { QaQuestionView } from "#/integrations/trpc/types";
 import { AnswerCard } from "./answer-card";
 import { AnswerForm } from "./answer-form";
 import { AuthorLine } from "./author-line";
-import { authorOf, canAccept, statusLabel, takesAnswers } from "./qa-logic";
+import {
+  authorOf,
+  canAccept,
+  STATUS_VARIANT,
+  statusLabel,
+  takesAnswers,
+} from "./qa-logic";
 
 interface QuestionPageProps {
   agentNames: ReadonlyMap<string, string>;
@@ -72,7 +78,7 @@ export function QuestionPage({
           <h1 className="min-w-48 flex-1 font-heading text-3xl text-foreground">
             {question.title}
           </h1>
-          <Badge variant={question.status === "open" ? "default" : "secondary"}>
+          <Badge variant={STATUS_VARIANT[question.status]}>
             {statusLabel(question.status)}
           </Badge>
           {question.status === "closed" ? null : (

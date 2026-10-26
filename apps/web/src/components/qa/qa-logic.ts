@@ -71,6 +71,13 @@ const STATUS_LABELS: Record<QaStatus, string> = {
 /** "Open", "Answered" or "Closed". */
 export const statusLabel = (status: QaStatus): string => STATUS_LABELS[status];
 
+/** The badge variant for a status, in the vocabulary of `Badge`. */
+export const STATUS_VARIANT = {
+  answered: "secondary",
+  closed: "outline",
+  open: "default",
+} as const satisfies Record<QaStatus, string>;
+
 /** A closed question takes no answers. */
 export const takesAnswers = (status: QaStatus): boolean => status !== "closed";
 

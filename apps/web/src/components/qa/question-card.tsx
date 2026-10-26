@@ -2,19 +2,18 @@ import { Link } from "@tanstack/react-router";
 import { Badge } from "#/components/ui/badge.tsx";
 import type { QaQuestionRecord } from "#/integrations/trpc/types";
 import { AuthorLine } from "./author-line.tsx";
-import { authorOf, previewOf, statusLabel } from "./qa-logic.ts";
+import {
+  authorOf,
+  previewOf,
+  STATUS_VARIANT,
+  statusLabel,
+} from "./qa-logic.ts";
 
 interface QuestionCardProps {
   agentNames: ReadonlyMap<string, string>;
   question: QaQuestionRecord;
   userId: string;
 }
-
-const STATUS_VARIANT = {
-  answered: "secondary",
-  closed: "outline",
-  open: "default",
-} as const;
 
 export function QuestionCard({
   agentNames,
