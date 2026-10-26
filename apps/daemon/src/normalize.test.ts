@@ -76,7 +76,11 @@ describe("normalizeMessage", () => {
   test("thinking, text and tool_use yield three events in block order", () => {
     const events = normalizeMessage(
       assistant([
-        { signature: "sig", thinking: "Check the file first.", type: "thinking" },
+        {
+          signature: "sig",
+          thinking: "Check the file first.",
+          type: "thinking",
+        },
         { text: "Checking.", type: "text" },
         {
           id: "toolu_1",
