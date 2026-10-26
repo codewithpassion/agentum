@@ -28,3 +28,4 @@ Dom approved one production Clerk instance shared by Harbourmaster, flightdex-v2
 - 2026-10-26: Dom: run now, next in the worker lane after V1.16. Prod instance ins_3LDH0LvG5SOMvxgdBIX2kyIj1Sf exists; only org Harbour Edge Intelligence (org_3LDLbiYGe7iohEccrRQuLeBqaX2) so far, per ~/devel/ai-os-integration/STATUS.md.
 - 2026-10-26: dispatched. Controller exported production D1 to harbourmaster-wt/tmp/X.1/prod-d1.sql for the dry run; secrets, deploys and the cutover stay with the controller.
 - 2026-10-26: code merged at 105e99d (review clean after 0 fix rounds): migrate-clerk-ids, build-clerk-id-map, agent-login staging uses the production key. Cutover waits: production instance lacks the Dev Workspace org and dev@rockyshoreslabs.io; Dom to decide create vs map to HEI.
+- 2026-10-26: Dom: create Dev Workspace org and dev@rockyshoreslabs.io on the production instance; asked the coordinator (session devel-9b) for that and for the live keys in .env.production.local.
