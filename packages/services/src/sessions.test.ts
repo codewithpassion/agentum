@@ -63,7 +63,7 @@ const startIn = (
   text: string,
   session: {
     externalKey?: string;
-    origin: "ui" | "slack" | "inbox" | "trigger";
+    origin: "ui" | "slack" | "inbox" | "trigger" | "dry_run";
     private?: boolean;
   }
 ) =>
@@ -873,4 +873,40 @@ test("a run running in another session of the agent does not count as otherRunAc
 
   expect(other.sessionId).not.toBe(mine.sessionId);
   expect(result.queue).toEqual({ otherRunActive: false, runtime: "fake" });
+});
+
+test("list and search leave out a dry-run session, even for its builder", async () => {
+  const normal = await send(user("u1"), "normal needle");
+  const dry = await startIn(user("u1"), agentId, "dry needle", {
+    origin: "dry_run",
+    private: true,
+  });
+
+  const listed = await sessions.list(user("u1"), { agentId });
+  const onlyDry = await sessions.list(user("u1"), {
+    agentId,
+    origin: "dry_run",
+  });
+  const found = await sessions.search(user("u1"), {
+    agentId,
+    query: "needle",
+  });
+
+  expect(listed.map((item) => item.id)).toEqual([normal.sessionId]);
+  expect(onlyDry).toEqual([]);
+  expect(found.map((hit) => hit.session.id)).toEqual([normal.sessionId]);
+  expect(found.map((hit) => hit.session.id)).not.toContain(dry.sessionId);
+});
+
+test("get still returns a dry-run session to its builder", async () => {
+  const dry = await startIn(user("u1"), agentId, "dry", {
+    origin: "dry_run",
+    private: true,
+  });
+
+  expect(await sessions.get(user("u1"), dry.sessionId)).toMatchObject({
+    id: dry.sessionId,
+    origin: "dry_run",
+    private: true,
+  });
 });

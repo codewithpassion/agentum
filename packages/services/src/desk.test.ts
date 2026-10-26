@@ -7,6 +7,7 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import type { RunStatus } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
+import { eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { createDeskService, type DeskInput } from "./desk.ts";
@@ -727,4 +728,28 @@ test("draft dry-run history is absent from desk lanes and counts", async () => {
       workspaceId: "w1",
     })
   ).toEqual([]);
+});
+
+test("a dry run never shows in Running or Done today, even to the person who started it", async () => {
+  const live = await seed({ status: "running" });
+  const dryLive = await seed({
+    origin: "dry_run",
+    private: true,
+    status: "running",
+  });
+  const done = await seed({ finishedAt: DAY_START, status: "done" });
+  const dryDone = await seed({
+    finishedAt: "2026-10-26T08:00:00.000Z",
+    origin: "dry_run",
+    private: true,
+    status: "done",
+  });
+  await db.update(runRows).set({ dryRun: true }).where(eq(runRows.id, dryLive));
+  await db.update(runRows).set({ dryRun: true }).where(eq(runRows.id, dryDone));
+
+  const view = await get();
+
+  expect(ids(view.running)).toEqual([live]);
+  expect(ids(view.done)).toEqual([done]);
+  expect(view.doneMore).toBe(0);
 });

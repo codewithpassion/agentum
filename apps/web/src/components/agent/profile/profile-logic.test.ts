@@ -6,6 +6,7 @@ import {
   handsToChips,
   LIBRARY_NOTE,
   receivesFromText,
+  runtimeOptions,
   runtimeWords,
   skillChips,
   startChips,
@@ -48,6 +49,58 @@ describe("runtimeWords", () => {
     expect(runtimeWords("cloud", null)).toBe("Runs on Cloudflare");
     expect(runtimeWords("managed", null)).toBe("Runs on Anthropic cloud");
     expect(runtimeWords("fake", null)).toBe("Runs on a test runner");
+  });
+});
+
+describe("runtimeOptions", () => {
+  const laptop = (status: "offline" | "online") => ({
+    name: "laptop",
+    status,
+  });
+
+  test("lists the three runtimes in plain words", () => {
+    expect(
+      runtimeOptions("cloud", null).map(({ text, title }) => [title, text])
+    ).toEqual([
+      ["Anthropic cloud", "Managed Agents. Simplest. Has its own sandbox."],
+      ["Cloudflare", "Always on, lowest cost for many small jobs."],
+      ["Our machine", "Claude Code on that machine. Sees local files."],
+    ]);
+  });
+
+  test("marks only the runtime the agent has", () => {
+    for (const runtime of ["managed", "cloud", "machine"] as const) {
+      const current = runtimeOptions(runtime, null).filter(
+        (option) => option.current
+      );
+      expect(current.map((option) => option.runtime)).toEqual([runtime]);
+    }
+  });
+
+  test("marks none for a test runner", () => {
+    const options = runtimeOptions("fake", null);
+    expect(options.some((option) => option.current)).toBe(false);
+  });
+
+  test("names the machine and its state on the current machine runtime", () => {
+    const [, , online] = runtimeOptions("machine", laptop("online"));
+    expect(online?.title).toBe("Our machine: laptop");
+    expect(online?.machineState).toBe("Online");
+    const [, , offline] = runtimeOptions("machine", laptop("offline"));
+    expect(offline?.machineState).toBe("Offline");
+  });
+
+  test("a machine agent without a machine has no name or state", () => {
+    const [, , option] = runtimeOptions("machine", null);
+    expect(option?.title).toBe("Our machine");
+    expect(option?.machineState).toBeNull();
+  });
+
+  test("other runtimes show no machine name or state", () => {
+    const options = runtimeOptions("cloud", laptop("online"));
+    const [, , machine] = options;
+    expect(machine?.title).toBe("Our machine");
+    expect(options.every((option) => option.machineState === null)).toBe(true);
   });
 });
 
@@ -407,15 +460,19 @@ describe("channelChips", () => {
 
 describe("folderLabel", () => {
   test("the home folder says so", () => {
-    expect(folderLabel({ access: "read_write", home: true })).toBe(
+    expect(folderLabel({ access: "write", home: true })).toBe(
       "home · read and write"
     );
   });
 
   test("other folders are read and write", () => {
-    expect(folderLabel({ access: "read_write", home: false })).toBe(
+    expect(folderLabel({ access: "write", home: false })).toBe(
       "read and write"
     );
+  });
+
+  test("a read grant is read only", () => {
+    expect(folderLabel({ access: "read", home: false })).toBe("read only");
   });
 });
 

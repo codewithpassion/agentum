@@ -39,6 +39,7 @@
     "@modelcontextprotocol/server": "^2.0.0",
     "@repo/db": "workspace:*",
     "@repo/library-sync": "workspace:*",
+    "@repo/mailbox": "workspace:*",
     "@repo/mcp": "workspace:*",
     "@repo/protocol": "workspace:*",
     "@repo/services": "workspace:*",

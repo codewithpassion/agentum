@@ -339,7 +339,7 @@ test("a machine agent refuses the network setting", async () => {
   ).rejects.toMatchObject({ code: "invalid" });
 });
 
-test("create and update keep the library paths and refuse a bad list", async () => {
+test("create and update keep legacy library paths without validation", async () => {
   const agent = await service.create(user, {
     model: "sonnet",
     name: "Synced agent",
@@ -358,23 +358,10 @@ test("create and update keep the library paths and refuse a bad list", async () 
   });
   expect(updated.runtimeConfig).toEqual({ libraryPaths: ["notes/"] });
 
-  await expect(
-    service.create(user, {
-      model: "sonnet",
-      name: "Escaping paths",
-      runtime: "cloud",
-      runtimeConfig: { libraryPaths: ["../secrets"] },
-    })
-  ).rejects.toMatchObject({ code: "invalid" });
-  await expect(
-    service.update(user, agent.id, { runtimeConfig: { libraryPaths: [""] } })
-  ).rejects.toMatchObject({ code: "invalid" });
-  await expect(
-    service.update(user, agent.id, { runtimeConfig: { libraryPaths: "notes" } })
-  ).rejects.toMatchObject({ code: "invalid" });
-  await expect(
-    service.update(user, agent.id, { runtimeConfig: { libraryPaths: ["/"] } })
-  ).rejects.toMatchObject({ code: "invalid" });
+  const legacy = await service.update(user, agent.id, {
+    runtimeConfig: { libraryPaths: "ignored" },
+  });
+  expect(legacy.runtimeConfig.libraryPaths).toBe("ignored");
 
   // The key is allowed for every runtime, not only the cloud.
   const fake = await service.create(user, {

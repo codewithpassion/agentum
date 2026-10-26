@@ -182,7 +182,9 @@ export const reconcileDraft = (
   // even when stale catalogue entries need a gap; only model choices are dropped.
   const draft = agentDraftSchema.parse({
     ...z.record(z.string(), z.unknown()).parse(raw),
-    ...locked,
+    ...Object.fromEntries(
+      Object.entries(locked).filter(([, value]) => value !== undefined)
+    ),
   });
   const gaps: ProfileGap[] = [];
   reconcileSelections(draft, catalog, locked, gaps);

@@ -2449,3 +2449,55 @@ describe("recordDryRunSkip", () => {
     ).rejects.toMatchObject({ code: "conflict" });
   });
 });
+
+describe("startRun with dryRun", () => {
+  let cloudDispatched: string[];
+
+  beforeEach(() => {
+    cloudDispatched = [];
+    runs = buildRuns({
+      adapters: [
+        spy,
+        {
+          ...spyAdapter(),
+          dispatch: (_db, run) => {
+            cloudDispatched.push(run.id);
+            return Promise.resolve();
+          },
+          kind: "cloud",
+        },
+      ],
+    });
+  });
+
+  test("a dry run starts on a draft cloud agent and is dispatched to cloud", async () => {
+    const draftId = (await agents.createDraft(user, { name: "Draft" })).id;
+    const { runId } = await start(user, draftId, {}, "hello", {
+      dryRun: true,
+    });
+    expect(runRow(runId)).toMatchObject({ dryRun: true, status: "queued" });
+    expect(cloudDispatched).toEqual([runId]);
+  });
+
+  test("a dry run on a machine agent is dispatched to cloud, not the machine", async () => {
+    const { runId } = await start(user, spyAgentId, {}, "hello", {
+      dryRun: true,
+    });
+    expect(runRow(runId)).toMatchObject({ dryRun: true });
+    expect(cloudDispatched).toEqual([runId]);
+    expect(dispatched).toEqual([]);
+  });
+
+  test("a draft agent without dryRun is not found", async () => {
+    const draftId = (await agents.createDraft(user, { name: "Draft" })).id;
+    await expect(start(user, draftId)).rejects.toThrow("Agent not found");
+    expect(runRowCount()).toBe(0);
+  });
+
+  test("a normal run has dryRun false", async () => {
+    const { runId } = await start(user, spyAgentId);
+    expect(runRow(runId)).toMatchObject({ dryRun: false });
+    expect(dispatched).toEqual([runId]);
+    expect(cloudDispatched).toEqual([]);
+  });
+});
