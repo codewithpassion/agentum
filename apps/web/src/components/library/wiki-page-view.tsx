@@ -6,6 +6,7 @@ import {
 } from "#/components/markdown/markdown.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { SuggestionBanner } from "#/components/wiki-suggestions/suggestion-banner.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type {
   LibraryVersionRecord,
@@ -80,6 +81,10 @@ export function WikiPageView({
     setGeneration((count) => count + 1);
   }, []);
   const restored = useCallback(() => {
+    setGeneration((count) => count + 1);
+    onChanged();
+  }, [onChanged]);
+  const decided = useCallback(() => {
     setGeneration((count) => count + 1);
     onChanged();
   }, [onChanged]);
@@ -167,6 +172,11 @@ export function WikiPageView({
               Edit
             </Button>
           </header>
+          <SuggestionBanner
+            onDecided={decided}
+            path={path}
+            refreshTick={refreshTick}
+          />
           <div data-testid="wiki-body">
             <Markdown renderLink={renderLink}>
               {replaceWikiLinks(page.body)}

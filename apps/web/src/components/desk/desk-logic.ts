@@ -67,3 +67,18 @@ const LANE_LABELS: Record<DeskLane, string> = {
 };
 
 export const laneLabel = (lane: DeskLane): string => LANE_LABELS[lane];
+
+export type SuggestionStatus = "pending" | "stale";
+
+/** The one sentence under a suggested-edit card. A stale one says the page moved on. */
+export const suggestionStatusText = (
+  status: SuggestionStatus,
+  summary: string
+): string =>
+  status === "stale"
+    ? "The page changed since this was suggested, so edit it first to accept."
+    : summary;
+
+/** The one sentence under a library conflict card. */
+export const conflictStatusText = (path: string): string =>
+  `${path} changed in the library and in the agent's copy, so choose which to keep.`;
