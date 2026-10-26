@@ -26,3 +26,4 @@ Found by X.4's staging check on 26 Oct 2026. X.3 added a server-side escalate fa
 - 2026-10-26: added from X.4's staging check.
 - 2026-10-26: dispatched.
 - 2026-10-26: review clean after 0 fix rounds; merged and deployed to staging.
+- 2026-10-26: staging live check passed: done-without-report run posted one escalate (evt_01M5VKZNC0DHJ13T3BV931SER9); reporting run posted exactly one result.
