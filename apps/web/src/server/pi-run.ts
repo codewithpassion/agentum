@@ -19,6 +19,7 @@ import { networkAccessOf } from "@repo/services/cloud/network";
 import type { CloudStart } from "@repo/services/cloud/types";
 import { isServiceError } from "@repo/services/errors";
 import { agentHomePath } from "@repo/services/library/home";
+import { librarySyncScope } from "@repo/services/library/sync-paths";
 import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
@@ -34,6 +35,7 @@ import {
   libraryCopyOf,
   syncLibraryIn,
   syncLibraryOut,
+  syncLibraryPaths,
 } from "./linux-vm/vm-library-sync.ts";
 import type { LinuxVm } from "./linux-vm/vm-port.ts";
 import { vmSkillSandbox } from "./linux-vm/vm-skill-sandbox.ts";
@@ -56,8 +58,6 @@ import {
   filesExtension,
   inputContent,
   type RunFilesPort,
-  uploadOutputs,
-  uploadVmOutputs,
 } from "./pi-run-files.ts";
 import { createGate, gateExtension } from "./pi-run-gate.ts";
 import { repeatGuardExtension } from "./pi-run-guard.ts";
@@ -107,8 +107,8 @@ const DRY_RUN_KEY = "dry-run";
 const SESSION_KEY = "session";
 /** The slug of the agent of the newest run: its library home is `agents/<slug>`. */
 const AGENT_SLUG_KEY = "agent-slug";
-/** The `runtimeConfig` of the agent of the newest run, so a library change can sync its roots again. */
-const RUNTIME_CONFIG_KEY = "runtime-config";
+/** The library path of the newest run's task folder, which the isolate's prompt names. Absent for a dry run. */
+const TASK_FOLDER_KEY = "task-folder";
 /** The skills of the run that loaded them last, with that run: a tool call knows no run of its own. The text is read again on each call. */
 const SKILLS_KEY = "skills";
 /** The agent id, stored only when the agent runs in a Linux VM: the VM is named by it, so every session of the agent shares one VM. Absent means the isolate. */
@@ -182,6 +182,8 @@ export class PiRun extends DurableObject<Env> {
   /** The agent's Linux VM, when the agent runs in one. */
   #vm: LinuxVm | undefined;
   #composed: ReturnType<typeof compose> | undefined;
+  /** The push of the VM's library changes that runs now, from the lease alarm. */
+  #checkpointing: Promise<void> | undefined;
   #streams: ReturnType<typeof streamPublisher> | undefined;
   /** The view the deltas are read from, and how many followed runs share it. */
   #deltas: SharedDeltas | undefined;
@@ -346,7 +348,12 @@ export class PiRun extends DurableObject<Env> {
     super(ctx, env);
     // `read_input_file` is the same for every run.
     this.registry.install(filesExtension((fileId) => this.#readInput(fileId)));
-    this.registry.install(libraryToolsExtension(() => this.#agentSlug()));
+    this.registry.install(
+      libraryToolsExtension(
+        () => this.#agentSlug(),
+        () => this.ctx.storage.get<string>(TASK_FOLDER_KEY)
+      )
+    );
     this.registry.install(repeatGuardExtension());
     this.registry.install(gateExtension(this.#gate));
   }
@@ -432,7 +439,8 @@ export class PiRun extends DurableObject<Env> {
         fetcherOf: () => this.#webFetcher(),
         placeholdersOf: () => this.#secretPlaceholders(),
       },
-      this.#runScriptDeps()
+      this.#runScriptDeps(),
+      () => this.ctx.storage.get<string>(TASK_FOLDER_KEY)
     );
   }
 
@@ -558,9 +566,9 @@ export class PiRun extends DurableObject<Env> {
   }
 
   /**
-   * Copies the agent's library folders into the VM's working copy when a run
-   * starts. A failed sync is logged and the run goes on: the agent still has
-   * the library tools.
+   * Copies the agent's library roots (home, wiki and grants, each with its
+   * mode) into the VM's working copy when a run starts. A failed sync is
+   * logged and the run goes on: the agent still has the library tools.
    */
   async #syncLibraryIn(input: CloudStart) {
     if (!this.#vm) {
@@ -571,20 +579,24 @@ export class PiRun extends DurableObject<Env> {
         this.#services().library,
         principalOf(runRefOf(input))
       ),
-      runtimeConfig: input.agent.runtimeConfig,
+      roots: input.library
+        ? input.library.roots
+        : librarySyncScope(input.agent.slug, []),
       slug: input.agent.slug,
       storage: this.ctx.storage,
+      taskFolder: input.library?.taskFolder,
       vm: this.#vm,
     });
   }
 
   /**
-   * Sends the agent's changes in the VM's working copy back to the library
-   * when a run ends, just before the VM checkpoint. A change that lost to a
+   * Sends the agent's changes in the VM's working copy back to the library,
+   * when a run ends just before the VM checkpoint and while it runs from the
+   * lease alarm (`waitMs: 0`, see `#checkpointLibrary`). A change that lost to a
    * newer library file is kept as a conflict copy and logged as a
    * `library.conflict` event on the run. Never throws.
    */
-  async #syncLibraryOut(runId: string) {
+  async #syncLibraryOut(runId: string, waitMs?: number) {
     const stored = await this.ctx.storage.get<RunRef>(RUN_KEY);
     if (!(this.#vm && stored)) {
       return;
@@ -598,7 +610,32 @@ export class PiRun extends DurableObject<Env> {
       runId,
       storage: this.ctx.storage,
       vm: this.#vm,
+      ...(waitMs === undefined ? {} : { waitMs }),
     });
+  }
+
+  /**
+   * The push from the lease alarm. It runs apart from the beat, so a slow walk
+   * of the VM never holds up the alarm's other jobs, and one push runs at a
+   * time. It gives way to a sync that holds the lock and tries again on the
+   * next beat.
+   */
+  #checkpointLibrary(runId: string): Promise<void> {
+    if (this.#vm && !this.#checkpointing) {
+      const push = this.#syncLibraryOut(runId, 0)
+        .catch((error: unknown) => {
+          console.warn(
+            "PiRun: the library checkpoint failed",
+            error instanceof Error ? error.message : String(error)
+          );
+        })
+        .finally(() => {
+          this.#checkpointing = undefined;
+        });
+      this.#checkpointing = push;
+      this.ctx.waitUntil(push);
+    }
+    return Promise.resolve();
   }
 
   /** The environment of Pi's file and shell tools: the VM, or the library for the newest run. Without a run there is no principal, so no library environment. */
@@ -643,7 +680,7 @@ export class PiRun extends DurableObject<Env> {
   }
 
   #filesPort(whichRun: () => Promise<RunRef>): RunFilesPort {
-    const { files, library } = this.#services();
+    const { files } = this.#services();
     return {
       download: async (fileId) => {
         const principal = principalOf(await whichRun());
@@ -653,26 +690,6 @@ export class PiRun extends DurableObject<Env> {
           mime: file.mime,
           name: file.name,
         };
-      },
-      readLibrary: async (path) => {
-        const principal = principalOf(await whichRun());
-        try {
-          return (await library.read(principal, path)).bytes;
-        } catch (error) {
-          if (isServiceError(error) && error.code === "not_found") {
-            return null;
-          }
-          throw error;
-        }
-      },
-      upload: async ({ bytes, mime, name }) => {
-        const principal = principalOf(await whichRun());
-        const record = await files.upload(principal, {
-          body: new Blob([bytes as Uint8Array<ArrayBuffer>], { type: mime }),
-          mime,
-          name,
-        });
-        return { id: record.id };
       },
     };
   }
@@ -1052,8 +1069,11 @@ export class PiRun extends DurableObject<Env> {
     this.#core ??= (() => {
       const { runs } = this.#services();
       return createRunCore({
+        // The VM's library changes go back to the library while the run goes on, from the lease alarm. A no-op outside a VM.
+        checkpointLibrary: (runId) => this.#checkpointLibrary(runId),
         complete: async (runId, result) => {
           // Before the run ends, so its library events come before run.finished. A retried completion syncs again, which sends nothing new.
+          await this.#checkpointing;
           await this.#syncLibraryOut(runId);
           await runs.completeRun(SYSTEM_PRINCIPAL, runId, result);
           await this.#checkpointVm(runId);
@@ -1077,20 +1097,6 @@ export class PiRun extends DurableObject<Env> {
           import.meta.env.DEV && model === "faux"
             ? undefined
             : cloudModelError(model),
-        outputsOf: async (run, text) => {
-          const port = this.#filesPort(() => Promise.resolve(run));
-          // A VM agent's files are in the VM.
-          if (this.#vm) {
-            return uploadVmOutputs(text, this.#vm, port);
-          }
-          // The isolate's file tools start in the agent's home, so a relative marker is read from there.
-          const slug = await this.#agentSlug();
-          return uploadOutputs(
-            text,
-            port,
-            slug ? agentHomePath(slug) : undefined
-          );
-        },
         pi: this.#port(),
         statusOf: async (runId) =>
           (await runs.getRun(SYSTEM_PRINCIPAL, runId)).status,
@@ -1140,7 +1146,11 @@ export class PiRun extends DurableObject<Env> {
     await this.ctx.storage.put(DRY_RUN_KEY, input.run.dryRun);
     await this.ctx.storage.put(SESSION_KEY, input.run.sessionId);
     await this.ctx.storage.put(AGENT_SLUG_KEY, input.agent.slug);
-    await this.ctx.storage.put(RUNTIME_CONFIG_KEY, input.agent.runtimeConfig);
+    if (input.library?.taskFolder) {
+      await this.ctx.storage.put(TASK_FOLDER_KEY, input.library.taskFolder);
+    } else {
+      await this.ctx.storage.delete(TASK_FOLDER_KEY);
+    }
     await this.#selectEnvironment(input);
     try {
       await this.#vm?.setRun(runRefOf(input));
@@ -1159,24 +1169,20 @@ export class PiRun extends DurableObject<Env> {
 
   /**
    * Library paths changed under a run of the session. A run in a Linux VM
-   * syncs its roots in again, which brings the changes into the VM's working
-   * copy. An isolate reads the library directly, so it has nothing to do.
+   * pulls just those paths into its working copy, within the roots it started
+   * with. An isolate reads the library directly, so it has nothing to do.
    */
-  async libraryChanged(_paths: string[]): Promise<void> {
+  async libraryChanged(paths: string[]): Promise<void> {
     await this.lifecycle.start();
     const { storage } = this.ctx;
     const agentId = await storage.get<string>(VM_KEY);
     const run = await storage.get<RunRef>(RUN_KEY);
-    const slug = await storage.get<string>(AGENT_SLUG_KEY);
-    const runtimeConfig =
-      await storage.get<Record<string, unknown>>(RUNTIME_CONFIG_KEY);
-    if (!(agentId && run && slug && runtimeConfig)) {
+    if (!(agentId && run)) {
       return;
     }
-    await syncLibraryIn({
+    await syncLibraryPaths({
       ops: bindLibraryOps(this.#services().library, principalOf(run)),
-      runtimeConfig,
-      slug,
+      paths,
       storage,
       vm: this.#vm ?? durableVm(this.env.LINUX_VM, agentId),
     });

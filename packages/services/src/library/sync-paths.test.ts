@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  libraryPathsOf,
-  librarySyncRoots,
-  librarySyncScope,
-} from "./sync-paths.ts";
+import { libraryPathsOf, librarySyncScope } from "./sync-paths.ts";
 
 describe("libraryPathsOf", () => {
   test("is empty when the key is absent or not a list", () => {
@@ -31,42 +27,6 @@ describe("libraryPathsOf", () => {
       })
     ).toEqual(["docs/b"]);
     expect(libraryPathsOf({ libraryPaths: ["../outside", 7] })).toEqual([]);
-  });
-});
-
-describe("librarySyncRoots", () => {
-  test("the agent's own folder is always first", () => {
-    expect(librarySyncRoots("ada", {})).toEqual(["agents/ada"]);
-    expect(
-      librarySyncRoots("ada", { libraryPaths: ["projects/alpha", "notes"] })
-    ).toEqual(["agents/ada", "projects/alpha", "notes"]);
-  });
-
-  test("duplicates of the agent's folder are merged", () => {
-    expect(
-      librarySyncRoots("ada", { libraryPaths: ["agents/ada", "agents/ada/"] })
-    ).toEqual(["agents/ada"]);
-  });
-
-  test("a root inside another root is dropped, the shorter one wins", () => {
-    expect(
-      librarySyncRoots("ada", { libraryPaths: ["agents/ada/notes", "notes"] })
-    ).toEqual(["agents/ada", "notes"]);
-    expect(
-      librarySyncRoots("ada", { libraryPaths: ["docs", "docs/api/v2"] })
-    ).toEqual(["agents/ada", "docs"]);
-  });
-
-  test("a library path that holds the agent's folder replaces it", () => {
-    expect(librarySyncRoots("ada", { libraryPaths: ["agents"] })).toEqual([
-      "agents",
-    ]);
-  });
-
-  test("a path that only shares a name prefix is not nested", () => {
-    expect(
-      librarySyncRoots("ada", { libraryPaths: ["agents/ada-two"] })
-    ).toEqual(["agents/ada", "agents/ada-two"]);
   });
 });
 

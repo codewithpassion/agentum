@@ -337,6 +337,8 @@ export interface ComputerRelayDeps<S extends RelaySocket = RelaySocket> {
   scheduler?: Scheduler;
   /** The computer-tagged sockets only. */
   sockets: () => S[];
+  /** Called when the connection, the hello or who holds the desktop changed, so people watching the desktop get a fresh status. */
+  statusChanged?: () => void;
   storage: RelayStorage;
 }
 
@@ -359,8 +361,16 @@ export const createComputerRelayCore = <S extends RelaySocket = RelaySocket>({
   now,
   scheduler = systemScheduler,
   sockets,
+  statusChanged,
   storage,
 }: ComputerRelayDeps<S>) => {
+  const notifyStatus = () => {
+    try {
+      statusChanged?.();
+    } catch (error) {
+      logFailure("telling the viewers the status changed", error);
+    }
+  };
   let generation = 0;
   let hello: HelloMessage | null = null;
   let loaded: Promise<void> | null = null;
@@ -532,6 +542,7 @@ export const createComputerRelayCore = <S extends RelaySocket = RelaySocket>({
 
   const setLease = (next: StoredLease | undefined) => {
     lease = next;
+    notifyStatus();
     leasePersistedAt = next?.kind === "held" ? next.lastOpAt : 0;
     background(
       next === undefined
@@ -816,6 +827,7 @@ export const createComputerRelayCore = <S extends RelaySocket = RelaySocket>({
       generation: forGeneration,
     };
     socket.serializeAttachment(attachment);
+    notifyStatus();
     await armAlarm();
     background(cancelOrphans(socket));
   };
@@ -828,6 +840,7 @@ export const createComputerRelayCore = <S extends RelaySocket = RelaySocket>({
     hello = next;
     const at = now();
     await storage.put(HELLO_KEY, next);
+    notifyStatus();
     await noteSeen(at);
     try {
       if ((await machines.markComputerOnline(who, next)) === "revoked") {
@@ -899,6 +912,7 @@ export const createComputerRelayCore = <S extends RelaySocket = RelaySocket>({
   const closed = async (socket: S): Promise<void> => {
     await load();
     failAll("interrupted", CONNECTION_LOST, socket);
+    notifyStatus();
     // A replacement connects before the old socket's close is delivered, so
     // the question is "was that the last one?", not "did one close?".
     if (sockets().some((other) => other !== socket)) {

@@ -4,7 +4,11 @@ import { agents as agentRows } from "@repo/db/schema/agents";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
-import { TAKEOVER_TTL_MS } from "@repo/db/shared";
+import {
+  APPROVAL_TTL_MS,
+  QUESTION_TTL_MS,
+  TAKEOVER_TTL_MS,
+} from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
 
@@ -269,4 +273,108 @@ test("concurrent opens for the same computer admit only one", async () => {
   expect(results.find((result) => result.status === "rejected")).toMatchObject({
     reason: { code: "conflict" },
   });
+});
+
+test("a refused take logs no computer.taken event", async () => {
+  await attachComputer();
+  const request = await open(await start());
+  const takeover = service({
+    release: () => Promise.resolve(),
+    take: () => Promise.reject(new Error("lease refused")),
+  });
+  await expect(takeover.take(user, request.id)).rejects.toThrow(
+    "lease refused"
+  );
+  const taken = (
+    await events.query(user, "w1", { runId: request.runId })
+  ).filter((event) => event.type === "computer.taken");
+  expect(taken).toEqual([]);
+});
+
+test("an expired takeover releases the lease", async () => {
+  await attachComputer();
+  await open(await start());
+  const calls: string[] = [];
+  const takeover = service({
+    release: (id) => {
+      calls.push(id);
+      return Promise.resolve();
+    },
+    take: () => Promise.resolve(),
+  });
+  events.onAppend(takeover.onEvent);
+  now += TAKEOVER_TTL_MS;
+  await requests.expireDue(system);
+  expect(calls).toEqual(["computer"]);
+});
+
+test("a takeover pending when its run ends is cancelled and releases the lease once", async () => {
+  await attachComputer();
+  const runId = await start();
+  await open(runId);
+  const calls: string[] = [];
+  const takeover = service({
+    release: (id) => {
+      calls.push(id);
+      return Promise.resolve();
+    },
+    take: () => Promise.resolve(),
+  });
+  events.onAppend(takeover.onEvent);
+  await runs.cancelRun(user, runId);
+  expect(opened).toContain("request.cancelled");
+  expect(calls).toEqual(["computer"]);
+});
+
+test("an expired approval does not release the lease", async () => {
+  await attachComputer();
+  const runId = await start();
+  await requests.open(system, {
+    input: { command: "ls" },
+    kind: "approval",
+    runId,
+    toolKey: "bash",
+    toolName: "bash",
+    toolUseId: "approval",
+  });
+  const calls: string[] = [];
+  events.onAppend(
+    service({
+      release: (id) => {
+        calls.push(id);
+        return Promise.resolve();
+      },
+      take: () => Promise.resolve(),
+    }).onEvent
+  );
+  now += APPROVAL_TTL_MS;
+  await requests.expireDue(system);
+  expect(opened).toContain("request.expired");
+  expect(calls).toEqual([]);
+});
+
+test("an expired question does not release the lease", async () => {
+  await attachComputer();
+  const runId = await start();
+  await requests.open(system, {
+    kind: "question",
+    questions: [{ question: "Which?" }],
+    runId,
+    toolName: "ask_user",
+    toolUseId: "question",
+  });
+  const calls: string[] = [];
+  events.onAppend(
+    service({
+      release: (id) => {
+        calls.push(id);
+        return Promise.resolve();
+      },
+      take: () => Promise.resolve(),
+    }).onEvent
+  );
+  now += QUESTION_TTL_MS;
+  await requests.expireDue(system);
+  expect(opened).toContain("request.expired");
+  expect(calls).toEqual([]);
 });
