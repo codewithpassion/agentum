@@ -217,7 +217,10 @@ export function AgentForm({
     [update]
   );
 
-  const selectable = machines.filter((machine) => machine.status !== "revoked");
+  const selectable = machines.filter(
+    (machine) =>
+      machine.status !== "revoked" && machine.roles.includes("agent_host")
+  );
   const found = findCloudModel(values.model);
   const cloudValue = found ? cloudModelValue(found) : "";
 
