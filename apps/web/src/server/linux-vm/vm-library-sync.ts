@@ -1,10 +1,14 @@
 /**
  * The library sync of a Linux VM. `@repo/library-sync` does the work; this
  * file builds its ports from the VM and from the library service, and wraps it
- * for `PiRun`. A run copies the agent's folder and its library paths into the
- * VM when it starts, and sends the changes back when it ends. Neither call
- * throws: a failed sync is logged, and the run goes on.
+ * for `PiRun`. A run copies the agent's folders (its home, the wiki and its
+ * grants, each with its access mode) into the VM when it starts, pulls the
+ * paths the server announces as changed, and sends the VM's changes back while
+ * it runs and when it ends. Read roots are never sent back. No call throws: a
+ * failed sync is logged, and the run goes on.
  */
+
+import type { LibraryAccessGrant } from "@repo/db/shared";
 import {
   createLibrarySync,
   type LocalEntry,
@@ -14,7 +18,6 @@ import {
 } from "@repo/library-sync";
 import { isServiceError } from "@repo/services/errors";
 import { agentHomePath } from "@repo/services/library/home";
-import { librarySyncRoots } from "@repo/services/library/sync-paths";
 import type { LibraryOps } from "../library-bash/library-fs.ts";
 import type { RunStorage } from "../pi-run-core.ts";
 import {
@@ -33,9 +36,16 @@ export interface LibrarySyncState {
   conflicts: string[];
   /** Whether the last sync in finished, so the prompt may say the VM holds a copy. */
   ready: boolean;
-  /** The library paths the run syncs. */
-  roots: string[];
+  /** The library paths the run syncs, each with its access mode. */
+  roots: LibraryAccessGrant[];
+  /** The library path of the run's own task folder, absent for a state saved before task folders. */
+  taskFolder?: string;
 }
+
+/** A state as storage may hold it: before V4.7 the roots were plain paths, all synced as write roots. */
+type StoredLibrarySyncState = Omit<LibrarySyncState, "roots"> & {
+  roots: (LibraryAccessGrant | string)[];
+};
 
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder();
@@ -287,59 +297,102 @@ export const withLibraryLock = async <T>(
 };
 
 /** The sync state a run kept, or undefined when the run has not synced yet. */
-export const libraryStateOf = (
+export const libraryStateOf = async (
   storage: Pick<RunStorage, "get">
-): Promise<LibrarySyncState | undefined> =>
-  storage.get<LibrarySyncState>(LIBRARY_SYNC_KEY);
+): Promise<LibrarySyncState | undefined> => {
+  const stored = await storage.get<StoredLibrarySyncState>(LIBRARY_SYNC_KEY);
+  return stored === undefined
+    ? undefined
+    : {
+        ...stored,
+        roots: stored.roots.map((root) =>
+          typeof root === "string" ? { mode: "write", path: root } : root
+        ),
+      };
+};
 
 /** What the prompt says about the working copy: nothing until a sync in has finished. */
 export const libraryCopyOf = async (
   storage: Pick<RunStorage, "get">
-): Promise<{ conflicts: string[]; roots: string[] } | undefined> => {
+): Promise<
+  | {
+      conflicts: string[];
+      roots: LibraryAccessGrant[];
+      taskFolder?: string;
+    }
+  | undefined
+> => {
   const state = await libraryStateOf(storage);
   return state?.ready
-    ? { conflicts: state.conflicts, roots: state.roots }
+    ? {
+        conflicts: state.conflicts,
+        roots: state.roots,
+        ...(state.taskFolder === undefined
+          ? {}
+          : { taskFolder: state.taskFolder }),
+      }
     : undefined;
 };
 
-/** Copies the agent's folder and its library paths into the VM. Never throws. */
+type SyncOps = Pick<LibraryOps, "list" | "read" | "remove" | "stat" | "write">;
+
+const librarySyncOf = (vm: LinuxVm, ops: SyncOps) =>
+  createLibrarySync({
+    local: vmLocalPort(vm),
+    manifest: vmManifestStore(vm),
+    remote: libraryRemotePort(ops),
+  });
+
+const warnFailed = (
+  failed: readonly { path: string }[],
+  direction: "into" | "out of"
+) => {
+  if (failed.length > 0) {
+    console.warn(
+      `PiRun: ${failed.length} library file(s) did not sync ${direction} the VM: ${failed.map((failure) => failure.path).join(", ")}`
+    );
+  }
+};
+
+/**
+ * Copies the agent's library roots into the VM, with the run's task folder
+ * made ready in the copy. A root with the `read` mode is pulled and never sent
+ * back. Never throws.
+ */
 export const syncLibraryIn = async (input: {
-  ops: Pick<LibraryOps, "list" | "read" | "remove" | "stat" | "write">;
-  runtimeConfig: Record<string, unknown>;
+  ops: SyncOps;
+  roots: readonly LibraryAccessGrant[];
   slug: string;
   storage: Pick<RunStorage, "get" | "put">;
+  taskFolder?: string;
   vm: LinuxVm;
 }): Promise<void> => {
   try {
-    const roots = librarySyncRoots(input.slug, input.runtimeConfig);
+    const roots = [...input.roots];
     const previous = await libraryStateOf(input.storage);
     const conflicts = previous ? previous.conflicts : [];
+    const { taskFolder } = input;
+    const saved = (state: Pick<LibrarySyncState, "conflicts" | "ready">) =>
+      input.storage.put<LibrarySyncState>(LIBRARY_SYNC_KEY, {
+        ...state,
+        roots,
+        ...(taskFolder === undefined ? {} : { taskFolder }),
+      });
     // Saved first, so the end of the run can sync out even when this fails.
-    await input.storage.put<LibrarySyncState>(LIBRARY_SYNC_KEY, {
-      conflicts,
-      ready: false,
-      roots,
-    });
+    await saved({ conflicts, ready: false });
     const result = await withLibraryLock(input.vm, async () => {
       await input.vm.mkdir(`${VM_LIBRARY_DIR}/${agentHomePath(input.slug)}`, {
         recursive: true,
       });
-      return await createLibrarySync({
-        local: vmLocalPort(input.vm),
-        manifest: vmManifestStore(input.vm),
-        remote: libraryRemotePort(input.ops),
-      }).syncIn({ roots: roots.map((path) => ({ mode: "write", path })) });
+      if (taskFolder !== undefined) {
+        await input.vm.mkdir(`${VM_LIBRARY_DIR}/${taskFolder}`, {
+          recursive: true,
+        });
+      }
+      return await librarySyncOf(input.vm, input.ops).syncIn({ roots });
     });
-    await input.storage.put<LibrarySyncState>(LIBRARY_SYNC_KEY, {
-      conflicts: result.conflicts,
-      ready: true,
-      roots,
-    });
-    if (result.failed.length > 0) {
-      console.warn(
-        `PiRun: ${result.failed.length} library file(s) did not sync into the VM: ${result.failed.map((failure) => failure.path).join(", ")}`
-      );
-    }
+    await saved({ conflicts: result.conflicts, ready: true });
+    warnFailed(result.failed, "into");
   } catch (error) {
     console.warn(
       "PiRun: syncing the library into the VM failed",
@@ -348,9 +401,57 @@ export const syncLibraryIn = async (input: {
   }
 };
 
+const isUnder = (path: string, folder: string): boolean =>
+  path === folder || path.startsWith(`${folder}/`);
+
+/**
+ * Pulls the library paths the server announced as changed into the VM, within
+ * the roots the run synced when it started. Paths outside the roots are
+ * ignored. A run that has not synced yet has nothing to pull into. Never
+ * throws.
+ */
+export const syncLibraryPaths = async (input: {
+  ops: SyncOps;
+  paths: readonly string[];
+  storage: Pick<RunStorage, "get" | "put">;
+  vm: LinuxVm;
+}): Promise<void> => {
+  try {
+    const state = await libraryStateOf(input.storage);
+    if (state === undefined || input.paths.length === 0) {
+      return;
+    }
+    const result = await withLibraryLock(input.vm, () =>
+      librarySyncOf(input.vm, input.ops).syncIn({
+        only: input.paths,
+        roots: state.roots,
+      })
+    );
+    // The pull reports the conflict copies under the paths it walked, so those replace what was known there.
+    const walked = input.paths.map((path) => path.replace(/^\/+|\/+$/g, ""));
+    // Read again: a new run may have saved its own state while the pull waited for the lock.
+    const latest = (await libraryStateOf(input.storage)) ?? state;
+    await input.storage.put<LibrarySyncState>(LIBRARY_SYNC_KEY, {
+      ...latest,
+      conflicts: [
+        ...latest.conflicts.filter(
+          (conflict) => !walked.some((path) => isUnder(conflict, path))
+        ),
+        ...result.conflicts,
+      ],
+    });
+    warnFailed(result.failed, "into");
+  } catch (error) {
+    console.warn(
+      "PiRun: pulling the changed library paths into the VM failed",
+      messageOf(error)
+    );
+  }
+};
+
 /** Sends the VM's changes back to the library and records each conflict. Never throws. */
 export const syncLibraryOut = async (input: {
-  ops: Pick<LibraryOps, "list" | "read" | "remove" | "stat" | "write">;
+  ops: SyncOps;
   recordConflict: (conflict: {
     conflictPath: string;
     path: string;
@@ -365,12 +466,8 @@ export const syncLibraryOut = async (input: {
       return;
     }
     const result = await withLibraryLock(input.vm, () =>
-      createLibrarySync({
-        local: vmLocalPort(input.vm),
-        manifest: vmManifestStore(input.vm),
-        remote: libraryRemotePort(input.ops),
-      }).syncOut({
-        roots: state.roots.map((path) => ({ mode: "write", path })),
+      librarySyncOf(input.vm, input.ops).syncOut({
+        roots: state.roots,
         runId: input.runId,
       })
     );
@@ -386,11 +483,7 @@ export const syncLibraryOut = async (input: {
         }
       })
     );
-    if (result.failed.length > 0) {
-      console.warn(
-        `PiRun: ${result.failed.length} library file(s) did not sync out of the VM: ${result.failed.map((failure) => failure.path).join(", ")}`
-      );
-    }
+    warnFailed(result.failed, "out of");
   } catch (error) {
     console.warn(
       "PiRun: syncing the library out of the VM failed",

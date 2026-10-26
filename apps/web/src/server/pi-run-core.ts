@@ -85,13 +85,13 @@ export interface RunRef {
   workspaceId: string;
 }
 
-/** The answer after its `[ATTACHMENT:path]` markers became uploaded files. */
-export interface RunOutputs {
-  fileIds: string[];
-  text: string;
-}
-
 export interface RunCoreDeps {
+  /**
+   * Sends the run's library changes back while it runs. Called by `beat` for
+   * one active run each time, so the VM's work reaches the library every
+   * HEARTBEAT_MS and not only at the end. It must not throw.
+   */
+  checkpointLibrary: (runId: string) => Promise<void>;
   complete: (runId: string, result: RunResult) => Promise<void>;
   /** Extends a run's lease. Called by `beat`. */
   heartbeat: (runId: string) => Promise<void>;
@@ -111,8 +111,6 @@ export interface RunCoreDeps {
   modelError: (model: string) => string | undefined;
   /** Epoch milliseconds. A run older than its run token is not heartbeated. */
   now?: () => number;
-  /** Uploads the files the final answer names and returns their ids with the answer cleaned of its markers. */
-  outputsOf: (run: RunRef, text: string) => Promise<RunOutputs>;
   pi: PiPort;
   sleep?: (ms: number) => Promise<void>;
   /** The run's status on the platform. */
@@ -132,8 +130,6 @@ interface StoredRun {
   maxTurns?: number;
   /** The agent's model, so a run submitted again after a wake uses it. */
   model: string;
-  /** The uploaded output files, kept so a completion that is tried again does not upload them twice. */
-  outputs?: RunOutputs;
   /** When the run was first started, from `now()`. */
   startedAt: number;
   state: "active" | "finished";
@@ -189,6 +185,7 @@ const refOf = (runId: string, run: StoredRun): RunRef => ({
 });
 
 export const createRunCore = ({
+  checkpointLibrary,
   complete,
   heartbeat,
   ingest,
@@ -197,7 +194,6 @@ export const createRunCore = ({
   installTools,
   modelError,
   now = Date.now,
-  outputsOf,
   pi,
   sleep = defaultSleep,
   statusOf,
@@ -361,23 +357,6 @@ export const createRunCore = ({
     };
   };
 
-  /** A finished run's result with its output files uploaded once, however often the completion is tried. */
-  const withOutputs = async (
-    runId: string,
-    result: RunResult
-  ): Promise<RunResult> => {
-    const run = await load(runId);
-    if (result.status !== "done" || !run) {
-      return result;
-    }
-    const outputs =
-      run.outputs ?? (await outputsOf(refOf(runId, run), result.text ?? ""));
-    if (!run.outputs) {
-      await save(runId, { ...run, outputs });
-    }
-    return { ...result, fileIds: outputs.fileIds, text: outputs.text };
-  };
-
   const completeWithRetry = async (runId: string, result: RunResult) => {
     for (let attempt = 1; ; attempt += 1) {
       try {
@@ -486,10 +465,7 @@ export const createRunCore = ({
       if (!gone) {
         const done = await completeRun(
           runId,
-          await withOutputs(
-            runId,
-            await finalResultOf(runId, outcome, slice, limit)
-          )
+          await finalResultOf(runId, outcome, slice, limit)
         );
         if (done === "waiting") {
           return;
@@ -637,7 +613,9 @@ export const createRunCore = ({
    * token is not yet too old, then works again each active run this object is
    * not following, so a run whose report or completion failed is tried again.
    * Resolves to whether any run is still active, so the caller knows whether to
-   * keep the alarm. A failure on one run does not stop the others.
+   * keep the alarm. A failure on one run does not stop the others. Last, it
+   * sends the library changes back (`checkpointLibrary`), so a slow push never
+   * delays a heartbeat.
    */
   const beat = async (): Promise<boolean> => {
     const active: [string, StoredRun][] = [];
@@ -671,6 +649,17 @@ export const createRunCore = ({
         } catch (error) {
           console.error(`PiRun: resuming run ${runId}: ${describe(error)}`);
         }
+      }
+    }
+    // The agent's VM is one working copy for all runs of the session, so one push covers them.
+    const [first] = active;
+    if (first) {
+      try {
+        await checkpointLibrary(first[0]);
+      } catch (error) {
+        console.error(
+          `PiRun: library checkpoint for ${first[0]}: ${describe(error)}`
+        );
       }
     }
     return active.length > 0;

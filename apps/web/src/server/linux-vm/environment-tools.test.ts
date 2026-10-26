@@ -57,7 +57,7 @@ describe("installEnvironmentTools", () => {
     const registry = createRegistry();
     installEnvironmentTools(registry, "linux-vm", slugOf, async () => ({
       conflicts: [],
-      roots: ["agents/ada"],
+      roots: [{ mode: "write", path: "agents/ada" }],
     }));
 
     const extension = registry
@@ -67,7 +67,28 @@ describe("installEnvironmentTools", () => {
     const [section] = extension?.sections ?? [];
     const text = await section?.render(undefined as never, BACKGROUND_CONTEXT);
     expect(text).toContain(VM_LIBRARY_DIR);
-    expect(text).toContain("agents/ada");
+    expect(text).toContain("agents/ada (write)");
+  });
+
+  test("isolate passes taskFolderOf to the library tools' prompt section", async () => {
+    const registry = createRegistry();
+    installEnvironmentTools(
+      registry,
+      "isolate",
+      slugOf,
+      undefined,
+      undefined,
+      undefined,
+      async () => "agents/ada/tasks/run-1"
+    );
+
+    const extension = registry
+      .snapshot()
+      .installed()
+      .find((installed) => installed.name === LIBRARY_TOOLS_EXTENSION);
+    const [section] = extension?.sections ?? [];
+    const text = await section?.render(undefined as never, BACKGROUND_CONTEXT);
+    expect(text).toContain("/library/agents/ada/tasks/run-1");
   });
 
   test("switching environments leaves one set of tools each time", () => {
