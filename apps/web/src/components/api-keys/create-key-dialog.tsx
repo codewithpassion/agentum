@@ -39,8 +39,9 @@ export function CreateKeyDialog({
   onCreated: (secret: string) => void;
 }) {
   const { orgRole } = useAuth();
+  const isAdmin = orgRole === "org:admin";
   const accessOptions = API_KEY_ACCESS.filter(
-    (option) => option !== "admin" || orgRole === "org:admin"
+    (option) => option !== "admin" || isAdmin
   );
   const [name, setName] = useState("");
   const [access, setAccess] = useState<ApiKeyAccess>("read");
@@ -93,7 +94,9 @@ export function CreateKeyDialog({
           <DialogDescription>
             Read keys can list and read. Write keys can also send messages. Desk
             keys are for another app's desk panel and work only on the desk API.
-            Admin keys can also set up secrets, machines and keys.
+            {isAdmin
+              ? " Admin keys can also set up secrets, machines and keys."
+              : ""}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">

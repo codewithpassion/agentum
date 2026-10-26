@@ -150,9 +150,20 @@ export const createAdminService = ({
     agentId: string,
     connectorIds: readonly string[] | undefined
   ): Promise<void> => {
-    for (const connectorId of connectorIds ?? []) {
-      // biome-ignore lint/performance/noAwaitInLoops: One assignment at a time keeps the first failure clear.
-      await connectors.assign(principal, { agentId, connectorId });
+    if (!connectorIds?.length) {
+      return;
+    }
+    // A connector the agent has keeps its credential mode: assigning again would reset it.
+    const held = new Set(
+      (await connectors.assignments(principal, { agentId })).map(
+        (assignment) => assignment.connectorId
+      )
+    );
+    for (const connectorId of connectorIds) {
+      if (!held.has(connectorId)) {
+        // biome-ignore lint/performance/noAwaitInLoops: One assignment at a time keeps the first failure clear.
+        await connectors.assign(principal, { agentId, connectorId });
+      }
     }
   };
 
@@ -161,6 +172,8 @@ export const createAdminService = ({
     input: AdminAgentCreate
   ): Promise<AgentRecord> => {
     const key = checked(principal, "create_agent", "write");
+    // Fail before the agent exists, so a retry does not make a second one.
+    await connectors.assertExist(principal, input.connectors ?? []);
     const agent = await agents.create(principal, {
       instructions: input.instructions,
       machineId: input.machineId,
@@ -190,6 +203,7 @@ export const createAdminService = ({
     input: AdminAgentUpdate
   ): Promise<AgentRecord> => {
     const key = checked(principal, "update_agent", "write");
+    await connectors.assertExist(principal, input.connectors ?? []);
     const {
       agentId,
       connectors: connectorIds,

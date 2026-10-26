@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { connectors as connectorRows } from "@repo/db/schema/connectors";
 import { events as eventRows } from "@repo/db/schema/events";
 import { workspaces } from "@repo/db/schema/workspaces";
 import type { ApiKeyAccess } from "@repo/db/shared";
@@ -191,6 +192,36 @@ describe("an admin key", () => {
       maxTurns: 60,
       networkAccess: false,
     });
+  });
+
+  test("a write key creates an agent with connectors; an unknown connector fails before the agent exists", async () => {
+    db.insert(connectorRows)
+      .values({
+        authKind: "none",
+        createdAt: START,
+        createdBy: "u1",
+        id: "c1",
+        name: "docs",
+        status: "ok",
+        url: "https://docs.example.com/mcp",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    await expect(
+      admin.createAgent(writeKey, { ...agentInput, connectors: ["nope"] })
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(adminEvents()).toHaveLength(0);
+    const agent = await admin.createAgent(writeKey, {
+      ...agentInput,
+      connectors: ["c1"],
+    });
+    // Updating with the same connector leaves the assignment alone.
+    await admin.updateAgent(writeKey, {
+      agentId: agent.id,
+      connectors: ["c1"],
+      name: "Help",
+    });
+    expect(adminEvents()).toHaveLength(2);
   });
 
   test("creates a proxy secret, grants it, revokes it, and never leaks the value", async () => {
