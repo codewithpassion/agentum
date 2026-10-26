@@ -183,9 +183,12 @@ const didListFor = (draft: AgentDraft, catalog: BuilderCatalog): string[] => {
 
 // A line that opens a rules block: "Rules:", "**Rules:**" or a "## Rules" heading.
 const RULES_BLOCK =
-  /(?:^|\n)[ \t]*(?:#{1,6}[ \t]+[*_]*rules[*_]*[ \t]*:?|[*_]*rules[*_]*[ \t]*:)[\s\S]*$/i;
+  /(?:^|\n)[ \t]*(?:#{1,6}[ \t]+[*_]*rules[*_]*[ \t]*:?[ \t]*(?:\n|$)|[*_]*rules[*_]*[ \t]*:)[\s\S]*$/i;
 
-/** The model sometimes repeats the rules as a last block of does. Keep them in rules only. */
+/**
+ * The model sometimes repeats the rules as a last block of does. Keep them in
+ * rules only. When rules is empty the block is the only copy, so it stays.
+ */
 const stripRulesBlock = (does: string): string => {
   const stripped = does.replace(RULES_BLOCK, "").trim();
   return stripped === "" ? does : stripped;
@@ -205,7 +208,7 @@ export const reconcileDraft = (
       Object.entries(locked).filter(([, value]) => value !== undefined)
     ),
   });
-  if (locked.does === undefined) {
+  if (locked.does === undefined && draft.rules.length > 0) {
     draft.does = stripRulesBlock(draft.does);
   }
   const gaps: ProfileGap[] = [];

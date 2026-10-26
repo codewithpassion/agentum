@@ -303,3 +303,17 @@ test("the tool schema tells the model to keep rules out of does", () => {
   expect(properties.does.description).toContain("Do not put the rules");
   expect(properties.rules.description).toContain("only place");
 });
+
+test("a Rules block stays in does when the rules field is empty", () => {
+  const does = "Sort messages.\nRules:\n- Never delete mail";
+  expect(
+    reconcileDraft(draft({ does, rules: [] }), catalog, {}).draft.does
+  ).toBe(does);
+});
+
+test("a heading that only starts with the word rules is not a rules block", () => {
+  const does = "Sort messages.\n## Rules engine setup\nUse the engine.";
+  expect(
+    reconcileDraft(draft({ does, rules: ["Be brief"] }), catalog, {}).draft.does
+  ).toBe(does);
+});
