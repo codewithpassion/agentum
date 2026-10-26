@@ -10,6 +10,7 @@ import type {
 } from "@repo/protocol/machine";
 import { createRequestBodySchema } from "@repo/protocol/machine";
 import { outcomeText, type RequestOutcome } from "@repo/protocol/requests";
+import { openInputSchema } from "../../../packages/services/src/requests/records.ts";
 import {
   createApprovalGate,
   gateOptions,
@@ -473,6 +474,31 @@ describe("createApprovalGate.decide", () => {
     const text = String((display as { input: string }).input);
     expect(text.endsWith(TRUNCATED_SUFFIX)).toBe(true);
     expect(encoder.encode(text).byteLength).toBeLessThan(INPUT_MAX_BYTES);
+  });
+
+  test("the body for an input over the limit passes the route's schemas", async () => {
+    const h = harness({
+      create: [pendingCreate],
+      wait: [finished(ALLOW_ONCE)],
+    });
+
+    await h.gate.decide(bashCall("x".repeat(OVERSIZE_COMMAND_CHARS)));
+
+    const body = h.creates[0]?.body;
+    const parsed = createRequestBodySchema.parse(body);
+    if (!("input" in parsed.display)) {
+      throw new Error("expected an approval display");
+    }
+    // The route wraps the text preview as `{ preview }` before it calls `open`.
+    expect(
+      openInputSchema.safeParse({
+        input: { preview: parsed.display.input },
+        kind: "approval",
+        runId: "run_1",
+        toolName: parsed.toolName,
+        toolUseId: parsed.toolUseId,
+      }).success
+    ).toBe(true);
   });
 });
 
