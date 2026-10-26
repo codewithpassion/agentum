@@ -139,17 +139,12 @@ export const graphCounts = async (
   ).flat();
 };
 
-// agents/<slug> and agents/<slug>/tasks/<run> are distinct folder nodes.
-// Other paths use their first segment, including a root-level filename.
+// agents/<slug>/ is one node, task folders under it included, so the map does
+// not grow by one node per run. Other paths use their first segment, including
+// a root-level filename.
 const folderOf = (path: SQL): SQL => {
   const tail = sql`substr(${path}, 8)`;
-  const slugEnd = sql`instr(${tail}, '/')`;
-  const agentFolder = sql`'agents/' || substr(${tail}, 1, ${slugEnd} - 1)`;
-  const rest = sql`substr(${tail}, ${slugEnd} + 1)`;
-  const taskTail = sql`substr(${rest}, 7)`;
-  return sql`case when ${path} like 'agents/%/%' then
-    case when ${rest} like 'tasks/%/%' then ${agentFolder} || '/tasks/' || substr(${taskTail}, 1, instr(${taskTail}, '/') - 1)
-    else ${agentFolder} end
+  return sql`case when ${path} like 'agents/%/%' then 'agents/' || substr(${tail}, 1, instr(${tail}, '/') - 1)
     else case when instr(${path}, '/') > 0 then substr(${path}, 1, instr(${path}, '/') - 1) else ${path} end end`;
 };
 const libraryFolder = folderOf(sql`json_extract(e.payload, '$.path')`);

@@ -126,15 +126,12 @@ test("counts every wire kind and combines Q&A events", async () => {
       ["trigger", 0],
       ["handoff", 1],
       ["slack", 1],
-      ["library", 1],
-      ["library", 1],
+      ["library", 2],
       ["qa", 2],
       ["email", 1],
     ].sort()
   );
-  expect(result.nodes.map((n) => n.key)).toContain(
-    "out:library:agents/a/tasks/child"
-  );
+  expect(result.nodes.map((n) => n.key)).toContain("out:library:agents/a");
 });
 test("inclusive seven day edge, idle wires, dry runs and workspace isolation", async () => {
   await event("trigger.fired", "a", {}, { createdAt: edge });
@@ -351,10 +348,7 @@ test("known output destinations remain idle outside the event window", async () 
     workspaceId: "w",
   });
   const result = await graph();
-  for (const to of [
-    "out:slack:old-channel",
-    "out:library:agents/a/tasks/parent",
-  ]) {
+  for (const to of ["out:slack:old-channel", "out:library:agents/a"]) {
     expect(result.wires.find((w) => w.to === to)).toMatchObject({
       active: false,
       count7d: 0,
