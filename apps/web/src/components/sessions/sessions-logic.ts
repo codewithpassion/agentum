@@ -1,4 +1,3 @@
-import { format } from "date-fns";
 import type { SessionListItem } from "#/integrations/trpc/types";
 
 export const ORIGIN_VALUES = [
@@ -66,7 +65,11 @@ export const lastActivity = (item: {
   lastRunAt: string | null;
 }): string => item.lastRunAt ?? item.createdAt;
 
-/** The trimmed first message, or "agent name, creation time" when it is empty. */
+/** Minutes of an ISO timestamp as "yyyy-MM-dd HH:mm", in UTC so server and browser agree. */
+const utcMinute = (iso: string): string =>
+  new Date(iso).toISOString().slice(0, 16).replace("T", " ");
+
+/** The trimmed first message, or "agent name, creation time (UTC)" when it is empty. */
 export const sessionTitle = ({
   title,
   agentName,
@@ -80,5 +83,5 @@ export const sessionTitle = ({
   if (trimmed !== "") {
     return trimmed;
   }
-  return `${agentName}, ${format(new Date(createdAt), "yyyy-MM-dd HH:mm")}`;
+  return `${agentName}, ${utcMinute(createdAt)} UTC`;
 };

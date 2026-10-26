@@ -76,11 +76,11 @@ test("the session title is the trimmed first message", () => {
 });
 
 test("an empty or blank title falls back to the agent name and the creation time", () => {
-  const createdAt = new Date(2026, 9, 1, 9, 5).toISOString();
+  const createdAt = "2026-10-01T09:05:00.000Z";
   expect(sessionTitle({ agentName: "Ops", createdAt, title: "" })).toBe(
-    "Ops, 2026-10-01 09:05"
+    "Ops, 2026-10-01 09:05 UTC"
   );
   expect(sessionTitle({ agentName: "Ops", createdAt, title: " \t\n " })).toBe(
-    "Ops, 2026-10-01 09:05"
+    "Ops, 2026-10-01 09:05 UTC"
   );
 });

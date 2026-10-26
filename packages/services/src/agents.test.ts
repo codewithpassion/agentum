@@ -3,7 +3,8 @@ import { agents } from "@repo/db/schema/agents";
 import { machines } from "@repo/db/schema/machines";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
-import { createAgentsService, findAgent } from "./agents.ts";
+import { eq } from "drizzle-orm";
+import { createAgentsService, findAgent, handsToNames } from "./agents.ts";
 import { createEventsService } from "./events.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -629,4 +630,110 @@ test("a row with soul, hands-to and an email address maps to the record fields",
     handsTo: ["a"],
     soul: "Warm and brief.",
   });
+});
+
+const createFake = (name: string, principal = user) =>
+  service.create(principal, { model: "m", name, runtime: "fake" });
+
+test("voice and hands to persist, clear, and only field names enter updated events", async () => {
+  const target = await createFake("Target");
+  const agent = await service.create(user, {
+    handsTo: [target.id],
+    model: "m",
+    name: "Speaker",
+    runtime: "fake",
+    soul: "Private voice",
+  });
+  expect(await service.get(user, agent.id)).toMatchObject({
+    handsTo: [target.id],
+    soul: "Private voice",
+  });
+  await service.update(user, agent.id, {
+    handsTo: [],
+    soul: "Another private voice",
+  });
+  expect(await service.get(user, agent.id)).toMatchObject({
+    handsTo: [],
+    soul: "Another private voice",
+  });
+  const [event] = await events.query(user, WORKSPACE, {
+    agentId: agent.id,
+    types: ["agent.updated"],
+  });
+  expect(event?.payload).toEqual({ changed: ["handsTo", "soul"] });
+  expect(JSON.stringify(event)).not.toContain("private voice");
+  expect((await service.update(user, agent.id, { soul: "" })).soul).toBe("");
+});
+
+test("voice is limited to 10000 characters on create and update", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Long voice",
+    runtime: "fake",
+    soul: "x".repeat(10_000),
+  });
+  expect(agent.soul).toHaveLength(10_000);
+  await expect(
+    service.update(user, agent.id, { soul: "x".repeat(10_001) })
+  ).rejects.toThrow();
+  await expect(
+    service.create(user, {
+      model: "m",
+      name: "Too long",
+      runtime: "fake",
+      soul: "x".repeat(10_001),
+    })
+  ).rejects.toThrow();
+});
+
+test("hands to rejects self, foreign, archived, draft and missing agents", async () => {
+  const agent = await createFake("Source");
+  const foreign = await createFake("Foreign", otherUser);
+  const archived = await createFake("Archived");
+  await service.archive(user, archived.id);
+  const draft = await createFake("Draft");
+  db.update(agents)
+    .set({ status: "draft" })
+    .where(eq(agents.id, draft.id))
+    .run();
+  await expect(
+    service.update(user, agent.id, { handsTo: [agent.id] })
+  ).rejects.toMatchObject({ code: "invalid" });
+  await Promise.all(
+    [foreign.id, archived.id, draft.id, "missing"].map(async (id) => {
+      await expect(
+        service.create(user, {
+          handsTo: [id],
+          model: "m",
+          name: "Invalid",
+          runtime: "fake",
+        })
+      ).rejects.toMatchObject({ code: "invalid" });
+      await expect(
+        service.update(user, agent.id, { handsTo: [id] })
+      ).rejects.toMatchObject({ code: "invalid" });
+    })
+  );
+  expect((await service.get(user, agent.id)).handsTo).toEqual([]);
+});
+
+test("hands to names preserve configured order and drop archived or foreign targets", async () => {
+  const alpha = await createFake("Alpha");
+  const beta = await createFake("Beta");
+  const foreign = await createFake("Foreign", otherUser);
+  const source = await service.create(user, {
+    handsTo: [beta.id, alpha.id],
+    model: "m",
+    name: "Source",
+    runtime: "fake",
+  });
+  expect(await handsToNames(db, source)).toEqual(["Beta", "Alpha"]);
+  await service.archive(user, beta.id);
+  expect(
+    await handsToNames(db, {
+      ...source,
+      handsTo: [...source.handsTo, foreign.id, "missing"],
+    })
+  ).toEqual(["Alpha"]);
+  expect(await handsToNames(db, { ...source, handsTo: [] })).toEqual([]);
 });

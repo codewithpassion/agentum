@@ -15,7 +15,8 @@ import {
   or,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
-import { findAgent } from "../agents.ts";
+import { agentPrompt } from "../agent-prompt.ts";
+import { findAgent, handsToNames } from "../agents.ts";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { ServiceError } from "../errors.ts";
@@ -269,7 +270,11 @@ export const claimForMachine = async (
     },
     ...(Object.keys(env).length > 0 ? { env } : {}),
     inputFileIds: claimedRun.inputFileIds,
-    instructions: [agent.instructions, guidance, slack]
+    instructions: [
+      agentPrompt(agent, await handsToNames(db, agent)),
+      guidance,
+      slack,
+    ]
       .filter((part) => part !== "")
       .join("\n\n"),
     ...(library ? { library } : {}),

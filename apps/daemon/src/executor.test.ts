@@ -29,7 +29,6 @@ import {
 import {
   ATTACHMENT_MARKER_RE,
   extractAttachmentMarkers,
-  formatAttachmentMarker,
 } from "@repo/protocol/attachments";
 import type {
   ClaimResponse,
@@ -749,7 +748,7 @@ describe("the options passed to query", () => {
     );
     // The marker in the sentence is one the parser accepts, with a path slot.
     const [marker] = filesSection.match(ATTACHMENT_MARKER_RE) ?? [];
-    expect(marker).toBe(formatAttachmentMarker("<absolute path>"));
+    expect(marker).toBe("[ATTACHMENT:<absolute path>]");
     expect(extractAttachmentMarkers(`ok\n${marker}`).paths).toEqual([
       "<absolute path>",
     ]);

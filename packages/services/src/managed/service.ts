@@ -47,7 +47,8 @@ import {
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
-import { type AgentRecord, findAgent } from "../agents.ts";
+import { agentPrompt } from "../agent-prompt.ts";
+import { type AgentRecord, findAgent, handsToNames } from "../agents.ts";
 import { mcpServerUrls } from "../connectors/mcp-servers.ts";
 import { hashToken } from "../crypto.ts";
 import { isServiceError } from "../errors.ts";
@@ -184,12 +185,20 @@ const stopMessage = (stopReason: string | null, errors: string[]): string => {
 /** The Anthropic agent's system text: its instructions, its files, then what it is told about skills, Slack and secrets. */
 const systemOf = (
   agent: AgentRecord,
+  handoffNames: string[],
   skillNames: string[],
   slackText: string,
   secretsText: string
 ): string =>
   [
-    agent.instructions.trim() || `You are ${agent.name}.`,
+    // Preserve the managed runtime's default identity when instructions are blank.
+    agentPrompt(
+      {
+        ...agent,
+        instructions: agent.instructions.trim() || `You are ${agent.name}.`,
+      },
+      handoffNames
+    ),
     workspaceInstructions({
       // A managed run's reply is shown as it is: nothing reads the markers.
       attachments: false,
@@ -768,6 +777,7 @@ export const createManagedService = ({
     });
     const system = systemOf(
       agent,
+      await handsToNames(db, agent),
       resolved.map((skill) => skill.name),
       slack,
       grants.guidance

@@ -8,7 +8,7 @@ import {
   type AgentStatus,
 } from "@repo/db/shared";
 import { MAX_TURNS_KEY, maxTurnsError } from "@repo/protocol/safeguards";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -37,6 +37,7 @@ const EDGE_DASHES = /^-+|-+$/g;
 
 const nameSchema = z.string().trim().min(1).max(80);
 const instructionsSchema = z.string().max(50_000);
+const soulSchema = z.string().max(10_000);
 const modelSchema = z.string().min(1).max(100);
 const machineIdSchema = z.string().min(1).max(200);
 const runtimeConfigSchema = z.record(z.string(), z.json());
@@ -115,7 +116,14 @@ export interface AgentRecord {
 type AgentRow = typeof agents.$inferSelect;
 type AgentValues = Pick<
   AgentRow,
-  "instructions" | "machineId" | "model" | "name" | "runtimeConfig" | "slug"
+  | "handsTo"
+  | "instructions"
+  | "machineId"
+  | "model"
+  | "name"
+  | "runtimeConfig"
+  | "slug"
+  | "soul"
 >;
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
@@ -137,6 +145,7 @@ export const slugify = (name: string): string =>
     .replace(EDGE_DASHES, "");
 
 export const agentCreateSchema = z.strictObject({
+  handsTo: handsToSchema.default([]),
   instructions: instructionsSchema.default(""),
   machineId: machineIdSchema.nullish(),
   model: modelSchema,
@@ -144,17 +153,20 @@ export const agentCreateSchema = z.strictObject({
   runtime: z.enum(AGENT_RUNTIMES),
   runtimeConfig: runtimeConfigSchema.default({}),
   slug: slugSchema.optional(),
+  soul: soulSchema.default(""),
 });
 export type AgentCreateInput = z.input<typeof agentCreateSchema>;
 
 export const agentUpdateSchema = z
   .strictObject({
+    handsTo: handsToSchema.optional(),
     instructions: instructionsSchema.optional(),
     machineId: machineIdSchema.nullish(),
     model: modelSchema.optional(),
     name: nameSchema.optional(),
     runtimeConfig: runtimeConfigSchema.optional(),
     slug: slugSchema.optional(),
+    soul: soulSchema.optional(),
   })
   .refine(
     (patch) => Object.values(patch).some((value) => value !== undefined),
@@ -198,6 +210,45 @@ export const findAgent = async (
     )
     .limit(1);
   return row ? toRecord(row) : null;
+};
+
+/** Active handoff names in this workspace, resolved once when a run starts. */
+export const handsToNames = async (
+  db: Database,
+  agent: Pick<AgentRecord, "handsTo" | "id" | "workspaceId">
+): Promise<string[]> => {
+  if (agent.handsTo.length === 0) {
+    return [];
+  }
+  const rows = await db
+    .select({ id: agents.id, name: agents.name })
+    .from(agents)
+    .where(
+      and(
+        inArray(agents.id, agent.handsTo),
+        eq(agents.workspaceId, agent.workspaceId),
+        eq(agents.status, "active"),
+        ne(agents.id, agent.id)
+      )
+    );
+  const names = new Map(rows.map((row) => [row.id, row.name]));
+  // Keep the profile's order; an archived target silently drops out at run start.
+  return agent.handsTo.flatMap((id) => {
+    const name = names.get(id);
+    return name === undefined ? [] : [name];
+  });
+};
+
+const assertHandsTo = async (
+  db: Database,
+  agent: Pick<AgentRecord, "handsTo" | "id" | "workspaceId">
+): Promise<void> => {
+  if ((await handsToNames(db, agent)).length !== agent.handsTo.length) {
+    throw new ServiceError(
+      "invalid",
+      "Hands to must name active agents in this workspace other than this agent"
+    );
+  }
 };
 
 const requireUser = (principal: Principal, action: string): UserPrincipal => {
@@ -301,12 +352,14 @@ export const createAgentsService = ({
       throw slugTaken(slug);
     }
 
+    const id = ulid();
+    await assertHandsTo(db, { handsTo: parsed.handsTo, id, workspaceId });
     const row: AgentRow = {
       createdAt: new Date().toISOString(),
       createdBy: user.userId,
       emailLocal: null,
-      handsTo: "[]",
-      id: ulid(),
+      handsTo: JSON.stringify(parsed.handsTo),
+      id,
       instructions: parsed.instructions,
       machineId,
       model: parsed.model,
@@ -314,7 +367,7 @@ export const createAgentsService = ({
       runtime: parsed.runtime,
       runtimeConfig: JSON.stringify(parsed.runtimeConfig),
       slug,
-      soul: "",
+      soul: parsed.soul,
       status: "active",
       workspaceId,
     };
@@ -410,6 +463,26 @@ export const createAgentsService = ({
     await assertMachineInWorkspace(machineId, workspaceId);
   };
 
+  const assertAgentPatch = async (
+    current: AgentRecord,
+    parsed: z.output<typeof agentUpdateSchema>
+  ): Promise<void> => {
+    const { id, workspaceId } = current;
+    if (parsed.runtimeConfig !== undefined) {
+      assertRuntimeConfig(current.runtime, parsed.runtimeConfig);
+    }
+    if (parsed.model !== undefined) {
+      assertModelForRuntime(current.runtime, parsed.model);
+    }
+    if (parsed.machineId !== undefined) {
+      await assertMachinePatch(current.runtime, parsed.machineId, workspaceId);
+    }
+
+    if (parsed.handsTo !== undefined) {
+      await assertHandsTo(db, { handsTo: parsed.handsTo, id, workspaceId });
+    }
+  };
+
   const update = async (
     principal: Principal,
     id: string,
@@ -423,15 +496,7 @@ export const createAgentsService = ({
     if (!current) {
       throw new ServiceError("not_found", "Agent not found");
     }
-    if (parsed.runtimeConfig !== undefined) {
-      assertRuntimeConfig(current.runtime, parsed.runtimeConfig);
-    }
-    if (parsed.model !== undefined) {
-      assertModelForRuntime(current.runtime, parsed.model);
-    }
-    if (parsed.machineId !== undefined) {
-      await assertMachinePatch(current.runtime, parsed.machineId, workspaceId);
-    }
+    await assertAgentPatch(current, parsed);
 
     const slug = parsed.slug ?? current.slug;
     if (slug !== current.slug && (await isSlugTaken(workspaceId, slug))) {
@@ -439,6 +504,7 @@ export const createAgentsService = ({
     }
 
     const values = {
+      handsTo: JSON.stringify(parsed.handsTo ?? current.handsTo),
       instructions: parsed.instructions ?? current.instructions,
       machineId: parsed.machineId ?? current.machineId,
       model: parsed.model ?? current.model,
@@ -447,6 +513,7 @@ export const createAgentsService = ({
         parsed.runtimeConfig ?? current.runtimeConfig
       ),
       slug,
+      soul: parsed.soul ?? current.soul,
     };
     const row = await saveAgent(id, workspaceId, values);
     if (!row) {
