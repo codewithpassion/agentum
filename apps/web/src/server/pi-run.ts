@@ -590,8 +590,9 @@ export class PiRun extends DurableObject<Env> {
   }
 
   /**
-   * Sends the agent's changes in the VM's working copy back to the library
-   * when a run ends, just before the VM checkpoint. A change that lost to a
+   * Sends the agent's changes in the VM's working copy back to the library,
+   * when a run ends just before the VM checkpoint and while it runs from the
+   * lease alarm (`waitMs: 0`, see `#checkpointLibrary`). A change that lost to a
    * newer library file is kept as a conflict copy and logged as a
    * `library.conflict` event on the run. Never throws.
    */
