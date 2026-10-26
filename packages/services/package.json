@@ -73,6 +73,7 @@
     "./slack/guidance": "./src/slack/guidance.ts",
     "./slack/manifest": "./src/slack/manifest.ts",
     "./slack/request-cards": "./src/slack/request-cards.ts",
+    "./slack/requests": "./src/slack/requests.ts",
     "./slack/signature": "./src/slack/signature.ts",
     "./slack/status": "./src/slack/status.ts",
     "./slack/threads": "./src/slack/threads.ts",

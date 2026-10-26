@@ -215,6 +215,12 @@ function SlackPanel({ agent }: AgentTabProps) {
           <li>Paste both below.</li>
           <li>Mention the agent in a channel or message it directly.</li>
         </ol>
+        <p className="text-muted-foreground text-sm">
+          The manifest now turns on interactivity, which the Allow and Deny
+          buttons on requests need. If you installed the app before this change,
+          paste the new manifest into your Slack app under App Manifest on
+          api.slack.com/apps.
+        </p>
         <div className="flex max-w-md flex-col gap-1.5">
           <Label htmlFor="slack-app-name">Slack app name</Label>
           <Input
