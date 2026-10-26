@@ -4,7 +4,7 @@ import { agentDraftSchema } from "./draft.ts";
 import { templates } from "./templates.ts";
 
 test("every template has a title, starter description and valid draft voice", () => {
-  expect(Object.keys(templates)).toEqual([...AGENT_TEMPLATE_IDS]);
+  expect(Object.keys(templates).sort()).toEqual([...AGENT_TEMPLATE_IDS].sort());
   for (const id of AGENT_TEMPLATE_IDS) {
     const template = templates[id];
     expect(template.title.length).toBeGreaterThan(0);

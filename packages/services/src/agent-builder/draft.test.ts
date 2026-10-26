@@ -69,7 +69,9 @@ test("unknown connector, skill and agent ids are removed and become profile gaps
   for (const gap of result.gaps) {
     expect(PROFILE_FIELDS).toContain(gap.field);
   }
-  expect(result.didList.join(" ")).not.toMatch(/Xero|Invented|Ghost/);
+  for (const unknown of ["Xero", "Invented", "Ghost"]) {
+    expect(result.didList.join(" ")).not.toContain(unknown);
+  }
 });
 
 test("all edited fields survive a redraft, including empty and null values", () => {
@@ -196,4 +198,41 @@ test("didList describes only the reconciled draft and reflects edits", () => {
     "Uses library path wiki",
     "Sample input topic: Bun",
   ]);
+});
+
+test("available managed runtime and an online machine have no gaps or offline notes", () => {
+  const available: BuilderCatalog = {
+    ...catalog,
+    machines: [{ id: "laptop", name: "Laptop", online: true }],
+    runtimes: ["managed", "machine"],
+  };
+  for (const runsOn of [
+    { runtime: "managed" },
+    { machineId: "laptop", runtime: "machine" },
+  ] as const) {
+    const result = reconcileDraft(draft({ runsOn }), available, {});
+    expect(result.draft.runsOn).toEqual(runsOn);
+    expect(result.gaps).toEqual([]);
+    expect(result.didList).not.toContain("Laptop is offline");
+  }
+});
+
+test("reconciliation does not mutate its inputs and returns a schema-valid draft", () => {
+  const raw = draft({ tools: ["Xero"] });
+  const locked = { skills: ["summarize"] };
+  const before = structuredClone({ catalog, locked, raw });
+  const result = reconcileDraft(raw, catalog, locked);
+  expect({ catalog, locked, raw }).toEqual(before);
+  expect(agentDraftSchema.safeParse(result.draft).success).toBe(true);
+});
+
+test("malformed draft structure is rejected", () => {
+  for (const raw of [
+    null,
+    [],
+    { ...draft(), voice: "invented" },
+    { ...draft(), sampleInput: ["text"] },
+  ]) {
+    expect(() => reconcileDraft(raw, catalog, {})).toThrow();
+  }
 });
