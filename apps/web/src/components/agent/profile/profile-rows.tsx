@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import type { AgentProfileView, AgentRecord } from "#/integrations/trpc/types";
 import { ChipList } from "./chip-list.tsx";
 import { LibraryRow } from "./library-row.tsx";
@@ -10,19 +9,9 @@ import {
   startChips,
   toolChips,
 } from "./profile-logic.ts";
+import { Row } from "./profile-row.tsx";
 import type { SheetId } from "./sheet-ids.ts";
 import { VoiceField } from "./voice-field.tsx";
-
-function Row({ children, label }: { children: ReactNode; label: string }) {
-  return (
-    <div className="grid grid-cols-[110px_minmax(0,1fr)] items-start gap-2.5 border-border border-t border-dashed py-2.5 first:border-t-0">
-      <span className="font-semibold text-muted-foreground text-xs uppercase tracking-wider">
-        {label}
-      </span>
-      <div className="min-w-0 text-sm">{children}</div>
-    </div>
-  );
-}
 
 /** The profile card: one row per part of the agent, each with its own manage action. */
 export function ProfileRows({
