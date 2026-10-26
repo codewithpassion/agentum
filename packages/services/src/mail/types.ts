@@ -216,10 +216,12 @@ export interface EmailRoutingPort {
   deleteRule: (ruleId: string) => Promise<void>;
   /**
    * Finds the routing rule for an address, or null when there is none.
-   * `managed` is true when the rule carries the Harbourmaster name, which lets a
-   * retry adopt a rule whose id never reached the mailbox row.
+   * `managed` is required: true when the rule carries the `harbourmaster:<address>`
+   * name `createRule` gives, which lets a retry adopt a rule whose id never
+   * reached the mailbox row. An adapter that always says false makes such a
+   * retry fail with "Address in use outside Harbourmaster".
    */
   findRule: (
     address: string
-  ) => Promise<{ id: string; managed?: boolean } | null>;
+  ) => Promise<{ id: string; managed: boolean } | null>;
 }

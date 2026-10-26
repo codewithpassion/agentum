@@ -55,6 +55,7 @@ const routing: EmailRoutingPort = {
     }
     creates += 1;
     rules.set(address, "rule");
+    managedRules.add(address);
     return Promise.resolve({ id: "rule" });
   },
   deleteRule: (id) => {
