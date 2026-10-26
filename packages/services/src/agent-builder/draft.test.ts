@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { PROFILE_FIELDS } from "@repo/db/shared";
+import { z } from "zod";
 import {
   type AgentDraft,
   agentDraftSchema,
@@ -242,4 +243,63 @@ test("a locked key set to undefined does not overwrite the model's value", () =>
     name: undefined,
   } as Partial<AgentDraft>);
   expect(result.draft.name).toBe("Inbox helper");
+});
+
+test("a trailing Rules block in does is removed and the rules field is kept", () => {
+  const result = reconcileDraft(
+    draft({
+      does: "Sort messages.\n\nRules:\n- Never delete mail\n- Ask first",
+      rules: ["Never delete mail", "Ask first"],
+    }),
+    catalog,
+    {}
+  );
+  expect(result.draft.does).toBe("Sort messages.");
+  expect(result.draft.rules).toEqual(["Never delete mail", "Ask first"]);
+  expect(result.didList).toContain("Does: Sort messages.");
+});
+
+test("markdown-styled and inline Rules blocks are removed from does", () => {
+  for (const tail of [
+    "\n\n**Rules:**\n- Be brief",
+    "\n## Rules\n- Be brief",
+    "\nRules: be brief",
+    "\n\nRULES:\n1. Be brief",
+  ]) {
+    const result = reconcileDraft(
+      draft({ does: `Sort messages.${tail}`, rules: ["Be brief"] }),
+      catalog,
+      {}
+    );
+    expect(result.draft.does).toBe("Sort messages.");
+  }
+});
+
+test("does keeps prose that only mentions rules, and a locked does is untouched", () => {
+  const prose = "Sort messages by the rules the team agreed.";
+  expect(reconcileDraft(draft({ does: prose }), catalog, {}).draft.does).toBe(
+    prose
+  );
+  const withBlock = "My task.\nRules:\n- Mine";
+  expect(
+    reconcileDraft(draft({ does: "Other" }), catalog, { does: withBlock }).draft
+      .does
+  ).toBe(withBlock);
+  expect(
+    reconcileDraft(draft({ does: "Rules:\n- Only rules" }), catalog, {}).draft
+      .does
+  ).toBe("Rules:\n- Only rules");
+});
+
+test("the tool schema tells the model to keep rules out of does", () => {
+  const { properties } = z
+    .object({
+      properties: z.object({
+        does: z.object({ description: z.string() }),
+        rules: z.object({ description: z.string() }),
+      }),
+    })
+    .parse(z.toJSONSchema(agentDraftSchema, { io: "input" }));
+  expect(properties.does.description).toContain("Do not put the rules");
+  expect(properties.rules.description).toContain("only place");
 });
