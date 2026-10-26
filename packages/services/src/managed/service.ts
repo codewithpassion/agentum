@@ -19,7 +19,9 @@
  */
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
+import { agents } from "@repo/db/schema/agents";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
+import { machines } from "@repo/db/schema/machines";
 import {
   managedAgents,
   managedRuns,
@@ -29,11 +31,15 @@ import { runRequests } from "@repo/db/schema/requests";
 import { runs } from "@repo/db/schema/runs";
 import { agentToolRules } from "@repo/db/schema/tool-rules";
 import { CHOICES_MAX, taskFolderPath } from "@repo/db/shared";
-import { workspaceInstructions } from "@repo/protocol/attachments";
+import {
+  computerInstructions,
+  workspaceInstructions,
+} from "@repo/protocol/attachments";
 import {
   ASK_USER_TOOL,
   toolKey as canonicalToolKey,
   outcomeText,
+  REQUEST_TAKEOVER_TOOL,
 } from "@repo/protocol/requests";
 import {
   and,
@@ -75,12 +81,13 @@ import {
   reduceEvents,
   type SessionEvent,
 } from "./events.ts";
-import type {
-  IdCache,
-  ManagedGateway,
-  McpServerRef,
-  PolledEvents,
-  SkillRef,
+import {
+  DESKTOP_SCREENSHOT_TOOL,
+  type IdCache,
+  type ManagedGateway,
+  type McpServerRef,
+  type PolledEvents,
+  type SkillRef,
 } from "./gateway.ts";
 import { type ManagedKeysService, NO_KEY_MESSAGE } from "./keys.ts";
 import { finalReply, toRunEvents } from "./run-events.ts";
@@ -91,6 +98,7 @@ import {
   skillsGuidance,
 } from "./skills-sync.ts";
 import {
+  type DesktopScreenshot,
   MANAGED_CLAIMER,
   MANAGED_LEASE_MS,
   type ManagedPollerPort,
@@ -137,6 +145,11 @@ export interface ManagedServiceOptions {
   atomic: Atomic;
   clock: Clock;
   db: Database;
+  /**
+   * A screenshot of the machine's desktop, for the `desktop_screenshot` tool.
+   * Without it the tool answers that screenshots are unavailable.
+   */
+  desktopScreenshot?: (machineId: string) => Promise<DesktopScreenshot>;
   events: EventsService;
   /** The gateway on one workspace's key. Tests give a fake. */
   gatewayFor: (key: { apiKey: string; environment: IdCache }) => ManagedGateway;
@@ -190,13 +203,35 @@ const stopMessage = (stopReason: string | null, errors: string[]): string => {
 export const taskFolderNote = (slug: string, runId: string): string =>
   `[Save files for the user in ${taskFolderPath(slug, runId)}. It is a folder in the workspace library, reached with the library tools, not on your disk. Everything there shows in the task's Files panel.]`;
 
+/** What became of a blocked call: answered at once, a request opened for a person, or nobody can answer it. */
+type CallOutcome = "answered" | "opened" | "refused";
+
+/** The computer an agent drives, as far as the managed runtime cares. */
+interface AgentComputer {
+  /** The machine reports a desktop. */
+  desktop: boolean;
+  machineId: string;
+}
+
+const hasDesktop = (computer: AgentComputer | null) =>
+  computer?.desktop === true;
+
+/**
+ * The tools follow the computer, and a running session keeps its tools, so a
+ * new or lost computer, or a changed desktop, retires the session. An agent
+ * with no computer adds nothing, so its fingerprint stays what it was.
+ */
+const computerFingerprint = (computer: AgentComputer | null) =>
+  computer ? { computer } : {};
+
 /** The Anthropic agent's system text: its instructions, its files, then what it is told about skills, Slack and secrets. */
 const systemOf = (
   agent: AgentRecord,
   handoffNames: string[],
   skillNames: string[],
   slackText: string,
-  secretsText: string
+  secretsText: string,
+  computer: AgentComputer | null
 ): string =>
   [
     // Preserve the managed runtime's default identity when instructions are blank.
@@ -218,6 +253,7 @@ const systemOf = (
     skillsGuidance(skillNames),
     slackText,
     secretsText,
+    computer ? computerInstructions({ desktop: computer.desktop }) : "",
   ]
     .filter((part) => part !== "")
     .join("\n\n");
@@ -226,6 +262,7 @@ export const createManagedService = ({
   atomic,
   clock,
   db,
+  desktopScreenshot,
   events,
   gatewayFor,
   keys,
@@ -380,9 +417,39 @@ export const createManagedService = ({
     return rows.map((row) => row.toolKey);
   };
 
+  /** The computer an agent has, and whether it reports a desktop. Null when it has none. */
+  const computerOf = async (agent: {
+    id: string;
+    workspaceId: string;
+  }): Promise<AgentComputer | null> => {
+    const [row] = await db
+      .select({
+        capabilities: machines.computerCapabilities,
+        machineId: machines.id,
+      })
+      .from(agents)
+      .innerJoin(machines, eq(machines.id, agents.computerMachineId))
+      .where(
+        and(
+          eq(agents.id, agent.id),
+          eq(agents.workspaceId, agent.workspaceId),
+          eq(machines.workspaceId, agent.workspaceId)
+        )
+      )
+      .limit(1);
+    if (!row) {
+      return null;
+    }
+    const reported = row.capabilities
+      ? (JSON.parse(row.capabilities) as { desktop?: unknown })
+      : {};
+    return { desktop: reported.desktop === true, machineId: row.machineId };
+  };
+
   const ensureRegistered = async ({
     agent,
     askKeys,
+    desktop,
     fingerprint,
     gateway,
     model,
@@ -392,6 +459,7 @@ export const createManagedService = ({
   }: {
     agent: AgentRecord;
     askKeys: string[];
+    desktop: boolean;
     fingerprint: string;
     gateway: ManagedGateway;
     model: string;
@@ -406,6 +474,7 @@ export const createManagedService = ({
       .limit(1);
     const input = {
       askKeys,
+      desktop,
       mcpServers: servers,
       model,
       name: agent.name,
@@ -794,12 +863,14 @@ export const createManagedService = ({
       agentId: agent.id,
       workspaceId: run.workspaceId,
     });
+    const computer = await computerOf(agent);
     const system = systemOf(
       agent,
       await handsToNames(db, agent),
       resolved.map((skill) => skill.name),
       slack,
-      grants.guidance
+      grants.guidance,
+      computer
     );
     const askKeys = await askKeysOf(agent);
     const fingerprint = await hashToken(
@@ -812,12 +883,14 @@ export const createManagedService = ({
         servers,
         skills: refs,
         system,
+        ...computerFingerprint(computer),
         ...grants.fingerprintPart,
       })
     );
     const anthropicAgentId = await ensureRegistered({
       agent,
       askKeys,
+      desktop: hasDesktop(computer),
       fingerprint,
       gateway,
       model,
@@ -956,15 +1029,102 @@ export const createManagedService = ({
     };
   };
 
-  /** Opens the request one blocked call needs. False for a call nobody can answer. */
-  const openRequest = async (run: RunRecord, call: SessionEvent) => {
+  /** The picture of the desktop, or the reason for the model that there is none. */
+  const screenshotOf = async (run: RunRecord): Promise<DesktopScreenshot> => {
+    const computer = await computerOf({
+      id: run.agentId,
+      workspaceId: run.workspaceId,
+    });
+    if (!computer?.desktop) {
+      return {
+        message: "This agent has no computer with a desktop.",
+        ok: false,
+      };
+    }
+    if (!desktopScreenshot) {
+      return {
+        message: "Desktop screenshots are not available here.",
+        ok: false,
+      };
+    }
+    try {
+      return await desktopScreenshot(computer.machineId);
+    } catch (error) {
+      return {
+        message: `The screenshot failed: ${describeError(error)}`,
+        ok: false,
+      };
+    }
+  };
+
+  /** Opens the takeover a `request_human_takeover` call asks for, or answers the call when none can open. */
+  const openTakeover = async (
+    run: RunRecord,
+    gateway: ManagedGateway,
+    anthropicSessionId: string,
+    tool: NonNullable<SessionEvent["tool"]>
+  ): Promise<CallOutcome> => {
+    const asked = tool.input.reason;
+    try {
+      await requests.open(SYSTEM_PRINCIPAL, {
+        kind: "takeover",
+        reason:
+          typeof asked === "string" && asked.trim() !== ""
+            ? asked
+            : "The agent asked for a takeover without a reason.",
+        runId: run.id,
+        toolUseId: tool.id,
+      });
+    } catch (error) {
+      if (!isServiceError(error)) {
+        throw error;
+      }
+      // No computer, or a takeover already open: a result, not a failed run.
+      await gateway.sendCustomToolResult(
+        anthropicSessionId,
+        tool.id,
+        `No takeover was opened: ${error.message}. Go on without the computer or stop and say what you need.`
+      );
+      return "answered";
+    }
+    return "opened";
+  };
+
+  /**
+   * Handles the one blocked call: a screenshot is answered at once, anything
+   * else opens a request. "refused" is a call nobody can answer.
+   */
+  const openRequest = async (
+    run: RunRecord,
+    call: SessionEvent,
+    gateway: ManagedGateway,
+    anthropicSessionId: string
+  ): Promise<CallOutcome> => {
     const { tool } = call;
     if (!tool) {
-      return false;
+      return "refused";
     }
     if (call.type === "agent.custom_tool_use") {
+      if (tool.name === DESKTOP_SCREENSHOT_TOOL.name) {
+        const shot = await screenshotOf(run);
+        await (shot.ok
+          ? gateway.sendCustomToolImageResult(
+              anthropicSessionId,
+              tool.id,
+              shot.image
+            )
+          : gateway.sendCustomToolResult(
+              anthropicSessionId,
+              tool.id,
+              shot.message
+            ));
+        return "answered";
+      }
+      if (tool.name === REQUEST_TAKEOVER_TOOL.name) {
+        return await openTakeover(run, gateway, anthropicSessionId, tool);
+      }
       if (tool.name !== ASK_USER_TOOL.name) {
-        return false;
+        return "refused";
       }
       await requests.open(SYSTEM_PRINCIPAL, {
         kind: "question",
@@ -973,7 +1133,7 @@ export const createManagedService = ({
         toolName: tool.name,
         toolUseId: tool.id,
       });
-      return true;
+      return "opened";
     }
     await requests.open(SYSTEM_PRINCIPAL, {
       input: tool.input as Payload,
@@ -987,14 +1147,16 @@ export const createManagedService = ({
       toolName: tool.server ? `${tool.server}/${tool.name}` : tool.name,
       toolUseId: tool.id,
     });
-    return true;
+    return "opened";
   };
 
   /**
    * Opens a request for each call the session is blocked on. A blocked call
    * can sit in an earlier page than the idle that names it, so a call not in
-   * this page is looked for in the whole session. False when a call cannot be
-   * answered, such as a custom tool this platform did not register.
+   * this page is looked for in the whole session. `answerable` is false when a
+   * call cannot be answered, such as a custom tool this platform did not
+   * register. `answered` is true when a call was answered at once, which lets
+   * the session go on, so it is read again soon.
    */
   const openRequests = async (
     run: RunRecord,
@@ -1002,7 +1164,8 @@ export const createManagedService = ({
     gateway: ManagedGateway,
     polled: PolledEvents,
     blocked: readonly string[]
-  ): Promise<boolean> => {
+  ): Promise<{ answerable: boolean; answered: boolean }> => {
+    const { anthropicSessionId } = session;
     const calls = new Map<string, SessionEvent>();
     const collect = (page: readonly SessionEvent[]) => {
       for (const event of page) {
@@ -1012,19 +1175,23 @@ export const createManagedService = ({
       }
     };
     collect(polled.events);
-    if (blocked.some((id) => !calls.has(id)) && session.anthropicSessionId) {
-      collect(
-        (await gateway.pollEvents(session.anthropicSessionId, undefined)).events
-      );
+    if (blocked.some((id) => !calls.has(id)) && anthropicSessionId) {
+      collect((await gateway.pollEvents(anthropicSessionId, undefined)).events);
     }
+    const handle = (call: SessionEvent | undefined): Promise<CallOutcome> =>
+      call && anthropicSessionId
+        ? openRequest(run, call, gateway, anthropicSessionId)
+        : Promise.resolve("refused");
+    let answered = false;
     for (const id of new Set(blocked)) {
-      const call = calls.get(id);
       // biome-ignore lint/performance/noAwaitInLoops: requests open in the order the calls were made
-      if (!(call && (await openRequest(run, call)))) {
-        return false;
+      const outcome = await handle(calls.get(id));
+      if (outcome === "refused") {
+        return { answerable: false, answered };
       }
+      answered ||= outcome === "answered";
     }
-    return true;
+    return { answerable: true, answered };
   };
 
   /**
@@ -1236,7 +1403,7 @@ export const createManagedService = ({
     // The requests open before the cursor moves past the idle that names them,
     // so a step that fails here reads the idle again. Opening is idempotent.
     const blocked = reduceEvents(polled.events, "running");
-    const answerable =
+    const opened =
       blocked.status === "idle" && blocked.stopReason === "requires_action"
         ? await openRequests(
             run,
@@ -1245,9 +1412,19 @@ export const createManagedService = ({
             polled,
             blocked.requiredEventIds
           )
-        : true;
+        : { answerable: true, answered: false };
     await storeProgress(run, session, managedRun, polled);
-    return await settle(run, session, gateway, polled, answerable);
+    const settled = await settle(
+      run,
+      session,
+      gateway,
+      polled,
+      opened.answerable
+    );
+    // A call answered now lets the session go on, so it is not waiting for a person.
+    return opened.answered && settled.next !== null
+      ? { next: Math.min(settled.next, POLL_MS) }
+      : settled;
   };
 
   const countFailure = async (run: RunRecord): Promise<ManagedStepResult> => {

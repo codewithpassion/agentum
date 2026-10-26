@@ -10,6 +10,8 @@ import type { Clock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
 import { eq, inArray } from "drizzle-orm";
 import { composeWith } from "./compose.ts";
+import { PRESENCE_ALARM_MS } from "./computer-relay-core.ts";
+import { createMachineRelayCore } from "./machine-relay-core.ts";
 import {
   createRelayCore,
   LAST_SEEN_WRITE_MS,
@@ -454,5 +456,332 @@ describe("MachineRelay presence", () => {
     expect(socket.closes).toEqual([
       { code: REJECTED, reason: "Credential rejected." },
     ]);
+  });
+});
+
+class TaggedSocket extends FakeSocket {
+  tags: string[];
+
+  constructor(tags: string[]) {
+    super();
+    this.tags = tags;
+  }
+}
+
+const computerHelloFrame = JSON.stringify({
+  arch: "amd64",
+  capabilities: {
+    desktop: false,
+    desktop_unavailable_reason: null,
+    git: true,
+    python3: true,
+    skills: false,
+  },
+  hostname: "box",
+  os: "linux",
+  protocol_version: 1,
+  run_as_user: "agent",
+  type: "hello",
+  version: "1.0.0",
+  workdir: "/home/agent/sessions",
+});
+
+describe("MachineRelay with a daemon and a computer on one object", () => {
+  let live: TaggedSocket[];
+  let heartbeats: Map<TaggedSocket, number>;
+  let pendingWork: Promise<unknown>[];
+  let relay: ReturnType<typeof createMachineRelayCore<TaggedSocket>>;
+
+  beforeEach(() => {
+    live = [];
+    heartbeats = new Map();
+    pendingWork = [];
+    relay = createMachineRelayCore<TaggedSocket>({
+      background: (work) => {
+        pendingWork.push(work);
+      },
+      heartbeatAt: (socket) => heartbeats.get(socket) ?? null,
+      machines: services.machines,
+      now: () => nowMs,
+      sockets: () => live,
+      storage,
+      tagsOf: (socket) => socket.tags,
+    });
+  });
+
+  /** Waits for the background work the cores handed to `background`. */
+  const settle = async () => {
+    await Promise.all(pendingWork.splice(0));
+  };
+
+  /** A machine with a daemon credential and a computer credential. */
+  const enrolBoth = async () => {
+    const identity = await enrolMachine();
+    const { code } = await services.machines.createEnrollToken(user, {
+      machineId: identity.machineId,
+      role: "computer",
+    });
+    const enrolled = await services.machines.enroll({
+      arch: "amd64",
+      clientVersion: "1.0.0",
+      code,
+      hostname: "box",
+      os: "linux",
+      role: "computer",
+    });
+    if (!enrolled) {
+      throw new Error("computer enrol failed");
+    }
+    return identity;
+  };
+
+  const dialDaemon = async (identity: {
+    machineId: string;
+    workspaceId: string;
+  }) => {
+    await relay.connect("daemon", identity);
+    const socket = new TaggedSocket(["daemon"]);
+    live.push(socket);
+    await relay.accepted("daemon", socket, 0);
+    await settle();
+    return socket;
+  };
+
+  const dialComputer = async (identity: {
+    machineId: string;
+    workspaceId: string;
+  }) => {
+    const { generation } = await relay.connect("computer", identity);
+    const socket = new TaggedSocket(["computer"]);
+    live.push(socket);
+    await relay.accepted("computer", socket, generation);
+    await settle();
+    return socket;
+  };
+
+  /** The runtime removes a socket from the set before its close handler runs. */
+  const hangUp = (socket: TaggedSocket) => {
+    live = live.filter((other) => other !== socket);
+    return relay.closed(socket);
+  };
+
+  /** The runtime clears the one alarm before it runs the handler. */
+  const fireMachineAlarm = () => {
+    storage.alarm = null;
+    return relay.alarm();
+  };
+
+  const snapshot = () => ({
+    alarm: storage.alarm,
+    values: new Map(storage.values),
+  });
+
+  const sentTypes = (socket: TaggedSocket) =>
+    socket.sent.map((raw) => JSON.parse(raw).type);
+
+  test("each hello reaches only its own core", async () => {
+    const identity = await enrolBoth();
+    const daemonSocket = await dialDaemon(identity);
+    const computerSocket = await dialComputer(identity);
+
+    await relay.message(daemonSocket, helloFrame);
+    await relay.message(computerSocket, computerHelloFrame);
+
+    expect(daemonSocket.frames()).toEqual([
+      {
+        machineId: identity.machineId,
+        serverTime: new Date(START).toISOString(),
+        type: "hello_ack",
+      },
+    ]);
+    expect(computerSocket.sent).toEqual([]);
+    const row = machineRow(identity.machineId);
+    expect(row?.status).toBe("online");
+    expect(row?.computerStatus).toBe("online");
+    expect(row?.computerLastSeenAt).toBe(new Date(START).toISOString());
+  });
+
+  test("a frame for one role sent on the other role's socket is ignored", async () => {
+    const identity = await enrolBoth();
+    const daemonSocket = await dialDaemon(identity);
+    const computerSocket = await dialComputer(identity);
+    await relay.message(daemonSocket, helloFrame);
+    await relay.message(computerSocket, computerHelloFrame);
+    const beforeDaemonPing = snapshot();
+    nowMs = START + LAST_SEEN_WRITE_MS;
+
+    await relay.message(computerSocket, pingFrame(nowMs));
+    expect(snapshot()).toEqual(beforeDaemonPing);
+    expect(computerSocket.sent).toEqual([]);
+
+    const beforeComputerReply = snapshot();
+    await relay.message(
+      daemonSocket,
+      JSON.stringify({ id: "req_1", ok: true, result_json: "{}" })
+    );
+    expect(snapshot()).toEqual(beforeComputerReply);
+    expect(daemonSocket.sent).toEqual([
+      JSON.stringify({
+        machineId: identity.machineId,
+        serverTime: new Date(START).toISOString(),
+        type: "hello_ack",
+      }),
+    ]);
+  });
+
+  test("a computer connecting does not close the daemon's socket", async () => {
+    const identity = await enrolBoth();
+    const daemonSocket = await dialDaemon(identity);
+    await relay.message(daemonSocket, helloFrame);
+
+    const computerSocket = await dialComputer(identity);
+
+    expect(daemonSocket.closes).toEqual([]);
+    expect(computerSocket.closes).toEqual([]);
+  });
+
+  test("a daemon connecting does not close the computer's socket", async () => {
+    const identity = await enrolBoth();
+    const computerSocket = await dialComputer(identity);
+    await relay.message(computerSocket, computerHelloFrame);
+
+    const daemonSocket = await dialDaemon(identity);
+
+    expect(computerSocket.closes).toEqual([]);
+    expect(daemonSocket.closes).toEqual([]);
+  });
+
+  test("a second computer connection closes the old computer socket and leaves the daemon's alone", async () => {
+    const identity = await enrolBoth();
+    const first = await dialComputer(identity);
+    await relay.message(first, computerHelloFrame);
+    const daemonSocket = await dialDaemon(identity);
+    await relay.message(daemonSocket, helloFrame);
+
+    const second = await dialComputer(identity);
+    await hangUp(first);
+
+    expect(first.closes).toEqual([
+      {
+        code: 4409,
+        reason: "Replaced by a newer connection for this computer.",
+      },
+    ]);
+    expect(second.closes).toEqual([]);
+    expect(daemonSocket.closes).toEqual([]);
+    const row = machineRow(identity.machineId);
+    expect(row?.status).toBe("online");
+    expect(row?.computerStatus).toBe("online");
+  });
+
+  test("closing the computer socket marks only the computer offline", async () => {
+    const identity = await enrolBoth();
+    const daemonSocket = await dialDaemon(identity);
+    await relay.message(daemonSocket, helloFrame);
+    const computerSocket = await dialComputer(identity);
+    await relay.message(computerSocket, computerHelloFrame);
+
+    await hangUp(computerSocket);
+
+    const row = machineRow(identity.machineId);
+    expect(row?.computerStatus).toBe("offline");
+    expect(row?.status).toBe("online");
+  });
+
+  test("closing the daemon socket marks only the daemon offline", async () => {
+    const identity = await enrolBoth();
+    const daemonSocket = await dialDaemon(identity);
+    await relay.message(daemonSocket, helloFrame);
+    const computerSocket = await dialComputer(identity);
+    await relay.message(computerSocket, computerHelloFrame);
+
+    await hangUp(daemonSocket);
+
+    const row = machineRow(identity.machineId);
+    expect(row?.status).toBe("offline");
+    expect(row?.computerStatus).toBe("online");
+  });
+
+  test("revoking closes both sockets with 4401, whatever their tag", async () => {
+    const identity = await enrolBoth();
+    const daemonSocket = await dialDaemon(identity);
+    await relay.message(daemonSocket, helloFrame);
+    const computerSocket = await dialComputer(identity);
+    await relay.message(computerSocket, computerHelloFrame);
+
+    relay.revoke();
+    await settle();
+
+    expect(daemonSocket.closes.map((close) => close.code)).toEqual([REJECTED]);
+    expect(computerSocket.closes.map((close) => close.code)).toEqual([
+      REJECTED,
+    ]);
+  });
+
+  test("a daemon offer goes to the daemon socket only", async () => {
+    const identity = await enrolBoth();
+    const daemonSocket = await dialDaemon(identity);
+    await relay.message(daemonSocket, helloFrame);
+    const computerSocket = await dialComputer(identity);
+    await relay.message(computerSocket, computerHelloFrame);
+    const sentBefore = daemonSocket.sent.length;
+
+    relay.daemon.offer({ agentId: "agent_1", runId: "run_1" });
+
+    expect(daemonSocket.frames().slice(sentBefore)).toEqual([
+      { agentId: "agent_1", runId: "run_1", type: "offer" },
+    ]);
+    expect(computerSocket.sent).toEqual([]);
+  });
+
+  test("both cores share one alarm at the earliest wake time", async () => {
+    const identity = await enrolBoth();
+    const daemonSocket = await dialDaemon(identity);
+    await relay.message(daemonSocket, helloFrame);
+    const computerSocket = await dialComputer(identity);
+    await relay.message(computerSocket, computerHelloFrame);
+
+    expect(storage.alarm).toBe(
+      Math.min(START + PRESENCE_TIMEOUT_MS, START + PRESENCE_ALARM_MS)
+    );
+
+    await hangUp(daemonSocket);
+
+    expect(storage.alarm).toBe(START + PRESENCE_ALARM_MS);
+  });
+
+  test("the alarm runs the computer core without marking the daemon offline", async () => {
+    const identity = await enrolBoth();
+    const daemonSocket = await dialDaemon(identity);
+    await relay.message(daemonSocket, helloFrame);
+    const computerSocket = await dialComputer(identity);
+    await relay.message(computerSocket, computerHelloFrame);
+
+    nowMs = START + PRESENCE_ALARM_MS;
+    heartbeats.set(computerSocket, nowMs);
+    await fireMachineAlarm();
+
+    const row = machineRow(identity.machineId);
+    expect(row?.computerLastSeenAt).toBe(new Date(nowMs).toISOString());
+    expect(row?.status).toBe("online");
+    expect(storage.alarm).toBe(START + PRESENCE_TIMEOUT_MS);
+  });
+
+  test("an alarm armed before the mux existed runs the daemon core's alarm", async () => {
+    const identity = await enrolMachine();
+    const daemonSocket = await dialDaemon(identity);
+    await relay.message(daemonSocket, helloFrame);
+    for (const key of [...storage.values.keys()]) {
+      if (key.startsWith("alarm:")) {
+        storage.values.delete(key);
+      }
+    }
+    storage.alarm = START + PRESENCE_TIMEOUT_MS;
+
+    nowMs = START + PRESENCE_TIMEOUT_MS;
+    await fireMachineAlarm();
+
+    expect(machineRow(identity.machineId)?.status).toBe("offline");
+    expect(sentTypes(daemonSocket)).toEqual(["hello_ack"]);
   });
 });

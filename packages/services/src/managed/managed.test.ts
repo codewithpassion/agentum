@@ -40,7 +40,12 @@ import { createSecretsService, type SecretsService } from "../secrets.ts";
 import { SLACK_GUIDANCE } from "../slack/guidance.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { advanceCursor, eventsAfter, type SessionEvent } from "./events.ts";
-import type { ManagedGateway, SkillRef, SkillUploadFile } from "./gateway.ts";
+import type {
+  ManagedGateway,
+  SkillRef,
+  SkillUploadFile,
+  ToolResultImage,
+} from "./gateway.ts";
 import { createManagedKeysService, NO_KEY_MESSAGE } from "./keys.ts";
 import { createManagedRuntime } from "./runtime.ts";
 import {
@@ -48,6 +53,7 @@ import {
   createManagedService,
   FAILURE_LIMIT,
   type ManagedService,
+  type ManagedServiceOptions,
   POLL_MS,
   RUN_MAX_MS,
   taskFolderNote,
@@ -99,6 +105,14 @@ class FakeGateway implements ManagedGateway {
     toolUseId: string;
   }[] = [];
   customResults: { sessionId: string; text: string; toolUseId: string }[] = [];
+  /** Pictures sent as tool results. */
+  imageResults: {
+    image: ToolResultImage;
+    sessionId: string;
+    toolUseId: string;
+  }[] = [];
+  /** Whether each registration or sync asked for the desktop tools. */
+  desktopsSent: boolean[] = [];
   /** Fails the next `confirmTool`, once. */
   confirmFailure: Error | null = null;
   credentials: { token: string; url: string; vaultId: string }[] = [];
@@ -328,6 +342,19 @@ class FakeGateway implements ManagedGateway {
     return Promise.resolve();
   }
 
+  sendCustomToolImageResult(
+    sessionId: string,
+    toolUseId: string,
+    image: ToolResultImage
+  ) {
+    this.imageResults.push({ image, sessionId, toolUseId });
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      this.play(session);
+    }
+    return Promise.resolve();
+  }
+
   createSkill(input: { files: readonly SkillUploadFile[] }) {
     const skillId = `skill_${this.skillStore.size + 1}`;
     this.skillStore.set(skillId, [{ files: input.files, version: "1" }]);
@@ -353,6 +380,7 @@ class FakeGateway implements ManagedGateway {
 
   registerAgent(input: {
     askKeys: readonly string[];
+    desktop?: boolean;
     instructions: string;
     mcpServers: readonly { name: string; url: string }[];
     name: string;
@@ -361,6 +389,7 @@ class FakeGateway implements ManagedGateway {
   }) {
     this.agentSeq += 1;
     this.askKeysSent.push(input.askKeys);
+    this.desktopsSent.push(input.desktop === true);
     this.registered.push({
       instructions: input.instructions,
       name: input.name,
@@ -383,11 +412,13 @@ class FakeGateway implements ManagedGateway {
   syncAgent(input: {
     anthropicAgentId: string;
     askKeys: readonly string[];
+    desktop?: boolean;
     skills: readonly SkillRef[];
     system: string;
   }) {
     this.synced.push(input.anthropicAgentId);
     this.askKeysSent.push(input.askKeys);
+    this.desktopsSent.push(input.desktop === true);
     this.syncedAgents.push({ skills: input.skills, system: input.system });
     return Promise.resolve();
   }
@@ -406,6 +437,8 @@ let cancels: string[];
 let agentId: string;
 let tokenKey: CryptoKey;
 let hasKey: boolean;
+/** The `desktopScreenshot` dependency the next `buildManaged` hands the service. */
+let desktopShot: ManagedServiceOptions["desktopScreenshot"];
 /** Runs when the runtime reads the key, to put a write between two steps of a stop. */
 let onResolveKey: (() => void) | null;
 let events: ReturnType<typeof createEventsService>;
@@ -468,6 +501,7 @@ const buildManaged = (publicBaseUrl: string) => {
     atomic: sqliteAtomic(db),
     clock,
     db,
+    desktopScreenshot: desktopShot,
     events,
     gatewayFor: () => gateway,
     keys: {
@@ -566,6 +600,7 @@ beforeEach(async () => {
   kicks = [];
   cancels = [];
   hasKey = true;
+  desktopShot = undefined;
   onResolveKey = null;
   carried = [];
   versionFiles = new Map();
@@ -813,7 +848,7 @@ describe("a run that stops early", () => {
     gateway.turns = [
       [
         gateway.running(),
-        gateway.customCall("desktop_screenshot", {}, "evt_use"),
+        gateway.customCall("fetch_coffee", {}, "evt_use"),
         gateway.blockedOn("evt_use"),
       ],
     ];
@@ -2190,4 +2225,259 @@ test("managed voice and hands to enter system text and each change re-syncs", as
   expect(gateway.syncedAgents.at(-1)?.system).not.toContain(
     "You can hand work to:"
   );
+});
+
+describe("the agent's computer", () => {
+  const PNG = "iVBORw0KGgo=";
+
+  /** Gives the agent a computer, with or without a desktop. */
+  const giveComputer = async (desktop: boolean, id = "computer") => {
+    await db.insert(machines).values({
+      capabilities: "{}",
+      computerCapabilities: JSON.stringify({ desktop }),
+      computerStatus: "online",
+      createdAt: new Date(nowMs).toISOString(),
+      credentialHash: "computer-only:x",
+      enrolledBy: "user_dom",
+      id,
+      name: "Computer",
+      singleUser: false,
+      status: "online",
+      workspaceId: WORKSPACE,
+    });
+    await db
+      .update(agentRows)
+      .set({ computerMachineId: id })
+      .where(eq(agentRows.id, agentId));
+  };
+
+  const takeComputerAway = () =>
+    db
+      .update(agentRows)
+      .set({ computerMachineId: null })
+      .where(eq(agentRows.id, agentId));
+
+  /** Starts a run whose first turn calls one custom tool and stops on it. */
+  const callTool = async (
+    name: string,
+    input: Record<string, unknown> = {}
+  ) => {
+    const run = await start(dom);
+    gateway.turns = [
+      [
+        gateway.running(),
+        gateway.customCall(name, input, "evt_use"),
+        gateway.blockedOn("evt_use"),
+      ],
+      [gateway.running()],
+    ];
+    return run;
+  };
+
+  test("the desktop tools are declared only for a computer that reports a desktop", async () => {
+    await finishRun();
+    await giveComputer(false);
+    await finishRun();
+    await takeComputerAway();
+    await db.delete(machines);
+    await giveComputer(true);
+    await finishRun();
+
+    expect(gateway.desktopsSent).toEqual([false, false, true]);
+  });
+
+  test("the system text carries the computer paragraph when a computer is attached", async () => {
+    await giveComputer(true);
+
+    await finishRun();
+
+    expect(gateway.registered[0]?.system).toContain("computer_exec");
+    expect(gateway.registered[0]?.system).toContain("desktop_screenshot");
+  });
+
+  test("the system text has no computer paragraph without a computer", async () => {
+    await finishRun();
+
+    expect(gateway.registered[0]?.system).not.toContain("computer_exec");
+  });
+
+  test("the system text leaves out the desktop lines for a computer without one", async () => {
+    await giveComputer(false);
+
+    await finishRun();
+
+    expect(gateway.registered[0]?.system).toContain("computer_exec");
+    expect(gateway.registered[0]?.system).not.toContain("desktop_screenshot");
+  });
+
+  test("a screenshot call is answered with an image block, and the run goes on", async () => {
+    await giveComputer(true);
+    const asked: string[] = [];
+    desktopShot = (machineId) => {
+      asked.push(machineId);
+      return Promise.resolve({
+        image: { data: PNG, mediaType: "image/png" },
+        ok: true,
+      });
+    };
+    managed = buildManaged(BASE);
+    const { runId } = await callTool("desktop_screenshot");
+
+    const step = await managed.step(runId);
+
+    expect(asked).toEqual(["computer"]);
+    expect(gateway.imageResults).toEqual([
+      {
+        image: { data: PNG, mediaType: "image/png" },
+        sessionId: "sesn_1",
+        toolUseId: "evt_use",
+      },
+    ]);
+    expect(gateway.customResults).toEqual([]);
+    expect(runRow(runId)?.status).toBe("running");
+    // The session works again at once, so it is read soon, not after a wait for a person.
+    expect(step).toEqual({ next: POLL_MS });
+  });
+
+  test("an offline or busy computer becomes a text result", async () => {
+    await giveComputer(true);
+    desktopShot = () =>
+      Promise.resolve({ message: "The computer is offline.", ok: false });
+    managed = buildManaged(BASE);
+    const { runId } = await callTool("desktop_screenshot");
+
+    await managed.step(runId);
+
+    expect(gateway.imageResults).toEqual([]);
+    expect(gateway.customResults).toEqual([
+      {
+        sessionId: "sesn_1",
+        text: "The computer is offline.",
+        toolUseId: "evt_use",
+      },
+    ]);
+    expect(runRow(runId)?.status).toBe("running");
+  });
+
+  test("a screenshot that throws becomes a text result too", async () => {
+    await giveComputer(true);
+    desktopShot = () => Promise.reject(new Error("socket closed"));
+    managed = buildManaged(BASE);
+    const { runId } = await callTool("desktop_screenshot");
+
+    await managed.step(runId);
+
+    expect(gateway.customResults).toMatchObject([
+      { text: expect.stringContaining("failed"), toolUseId: "evt_use" },
+    ]);
+    expect(runRow(runId)?.status).toBe("running");
+  });
+
+  test("a screenshot call from an agent with no desktop gets a text result", async () => {
+    desktopShot = () => Promise.reject(new Error("must not be called"));
+    managed = buildManaged(BASE);
+    const { runId } = await callTool("desktop_screenshot");
+
+    await managed.step(runId);
+
+    expect(gateway.customResults).toMatchObject([
+      { text: expect.stringContaining("no computer"), toolUseId: "evt_use" },
+    ]);
+    expect(runRow(runId)?.status).toBe("running");
+  });
+
+  test("a screenshot call with no screenshot dependency gets a text result", async () => {
+    await giveComputer(true);
+    const { runId } = await callTool("desktop_screenshot");
+
+    await managed.step(runId);
+
+    expect(gateway.customResults).toMatchObject([
+      { text: expect.stringContaining("not available"), toolUseId: "evt_use" },
+    ]);
+  });
+
+  test("attaching a computer retires the session on the next run", async () => {
+    const first = await start(dom, "one");
+    await drive(first.runId);
+    await giveComputer(true);
+    const second = await start(dom, "two");
+
+    await managed.step(second.runId);
+
+    expect(gateway.synced).toEqual(["agent_1"]);
+    expect(gateway.desktopsSent).toEqual([false, true]);
+    expect(gateway.sessions.size).toBe(2);
+    expect(gateway.deletedVaults).toEqual(["vlt_1"]);
+  });
+
+  test("detaching the computer retires the session on the next run", async () => {
+    await giveComputer(true);
+    const first = await start(dom, "one");
+    await drive(first.runId);
+    await takeComputerAway();
+    const second = await start(dom, "two");
+
+    await managed.step(second.runId);
+
+    expect(gateway.desktopsSent).toEqual([true, false]);
+    expect(gateway.sessions.size).toBe(2);
+  });
+
+  test("a second run with the same computer reuses the session", async () => {
+    await giveComputer(true);
+    const first = await start(dom, "one");
+    await drive(first.runId);
+    const second = await start(dom, "two");
+
+    await managed.step(second.runId);
+
+    expect(gateway.sessions.size).toBe(1);
+    expect(gateway.synced).toEqual([]);
+  });
+
+  test("a request_human_takeover call opens a takeover and its cancel comes back as the tool result", async () => {
+    await giveComputer(true);
+    const { runId } = await callTool("request_human_takeover", {
+      reason: "A CAPTCHA blocks the login.",
+    });
+
+    const step = await managed.step(runId);
+
+    const [request] = await requests.listPending(dom);
+    expect(request).toMatchObject({
+      kind: "takeover",
+      toolUseId: "evt_use",
+    });
+    expect(request?.display).toEqual({
+      machineId: "computer",
+      reason: "A CAPTCHA blocks the login.",
+    });
+    expect(step).toEqual({ next: WAITING_POLL_MS });
+    expect(runRow(runId)?.status).toBe("waiting");
+
+    await requests.cancel(dom, request?.id ?? "");
+    await managed.step(runId);
+
+    expect(gateway.customResults).toMatchObject([
+      { text: expect.stringContaining("cancelled"), toolUseId: "evt_use" },
+    ]);
+  });
+
+  test("a takeover the agent cannot have becomes a text result, not a failed run", async () => {
+    const { runId } = await callTool("request_human_takeover", {
+      reason: "log in",
+    });
+
+    await managed.step(runId);
+
+    expect(gateway.customResults).toMatchObject([
+      {
+        text: expect.stringContaining("No takeover was opened"),
+        toolUseId: "evt_use",
+      },
+    ]);
+    expect(runRow(runId)?.status).toBe("running");
+    expect(await requests.listPending(dom)).toEqual([]);
+  });
 });

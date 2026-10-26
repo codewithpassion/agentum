@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import { type Composed, composeWith, type Infra } from "../compose.ts";
 import {
   RELAY_HEADER_MACHINE_ID,
+  RELAY_HEADER_ROLE,
   RELAY_HEADER_WORKSPACE_ID,
 } from "../relay-core.ts";
 import type { AppEnv } from "./groups.ts";
@@ -16,6 +17,7 @@ import { machineRoutes } from "./machines.ts";
 
 const ALLOWED_ORG_IDS = ["org_a"];
 const CONNECT = "http://localhost/api/machines/connect";
+const COMPUTER = "http://localhost/api/machines/computer";
 
 class RecordingSocket {
   accepted = false;
@@ -153,6 +155,29 @@ const postEnroll = (body: unknown) =>
 const connect = (headers: Record<string, string> = {}) =>
   app.request(CONNECT, { headers, method: "GET" }, env);
 
+const computerSocket = (headers: Record<string, string> = {}) =>
+  app.request(COMPUTER, { headers, method: "GET" }, env);
+
+/** A computer-only machine, enrolled through a computer code. */
+const enrolComputer = async () => {
+  const { code } = await composed.services.machines.createEnrollToken(user(), {
+    machineName: "box",
+    role: "computer",
+  });
+  const enrolled = await composed.services.machines.enroll({
+    arch: "arm64",
+    clientVersion: "1.2.3",
+    code,
+    hostname: "box",
+    os: "linux",
+    role: "computer",
+  });
+  if (!enrolled) {
+    throw new Error("computer enrol failed");
+  }
+  return enrolled;
+};
+
 const upgrade = { Upgrade: "websocket" };
 
 /** The server end of the most recent pair, which is what the route closes on refusal. */
@@ -268,4 +293,106 @@ test("connect with the good credential forwards to the relay with the machine's 
   expect(forwarded?.headers.get("sec-websocket-key")).toBe(
     "dGhlIHNhbXBsZSBub25jZQ=="
   );
+  expect(forwarded?.headers.get(RELAY_HEADER_ROLE)).toBe("daemon");
+});
+
+test("connect ignores a client-sent role header and forwards role daemon", async () => {
+  const { credential } = await enrol();
+
+  const res = await connect({
+    ...upgrade,
+    Authorization: `Bearer ${credential}`,
+    [RELAY_HEADER_ROLE]: "computer",
+  });
+
+  expect(res.status).toBe(200);
+  expect(relayRequests[0]?.headers.get(RELAY_HEADER_ROLE)).toBe("daemon");
+});
+
+test("computer without an Upgrade header answers 426", async () => {
+  const res = await computerSocket({});
+
+  expect(res.status).toBe(426);
+  expect(await res.json()).toEqual({ error: "Expected a WebSocket upgrade." });
+});
+
+test("computer with a computer credential forwards to the relay with role computer", async () => {
+  const { credential, machineId } = await enrolComputer();
+
+  const res = await computerSocket({
+    ...upgrade,
+    Authorization: `Bearer ${credential}`,
+    [RELAY_HEADER_ROLE]: "daemon",
+  });
+
+  expect(res.status).toBe(200);
+  expect(relayIds).toEqual([machineId]);
+  expect(relayRequests).toHaveLength(1);
+  const [forwarded] = relayRequests;
+  expect(forwarded?.headers.get(RELAY_HEADER_MACHINE_ID)).toBe(machineId);
+  expect(forwarded?.headers.get(RELAY_HEADER_WORKSPACE_ID)).toBe(workspaceId);
+  expect(forwarded?.headers.get(RELAY_HEADER_ROLE)).toBe("computer");
+  expect(forwarded?.headers.get("authorization")).toBeNull();
+});
+
+test("computer with a daemon credential closes with 4401 and never reaches the relay", async () => {
+  const { credential } = await enrol();
+
+  const res = await computerSocket({
+    ...upgrade,
+    Authorization: `Bearer ${credential}`,
+  });
+
+  expect(res.status).toBe(101);
+  expect(lastServerSocket().closed?.code).toBe(4401);
+  expect(relayRequests).toHaveLength(0);
+});
+
+test("connect with a computer credential closes with 4401 and never reaches the relay", async () => {
+  const { credential } = await enrolComputer();
+
+  const res = await connect({
+    ...upgrade,
+    Authorization: `Bearer ${credential}`,
+  });
+
+  expect(res.status).toBe(101);
+  expect(lastServerSocket().closed?.code).toBe(4401);
+  expect(relayRequests).toHaveLength(0);
+});
+
+test("enrol accepts a computer body and returns a credential and machine id", async () => {
+  const { code } = await composed.services.machines.createEnrollToken(user(), {
+    machineName: "box",
+    role: "computer",
+  });
+
+  const res = await postEnroll({
+    arch: "arm64",
+    clientVersion: "1.2.3",
+    code,
+    hostname: "box",
+    os: "linux",
+    role: "computer",
+  });
+
+  expect(res.status).toBe(200);
+  const body = enrollResponseSchema.parse(await res.json());
+  expect(body.credential.startsWith("hm_mach_")).toBe(true);
+  expect(body.machineId).toBeTruthy();
+});
+
+test("a computer body with a daemon enrol code answers 401", async () => {
+  const code = await mintCode();
+
+  const res = await postEnroll({
+    arch: "arm64",
+    clientVersion: "1.2.3",
+    code,
+    hostname: "box",
+    os: "linux",
+    role: "computer",
+  });
+
+  expect(res.status).toBe(401);
 });

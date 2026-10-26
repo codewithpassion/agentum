@@ -1,0 +1,57 @@
+# Publishes the computer images people pull onto their own hardware. The plain image is the
+# headless daemon; the desktop image adds Xvfb, openbox and Chromium. Both are tagged `latest`
+# plus the commit, so a host can be pinned to a known build.
+#
+# Dom is on the free GitHub plan, so this runs only when started by hand (docs/workflow.md,
+# "GitHub"). Do not add push or pull_request triggers until Dom says so.
+name: computer images
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: computer-images
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # ghcr.io names must be lowercase and the owner login may not be.
+      - name: Image owner
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/computer
+          file: apps/computer/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.OWNER }}/harbourmaster-computer:latest
+            ghcr.io/${{ env.OWNER }}/harbourmaster-computer:${{ github.sha }}
+          cache-from: type=gha,scope=computer
+          cache-to: type=gha,mode=max,scope=computer
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/computer
+          file: apps/computer/Dockerfile.desktop
+          push: true
+          tags: |
+            ghcr.io/${{ env.OWNER }}/harbourmaster-computer-desktop:latest
+            ghcr.io/${{ env.OWNER }}/harbourmaster-computer-desktop:${{ github.sha }}
+          cache-from: type=gha,scope=computer-desktop
+          cache-to: type=gha,mode=max,scope=computer-desktop
