@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
+    "@repo/db": "workspace:*",
     "@repo/protocol": "workspace:*",
     "zod": "^4.6.5"
   },
