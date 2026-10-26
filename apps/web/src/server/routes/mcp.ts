@@ -17,7 +17,7 @@ import {
   resourceMetadataUrl,
 } from "../mcp/metadata.ts";
 import { OAuthDeniedError } from "../mcp/oauth-auth.ts";
-import { createMcpPorts } from "../mcp/ports.ts";
+import { createMcpPorts, resolveRunComputer } from "../mcp/ports.ts";
 import {
   authenticateBearer,
   type BearerAuthOptions,
@@ -378,9 +378,13 @@ export const mcpRoutes = ({
     const { parsedBody, request } = body;
 
     const composed = c.get("composed");
+    // The computer tools are for a run whose agent has a computer attached.
+    const computer = await resolveRunComputer(composed.services, principal);
     const ports = createMcpPorts({
+      computerMachineId: computer?.machineId,
       principal,
       publicBaseUrl: c.env.PUBLIC_BASE_URL,
+      relay: composed.relay,
       requestHost: new URL(c.req.url).hostname,
       services: composed.services,
     });
@@ -401,6 +405,9 @@ export const mcpRoutes = ({
                     ),
                 }
               : undefined,
+          // Every run has a browser. A user or key principal has no run to act as.
+          browser: principal.kind === "run",
+          computer: computer ? { desktop: computer.desktop } : undefined,
           mail: hasMailbox,
           readOnly: isReadOnly(principal),
         }),

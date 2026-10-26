@@ -31,6 +31,9 @@
   // Outbound agent mail (task V5.7). `remote` stays off so local dev simulates
   // sends instead of mailing anyone.
   "send_email": [{ "name": "EMAIL" }],
+  // The agents' browser (task V6.11), Browser Run through @cloudflare/playwright.
+  // Usage beyond the included hours is billed to the account.
+  "browser": { "binding": "BROWSER" },
   // Migrations are not per environment, so they live at the top level only.
   // Never edit a tag that has shipped, add the next one.
   "migrations": [
@@ -103,6 +106,7 @@
       ],
       "worker_loaders": [{ "binding": "LOADER" }],
       "send_email": [{ "name": "EMAIL" }],
+      "browser": { "binding": "BROWSER" },
       "vars": {
         "PUBLIC_BASE_URL": "https://harbourmaster-staging.rockyshoreslabs.io",
         "LINUX_VM_IDLE_SECONDS": "180",
@@ -143,6 +147,7 @@
         // Isolate agents are unaffected.
         "worker_loaders": [{ "binding": "LOADER" }],
         "send_email": [{ "name": "EMAIL" }],
+        "browser": { "binding": "BROWSER" },
         // Mail is off in previews: an empty MAIL_DOMAIN.
         "vars": {
           "PUBLIC_BASE_URL": "",

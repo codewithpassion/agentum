@@ -19,6 +19,7 @@ import { ToolError } from "@repo/mcp/result";
 import { cloudEnvironmentOf } from "@repo/services/cloud/environment";
 import { networkAccessOf } from "@repo/services/cloud/network";
 import type { PostRecord, ThreadRecord } from "@repo/services/inbox";
+import type { MachineRelayPort } from "@repo/services/machines/types";
 import type { RoutineSummary } from "@repo/services/routines";
 import type { RunSummary } from "@repo/services/runs/types";
 import { placeholderOf } from "@repo/services/secrets/placeholders";
@@ -40,6 +41,8 @@ import {
   runWebFetcher,
 } from "../web-fetch/run-fetcher.ts";
 import type { WebFetcher } from "../web-fetch/types.ts";
+import { createBrowserPorts } from "./browser-ports.ts";
+import { createComputerPorts } from "./computer-ports.ts";
 import { guarded } from "./guarded.ts";
 import { createMailPorts } from "./mail-ports.ts";
 import { createSkillPorts } from "./skill-ports.ts";
@@ -136,17 +139,50 @@ const toTriggerChange = (change: TriggerWithSecret): TriggerChange => ({
   trigger: toTriggerInfo(change.trigger),
 });
 
+/** The computer attached to a run's agent, or null. Revoked machines and ones with no computer role do not count. */
+export const resolveRunComputer = async (
+  services: Pick<Services, "agents" | "machines">,
+  principal: Principal
+): Promise<{ desktop: boolean; machineId: string } | null> => {
+  if (principal.kind !== "run") {
+    return null;
+  }
+  const agent = await services.agents.get(principal, principal.agentId);
+  if (agent.computerMachineId === null) {
+    return null;
+  }
+  const machine = (await services.machines.list(principal)).find(
+    ({ id }) => id === agent.computerMachineId
+  );
+  if (
+    !machine ||
+    machine.status === "revoked" ||
+    !machine.roles.includes("computer")
+  ) {
+    return null;
+  }
+  return {
+    desktop: machine.computerCapabilities?.desktop === true,
+    machineId: machine.id,
+  };
+};
+
 export const createMcpPorts = ({
+  computerMachineId,
   fetch,
   principal,
   publicBaseUrl,
+  relay,
   requestHost,
   services,
 }: {
+  /** The machine of the run's computer (see `resolveRunComputer`). Without it, or without `relay`, the run has no computer tools. */
+  computerMachineId?: string;
   /** Replaces the global `fetch` for `curl`. Tests inject a fake here. */
   fetch?: RunFetcherDeps["fetch"];
   principal: Principal;
   publicBaseUrl?: string;
+  relay?: MachineRelayPort;
   requestHost?: string;
   services: Services;
 }): McpPorts => {
@@ -238,6 +274,22 @@ export const createMcpPorts = ({
     // Only a run has a mailbox of its own. The route turns the tools on when it is active.
     ...(principal.kind === "run"
       ? { mail: createMailPorts({ principal, services }) }
+      : {}),
+    // The browser is every run's. The computer is the one attached to its agent.
+    ...(principal.kind === "run"
+      ? {
+          browser: createBrowserPorts({ principal, services }),
+          ...(relay && computerMachineId
+            ? {
+                computer: createComputerPorts({
+                  machineId: computerMachineId,
+                  principal,
+                  relay,
+                  services,
+                }),
+              }
+            : {}),
+        }
       : {}),
 
     cancelRun: ({ runId }) =>
