@@ -1074,6 +1074,7 @@ test("completeRun accepts only files of its own run", async () => {
   const reply = { kind: "inbox" as const, threadId: "th1" };
 
   const run1 = await start(user, spyAgentId, { reply });
+  advance(SECOND);
   const run2 = await start(user, spyAgentId, { reply });
   await runs.claimRun(SYSTEM_PRINCIPAL, run1.runId);
 
@@ -1556,6 +1557,38 @@ test("a younger run of a session waits for its older queued run", async () => {
 
   await runs.claimRun(SYSTEM_PRINCIPAL, older.runId);
   expect(runRow(older.runId)).toMatchObject({ status: "running" });
+});
+
+test("a younger run in another session waits for the agent's older queued run", async () => {
+  const older = await start(user, spyAgentId, {
+    session: { externalKey: "S1", origin: "slack" as const },
+  });
+  advance(SECOND);
+  const younger = await start(user, spyAgentId, {
+    session: { externalKey: "S2", origin: "slack" as const },
+  });
+  expect(younger.sessionId).not.toBe(older.sessionId);
+
+  const blocked = await failure(runs.claimRun(SYSTEM_PRINCIPAL, younger.runId));
+  expect(blocked).toMatchObject({ code: "conflict" });
+  expect(runRow(younger.runId)).toMatchObject({ status: "queued" });
+
+  await runs.claimRun(SYSTEM_PRINCIPAL, older.runId);
+  expect(runRow(older.runId)).toMatchObject({ status: "running" });
+});
+
+test("reaping a run offers the agent's next waiting run", async () => {
+  const offering: RuntimeAdapter = { ...spyAdapter(), offerNextOnEnd: true };
+  runs = buildRuns({ adapters: [offering] });
+  const running = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, running.runId);
+  const waiting = await start(user, spyAgentId);
+  dispatched = [];
+
+  advance(91 * SECOND);
+  await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+  expect(runRow(running.runId)).toMatchObject({ status: "interrupted" });
+  expect(dispatched).toEqual([waiting.runId]);
 });
 
 test("two simultaneous claims of one run have one winner", async () => {

@@ -86,7 +86,7 @@ const claimLibrary = async (
  * A machine claims a run. Everything the seam 3 predicate says is one
  * conditional write: the run is `queued` or `offered`, has no pending files,
  * belongs to an agent on this machine, that agent has no `running` run, and
- * no older run of the same session is still waiting. Two claimers racing see
+ * no older run of the same agent is still waiting. Two claimers racing see
  * one winner, because a single UPDATE is atomic. The token is signed before
  * the write, so a signing failure leaves the run untouched.
  */
@@ -189,7 +189,7 @@ export const claimForMachine = async (
             .from(older)
             .where(
               and(
-                eq(older.sessionId, runs.sessionId),
+                eq(older.agentId, runs.agentId),
                 inArray(older.status, STARTING),
                 or(
                   lt(older.createdAt, runs.createdAt),

@@ -850,14 +850,15 @@ export const createRunsService = ({
                 )
               )
           ),
-          // A session's runs run in order: no older one may still be waiting.
+          // An agent's runs start in the order they were created, across its
+          // sessions: no older one may still be waiting.
           notExists(
             db
               .select({ id: older.id })
               .from(older)
               .where(
                 and(
-                  eq(older.sessionId, runs.sessionId),
+                  eq(older.agentId, runs.agentId),
                   inArray(older.status, STARTING),
                   or(
                     lt(older.createdAt, runs.createdAt),
@@ -1809,6 +1810,7 @@ export const createRunsService = ({
           eventActor(principal)
         );
         await abandonEnded(toRecord(row));
+        await offerNextWaiting(toRecord(row));
         interrupted.push(row.id);
       }
     }
