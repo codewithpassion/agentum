@@ -643,3 +643,28 @@ describe("refresh ahead", () => {
     expect(tokenCalls).toBe(0);
   });
 });
+
+describe("allowed tools", () => {
+  test("resolve returns the allowed tools when the assignment sets them", async () => {
+    await seedAssignment(db, {
+      agentId,
+      allowedTools: ["echo", "search"],
+      connectorId: CONNECTOR,
+      now: START,
+      workspaceId: WORKSPACE,
+    });
+    await addCredential("agent", agentId, "k");
+
+    expect(await resolve(null)).toMatchObject({
+      allowedTools: ["echo", "search"],
+      ok: true,
+    });
+  });
+
+  test("resolve returns null allowed tools when the assignment sets none", async () => {
+    await assign("agent");
+    await addCredential("agent", agentId, "k");
+
+    expect(await resolve(null)).toMatchObject({ allowedTools: null, ok: true });
+  });
+});

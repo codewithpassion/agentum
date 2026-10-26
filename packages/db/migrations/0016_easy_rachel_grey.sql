@@ -1,0 +1,1 @@
+ALTER TABLE `agent_connectors` ADD `allowed_tools` text;
