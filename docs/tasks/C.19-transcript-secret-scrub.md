@@ -28,3 +28,4 @@ Asked for by Dom on 19 Oct 2026. C.15's review noted that tool inputs for `bash`
 
 ## Log
 - 2026-10-19: added at Dom's request. dispatched.
+- 2026-10-26: re-dispatched to finish review; the previous controller session ended with 4 commits on the branch and no review.
