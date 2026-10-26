@@ -3,7 +3,7 @@ id: X.6
 title: Desk stream for external callers (C4 GET /api/desk/stream)
 milestone: X
 size: S
-status: in_progress
+status: done
 depends_on: [X.2]
 branch: task/X.6-desk-stream
 lane: worker
@@ -37,3 +37,4 @@ Checked against main at 4da1878. Where these differ from the scope above, they w
 - 2026-10-26: split from X.2.
 - 2026-10-26: refined against the code (controller). depends_on drops V2.8: the C4 stream needs only V1.4's stream and V1.5's requests, see Refinements.
 - 2026-10-26: dispatched.
+- 2026-10-26: review clean after 1 fix round; merged. Frame set (request.* and run.* event frames, run, ping) in docs/reviews/tasks/X.6.md for the coordinator to confirm.
