@@ -621,6 +621,9 @@ test("computer editor preserves runtime, workspace and exclusive assignment rule
   await expect(
     map.plugTool(user, "b", { id: "pc", kind: "computer" })
   ).rejects.toThrow();
+  await expect(
+    map.unplugTool(user, "a", { id: "other", kind: "computer" })
+  ).rejects.toThrow("not plugged in");
   await map.unplugTool(user, "a", { id: "pc", kind: "computer" });
   expect(
     db.select().from(agents).where(eq(agents.id, "a")).get()?.computerMachineId
@@ -643,6 +646,9 @@ test("positions upsert in workspace, validate keys and cap before writing", asyn
       .where(eq(mapPositions.nodeKey, "agent:a"))
       .get()
   ).toMatchObject({ workspaceId: "w", x: 3, y: 4 });
+  await map.savePositions(user, [
+    { key: "out:library:Meeting notes/Q 3", x: 5, y: 6 },
+  ]);
   for (const key of [
     "bad:a",
     "agent:",
@@ -669,7 +675,7 @@ test("positions upsert in workspace, validate keys and cap before writing", asyn
   await expect(
     map.savePositions({ ...user, apiKey: { access: "read", id: "read" } }, [])
   ).rejects.toThrow();
-  expect(edited()).toHaveLength(2);
+  expect(edited()).toHaveLength(3);
 });
 
 test("position batches accept 500 nodes, keep workspace isolation and last duplicate wins", async () => {

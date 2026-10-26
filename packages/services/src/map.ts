@@ -53,7 +53,7 @@ export const mapPositionsSchema = z
         .string()
         .max(1024)
         .regex(
-          /^(?:agent:[^:\s]+|trigger:(?:slack:)?[^:\s]+|out:slack:[^:\s]+|out:library:[^\s]+|out:qa|out:email:[^:\s]+)$/
+          /^(?:agent:[^:\s]+|trigger:(?:slack:)?[^:\s]+|out:slack:[^:\s]+|out:library:\P{Cc}+|out:qa|out:email:[^:\s]+)$/u
         ),
       x: z.number(),
       y: z.number(),
@@ -104,6 +104,33 @@ export const createMapService = ({
       workspaceId: user.workspaceId,
     });
   };
+  const changeComputer = async (
+    principal: Principal,
+    agentId: string,
+    machineId: string,
+    plug: boolean
+  ) => {
+    if (!plug) {
+      const agent = await agents.get(principal, agentId);
+      if (agent.computerMachineId !== machineId) {
+        throw new ServiceError("invalid", "That computer is not plugged in");
+      }
+    }
+    await machines.attachComputer(principal, agentId, plug ? machineId : null);
+  };
+  const changeBrowser = async (
+    principal: Principal,
+    agentId: string,
+    plug: boolean
+  ) => {
+    const agent = await agents.get(principal, agentId);
+    const { browser: _, ...enabledConfig } = agent.runtimeConfig;
+    // Missing browser means on, matching V6's run capabilities.
+    const runtimeConfig = plug
+      ? enabledConfig
+      : { ...enabledConfig, browser: false };
+    await agents.update(principal, agentId, { runtimeConfig });
+  };
   const toolChange = async (
     principal: Principal,
     agentId: string,
@@ -124,15 +151,9 @@ export const createMapService = ({
         skillId: tool.id,
       });
     } else if (tool.kind === "computer") {
-      await machines.attachComputer(principal, agentId, plug ? tool.id : null);
+      await changeComputer(principal, agentId, tool.id, plug);
     } else {
-      const agent = await agents.get(principal, agentId);
-      const { browser: _, ...enabledConfig } = agent.runtimeConfig;
-      // Missing browser means on, matching V6's run capabilities.
-      const runtimeConfig = plug
-        ? enabledConfig
-        : { ...enabledConfig, browser: false };
-      await agents.update(principal, agentId, { runtimeConfig });
+      await changeBrowser(principal, agentId, plug);
     }
     await edited(principal, {
       action: plug ? "plugTool" : "unplugTool",
