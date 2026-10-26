@@ -1,5 +1,8 @@
-import { type SQL, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
+import type { Atomic, Statement } from "./atomic.ts";
 import type { Database } from "./database.ts";
+import { mapPositions } from "./schema/map.ts";
+import { triggers as triggerRows } from "./schema/triggers.ts";
 import type { MapWireKind } from "./shared.ts";
 
 export interface GraphAgent {
@@ -180,4 +183,61 @@ export const graphOutputs = async (
     kind: row.kind,
     to: row.destination,
   }));
+};
+
+/** Only movable wire kinds; mailbox and Slack ownership stays with their services. */
+export const findMapTrigger = async (
+  db: Database,
+  workspaceId: string,
+  id: string
+) => {
+  const [row] = await db
+    .select()
+    .from(triggerRows)
+    .where(
+      and(
+        eq(triggerRows.id, id),
+        eq(triggerRows.workspaceId, workspaceId),
+        inArray(triggerRows.kind, ["http", "routine"]),
+        isNull(triggerRows.revokedAt)
+      )
+    )
+    .limit(1);
+  return row;
+};
+
+export const upsertMapPositions = async (
+  db: Database,
+  atomic: Atomic,
+  workspaceId: string,
+  positions: { key: string; x: number; y: number }[],
+  updatedAt: string
+) => {
+  // Duplicate keys apply in input order: the last position wins.
+  // Five bound columns per row: keep each statement within D1's parameter cap.
+  const statements: Statement[] = [];
+  for (let start = 0; start < positions.length; start += 20) {
+    statements.push(
+      db
+        .insert(mapPositions)
+        .values(
+          positions.slice(start, start + 20).map(({ key, x, y }) => ({
+            nodeKey: key,
+            updatedAt,
+            workspaceId,
+            x,
+            y,
+          }))
+        )
+        .onConflictDoUpdate({
+          set: {
+            updatedAt: sql`excluded.updated_at`,
+            x: sql`excluded.x`,
+            y: sql`excluded.y`,
+          },
+          target: [mapPositions.workspaceId, mapPositions.nodeKey],
+        })
+    );
+  }
+  await atomic(statements);
 };

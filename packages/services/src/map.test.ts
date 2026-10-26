@@ -1,32 +1,35 @@
 import { beforeEach, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
+import {
+  agentConnectors as assignedConnectorRows,
+  connectors as connectorRows,
+} from "@repo/db/schema/connectors";
 import { events } from "@repo/db/schema/events";
+import { machines as machineRows } from "@repo/db/schema/machines";
 import { mapPositions } from "@repo/db/schema/map";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import { skillAssignments as assignedSkillRows } from "@repo/db/schema/skills";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
-import { createMapService } from "./map.ts";
-import type { RequestRecord } from "./requests.ts";
-import type { Principal } from "./workspaces.ts";
-
-import { sqliteAtomic } from "@repo/db/atomic";
-import { connectors as connectorRows } from "@repo/db/schema/connectors";
-import { machines as machineRows } from "@repo/db/schema/machines";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { createAgentsService } from "./agents.ts";
 import { createConnectorsService } from "./connectors.ts";
 import { createEventsService } from "./events.ts";
-import { createLibraryService } from "./library.ts";
 import { memoryLibraryBlobs } from "./library/memory.ts";
-import { createMachinesService } from "./machines.ts";
+import { createLibraryService } from "./library.ts";
 import type { MachineRelayPort } from "./machines/types.ts";
+import { createMachinesService } from "./machines.ts";
+import { createMapService } from "./map.ts";
+import type { RequestRecord } from "./requests.ts";
 import { createRoutinesService } from "./routines.ts";
 import type { RunsService } from "./runs.ts";
-import { createSkillsStoreService } from "./skills-store.ts";
 import { memorySkillBlobs } from "./skills-store/memory.ts";
+import { createSkillsStoreService } from "./skills-store.ts";
 import { createTriggersService } from "./triggers.ts";
+import type { Principal } from "./workspaces.ts";
 
 const now = "2026-10-27T12:00:00.000Z";
 const edge = "2026-10-20T12:00:00.000Z";
@@ -275,7 +278,6 @@ test("workspace assignments provide connector, skill and computer ports", async 
   );
   const { skills, skillAssignments } = await import("@repo/db/schema/skills");
   const { machines } = await import("@repo/db/schema/machines");
-  const { eq } = await import("drizzle-orm");
   await db.insert(machines).values({
     capabilities: "{}",
     computerStatus: "online",
@@ -370,7 +372,6 @@ test("known output destinations remain idle outside the event window", async () 
 });
 
 test("active wires follow live runs and dry runs cannot make an agent waiting", async () => {
-  const { eq } = await import("drizzle-orm");
   await db.update(runs).set({ status: "running" }).where(eq(runs.id, "child"));
   await event("run.queued", "b", { origin: "inbox" }, { runId: "child" });
   await event(
@@ -396,34 +397,101 @@ const editor = () => {
   const atomic = sqliteAtomic(db);
   const clock = { now: () => new Date(now), sleep: async () => undefined };
   const log = createEventsService({
-    blobs: { get: async () => null, put: async () => undefined }, db,
+    blobs: { get: async () => null, put: async () => undefined },
+    db,
   });
   const common = { atomic, clock, db, events: log };
-  const library = createLibraryService({ ...common, blobs: memoryLibraryBlobs() });
+  const library = createLibraryService({
+    ...common,
+    blobs: memoryLibraryBlobs(),
+  });
   const profile = createAgentsService(common);
-  const triggerService = createTriggersService({ ...common, allowedOrgIds: [], runs: {} as RunsService });
-  const routines = createRoutinesService({ ...common, runs: {} as RunsService });
+  const triggerService = createTriggersService({
+    ...common,
+    allowedOrgIds: [],
+    runs: {} as RunsService,
+  });
+  const routines = createRoutinesService({
+    ...common,
+    allowedOrgIds: [],
+    runs: {} as RunsService,
+  });
   const connectors = createConnectorsService({ ...common, fetch });
-  const skillsStore = createSkillsStoreService({ ...common, library, blobs: memorySkillBlobs() });
-  const machines = createMachinesService({ ...common, allowedOrgIds: [], relay: {} as MachineRelayPort });
-  const map = createMapService({ ...common, agents: profile, triggers: triggerService, routines, connectors, skillsStore, machines, requests: { listPending: async () => pending } });
-  return { map, profile, triggerService, connectors, skillsStore, machines };
+  const skillsStore = createSkillsStoreService({
+    ...common,
+    blobs: memorySkillBlobs(),
+    library,
+  });
+  const machines = createMachinesService({
+    ...common,
+    allowedOrgIds: [],
+    relay: {} as MachineRelayPort,
+  });
+  const map = createMapService({
+    ...common,
+    agents: profile,
+    connectors,
+    machines,
+    requests: { listPending: async () => pending },
+    routines,
+    skillsStore,
+    triggers: triggerService,
+  });
+  return { connectors, machines, map, profile, skillsStore, triggerService };
 };
-const edited = () => db.select().from(events).all().filter((e) => e.type === "map.edited");
+const edited = () =>
+  db
+    .select()
+    .from(events)
+    .all()
+    .filter((e) => e.type === "map.edited");
 
 test("editor reassigns HTTP and routine wires, refuses proposals and foreign or owned wires", async () => {
   const { map, triggerService } = editor();
   await map.connectTrigger(user, "t", "b");
-  expect(db.select().from(triggers).where(eq(triggers.id, "t")).get()?.agentId).toBe("b");
+  expect(
+    db.select().from(triggers).where(eq(triggers.id, "t")).get()?.agentId
+  ).toBe("b");
   await triggerService.reassign(user, "idle", "b");
-  expect(db.select().from(triggers).where(eq(triggers.id, "idle")).get()?.agentId).toBe("b");
+  expect(
+    db.select().from(triggers).where(eq(triggers.id, "idle")).get()?.agentId
+  ).toBe("b");
   await db.insert(triggers).values([
-    { id: "routine", kind: "routine", workspaceId: "w", agentId: "a", name: "routine", createdBy: "u", createdAt: now },
-    { id: "mail", kind: "mail", workspaceId: "w", agentId: "a", name: "mail", createdBy: "u", createdAt: now },
-    { id: "foreign-t", kind: "http", workspaceId: "other", agentId: "foreign", name: "foreign", createdBy: "u", createdAt: now },
+    {
+      agentId: "a",
+      createdAt: now,
+      createdBy: "u",
+      id: "routine",
+      kind: "routine",
+      name: "routine",
+      workspaceId: "w",
+    },
+    {
+      agentId: "a",
+      createdAt: now,
+      createdBy: "u",
+      id: "mail",
+      kind: "mail",
+      name: "mail",
+      workspaceId: "w",
+    },
+    {
+      agentId: "foreign",
+      createdAt: now,
+      createdBy: "u",
+      id: "foreign-t",
+      kind: "http",
+      name: "foreign",
+      workspaceId: "other",
+    },
   ]);
-  const proposal = await triggerService.create({ kind: "run", agentId: "a", runId: "parent", workspaceId: "w" }, { agentId: "a", name: "proposal" });
-  await expect(map.connectTrigger(user, proposal.trigger.id, "b")).rejects.toThrow("approve it first");
+  const proposal = await triggerService.create(
+    { agentId: "a", kind: "run", runId: "parent", workspaceId: "w" },
+    { agentId: "a", name: "proposal" }
+  );
+  await expect(
+    map.connectTrigger(user, proposal.trigger.id, "b")
+  ).rejects.toThrow("approve it first");
   await expect(map.connectTrigger(user, "foreign-t", "b")).rejects.toThrow();
   await expect(map.connectTrigger(user, "t", "foreign")).rejects.toThrow();
   await expect(map.connectTrigger(user, "mail", "b")).rejects.toThrow();
@@ -431,57 +499,205 @@ test("editor reassigns HTTP and routine wires, refuses proposals and foreign or 
   await map.connectTrigger(user, "routine", "b");
   await map.disconnectTrigger(user, "routine");
   await map.disconnectTrigger(user, "t");
-  expect(db.select().from(triggers).where(eq(triggers.id, "routine")).get()).toMatchObject({ agentId: "b", revokedAt: now });
-  expect(db.select().from(triggers).where(eq(triggers.id, "t")).get()?.revokedAt).toBe(now);
-  expect(db.select().from(triggers).where(eq(triggers.id, proposal.trigger.id)).get()).toMatchObject({ agentId: "a", approvedAt: null, tokenHash: null, disabledAt: now });
+  expect(
+    db.select().from(triggers).where(eq(triggers.id, "routine")).get()
+  ).toMatchObject({ agentId: "b", revokedAt: now });
+  expect(
+    db.select().from(triggers).where(eq(triggers.id, "t")).get()?.revokedAt
+  ).toBe(now);
+  expect(
+    db.select().from(triggers).where(eq(triggers.id, proposal.trigger.id)).get()
+  ).toMatchObject({
+    agentId: "a",
+    approvedAt: null,
+    disabledAt: now,
+    tokenHash: null,
+  });
   expect(edited()).toHaveLength(4);
 });
 
 test("editor uses profile assignments and preserves other browser runtime config", async () => {
-  const { map, profile, skillsStore } = editor();
-  await db.insert(connectorRows).values({ id: "c", workspaceId: "w", name: "Tools", url: "https://example.test", authKind: "none", status: "ok", createdBy: "u", createdAt: now });
-  const skill = await skillsStore.create(user, { name: "research", message: "initial", files: [{ path: "SKILL.md", content: "---\nname: research\ndescription: Research things\n---\nResearch." }] });
-  for (const tool of [{ kind: "connector", id: "c" }, { kind: "skill", id: skill.skillId }] as const) {
+  const { map, profile, skillsStore, connectors } = editor();
+  await db.insert(connectorRows).values({
+    authKind: "none",
+    createdAt: now,
+    createdBy: "u",
+    id: "c",
+    name: "Tools",
+    status: "ok",
+    url: "https://example.test",
+    workspaceId: "w",
+  });
+  const skill = await skillsStore.create(user, {
+    files: [
+      {
+        content:
+          "---\nname: research\ndescription: Research things\n---\nResearch.",
+        path: "SKILL.md",
+      },
+    ],
+    message: "initial",
+    name: "research",
+  });
+  for (const tool of [
+    { id: "c", kind: "connector" },
+    { id: skill.skill.id, kind: "skill" },
+  ] as const) {
+    // biome-ignore lint/performance/noAwaitInLoops: verify each ordered profile edit before undoing it.
     await map.plugTool(user, "a", tool);
-    expect((await map.graph(user, { days: 7 })).nodes.find((n) => n.key === "agent:a")?.ports).toContainEqual(expect.objectContaining({ id: tool.id, kind: tool.kind }));
+    if (tool.kind === "connector") {
+      await connectors.assign(user, { agentId: "b", connectorId: tool.id });
+      const rows = db
+        .select()
+        .from(assignedConnectorRows)
+        .all()
+        .map(({ agentId: _, ...row }) => row);
+      expect(rows[0]).toEqual(rows[1]);
+    } else {
+      await skillsStore.assign(user, { agentId: "b", skillId: tool.id });
+      const rows = db
+        .select()
+        .from(assignedSkillRows)
+        .all()
+        .map(({ agentId: _, ...row }) => row);
+      expect(rows[0]).toEqual(rows[1]);
+    }
+    expect(
+      (await map.graph(user, { days: 7 })).nodes.find(
+        (n) => n.key === "agent:a"
+      )?.ports
+    ).toContainEqual(expect.objectContaining({ id: tool.id, kind: tool.kind }));
     await map.unplugTool(user, "a", tool);
-    expect((await map.graph(user, { days: 7 })).nodes.find((n) => n.key === "agent:a")?.ports.some((p) => p.kind === tool.kind)).toBe(false);
+    expect(
+      (await map.graph(user, { days: 7 })).nodes
+        .find((n) => n.key === "agent:a")
+        ?.ports.some((p) => p.kind === tool.kind)
+    ).toBe(false);
   }
   await profile.update(user, "a", { runtimeConfig: { custom: "kept" } });
   await map.unplugTool(user, "a", { kind: "browser" });
-  expect((await profile.get(user, "a")).runtimeConfig).toEqual({ custom: "kept", browser: false });
+  expect((await profile.get(user, "a")).runtimeConfig).toEqual({
+    browser: false,
+    custom: "kept",
+  });
   await map.plugTool(user, "a", { kind: "browser" });
-  expect((await profile.get(user, "a")).runtimeConfig).toEqual({ custom: "kept" });
-  await expect(map.plugTool({ kind: "run", agentId: "a", runId: "parent", workspaceId: "w" }, "a", { kind: "connector", id: "c" })).rejects.toThrow();
+  expect((await profile.get(user, "a")).runtimeConfig).toEqual({
+    custom: "kept",
+  });
+  await expect(
+    map.plugTool(
+      { agentId: "a", kind: "run", runId: "parent", workspaceId: "w" },
+      "a",
+      { id: "c", kind: "connector" }
+    )
+  ).rejects.toThrow();
   expect(edited()).toHaveLength(6);
 });
 
 test("computer editor preserves runtime, workspace and exclusive assignment rules", async () => {
   const { map } = editor();
-  await db.insert(machineRows).values({ id: "pc", workspaceId: "w", name: "PC", credentialHash: "hash", capabilities: "{}", computerStatus: "online", status: "online", singleUser: false, enrolledBy: "u", createdAt: now });
+  await db.insert(machineRows).values({
+    capabilities: "{}",
+    computerStatus: "online",
+    createdAt: now,
+    credentialHash: "hash",
+    enrolledBy: "u",
+    id: "pc",
+    name: "PC",
+    singleUser: false,
+    status: "online",
+    workspaceId: "w",
+  });
   await db.update(agents).set({ runtime: "machine" }).where(eq(agents.id, "a"));
-  await expect(map.plugTool(user, "a", { kind: "computer", id: "pc" })).rejects.toThrow();
+  await expect(
+    map.plugTool(user, "a", { id: "pc", kind: "computer" })
+  ).rejects.toThrow();
   await db.update(agents).set({ runtime: "cloud" }).where(eq(agents.id, "a"));
   await db.update(agents).set({ runtime: "managed" }).where(eq(agents.id, "b"));
-  await expect(map.plugTool(user, "foreign", { kind: "computer", id: "pc" })).rejects.toThrow();
-  await map.plugTool(user, "a", { kind: "computer", id: "pc" });
-  await expect(map.plugTool(user, "b", { kind: "computer", id: "pc" })).rejects.toThrow();
-  await map.unplugTool(user, "a", { kind: "computer", id: "pc" });
-  expect(db.select().from(agents).where(eq(agents.id, "a")).get()?.computerMachineId).toBeNull();
+  await expect(
+    map.plugTool(user, "foreign", { id: "pc", kind: "computer" })
+  ).rejects.toThrow();
+  await map.plugTool(user, "a", { id: "pc", kind: "computer" });
+  await expect(
+    map.plugTool(user, "b", { id: "pc", kind: "computer" })
+  ).rejects.toThrow();
+  await map.unplugTool(user, "a", { id: "pc", kind: "computer" });
+  expect(
+    db.select().from(agents).where(eq(agents.id, "a")).get()?.computerMachineId
+  ).toBeNull();
   expect(edited()).toHaveLength(2);
 });
 
 test("positions upsert in workspace, validate keys and cap before writing", async () => {
   const { map } = editor();
   await map.savePositions(user, [{ key: "agent:a", x: 1, y: 2 }]);
-  await map.savePositions(user, [{ key: "agent:a", x: 3, y: 4 }, { key: "out:qa", x: -2, y: 0 }]);
+  await map.savePositions(user, [
+    { key: "agent:a", x: 3, y: 4 },
+    { key: "out:qa", x: -2, y: 0 },
+  ]);
   expect(db.select().from(mapPositions).all()).toHaveLength(2);
-  expect(db.select().from(mapPositions).where(eq(mapPositions.nodeKey, "agent:a")).get()).toMatchObject({ x: 3, y: 4, workspaceId: "w" });
-  for (const key of ["bad:a", "agent:", "out:qa:extra", "trigger:slack:", "out:library:"]) {
-    await expect(map.savePositions(user, [{ key, x: 1, y: 2 }])).rejects.toThrow();
+  expect(
+    db
+      .select()
+      .from(mapPositions)
+      .where(eq(mapPositions.nodeKey, "agent:a"))
+      .get()
+  ).toMatchObject({ workspaceId: "w", x: 3, y: 4 });
+  for (const key of [
+    "bad:a",
+    "agent:",
+    "out:qa:extra",
+    "trigger:slack:",
+    "out:library:",
+  ]) {
+    // biome-ignore lint/performance/noAwaitInLoops: each invalid shape must reject independently.
+    await expect(
+      map.savePositions(user, [{ key, x: 1, y: 2 }])
+    ).rejects.toThrow();
   }
-  await expect(map.savePositions(user, Array.from({ length: 501 }, () => ({ key: "agent:a", x: 0, y: 0 })))).rejects.toThrow();
-  await expect(map.savePositions(user, [{ key: "agent:a", x: Number.POSITIVE_INFINITY, y: 0 }])).rejects.toThrow();
-  await expect(map.savePositions({ ...user, apiKey: { id: "read", access: "read" } }, [])).rejects.toThrow();
+  await expect(
+    map.savePositions(
+      user,
+      Array.from({ length: 501 }, () => ({ key: "agent:a", x: 0, y: 0 }))
+    )
+  ).rejects.toThrow();
+  await expect(
+    map.savePositions(user, [
+      { key: "agent:a", x: Number.POSITIVE_INFINITY, y: 0 },
+    ])
+  ).rejects.toThrow();
+  await expect(
+    map.savePositions({ ...user, apiKey: { access: "read", id: "read" } }, [])
+  ).rejects.toThrow();
   expect(edited()).toHaveLength(2);
+});
+
+test("position batches accept 500 nodes, keep workspace isolation and last duplicate wins", async () => {
+  const { map } = editor();
+  const positions = Array.from({ length: 500 }, (_, i) => ({
+    key: `agent:node-${i}`,
+    x: i,
+    y: -i,
+  }));
+  await map.savePositions(user, positions);
+  await map.savePositions({ ...user, workspaceId: "other" }, [
+    { key: "agent:node-0", x: 99, y: 99 },
+  ]);
+  await map.savePositions(user, [
+    { key: "agent:node-0", x: 5, y: 6 },
+    { key: "agent:node-0", x: 7, y: 8 },
+  ]);
+  expect(db.select().from(mapPositions).all()).toHaveLength(501);
+  expect(
+    db
+      .select()
+      .from(mapPositions)
+      .where(
+        and(
+          eq(mapPositions.workspaceId, "w"),
+          eq(mapPositions.nodeKey, "agent:node-0")
+        )
+      )
+      .get()
+  ).toMatchObject({ x: 7, y: 8 });
 });
