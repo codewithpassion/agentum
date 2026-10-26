@@ -189,6 +189,16 @@ for (const stage of ["find", "create"] as const) {
     expect(await service.get(user, "no-address")).toBeNull();
   });
 }
+test("get reports whether the mail trigger is paused", async () => {
+  await service.provision(user, "a");
+  expect(await service.get(user, "a")).toMatchObject({
+    triggerDisabledAt: null,
+  });
+  await service.setTrigger(user, "a", false);
+  expect((await service.get(user, "a"))?.triggerDisabledAt).toBe(now);
+  await service.setTrigger(user, "a", true);
+  expect((await service.get(user, "a"))?.triggerDisabledAt).toBeNull();
+});
 test("disable deletes only the owned rule and keeps history; ticks leave it disabled", async () => {
   const row = await service.provision(user, "a");
   expect(await service.disable(user, "a")).toMatchObject({

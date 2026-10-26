@@ -13,6 +13,7 @@ import { createLibraryService } from "../library.ts";
 import { systemClock } from "../runs/types.ts";
 import { createSkillsStoreService } from "../skills-store.ts";
 import type { Principal } from "../workspaces.ts";
+import type { GithubSkillFetcher } from "./github.ts";
 import { memorySkillBlobs } from "./memory.ts";
 
 export const W1 = "w1";
@@ -63,7 +64,7 @@ export const errorOf = (promise: Promise<unknown>): Promise<unknown> =>
     (caught: unknown) => caught
   );
 
-export const setup = () => {
+export const setup = (github?: GithubSkillFetcher) => {
   const db = migrated();
   const atomic = sqliteAtomic(db);
   for (const id of [W1, W2]) {
@@ -148,6 +149,7 @@ export const setup = () => {
     clock: systemClock,
     db,
     events,
+    github,
     library,
   });
   return { atomic, blobs, db, events, library, libraryBlobs, service };

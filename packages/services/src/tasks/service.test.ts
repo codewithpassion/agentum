@@ -1,5 +1,6 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { inboxThreads } from "@repo/db/schema/inbox";
 import { machines as machineRows } from "@repo/db/schema/machines";
@@ -486,6 +487,7 @@ test("get returns the run, its agent, its session and the session's other runs, 
     { createdAt: ISO_NOW, id: "run-03", inputText: "third", status: "running" },
   ]);
   expect(view.agent).toEqual({
+    computerMachineId: null,
     id: a1,
     machine: null,
     name: "Alpha",
@@ -519,6 +521,32 @@ test("get names the machine of a session that runs on one", async () => {
   const view = await tasks.get(user(), { runId: "run-machine" });
 
   expect(view.agent.machine).toEqual({ id: "mach-1", name: "laptop" });
+});
+
+test("get returns the computer the agent is attached to, or null when it has none", async () => {
+  await db.insert(machineRows).values({
+    capabilities: "{}",
+    createdAt: ISO_NOW,
+    credentialHash: "hash-desk",
+    enrolledBy: "u1",
+    id: "mach-desk",
+    name: "desk",
+    singleUser: false,
+    status: "online",
+    workspaceId: "w1",
+  });
+  await db
+    .update(agentRows)
+    .set({ computerMachineId: "mach-desk" })
+    .where(eq(agentRows.id, a1));
+  await seedTask("run-attached", { agentId: a1, status: "done" });
+  await seedTask("run-unattached", { agentId: a2, status: "done" });
+
+  const attached = await tasks.get(user(), { runId: "run-attached" });
+  const unattached = await tasks.get(user(), { runId: "run-unattached" });
+
+  expect(attached.agent.computerMachineId).toBe("mach-desk");
+  expect(unattached.agent.computerMachineId).toBeNull();
 });
 
 test("get returns the events of every run in the session, oldest first, with the listed types only", async () => {

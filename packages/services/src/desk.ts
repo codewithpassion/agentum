@@ -12,6 +12,7 @@
 import type { Database } from "@repo/db";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { inboxPosts } from "@repo/db/schema/inbox";
+import { wikiSuggestions } from "@repo/db/schema/library";
 import { mailMessages } from "@repo/db/schema/mail";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
@@ -320,15 +321,31 @@ export const createDeskService = ({
 
   /** Everything in Needs you, before it becomes cards. */
   const needsYouSources = async (member: UserPrincipal) => {
-    const [pending, versions, triggerList, routineList, threads, drafts] =
-      await Promise.all([
-        pendingRecords(member),
-        skillsStore.proposals(member),
-        triggers.list(member),
-        routines.list(member),
-        inbox.listThreads(member),
-        draftIds(member.workspaceId),
-      ]);
+    const [
+      pending,
+      versions,
+      triggerList,
+      routineList,
+      threads,
+      drafts,
+      suggestions,
+    ] = await Promise.all([
+      pendingRecords(member),
+      skillsStore.proposals(member),
+      triggers.list(member),
+      routines.list(member),
+      inbox.listThreads(member),
+      draftIds(member.workspaceId),
+      db
+        .select()
+        .from(wikiSuggestions)
+        .where(
+          and(
+            eq(wikiSuggestions.workspaceId, member.workspaceId),
+            inArray(wikiSuggestions.status, ["pending", "stale"])
+          )
+        ),
+    ]);
     // `list` keeps a rejected trigger, which stays unapproved but is revoked.
     const proposedTriggers = triggerList.filter(
       (trigger) =>
@@ -377,6 +394,9 @@ export const createDeskService = ({
       pending,
       proposedRoutines,
       proposedTriggers,
+      suggestions: suggestions.filter(
+        (suggestion) => !drafts.has(suggestion.agentId)
+      ),
       versions: versions.filter(
         (version) =>
           version.author.kind !== "agent" || !drafts.has(version.author.id)
@@ -431,6 +451,20 @@ export const createDeskService = ({
     const actorOf = new Map(runActors.map((run) => [run.id, run]));
     const skillOf = new Map(skillNames.map((skill) => [skill.id, skill]));
     const drafts: Draft[] = [
+      ...sources.suggestions.map(
+        (suggestion): Draft => ({
+          agentId: suggestion.agentId,
+          at: suggestion.createdAt,
+          band: { text: clip(suggestion.summary, TITLE_MAX), tone: "waiting" },
+          id: suggestion.id,
+          kind: "proposal",
+          lane: "needs_you",
+          needsYouKind: "wiki_suggestion",
+          ...(suggestion.runId ? { runId: suggestion.runId } : {}),
+          starter: { id: suggestion.agentId, kind: "agent" },
+          title: suggestion.path,
+        })
+      ),
       ...sources.pending.map(
         (record): Draft => ({
           agentId: record.agentId,
@@ -678,6 +712,7 @@ export const createDeskService = ({
     const member = requireMember(principal);
     const sources = await needsYouSources(member);
     return (
+      sources.suggestions.length +
       sources.pending.length +
       sources.versions.length +
       sources.proposedTriggers.length +
