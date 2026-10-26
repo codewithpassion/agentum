@@ -177,6 +177,20 @@ test("update checks require system, batch across workspaces, and writes preserve
   expect(agent.version.status).toBe("proposed");
 });
 
+test("an agent's re-import is proposed and leaves the pin where it was", async () => {
+  const { service, state, db } = fake();
+  const first = await service.importGithub(run(), input);
+  const pinned = state.sha;
+  state.sha = "c".repeat(40);
+  state.body = "changed";
+  const second = await service.importGithub(run(), input);
+  expect(first.version.status).toBe("proposed");
+  expect(second.version.status).toBe("proposed");
+  const source = db.select().from(skillSources).get();
+  expect(source?.commitSha).toBe(pinned);
+  expect(source?.skillId).toBe(first.version.skillId);
+});
+
 test("invalid paths leave the source intact and no update is clear", async () => {
   const { service, state, db } = fake();
   await service.importGithub(user(), input);

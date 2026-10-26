@@ -508,11 +508,18 @@ export const createSkillsStoreService = ({
         updatedAt: now,
         workspaceId: caller.workspaceId,
       };
+      // A proposed version leaves an existing source alone: the pin moves when
+      // `decide` approves the version.
+      const insert = db
+        .insert(skillSources)
+        .values({ ...source, createdAt: now });
       statements.push(
-        db
-          .insert(skillSources)
-          .values({ ...source, createdAt: now })
-          .onConflictDoUpdate({ set: source, target: skillSources.skillId })
+        approved
+          ? insert.onConflictDoUpdate({
+              set: source,
+              target: skillSources.skillId,
+            })
+          : insert.onConflictDoNothing()
       );
     }
     for (const rows of chunks(p.files, ROWS_PER_INSERT)) {
