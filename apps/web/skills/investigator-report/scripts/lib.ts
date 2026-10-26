@@ -20,6 +20,15 @@ export type ParseResult =
   | { ok: true; input: ReportInput }
   | { ok: false; error: string };
 
+export interface StepInput {
+  incidentId: string;
+  text: string;
+}
+
+export type ParseStepResult =
+  | { ok: true; input: StepInput }
+  | { ok: false; error: string };
+
 export interface ReportEvent {
   actor: { kind: "agent"; id: "harbourmaster-investigator" };
   correlation_id: string;
@@ -37,6 +46,23 @@ export interface ReportEvent {
   system_id: null;
   ts: string;
   type: "investigation.result";
+}
+
+export interface StepEvent {
+  actor: { kind: "agent"; id: "harbourmaster-investigator" };
+  correlation_id: string;
+  fingerprint: string;
+  payload: {
+    incidentId: string;
+    runId: string;
+    text: string;
+  };
+  severity: "info";
+  source: "agent";
+  summary: string;
+  system_id: null;
+  ts: string;
+  type: "investigation.step";
 }
 
 export type FetchFn = (url: string, init: RequestInit) => Promise<Response>;
@@ -67,23 +93,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function parseReportInput(raw: string | undefined): ParseResult {
+type RecordResult =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; error: string };
+
+function parseRecord(raw: string | undefined, label: string): RecordResult {
   if (raw === undefined) {
-    return { error: "no report input given", ok: false };
+    return { error: `no ${label} given`, ok: false };
   }
 
   let data: unknown;
   try {
     data = JSON.parse(raw);
   } catch {
-    return { error: "report input is not valid JSON", ok: false };
+    return { error: `${label} is not valid JSON`, ok: false };
   }
 
   if (!isRecord(data)) {
-    return { error: "report input must be a JSON object", ok: false };
+    return { error: `${label} must be a JSON object`, ok: false };
   }
 
-  const { incidentId, outcome, summary, steps } = data;
+  return { data, ok: true };
+}
+
+export function parseReportInput(raw: string | undefined): ParseResult {
+  const parsed = parseRecord(raw, "report input");
+  if (!parsed.ok) {
+    return parsed;
+  }
+
+  const { incidentId, outcome, summary, steps } = parsed.data;
 
   if (typeof incidentId !== "string" || !INCIDENT_ID.test(incidentId)) {
     return {
@@ -123,13 +162,45 @@ export function parseReportInput(raw: string | undefined): ParseResult {
   };
 }
 
-function eventSummary(input: ReportInput): string {
-  const line = withoutLoneSurrogates(input.summary)
+export function parseStepInput(raw: string | undefined): ParseStepResult {
+  const parsed = parseRecord(raw, "step input");
+  if (!parsed.ok) {
+    return parsed;
+  }
+
+  const { incidentId, text } = parsed.data;
+
+  if (typeof incidentId !== "string" || !INCIDENT_ID.test(incidentId)) {
+    return {
+      error: "incidentId must look like inc_ followed by 26 characters",
+      ok: false,
+    };
+  }
+
+  if (typeof text !== "string" || text.trim() === "") {
+    return { error: "text must be a non-empty string", ok: false };
+  }
+
+  const cut = cutUnits(text, STEP_MAX);
+  if (cut.trim() === "") {
+    return { error: "text must not be only whitespace", ok: false };
+  }
+
+  return { input: { incidentId, text: cut }, ok: true };
+}
+
+/** One line for the envelope summary: whitespace collapsed, no control or format characters, at most 200 code points. */
+function oneLine(text: string): string {
+  const line = withoutLoneSurrogates(text)
     .replace(/\s+/gu, " ")
     .replace(CONTROL_OR_FORMAT, "")
     .trim();
-  const cut = cutCodePoints(line, EVENT_SUMMARY_MAX).trim();
-  return cut === "" ? `Investigation ${input.outcome}` : cut;
+  return cutCodePoints(line, EVENT_SUMMARY_MAX).trim();
+}
+
+function eventSummary(text: string, fallback: string): string {
+  const line = oneLine(text);
+  return line === "" ? fallback : line;
 }
 
 export function buildEvent({
@@ -154,10 +225,37 @@ export function buildEvent({
     },
     severity: "info",
     source: "agent",
-    summary: eventSummary(input),
+    summary: eventSummary(input.summary, `Investigation ${input.outcome}`),
     system_id: null,
     ts: now.toISOString(),
     type: "investigation.result",
+  };
+}
+
+export function buildStepEvent({
+  input,
+  now,
+  runId,
+}: {
+  input: StepInput;
+  now: Date;
+  runId: string;
+}): StepEvent {
+  return {
+    actor: { id: "harbourmaster-investigator", kind: "agent" },
+    correlation_id: input.incidentId,
+    fingerprint: `hm-investigator:${input.incidentId}`,
+    payload: {
+      incidentId: input.incidentId,
+      runId,
+      text: input.text,
+    },
+    severity: "info",
+    source: "agent",
+    summary: eventSummary(input.text, "Investigation step"),
+    system_id: null,
+    ts: now.toISOString(),
+    type: "investigation.step",
   };
 }
 
@@ -177,7 +275,7 @@ export async function postResult({
   fetchFn,
   url,
 }: {
-  event: ReportEvent;
+  event: ReportEvent | StepEvent;
   fetchFn: FetchFn;
   url: string;
 }): Promise<PostResult> {

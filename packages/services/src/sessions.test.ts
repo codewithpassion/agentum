@@ -233,6 +233,42 @@ test("a trigger session is titled by the trigger's name, in the list and the tra
   expect(session.title).toBe("Deploy hook");
 });
 
+test("a trigger session is readable by any member of the workspace, not only the trigger's creator", async () => {
+  insertTrigger("trg-link", "http", "Link hook");
+  const started = await startIn(
+    triggerPrincipal("trg-link"),
+    agentId,
+    "open from the link",
+    { origin: "trigger" }
+  );
+
+  const { session } = await sessions.transcript(user("u2"), started.sessionId);
+  const [item] = await sessions.list(user("u2"), { origin: "trigger" });
+
+  expect(session.id).toBe(started.sessionId);
+  expect(item).toMatchObject({ id: started.sessionId, origin: "trigger" });
+});
+
+test("a trigger session is not readable from another workspace", async () => {
+  insertTrigger("trg-foreign", "http", "Foreign hook");
+  const started = await startIn(
+    triggerPrincipal("trg-foreign"),
+    agentId,
+    "stay in w1",
+    { origin: "trigger" }
+  );
+
+  const error = await sessions
+    .transcript(user("u1", "w2"), started.sessionId)
+    .catch((caught: unknown) => caught);
+
+  expect(error).toBeInstanceOf(ServiceError);
+  expect(error).toMatchObject({
+    code: "not_found",
+    message: "Session not found",
+  });
+});
+
 test("a routine session is titled by the routine's name", async () => {
   insertTrigger("trg-digest", "routine", "Daily digest");
   const started = await startIn(

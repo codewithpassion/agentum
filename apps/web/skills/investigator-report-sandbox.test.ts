@@ -9,7 +9,7 @@ import type { SandboxFile } from "../src/server/skill-scripts/sandbox-port.ts";
 const SKILL_DIR = join(import.meta.dir, "investigator-report");
 const INCIDENT = "inc_01HZX3Y5N7Q9R2T4V6W8A0B1C2";
 const RUN_ID = "run_test_1";
-const FILES = ["scripts/lib.ts", "scripts/report.ts"];
+const FILES = ["scripts/lib.ts", "scripts/report.ts", "scripts/step.ts"];
 
 const encoder = new TextEncoder();
 
@@ -24,6 +24,11 @@ const report = JSON.stringify({
   outcome: "escalate",
   steps: ["checked the job", "could not reach the database"],
   summary: "The job is stuck and I cannot fix it.",
+});
+
+const step = JSON.stringify({
+  incidentId: INCIDENT,
+  text: "Checked the job.\nIt is stuck.",
 });
 
 let helper: ReturnType<typeof localWorkerLoader>;
@@ -60,7 +65,11 @@ const NAMES = ["CONTROL_PLANE_URL", "HM_RUN_ID"];
  * local loader runs in this process and does not, so the test sets the two
  * variables itself and puts them back afterwards.
  */
-const run = async (args: string[], env: Record<string, string>) => {
+const run = async (
+  entry: string,
+  args: string[],
+  env: Record<string, string>
+) => {
   const before = NAMES.map((name) => [name, process.env[name]] as const);
   for (const name of NAMES) {
     delete process.env[name];
@@ -69,7 +78,7 @@ const run = async (args: string[], env: Record<string, string>) => {
   try {
     return await dynamicWorkerSandbox(helper.loader).run({
       args,
-      entry: "scripts/report.ts",
+      entry,
       env,
       files: files(),
       maxOutputBytes: 65_536,
@@ -89,7 +98,7 @@ const run = async (args: string[], env: Record<string, string>) => {
 
 describe("investigator-report/scripts/report.ts in the skill sandbox", () => {
   test("posts one investigation.result with the run id from HM_RUN_ID and no Authorization header", async () => {
-    const result = await run([report], {
+    const result = await run("scripts/report.ts", [report], {
       CONTROL_PLANE_URL: `http://127.0.0.1:${server.port}/`,
       HM_RUN_ID: RUN_ID,
     });
@@ -115,7 +124,7 @@ describe("investigator-report/scripts/report.ts in the skill sandbox", () => {
 
   test("exits 1 with a report failed line when control-plane refuses", async () => {
     status = 500;
-    const result = await run([report], {
+    const result = await run("scripts/report.ts", [report], {
       CONTROL_PLANE_URL: `http://127.0.0.1:${server.port}`,
       HM_RUN_ID: RUN_ID,
     });
@@ -126,15 +135,64 @@ describe("investigator-report/scripts/report.ts in the skill sandbox", () => {
   });
 
   test("exits 1 without posting when the argument is missing or CONTROL_PLANE_URL is unset", async () => {
-    const noArg = await run([], {
+    const noArg = await run("scripts/report.ts", [], {
       CONTROL_PLANE_URL: `http://127.0.0.1:${server.port}`,
     });
-    const noUrl = await run([report], { HM_RUN_ID: RUN_ID });
+    const noUrl = await run("scripts/report.ts", [report], {
+      HM_RUN_ID: RUN_ID,
+    });
 
     expect(noArg.exitCode).toBe(1);
     expect(noArg.stdout).toContain("report failed: ");
     expect(noUrl.exitCode).toBe(1);
     expect(noUrl.stdout).toContain("CONTROL_PLANE_URL");
+    expect(received).toEqual([]);
+  });
+});
+
+describe("investigator-report/scripts/step.ts in the skill sandbox", () => {
+  test("posts one investigation.step with the run id from HM_RUN_ID and no Authorization header", async () => {
+    const result = await run("scripts/step.ts", [step], {
+      CONTROL_PLANE_URL: `http://127.0.0.1:${server.port}/`,
+      HM_RUN_ID: RUN_ID,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`step posted for ${INCIDENT}`);
+    expect(received).toHaveLength(1);
+    expect(received[0]?.path).toBe("/ingest/events");
+    expect(received[0]?.auth).toBeNull();
+    expect(received[0]?.body).toMatchObject({
+      actor: { id: "harbourmaster-investigator", kind: "agent" },
+      correlation_id: INCIDENT,
+      payload: {
+        incidentId: INCIDENT,
+        runId: RUN_ID,
+        text: "Checked the job.\nIt is stuck.",
+      },
+      source: "agent",
+      summary: "Checked the job. It is stuck.",
+      type: "investigation.step",
+    });
+  });
+
+  test("exits 1 with a step failed line when control-plane answers 400", async () => {
+    status = 400;
+    const result = await run("scripts/step.ts", [step], {
+      CONTROL_PLANE_URL: `http://127.0.0.1:${server.port}`,
+      HM_RUN_ID: RUN_ID,
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stdout).toContain("step failed: ");
+    expect(result.stdout).toContain("400");
+  });
+
+  test("exits 1 with a step failed line when CONTROL_PLANE_URL is unset", async () => {
+    const result = await run("scripts/step.ts", [step], { HM_RUN_ID: RUN_ID });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("step failed: CONTROL_PLANE_URL");
     expect(received).toEqual([]);
   });
 });
