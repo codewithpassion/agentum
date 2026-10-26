@@ -7,6 +7,16 @@ import {
   parseSource,
 } from "./github-skill-source.ts";
 
+const REQUEST_MESSAGE = /request failed/i;
+const COMMIT_MESSAGE = /commit SHA/i;
+const LIMIT_MESSAGE = /files|bytes|MiB/i;
+const SKILL_MESSAGE = /SKILL\.md/;
+const UNSAFE_MESSAGE = /link|path|traversal|folder/i;
+const PATH_MESSAGE = /path|traversal/i;
+const ARCHIVE_MESSAGE = /archive|tar|gzip/i;
+const SHA_MESSAGE = /SHA/i;
+const DOWNLOAD_MESSAGE = /50.*MiB|50.*MB/i;
+
 const repo = "https://github.com/acme/skills";
 const sha = "a".repeat(40);
 const top = `acme-skills-${sha.slice(0, 7)}`;
@@ -31,8 +41,8 @@ const tar = (entries: Entry[]): Uint8Array => {
         ? encoder.encode(entry.content)
         : (entry.content ?? new Uint8Array());
     const header = new Uint8Array(512);
-    const field = (offset: number, value: string) =>
-      header.set(encoder.encode(value), offset);
+    const field = (fieldOffset: number, value: string) =>
+      header.set(encoder.encode(value), fieldOffset);
     field(0, entry.name);
     field(100, `${(entry.mode ?? 0o644).toString(8).padStart(7, "0")}\0`);
     field(
@@ -86,7 +96,9 @@ const expectFailure = async (
     await promise;
     throw new Error("Expected failure");
   } catch (error) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: reusable assertion called and awaited inside tests
     expect(error).toBeInstanceOf(GithubSkillSourceError);
+    // biome-ignore lint/suspicious/noMisplacedAssertion: reusable assertion called and awaited inside tests
     expect(error).toMatchObject({
       code,
       message: expect.stringMatching(message),
@@ -155,6 +167,23 @@ describe("resolveCommit", () => {
     );
   });
 
+  test("bounds commit responses and reports network failures without exposing credentials", async () => {
+    const { fetcher } = stub(() => new Response("a".repeat(2048)));
+    await expectFailure(
+      fetcher.resolveCommit(repo, "main"),
+      "request_failed",
+      COMMIT_MESSAGE
+    );
+    const offline = createGithubSkillFetcher(() =>
+      Promise.reject(new Error("offline"))
+    );
+    await expectFailure(
+      offline.resolveCommit(repo, "main", "secret"),
+      "request_failed",
+      REQUEST_MESSAGE
+    );
+  });
+
   test("rejects invalid refs before fetching and malformed SHA responses", async () => {
     const { calls, fetcher } = stub(() => new Response("not a sha"));
     await expect(fetcher.resolveCommit(repo, "../main")).rejects.toThrow();
@@ -162,7 +191,7 @@ describe("resolveCommit", () => {
     await expectFailure(
       fetcher.resolveCommit(repo, "main"),
       "request_failed",
-      /commit SHA/i
+      COMMIT_MESSAGE
     );
   });
 });
@@ -235,10 +264,11 @@ describe("fetchTree", () => {
       skill([{ name: `${top}/big`, size: SKILLS_MAX_BYTES }]),
     ]) {
       const { fetcher } = stub(() => fixture(entries));
+      // biome-ignore lint/performance/noAwaitInLoops: sequential fixtures limit peak memory
       await expectFailure(
         fetcher.fetchTree(repo, sha, undefined),
         "limit_exceeded",
-        /files|bytes|MiB/i
+        LIMIT_MESSAGE
       );
     }
   });
@@ -250,7 +280,7 @@ describe("fetchTree", () => {
     await expectFailure(
       fetcher.fetchTree(repo, sha, undefined),
       "invalid_archive",
-      /SKILL\.md/
+      SKILL_MESSAGE
     );
   });
 
@@ -265,10 +295,11 @@ describe("fetchTree", () => {
       skill([{ name: `${top}/file` }, { name: `${top}/file/child` }]),
     ]) {
       const { fetcher } = stub(() => fixture(entries));
+      // biome-ignore lint/performance/noAwaitInLoops: sequential fixtures limit peak memory
       await expectFailure(
         fetcher.fetchTree(repo, sha, undefined),
         "invalid_archive",
-        /link|path|traversal|folder/i
+        UNSAFE_MESSAGE
       );
     }
   });
@@ -293,10 +324,11 @@ describe("fetchTree", () => {
         )
       );
       if (path.includes("..")) {
+        // biome-ignore lint/performance/noAwaitInLoops: sequential fixtures limit peak memory
         await expectFailure(
           fetcher.fetchTree(repo, sha, undefined),
           "invalid_archive",
-          /path|traversal/i
+          PATH_MESSAGE
         );
       } else {
         expect(
@@ -315,10 +347,56 @@ describe("fetchTree", () => {
       encoder.encode("not gzip"),
     ]) {
       const { fetcher } = stub(() => new Response(bytes));
+      // biome-ignore lint/performance/noAwaitInLoops: sequential fixtures limit peak memory
       await expectFailure(
         fetcher.fetchTree(repo, sha, undefined),
         "invalid_archive",
-        /archive|tar|gzip/i
+        ARCHIVE_MESSAGE
+      );
+    }
+  });
+
+  test("reads compressed input split across tiny chunks and accepts codeload root names", async () => {
+    const archiveRoot = `skills-${sha}`;
+    const compressed = gzipSync(
+      tar([
+        { name: `${archiveRoot}/unrelated-link`, type: "2" },
+        { content: "# Chunked", name: `${archiveRoot}/demo/SKILL.md` },
+      ])
+    );
+    let cursor = 0;
+    const { fetcher } = stub(
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (cursor >= compressed.length) {
+                controller.close();
+                return;
+              }
+              controller.enqueue(compressed.subarray(cursor, cursor + 7));
+              cursor += 7;
+            },
+          })
+        )
+    );
+    const tree = await fetcher.fetchTree(repo, sha, "demo");
+    expect(tree.files.map((file) => decoder.decode(file.bytes))).toEqual([
+      "# Chunked",
+    ]);
+  });
+
+  test("refuses multiple archive roots and absolute paths", async () => {
+    for (const entry of [
+      { name: "other-root/file" },
+      { name: `/${top}/escape` },
+    ]) {
+      const { fetcher } = stub(() => fixture(skill([entry])));
+      // biome-ignore lint/performance/noAwaitInLoops: independent small fixtures are checked in order
+      await expectFailure(
+        fetcher.fetchTree(repo, sha, undefined),
+        "invalid_archive",
+        PATH_MESSAGE
       );
     }
   });
@@ -326,7 +404,7 @@ describe("fetchTree", () => {
   test("requires an exact commit SHA and validates paths before fetching", async () => {
     const { calls, fetcher } = stub(() => fixture(skill()));
     await expect(fetcher.fetchTree(repo, "main", undefined)).rejects.toThrow(
-      /SHA/i
+      SHA_MESSAGE
     );
     await expect(fetcher.fetchTree(repo, sha, "../escape")).rejects.toThrow();
     expect(calls).toHaveLength(0);
@@ -358,7 +436,7 @@ describe("fetchTree", () => {
     await expectFailure(
       fetcher.fetchTree(repo, sha, undefined),
       "limit_exceeded",
-      /50.*MiB|50.*MB/i
+      DOWNLOAD_MESSAGE
     );
     expect(cancelled).toBe(true);
   });
@@ -373,6 +451,7 @@ for (const [status, headers, code, message] of [
     "rate_limited",
     /rate limit.*retry/i,
   ],
+  [403, { "Retry-After": "60" }, "rate_limited", /rate limit.*60/i],
   [403, {}, "request_failed", /403/],
   [500, {}, "request_failed", /500/],
 ] as const) {
