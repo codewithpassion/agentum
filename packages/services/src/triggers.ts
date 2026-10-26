@@ -11,6 +11,7 @@
  * mints the token and shows it once, or rejects it.
  */
 import type { Database } from "@repo/db";
+import { findMapTrigger } from "@repo/db/map";
 import { agents } from "@repo/db/schema/agents";
 import { events } from "@repo/db/schema/events";
 import { triggers } from "@repo/db/schema/triggers";
@@ -218,12 +219,59 @@ export const createTriggersService = ({
   };
 
   /** A trigger that is live to act on: found, and not revoked. */
-  const requireLive = async (triggerId: string, workspaceId: string) => {
-    const summary = await requireSummary(triggerId, workspaceId);
+  const requireLive = async (
+    triggerId: string,
+    workspaceId: string,
+    movable = false
+  ) => {
+    const summary = movable
+      ? await findMapTrigger(db, workspaceId, triggerId)
+      : await requireSummary(triggerId, workspaceId);
+    if (!summary) {
+      throw new ServiceError("not_found", "Trigger not found");
+    }
     if (summary.revokedAt !== null) {
       throw new ServiceError("not_found", "Trigger not found");
     }
     return summary;
+  };
+
+  const reassign = async (
+    principal: Principal,
+    triggerId: string,
+    agentId: string
+  ): Promise<void> => {
+    // Moving wires is a person's edit; a run cannot move its proposal to another agent.
+    const user = requireApprover(principal, "triggers.reassign");
+    authorize(user, "triggers.reassign", {
+      id: triggerId,
+      kind: TRIGGER_KIND,
+      workspaceId: user.workspaceId,
+    });
+    const current = await requireLive(triggerId, user.workspaceId, true);
+    if (isPendingProposal(current)) {
+      throw new ServiceError(
+        "conflict",
+        "Trigger is a proposal; approve it first"
+      );
+    }
+    const agent = await findAgent(db, {
+      id: agentId,
+      workspaceId: user.workspaceId,
+    });
+    if (agent?.status !== "active") {
+      throw new ServiceError("not_found", "Agent not found");
+    }
+    await db
+      .update(triggers)
+      .set({ agentId })
+      .where(
+        and(
+          eq(triggers.id, triggerId),
+          eq(triggers.workspaceId, user.workspaceId),
+          isNull(triggers.revokedAt)
+        )
+      );
   };
 
   /**
@@ -572,6 +620,7 @@ export const createTriggersService = ({
     create,
     fire,
     list,
+    reassign,
     reject,
     revoke,
     setEnabled,
