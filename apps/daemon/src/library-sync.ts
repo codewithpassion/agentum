@@ -149,8 +149,8 @@ export const fsLibraryWatcher =
         try {
           // A folder that was deleted and made again under the same name is a
           // new folder, so its old watch goes before the new one starts. Bun
-          // then reports nothing more from it, and its later edits wait for
-          // the next checkpoint.
+          // (1.3.11, Linux) then reports nothing more from it, and its later
+          // edits wait for the next checkpoint.
           unwatch(child);
           if (isFolder(child)) {
             watchFolder(child, true);

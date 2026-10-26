@@ -1596,7 +1596,7 @@ describe("the library copy", () => {
     await sleep(100);
 
     // The pull ran and still left the edit alone.
-    expect(remote.calls.length).toBeGreaterThan(0);
+    expect(remote.calls.some((call) => call.endsWith(NOTES))).toBe(true);
     expect(readFileSync(local, "utf8")).toBe("mine");
 
     run.execution.abort("test over");
