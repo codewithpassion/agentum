@@ -51,7 +51,7 @@ import {
   SERVERS_KEY,
 } from "./pi-run-core.ts";
 import { workspaceKeyStore } from "./pi-run-credentials.ts";
-import { deltaPublisher, type LiveDoc } from "./pi-run-deltas.ts";
+import { deltaPublisher, type LivePartial } from "./pi-run-deltas.ts";
 import {
   filesExtension,
   inputContent,
@@ -167,6 +167,8 @@ export class PiRun extends DurableObject<Env> {
   #vm: LinuxVm | undefined;
   #composed: ReturnType<typeof compose> | undefined;
   #streams: ReturnType<typeof streamPublisher> | undefined;
+  /** The view the deltas are read from, and how many followed runs share it. */
+  #deltas: { close: Promise<() => void>; users: number } | undefined;
 
   /**
    * The workspace's provider keys, read from the workspace secrets store for
@@ -875,42 +877,63 @@ export class PiRun extends DurableObject<Env> {
 
   /**
    * Sends the partial answer Pi commits every 100 ms to the session stream as
-   * `delta` frames. Only the text of the answer is read: tool arguments and
-   * output reach the stream as the stored, scrubbed `tool.call` and
-   * `tool.result` events. Returns the function that stops it. A failure here
-   * never reaches the run.
+   * `delta` frames, labelled with the newest run like the rest of this object.
+   * Only the text of the answer is read: tool arguments and output reach the
+   * stream as the stored, scrubbed `tool.call` and `tool.result` events. One
+   * view serves every run followed at the same time, because a second would
+   * send the same text again. Returns the function that stops this caller's
+   * share, and the view closes with the last one. A failure never reaches the
+   * run.
    */
   async #streamDeltas(): Promise<() => void> {
-    try {
-      const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
-      const sessionId = await this.ctx.storage.get<string>(SESSION_KEY);
-      if (!(run && sessionId)) {
-        return () => undefined;
+    this.#deltas ??= { close: this.#openDeltas(), users: 0 };
+    const shared = this.#deltas;
+    shared.users += 1;
+    const close = await shared.close;
+    let released = false;
+    return () => {
+      if (released) {
+        return;
       }
-      this.#streams ??= streamPublisher(this.env.SESSION_STREAM, (work) =>
-        this.ctx.waitUntil(work)
-      );
-      const streams = this.#streams;
-      // Read once for the run. A failed read is dropped, and the next frame reads again.
-      let masker: Promise<Masker | null> | undefined;
-      const deltas = deltaPublisher({
-        clock: () => Date.now(),
-        maskerOf: () => {
-          masker ??= this.#services()
-            .secrets.maskerFor(run.workspaceId, run.agentId)
-            .catch((error: unknown) => {
-              masker = undefined;
-              throw error;
-            });
-          return masker;
-        },
-        publish: (frame) => streams.publish(sessionId, frame),
-        runId: run.runId,
-      });
+      released = true;
+      shared.users -= 1;
+      if (shared.users === 0) {
+        if (this.#deltas === shared) {
+          this.#deltas = undefined;
+        }
+        close();
+      }
+    };
+  }
+
+  /** Opens the view the deltas are read from. Resolves to the function that closes it, and never rejects. */
+  async #openDeltas(): Promise<() => void> {
+    try {
+      let current:
+        | { publisher: ReturnType<typeof deltaPublisher>; runId: string }
+        | undefined;
+      const publisherOfNewestRun = async () => {
+        const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
+        const sessionId = await this.ctx.storage.get<string>(SESSION_KEY);
+        if (!(run && sessionId)) {
+          return;
+        }
+        if (current?.runId !== run.runId) {
+          current = {
+            publisher: this.#deltaPublisher(run, sessionId),
+            runId: run.runId,
+          };
+        }
+        return current.publisher;
+      };
       const root = await (await this.harness.pi()).root(BACKGROUND_CONTEXT);
       const view = await root.viewState(BACKGROUND_CONTEXT);
-      const unsubscribe = view.subscribe((value) => {
-        deltas.offer(value.docs["pi.live"] as LiveDoc | undefined);
+      // Returning the promise makes Pi wait for one offer before the next.
+      const unsubscribe = view.subscribe(async (value) => {
+        const live = value.docs["pi.live"] as LivePartial | undefined;
+        if (live?.generation?.message !== undefined) {
+          await (await publisherOfNewestRun())?.offer(live);
+        }
       });
       return () => {
         unsubscribe();
@@ -923,6 +946,29 @@ export class PiRun extends DurableObject<Env> {
       );
       return () => undefined;
     }
+  }
+
+  #deltaPublisher(run: RunRef, sessionId: string) {
+    this.#streams ??= streamPublisher(this.env.SESSION_STREAM, (work) =>
+      this.ctx.waitUntil(work)
+    );
+    const streams = this.#streams;
+    // Read once for the run. A failed read is dropped, and the next frame reads again.
+    let masker: Promise<Masker | null> | undefined;
+    return deltaPublisher({
+      clock: () => Date.now(),
+      maskerOf: () => {
+        masker ??= this.#services()
+          .secrets.maskerFor(run.workspaceId, run.agentId)
+          .catch((error: unknown) => {
+            masker = undefined;
+            throw error;
+          });
+        return masker;
+      },
+      publish: (frame) => streams.publish(sessionId, frame),
+      runId: run.runId,
+    });
   }
 
   #services() {

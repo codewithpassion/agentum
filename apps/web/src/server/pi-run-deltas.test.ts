@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createMasker } from "@repo/protocol/masker";
 import type { DeltaFrame } from "@repo/protocol/stream";
-import { deltaPublisher, type LiveDoc } from "./pi-run-deltas.ts";
+import { deltaPublisher, type LivePartial } from "./pi-run-deltas.ts";
 
 const SECRET = "hunter2secret";
 const TOKEN = `sk-${"abcdefghijklmnopqrst"}`;
@@ -10,7 +10,7 @@ const RUN_ID = "run-1";
 interface Harness {
   advance: (ms: number) => void;
   frames: DeltaFrame[];
-  offer: (live: LiveDoc | undefined) => Promise<void>;
+  offer: (live: LivePartial | undefined) => Promise<void>;
   setSecrets: (secrets: Record<string, string>) => void;
 }
 
@@ -43,7 +43,7 @@ const harness = (secrets: Record<string, string> = {}): Harness => {
 const message = (
   content: readonly { type: string; text?: string }[],
   timestamp = 1000
-): LiveDoc => ({ generation: { message: { content, timestamp } } });
+): LivePartial => ({ generation: { message: { content, timestamp } } });
 
 const text = (value: string) => ({ text: value, type: "text" });
 
@@ -172,4 +172,29 @@ test("a throwing maskerOf publishes nothing and does not reject", async () => {
     publisher.offer(message([text("unmasked words here ")]))
   ).resolves.toBeUndefined();
   expect(frames).toEqual([]);
+});
+
+test("a secret with spaces and lines never leaves in part", async () => {
+  const pem = "-----BEGIN KEY-----\nMIIEvQIBADANBg\n-----END KEY-----";
+  const h = harness({ PEM: pem });
+  await h.offer(message([text("Here it is: -----BEGIN KEY-----\nMIIEvQ")]));
+  h.advance(300);
+  await h.offer(message([text(`Here it is: ${pem}\nDone `)]));
+
+  expect(h.frames.map((frame) => frame.text)).toEqual([
+    "Here it is: ",
+    "Here it is: [secret:PEM]\nDone ",
+  ]);
+});
+
+test("an sk- token split across two partials is held, then redacted", async () => {
+  const h = harness();
+  await h.offer(message([text("key is sk-abcdef")]));
+  h.advance(300);
+  await h.offer(message([text(`key is ${TOKEN} ok `)]));
+
+  expect(h.frames.length).toBe(2);
+  expect(h.frames[0]?.text).toBe("key is ");
+  expect(h.frames[1]?.text).not.toContain("sk-abc");
+  expect(h.frames[1]?.text).toContain("ok");
 });

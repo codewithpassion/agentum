@@ -170,3 +170,30 @@ describe("base64 and URL-encoded forms", () => {
     expect(masker.mask(form)).toBe("k=[secret:TOK]");
   });
 });
+
+describe("unfinishedTail", () => {
+  test("counts the end of the text that begins a value, spaces and newlines included", () => {
+    const masker = createMasker({ KEY: "line one\nline two" });
+    expect(masker.unfinishedTail("see line one\nli")).toBe(
+      "line one\nli".length
+    );
+    expect(masker.unfinishedTail("see line")).toBe("line".length);
+  });
+
+  test("is zero when the end begins no value or the value is whole", () => {
+    const masker = createMasker({ TOK: "hm_run_abc123" });
+    expect(masker.unfinishedTail("nothing here")).toBe(0);
+    expect(masker.unfinishedTail("")).toBe(0);
+    expect(masker.unfinishedTail("then hm_run_abc123")).toBe(0);
+  });
+
+  test("covers the encoded shapes of a value", () => {
+    const masker = createMasker({ TOK: "a b" });
+    expect(masker.unfinishedTail("x a%2")).toBe("a%2".length);
+  });
+
+  test("takes the longest start across values", () => {
+    const masker = createMasker({ ONE: "abcdef", TWO: "cdxyz" });
+    expect(masker.unfinishedTail("abcd")).toBe(4);
+  });
+});

@@ -22,6 +22,12 @@ export interface Masker {
   mask: (text: string) => string;
   /** Same over every string inside an object or array. Never throws. */
   maskDeep: <T>(value: T) => T;
+  /**
+   * How many characters at the end of `text` begin a needle without finishing
+   * it. A stream holds those back, because the next chunk may complete the
+   * secret and `mask` can only replace a whole value.
+   */
+  unfinishedTail: (text: string) => number;
 }
 
 interface Needle {
@@ -117,5 +123,23 @@ export const createMasker = (
     return value;
   };
 
-  return { mask, maskDeep };
+  const unfinishedTail = (text: string): number => {
+    const last = text.at(-1);
+    let longest = 0;
+    for (const { value } of needles) {
+      const most = Math.min(value.length - 1, text.length);
+      for (let length = most; length > longest; length -= 1) {
+        if (
+          value[length - 1] === last &&
+          text.endsWith(value.slice(0, length))
+        ) {
+          longest = length;
+          break;
+        }
+      }
+    }
+    return longest;
+  };
+
+  return { mask, maskDeep, unfinishedTail };
 };
