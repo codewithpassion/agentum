@@ -213,6 +213,57 @@ test("prune keeps newest 20 and recent versions, clears expired tombstoned histo
   expect(db.select().from(libraryVersions).all()).toHaveLength(23);
 });
 
+/** Counts the rows every statement returns, to show what prune loads. */
+const countRowsLoaded = (run: () => Promise<void>) => {
+  const { client } = db;
+  const prepare = client.prepare.bind(client);
+  let loaded = 0;
+  client.prepare = ((sql: string) => {
+    const statement = prepare(sql);
+    for (const method of ["all", "values"] as const) {
+      const original = statement[method].bind(statement);
+      statement[method] = ((...args: never[]) => {
+        const rows = original(...args);
+        loaded += rows.length;
+        return rows;
+      }) as never;
+    }
+    return statement;
+  }) as never;
+  return run()
+    .then(() => loaded)
+    .finally(() => {
+      client.prepare = prepare as never;
+    });
+};
+
+test("prune loads no row newer than the cutoff", async () => {
+  for (let i = 0; i < 25; i += 1) {
+    await service.write(principal, "recent", bytes(String(i)));
+  }
+  expect(
+    await countRowsLoaded(() => service.pruneVersions(new Date(now)))
+  ).toBe(0);
+  expect(await service.versions(principal, "recent")).toHaveLength(25);
+
+  // Once January's rows are past the cutoff, 5 + 2 of them expire. The 30
+  // fresh rows stay unread and the kept old ones are filtered in SQL.
+  for (let i = 0; i < 22; i += 1) {
+    await service.write(principal, "old", bytes(String(i)));
+  }
+  now = "2026-03-01T00:00:00.000Z";
+  for (let i = 0; i < 30; i += 1) {
+    await service.write(principal, "fresh", bytes(String(i)));
+  }
+  const loaded = await countRowsLoaded(() =>
+    service.pruneVersions(new Date(now))
+  );
+  expect(loaded).toBe(7);
+  expect(await service.versions(principal, "recent")).toHaveLength(20);
+  expect(await service.versions(principal, "old")).toHaveLength(20);
+  expect(await service.versions(principal, "fresh")).toHaveLength(30);
+});
+
 test("failed delete, move and restore batches leave entries, events, history and notifications unchanged", async () => {
   await service.write(principal, "a", bytes("original"));
   const [version] = await service.versions(principal, "a");
