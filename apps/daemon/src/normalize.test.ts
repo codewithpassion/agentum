@@ -73,10 +73,42 @@ describe("normalizeMessage", () => {
     ]);
   });
 
-  test("thinking blocks and empty text are ignored", () => {
+  test("thinking, text and tool_use yield three events in block order", () => {
     const events = normalizeMessage(
       assistant([
-        { signature: "sig", thinking: "hmm", type: "thinking" },
+        {
+          signature: "sig",
+          thinking: "Check the file first.",
+          type: "thinking",
+        },
+        { text: "Checking.", type: "text" },
+        {
+          id: "toolu_1",
+          input: { file_path: "/a" },
+          name: "Read",
+          type: "tool_use",
+        },
+      ])
+    );
+    expect(events).toStrictEqual([
+      { payload: { text: "Check the file first." }, type: "message.reasoning" },
+      { payload: { text: "Checking." }, type: "message.assistant" },
+      {
+        payload: {
+          input: { file_path: "/a" },
+          name: "Read",
+          toolUseId: "toolu_1",
+        },
+        type: "tool.call",
+      },
+    ]);
+  });
+
+  test("empty thinking, redacted thinking and empty text are ignored", () => {
+    const events = normalizeMessage(
+      assistant([
+        { signature: "sig", thinking: "", type: "thinking" },
+        { data: "redacted", type: "redacted_thinking" },
         { text: "", type: "text" },
       ])
     );

@@ -54,6 +54,12 @@ const toolResultText = (content: ToolResultContent): string => {
 };
 
 const assistantBlockEvents = (block: AssistantBlock): NormalizedEvent[] => {
+  if (block.type === "thinking") {
+    // Match text blocks: empty means exactly ""; preserve whitespace verbatim.
+    return block.thinking === ""
+      ? []
+      : [{ payload: { text: block.thinking }, type: "message.reasoning" }];
+  }
   if (block.type === "text") {
     return block.text === ""
       ? []

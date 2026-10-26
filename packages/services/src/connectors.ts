@@ -35,6 +35,10 @@ import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import {
+  decodeAllowedTools,
+  encodeAllowedTools,
+} from "./connectors/allowed-tools.ts";
+import {
   findCredentialSlot,
   writeCredential,
 } from "./connectors/credential-write.ts";
@@ -137,6 +141,7 @@ export type ConnectorCallTimeoutInput = z.input<
 
 export const assignmentInputSchema = z.strictObject({
   agentId: idString,
+  allowedTools: z.array(z.string().trim().min(1).max(200)).max(500).optional(),
   connectorId: idString,
   credentialMode: z.enum(CREDENTIAL_MODES).default("user_or_agent"),
 });
@@ -181,6 +186,8 @@ export interface ConnectorSummary {
 
 export interface AssignmentSummary {
   agentId: string;
+  /** Tool names the agent may use through this connector, null for every tool. */
+  allowedTools: string[] | null;
   connectorId: string;
   createdAt: string;
   credentialMode: CredentialMode;
@@ -637,18 +644,25 @@ export const createConnectorsService = ({
       .insert(agentConnectors)
       .values({
         agentId: parsed.agentId,
+        allowedTools: encodeAllowedTools(parsed.allowedTools),
         connectorId: parsed.connectorId,
         createdAt,
         credentialMode: parsed.credentialMode,
         workspaceId,
       })
       .onConflictDoUpdate({
-        set: { credentialMode: parsed.credentialMode },
+        set: {
+          credentialMode: parsed.credentialMode,
+          ...(parsed.allowedTools === undefined
+            ? {}
+            : { allowedTools: encodeAllowedTools(parsed.allowedTools) }),
+        },
         target: [agentConnectors.agentId, agentConnectors.connectorId],
       });
     const [row] = await db
       .select({
         agentId: agentConnectors.agentId,
+        allowedTools: agentConnectors.allowedTools,
         connectorId: agentConnectors.connectorId,
         createdAt: agentConnectors.createdAt,
         credentialMode: agentConnectors.credentialMode,
@@ -664,7 +678,7 @@ export const createConnectorsService = ({
     if (!row) {
       throw new ServiceError("not_found", "Assignment not found");
     }
-    return row;
+    return { ...row, allowedTools: decodeAllowedTools(row.allowedTools) };
   };
 
   /** Takes a connector away from an agent. Its credentials stay. */
@@ -703,9 +717,10 @@ export const createConnectorsService = ({
       kind: CONNECTOR_KIND,
       workspaceId: user.workspaceId,
     });
-    return await db
+    const rows = await db
       .select({
         agentId: agentConnectors.agentId,
+        allowedTools: agentConnectors.allowedTools,
         connectorId: agentConnectors.connectorId,
         createdAt: agentConnectors.createdAt,
         credentialMode: agentConnectors.credentialMode,
@@ -721,6 +736,10 @@ export const createConnectorsService = ({
         asc(agentConnectors.createdAt),
         asc(agentConnectors.connectorId)
       );
+    return rows.map((row) => ({
+      ...row,
+      allowedTools: decodeAllowedTools(row.allowedTools),
+    }));
   };
 
   return {
