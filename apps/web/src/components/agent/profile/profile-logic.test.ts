@@ -577,6 +577,13 @@ describe("computerChoices", () => {
     expect(computerChoices(null, [revoked])).toEqual([]);
   });
 
+  test("keeps a revoked machine the agent still holds, so it can be detached", () => {
+    const revoked = computer({ id: "m_gone", status: "revoked" });
+    expect(computerChoices("m_gone", [revoked])).toMatchObject([
+      { attached: true, id: "m_gone", status: "Revoked", tone: "bad" },
+    ]);
+  });
+
   test("says not connected yet when the computer has never said hello", () => {
     const fresh = computer({ computerCapabilities: null, id: "m_new" });
     expect(computerChoices(null, [fresh])[0]?.kind).toBe("Not connected yet");

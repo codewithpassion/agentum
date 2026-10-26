@@ -254,19 +254,28 @@ export interface ComputerChoice {
   tone: "good" | "muted" | "bad";
 }
 
-/** The computers an agent can attach to, the attached one marked. */
+/**
+ * The computers an agent can attach to, the attached one marked. A revoked
+ * computer stays in the list while the agent holds it, so it can be detached.
+ */
 export const computerChoices = (
   attachedId: string | null,
   machines: MachineRecord[]
 ): ComputerChoice[] =>
-  computersOf(machines).map((machine) => {
-    const row = roleRows(machine).find((item) => item.role === "computer");
-    return {
-      attached: machine.id === attachedId,
-      id: machine.id,
-      kind: computerKind(machine) ?? "Not connected yet",
-      name: machine.name,
-      status: row?.status ?? "Offline",
-      tone: row?.tone ?? "muted",
-    };
-  });
+  machines
+    .filter((machine) =>
+      machine.id === attachedId
+        ? machine.roles.includes("computer")
+        : computersOf([machine]).length > 0
+    )
+    .map((machine) => {
+      const row = roleRows(machine).find((item) => item.role === "computer");
+      return {
+        attached: machine.id === attachedId,
+        id: machine.id,
+        kind: computerKind(machine) ?? "Not connected yet",
+        name: machine.name,
+        status: row?.status ?? "Offline",
+        tone: row?.tone ?? "muted",
+      };
+    });

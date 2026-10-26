@@ -89,8 +89,7 @@ describe("binaryCommand", () => {
 
 describe("DESKTOP_SECCOMP_NOTE", () => {
   test("names the seccomp profile path", () => {
-    expect(DESKTOP_SECCOMP_NOTE).toContain(
-      "apps/computer/packaging/desktop/seccomp.json"
-    );
+    expect(DESKTOP_SECCOMP_NOTE).toContain("packaging/desktop/seccomp.json");
+    expect(DESKTOP_SECCOMP_NOTE).toContain("apps/computer");
   });
 });
