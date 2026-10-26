@@ -1,3 +1,10 @@
+// Parts of this file (safeFilename) come from agentic-inbox-hei, workers/index.ts:
+// Copyright (c) 2026 Cloudflare, Inc.
+// Licensed under the Apache 2.0 license found in the LICENSE file or at:
+//     https://opensource.org/licenses/Apache-2.0
+//
+// Modified by Harbourmaster: the rest of the file is new.
+
 import type { MailboxRef } from "@repo/services/mail/types";
 import { extractMessageId } from "./threading.ts";
 

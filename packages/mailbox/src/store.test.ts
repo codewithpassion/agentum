@@ -648,3 +648,32 @@ describe("mail changes and deletes", () => {
     expect(store.getAttachment("att-missing")).toBeNull();
   });
 });
+
+describe("findThreadBySubject participants and thread starters", () => {
+  test("matches whole addresses, not a part of one", () => {
+    const { store } = setup();
+    add(store, "inbox", {
+      date: iso(HOUR),
+      recipient: "agent@example.com",
+      sender: "alice@corp.com",
+      subject: "Plan",
+      threadId: "plan-thread",
+    });
+    expect(store.findThreadBySubject("Re: Plan", "e@corp.co")).toBeNull();
+    expect(store.findThreadBySubject("Re: Plan", "alice@corp.com")).toBe(
+      "plan-thread"
+    );
+  });
+
+  test("a thread that is one mail with its own id is not joined by subject", () => {
+    const { store } = setup();
+    add(store, "inbox", {
+      date: iso(HOUR),
+      id: "lonely",
+      sender: "bob@x.com",
+      subject: "Daily report",
+      threadId: "lonely",
+    });
+    expect(store.findThreadBySubject("Daily report", "bob@x.com")).toBeNull();
+  });
+});

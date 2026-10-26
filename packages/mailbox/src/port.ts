@@ -1,8 +1,11 @@
-// The MailboxPort over a mailbox Durable Object, the FILES bucket and the
-// send_email binding. Written for Harbourmaster (MIT). It follows the send and
-// receive flows of agentic-inbox-hei (workers/lib/tools.ts and
-// workers/index.ts, Apache-2.0, see NOTICE), without verifyDraft, deferred
-// delivery or quoted replies.
+// Copyright (c) 2026 Cloudflare, Inc.
+// Licensed under the Apache 2.0 license found in the LICENSE file or at:
+//     https://opensource.org/licenses/Apache-2.0
+//
+// Modified by Harbourmaster: the MailboxPort over a mailbox Durable Object, the
+// FILES bucket and the send_email binding. It follows the send and receive
+// flows of agentic-inbox-hei (workers/lib/tools.ts and workers/index.ts),
+// without verifyDraft, deferred delivery or quoted replies.
 
 import {
   type AttachmentMeta,
@@ -104,10 +107,13 @@ const headerJson = (entries: [string, string | undefined][]): string =>
 const bracketed = (ids: string[]): string | undefined =>
   ids.length > 0 ? ids.map((id) => `<${id}>`).join(" ") : undefined;
 
-/** The mail a reply answers: the newest inbound mail, else the newest mail that is not a draft. */
+/**
+ * The mail a reply answers: the newest inbound mail, else the newest sent one.
+ * Drafts, trash and spam never count, because they were not delivered.
+ */
 const replyTarget = (thread: StoredEmail[]): StoredEmail | null =>
   [...thread].reverse().find((row) => row.folderId === FOLDERS.inbox) ??
-  [...thread].reverse().find((row) => row.folderId !== FOLDERS.draft) ??
+  [...thread].reverse().find((row) => row.folderId === FOLDERS.sent) ??
   null;
 
 const textOf = (row: EmailRow): string | null => {

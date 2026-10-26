@@ -70,10 +70,13 @@ export const buildReferencesChain = (
   original: ThreadingOriginal
 ): { inReplyTo: string; references: string[]; threadId: string } => {
   const inReplyTo = original.messageId || original.id;
-  const references = uniqueNonEmpty([
-    ...parseReferences(original.emailReferences),
+  // The parent stays last in the chain even when an older entry names it too.
+  const references = [
+    ...uniqueNonEmpty(parseReferences(original.emailReferences)).filter(
+      (id) => id !== inReplyTo
+    ),
     inReplyTo,
-  ]);
+  ];
   return {
     inReplyTo,
     references,

@@ -204,7 +204,9 @@ export const createMailboxStore = (
              GROUP_CONCAT(DISTINCT LOWER(sender)) AS senders,
              GROUP_CONCAT(DISTINCT LOWER(recipient)) AS recipients
       FROM emails
-      WHERE thread_id IS NOT NULL AND date >= ${cutoff}
+      WHERE thread_id IS NOT NULL
+        AND thread_id != id
+        AND date >= ${cutoff}
       GROUP BY thread_id
       ORDER BY MAX(date) DESC
       LIMIT ${THREAD_CANDIDATES}`);
@@ -213,7 +215,9 @@ export const createMailboxStore = (
       if (normalizeSubject(row.subject ?? "") !== normalized) {
         continue;
       }
-      const participants = `${row.senders ?? ""},${row.recipients ?? ""}`;
+      const participants = splitAddresses(
+        `${row.senders ?? ""},${row.recipients ?? ""}`
+      );
       if (sender && !participants.includes(sender)) {
         continue;
       }

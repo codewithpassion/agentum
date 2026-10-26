@@ -79,6 +79,16 @@ describe("generateMessageId", () => {
 });
 
 describe("buildReferencesChain", () => {
+  test("keeps the parent last when an older entry names it too", () => {
+    const chain = buildReferencesChain({
+      emailReferences: JSON.stringify(["c@x", "a@x"]),
+      id: "row-1",
+      messageId: "c@x",
+      threadId: "root@x",
+    });
+    expect(chain.references).toEqual(["a@x", "c@x"]);
+  });
+
   test("appends the original message id to existing references", () => {
     const chain = buildReferencesChain({
       emailReferences: JSON.stringify(["<a@x>", "b@x"]),
