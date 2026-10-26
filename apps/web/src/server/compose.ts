@@ -157,6 +157,10 @@ import {
   type SlackSendService,
 } from "@repo/services/slack-send";
 import {
+  createTasksService,
+  type TasksService,
+} from "@repo/services/tasks/service";
+import {
   createTriggersService,
   type TriggersService,
 } from "@repo/services/triggers";
@@ -171,6 +175,7 @@ import { r2FileBlobs } from "./r2-files.ts";
 import { r2LibraryBlobs } from "./r2-library.ts";
 import { r2SkillBlobs } from "./r2-skills.ts";
 import { durableRelayPort } from "./relay-port.ts";
+import { STREAM_EVENT_TYPES } from "./session-stream-frames.ts";
 import {
   type SessionStreamPort,
   streamListener,
@@ -256,6 +261,7 @@ export interface Services {
   slackHistory: SlackHistoryService;
   slackRequests: SlackRequests;
   slackSend: SlackSendService;
+  tasks: TasksService;
   triggers: TriggersService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
@@ -573,6 +579,14 @@ export const composeWith = ({
     events,
     runs,
   });
+  const tasks = createTasksService({
+    clock: infra.clock,
+    db,
+    events,
+    eventTypes: STREAM_EVENT_TYPES,
+    people: infra.people,
+    requests,
+  });
   // The desk's Needs you logic is shared: the web desk and the desk API read the same items.
   const desk = createDeskService({
     clock: infra.clock,
@@ -629,6 +643,7 @@ export const composeWith = ({
       slackHistory,
       slackRequests,
       slackSend,
+      tasks,
       triggers,
       workspaces,
     },

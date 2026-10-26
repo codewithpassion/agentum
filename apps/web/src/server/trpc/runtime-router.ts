@@ -15,6 +15,7 @@ import { sessionsRouter } from "./sessions-router.ts";
 import { skillStoreRouter } from "./skill-store-router.ts";
 import { skillsRouter } from "./skills-router.ts";
 import { slackAppsRouter } from "./slack-apps-router.ts";
+import { tasksRouter } from "./tasks-router.ts";
 
 export const runtimeRouter = router({
   agents: agentsRouter,
@@ -32,4 +33,5 @@ export const runtimeRouter = router({
   skillStore: skillStoreRouter,
   skills: skillsRouter,
   slackApps: slackAppsRouter,
+  tasks: tasksRouter,
 });

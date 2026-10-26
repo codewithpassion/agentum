@@ -49,7 +49,7 @@ const PASSAGE_WINDOW = 160;
 
 /** The principals that read sessions: a user, or a run acting for an agent. */
 type Reader = Extract<Principal, { kind: "user" | "run" }>;
-type SessionRow = typeof sessions.$inferSelect;
+export type SessionRow = typeof sessions.$inferSelect;
 
 export interface SessionRecord {
   agentId: string;
@@ -202,6 +202,127 @@ const sourceName = (
   }
 };
 
+/** Trigger names by trigger id, one batched read. */
+const triggerNamesOf = async (
+  db: Database,
+  ids: string[]
+): Promise<Map<string, string>> => {
+  const names = new Map<string, string>();
+  if (ids.length === 0) {
+    return names;
+  }
+  const found = await db
+    .select({ id: triggers.id, name: triggers.name })
+    .from(triggers)
+    .where(inArray(triggers.id, ids));
+  for (const trigger of found) {
+    names.set(trigger.id, trigger.name);
+  }
+  return names;
+};
+
+/** Inbox thread titles by thread id, one batched read. */
+const threadTitlesOf = async (
+  db: Database,
+  ids: string[]
+): Promise<Map<string, string>> => {
+  const titles = new Map<string, string>();
+  if (ids.length === 0) {
+    return titles;
+  }
+  const found = await db
+    .select({ id: inboxThreads.id, title: inboxThreads.title })
+    .from(inboxThreads)
+    .where(inArray(inboxThreads.id, ids));
+  for (const thread of found) {
+    titles.set(thread.id, thread.title);
+  }
+  return titles;
+};
+
+/** The label of each session's newest `slack.named` event, one batched read. */
+const slackLabelsOf = async (
+  db: Database,
+  sessionIds: string[]
+): Promise<Map<string, string | null>> => {
+  const labels = new Map<string, string | null>();
+  if (sessionIds.length === 0) {
+    return labels;
+  }
+  const found = await db
+    .select({ payload: eventRows.payload, sessionId: eventRows.sessionId })
+    .from(eventRows)
+    .where(
+      and(
+        eq(eventRows.type, "slack.named"),
+        inArray(eventRows.sessionId, sessionIds)
+      )
+    )
+    .orderBy(desc(eventRows.id));
+  // Newest first, so the first event seen per session is the newest one.
+  for (const event of found) {
+    if (event.sessionId !== null && !labels.has(event.sessionId)) {
+      labels.set(event.sessionId, labelOf(event.payload));
+    }
+  }
+  return labels;
+};
+
+/** What can name a session besides its first message, read once for a set of sessions. */
+export interface TitleSources {
+  labels: Map<string, string | null>;
+  threadTitles: Map<string, string>;
+  triggerNames: Map<string, string>;
+}
+
+/**
+ * Reads the names that title `rows`: a trigger or routine by its trigger, an
+ * inbox session by its thread, a Slack session by its label. At most three
+ * batched reads cover all the rows, none one per session.
+ */
+export const loadTitleSources = async (
+  db: Database,
+  rows: readonly SessionRow[]
+): Promise<TitleSources> => {
+  const [triggerNames, threadTitles, labels] = await Promise.all([
+    triggerNamesOf(
+      db,
+      rows.flatMap((row) => (row.actorKind === "trigger" ? [row.actorId] : []))
+    ),
+    threadTitlesOf(
+      db,
+      rows.flatMap((row) =>
+        row.origin === "inbox" && row.externalKey !== null
+          ? [row.externalKey]
+          : []
+      )
+    ),
+    slackLabelsOf(
+      db,
+      rows.flatMap((row) => (row.origin === "slack" ? [row.id] : []))
+    ),
+  ]);
+  return { labels, threadTitles, triggerNames };
+};
+
+/**
+ * The title of a session, or of one run in it when `first` is that run's input.
+ * A name from its origin comes first. Otherwise, or when that name is gone,
+ * the first message.
+ */
+export const titleFor = (
+  { labels, threadTitles, triggerNames }: TitleSources,
+  row: SessionRow,
+  first: string
+): string => {
+  const name = sourceName(row, triggerNames, threadTitles);
+  const label = labels.get(row.id) ?? null;
+  if (name !== undefined && name.trim() !== "") {
+    return truncate(name);
+  }
+  return truncate(label === null ? first : `${label}: ${first}`);
+};
+
 export const createSessionsService = ({
   db,
   events,
@@ -211,110 +332,20 @@ export const createSessionsService = ({
 }) => {
   const visibleTo = (reader: Reader) => visibleSessions(db, reader);
 
-  /** Trigger names by trigger id, one batched read. */
-  const triggerNamesOf = async (
-    ids: string[]
-  ): Promise<Map<string, string>> => {
-    const names = new Map<string, string>();
-    if (ids.length === 0) {
-      return names;
-    }
-    const found = await db
-      .select({ id: triggers.id, name: triggers.name })
-      .from(triggers)
-      .where(inArray(triggers.id, ids));
-    for (const trigger of found) {
-      names.set(trigger.id, trigger.name);
-    }
-    return names;
-  };
-
-  /** Inbox thread titles by thread id, one batched read. */
-  const threadTitlesOf = async (
-    ids: string[]
-  ): Promise<Map<string, string>> => {
-    const titles = new Map<string, string>();
-    if (ids.length === 0) {
-      return titles;
-    }
-    const found = await db
-      .select({ id: inboxThreads.id, title: inboxThreads.title })
-      .from(inboxThreads)
-      .where(inArray(inboxThreads.id, ids));
-    for (const thread of found) {
-      titles.set(thread.id, thread.title);
-    }
-    return titles;
-  };
-
-  /** The label of each session's newest `slack.named` event, one batched read. */
-  const slackLabelsOf = async (
-    sessionIds: string[]
-  ): Promise<Map<string, string | null>> => {
-    const labels = new Map<string, string | null>();
-    if (sessionIds.length === 0) {
-      return labels;
-    }
-    const found = await db
-      .select({ payload: eventRows.payload, sessionId: eventRows.sessionId })
-      .from(eventRows)
-      .where(
-        and(
-          eq(eventRows.type, "slack.named"),
-          inArray(eventRows.sessionId, sessionIds)
-        )
-      )
-      .orderBy(desc(eventRows.id));
-    // Newest first, so the first event seen per session is the newest one.
-    for (const event of found) {
-      if (event.sessionId !== null && !labels.has(event.sessionId)) {
-        labels.set(event.sessionId, labelOf(event.payload));
-      }
-    }
-    return labels;
-  };
-
   /**
-   * The title of each session, keyed by session id. A trigger or routine is
-   * named by its trigger, an inbox session by its thread, a Slack session by
-   * its label. Otherwise, or when that name is gone, the first message.
-   * At most three batched reads cover all the rows, none one per session.
+   * The title of each session, keyed by session id, see `titleFor`.
    */
   const titlesFor = async (
     rows: SessionRow[],
     firstMessageBySession: Map<string, string>
   ): Promise<Map<string, string>> => {
-    const [triggerNames, threadTitles, labels] = await Promise.all([
-      triggerNamesOf(
-        rows.flatMap((row) =>
-          row.actorKind === "trigger" ? [row.actorId] : []
-        )
-      ),
-      threadTitlesOf(
-        rows.flatMap((row) =>
-          row.origin === "inbox" && row.externalKey !== null
-            ? [row.externalKey]
-            : []
-        )
-      ),
-      slackLabelsOf(
-        rows.flatMap((row) => (row.origin === "slack" ? [row.id] : []))
-      ),
-    ]);
-    const titles = new Map<string, string>();
-    for (const row of rows) {
-      const first = firstMessageBySession.get(row.id) ?? "";
-      const name = sourceName(row, triggerNames, threadTitles);
-      const label = labels.get(row.id) ?? null;
-      if (name !== undefined && name.trim() !== "") {
-        titles.set(row.id, truncate(name));
-      } else if (label === null) {
-        titles.set(row.id, truncate(first));
-      } else {
-        titles.set(row.id, truncate(`${label}: ${first}`));
-      }
-    }
-    return titles;
+    const sources = await loadTitleSources(db, rows);
+    return new Map(
+      rows.map((row) => [
+        row.id,
+        titleFor(sources, row, firstMessageBySession.get(row.id) ?? ""),
+      ])
+    );
   };
 
   /** Pairs each session row with its latest run's status and title. */

@@ -11,7 +11,6 @@
  */
 import type { Database } from "@repo/db";
 import { agents as agentRows } from "@repo/db/schema/agents";
-import { events } from "@repo/db/schema/events";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
@@ -22,21 +21,11 @@ import {
   isPendingProposal,
   type RunStatus,
 } from "@repo/db/shared";
-import {
-  and,
-  count,
-  desc,
-  eq,
-  getTableColumns,
-  gte,
-  inArray,
-  max,
-  sql,
-} from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, max } from "drizzle-orm";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { personLabel } from "./events/summary.ts";
-import { type EventRecord, type PeopleLookup, toRecord } from "./events.ts";
+import type { PeopleLookup } from "./events.ts";
 import type { InboxService } from "./inbox.ts";
 import type { RequestRecord, RequestsService } from "./requests.ts";
 import type { RoutinesService } from "./routines.ts";
@@ -44,6 +33,7 @@ import type { Clock } from "./runs/types.ts";
 import { visibleSessions } from "./sessions.ts";
 import type { SkillsStoreService } from "./skills-store.ts";
 import { text } from "./tasks/format.ts";
+import { inBatches, latestBandEvents } from "./tasks/reads.ts";
 import { statusBand } from "./tasks/status-band.ts";
 import type { TriggersService } from "./triggers.ts";
 import type { Principal } from "./workspaces.ts";
@@ -56,9 +46,6 @@ const TITLE_MAX = 120;
 
 /** Most cards in Done today. The rest are a count. */
 const DONE_CAP = 20;
-
-/** Ids per `IN (...)` read, under D1's limit of 100 bound parameters. */
-const BATCH = 50;
 
 const READ_ACTION = "desk.read";
 const DESK_KIND = "desk";
@@ -136,19 +123,6 @@ const describe = (record: RequestRecord): { detail: string; title: string } => {
   };
 };
 
-/** Reads `ids` in batches small enough for one `IN (...)` each. */
-const inBatches = async <T>(
-  ids: readonly string[],
-  read: (batch: string[]) => Promise<T[]>
-): Promise<T[]> => {
-  const unique = [...new Set(ids)];
-  const batches: string[][] = [];
-  for (let start = 0; start < unique.length; start += BATCH) {
-    batches.push(unique.slice(start, start + BATCH));
-  }
-  return (await Promise.all(batches.map(read))).flat();
-};
-
 /** Who or what started something, before the name is looked up. */
 interface Starter {
   id: string;
@@ -166,9 +140,6 @@ const titleOf = (inputText: string): string => {
   const [line] = text(inputText).split("\n");
   return clip(line?.trim() || "Task", TITLE_MAX);
 };
-
-/** The latest `tool.call` or `message.assistant` is all `statusBand` reads from the events. */
-const BAND_EVENT_TYPES = ["tool.call", "message.assistant"];
 
 export const createDeskService = ({
   clock,
@@ -527,36 +498,6 @@ export const createDeskService = ({
     return (await named(workspaceId, drafts)).sort(byAge);
   };
 
-  /**
-   * The newest `tool.call` or `message.assistant` of each run, one read
-   * through `events_run_idx`. Only a running run's band reads events.
-   */
-  const latestEvents = async (
-    runIds: readonly string[]
-  ): Promise<Map<string, EventRecord[]>> => {
-    const rank = sql<number>`row_number() over (partition by ${events.runId} order by ${events.id} desc)`;
-    const found = await inBatches(runIds, (batch) => {
-      const ranked = db
-        .select({ ...getTableColumns(events), rank: rank.as("rank") })
-        .from(events)
-        .where(
-          and(
-            inArray(events.runId, batch),
-            inArray(events.type, BAND_EVENT_TYPES)
-          )
-        )
-        .as("ranked");
-      return db.select().from(ranked).where(eq(ranked.rank, 1));
-    });
-    const byRun = new Map<string, EventRecord[]>();
-    for (const row of found) {
-      if (row.runId) {
-        byRun.set(row.runId, [toRecord(row)]);
-      }
-    }
-    return byRun;
-  };
-
   /** Run cards for `lane`, each with its band. Ordered as `rows` are. */
   const runCards = async (
     member: UserPrincipal,
@@ -564,7 +505,8 @@ export const createDeskService = ({
     rows: readonly (typeof runRows.$inferSelect)[],
     pending: readonly RequestRecord[]
   ): Promise<DeskCard[]> => {
-    const eventsByRun = await latestEvents(
+    const eventsByRun = await latestBandEvents(
+      db,
       rows.filter((run) => run.status === "running").map((run) => run.id)
     );
     const drafts = rows.map(
