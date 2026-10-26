@@ -29,9 +29,24 @@ const homeFor = async (
     : `${LIBRARY_MOUNT}/${agentHomePath(slug)}`;
 };
 
-/** A read changes nothing, so it may run again after a restart. A write and an edit may not. */
+/**
+ * The run's task folder, as a library path, is read when the prompt renders.
+ * Without an answer the section names no task folder.
+ */
+const taskFolderLine = async (
+  taskFolderOf?: () => Promise<string | undefined>
+): Promise<string | undefined> => {
+  const path = await taskFolderOf?.();
+  return path === undefined ? undefined : `${LIBRARY_MOUNT}/${path}`;
+};
+
+/**
+ * A read changes nothing, so it may run again after a restart. A write and an edit may not.
+ * `slugOf` and `taskFolderOf` are read when the prompt renders.
+ */
 export const libraryToolsExtension = (
-  slugOf: () => Promise<string | undefined>
+  slugOf: () => Promise<string | undefined>,
+  taskFolderOf?: () => Promise<string | undefined>
 ): Extension => ({
   name: LIBRARY_TOOLS_EXTENSION,
   sections: [
@@ -39,11 +54,13 @@ export const libraryToolsExtension = (
       key: SECTION_KEY,
       render: async () =>
         workspaceInstructions({
+          attachments: false,
           home: await homeFor(slugOf),
           homeIsLocal: true,
           library: LIBRARY_MOUNT,
           runScript: true,
           scratch: { lasts: "call", path: null },
+          taskFolder: await taskFolderLine(taskFolderOf),
         }),
     },
   ],

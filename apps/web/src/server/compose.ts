@@ -69,6 +69,7 @@ import {
 } from "@repo/services/library/access";
 import { createLibraryAudience } from "@repo/services/library/audience";
 import { memoryLibraryBlobs } from "@repo/services/library/memory";
+import { createTaskFiles } from "@repo/services/library/task-files";
 import {
   createLibraryLinksService,
   type LibraryLinksService,
@@ -503,8 +504,10 @@ export const composeWith = ({
     events,
     fetch: connectorFetch,
     files,
+    library,
     publicBaseUrl: infra.publicBaseUrl,
     secretsKey: infra.secretsKey,
+    taskFiles: createTaskFiles({ db }).taskFiles,
   });
   // The working status in the thread of a Slack-started run.
   const slackStatus = createSlackStatus({

@@ -165,9 +165,10 @@ describe("libraryToolsExtension", () => {
 });
 
 const renderSection = async (
-  slugOf: () => Promise<string | undefined>
+  slugOf: () => Promise<string | undefined>,
+  taskFolderOf?: () => Promise<string | undefined>
 ): Promise<string> => {
-  const section = libraryToolsExtension(slugOf).sections?.[0];
+  const section = libraryToolsExtension(slugOf, taskFolderOf).sections?.[0];
   if (section === undefined) {
     throw new Error("no section");
   }
@@ -179,10 +180,10 @@ const renderSection = async (
 };
 
 describe("libraryToolsExtension section", () => {
-  test("names the agent's home in the library and the attachment marker", async () => {
+  test("names the agent's home in the library and no attachment marker", async () => {
     const text = await renderSection(async () => "ada");
     expect(text).toContain("/library/agents/ada");
-    expect(text).toContain("[ATTACHMENT:<absolute path>]");
+    expect(text).not.toContain("[ATTACHMENT:");
     expect(text).toContain("no scratch folder");
     expect(text).toContain("kept for one tool call only");
   });
@@ -191,6 +192,28 @@ describe("libraryToolsExtension section", () => {
     const text = await renderSection(async () => undefined);
     expect(text).toContain("/library");
     expect(text).not.toContain("agents/");
+  });
+
+  test("names the run's task folder in the library when taskFolderOf gives a path", async () => {
+    const text = await renderSection(
+      async () => "ada",
+      async () => "agents/ada/tasks/run-1"
+    );
+    expect(text).toContain("/library/agents/ada/tasks/run-1");
+    expect(text).toContain(
+      "Save files for the user in /library/agents/ada/tasks/run-1."
+    );
+    expect(text).not.toContain("[ATTACHMENT:");
+  });
+
+  test("names no task folder and no attachment marker when taskFolderOf gives nothing", async () => {
+    const text = await renderSection(
+      async () => "ada",
+      async () => undefined
+    );
+    expect(text).not.toContain("Save files for the user");
+    expect(text).not.toContain("[ATTACHMENT:");
+    expect(text).toBe(await renderSection(async () => "ada"));
   });
 
   test("tells the isolate agent about its run_script tool", async () => {

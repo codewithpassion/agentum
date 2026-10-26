@@ -91,6 +91,8 @@ const assertModelForRuntime = (runtime: AgentRuntime, model: string): void => {
 };
 
 export interface AgentRecord {
+  /** The computer this agent drives, or null. Only cloud and managed agents have one. */
+  computerMachineId: string | null;
   createdAt: string;
   createdBy: string;
   emailLocal: string | null;
@@ -224,6 +226,7 @@ export const agentUpdateSchema = z
 export type AgentUpdateInput = z.input<typeof agentUpdateSchema>;
 
 const toRecord = (row: AgentRow): AgentRecord => ({
+  computerMachineId: row.computerMachineId,
   createdAt: row.createdAt,
   createdBy: row.createdBy,
   emailLocal: row.emailLocal,
