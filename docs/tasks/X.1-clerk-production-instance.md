@@ -3,7 +3,7 @@ id: X.1
 title: Move Harbourmaster onto the shared production Clerk instance
 milestone: X
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/X.1-clerk-production-instance
 lane: worker
@@ -31,3 +31,4 @@ Dom approved one production Clerk instance shared by Harbourmaster, flightdex-v2
 - 2026-10-26: Dom: create Dev Workspace org and dev@rockyshoreslabs.io on the production instance; asked the coordinator (session devel-9b) for that and for the live keys in .env.production.local.
 - 2026-10-26: id-scan follow-up merged (Clerk id shape, ignore list). Staging cut over: 926 cells in 769 rows rewritten (map harbourmaster-wt/tmp/X.1/staging-map-fixed.json, the-brain id ignored), secrets set, ALLOWED_ORG_IDS = new Dev Workspace and HEI orgs, deployed ad9dbcf7 (pk_live). Re-run lists 0 cells. Time Travel bookmark before apply: 000002b7-00000000-00005110-3af4d2709f3fdd629fb063c069de5149. Old values in ~/.config/harbourmaster/rollback-clerk.env. Sign-in check running.
 - 2026-10-26: production cut over: 27 cells in 21 rows rewritten (map tmp/X.1/prod-map.json), migration 0013 applied, live secrets, deployed 922c821f; re-run lists 0 cells. Bookmark before apply: 000002a0-00000000-00005110-97a85d110a44cd06f6ea7331aa6ae9d3. Dev user removed from the HEI org on Dom's say, so agent sign-ins land in Dev Workspace. Staging sign-in check passed (tmp/X.1/staging-signin.md). HANDOVER updated.
+- 2026-10-26: done. Production sign-in check passed on data (Dev Workspace, v02 smoke sessions), but the Agent Task session landed in choose-organization and needed a manual setActive; follow-up X.4. Report: tmp/X.1/prod-signin.md.
