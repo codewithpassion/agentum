@@ -44,6 +44,7 @@ import type { WebFetcher } from "../web-fetch/types.ts";
 import { createBrowserPorts } from "./browser-ports.ts";
 import { createComputerPorts } from "./computer-ports.ts";
 import { guarded } from "./guarded.ts";
+import { createLibraryPorts } from "./library-ports.ts";
 import { createMailPorts } from "./mail-ports.ts";
 import { createSkillPorts } from "./skill-ports.ts";
 
@@ -270,6 +271,7 @@ export const createMcpPorts = ({
   };
 
   return {
+    ...createLibraryPorts({ principal, services }),
     ...createSkillPorts({ findAgent, principal, services }),
     // Only a run has a mailbox of its own. The route turns the tools on when it is active.
     ...(principal.kind === "run"
@@ -375,12 +377,6 @@ export const createMcpPorts = ({
         });
         return result;
       }),
-
-    // V4.21 supplies the real library/wiki adapters in the worker lane.
-    libraryList: () => Promise.reject(new Error("not wired yet")),
-    libraryRead: () => Promise.reject(new Error("not wired yet")),
-    libraryVersions: () => Promise.reject(new Error("not wired yet")),
-    libraryWrite: () => Promise.reject(new Error("not wired yet")),
 
     listAgents: () =>
       guarded(async () =>
@@ -502,7 +498,5 @@ export const createMcpPorts = ({
       guarded(() =>
         services.slackSend.send(principal, { text, threadTs: thread_ts, to })
       ),
-    wikiRead: () => Promise.reject(new Error("not wired yet")),
-    wikiSuggestEdit: () => Promise.reject(new Error("not wired yet")),
   };
 };
