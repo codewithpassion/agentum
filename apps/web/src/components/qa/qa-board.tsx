@@ -53,6 +53,7 @@ export function QaBoard({ agentNames, filter, initial, userId }: QaBoardProps) {
   );
   const [older, setOlder] = useState<QaPage | null>(null);
   const [olderError, setOlderError] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const head = first.data ?? initial;
   const nextCursor = older === null ? head.nextCursor : older.nextCursor;
   const seen = new Set(head.questions.map((question) => question.id));
@@ -65,6 +66,7 @@ export function QaBoard({ agentNames, filter, initial, userId }: QaBoardProps) {
     if (nextCursor === null) {
       return;
     }
+    setLoadingOlder(true);
     setOlderError(null);
     try {
       const page = await getTrpc().qa.list.query({
@@ -77,6 +79,8 @@ export function QaBoard({ agentNames, filter, initial, userId }: QaBoardProps) {
       }));
     } catch (caught) {
       setOlderError(errorMessage(caught));
+    } finally {
+      setLoadingOlder(false);
     }
   }, [nextCursor, filter]);
 
@@ -114,7 +118,12 @@ export function QaBoard({ agentNames, filter, initial, userId }: QaBoardProps) {
       )}
       {nextCursor === null ? null : (
         <div className="flex items-center gap-3">
-          <Button onClick={loadOlder} type="button" variant="outline">
+          <Button
+            disabled={loadingOlder}
+            onClick={loadOlder}
+            type="button"
+            variant="outline"
+          >
             Show older
           </Button>
           {olderError === null ? null : (
