@@ -691,5 +691,16 @@ test("library-live claims carry modes, legacy claims keep paths only", async () 
       { mode: "read", path: "wiki" },
       { mode: "read", path: "docs" },
     ],
+    taskFolder: `agents/box/tasks/${started.runId}`,
   });
+
+  const legacyStarted = await start(otherAgentId);
+  const legacy = await service.claimRunForMachine(
+    machine("m2"),
+    legacyStarted.runId,
+    { libraryForDaemon: true, platformUrl: PLATFORM }
+  );
+  expect(legacy.library).toBeDefined();
+  expect(legacy.library).not.toHaveProperty("taskFolder");
+  expect(legacy.library).not.toHaveProperty("roots");
 });

@@ -11,7 +11,11 @@ export interface CloudStart {
     slug: string;
   };
   inputFileIds: string[];
-  library?: { roots: import("@repo/db/shared").LibraryAccessGrant[] };
+  library?: {
+    roots: import("@repo/db/shared").LibraryAccessGrant[];
+    /** The library path of the run's own task folder, absent for a dry run (a dry run writes nothing, so it gets no folder). */
+    taskFolder?: string;
+  };
   mcpServers: Record<string, McpServerEntry>;
   run: {
     agentId: string;

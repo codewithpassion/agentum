@@ -42,6 +42,7 @@
     "./library/memory": "./src/library/memory.ts",
     "./library/skill-file": "./src/library/skill-file.ts",
     "./library/sync-paths": "./src/library/sync-paths.ts",
+    "./library/task-files": "./src/library/task-files.ts",
     "./machines": "./src/machines.ts",
     "./machines/runtime": "./src/machines/runtime.ts",
     "./machines/types": "./src/machines/types.ts",

@@ -58,6 +58,9 @@ test("a caller without a session gets UNAUTHORIZED", async () => {
   await expect(caller.tasks.list({ limit: 10 })).rejects.toMatchObject({
     code: "UNAUTHORIZED",
   });
+  await expect(caller.tasks.files({ runId: "run_1" })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
 });
 
 test("a caller with a user but no org gets UNAUTHORIZED", async () => {
@@ -108,6 +111,22 @@ test("an unknown run is NOT_FOUND", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
 
   await expect(caller.tasks.get({ runId: "missing" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+});
+
+test("tasks.files rejects an empty run id", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  await expect(caller.tasks.files({ runId: "" })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+});
+
+test("tasks.files on an unknown run is NOT_FOUND", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  await expect(caller.tasks.files({ runId: "missing" })).rejects.toMatchObject({
     code: "NOT_FOUND",
   });
 });
