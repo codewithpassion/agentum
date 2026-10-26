@@ -164,7 +164,7 @@ Give each agent one plain-language profile and a friendlier way to make one. The
 | V3.7 | Dry run and Create agent service | services | claude | M | V3.6 | Dry runs on the cloud isolate; create in one step |
 | V3.8 | Dry-run gate in PiRun | worker | claude | M | V3.1 | Read tools run, other tools are skipped and logged |
 | V3.9 | Dry-run gate in platform MCP tools | mcp | codex | S | V3.1 | Writing tools answer "would …" for dry runs |
-| V3.10 | One-page profile | web | claude | L | V3.2, V3.3 | Header, chip rows and Manage sheets; tabs removed |
+| V3.10 | One-page profile | web | claude | L | V3.2, V3.3, V3.4 | Header, chip rows and Manage sheets; tabs removed |
 | V3.11 | Profile side cards | web | claude | M | V3.10 | Runs on, Ask me before it…, Recent tasks, Computer slot |
 | V3.12 | Builder page | web | claude | L | V3.6, V3.11 | Describe, voice, templates, import, review with gaps |
 | V3.13 | Dry-run panel and Create agent | web | claude | M | V3.7, V3.8, V3.9, V3.12 | Sample chips, receipt of the dry run, create |
