@@ -59,6 +59,12 @@ export interface LibraryBlobs {
   ) => Promise<{ etag: string } | null>;
 }
 
+/** Statements are prepared without executing and committed with the library change. */
+export type LibraryLinkIndex = (
+  workspaceId: string,
+  changes: readonly { path: string; bytes: Uint8Array | null }[]
+) => Statement[];
+
 export interface LibraryEntry {
   /** Null for a folder. */
   etag: string | null;
@@ -159,7 +165,9 @@ export const createLibraryService = ({
   db,
   events,
   notify,
+  linkIndex,
 }: {
+  linkIndex?: LibraryLinkIndex;
   notify?: (change: LibraryChange) => void | Promise<void>;
   atomic: Atomic;
   blobs: LibraryBlobs;
@@ -474,6 +482,7 @@ export const createLibraryService = ({
       bytes
     );
     await atomic([
+      ...(linkIndex?.(member.workspaceId, [{ bytes, path }]) ?? []),
       ...seeds.map(history.insertSeed),
       history.insertNext(version),
       ...folderStatements(member, folders),
@@ -593,9 +602,15 @@ export const createLibraryService = ({
         history.insertNext(tombstone)
       );
     }
+    const linkStatements =
+      linkIndex?.(
+        member.workspaceId,
+        removed.map((entry) => ({ bytes: null, path: entry.path }))
+      ) ?? [];
     const size = removed.reduce((total, entry) => total + entry.size, 0);
     await atomic([
       ...versionStatements,
+      ...linkStatements,
       db
         .delete(libraryEntries)
         .where(
@@ -709,6 +724,38 @@ export const createLibraryService = ({
     return { moveVersions, versionStatements };
   };
 
+  // Moves relocate the source index; link text stays literal, so incoming links
+  // to the old path become broken rather than silently retargeting.
+  const moveLinkStatements = async (
+    workspaceId: string,
+    moved: EntryRow[],
+    copies: EntryRow[]
+  ): Promise<Statement[]> => {
+    if (!linkIndex) {
+      return [];
+    }
+    const changes = await Promise.all(
+      copies
+        .filter(
+          (entry) =>
+            entry.kind === "file" &&
+            entry.path.startsWith("wiki/") &&
+            entry.path.endsWith(".md")
+        )
+        .map(async (entry) => {
+          const object = await blobs.get(objectKey(workspaceId, entry.path));
+          if (!object) {
+            throw notFound();
+          }
+          return { bytes: object.bytes, path: entry.path };
+        })
+    );
+    return linkIndex(workspaceId, [
+      ...moved.map((entry) => ({ bytes: null, path: entry.path })),
+      ...changes,
+    ]);
+  };
+
   const move = async (
     principal: Principal,
     rawFrom: string,
@@ -755,9 +802,15 @@ export const createLibraryService = ({
         })
       );
     }
+    const linkStatements = await moveLinkStatements(
+      member.workspaceId,
+      moved,
+      copies
+    );
     const size = moved.reduce((total, entry) => total + entry.size, 0);
     await atomic([
       ...versionStatements,
+      ...linkStatements,
       db
         .delete(libraryEntries)
         .where(

@@ -86,6 +86,8 @@
     "./slack/status": "./src/slack/status.ts",
     "./slack/threads": "./src/slack/threads.ts",
     "./triggers": "./src/triggers.ts",
+    "./wiki/links": "./src/wiki/links.ts",
+    "./wiki/service": "./src/wiki/service.ts",
     "./workspaces": "./src/workspaces.ts",
     "./tasks/receipt": "./src/tasks/receipt.ts",
     "./tasks/action-log": "./src/tasks/action-log.ts",

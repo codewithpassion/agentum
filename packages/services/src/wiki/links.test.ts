@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  parseWikiLinks,
-  replaceWikiLinks,
-  wikiSlugFromHref,
-} from "./links.ts";
+import { parseWikiLinks, replaceWikiLinks, wikiSlugFromHref } from "./links.ts";
 
 describe("parseWikiLinks", () => {
   test("finds a link and its slug", () => {

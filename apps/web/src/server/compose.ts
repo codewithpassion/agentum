@@ -172,6 +172,11 @@ import {
   createTriggersService,
   type TriggersService,
 } from "@repo/services/triggers";
+import {
+  createWikiLinkIndex,
+  createWikiService,
+  type WikiService,
+} from "@repo/services/wiki/service";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { clerkPeople } from "./clerk-people.ts";
@@ -273,6 +278,7 @@ export interface Services {
   slackSend: SlackSendService;
   tasks: TasksService;
   triggers: TriggersService;
+  wiki: WikiService;
   workspaces: ReturnType<typeof createWorkspacesService>;
 }
 
@@ -407,7 +413,9 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     events,
+    linkIndex: createWikiLinkIndex({ db }),
   });
+  const wiki = createWikiService({ db, library });
   const libraryLinks = createLibraryLinksService({ files, library });
   const skills = createSkillsService({ agents, library });
   const skillsStore = createSkillsStoreService({
@@ -679,6 +687,7 @@ export const composeWith = ({
       slackSend,
       tasks,
       triggers,
+      wiki,
       workspaces,
     },
   };
