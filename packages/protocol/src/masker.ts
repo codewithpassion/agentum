@@ -18,7 +18,7 @@
 // replacement.
 
 export interface Masker {
-  /** Replaces every needle, raw and JSON-encoded, with `[secret:NAME]`. */
+  /** Replaces every needle (raw, JSON, base64 and URL-encoded shapes) with `[secret:NAME]`. */
   mask: (text: string) => string;
   /** Same over every string inside an object or array. Never throws. */
   maskDeep: <T>(value: T) => T;
