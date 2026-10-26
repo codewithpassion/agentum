@@ -14,9 +14,12 @@ import {
   machines,
 } from "./schema/machines.ts";
 import { agentMailboxes, mailMessages, mailThreads } from "./schema/mail.ts";
+import { mapPositions } from "./schema/map.ts";
+import { qaAnswers, qaQuestions } from "./schema/qa.ts";
 import { runRequests } from "./schema/requests.ts";
 import { runs } from "./schema/runs.ts";
 import { sessions } from "./schema/sessions.ts";
+import { skillSources, skills } from "./schema/skills.ts";
 import { agentToolRules } from "./schema/tool-rules.ts";
 import { triggers } from "./schema/triggers.ts";
 import { workspaces } from "./schema/workspaces.ts";
@@ -639,4 +642,142 @@ test("an enrol token can name a machine to add the computer role to", () => {
     .from(machineEnrollTokens)
     .all();
   expect(stored.find((row) => row.id === "t3")?.role).toBe("agent_host");
+});
+
+const question = (
+  overrides: Partial<typeof qaQuestions.$inferInsert> = {}
+): typeof qaQuestions.$inferInsert => ({
+  authorId: "u1",
+  authorKind: "user",
+  body: "How?",
+  createdAt: NOW,
+  id: "qq1",
+  status: "open",
+  title: "How",
+  updatedAt: NOW,
+  workspaceId: "w1",
+  ...overrides,
+});
+
+const answer = (
+  overrides: Partial<typeof qaAnswers.$inferInsert> = {}
+): typeof qaAnswers.$inferInsert => ({
+  authorId: "u1",
+  authorKind: "user",
+  body: "Like this",
+  createdAt: NOW,
+  id: "qa1",
+  questionId: "qq1",
+  workspaceId: "w1",
+  ...overrides,
+});
+
+test("a question goes in before its answer, and an unknown run or workspace is refused", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  expect(() => db.insert(qaAnswers).values(answer()).run()).toThrow(
+    "FOREIGN KEY constraint failed"
+  );
+  expect(() =>
+    db
+      .insert(qaQuestions)
+      .values(question({ runId: "nope" }))
+      .run()
+  ).toThrow("FOREIGN KEY constraint failed");
+  expect(() =>
+    db
+      .insert(qaQuestions)
+      .values(question({ workspaceId: "nope" }))
+      .run()
+  ).toThrow("FOREIGN KEY constraint failed");
+  db.insert(qaQuestions).values(question()).run();
+  db.insert(qaAnswers).values(answer()).run();
+  expect(() =>
+    db
+      .insert(qaAnswers)
+      .values(answer({ id: "qa2", runId: "nope" }))
+      .run()
+  ).toThrow("FOREIGN KEY constraint failed");
+});
+
+test("an agent's question and answer take a run, and accepted_answer_id has no key", () => {
+  const db = migrated();
+  seedRun(db);
+  db.insert(qaQuestions)
+    .values(question({ authorId: "a1", authorKind: "agent", runId: "r1" }))
+    .run();
+  db.insert(qaAnswers)
+    .values(answer({ authorId: "a1", authorKind: "agent", runId: "r1" }))
+    .run();
+  db.update(qaQuestions)
+    .set({ acceptedAnswerId: "qa1", status: "answered" })
+    .where(eq(qaQuestions.id, "qq1"))
+    .run();
+  expect(db.select().from(qaQuestions).get()?.acceptedAnswerId).toBe("qa1");
+  db.update(qaQuestions)
+    .set({ acceptedAnswerId: "no-such-answer" })
+    .where(eq(qaQuestions.id, "qq1"))
+    .run();
+  expect(db.select().from(qaQuestions).get()?.acceptedAnswerId).toBe(
+    "no-such-answer"
+  );
+});
+
+test("a skill goes in before its source, and a skill has at most one source", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  const source = {
+    commitSha: "a".repeat(40),
+    createdAt: NOW,
+    provider: "github" as const,
+    ref: "main",
+    repoUrl: "https://github.com/o/r",
+    skillId: "sk1",
+    updatedAt: NOW,
+    workspaceId: "w1",
+  };
+  expect(() => db.insert(skillSources).values(source).run()).toThrow(
+    "FOREIGN KEY constraint failed"
+  );
+  db.insert(skills)
+    .values({
+      createdAt: NOW,
+      createdBy: "u1",
+      createdByKind: "user",
+      id: "sk1",
+      name: "shout",
+      updatedAt: NOW,
+      workspaceId: "w1",
+    })
+    .run();
+  db.insert(skillSources).values(source).run();
+  expect(() => db.insert(skillSources).values(source).run()).toThrow(
+    "UNIQUE constraint failed"
+  );
+});
+
+test("a map position is unique per workspace and node, and refuses an unknown workspace", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  const position = {
+    nodeKey: "agent:a1",
+    updatedAt: NOW,
+    workspaceId: "w1",
+    x: 12.5,
+    y: -3,
+  };
+  expect(() =>
+    db
+      .insert(mapPositions)
+      .values({ ...position, workspaceId: "nope" })
+      .run()
+  ).toThrow("FOREIGN KEY constraint failed");
+  db.insert(mapPositions).values(position).run();
+  expect(() => db.insert(mapPositions).values(position).run()).toThrow(
+    "UNIQUE constraint failed"
+  );
+  db.insert(mapPositions)
+    .values({ ...position, nodeKey: "out:qa", workspaceId: "w1" })
+    .run();
+  expect(db.select().from(mapPositions).all()).toHaveLength(2);
 });

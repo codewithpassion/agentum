@@ -8,7 +8,11 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
-import { SKILL_AUTHOR_KINDS, SKILL_VERSION_STATUSES } from "../shared.ts";
+import {
+  SKILL_AUTHOR_KINDS,
+  SKILL_SOURCE_PROVIDERS,
+  SKILL_VERSION_STATUSES,
+} from "../shared.ts";
 import { agents } from "./agents.ts";
 import { workspaces } from "./workspaces.ts";
 
@@ -73,6 +77,8 @@ export const skillVersions = sqliteTable(
     skillId: text("skill_id")
       .notNull()
       .references(() => skills.id),
+    // The upstream commit an imported version came from. Null for a version written here.
+    sourceCommitSha: text("source_commit_sha"),
     status: text("status", { enum: SKILL_VERSION_STATUSES }).notNull(),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
@@ -133,3 +139,31 @@ export const skillLibraryMigrations = sqliteTable("skill_library_migrations", {
     .primaryKey()
     .references(() => workspaces.id),
 });
+
+/**
+ * Where a skill was imported from. A table of its own, not columns on `skills`,
+ * because few skills have a source: the update tick reads the oldest
+ * `checked_at` first through its own index, without sparse columns on every
+ * skill. `commit_sha` is the pinned commit, `latest_commit_sha` what the last
+ * check found upstream.
+ */
+export const skillSources = sqliteTable(
+  "skill_sources",
+  {
+    checkedAt: text("checked_at"),
+    commitSha: text("commit_sha").notNull(),
+    createdAt: createdAt(),
+    latestCommitSha: text("latest_commit_sha"),
+    // Folder of the skill inside the repository. Null: the repository root.
+    path: text("path"),
+    provider: text("provider", { enum: SKILL_SOURCE_PROVIDERS }).notNull(),
+    ref: text("ref").notNull(),
+    repoUrl: text("repo_url").notNull(),
+    skillId: text("skill_id")
+      .primaryKey()
+      .references(() => skills.id),
+    updatedAt: text("updated_at").notNull(),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [index("skill_sources_checked_idx").on(t.checkedAt)]
+);

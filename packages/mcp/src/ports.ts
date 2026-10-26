@@ -306,6 +306,70 @@ export interface SlackSendResult {
   ts: string;
 }
 
+/** Mailbox shapes mirror V5.1 without importing services into this package. */
+export interface MailAddress {
+  address: string;
+  name?: string;
+}
+
+export interface MailThreadSummary {
+  lastMessageAt: string;
+  messageCount: number;
+  participants: string[];
+  subject: string;
+  threadId: string;
+  unreadCount: number;
+}
+
+export interface MailAttachmentMeta {
+  contentId?: string;
+  disposition: string;
+  filename: string;
+  id: string;
+  mimetype: string;
+  size: number;
+}
+
+export interface MailThreadMessage {
+  attachments: MailAttachmentMeta[];
+  cc: MailAddress[];
+  date: string;
+  folder: string;
+  from: MailAddress;
+  html: string | null;
+  messageId: string;
+  /** The approval or delivery outcome. The app adapter fills it from the D1 message status (V5.7). */
+  status?: string;
+  subject: string;
+  text: string | null;
+  to: MailAddress[];
+}
+
+export interface MailThreadView {
+  messages: MailThreadMessage[];
+  threadId: string;
+}
+
+/** The caller cannot choose a sender: the bound service supplies the mailbox address. */
+export interface MailDraft {
+  cc: string[];
+  html?: string;
+  subject: string;
+  text: string;
+  to: string[];
+}
+
+// V5.1 defines SentMail and HeldMail separately. The MCP adapter tags them
+// so a held draft is a normal result and never mistaken for a completed send.
+export type MailSendResult =
+  | {
+      messageId: string;
+      rfcMessageId: string;
+      status: "sent";
+      threadId: string;
+    }
+  | { messageId: string; status: "held"; threadId: string };
+
 export interface McpPorts {
   approveSkillVersion: (input: {
     skillId: string;
@@ -358,6 +422,16 @@ export interface McpPorts {
   listSessions: (input: { agent: string }) => Promise<SessionInfo[]>;
   listSkills: () => Promise<SkillInfo[]>;
   listTriggers: (input: { agentId?: string }) => Promise<TriggerInfo[]>;
+  /** Bound to the calling run's active mailbox; absent for other principals. */
+  mail?: {
+    list: (input: {
+      limit: number;
+      page: number;
+    }) => Promise<MailThreadSummary[]>;
+    read: (input: { threadId: string }) => Promise<MailThreadView | null>;
+    reply: (input: MailDraft & { threadId: string }) => Promise<MailSendResult>;
+    send: (input: MailDraft) => Promise<MailSendResult>;
+  };
   pinSkill: (input: {
     agent: string;
     skillId: string;
