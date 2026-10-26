@@ -56,6 +56,10 @@ export const useTaskThreadRuntime = ({
         fileIds: fileIdsOfAppend(message),
         text: textOfAppend(message),
       };
+      if (input.text === "") {
+        failed(new Error("Write a message to send."), "");
+        return;
+      }
       try {
         await onSend(input);
       } catch (cause) {
@@ -71,11 +75,16 @@ export const useTaskThreadRuntime = ({
       if (sourceId === null) {
         return;
       }
+      const text = textOfAppend(message);
+      if (text === "") {
+        onError(new Error("Write a message to send."));
+        return;
+      }
       try {
         await onEdit({
           fileIds: fileIdsOfAppend(message),
           messageId: sourceId,
-          text: textOfAppend(message),
+          text,
         });
       } catch (cause) {
         onError(cause);

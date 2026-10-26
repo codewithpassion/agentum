@@ -7,6 +7,7 @@ import type {
   ThreadPart,
   ThreadStatus,
 } from "@repo/protocol/thread";
+import { fileIdPart } from "./attachment-adapter.ts";
 
 type Content = Exclude<ThreadMessageLike["content"], string>[number];
 type Status = NonNullable<ThreadMessageLike["status"]>;
@@ -84,8 +85,11 @@ const userContent = (part: ThreadPart): Content[] => {
   return [];
 };
 
+// The file part carries the id, so an edited message sends its files again.
 const fileAttachment = (fileId: string): Attachment => ({
-  content: [],
+  content: [
+    fileIdPart({ id: fileId, mime: "application/octet-stream", name: fileId }),
+  ],
   id: fileId,
   name: fileId,
   status: { type: "complete" },

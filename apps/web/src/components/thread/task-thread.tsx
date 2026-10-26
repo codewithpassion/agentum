@@ -1,7 +1,7 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import type { ThreadMessage } from "@repo/protocol/thread";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   type AnswerPayload,
@@ -65,6 +65,7 @@ export function TaskThread({
   task: TaskView;
 }) {
   const navigate = useNavigate();
+  const starting = useRef<Promise<void> | null>(null);
   const [edited, setEdited] = useState<ReadonlySet<string>>(() => new Set());
   // Read after mount: the server render has no session storage.
   useEffect(() => setEdited(readEditedMarks()), []);
@@ -77,17 +78,33 @@ export function TaskThread({
   );
 
   const startRun = useCallback(
-    async ({ fileIds: ids, text }: ThreadSendInput) => {
-      const result = await getTrpc().runs.start.mutate(
-        startRunBody({
-          agentId: task.agent.id,
-          fileIds: ids,
-          requestId: crypto.randomUUID(),
-          session: task.session,
-          text,
-        })
-      );
-      await navigate({ params: { runId: result.runId }, to: "/tasks/$runId" });
+    async ({ fileIds: ids, text }: ThreadSendInput, onStarted?: () => void) => {
+      // One send at a time, so a second Ctrl+Enter cannot start a second run.
+      if (starting.current !== null) {
+        return;
+      }
+      const begin = async () => {
+        const result = await getTrpc().runs.start.mutate(
+          startRunBody({
+            agentId: task.agent.id,
+            fileIds: ids,
+            requestId: crypto.randomUUID(),
+            session: task.session,
+            text,
+          })
+        );
+        onStarted?.();
+        await navigate({
+          params: { runId: result.runId },
+          to: "/tasks/$runId",
+        });
+      };
+      starting.current = begin();
+      try {
+        await starting.current;
+      } finally {
+        starting.current = null;
+      }
     },
     [navigate, task.agent.id, task.session]
   );
@@ -109,8 +126,8 @@ export function TaskThread({
           }
         }
       }
-      addEditedMark(messageId);
-      await startRun({ fileIds: ids, text });
+      // The mark waits for the new run, so a failed start does not claim an edit.
+      await startRun({ fileIds: ids, text }, () => addEditedMark(messageId));
     },
     [messages, startRun]
   );

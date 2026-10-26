@@ -199,14 +199,28 @@ test("a user message keeps its text and turns fileId attachments into attachment
   expect(result).toEqual({
     attachments: [
       {
-        content: [],
+        content: [
+          {
+            data: "file-a",
+            filename: "file-a",
+            mimeType: "application/octet-stream",
+            type: "file",
+          },
+        ],
         id: "file-a",
         name: "file-a",
         status: { type: "complete" },
         type: "file",
       },
       {
-        content: [],
+        content: [
+          {
+            data: "file-b",
+            filename: "file-b",
+            mimeType: "application/octet-stream",
+            type: "file",
+          },
+        ],
         id: "file-b",
         name: "file-b",
         status: { type: "complete" },

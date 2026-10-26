@@ -6,7 +6,13 @@ import {
 } from "@assistant-ui/react";
 import { INPUT_FILES_MAX, MAX_FILE_BYTES } from "@repo/db/shared";
 import { FileIcon, XIcon } from "lucide-react";
-import { type ChangeEvent, useCallback, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type FormEvent,
+  useCallback,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { SendHint } from "#/components/composer/send-hint.tsx";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut.ts";
@@ -73,6 +79,7 @@ export function ComposerContainer({
   const uploading = useAuiState((state) =>
     state.composer.attachments.some((item) => item.status.type === "running")
   );
+  const empty = useAuiState((state) => state.composer.text.trim() === "");
   const [pickerOpen, setPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const disabled = disabledNote !== null;
@@ -117,6 +124,16 @@ export function ComposerContainer({
     [addFiles]
   );
 
+  // A message needs text: `runs.start` refuses an empty one, and files alone would be lost.
+  const blockEmpty = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      if (empty) {
+        event.preventDefault();
+      }
+    },
+    [empty]
+  );
+
   const openFiles = useCallback(() => fileInputRef.current?.click(), []);
   const openLibrary = useCallback(() => setPickerOpen(true), []);
   const closeLibrary = useCallback(() => setPickerOpen(false), []);
@@ -139,7 +156,10 @@ export function ComposerContainer({
   );
 
   return (
-    <ComposerPrimitive.Root className="flex flex-col gap-2">
+    <ComposerPrimitive.Root
+      className="flex flex-col gap-2"
+      onSubmit={blockEmpty}
+    >
       <ComposerPrimitive.Input
         aria-describedby="thread-send-hint"
         aria-label="Message"
@@ -169,6 +189,7 @@ export function ComposerContainer({
           multiple
           onChange={handleFiles}
           ref={fileInputRef}
+          tabIndex={-1}
           type="file"
         />
         <Button
@@ -191,7 +212,11 @@ export function ComposerContainer({
           From library
         </Button>
         <ComposerPrimitive.Send asChild>
-          <Button disabled={disabled || uploading} size="sm" type="submit">
+          <Button
+            disabled={disabled || empty || uploading}
+            size="sm"
+            type="submit"
+          >
             Send
           </Button>
         </ComposerPrimitive.Send>
