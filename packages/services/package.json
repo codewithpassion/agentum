@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     "./agent-builder/draft": "./src/agent-builder/draft.ts",
+    "./agent-builder/service": "./src/agent-builder/service.ts",
     "./agent-builder/templates": "./src/agent-builder/templates.ts",
     "./agent-profile": "./src/agent-profile.ts",
     "./agents": "./src/agents.ts",
@@ -42,6 +43,7 @@
     "./machines": "./src/machines.ts",
     "./machines/runtime": "./src/machines/runtime.ts",
     "./machines/types": "./src/machines/types.ts",
+    "./mail/types": "./src/mail/types.ts",
     "./managed/config": "./src/managed/config.ts",
     "./managed/gateway": "./src/managed/gateway.ts",
     "./managed/keys": "./src/managed/keys.ts",

@@ -86,7 +86,7 @@ export const INPUT_FILES_MAX = 20;
 /** Largest file the upload route and the files service accept: 50 MB. */
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
-export const TRIGGER_KINDS = ["http", "routine"] as const;
+export const TRIGGER_KINDS = ["http", "routine", "mail"] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
 /** A proposal from an agent's run that no person has approved yet. */
@@ -204,6 +204,14 @@ export const EVENT_TYPES = [
   "slack.listen_mode_changed",
   "inbox.posted",
   "inbox.loop_stopped",
+  "mail.received",
+  "mail.held",
+  "mail.sent",
+  "mail.rejected",
+  "mail.bounced",
+  "mail.expired",
+  "mailbox.provisioned",
+  "mailbox.failed",
   "machine.online",
   "machine.offline",
   "agent.created",
@@ -237,6 +245,41 @@ export const EVENT_TYPES = [
   "workspace.snapshot",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
+
+/** A mailbox starts `provisioning`, turns `active` once its routing rule exists, and `failed` keeps the reason in `last_error`. */
+export const MAILBOX_STATUSES = [
+  "provisioning",
+  "active",
+  "failed",
+  "disabled",
+] as const;
+export type MailboxStatus = (typeof MAILBOX_STATUSES)[number];
+
+export const MAIL_DIRECTIONS = ["in", "out"] as const;
+export type MailDirection = (typeof MAIL_DIRECTIONS)[number];
+
+/**
+ * Where a message stands. `held` waits for a person's approval, `rejected` was
+ * denied, `expired` timed out unanswered, `bounced` came back undelivered and
+ * `failed` never left.
+ */
+export const MAIL_MESSAGE_STATUSES = [
+  "received",
+  "held",
+  "sent",
+  "rejected",
+  "expired",
+  "bounced",
+  "failed",
+] as const;
+export type MailMessageStatus = (typeof MAIL_MESSAGE_STATUSES)[number];
+
+/** The tool name of an approval that holds an outgoing mail. */
+export const MAIL_SEND_TOOL = "mail_send";
+
+/** The tool key an "Always allow" on a mail recipient writes, one per address. */
+export const mailToolKey = (address: string): string =>
+  `mail:${address.trim().toLowerCase()}`;
 
 export const EVENT_ACTOR_KINDS = [
   "user",

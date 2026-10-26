@@ -1,5 +1,4 @@
 import { type ReactNode, useCallback } from "react";
-import { SettingsPanel } from "#/components/agent/tabs/settings.tsx";
 import {
   Sheet,
   SheetContent,
@@ -9,6 +8,7 @@ import {
 } from "#/components/ui/sheet.tsx";
 import type { AgentRecord } from "#/integrations/trpc/types";
 import { SHEET_TITLES, type SheetId } from "./sheet-ids.ts";
+import { AdvancedPanel } from "./sheets/advanced.tsx";
 import { ConnectorsPanel } from "./sheets/connectors.tsx";
 import { HandsToPanel } from "./sheets/hands-to.tsx";
 import { RoutinesPanel } from "./sheets/routines.tsx";
@@ -59,7 +59,7 @@ function SheetBody({ agent, sheet }: { agent: AgentRecord; sheet: SheetId }) {
     case "channels":
       return <SlackPanel agent={agent} />;
     case "edit":
-      return <SettingsPanel agent={agent} />;
+      return <AdvancedPanel agent={agent} />;
     default:
       return null;
   }
