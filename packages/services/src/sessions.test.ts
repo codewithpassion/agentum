@@ -396,6 +396,31 @@ test("list without agentId keeps another user's ui and private sessions out", as
   expect(items.map((item) => item.id)).toEqual([mine.sessionId]);
 });
 
+test("get returns a visible session and hides another user's ui session, an unknown id and another workspace's", async () => {
+  const mine = await send(user("u1"), "mine");
+  const dm = await startIn(user("u1"), agentId, "dm", {
+    origin: "slack",
+    private: true,
+  });
+
+  expect(await sessions.get(user("u1"), mine.sessionId)).toMatchObject({
+    id: mine.sessionId,
+    origin: "ui",
+  });
+  await expect(sessions.get(user("u2"), mine.sessionId)).rejects.toThrow(
+    "Session not found"
+  );
+  await expect(sessions.get(user("u2"), dm.sessionId)).rejects.toThrow(
+    "Session not found"
+  );
+  await expect(sessions.get(user("u1"), "missing")).rejects.toThrow(
+    "Session not found"
+  );
+  await expect(sessions.get(user("u1", "w2"), mine.sessionId)).rejects.toThrow(
+    "Session not found"
+  );
+});
+
 test("a private Slack DM record is marked private, a thread is not", async () => {
   const dm = await startIn(user("u1"), agentId, "dm text", {
     externalKey: "dm-1",
