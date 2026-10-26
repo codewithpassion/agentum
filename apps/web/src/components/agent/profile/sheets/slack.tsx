@@ -16,7 +16,7 @@ import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { SlackAppRecord } from "#/integrations/trpc/types";
-import type { AgentTab, AgentTabProps } from "../agent-tabs.ts";
+import type { AgentPanelProps } from "./props.ts";
 
 const statusLabels: Record<SlackAppRecord["status"], string> = {
   created: "Created",
@@ -59,7 +59,7 @@ function SlackAppRow({
   );
 }
 
-function SlackPanel({ agent }: AgentTabProps) {
+export function SlackPanel({ agent }: AgentPanelProps) {
   const agentId = agent.id;
   const [apps, setApps] = useState<SlackAppRecord[] | undefined>();
   const [listError, setListError] = useState<string | undefined>();
@@ -253,9 +253,3 @@ function SlackPanel({ agent }: AgentTabProps) {
     </section>
   );
 }
-
-export const slackTab: AgentTab = {
-  id: "slack",
-  label: "Slack",
-  Panel: SlackPanel,
-};

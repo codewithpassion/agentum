@@ -14,7 +14,7 @@ import {
   treeRows,
   uploadPath,
   validNewFilePath,
-} from "#/components/agent/tabs/skill-tree.ts";
+} from "#/components/agent/profile/sheets/skill-tree.ts";
 import {
   type FilePanelIo,
   LibraryFilePanel,
