@@ -13,6 +13,7 @@ const AWS_BODY_LENGTH = 16;
 const JWT_HEADER = "eyJ";
 const JWT_SEGMENT_MIN = 8;
 const CREDENTIAL_MIN = 8;
+const HM_MIN = 16;
 
 // A credential name followed by `:` or `=`. The name matches as the tail of a
 // key (`x-api-key`, `GITHUB_TOKEN`, `Set-Cookie`), so no name prefix is
@@ -37,6 +38,12 @@ const PLACEHOLDERS = ["[redacted]", "[secret:"];
 const WELL_KNOWN_TOKENS: readonly RegExp[] = [
   // sk-, sk-ant-, sk-or-
   new RegExp(`(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{${SK_MIN},}`, "g"),
+  // hm_mach_, hm_run_, hm_enr_ and the other Harbourmaster credentials, with
+  // the run token's `.signature` tail
+  new RegExp(
+    `(?<![A-Za-z0-9_])hm_[a-z]+_[A-Za-z0-9_-]{${HM_MIN},}(?:\\.[A-Za-z0-9_-]{${HM_MIN},})?`,
+    "g"
+  ),
   new RegExp(`(?<![A-Za-z0-9_])gh[pousr]_[A-Za-z0-9]{${GH_MIN},}`, "g"),
   new RegExp(
     `(?<![A-Za-z0-9_])github_pat_[A-Za-z0-9_]{${GITHUB_PAT_MIN},}`,

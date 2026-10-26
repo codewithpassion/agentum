@@ -146,6 +146,8 @@ const typeSchema = z.enum(EVENT_TYPES);
 const TOOL_EVENT_TYPES: ReadonlySet<EventType> = new Set([
   "tool.call",
   "tool.result",
+  "computer.exec",
+  "browser.action",
 ]);
 
 /**
