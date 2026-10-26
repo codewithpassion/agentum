@@ -212,11 +212,24 @@ export const createMailboxPort = ({
   now = () => new Date(),
   sender,
 }: MailboxPortOptions): MailboxPort => {
+  /**
+   * Sends the message and returns the id Email Sending reports for it, without
+   * angle brackets, or null when it reports none. Email Sending stamps the
+   * `Message-ID` header itself, so this is our best handle on it.
+   */
   const deliver = async (
     message: ReturnType<typeof buildSendMessage>
-  ): Promise<void> => {
+  ): Promise<string | null> => {
     try {
-      await sender.send(message);
+      const result = await sender.send(message);
+      const reported =
+        typeof result === "object" &&
+        result !== null &&
+        "messageId" in result &&
+        typeof result.messageId === "string"
+          ? extractMessageId(result.messageId)
+          : "";
+      return reported === "" ? null : reported;
     } catch (error) {
       // biome-ignore lint/style/useErrorCause: MailError takes a code and a message only
       throw new MailError(
@@ -307,9 +320,10 @@ export const createMailboxPort = ({
     const client = mailbox(mailboxRef.mailboxId);
     const domain = checkDraft(draft);
     await checkRateLimit(client);
-    const { id, rfcMessageId } = generateMessageId(domain, newId);
+    const { id, rfcMessageId: generated } = generateMessageId(domain, newId);
     const chain = original ? buildReferencesChain(original) : undefined;
-    await deliver(buildSendMessage(draft, rfcMessageId, chain));
+    const rfcMessageId =
+      (await deliver(buildSendMessage(draft, chain))) ?? generated;
     const threadId = chain ? chain.threadId : rfcMessageId;
     await client.createEmail(
       FOLDERS.sent,
@@ -398,16 +412,18 @@ export const createMailboxPort = ({
       }
       await checkRateLimit(client);
       const threadId = row.threadId ?? row.id;
-      const rfcMessageId = row.messageId ?? `${row.id}@${domain}`;
+      const held = row.messageId ?? `${row.id}@${domain}`;
       const original = row.inReplyTo
         ? heldOriginal(await client.getThreadEmails(threadId), row)
         : null;
       const chain = original ? buildReferencesChain(original) : undefined;
-      await deliver(buildSendMessage(draftOf(row), rfcMessageId, chain));
+      const reported = await deliver(buildSendMessage(draftOf(row), chain));
+      const rfcMessageId = reported ?? held;
       // The rate limit counts sent mail by date, so the date moves to the send.
       await client.updateEmail(row.id, {
         date: now().toISOString(),
         emailReferences: chain ? JSON.stringify(chain.references) : null,
+        ...(reported ? { messageId: reported } : {}),
       });
       await client.moveEmail(row.id, FOLDERS.sent);
       return { messageId: row.id, rfcMessageId, threadId };
