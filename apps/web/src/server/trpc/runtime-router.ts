@@ -11,6 +11,7 @@ import { machinesRouter } from "./machines-router.ts";
 import { managedKeysRouter } from "./managed-keys-router.ts";
 import { mapRouter } from "./map-router.ts";
 import { modelKeysRouter } from "./model-keys-router.ts";
+import { qaRouter } from "./qa-router.ts";
 import { requestsRouter } from "./requests-router.ts";
 import { runsRouter } from "./runs-router.ts";
 import { secretsRouter } from "./secrets-router.ts";
@@ -34,6 +35,7 @@ export const runtimeRouter = router({
   managedKeys: managedKeysRouter,
   map: mapRouter,
   modelKeys: modelKeysRouter,
+  qa: qaRouter,
   requests: requestsRouter,
   runs: runsRouter,
   secrets: secretsRouter,
