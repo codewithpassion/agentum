@@ -1,5 +1,5 @@
 /**
- * Requests in Slack. A run that stops for an approval or a question posts a
+ * Requests in Slack. A run that asks for approval, an answer or a take-over posts a
  * card through its agent's own Slack app. `onEvent` posts the card when the
  * request opens and settles it when the request closes, whichever surface
  * answered. `interact` is everything the interactions route does before it
@@ -11,12 +11,11 @@ import type { Database } from "@repo/db";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs } from "@repo/db/schema/runs";
 import { identityLinks } from "@repo/db/schema/workspaces";
-import type { ApprovalAnswer, QuestionAnswer } from "@repo/protocol/requests";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { findAgent } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
-import { isServiceError, ServiceError } from "../errors.ts";
+import { isServiceError } from "../errors.ts";
 import type { EventRecord } from "../events.ts";
 import {
   outcomeOf,
@@ -39,11 +38,11 @@ import {
 } from "./client.ts";
 import { describeFailure, withRetry } from "./post.ts";
 import {
-  approvalCard,
   type CardRequest,
+  type InteractionResult,
   modalView,
   parseInteraction,
-  questionCard,
+  requestCard,
   settledCard,
 } from "./request-cards.ts";
 import { verifySlackRequest } from "./signature.ts";
@@ -111,7 +110,8 @@ export interface SlackRequestsOptions {
   /** Runs work after the response (`waitUntil`). Without it, the work is awaited. */
   defer?: (work: Promise<void>) => void;
   fetch: SlackFetch;
-  requests: Pick<RequestsService, "answer" | "outcome">;
+  publicBaseUrl?: string;
+  requests: Pick<RequestsService, "answer" | "cancel" | "outcome">;
   /** `SECRETS_KEY`, base64. */
   secretsKey?: string;
 }
@@ -121,6 +121,7 @@ export const createSlackRequests = ({
   db,
   defer,
   fetch: slackFetch,
+  publicBaseUrl = "",
   requests,
   secretsKey,
 }: SlackRequestsOptions) => {
@@ -146,12 +147,6 @@ export const createSlackRequests = ({
       workspaceId: row.workspaceId,
     });
     const { display } = requestRecord(row);
-    if ("machineId" in display) {
-      throw new ServiceError(
-        "invalid",
-        "Take over the computer in Harbourmaster."
-      );
-    }
     if (!agent) {
       throw new Error("The request's agent is gone");
     }
@@ -160,6 +155,14 @@ export const createSlackRequests = ({
       expiresAt: Date.parse(row.expiresAt),
       requestId: row.id,
     };
+    if ("machineId" in display) {
+      return {
+        ...base,
+        publicBaseUrl,
+        reason: display.reason,
+        runId: row.runId,
+      };
+    }
     return "questions" in display
       ? { ...base, questions: display.questions }
       : { ...base, input: display.input, summary: display.summary };
@@ -225,6 +228,34 @@ export const createSlackRequests = ({
     return null;
   };
 
+  const answeredByName = async (
+    row: RequestRow,
+    app: SlackAppRow,
+    client: SlackClient
+  ): Promise<string | undefined> => {
+    if (row.kind !== "takeover" || !row.answeredBy) {
+      return;
+    }
+    // There is no local person name: use Slack's name, then the linked email,
+    // then the stored user id when that person is not linked in this team.
+    const [link] = await db
+      .select()
+      .from(identityLinks)
+      .where(
+        and(
+          eq(identityLinks.workspaceId, row.workspaceId),
+          eq(identityLinks.provider, "slack"),
+          eq(identityLinks.teamId, app.teamId),
+          eq(identityLinks.clerkUserId, row.answeredBy)
+        )
+      )
+      .limit(1);
+    const name = link ? await client.userName(link.externalUserId) : null;
+    return (
+      (name?.kind === "ok" ? name.name : null) ?? link?.email ?? row.answeredBy
+    );
+  };
+
   /**
    * Closes the card of a request that is no longer pending. Safe to run more
    * than once, and a no-op when no card was posted.
@@ -242,6 +273,7 @@ export const createSlackRequests = ({
       return;
     }
     const card = settledCard(await cardOf(row), {
+      by: app ? await answeredByName(row, app, client) : undefined,
       outcome,
       via: row.answeredVia ?? undefined,
     });
@@ -261,12 +293,7 @@ export const createSlackRequests = ({
   /** Posts the card of a request that just opened, where its run can be answered from. */
   const postCard = async (requestId: string): Promise<void> => {
     const row = await loadRow(requestId);
-    if (
-      !row ||
-      row.kind === "takeover" ||
-      row.slackMessage !== null ||
-      row.status !== "pending"
-    ) {
+    if (!row || row.slackMessage !== null || row.status !== "pending") {
       return;
     }
     const [run] = await db
@@ -294,8 +321,7 @@ export const createSlackRequests = ({
       return;
     }
     const request = await cardOf(row);
-    const card =
-      "questions" in request ? questionCard(request) : approvalCard(request);
+    const card = requestCard(request);
     const posted = await withRetry(clock, () =>
       destination.client.postMessage({
         blocks: card.blocks,
@@ -431,14 +457,18 @@ export const createSlackRequests = ({
   const answer = async (
     principal: Principal,
     requestId: string,
-    given: ApprovalAnswer | QuestionAnswer
+    parsed: Extract<InteractionResult, { ok: true }>
   ): Promise<void> => {
     try {
-      await requests.answer(principal, {
-        answer: given,
-        requestId,
-        via: "slack",
-      });
+      if (parsed.cancel) {
+        await requests.cancel(principal, requestId);
+      } else {
+        await requests.answer(principal, {
+          answer: parsed.answer,
+          requestId,
+          via: "slack",
+        });
+      }
     } catch (error) {
       // The other surface was first: show its result on this card.
       if (isServiceError(error) && error.code === "conflict") {
@@ -477,6 +507,31 @@ export const createSlackRequests = ({
     }
   };
 
+  const submit = async (
+    app: SlackAppRow,
+    row: RequestRow,
+    slackUserId: string,
+    parsed: Extract<InteractionResult, { ok: true }>
+  ): Promise<InteractResult> => {
+    const access = await accessOf(app, row.id, slackUserId);
+    if (access.kind === "denied") {
+      return accepted(undefined, {
+        errors: { q0: CANT_ANSWER },
+        response_action: "errors",
+      });
+    }
+    return accepted(
+      guarded(() =>
+        access.kind === "settled"
+          ? settle(row.id)
+          : answer(access.principal, row.id, parsed)
+      )
+    );
+  };
+
+  const canInteract = (row: RequestRow, parsed: InteractionResult): boolean =>
+    row.kind !== "takeover" || (parsed.ok && parsed.cancel === true);
+
   /** A click or submission from an app whose signature and team were checked. */
   const handle = async (
     app: SlackAppRow,
@@ -499,25 +554,16 @@ export const createSlackRequests = ({
       payload,
       "questions" in display ? display.questions : undefined
     );
+    // Takeover control and hand-back require the browser; Slack only cancels.
+    if (!canInteract(row, parsed)) {
+      return accepted();
+    }
     const slackUserId = head.user.id;
     if (head.type === "view_submission") {
       if (!parsed.ok) {
         return accepted();
       }
-      const access = await accessOf(app, row.id, slackUserId);
-      if (access.kind === "denied") {
-        return accepted(undefined, {
-          errors: { q0: CANT_ANSWER },
-          response_action: "errors",
-        });
-      }
-      return accepted(
-        guarded(() =>
-          access.kind === "settled"
-            ? settle(row.id)
-            : answer(access.principal, row.id, parsed.answer)
-        )
-      );
+      return submit(app, row, slackUserId, parsed);
     }
     if (!parsed.ok && parsed.reason !== "modal_required") {
       return accepted();
@@ -530,8 +576,8 @@ export const createSlackRequests = ({
         } else if (access.kind === "settled") {
           await settle(row.id);
         } else if (parsed.ok) {
-          await answer(access.principal, row.id, parsed.answer);
-        } else if (parsed.reason === "modal_required") {
+          await answer(access.principal, row.id, parsed);
+        } else {
           await openModal(app, row, parsed.triggerId);
         }
       })

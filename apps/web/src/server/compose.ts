@@ -572,8 +572,10 @@ export const composeWith = ({
     db,
     defer: infra.defer,
     fetch: connectorFetch,
+    publicBaseUrl: infra.publicBaseUrl,
     requests: {
       answer: (principal, input) => requests.answer(principal, input),
+      cancel: (principal, requestId) => requests.cancel(principal, requestId),
       outcome: (principal, requestId) => requests.outcome(principal, requestId),
     },
     secretsKey: infra.secretsKey,
