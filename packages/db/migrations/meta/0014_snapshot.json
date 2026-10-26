@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d98cec94-32df-4539-94df-4b31c59dc3c4",
+  "id": "8fc55524-5664-4d0a-afb0-ee70344bcdc7",
   "prevId": "3dccb5d4-342d-4fa1-aa55-866e985d7bff",
   "tables": {
     "agents": {
@@ -2085,6 +2085,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "question_keys": {
+          "name": "question_keys",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "run_id": {
           "name": "run_id",
           "type": "text",
@@ -2429,21 +2436,6 @@
         "runs_actor_idx": {
           "name": "runs_actor_idx",
           "columns": ["actor_id", "id"],
-          "isUnique": false
-        },
-        "runs_workspace_status_idx": {
-          "name": "runs_workspace_status_idx",
-          "columns": ["workspace_id", "status"],
-          "isUnique": false
-        },
-        "runs_workspace_finished_idx": {
-          "name": "runs_workspace_finished_idx",
-          "columns": ["workspace_id", "finished_at"],
-          "isUnique": false
-        },
-        "runs_agent_status_idx": {
-          "name": "runs_agent_status_idx",
-          "columns": ["agent_id", "status"],
           "isUnique": false
         }
       },

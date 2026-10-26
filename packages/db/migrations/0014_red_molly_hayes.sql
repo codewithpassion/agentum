@@ -1,0 +1,1 @@
+ALTER TABLE `run_requests` ADD `question_keys` text;
