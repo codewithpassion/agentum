@@ -63,6 +63,22 @@ test("sessionPrincipal returns the user principal of the workspace for an allowe
   expect(principal?.workspaceId).toBe(workspace?.id);
 });
 
+test("sessionPrincipal marks an organisation admin and nobody else", async () => {
+  const svc = service();
+  const roles = ["org:admin", "org:member", null, undefined];
+  const flags = await Promise.all(
+    roles.map(async (orgRole) => {
+      const principal = await svc.sessionPrincipal({
+        orgId: "org_a",
+        orgRole,
+        userId: "u",
+      });
+      return principal?.kind === "user" ? principal.isAdmin : undefined;
+    })
+  );
+  expect(flags).toEqual([true, false, false, false]);
+});
+
 test("sessionPrincipal is null without an org or for an org that is not allowed", async () => {
   const svc = service();
   expect(

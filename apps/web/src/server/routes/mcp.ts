@@ -184,6 +184,13 @@ const readRpcBody = async (raw: Request): Promise<RpcBody> => {
   };
 };
 
+/** The setup tools a key may use: its access when it is write or admin. */
+const adminAccessOf = (principal: Principal): "admin" | "write" | undefined => {
+  const access =
+    principal.kind === "user" ? principal.apiKey?.access : undefined;
+  return access === "write" || access === "admin" ? access : undefined;
+};
+
 /** Who the log line names: ids only, never a secret. */
 const describePrincipal = (principal: Principal): LogEntry => {
   switch (principal.kind) {
@@ -411,6 +418,7 @@ export const mcpRoutes = ({
                     ),
                 }
               : undefined,
+          admin: adminAccessOf(principal),
           browser,
           computer: computer ? { desktop: computer.desktop } : undefined,
           mail: hasMailbox,

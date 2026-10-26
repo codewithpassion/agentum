@@ -84,8 +84,11 @@ export const RUN_STATUSES = [
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
-/** `desk` is the external desk API (`/api/desk/*`) and nothing else: `/mcp` refuses it. */
-export const API_KEY_ACCESS = ["read", "write", "desk"] as const;
+/**
+ * `desk` is the external desk API (`/api/desk/*`) and nothing else: `/mcp` refuses it.
+ * `admin` is `write` plus the setup tools: secrets, machines, keys. Only a workspace admin mints one.
+ */
+export const API_KEY_ACCESS = ["read", "write", "desk", "admin"] as const;
 export type ApiKeyAccess = (typeof API_KEY_ACCESS)[number];
 
 /** What a connected app may be given: a desk key is a key, never an OAuth client. */
@@ -241,6 +244,7 @@ export const EVENT_TYPES = [
   "credential.created",
   "credential.revoked",
   "api_key.created",
+  "admin.action",
   "library.write",
   "library.delete",
   "library.command",
@@ -394,6 +398,7 @@ export const EVENT_ACTOR_KINDS = [
   "agent",
   "trigger",
   "system",
+  "api_key",
 ] as const;
 export type EventActorKind = (typeof EVENT_ACTOR_KINDS)[number];
 

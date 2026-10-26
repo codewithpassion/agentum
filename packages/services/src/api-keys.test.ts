@@ -142,7 +142,7 @@ test("a created secret resolves to its owner through the principal resolver", as
   });
 
   expect(await resolve(`Bearer ${secret}`)).toEqual({
-    apiKey: { access: "write", id: key.id },
+    apiKey: { access: "write", id: key.id, name: "agent" },
     kind: "user",
     userId: "u1",
     via: "api_key",

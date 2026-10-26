@@ -22,7 +22,9 @@ import {
 export type Principal =
   | {
       /** Set when `via` is `api_key`: which key, and what it may do. */
-      apiKey?: { access: ApiKeyAccess; id: string };
+      apiKey?: { access: ApiKeyAccess; id: string; name?: string };
+      /** Set on a session: the person is an admin of the Clerk organisation. Only an admin mints an admin key. */
+      isAdmin?: boolean;
       kind: "user";
       /** Set when `via` is `oauth`: which client, and what it may do. */
       oauthClient?: { access: OAuthClientAccess; clientId: string };
@@ -67,6 +69,9 @@ const WORKSPACE_COLUMNS = {
   name: workspaces.name,
   timezone: workspaces.timezone,
 };
+
+/** The Clerk role of an organisation admin. */
+const ADMIN_ORG_ROLE = "org:admin";
 
 /** How long a membership answer is reused, in milliseconds. */
 const MEMBERSHIP_TTL_MS = 60_000;
@@ -125,9 +130,11 @@ export const createWorkspacesService = ({
    */
   const sessionPrincipal = async ({
     orgId,
+    orgRole,
     userId,
   }: {
     orgId: string | null | undefined;
+    orgRole?: string | null;
     userId: string;
   }): Promise<Extract<Principal, { kind: "user" }> | null> => {
     if (!orgId) {
@@ -135,7 +142,13 @@ export const createWorkspacesService = ({
     }
     const workspace = await forOrg({ clerkOrgId: orgId });
     return workspace
-      ? { kind: "user", userId, via: "session", workspaceId: workspace.id }
+      ? {
+          isAdmin: orgRole === ADMIN_ORG_ROLE,
+          kind: "user",
+          userId,
+          via: "session",
+          workspaceId: workspace.id,
+        }
       : null;
   };
 
@@ -286,6 +299,7 @@ export const createPrincipalResolver = ({
         access: apiKeys.access,
         createdBy: apiKeys.createdBy,
         id: apiKeys.id,
+        name: apiKeys.name,
         workspaceId: apiKeys.workspaceId,
       })
       .from(apiKeys)
@@ -298,7 +312,7 @@ export const createPrincipalResolver = ({
       .limit(1);
     return row
       ? {
-          apiKey: { access: row.access, id: row.id },
+          apiKey: { access: row.access, id: row.id, name: row.name },
           kind: "user" as const,
           userId: row.createdBy,
           via: "api_key" as const,

@@ -9,6 +9,7 @@ import { type Atomic, d1Atomic } from "@repo/db/atomic";
 import type { ModelProvider } from "@repo/db/shared";
 import { TRANSFER_HELPER_SOURCE } from "@repo/library-sync/transfer-bundle";
 import type { GithubSkillFetcher } from "@repo/protocol/skills";
+import { type AdminService, createAdminService } from "@repo/services/admin";
 import {
   type AgentBuilderService,
   createAgentBuilderService,
@@ -288,6 +289,7 @@ export interface Infra {
 }
 
 export interface Services {
+  admin: AdminService;
   agentBuilder: AgentBuilderService;
   agentProfile: AgentProfileService;
   agents: AgentsService;
@@ -817,6 +819,15 @@ export const composeWith = ({
     tasks,
     triggers,
   });
+  const admin = createAdminService({
+    agents,
+    apiKeys,
+    connectors,
+    events,
+    inbox,
+    machines,
+    secrets,
+  });
   const deskApi = createDeskApiService({
     agents,
     db,
@@ -832,6 +843,7 @@ export const composeWith = ({
     db,
     relay: infra.relay,
     services: {
+      admin,
       agentBuilder,
       agentProfile,
       agents,

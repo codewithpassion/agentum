@@ -32,6 +32,7 @@ import {
 import { and, asc, eq, or } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
+import { requireKey } from "./admin-access.ts";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import {
@@ -279,6 +280,17 @@ export const requireUser = (
     throw new ForbiddenError(action);
   }
   return principal;
+};
+
+/** Assigning connectors to agents is also open to a write or admin key (X.10). The registry and credentials stay with a session. */
+const requireAssigner = (
+  principal: Principal,
+  action: string
+): UserPrincipal => {
+  if (principal.kind === "user" && principal.via === "api_key") {
+    return requireKey(principal, action, "write");
+  }
+  return requireUser(principal, action);
 };
 
 type ProbeOutcome =
@@ -633,7 +645,7 @@ export const createConnectorsService = ({
     principal: Principal,
     input: AssignmentInput
   ): Promise<AssignmentSummary> => {
-    const user = requireUser(principal, ASSIGN_ACTION);
+    const user = requireAssigner(principal, ASSIGN_ACTION);
     const parsed = assignmentInputSchema.parse(input);
     const { workspaceId } = user;
     authorize(user, ASSIGN_ACTION, {
@@ -690,7 +702,7 @@ export const createConnectorsService = ({
     principal: Principal,
     input: z.input<typeof unassignInputSchema>
   ): Promise<{ removed: boolean }> => {
-    const user = requireUser(principal, UNASSIGN_ACTION);
+    const user = requireAssigner(principal, UNASSIGN_ACTION);
     const parsed = unassignInputSchema.parse(input);
     authorize(user, UNASSIGN_ACTION, {
       id: parsed.connectorId,
@@ -710,12 +722,24 @@ export const createConnectorsService = ({
     return { removed: removed.length > 0 };
   };
 
+  /** Throws not_found unless every id is a connector of the caller's workspace. */
+  const assertExist = async (
+    principal: Principal,
+    connectorIds: readonly string[]
+  ): Promise<void> => {
+    const user = requireAssigner(principal, ASSIGN_ACTION);
+    for (const connectorId of connectorIds) {
+      // biome-ignore lint/performance/noAwaitInLoops: The first missing connector names itself.
+      await loadConnector(db, connectorId, user.workspaceId);
+    }
+  };
+
   /** The connectors one agent has, with how each picks its credential. */
   const assignments = async (
     principal: Principal,
     input: z.input<typeof agentInputSchema>
   ): Promise<AssignmentSummary[]> => {
-    const user = requireUser(principal, ASSIGNMENTS_ACTION);
+    const user = requireAssigner(principal, ASSIGNMENTS_ACTION);
     const { agentId } = agentInputSchema.parse(input);
     authorize(user, ASSIGNMENTS_ACTION, {
       kind: CONNECTOR_KIND,
@@ -747,6 +771,7 @@ export const createConnectorsService = ({
   };
 
   return {
+    assertExist,
     assign,
     assignments,
     create,

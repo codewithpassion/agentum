@@ -27,10 +27,10 @@ export type Context = {
  * that composes the services once for the request.
  */
 export const createHonoContext = (c: HonoContext<AppEnv>): Promise<Context> => {
-  const { userId, orgId } = getAuth(c) ?? {};
+  const { userId, orgId, orgRole } = getAuth(c) ?? {};
   return buildContext({
     composed: c.get("composed"),
-    session: { orgId, userId: userId ?? null },
+    session: { orgId, orgRole, userId: userId ?? null },
   });
 };
 
@@ -39,9 +39,9 @@ export const createHonoContext = (c: HonoContext<AppEnv>): Promise<Context> => {
  * auth() reads the session the Clerk request middleware in src/start.ts set.
  */
 export const createSsrContext = async (): Promise<Context> => {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, orgRole } = await auth();
   return buildContext({
     composed: compose(env, import.meta.env.DEV),
-    session: { orgId, userId },
+    session: { orgId, orgRole, userId },
   });
 };
