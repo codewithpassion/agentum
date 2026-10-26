@@ -141,6 +141,9 @@ export const runCommand = async (options: RunOptions): Promise<number> => {
     } else if (frame.type === "cancel") {
       log.info(`cancel for run ${frame.runId}`);
       manager.cancel(frame.runId);
+    } else if (frame.type === "library_changed") {
+      log.info(`library changed: ${frame.paths.length} path(s)`);
+      manager.libraryChanged(frame.paths);
     }
   };
 

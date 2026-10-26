@@ -55,3 +55,4 @@ export type {
 } from "./coalesce.ts";
 // biome-ignore lint/performance/noBarrelFile: this package exposes its shared sync API here
 export { createCoalescer } from "./coalesce.ts";
+export { isConflictPath } from "./types.ts";

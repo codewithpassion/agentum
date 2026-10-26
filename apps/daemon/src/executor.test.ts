@@ -8,7 +8,6 @@ import {
   readFileSync,
   rmSync,
   statSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,14 +21,12 @@ import type {
   SDKUserMessage,
   SpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
+import { taskFolderPath } from "@repo/db/shared";
 import {
   createMemoryRemote,
   type MemoryRemote,
+  textOf,
 } from "@repo/library-sync/testing";
-import {
-  ATTACHMENT_MARKER_RE,
-  extractAttachmentMarkers,
-} from "@repo/protocol/attachments";
 import type {
   ClaimResponse,
   CompleteRequest,
@@ -45,7 +42,6 @@ import {
   AGENT_HOME,
   AGENT_MKDIR,
   AGENT_REALPATH,
-  AGENT_RM,
   AGENT_STAT,
   AS_AGENT,
 } from "./agent-user.ts";
@@ -180,6 +176,8 @@ interface Harness {
   timers: ReturnType<typeof fakeTimers>;
   /** What the fake files API received. */
   uploaded: { name: string; text: string }[];
+  /** The fake library watcher: the folders it was started on and how many times it was stopped. */
+  watcher: { dirs: string[]; stopped: number };
 }
 
 interface SetupOptions {
@@ -215,8 +213,6 @@ interface SetupOptions {
   spawnFails?: boolean;
   /** Written to stderr once the process has started. */
   stderr?: string;
-  /** Uploads answer with this status instead of 201. */
-  uploadStatus?: number;
   /** When set, the run talks to the relay through the real run API client over this fetch. */
   wireFetch?: typeof fetch;
 }
@@ -361,14 +357,7 @@ const setup = (setupOptions: SetupOptions) => {
       });
     },
     upload: async (file) => {
-      const text = await file.body.text();
-      uploaded.push({ name: file.name, text });
-      if (setupOptions.uploadStatus !== undefined) {
-        throw new RunApiError(
-          `files upload answered HTTP ${setupOptions.uploadStatus}`,
-          setupOptions.uploadStatus
-        );
-      }
+      uploaded.push({ name: file.name, text: await file.body.text() });
       return { id: `file-${uploaded.length}` };
     },
   };
@@ -573,6 +562,7 @@ const setup = (setupOptions: SetupOptions) => {
       return libraryRemote.write(path, bytes, options);
     },
   };
+  const watcher: Harness["watcher"] = { dirs: [], stopped: 0 };
   const deps: ExecuteRunDeps = {
     claim,
     config: {
@@ -607,6 +597,12 @@ const setup = (setupOptions: SetupOptions) => {
       HOME: "/home/dom",
       PATH: "/usr/bin",
     },
+    libraryWatcher: (dir) => () => {
+      watcher.dirs.push(dir);
+      return () => {
+        watcher.stopped += 1;
+      };
+    },
     log,
     queryFn,
     run,
@@ -640,6 +636,7 @@ const setup = (setupOptions: SetupOptions) => {
     sendStderr: (text) => stderr(text),
     timers,
     uploaded,
+    watcher,
   };
   return { ...harness, claim, execution };
 };
@@ -731,7 +728,7 @@ describe("the options passed to query", () => {
     expect(options && "mcpServers" in options).toBe(false);
   });
 
-  test("the system prompt ends with the attachment line, after the agent's instructions", async () => {
+  test("the system prompt follows the agent's instructions and has no marker sentence", async () => {
     const run = setup({ script: toolRunScript() });
     await run.execution.finished;
     const [options] = run.optionsSeen;
@@ -741,17 +738,8 @@ describe("the options passed to query", () => {
         ? (prompt.append ?? "")
         : "";
     expect(append.startsWith(run.claim.instructions)).toBe(true);
-    const filesSection = append.slice(run.claim.instructions.length).trim();
-    expect(filesSection).toContain("on its own line in your final answer");
-    expect(filesSection).toContain(
-      `A file can only be attached from inside ${workDirOf(run.claim)}.`
-    );
-    // The marker in the sentence is one the parser accepts, with a path slot.
-    const [marker] = filesSection.match(ATTACHMENT_MARKER_RE) ?? [];
-    expect(marker).toBe("[ATTACHMENT:<absolute path>]");
-    expect(extractAttachmentMarkers(`ok\n${marker}`).paths).toEqual([
-      "<absolute path>",
-    ]);
+    expect(append).not.toContain("[ATTACHMENT:");
+    expect(append).not.toContain("A file can only be attached");
   });
 
   test("the append names home (the work dir), scratch (<workDir>/tmp, emptied per run) and the library tools", async () => {
@@ -1056,143 +1044,23 @@ describe("files on a multi-user machine", () => {
     );
     expect(doneBody(run).status).toBe("done");
   });
-
-  test("an attachment is read back through sudo and its id goes into the completion", async () => {
-    const claim = claimWith();
-    const run = setup({
-      claim,
-      remoteFiles: { [`${remoteWorkDirOf(claim)}/report.txt`]: "the report" },
-      script: [INIT, answer("Done. [ATTACHMENT:report.txt]")],
-      singleUser: false,
-    });
-    await run.execution.finished;
-    expect(run.uploaded).toEqual([{ name: "report.txt", text: "the report" }]);
-    const body = doneBody(run);
-    expect(body.fileIds).toEqual(["file-1"]);
-    expect(body.text).toBe("Done.");
-  });
-
-  test("a marker outside the work directory is refused with no sudo call for it", async () => {
-    const run = setup({
-      script: [INIT, answer("Here [ATTACHMENT:/etc/passwd]")],
-      singleUser: false,
-    });
-    await run.execution.finished;
-    expect(run.uploaded).toEqual([]);
-    // Only the three commands that prepare the work directory ran.
-    expect(run.runCommands.map((command) => command[AS_AGENT.length])).toEqual([
-      AGENT_MKDIR,
-      AGENT_RM,
-      AGENT_MKDIR,
-    ]);
-    const body = doneBody(run);
-    expect(body.fileIds).toBeUndefined();
-    expect(body.text).toContain("[attachment refused: passwd]");
-    expect(body.text).not.toContain("[ATTACHMENT:");
-  });
 });
 
 describe("output files", () => {
-  /** Puts `files` into the claim's work directory before the run starts. */
-  const withWorkFiles = (files: Record<string, string>) => {
+  test("a marker in the answer is left alone: nothing is uploaded and the text and ids stay as they are", async () => {
     const claim = claimWith();
     const workDir = workDirOf(claim);
     mkdirSync(workDir, { recursive: true });
-    for (const [name, text] of Object.entries(files)) {
-      writeFileSync(join(workDir, name), text);
-    }
-    return claim;
-  };
-
-  test("a marker inside work/ is uploaded and its id goes into the completion", async () => {
-    const claim = withWorkFiles({ "report.txt": "the report" });
+    writeFileSync(join(workDir, "report.txt"), "the report");
     const run = setup({
       claim,
       script: [INIT, answer("Done. [ATTACHMENT:report.txt]")],
     });
     await run.execution.finished;
-    expect(run.uploaded).toEqual([{ name: "report.txt", text: "the report" }]);
-    const body = doneBody(run);
-    expect(body.fileIds).toEqual(["file-1"]);
-    expect(body.text).toBe("Done.");
-  });
-
-  test("an absolute path inside work/ works too", async () => {
-    const claim = withWorkFiles({ "report.txt": "the report" });
-    const path = join(workDirOf(claim), "report.txt");
-    const run = setup({
-      claim,
-      script: [INIT, answer(`See [ATTACHMENT:${path}]`)],
-    });
-    await run.execution.finished;
-    expect(doneBody(run).fileIds).toEqual(["file-1"]);
-  });
-
-  test("a marker outside work/ is refused: nothing is uploaded and the completion says so", async () => {
-    const claim = withWorkFiles({});
-    const outside = join(home, "secret.txt");
-    writeFileSync(outside, "do not send");
-    const run = setup({
-      claim,
-      script: [INIT, answer(`Here [ATTACHMENT:${outside}]`)],
-    });
-    await run.execution.finished;
     expect(run.uploaded).toEqual([]);
-    const body = doneBody(run);
-    expect(body.status).toBe("done");
-    expect(body.fileIds).toBeUndefined();
-    expect(body.text).toContain("[attachment refused: secret.txt]");
-    expect(body.text).not.toContain("[ATTACHMENT:");
-  });
-
-  test("a symlink in work/ that points outside is refused", async () => {
-    const claim = withWorkFiles({});
-    const outside = join(home, "secret.txt");
-    writeFileSync(outside, "do not send");
-    symlinkSync(outside, join(workDirOf(claim), "link.txt"));
-    const run = setup({
-      claim,
-      script: [INIT, answer("[ATTACHMENT:link.txt]")],
-    });
-    await run.execution.finished;
-    expect(run.uploaded).toEqual([]);
-    expect(doneBody(run).text).toContain("[attachment refused: link.txt]");
-  });
-
-  test("a missing file is reported and the run still completes", async () => {
-    const run = setup({
-      claim: withWorkFiles({}),
-      script: [INIT, answer("[ATTACHMENT:nope.txt]")],
-    });
-    await run.execution.finished;
-    expect(run.uploaded).toEqual([]);
-    expect(doneBody(run).text).toContain("[attachment missing: nope.txt]");
-  });
-
-  test("a failed upload leaves the id out, notes it, and the run still completes", async () => {
-    const run = setup({
-      claim: withWorkFiles({ "report.txt": "the report" }),
-      script: [INIT, answer("[ATTACHMENT:report.txt]")],
-      uploadStatus: 413,
-    });
-    await run.execution.finished;
     const body = doneBody(run);
     expect(body.fileIds).toBeUndefined();
-    expect(body.text).toContain("[attachment failed: report.txt]");
-  });
-
-  test("an error result is never scanned for markers", async () => {
-    const claim = withWorkFiles({ "report.txt": "the report" });
-    const result = {
-      ...(toolRun.at(-1) as object),
-      errors: ["[ATTACHMENT:report.txt]"],
-      is_error: true,
-      subtype: "error_max_budget_usd",
-    } as unknown as SDKMessage;
-    const run = setup({ claim, script: [INIT, result] });
-    await run.execution.finished;
-    expect(run.uploaded).toEqual([]);
-    expect(run.completions[0]?.body.status).toBe("failed");
+    expect(body.text).toBe("Done. [ATTACHMENT:report.txt]");
   });
 });
 
@@ -1593,6 +1461,162 @@ describe("the library copy", () => {
     expect(existsSync(join(workDir, "library"))).toBe(false);
     expect(existsSync(join(workDir, "library.manifest.json"))).toBe(false);
     expect(promptOf(run.optionsSeen[0])).not.toContain("synced copy");
+  });
+
+  test("the prompt names the task folder inside the library copy, from the claim", async () => {
+    const claim = claimWith((c) => {
+      c.library = {
+        conflicts: [],
+        paths: ["agents/ada"],
+        roots: [{ mode: "write", path: "agents/ada" }],
+        taskFolder: "agents/ada/tasks/run-x",
+      };
+    });
+    const run = setup({
+      claim,
+      library: { remote: createMemoryRemote() },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+    const prompt = promptOf(run.optionsSeen[0]);
+
+    expect(prompt).toContain(
+      `Save files for the user in ${workDirOf(claim)}/library/agents/ada/tasks/run-x.`
+    );
+    expect(prompt).not.toContain("[ATTACHMENT:");
+    expect(prompt).toContain("agents/ada (write)");
+  });
+
+  test("a claim without a task folder gets the folder of the agent and the run", async () => {
+    const run = setup({
+      claim: claimWithLibrary(),
+      library: { remote: createMemoryRemote() },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+
+    expect(promptOf(run.optionsSeen[0])).toContain(
+      `Save files for the user in ${workDirOf(run.claim)}/library/${taskFolderPath(run.claim.agent.slug, run.claim.run.id)}.`
+    );
+  });
+
+  test("the library watcher runs on library/ while the run works, the prompt says changes go back within seconds, and the watcher stops at the end", async () => {
+    const run = setup({
+      claim: claimWithLibrary(),
+      library: { remote: createMemoryRemote() },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+
+    expect(run.watcher.dirs).toEqual([`${workDirOf(run.claim)}/library`]);
+    expect(run.watcher.stopped).toBe(1);
+    expect(promptOf(run.optionsSeen[0])).toContain("within seconds");
+  });
+
+  test("a claim with roots syncs read roots as read-only: an edit under one is not sent", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    remote.put("docs/guide.md", "g1");
+    const run = setup({
+      claim: claimWith((c) => {
+        c.library = {
+          conflicts: [],
+          paths: ["agents/ada", "docs"],
+          roots: [
+            { mode: "write", path: "agents/ada" },
+            { mode: "read", path: "docs" },
+          ],
+        };
+      }),
+      library: {
+        agent: (workDir) => {
+          writeFileSync(localFile(workDir, "docs/guide.md"), "mine");
+          writeFileSync(localFile(workDir, NOTES), "n2");
+        },
+        remote,
+      },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+
+    expect(textOf(remote.files.get(NOTES)?.bytes)).toBe("n2");
+    expect(textOf(remote.files.get("docs/guide.md")?.bytes)).toBe("g1");
+  });
+
+  test("a library_changed announcement pulls only the covered paths while the run works", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    const run = setup({
+      claim: claimWithLibrary(),
+      hang: true,
+      library: { remote },
+      script: toolRunScript(),
+    });
+    await until(() =>
+      run.order.some((entry) => entry.startsWith("first-message"))
+    );
+    remote.put(NOTES, "n2");
+    remote.put("docs/elsewhere.md", "e1");
+    remote.calls.length = 0;
+    run.execution.libraryChanged([NOTES, "docs/elsewhere.md"]);
+    await sleep(100);
+
+    expect(readFileSync(localFile(workDirOf(run.claim), NOTES), "utf8")).toBe(
+      "n2"
+    );
+    expect(existsSync(localFile(workDirOf(run.claim), "docs"))).toBe(false);
+    expect(remote.calls.some((call) => call.includes("docs"))).toBe(false);
+
+    remote.calls.length = 0;
+    run.execution.libraryChanged(["docs/elsewhere.md"]);
+    await sleep(50);
+    expect(remote.calls).toEqual([]);
+
+    run.execution.abort("test over");
+    await run.execution.finished;
+  });
+
+  test("a pull keeps an edit of the agent that was not sent yet", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    const run = setup({
+      claim: claimWithLibrary(),
+      hang: true,
+      library: { remote },
+      script: toolRunScript(),
+    });
+    await until(() =>
+      run.order.some((entry) => entry.startsWith("first-message"))
+    );
+    const local = localFile(workDirOf(run.claim), NOTES);
+    writeFileSync(local, "mine");
+    remote.put(NOTES, "n2");
+    remote.calls.length = 0;
+    run.execution.libraryChanged([NOTES]);
+    await sleep(100);
+
+    // The pull ran and still left the edit alone.
+    expect(remote.calls.some((call) => call.endsWith(NOTES))).toBe(true);
+    expect(readFileSync(local, "utf8")).toBe("mine");
+
+    run.execution.abort("test over");
+    await run.execution.finished;
+  });
+
+  test("an announcement after the run's work ended pulls nothing", async () => {
+    const remote = createMemoryRemote();
+    remote.put(NOTES, "n1");
+    const run = setup({
+      claim: claimWithLibrary(),
+      library: { remote },
+      script: toolRunScript(),
+    });
+    await run.execution.finished;
+    remote.calls.length = 0;
+    run.execution.libraryChanged([NOTES]);
+    await sleep(50);
+
+    expect(remote.calls).toEqual([]);
   });
 
   test("the agent's changes go back after the process exited and before the completion", async () => {
