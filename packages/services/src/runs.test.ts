@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { files as fileRows } from "@repo/db/schema/files";
 import { machines } from "@repo/db/schema/machines";
@@ -22,6 +23,8 @@ import {
   type EventRecord,
   type EventsService,
 } from "./events.ts";
+import { memoryLibraryBlobs } from "./library/memory.ts";
+import { createLibraryService } from "./library.ts";
 import type {
   Clock,
   DeliveryContext,
@@ -2499,5 +2502,66 @@ describe("startRun with dryRun", () => {
     expect(runRow(runId)).toMatchObject({ dryRun: false });
     expect(dispatched).toEqual([runId]);
     expect(cloudDispatched).toEqual([]);
+  });
+});
+
+describe("the run task folder", () => {
+  const libraryFor = () =>
+    createLibraryService({
+      atomic: sqliteAtomic(db),
+      blobs: memoryLibraryBlobs(),
+      clock,
+      db,
+      events,
+    });
+
+  const slugOf = (agentId: string) =>
+    db
+      .select({ slug: agentRows.slug })
+      .from(agentRows)
+      .where(eq(agentRows.id, agentId))
+      .get()?.slug;
+
+  test("a new run gets its task folder", async () => {
+    const library = libraryFor();
+    runs = buildRuns({ library });
+    const { runId } = await start(user, spyAgentId);
+    const slug = slugOf(spyAgentId);
+    const entry = await library.stat(user, `agents/${slug}/tasks/${runId}`);
+    expect(entry.kind).toBe("dir");
+  });
+
+  test("a dry run gets no task folder", async () => {
+    const library = libraryFor();
+    runs = buildRuns({
+      adapters: [spy, { ...spyAdapter(), kind: "cloud" }],
+      library,
+    });
+    const { runId } = await start(user, spyAgentId, {}, "hello", {
+      dryRun: true,
+    });
+    const slug = slugOf(spyAgentId);
+    const error = await failure(
+      library.stat(user, `agents/${slug}/tasks/${runId}`)
+    );
+    expect(error).toMatchObject({ code: "not_found" });
+  });
+
+  test("a failing mkdir is logged and the run is still dispatched", async () => {
+    const logged = spyOn(console, "error").mockImplementation(() => undefined);
+    const library = {
+      ...libraryFor(),
+      mkdir: () => Promise.reject(new Error("disk on fire")),
+      pendingConflicts: () => Promise.resolve([]),
+    };
+    runs = buildRuns({ library });
+    const { runId } = await start(user, spyAgentId);
+    expect(runRow(runId)?.status).toBe("queued");
+    expect(dispatched).toEqual([runId]);
+    expect(logged).toHaveBeenCalledWith(
+      "Creating the run's task folder failed",
+      "Error"
+    );
+    logged.mockRestore();
   });
 });

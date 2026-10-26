@@ -28,7 +28,7 @@ import {
 import { runRequests } from "@repo/db/schema/requests";
 import { runs } from "@repo/db/schema/runs";
 import { agentToolRules } from "@repo/db/schema/tool-rules";
-import { CHOICES_MAX } from "@repo/db/shared";
+import { CHOICES_MAX, taskFolderPath } from "@repo/db/shared";
 import { workspaceInstructions } from "@repo/protocol/attachments";
 import {
   ASK_USER_TOOL,
@@ -181,6 +181,13 @@ const stopMessage = (stopReason: string | null, errors: string[]): string => {
       : `The session stopped before it finished (${stopReason ?? "unknown"})`;
   return errors.length > 0 ? `${base}: ${errors.join("; ")}` : base;
 };
+
+/**
+ * The line that tells a managed run where its files go. The folder is a
+ * library path, so the agent reaches it with the library tools, not on disk.
+ */
+export const taskFolderNote = (slug: string, runId: string): string =>
+  `[Save files for the user in ${taskFolderPath(slug, runId)}. It is a folder in the workspace library, reached with the library tools, not on your disk. Everything there shows in the task's Files panel.]`;
 
 /** The Anthropic agent's system text: its instructions, its files, then what it is told about skills, Slack and secrets. */
 const systemOf = (
@@ -658,11 +665,22 @@ export const createManagedService = ({
     }
   };
 
-  /** What the agent is told: the run's input, and a plain word about files it cannot get. */
-  const messageOf = (run: RunRecord): string =>
-    run.inputFileIds.length === 0
-      ? run.inputText
-      : `${run.inputText}\n\n[${run.inputFileIds.length} attached file(s) could not be passed to you: managed agents cannot read Harbourmaster files. Say so if you need what was in them.]`;
+  /**
+   * What the agent is told: the run's input, a plain word about files it
+   * cannot get, and the run's task folder. The folder is a library path with
+   * the run's id in it, so it travels here and not in the system text, which
+   * is part of the agent fingerprint and would make every run a new agent.
+   */
+  const messageOf = (run: RunRecord, agent: AgentRecord): string =>
+    [
+      run.inputText,
+      run.inputFileIds.length === 0
+        ? ""
+        : `[${run.inputFileIds.length} attached file(s) could not be passed to you: managed agents cannot read Harbourmaster files. Say so if you need what was in them.]`,
+      taskFolderNote(agent.slug, run.id),
+    ]
+      .filter((part) => part !== "")
+      .join("\n\n");
 
   /**
    * What the run's agent is granted, shaped for the launch. The vault holds one
@@ -812,7 +830,7 @@ export const createManagedService = ({
       .from(managedSessions)
       .where(eq(managedSessions.sessionId, run.sessionId))
       .limit(1);
-    const text = messageOf(run);
+    const text = messageOf(run, agent);
     const idle =
       session?.anthropicSessionId &&
       isReusable(session, fingerprint) &&
