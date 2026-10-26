@@ -10,6 +10,7 @@ import {
   clerkOAuthTokenVerifier,
 } from "../mcp/clerk-oauth-client.ts";
 import { connectorOAuthRoutes } from "./connectors-oauth.ts";
+import { deskRoutes } from "./desk.ts";
 import { egressRoutes } from "./egress.ts";
 import type { AppEnv } from "./groups.ts";
 import { mcpRoutes } from "./mcp.ts";
@@ -44,3 +45,14 @@ accessRoutes.route("/api/proxy", proxyRoutes());
 
 // The explicit egress relay. Bearer authenticated with a run token, so no csrf check.
 accessRoutes.route("/api/egress", egressRoutes());
+
+// The external desk API for flightdex (contract C4). Bearer authenticated with
+// a `desk` key plus `X-On-Behalf-Of`, or a member's OAuth token, so no csrf check.
+accessRoutes.route(
+  "/api/desk",
+  deskRoutes({
+    clientName: (env) => clerkOAuthClientName(env.CLERK_SECRET_KEY),
+    isOrgMember: (env) => clerkOrgMemberCheck(env.CLERK_SECRET_KEY),
+    verifyOAuthToken: (env) => clerkOAuthTokenVerifier(env.CLERK_SECRET_KEY),
+  })
+);

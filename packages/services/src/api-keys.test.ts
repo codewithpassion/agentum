@@ -150,6 +150,28 @@ test("a created secret resolves to its owner through the principal resolver", as
   });
 });
 
+test("a desk key resolves with the desk access", async () => {
+  const { key, secret } = await service.create(user, {
+    access: "desk",
+    name: "flightdex",
+  });
+  const { resolve } = createPrincipalResolver({
+    allowedOrgIds: [`org_${WORKSPACE}`],
+    db,
+    isOrgMember: () => Promise.resolve(true),
+    now: () => nowMs,
+    runTokenKey: await importRunTokenKey(
+      Buffer.from(new Uint8Array(32).fill(1)).toString("base64")
+    ),
+    verifyClerkOAuthToken: () => Promise.resolve(null),
+  });
+
+  expect(await resolve(`Bearer ${secret}`)).toMatchObject({
+    apiKey: { access: "desk", id: key.id },
+    via: "api_key",
+  });
+});
+
 test("only a signed-in user may create, list or revoke keys", async () => {
   const { key } = await service.create(user, { access: "read", name: "k" });
   const viaKey = { ...user, via: "api_key" as const };
