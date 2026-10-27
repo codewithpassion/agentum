@@ -397,6 +397,45 @@ export const createGuestInvitations = (deps: {
         principalKind,
       };
     },
+    async people(principal: Principal, artifactId: string) {
+      const { user } = await owner(principal, artifactId);
+      const grants = await db
+        .select({
+          agentRunsPerDay: artifactMembers.agentRunsPerDay,
+          email: guestIdentities.email,
+          expiresAt: artifactMembers.expiresAt,
+          id: artifactMembers.id,
+          principalKind: artifactMembers.principalKind,
+          role: artifactMembers.role,
+          userId: artifactMembers.userId,
+        })
+        .from(artifactMembers)
+        .leftJoin(
+          guestIdentities,
+          and(
+            eq(guestIdentities.id, artifactMembers.guestId),
+            eq(guestIdentities.workspaceId, artifactMembers.workspaceId)
+          )
+        )
+        .where(
+          and(
+            eq(artifactMembers.workspaceId, user.workspaceId),
+            eq(artifactMembers.artifactId, artifactId),
+            isNull(artifactMembers.revokedAt)
+          )
+        )
+        .limit(1000);
+      const [workspace] = await db
+        .select({ enabled: workspaces.liveGuestsEnabled })
+        .from(workspaces)
+        .where(eq(workspaces.id, user.workspaceId))
+        .limit(1);
+      return {
+        canSwitch: user.isAdmin,
+        enabled: workspace?.enabled ?? false,
+        grants,
+      };
+    },
     async revoke(
       principal: Principal,
       input: { artifactId: string; memberId: string }

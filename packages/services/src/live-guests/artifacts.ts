@@ -3,6 +3,7 @@ import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import {
   findGuestSessionGrant,
+  findGuestSessionReferenceGrant,
   guestArtifactWriteGuard,
 } from "@repo/db/live-guests";
 import { artifacts } from "@repo/db/schema/artifacts";
@@ -10,12 +11,12 @@ import { events as eventRows } from "@repo/db/schema/events";
 import {
   artifactComments,
   artifactCommentThreads,
-  guestSessions,
+  artifactMembers,
 } from "@repo/db/schema/live-artifacts";
 import { sessions } from "@repo/db/schema/sessions";
 import type { GuestThread } from "@repo/protocol/guest";
 import type { CommentAnchor, GuestGrant } from "@repo/protocol/live";
-import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hashToken } from "../crypto.ts";
 import { ServiceError } from "../errors.ts";
@@ -157,6 +158,38 @@ export const createGuestArtifacts = (deps: {
       return { id, threadId };
     },
     current,
+    async invitations(input: GuestCredential) {
+      const grant = await current(input);
+      const rows = await deps.db
+        .select({
+          artifactId: artifacts.id,
+          expiresAt: artifactMembers.expiresAt,
+          role: artifactMembers.role,
+          title: artifacts.title,
+        })
+        .from(artifactMembers)
+        .innerJoin(
+          artifacts,
+          and(
+            eq(artifacts.id, artifactMembers.artifactId),
+            eq(artifacts.workspaceId, artifactMembers.workspaceId)
+          )
+        )
+        .where(
+          and(
+            eq(artifactMembers.workspaceId, grant.workspaceId),
+            eq(artifactMembers.guestId, grant.guestId),
+            eq(artifactMembers.principalKind, "guest"),
+            isNull(artifactMembers.revokedAt),
+            isNull(artifacts.deletedAt),
+            inArray(artifacts.kind, ["document", "deck"]),
+            gt(artifactMembers.expiresAt, deps.clock.now().toISOString())
+          )
+        )
+        .limit(1000);
+      await current(input);
+      return rows;
+    },
     async metadata(input: GuestCredential) {
       const grant = await current(input);
       const [row] = await deps.db
@@ -222,24 +255,12 @@ export const createGuestArtifacts = (deps: {
       artifactId: string;
       sessionId: string;
     }) {
-      const [session] = await deps.db
-        .select()
-        .from(guestSessions)
-        .where(
-          and(
-            eq(guestSessions.id, input.sessionId),
-            eq(guestSessions.workspaceId, input.workspaceId),
-            gt(guestSessions.expiresAt, deps.clock.now().toISOString())
-          )
-        )
-        .limit(1);
-      if (!session || deps.guestsOff()) {
+      if (deps.guestsOff()) {
         return null;
       }
-      const row = await findGuestSessionGrant(deps.db, {
+      const row = await findGuestSessionReferenceGrant(deps.db, {
         ...input,
         at: deps.clock.now().toISOString(),
-        tokenHash: session.tokenHash,
       });
       return row
         ? {

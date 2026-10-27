@@ -146,6 +146,8 @@ function Connector({
     </svg>
   );
 }
+const displayImage = (scene: SceneProps, path = "") =>
+  scene.imageUrl ? scene.imageUrl(path) : path;
 export interface SceneProps {
   deck: Deck;
   editable?: boolean;
@@ -153,6 +155,7 @@ export interface SceneProps {
   ensureCell?: (elementId: string, key: string) => Promise<void>;
   gesture?: (phase: "start" | "end") => void;
   hidePointers?: boolean;
+  imageUrl?: (path: string) => string | undefined;
   interactiveEmbeds?: boolean;
   onActiveText?: (editor: Editor) => void;
   ownsBlob: (path: string) => boolean;
@@ -346,7 +349,7 @@ function SceneElement({
           alt={e.props.alt ?? "Slide image"}
           draggable={false}
           height={Number(e.props.h ?? 160)}
-          src={e.props.src}
+          src={displayImage(s, e.props.src)}
           width={Number(e.props.w ?? 320)}
         />
       )}

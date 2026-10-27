@@ -60,7 +60,17 @@ const guests = (composed: ReturnType<typeof get>) => {
   return composed.services.liveGuests();
 };
 const app = new Hono<AppEnv>();
-app.route("/", guestRoutes({ compose: get }));
+app.route(
+  "/",
+  guestRoutes({
+    compose: get,
+    page: async () =>
+      new Response(
+        '<!doctype html><html lang="en"><head><link rel="stylesheet" href="/guest.css"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="guest-root"></div><script type="module" src="/guest.js"></script></body></html>',
+        { headers: { "Content-Type": "text/html" } }
+      ),
+  })
+);
 app.route("/", liveRoomRoutes());
 app.use("/api/live-artifacts/*", async (c, next) => {
   c.set("composed", get(c.env));

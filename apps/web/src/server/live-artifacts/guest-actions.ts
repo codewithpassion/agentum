@@ -175,6 +175,11 @@ export const guestActions: Record<
     method: "POST",
   },
   images: { execute: images, method: "POST" },
+  invitations: {
+    execute: async ({ env, composed, credential }) =>
+      scopedGuests(env, composed).invitations(credential),
+    method: "GET",
+  },
   join: { execute: join, method: "POST" },
   open: { execute: open, method: "GET" },
   policy: {
