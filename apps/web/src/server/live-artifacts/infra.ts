@@ -1,4 +1,6 @@
 import { createClerkClient } from "@clerk/backend";
+import { ForbiddenError } from "@repo/services/authz";
+import { ServiceError } from "@repo/services/errors";
 import type { LiveAskDeps } from "@repo/services/live-artifacts/ask";
 import type { LiveArtifactsDeps } from "@repo/services/live-artifacts/service";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
@@ -117,6 +119,32 @@ export const productionLiveInfra = (
         return room.checkpointCanonical(input);
       },
       checkpointIfDue: async (scope) => (await stub(scope)).checkpointIfDue(),
+      ensureDeckCell: async (scope, input) => {
+        const room = await stub(scope);
+        await room.registerActor(input.principal);
+        const identity = await requiredLive(composed().services).roomIdentity(
+          input.principal,
+          scope.artifactId
+        );
+        const outcome = await room.ensureDeckCellOutcome(
+          {
+            elementId: input.elementId,
+            key: input.key,
+            slideId: input.slideId,
+          },
+          identity
+        );
+        if (!outcome.ok) {
+          if (outcome.code === "forbidden") {
+            throw new ForbiddenError("liveArtifacts.ensureDeckCell");
+          }
+          throw new ServiceError(
+            outcome.code === "not_found" ? "not_found" : "invalid",
+            outcome.message
+          );
+        }
+        return outcome.result;
+      },
       refresh: async (scope, participantId, id) =>
         (await stub(scope)).completeInvalidation(participantId, id),
       registerImage: async (scope, fileId) =>

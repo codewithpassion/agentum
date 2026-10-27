@@ -98,6 +98,24 @@ app.post("/fixture/join/:id", async (c) => {
     })
   );
 });
+app.post("/fixture/ensure-cell/:id", async (c) => {
+  const composed = c.get("composed");
+  const principal = await authenticateRoomRequest(c.env, composed, c.req.raw);
+  if (!principal) {
+    return c.text("Unauthorized", 401);
+  }
+  const input = await c.req.json<{
+    slideId: string;
+    elementId: string;
+    key: string;
+  }>();
+  return c.json(
+    await requiredLive(composed.services).ensureDeckCell(principal, {
+      ...input,
+      artifactId: c.req.param("id"),
+    })
+  );
+});
 app.post("/fixture/checkpoint/:id", async (c) => {
   const composed = c.get("composed");
   const principal = await authenticateRoomRequest(c.env, composed, c.req.raw);

@@ -127,11 +127,26 @@ try {
   const deckCreated = await mcp("artifact_create", {
     kind: "deck",
     slides: [
-      '<slide id="s1" order="a0" background="#fff" transition="none" duration="0"><notes>Notes</notes><element id="e1" type="text" parent="s1" order="a0" prop-x="0" prop-y="0" prop-w="100" prop-h="50"><p>Deck content</p></element></slide>',
+      '<slide id="s1" order="a0" background="#fff" transition="none" duration="0"><notes>Notes</notes><element id="e1" type="text" parent="s1" order="a0" prop-x="0" prop-y="0" prop-w="100" prop-h="50"><p>Deck content</p></element><element id="table" type="table" parent="s1" order="a1" prop-rows="2" prop-cols="2" prop-x="0" prop-y="100" prop-w="300" prop-h="200"></element></slide>',
     ],
     title: "Production deck",
   });
   check(Boolean(deckCreated.artifactId), "actual MCP deck creation");
+  const cellResponse = await runtime.dispatchFetch(
+    `http://localhost/fixture/ensure-cell/${deckCreated.artifactId}`,
+    {
+      body: JSON.stringify({ elementId: "table", key: "0:0", slideId: "s1" }),
+      headers,
+      method: "POST",
+    }
+  );
+  const cellAllocated = await cellResponse.json();
+  check(
+    cellResponse.ok &&
+      cellAllocated.revision > 0 &&
+      cellAllocated.state.length > 0,
+    "production service and room allocate sparse cell through authenticated adapter"
+  );
   const deckRead = await mcp("deck_read", {
     artifactId: deckCreated.artifactId,
   });
