@@ -237,6 +237,32 @@ try {
       exact: true,
       name: "Drag heading block",
     });
+    if (viewport.width === 1280) {
+      const pending = alice.locator(".tiptap [data-pending]");
+      const bounds = await pending.boundingBox();
+      if (!bounds) {
+        throw new Error("Missing pending block target");
+      }
+      await handle.dragTo(pending, {
+        targetPosition: { x: 20, y: bounds.height - 2 },
+      });
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => Reflect.get(window, "editorFixture").json(1).content[0].type
+          )
+        )
+        .toBe("pending");
+      await handle.focus();
+      await page.keyboard.press("ArrowUp");
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => Reflect.get(window, "editorFixture").json(1).content[0].type
+          )
+        )
+        .toBe("heading");
+    }
     await handle.focus();
     await page.keyboard.press("ArrowDown");
     await expect
