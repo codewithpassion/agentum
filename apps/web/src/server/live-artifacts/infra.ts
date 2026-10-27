@@ -5,6 +5,7 @@ import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import type { Composed } from "../compose";
 import { freshMember } from "./auth";
 import { documentContent } from "./content";
+import { deckContent } from "./deck-content";
 import { roomStub } from "./namespace";
 import { requiredLive } from "./required";
 
@@ -43,18 +44,32 @@ export const productionLiveInfra = (
         return room.revert(input.changeId, input.byParticipant);
       },
     },
-    content: documentContent(async (scope) =>
-      scope
-        ? new Set(
-            (
-              await requiredLive(composed().services).roomPolicy(
-                SYSTEM_PRINCIPAL,
-                scope
-              )
-            ).ownBlobUrls
-          )
-        : new Set()
-    ),
+    content: {
+      ...documentContent(async (scope) =>
+        scope
+          ? new Set(
+              (
+                await requiredLive(composed().services).roomPolicy(
+                  SYSTEM_PRINCIPAL,
+                  scope
+                )
+              ).ownBlobUrls
+            )
+          : new Set()
+      ),
+      ...deckContent(async (scope) =>
+        scope
+          ? new Set(
+              (
+                await requiredLive(composed().services).roomPolicy(
+                  SYSTEM_PRINCIPAL,
+                  scope
+                )
+              ).ownBlobUrls
+            )
+          : new Set()
+      ),
+    },
     identity: async (principal) => {
       if (principal.kind === "run") {
         const agent = await composed().services.agents.get(
@@ -115,6 +130,7 @@ export const productionLiveInfra = (
         return room.restoreAuthorized(input);
       },
       saveRestored: async (scope) => (await stub(scope)).checkpoint(),
+      snapshot: async (scope) => (await stub(scope)).authoritativeSnapshot(),
       suspend: async (scope, id) => (await stub(scope)).suspend(id),
       url: (scope) => `/api/rooms/${scope.artifactId}`,
     },

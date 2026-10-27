@@ -15,28 +15,28 @@ export const liveArtifactMutations = (
     ...artifacts,
     async remove(principal, artifactId) {
       const row = await artifacts.get(principal, artifactId);
-      if (row.kind === "document") {
+      if (row.kind === "document" || row.kind === "deck") {
         return live.remove(principal, { artifactId });
       }
       return artifacts.remove(principal, artifactId);
     },
     async restore(principal, artifactId, version) {
       const row = await artifacts.get(principal, artifactId);
-      if (row.kind === "document") {
+      if (row.kind === "document" || row.kind === "deck") {
         return live.restore(principal, { artifactId, version });
       }
       return artifacts.restore(principal, artifactId, version);
     },
     async setAudience(principal, artifactId, audience) {
       const row = await artifacts.get(principal, artifactId);
-      if (row.kind === "document") {
+      if (row.kind === "document" || row.kind === "deck") {
         return live.setAudience(principal, { artifactId, audience });
       }
       return artifacts.setAudience(principal, artifactId, audience);
     },
     async update(principal, input) {
       const row = await artifacts.get(principal, input.artifactId);
-      if (row.kind === "document") {
+      if (row.kind === "document" || row.kind === "deck") {
         throw new ServiceError(
           "invalid",
           "Use document_edit to edit live documents"

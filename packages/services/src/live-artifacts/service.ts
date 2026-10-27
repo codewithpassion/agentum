@@ -29,7 +29,7 @@ import {
   commentAnchorSchema,
   type LiveOperationOrigin,
 } from "@repo/protocol/live";
-import { and, asc, eq, gt, isNull, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, type SQL } from "drizzle-orm";
 import { ulid } from "ulidx";
 import {
   blobKey,
@@ -72,11 +72,27 @@ export interface DocumentSnapshot {
 
 /** The implementation must import/sanitize and render with the shared document schema. */
 export interface LiveContentCodec {
+  createDeck?: (input: {
+    title: string;
+    slides?: string[];
+  }) => Promise<DocumentSnapshot>;
+  exportDeck?: (
+    snapshot: DocumentSnapshot,
+    scope: LiveRoomScope
+  ) => Promise<{
+    markdown: string;
+    html: string;
+    files: Array<{ path: string; bytes: Uint8Array }>;
+  }>;
   exportDocument: (
     snapshot: DocumentSnapshot,
     scope?: LiveRoomScope
   ) => Promise<{ markdown: string; html: string }>;
   importMarkdown: (markdown: string) => Promise<DocumentSnapshot>;
+  loadDeck?: (
+    state: Uint8Array,
+    scope: LiveRoomScope
+  ) => Promise<DocumentSnapshot>;
   /** Validate/sanitize stored state before applying a restore. */
   loadDocument: (
     state: Uint8Array,
@@ -125,6 +141,7 @@ export interface LiveRoomsPort {
   saveRestored?: (
     scope: LiveRoomScope
   ) => Promise<{ versionId: string; revision: number }>;
+  snapshot?: (scope: LiveRoomScope) => Promise<DocumentSnapshot>;
   suspend?: (scope: LiveRoomScope, mutationId: string) => Promise<void>;
   url: (scope: LiveRoomScope) => string;
 }
@@ -408,6 +425,34 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     }
     return { files, html: renderedHtml };
   };
+  const checkpointFiles = async (row: Row, snapshot: DocumentSnapshot) => {
+    const exportContent =
+      row.kind === "deck" ? content.exportDeck : content.exportDocument;
+    if (!exportContent) {
+      throw invalid("Deck content is unavailable");
+    }
+    const rendered = await exportContent(snapshot, {
+      artifactId: row.id,
+      workspaceId: row.workspaceId,
+    });
+    const encoder = new TextEncoder();
+    const images = await checkpointImages(
+      row,
+      rendered.html,
+      snapshot.state.byteLength +
+        encoder.encode(rendered.markdown).length +
+        encoder.encode(rendered.html).length
+    );
+    return [
+      { bytes: new Uint8Array(snapshot.state), path: "state.ydoc" },
+      { bytes: encoder.encode(rendered.markdown), path: "index.md" },
+      { bytes: encoder.encode(images.html), path: "index.html" },
+      ...images.files,
+      ...("files" in rendered
+        ? (rendered.files as Array<{ path: string; bytes: Uint8Array }>)
+        : []),
+    ];
+  };
   const persist = async (
     member: Member,
     row: Row,
@@ -442,24 +487,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       }
     }
     const number = await nextVersion(row, snapshot.revision, initial);
-    const rendered = await content.exportDocument(snapshot, {
-      artifactId: row.id,
-      workspaceId: row.workspaceId,
-    });
-    const encoder = new TextEncoder();
-    const images = await checkpointImages(
-      row,
-      rendered.html,
-      snapshot.state.byteLength +
-        encoder.encode(rendered.markdown).length +
-        encoder.encode(rendered.html).length
-    );
-    const raw = [
-      { bytes: new Uint8Array(snapshot.state), path: "state.ydoc" },
-      { bytes: encoder.encode(rendered.markdown), path: "index.md" },
-      { bytes: encoder.encode(images.html), path: "index.html" },
-      ...images.files,
-    ];
+    const raw = await checkpointFiles(row, snapshot);
     if (
       raw.some((file) => file.bytes.byteLength > ARTIFACT_FILE_MAX_BYTES) ||
       raw.reduce((sum, file) => sum + file.bytes.byteLength, 0) >
@@ -688,6 +716,31 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
   const shared = { ...deps, access, authorOf, event, now, participantId };
   return {
     ...createCommentsModule(shared),
+    async createDeck(
+      principal: Principal,
+      input: { title: string; slides?: string[] }
+    ) {
+      const member = memberOf(principal);
+      if (readOnly(member)) {
+        throw new ForbiddenError("liveArtifacts.create");
+      }
+      if (!input.title.trim() || input.title.length > 120) {
+        throw invalid("Title must be 1 to 120 characters");
+      }
+      const context = member.kind === "run" ? await runContext(member) : null;
+      if (context?.run.scopeArtifactId) {
+        throw new ForbiddenError("liveArtifacts.scope");
+      }
+      if (!content.createDeck) {
+        throw invalid("Deck content is unavailable");
+      }
+      const snapshot = await content.createDeck(input);
+      const row = {
+        ...documentRow(member, input.title, context, null),
+        kind: "deck" as const,
+      };
+      return persist(member, row, snapshot, true);
+    },
     async durableCheckpoint(
       principal: Principal,
       input: DocumentSnapshot &
@@ -768,6 +821,45 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       return {
         markdown: new TextDecoder().decode(blob.bytes),
         revision: row.liveRoomRev ?? 0,
+      };
+    },
+    async history(principal: Principal, input: { artifactId: string }) {
+      const { row } = await access(principal, input.artifactId);
+      return db
+        .select({
+          authorId: artifactVersions.authorId,
+          authorKind: artifactVersions.authorKind,
+          createdAt: artifactVersions.createdAt,
+          id: artifactVersions.id,
+          message: artifactVersions.message,
+          number: artifactVersions.number,
+        })
+        .from(artifactVersions)
+        .where(
+          and(
+            eq(artifactVersions.artifactId, row.id),
+            eq(artifactVersions.workspaceId, row.workspaceId),
+            eq(artifactVersions.status, "published")
+          )
+        )
+        .orderBy(asc(artifactVersions.number));
+    },
+    async open(principal: Principal, input: { artifactId: string }) {
+      const { row, role } = await access(principal, input.artifactId);
+      if (!rooms.snapshot) {
+        throw invalid("Room snapshots unavailable");
+      }
+      const snapshot = await rooms.snapshot({
+        artifactId: row.id,
+        workspaceId: row.workspaceId,
+      });
+      return {
+        artifactId: row.id,
+        kind: row.kind,
+        revision: snapshot.revision,
+        role,
+        state: [...snapshot.state],
+        title: row.title,
       };
     },
     async ownBlobUrls(principal: Principal, input: { artifactId: string }) {
@@ -856,7 +948,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         .from(artifacts)
         .where(
           and(
-            eq(artifacts.kind, "document"),
+            inArray(artifacts.kind, ["document", "deck"]),
             isNull(artifacts.deletedAt),
             input.cursor ? gt(artifacts.id, input.cursor) : undefined
           )
@@ -903,7 +995,13 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
           )
         )
         .limit(1);
-      if (row?.kind !== "document" || !row.currentVersionId) {
+      if (
+        !(
+          row &&
+          ["document", "deck"].includes(row.kind) &&
+          row.currentVersionId
+        )
+      ) {
         throw missing();
       }
       const version = await findVersionById(
@@ -923,7 +1021,12 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       if (!blob) {
         throw missing();
       }
-      return { ...scope, revision: row.liveRoomRev ?? 0, state: blob.bytes };
+      return {
+        ...scope,
+        kind: row.kind as "document" | "deck",
+        revision: row.liveRoomRev ?? 0,
+        state: blob.bytes,
+      };
     },
     async roomOrgId(principal: Principal, workspaceId: string) {
       if (principal.kind !== "system") {
@@ -1201,7 +1304,12 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       if (!blob) {
         throw missing();
       }
-      const snapshot = await content.loadDocument(blob.bytes, {
+      const loadContent =
+        row.kind === "deck" ? content.loadDeck : content.loadDocument;
+      if (!loadContent) {
+        throw invalid("Deck content is unavailable");
+      }
+      const snapshot = await loadContent(blob.bytes, {
         artifactId: row.id,
         workspaceId: row.workspaceId,
       });

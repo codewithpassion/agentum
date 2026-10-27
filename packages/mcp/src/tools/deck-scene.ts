@@ -33,6 +33,8 @@ export interface DeckScenePorts {
   artifactId: string;
   authority: Deck;
   authorize: (action: "read" | "write", artifactId: string) => Promise<void>;
+  /** Host persists synchronously before authority application and broadcast. */
+  commit?: (update: Uint8Array, result: DeckWriteResult) => void;
   ownsBlob: (path: string) => boolean;
   presence: () => DeckReadResult["present"];
 }
@@ -266,9 +268,12 @@ export class DeckSceneAdapter implements DeckPort {
       input.ops.forEach((op, index) => {
         this.operation(op, index, result);
       });
-      this.ports.authority.applyUpdate(
-        encodeStateAsUpdate(this.stageDoc, vector)
-      );
+      const update = encodeStateAsUpdate(this.stageDoc, vector);
+      if (this.ports.commit) {
+        this.ports.commit(update, result);
+      } else {
+        this.ports.authority.applyUpdate(update);
+      }
       // Capabilities are single-use even when every proposed key was skipped.
       for (const op of input.ops) {
         if ("revision" in op) {
@@ -431,6 +436,7 @@ export const createDeckCheckpoint = (
   const deck = new Deck(doc, richTextCodec, { ownsBlob });
   try {
     deck.setTitle(input.title);
+    deck.setTheme({ colors: {}, fonts: {}, sizes: {} });
     for (const html of input.slides ?? []) {
       deck.addSlide(parseSlide(html, richTextCodec));
     }
