@@ -1,0 +1,26 @@
+{
+  "name": "live-artifacts",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "wrangler": "^4.153.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@tiptap/core": "^3.32.0",
+    "@tiptap/markdown": "^3.32.0",
+    "@tiptap/starter-kit": "^3.32.0",
+    "@tiptap/y-tiptap": "^3.0.10",
+    "lib0": "^0.2.119",
+    "partyserver": "^0.5.10",
+    "prosemirror-markdown": "^1.13.9",
+    "prosemirror-model": "^1.25.12",
+    "y-partyserver": "^2.2.0",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.33"
+  }
+}
