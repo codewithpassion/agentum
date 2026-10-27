@@ -297,6 +297,17 @@ test("a newer run of a session waits for the older one", async () => {
   await claim("m1", older.runId);
 });
 
+test("a newer run in another session waits for the agent's older run", async () => {
+  const older = await start(agentId, "s1");
+  const newer = await start(agentId, "s2");
+
+  const error = await rejection(claim("m1", newer.runId));
+
+  expect(error.code).toBe("conflict");
+  expect(status(newer.runId)?.status).toBe("offered");
+  await claim("m1", older.runId);
+});
+
 test("a run of an agent on another machine is forbidden", async () => {
   const started = await start(otherAgentId);
 

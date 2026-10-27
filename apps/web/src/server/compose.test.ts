@@ -20,6 +20,7 @@ let composed: Composed;
 let user: User;
 let agentId: string;
 let seedSession: string;
+let seedRunId: string;
 let published: { sessionId: string; frame: StreamFrame }[];
 let portFails = false;
 let posted: { body: unknown; headers: Headers; url: string }[];
@@ -110,11 +111,12 @@ beforeEach(async () => {
       runtime: "machine",
     })
   ).id;
-  ({ sessionId: seedSession } = await composed.services.runs.startRun(user, {
-    agentId,
-    input: { text: "hello" },
-    session: { origin: "ui" },
-  }));
+  ({ runId: seedRunId, sessionId: seedSession } =
+    await composed.services.runs.startRun(user, {
+      agentId,
+      input: { text: "hello" },
+      session: { origin: "ui" },
+    }));
   published = [];
 });
 
@@ -295,6 +297,8 @@ test("a cancelled incident run of an agent without the ingest token posts nothin
 /** A trigger run that the system claims, then ends `done`, with the tool results it printed first. */
 const finishTriggerRun = async (requestId: string, outputs: string[]) => {
   const system: Principal = { kind: "system" };
+  // The seed run is older and still queued, and an agent's runs start in order.
+  await composed.services.runs.cancelRun(user, seedRunId);
   const { runId } = await composed.services.runs.startRun(user, {
     agentId,
     input: { text: `Investigate incident ${INCIDENT} on billing` },

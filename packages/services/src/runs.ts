@@ -38,7 +38,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
-import { ulid } from "ulidx";
+import { monotonicFactory, ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -116,6 +116,9 @@ const DOWNLOAD_LEASE_MS = 5 * 60_000;
 const EVENT_TEXT_CHARS = 20_000;
 /** The most recent tool events a batch's repeat check reads: about ten call and result pairs. */
 const RECENT_TOOL_EVENTS = 20;
+
+/** Run ids rise within one millisecond, so the id tie-break of the start order is the creation order. */
+const nextRunId = monotonicFactory();
 
 const STARTING: RunRecord["status"][] = ["queued", "offered"];
 /** A claimed run: working, or waiting for a person's answer. */
@@ -604,7 +607,7 @@ export const createRunsService = ({
     const { workspaceId } = agent;
     const now = clock.now();
     const created = now.toISOString();
-    const runId = ulid(now.getTime());
+    const runId = nextRunId(now.getTime());
     const known = await knownSession(prepared, input, options);
     const sessionId = known?.id ?? ulid(now.getTime());
     const sessionWrite: Statement = known
@@ -850,14 +853,15 @@ export const createRunsService = ({
                 )
               )
           ),
-          // A session's runs run in order: no older one may still be waiting.
+          // An agent's runs start in the order they were created, across its
+          // sessions: no older one may still be waiting.
           notExists(
             db
               .select({ id: older.id })
               .from(older)
               .where(
                 and(
-                  eq(older.sessionId, runs.sessionId),
+                  eq(older.agentId, runs.agentId),
                   inArray(older.status, STARTING),
                   or(
                     lt(older.createdAt, runs.createdAt),
@@ -1447,6 +1451,7 @@ export const createRunsService = ({
       await appendRunEvent(run, "run.failed", eventActor(SYSTEM_PRINCIPAL), {
         error: PENDING_FILES_ERROR,
       });
+      await offerNextWaiting(run);
     }
     return true;
   };
@@ -1546,19 +1551,19 @@ export const createRunsService = ({
         return;
       }
       const [next] = await db
-        .select({ id: runs.id })
+        .select({ id: runs.id, pendingFiles: runs.pendingFiles })
         .from(runs)
         .where(
           and(
             eq(runs.agentId, run.agentId),
             eq(runs.workspaceId, run.workspaceId),
-            inArray(runs.status, STARTING),
-            isNull(runs.pendingFiles)
+            inArray(runs.status, STARTING)
           )
         )
         .orderBy(asc(runs.createdAt), asc(runs.id))
         .limit(1);
-      if (!next) {
+      // The oldest run still downloading holds the agent's order: a younger run would be refused.
+      if (!next || next.pendingFiles) {
         return;
       }
       const waiting = await loadRun(db, next.id);
@@ -1809,6 +1814,7 @@ export const createRunsService = ({
           eventActor(principal)
         );
         await abandonEnded(toRecord(row));
+        await offerNextWaiting(toRecord(row));
         interrupted.push(row.id);
       }
     }

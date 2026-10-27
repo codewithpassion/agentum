@@ -806,7 +806,7 @@ describe("GET /stream", () => {
   test("another member's ui session never reaches the stream", async () => {
     const res = await open();
     const theirs = await composed.services.runs.startRun(sessionUser("u1"), {
-      agentId: machineAgentId,
+      agentId: await anotherAgent("theirs-box"),
       input: { text: "private" },
       session: { origin: "ui" },
     });
