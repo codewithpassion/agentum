@@ -34,7 +34,7 @@ import type {
 import type { AgentPanelProps } from "./props.ts";
 
 const SELECT_CLASS =
-  "h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+  "h-10 max-w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:h-8";
 
 interface SkillsData {
   agentNames: AgentNames;
@@ -128,7 +128,7 @@ function AssignedRow({
         {row.pinned ? null : (
           <span className="text-muted-foreground">follows latest approved</span>
         )}
-        <label className="flex items-center gap-2">
+        <label className="flex min-w-0 max-w-full items-center gap-2">
           Version
           <select
             className={SELECT_CLASS}

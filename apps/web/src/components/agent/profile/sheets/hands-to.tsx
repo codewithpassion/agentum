@@ -133,7 +133,7 @@ function HandsToRow({
     [onToggle, targetId]
   );
   return (
-    <li className="flex items-center gap-2">
+    <li className="flex pointer-coarse:min-h-10 items-center gap-2">
       <Checkbox
         checked={checked}
         disabled={disabled}

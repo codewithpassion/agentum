@@ -14,12 +14,32 @@ import {
 import { LibraryFolderPicker } from "./library-folder-picker.tsx";
 import { folderLabel, LIBRARY_NOTE, WIKI_LABEL } from "./profile-logic.ts";
 
+/** A path that breaks after its slashes, never inside a name. */
+function PathText({ path }: { path: string }) {
+  const parts = path.split("/");
+  return (
+    <span className="min-w-0 break-words font-mono text-xs">
+      {parts.map((part, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: path segments repeat and never reorder
+        <span key={index}>
+          {index > 0 ? (
+            <>
+              /<wbr />
+            </>
+          ) : null}
+          {part}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 type Folder = AgentProfileView["library"]["folders"][number];
 
 function FixedLine({ label, path }: { label: string; path: string }) {
   return (
     <div className="flex items-center justify-between gap-3 py-1 text-sm">
-      <span className="font-mono text-xs">{path}</span>
+      <PathText path={path} />
       <span className="rounded-full border px-2 py-0.5 text-muted-foreground text-xs">
         {label}
       </span>
@@ -48,7 +68,7 @@ function GrantLine({
   );
   return (
     <div className="flex items-center justify-between gap-3 py-1 text-sm">
-      <span className="font-mono text-xs">{folder.path}</span>
+      <PathText path={folder.path} />
       <span className="flex items-center gap-2">
         <Button
           aria-label={`${folder.path}: ${folderLabel(folder)}. Switch to ${modeLabel(otherMode(folder.access)).toLowerCase()}`}

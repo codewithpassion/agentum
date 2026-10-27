@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import type {
   AgentProfileView,
   AgentRecord,
@@ -23,6 +23,33 @@ import {
 import { Row } from "./profile-row.tsx";
 import type { SheetId } from "./sheet-ids.ts";
 import { VoiceField } from "./voice-field.tsx";
+
+/** The instruction text, clamped to four lines. On phones a toggle shows all of it. */
+function DoesText({ does }: { does: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const toggle = useCallback(() => setExpanded((value) => !value), []);
+  if (does === "") {
+    return <p className="text-muted-foreground">No instructions yet.</p>;
+  }
+  return (
+    <>
+      <p
+        className={`whitespace-pre-line [overflow-wrap:anywhere] ${expanded ? "" : "line-clamp-4"}`}
+        data-testid="profile-does"
+      >
+        {does}
+      </p>
+      <button
+        aria-expanded={expanded}
+        className="mt-1 text-primary text-xs hover:underline md:hidden"
+        onClick={toggle}
+        type="button"
+      >
+        {expanded ? "Show less" : "Show more"}
+      </button>
+    </>
+  );
+}
 
 /** The profile card: one row per part of the agent, each with its own manage action. */
 export function ProfileRows({
@@ -64,13 +91,7 @@ export function ProfileRows({
       className="min-w-0 flex-[999_1_520px] rounded-lg border border-border bg-card px-4 py-2"
     >
       <Row label="Does">
-        <p className="line-clamp-4 whitespace-pre-line">
-          {profile.does === "" ? (
-            <span className="text-muted-foreground">No instructions yet.</span>
-          ) : (
-            profile.does
-          )}
-        </p>
+        <DoesText does={profile.does} />
       </Row>
       <Row label="Voice">
         <VoiceField agentId={agent.id} voice={profile.voice} />

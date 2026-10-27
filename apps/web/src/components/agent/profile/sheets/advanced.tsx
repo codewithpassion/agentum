@@ -72,6 +72,12 @@ export function AdvancedPanel({ agent }: AgentPanelProps) {
     [agent.id, agent.runtime, agent.runtimeConfig, router]
   );
 
+  const archiveButton = (
+    <Button onClick={openArchive} type="button" variant="outline">
+      Archive agent
+    </Button>
+  );
+
   let body: ReactNode;
   if (error !== undefined) {
     body = <p className="text-destructive text-sm">{error}</p>;
@@ -80,6 +86,7 @@ export function AdvancedPanel({ agent }: AgentPanelProps) {
   } else {
     body = (
       <AgentForm
+        extraAction={archiveButton}
         initial={{
           environment: cloudEnvironmentOf(agent.runtimeConfig),
           instructions: agent.instructions,
@@ -103,10 +110,8 @@ export function AdvancedPanel({ agent }: AgentPanelProps) {
   return (
     <section className="max-w-3xl">
       {body}
-      <div className="mt-10 border-border border-t pt-6">
-        <Button onClick={openArchive} variant="outline">
-          Archive agent
-        </Button>
+      <div className="mt-10 border-border border-t pt-6 max-md:hidden">
+        {archiveButton}
       </div>
       {archiving ? (
         <ArchiveAgentDialog
