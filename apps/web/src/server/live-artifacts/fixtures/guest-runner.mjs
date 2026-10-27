@@ -382,9 +382,15 @@ try {
   let reviewViewerCookie = await signIn(reviewViewer);
   await db
     .prepare(
-      "INSERT INTO runs (id,workspace_id,agent_id,actor_id,actor_kind,created_at,input_text,session_id,status,on_behalf_of_user_id,scope_artifact_id,lease_until) VALUES ('suggestion-run','w1','thread-agent','u1','user',?,'fixture','guest-artifact-thread','running','u1',?,?)"
+      "INSERT INTO sessions (id,workspace_id,agent_id,actor_id,actor_kind,created_at,origin,external_key) VALUES ('review-artifact-thread','w1','thread-agent','u1','user',?,'artifact',?)"
     )
-    .bind(now, review.artifactId, _lease)
+    .bind(now, review.artifactId)
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO runs (id,workspace_id,agent_id,actor_id,actor_kind,created_at,input_text,session_id,status,on_behalf_of_user_id,lease_until) VALUES ('suggestion-run','w1','thread-agent','u1','user',?,'fixture','review-artifact-thread','running','u1',?)"
+    )
+    .bind(now, _lease)
     .run();
   const proposed = await post(`/fixture/suggestion/${review.artifactId}`, {});
   assert.equal(proposed.status, 200, await proposed.clone().text());

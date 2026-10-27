@@ -10,6 +10,7 @@
       { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
       { "name": "MANAGED_POLLER", "class_name": "ManagedPoller" },
       { "name": "PI_RUN", "class_name": "PiRun" },
+      { "name": "GUEST_RUN", "class_name": "GuestRun" },
       { "name": "LINUX_VM", "class_name": "VmSession" },
       { "name": "SESSION_STREAM", "class_name": "SessionStream" },
       { "name": "MAILBOX", "class_name": "MailboxDO" },
@@ -60,7 +61,8 @@
     {
       "tag": "v8",
       "new_sqlite_classes": ["ArtifactRoom", "LiveArtifactMaintenance"]
-    }
+    },
+    { "tag": "v9", "new_sqlite_classes": ["GuestRun"] }
   ],
   // The minute tick (src/server/tick). Crons are not per environment either:
   // only the production Worker runs them.
@@ -141,6 +143,7 @@
           { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
           { "name": "MANAGED_POLLER", "class_name": "ManagedPoller" },
           { "name": "PI_RUN", "class_name": "PiRun" },
+          { "name": "GUEST_RUN", "class_name": "GuestRun" },
           { "name": "LINUX_VM", "class_name": "VmSession" },
           { "name": "SESSION_STREAM", "class_name": "SessionStream" },
           { "name": "MAILBOX", "class_name": "MailboxDO" },
@@ -223,6 +226,7 @@
             { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },
             { "name": "MANAGED_POLLER", "class_name": "ManagedPoller" },
             { "name": "PI_RUN", "class_name": "PiRun" },
+            { "name": "GUEST_RUN", "class_name": "GuestRun" },
             { "name": "LINUX_VM", "class_name": "VmSession" },
             { "name": "SESSION_STREAM", "class_name": "SessionStream" },
             { "name": "MAILBOX", "class_name": "MailboxDO" },

@@ -22,7 +22,8 @@ const readOnly = (member: Member) =>
 export const createLiveAccess = ({
   db,
   clock,
-}: Pick<LiveArtifactsDeps, "db"> & {
+  scopedRunAccess,
+}: Pick<LiveArtifactsDeps, "db" | "scopedRunAccess"> & {
   clock: Pick<LiveArtifactsDeps["clock"], "now">;
 }) => {
   const now = () => clock.now().toISOString();
@@ -30,10 +31,12 @@ export const createLiveAccess = ({
     if (principal.kind !== "user" && principal.kind !== "run") {
       throw new ForbiddenError("liveArtifacts");
     }
-    authorize(principal, "liveArtifacts", {
-      kind: "artifact",
-      workspaceId: principal.workspaceId,
-    });
+    if (!(principal.kind === "run" && principal.scopeArtifactId)) {
+      authorize(principal, "liveArtifacts", {
+        kind: "artifact",
+        workspaceId: principal.workspaceId,
+      });
+    }
     return principal;
   };
   const runContext = async (member: Extract<Member, { kind: "run" }>) => {
@@ -147,7 +150,13 @@ export const createLiveAccess = ({
     if (run.scopeArtifactId && run.scopeArtifactId !== row.id) {
       throw new ForbiddenError("liveArtifacts.scope");
     }
-    if (run.scopeArtifactId || session.origin === "artifact") {
+    if (run.scopeArtifactId) {
+      if (!scopedRunAccess) {
+        throw new ForbiddenError("liveArtifacts.scope");
+      }
+      return (await scopedRunAccess(member, row.id)).role;
+    }
+    if (session.origin === "artifact") {
       return await artifactRunRole(
         member,
         row,
@@ -172,11 +181,13 @@ export const createLiveAccess = ({
     if (!row || (live && row.kind !== "document" && row.kind !== "deck")) {
       throw missing();
     }
-    authorize(member, "liveArtifacts.access", {
-      id: row.id,
-      kind: "artifact",
-      workspaceId: row.workspaceId,
-    });
+    if (!(member.kind === "run" && member.scopeArtifactId)) {
+      authorize(member, "liveArtifacts.access", {
+        id: row.id,
+        kind: "artifact",
+        workspaceId: row.workspaceId,
+      });
+    }
     let role =
       member.kind === "user"
         ? await userRole(row, member.userId, member.isAdmin)

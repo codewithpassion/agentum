@@ -129,6 +129,8 @@
     "./live-artifacts/access-lifecycle": "./src/live-artifacts/access-lifecycle.ts",
     "./live-artifacts/ports": "./src/live-artifacts/ports.ts",
     "./live-artifacts/service": "./src/live-artifacts/service.ts",
+    "./live-guests/durable-runtime": "./src/live-guests/durable-runtime.ts",
+    "./live-guests/agent-policy": "./src/live-guests/agent-policy.ts",
     "./live-guests/ask": "./src/live-guests/ask.ts",
     "./live-guests/restricted-runtime": "./src/live-guests/restricted-runtime.ts",
     "./live-guests/run-access": "./src/live-guests/run-access.ts",

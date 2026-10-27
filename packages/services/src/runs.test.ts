@@ -3735,3 +3735,30 @@ test("ordinary runs cannot read private artifact summaries after grant revocatio
   ).rejects.toBeInstanceOf(ServiceError);
   expect((await runs.getRun(principal, caller.runId)).id).toBe(caller.runId);
 });
+
+test("legacy daemon cannot claim an artifact session before receiving any runtime capabilities", async () => {
+  const service = buildRuns({ runTokenKey: RUN_TOKEN_KEY });
+  const started = await start(user, spyAgentId);
+  await db
+    .update(sessionRows)
+    .set({ externalKey: "source", origin: "artifact" })
+    .where(eq(sessionRows.id, started.sessionId));
+  const machine: Principal = {
+    kind: "machine",
+    machineId: "m1",
+    workspaceId: WORKSPACE,
+  };
+  await expect(
+    service.claimRunForMachine(machine, started.runId, {
+      platformUrl: "https://example.test",
+      requestsForDaemon: true,
+    })
+  ).rejects.toThrow("currentApprovalsRequired");
+  expect(runRow(started.runId)?.status).toBe("queued");
+  const claim = await service.claimRunForMachine(machine, started.runId, {
+    currentApprovalsForDaemon: true,
+    platformUrl: "https://example.test",
+    requestsForDaemon: true,
+  });
+  expect(claim.currentApprovals).toBe(true);
+});

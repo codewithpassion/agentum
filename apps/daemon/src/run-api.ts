@@ -1,3 +1,4 @@
+import { z } from "zod";
 // The daemon's HTTP client for the run routes under
 // `/api/machines/runs/<runId>`: claim, events, heartbeat and complete, and the
 // two request routes (raise a request, wait for its outcome). Each JSON body is masked before it is sent, and
@@ -56,6 +57,7 @@ export interface RunApi {
   /** Throws RunApiError on a non-2xx answer. */
   events: (events: RunEventInput[]) => Promise<void>;
   heartbeat: () => Promise<void>;
+  needsApproval?: (toolKey: string, signal?: AbortSignal) => Promise<boolean>;
   /** One long poll (up to REQUEST_WAIT_SECONDS) for a request's outcome; `status` stays "pending" when none came. Throws like createRequest. */
   waitRequest: (
     requestId: string,
@@ -243,5 +245,21 @@ export const createRunApi = (options: RunApiOptions): RunApi => {
     await expectOk("complete", response);
   };
 
-  return { claim, complete, createRequest, events, heartbeat, waitRequest };
+  const needsApproval = async (toolKey: string, signal?: AbortSignal) =>
+    (
+      await parseAnswer(
+        "needs-approval",
+        await send("needs-approval", { toolKey }, {}, { signal }),
+        z.strictObject({ required: z.boolean() })
+      )
+    ).required;
+  return {
+    claim,
+    complete,
+    createRequest,
+    events,
+    heartbeat,
+    needsApproval,
+    waitRequest,
+  };
 };

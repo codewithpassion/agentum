@@ -271,6 +271,12 @@ const runEventsSchema = z
   )
   .max(500);
 
+const assertArtifactReply = (input: z.output<typeof startRunInputSchema>) => {
+  if (input.session.origin === "artifact" && input.reply.kind !== "none") {
+    throw new ForbiddenError("runs.artifactOutboundReply");
+  }
+};
+
 export interface RunsServiceOptions {
   adapters: readonly RuntimeAdapter[];
   atomic: Atomic;
@@ -644,6 +650,7 @@ export const createRunsService = ({
         `No gateway is registered for ${input.reply.kind} replies`
       );
     }
+    assertArtifactReply(input);
     if (input.session.origin === "artifact") {
       await authorizeArtifactRun(
         db,
@@ -1109,6 +1116,7 @@ export const createRunsService = ({
     options: {
       libraryForDaemon?: boolean;
       libraryLiveForDaemon?: boolean;
+      currentApprovalsForDaemon?: boolean;
       requestsForDaemon?: boolean;
       platformUrl: string;
     }
@@ -2264,6 +2272,54 @@ export const createRunsService = ({
     }
   };
 
+  const guestContext = async (principal: Principal, runId: string) => {
+    requireSystem(principal, "runs.guestContext");
+    await authorizeScopedRun(principal, runId);
+    const run = await loadRun(db, runId);
+    if (!run?.scopeArtifactId) {
+      throw guestUnavailable();
+    }
+    const rows = (
+      await eventsService.transcript(
+        SYSTEM_PRINCIPAL,
+        run.workspaceId,
+        run.sessionId
+      )
+    )
+      .filter((event) =>
+        ["message.user", "message.assistant"].includes(event.type)
+      )
+      .slice(-32);
+    const messages = await Promise.all(
+      rows.map(async (event) => ({
+        actor: event.actor,
+        payload: await eventsService.readPayload(SYSTEM_PRINCIPAL, event),
+        type: event.type,
+      }))
+    );
+    await authorizeScopedRun(principal, runId);
+    return JSON.stringify(messages).slice(-160_000);
+  };
+
+  const guestExecution = async (principal: Principal, runId: string) => {
+    requireSystem(principal, "runs.guestExecution");
+    const run = await loadRun(db, runId);
+    if (!run?.scopeArtifactId || run.actor.kind !== "guest") {
+      throw guestUnavailable();
+    }
+    if (!TERMINAL_STATUSES.includes(run.status)) {
+      await authorizeScopedRun(principal, runId);
+    }
+    const agent = await findAgent(db, {
+      id: run.agentId,
+      workspaceId: run.workspaceId,
+    });
+    if (!agent) {
+      throw guestUnavailable();
+    }
+    return { model: agent.model, name: agent.name, run };
+  };
+
   return {
     authorizeScopedRun,
     cancelRun,
@@ -2272,6 +2328,8 @@ export const createRunsService = ({
     completeRun,
     fetchPendingFiles,
     getRun,
+    guestContext,
+    guestExecution,
     heartbeatRun,
     ingestRunEvents,
     markRunning,

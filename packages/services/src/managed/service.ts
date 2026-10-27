@@ -29,6 +29,7 @@ import {
 } from "@repo/db/schema/managed";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs } from "@repo/db/schema/runs";
+import { sessions as artifactSessions } from "@repo/db/schema/sessions";
 import { CHOICES_MAX, taskFolderPath } from "@repo/db/shared";
 import {
   computerInstructions,
@@ -420,6 +421,18 @@ export const createManagedService = ({
   };
 
   /** The tool keys the agent's rules ask about, sorted, with the platform tools a switch covers. */
+  const runAskKeys = async (agent: AgentRecord, run: RunRecord) => {
+    const result = await askKeysOf(agent);
+    const [room] = await db
+      .select({ origin: artifactSessions.origin })
+      .from(artifactSessions)
+      .where(eq(artifactSessions.id, run.sessionId))
+      .limit(1);
+    if (room?.origin === "artifact") {
+      result.push("*");
+    }
+    return result;
+  };
   const askKeysOf = (agent: AgentRecord): Promise<string[]> =>
     askKeysOfAgent(db, agent);
 
@@ -920,7 +933,7 @@ export const createManagedService = ({
       computer,
       await sessionSupportsSpeakers(db, run)
     );
-    const askKeys = await askKeysOf(agent);
+    const askKeys = await runAskKeys(agent, run);
     const fingerprint = await hashToken(
       JSON.stringify({
         // The rules and the ask_user tool are part of the registered agent.

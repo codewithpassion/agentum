@@ -51,7 +51,7 @@ export interface GuestEnvironment {
   LIVE_GUESTS_OFF?: string;
 }
 export type GuestComposition = Pick<Composed, "atomic" | "clock" | "db"> & {
-  services: Pick<Composed["services"], "events" | "liveArtifacts">;
+  services: Pick<Composed["services"], "events" | "liveArtifacts" | "runs">;
 };
 export const guestService = async (
   env: ComposeEnv & GuestEnvironment,
@@ -118,5 +118,6 @@ export const guestService = async (
     },
     origin: new URL(env.PUBLIC_BASE_URL).origin,
     pepper,
+    runs: composed.services.runs,
   });
 };

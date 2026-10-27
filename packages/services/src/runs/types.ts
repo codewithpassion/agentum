@@ -204,6 +204,8 @@ export interface MachineClaim {
     runtimeConfig: Record<string, unknown>;
     slug: string;
   };
+  /** Ask keys supplied when the daemon supports requests. */
+  currentApprovals?: true;
   /** Secrets for the agent's process: its `env` secrets, and the relay token when it has `proxy` ones. Absent when it has none. */
   env?: Record<string, string>;
   inputFileIds: string[];
@@ -233,7 +235,6 @@ export interface MachineClaim {
     runtimeMachineId: string | null;
     runtimeRef: string | null;
   };
-  /** Ask keys supplied when the daemon supports requests. */
   toolRules?: string[];
 }
 

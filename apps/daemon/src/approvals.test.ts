@@ -100,6 +100,7 @@ interface Script {
   create?: Step<CreateRequestResponse>[];
   /** Keeps waitRequest pending until its signal aborts, instead of answering from `wait`. */
   hangWait?: boolean;
+  needsApproval?: (key: string) => Promise<boolean>;
   rules?: readonly string[];
   serverKeys?: readonly string[];
   wait?: Step<WaitRequestResponse>[];
@@ -155,6 +156,7 @@ const harness = (script: Script = {}) => {
   const gate = createApprovalGate({
     api,
     log: () => undefined,
+    needsApproval: script.needsApproval,
     random,
     rules: script.rules ?? ["bash"],
     serverKeys: script.serverKeys ?? [],
@@ -742,4 +744,35 @@ describe("createApprovalGate.decide, limits and later calls", () => {
       summary: "Call github/create_issue",
     });
   });
+});
+
+test("current room policy is checked on each native tool even after always_allow", async () => {
+  let required = false;
+  const h = harness({
+    create: [pendingCreate, pendingCreate],
+    needsApproval: () => Promise.resolve(required),
+    rules: [],
+    wait: [
+      finished({ answer: { decision: "always_allow" }, status: "answered" }),
+      finished(ALLOW_ONCE),
+    ],
+  });
+  expect(await h.gate.decide(bashCall())).toBeUndefined();
+  required = true;
+  expect(await h.gate.decide(bashCall())).toEqual({ kind: "allow" });
+  expect(await h.gate.decide({ ...bashCall(), toolUseId: "second" })).toEqual({
+    kind: "allow",
+  });
+  expect(h.creates).toHaveLength(2);
+});
+test("failed current policy lookup denies native effects", async () => {
+  const h = harness({
+    needsApproval: () => Promise.reject(new Error("offline")),
+    rules: [],
+  });
+  expect(await h.gate.decide(bashCall())).toEqual({
+    kind: "deny",
+    reason: PLATFORM_REFUSED,
+  });
+  expect(h.creates).toHaveLength(0);
 });

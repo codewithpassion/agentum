@@ -24,6 +24,7 @@ export const FEATURE_LIBRARY_SYNC = "library-sync";
 
 /** The daemon can raise approval and question requests and wait for them (V1.9). */
 export const FEATURE_REQUESTS = "requests";
+export const FEATURE_CURRENT_APPROVALS = "current-approvals";
 
 /** The daemon takes `library_changed` relay frames and the claim's library `roots` and `taskFolder` (V4). */
 export const FEATURE_LIBRARY_LIVE = "library-live";
@@ -152,6 +153,9 @@ export const claimResponseSchema = z.strictObject({
     runtimeConfig: jsonRecordSchema,
     slug: z.string(),
   }),
+  // The agent's ask tool keys, sent only to a daemon that names FEATURE_REQUESTS
+  // (the schema is strict, so an older daemon would reject the key).
+  currentApprovals: z.literal(true).optional(),
   // Secrets the agent is granted as environment variables. Absent when there
   // are none, so a daemon that predates them still parses the claim.
   env: z.record(z.string(), z.string()).optional(),
@@ -199,8 +203,6 @@ export const claimResponseSchema = z.strictObject({
     runtimeMachineId: z.string().nullable(),
     runtimeRef: z.string().nullable(),
   }),
-  // The agent's ask tool keys, sent only to a daemon that names FEATURE_REQUESTS
-  // (the schema is strict, so an older daemon would reject the key).
   toolRules: z.array(z.string()).optional(),
 });
 export type ClaimResponse = z.infer<typeof claimResponseSchema>;

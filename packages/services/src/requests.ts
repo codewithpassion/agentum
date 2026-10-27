@@ -33,6 +33,11 @@ import {
 } from "./mail/approval.ts";
 import { askKeysOf } from "./requests/ask-keys.ts";
 import {
+  approvedDecision,
+  canonicalEffect,
+  matchesEffectApproval,
+} from "./requests/outbound.ts";
+import {
   answerInputSchema,
   answerSchemas,
   capInput,
@@ -46,6 +51,7 @@ import {
   scrubbedRecord,
   scrubText,
 } from "./requests/records.ts";
+import { importRunTokenKey } from "./run-tokens.ts";
 import { currentGuestRun, guestUnavailable } from "./runs/guest-scope.ts";
 import { loadRun } from "./runs/queries.ts";
 import type { Clock, RunRecord } from "./runs/types.ts";
@@ -89,7 +95,9 @@ export const createRequestsService = ({
   runs,
   secrets,
   guestPresence,
+  runTokenKey,
 }: {
+  runTokenKey?: string;
   guestPresence?: (scope: {
     artifactId: string;
     workspaceId: string;
@@ -129,6 +137,10 @@ export const createRequestsService = ({
     if (
       !(
         principal.kind === "system" ||
+        (principal.kind === "run" &&
+          principal.runId === run.id &&
+          principal.agentId === run.agentId &&
+          ["running", "waiting"].includes(run.status)) ||
         (principal.kind === "machine" && principal.machineId === run.claimedBy)
       )
     ) {
@@ -284,6 +296,50 @@ export const createRequestsService = ({
       workspaceId: agent.workspaceId,
     });
   };
+  const guestsPresent = async (run: RunRecord) => {
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.id, run.sessionId),
+          eq(sessions.workspaceId, run.workspaceId)
+        )
+      )
+      .limit(1);
+    if (session?.origin !== "artifact" || !session.externalKey) {
+      return false;
+    }
+    const [sourceVisible] = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.id, run.sessionId),
+          await visibleSessions(
+            db,
+            {
+              agentId: run.agentId,
+              kind: "run",
+              runId: run.id,
+              workspaceId: run.workspaceId,
+            },
+            clock.now().toISOString()
+          )
+        )
+      )
+      .limit(1);
+    if (!sourceVisible) {
+      throw new ForbiddenError("requests.sourceUnavailable");
+    }
+    return (
+      !guestPresence ||
+      (await guestPresence({
+        artifactId: session.externalKey,
+        workspaceId: run.workspaceId,
+      }))
+    );
+  };
   const needsApproval = async (
     principal: Principal,
     input: { runId: string; toolKey: string }
@@ -297,27 +353,7 @@ export const createRequestsService = ({
     if (run.scopeArtifactId) {
       return true;
     }
-    const [session] = await db
-      .select()
-      .from(sessions)
-      .where(
-        and(
-          eq(sessions.id, run.sessionId),
-          eq(sessions.workspaceId, run.workspaceId)
-        )
-      )
-      .limit(1);
-    if (
-      session?.origin === "artifact" &&
-      session.externalKey &&
-      (!guestPresence ||
-        (await guestPresence({
-          artifactId: session.externalKey,
-          workspaceId: run.workspaceId,
-        })))
-    ) {
-      // Conservative for all tools: no tool-name taxonomy can miss an outbound
-      // connector write. Missing trusted presence wiring also requires approval.
+    if (await guestsPresent(run)) {
       return true;
     }
     // The ask keys include the platform tools a switch covers (SWITCH_COVERS).
@@ -373,6 +409,27 @@ export const createRequestsService = ({
     }
     return computerMachineId;
   };
+  const effectBinding = async (
+    run: RunRecord,
+    toolKey: string,
+    input: unknown
+  ) => {
+    if (!runTokenKey) {
+      return;
+    }
+    const bytes = new Uint8Array(
+      await crypto.subtle.sign(
+        "HMAC",
+        await importRunTokenKey(runTokenKey),
+        new TextEncoder().encode(
+          `outbound-receipt:${canonicalEffect([run.id, toolKey, input])}`
+        )
+      )
+    );
+    return [...bytes]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  };
   const prepareOpen = async (
     run: RunRecord,
     input: z.infer<typeof openInputSchema>
@@ -392,7 +449,9 @@ export const createRequestsService = ({
       const clean = redactToolPayload(
         masker?.maskDeep(input.input) ?? input.input
       );
+      const binding = await effectBinding(run, toolKey, input.input);
       return {
+        ...(binding ? { effectBinding: binding } : {}),
         input: capInput(clean),
         summary: approvalSummary(input.toolName, clean),
         toolKey,
@@ -786,6 +845,109 @@ export const createRequestsService = ({
     // A pending request has no answer yet, so there is nothing to mask.
     return rows.map((row) => scrubbedRecord(row, null));
   };
+  const consumeApprovedEffect = async (
+    run: RunRecord,
+    toolKey: string,
+    binding: string
+  ) => {
+    const candidates = await db
+      .select()
+      .from(runRequests)
+      .where(
+        and(
+          eq(runRequests.runId, run.id),
+          eq(runRequests.workspaceId, run.workspaceId),
+          eq(runRequests.toolKey, toolKey),
+          eq(runRequests.status, "answered")
+        )
+      );
+    for (const row of candidates) {
+      if (!matchesEffectApproval(row, binding)) {
+        continue;
+      }
+      // biome-ignore lint/performance/noAwaitInLoops: only one approved receipt may be consumed.
+      const taken = await db
+        .update(runRequests)
+        .set({ toolUseId: `consumed:${row.id}` })
+        .where(
+          and(
+            eq(runRequests.id, row.id),
+            eq(runRequests.toolUseId, row.toolUseId),
+            eq(runRequests.status, "answered")
+          )
+        )
+        .returning({ id: runRequests.id });
+      if (taken.length) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const requireOutbound = async (
+    principal: Principal,
+    toolKey: string,
+    input: unknown
+  ) => {
+    if (principal.kind !== "run") {
+      throw new ForbiddenError("requests.outboundRun");
+    }
+    const run = await requireRun(principal, principal.runId);
+    writer(principal, run);
+    if (outboundUnavailable(run)) {
+      throw guestUnavailable();
+    }
+    if (!(await guestsPresent(run))) {
+      return;
+    }
+    const binding = await effectBinding(run, toolKey, input);
+    if (!binding) {
+      throw new ForbiddenError("requests.outboundUnavailable");
+    }
+    if (await consumeApprovedEffect(run, toolKey, binding)) {
+      return;
+    }
+    const digest = binding;
+    const toolUseId = `outbound:${digest}`;
+    const request = await open(principal, {
+      input: {
+        effect: z
+          .record(z.string(), z.json())
+          .parse(JSON.parse(JSON.stringify(input))),
+      },
+      kind: "approval",
+      runId: run.id,
+      toolKey,
+      toolName: toolKey,
+      toolUseId,
+    });
+    const receiptBinding = await effectBinding(run, toolKey, { effect: input });
+    if (!validEffectReceipt(request.display, receiptBinding)) {
+      throw new ForbiddenError("requests.outboundReceipt");
+    }
+    if (!approvedDecision(request.outcome)) {
+      throw new ServiceError(
+        "conflict",
+        "Outbound effect requires a member approval in Needs you"
+      );
+    }
+    const consumed = await db
+      .update(runRequests)
+      .set({ toolUseId: `consumed:${digest}` })
+      .where(
+        and(
+          eq(runRequests.id, request.id),
+          eq(runRequests.runId, run.id),
+          eq(runRequests.workspaceId, run.workspaceId),
+          eq(runRequests.toolUseId, toolUseId),
+          eq(runRequests.status, "answered")
+        )
+      )
+      .returning({ id: runRequests.id });
+    if (!consumed.length) {
+      throw new ForbiddenError("requests.outboundConsumed");
+    }
+  };
+
   return {
     answer,
     cancel,
@@ -797,9 +959,23 @@ export const createRequestsService = ({
     open,
     outcome,
     removeRule,
+    requireOutbound,
+    requiresGuestApproval: async (principal: Principal, runId: string) => {
+      const run = await requireRun(principal, runId);
+      writer(principal, run);
+      return Boolean(await guestsPresent(run));
+    },
     setRule,
     waitForOutcome,
   };
 };
 
 export type RequestsService = ReturnType<typeof createRequestsService>;
+
+const outboundUnavailable = (run: RunRecord) =>
+  Boolean(run.scopeArtifactId) || !["running", "waiting"].includes(run.status);
+
+const validEffectReceipt = (
+  display: RequestRecord["display"],
+  binding?: string
+) => "effectBinding" in display && display.effectBinding === binding;

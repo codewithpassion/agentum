@@ -586,6 +586,40 @@ const responders = ({
   };
 };
 
+const guardOutbound = async (
+  c: RouteContext,
+  claims: RunTokenClaims,
+  connectorId: string,
+  call: RpcCall,
+  bytes: Uint8Array
+) => {
+  if (
+    c.req.method === "POST" &&
+    ["initialize", "notifications/initialized", "tools/list", "ping"].includes(
+      call.method ?? ""
+    ) &&
+    !call.opaque
+  ) {
+    return;
+  }
+  const parsed =
+    call.method === "tools/call"
+      ? (JSON.parse(new TextDecoder().decode(bytes)) as {
+          params?: { arguments?: unknown };
+        })
+      : {
+          params: {
+            arguments: { opaqueBody: new TextDecoder().decode(bytes) },
+          },
+        };
+  await c
+    .get("composed")
+    .services.requests.requireOutbound(
+      { ...claims, kind: "run" },
+      `${connectorId}/${call.tool ?? "opaque"}`,
+      parsed.params?.arguments ?? {}
+    );
+};
 export const proxyRoutes = ({
   fetch: fetchImpl = (input, init) => fetch(input, init),
   log = defaultLog,
@@ -680,6 +714,7 @@ export const proxyRoutes = ({
       url,
     });
 
+    await guardOutbound(c, claims, connectorId, call, body.bytes);
     const tried = await sendWithRefresh({
       credential: resolution.credential,
       credentials,

@@ -862,6 +862,31 @@ describe("tool confirmation rules", () => {
     { cache: memoryCache(), environmentName: "harbourmaster" }
   );
 
+  test("artifact wildcard keeps native and every MCP tool asking regardless saved allow rules", async () => {
+    await gateway.registerAgent({
+      askKeys: ["*"],
+      instructions: "shared artifact",
+      mcpServers: MCP_SERVERS,
+      model: AGENT_MODEL,
+      name: "Ada",
+      skills: [],
+      system: "shared artifact",
+    });
+    const tools = created.at(-1)?.tools as Array<{
+      type: string;
+      default_config?: { permission_policy: { type: string } };
+    }>;
+    const toolsets = tools.filter(
+      (tool) =>
+        tool.type === "mcp_toolset" || tool.type === "agent_toolset_20260401"
+    );
+    expect(toolsets.length).toBeGreaterThan(1);
+    expect(
+      toolsets.every(
+        (tool) => tool.default_config?.permission_policy.type === "always_ask"
+      )
+    ).toBe(true);
+  });
   const ASK_KEYS = [
     "bash",
     "harbourmaster/post_message",

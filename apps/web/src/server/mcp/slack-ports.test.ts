@@ -13,7 +13,7 @@ import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import { slackSecretBinding } from "@repo/services/slack/apps";
-import type { Principal } from "@repo/services/workspaces";
+import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { type Composed, composeWith } from "../compose.ts";
 import { createMcpPorts } from "./ports.ts";
 
@@ -104,11 +104,16 @@ const makeAgent = (name: string) =>
 
 /** A run of `agentId`, as the principal its tools are called as. */
 const runAs = async (agentId: string): Promise<Principal> => {
-  const { runId } = await composed.services.runs.startRun(userPrincipal, {
-    agentId,
-    input: { text: "x" },
-    session: { origin: "mcp" },
-  });
+  const { runId } = await composed.services.runs.startRun(
+    userPrincipal,
+    {
+      agentId,
+      input: { text: "x" },
+      session: { origin: "mcp" },
+    },
+    { offerLater: true }
+  );
+  await composed.services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
   return { agentId, kind: "run", runId, workspaceId };
 };
 

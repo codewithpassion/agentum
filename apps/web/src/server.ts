@@ -40,6 +40,7 @@ import { appRouter } from "./server/trpc/router.ts";
 export { DirectoryBackupGateway } from "@cloudflare/sandbox";
 export { AppHost, AppOutbound } from "./server/app-entrypoints.ts";
 export { AppStore } from "./server/app-store/app-store.ts";
+export { GuestRun } from "./server/guest-run";
 export { VmSession } from "./server/linux-vm/vm-session.ts";
 export { LiveArtifactMaintenance } from "./server/live-artifacts/maintenance";
 export { ArtifactRoom } from "./server/live-artifacts/production-room";

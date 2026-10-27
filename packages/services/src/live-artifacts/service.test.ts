@@ -807,13 +807,10 @@ describe("live authorization and tickets", () => {
       .where(eq(runs.id, "r-shared"))
       .run();
     h.grant(doc.artifactId, "viewer");
-    expect(
-      (
-        await h.service.join(principals.agentOne, {
-          artifactId: doc.artifactId,
-        })
-      ).role
-    ).toBe("viewer");
+    await refuses(
+      () => h.service.join(principals.agentOne, { artifactId: doc.artifactId }),
+      "forbidden"
+    );
     await refuses(
       () =>
         h.service.checkpoint(principals.agentOne, {

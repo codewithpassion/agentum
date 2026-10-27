@@ -2,7 +2,7 @@
  * Fetch with credentials: same-origin and Origin on mutations; serialize cookie
  * rotating HTTP requests (a concurrent use of an old credential is refused).
  * Guest image URLs are the artifact-scoped guestUrl, canonical document state
- * retains /files/:id. Guest asks remain unavailable until a restricted execution adapter is composed. No guest approval/export endpoint exists.
+ * retains /files/:id. Guest asks require a composed, configured restricted cloud executor; unsupported runtimes stay unavailable. No guest approval/export endpoint exists.
  */
 import { z } from "zod";
 import {
