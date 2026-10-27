@@ -1,6 +1,7 @@
 {
   "name": "live-spike-local",
   "main": "worker.ts",
+  "build": { "command": "bun run local-build.ts" },
   "compatibility_date": "2026-08-19",
   "durable_objects": {
     "bindings": [
