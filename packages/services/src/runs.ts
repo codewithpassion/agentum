@@ -305,6 +305,35 @@ export interface RunsServiceOptions {
 
 type ParsedInput = ReturnType<typeof startRunInputSchema.parse>;
 
+const artifactSelectionPatch = (
+  session: typeof sessions.$inferSelect,
+  agentId: string
+) => {
+  if (session.origin !== "artifact") {
+    return {};
+  }
+  return {
+    agentId,
+    ...(session.agentId === agentId
+      ? {}
+      : { runtimeMachineId: null, runtimeRef: null }),
+  };
+};
+const sessionPrivacy = (input: ParsedInput) =>
+  input.session.origin !== "artifact" && (input.session.private ?? false);
+const requireArtifactSessionMatch = (
+  input: ParsedInput,
+  session: typeof sessions.$inferSelect
+) => {
+  if (
+    input.session.origin === "artifact" &&
+    (session.origin !== "artifact" ||
+      session.externalKey !== input.session.externalKey)
+  ) {
+    throw new ServiceError("not_found", "Session not found");
+  }
+};
+
 interface StartResult {
   runId: string;
   sessionId: string;
@@ -671,6 +700,7 @@ export const createRunsService = ({
       if (!session) {
         throw new ServiceError("not_found", "Session not found");
       }
+      requireArtifactSessionMatch(input, session);
       if (
         scopeArtifactId &&
         (session.origin !== "artifact" ||
@@ -720,7 +750,10 @@ export const createRunsService = ({
     const sessionWrite: Statement = known
       ? db
           .update(sessions)
-          .set({ lastRunAt: created })
+          .set({
+            lastRunAt: created,
+            ...artifactSelectionPatch(known, agent.id),
+          })
           .where(eq(sessions.id, known.id))
       : db.insert(sessions).values({
           actorId: subject.actor.id,
@@ -733,7 +766,7 @@ export const createRunsService = ({
           id: sessionId,
           lastRunAt: created,
           origin: input.session.origin,
-          private: input.session.private ?? false,
+          private: sessionPrivacy(input),
           workspaceId,
         });
     const runWrite = db.insert(runs).values({
@@ -1026,7 +1059,10 @@ export const createRunsService = ({
               .from(sibling)
               .where(
                 and(
-                  eq(sibling.agentId, runs.agentId),
+                  or(
+                    eq(sibling.agentId, runs.agentId),
+                    eq(sibling.sessionId, runs.sessionId)
+                  ),
                   inArray(sibling.status, LIVE)
                 )
               )
@@ -1039,7 +1075,10 @@ export const createRunsService = ({
               .from(older)
               .where(
                 and(
-                  eq(older.agentId, runs.agentId),
+                  or(
+                    eq(older.agentId, runs.agentId),
+                    eq(older.sessionId, runs.sessionId)
+                  ),
                   inArray(older.status, STARTING),
                   or(
                     lt(older.createdAt, runs.createdAt),
@@ -1426,6 +1465,7 @@ export const createRunsService = ({
       .where(
         and(
           eq(sessions.id, run.sessionId),
+          eq(sessions.agentId, run.agentId),
           exists(
             db
               .select({ id: runs.id })
@@ -1733,7 +1773,10 @@ export const createRunsService = ({
         .from(runs)
         .where(
           and(
-            eq(runs.agentId, run.agentId),
+            or(
+              eq(runs.agentId, run.agentId),
+              eq(runs.sessionId, run.sessionId)
+            ),
             eq(runs.workspaceId, run.workspaceId),
             inArray(runs.status, STARTING)
           )
@@ -1766,7 +1809,12 @@ export const createRunsService = ({
     const [live] = await db
       .select({ id: runs.id })
       .from(runs)
-      .where(and(eq(runs.agentId, run.agentId), inArray(runs.status, LIVE)))
+      .where(
+        and(
+          or(eq(runs.agentId, run.agentId), eq(runs.sessionId, run.sessionId)),
+          inArray(runs.status, LIVE)
+        )
+      )
       .limit(1);
     const current = await loadRun(db, run.id);
     if (!live && current && STARTING.includes(current.status)) {
@@ -1886,7 +1934,10 @@ export const createRunsService = ({
               .from(busy)
               .where(
                 and(
-                  eq(busy.agentId, runs.agentId),
+                  or(
+                    eq(busy.agentId, runs.agentId),
+                    eq(busy.sessionId, runs.sessionId)
+                  ),
                   isNotNull(busy.startedAt),
                   or(
                     inArray(busy.status, LIVE),

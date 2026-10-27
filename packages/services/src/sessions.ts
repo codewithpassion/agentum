@@ -202,7 +202,15 @@ export const visibleSessions = async (
   const opener = await openerOf(db, reader);
   return and(
     eq(sessions.workspaceId, reader.workspaceId),
-    reader.kind === "run" ? eq(sessions.agentId, reader.agentId) : undefined,
+    reader.kind === "run"
+      ? or(
+          eq(sessions.agentId, reader.agentId),
+          and(
+            eq(sessions.origin, "artifact"),
+            sql`exists (select 1 from ${runs} where ${runs.sessionId} = ${sessions.id} and ${runs.workspaceId} = ${sessions.workspaceId} and ${runs.agentId} = ${reader.agentId})`
+          )
+        )
+      : undefined,
     or(
       and(
         ne(sessions.origin, "artifact"),

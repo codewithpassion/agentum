@@ -179,7 +179,10 @@ export const claimForMachine = async (
             .from(sibling)
             .where(
               and(
-                eq(sibling.agentId, runs.agentId),
+                or(
+                  eq(sibling.agentId, runs.agentId),
+                  eq(sibling.sessionId, runs.sessionId)
+                ),
                 inArray(sibling.status, ["running", "waiting"])
               )
             )
@@ -190,7 +193,10 @@ export const claimForMachine = async (
             .from(older)
             .where(
               and(
-                eq(older.agentId, runs.agentId),
+                or(
+                  eq(older.agentId, runs.agentId),
+                  eq(older.sessionId, runs.sessionId)
+                ),
                 inArray(older.status, STARTING),
                 or(
                   lt(older.createdAt, runs.createdAt),

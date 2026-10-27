@@ -1,11 +1,11 @@
 import type { Database } from "@repo/db";
-import { artifacts } from "@repo/db/schema/artifacts";
-import { artifactMembers } from "@repo/db/schema/live-artifacts";
-import { and, eq, gt, isNull, or } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
+import { ServiceError } from "../errors.ts";
+import { createLiveAccess } from "../live-artifacts/access.ts";
+import { canComment } from "../live-artifacts/shared.ts";
 import type { Principal } from "../workspaces.ts";
 
-/** Artifact sessions are shared only with people who can open this artifact. */
+/** Recheck current live access for direct starts and trusted continuations too. */
 export const authorizeArtifactRun = async (
   db: Database,
   principal: Principal,
@@ -16,45 +16,19 @@ export const authorizeArtifactRun = async (
   if (principal.kind !== "user" || principal.workspaceId !== workspaceId) {
     throw new ForbiddenError("runs.start");
   }
-  const [artifact] = await db
-    .select()
-    .from(artifacts)
-    .where(
-      and(
-        eq(artifacts.id, artifactId),
-        eq(artifacts.workspaceId, workspaceId),
-        isNull(artifacts.deletedAt)
-      )
-    )
-    .limit(1);
-  if (!artifact) {
-    throw new ForbiddenError("runs.start");
+  const { access } = createLiveAccess({
+    clock: { now: () => now },
+    db,
+  });
+  const { row, role } = await access(
+    principal,
+    artifactId,
+    false,
+    false,
+    false
+  );
+  if (row.kind !== "document" && row.kind !== "deck") {
+    throw new ServiceError("not_found", "Artifact not found");
   }
-  if (
-    artifact.ownerUserId === principal.userId ||
-    artifact.audience === "workspace" ||
-    principal.isAdmin
-  ) {
-    return;
-  }
-  const [member] = await db
-    .select({ id: artifactMembers.id })
-    .from(artifactMembers)
-    .where(
-      and(
-        eq(artifactMembers.artifactId, artifactId),
-        eq(artifactMembers.workspaceId, workspaceId),
-        eq(artifactMembers.principalKind, "user"),
-        eq(artifactMembers.userId, principal.userId),
-        isNull(artifactMembers.revokedAt),
-        or(
-          isNull(artifactMembers.expiresAt),
-          gt(artifactMembers.expiresAt, now.toISOString())
-        )
-      )
-    )
-    .limit(1);
-  if (!member) {
-    throw new ForbiddenError("runs.start");
-  }
+  canComment(role);
 };

@@ -949,6 +949,7 @@ describe("live comments and changes", () => {
     const question = await h.service.comment(principals.owner, {
       artifactId: doc.artifactId,
       body: "Please revise",
+      requestId: "addressed-test",
       toAgent: true,
     });
     expect(calls).toHaveLength(1);

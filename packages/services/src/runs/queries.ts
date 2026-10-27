@@ -3,7 +3,7 @@ import { files } from "@repo/db/schema/files";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import type { EventActorKind } from "@repo/db/shared";
-import { and, eq, inArray, type SQL } from "drizzle-orm";
+import { and, eq, inArray, or, type SQL } from "drizzle-orm";
 import { ServiceError } from "../errors.ts";
 import { toRecord } from "./records.ts";
 import type { RunRecord } from "./types.ts";
@@ -61,7 +61,9 @@ export const findSession = async (
     .where(
       and(
         eq(sessions.workspaceId, key.workspaceId),
-        eq(sessions.agentId, key.agentId),
+        key.origin === "artifact"
+          ? undefined
+          : eq(sessions.agentId, key.agentId),
         eq(sessions.origin, key.origin),
         eq(sessions.externalKey, key.externalKey)
       )
@@ -95,7 +97,7 @@ export const findSessionById = async (
       and(
         eq(sessions.id, key.id),
         eq(sessions.workspaceId, key.workspaceId),
-        eq(sessions.agentId, key.agentId)
+        or(eq(sessions.agentId, key.agentId), eq(sessions.origin, "artifact"))
       )
     )
     .limit(1);
