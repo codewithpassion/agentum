@@ -76,6 +76,7 @@ interface Metadata {
 interface PendingSave {
   checkpointId: string;
   origins: LiveOperationOrigin[];
+  publicationReceipt?: string;
   restores: RestoreProvenance[];
   retryAt: number;
   revision: number;
@@ -1433,10 +1434,17 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   private async saveCheckpoint() {
     let pending = this.store.get<PendingSave>("pending");
     if (!pending) {
+      const restores = [...this.meta.restores];
+      const publicationReceipt =
+        await this.env.ARTIFACT_ROOM_SERVICE.prepareCheckpoint?.(
+          this.meta.scope,
+          restores
+        );
       pending = {
         checkpointId: crypto.randomUUID(),
         origins: [...this.meta.origins],
-        restores: [...this.meta.restores],
+        publicationReceipt,
+        restores,
         retryAt: Date.now() + RETRY_MS,
         revision: this.meta.revision,
       };
