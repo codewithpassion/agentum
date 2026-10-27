@@ -43,7 +43,7 @@ const fixture = () => {
     workspaceId: "workspace",
   };
   const deps: GuestRunCoreDeps = {
-    claim: () => Promise.resolve(),
+    claim: () => Promise.resolve(true),
     complete: () => Promise.resolve(),
     execution: () => Promise.resolve({ model: "configured", run }),
     heartbeat: () => Promise.resolve(),
@@ -137,4 +137,16 @@ test("persisted approval survives reconstruction and uses a stable durable step"
   await f.core().step();
   expect(f.state()?.phase).toBe("done");
   expect(f.calls()).toBe(2);
+});
+
+test("an older active run leaves guest work durably queued without inference or failure", async () => {
+  const f = fixture();
+  f.run.status = "queued";
+  f.deps.claim = () => Promise.resolve(false);
+  await f.core().start("r");
+  await f.core().step();
+  await f.core().step();
+  expect(f.calls()).toBe(0);
+  expect(f.state()?.phase).toBe("model");
+  expect(f.state()?.failures).toBeUndefined();
 });

@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { isForbiddenError } from "@repo/services/authz";
+import { isServiceError } from "@repo/services/errors";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { ZodError } from "zod";
 import { type Composed, compose } from "./compose";
@@ -56,7 +57,15 @@ export class GuestRun extends DurableObject<Env> {
     const rpc = guestRunRpc(this.env, composed);
     return createGuestRunCore({
       claim: async (id) => {
-        await runs.claimRun(SYSTEM_PRINCIPAL, id, { leaseMs: 120_000 });
+        try {
+          await runs.claimRun(SYSTEM_PRINCIPAL, id, { leaseMs: 120_000 });
+          return true;
+        } catch (error) {
+          if (isServiceError(error) && error.code === "conflict") {
+            return false;
+          }
+          throw error;
+        }
       },
       complete: (id, text) =>
         runs.completeRun(SYSTEM_PRINCIPAL, id, { status: "done", text }),

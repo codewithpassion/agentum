@@ -22,5 +22,6 @@ export const createDurableGuestRuntime = (
     await runner.start(run.id);
   },
   kind: "cloud",
+  offerNextOnEnd: true,
   resume: (run) => runner.start(run.id),
 });

@@ -152,6 +152,28 @@ try {
     before.phase === "approval" && before.requestId,
     "approval intent persisted"
   );
+  const nativeResponse = await post(`/api/guest/artifacts/${artifactId}/ask`, {
+    requestId: "native-refused",
+    text: "try native",
+  });
+  rotate(nativeResponse);
+  check(
+    nativeResponse.status === 200,
+    "second guest ask is durably queued behind held owner approval"
+  );
+  const denied = await nativeResponse.json();
+  await post(`/fixture/advance/${denied.runId}`, {}, false);
+  const queued = await db
+    .prepare("SELECT status FROM runs WHERE id=?")
+    .bind(denied.runId)
+    .first();
+  const queuedState = await (
+    await request(`/fixture/state/${denied.runId}`)
+  ).json();
+  check(
+    queued.status === "queued" && !queuedState.failures,
+    "queue contention does not consume executor failure budget or infer"
+  );
   await runtime.dispose();
   runtime = new Miniflare(convertV4MiniflareOptions(options));
   db = await runtime.getD1Database("DB");
@@ -253,13 +275,6 @@ try {
     frames.includes("Captured guest completion"),
     "guarded completion delivered over shared SSE"
   );
-  const native = await post(`/api/guest/artifacts/${artifactId}/ask`, {
-    requestId: "native-refused",
-    text: "try native",
-  });
-  rotate(native);
-  check(native.status === 200, "second ask consumes the remaining daily slot");
-  const denied = await native.json();
   for (let i = 0; i < 4; i += 1) {
     await post(`/fixture/advance/${denied.runId}`, {}, false);
   }

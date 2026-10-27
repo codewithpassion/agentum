@@ -41,7 +41,7 @@ export interface GuestRunStore {
   put: (state: GuestExecutionState) => Promise<void>;
 }
 export interface GuestRunCoreDeps {
-  claim: (runId: string) => Promise<void>;
+  claim: (runId: string) => Promise<boolean>;
   complete: (runId: string, text: string) => Promise<void>;
   execution: (runId: string) => Promise<{ run: RunRecord; model: string }>;
   heartbeat: (runId: string) => Promise<void>;
@@ -240,26 +240,36 @@ export const createGuestRunCore = (deps: GuestRunCoreDeps) => {
       throw new GuestContractError("Guest lease expired");
     }
   };
+  const admitExecution = async (state: GuestExecutionState) => {
+    let execution = await deps.execution(state.runId);
+    if (terminal.has(execution.run.status)) {
+      state.phase = "done";
+      await deps.store.put(state);
+      return null;
+    }
+    if (["queued", "offered"].includes(execution.run.status)) {
+      if (!(await deps.claim(state.runId))) {
+        await deps.store.alarm(deps.now() + 15_000);
+        return null;
+      }
+      execution = await deps.execution(state.runId);
+    }
+    assertLease(execution.run);
+    await deps.heartbeat(state.runId);
+    assertContract(execution.run);
+    return execution;
+  };
   const step = async () => {
     const state = await deps.store.get();
     if (!state || state.phase === "done") {
       return;
     }
     await deps.store.alarm(deps.now() + 2000);
-    let execution = await deps.execution(state.runId);
-    if (terminal.has(execution.run.status)) {
-      state.phase = "done";
-      await deps.store.put(state);
+    const execution = await admitExecution(state);
+    if (!execution) {
       return;
     }
-    if (["queued", "offered"].includes(execution.run.status)) {
-      await deps.claim(state.runId);
-      execution = await deps.execution(state.runId);
-    }
-    assertLease(execution.run);
-    await deps.heartbeat(state.runId);
     const { run, model } = execution;
-    assertContract(run);
     if (state.phase === "model") {
       return modelStep(state, run, model);
     }
