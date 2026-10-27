@@ -7,7 +7,7 @@ import {
   type XmlElement,
   type XmlText,
 } from "yjs";
-import { LiveDocument } from "./document";
+import { hashBlock, LiveDocument } from "./document";
 import {
   fromMarkdown,
   safeLink,
@@ -71,7 +71,7 @@ test("hostile corpus for JSON, markdown, create/import, restore and agent conten
       schema.nodeFromJSON(clean).check();
       const live = new LiveDocument(new Doc());
       live.import({ json: hostile }, "restore");
-      expect(live.json()).toEqual(clean);
+      expect(hashBlock(live.json())).toBe(hashBlock(clean));
       live.apply([{ content: { json: hostile }, op: "insert" }], {});
       schema.nodeFromJSON(live.json()).check();
       const markdown = fromMarkdown(
@@ -205,4 +205,201 @@ test("sanitized schema renders hostile corpus as inert DOM, with no unsafe attri
     expect(container.textContent).toBe('<img src="x" onerror="alert(1)">');
   }
   await window.happyDOM.close();
+});
+
+test("editor transaction gate rejects unsafe links and styles before publishing", async () => {
+  const { EditorState } = await import("@tiptap/pm/state");
+  const { createSanitizerPlugin } = await import("./schema");
+  const state = EditorState.create({
+    doc: schema.nodeFromJSON(fromMarkdown("safe text")),
+    plugins: [createSanitizerPlugin()],
+    schema,
+  });
+  for (const href of urls) {
+    const transaction = state.tr.addMark(
+      1,
+      5,
+      schema.marks.link!.create({ href })
+    );
+    expect(state.applyTransaction(transaction).transactions).toHaveLength(0);
+  }
+  for (const color of styles) {
+    const transaction = state.tr.addMark(
+      1,
+      5,
+      schema.marks.textStyle!.create({ color })
+    );
+    expect(state.applyTransaction(transaction).transactions).toHaveLength(0);
+  }
+  const valid = state.tr.addMark(
+    1,
+    5,
+    schema.marks.link!.create({ href: "https://example.com" })
+  );
+  expect(state.applyTransaction(valid).transactions).toHaveLength(1);
+});
+test("unknown raw XML attributes and out-of-order incomplete updates never enter authoritative state", () => {
+  const live = new LiveDocument(new Doc());
+  live.import({ text: "safe" }, "init");
+  const replica = new Doc();
+  applyUpdate(replica, encodeStateAsUpdate(live.doc));
+  (replica.getXmlFragment("content").get(0) as XmlElement).setAttribute(
+    "onclick",
+    "alert(1)"
+  );
+  const before = encodeStateAsUpdate(live.doc);
+  expect(() =>
+    live.applyUpdate(encodeStateAsUpdate(replica), "socket")
+  ).toThrow("invalid_content");
+  expect(encodeStateAsUpdate(live.doc)).toEqual(before);
+});
+test("markdown drops raw HTML in DOM and no-DOM runtimes while preserving code and autolinks", async () => {
+  const input =
+    'before <b>bold</b> after\n\n<script>alert(1)</script>\n\n```html\n<img src="code">\n```\n\n`<span>`\n\n<https://example.com>\n\n<!-- unclosed';
+  const json = fromMarkdown(input);
+  const serialized = JSON.stringify(json);
+  expect(serialized).toContain('<img src=\\"code\\">');
+  expect(serialized).toContain("<span>");
+  expect(serialized).toContain("https://example.com");
+  expect(serialized).not.toContain("alert(1)");
+  const { Window } = await import("happy-dom");
+  const window = new Window();
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: window,
+  });
+  try {
+    expect(fromMarkdown(input)).toEqual(json);
+  } finally {
+    if (previous) {
+      Object.defineProperty(globalThis, "window", previous);
+    } else {
+      Reflect.deleteProperty(globalThis, "window");
+    }
+    await window.happyDOM.close();
+  }
+  expect(() =>
+    sanitizeJSON({
+      content: [
+        {
+          content: [{ marks: [null, 17, "bad", {}], text: "x", type: "text" }],
+          type: "paragraph",
+        },
+      ],
+      type: "doc",
+    })
+  ).not.toThrow();
+});
+
+test("editor gate accepts safe edits with independently constructed editor schema", async () => {
+  const { getSchema } = await import("@tiptap/core");
+  const { createExtensions, createSanitizerPlugin } = await import("./schema");
+  const { EditorState } = await import("@tiptap/pm/state");
+  const editorSchema = getSchema(createExtensions());
+  const state = EditorState.create({
+    doc: editorSchema.nodeFromJSON(fromMarkdown("hello")),
+    plugins: [createSanitizerPlugin()],
+    schema: editorSchema,
+  });
+  expect(
+    state.applyTransaction(state.tr.insertText(" world", 6)).transactions
+  ).toHaveLength(1);
+});
+test("incomplete incremental update is refused until its dependencies are resent", async () => {
+  const { encodeStateVector } = await import("yjs");
+  const source = new LiveDocument(new Doc());
+  source.import({ text: "initial" }, "init");
+  const vector = encodeStateVector(source.doc);
+  const first = source.read().blocks[0]!;
+  source.apply(
+    [
+      {
+        at: source.position(first.id, 0),
+        content: { text: "later " },
+        op: "insert",
+      },
+    ],
+    {}
+  );
+  const target = new LiveDocument(new Doc());
+  const before = encodeStateAsUpdate(target.doc);
+  expect(() =>
+    target.applyUpdate(encodeStateAsUpdate(source.doc, vector), "socket")
+  ).toThrow("invalid_content");
+  expect(encodeStateAsUpdate(target.doc)).toEqual(before);
+  target.applyUpdate(encodeStateAsUpdate(source.doc), "socket");
+  expect(target.markdown()).toBe("later initial");
+});
+
+test("hostile ingress fuzz reaches create, agent, markdown, binary editor and checkpoint restore before DOM rendering", async () => {
+  const { Window } = await import("happy-dom");
+  const { DOMSerializer } = await import("@tiptap/pm/model");
+  const window = new Window();
+  const assertDOM = (live: LiveDocument) => {
+    const fragment = DOMSerializer.fromSchema(schema).serializeFragment(
+      schema.nodeFromJSON(live.json()).content,
+      { document: window.document as unknown as Document }
+    );
+    const container = window.document.createElement("div");
+    container.append(
+      fragment as unknown as Parameters<typeof container.append>[0]
+    );
+    expect(
+      container.querySelector(
+        "script,iframe,object,embed,img,[onclick],[onerror],[style],a"
+      )
+    ).toBeNull();
+  };
+  try {
+    for (let i = 0; i < 100; i += 1) {
+      const url = urls[i % urls.length];
+      const style = styles[(i * 7) % styles.length];
+      const payload = {
+        content: [
+          { attrs: { html: `<svg onload=alert(${i})>` }, type: "html" },
+          { attrs: { onerror: "alert(1)", src: url }, type: "image" },
+          {
+            attrs: { style },
+            content: [
+              {
+                marks: [
+                  { attrs: { href: url }, type: "link" },
+                  { attrs: { color: style }, type: "textStyle" },
+                ],
+                text: `Text ${i} <img onerror=alert(1)>`,
+                type: "text",
+              },
+            ],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      };
+      const live = new LiveDocument(new Doc());
+      live.import({ json: payload }, "create");
+      assertDOM(live);
+      live.apply([{ content: { json: payload }, op: "insert" }], {});
+      assertDOM(live);
+      const checkpoint = encodeStateAsUpdate(live.doc);
+      live.import(
+        {
+          markdown: `<script>attack</script>\n\n[bad](${url})\n\n![tracking](${url})`,
+        },
+        "markdown"
+      );
+      assertDOM(live);
+      live.restoreSnapshot(checkpoint, "restore");
+      assertDOM(live);
+      const replica = new LiveDocument(new Doc());
+      replica.applyUpdate(encodeStateAsUpdate(live.doc), "socket");
+      assertDOM(replica);
+      live.destroy();
+      live.doc.destroy();
+      replica.destroy();
+      replica.doc.destroy();
+    }
+  } finally {
+    await window.happyDOM.close();
+  }
 });

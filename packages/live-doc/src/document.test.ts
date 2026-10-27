@@ -1,6 +1,12 @@
 // biome-ignore-all lint/style/noNonNullAssertion: Test fixtures assert the expected blocks exist.
 import { describe, expect, test } from "bun:test";
-import { applyUpdate, Doc, encodeStateAsUpdate, type XmlText } from "yjs";
+import {
+  applyUpdate,
+  Doc,
+  encodeStateAsUpdate,
+  type XmlElement,
+  type XmlText,
+} from "yjs";
 import { createOriginUndo, LiveDocument } from "./document";
 import { fromMarkdown, toMarkdown } from "./schema";
 
@@ -269,4 +275,397 @@ describe("shared rich document", () => {
       live.read({ blockId: table.id }).blocks[0]!.content.content
     ).toHaveLength(2);
   });
+});
+
+test("replayable selective revert survives room restart and preserves later replica typing", () => {
+  const live = create();
+  const first = live.read().blocks[0]!;
+  const { change } = live.capture(
+    [
+      {
+        op: "replace",
+        target: { blockId: first.id },
+        ...guard(live, first.id),
+        content: { text: "Hello agent world." },
+      },
+    ],
+    origin
+  );
+  const human = new Doc();
+  sync(live.doc, human);
+  const editor = new LiveDocument(human);
+  const at = editor.resolve(editor.position(first.id, 0));
+  human.transact(() => (at.type as XmlText).insert(0, "Human "), "human");
+  sync(live.doc, human);
+  const restored = new Doc();
+  applyUpdate(restored, encodeStateAsUpdate(live.doc));
+  const room = new LiveDocument(restored, { revision: live.read().revision });
+  live.destroy();
+  live.doc.destroy();
+  room.revert(change, { participantId: "person" });
+  expect(room.markdown()).toContain("Human");
+  expect(room.markdown()).not.toContain("agent");
+  expect(room.markdown()).toContain("Hello world.");
+});
+test("comment relative ranges track typing, block destructive agent ops, and detach after human deletion", () => {
+  const doc = new Doc();
+  let ranges: Array<{
+    start: import("@repo/protocol/live").RelativePositionJSON;
+    end: import("@repo/protocol/live").RelativePositionJSON;
+  }> = [];
+  const live = new LiveDocument(doc, { protectedRanges: () => ranges });
+  live.import({ text: "Hello world." }, "init");
+  const first = live.read().blocks[0]!;
+  const anchor = live.anchor(first.id, 6, 11);
+  if (anchor.kind !== "document") {
+    throw new Error("wrong anchor");
+  }
+  ranges = [anchor];
+  const at = live.resolve(live.position(first.id, 0));
+  doc.transact(() => (at.type as XmlText).insert(0, "Human "), "human");
+  const resolved = live.resolveAnchor(anchor);
+  expect(resolved.detached).toBe(false);
+  expect(resolved.start?.index).toBe(12);
+  const before = encodeStateAsUpdate(doc);
+  expect(() =>
+    live.apply(
+      [
+        {
+          op: "delete",
+          target: { blockId: first.id },
+          ...guard(live, first.id),
+        },
+      ],
+      origin
+    )
+  ).toThrow("comment_anchor");
+  expect(encodeStateAsUpdate(doc)).toEqual(before);
+  expect(() =>
+    live.apply(
+      [{ content: { text: "new" }, op: "replace", target: { find: "world" } }],
+      origin
+    )
+  ).toThrow("comment_anchor");
+  doc.transact(
+    () => (resolved.start!.type as XmlText).delete(resolved.start!.index, 5),
+    "human"
+  );
+  expect(live.resolveAnchor(anchor).detached).toBe(true);
+});
+test("empty paragraph relative insertion, hard breaks, chips, rich marks and stable import IDs", () => {
+  const live = create("");
+  const first = live.read().blocks[0]!;
+  expect(first.content.attrs?.id).toBe(first.id);
+  live.apply(
+    [
+      {
+        at: live.position(first.id, 0),
+        content: { text: "text" },
+        op: "insert",
+      },
+    ],
+    origin
+  );
+  expect(live.markdown()).toBe("text");
+  live.import(
+    {
+      json: {
+        content: [
+          {
+            content: [
+              { attrs: { label: "Alice", value: "member" }, type: "mention" },
+              {
+                marks: [
+                  { type: "underline" },
+                  { attrs: { color: "#3b82f6" }, type: "textStyle" },
+                ],
+                text: " hello",
+                type: "text",
+              },
+              { type: "hardBreak" },
+              { attrs: { label: "Today", value: "2026-10-27" }, type: "date" },
+            ],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      },
+    },
+    "human"
+  );
+  const block = live.read().blocks[0]!;
+  live.apply(
+    [
+      {
+        content: { text: "hi" },
+        op: "replace",
+        target: { blockId: block.id, find: "hello" },
+      },
+    ],
+    origin
+  );
+  expect(live.read().blocks[0]!.text).toBe("Alice hi\nToday");
+  expect(JSON.stringify(live.json())).toContain("underline");
+  expect(JSON.stringify(live.json())).toContain("#3b82f6");
+});
+test("deleted pending and positions from disconnected replica cannot resurrect the block", () => {
+  const live = create();
+  live.apply(
+    [
+      {
+        content: {
+          json: {
+            content: [{ attrs: { intent: "Plan" }, type: "pending" }],
+            type: "doc",
+          },
+        },
+        op: "insert",
+      },
+    ],
+    origin
+  );
+  const human = new Doc();
+  sync(live.doc, human);
+  const editor = new LiveDocument(human);
+  const pending = editor.read().blocks.find((b) => b.type === "pending")!;
+  editor.apply(
+    [
+      {
+        op: "delete",
+        target: { blockId: pending.id },
+        ...guard(editor, pending.id),
+      },
+    ],
+    {}
+  );
+  sync(live.doc, human);
+  const before = encodeStateAsUpdate(live.doc);
+  expect(() =>
+    live.apply(
+      [{ blockId: pending.id, content: { text: "unwanted" }, op: "fill" }],
+      origin
+    )
+  ).toThrow("block_gone");
+  expect(encodeStateAsUpdate(live.doc)).toEqual(before);
+  const first = live.read().blocks[0]!;
+  const at = live.position(first.id, 2);
+  live.apply(
+    [{ op: "delete", target: { blockId: first.id }, ...guard(live, first.id) }],
+    origin
+  );
+  expect(() =>
+    live.apply([{ at, content: { text: "ghost" }, op: "insert" }], origin)
+  ).toThrow("invalid_position");
+});
+
+test("block reconciliation preserves unchanged Yjs text under disconnected human typing", () => {
+  const agent = create("Alpha keep Omega");
+  const human = new Doc();
+  sync(agent.doc, human);
+  const editor = new LiveDocument(human);
+  const first = agent.read().blocks[0]!;
+  const anchor = editor.anchor(first.id, 6, 10);
+  if (anchor.kind !== "document") {
+    throw new Error("wrong anchor");
+  }
+  const at = editor.resolve(editor.position(first.id, 6));
+  human.transact(
+    () => (at.type as XmlText).insert(at.index, "HUMAN "),
+    "human"
+  );
+  agent.apply(
+    [
+      {
+        op: "replace",
+        target: { blockId: first.id },
+        ...guard(agent, first.id),
+        content: { text: "Alpha keep Beta" },
+      },
+    ],
+    origin
+  );
+  sync(agent.doc, human);
+  expect(agent.markdown()).toContain("HUMAN");
+  expect(agent.markdown()).toContain("Beta");
+  expect(agent.json()).toEqual(editor.json());
+  expect(editor.resolveAnchor(anchor).detached).toBe(false);
+});
+test("concurrent table cell typing and row insertion preserves all cells on replicas", () => {
+  const agent = create("| A | B |\n| --- | --- |\n| one | two |");
+  const human = new Doc();
+  sync(agent.doc, human);
+  const editor = new LiveDocument(human);
+  const table = agent.read().blocks.find((b) => b.type === "table")!;
+  const paragraph = editor
+    .read()
+    .blocks.find((b) => b.text === "one" && b.type === "paragraph")!;
+  const at = editor.resolve(editor.position(paragraph.id, 0));
+  human.transact(() => (at.type as XmlText).insert(0, "Human "), "human");
+  agent.apply(
+    [
+      {
+        blockId: table.id,
+        op: "table",
+        ...guard(agent, table.id),
+        action: "insertRow",
+        index: 1,
+      },
+    ],
+    origin
+  );
+  sync(agent.doc, human);
+  expect(agent.json()).toEqual(editor.json());
+  expect(agent.markdown()).toContain("Human one");
+  expect(
+    agent.read({ blockId: table.id }).blocks[0]!.content.content
+  ).toHaveLength(3);
+});
+test("many delayed three-replica updates converge with each insert retained", () => {
+  for (let iteration = 0; iteration < 20; iteration += 1) {
+    const agent = create("Base text.");
+    const a = new Doc();
+    const b = new Doc();
+    sync(agent.doc, a, b);
+    const aa = new LiveDocument(a);
+    const bb = new LiveDocument(b);
+    const first = agent.read().blocks[0]!;
+    const position = agent.position(first.id, 5);
+    for (let round = 0; round < 4; round += 1) {
+      for (const [editor, label] of [
+        [aa, "A"],
+        [bb, "B"],
+      ] as const) {
+        const at = editor.resolve(editor.position(first.id, 5));
+        editor.doc.transact(
+          () => (at.type as XmlText).insert(at.index, `${label}${round} `),
+          label
+        );
+      }
+      agent.apply(
+        [{ at: position, content: { text: `C${round} ` }, op: "insert" }],
+        origin
+      );
+    }
+    if (iteration % 2) {
+      sync(b, agent.doc, a);
+    } else {
+      sync(a, b, agent.doc);
+    }
+    expect(agent.json()).toEqual(aa.json());
+    expect(agent.json()).toEqual(bb.json());
+    for (const name of ["A", "B", "C"]) {
+      for (let n = 0; n < 4; n += 1) {
+        expect(agent.markdown()).toContain(`${name}${n}`);
+      }
+    }
+  }
+});
+
+test("set changes list kind and check state without replacing list text", () => {
+  const live = create("- one\n- two");
+  const list = live.read().blocks.find((b) => b.type === "bulletList")!;
+  live.apply(
+    [
+      {
+        blockId: list.id,
+        op: "set",
+        ...guard(live, list.id),
+        attrs: {},
+        type: "taskList",
+      },
+    ],
+    origin
+  );
+  const item = live.read().blocks.find((b) => b.type === "taskItem")!;
+  live.apply(
+    [
+      {
+        blockId: item.id,
+        op: "set",
+        ...guard(live, item.id),
+        attrs: { checked: true },
+      },
+    ],
+    origin
+  );
+  expect(live.markdown()).toContain("[x] one");
+  live.apply(
+    [
+      {
+        blockId: list.id,
+        op: "set",
+        ...guard(live, list.id),
+        attrs: { start: 3 },
+        type: "orderedList",
+      },
+    ],
+    origin
+  );
+  expect(live.markdown()).toContain("3. one");
+});
+test("restore checkpoint is a single fresh origin change and rejects unsafe snapshots", () => {
+  const live = create("old");
+  const snapshot = encodeStateAsUpdate(live.doc);
+  live.import({ text: "current" }, "human");
+  const before = live.read().revision;
+  live.restoreSnapshot(snapshot, { participantId: "person" });
+  expect(live.markdown()).toBe("old");
+  expect(live.read().revision).toBe(before + 1);
+  const bad = new Doc();
+  applyUpdate(bad, snapshot);
+  const el = bad.getXmlFragment("content").get(0) as XmlElement;
+  el.setAttribute("onerror", "bad");
+  const state = encodeStateAsUpdate(live.doc);
+  expect(() => live.restoreSnapshot(encodeStateAsUpdate(bad), {})).toThrow(
+    "invalid_content"
+  );
+  expect(encodeStateAsUpdate(live.doc)).toEqual(state);
+});
+
+test("every destructive guard requires both current hash and block revision", () => {
+  const live = create();
+  const block = live.read().blocks[0]!;
+  for (const bad of [
+    { ifHash: block.hash },
+    { ifRev: block.revision },
+    { ifHash: "00000000", ifRev: block.revision },
+    { ifHash: block.hash, ifRev: block.revision + 1 },
+  ]) {
+    for (const op of ["delete", "replace"] as const) {
+      const before = encodeStateAsUpdate(live.doc);
+      expect(() =>
+        live.apply(
+          [
+            {
+              op,
+              target: { blockId: block.id },
+              ...bad,
+              content: { text: "overwrite" },
+            },
+          ],
+          origin
+        )
+      ).toThrow("guard_mismatch");
+      expect(encodeStateAsUpdate(live.doc)).toEqual(before);
+    }
+  }
+});
+test("resurrected block is returned as changed without a current tombstone; history keeps its old deletion", () => {
+  const live = create();
+  const block = live.read().blocks[0]!;
+  const before = live.read().revision;
+  const manager = createOriginUndo(live.doc, origin);
+  live.apply(
+    [{ op: "delete", target: { blockId: block.id }, ...guard(live, block.id) }],
+    origin
+  );
+  const deleted = live.read().revision;
+  manager.undo();
+  expect(live.read({ sinceRev: before }).deleted).not.toContain(block.id);
+  expect(
+    live.read({ sinceRev: before }).blocks.some((b) => b.id === block.id)
+  ).toBe(true);
+  expect(live.read({ atRev: deleted, sinceRev: before }).deleted).toContain(
+    block.id
+  );
 });

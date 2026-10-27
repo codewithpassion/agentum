@@ -83,6 +83,25 @@ const CellColor = Extension.create({
   ],
   name: "cellColor",
 });
+/** Reject unsafe editor transactions before the collaboration binding publishes them. Sanitize initial/pasted JSON explicitly too. */
+export function createSanitizerPlugin(policy: ContentPolicy = {}) {
+  return new Plugin({
+    filterTransaction: (transaction) => {
+      if (!transaction.docChanged) {
+        return true;
+      }
+      try {
+        return transaction.doc.eq(
+          transaction.doc.type.schema.nodeFromJSON(
+            sanitizeJSON(transaction.doc.toJSON(), policy)
+          )
+        );
+      } catch {
+        return false;
+      }
+    },
+  });
+}
 /** The single extension list for both the editor and DOM-free room. Add collaboration separately; history is disabled. */
 export function createExtensions(policy: ContentPolicy = {}) {
   return [
@@ -105,24 +124,7 @@ export function createExtensions(policy: ContentPolicy = {}) {
     Pending,
     CellColor,
     Extension.create({
-      addProseMirrorPlugins: () => [
-        new Plugin({
-          filterTransaction: (transaction) => {
-            if (!transaction.docChanged) {
-              return true;
-            }
-            try {
-              return transaction.doc.eq(
-                schema.nodeFromJSON(
-                  sanitizeJSON(transaction.doc.toJSON(), policy)
-                )
-              );
-            } catch {
-              return false;
-            }
-          },
-        }),
-      ],
+      addProseMirrorPlugins: () => [createSanitizerPlugin(policy)],
       name: "safeContent",
     }),
     UniqueID.configure({
@@ -179,7 +181,7 @@ export function safeLink(value: unknown): string | undefined {
   try {
     const url = new URL(value);
     if (["http:", "https:", "mailto:"].includes(url.protocol)) {
-      return url.href;
+      return value;
     }
   } catch {
     /* invalid URL */

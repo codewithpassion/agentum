@@ -7,6 +7,7 @@
     "./schema": "./src/schema.ts"
   },
   "scripts": {
+    "build": "bun build src/document.ts src/schema.ts --target browser --outdir dist",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

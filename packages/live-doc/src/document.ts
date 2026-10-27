@@ -1,4 +1,5 @@
 import type {
+  CommentAnchor,
   LiveOperationOrigin,
   RelativePositionJSON,
 } from "@repo/protocol/live";
@@ -16,6 +17,7 @@ import {
   createRelativePositionFromTypeIndex,
   Doc,
   encodeStateAsUpdate,
+  encodeStateVector,
   relativePositionToJSON,
   type Transaction,
   UndoManager,
@@ -36,10 +38,17 @@ export interface Block {
   content: JSONContent;
   hash: string;
   id: string;
+  /** Preorder position in the current outline; allows sinceRev consumers to reorder. */
+  index: number;
   parentId?: string;
   revision: number;
   text: string;
   type: string;
+}
+export interface CapturedChange {
+  before: Uint8Array;
+  changeId: string;
+  update: Uint8Array;
 }
 export interface Outline {
   blocks: Block[];
@@ -137,9 +146,11 @@ export function hashBlock(value: unknown): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 const textOf = (node: JSONContent): string =>
-  node.text ??
-  ((node.content ?? []).map(textOf).join("") ||
-    String(node.attrs?.label ?? node.attrs?.intent ?? ""));
+  node.type === "hardBreak"
+    ? "\n"
+    : (node.text ??
+      ((node.content ?? []).map(textOf).join("") ||
+        String(node.attrs?.label ?? node.attrs?.intent ?? "")));
 function elementId(el: XmlElement): string {
   const explicit = el.getAttribute("id");
   if (typeof explicit === "string" && explicit) {
@@ -162,12 +173,58 @@ export interface DocumentOptions extends ContentPolicy {
   /** Room-authoritative revision seed; persist alongside checkpoints. */
   revision?: number;
 }
+/** Validate raw XML before projection, which deliberately ignores unknown PM attributes. */
+function validatedJSON(doc: Doc, policy: ContentPolicy): JSONContent {
+  if (doc.store.pendingStructs || doc.store.pendingDs) {
+    throw new DocumentError("invalid_content");
+  }
+  const fragment = doc.getXmlFragment("content");
+  const visit = (parent: XmlFragment | XmlElement) => {
+    for (const child of parent.toArray()) {
+      if (child instanceof XmlElement) {
+        const type = schema.nodes[child.nodeName];
+        if (
+          !type ||
+          Object.keys(child.getAttributes()).some(
+            (key) => !Object.hasOwn(type.spec.attrs ?? {}, key)
+          )
+        ) {
+          throw new DocumentError("invalid_content");
+        }
+        visit(child);
+      } else if (child instanceof XmlText) {
+        if (
+          child
+            .toDelta()
+            .some(
+              (part: { insert: unknown }) => typeof part.insert !== "string"
+            )
+        ) {
+          throw new DocumentError("invalid_content");
+        }
+      } else {
+        throw new DocumentError("invalid_content");
+      }
+    }
+  };
+  visit(fragment);
+  const raw = yXmlFragmentToProseMirrorRootNode(fragment, schema);
+  raw.check();
+  const clean = schema.nodeFromJSON(sanitizeJSON(raw.toJSON(), policy));
+  if (!raw.eq(clean)) {
+    throw new DocumentError("invalid_content");
+  }
+  return clean.toJSON();
+}
 /** One controller per room Doc. Browser editors use the shared schema and Yjs binding directly. */
 export class LiveDocument {
   readonly fragment: XmlFragment;
   private revision: number;
   private blocks: Block[] = [];
-  private readonly history = new Map<number, Outline>();
+  private readonly history = new Map<
+    number,
+    Outline & { tombstones: [string, number][] }
+  >();
   private readonly changedAt = new Map<string, number>();
   private readonly deletedAt = new Map<string, number>();
   private readonly afterTransaction: (tx: Transaction) => void;
@@ -178,6 +235,17 @@ export class LiveDocument {
     this.options = options;
     this.fragment = doc.getXmlFragment("content");
     this.revision = options.revision ?? 0;
+    if (
+      !Number.isSafeInteger(this.revision) ||
+      this.revision < 0 ||
+      (options.historyLimit !== undefined &&
+        (!Number.isInteger(options.historyLimit) || options.historyLimit < 1))
+    ) {
+      throw new DocumentError("invalid_content");
+    }
+    if (this.fragment.length) {
+      validatedJSON(doc, options);
+    }
     this.project();
     this.afterTransaction = (tx) => {
       if (
@@ -204,10 +272,12 @@ export class LiveDocument {
         if (
           !prior ||
           prior.hash !== block.hash ||
-          old.indexOf(prior) !== this.blocks.indexOf(block)
+          prior.index !== block.index ||
+          prior.parentId !== block.parentId
         ) {
           this.changedAt.set(block.id, this.revision);
         }
+        this.deletedAt.delete(block.id);
         block.revision = this.changedAt.get(block.id) ?? this.revision;
       }
       for (const block of old) {
@@ -247,6 +317,7 @@ export class LiveDocument {
             content: node,
             hash: hashBlock(node),
             id,
+            index: blocks.length,
             parentId,
             revision: this.changedAt.get(id) ?? this.revision,
             text: textOf(node),
@@ -272,6 +343,7 @@ export class LiveDocument {
         blocks: this.blocks,
         deleted: [],
         revision: this.revision,
+        tombstones: [...this.deletedAt],
       })
     );
     while (this.history.size > (this.options.historyLimit ?? 100)) {
@@ -295,7 +367,12 @@ export class LiveDocument {
   ): Outline {
     const snapshot =
       input.atRev === undefined
-        ? { blocks: this.blocks, deleted: [], revision: this.revision }
+        ? {
+            blocks: this.blocks,
+            deleted: [],
+            revision: this.revision,
+            tombstones: [...this.deletedAt],
+          }
         : this.history.get(input.atRev);
     if (
       !snapshot ||
@@ -315,7 +392,7 @@ export class LiveDocument {
       deleted:
         input.sinceRev === undefined
           ? []
-          : [...this.deletedAt]
+          : snapshot.tombstones
               .filter(
                 ([, rev]) =>
                   rev > (input.sinceRev ?? snapshot.revision) &&
@@ -327,6 +404,38 @@ export class LiveDocument {
   }
   private reconcile(json: JSONContent) {
     const clean = sanitizeJSON(json, this.options);
+    const available = new Map<string, string[]>();
+    const used = new Set<string>();
+    const visit = (node: JSONContent, collect: (node: JSONContent) => void) => {
+      collect(node);
+      for (const child of node.content ?? []) {
+        visit(child, collect);
+      }
+    };
+    visit(this.json(), (node) => {
+      if (typeof node.attrs?.id === "string") {
+        const key = hashBlock(node);
+        const ids = available.get(key) ?? [];
+        ids.push(node.attrs.id);
+        available.set(key, ids);
+      }
+    });
+    visit(clean, (node) => {
+      if (typeof node.attrs?.id === "string") {
+        used.add(node.attrs.id);
+      }
+    });
+    visit(clean, (node) => {
+      if (!BLOCK_TYPES.includes(node.type ?? "") || node.attrs?.id) {
+        return;
+      }
+      const retained = available
+        .get(hashBlock(node))
+        ?.find((candidate) => !used.has(candidate));
+      const id = retained ?? crypto.randomUUID();
+      used.add(id);
+      node.attrs = { ...node.attrs, id };
+    });
     const meta = this.fragment.length
       ? initProseMirrorDoc(this.fragment, schema).meta
       : { isOMark: new Map(), mapping: new Map() };
@@ -338,17 +447,7 @@ export class LiveDocument {
     try {
       applyUpdate(replica, encodeStateAsUpdate(this.doc));
       applyUpdate(replica, update);
-      const raw = yXmlFragmentToProseMirrorRootNode(
-        replica.getXmlFragment("content"),
-        schema
-      );
-      raw.check();
-      const clean = schema.nodeFromJSON(
-        sanitizeJSON(raw.toJSON(), this.options)
-      );
-      if (!raw.eq(clean)) {
-        throw new DocumentError("invalid_content");
-      }
+      validatedJSON(replica, this.options);
     } catch (cause) {
       // biome-ignore lint/style/useErrorCause: DocumentError preserves the cause through its third argument.
       throw new DocumentError("invalid_content", undefined, { cause });
@@ -356,6 +455,44 @@ export class LiveDocument {
       replica.destroy();
     }
     applyUpdate(this.doc, update, origin);
+  }
+  /** Restore checkpoint CONTENT as a new origin change, rather than merging old CRDT tombstones into the room. */
+  restoreSnapshot(update: Uint8Array, origin: unknown) {
+    const snapshot = new Doc();
+    try {
+      applyUpdate(snapshot, update);
+      this.import({ json: validatedJSON(snapshot, this.options) }, origin);
+    } finally {
+      snapshot.destroy();
+    }
+  }
+  anchor(blockId: string, from: number, to: number): CommentAnchor {
+    if (from >= to) {
+      throw new DocumentError("invalid_position");
+    }
+    return {
+      detached: false,
+      end: this.position(blockId, to, -1),
+      kind: "document",
+      start: this.position(blockId, from, 0),
+    };
+  }
+  resolveAnchor(anchor: Extract<CommentAnchor, { kind: "document" }>): {
+    detached: boolean;
+    start?: AbsolutePosition;
+    end?: AbsolutePosition;
+  } {
+    try {
+      const start = this.resolve(anchor.start);
+      const end = this.resolve(anchor.end);
+      return {
+        detached: start.type === end.type && start.index >= end.index,
+        end,
+        start,
+      };
+    } catch {
+      return { detached: true };
+    }
   }
   /** For artifact_create, validated editor JSON and checkpoint restore. Use within the room's origin transaction. */
   import(content: Content, origin: unknown) {
@@ -420,17 +557,38 @@ export class LiveDocument {
   /** Capture on read, then resolve after concurrent updates; never reuse an absolute text offset. */
   position(blockId: string, offset: number, assoc = 0): RelativePositionJSON {
     const el = this.element(blockId);
-    const texts = el
-      .toArray()
-      .filter((n): n is XmlText => n instanceof XmlText);
+    if (
+      !Number.isInteger(offset) ||
+      offset < 0 ||
+      !schema.nodes[el.nodeName]?.inlineContent
+    ) {
+      throw new DocumentError("invalid_position");
+    }
     let remaining = offset;
-    for (const text of texts) {
-      if (remaining >= 0 && remaining <= text.length) {
-        return relativePositionToJSON(
-          createRelativePositionFromTypeIndex(text, remaining, assoc)
-        );
+    const children = el.toArray();
+    for (const child of children) {
+      if (child instanceof XmlText) {
+        if (remaining <= child.length) {
+          return relativePositionToJSON(
+            createRelativePositionFromTypeIndex(child, remaining, assoc)
+          );
+        }
+        remaining -= child.length;
+      } else if (child instanceof XmlElement) {
+        const width =
+          child.nodeName === "hardBreak"
+            ? 1
+            : String(child.getAttribute("label") ?? "").length;
+        remaining -= width;
+        if (remaining < 0) {
+          throw new DocumentError("invalid_position");
+        }
       }
-      remaining -= text.length;
+    }
+    if (remaining === 0) {
+      return relativePositionToJSON(
+        createRelativePositionFromTypeIndex(el, children.length, assoc)
+      );
     }
     throw new DocumentError("invalid_position");
   }
@@ -440,7 +598,12 @@ export class LiveDocument {
       this.doc
     );
     if (
-      !(absolute && absolute.type instanceof XmlText) ||
+      !(
+        absolute &&
+        (absolute.type instanceof XmlText ||
+          (absolute.type instanceof XmlElement &&
+            schema.nodes[absolute.type.nodeName]?.inlineContent))
+      ) ||
       absolute.type._item?.deleted
     ) {
       throw new DocumentError("invalid_position");
@@ -513,11 +676,50 @@ export class LiveDocument {
       }
     }
   }
+  /** Replayable undo record: room storage owns retention, access checks and changeId idempotency. */
+  capture(
+    ops: Operation[],
+    origin: LiveOperationOrigin
+  ): { revision: number; change: CapturedChange } {
+    const before = encodeStateAsUpdate(this.doc);
+    const vector = encodeStateVector(this.doc);
+    const result = this.apply(ops, origin);
+    return {
+      change: {
+        before,
+        changeId: origin.changeId,
+        update: encodeStateAsUpdate(this.doc, vector),
+      },
+      revision: result.revision,
+    };
+  }
+  /** Rebuild only this change's origin history, merge current human edits, then publish its selective undo delta. */
+  revert(change: CapturedChange, origin: object): { revision: number } {
+    const replica = new Doc({ gc: false });
+    let undo: UndoManager | undefined;
+    try {
+      applyUpdate(replica, change.before);
+      const trackedOrigin = {};
+      undo = createOriginUndo(replica, trackedOrigin);
+      applyUpdate(replica, change.update, trackedOrigin);
+      applyUpdate(replica, encodeStateAsUpdate(this.doc), "current");
+      const vector = encodeStateVector(replica);
+      undo.undo();
+      this.applyUpdate(encodeStateAsUpdate(replica, vector), origin);
+      return { revision: this.revision };
+    } finally {
+      undo?.destroy();
+      replica.destroy();
+    }
+  }
   /** All-or-nothing batch: a disposable replica preflights every op, then one live origin transaction. */
   apply(
     ops: Operation[],
     origin: LiveOperationOrigin | object
   ): { revision: number; changeId?: string } {
+    if ("mode" in origin && origin.mode !== "direct") {
+      throw new DocumentError("invalid_content");
+    }
     const replica = new Doc();
     applyUpdate(replica, encodeStateAsUpdate(this.doc));
     const trial = new LiveDocument(replica, {
@@ -557,7 +759,13 @@ export class LiveDocument {
         throw new DocumentError("invalid_content");
       }
       const at = this.resolve(op.at);
-      (at.type as XmlText).insert(at.index, op.content.text);
+      if (at.type instanceof XmlText) {
+        at.type.insert(at.index, op.content.text);
+      } else {
+        const text = new XmlText();
+        text.insert(0, op.content.text);
+        (at.type as XmlElement).insert(at.index, [text]);
+      }
       return;
     }
     if (op.op === "replace" || op.op === "delete") {
@@ -569,7 +777,10 @@ export class LiveDocument {
           throw new DocumentError("invalid_position");
         }
         this.protect(this.element(match.block.id), start.index, end.index);
-        const text = start.type as XmlText;
+        if (!(start.type instanceof XmlText)) {
+          throw new DocumentError("invalid_position");
+        }
+        const text = start.type;
         if (op.op === "replace" && !(op.content && "text" in op.content)) {
           throw new DocumentError("invalid_content");
         }
@@ -592,7 +803,9 @@ export class LiveDocument {
         if (!node) {
           return;
         }
-        node.attrs = { ...node.attrs, id: elementId(el) };
+        if (BLOCK_TYPES.includes(node.type ?? "")) {
+          node.attrs = { ...node.attrs, id: elementId(el) };
+        }
         tag(
           el,
           (node.content ?? []).filter((n) => n.type !== "text")
@@ -668,6 +881,14 @@ export class LiveDocument {
       if (op.op === "set") {
         this.guard(id, op);
         if (op.type) {
+          if (
+            ["bulletList", "orderedList", "taskList"].includes(op.type) &&
+            ["bulletList", "orderedList", "taskList"].includes(node.type ?? "")
+          ) {
+            for (const item of node.content ?? []) {
+              item.type = op.type === "taskList" ? "taskItem" : "listItem";
+            }
+          }
           node.type = op.type;
         }
         node.attrs = { ...node.attrs, ...op.attrs, id };
@@ -682,6 +903,9 @@ export class LiveDocument {
       }
       if (op.op === "table") {
         this.guard(id, op);
+        if (op.action === "deleteRow" || op.action === "deleteColumn") {
+          this.protect(this.element(id));
+        }
         if (
           node.type !== "table" ||
           !Number.isInteger(op.index) ||
@@ -738,6 +962,17 @@ export class LiveDocument {
           }
         }
       }
+    }
+    if (!json.content?.length) {
+      json.content = [{ type: "paragraph" }];
+    }
+    // Structural edits must remain valid before sanitation; reject rather than
+    // silently dropping a list/table when a move or conversion is incompatible.
+    try {
+      schema.nodeFromJSON(json).check();
+    } catch (cause) {
+      // biome-ignore lint/style/useErrorCause: DocumentError preserves the cause through its third argument.
+      throw new DocumentError("invalid_content", undefined, { cause });
     }
     this.reconcile(json);
   }
