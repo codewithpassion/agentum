@@ -1,6 +1,7 @@
 import { runs } from "@repo/db/schema/runs";
 import { and, eq } from "drizzle-orm";
 import { findAgent } from "../agents.ts";
+import { ForbiddenError } from "../authz.ts";
 import type { RuntimeAdapter } from "../runs/types.ts";
 import type { MachineRelayPort } from "./types.ts";
 
@@ -26,6 +27,9 @@ export const createMachineRuntime = ({
     }
   },
   dispatch: async (db, run, agent) => {
+    if (run.scopeArtifactId) {
+      throw new ForbiddenError("runs.guest_access");
+    }
     if (!agent.machineId) {
       return;
     }

@@ -9,6 +9,7 @@
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { events } from "@repo/db/schema/events";
+import { guestRunScopes } from "@repo/db/schema/live-artifacts";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { type AgentRuntime, taskFolderPath } from "@repo/db/shared";
@@ -61,6 +62,13 @@ import {
 import { authorizeArtifactRun } from "./runs/artifact-access.ts";
 import { createFakeRuntime } from "./runs/fake-runtime.ts";
 import { noneGateway } from "./runs/gateways.ts";
+import {
+  authenticateGuestRun,
+  currentGuestRun,
+  guestStartGuard,
+  guestUnavailable,
+  isGuestStartGuardFailure,
+} from "./runs/guest-scope.ts";
 import { claimForMachine } from "./runs/machine-claim.ts";
 import {
   findSession,
@@ -266,7 +274,8 @@ const runEventsSchema = z
 export interface RunsServiceOptions {
   adapters: readonly RuntimeAdapter[];
   atomic: Atomic;
-  /** Phase 3 must verify current session/grant, membership, role, revocation, expiry and daily cap. */
+  /** Trusted selected-agent policy. Session/grant checks and atomic cap are enforced internally.
+   * Must not charge: retries call this policy again. */
   authorizeGuestGrant?: (
     grant: GuestGrant,
     input: { agentId: string; artifactId: string; workspaceId: string }
@@ -279,6 +288,8 @@ export interface RunsServiceOptions {
   gateways: readonly Gateway[];
   /** Only enable runtimes enforcing scoped tools, service checks and owner approval routing. */
   guestRuntimeReady?: (runtime: string) => boolean;
+  /** Emergency switch read at every scoped operation; absent means off. */
+  guestsOff?: () => boolean;
   /**
    * The workspace library. A machine claim lists the conflict copies waiting
    * for the agent, and each new run gets its task folder. Without it, the claim
@@ -371,6 +382,7 @@ export const createRunsService = ({
   adapters,
   authorizeGuestGrant,
   guestRuntimeReady,
+  guestsOff,
   people,
   atomic,
   blobs,
@@ -430,6 +442,7 @@ export const createRunsService = ({
     }
     if (principal.kind === "run") {
       const caller = await loadRun(db, principal.runId, principal.workspaceId);
+      await requireCurrentGuest(caller);
       if (!caller || caller.agentId !== principal.agentId) {
         throw new ServiceError("not_found", "Run not found");
       }
@@ -454,7 +467,7 @@ export const createRunsService = ({
       .from(sessions)
       .where(
         and(
-          await visibleSessions(db, principal),
+          await visibleSessions(db, principal, nowIso()),
           eq(sessions.id, run.sessionId)
         )
       )
@@ -492,7 +505,7 @@ export const createRunsService = ({
   };
 
   /** Who may write to a run: in-process runtimes, or the machine that claimed it. */
-  const authorizeRunWrite = (
+  const authorizeRunWrite = async (
     principal: Principal,
     run: RunRecord,
     action: string
@@ -502,11 +515,33 @@ export const createRunsService = ({
       kind: RUN_KIND,
       workspaceId: run.workspaceId,
     });
+    if (run.scopeArtifactId) {
+      await adapterFor(run);
+    }
     const allowed =
       principal.kind === "system" ||
       (principal.kind === "machine" && run.claimedBy === principal.machineId);
     if (!allowed) {
       throw new ForbiddenError(action);
+    }
+  };
+
+  const requireGuestsEnabled = () => {
+    if (guestsOff?.() ?? true) {
+      throw guestUnavailable();
+    }
+  };
+  const requireCurrentGuest = async (run: RunRecord | null) => {
+    if (!run?.scopeArtifactId) {
+      return;
+    }
+    requireGuestsEnabled();
+    const [valid] = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(and(eq(runs.id, run.id), currentGuestRun(nowIso())));
+    if (!valid) {
+      throw guestUnavailable();
     }
   };
 
@@ -516,6 +551,7 @@ export const createRunsService = ({
     adapter: RuntimeAdapter | undefined;
     agent: Awaited<ReturnType<typeof findAgent>>;
   }> => {
+    await requireCurrentGuest(run);
     const agent = await findAgent(db, {
       id: run.agentId,
       workspaceId: run.workspaceId,
@@ -524,7 +560,10 @@ export const createRunsService = ({
       run.scopeArtifactId &&
       !(authorizeGuestGrant && agent && guestRuntimeReady?.(agent.runtime))
     ) {
-      throw new ForbiddenError("runs.scoped_runtime");
+      throw guestUnavailable();
+    }
+    if (run.scopeArtifactId) {
+      requireGuestsEnabled();
     }
     // A dry run is on the cloud runtime for good, even when its agent moves.
     return {
@@ -624,6 +663,9 @@ export const createRunsService = ({
       adapter,
       agent,
       fileIds,
+      guestAuthorization: undefined as
+        | { grant: GuestGrant; memberId: string; sessionId: string }
+        | undefined,
       principal,
       scopeArtifactId: null as string | null,
       subject,
@@ -705,7 +747,7 @@ export const createRunsService = ({
         (session.origin !== "artifact" ||
           session.externalKey !== scopeArtifactId)
       ) {
-        throw new ForbiddenError(START_ACTION);
+        throw guestUnavailable();
       }
       requireArtifactSessionMatch(input, session);
       if (session.origin === "artifact" && !scopeArtifactId) {
@@ -735,6 +777,60 @@ export const createRunsService = ({
    * write. A duplicate `requestId` fails the unique index; the run that won is
    * read back and returned instead.
    */
+  const guestInsertion = (prepared: Prepared, runId: string, at: string) => {
+    const binding = prepared.guestAuthorization;
+    if (!binding) {
+      return { after: [], before: [] };
+    }
+    requireGuestsEnabled();
+    return {
+      after: [
+        db.insert(guestRunScopes).values({
+          memberId: binding.memberId,
+          runId,
+          sessionId: binding.sessionId,
+          workspaceId: prepared.agent.workspaceId,
+        }),
+      ],
+      before: [guestStartGuard(db, binding.grant, binding, at)],
+    };
+  };
+
+  const recoverInsertion = async (
+    error: unknown,
+    prepared: Prepared,
+    input: ParsedInput
+  ) => {
+    const mayRetry = prepared.guestAuthorization || isUniqueViolation(error);
+    const existing =
+      input.requestId && mayRetry
+        ? await loadRunByRequest(
+            db,
+            prepared.agent.workspaceId,
+            input.requestId
+          )
+        : null;
+    if (existing) {
+      refuseForeignRequest(
+        existing,
+        prepared.agent.id,
+        prepared.subject,
+        prepared.scopeArtifactId
+      );
+      await requireCurrentGuest(existing);
+      return {
+        inserted: false,
+        runId: existing.id,
+        sessionId: existing.sessionId,
+        status: existing.status,
+      };
+    }
+    if (prepared.guestAuthorization && isGuestStartGuardFailure(error)) {
+      throw guestUnavailable();
+    }
+    throw error;
+  };
+
   const insertOnce = async (
     prepared: Prepared,
     input: ParsedInput,
@@ -742,10 +838,10 @@ export const createRunsService = ({
   ): Promise<StartResult & { inserted: boolean }> => {
     const { agent, fileIds, subject } = prepared;
     const { workspaceId } = agent;
+    const known = await knownSession(prepared, input, options);
     const now = clock.now();
     const created = now.toISOString();
     const runId = nextRunId(now.getTime());
-    const known = await knownSession(prepared, input, options);
     const sessionId = known?.id ?? ulid(now.getTime());
     const sessionWrite: Statement = known
       ? db
@@ -792,10 +888,13 @@ export const createRunsService = ({
       status: "queued",
       workspaceId,
     });
+    const guestWrites = guestInsertion(prepared, runId, created);
     try {
       await atomic([
+        ...guestWrites.before,
         sessionWrite,
         runWrite,
+        ...guestWrites.after,
         ...extraWrites(
           { agent, fileIds, input, runId, sessionId, subject },
           options
@@ -803,25 +902,7 @@ export const createRunsService = ({
       ]);
       return { inserted: true, runId, sessionId, status: "queued" };
     } catch (error) {
-      const existing =
-        input.requestId && isUniqueViolation(error)
-          ? await loadRunByRequest(db, workspaceId, input.requestId)
-          : null;
-      if (!existing) {
-        throw error;
-      }
-      refuseForeignRequest(
-        existing,
-        agent.id,
-        subject,
-        prepared.scopeArtifactId
-      );
-      return {
-        inserted: false,
-        runId: existing.id,
-        sessionId: existing.sessionId,
-        status: existing.status,
-      };
+      return recoverInsertion(error, prepared, input);
     }
   };
 
@@ -888,12 +969,15 @@ export const createRunsService = ({
   const startForGuest = async (
     rawGrant: GuestGrant,
     rawInput: StartRunInput,
-    options: Pick<StartRunOptions, "offerLater" | "sessionId"> = {}
+    options: Pick<StartRunOptions, "offerLater" | "sessionId"> & {
+      guestSessionToken?: string;
+    } = {}
   ): Promise<StartResult> => {
     const grant = guestGrantSchema.parse(rawGrant);
     const input = startRunInputSchema.parse(rawInput);
     if (
       !(authorizeGuestGrant && guestRuntimeReady) ||
+      (guestsOff?.() ?? true) ||
       Date.parse(grant.expiresAt) <= clock.now().getTime() ||
       grant.role === "viewer" ||
       input.session.origin !== "artifact" ||
@@ -901,7 +985,7 @@ export const createRunsService = ({
       input.input.fileIds.length ||
       input.reply.kind !== "none"
     ) {
-      throw new ForbiddenError(START_ACTION);
+      throw guestUnavailable();
     }
     const agent = await findAgent(db, {
       id: input.agentId,
@@ -913,18 +997,32 @@ export const createRunsService = ({
       !adapter ||
       !guestRuntimeReady(agent.runtime)
     ) {
-      throw new ForbiddenError(START_ACTION);
+      throw guestUnavailable();
     }
-    await authorizeGuestGrant(grant, {
-      agentId: agent.id,
-      artifactId: grant.artifactId,
-      workspaceId: grant.workspaceId,
-    });
+    const binding = await authenticateGuestRun(
+      db,
+      grant,
+      options.guestSessionToken,
+      nowIso()
+    );
+    try {
+      await authorizeGuestGrant(grant, {
+        agentId: agent.id,
+        artifactId: grant.artifactId,
+        workspaceId: grant.workspaceId,
+      });
+    } catch (error) {
+      if (error instanceof ForbiddenError) {
+        throw guestUnavailable();
+      }
+      throw error;
+    }
     return finishStart(
       {
         adapter,
         agent,
         fileIds: [],
+        guestAuthorization: { grant, ...binding },
         principal: SYSTEM_PRINCIPAL,
         scopeArtifactId: grant.artifactId,
         subject: {
@@ -979,7 +1077,7 @@ export const createRunsService = ({
     });
     // A run with pending files is offered once they are fetched.
     if (!run.pendingFiles) {
-      await prepared.adapter.dispatch(db, run, prepared.agent, adapterDeps);
+      await offerRun(run);
     }
     return started;
   };
@@ -1049,6 +1147,7 @@ export const createRunsService = ({
       .where(
         and(
           eq(runs.id, runId),
+          currentGuestRun(nowIso()),
           inArray(runs.status, STARTING),
           // A run with pending Slack files is not claimable.
           isNull(runs.pendingFiles),
@@ -1094,6 +1193,7 @@ export const createRunsService = ({
       )
       .returning({ id: runs.id });
     if (claimed.length === 0) {
+      await guardScopedRuntime(principal, runId);
       throw new ServiceError("conflict", "Run cannot be claimed");
     }
     const run = await loadRun(db, runId);
@@ -1143,12 +1243,22 @@ export const createRunsService = ({
   ): Promise<boolean> => {
     requireSystem(principal, "runs.wait");
     const run = await requireRun(principal, runId);
+    if (run.scopeArtifactId) {
+      await adapterFor(run);
+    }
     const moved = await db
       .update(runs)
       .set({ status: "waiting" })
-      .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+      .where(
+        and(
+          eq(runs.id, run.id),
+          currentGuestRun(nowIso()),
+          eq(runs.status, "running")
+        )
+      )
       .returning({ id: runs.id });
     if (moved.length === 0) {
+      await requireCurrentGuest(run);
       return false;
     }
     await appendRunEvent(run, "run.waiting", agentActor(run));
@@ -1180,9 +1290,16 @@ export const createRunsService = ({
         ).toISOString(),
         status: "running",
       })
-      .where(and(eq(runs.id, run.id), eq(runs.status, "waiting")))
+      .where(
+        and(
+          eq(runs.id, run.id),
+          eq(runs.status, "waiting"),
+          currentGuestRun(nowIso())
+        )
+      )
       .returning({ id: runs.id });
     if (moved.length === 0) {
+      await requireCurrentGuest(run);
       return false;
     }
     await appendRunEvent(run, "run.resumed", agentActor(run));
@@ -1211,7 +1328,7 @@ export const createRunsService = ({
   ): Promise<{ lastSeq: number }> => {
     const parsed = runEventsSchema.parse(batch);
     const run = await requireRun(principal, runId);
-    authorizeRunWrite(principal, run, "runs.ingest");
+    await authorizeRunWrite(principal, run, "runs.ingest");
     if (!LIVE.includes(run.status)) {
       throw new ServiceError("conflict", `Run is ${run.status}, not running`);
     }
@@ -1328,7 +1445,13 @@ export const createRunsService = ({
     const stopped = await db
       .update(runs)
       .set({ error: line, finishedAt: nowIso(), status: "failed" })
-      .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+      .where(
+        and(
+          eq(runs.id, run.id),
+          currentGuestRun(nowIso()),
+          eq(runs.status, "running")
+        )
+      )
       .returning({ id: runs.id });
     if (stopped.length === 0) {
       return;
@@ -1359,7 +1482,7 @@ export const createRunsService = ({
       requireSystem(principal, "runs.heartbeat.lease");
     }
     const run = await requireRun(principal, runId);
-    authorizeRunWrite(principal, run, "runs.heartbeat");
+    await authorizeRunWrite(principal, run, "runs.heartbeat");
     const extended = await db
       .update(runs)
       .set({
@@ -1368,9 +1491,16 @@ export const createRunsService = ({
           clock.now().getTime() + (options?.leaseMs ?? LEASE_MS)
         ).toISOString(),
       })
-      .where(and(eq(runs.id, run.id), inArray(runs.status, LIVE)))
+      .where(
+        and(
+          eq(runs.id, run.id),
+          currentGuestRun(nowIso()),
+          inArray(runs.status, LIVE)
+        )
+      )
       .returning({ id: runs.id });
     if (extended.length === 0) {
+      await requireCurrentGuest(run);
       throw new ServiceError("conflict", `Run is ${run.status}, not running`);
     }
   };
@@ -1419,7 +1549,13 @@ export const createRunsService = ({
         processEndedAt: now,
         status: "interrupted",
       })
-      .where(and(eq(runs.id, run.id), inArray(runs.status, LIVE)))
+      .where(
+        and(
+          eq(runs.id, run.id),
+          currentGuestRun(nowIso()),
+          inArray(runs.status, LIVE)
+        )
+      )
       .returning({ id: runs.id });
     if (moved.length === 0) {
       throw new ServiceError("conflict", "Run is no longer running");
@@ -1470,7 +1606,13 @@ export const createRunsService = ({
             db
               .select({ id: runs.id })
               .from(runs)
-              .where(and(eq(runs.id, run.id), inArray(runs.status, LIVE)))
+              .where(
+                and(
+                  eq(runs.id, run.id),
+                  currentGuestRun(nowIso()),
+                  inArray(runs.status, LIVE)
+                )
+              )
           )
         )
       );
@@ -1504,7 +1646,7 @@ export const createRunsService = ({
     rawResult: RunResult
   ): Promise<void> => {
     const run = await requireRun(principal, runId);
-    authorizeRunWrite(principal, run, "runs.complete");
+    await authorizeRunWrite(principal, run, "runs.complete");
     const result = maskResult(
       runResultSchema.parse(rawResult),
       await runMasker(run)
@@ -1534,7 +1676,13 @@ export const createRunsService = ({
         status: result.status,
         usage: result.usage ? JSON.stringify(result.usage) : null,
       })
-      .where(and(eq(runs.id, run.id), inArray(runs.status, LIVE)));
+      .where(
+        and(
+          eq(runs.id, run.id),
+          currentGuestRun(nowIso()),
+          inArray(runs.status, LIVE)
+        )
+      );
     // The session write goes first: it only applies while the run is live.
     await atomic(
       result.runtimeRef
@@ -1606,6 +1754,16 @@ export const createRunsService = ({
     }
   };
 
+  const cleanupAdapter = async (run: RunRecord) => {
+    const agent = await findAgent(db, {
+      id: run.agentId,
+      workspaceId: run.workspaceId,
+    });
+    return agent
+      ? adapterByKind.get(run.dryRun ? "cloud" : agent.runtime)
+      : undefined;
+  };
+
   const cancelRun = async (
     principal: Principal,
     runId: string
@@ -1629,7 +1787,7 @@ export const createRunsService = ({
       throw new ServiceError("conflict", `Run is already ${run.status}`);
     }
     await appendRunEvent(run, "run.cancelled", eventActor(principal));
-    const { adapter } = await adapterFor(run);
+    const adapter = await cleanupAdapter(run);
     await adapter?.cancel(db, run, adapterDeps);
     await offerNextWaiting(run);
   };
@@ -1829,7 +1987,7 @@ export const createRunsService = ({
    */
   const abandonEnded = async (run: RunRecord): Promise<void> => {
     try {
-      const { adapter } = await adapterFor(run);
+      const adapter = await cleanupAdapter(run);
       await adapter?.abandon?.(run);
     } catch (error) {
       console.error(
@@ -2071,7 +2229,26 @@ export const createRunsService = ({
     return { interrupted };
   };
 
+  const authorizeScopedRun = async (principal: Principal, runId: string) => {
+    const run = await requireRun(principal, runId);
+    if (
+      principal.kind === "run" &&
+      (principal.runId !== run.id || principal.agentId !== run.agentId)
+    ) {
+      throw guestUnavailable();
+    }
+    authorize(principal, READ_ACTION, {
+      id: run.id,
+      kind: RUN_KIND,
+      workspaceId: run.workspaceId,
+    });
+    if (run.scopeArtifactId) {
+      await adapterFor(run);
+    }
+  };
+
   return {
+    authorizeScopedRun,
     cancelRun,
     claimRun,
     claimRunForMachine,

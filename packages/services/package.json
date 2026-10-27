@@ -129,6 +129,7 @@
     "./live-artifacts/access-lifecycle": "./src/live-artifacts/access-lifecycle.ts",
     "./live-artifacts/ports": "./src/live-artifacts/ports.ts",
     "./live-artifacts/service": "./src/live-artifacts/service.ts",
+    "./live-guests/runs": "./src/live-guests/runs.ts",
     "./live-guests/access": "./src/live-guests/access.ts",
     "./live-guests/ports": "./src/live-guests/ports.ts",
     "./live-guests/security": "./src/live-guests/security.ts",

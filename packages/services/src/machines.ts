@@ -800,7 +800,9 @@ export const createMachinesService = ({
           eq(runs.workspaceId, machine.workspaceId),
           eq(agents.machineId, machine.machineId),
           inArray(runs.status, ["queued", "offered"]),
-          isNull(runs.pendingFiles)
+          isNull(runs.pendingFiles),
+          // Ordinary daemon offers cannot carry a scoped guest capability.
+          isNull(runs.scopeArtifactId)
         )
       )
       .orderBy(asc(runs.createdAt), asc(runs.id))

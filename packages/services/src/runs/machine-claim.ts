@@ -29,6 +29,7 @@ import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
 import type { SecretsService } from "../secrets.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
 import type { Principal } from "../workspaces.ts";
+import { requireOrdinaryMachineRun } from "./guest-scope.ts";
 import { findSessionById, loadRun } from "./queries.ts";
 import { sessionSupportsSpeakers } from "./speakers.ts";
 import type { MachineClaim, RunRecord } from "./types.ts";
@@ -109,6 +110,9 @@ export const claimForMachine = async (
   if (!run) {
     throw new ServiceError("not_found", "Run not found");
   }
+  // The ordinary daemon claim carries secrets, connectors and library tools.
+  // A scoped daemon protocol must be integrated before guest claims can use it.
+  requireOrdinaryMachineRun(run);
   authorize(principal, CLAIM_ACTION, {
     id: run.id,
     kind: "run",
