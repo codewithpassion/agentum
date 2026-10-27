@@ -19,3 +19,5 @@ Follow the full design in docs/v3/live-artifacts-prd.md and parent L.4 requireme
 ## Log
 
 - 2026-10-27: Split from incomplete L.4 implementation to keep each delegate deliverable concrete.
+
+- 2026-10-27: Merged partial 6198644b ticket crypto helper only. Service factory/persistence remains unimplemented; Sol assigned remaining core slice. Task stays in_progress. Delegate root test was not finished at handoff; no full-suite success claimed.
