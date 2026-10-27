@@ -22,6 +22,53 @@ import {
   type WheelRemainder,
   wheelToClicks,
 } from "./desktop-input.ts";
+import {
+  initialTouchState,
+  LONG_PRESS_MS,
+  reduceTouch,
+  type TouchEffect,
+  type TouchEvent,
+  type TouchPoint,
+  type TouchState,
+} from "./desktop-touch.ts";
+
+const touchPoint = (event: ReactPointerEvent<HTMLElement>): TouchPoint => ({
+  x: event.clientX,
+  y: event.clientY,
+});
+
+const scrollActions = ({
+  at,
+  dx,
+  dy,
+}: {
+  at: { x: number; y: number };
+  dx: number;
+  dy: number;
+}): DesktopAction[] =>
+  dx === 0 && dy === 0 ? [] : [{ ...at, dx, dy, type: "scroll" }];
+
+/** The desktop actions a click, press, release or move gesture effect means. */
+const touchActions = (
+  effect: Exclude<TouchEffect, { type: "scroll" }>,
+  toPoint: (at: TouchPoint) => { x: number; y: number }
+): DesktopAction[] => {
+  const move: DesktopAction = { ...toPoint(effect.at), type: "mouse_move" };
+  switch (effect.type) {
+    case "click":
+      return [
+        move,
+        { button: effect.button, type: "mouse_down" },
+        { button: effect.button, type: "mouse_up" },
+      ];
+    case "press":
+      return [{ button: "left", type: "mouse_down" }];
+    case "release":
+      return [move, { button: "left", type: "mouse_up" }];
+    default:
+      return [move];
+  }
+};
 
 /** The desktop actions a pointer event means, with its position on the screen. */
 const pointerActions = (
@@ -57,6 +104,8 @@ export interface DesktopInputOptions {
   /** True only while this person holds the lease: everything else is ignored. */
   enabled: boolean;
   onPaste: (text: string) => void;
+  /** True while a finger pans the zoomed view: touches then scroll the page, not the desktop. */
+  panning?: boolean;
   sendInput: (actions: DesktopAction[]) => void;
   /** The screen the pointer maps onto. */
   surface: RefObject<HTMLElement | null>;
@@ -71,6 +120,7 @@ export interface DesktopInputOptions {
 export function useDesktopInput({
   enabled,
   onPaste,
+  panning = false,
   sendInput,
   surface,
 }: DesktopInputOptions) {
@@ -79,6 +129,10 @@ export function useDesktopInput({
   enabledRef.current = enabled;
   const pressedRef = useRef(new Set<DesktopMouseButton>());
   const wheelRemainderRef = useRef<WheelRemainder>({ dx: 0, dy: 0 });
+  const panningRef = useRef(panning);
+  panningRef.current = panning;
+  const touchRef = useRef<TouchState>(initialTouchState);
+  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyboardFocused, setKeyboardFocused] = useState(false);
 
   /** Lets go of every button still held on the desktop, so none stays pressed there. */
@@ -126,6 +180,10 @@ export function useDesktopInput({
         if (event.data) {
           sendInput(typeActions(event.data));
         }
+      } else if (event.inputType === "deleteContentBackward") {
+        // Phone keyboards report Backspace here, not on keydown.
+        event.preventDefault();
+        sendInput([{ keys: "BackSpace", type: "key" }]);
       } else if (
         event.inputType === "insertLineBreak" ||
         event.inputType === "insertParagraph"
@@ -239,9 +297,87 @@ export function useDesktopInput({
     [onPaste]
   );
 
+  const clearLongPress = useCallback(() => {
+    if (longPressRef.current !== null) {
+      clearTimeout(longPressRef.current);
+      longPressRef.current = null;
+    }
+  }, []);
+
+  /** Runs what a touch gesture asks for on the desktop. */
+  const applyTouchEffects = useCallback(
+    (effects: TouchEffect[]) => {
+      const screen = surface.current;
+      if (screen === null) {
+        return;
+      }
+      const box = screen.getBoundingClientRect();
+      const toPoint = (at: TouchPoint) =>
+        toDesktopPoint({ box, clientX: at.x, clientY: at.y });
+      const actions: DesktopAction[] = [];
+      for (const effect of effects) {
+        if (effect.type === "scroll") {
+          const clicks = wheelToClicks({
+            deltaMode: 0,
+            deltaX: effect.dx,
+            deltaY: effect.dy,
+            remainder: wheelRemainderRef.current,
+          });
+          wheelRemainderRef.current = clicks.remainder;
+          actions.push(
+            ...scrollActions({
+              at: toPoint(touchRef.current.last),
+              dx: clicks.dx,
+              dy: clicks.dy,
+            })
+          );
+        } else {
+          if (effect.type === "press") {
+            pressedRef.current.add("left");
+          } else if (effect.type === "release") {
+            pressedRef.current.delete("left");
+          }
+          actions.push(...touchActions(effect, toPoint));
+        }
+      }
+      sendInput(actions);
+    },
+    [sendInput, surface]
+  );
+
+  const feedTouch = useCallback(
+    (event: TouchEvent) => {
+      const step = reduceTouch(touchRef.current, event);
+      touchRef.current = step.state;
+      applyTouchEffects(step.effects);
+    },
+    [applyTouchEffects]
+  );
+
+  useEffect(() => clearLongPress, [clearLongPress]);
+
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
       if (!enabledRef.current) {
+        return;
+      }
+      if (event.pointerType === "touch") {
+        if (panningRef.current) {
+          return;
+        }
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        feedTouch({
+          id: event.pointerId,
+          point: touchPoint(event),
+          type: "down",
+        });
+        clearLongPress();
+        if (touchRef.current.phase === "pending") {
+          longPressRef.current = setTimeout(() => {
+            longPressRef.current = null;
+            feedTouch({ type: "longpress" });
+          }, LONG_PRESS_MS);
+        }
         return;
       }
       event.preventDefault();
@@ -253,21 +389,38 @@ export function useDesktopInput({
       }
       sendInput(pointerActions(event, "down", surface.current));
     },
-    [sendInput, surface]
+    [clearLongPress, feedTouch, sendInput, surface]
   );
 
   const onPointerMove = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
-      if (enabledRef.current) {
-        sendInput(pointerActions(event, "move", surface.current));
+      if (!enabledRef.current) {
+        return;
       }
+      if (event.pointerType === "touch") {
+        feedTouch({
+          id: event.pointerId,
+          point: touchPoint(event),
+          type: "move",
+        });
+        if (touchRef.current.phase !== "pending") {
+          clearLongPress();
+        }
+        return;
+      }
+      sendInput(pointerActions(event, "move", surface.current));
     },
-    [sendInput, surface]
+    [clearLongPress, feedTouch, sendInput, surface]
   );
 
   const onPointerUp = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
       if (!enabledRef.current) {
+        return;
+      }
+      if (event.pointerType === "touch") {
+        clearLongPress();
+        feedTouch({ id: event.pointerId, type: "up" });
         return;
       }
       const button = toDesktopButton(event.button);
@@ -276,8 +429,14 @@ export function useDesktopInput({
       }
       sendInput(pointerActions(event, "up", surface.current));
     },
-    [sendInput, surface]
+    [clearLongPress, feedTouch, sendInput, surface]
   );
+
+  const onPointerCancel = useCallback(() => {
+    clearLongPress();
+    feedTouch({ type: "cancel" });
+    releaseButtons();
+  }, [clearLongPress, feedTouch, releaseButtons]);
 
   const onContextMenu = useCallback((event: ReactMouseEvent<HTMLElement>) => {
     if (enabledRef.current) {
@@ -301,7 +460,7 @@ export function useDesktopInput({
     surface: {
       onContextMenu,
       onLostPointerCapture: releaseButtons,
-      onPointerCancel: releaseButtons,
+      onPointerCancel,
       onPointerDown,
       onPointerMove,
       onPointerUp,
