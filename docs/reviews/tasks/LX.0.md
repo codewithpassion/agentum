@@ -37,8 +37,18 @@ Local Chrome prints the fixture through Playwright: a multi-page rich document a
 
 ## Validation
 
-Final command results and commit IDs are appended after all changes below.
+Final command results and commit IDs appear at the end of this record.
 
 ## Controller integration gates
 
 Authorization, current artifact type, own-blob inventory/retrieval, consistent checkpoint capture, permission revocation, job limits/deadlines, PDF Browser Run invocation, authenticated download endpoints/content headers, filenames, UI warning display/confirmation and release are separate controller work. Use print backgrounds, prefer CSS page size, and disable browser headers/footers when integrating PDF. The adapter must surface warnings and refusals; do not advertise pixel-identical Office output or universal media support. Validate production resource budgets and the final production bundler/compatibility date before exposing endpoints. No phase-wide or production-readiness claim is made by this leaf.
+
+Final verification on 27 October 2026 (engine `247ee380`, hardening/runtime/print evidence `cec4e113`):
+
+- Focused export suite: **11 pass, 0 fail, 558 assertions**. Includes actual workerd Office generation; XML well-formedness and every relationship target; rich content, independent numbering start, merged cells, images, theme font, group offsets, geometry and notes; deterministic output mappings and unchanged checkpoints; hostile snapshot marks/URLs and malformed bytes; MIME/PNG corruption, dimensions, inflate/filter bounds, repeated-image budget, serialized reads and queued-read abortion. Chrome prints a multi-page rich document and exactly two deck pages, verifies decoded images and vector shapes, with zero network requests.
+- Root `bun run check`: **12/12 successful**, Ultracite clean, all package typechecks passed, boundary lint clean.
+- Root `bun run test`: **12/12 successful**, zero failures; export package 11 pass, root scripts 284 pass. Existing web skip retained. This final run includes the last implementation change.
+- Root `bun run build`: **5/5 successful**; the export browser bundle is approximately 3.11 MB uncompressed. Existing Vite CSS sourcemap warning is non-failing. The app does not import this isolated package yet.
+- `bun install --frozen-lockfile`: passed with normal prepare scripts; 1,138 installs checked, no dependency changes. Existing environment files preserved.
+- Emitted client `drizzle` scan: no matches; emitted export `cloudflare:workers`, `bun:sqlite`, `@repo/db` scan: no matches. Library browser polyfills and unused lazy Node filesystem paths remain as described above; no claim they are absent. `git diff --check`: clean.
+- Two implementation commits plus this evidence-only update. No task-status edits or external publication actions were performed.
