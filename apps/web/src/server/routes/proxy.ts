@@ -591,33 +591,28 @@ const guardOutbound = async (
   claims: RunTokenClaims,
   connectorId: string,
   call: RpcCall,
-  bytes: Uint8Array
+  bytes: Uint8Array<ArrayBuffer>,
+  url: string
 ) => {
-  if (
-    c.req.method === "POST" &&
-    ["initialize", "notifications/initialized", "tools/list", "ping"].includes(
-      call.method ?? ""
-    ) &&
-    !call.opaque
-  ) {
-    return;
-  }
-  const parsed =
-    call.method === "tools/call"
-      ? (JSON.parse(new TextDecoder().decode(bytes)) as {
-          params?: { arguments?: unknown };
-        })
-      : {
-          params: {
-            arguments: { opaqueBody: new TextDecoder().decode(bytes) },
-          },
-        };
+  // Every protocol message can carry caller data, including handshakes. Bind
+  // the complete client-controlled effect, not just tools/call arguments.
+  // The digest preserves byte identity even for invalid UTF-8; the decoded
+  // body is included for the existing scrubbed member approval display.
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   await c
     .get("composed")
     .services.requests.requireOutbound(
       { ...claims, kind: "run" },
-      `${connectorId}/${call.tool ?? "opaque"}`,
-      parsed.params?.arguments ?? {}
+      `${connectorId}/${call.tool ?? call.method ?? "opaque"}`,
+      {
+        body: new TextDecoder().decode(bytes),
+        bodySha256: Array.from(digest, (byte) =>
+          byte.toString(16).padStart(2, "0")
+        ).join(""),
+        headers: Object.fromEntries(upstreamHeaders(c.req.raw, null)),
+        method: c.req.method,
+        url,
+      }
     );
 };
 export const proxyRoutes = ({
@@ -714,7 +709,7 @@ export const proxyRoutes = ({
       url,
     });
 
-    await guardOutbound(c, claims, connectorId, call, body.bytes);
+    await guardOutbound(c, claims, connectorId, call, body.bytes, url);
     const tried = await sendWithRefresh({
       credential: resolution.credential,
       credentials,

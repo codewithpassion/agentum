@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { artifacts } from "@repo/db/schema/artifacts";
 import {
   agentConnectors,
   connectors,
@@ -22,6 +23,7 @@ import {
 import { encryptSecret, importSecretsKey } from "@repo/services/crypto";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
+import { createRequestsService } from "@repo/services/requests";
 import {
   importRunTokenKey,
   signRunToken,
@@ -1223,4 +1225,140 @@ describe("tool allowlist", () => {
     expect(text).toContain('"name":"echo"');
     expect(text).not.toContain("shout");
   });
+});
+
+/** Real approval persistence and current-presence port; only connector I/O is captured. */
+const guestPresentProxy = async () => {
+  await seedHeaderCredential();
+  addRun("guest-present");
+  const now = clock.now().toISOString();
+  await db.insert(artifacts).values({
+    id: "approval-source",
+    workspaceId: WORKSPACE,
+    kind: "document",
+    title: "Approval source",
+    audience: "private",
+    ownerUserId: DOM,
+    createdByKind: "user",
+    createdById: DOM,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db
+    .update(sessions)
+    .set({ origin: "artifact", externalKey: "approval-source", private: false })
+    .where(eq(sessions.id, "session_guest-present"));
+  composed.services.requests = createRequestsService({
+    db,
+    atomic: sqliteAtomic(db),
+    clock,
+    events: composed.services.events,
+    runs: composed.services.runs,
+    secrets: composed.services.secrets,
+    runTokenKey: RUN_TOKEN_KEY,
+    guestPresence: (scope) => {
+      if (
+        scope.artifactId !== "approval-source" ||
+        scope.workspaceId !== WORKSPACE
+      ) {
+        throw new Error("Wrong trusted presence scope");
+      }
+      return Promise.resolve(true);
+    },
+  });
+  const sent: { body: string; headers: Record<string, string>; url: string }[] =
+    [];
+  mount({
+    fetch: (input, init) => {
+      sent.push({
+        body: new TextDecoder().decode(init?.body as Uint8Array),
+        headers: Object.fromEntries(new Headers(init?.headers)),
+        url: urlOf(input),
+      });
+      return Promise.resolve(
+        Response.json({ jsonrpc: "2.0", id: 7, result: { content: [] } })
+      );
+    },
+  });
+  const token = await tokenFor("guest-present");
+  const send = (body: string, headers: Record<string, string> = {}) =>
+    app.request(
+      PROXY_URL,
+      {
+        method: "POST",
+        body,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+          ...headers,
+        },
+      },
+      env
+    );
+  const approve = async () => {
+    const pending = await composed.services.requests.listPending(dom);
+    const [request] = pending;
+    if (pending.length !== 1 || !request) {
+      throw new Error("Expected one pending member approval");
+    }
+    await composed.services.requests.answer(dom, {
+      requestId: request.id,
+      answer: { decision: "allow_once" },
+      via: "web",
+    });
+  };
+  return { send, sent, approve };
+};
+
+test.each(["initialize", "notifications/initialized", "tools/list", "ping"])(
+  "guest-present connector %s cannot forward arbitrary handshake body or headers without approval",
+  async (method) => {
+    const f = await guestPresentProxy();
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 7,
+      method,
+      params: { clientInfo: { name: "private document text", version: "1" } },
+    });
+    const headers = { "mcp-session-id": "private header text" };
+    expect((await f.send(body, headers)).status).not.toBe(200);
+    expect(f.sent).toHaveLength(0);
+    await f.approve();
+    expect((await f.send(body, headers)).status).toBe(200);
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]?.body).toBe(body);
+    expect(f.sent[0]?.headers["mcp-session-id"]).toBe("private header text");
+  }
+);
+
+test("connector approval binds destination, all forwarded headers and complete body, and permits one concurrent send", async () => {
+  const f = await guestPresentProxy();
+  expect((await f.send(echoBody)).status).not.toBe(200);
+  await f.approve();
+  const changed = JSON.parse(echoBody);
+  changed.params._meta = { privateText: "not approved" };
+  expect((await f.send(JSON.stringify(changed))).status).not.toBe(200);
+  for (const header of [
+    "accept",
+    "content-type",
+    "last-event-id",
+    "mcp-protocol-version",
+    "mcp-session-id",
+  ]) {
+    expect(
+      // biome-ignore lint/performance/noAwaitInLoops: each refused request is checked before the next substitution.
+      (await f.send(echoBody, { [header]: "unapproved-value" })).status
+    ).not.toBe(200);
+  }
+  editConnector(CONNECTOR, { url: `${PUBLIC_ORIGIN}/different` });
+  expect((await f.send(echoBody)).status).not.toBe(200);
+  editConnector(CONNECTOR, { url: `${PUBLIC_ORIGIN}/mcp` });
+  expect(f.sent).toHaveLength(0);
+  const responses = await Promise.all([f.send(echoBody), f.send(echoBody)]);
+  expect(responses.filter((r) => r.status === 200)).toHaveLength(1);
+  expect(f.sent).toHaveLength(1);
+  expect(f.sent[0]?.body).toBe(echoBody);
+  expect((await f.send(echoBody)).status).not.toBe(200);
+  expect(f.sent).toHaveLength(1);
 });
