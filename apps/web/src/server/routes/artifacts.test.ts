@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
-import { artifactGrants } from "@repo/db/schema/artifacts";
+import { artifactGrants, artifactViews } from "@repo/db/schema/artifacts";
 import { migrated } from "@repo/db/test-db";
 import { ArtifactCallError } from "@repo/services/artifacts/calls";
 import { noopRelay } from "@repo/services/machines/types";
@@ -28,6 +28,7 @@ type Limit = (options: { key: string }) => Promise<{ success: boolean }>;
 let composed: Composed;
 let session: Session | null;
 let limit: Limit | null;
+let openLimit: { limit: Limit } | null;
 let limitKeys: string[];
 let owner: User;
 let artifactId: string;
@@ -93,10 +94,14 @@ app.use("*", async (c, next) => {
 });
 app.route("/", artifactRoutes({ session: () => session }));
 
-/** Calls the app with a fake `SHARE_OPEN_LIMIT` binding. */
+/**
+ * Calls the app with fake `SHARE_OPEN_LIMIT` and `SHARE_CALL_LIMIT` bindings:
+ * both run `limit`, and `openLimit`, when set, replaces the open one.
+ */
 const request = (path: string, init: RequestInit = {}) =>
   app.request(path, init, {
-    SHARE_OPEN_LIMIT: limit ? { limit } : undefined,
+    SHARE_CALL_LIMIT: limit ? { limit } : undefined,
+    SHARE_OPEN_LIMIT: openLimit ?? (limit ? { limit } : undefined),
   } as never);
 
 const open = (token: string, headers: Record<string, string> = {}) =>
@@ -115,6 +120,7 @@ beforeEach(async () => {
   linksOff = false;
   session = OWNER;
   limit = null;
+  openLimit = null;
   limitKeys = [];
   toolRuns = [];
   toolError = null;
@@ -354,6 +360,21 @@ const post = (
     method: "POST",
   });
 
+/** A flood guard that refuses every call, but still lets the refusal be logged. */
+const refuseCalls: Limit = ({ key }) =>
+  Promise.resolve({ success: key.startsWith("calllog:") });
+
+const ipHeader = (index: number) => ({
+  "CF-Connecting-IP": `198.51.${index}.7`,
+});
+
+const viewsOf = (shareId: string) =>
+  testDb
+    .select()
+    .from(artifactViews)
+    .all()
+    .filter((row) => row.shareId === shareId && row.surface === "live_call");
+
 const call = (token: string, body: unknown, headers = {}) =>
   post(`/api/share/${token}/call`, body, headers);
 
@@ -432,9 +453,107 @@ describe("POST /api/share/:token/call", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBe("60");
     expect(limitKeys).toContain("call:ip:203.0.113.0/24");
-    expect(limitKeys.every((key) => key.startsWith("call:"))).toBe(true);
+    expect(
+      limitKeys.every(
+        (key) => key.startsWith("call:") || key.startsWith("calllog:")
+      )
+    ).toBe(true);
     expect(limitKeys.join(" ")).not.toContain(token);
     expect(toolRuns).toHaveLength(0);
+  });
+
+  it("uses its own flood guard, which the open guard does not touch", async () => {
+    openLimit = { limit: () => Promise.resolve({ success: false }) };
+    const { token } = await newLiveLink();
+    expect((await call(token, { tool: TOOL })).status).toBe(200);
+  });
+
+  it("lets the service's 60 a minute per link decide, not the flood guard", async () => {
+    // The guard allows 120 a minute per key, as wrangler.jsonc sets it.
+    const counts = new Map<string, number>();
+    let refusedByGuard = 0;
+    limit = ({ key }) => {
+      const used = (counts.get(key) ?? 0) + 1;
+      counts.set(key, used);
+      const success = used <= 120;
+      refusedByGuard += success ? 0 : 1;
+      return Promise.resolve({ success });
+    };
+    const live = await newLiveLink();
+    const statuses: number[] = [];
+    for (let index = 0; index < 62; index += 1) {
+      // Each call is a different visitor, so the 10 a minute per visitor never applies.
+      statuses.push(
+        // biome-ignore lint/performance/noAwaitInLoops: the calls must land in order
+        (await call(live.token, { tool: TOOL }, ipHeader(index))).status
+      );
+    }
+    expect(statuses.slice(0, 60).every((status) => status === 200)).toBe(true);
+    expect(statuses.slice(60)).toEqual([429, 429]);
+    expect(refusedByGuard).toBe(0);
+    expect(
+      viewsOf(live.id)
+        .map((row) => row.outcome)
+        .slice(60)
+    ).toEqual(["rate_limited", "rate_limited"]);
+  });
+
+  it("R2.14 writes a rate_limited row for a call the flood guard refuses", async () => {
+    const live = await newLiveLink();
+    limit = refuseCalls;
+    const res = await call(live.token, { tool: TOOL }, ipHeader(1));
+    expect(res.status).toBe(429);
+    expect(viewsOf(live.id)).toMatchObject([
+      { outcome: "rate_limited", surface: "live_call", toolKey: null },
+    ]);
+    expect(toolRuns).toHaveLength(0);
+  });
+
+  it("R2.14 caps the rows a flood of guard refusals can write", async () => {
+    const live = await newLiveLink();
+    let logged = 0;
+    limit = ({ key }) => {
+      if (key.startsWith("calllog:")) {
+        logged += 1;
+        return Promise.resolve({ success: logged <= 2 });
+      }
+      return Promise.resolve({ success: false });
+    };
+    const statuses: number[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      statuses.push(
+        // biome-ignore lint/performance/noAwaitInLoops: the calls must land in order
+        (await call(live.token, { tool: TOOL }, ipHeader(1))).status
+      );
+    }
+    expect(statuses).toEqual([429, 429, 429, 429, 429]);
+    expect(viewsOf(live.id)).toHaveLength(1);
+  });
+
+  it("R2.14 keeps a dead link's own outcome when the guard refuses", async () => {
+    const live = await newLiveLink();
+    await composed.services.artifactShares.revokeShare(owner, {
+      shareId: live.id,
+    });
+    limit = refuseCalls;
+    expect((await call(live.token, { tool: TOOL })).status).toBe(429);
+    expect(viewsOf(live.id).map((row) => row.outcome)).toEqual(["revoked"]);
+  });
+
+  it("R2.14 writes a refused row for a body that is not a call", async () => {
+    const live = await newLiveLink();
+    expect((await call(live.token, { tool: "" })).status).toBe(400);
+    expect(viewsOf(live.id)).toMatchObject([
+      { outcome: "refused", surface: "live_call", toolKey: null },
+    ]);
+  });
+
+  it("R2.14 writes nothing for an unknown token, and answers as before", async () => {
+    expect((await call("hm_share_unknown", { tool: "" })).status).toBe(400);
+    expect((await call("hm_share_unknown", { tool: TOOL })).status).toBe(404);
+    limit = refuseCalls;
+    expect((await call("hm_share_unknown", { tool: TOOL })).status).toBe(429);
+    expect(testDb.select().from(artifactViews).all()).toHaveLength(0);
   });
 
   it("answers 429 above 10 calls a minute from one visitor", async () => {

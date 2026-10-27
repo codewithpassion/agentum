@@ -1016,6 +1016,40 @@ export const createArtifactSharesService = ({
   };
 
   /**
+   * A live call refused before the service ran it (the route's flood guard, or
+   * a body that is not a call) still writes its `live_call` row (R2.14), when
+   * the link is known. A dead link keeps its own outcome (`revoked`,
+   * `expired`, `disabled`). An unknown token writes nothing; the route answers
+   * the same either way.
+   */
+  const recordRefusedCall = async (
+    token: string,
+    reason: "rate_limited" | "refused",
+    request: ShareRequestInfo
+  ): Promise<void> => {
+    if (!token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX)) {
+      return;
+    }
+    const share = await getShareByHash(db, await hashToken(token));
+    if (!share) {
+      return;
+    }
+    const now = clock.now();
+    const version = await linkVersion(share);
+    const dead = linkOutcome(share, version !== undefined, now, linksOff);
+    const row = await viewRow(
+      share,
+      version ? version.id : null,
+      dead === "ok" ? reason : dead,
+      request,
+      now
+    );
+    await atomic([
+      insertViewStatement(db, { ...row, surface: "live_call", toolKey: null }),
+    ]);
+  };
+
+  /**
    * A link viewer calls a tool through the app gateway, which holds the share
    * id and the visitor's request metadata but not the token. The same checks
    * as `callLink` run; the row's visitor fields come from `meta`. An unknown
@@ -1287,6 +1321,7 @@ export const createArtifactSharesService = ({
     open,
     openLink,
     prune,
+    recordRefusedCall,
     revokeShare,
     setLinksEnabled,
     shareState,

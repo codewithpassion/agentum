@@ -71,13 +71,20 @@
     // Any non-empty value turns every share-link open off in this environment.
     "ARTIFACT_LINKS_OFF": ""
   },
-  // Share-link opens (artifact links). Counted per key: the route calls it
-  // once per token and once per IP prefix. Each environment has its own namespace.
+  // Artifact link flood guards (opens, then calls and storage reads below). Counted
+  // per key: the route calls them once per token and once per IP prefix. Each environment has its own namespace.
   "ratelimits": [
     {
       "name": "SHARE_OPEN_LIMIT",
       "namespace_id": "2001",
       "simple": { "limit": 30, "period": 60 }
+    },
+    // Live link calls and storage reads: a flood guard above the service's own
+    // limits (60 a minute per link, 10 per visitor), so those decide.
+    {
+      "name": "SHARE_CALL_LIMIT",
+      "namespace_id": "2007",
+      "simple": { "limit": 120, "period": 60 }
     },
     {
       "name": "APP_API_LIMIT",
@@ -150,13 +157,20 @@
         // Any non-empty value turns every share-link open off in this environment.
         "ARTIFACT_LINKS_OFF": ""
       },
-      // Share-link opens (artifact links). Counted per key: the route calls it
+      // Artifact link flood guards (opens, then calls and storage reads). Counted per key: the route calls them
       // once per token and once per IP prefix. Each environment has its own namespace.
       "ratelimits": [
         {
           "name": "SHARE_OPEN_LIMIT",
           "namespace_id": "2002",
           "simple": { "limit": 30, "period": 60 }
+        },
+        // Live link calls and storage reads: a flood guard above the service's own
+        // limits (60 a minute per link, 10 per visitor), so those decide.
+        {
+          "name": "SHARE_CALL_LIMIT",
+          "namespace_id": "2008",
+          "simple": { "limit": 120, "period": 60 }
         },
         {
           "name": "APP_API_LIMIT",
@@ -208,13 +222,20 @@
           // Any non-empty value turns every share-link open off in this environment.
           "ARTIFACT_LINKS_OFF": ""
         },
-        // Share-link opens (artifact links). Counted per key: the route calls it
+        // Artifact link flood guards (opens, then calls and storage reads). Counted per key: the route calls them
         // once per token and once per IP prefix. Each environment has its own namespace.
         "ratelimits": [
           {
             "name": "SHARE_OPEN_LIMIT",
             "namespace_id": "2003",
             "simple": { "limit": 30, "period": 60 }
+          },
+          // Live link calls and storage reads: a flood guard above the service's own
+          // limits (60 a minute per link, 10 per visitor), so those decide.
+          {
+            "name": "SHARE_CALL_LIMIT",
+            "namespace_id": "2009",
+            "simple": { "limit": 120, "period": 60 }
           },
           {
             "name": "APP_API_LIMIT",
