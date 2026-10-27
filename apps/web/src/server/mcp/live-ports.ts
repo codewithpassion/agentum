@@ -205,6 +205,9 @@ export const createLivePorts = ({
             changeId: result.changeId,
             revision: result.revision,
             skipped: [],
+            status: "status" in result ? result.status : undefined,
+            suggestionId:
+              "suggestionId" in result ? result.suggestionId : undefined,
           };
         })
       ),

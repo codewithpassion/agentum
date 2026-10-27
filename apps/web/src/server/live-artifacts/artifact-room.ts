@@ -26,6 +26,7 @@ import {
   awarenessEntrySchema,
   type CommentAnchor,
   type LiveOperationOrigin,
+  type LiveSuggestion,
 } from "@repo/protocol/live";
 import { verifyRoomTicket } from "@repo/services/live-artifacts/ticket";
 import * as decoding from "lib0/decoding";
@@ -141,6 +142,8 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   private live!: LiveDocument;
   private deck?: Deck;
   private deckTools?: DeckSceneAdapter;
+  private previewDeck = false;
+  private previewUpdate?: Uint8Array;
   private deckCall?: {
     digest: string;
     input: DeckWriteInput;
@@ -349,7 +352,12 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       authorize: async () => {
         await Promise.resolve();
       }, // caller is checked inside exclusive deckRead/deckWrite below
-      commit: (update, result) =>
+      commit: (update, result) => {
+        // biome-ignore lint/suspicious/noUnnecessaryConditions: callback runs during a later serialized preview call.
+        if (this.previewDeck) {
+          this.previewUpdate = update;
+          return;
+        }
         this.commitDeck(update, (revision) => {
           const call = this.deckCall;
           if (!call) {
@@ -378,7 +386,8 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
             revFrom: call.before,
             summary: "Edit deck",
           });
-        }),
+        });
+      },
       ownsBlob: (path, slideId, elementId) =>
         this.ownsDeckSource(path, slideId, elementId),
       presence: () => this.currentPresence(),
@@ -565,11 +574,27 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       };
     });
   }
-  deckWrite(input: DeckWriteInput, origin: LiveOperationOrigin) {
+  deckWrite(input: DeckWriteInput, requestedOrigin: LiveOperationOrigin) {
     return this.exclusive(async () => {
-      await this.writer({ kind: "agent", participantId: origin.participantId });
+      const actor = await this.writer({
+        kind: "agent",
+        participantId: requestedOrigin.participantId,
+      });
+      const origin = this.agentOrigin(requestedOrigin, actor);
       if (!this.deckTools || input.artifactId !== this.meta.scope.artifactId) {
         throw new Error("Deck required");
+      }
+      const pending = this.store.get<LiveSuggestion>(
+        `suggestion:${origin.changeId}`
+      );
+      if (pending) {
+        this.sameSuggestion(origin, JSON.stringify(input));
+        return {
+          applied: [],
+          skipped: [],
+          status: pending.status,
+          suggestionId: pending.id,
+        };
       }
       const digest = [
         ...new Uint8Array(
@@ -595,6 +620,43 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         ) as import("@repo/mcp/tools/deck").DeckWriteResult;
       }
       await this.refreshPolicy();
+      if (origin.mode === "suggestion") {
+        this.previewDeck = true;
+        try {
+          const result = await this.deckTools.write(input);
+          if (result.skipped.length) {
+            throw new ToolError("conflict", JSON.stringify(result.skipped));
+          }
+          if (!this.previewUpdate) {
+            throw new Error("Missing preview delta");
+          }
+          const suggestion = this.newSuggestion(
+            origin,
+            actor,
+            "deck",
+            JSON.stringify(input.ops, null, 2)
+          );
+          const { previewUpdate } = this;
+          this.ctx.storage.transactionSync(() => {
+            this.store.write(
+              "suggestionUpdate",
+              origin.changeId,
+              previewUpdate
+            );
+            this.saveSuggestion(suggestion, JSON.stringify(input));
+          });
+          return {
+            applied: [],
+            skipped: [],
+            status: suggestion.status,
+            suggestionId: suggestion.id,
+          };
+        } finally {
+          this.previewDeck = false;
+          this.previewUpdate = undefined;
+          this.installDeckTools();
+        }
+      }
       this.deckCall = { before: this.meta.revision, digest, input, origin };
       let result: import("@repo/mcp/tools/deck").DeckWriteResult;
       try {
@@ -1053,7 +1115,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         // Also fail closed on messages while a durable refresh is being retried.
         const current = await this.authorize(state);
         state = { ...state, ...current };
-        if (!writable(state)) {
+        if (!writable(state) || state.kind === "agent") {
           this.releasePresenter(state.awarenessId);
         }
         socket.serializeAttachment(state);
@@ -1168,7 +1230,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     if (kind === 0) {
       socket.send(syncFrame(1, Y.encodeStateAsUpdate(this.doc, bytes)));
     } else if (kind === 1 || kind === 2) {
-      if (!writable(state)) {
+      if (!writable(state) || state.kind === "agent") {
         return; // Viewers still complete the normal Yjs read/sync handshake.
       }
       const publicationReceipt =
@@ -1185,7 +1247,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         await this.mutate(
           (trial) =>
             trial.applyUpdate(bytes, { participantId: state.participantId }),
-          { agent: state.kind === "agent", participantId: state.participantId },
+          { participantId: state.participantId },
           undefined,
           false,
           publicationReceipt
@@ -1477,15 +1539,66 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       revision: this.meta.revision,
     }));
   }
-  applyAgentOps(ops: Operation[], origin: LiveOperationOrigin) {
+  applyAgentOps(ops: Operation[], requestedOrigin: LiveOperationOrigin) {
     return this.exclusive(async () => {
-      await this.writer({ kind: "agent", participantId: origin.participantId });
+      const actor = await this.writer({
+        kind: "agent",
+        participantId: requestedOrigin.participantId,
+      });
+      const origin = this.agentOrigin(requestedOrigin, actor);
+      const pending = this.store.get<LiveSuggestion>(
+        `suggestion:${origin.changeId}`
+      );
+      if (pending) {
+        this.sameSuggestion(origin, JSON.stringify(ops));
+        return {
+          changeId: origin.changeId,
+          revision: this.meta.revision,
+          status: pending.status,
+          suggestionId: pending.id,
+        };
+      }
       const prior = this.store.get<ChangeRecord>(`change:${origin.changeId}`);
       if (prior) {
         if (JSON.stringify(prior.origin) !== JSON.stringify(origin)) {
           throw new Error("Change ID collision");
         }
         return { changeId: origin.changeId, revision: prior.revision };
+      }
+      if (origin.mode === "suggestion") {
+        await this.refreshPolicy();
+        const doc = new Y.Doc({ gc: false });
+        Y.applyUpdate(doc, Y.encodeStateAsUpdate(this.doc));
+        const trial = new LiveDocument(doc, {
+          ownBlobUrls: this.policy,
+          revision: this.meta.revision,
+        });
+        try {
+          trial.capture(this.trialOperations(ops, trial), {
+            ...origin,
+            mode: "direct",
+          });
+          const ranges = await this.env.ARTIFACT_ROOM_SERVICE.protectedRanges(
+            this.meta.scope
+          );
+          guardAnchoredWords(this.live, trial, ranges);
+          const suggestion = this.newSuggestion(
+            origin,
+            actor,
+            "document",
+            trial.markdown()
+          );
+          this.saveSuggestion(suggestion, JSON.stringify(ops));
+          return {
+            changeId: origin.changeId,
+            revision: this.meta.revision,
+            status: suggestion.status,
+            suggestionId: suggestion.id,
+          };
+        } finally {
+          trial.destroy();
+          doc.destroy();
+        }
       }
       const result = await this.mutate(
         (trial) => trial.capture(this.trialOperations(ops, trial), origin),
@@ -1498,6 +1611,206 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         }
       );
       return { changeId: origin.changeId, revision: result.revision };
+    });
+  }
+  private agentOrigin(
+    origin: LiveOperationOrigin,
+    actor: RoomIdentity
+  ): LiveOperationOrigin {
+    const prior = this.store.get<LiveSuggestion>(
+      `suggestion:${origin.changeId}`
+    );
+    return {
+      ...origin,
+      mode:
+        prior?.origin.mode ??
+        (actor.forceSuggestions || this.store.get<boolean>("suggestionMode")
+          ? "suggestion"
+          : origin.mode),
+    };
+  }
+  private sameSuggestion(origin: LiveOperationOrigin, payload: string) {
+    const prior = this.store.get<LiveSuggestion>(
+      `suggestion:${origin.changeId}`
+    );
+    if (
+      JSON.stringify(prior?.origin) !== JSON.stringify(origin) ||
+      this.store.get<string>(`suggestionPayload:${origin.changeId}`) !== payload
+    ) {
+      throw new Error("Suggestion ID collision");
+    }
+  }
+  private newSuggestion(
+    origin: LiveOperationOrigin,
+    actor: RoomIdentity,
+    kind: LiveSuggestion["kind"],
+    preview: string
+  ): LiveSuggestion {
+    return {
+      authorName: actor.name,
+      baseRevision: this.meta.revision,
+      createdAt: new Date().toISOString(),
+      id: origin.changeId,
+      kind,
+      origin,
+      preview,
+      status: "pending",
+    };
+  }
+  private saveSuggestion(suggestion: LiveSuggestion, payload: string) {
+    this.ctx.storage.transactionSync(() => {
+      const ids = this.store.get<string[]>("suggestionIds") ?? [];
+      if (!ids.includes(suggestion.id)) {
+        ids.push(suggestion.id);
+      }
+      this.store.put("suggestionIds", ids);
+      this.store.put(`suggestion:${suggestion.id}`, suggestion);
+      this.store.put(`suggestionPayload:${suggestion.id}`, payload);
+    });
+  }
+  listSuggestions(subject: Pick<RoomIdentity, "participantId" | "kind">) {
+    return this.exclusive(async () => {
+      await this.authorize(subject);
+      return {
+        items: (this.store.get<string[]>("suggestionIds") ?? [])
+          .flatMap((id) => {
+            const item = this.store.get<LiveSuggestion>(`suggestion:${id}`);
+            return item ? [item] : [];
+          })
+          .reverse(),
+        mode: this.store.get<boolean>("suggestionMode") ?? false,
+      };
+    });
+  }
+  setSuggestionMode(
+    enabled: boolean,
+    subject: Pick<RoomIdentity, "participantId" | "kind">
+  ) {
+    return this.exclusive(async () => {
+      if (subject.kind !== "member") {
+        throw new Error("Member required");
+      }
+      await this.writer(subject);
+      this.store.put("suggestionMode", enabled);
+    });
+  }
+  private humanWriter(subject: Pick<RoomIdentity, "participantId" | "kind">) {
+    if (subject.kind === "agent") {
+      throw new Error("Human decision required");
+    }
+    return this.writer(subject);
+  }
+  decideSuggestion(
+    input: { suggestionId: string; decision: "accept" | "reject" },
+    subject: Pick<RoomIdentity, "participantId" | "kind">
+  ) {
+    return this.exclusive(async () => {
+      const actor = await this.humanWriter(subject);
+      const key = `suggestion:${input.suggestionId}`;
+      const suggestion = this.store.get<LiveSuggestion>(key);
+      if (!suggestion) {
+        throw new Error("Unknown suggestion");
+      }
+      if (suggestion.status !== "pending") {
+        return suggestion;
+      }
+      const decided: LiveSuggestion = {
+        ...suggestion,
+        decidedAt: new Date().toISOString(),
+        decidedBy: actor.participantId,
+        status: input.decision === "accept" ? "accepted" : "rejected",
+      };
+      if (input.decision === "reject") {
+        this.store.put(key, decided);
+        return decided;
+      }
+      const receipt = await this.env.ARTIFACT_ROOM_SERVICE.prepareCheckpoint?.(
+        this.meta.scope,
+        [],
+        actor
+      );
+      const { origin } = suggestion;
+      try {
+        if (suggestion.kind === "deck") {
+          // Opaque core observations expire on restart. A prepared selective delta
+          // is admissible only at its exact accepted revision; never rebase by force.
+          if (this.meta.revision !== suggestion.baseRevision) {
+            throw new ToolError(
+              "conflict",
+              "Deck changed since preview; ask for a new suggestion"
+            );
+          }
+          await this.refreshPolicy();
+          this.commitDeck(
+            this.store.read("suggestionUpdate", suggestion.id),
+            (revision) => {
+              decided.revision = revision;
+              this.store.put(key, decided);
+              this.store.write(
+                "before",
+                origin.changeId,
+                Y.encodeStateAsUpdate(this.doc)
+              );
+              this.store.write(
+                "change",
+                origin.changeId,
+                this.store.read("suggestionUpdate", suggestion.id)
+              );
+              this.store.put(`change:${origin.changeId}`, { origin, revision });
+              this.store.put(`productionChange:${origin.changeId}`, {
+                revFrom: suggestion.baseRevision,
+                summary: "Accept deck suggestion",
+              });
+              this.meta.origins.push(origin);
+            },
+            receipt
+          );
+        } else {
+          const ops = JSON.parse(
+            this.store.get<string>(`suggestionPayload:${suggestion.id}`) ??
+              "null"
+          ) as Operation[];
+          await this.mutate(
+            (trial) =>
+              trial.capture(this.trialOperations(ops, trial), {
+                ...origin,
+                mode: "direct",
+              }),
+            origin,
+            (captured, revision) => {
+              decided.revision = revision;
+              this.store.put(key, decided);
+              this.store.write(
+                "before",
+                origin.changeId,
+                captured.change.before
+              );
+              this.store.write(
+                "change",
+                origin.changeId,
+                captured.change.update
+              );
+              this.store.put(`change:${origin.changeId}`, { origin, revision });
+              this.store.put(`productionChange:${origin.changeId}`, {
+                revFrom: this.meta.revision - 1,
+                summary: "Accept document suggestion",
+              });
+              this.meta.origins.push(origin);
+            },
+            true,
+            receipt
+          );
+        }
+      } catch (error) {
+        if (!(error instanceof DocumentError || error instanceof ToolError)) {
+          throw error;
+        }
+        decided.status = "conflict";
+        decided.conflict = error.message;
+        this.store.put(key, decided);
+      }
+      await this.schedule();
+      return decided;
     });
   }
   revert(changeId: string, byParticipant: string) {

@@ -94,6 +94,17 @@ export const createLiveArtifactsRouter = (
       .mutation(({ ctx, input }) =>
         service(ctx).createDocument(ctx.principal, input)
       ),
+    decideSuggestion: workspaceProcedure
+      .input(
+        z.strictObject({
+          ...artifact,
+          decision: z.enum(["accept", "reject"]),
+          suggestionId: id,
+        })
+      )
+      .mutation(({ ctx, input }) =>
+        service(ctx).decideSuggestion(ctx.principal, input)
+      ),
     embedSources: workspaceProcedure
       .input(z.strictObject(artifact))
       .query(({ ctx, input }) =>
@@ -196,6 +207,16 @@ export const createLiveArtifactsRouter = (
       )
       .mutation(({ ctx, input }) =>
         service(ctx).setAudience(ctx.principal, input)
+      ),
+    setSuggestionMode: workspaceProcedure
+      .input(z.strictObject({ ...artifact, enabled: z.boolean() }))
+      .mutation(({ ctx, input }) =>
+        service(ctx).setSuggestionMode(ctx.principal, input)
+      ),
+    suggestions: workspaceProcedure
+      .input(z.strictObject(artifact))
+      .query(({ ctx, input }) =>
+        service(ctx).suggestions(ctx.principal, input)
       ),
     threads: workspaceProcedure
       .input(

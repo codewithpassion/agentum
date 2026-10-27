@@ -276,6 +276,8 @@ export interface DocumentEditResult {
   changeId: string;
   revision: number;
   skipped: { index: number; code: string; reason: string }[];
+  status?: string;
+  suggestionId?: string;
 }
 export interface DocumentCommentResult {
   comment?: LiveComment;
@@ -329,7 +331,7 @@ export const liveTools = (port: LivePort): ToolDefinition[] => [
       const result = await port.edit(input);
       return {
         data: result,
-        text: `Document revision ${result.revision}, change ${result.changeId}. Skipped: ${JSON.stringify(result.skipped)}. The person wins; never retry skipped edits by force.`,
+        text: `${result.suggestionId ? `Suggestion ${result.suggestionId} (${result.status}); accepted content is unchanged. ` : ""}Document revision ${result.revision}, change ${result.changeId}. Skipped: ${JSON.stringify(result.skipped)}. The person wins; never retry skipped edits by force.`,
       };
     },
     title: "Edit a document",

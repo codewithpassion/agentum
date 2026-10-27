@@ -193,6 +193,30 @@ export const productionLiveInfra = (
         (await stub(scope)).retainedDeckEmbeds(),
       saveRestored: async (scope) => (await stub(scope)).checkpoint(),
       snapshot: async (scope) => (await stub(scope)).authoritativeSnapshot(),
+      suggestions: async (scope, input) => {
+        const room = await stub(scope);
+        await room.registerActor(input.principal);
+        const identity = await requiredLive(composed().services).roomIdentity(
+          input.principal,
+          scope.artifactId
+        );
+        if (input.action === "mode") {
+          await room.setSuggestionMode(input.enabled === true, identity);
+        }
+        if (input.action === "decide") {
+          if (!(input.suggestionId && input.decision)) {
+            throw new Error("Decision required");
+          }
+          const result = await room.decideSuggestion(
+            { decision: input.decision, suggestionId: input.suggestionId },
+            identity
+          );
+          if (result.status === "accepted") {
+            await room.checkpoint();
+          }
+        }
+        return room.listSuggestions(identity);
+      },
       suspend: async (scope, id) => (await stub(scope)).suspend(id),
       url: (scope) => `/api/rooms/${scope.artifactId}`,
     },

@@ -18,6 +18,8 @@ export type RoomIdentity = Pick<
 > & {
   /** Opaque server-side credential/session reference, persisted in socket attachments. */
   authorizationRef: string;
+  /** Derived from persisted run actor, never from caller input. */
+  forceSuggestions?: boolean;
 };
 export interface RestoreProvenance {
   byParticipant: string;

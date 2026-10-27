@@ -71,6 +71,8 @@ export interface DeckReadResult {
 export interface DeckWriteResult {
   applied: { index: number; keys: string[] }[];
   skipped: { index: number; id: string; reason: string }[];
+  status?: string;
+  suggestionId?: string;
 }
 /** Mandatory authenticated port, bound to principal/workspace/agent/run by the host.
  * No input may supply identity, presence, observation snapshots or force overrides. */
