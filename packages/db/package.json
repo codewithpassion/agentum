@@ -5,6 +5,8 @@
   "exports": {
     ".": "./src/database.ts",
     "./artifact-calls": "./src/artifact-calls.ts",
+    "./artifacts": "./src/artifacts.ts",
+    "./artifact-shares": "./src/artifact-shares.ts",
     "./atomic": "./src/atomic.ts",
     "./schema/*": "./src/schema/*.ts",
     "./map": "./src/map.ts",

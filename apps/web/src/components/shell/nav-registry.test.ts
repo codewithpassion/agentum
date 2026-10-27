@@ -10,6 +10,7 @@ test("main items appear in order", () => {
     "Map",
     "Q&A",
     "Library",
+    "Artifacts",
     "Skills",
     "Machines",
   ]);
@@ -19,6 +20,7 @@ test("main items appear in order", () => {
     "/map",
     "/qa",
     "/library",
+    "/artifacts",
     "/skills",
     "/machines",
   ]);

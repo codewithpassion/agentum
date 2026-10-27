@@ -15,6 +15,8 @@
     "./artifacts/calls": "./src/artifacts/calls.ts",
     "./artifacts/policy": "./src/artifacts/policy.ts",
     "./artifacts/storage": "./src/artifacts/storage.ts",
+    "./artifacts/service": "./src/artifacts/service.ts",
+    "./artifacts/shares": "./src/artifacts/shares.ts",
     "./artifacts/view-token": "./src/artifacts/view-token.ts",
     "./authz": "./src/authz.ts",
     "./automation-access": "./src/automation-access.ts",
