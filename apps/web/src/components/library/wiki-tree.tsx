@@ -44,8 +44,8 @@ function WikiTreeRow({ activePath, row }: WikiTreeRowProps) {
         aria-current={isActive ? "page" : undefined}
         className={
           isActive
-            ? "block truncate rounded bg-muted px-2 py-1 font-medium text-sm hover:bg-muted"
-            : "block truncate rounded px-2 py-1 text-sm hover:bg-muted"
+            ? "block truncate rounded bg-muted px-2 py-1 font-medium text-sm hover:bg-muted max-md:py-2.5"
+            : "block truncate rounded px-2 py-1 text-sm hover:bg-muted max-md:py-2.5"
         }
         search={search}
         to="/library"

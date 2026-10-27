@@ -87,7 +87,7 @@ function EntryName({ dir, entry }: { dir: string; entry: LibraryEntryRecord }) {
   if (entry.kind === "dir") {
     return (
       <Link
-        className="inline-flex items-center gap-2 font-medium hover:underline"
+        className="inline-flex items-center gap-2 font-medium hover:underline max-md:min-h-10"
         search={{ dir: entry.path }}
         to="/library"
       >
@@ -98,7 +98,7 @@ function EntryName({ dir, entry }: { dir: string; entry: LibraryEntryRecord }) {
   }
   return (
     <Link
-      className="inline-flex items-center gap-2 hover:underline"
+      className="inline-flex items-center gap-2 hover:underline max-md:min-h-10"
       search={{ dir: dir === "" ? undefined : dir, file: entry.path }}
       to="/library"
     >
