@@ -125,17 +125,26 @@ try {
           .text.match(/hm_invite_[A-Za-z0-9_-]+/)[0];
         const context = await browser.newContext({ viewport });
         const page = await context.newPage();
-        // A reload must wait for any in-flight rotating response. The SSE body
-        // stays open but does not hold the cookie lock after its handshake.
-        const reload = () =>
+        // Drain the current handshake AND prevent queued work from starting
+        // between requesting navigation and destruction of the old document.
+        // Chromium releases this lock when it destroys that document.
+        const navigate = (target) =>
           Promise.all([
             page.waitForNavigation({ waitUntil: "domcontentloaded" }),
-            page.evaluate(() =>
-              navigator.locks.request("harbourmaster-guest-cookie", () =>
-                location.reload()
-              )
-            ),
+            page.evaluate((destination) => {
+              navigator.locks.request("harbourmaster-guest-cookie", () => {
+                if (destination) {
+                  location.assign(destination);
+                } else {
+                  location.reload();
+                }
+                return new Promise(() => {
+                  /* Released by document destruction. */
+                });
+              });
+            }, target),
           ]);
+        const reload = () => navigate();
         const errors = [];
         page.on("pageerror", (error) => {
           errors.push(error.message);
@@ -431,16 +440,7 @@ try {
           .prepare("UPDATE artifacts SET agent_id='a1' WHERE id=?")
           .bind(otherArtifact.artifactId)
           .run();
-        await Promise.all([
-          page.waitForNavigation({ waitUntil: "domcontentloaded" }),
-          page.evaluate(
-            (target) =>
-              navigator.locks.request("harbourmaster-guest-cookie", () =>
-                location.assign(target)
-              ),
-            `${base}/g/a/${otherArtifact.artifactId}`
-          ),
-        ]);
+        await navigate(`${base}/g/a/${otherArtifact.artifactId}`);
         await expect(composer.getByLabel("Message to agent")).toBeEnabled();
         await page
           .getByRole("button", { exact: true, name: "Sign out" })
@@ -550,6 +550,113 @@ try {
         checks += 9;
         assert.deepEqual(errors, []);
         checks += 8;
+        if (kind === "document" && viewport.width === 1280) {
+          // Bounded causal experiment, on the disposable authenticated context.
+          // A static document removes polling/timer timing from this experiment.
+          // Only statuses/counts/phase names are recorded, never credentials.
+          const probeUrl = `${base}/g/a/${id}?reload-probe=1`;
+          let gate;
+          await page.route(probeUrl, async (route) => {
+            await gate;
+            await route.fulfill({
+              body: "<!doctype html><title>Reload lifecycle probe</title>",
+              contentType: "text/html",
+            });
+          });
+          await navigate(probeUrl);
+          for (const retainLock of [true, false]) {
+            let rotated;
+            const rotation = new Promise((resolve) => {
+              rotated = resolve;
+            });
+            let attempts = 0;
+            const pattern = "**/ask-availability?reload-probe=1";
+            let finish;
+            const committed = new Promise((resolve) => {
+              finish = resolve;
+            });
+            const delayed = async (route) => {
+              attempts += 1;
+              // Dispatch the real route without Playwright's APIRequestContext:
+              // route.fetch() would install Set-Cookie before browser delivery.
+              const response = await request(
+                new URL(route.request().url()).pathname,
+                { headers: await route.request().allHeaders() }
+              );
+              assert.equal(response.status, 200);
+              assert.ok(response.headers.has("Set-Cookie"));
+              await response.body?.cancel();
+              rotated();
+              // Deliver no response headers until navigation has destroyed the
+              // old document, matching an interrupted delayed HTTP handshake.
+              await committed;
+              await route.abort().catch(() => {
+                /* Navigation may already cancel the route. */
+              });
+            };
+            await page.route(pattern, delayed);
+            // For the old helper, hold only document commit until the queued
+            // request has rotated. Fixed helper must never admit that request.
+            gate = retainLock ? undefined : rotation;
+            const navigation = page.waitForNavigation({
+              waitUntil: "domcontentloaded",
+            });
+            await page.evaluate(
+              ({ artifactId, hold }) => {
+                navigator.locks.request("harbourmaster-guest-cookie", () => {
+                  location.reload();
+                  if (hold) {
+                    return new Promise(() => {
+                      /* Released by document destruction. */
+                    });
+                  }
+                });
+                navigator.locks
+                  .request("harbourmaster-guest-cookie", async () => {
+                    await fetch(
+                      `/api/guest/artifacts/${artifactId}/ask-availability?reload-probe=1`
+                    );
+                  })
+                  .catch(() => {
+                    /* Old document is being destroyed. */
+                  });
+              },
+              { artifactId: id, hold: retainLock }
+            );
+            try {
+              await navigation;
+            } finally {
+              finish();
+              // Unblock intercepted navigation too if its bounded wait fails.
+              rotated();
+            }
+            gate = undefined;
+            await page.unroute(pattern, delayed, { behavior: "wait" });
+            assert.equal(attempts, retainLock ? 0 : 1);
+            const status = await page.evaluate(async (artifactId) => {
+              const response = await fetch(
+                `/api/guest/artifacts/${artifactId}/open`
+              );
+              await response.text();
+              return response.status;
+            }, id);
+            assert.equal(status, retainLock ? 200 : 404);
+            checks += 2;
+            console.log(
+              JSON.stringify({
+                openStatus: status,
+                queuedRequests: attempts,
+                reloadProbe: retainLock ? "retained-lock" : "original-helper",
+              })
+            );
+          }
+          await page.unroute(probeUrl);
+          await navigate(`${base}/g/a/${id}`);
+          await expect(
+            page.getByText("This invite has ended", { exact: true })
+          ).toBeVisible();
+          checks += 1;
+        }
         await context.close();
       }
     }
