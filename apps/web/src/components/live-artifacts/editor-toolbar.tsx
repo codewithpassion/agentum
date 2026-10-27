@@ -232,7 +232,7 @@ export function EditorToolbar({
                 <input
                   aria-label="Image URL"
                   onChange={(event) => setImageUrl(event.target.value)}
-                  placeholder="HTTPS image from Unsplash, Wikimedia or Pexels"
+                  placeholder="Public HTTPS image URL"
                   type="url"
                   value={imageUrl}
                 />

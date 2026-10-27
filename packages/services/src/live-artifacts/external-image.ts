@@ -1,39 +1,29 @@
-/** Deliberately finite public image origins, not a general URL proxy. These
- * operator-controlled hosts cannot be supplied by a caller or resolve via a
- * caller-controlled DNS name. Every redirect is checked against the same list. */
+/** Public HTTPS URL validation is defense in depth. The injected transport
+ * MUST enforce public network addresses at connection time (including DNS
+ * results and every redirect). Production uses an isolated strictly-public
+ * Cloudflare Worker; a DNS lookup followed by ordinary fetch is insufficient. */
+import { checkUrl } from "../connectors/safe-url.ts";
 import { ServiceError } from "../errors.ts";
 import { imageMime } from "./image-mime.ts";
 
 export type ImageFetch = (
   input: string,
-  init: RequestInit
+  init: RequestInit & { deadline: number }
 ) => Promise<Response>;
 
-const HOSTS = new Set([
-  "images.unsplash.com",
-  "upload.wikimedia.org",
-  "images.pexels.com",
-]);
 const MAX_BYTES = 8 * 1024 * 1024;
 const refused = () =>
   new ServiceError(
     "invalid",
-    "Use an HTTPS image from images.unsplash.com, upload.wikimedia.org or images.pexels.com (maximum 8 MiB)"
+    "Use a public HTTPS PNG, JPEG, GIF, WebP or AVIF image (maximum 8 MiB)"
   );
 const target = (value: string) => {
-  if (!URL.canParse(value)) {
+  const checked = checkUrl(value);
+  if (!checked.ok) {
     throw refused();
   }
-  const url = new URL(value);
-  if (
-    value.length > 2048 ||
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.port ||
-    url.hash ||
-    !HOSTS.has(url.hostname)
-  ) {
+  const { url } = checked;
+  if (value.length > 2048 || url.port || url.hash) {
     throw refused();
   }
   return url;
@@ -43,14 +33,18 @@ export async function fetchExternalImage(
   fetcher: ImageFetch
 ): Promise<Blob> {
   let url = target(value);
+  const deadline = Date.now() + 10_000;
   const signal = AbortSignal.timeout(10_000);
   for (let redirects = 0; redirects <= 3; redirects += 1) {
     // biome-ignore lint/performance/noAwaitInLoops: redirects must be validated before the next request.
     const response = await fetcher(url.href, {
+      cache: "no-store",
       credentials: "omit",
+      deadline,
       headers: {
         Accept: "image/png,image/jpeg,image/gif,image/webp,image/avif",
       },
+      method: "GET",
       redirect: "manual",
       signal,
     });

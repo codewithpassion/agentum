@@ -44,7 +44,7 @@ try {
       const url = new URL(route.request().url());
       if (url.pathname === "/fixture/import") {
         expect(route.request().postDataJSON()).toEqual({
-          url: "https://images.unsplash.com/photo",
+          url: "https://photos.example.com/image",
         });
         const path = "/files/imported.png";
         uploads.set(
@@ -233,7 +233,7 @@ try {
     expect(uploads.size).toBe(2);
     await alice
       .getByLabel("Image URL", { exact: true })
-      .fill("https://images.unsplash.com/photo");
+      .fill("https://photos.example.com/image");
     await alice
       .getByRole("button", { exact: true, name: "Insert image URL" })
       .click();
@@ -247,7 +247,7 @@ try {
       .toBe(1);
     expect(
       externalRequests.filter(
-        (url) => new URL(url).hostname === "images.unsplash.com"
+        (url) => new URL(url).hostname === "photos.example.com"
       )
     ).toEqual([]);
 
