@@ -50,7 +50,9 @@ export interface ThreadCardPreview {
 const KIND_ICONS: Record<ArtifactKind, LucideIcon> = {
   app: PuzzleIcon,
   dashboard: LayoutDashboardIcon,
+  deck: LayoutDashboardIcon,
   doc: FileTextIcon,
+  document: FileTextIcon,
   page: GlobeIcon,
 };
 

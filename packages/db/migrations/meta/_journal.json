@@ -176,6 +176,20 @@
       "when": 1793070116768,
       "tag": "0024_rare_jack_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1793091601072,
+      "tag": "0025_melodic_maximus",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1793091718815,
+      "tag": "0026_real_maria_hill",
+      "breakpoints": true
     }
   ]
 }

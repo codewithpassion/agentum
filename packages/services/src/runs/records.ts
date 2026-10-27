@@ -41,6 +41,7 @@ export const toRecord = (row: RunRow): RunRecord => ({
       : replyTargetSchema.parse(JSON.parse(row.reply)),
   requestId: row.requestId,
   resultText: row.resultText,
+  scopeArtifactId: row.scopeArtifactId,
   sessionId: row.sessionId,
   startedAt: row.startedAt,
   status: row.status,

@@ -9,6 +9,7 @@ import {
 import { createdAt, id, workspaceId } from "../columns.ts";
 import { RUN_STATUSES } from "../shared.ts";
 import { agents } from "./agents.ts";
+import { artifacts } from "./artifacts.ts";
 import { sessions } from "./sessions.ts";
 import { workspaces } from "./workspaces.ts";
 
@@ -54,6 +55,9 @@ export const runs = sqliteTable(
     reply: text("reply"),
     requestId: text("request_id"),
     resultText: text("result_text"),
+    scopeArtifactId: text("scope_artifact_id").references(
+      (): AnySQLiteColumn => artifacts.id
+    ),
     sessionId: text("session_id")
       .notNull()
       .references(() => sessions.id),

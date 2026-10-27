@@ -7,7 +7,9 @@ import type {
 export const KIND_LABELS: Record<ArtifactKind, string> = {
   app: "App",
   dashboard: "Dashboard",
+  deck: "Deck",
   doc: "Doc",
+  document: "Document",
   page: "Page",
 };
 

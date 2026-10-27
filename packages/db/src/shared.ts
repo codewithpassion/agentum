@@ -288,6 +288,17 @@ export const EVENT_TYPES = [
   "artifact.promoted",
   "artifact.grant_decided",
   "artifact.handed_to",
+  "artifact.member_added",
+  "artifact.member_role_changed",
+  "artifact.member_revoked",
+  "artifact.guest_invited",
+  "artifact.guest_code_sent",
+  "artifact.guest_signed_in",
+  "artifact.comment_created",
+  "artifact.comment_resolved",
+  "artifact.live_checkpoint",
+  "artifact.agent_change_reverted",
+  "artifact.guests_switched",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -408,6 +419,7 @@ export interface MapEditedPayload {
 }
 
 export const EVENT_ACTOR_KINDS = [
+  "guest",
   "user",
   "agent",
   "trigger",
@@ -724,7 +736,14 @@ export interface MapGraph<TRequest = unknown> {
 }
 
 /** `app` is phase 2: a micro app with a server part. Pages and dashboards are served the same way. */
-export const ARTIFACT_KINDS = ["page", "doc", "dashboard", "app"] as const;
+export const ARTIFACT_KINDS = [
+  "page",
+  "doc",
+  "dashboard",
+  "app",
+  "document",
+  "deck",
+] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 /** `private`: the owner and admins. `workspace`: every member. Phase 4 adds `people` and `public`. */
@@ -753,6 +772,8 @@ export const ARTIFACT_VIEW_SURFACES = [
   "share",
   "test",
   "live_call",
+  "guest",
+  "room",
 ] as const;
 export type ArtifactViewSurface = (typeof ARTIFACT_VIEW_SURFACES)[number];
 
@@ -829,3 +850,42 @@ export interface ArtifactPublishedPayload {
   version: number;
   versionId: string;
 }
+
+export const LIVE_KINDS = ["document", "deck"] as const;
+export type LiveKind = (typeof LIVE_KINDS)[number];
+export const ARTIFACT_MEMBER_ROLES = ["viewer", "commenter", "editor"] as const;
+export type ArtifactMemberRole = (typeof ARTIFACT_MEMBER_ROLES)[number];
+export const GUEST_SESSION_HOURS = 12;
+export const GUEST_CODE_MINUTES = 10;
+export const GUEST_CODE_MAX_ATTEMPTS = 5;
+export const GUEST_AGENT_RUNS_PER_DAY = 20;
+export const ROOM_TICKET_SECONDS = 120;
+export const ROOM_CONNECTION_MINUTES = 15;
+export const LIVE_DOC_MAX_BYTES = 8 * 1024 * 1024;
+export const LIVE_COMMENT_MAX_BYTES = 4096;
+export const LIVE_THREADS_MAX = 1000;
+export const LIVE_COMMENTS_PER_THREAD_MAX = 100;
+
+export const SESSION_ORIGINS = [
+  "ui",
+  "slack",
+  "mail",
+  "inbox",
+  "qa",
+  "routine",
+  "trigger",
+  "mcp",
+  "artifact",
+] as const;
+export type SessionOrigin = (typeof SESSION_ORIGINS)[number] | "dry_run";
+
+/** Live checkpoint notification; no document bytes or room credentials in events. */
+export interface ArtifactLiveCheckpointPayload {
+  artifactId: string;
+  revision: number;
+  sessionId: string;
+  versionId: string;
+}
+export const LIVE_POSITION_ENCODING_VERSION = 1;
+export const LIVE_AGENT_PRESENCE_CLEAR_MS = 5000;
+export const LIVE_POINTER_UPDATES_PER_SECOND = 20;

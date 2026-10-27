@@ -33,7 +33,11 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "agent_tool_rules",
     "agents",
     "api_keys",
+    "artifact_comment_threads",
+    "artifact_comments",
     "artifact_grants",
+    "artifact_live_changes",
+    "artifact_members",
     "artifact_pins",
     "artifact_shares",
     "artifact_version_files",
@@ -46,6 +50,10 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "credentials",
     "events",
     "files",
+    "guest_codes",
+    "guest_identities",
+    "guest_invites",
+    "guest_sessions",
     "identity_links",
     "inbox_posts",
     "inbox_threads",
@@ -99,7 +107,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(60);
+  expect(tables.length).toBe(68);
 
   for (const table of tables) {
     const column = client
@@ -292,4 +300,31 @@ test("the shared module names the Q&A, skill update and map events", () => {
   ]) {
     expect(EVENT_TYPES).toContain(type as never);
   }
+});
+
+test("live columns preserve existing defaults and event immutability triggers", () => {
+  const { client } = migrated();
+  const columns = (table: string) =>
+    client.query<Column, []>(`PRAGMA table_info(${table})`).all();
+  expect(
+    columns("workspaces").find((c) => c.name === "live_guests_enabled")
+      ?.dflt_value
+  ).toBe("true");
+  for (const [table, name] of [
+    ["artifacts", "live_room_rev"],
+    ["artifacts", "converted_from_id"],
+    ["runs", "scope_artifact_id"],
+    ["artifact_views", "guest_id"],
+  ] as const) {
+    expect(columns(table).find((c) => c.name === name)?.notnull).toBe(0);
+  }
+  const triggers = client
+    .query<{ name: string }, []>(
+      "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'events'"
+    )
+    .all();
+  expect(triggers.map((t) => t.name).sort()).toEqual([
+    "events_no_delete",
+    "events_no_update",
+  ]);
 });
