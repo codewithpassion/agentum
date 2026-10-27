@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/database.ts",
+    "./artifact-grants": "./src/artifact-grants.ts",
     "./atomic": "./src/atomic.ts",
     "./schema/*": "./src/schema/*.ts",
     "./map": "./src/map.ts",

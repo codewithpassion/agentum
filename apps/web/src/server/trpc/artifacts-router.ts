@@ -28,6 +28,7 @@ import {
   artifactsVersionsInputSchema,
   artifactsVersionsOutputSchema,
 } from "@repo/protocol/artifacts";
+import { ServiceError } from "@repo/services/errors";
 import { TRPCError } from "@trpc/server";
 import { router, workspaceProcedure } from "./init.ts";
 
@@ -44,11 +45,9 @@ export const artifactsRouter = router({
   decideGrant: workspaceProcedure
     .input(artifactsDecideGrantInputSchema)
     .output(artifactsDecideGrantOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.decideGrant is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await ctx.services.artifactGrants.decideGrant(ctx.principal, input);
+      return {};
     }),
   get: workspaceProcedure
     .input(artifactsGetInputSchema)
@@ -62,11 +61,9 @@ export const artifactsRouter = router({
   handTo: workspaceProcedure
     .input(artifactsHandToInputSchema)
     .output(artifactsHandToOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.handTo is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await ctx.services.artifactGrants.handTo(ctx.principal, input);
+      return {};
     }),
   list: workspaceProcedure
     .input(artifactsListInputSchema)
@@ -80,20 +77,22 @@ export const artifactsRouter = router({
   pin: workspaceProcedure
     .input(artifactsPinInputSchema)
     .output(artifactsPinOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.pin is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await ctx.services.artifactPins.pin(ctx.principal, input);
+      return {};
     }),
   promote: workspaceProcedure
     .input(artifactsPromoteInputSchema)
     .output(artifactsPromoteOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.promote is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.services.artifactGrants.promote(
+        ctx.principal,
+        input
+      );
+      if (result.status !== "promoted") {
+        throw new ServiceError("conflict", "The grants need a decision first");
+      }
+      return { version: result.version };
     }),
   remove: workspaceProcedure
     .input(artifactsRemoveInputSchema)
@@ -134,11 +133,9 @@ export const artifactsRouter = router({
   unpin: workspaceProcedure
     .input(artifactsUnpinInputSchema)
     .output(artifactsUnpinOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.unpin is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await ctx.services.artifactPins.unpin(ctx.principal, input);
+      return {};
     }),
   versions: workspaceProcedure
     .input(artifactsVersionsInputSchema)

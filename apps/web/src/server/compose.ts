@@ -24,6 +24,14 @@ import {
   createApiKeysService,
 } from "@repo/services/api-keys";
 import {
+  type ArtifactGrantsService,
+  createArtifactGrantsService,
+} from "@repo/services/artifacts/grants";
+import {
+  type ArtifactPinsService,
+  createArtifactPinsService,
+} from "@repo/services/artifacts/pins";
+import {
   type BrowserService,
   createBrowserService,
 } from "@repo/services/browser";
@@ -294,6 +302,8 @@ export interface Services {
   agentProfile: AgentProfileService;
   agents: AgentsService;
   apiKeys: ApiKeysService;
+  artifactGrants: ArtifactGrantsService;
+  artifactPins: ArtifactPinsService;
   browser: BrowserService;
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
@@ -649,6 +659,21 @@ export const composeWith = ({
     runs,
     secrets,
   });
+  const artifactGrants = createArtifactGrantsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    requests,
+    // B.8 replaces this with the connector and platform tool catalog. Until
+    // then no tool is known, so no tool grant is accepted.
+    tools: { lookup: () => Promise.resolve(null) },
+  });
+  const artifactPins = createArtifactPinsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+  });
   const mailOutbound = createMailOutbound({
     atomic: infra.atomic,
     clock: infra.clock,
@@ -850,6 +875,8 @@ export const composeWith = ({
       agentProfile,
       agents,
       apiKeys,
+      artifactGrants,
+      artifactPins,
       browser,
       connectorOAuth,
       connectors,
