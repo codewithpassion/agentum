@@ -3,7 +3,7 @@ id: B.8
 title: Phase 2 wiring and bindings
 milestone: B
 size: M
-status: in_progress
+status: done
 depends_on: [A.6, B.2, B.3, B.4, B.5, B.6]
 branch: task/B.8-phase2-wiring
 lane: worker
@@ -34,3 +34,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at 0e2466e, review clean after 1 fix round; APP_API_LIMIT binding, v7 AppStore migration; platform tools not grantable; arg limits fail closed; merged.
