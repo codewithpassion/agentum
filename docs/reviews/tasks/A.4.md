@@ -33,4 +33,6 @@ Every check passed in both browsers, framed and direct:
 
 ## Review rounds
 
-(filled in below)
+Round 0: the opus reviewer could not start (the session's subagent limit of 20 was full on three tries). Nothing here is reviewed by anyone but the dispatcher. The dispatcher's own pass found no open must-fix. A reviewer still has to run on this head before the merge.
+
+Known test flake: `@repo/services` `an hour of never-claimed runs stays bounded...` takes about 50 s alone and timed out at 60 s under the full parallel run. It does not touch A.4.
