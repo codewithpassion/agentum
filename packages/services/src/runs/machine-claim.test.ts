@@ -304,6 +304,7 @@ test("a newer run in another session waits for the agent's older run", async () 
   const error = await rejection(claim("m1", newer.runId));
 
   expect(error.code).toBe("conflict");
+  expect(status(newer.runId)?.status).toBe("offered");
   await claim("m1", older.runId);
 });
 
