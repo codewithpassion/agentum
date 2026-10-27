@@ -21,10 +21,12 @@ describe("bridge messages", () => {
       id: 1,
       method: "ui/initialize",
       params: {
+        appCapabilities: {},
         appInfo: { name: "a", version: "1" },
         protocolVersion: "2026-01-26",
       },
     },
+    { ...rpc, method: "ui/notifications/initialized" },
     {
       ...rpc,
       method: "ui/notifications/size-changed",
@@ -40,7 +42,7 @@ describe("bridge messages", () => {
       ...rpc,
       id: 2,
       method: "ui/message",
-      params: { content: { text: "hi", type: "text" }, role: "user" },
+      params: { content: [{ text: "hi", type: "text" }], role: "user" },
     },
     {
       ...rpc,
@@ -91,7 +93,7 @@ describe("bridge messages", () => {
   test("rejects a request without id, but accepts the notification without one", () => {
     for (const message of valid) {
       const { id, ...rest } = message as { id?: unknown; method: string };
-      const isNotification = rest.method === "ui/notifications/size-changed";
+      const isNotification = rest.method.startsWith("ui/notifications/");
       expect(parseBridgeMessage(rest) !== null).toBe(isNotification);
     }
   });
@@ -184,7 +186,7 @@ describe("bridge messages", () => {
         ...rpc,
         id: 1,
         method: "ui/message",
-        params: { content: { text: "x", type: "text" }, role: "assistant" },
+        params: { content: [{ text: "x", type: "text" }], role: "assistant" },
       })
     ).toBeNull();
     expect(
@@ -192,7 +194,7 @@ describe("bridge messages", () => {
         ...rpc,
         id: 1,
         method: "ui/message",
-        params: { content: { type: "image" }, role: "user" },
+        params: { content: [{ type: "image" }], role: "user" },
       })
     ).toBeNull();
   });

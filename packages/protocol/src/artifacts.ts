@@ -268,6 +268,8 @@ const emptyResultSchema = z.strictObject({});
 
 // ui/initialize
 export const uiInitializeParamsSchema = z.strictObject({
+  // The MCP Apps spec requires it; the frame ignores its content.
+  appCapabilities: z.record(z.string(), z.unknown()).optional(),
   appInfo: z.strictObject({ name: z.string(), version: z.string() }).optional(),
   protocolVersion: z.string().min(1),
 });
@@ -286,6 +288,15 @@ export type UiInitializeResult = z.infer<typeof uiInitializeResultSchema>;
 export const uiInitializeResponseSchema = jsonRpcResultSchema(
   uiInitializeResultSchema
 );
+
+// ui/notifications/initialized, sent by the page once it has the initialize result
+export const uiInitializedNotificationSchema = jsonRpcNotificationSchema(
+  "ui/notifications/initialized",
+  z.strictObject({}).optional()
+);
+export type UiInitializedNotification = z.infer<
+  typeof uiInitializedNotificationSchema
+>;
 
 // ui/notifications/size-changed
 export const uiSizeChangedNotificationSchema = jsonRpcNotificationSchema(
@@ -311,7 +322,9 @@ export const uiOpenLinkResponseSchema = jsonRpcResultSchema(emptyResultSchema);
 export const uiMessageRequestSchema = jsonRpcRequestSchema(
   "ui/message",
   z.strictObject({
-    content: z.strictObject({ text: z.string(), type: z.literal("text") }),
+    content: z
+      .array(z.strictObject({ text: z.string(), type: z.literal("text") }))
+      .min(1),
     role: z.literal("user"),
   })
 );
@@ -398,6 +411,7 @@ export const bridgeMessageSchema = z.discriminatedUnion("method", [
   storageSetRequestSchema,
   toolsCallRequestSchema,
   uiInitializeRequestSchema,
+  uiInitializedNotificationSchema,
   uiMessageRequestSchema,
   uiOpenLinkRequestSchema,
   uiSizeChangedNotificationSchema,
@@ -473,7 +487,7 @@ export type ArtifactShare = z.infer<typeof artifactShareSchema>;
 /** One access-log row. There is no visitor hash and no full IP. */
 export const artifactViewSchema = z.strictObject({
   artifactId: artifactIdSchema,
-  asn: z.int().nullable(),
+  asn: z.string().nullable(),
   asOrg: z.string().nullable(),
   city: z.string().nullable(),
   country: z.string().nullable(),
