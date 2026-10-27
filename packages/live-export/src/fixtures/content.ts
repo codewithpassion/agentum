@@ -307,3 +307,23 @@ export function deckFixture() {
   doc.destroy();
   return result;
 }
+
+export function deckEmbedFixture(source: string) {
+  const deck = new Deck(new Doc(), richTextCodec, {
+    ownsBlob: (path) => assets.paths.has(path) || path === source,
+  });
+  deck.applyUpdate(deckFixture());
+  const slideId = deck.ids()[0] as string;
+  deck.addElement(slideId, {
+    id: "embedded",
+    order: "a9",
+    parent: slideId,
+    props: { h: "150", src: source, w: "300", x: "1", y: "1" },
+    style: {},
+    type: "embed",
+  });
+  const state = encodeStateAsUpdate(deck.doc);
+  deck.destroy();
+  deck.doc.destroy();
+  return state;
+}

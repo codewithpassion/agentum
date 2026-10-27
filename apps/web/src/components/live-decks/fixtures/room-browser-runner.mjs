@@ -10,7 +10,13 @@ let input = "";
 for await (const part of process.stdin) {
   input += part;
 }
-const { script, output, slides, structural = true } = JSON.parse(input);
+const {
+  script,
+  output,
+  slides,
+  embedSource,
+  structural = true,
+} = JSON.parse(input);
 const persistence = await mkdtemp(join(tmpdir(), "ld6-room-network-"));
 const runtime = new Miniflare(
   convertV4MiniflareOptions({
@@ -43,7 +49,7 @@ try {
       return response.json();
     };
     await call("/control", { name: "deck", value: true });
-    await call("/control", { name: "urls", value: [] });
+    await call("/control", { name: "urls", value: [embedSource] });
     await call("/control", {
       name: "slides",
       value: slides,
@@ -117,6 +123,64 @@ try {
       ).toBeVisible();
     }
     const [alice, bob] = pages;
+    expect(
+      await alice.evaluate(() => {
+        const { deck } = Reflect.get(window, "deckRoom");
+        const { html: before } = deck.readHtml("opening");
+        try {
+          deck.setElementKey(
+            "opening",
+            "sandbox-chart",
+            "props",
+            "src",
+            "https://evil.test/page.html"
+          );
+          return false;
+        } catch {
+          return deck.readHtml("opening").html === before;
+        }
+      })
+    ).toBe(true);
+    const embeddedFrame = alice.frameLocator(
+      '.ld-stage iframe[title="Sandboxed deck embed"]'
+    );
+    await expect(
+      embeddedFrame.getByRole("heading", { name: "Controlled sandbox chart" })
+    ).toBeVisible();
+    expect(
+      await alice.locator(".ld-stage iframe").getAttribute("sandbox")
+    ).toBe("allow-scripts allow-forms");
+    await expect(embeddedFrame.locator("body")).toHaveAttribute(
+      "data-isolated",
+      "yes"
+    );
+    expect(await alice.locator("body").getAttribute("data-escaped")).toBeNull();
+    const deniedTool = await embeddedFrame
+      .locator("body")
+      .evaluate(async () => {
+        await window.harbourmaster.ready;
+        try {
+          await window.harbourmaster.tools.call("anything", {});
+          return false;
+        } catch {
+          return true;
+        }
+      });
+    expect(deniedTool).toBe(true);
+
+    await alice.getByRole("button", { exact: true, name: "Present" }).click();
+    const presentedFrame = alice.frameLocator(
+      '.ld-present-stage iframe[title="Sandboxed deck embed"]'
+    );
+    await expect(
+      presentedFrame.getByRole("heading", { name: "Controlled sandbox chart" })
+    ).toBeVisible();
+    await presentedFrame.getByRole("button", { name: "Explore chart" }).click();
+    await expect(presentedFrame.locator("output")).toHaveText("Clicked safely");
+    await alice
+      .getByRole("button", { exact: true, name: "Exit presentation" })
+      .click();
+
     const scene = (page) =>
       page.evaluate(
         () => Reflect.get(window, "deckRoom").deck.read("opening").slide

@@ -8,6 +8,7 @@ import {
   limits,
   type OwnAssets,
 } from "@repo/live-export";
+import { parseEmbedSource } from "@repo/protocol/deck";
 import { ForbiddenError } from "../authz.ts";
 import type { FilesService } from "../files.ts";
 import { createLiveAccess } from "../live-artifacts/access.ts";
@@ -146,7 +147,11 @@ export function createLiveExportsService(deps: {
           if (
             !Array.isArray(urls) ||
             urls.length > 4096 ||
-            urls.some((url) => typeof url !== "string" || !ownPath.test(url))
+            urls.some(
+              (url) =>
+                typeof url !== "string" ||
+                !(ownPath.test(url) || parseEmbedSource(url))
+            )
           ) {
             throw failed("export_asset_inventory");
           }

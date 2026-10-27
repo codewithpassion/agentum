@@ -28,6 +28,7 @@ import {
   type EnsureDeckCellInput,
   type EnsureDeckCellResult,
   ensureDeckCellInputSchema,
+  parseEmbedSource,
 } from "@repo/protocol/deck";
 import type { LiveJoinResult } from "@repo/protocol/live";
 import {
@@ -54,6 +55,7 @@ import { createLiveAccess } from "./access.ts";
 import { createAccessLifecycle } from "./access-lifecycle.ts";
 import { createChangesModule } from "./changes.ts";
 import { createCommentsModule } from "./comments.ts";
+import { imageMime } from "./image-mime.ts";
 import type { LiveInteractionPorts } from "./ports.ts";
 
 export type {
@@ -81,6 +83,11 @@ export interface LiveContentCodec {
     title: string;
     slides?: string[];
   }) => Promise<DocumentSnapshot>;
+  embedUrl?: (
+    source: NonNullable<ReturnType<typeof parseEmbedSource>>,
+    scope: LiveRoomScope,
+    userId: string
+  ) => Promise<{ contentUrl: string; expiresAt: string }>;
   exportDeck?: (
     snapshot: DocumentSnapshot,
     scope: LiveRoomScope
@@ -172,6 +179,14 @@ export interface LiveArtifactsDeps extends LiveInteractionPorts {
 }
 
 export type Member = Extract<Principal, { kind: "user" | "run" }>;
+/** Frozen attribution for accepted room state, never an authorization identity. */
+export interface GuestPublicationActor {
+  artifactId: string;
+  guestId: string;
+  kind: "guest";
+  workspaceId: string;
+}
+type PublicationActor = Member | GuestPublicationActor;
 export type Row = NonNullable<Awaited<ReturnType<typeof findArtifact>>>;
 const IMAGE_FILE_PATH = /^\/files\/[A-Za-z0-9_-]+$/;
 const missing = () =>
@@ -196,6 +211,11 @@ const authorOf = (member: Member) =>
         runId: member.runId,
       };
 
+const publicationAuthor = (actor: PublicationActor) =>
+  actor.kind === "guest"
+    ? { agentId: null, id: actor.guestId, kind: "guest" as const, runId: null }
+    : authorOf(actor);
+
 const checkSnapshot = (snapshot: DocumentSnapshot, kind = "document") => {
   if (
     !Number.isSafeInteger(snapshot.revision) ||
@@ -208,40 +228,6 @@ const checkSnapshot = (snapshot: DocumentSnapshot, kind = "document") => {
   }
 };
 
-const imageMime = async (body: Blob) => {
-  const head = new Uint8Array(await body.slice(0, 32).arrayBuffer());
-  const ascii = new TextDecoder().decode(head);
-  let mime: string | null = null;
-  if (
-    head[0] === 137 &&
-    ascii.slice(1, 4) === "PNG" &&
-    head[4] === 13 &&
-    head[5] === 10 &&
-    head[6] === 26 &&
-    head[7] === 10
-  ) {
-    mime = "image/png";
-  }
-  if (head[0] === 255 && head[1] === 216 && head[2] === 255) {
-    mime = "image/jpeg";
-  }
-  if (ascii.startsWith("GIF87a") || ascii.startsWith("GIF89a")) {
-    mime = "image/gif";
-  }
-  if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP") {
-    mime = "image/webp";
-  }
-  if (
-    ascii.slice(4, 8) === "ftyp" &&
-    ["avif", "avis"].includes(ascii.slice(8, 12))
-  ) {
-    mime = "image/avif";
-  }
-  if (!mime) {
-    throw invalid("Upload a PNG, JPEG, GIF, WebP or AVIF image");
-  }
-  return mime;
-};
 export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
   const { db, atomic, blobs, clock, events, rooms, content } = deps;
   if (!deps.ticketKey.trim()) {
@@ -254,8 +240,49 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       db,
     });
   const { access, memberOf, runContext } = createLiveAccess(deps);
+  // Workspace-visible static pages only: every deck member may read these sources.
+  // Private pages and apps with privileged bridge grants require a separate sharing contract.
+  const embedSources = async (workspaceId: string) => {
+    const files = await db
+      .select({
+        artifactId: artifacts.id,
+        path: artifactVersionFiles.path,
+        sha256: artifactVersionFiles.sha256,
+        versionId: artifactVersions.id,
+      })
+      .from(artifacts)
+      .innerJoin(
+        artifactVersions,
+        and(
+          eq(artifactVersions.artifactId, artifacts.id),
+          eq(artifactVersions.workspaceId, artifacts.workspaceId)
+        )
+      )
+      .innerJoin(
+        artifactVersionFiles,
+        and(
+          eq(artifactVersionFiles.versionId, artifactVersions.id),
+          eq(artifactVersionFiles.workspaceId, artifacts.workspaceId)
+        )
+      )
+      .where(
+        and(
+          eq(artifacts.workspaceId, workspaceId),
+          eq(artifacts.audience, "workspace"),
+          eq(artifacts.kind, "page"),
+          isNull(artifacts.deletedAt),
+          eq(artifactVersions.status, "published")
+        )
+      )
+      .limit(2000);
+    return files
+      .map(
+        (f) => `artifact:${f.artifactId}:${f.versionId}:${f.sha256}:${f.path}`
+      )
+      .filter((source) => parseEmbedSource(source) !== null);
+  };
   const event = (
-    member: Member,
+    member: PublicationActor,
     row: Row,
     type:
       | "artifact.created"
@@ -272,10 +299,13 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
   ) =>
     events.insertStatement(
       {
-        actor: { id: authorOf(member).id, kind: authorOf(member).kind },
-        agentId: authorOf(member).agentId,
+        actor: {
+          id: publicationAuthor(member).id,
+          kind: publicationAuthor(member).kind,
+        },
+        agentId: publicationAuthor(member).agentId,
         payload,
-        runId: authorOf(member).runId,
+        runId: publicationAuthor(member).runId,
         sessionId: row.sessionId,
         type,
         workspaceId: member.workspaceId,
@@ -334,7 +364,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     };
   };
   const creationStatements = (
-    member: Member,
+    member: PublicationActor,
     row: Row,
     payload: Record<string, unknown>,
     initial: boolean
@@ -346,7 +376,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         ]
       : [];
   const restoredStatements = (
-    member: Member,
+    member: PublicationActor,
     row: Row,
     payload: Record<string, unknown>,
     from: number | undefined
@@ -464,7 +494,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     ];
   };
   const persist = async (
-    member: Member,
+    member: PublicationActor,
     row: Row,
     snapshot: DocumentSnapshot,
     initial = false,
@@ -540,7 +570,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       artifactId: row.id,
       kind: row.kind,
       revision: snapshot.revision,
-      runId: authorOf(member).runId,
+      runId: publicationAuthor(member).runId,
       sessionId: row.sessionId,
       title: row.title,
       version: number,
@@ -550,9 +580,9 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       ...creationStatements(member, row, payload, initial),
       db.insert(artifactVersions).values({
         artifactId: row.id,
-        authorId: authorOf(member).id,
-        authorKind: authorOf(member).kind,
-        authorRunId: authorOf(member).runId,
+        authorId: publicationAuthor(member).id,
+        authorKind: publicationAuthor(member).kind,
+        authorRunId: publicationAuthor(member).runId,
         createdAt: now(),
         entry: "index.html",
         fileCount: files.length,
@@ -644,8 +674,8 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       audience: source?.audience ?? defaultAudience(context?.session ?? null),
       convertedFromId: source?.id ?? null,
       createdAt: at,
-      createdById: authorOf(member).id,
-      createdByKind: authorOf(member).kind,
+      createdById: publicationAuthor(member).id,
+      createdByKind: publicationAuthor(member).kind,
       currentVersionId: null,
       deletedAt: null,
       deletedBy: null,
@@ -697,7 +727,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
   const publicationActor = async (
     principal: Principal,
     scope: LiveRoomScope,
-    acceptedActor?: Principal
+    acceptedActor?: Principal | GuestPublicationActor
   ) => {
     if (!acceptedActor) {
       return access(principal, scope.artifactId, true);
@@ -707,7 +737,11 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     if (principal.kind !== "system") {
       throw new ForbiddenError("liveArtifacts.durablePublication");
     }
-    const member = memberOf(acceptedActor);
+    const member =
+      acceptedActor.kind === "guest" ? acceptedActor : memberOf(acceptedActor);
+    if (member.kind === "guest" && member.artifactId !== scope.artifactId) {
+      throw missing();
+    }
     const [row] = await db
       .select()
       .from(artifacts)
@@ -773,7 +807,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
             }
           >;
         },
-      acceptedActor?: Principal
+      acceptedActor?: Principal | GuestPublicationActor
     ) {
       const { member, row } = await publicationActor(
         principal,
@@ -803,7 +837,10 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       const restored = input.restores.at(-1);
       let from: number | undefined;
       if (restored) {
-        if (restored.byParticipant !== participantId(member)) {
+        if (
+          member.kind === "guest" ||
+          restored.byParticipant !== participantId(member)
+        ) {
           throw new ForbiddenError("liveArtifacts.restoreActor");
         }
         const source = await findVersionById(
@@ -817,6 +854,13 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         from = source.number;
       }
       return persist(member, row, input, false, from, input);
+    },
+    async embedSources(principal: Principal, input: { artifactId: string }) {
+      const { row } = await access(principal, input.artifactId);
+      if (row.kind !== "deck") {
+        throw invalid("Artifact is not a deck");
+      }
+      return { sources: await embedSources(row.workspaceId) };
     },
     async ensureDeckCell(
       principal: Principal,
@@ -902,9 +946,12 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         `${row.workspaceId}/live-artifacts/${row.id}/images.json`
       );
       return {
-        urls: manifest
-          ? (JSON.parse(new TextDecoder().decode(manifest.bytes)) as string[])
-          : [],
+        urls: [
+          ...(manifest
+            ? (JSON.parse(new TextDecoder().decode(manifest.bytes)) as string[])
+            : []),
+          ...(row.kind === "deck" ? await embedSources(row.workspaceId) : []),
+        ],
       };
     },
     async policy(principal: Principal, input: { artifactId: string }) {
@@ -965,6 +1012,30 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         throw new ForbiddenError("liveArtifacts.credentialRequired");
       }
       return member;
+    },
+    async resolveEmbed(
+      principal: Principal,
+      input: { artifactId: string; source: string }
+    ) {
+      const { row, member } = await access(principal, input.artifactId);
+      if (row.kind !== "deck" || member.kind !== "user" || !content.embedUrl) {
+        throw invalid("Member embed viewing unavailable");
+      }
+      const source = parseEmbedSource(input.source);
+      if (
+        !(
+          source && (await embedSources(row.workspaceId)).includes(input.source)
+        )
+      ) {
+        throw invalid(
+          "Embed source is not an authorized published artifact file"
+        );
+      }
+      return content.embedUrl(
+        source,
+        { artifactId: row.id, workspaceId: row.workspaceId },
+        member.userId
+      );
     },
     async retryCheckpoints(
       principal: Principal,
@@ -1112,7 +1183,10 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       ) {
         throw invalid("Invalid image manifest");
       }
-      return { ownBlobUrls: urls, ranges };
+      return {
+        ownBlobUrls: [...urls, ...(await embedSources(scope.workspaceId))],
+        ranges,
+      };
     },
     async roomRegisterImage(
       principal: Principal,

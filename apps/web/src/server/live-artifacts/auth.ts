@@ -68,7 +68,22 @@ export const authenticateRoomRequest = async (
   if (!request.headers.has("Cookie")) {
     return null;
   }
-  const result = await clerk.authenticateRequest(request);
+  // This ordinary member boundary ignores the guest cookie entirely. In
+  // particular, a guest-only Cookie header must behave as no member cookie.
+  const cookies =
+    request.headers
+      .get("Cookie")
+      ?.split(";")
+      .map((value) => value.trim())
+      .filter((value) => !value.startsWith("__Host-hm_guest=")) ?? [];
+  if (!cookies.length) {
+    return null;
+  }
+  const headers = new Headers(request.headers);
+  headers.set("Cookie", cookies.join("; "));
+  const result = await clerk.authenticateRequest(
+    new Request(request, { headers })
+  );
   const auth = result.toAuth();
   if (!(auth?.userId && auth.orgId && auth.sessionId)) {
     return null;

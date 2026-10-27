@@ -259,6 +259,10 @@ import { clerkPeople } from "./clerk-people.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
 import { libraryNotifier } from "./library-notifier.ts";
 import { liveArtifactMutations } from "./live-artifacts/artifact-mutations";
+import {
+  type GuestComposition,
+  guestService,
+} from "./live-artifacts/guest-infra";
 import { type LiveInfra, productionLiveInfra } from "./live-artifacts/infra";
 import { type MailEnv, mailInfra } from "./mail-infra.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
@@ -313,6 +317,7 @@ export interface Infra {
   github?: GithubSkillFetcher;
   /** `GITHUB_TOKEN`, optional. Raises GitHub's rate limit; without it the fetcher is unauthenticated. */
   githubToken?: string;
+  guests?: (input: GuestComposition) => ReturnType<typeof guestService>;
   /** Whether a user is in a Clerk org right now, with no cache. Live link calls need it; without it they are refused. */
   isOrgMember?: (userId: string, clerkOrgId: string) => Promise<boolean>;
   /** Where the workspace library keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
@@ -382,6 +387,9 @@ export interface Services {
   libraryLinks: LibraryLinksService;
   liveArtifacts?: LiveArtifactsWithAsk;
   liveExports?: LiveExportsService;
+  liveGuests?: () => Promise<
+    import("@repo/services/live-guests/service").LiveGuestsService
+  >;
   liveRoom?: LiveInfra["roomFor"];
   machines: MachinesService;
   mail: MailService & MailOutbound;
@@ -495,6 +503,20 @@ const skillsStoreGithub = (
 });
 
 /** The services over a database and infra. Tests call this with fakes. */
+const lazyGuestService = (
+  factory: Infra["guests"],
+  input: GuestComposition
+): Services["liveGuests"] => {
+  if (!factory) {
+    return;
+  }
+  let guests: ReturnType<typeof guestService> | undefined;
+  return () => {
+    guests ??= factory(input);
+    return guests;
+  };
+};
+
 export const composeWith = ({
   allowedOrgIds,
   db,
@@ -1036,6 +1058,12 @@ export const composeWith = ({
             rooms: infra.live?.rooms,
           })
         : undefined,
+      liveGuests: lazyGuestService(infra.guests, {
+        atomic: infra.atomic,
+        clock: infra.clock,
+        db,
+        services: { events, liveArtifacts },
+      }),
       liveRoom: infra.live?.roomFor,
       machines,
       mail: { ...mail, ...mailOutbound },
@@ -1107,6 +1135,7 @@ export const compose = (
       github: createGithubSkillFetcher((url, init) => fetch(url, init)),
       // An unset secret reads as an empty string: GitHub then sees no credential.
       githubToken: env.GITHUB_TOKEN || undefined,
+      guests: (input) => guestService(env, input),
       isOrgMember: clerkOrgMemberCheckFresh(env.CLERK_SECRET_KEY),
       libraryBlobs: r2LibraryBlobs(env.FILES),
       live: productionLiveInfra(env as Env, () => composed),

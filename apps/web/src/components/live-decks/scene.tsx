@@ -15,8 +15,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { DeckEmbed } from "./embed";
 import { scenePoint } from "./geometry";
-import type { DeckParticipant } from "./ports";
+import type { DeckEditorPorts, DeckParticipant } from "./ports";
 import { DeckRichText } from "./rich-text";
 
 const css = (values: Record<string, string>): CSSProperties =>
@@ -152,9 +153,11 @@ export interface SceneProps {
   ensureCell?: (elementId: string, key: string) => Promise<void>;
   gesture?: (phase: "start" | "end") => void;
   hidePointers?: boolean;
+  interactiveEmbeds?: boolean;
   onActiveText?: (editor: Editor) => void;
   ownsBlob: (path: string) => boolean;
   participants?: readonly DeckParticipant[];
+  resolveEmbed?: DeckEditorPorts["resolveEmbed"];
   select?: (id: string, additive: boolean) => void;
   selection?: string[];
   slide: SlideData;
@@ -347,6 +350,7 @@ function SceneElement({
           width={Number(e.props.w ?? 320)}
         />
       )}
+      <SceneEmbed element={e} scene={s} />
       {e.type === "icon" && (
         <span aria-label={e.props.icon} className="ld-icon" role="img">
           {(
@@ -491,4 +495,20 @@ function DeckTableCell({
       {Boolean(error) && <span role="alert">{error}</span>}
     </div>
   );
+}
+
+function SceneEmbed({
+  element,
+  scene,
+}: {
+  element: ElementData;
+  scene: SceneProps;
+}) {
+  return element.type === "embed" ? (
+    <DeckEmbed
+      interactive={scene.interactiveEmbeds ?? false}
+      resolve={scene.resolveEmbed}
+      source={element.props.src ?? ""}
+    />
+  ) : null;
 }

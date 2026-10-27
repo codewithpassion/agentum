@@ -136,6 +136,14 @@ function warningsFor(slide: SlideData, warnings: Warning[]) {
     );
   }
   for (const e of slide.elements) {
+    if (e.type === "embed") {
+      warn(
+        warnings,
+        "embed_placeholder",
+        `${slide.id}/${e.id}`,
+        "Sandboxed embed replaced with a placeholder. Open the live deck as an authorized member."
+      );
+    }
     if (e.type === "group" && Object.keys(e.style).length) {
       warn(
         warnings,
@@ -270,6 +278,11 @@ export async function deckPPTX(
         // biome-ignore lint/performance/noAwaitInLoops: Bound image memory and retain painter order.
         const a = await load(e.props.src ?? "");
         out.addImage({ ...opts, altText: e.props.alt ?? "", data: a.data });
+      } else if (e.type === "embed") {
+        out.addText(
+          "Sandboxed embed: open the live deck as an authorized member.",
+          { ...opts, ...style }
+        );
       } else if (e.type === "text") {
         out.addText(richRuns(e.text ?? []), { ...opts, ...style });
       } else if (e.type === "table") {
@@ -412,7 +425,10 @@ export async function deckPrintHTML(
         .map(([k, v]) => `${k}:${v}`)
         .join(";")}`;
       let content = "";
-      if (e.type === "text") {
+      if (e.type === "embed") {
+        content =
+          "<p>Sandboxed embed: open the live deck as an authorized member.</p>";
+      } else if (e.type === "text") {
         content = nodesHTML(e.text ?? []);
       } else if (e.type === "image") {
         // biome-ignore lint/performance/noAwaitInLoops: Bound image memory and retain painter order.
