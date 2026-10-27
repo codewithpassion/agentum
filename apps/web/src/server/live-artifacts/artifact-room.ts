@@ -459,7 +459,17 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
           trial.setCell(input.slideId, input.elementId, input.key, [
             { attrs: {}, children: [], tag: "p" },
           ]);
-          this.commitDeck(Y.encodeStateAsUpdate(trial.doc, vector));
+          const receipt =
+            await this.env.ARTIFACT_ROOM_SERVICE.prepareCheckpoint?.(
+              this.meta.scope,
+              [],
+              current
+            );
+          this.commitDeck(
+            Y.encodeStateAsUpdate(trial.doc, vector),
+            undefined,
+            receipt
+          );
           await this.schedule();
         } finally {
           trial.destroy();
@@ -771,9 +781,12 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   private async schedule() {
     const times: number[] = [];
     for (const socket of this.ctx.getWebSockets()) {
-      const { expires } = session(socket);
+      const { expires, kind } = session(socket);
       if (expires > 0) {
         times.push(expires);
+        if (kind === "guest") {
+          times.push(Date.now() + 2000);
+        }
       }
     }
     const agent = this.store.get<AgentState>("agent");
@@ -1248,7 +1261,10 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
           this.meta.ownBlobUrls = [...this.policy];
           this.meta.updateBytes += update.length;
           this.meta.dirtySince ??= Date.now();
-          this.meta.publicationReceipt = publicationReceipt;
+          this.meta.publicationReceipt =
+            revision === previous.revision
+              ? previous.publicationReceipt
+              : publicationReceipt;
           this.store.write("update", String(this.meta.sequence), update);
           persist?.(result, revision, full);
           if (

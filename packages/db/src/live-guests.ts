@@ -75,13 +75,16 @@ export const findGuestSessionGrant = async (
   const [row] = await db
     .select({
       artifactId: artifactMembers.artifactId,
+      createdBy: artifactMembers.createdBy,
       expiresAt: artifactMembers.expiresAt,
       guestId: guestIdentities.id,
+      guestName: guestIdentities.displayName,
       memberId: artifactMembers.id,
       role: artifactMembers.role,
       sessionExpiresAt: guestSessions.expiresAt,
       sessionId: guestSessions.id,
       workspaceId: guestSessions.workspaceId,
+      workspaceName: workspaces.name,
     })
     .from(guestSessions)
     .innerJoin(guestIdentities, eq(guestIdentities.id, guestSessions.guestId))

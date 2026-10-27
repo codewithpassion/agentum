@@ -13,12 +13,19 @@ import {
   guestSessions,
 } from "@repo/db/schema/live-artifacts";
 import { sessions } from "@repo/db/schema/sessions";
-import type { GuestGrant } from "@repo/protocol/live";
+import type { GuestThread } from "@repo/protocol/guest";
+import type { CommentAnchor, GuestGrant } from "@repo/protocol/live";
 import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hashToken } from "../crypto.ts";
 import { ServiceError } from "../errors.ts";
-import { type Blobs, type EventsService, toRecord } from "../events.ts";
+import {
+  type Blobs,
+  type EventRecord,
+  type EventsService,
+  toRecord,
+} from "../events.ts";
+import type { LiveAnchorPort } from "../live-artifacts/ports.ts";
 import type { Clock } from "../runs/types.ts";
 import { createGuestAccessReader } from "./access.ts";
 
@@ -35,6 +42,7 @@ export const createGuestArtifacts = (deps: {
   guestsOff: () => boolean;
   events?: Pick<EventsService, "insertStatement">;
   payloads?: Pick<Blobs, "get">;
+  anchors?: Pick<LiveAnchorPort, "resolve">;
 }) => {
   const access = createGuestAccessReader(deps);
   const current = async (input: GuestCredential, write = false) => {
@@ -49,30 +57,50 @@ export const createGuestArtifacts = (deps: {
       eq(artifactCommentThreads.artifactId, grant.artifactId),
       eq(artifactCommentThreads.workspaceId, grant.workspaceId)
     );
+  const prepareComment = async (
+    input: GuestCredential,
+    body: { body: string; threadId?: string; anchor?: CommentAnchor }
+  ) => {
+    const grant = await current(input, true);
+    if (
+      !body.body.trim() ||
+      new TextEncoder().encode(body.body).length > 4096
+    ) {
+      throw denied();
+    }
+    if (body.threadId && body.anchor) {
+      throw denied();
+    }
+    const resolved =
+      body.anchor && deps.anchors
+        ? await deps.anchors.resolve(grant, body.anchor)
+        : null;
+    if (body.anchor && !resolved) {
+      throw denied();
+    }
+    const at = deps.clock.now().toISOString();
+    const threadId = body.threadId ?? ulid();
+    if (body.threadId) {
+      const [thread] = await deps.db
+        .select()
+        .from(artifactCommentThreads)
+        .where(and(scope(grant), eq(artifactCommentThreads.id, threadId)))
+        .limit(1);
+      if (!thread) {
+        throw denied();
+      }
+    }
+    return { at, grant, resolved, threadId };
+  };
   return {
     async comment(
       input: GuestCredential,
-      body: { body: string; threadId?: string }
+      body: { body: string; threadId?: string; anchor?: CommentAnchor }
     ) {
-      const grant = await current(input, true);
-      if (
-        !body.body.trim() ||
-        new TextEncoder().encode(body.body).length > 4096
-      ) {
-        throw denied();
-      }
-      const at = deps.clock.now().toISOString();
-      const threadId = body.threadId ?? ulid();
-      if (body.threadId) {
-        const [thread] = await deps.db
-          .select()
-          .from(artifactCommentThreads)
-          .where(and(scope(grant), eq(artifactCommentThreads.id, threadId)))
-          .limit(1);
-        if (!thread) {
-          throw denied();
-        }
-      }
+      const { grant, resolved, at, threadId } = await prepareComment(
+        input,
+        body
+      );
       const id = ulid();
       await current(input, true);
       const tokenHash = await hashToken(input.sessionToken);
@@ -95,8 +123,10 @@ export const createGuestArtifacts = (deps: {
           ? []
           : [
               deps.db.insert(artifactCommentThreads).values({
+                anchor: resolved ? JSON.stringify(resolved.anchor) : null,
                 artifactId: grant.artifactId,
                 id: threadId,
+                quote: resolved?.quote ?? null,
                 workspaceId: grant.workspaceId,
               }),
             ]),
@@ -139,7 +169,11 @@ export const createGuestArtifacts = (deps: {
           )
         )
         .limit(1);
-      return { ...row, grant };
+      if (!row || (row.kind !== "document" && row.kind !== "deck")) {
+        throw denied();
+      }
+      await current(input);
+      return { grant, kind: row.kind, title: row.title };
     },
     async resolve(input: GuestCredential, threadId: string) {
       const grant = await current(input, true);
@@ -210,6 +244,7 @@ export const createGuestArtifacts = (deps: {
       return row
         ? {
             artifactId: row.artifactId,
+            displayName: row.guestName,
             expiresAt: row.expiresAt,
             guestId: row.guestId,
             role: row.role,
@@ -225,7 +260,7 @@ export const createGuestArtifacts = (deps: {
         tokenHash: await hashToken(input.sessionToken),
       });
     },
-    async threads(input: GuestCredential) {
+    async threads(input: GuestCredential): Promise<GuestThread[]> {
       const grant = await current(input);
       const rows = await deps.db
         .select()
@@ -233,7 +268,7 @@ export const createGuestArtifacts = (deps: {
         .where(scope(grant))
         .orderBy(asc(artifactCommentThreads.id))
         .limit(1000);
-      return Promise.all(
+      const result = await Promise.all(
         rows.map(async (thread) => ({
           ...thread,
           comments: await deps.db
@@ -250,8 +285,13 @@ export const createGuestArtifacts = (deps: {
             .limit(100),
         }))
       );
+      await current(input);
+      return result;
     },
-    async transcript(input: GuestCredential, after = "") {
+    async transcript(
+      input: GuestCredential,
+      after = ""
+    ): Promise<{ events: EventRecord[]; sessionId: string | null }> {
       const grant = await current(input);
       const [session] = await deps.db
         .select({ id: sessions.id })

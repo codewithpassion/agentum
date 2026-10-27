@@ -1,4 +1,5 @@
-import { guestCommentSchema } from "@repo/protocol/guest";
+import { ensureDeckCellInputSchema } from "@repo/protocol/deck";
+import { type GuestOpenResult, guestCommentSchema } from "@repo/protocol/guest";
 import type { GuestGrant } from "@repo/protocol/live";
 import { signRoomTicket } from "@repo/services/live-artifacts/ticket";
 import {
@@ -29,6 +30,10 @@ export const guestsOff = (env: Env) =>
 export const scopedGuests = (env: Env, composed: Composed) =>
   createGuestArtifacts({
     ...composed,
+    anchors: {
+      resolve: async (scope, anchor) =>
+        (await roomStub(env.ARTIFACT_ROOM, scope)).resolveAnchor(anchor),
+    },
     events: composed.services.events,
     guestsOff: () => guestsOff(env),
     payloads: r2Blobs(env.FILES),
@@ -48,6 +53,13 @@ export const guestImages = (env: Env, composed: Composed) =>
     register: async (scope, id) =>
       (await roomStub(env.ARTIFACT_ROOM, scope)).registerImage(id),
   });
+const requiredGuests = async (composed: Composed) => {
+  const service = await composed.services.liveGuests?.();
+  if (!service) {
+    throw new Error("Guest access unavailable");
+  }
+  return service;
+};
 interface Input {
   composed: Composed;
   credential: GuestCredential;
@@ -55,22 +67,29 @@ interface Input {
   grant: GuestGrant;
   request: Request;
 }
-const open = async ({ env, composed, credential, grant }: Input) => {
+const open = async ({
+  env,
+  composed,
+  credential,
+  grant,
+}: Input): Promise<GuestOpenResult> => {
   const snapshot = await (
     await roomStub(env.ARTIFACT_ROOM, grant)
   ).authoritativeSnapshot();
   return {
     ...(await scopedGuests(env, composed).metadata(credential)),
+    ...(await (await requiredGuests(composed)).details(credential)),
     revision: snapshot.revision,
     state: [...snapshot.state],
   };
 };
-const join = async ({ env, composed, grant }: Input) => {
+const join = async ({ env, composed, grant, credential }: Input) => {
+  const details = await (await requiredGuests(composed)).details(credential);
   const now = Math.floor(composed.clock.now().getTime() / 1000);
   const identity = {
     color: "#059669",
     kind: "guest" as const,
-    name: "Guest",
+    name: details?.guestName.slice(0, 200) || "Guest",
     participantId: `g:${grant.guestId}`,
     role: grant.role,
   };
@@ -83,7 +102,10 @@ const join = async ({ env, composed, grant }: Input) => {
         now + 900,
         Math.floor(new Date(grant.expiresAt).getTime() / 1000)
       ),
-      expiresAt: now + 120,
+      expiresAt: Math.min(
+        now + 120,
+        Math.floor(new Date(grant.expiresAt).getTime() / 1000)
+      ),
       issuedAt: now,
       jti: crypto.randomUUID(),
       version: 1,
@@ -129,6 +151,26 @@ export const guestActions: Record<
         credential,
         guestCommentSchema.parse(await guestJson(request))
       ),
+    method: "POST",
+  },
+  "ensure-deck-cell": {
+    execute: async ({ env, grant, credential, request }) => {
+      const body = await guestJson(request);
+      const input = ensureDeckCellInputSchema.parse({
+        ...(body as object),
+        artifactId: grant.artifactId,
+      });
+      const result = await (
+        await roomStub(env.ARTIFACT_ROOM, grant)
+      ).guestEnsureDeckCell(input, credential.sessionToken);
+      if (!result.ok) {
+        throw new Error("Guest access unavailable");
+      }
+      return {
+        revision: result.result.revision,
+        state: [...result.result.state],
+      };
+    },
     method: "POST",
   },
   images: { execute: images, method: "POST" },

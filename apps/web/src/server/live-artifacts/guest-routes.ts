@@ -1,8 +1,4 @@
 import { guestVerifySchema } from "@repo/protocol/guest";
-import {
-  cutUserAgent,
-  truncateIp,
-} from "@repo/services/artifacts/view-privacy";
 import { createGuestArtifacts } from "@repo/services/live-guests/artifacts";
 import { createGuestScopeDiscovery } from "@repo/services/live-guests/http-scope";
 import {
@@ -14,15 +10,14 @@ import { getCookie } from "hono/cookie";
 import { type Composed, compose } from "../compose";
 import type { AppEnv } from "../routes/groups";
 import { relay } from "../routes/session-stream";
-import { encodeFrame } from "../session-stream-core";
-import { eventFrame, STREAM_EVENT_TYPES } from "../session-stream-frames";
 import {
   guestActions,
   guestImages,
   guestJson,
   scopedGuests,
 } from "./guest-actions";
-import { guestStream } from "./guest-stream";
+import { guestOpenMetadata } from "./guest-metadata";
+import { guestReplay, guestStream } from "./guest-stream";
 import { roomStub } from "./namespace";
 
 export interface GuestRouteDeps {
@@ -76,18 +71,22 @@ export const guestRoutes = (
     return c.json(landing);
   });
   app.post("/api/guest/:inviteToken/code", async (c) => {
-    const composed = c.get("composed");
-    const token = c.req.param("inviteToken");
-    const workspaceId = await createGuestScopeDiscovery(composed.db).invitation(
-      token
-    );
-    const service = await composed.services.liveGuests?.();
-    if (workspaceId && service) {
-      await service.requestCode({
-        inviteToken: token,
-        ip: c.req.header("CF-Connecting-IP") ?? "",
-        workspaceId,
-      });
+    try {
+      const composed = c.get("composed");
+      const token = c.req.param("inviteToken");
+      const workspaceId = await createGuestScopeDiscovery(
+        composed.db
+      ).invitation(token);
+      const service = await composed.services.liveGuests?.();
+      if (workspaceId && service) {
+        await service.requestCode({
+          inviteToken: token,
+          ip: c.req.header("CF-Connecting-IP") ?? "",
+          workspaceId,
+        });
+      }
+    } catch {
+      /* Deliberately indistinguishable, including infrastructure failure. */
     }
     return c.json({ accepted: true });
   });
@@ -177,18 +176,11 @@ export const guestRoutes = (
       credential.sessionToken =
         rotated.cookie.split(";")[0]?.slice(GUEST_COOKIE.length + 1) ?? "";
       const resume = c.req.header("Last-Event-ID") || c.req.query("after");
-      const replayed = resume
-        ? await scoped.transcript(credential, resume.slice(0, 200))
-        : { events: [] };
-      const replay = {
-        ids: new Set(replayed.events.map((event) => event.id)),
-        text: replayed.events
-          .filter((event) =>
-            STREAM_EVENT_TYPES.some((type) => type === event.type)
-          )
-          .map((event) => encodeFrame(eventFrame(event)))
-          .join(""),
-      };
+      const replay = await guestReplay(
+        scoped,
+        credential,
+        resume?.slice(0, 200)
+      );
       const body = guestStream(relay(replay, live.body), async () =>
         Boolean(
           await scoped.resolveReference({
@@ -276,12 +268,7 @@ export const guestRoutes = (
     }
     const rotated =
       action === "open"
-        ? await service.open(credential, {
-            ipPrefix:
-              truncateIp(c.req.header("CF-Connecting-IP") ?? "") ?? undefined,
-            userAgent:
-              cutUserAgent(c.req.header("User-Agent") ?? "") ?? undefined,
-          })
+        ? await service.open(credential, guestOpenMetadata(c.req.raw))
         : await service.renew(credential);
     c.header("Set-Cookie", rotated.cookie);
     credential.sessionToken =

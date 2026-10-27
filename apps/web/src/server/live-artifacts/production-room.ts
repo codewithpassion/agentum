@@ -237,7 +237,7 @@ export class ArtifactRoom extends Room {
             authorizationRef: ref,
             color: "#059669",
             kind: "guest" as const,
-            name: "Guest",
+            name: grant.displayName.slice(0, 200) || "Guest",
             participantId: `g:${grant.guestId}`,
             role: grant.role,
           }
@@ -360,6 +360,14 @@ export class ArtifactRoom extends Room {
       ) {
         return null;
       }
+      const credential = await ctx.storage.get<Credential>(`credential:${ref}`);
+      if (!credential) {
+        return null;
+      }
+      await ctx.storage.put(`credential:${ref}`, {
+        ...credential,
+        expiresAt: Date.now() + 900_000,
+      });
       await ctx.storage.put(`actor:${identity.participantId}`, ref);
       return authorize(scope, identity);
     };
@@ -919,6 +927,40 @@ export class ArtifactRoom extends Room {
       throw new Error("Immutable room scope");
     }
     await this.state.storage.put("productionScope", scope);
+  }
+  /** Separate credential boundary for guest-only HTTP sparse table allocation. */
+  async guestEnsureDeckCell(
+    input: import("@repo/protocol/deck").EnsureDeckCellInput,
+    sessionToken: string
+  ) {
+    const scope = await this.state.storage.get<RoomScope>("productionScope");
+    if (!scope || scope.artifactId !== input.artifactId) {
+      throw new Error("Wrong scope");
+    }
+    const access = createGuestArtifacts({
+      ...this.composed(),
+      guestsOff: () =>
+        Boolean(
+          (this.productionEnv as Env & { LIVE_GUESTS_OFF?: string })
+            .LIVE_GUESTS_OFF
+        ),
+    });
+    const row = await access.sessionReference({ ...scope, sessionToken });
+    if (row?.role !== "editor") {
+      throw new Error("Guest access unavailable");
+    }
+    const ref = crypto.randomUUID();
+    await this.state.storage.put(`credential:${ref}`, {
+      expiresAt: Date.now() + 900_000,
+      guest: { ...scope, sessionId: row.sessionId },
+    } satisfies Credential);
+    const identity = {
+      authorizationRef: ref,
+      kind: "guest" as const,
+      participantId: `g:${row.guestId}`,
+    };
+    await this.state.storage.put(`actor:${identity.participantId}`, ref);
+    return super.ensureDeckCellOutcome(input, identity);
   }
   /** Trusted RPC only: caller has already resolved a real principal. Never
    * exposed as an HTTP endpoint and never accepts ticket identity claims. */
