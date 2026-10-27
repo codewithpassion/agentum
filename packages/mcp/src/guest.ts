@@ -1,5 +1,7 @@
 /** Separate scoped registry. General platform ports never enter this server. */
+
 import { McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
 import { registerTools } from "./register";
 import { ToolError } from "./result";
 import { type DeckPort, deckTools } from "./tools/deck";
@@ -18,6 +20,7 @@ export const guestTools = (deps: {
   authorize: (artifactId: string, write: boolean) => Promise<GuestToolScope>;
   live?: LivePort;
   deck?: DeckPort;
+  comments?: LivePort["comment"];
   /** Dedicated pending-suggestion ports. Direct mutation ports are never used
    * for guest-agent edits, including editor guests (PRD phase 4). */
   suggestions?: { document?: LivePort["edit"]; deck?: DeckPort["write"] };
@@ -27,10 +30,12 @@ export const guestTools = (deps: {
     const edit = deps.suggestions?.document;
     definitions = liveTools({
       ...deps.live,
+      comment: deps.comments ?? deps.live.comment,
       edit: edit ?? deps.live.edit,
     }).filter(
       (tool) =>
         tool.name !== "document_create" &&
+        (tool.name !== "document_comment" || Boolean(deps.comments)) &&
         (tool.name !== "document_edit" || Boolean(edit))
     );
   }
@@ -40,6 +45,26 @@ export const guestTools = (deps: {
       ...deps.deck,
       write: write ?? deps.deck.write,
     }).filter((tool) => tool.name !== "deck_write" || Boolean(write));
+  }
+  if (deps.scope.kind === "deck" && deps.live) {
+    definitions.push(
+      ...liveTools({
+        ...deps.live,
+        comment: deps.comments ?? deps.live.comment,
+      })
+        .filter(
+          (tool) =>
+            tool.name === "document_comments" ||
+            (tool.name === "document_comment" && Boolean(deps.comments))
+        )
+        .map((tool) => ({
+          ...tool,
+          name: tool.name.replace("document_", "deck_"),
+          ...(tool.name === "document_comment"
+            ? { inputSchema: deckCommentSchema }
+            : {}),
+        }))
+    );
   }
   return definitions
     .filter((tool) => !deps.supported || deps.supported.includes(tool.name))
@@ -91,3 +116,16 @@ export const createGuestMcpServer = (
   registerTools(server, guestTools(deps));
   return server;
 };
+
+const deckCommentSchema = z
+  .strictObject({
+    answered: z.literal(true).optional(),
+    artifactId: z.uuid(),
+    body: z.string().trim().min(1).max(4096).optional(),
+    threadId: z.string().min(1).max(200).optional(),
+  })
+  .refine(
+    (input) =>
+      Boolean(input.body || (input.threadId && input.answered)) &&
+      (!input.answered || Boolean(input.threadId))
+  );

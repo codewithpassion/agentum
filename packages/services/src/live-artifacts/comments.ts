@@ -14,6 +14,7 @@ import { and, asc, count, eq, gt, isNull, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
+import { loadRun } from "../runs/queries.ts";
 import type { Principal } from "../workspaces.ts";
 import { mentionStatements } from "./mentions.ts";
 import {
@@ -64,6 +65,15 @@ const validateComment = (
 
 export const createCommentsModule = (ctx: InteractionContext) => {
   const { db, atomic } = ctx;
+  const requireOrdinaryComments = async (principal: Principal) => {
+    if (
+      principal.kind === "run" &&
+      (await loadRun(db, principal.runId, principal.workspaceId))
+        ?.scopeArtifactId
+    ) {
+      throw new ForbiddenError("liveArtifacts.scopedCommentReceiptRequired");
+    }
+  };
   const threadAccess = async (principal: Principal, threadId: string) => {
     const [thread] = await db
       .select()
@@ -256,6 +266,7 @@ export const createCommentsModule = (ctx: InteractionContext) => {
   };
   return {
     async answered(principal: Principal, input: { threadId: string }) {
+      await requireOrdinaryComments(principal);
       const { member, row, role, thread } = await threadAccess(
         principal,
         input.threadId
@@ -303,6 +314,7 @@ export const createCommentsModule = (ctx: InteractionContext) => {
         requestId?: string;
       }
     ) {
+      await requireOrdinaryComments(principal);
       const { member, row, role } = await ctx.access(
         principal,
         input.artifactId,

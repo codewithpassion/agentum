@@ -209,6 +209,7 @@ export const createGuestArtifacts = (deps: {
       await current(input);
       return { grant, kind: row.kind, title: row.title };
     },
+    prepareComment,
     async resolve(input: GuestCredential, threadId: string) {
       const grant = await current(input, true);
       const [thread] = await deps.db

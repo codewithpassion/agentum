@@ -25,7 +25,9 @@ export const guestVerifySchema = z.strictObject({ code: z.string().max(100) });
 export const guestCommentSchema = z.strictObject({
   anchor: commentAnchorSchema.optional(),
   body: z.string().trim().min(1).max(4096),
+  requestId: z.string().min(1).max(200).optional(),
   threadId: z.string().min(1).max(200).optional(),
+  toAgent: z.boolean().optional(),
 });
 export interface GuestVerifyResult {
   expiresAt: string;

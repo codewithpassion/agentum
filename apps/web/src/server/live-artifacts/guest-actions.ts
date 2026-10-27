@@ -2,6 +2,7 @@ import { ensureDeckCellInputSchema } from "@repo/protocol/deck";
 import { type GuestOpenResult, guestCommentSchema } from "@repo/protocol/guest";
 import type { GuestGrant } from "@repo/protocol/live";
 import { signRoomTicket } from "@repo/services/live-artifacts/ticket";
+import { createGuestAddressedComment } from "@repo/services/live-guests/addressed-comment";
 import {
   createGuestArtifacts,
   type GuestCredential,
@@ -201,11 +202,30 @@ export const guestActions: Record<
     method: "GET",
   },
   comment: {
-    execute: async ({ env, composed, credential, request }) =>
-      scopedGuests(env, composed).comment(
-        credential,
-        guestCommentSchema.parse(await guestJson(request))
-      ),
+    execute: async ({ env, composed, credential, request, defer }) => {
+      const body = guestCommentSchema.parse(await guestJson(request));
+      const artifacts = scopedGuests(env, composed);
+      if (!body.toAgent) {
+        return artifacts.comment(credential, body);
+      }
+      const ask = createGuestAsk({
+        db: composed.db,
+        guests: await requiredGuests(composed),
+        presence: async (scope) =>
+          (await roomStub(env.ARTIFACT_ROOM, scope)).guestAskPresence(
+            scope.sessionToken
+          ),
+        runs: composed.services.runs,
+      });
+      const { offer, ...saved } = await createGuestAddressedComment({
+        artifacts,
+        ask,
+        db: composed.db,
+        events: composed.services.events,
+      })(credential, body);
+      defer(offer());
+      return saved;
+    },
     method: "POST",
   },
   "decide-suggestion": {

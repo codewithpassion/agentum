@@ -6,6 +6,7 @@ import { sessions } from "@repo/db/schema/sessions";
 import { guestAskSchema } from "@repo/protocol/guest";
 import { and, eq } from "drizzle-orm";
 import { guestUnavailable } from "../runs/guest-scope.ts";
+import type { StartRunOptions } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
 import { buildSpeakerEnvelope, type SpeakerRoom } from "../speaker-envelope.ts";
 import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
@@ -79,7 +80,11 @@ export const createGuestAsk =
       credential: GuestCredential
     ) => Promise<Pick<SpeakerRoom, "present" | "where">>;
   }) =>
-  async (credential: GuestCredential, raw: unknown) => {
+  async (
+    credential: GuestCredential,
+    raw: unknown,
+    comment?: { threadId: string; alongside: StartRunOptions["alongside"] }
+  ) => {
     const input = guestAskSchema.parse(raw);
     const { agent, artifact, grant, session } = await createGuestAskSelection(
       deps
@@ -92,6 +97,7 @@ export const createGuestAsk =
     }
     const result = await deps.guests.startRun({
       ...credential,
+      alongside: comment?.alongside,
       run: {
         agentId: agent.id,
         input: {
@@ -108,8 +114,11 @@ export const createGuestAsk =
                 kind: artifact.kind as "document" | "deck",
                 title: artifact.title,
               },
+              where: comment
+                ? { ...room.where, threadId: comment.threadId }
+                : room.where,
             },
-            "artifact_thread",
+            comment ? "comment" : "artifact_thread",
             input.text
           ),
         },

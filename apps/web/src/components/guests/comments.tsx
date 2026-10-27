@@ -1,7 +1,7 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Guest callbacks capture thread identity. */
 import type { GuestThread } from "@repo/protocol/guest";
 import type { CommentAnchor } from "@repo/protocol/live";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditorRole } from "../live-artifacts/editor-ports";
 import { guestHttp } from "./http";
 import type { GuestServices } from "./services";
@@ -20,6 +20,8 @@ export function GuestComments({
   const [body, setBody] = useState("");
   const [reply, setReply] = useState("");
   const [busy, setBusy] = useState(false);
+  const [toAgent, setToAgent] = useState(false);
+  const requestId = useRef<string | null>(null);
   const refresh = useCallback(
     () =>
       guestHttp
@@ -48,8 +50,8 @@ export function GuestComments({
     <section aria-label="Comments" className="guest-comments">
       <h2>Comments</h2>
       <p>
-        Use Ask agent above to request help. Comments here are shared with
-        everyone who can access this artifact.
+        Comments are shared with everyone who can access this artifact. Address
+        a new comment to the agent to request an answer in its thread.
       </p>
       {threads.map((thread) => (
         <article key={thread.id}>
@@ -66,7 +68,13 @@ export function GuestComments({
             ))}
           {role !== "viewer" && !thread.resolvedAt && (
             <>
-              <button onClick={() => setReply(thread.id)} type="button">
+              <button
+                onClick={() => {
+                  setReply(thread.id);
+                  requestId.current = null;
+                }}
+                type="button"
+              >
                 Reply
               </button>
               <button
@@ -91,25 +99,54 @@ export function GuestComments({
           onSubmit={(event) => {
             event.preventDefault();
             run(async () => {
+              requestId.current ??= crypto.randomUUID();
               await guestHttp.json(services.endpoint("comment"), {
                 body,
+                ...(!reply && toAgent
+                  ? { requestId: requestId.current, toAgent: true }
+                  : {}),
                 ...(reply ? { threadId: reply } : { anchor }),
               });
               setBody("");
+              requestId.current = null;
             });
           }}
         >
           <label>
             {reply ? "Reply to thread" : "New comment"}
             <textarea
+              disabled={busy}
               maxLength={4096}
-              onChange={(event) => setBody(event.target.value)}
+              onChange={(event) => {
+                setBody(event.target.value);
+                requestId.current = null;
+              }}
               required
               value={body}
             />
           </label>
+          {!reply && (
+            <label>
+              <input
+                checked={toAgent}
+                disabled={busy}
+                onChange={(event) => {
+                  setToAgent(event.target.checked);
+                  requestId.current = null;
+                }}
+                type="checkbox"
+              />
+              Address to agent
+            </label>
+          )}
           {Boolean(reply) && (
-            <button onClick={() => setReply("")} type="button">
+            <button
+              onClick={() => {
+                setReply("");
+                requestId.current = null;
+              }}
+              type="button"
+            >
               Cancel reply
             </button>
           )}

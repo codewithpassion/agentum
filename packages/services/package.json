@@ -131,6 +131,8 @@
     "./live-artifacts/service": "./src/live-artifacts/service.ts",
     "./live-guests/durable-runtime": "./src/live-guests/durable-runtime.ts",
     "./live-guests/agent-policy": "./src/live-guests/agent-policy.ts",
+    "./live-guests/addressed-comment": "./src/live-guests/addressed-comment.ts",
+    "./live-guests/scoped-comments": "./src/live-guests/scoped-comments.ts",
     "./live-guests/ask": "./src/live-guests/ask.ts",
     "./live-guests/restricted-runtime": "./src/live-guests/restricted-runtime.ts",
     "./live-guests/run-access": "./src/live-guests/run-access.ts",

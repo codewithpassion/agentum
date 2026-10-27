@@ -1,5 +1,6 @@
 // biome-ignore-all lint/performance/noBarrelFile: local workerd fixture entrypoint only.
 
+import { createScopedGuestComments } from "@repo/services/live-guests/scoped-comments";
 import { createLiveGuestsService } from "@repo/services/live-guests/service";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { Hono } from "hono";
@@ -85,10 +86,25 @@ export class GuestRun extends ProductionGuestRun {
     );
     const turn = JSON.parse(input.text).harbourmaster_turn as {
       text: string;
+      via?: string;
+      where?: { threadId?: string };
       artifact: { id: string; kind: string };
     };
     if (input.history.length) {
       return { kind: "answer", text: "Captured guest completion" };
+    }
+    if (turn.via === "comment") {
+      return {
+        input: {
+          answered: true,
+          artifactId: turn.artifact.id,
+          body: "Scoped commenter reply",
+          threadId: turn.where?.threadId,
+        },
+        kind: "tool",
+        name:
+          turn.artifact.kind === "deck" ? "deck_comment" : "document_comment",
+      };
     }
     if (turn.text.includes("native")) {
       return {
@@ -286,6 +302,26 @@ app.post("/fixture/probe/:id", async (c) => {
   return c.json({
     refused: results.filter((result) => result.status === "rejected").length,
   });
+});
+app.post("/fixture/answer-preview/:id", async (c) => {
+  const composed = fixtureCompose(c.env);
+  const comments = createScopedGuestComments({
+    ...composed,
+    events: composed.services.events,
+    guestsOff: () => false,
+    runs: composed.services.runs,
+  });
+  await comments.answer(
+    SYSTEM_PRINCIPAL,
+    c.req.param("id"),
+    "Captured guest completion"
+  );
+  await comments.answer(
+    SYSTEM_PRINCIPAL,
+    c.req.param("id"),
+    "Captured guest completion"
+  );
+  return c.json({ ok: true });
 });
 app.post("/fixture/recover/:id", async (c) =>
   c.json(

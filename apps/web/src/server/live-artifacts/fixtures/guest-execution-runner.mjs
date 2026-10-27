@@ -381,6 +381,149 @@ try {
     (await unchanged.json()).items.length === 1,
     "downgraded run applies no additional suggestion"
   );
+
+  for (const configuredRuntime of ["cloud", "machine", "managed"]) {
+    for (const kind of ["document", "deck"]) {
+      cookie = undefined;
+      await db
+        .prepare("UPDATE agents SET runtime=? WHERE id='a1'")
+        .bind(configuredRuntime)
+        .run();
+      const created = await (
+        await post(
+          "/fixture/create",
+          {
+            email: `${configuredRuntime}-${kind}@example.com`,
+            kind,
+            role: "commenter",
+          },
+          false
+        )
+      ).json();
+      const id = created.artifactId;
+      await db
+        .prepare("UPDATE artifacts SET agent_id='a1' WHERE id=?")
+        .bind(id)
+        .run();
+      const token = created.mail
+        .at(-1)
+        .text.match(/hm_invite_[A-Za-z0-9_-]+/)[0];
+      await post(`/api/guest/${token}/code`, {}, false);
+      const messages = await (await request("/fixture/mail")).json();
+      const verified = await post(
+        `/api/guest/${token}/verify`,
+        { code: messages.at(-1).text.match(/\b\d{6}\b/)[0] },
+        false
+      );
+      rotate(verified);
+      const commentInput = {
+        body: "Please answer this addressed comment",
+        requestId: "addressed-one",
+        toAgent: true,
+      };
+      const response = await post(
+        `/api/guest/artifacts/${id}/comment`,
+        commentInput
+      );
+      rotate(response);
+      check(
+        response.status === 200,
+        `${configuredRuntime}/${kind} commenter addressed HTTP start`
+      );
+      const started = await response.json();
+      const retry = await post(
+        `/api/guest/artifacts/${id}/comment`,
+        commentInput
+      );
+      rotate(retry);
+      const replay = await retry.json();
+      check(
+        replay.runId === started.runId &&
+          replay.id === started.id &&
+          replay.threadId === started.threadId,
+        "addressed retry reuses one charged run, comment and thread"
+      );
+      for (let i = 0; i < 4; i += 1) {
+        await post(`/fixture/advance/${started.runId}`, {}, false);
+      }
+      const requests = await (await request("/fixture/requests")).json();
+      check(
+        requests.length === 1,
+        "commenter agent comment enters durable member approval"
+      );
+      await post(`/fixture/answer/${requests[0].id}`, {}, false);
+      const recovered = await post(
+        `/fixture/recover/${started.runId}`,
+        {},
+        false
+      );
+      check(
+        recovered.status === 200,
+        "scoped comment effect survives lost acknowledgement with stable MCP call id"
+      );
+      const preview = await post(
+        `/fixture/answer-preview/${started.runId}`,
+        {},
+        false
+      );
+      check(
+        preview.status === 200,
+        "answer chunks and acknowledgement replay idempotently before completion"
+      );
+      for (let i = 0; i < 6; i += 1) {
+        await post(`/fixture/advance/${started.runId}`, {}, false);
+      }
+      const comments = await db
+        .prepare(
+          "SELECT * FROM artifact_comments WHERE thread_id=? ORDER BY created_at,id"
+        )
+        .bind(started.threadId)
+        .all();
+      const thread = await db
+        .prepare("SELECT * FROM artifact_comment_threads WHERE id=?")
+        .bind(started.threadId)
+        .first();
+      check(
+        comments.results.length === 3 &&
+          comments.results.filter((c) => c.author_kind === "agent").length ===
+            2,
+        "human addressed comment plus two distinct idempotent agent replies"
+      );
+      check(
+        thread.answered_at &&
+          thread.resolved_at === null &&
+          thread.to_agent === 1,
+        "agent answers original thread without resolving human discussion"
+      );
+      const run = await db
+        .prepare("SELECT * FROM runs WHERE id=?")
+        .bind(started.runId)
+        .first();
+      check(
+        run.status === "done" &&
+          run.actor_kind === "guest" &&
+          run.on_behalf_of_user_id === null &&
+          run.scope_artifact_id === id,
+        `${configuredRuntime}/${kind} uses dedicated executor with guest provenance`
+      );
+      const ordinary = await post(`/api/guest/artifacts/${id}/comment`, {
+        body: "A normal human comment",
+      });
+      rotate(ordinary);
+      check(
+        ordinary.status === 200,
+        "ordinary human comment remains non-triggering"
+      );
+      const total = await db
+        .prepare("SELECT count(*) n FROM runs WHERE scope_artifact_id=?")
+        .bind(id)
+        .first();
+      check(
+        total.n === 1,
+        "normal comment and addressed retries create no extra runs"
+      );
+    }
+  }
   process.stdout.write(`${JSON.stringify({ checks, runId: started.runId })}\n`);
 } finally {
   await runtime.dispose();
