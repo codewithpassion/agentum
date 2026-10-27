@@ -3,9 +3,9 @@ id: A.6
 title: Wiring, share route, thumbnail, tick and bindings
 milestone: A
 size: L
-status: todo
+status: in_progress
 depends_on: [A.2, A.3, A.4, A.5, A.12]
-branch: null
+branch: task/A.6-wiring
 lane: worker
 executor: claude
 ---
@@ -34,5 +34,12 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 - A.9: `artifacts.list` takes `runId` (A.2 filters on it).
 - A services test ("an hour of never-claimed runs stays bounded") can time out on a busy host. Re-run it before treating it as a failure.
 
+More refinements (2026-10-27, after A.2, A.3, A.4, A.8 merged)
+- A.2: build `createArtifactsService({db, atomic, blobs, clock, events, library, people})` and add `artifacts` to `Services`; replace the `artifactsOf(ctx)` accessor in `artifacts-router.ts` with `ctx.services.artifacts`. It returns no `url`; the MCP adapter adds `https://<app>/a/<artifactId>`. Map `ServiceError` `invalid` to the tool's `validation` code.
+- A.3: add `artifactShares` to `Services` (`createArtifactSharesService({ atomic, clock, db, events, linksOff, origin, people, secretsKey, viewKey })`), delete the `sharesService` cast helper in `artifact-shares-router.ts`, run `prune()` daily from the tick.
+- A.4: the `frame-ancestors 'none'` middleware must skip `/a/<uuid>/c/` paths (they set their own `frame-ancestors`).
+- A.8 found no way to list a version's files: add a `files` list (path, size, contentType) to the `artifacts.versions` or `artifacts.get` output for the shown version, plus `GET /api/artifacts/:id/download?version=<n>` (session, zip of the version's files, `attachment`), which A.8's Download menu item already calls. Then pass `dataFiles` (non-entry files) from the viewer to `ShareDialog`.
+
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.
