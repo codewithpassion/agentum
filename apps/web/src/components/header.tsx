@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { APP_HEADER_MENU_SLOT } from "#/components/shell/header-menu-slot";
 import { useIsAppShell } from "#/hooks/use-app-shell";
 import { cn } from "#/lib/utils";
 import ClerkHeader from "../integrations/clerk/header-user.tsx";
@@ -22,6 +23,11 @@ export default function Header() {
           !inAppShell && "page-wrap"
         )}
       >
+        {/* The app shell portals its menu button in here on phones, so the
+            header is the only bar. Empty (and hidden) elsewhere. */}
+        {inAppShell ? (
+          <div className="empty:hidden md:hidden" id={APP_HEADER_MENU_SLOT} />
+        ) : null}
         <h2 className="m-0 flex-shrink-0 text-base">
           <Link
             className="inline-flex items-center gap-2.5 font-heading text-foreground text-xl no-underline"

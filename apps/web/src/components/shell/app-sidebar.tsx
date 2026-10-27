@@ -16,6 +16,7 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "#/components/ui/sidebar";
 import { agentInitials, agentTileColour } from "./agent-tile.ts";
 import {
@@ -42,6 +43,12 @@ function isActive(pathname: string, to: string) {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
+/** Click handler that closes the mobile nav sheet after a link is tapped. */
+function useCloseMobileNav() {
+  const { setOpenMobile } = useSidebar();
+  return () => setOpenMobile(false);
+}
+
 function NavMenuItem({
   badge,
   badgeLabel = "need you",
@@ -53,10 +60,11 @@ function NavMenuItem({
   item: NavItem;
   pathname: string;
 }) {
+  const closeMobileNav = useCloseMobileNav();
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={isActive(pathname, item.to)}>
-        <Link to={item.to}>
+        <Link onClick={closeMobileNav} to={item.to}>
           <item.icon />
           <span>{item.label}</span>
         </Link>
@@ -77,6 +85,7 @@ function AgentsSection({
   agents: readonly SidebarAgent[];
   pathname: string;
 }) {
+  const closeMobileNav = useCloseMobileNav();
   return (
     <SidebarGroup>
       <SidebarGroupLabel>Agents</SidebarGroupLabel>
@@ -88,7 +97,11 @@ function AgentsSection({
                 asChild
                 isActive={isActive(pathname, `/agents/${agent.id}`)}
               >
-                <Link params={{ agentId: agent.id }} to="/agents/$agentId">
+                <Link
+                  onClick={closeMobileNav}
+                  params={{ agentId: agent.id }}
+                  to="/agents/$agentId"
+                >
                   <span
                     aria-hidden="true"
                     className={`flex size-5 shrink-0 items-center justify-center rounded font-semibold text-[10px] text-white ${agentTileColour(agent.name)}`}
@@ -102,7 +115,7 @@ function AgentsSection({
           ))}
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
-              <Link to="/agents/new">
+              <Link onClick={closeMobileNav} to="/agents/new">
                 <Plus />
                 <span>New agent</span>
               </Link>
@@ -160,6 +173,7 @@ export function AppSidebar({
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
+  const { isMobile } = useSidebar();
 
   return (
     <Sidebar className="top-(--app-header-h) h-[calc(100svh-var(--app-header-h))]">
@@ -181,8 +195,11 @@ export function AppSidebar({
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {/* On a phone "More" sits above the agent list, so Inbox, Sessions and
+            the rest are one tap away instead of below ten agents. */}
+        {isMobile ? <MoreSection pathname={pathname} /> : null}
         <AgentsSection agents={agents} pathname={pathname} />
-        <MoreSection pathname={pathname} />
+        {isMobile ? null : <MoreSection pathname={pathname} />}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>

@@ -268,3 +268,80 @@ body {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------------
+   Mobile rules (task MB.1). These are unlayered on purpose: they beat the
+   Tailwind utilities on the shadcn components in components/ui/, which are
+   CLI output and never hand-edited. Desktop (md and up, fine pointers) is
+   untouched. Later mobile tasks (MB.3 to MB.6) build on these.
+   ------------------------------------------------------------------------ */
+
+/* Form fields: 16px below md so iOS Safari does not zoom the page on focus. */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 1rem;
+  }
+}
+
+/* Dialogs: never taller than the visible viewport. The content scrolls
+   inside, so the title is at the top and the footer buttons are reachable
+   even with the on-screen keyboard open. */
+[data-slot="dialog-content"] {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+/* Sheets: full width on phones. The mobile nav drawer sets its own
+   data-slot ("sidebar"), so it keeps its 18rem width. */
+@media (max-width: 639px) {
+  [data-slot="sheet-content"][data-side="left"],
+  [data-slot="sheet-content"][data-side="right"] {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* Touch targets: at least 40x40 for coarse pointers (phones, tablets).
+   Buttons grow; checkboxes and switches keep their look and gain an
+   invisible hit area instead. */
+@media (pointer: coarse) {
+  button:not([role="switch"], [role="checkbox"]),
+  [role="button"],
+  [data-slot="select-trigger"],
+  [data-sidebar="menu-button"] {
+    min-height: 2.5rem;
+  }
+
+  [data-slot="button"][data-size^="icon"],
+  [data-slot="dialog-close"],
+  [data-slot="sheet-close"] {
+    min-width: 2.5rem;
+  }
+
+  [data-slot="tabs-list"] {
+    height: auto;
+    min-height: 2.5rem;
+  }
+
+  [role="switch"],
+  [role="checkbox"] {
+    position: relative;
+  }
+
+  [role="switch"]::after,
+  [role="checkbox"]::after {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    width: 2.5rem;
+    height: 2.5rem;
+    content: "";
+    transform: translate(-50%, -50%);
+  }
+
+  /* The nav badge is centred on a 32px row; the row is now 40px. */
+  [data-sidebar="menu-badge"] {
+    top: 0.625rem;
+  }
+}

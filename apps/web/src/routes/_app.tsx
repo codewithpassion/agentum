@@ -6,6 +6,7 @@ import {
   usePolledQuery,
 } from "#/components/inbox/use-polled-query";
 import { AppSidebar } from "#/components/shell/app-sidebar";
+import { HeaderMenuButton } from "#/components/shell/header-menu-slot";
 import {
   SidebarInset,
   SidebarProvider,
@@ -52,9 +53,12 @@ function AppLayout() {
         openQaCount={openQaCount ?? 0}
       />
       <SidebarInset>
-        <div className="flex h-12 items-center border-border border-b px-4">
+        {/* Desktop keeps this bar. On phones the menu button lives in the
+            site header instead, so there is one bar. */}
+        <div className="hidden h-12 items-center border-border border-b px-4 md:flex">
           <SidebarTrigger />
         </div>
+        <HeaderMenuButton />
         <div className="flex-1 px-4 py-6 sm:px-6">
           <Outlet />
         </div>
