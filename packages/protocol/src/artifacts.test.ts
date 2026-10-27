@@ -23,6 +23,7 @@ describe("bridge messages", () => {
       params: {
         appCapabilities: {},
         appInfo: { name: "a", version: "1" },
+        nonce: "abc123",
         protocolVersion: "2026-01-26",
       },
     },

@@ -19,6 +19,8 @@ import {
 /** JSON-RPC error codes the frame answers with. */
 export const BRIDGE_ERROR = {
   denied: -32_000,
+  /** The call ran or was tried and did not work. */
+  failed: -32_001,
   invalidRequest: -32_600,
   methodNotFound: -32_601,
 } as const;

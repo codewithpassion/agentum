@@ -273,6 +273,8 @@ export const uiInitializeParamsSchema = z.strictObject({
   // The MCP Apps spec requires it; the frame ignores its content.
   appCapabilities: z.record(z.string(), z.unknown()).optional(),
   appInfo: z.strictObject({ name: z.string(), version: z.string() }).optional(),
+  /** The frame's one-time value from the iframe URL fragment (`#hm=<nonce>`). */
+  nonce: z.string().min(1).optional(),
   protocolVersion: z.string().min(1),
 });
 export const uiInitializeRequestSchema = jsonRpcRequestSchema(
