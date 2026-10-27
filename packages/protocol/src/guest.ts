@@ -9,6 +9,7 @@ import {
   commentAnchorSchema,
   type GuestGrant,
   type LiveJoinResult,
+  type LiveSuggestion,
 } from "./live.ts";
 export const guestAskSchema = z.strictObject({
   agentId: z.string().min(1).max(200).optional(),
@@ -50,6 +51,8 @@ export const guestEndpoints = {
   artifact: (
     id: string,
     action:
+      | "suggestions"
+      | "decide-suggestion"
       | "invitations"
       | "ask"
       | "open"
@@ -133,4 +136,9 @@ export interface GuestSessionEvent {
 export interface GuestSessionResult {
   events: GuestSessionEvent[];
   sessionId: string | null;
+}
+
+export interface GuestSuggestionsResult {
+  items: LiveSuggestion[];
+  mode: boolean;
 }

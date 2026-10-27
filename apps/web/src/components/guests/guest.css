@@ -75,3 +75,19 @@ label {
     margin: 2vh auto;
   }
 }
+
+.guest-suggestions pre {
+  max-height: 20rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.guest-suggestions article {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.guest-suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
