@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
+import { artifacts } from "@repo/db/schema/artifacts";
 import { events as eventRows } from "@repo/db/schema/events";
 import { files as fileRows } from "@repo/db/schema/files";
+import {
+  artifactMembers,
+  guestIdentities,
+} from "@repo/db/schema/live-artifacts";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
@@ -10,6 +15,7 @@ import { slackEventsSeen } from "@repo/db/schema/slack";
 import { agentToolRules } from "@repo/db/schema/tool-rules";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
+import type { GuestGrant } from "@repo/protocol/live";
 import { eventsRequestSchema } from "@repo/protocol/machine";
 import { file } from "bun";
 import { eq, inArray } from "drizzle-orm";
@@ -40,6 +46,7 @@ import {
   type RunsServiceOptions,
 } from "./runs.ts";
 import { createSecretsService } from "./secrets.ts";
+import { createSessionsService } from "./sessions.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
@@ -2769,4 +2776,351 @@ describe("the run task folder", () => {
     );
     logged.mockRestore();
   });
+});
+
+describe("guest artifact starts", () => {
+  const artifactId = "11111111-1111-4111-8111-111111111111";
+  const grant: GuestGrant = {
+    artifactId,
+    expiresAt: "2026-10-17T10:00:00.000Z",
+    guestId: "g1",
+    role: "commenter",
+    workspaceId: WORKSPACE,
+  };
+  const guestInput = (): StartRunInput => ({
+    agentId: spyAgentId,
+    input: { text: "hello" },
+    reply: { kind: "none" },
+    session: { externalKey: artifactId, origin: "artifact" },
+  });
+  const setupArtifact = () =>
+    db
+      .insert(artifacts)
+      .values({
+        audience: "private",
+        createdAt: START,
+        createdById: "u1",
+        createdByKind: "user",
+        id: artifactId,
+        kind: "document",
+        ownerUserId: "u1",
+        title: "Doc",
+        updatedAt: START,
+        workspaceId: WORKSPACE,
+      })
+      .run();
+  const guestRuns = (overrides: Partial<RunsServiceOptions> = {}) =>
+    buildRuns({
+      authorizeGuestGrant: async () => {
+        await Promise.resolve();
+      },
+      guestRuntimeReady: () => true,
+      ...overrides,
+    });
+
+  test("GuestGrant is rejected by the Principal-only type contract", () => {
+    const compileOnly = () => {
+      // @ts-expect-error a GuestGrant is not an authenticated Principal
+      runs.startRun(grant, guestInput());
+    };
+    expect(typeof compileOnly).toBe("function");
+  });
+  test("stores guest identity, null delegation and artifact scope on every queued event", async () => {
+    setupArtifact();
+    const service = guestRuns();
+    const started = await service.startForGuest(grant, guestInput(), {
+      offerLater: true,
+    });
+    const row = runRow(started.runId);
+    expect(row?.actorKind).toBe("guest");
+    expect(row?.actorId).toBe("g1");
+    expect(row?.onBehalfOfUserId).toBeNull();
+    expect(row?.scopeArtifactId).toBe(artifactId);
+    expect(
+      runEvents(started.runId).map((e) => [e.actorKind, e.actorId])
+    ).toEqual([
+      ["guest", "g1"],
+      ["guest", "g1"],
+    ]);
+    const next = await service.startForGuest(grant, guestInput(), {
+      offerLater: true,
+      sessionId: started.sessionId,
+    });
+    expect(next.sessionId).toBe(started.sessionId);
+    expect(runRow(next.runId)?.scopeArtifactId).toBe(artifactId);
+  });
+  test("fails closed without verifier or scoped runtime and rejects expired/viewer/mismatched grants", async () => {
+    for (const service of [
+      buildRuns(),
+      guestRuns({ authorizeGuestGrant: undefined }),
+      guestRuns({ guestRuntimeReady: () => false }),
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: exercise each independent authorization failure
+      await expect(
+        service.startForGuest(grant, guestInput())
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    }
+    for (const bad of [
+      { ...grant, expiresAt: START },
+      { ...grant, role: "viewer" as const },
+      { ...grant, workspaceId: "w2" },
+      { ...grant, artifactId: "22222222-2222-4222-8222-222222222222" },
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: exercise each independent authorization failure
+      await expect(
+        guestRuns().startForGuest(bad, guestInput())
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    }
+    await expect(
+      guestRuns({
+        authorizeGuestGrant: () =>
+          Promise.reject(new ForbiddenError("revoked")),
+      }).startForGuest(grant, guestInput())
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(runRowCount()).toBe(0);
+  });
+  test("cannot continue another artifact or web session and cannot hand off", async () => {
+    setupArtifact();
+    const web = await start(user, spyAgentId);
+    await expect(
+      guestRuns().startForGuest(grant, guestInput(), {
+        sessionId: web.sessionId,
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    const started = await guestRuns().startForGuest(grant, guestInput(), {
+      offerLater: true,
+    });
+    const principal: Principal = {
+      agentId: spyAgentId,
+      kind: "run",
+      runId: started.runId,
+      workspaceId: WORKSPACE,
+    };
+    await expect(start(principal, await addSpyAgent())).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+  });
+  test("artifact authorization applies to direct and sessionId starts", async () => {
+    setupArtifact();
+    await expect(runs.startRun(colleague, guestInput())).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+    const own = await runs.startRun(user, guestInput(), { offerLater: true });
+    await expect(
+      start(colleague, spyAgentId, {}, "forge continuation", {
+        sessionId: own.sessionId,
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+  test("history and live names use actor lookups, never payload identity or guest email", async () => {
+    setupArtifact();
+    db.insert(guestIdentities)
+      .values({
+        createdAt: START,
+        displayName: "Ana",
+        email: "private@example.com",
+        id: "g1",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    const people = async () =>
+      new Map([["u1", { email: "private-member@example.com", name: "Dom" }]]);
+    const service = createEventsService({ blobs, db, people });
+    const live: EventRecord[] = [];
+    service.onAppend((event) => {
+      live.push(event);
+      return Promise.resolve();
+    });
+    for (const actor of [
+      { id: "u1", kind: "user" as const },
+      { id: "g1", kind: "guest" as const },
+      { id: "unknown", kind: "guest" as const },
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: compare persisted and live event order
+      await service.append({
+        actor,
+        payload: { actorDisplay: { name: "Forged owner" }, text: "hello" },
+        sessionId: null,
+        type: "message.user",
+        workspaceId: WORKSPACE,
+      });
+    }
+    const history = await service.query(user, WORKSPACE, {
+      types: ["message.user"],
+    });
+    expect(history.map((e) => e.actorDisplay)).toEqual(
+      live.map((e) => e.actorDisplay)
+    );
+    expect(history.map((e) => e.actorDisplay)).toEqual([
+      { name: "Dom" },
+      { name: "Ana" },
+      undefined,
+    ]);
+    expect(JSON.stringify(history.map((e) => e.actorDisplay))).not.toContain(
+      "example.com"
+    );
+  });
+});
+
+test("scoped guest runs see only their artifact session, and revoked membership hides it", async () => {
+  const artifactId = "11111111-1111-4111-8111-111111111111";
+  db.insert(artifacts)
+    .values({
+      audience: "private",
+      createdAt: START,
+      createdById: "u1",
+      createdByKind: "user",
+      id: artifactId,
+      kind: "document",
+      ownerUserId: "u1",
+      title: "Doc",
+      updatedAt: START,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(guestIdentities)
+    .values({
+      createdAt: START,
+      displayName: "Ana",
+      email: "private@example.com",
+      id: "g1",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(artifactMembers)
+    .values({
+      artifactId,
+      createdAt: START,
+      createdBy: "u1",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      guestId: "g1",
+      id: "gm1",
+      principalKind: "guest",
+      role: "commenter",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const service = buildRuns({
+    authorizeGuestGrant: () => Promise.resolve(),
+    guestRuntimeReady: () => true,
+  });
+  const own = await service.startForGuest(
+    {
+      artifactId,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      guestId: "g1",
+      role: "commenter",
+      workspaceId: WORKSPACE,
+    },
+    {
+      agentId: spyAgentId,
+      input: { text: "hello" },
+      reply: { kind: "none" },
+      session: { externalKey: artifactId, origin: "artifact" },
+    },
+    { offerLater: true }
+  );
+  const other = await start(
+    user,
+    spyAgentId,
+    { session: { externalKey: "unrelated", origin: "slack" } },
+    "private context",
+    { offerLater: true }
+  );
+  const principal: Principal = {
+    agentId: spyAgentId,
+    kind: "run",
+    runId: own.runId,
+    workspaceId: WORKSPACE,
+  };
+  const sessionsService = createSessionsService({ db, events });
+  expect((await sessionsService.get(principal, own.sessionId)).id).toBe(
+    own.sessionId
+  );
+  await expect(
+    sessionsService.get(principal, other.sessionId)
+  ).rejects.toBeInstanceOf(ServiceError);
+  await expect(service.getRun(principal, other.runId)).rejects.toBeInstanceOf(
+    ServiceError
+  );
+  db.update(artifactMembers)
+    .set({ revokedAt: START })
+    .where(eq(artifactMembers.id, "gm1"))
+    .run();
+  await expect(
+    sessionsService.get(principal, own.sessionId)
+  ).rejects.toBeInstanceOf(ServiceError);
+  await expect(
+    buildRuns().offerQueuedRun(SYSTEM_PRINCIPAL, own.runId)
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("ordinary runs cannot read private artifact summaries after grant revocation", async () => {
+  const artifactId = "11111111-1111-4111-8111-111111111111";
+  db.insert(artifacts)
+    .values({
+      audience: "private",
+      createdAt: START,
+      createdById: "u1",
+      createdByKind: "user",
+      id: artifactId,
+      kind: "document",
+      ownerUserId: "u1",
+      title: "Private",
+      updatedAt: START,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const target = await start(
+    user,
+    spyAgentId,
+    { session: { externalKey: artifactId, origin: "artifact" } },
+    "private",
+    { offerLater: true }
+  );
+  const caller = await start(colleague, spyAgentId, {}, "ordinary", {
+    offerLater: true,
+  });
+  const principal: Principal = {
+    agentId: spyAgentId,
+    kind: "run",
+    runId: caller.runId,
+    workspaceId: WORKSPACE,
+  };
+  await expect(runs.getRun(principal, target.runId)).rejects.toBeInstanceOf(
+    ServiceError
+  );
+  await expect(
+    runs.waitForRun(principal, target.runId, 0)
+  ).rejects.toBeInstanceOf(ServiceError);
+  db.insert(artifactMembers)
+    .values({
+      artifactId,
+      createdAt: START,
+      createdBy: "u1",
+      id: "ordinary-member",
+      principalKind: "user",
+      role: "commenter",
+      userId: "u2",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  expect((await runs.getRun(principal, target.runId)).id).toBe(target.runId);
+  db.update(artifactMembers)
+    .set({ revokedAt: START })
+    .where(eq(artifactMembers.id, "ordinary-member"))
+    .run();
+  await expect(runs.getRun(principal, target.runId)).rejects.toBeInstanceOf(
+    ServiceError
+  );
+  await expect(
+    runs.waitForRun(principal, target.runId, 0)
+  ).rejects.toBeInstanceOf(ServiceError);
+  await expect(
+    runs.getRun({ ...principal, runId: "missing" }, target.runId)
+  ).rejects.toBeInstanceOf(ServiceError);
+  await expect(
+    runs.getRun({ ...principal, workspaceId: "w2" }, target.runId)
+  ).rejects.toBeInstanceOf(ServiceError);
+  expect((await runs.getRun(principal, caller.runId)).id).toBe(caller.runId);
 });

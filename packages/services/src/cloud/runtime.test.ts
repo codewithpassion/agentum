@@ -8,6 +8,7 @@ import { slackApps } from "@repo/db/schema/slack";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { asc, eq } from "drizzle-orm";
+import { SPEAKER_INSTRUCTIONS } from "../agent-prompt.ts";
 import { type AgentsService, createAgentsService } from "../agents.ts";
 import { seedAssignment, seedConnector } from "../connectors/test-seed.ts";
 import { createEventsService } from "../events.ts";
@@ -321,7 +322,9 @@ describe("dispatch", () => {
     if (!input) {
       throw new Error("The runner was not started");
     }
-    expect(input.agent.instructions).toBe(`Be brief.\n\n${SLACK_GUIDANCE}`);
+    expect(input.agent.instructions).toBe(
+      `Be brief.\n\n${SPEAKER_INSTRUCTIONS}\n\n${SLACK_GUIDANCE}`
+    );
   });
 
   test("a non-dry run gets its own task folder in the library", async () => {
@@ -352,7 +355,9 @@ describe("dispatch", () => {
     if (!input) {
       throw new Error("The runner was not started");
     }
-    expect(input.agent.instructions).toBe("Be brief.");
+    expect(input.agent.instructions).toBe(
+      `Be brief.\n\n${SPEAKER_INSTRUCTIONS}`
+    );
   });
 
   test("wakes the runner with the run, agent and MCP servers, and leaves the run for the runner to claim", async () => {
@@ -412,7 +417,7 @@ describe("dispatch", () => {
     });
     expect(input.agent).toMatchObject({
       id: agentId,
-      instructions: "Be brief.",
+      instructions: `Be brief.\n\n${SPEAKER_INSTRUCTIONS}`,
       model: "sonnet",
       name: "Pelican",
     });
@@ -724,6 +729,6 @@ test("dispatch composes voice and hands to before Slack guidance", async () => {
     throw new Error("The runner was not started");
   }
   expect(input.agent.instructions).toBe(
-    `Be brief.\n\n## Voice\nSpeak warmly.\n\nYou can hand work to: Helper (use send_message)\n\n${SLACK_GUIDANCE}`
+    `Be brief.\n\n${SPEAKER_INSTRUCTIONS}\n\n## Voice\nSpeak warmly.\n\nYou can hand work to: Helper (use send_message)\n\n${SLACK_GUIDANCE}`
   );
 });

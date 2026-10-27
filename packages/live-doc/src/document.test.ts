@@ -149,7 +149,7 @@ describe("shared rich document", () => {
     expect(live.markdown()).toBe("hello there");
     expect(() =>
       live.apply([{ op: "delete", target: { find: "missing" } }], origin)
-    ).toThrow("find_not_found");
+    ).toThrow("find_none");
   });
   test("pending fill preserves its id and deleted pending fails", () => {
     const live = create();
@@ -668,4 +668,71 @@ test("resurrected block is returned as changed without a current tombstone; hist
   expect(live.read({ atRev: deleted, sinceRev: before }).deleted).toContain(
     block.id
   );
+});
+
+test("quoted edits protect cross-inline comment anchors and detect collapsed or reversed ranges", () => {
+  for (const atom of [
+    { attrs: { label: "X", value: "u1" }, type: "mention" },
+    { type: "hardBreak" },
+  ]) {
+    const doc = new Doc();
+    const ranges: Array<{
+      start: import("@repo/protocol/live").RelativePositionJSON;
+      end: import("@repo/protocol/live").RelativePositionJSON;
+    }> = [];
+    const live = new LiveDocument(doc, { protectedRanges: () => ranges });
+    live.import(
+      {
+        json: {
+          content: [
+            {
+              content: [
+                { text: "abc", type: "text" },
+                atom,
+                { text: "def", type: "text" },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        },
+      },
+      "init"
+    );
+    const block = live.read().blocks[0]!;
+    const anchor = live.anchor(block.id, 1, 6);
+    if (anchor.kind !== "document") {
+      throw new Error("document anchor expected");
+    }
+    ranges.push(anchor);
+    const before = encodeStateAsUpdate(doc);
+    for (const find of ["bc", "de"]) {
+      expect(() =>
+        live.apply([{ op: "delete", target: { find } }], origin)
+      ).toThrow("comment_anchor");
+      expect(() =>
+        live.apply(
+          [{ content: { text: "new" }, op: "replace", target: { find } }],
+          origin
+        )
+      ).toThrow("comment_anchor");
+    }
+    expect(encodeStateAsUpdate(doc)).toEqual(before);
+    expect(live.resolveAnchor(anchor).detached).toBe(false);
+    expect(
+      live.resolveAnchor({ ...anchor, end: anchor.start, start: anchor.end })
+        .detached
+    ).toBe(true);
+    const start = live.resolve(anchor.start);
+    const end = live.resolve(anchor.end);
+    doc.transact(() => {
+      (start.type as XmlText).delete(start.index, 2);
+      (end.type as XmlText).delete(0, end.index);
+      const paragraph = doc.getXmlFragment("content").get(0) as XmlElement;
+      paragraph.delete(1, 1);
+    }, "human");
+    expect(live.resolveAnchor(anchor).detached).toBe(true);
+    live.destroy();
+    doc.destroy();
+  }
 });

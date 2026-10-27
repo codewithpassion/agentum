@@ -1,5 +1,9 @@
 import type { Database } from "@repo/db";
-import { knownBlobSizes, workspaceBlobBytes } from "@repo/db/artifacts";
+import {
+  artifactQuotaGuard,
+  knownBlobSizes,
+  workspaceBlobBytes,
+} from "@repo/db/artifacts";
 import { ARTIFACT_WORKSPACE_MAX_BYTES } from "@repo/db/shared";
 import {
   type ArtifactManifest,
@@ -23,6 +27,24 @@ export const blobKey = (workspaceId: string, sha256: string) =>
   `${workspaceId}/artifact-blobs/${sha256}`;
 export const manifestKey = (workspaceId: string, versionId: string) =>
   `${workspaceId}/artifact-manifests/${versionId}.json`;
+/** D1/Drizzle may wrap the SQLite constraint error in a cause. */
+export const rethrowArtifactQuotaError = (error: unknown): void => {
+  let cause = error;
+  for (let depth = 0; depth < 5 && cause instanceof Error; depth += 1) {
+    if (
+      cause.message.includes(
+        "NOT NULL constraint failed: artifact_versions.total_bytes"
+      )
+    ) {
+      throw new ServiceError(
+        "invalid",
+        "The workspace's artifact storage is full (1 GB)"
+      );
+    }
+    ({ cause } = cause);
+  }
+};
+
 const invalid = (message: string) => new ServiceError("invalid", message);
 const BLOB_WRITE_PARALLEL = 8;
 const chunks = <T>(items: readonly T[], size: number): T[][] => {
@@ -41,7 +63,7 @@ export const createArtifactBlobWriter = ({
   db: Database;
   blobs: Pick<LibraryBlobs, "get" | "put">;
 }) => {
-  /** Refuses a write that would take the workspace's blobs over the quota. */
+  /** UX preflight only; quotaStatement inside atomic is the enforcement. Refuses a write that would take the workspace's blobs over the quota. */
   const checkQuota = async (
     workspaceId: string,
     files: readonly ArtifactBlobFile[]
@@ -114,5 +136,13 @@ export const createArtifactBlobWriter = ({
     );
   };
 
-  return { checkQuota, writeBlobs, writeManifest };
+  const quotaStatement = (workspaceId: string, versionId: string) =>
+    artifactQuotaGuard(
+      db,
+      workspaceId,
+      versionId,
+      ARTIFACT_WORKSPACE_MAX_BYTES
+    );
+
+  return { checkQuota, quotaStatement, writeBlobs, writeManifest };
 };

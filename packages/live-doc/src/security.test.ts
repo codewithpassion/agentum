@@ -403,3 +403,44 @@ test("hostile ingress fuzz reaches create, agent, markdown, binary editor and ch
     await window.happyDOM.close();
   }
 });
+
+test("binary hidden mark attributes and malformed mark values cannot enter any state ingress", () => {
+  for (const mark of [
+    {
+      link: {
+        evil: "yes",
+        href: "https://example.com",
+        rel: "noopener noreferrer",
+        target: "_blank",
+      },
+    },
+    { bold: { evil: "yes" } },
+    { link: "https://example.com" },
+    { bold: [] },
+  ]) {
+    const live = new LiveDocument(new Doc());
+    live.import({ text: "safe" }, "init");
+    const replica = new Doc();
+    applyUpdate(replica, encodeStateAsUpdate(live.doc));
+    const paragraph = replica.getXmlFragment("content").get(0) as XmlElement;
+    (paragraph.get(0) as XmlText).format(0, 1, mark);
+    const hostile = encodeStateAsUpdate(replica);
+    const before = encodeStateAsUpdate(live.doc);
+    let updates = 0;
+    live.doc.on("update", () => {
+      updates += 1;
+    });
+    expect(() => live.applyUpdate(hostile, "socket")).toThrow(
+      "invalid_content"
+    );
+    expect(() => live.restoreSnapshot(hostile, "restore")).toThrow(
+      "invalid_content"
+    );
+    expect(() => new LiveDocument(replica)).toThrow("invalid_content");
+    expect(encodeStateAsUpdate(live.doc)).toEqual(before);
+    expect(updates).toBe(0);
+    replica.destroy();
+    live.destroy();
+    live.doc.destroy();
+  }
+});

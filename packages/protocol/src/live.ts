@@ -95,8 +95,10 @@ export type RoomTicketClaims = z.infer<typeof roomTicketClaimsSchema>;
 export const speakerLocationSchema = z.strictObject({
   blockId: id.optional(),
   elementId: id.optional(),
+  elementIds: z.array(id).max(200).optional(),
   selection: z.string().max(8192).optional(),
   slideId: id.optional(),
+  slideNumber: z.int().positive().optional(),
   threadId: id.optional(),
 });
 const speaker = z.strictObject({

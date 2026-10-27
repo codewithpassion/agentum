@@ -25,6 +25,7 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { z } from "zod";
+import { resolveActorDisplays } from "./actor-display.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import { newEventId } from "./events/ids.ts";
@@ -124,6 +125,7 @@ export interface Blobs {
 
 export interface EventRecord {
   actor: { id: string; kind: EventActorKind };
+  actorDisplay?: { name: string };
   agentId: string | null;
   createdAt: string;
   id: string;
@@ -248,10 +250,11 @@ export const createEventsService = ({
   };
 
   const notify = async (record: EventRecord): Promise<void> => {
+    const [resolved] = await resolveActorDisplays(db, people, [record]);
     for (const listener of listeners) {
       try {
         // biome-ignore lint/performance/noAwaitInLoops: listeners run one at a time, in registration order
-        await listener(record);
+        await listener(resolved ?? record);
       } catch (error) {
         console.error("Event listener failed", error);
       }
@@ -355,7 +358,7 @@ export const createEventsService = ({
         )
       )
       .orderBy(asc(events.id));
-    return rows.map(toRecord);
+    return resolveActorDisplays(db, people, rows.map(toRecord));
   };
 
   /** Events of one workspace, oldest first, up to `limit`. */
@@ -388,7 +391,7 @@ export const createEventsService = ({
       .where(and(...conditions))
       .orderBy(asc(events.id))
       .limit(f.limit);
-    return rows.map(toRecord);
+    return resolveActorDisplays(db, people, rows.map(toRecord));
   };
 
   /**

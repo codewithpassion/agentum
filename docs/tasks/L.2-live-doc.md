@@ -3,7 +3,7 @@ id: L.2
 title: Shared document schema and operations
 milestone: L
 size: L
-status: review
+status: done
 depends_on: [L.1]
 branch: t3/live-doc-collaboration
 lane: doc
@@ -21,3 +21,5 @@ executor: codex
 - 2026-10-27: Sol starts shared document engine against merged L.1 contracts; integration remains gated on contract review and full checks.
 
 - 2026-10-27: 1bdcfb5e merged, 31 focused tests including real workerd and root checks passed. Independent engine review starts; L.3 can now implement against concrete engine API.
+
+- 2026-10-27: Independent review accepted attribution; controller corrected document and run-read findings. Document33/workerd and runs123 regressions plus root check pass. Integration gates stay with L.3/L.7/phase3.

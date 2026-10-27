@@ -16,6 +16,7 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import { APPROVAL_TTL_MS, QUESTION_TTL_MS } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { asc, eq } from "drizzle-orm";
+import { SPEAKER_INSTRUCTIONS } from "../agent-prompt.ts";
 import { type AgentsService, createAgentsService } from "../agents.ts";
 import {
   seedAssignment,
@@ -2246,7 +2247,7 @@ test("managed voice and hands to enter system text and each change re-syncs", as
   });
   await drive((await start(dom, "one")).runId);
   expect(gateway.registered[0]?.system).toStartWith(
-    "Be brief.\n\n## Voice\nSpeak warmly.\n\nYou can hand work to: Helper (use send_message)\n\n"
+    `Be brief.\n\n${SPEAKER_INSTRUCTIONS}\n\n## Voice\nSpeak warmly.\n\nYou can hand work to: Helper (use send_message)\n\n`
   );
   await agents.update(dom, agentId, { soul: "Speak plainly." });
   await drive((await start(dom, "two")).runId);

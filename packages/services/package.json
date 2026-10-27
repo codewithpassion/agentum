@@ -87,6 +87,8 @@
     "./routines/cron": "./src/routines/cron.ts",
     "./qa": "./src/qa.ts",
     "./requests": "./src/requests.ts",
+    "./speaker-envelope": "./src/speaker-envelope.ts",
+    "./actor-display": "./src/actor-display.ts",
     "./runs": "./src/runs.ts",
     "./runs/types": "./src/runs/types.ts",
     "./secrets": "./src/secrets.ts",
@@ -124,6 +126,8 @@
     "./tasks/status-band": "./src/tasks/status-band.ts",
     "./skills-store/github": "./src/skills-store/github.ts",
     "./wiki/suggestions": "./src/wiki/suggestions.ts",
+    "./live-artifacts/access-lifecycle": "./src/live-artifacts/access-lifecycle.ts",
+    "./live-artifacts/ports": "./src/live-artifacts/ports.ts",
     "./live-artifacts/service": "./src/live-artifacts/service.ts"
   },
   "scripts": {

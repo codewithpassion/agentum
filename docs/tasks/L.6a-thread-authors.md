@@ -3,7 +3,7 @@ id: L.6a
 title: Thread actor preservation and author display
 milestone: L
 size: M
-status: review
+status: done
 depends_on: [L.1]
 branch: t3/thread-author-preservation
 lane: thread
@@ -21,3 +21,5 @@ Use meaningful tests and required root checks. Commit substantial tasks. Follow 
 - 2026-10-27: Dispatched additional independent worktree at user request to increase parallel throughput.
 
 - 2026-10-27: 1457f6da merged, focused/root suites and boundary scan passed in delegate. Display-name/stream-schema wiring handed to remaining L.6 implementation.
+
+- 2026-10-27: Independent review accepted attribution; controller corrected document and run-read findings. Document33/workerd and runs123 regressions plus root check pass. Integration gates stay with L.3/L.7/phase3.

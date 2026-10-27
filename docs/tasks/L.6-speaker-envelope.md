@@ -3,9 +3,9 @@ id: L.6
 title: Speaker identity and thread authors
 milestone: L
 size: L
-status: in_progress
+status: done
 depends_on: [L.1]
-branch: null
+branch: t3/implement-l6-speaker-envelope
 lane: services
 executor: codex
 ---
@@ -19,3 +19,7 @@ executor: codex
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
 
 - 2026-10-27: Sol dispatched remaining identity/envelope/Slack/guest-run and trusted display transport. Live service core remains isolated in another worktree.
+
+- 2026-10-27: 3ddb8e7a merged: envelopes, Slack, actor display transport and fail-closed guest start. Independent identity/scope review begins; guest runtime capability stays off pending phase3.
+
+- 2026-10-27: Independent review accepted attribution; controller corrected document and run-read findings. Document33/workerd and runs123 regressions plus root check pass. Integration gates stay with L.3/L.7/phase3.
