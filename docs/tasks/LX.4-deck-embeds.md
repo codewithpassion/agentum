@@ -3,9 +3,9 @@ id: LX.4
 title: Sandboxed deck embed elements
 milestone: L
 size: L
-status: in_progress
+status: review
 depends_on: [LD.5, LD.6]
-branch: null
+branch: t3/deck-artifact-embeds
 lane: deck-embeds
 executor: codex
 ---
@@ -17,3 +17,5 @@ Complete R4.5 deck embed elements through the existing sandboxed artifact conten
 ## Log
 
 - 2026-10-27: Dispatched for authorized parallel phase4 implementation after deck client integration.
+
+- 2026-10-27: Merged b4c55f9f/f05ac47f; independent sandbox and ownership review queued. Leaf root and actual desktop/mobile room-browser checks passed; combined checks underway. Guest embeds and full-app acceptance remain gates.
