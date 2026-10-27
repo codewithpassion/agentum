@@ -51,3 +51,9 @@ The production adapter replays bearer credentials, checks Clerk session status a
 A frozen dependency install was necessary in this checkout; the initial fixture attempt failed only because dependencies were absent. The combined production, room and app-gateway workerd fixture result is recorded below after completion. No environment files, product files, deployment, email, push or PR were changed.
 
 The combined fixture rerun passed **10 tests, 0 failures, 32 assertions** in 58.39 seconds. The gateway's intentionally invalid approved host produced a DNS diagnostic while its network-filter test passed.
+
+## Controller recovery remediation
+
+Accepted room actor provenance is persisted separately from short-lived admission credentials. Each frozen checkpoint binds that provenance durably before publication. Only the internal system service capability can publish using this stored actor; it grants no connection, new edit or restore authority. Publication still validates artifact/workspace/type, refuses deleted artifacts, validates state and own images, enforces quota and stable checkpoint identity, and retains restore source/original actor checks. Ordinary calls still require current access.
+
+The real production workerd regression fails D1 publication after R2 writes, ages every stored credential to 16 minutes before the test clock, restarts, then observes only D1 while the alarm recovers the frozen checkpoint. No authenticated room request refreshes credentials during recovery. It passes, including exactly one published version. This deterministic expiry transition avoids a 15-minute wall-clock wait. Service regressions cover loss of current actor rights, internal-only recovery, workspace mismatch, original restore author and one restore event, and refusal to resurrect deleted artifacts. Full authenticated app and staging gates remain unchanged.

@@ -287,15 +287,38 @@ try {
     old.markdown === persisted.markdown,
     "failed publication leaves current DB pointer unchanged"
   );
+  const expired = await runtime.dispatchFetch(
+    `http://localhost/fixture/expire-credentials/${created.artifactId}`,
+    { method: "POST" }
+  );
+  check(
+    (await expired.json()) > 0,
+    "outage outlives every persisted actor credential"
+  );
   await db.exec("DROP TRIGGER fixture_fail_checkpoint;");
   await runtime.dispose();
   runtime = new Miniflare(convertV4MiniflareOptions(options));
   db = await runtime.getD1Database("DB");
-  const retry = await runtime.dispatchFetch(
-    `http://localhost/fixture/checkpoint/${created.artifactId}`,
-    { headers, method: "POST" }
+  // Observe D1 only: no authenticated room request can refresh credentials.
+  const recoveryDeadline = Date.now() + 12_000;
+  let checkpointRecovered = false;
+  while (Date.now() < recoveryDeadline) {
+    const row = await db
+      .prepare(
+        "SELECT count(*) as n FROM artifact_versions WHERE artifact_id=?"
+      )
+      .bind(created.artifactId)
+      .first();
+    if (row.n === 3) {
+      checkpointRecovered = true;
+      break;
+    }
+    await new Promise((done) => setTimeout(done, 100));
+  }
+  check(
+    checkpointRecovered,
+    "alarm publishes frozen checkpoint after restart and credential expiry without a new actor request"
   );
-  check(retry.ok, "durable pending checkpoint retries after runtime restart");
   const repaired = await (
     await runtime.dispatchFetch(
       `http://localhost/fixture/persisted/${created.artifactId}`,

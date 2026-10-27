@@ -15,6 +15,7 @@ import { eq } from "drizzle-orm";
 import { bytes, harness, principals } from "../artifacts/test-harness.ts";
 import { ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
+import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import {
   createLiveArtifactsService,
   type DocumentSnapshot,
@@ -1885,4 +1886,91 @@ describe("production checkpoint reconciliation", () => {
       })
     ).toEqual({ urls: [] });
   });
+});
+
+test("only system recovery can publish accepted restore after actor loses current rights", async () => {
+  const h = setup();
+  const created = await h.create();
+  const input = {
+    ...encode("accepted restore", 4),
+    artifactId: created.artifactId,
+    checkpointId: crypto.randomUUID(),
+    origins: [],
+    restores: [
+      {
+        byParticipant: "u:u1",
+        requestId: "durable-restore",
+        versionId: created.versionId,
+      },
+    ],
+    workspaceId: "w1",
+  };
+  await h.db
+    .update(artifacts)
+    .set({ audience: "private", ownerUserId: "u3" })
+    .where(eq(artifacts.id, created.artifactId));
+  await expect(
+    h.service.durableCheckpoint(principals.owner, input)
+  ).rejects.toThrow();
+  await expect(
+    h.service.durableCheckpoint(principals.owner, input, principals.owner)
+  ).rejects.toThrow();
+  await expect(
+    h.service.durableCheckpoint(
+      SYSTEM_PRINCIPAL,
+      { ...input, workspaceId: "w2" },
+      principals.owner
+    )
+  ).rejects.toThrow();
+  const saved = await h.service.durableCheckpoint(
+    SYSTEM_PRINCIPAL,
+    input,
+    principals.owner
+  );
+  expect(
+    await createLiveArtifactsService(h.deps).durableCheckpoint(
+      SYSTEM_PRINCIPAL,
+      input,
+      principals.owner
+    )
+  ).toEqual(saved);
+  const version = h.db
+    .select()
+    .from(artifactVersions)
+    .where(eq(artifactVersions.id, saved.versionId))
+    .get();
+  expect(version?.authorId).toBe("u1");
+  expect(
+    h.db.select().from(events).where(eq(events.type, "artifact.restored")).all()
+  ).toHaveLength(1);
+  await expect(
+    h.service.durableCheckpoint(
+      SYSTEM_PRINCIPAL,
+      { ...input, checkpointId: crypto.randomUUID(), revision: 5 },
+      principals.stranger
+    )
+  ).rejects.toThrow();
+});
+
+test("internal checkpoint recovery cannot resurrect a deleted artifact", async () => {
+  const h = setup();
+  const created = await h.create();
+  await h.db
+    .update(artifacts)
+    .set({ deletedAt: NOW })
+    .where(eq(artifacts.id, created.artifactId));
+  await expect(
+    h.service.durableCheckpoint(
+      SYSTEM_PRINCIPAL,
+      {
+        ...encode("pending", 2),
+        artifactId: created.artifactId,
+        checkpointId: crypto.randomUUID(),
+        origins: [],
+        restores: [],
+        workspaceId: "w1",
+      },
+      principals.owner
+    )
+  ).rejects.toThrow();
 });
