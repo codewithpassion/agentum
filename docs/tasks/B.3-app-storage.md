@@ -3,7 +3,7 @@ id: B.3
 title: App storage
 milestone: B
 size: M
-status: in_progress
+status: done
 depends_on: [A.1, B.1]
 branch: task/B.3-app-storage
 lane: worker-store
@@ -24,3 +24,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at 334b44a, review clean after 0 fix rounds; AppStore port in apps/web/src/server/app-store/{types,rules,port}.ts; B.8 adds APP_STORE binding, v7 migration, export; merged.
