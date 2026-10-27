@@ -1,5 +1,6 @@
 // The markdown viewer for `doc` artifacts (R1.21b). The Worker renders the
-// markdown to HTML with react-markdown (raw HTML in the markdown is dropped
+// markdown (with GitHub tables, task lists and strikethrough) to HTML with
+// react-markdown (raw HTML in the markdown is dropped
 // and `javascript:` links are stripped by its defaults) and wraps it in a
 // page with inline CSS only. The page is served from the content route, so it
 // carries the same sandbox CSP as any artifact page.
@@ -7,6 +8,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const HTML_ESCAPES: Readonly<Record<string, string>> = {
   "'": "&#39;",
@@ -54,7 +56,9 @@ export const renderDocPage = (
   markdown: string,
   options: DocPageOptions
 ): string => {
-  const body = renderToStaticMarkup(createElement(Markdown, null, markdown));
+  const body = renderToStaticMarkup(
+    createElement(Markdown, { remarkPlugins: [remarkGfm] }, markdown)
+  );
   const title = escapeHtml(options.title ?? "Document");
   return `<!doctype html><html lang="en"><head><script src="${escapeHtml(options.bridgeSrc)}"></script><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title><style>${DOC_CSS}</style></head><body><main class="hm-doc">${body}</main></body></html>`;
 };

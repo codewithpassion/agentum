@@ -15,6 +15,14 @@ describe("renderDocPage", () => {
     expect(html).toContain("<pre><code>code");
   });
 
+  it("renders GitHub tables and strikethrough", () => {
+    const html = page("| a | b |\n|---|---|\n| 1 | 2 |\n\n~~gone~~");
+    expect(html).toContain("<table>");
+    expect(html).toContain("<th>a</th>");
+    expect(html).toContain("<td>2</td>");
+    expect(html).toContain("<del>gone</del>");
+  });
+
   it("starts with a doctype and the bridge script first in head", () => {
     const html = page("hi");
     expect(html.startsWith("<!doctype html>")).toBe(true);
