@@ -82,7 +82,7 @@ const request = (
     region: "New South Wales",
   },
   ip: IP,
-  referrer: "https://mail.example.com/inbox/42?token=abc",
+  referrer: "https://mail.example.com/inbox/42?token=refsecret-q7x",
   userAgent: "Mozilla/5.0 (X11; Linux x86_64)",
   ...overrides,
 });
@@ -615,7 +615,7 @@ describe("link open", () => {
     expect(row?.userAgent).toHaveLength(256);
     expect(dumpDatabase()).not.toContain(IP);
     expect(dumpDatabase()).not.toContain(token);
-    expect(dumpDatabase()).not.toContain("abc");
+    expect(dumpDatabase()).not.toContain("refsecret-q7x");
   });
 
   test("an IPv6 visitor keeps a /48 prefix only", async () => {
