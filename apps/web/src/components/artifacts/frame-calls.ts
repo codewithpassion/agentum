@@ -188,11 +188,24 @@ export function createCallHandlers(options: {
       return {};
     }),
     "tools/call": guarded(async ({ params }) => {
-      const { result } = await calls.callTool({
-        arguments: params.arguments,
-        tool: params.name,
-      });
-      return toolResult(result);
+      try {
+        const { result } = await calls.callTool({
+          arguments: params.arguments,
+          tool: params.name,
+        });
+        return toolResult(result);
+      } catch (error) {
+        // The share route answers 502 when the call failed on the granting
+        // person's side (needs auth, connector error, too large). That is a
+        // tool error the page can show, not a broken bridge.
+        if (error instanceof LinkCallError && error.status === 502) {
+          return {
+            content: [{ text: "The tool call failed.", type: "text" }],
+            isError: true,
+          } satisfies ToolsCallResult;
+        }
+        throw error;
+      }
     }),
     "ui/message": guarded(async ({ params }) => {
       if (!onMessage) {
@@ -313,22 +326,30 @@ export function linkCallsFromFetch(
     }),
     storageGet: async ({ key }) => {
       const result = await post("storage", { key, op: "get" });
-      return { value: (result ?? null) as StorageGetResult["value"] };
+      if (
+        typeof result !== "object" ||
+        result === null ||
+        !("value" in result)
+      ) {
+        throw new LinkCallError(502);
+      }
+      return { value: result.value as StorageGetResult["value"] };
     },
     storageList: async ({ prefix }) => {
       const result = await post(
         "storage",
         prefix === undefined ? { op: "list" } : { op: "list", prefix }
       );
+      const keys =
+        typeof result === "object" && result !== null && "keys" in result
+          ? result.keys
+          : null;
       if (
-        !(
-          Array.isArray(result) &&
-          result.every((key) => typeof key === "string")
-        )
+        !(Array.isArray(keys) && keys.every((key) => typeof key === "string"))
       ) {
         throw new LinkCallError(502);
       }
-      return { keys: result as string[] };
+      return { keys: keys as string[] };
     },
   };
 }

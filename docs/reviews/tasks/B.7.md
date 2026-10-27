@@ -19,7 +19,7 @@ Fixture and test: `fixtures/live-dashboard.html` run end to end through the real
 
 The nonce is defence in depth. The artifact's own script can read it (the address, `performance` navigation entries), so it only stops pages the artifact did not write from taking a port. The grants are the real boundary.
 It lives as long as the frame. A page reloading itself keeps it, a click to another page of the artifact carries it. Navigations the bridge cannot see (GET form submits, `location.href = ...`, a click before the first handshake) land without it, and the frame blanks with Reload.
-Link viewers: `tools/call` through the share route, storage reads of the shared area only through `POST /api/share/:token/storage` with `{ op: "get" | "list", key?, prefix? }` answering `{ result }` (get: the JSON value or null; list: an array of keys). B.6 builds that route; the frame assumes this result shape. Writes and the viewer area are refused on the frame. `ui/message` is refused unless the host passes `onMessage`, and no surface does yet.
+Link viewers: `tools/call` through the share route, storage reads of the shared area only through `POST /api/share/:token/storage` with `{ op: "get" | "list", key?, prefix? }` answering `{ result }` (get: `{ value }`, list: `{ keys }`, as the route returns them). B.6 built that route. A 502 from the call route (the granting person's side failed) reaches the page as a tool result with `isError: true`. Writes and the viewer area are refused on the frame. `ui/message` is refused unless the host passes `onMessage`, and no surface does yet.
 
 ## Nits left
 

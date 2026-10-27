@@ -318,6 +318,32 @@ describe("link viewer", () => {
   });
 });
 
+test("a 502 from the share call route reaches the page as a tool error, other failures stay bridge errors", async () => {
+  const link = (status: number): FrameCalls => ({
+    callTool: () => Promise.reject(new LinkCallError(status)),
+    storageGet: () => Promise.reject(new LinkCallError(status)),
+    storageList: () => Promise.resolve({ keys: [] }),
+    viewer: "link",
+  });
+  expect(
+    await run(handlersOf({ calls: link(502) }), "tools/call", { name: "t" })
+  ).toEqual({
+    content: [{ text: "The tool call failed.", type: "text" }],
+    isError: true,
+  });
+  const caught = await rejection(
+    run(handlersOf({ calls: link(500) }), "tools/call", { name: "t" })
+  );
+  expect(caught.code).toBe(BRIDGE_ERROR.failed);
+  const storage = await rejection(
+    run(handlersOf({ calls: link(502) }), "storage/get", {
+      key: "k",
+      scope: "shared",
+    })
+  );
+  expect(storage.code).toBe(BRIDGE_ERROR.failed);
+});
+
 describe("ui/message", () => {
   const params = (...texts: string[]) => ({
     content: texts.map((text) => ({ text, type: "text" })),
@@ -466,7 +492,14 @@ describe("linkCallsFromFetch", () => {
   }
 
   test("storage reads post to the storage route and unwrap the result", async () => {
-    const results = [{ n: 1 }, null, ["a", "b"], "not a list"];
+    const results = [
+      { value: { n: 1 } },
+      { value: null },
+      { keys: ["a", "b"] },
+      ["a"],
+      { keys: [1] },
+      "x",
+    ];
     const { fetchFn, seen } = makeFetch(() =>
       Response.json({ result: results.shift() })
     );
@@ -477,14 +510,20 @@ describe("linkCallsFromFetch", () => {
       keys: ["a", "b"],
     });
     await expect(calls.storageList({})).rejects.toMatchObject({ status: 502 });
+    await expect(calls.storageList({})).rejects.toMatchObject({ status: 502 });
+    await expect(calls.storageGet({ key: "k" })).rejects.toMatchObject({
+      status: 502,
+    });
     expect(seen.map((entry) => entry.url)).toEqual(
-      new Array(4).fill("/api/share/t/storage")
+      new Array(6).fill("/api/share/t/storage")
     );
     expect(seen.map((entry) => entry.init?.body)).toEqual([
       '{"key":"k","op":"get"}',
       '{"key":"k","op":"get"}',
       '{"op":"list","prefix":"p"}',
       '{"op":"list"}',
+      '{"op":"list"}',
+      '{"key":"k","op":"get"}',
     ]);
   });
 
