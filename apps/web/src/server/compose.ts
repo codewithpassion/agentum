@@ -29,6 +29,14 @@ import {
   createToolRunner,
 } from "@repo/services/artifacts/calls";
 import {
+  type ArtifactsService,
+  createArtifactsService,
+} from "@repo/services/artifacts/service";
+import {
+  type ArtifactSharesService,
+  createArtifactSharesService,
+} from "@repo/services/artifacts/shares";
+import {
   type AppStorePort,
   type ArtifactStorageService,
   createArtifactStorageService,
@@ -254,6 +262,10 @@ const unavailableAppStore: AppStorePort = {
 export interface Infra {
   /** The app storage Durable Object behind its port. B.8 wires it; without it, storage answers "unavailable". */
   appStore?: AppStorePort;
+  /** `ARTIFACT_LINKS_OFF` is set: every share-link open is refused in this environment. */
+  artifactLinksOff?: boolean;
+  /** `ARTIFACT_VIEW_KEY`. Artifact view tokens are signed with it; without it, opening an artifact fails. */
+  artifactViewKey?: string;
   atomic: Atomic;
   blobs: Blobs;
   /** Drives the agents' browser: Browser Run in the app. Without it, browser tools answer "unavailable". */
@@ -314,7 +326,9 @@ export interface Services {
   agents: AgentsService;
   apiKeys: ApiKeysService;
   artifactCalls: ArtifactToolPort;
+  artifactShares: ArtifactSharesService;
   artifactStorage: ArtifactStorageService;
+  artifacts: ArtifactsService;
   browser: BrowserService;
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
@@ -370,6 +384,8 @@ export interface Composed {
 export type ComposeEnv = Pick<
   Env,
   | "ALLOWED_ORG_IDS"
+  | "ARTIFACT_LINKS_OFF"
+  | "ARTIFACT_VIEW_KEY"
   | "BROWSER"
   | "CLERK_SECRET_KEY"
   | "DB"
@@ -535,6 +551,26 @@ export const composeWith = ({
       relay: infra.relay,
       runner: infra.cloudRunner,
     }),
+  });
+  const artifacts = createArtifactsService({
+    atomic: infra.atomic,
+    blobs: libraryBlobs,
+    clock: infra.clock,
+    db,
+    events,
+    library,
+    people: infra.people,
+  });
+  const artifactShares = createArtifactSharesService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    linksOff: infra.artifactLinksOff,
+    origin: infra.publicBaseUrl ?? "",
+    people: infra.people,
+    secretsKey: infra.secretsKey,
+    viewKey: infra.artifactViewKey ?? "",
   });
   const browser = createBrowserService({
     atomic: infra.atomic,
@@ -880,7 +916,9 @@ export const composeWith = ({
       agents,
       apiKeys,
       artifactCalls,
+      artifactShares,
       artifactStorage,
+      artifacts,
       browser,
       connectorOAuth,
       connectors,
@@ -945,6 +983,9 @@ export const compose = (
     allowedOrgIds: parseOrgIds(env.ALLOWED_ORG_IDS),
     db,
     infra: {
+      // An empty `ARTIFACT_LINKS_OFF` leaves links on.
+      artifactLinksOff: Boolean(env.ARTIFACT_LINKS_OFF),
+      artifactViewKey: env.ARTIFACT_VIEW_KEY || undefined,
       atomic: d1Atomic(db),
       blobs: r2Blobs(env.FILES),
       browserDriver: browserRunDriver(env.BROWSER),

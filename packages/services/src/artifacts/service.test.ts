@@ -11,6 +11,7 @@ import {
 } from "@repo/db/shared";
 import { artifactManifestSchema } from "@repo/protocol/artifacts";
 import { asc, eq } from "drizzle-orm";
+import { unzipSync } from "fflate";
 import { isForbiddenError } from "../authz.ts";
 import { isServiceError } from "../errors.ts";
 import {
@@ -937,5 +938,165 @@ describe("events", () => {
     ].join("\n");
     expect(haystack).not.toContain("hm_view_");
     expect(haystack).not.toContain("hm_share_");
+  });
+});
+
+describe("versions files, thumbnails and download", () => {
+  const PNG = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
+  const FILES = [
+    { path: "index.html", text: "<h1>One</h1>" },
+    { path: "css/site.css", text: "h1{}" },
+  ];
+
+  const make = async (h: Harness) =>
+    await h.service.create(principals.agentOne, {
+      files: FILES,
+      kind: "page",
+      title: "Q3 Report!",
+    });
+
+  test("versions fill the files of every version", async () => {
+    const h = harness();
+    const made = await make(h);
+    await h.service.update(principals.agentOne, {
+      artifactId: made.artifactId,
+      baseVersion: 1,
+      files: [{ path: "index.html", text: "<h1>Two</h1>" }],
+    });
+    const list = await h.service.versions(principals.owner, made.artifactId);
+    expect(list.map((version) => version.number)).toEqual([2, 1]);
+    expect(list[0]?.files).toEqual([
+      { contentType: "text/html; charset=utf-8", path: "index.html", size: 12 },
+    ]);
+    expect(list[1]?.files?.map((file) => file.path)).toEqual([
+      "css/site.css",
+      "index.html",
+    ]);
+  });
+
+  test("setThumbnail then thumbnail round trip", async () => {
+    const h = harness();
+    const made = await make(h);
+    await expectServiceError(
+      () => h.service.thumbnail(principals.agentOne, made.artifactId),
+      "not_found"
+    );
+    await h.service.setThumbnail(principals.agentOne, {
+      artifactId: made.artifactId,
+      png: PNG,
+      versionId: made.versionId,
+    });
+    expect(
+      await h.service.thumbnail(principals.agentOne, made.artifactId)
+    ).toEqual(PNG);
+    expect(
+      await h.service.thumbnail(principals.agentOne, made.artifactId, 1)
+    ).toEqual(PNG);
+    expect(
+      h.blobs.objects.has(`w1/artifact-thumbnails/${made.versionId}.png`)
+    ).toBe(true);
+    const [version] = await h.service.versions(
+      principals.agentOne,
+      made.artifactId
+    );
+    expect(version?.hasThumbnail).toBe(true);
+    const card = await h.service.get(principals.agentOne, made.artifactId);
+    expect(card.hasThumbnail).toBe(true);
+    expect(eventTypes(h)).toEqual(["artifact.created", "artifact.published"]);
+  });
+
+  test("a thumbnail of an old version leaves the card alone", async () => {
+    const h = harness();
+    const made = await make(h);
+    await h.service.update(principals.agentOne, {
+      artifactId: made.artifactId,
+      baseVersion: 1,
+      files: FILES,
+    });
+    await h.service.setThumbnail(principals.agentOne, {
+      artifactId: made.artifactId,
+      png: PNG,
+      versionId: made.versionId,
+    });
+    const card = await h.service.get(principals.agentOne, made.artifactId);
+    expect(card.hasThumbnail).toBe(false);
+    expect(
+      await h.service.thumbnail(principals.agentOne, made.artifactId, 1)
+    ).toEqual(PNG);
+  });
+
+  test("setThumbnail is refused for a person and for a foreign version", async () => {
+    const h = harness();
+    const made = await make(h);
+    const other = await h.service.create(principals.agentOne, {
+      files: FILES,
+      kind: "page",
+      title: "Other",
+    });
+    const input = { artifactId: made.artifactId, png: PNG };
+    const error = await errorOf(() =>
+      h.service.setThumbnail(principals.owner, {
+        ...input,
+        versionId: made.versionId,
+      })
+    );
+    expect(isForbiddenError(error)).toBe(true);
+    await expectServiceError(
+      () =>
+        h.service.setThumbnail(principals.agentOne, {
+          ...input,
+          versionId: other.versionId,
+        }),
+      "not_found"
+    );
+  });
+
+  test("download is a zip of the version files", async () => {
+    const h = harness();
+    const made = await make(h);
+    const result = await h.service.download(principals.owner, made.artifactId);
+    expect(result.filename).toBe("q3-report-v1.zip");
+    const unzipped = unzipSync(result.bytes);
+    expect(Object.keys(unzipped).sort()).toEqual([
+      "css/site.css",
+      "index.html",
+    ]);
+    expect(new TextDecoder().decode(unzipped["index.html"])).toBe(
+      "<h1>One</h1>"
+    );
+    await expectServiceError(
+      () => h.service.download(principals.owner, made.artifactId, 9),
+      "not_found"
+    );
+  });
+
+  test("a member who cannot see the artifact gets not_found", async () => {
+    const h = harness();
+    const made = await h.service.create(principals.owner, {
+      files: FILES,
+      kind: "page",
+      title: "Private",
+    });
+    await expectServiceError(
+      () => h.service.thumbnail(principals.stranger, made.artifactId),
+      "not_found"
+    );
+    await expectServiceError(
+      () => h.service.download(principals.stranger, made.artifactId),
+      "not_found"
+    );
+    await expectServiceError(
+      () => h.service.versions(principals.stranger, made.artifactId),
+      "not_found"
+    );
+    await expectServiceError(
+      () =>
+        h.service.setThumbnail(principals.agentTwo, {
+          artifactId: made.artifactId,
+          png: PNG,
+          versionId: made.versionId,
+        }),
+      "not_found"
+    );
   });
 });

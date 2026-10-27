@@ -382,3 +382,33 @@ export const versionsByIds = async (
   );
   return new Map(rows.map((row) => [row.id, row]));
 };
+
+/** The files of many versions at once, grouped by version id and sorted by path within a version. */
+export const filesByVersionIds = async (
+  db: Database,
+  workspaceId: string,
+  versionIds: readonly string[]
+): Promise<Map<string, ArtifactVersionFileRow[]>> => {
+  const rows = await queryChunks(versionIds, async (ids) =>
+    db
+      .select()
+      .from(artifactVersionFiles)
+      .where(
+        and(
+          eq(artifactVersionFiles.workspaceId, workspaceId),
+          inArray(artifactVersionFiles.versionId, ids)
+        )
+      )
+      .orderBy(artifactVersionFiles.path)
+  );
+  const grouped = new Map<string, ArtifactVersionFileRow[]>();
+  for (const row of rows) {
+    const list = grouped.get(row.versionId);
+    if (list) {
+      list.push(row);
+    } else {
+      grouped.set(row.versionId, [row]);
+    }
+  }
+  return grouped;
+};

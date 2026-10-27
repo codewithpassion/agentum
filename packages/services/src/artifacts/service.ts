@@ -11,6 +11,7 @@ import {
   type ArtifactVersionRow,
   type ArtifactVisibility,
   activeLinkCounts,
+  filesByVersionIds,
   findArtifact,
   findVersionById,
   findVersionByNumber,
@@ -53,6 +54,7 @@ import {
   contentTypeForPath,
 } from "@repo/protocol/artifacts";
 import { and, eq, inArray } from "drizzle-orm";
+import { zipSync } from "fflate";
 import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { isUniqueViolation, ServiceError } from "../errors.ts";
@@ -200,6 +202,8 @@ const chunks = <T>(items: readonly T[], size: number): T[][] => {
 
 const blobKey = (workspaceId: string, sha256: string) =>
   `${workspaceId}/artifact-blobs/${sha256}`;
+const thumbnailKey = (workspaceId: string, versionId: string) =>
+  `${workspaceId}/artifact-thumbnails/${versionId}.png`;
 const manifestKey = (workspaceId: string, versionId: string) =>
   `${workspaceId}/artifact-manifests/${versionId}.json`;
 
@@ -1177,7 +1181,135 @@ export const createArtifactsService = ({
   ): Promise<ArtifactVersion[]> => {
     const member = reader(principal, "artifacts.versions");
     const row = await visible(member, artifactId);
-    return (await listVersions(db, member.workspaceId, row.id)).map(toVersion);
+    const rows = await listVersions(db, member.workspaceId, row.id);
+    const files = await filesByVersionIds(
+      db,
+      member.workspaceId,
+      rows.map((version) => version.id)
+    );
+    return rows.map((version) => ({
+      ...toVersion(version),
+      files: (files.get(version.id) ?? []).map(
+        ({ contentType, path, size }) => ({ contentType, path, size })
+      ),
+    }));
+  };
+
+  /** The version a reader asks for: the number, else the current one. */
+  const versionOf = async (
+    member: Member,
+    row: ArtifactRow,
+    number: number | undefined
+  ): Promise<ArtifactVersionRow> => {
+    if (number === undefined) {
+      return await currentOf(member, row);
+    }
+    const version = await findVersionByNumber(
+      db,
+      member.workspaceId,
+      row.id,
+      number
+    );
+    if (!version) {
+      throw new ServiceError("not_found", "Version not found");
+    }
+    return version;
+  };
+
+  /** A run saves the PNG of a version it can see. It writes no event. */
+  const setThumbnail = async (
+    principal: Principal,
+    input: { artifactId: string; png: Uint8Array; versionId: string }
+  ): Promise<void> => {
+    const member = writer(principal, "artifacts.setThumbnail");
+    if (member.kind !== "run") {
+      throw new ForbiddenError("artifacts.setThumbnail");
+    }
+    const row = await visible(member, input.artifactId);
+    const version = await findVersionById(
+      db,
+      member.workspaceId,
+      input.versionId
+    );
+    if (version?.artifactId !== row.id) {
+      throw new ServiceError("not_found", "Version not found");
+    }
+    const key = thumbnailKey(member.workspaceId, version.id);
+    await blobs.put(key, input.png);
+    const statements: Statement[] = [
+      db
+        .update(artifactVersions)
+        .set({ thumbnailKey: key })
+        .where(
+          and(
+            eq(artifactVersions.id, version.id),
+            eq(artifactVersions.workspaceId, member.workspaceId)
+          )
+        ),
+    ];
+    if (row.currentVersionId === version.id) {
+      statements.push(
+        db
+          .update(artifacts)
+          .set({ thumbnailKey: key })
+          .where(
+            and(
+              eq(artifacts.id, row.id),
+              eq(artifacts.workspaceId, member.workspaceId)
+            )
+          )
+      );
+    }
+    await atomic(statements);
+  };
+
+  /** The PNG of a version (the current one by default). */
+  const thumbnail = async (
+    principal: Principal,
+    artifactId: string,
+    number?: number
+  ): Promise<Uint8Array> => {
+    const member = reader(principal, "artifacts.thumbnail");
+    const row = await visible(member, artifactId);
+    const version = await versionOf(member, row, number);
+    const blob = version.thumbnailKey
+      ? await blobs.get(version.thumbnailKey)
+      : null;
+    if (!blob) {
+      throw new ServiceError("not_found", "Thumbnail not found");
+    }
+    return blob.bytes;
+  };
+
+  /** A zip of the files of a version (the current one by default). */
+  const download = async (
+    principal: Principal,
+    artifactId: string,
+    number?: number
+  ): Promise<{ bytes: Uint8Array; filename: string }> => {
+    const member = reader(principal, "artifacts.download");
+    const row = await visible(member, artifactId);
+    const version = await versionOf(member, row, number);
+    const files = await versionFiles(db, member.workspaceId, version.id);
+    const blobsOfFiles = await Promise.all(
+      files.map((file) => blobs.get(blobKey(member.workspaceId, file.sha256)))
+    );
+    const entries: Record<string, Uint8Array> = {};
+    for (const [index, file] of files.entries()) {
+      const blob = blobsOfFiles[index];
+      if (!blob) {
+        throw new ServiceError("not_found", `File ${file.path} not found`);
+      }
+      entries[file.path] = blob.bytes;
+    }
+    const slug = row.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return {
+      bytes: zipSync(entries),
+      filename: `${slug || "artifact"}-v${version.number}.zip`,
+    };
   };
 
   /** The text of one file of a version (the current one by default; the entry by default). */
@@ -1224,6 +1356,7 @@ export const createArtifactsService = ({
 
   return {
     create,
+    download,
     get,
     list,
     readFile,
@@ -1231,6 +1364,8 @@ export const createArtifactsService = ({
     rename,
     restore,
     setAudience,
+    setThumbnail,
+    thumbnail,
     update,
     versions,
   };

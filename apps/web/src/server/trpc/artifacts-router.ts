@@ -30,9 +30,7 @@ import {
   artifactsVersionsOutputSchema,
 } from "@repo/protocol/artifacts";
 import { isArtifactCallError } from "@repo/services/artifacts/calls";
-import type { ArtifactsService } from "@repo/services/artifacts/service";
 import { TRPCError } from "@trpc/server";
-import type { Services } from "../compose.ts";
 import { router, workspaceProcedure } from "./init.ts";
 
 const CALL_ERROR_CODES = {
@@ -41,20 +39,6 @@ const CALL_ERROR_CODES = {
   not_granted: "FORBIDDEN",
   too_large: "PAYLOAD_TOO_LARGE",
 } as const;
-// A.6 adds `artifacts` to `Services`; until then the service may be missing.
-// A.6 replaces this accessor with `ctx.services.artifacts`.
-const artifactsOf = (ctx: { services: Services }): ArtifactsService => {
-  const service = (ctx.services as Partial<{ artifacts: ArtifactsService }>)
-    .artifacts;
-  if (!service) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Artifacts service is not wired",
-    });
-  }
-  return service;
-};
-
 export const artifactsRouter = router({
   callTool: workspaceProcedure
     .input(artifactsCallToolInputSchema)
@@ -85,7 +69,7 @@ export const artifactsRouter = router({
     .input(artifactsGetInputSchema)
     .output(artifactsGetOutputSchema)
     .query(({ ctx, input }) =>
-      artifactsOf(ctx).get(ctx.principal, input.artifactId)
+      ctx.services.artifacts.get(ctx.principal, input.artifactId)
     ),
   handTo: workspaceProcedure
     .input(artifactsHandToInputSchema)
@@ -99,7 +83,9 @@ export const artifactsRouter = router({
   list: workspaceProcedure
     .input(artifactsListInputSchema)
     .output(artifactsListOutputSchema)
-    .query(({ ctx, input }) => artifactsOf(ctx).list(ctx.principal, input)),
+    .query(({ ctx, input }) =>
+      ctx.services.artifacts.list(ctx.principal, input)
+    ),
   pin: workspaceProcedure
     .input(artifactsPinInputSchema)
     .output(artifactsPinOutputSchema)
@@ -122,14 +108,14 @@ export const artifactsRouter = router({
     .input(artifactsRemoveInputSchema)
     .output(artifactsRemoveOutputSchema)
     .mutation(async ({ ctx, input }) => {
-      await artifactsOf(ctx).remove(ctx.principal, input.artifactId);
+      await ctx.services.artifacts.remove(ctx.principal, input.artifactId);
       return {};
     }),
   rename: workspaceProcedure
     .input(artifactsRenameInputSchema)
     .output(artifactsRenameOutputSchema)
     .mutation(async ({ ctx, input }) => {
-      await artifactsOf(ctx).rename(
+      await ctx.services.artifacts.rename(
         ctx.principal,
         input.artifactId,
         input.title
@@ -140,13 +126,17 @@ export const artifactsRouter = router({
     .input(artifactsRestoreInputSchema)
     .output(artifactsRestoreOutputSchema)
     .mutation(({ ctx, input }) =>
-      artifactsOf(ctx).restore(ctx.principal, input.artifactId, input.version)
+      ctx.services.artifacts.restore(
+        ctx.principal,
+        input.artifactId,
+        input.version
+      )
     ),
   setAudience: workspaceProcedure
     .input(artifactsSetAudienceInputSchema)
     .output(artifactsSetAudienceOutputSchema)
     .mutation(async ({ ctx, input }) => {
-      await artifactsOf(ctx).setAudience(
+      await ctx.services.artifacts.setAudience(
         ctx.principal,
         input.artifactId,
         input.audience
@@ -166,6 +156,6 @@ export const artifactsRouter = router({
     .input(artifactsVersionsInputSchema)
     .output(artifactsVersionsOutputSchema)
     .query(({ ctx, input }) =>
-      artifactsOf(ctx).versions(ctx.principal, input.artifactId)
+      ctx.services.artifacts.versions(ctx.principal, input.artifactId)
     ),
 });

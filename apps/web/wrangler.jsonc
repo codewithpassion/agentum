@@ -65,8 +65,19 @@
     // Email Sending on for it, in the rockyshoreslabs.io zone.
     "MAIL_DOMAIN": "agents.rockyshoreslabs.io",
     "MAIL_ZONE_ID": "4dd028fe52d70f89e51383e1689d601a",
-    "MAIL_WORKER_NAME": "harbourmaster"
+    "MAIL_WORKER_NAME": "harbourmaster",
+    // Any non-empty value turns every share-link open off in this environment.
+    "ARTIFACT_LINKS_OFF": ""
   },
+  // Share-link opens (artifact links). Counted per key: the route calls it
+  // once per token and once per IP prefix. Each environment has its own namespace.
+  "ratelimits": [
+    {
+      "name": "SHARE_OPEN_LIMIT",
+      "namespace_id": "2001",
+      "simple": { "limit": 30, "period": 60 }
+    }
+  ],
   "routes": [
     { "pattern": "harbourmaster.rockyshoreslabs.io", "custom_domain": true }
   ],
@@ -124,8 +135,19 @@
         // The zone id of rockyshoreslabs.io, from the zone's Overview page.
         // Mailboxes stay "provisioning pending" until it is set.
         "MAIL_ZONE_ID": "4dd028fe52d70f89e51383e1689d601a",
-        "MAIL_WORKER_NAME": "harbourmaster-staging"
+        "MAIL_WORKER_NAME": "harbourmaster-staging",
+        // Any non-empty value turns every share-link open off in this environment.
+        "ARTIFACT_LINKS_OFF": ""
       },
+      // Share-link opens (artifact links). Counted per key: the route calls it
+      // once per token and once per IP prefix. Each environment has its own namespace.
+      "ratelimits": [
+        {
+          "name": "SHARE_OPEN_LIMIT",
+          "namespace_id": "2002",
+          "simple": { "limit": 30, "period": 60 }
+        }
+      ],
       "r2_buckets": [
         { "binding": "FILES", "bucket_name": "harbourmaster-staging-files" }
       ],
@@ -165,8 +187,19 @@
           "LINUX_VM_IDLE_SECONDS": "180",
           "MAIL_DOMAIN": "",
           "MAIL_ZONE_ID": "",
-          "MAIL_WORKER_NAME": ""
+          "MAIL_WORKER_NAME": "",
+          // Any non-empty value turns every share-link open off in this environment.
+          "ARTIFACT_LINKS_OFF": ""
         },
+        // Share-link opens (artifact links). Counted per key: the route calls it
+        // once per token and once per IP prefix. Each environment has its own namespace.
+        "ratelimits": [
+          {
+            "name": "SHARE_OPEN_LIMIT",
+            "namespace_id": "2003",
+            "simple": { "limit": 30, "period": 60 }
+          }
+        ],
         // Previews share the staging bucket; keys are per workspace.
         "r2_buckets": [
           { "binding": "FILES", "bucket_name": "harbourmaster-staging-files" }
