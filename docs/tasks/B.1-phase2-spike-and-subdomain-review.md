@@ -3,7 +3,7 @@ id: B.1
 title: Phase 2 spike (Dynamic Workers, AppStore vs Facets) and subdomain review
 milestone: B
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/B.1-phase2-spike
 lane: docs
@@ -30,3 +30,4 @@ Phase 2 of `docs/v3/artifacts-prd.md` (the PRD) starts with a spike and the subd
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at bb5e91d (review round 1 must-fix, fixed in fd34c77, doc-only, no round 2); merged.
