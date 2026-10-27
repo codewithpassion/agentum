@@ -180,3 +180,50 @@ test("without the grants service an app is refused", async () => {
     })
   ).rejects.toMatchObject({ code: "invalid" });
 });
+
+test("restoring an app version records its grants, and an unpromoted app updates from its newest version", async () => {
+  const { db, grants, service } = setup();
+  const made = await service.create(principals.owner, {
+    files: app({ hosts: ["api.example.com"] }),
+    kind: "app",
+    title: "Intake",
+  });
+  await service.update(principals.owner, {
+    artifactId: made.artifactId,
+    baseVersion: 1,
+    files: app({}),
+  });
+  const { version } = await service.restore(
+    principals.owner,
+    made.artifactId,
+    1
+  );
+  expect(version).toBe(3);
+  const [row] = await db
+    .select()
+    .from(artifacts)
+    .where(eq(artifacts.id, made.artifactId));
+  expect(
+    await grantsOf(grants, made.artifactId, row?.currentVersionId as string)
+  ).toEqual([["host", "api.example.com", "approved"]]);
+
+  // An agent's app with no promoted version builds on its newest version.
+  const fresh = await service.create(principals.agentOne, {
+    files: app({}),
+    kind: "app",
+    title: "Second",
+  });
+  const next = await service.update(principals.agentOne, {
+    artifactId: fresh.artifactId,
+    baseVersion: 1,
+    files: app({}),
+  });
+  expect(next.version).toBe(2);
+  await expect(
+    service.update(principals.agentOne, {
+      artifactId: fresh.artifactId,
+      baseVersion: 1,
+      files: app({}),
+    })
+  ).rejects.toMatchObject({ code: "conflict" });
+});

@@ -11,6 +11,7 @@ Branch `task/B.4-grants-promote-pins`. Task file: `docs/tasks/B.4-grants-promote
 | 3 | to 35a430f | must-fix: a stale card answer rolled the live app back |
 | 4 | to 82d137d | must-fix: `promote` itself lacked the newer-than-live check |
 | 5 | 82d137d..3e6dc30 | clean |
+| 6 | 3e6dc30..4c2c3a6 (A.2 create/update integration, merge) | must-fix: restore of an app version wrote a live version with no grant rows; fixed in the next commit |
 
 The integration of A.2's create and update (after merging `v3/artifacts`) came after round 5 and is covered by `app-grants.test.ts` and the last review round noted in the commit log.
 
@@ -35,6 +36,10 @@ The integration of A.2's create and update (after merging `v3/artifacts`) came a
 - Pin positions are read then inserted, so two pins at once can share a position.
 - Limits are stored as extra tool rows `<tool>#<json>`, and any change to a limit (narrowing too) asks a person again.
 
+- A grant-row record that fails after the commit leaves the version without rows (fails closed downstream, nothing repairs it).
+- A never-promoted agent app shows in lists with a default current version and cannot be opened; `artifact.published` is written for proposed app versions.
+- Going live is a claim on the version plus a pointer update, not one atomic write (the claim arbitrates racing callers, since `atomic` returns nothing); the next `promote` of the version finishes a go-live that crashed between them.
+
 ## Ideas beyond the scope
 
 - Bridge the card answer for admins: the card follows the agent session's visibility, so only the owner's answer counts. An admin decides on the artifact page.
@@ -42,4 +47,4 @@ The integration of A.2's create and update (after merging `v3/artifacts`) came a
 
 ## Steps for Dom
 
-None. B.8 must replace the stub tool catalog in `compose.ts` (`tools: { lookup: () => null }`) with the connector and platform catalog, build `createArtifactsService` with `grants: artifactGrants`, and B.9 must filter `<tool>#...` rows out of tool lists.
+None. Whoever wires the artifacts service (A.6 or B.8) must build `createArtifactsService` with `grants: artifactGrants`, or every app create is refused. B.8 must replace the stub tool catalog in `compose.ts` (`tools: { lookup: () => null }`) with the connector and platform catalog, build `createArtifactsService` with `grants: artifactGrants`, and B.9 must filter `<tool>#...` rows out of tool lists.

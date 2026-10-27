@@ -590,6 +590,26 @@ export const createArtifactsService = ({
     );
   };
 
+  /** The paths of a stored version with the bytes of its manifest, for the grant check. */
+  const manifestOf = async (
+    member: Member,
+    files: { path: string; sha256: string }[]
+  ): Promise<ResolvedFile[]> =>
+    await Promise.all(
+      files.map(async (file) => {
+        const blob =
+          file.path === MANIFEST_PATH
+            ? await blobs.get(blobKey(member.workspaceId, file.sha256))
+            : null;
+        return {
+          bytes: blob?.bytes ?? new Uint8Array(),
+          contentType: "",
+          path: file.path,
+          sha256: file.sha256,
+        };
+      })
+    );
+
   /** An agent's app version waits `proposed` for `artifact_promote`; a person's goes live at once. */
   const statusFor = (member: Member, kind: ArtifactKind) =>
     kind === "app" && member.kind === "run" ? "proposed" : "published";
@@ -970,6 +990,12 @@ export const createArtifactsService = ({
       sourceLibraryPath: source.sourceLibraryPath,
       versionId: ulid(),
     };
+    // An app's restored version asks for what the old one asked for, so its
+    // manifest is checked again and its grants are recorded like a new version's.
+    const appFiles = row.kind === "app" ? await manifestOf(user, files) : [];
+    if (row.kind === "app") {
+      await checkApp(user, row.kind, appFiles);
+    }
     await writeManifest(user.workspaceId, draft);
     await commit(
       [
@@ -992,6 +1018,12 @@ export const createArtifactsService = ({
         publishedEvent(user, row, row.title, draft),
       ],
       `The current version is ${number - 1}.`
+    );
+    await recordApp(
+      user,
+      row.kind,
+      { artifactId: row.id, versionId: draft.versionId },
+      appFiles
     );
     return { version: number };
   };
