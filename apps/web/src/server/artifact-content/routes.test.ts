@@ -108,7 +108,8 @@ const setup = (seed: Seed = PAGE, workspaceId: string | null = WORKSPACE) => {
     path: string,
     init: RequestInit = {},
     origin = ORIGIN
-  ): Promise<Response> => app.request(`${origin}${path}`, init, {} as Env);
+  ): Response | Promise<Response> =>
+    app.request(`${origin}${path}`, init, {} as Env);
   return { ...store, app, get };
 };
 
