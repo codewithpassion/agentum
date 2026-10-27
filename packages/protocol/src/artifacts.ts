@@ -28,6 +28,8 @@ export const viewTokenClaimsSchema = z.strictObject({
   userId: z.string().min(1).optional(),
   versionId: z.string().min(1),
   viewer: z.enum(ARTIFACT_VIEWER_KINDS),
+  /** The artifact's workspace, so the content route can read R2 without D1. */
+  workspaceId: z.string().min(1),
 });
 export type ViewTokenClaims = z.infer<typeof viewTokenClaimsSchema>;
 
@@ -771,6 +773,13 @@ export const artifactsSetLinksEnabledInputSchema = z.strictObject({
 export type ArtifactsSetLinksEnabledInput = z.infer<
   typeof artifactsSetLinksEnabledInputSchema
 >;
+export const artifactsLinksEnabledOutputSchema = z.strictObject({
+  enabled: z.boolean(),
+});
+export type ArtifactsLinksEnabledOutput = z.infer<
+  typeof artifactsLinksEnabledOutputSchema
+>;
+
 export const artifactsSetLinksEnabledOutputSchema = emptySchema;
 export type ArtifactsSetLinksEnabledOutput = z.infer<
   typeof artifactsSetLinksEnabledOutputSchema
