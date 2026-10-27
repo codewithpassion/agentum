@@ -129,6 +129,7 @@ const storeCredential = async (
       },
     } satisfies Credential);
   }
+  await ctx.storage.put(`acceptedActor:${authorizationRef}`, principal);
   await ctx.storage.put(`actor:${participant(principal)}`, authorizationRef);
   return authorizationRef;
 };
@@ -239,6 +240,7 @@ export class ArtifactRoom extends Room {
           return null;
         }
         if (identity.role === "owner" || identity.role === "editor") {
+          await ctx.storage.put(`acceptedActor:${ref}`, principal);
           await ctx.storage.put("checkpointActor", ref);
         }
         return { ...identity, authorizationRef: ref };
@@ -316,16 +318,27 @@ export class ArtifactRoom extends Room {
       protectedRanges: async (scope) =>
         (await live().roomPolicy(SYSTEM_PRINCIPAL, scope)).ranges,
       save: async (scope, input) => {
-        const ref = input.restores.at(-1)
-          ? await ctx.storage.get<string>(
-              `actor:${input.restores.at(-1)?.byParticipant}`
-            )
-          : await ctx.storage.get<string>("checkpointActor");
-        const principal = ref ? await resolve(ref) : null;
-        if (!principal) {
-          throw new Error(
-            "Checkpoint requires a current authorized credential"
-          );
+        const publicationKey = `checkpointPublication:${input.checkpointId}`;
+        let actor = await ctx.storage.get<Principal>(publicationKey);
+        if (!actor) {
+          const ref = input.restores.at(-1)
+            ? await ctx.storage.get<string>(
+                `actor:${input.restores.at(-1)?.byParticipant}`
+              )
+            : await ctx.storage.get<string>("checkpointActor");
+          actor = ref
+            ? await ctx.storage.get<Principal>(`acceptedActor:${ref}`)
+            : undefined;
+          if (
+            !actor ||
+            actor.kind === "system" ||
+            actor.workspaceId !== scope.workspaceId
+          ) {
+            throw new Error("Missing accepted checkpoint provenance");
+          }
+          // Freeze provenance before external publication. This receipt cannot
+          // authorize new room operations and does not contain a bearer secret.
+          await ctx.storage.put(publicationKey, actor);
         }
         const store = new RoomStorage(ctx.storage);
         const origins = input.origins
@@ -342,11 +355,15 @@ export class ArtifactRoom extends Room {
             return { ...origin, ...metadata, revTo: record.revision };
           })
           .filter((origin) => origin.revTo > origin.revFrom);
-        const result = await live().durableCheckpoint(principal, {
-          ...scope,
-          ...input,
-          origins,
-        });
+        const result = await live().durableCheckpoint(
+          SYSTEM_PRINCIPAL,
+          {
+            ...scope,
+            ...input,
+            origins,
+          },
+          actor
+        );
         return result;
       },
     };
@@ -791,6 +808,7 @@ export class ArtifactRoom extends Room {
       expiresAt: Date.now() + 15 * 60_000,
       principal: current,
     } satisfies Credential);
+    await this.state.storage.put(`acceptedActor:${ref}`, current);
     await this.state.storage.put(`actor:${participant(current)}`, ref);
     if (identity.role === "owner" || identity.role === "editor") {
       await this.state.storage.put("checkpointActor", ref);
