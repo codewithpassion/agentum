@@ -270,8 +270,7 @@ const artifactPart: ArtifactThreadPart = {
 };
 
 test("an assistant message maps an artifact part to a data-artifact after its tool call", () => {
-  // A.7 adds the part to ThreadPart, so the parts array needs the cast until then.
-  const parts = [
+  const parts: ThreadMessage["parts"] = [
     { text: "Here it is", type: "text" },
     {
       input: { q: "plan" },
@@ -282,7 +281,7 @@ test("an assistant message maps an artifact part to a data-artifact after its to
       type: "tool-call",
     },
     artifactPart,
-  ] as unknown as ThreadMessage["parts"];
+  ];
 
   const result = toThreadMessageLike(assistant(parts));
 
@@ -310,11 +309,10 @@ test("an assistant message maps an artifact part to a data-artifact after its to
 });
 
 test("a user message maps an artifact part to no content", () => {
-  // A.7 adds the part to ThreadPart, so the parts array needs the cast until then.
-  const parts = [
+  const parts: ThreadMessage["parts"] = [
     { text: "Look", type: "text" },
     artifactPart,
-  ] as unknown as ThreadMessage["parts"];
+  ];
 
   const result = toThreadMessageLike(user(parts));
 
