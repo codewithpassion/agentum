@@ -173,3 +173,17 @@ Final verification on branch `t3/live-artifacts-editor-components`:
    status expiry, persistence, reconnect, or end-to-end R1.15–21.
 
 No push, PR, deployment or additional checkout was created.
+
+## Independent review — 2026-10-27
+
+Reviewed merged editor `f6beacee` / merge `f86f95ad` in the current checkout against the section 4 and presence, role, undo and checkpoint requirements. Verdict: **changes required** for the component defects below. These are separate from the production room, route, authorization and callback integration gates above.
+
+### Medium — restore confirmation survives a role downgrade
+
+In `editor-history.tsx`, only the initial Restore button is conditional on `editable`; the confirmation block is conditional solely on `confirm`. Repro: as an editor open version history and click Restore, then have the parent update the role to viewer or commenter before confirmation. Confirm restore remains enabled and invokes `port.restore(id)`. Clear the confirmation on downgrade and gate the confirmation and handler on the current role. A properly authorized server must still reject the call; that server boundary does not make the exposed component action correct. This is a code-path reproduction; the existing browser fixture tests static roles, not this transition.
+
+### Medium — removed image-policy URLs remain trusted locally
+
+`use-document-editor.ts` adds every incoming `policy.ownBlobUrls` entry to the long-lived `allowed` set and never removes it. Repro: mount with URL A in the verified manifest, then publish a new manifest excluding A while retaining the same document/provider. The policy getter still contains A, so the shared local sanitizer continues accepting it. Keep separately only URLs successfully persisted by this component and derive current external manifest entries afresh; reconcile uploaded entries when the authoritative manifest changes. The room's independent policy validation remains necessary and can reject an invalid update, but this component does not honor the stated live policy contract. This is a code-path reproduction.
+
+Reviewed shared schema binding, local-origin Yjs undo and role filter, selection/case and block/table commands, uploads and relative anchors, trusted roster projection, caret/follow, lifecycle and mobile controls. Focused actual-editor tests passed: **27 tests, 154 assertions**. The existing Playwright fixture passed desktop 1280×800 and touch phone 390×844, including collaboration, toolbar, chips, uploads, history and 138 measured controls. These fixture results do not establish authenticated transport, real uploads or server authorization. Initial test attempts lacked dependencies; `bun install --frozen-lockfile` resolved them. No product code was changed.
