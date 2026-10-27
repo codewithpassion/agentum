@@ -84,6 +84,7 @@ const open = async ({
   };
 };
 const join = async ({ env, composed, grant, credential }: Input) => {
+  await env.LIVE_ARTIFACT_MAINTENANCE.getByName("maintenance").start();
   const details = await (await requiredGuests(composed)).details(credential);
   const now = Math.floor(composed.clock.now().getTime() / 1000);
   const identity = {
