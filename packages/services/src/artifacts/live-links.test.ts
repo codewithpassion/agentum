@@ -440,6 +440,69 @@ describe("a live call", () => {
   });
 });
 
+describe("calls refused before the service (R2.14)", () => {
+  test("a flood guard refusal writes a rate_limited live_call row with the visitor fields", async () => {
+    const link = await liveLink();
+    await service.recordRefusedCall(link.token, "rate_limited", request());
+    const rows = viewsOf(link.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      artifactId: ARTIFACT,
+      country: "AU",
+      ipPrefix: "203.0.113.0/24",
+      outcome: "rate_limited",
+      surface: "live_call",
+      toolKey: null,
+      versionId: "v2",
+    });
+    expect(rows[0]?.visitorHash).not.toBeNull();
+    expect(runs).toHaveLength(0);
+  });
+
+  test("a bad body writes a refused row, and keeps the tool when it is known", async () => {
+    const link = await liveLink();
+    await service.recordRefusedCall(link.token, "refused", request(), LIST);
+    expect(viewsOf(link.id)).toMatchObject([
+      { outcome: "refused", toolKey: LIST },
+    ]);
+  });
+
+  test("a dead link keeps its own outcome", async () => {
+    const link = await liveLink();
+    await service.revokeShare(owner, { shareId: link.id });
+    await service.recordRefusedCall(link.token, "rate_limited", request());
+    const expired = await liveLink({
+      expiresAt: new Date(nowMs + MINUTE).toISOString(),
+    });
+    nowMs += HOUR;
+    await service.recordRefusedCall(expired.token, "refused", request());
+    expect(viewsOf(link.id).map((row) => row.outcome)).toEqual(["revoked"]);
+    expect(viewsOf(expired.id).map((row) => row.outcome)).toEqual(["expired"]);
+  });
+
+  test("an unknown or malformed token writes nothing", async () => {
+    await liveLink();
+    await service.recordRefusedCall(
+      "hm_share_unknown",
+      "rate_limited",
+      request()
+    );
+    await service.recordRefusedCall("nope", "refused", request());
+    expect(db.select().from(artifactViews).all()).toHaveLength(0);
+  });
+
+  test("a refused row does not count toward the limits", async () => {
+    const link = await liveLink();
+    for (let index = 0; index < 20; index += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: rows land in order
+      await service.recordRefusedCall(link.token, "rate_limited", request());
+    }
+    expect(
+      (await service.callLink(link.token, { tool: LIST }, request())).ok
+    ).toBe(true);
+  });
+});
+
 describe("dead links (R2.12)", () => {
   test("a revoked link refuses the next call with no cache in between", async () => {
     const link = await liveLink();

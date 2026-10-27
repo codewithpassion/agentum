@@ -59,9 +59,10 @@ const sha256Hex = async (text: string): Promise<string> =>
  * Whether this request is inside the limits: one count per token (hashed, so
  * the secret never reaches the limiter) and one per IP prefix, each under the
  * route's own `scope`. A binding that is missing (some dev setups) does not
- * limit. This is the flood guard; the exact live call limits (60 a minute and
- * 1,000 a day per link, 10 a minute per visitor) are counted by the service
- * from the access log.
+ * limit. This is the flood guard. Opens use `SHARE_OPEN_LIMIT` (30 a minute).
+ * Calls and storage reads use `SHARE_CALL_LIMIT` (120 a minute), above the
+ * exact live call limits (60 a minute and 1,000 a day per link, 10 a minute
+ * per visitor), which the service counts from the access log, so those decide.
  */
 const withinLimits = async (
   c: Context<AppEnv>,
@@ -69,7 +70,9 @@ const withinLimits = async (
   token: string,
   ip: string | null
 ): Promise<boolean> => {
-  const limiter = c.env.SHARE_OPEN_LIMIT as Env["SHARE_OPEN_LIMIT"] | undefined;
+  const limiter = (
+    scope === "open" ? c.env.SHARE_OPEN_LIMIT : c.env.SHARE_CALL_LIMIT
+  ) as Env["SHARE_OPEN_LIMIT"] | undefined;
   if (!limiter) {
     return true;
   }
@@ -161,6 +164,13 @@ export const artifactRoutes = (deps: ArtifactRoutesDeps): Hono<AppEnv> => {
     const ip = c.req.header("CF-Connecting-IP") ?? null;
     const noStore = { "Cache-Control": "no-store" };
     if (!(await withinLimits(c, "call", token, ip))) {
+      await c
+        .get("composed")
+        .services.artifactShares.recordRefusedCall(
+          token,
+          "rate_limited",
+          requestInfo(c, ip)
+        );
       return c.json({ error: "Too many requests." }, TOO_MANY, {
         ...noStore,
         "Retry-After": RETRY_AFTER_SECONDS,
@@ -171,6 +181,13 @@ export const artifactRoutes = (deps: ArtifactRoutesDeps): Hono<AppEnv> => {
       text.length <= MAX_CALL_BODY_BYTES ? parseJson(text) : null
     );
     if (!body.success) {
+      await c
+        .get("composed")
+        .services.artifactShares.recordRefusedCall(
+          token,
+          "refused",
+          requestInfo(c, ip)
+        );
       return c.json({ error: "Bad request." }, BAD_REQUEST, noStore);
     }
     const result = await c

@@ -79,6 +79,13 @@
       "namespace_id": "2001",
       "simple": { "limit": 30, "period": 60 }
     },
+    // Live link calls and storage reads: a flood guard above the service's own
+    // limits (60 a minute per link, 10 per visitor), so those decide.
+    {
+      "name": "SHARE_CALL_LIMIT",
+      "namespace_id": "2007",
+      "simple": { "limit": 120, "period": 60 }
+    },
     {
       "name": "APP_API_LIMIT",
       "namespace_id": "2004",
@@ -158,6 +165,13 @@
           "namespace_id": "2002",
           "simple": { "limit": 30, "period": 60 }
         },
+        // Live link calls and storage reads: a flood guard above the service's own
+        // limits (60 a minute per link, 10 per visitor), so those decide.
+        {
+          "name": "SHARE_CALL_LIMIT",
+          "namespace_id": "2008",
+          "simple": { "limit": 120, "period": 60 }
+        },
         {
           "name": "APP_API_LIMIT",
           "namespace_id": "2005",
@@ -215,6 +229,13 @@
             "name": "SHARE_OPEN_LIMIT",
             "namespace_id": "2003",
             "simple": { "limit": 30, "period": 60 }
+          },
+          // Live link calls and storage reads: a flood guard above the service's own
+          // limits (60 a minute per link, 10 per visitor), so those decide.
+          {
+            "name": "SHARE_CALL_LIMIT",
+            "namespace_id": "2009",
+            "simple": { "limit": 120, "period": 60 }
           },
           {
             "name": "APP_API_LIMIT",
