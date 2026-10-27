@@ -1,4 +1,4 @@
-import { Unzlib } from "fflate";
+import { Unzlib, unzlibSync } from "fflate";
 import { ExportError } from "./error";
 
 function crc32(bytes: Uint8Array, start: number, end: number) {
@@ -40,6 +40,7 @@ export function verifyPNG(bytes: Uint8Array, width: number, height: number) {
   let adlerA = 1,
     adlerB = 0,
     chunks = 0;
+  const compressed: Uint8Array<ArrayBuffer>[] = [];
   let trailer = new Uint8Array();
   const decoder = new Unzlib((chunk) => {
     if (count + chunk.length > expected) {
@@ -72,6 +73,7 @@ export function verifyPNG(bytes: Uint8Array, width: number, height: number) {
     }
     if (type === 0x49_44_41_54) {
       image = true;
+      compressed.push(bytes.slice(at + 8, at + 8 + size));
       const tail = bytes.subarray(
         at + 8 + Math.max(0, size - 4),
         at + 8 + size
@@ -100,5 +102,26 @@ export function verifyPNG(bytes: Uint8Array, width: number, height: number) {
   }
   if (!(image && end) || count !== expected) {
     throw new ExportError("export_png_incomplete");
+  }
+  // fflate ignores unused compressed bytes. A valid stream must NEED its last
+  // DEFLATE byte: remove it (plus the four-byte Adler trailer) and require an
+  // incomplete-stream error. Full-byte padding after BFINAL is not valid zlib.
+  const payload = new Uint8Array(
+    compressed.reduce((n, part) => n + part.length, 0)
+  );
+  let offset = 0;
+  for (const part of compressed) {
+    payload.set(part, offset);
+    offset += part.length;
+  }
+  let completeWithoutLastByte = false;
+  try {
+    unzlibSync(payload.subarray(0, -1), { out: new Uint8Array(expected) });
+    completeWithoutLastByte = true;
+  } catch {
+    // Expected: without its final DEFLATE byte, a complete stream is truncated.
+  }
+  if (completeWithoutLastByte) {
+    throw new ExportError("export_png_stream");
   }
 }

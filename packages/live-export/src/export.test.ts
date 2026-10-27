@@ -2,6 +2,7 @@
 
 import { expect, test } from "bun:test";
 import { posix } from "node:path";
+import { LiveDocument } from "@repo/live-doc";
 import { build, spawn } from "bun";
 import { strFromU8, unzipSync } from "fflate";
 import { SaxesParser } from "saxes";
@@ -17,6 +18,7 @@ import {
   assets,
   deckFixture,
   docFixture,
+  malformedPNGStreams,
   png,
   pngFor,
 } from "./fixtures/content";
@@ -192,6 +194,7 @@ test("actual workerd generates and round-trips both Office archives without DOM 
   expect(code).toBe(0);
   const r = JSON.parse(stdout);
   expect(r.dom).toBe("undefined");
+  expect(r.malformed).toEqual(["export_png_stream", "export_png_stream"]);
   checkArchives(
     Uint8Array.from(atob(r.docx), (c) => c.charCodeAt(0)),
     Uint8Array.from(atob(r.pptx), (c) => c.charCodeAt(0))
@@ -348,4 +351,87 @@ test("asset reads are serialized and a failed asset aborts queued reads", async 
   ]);
   expect(peak).toBe(1);
   expect(reads).toBe(2);
+});
+
+test("PNG rejects trailing garbage with copied checksum and concatenated streams", async () => {
+  for (const bytes of malformedPNGStreams()) {
+    // biome-ignore lint/performance/noAwaitInLoops: Exercise separate malformed stream cases.
+    await expect(
+      assetLoader({
+        ...assets,
+        read: async () => ({ bytes, mime: "image/png" }),
+      })("/files/image")
+    ).rejects.toThrow("export_png_stream");
+  }
+});
+test("DOCX emits one checkbox per task across continuation and nested blocks", async () => {
+  const doc = new Doc();
+  const live = new LiveDocument(doc, { ownBlobUrls: new Set() });
+  const paragraph = (text: string) => ({
+    content: [{ text, type: "text" }],
+    type: "paragraph",
+  });
+  live.import(
+    {
+      json: {
+        content: [
+          {
+            content: [
+              {
+                attrs: { checked: true },
+                content: [
+                  paragraph("Task"),
+                  paragraph("Continuation"),
+                  {
+                    content: [paragraph("Quoted continuation")],
+                    type: "blockquote",
+                  },
+                  {
+                    content: [
+                      {
+                        attrs: { checked: false },
+                        content: [
+                          paragraph("Nested task"),
+                          paragraph("Nested continuation"),
+                        ],
+                        type: "taskItem",
+                      },
+                    ],
+                    type: "taskList",
+                  },
+                ],
+                type: "taskItem",
+              },
+            ],
+            type: "taskList",
+          },
+        ],
+        type: "doc",
+      },
+    },
+    "fixture"
+  );
+  const result = await documentDOCX(encodeStateAsUpdate(doc), assets);
+  const body = xml(unzipSync(result.value), "word/document.xml");
+  expect(body.split("☑").length - 1).toBe(1);
+  expect(body.split("☐").length - 1).toBe(1);
+  expect(body).toContain("Quoted continuation");
+  doc.destroy();
+});
+
+test("PNG stream boundary validation retains stored and Huffman-coded images", async () => {
+  const raw = new Uint8Array((128 * 4 + 1) * 128);
+  for (let i = 0; i < raw.length; i += 1) {
+    raw[i] = i % 513 === 0 ? 0 : i % 251;
+  }
+  await Promise.all(
+    ([0, 6, 9] as const).map(async (level) => {
+      const bytes = pngFor(128, 128, raw, new Uint8Array(), level);
+      const result = await assetLoader({
+        ...assets,
+        read: async () => ({ bytes, mime: "image/png" }),
+      })("/files/image");
+      expect(result.width).toBe(128);
+    })
+  );
 });

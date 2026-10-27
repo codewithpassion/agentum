@@ -192,7 +192,7 @@ async function runs(n: JSONContent, load: LoadAsset): Promise<Inline[]> {
   ).flat();
 }
 interface BlockContext {
-  checkbox?: boolean;
+  checkbox?: { checked: boolean; consumed: boolean };
   level: number;
   list?: string;
   lists: WeakMap<JSONContent, string>;
@@ -244,6 +244,13 @@ async function tableBlock(n: JSONContent, context: BlockContext) {
   );
   return new Table({ rows });
 }
+function takeCheckbox(checkbox: BlockContext["checkbox"]) {
+  if (!checkbox || checkbox.consumed) {
+    return null;
+  }
+  checkbox.consumed = true;
+  return checkbox.checked ? "☑ " : "☐ ";
+}
 async function blocks(
   n: JSONContent,
   context: BlockContext
@@ -276,7 +283,7 @@ async function blocks(
   if (n.type === "taskItem") {
     return childBlocks(n, {
       ...context,
-      checkbox: n.attrs?.checked === true,
+      checkbox: { checked: n.attrs?.checked === true, consumed: false },
       list: undefined,
     });
   }
@@ -286,12 +293,13 @@ async function blocks(
   if (n.type === "pending") {
     warn(warnings, "pending", path, "Pending content exported as placeholder.");
   }
+  const label = takeCheckbox(context.checkbox);
   const children =
     n.type === "pending"
       ? [new TextRun(`[Pending: ${text(n)}]`)]
       : await runs(n, load);
-  if (context.checkbox !== undefined) {
-    children.unshift(new TextRun(context.checkbox ? "☑ " : "☐ "));
+  if (label) {
+    children.unshift(new TextRun(label));
   }
   const headings = [
     HeadingLevel.HEADING_1,

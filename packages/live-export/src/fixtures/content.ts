@@ -28,7 +28,13 @@ function chunk(name: string, data: Uint8Array) {
   v.setUint32(b.length - 4, crc(b.subarray(4, b.length - 4)));
   return b;
 }
-export function pngFor(width: number, height: number, raw: Uint8Array) {
+export function pngFor(
+  width: number,
+  height: number,
+  raw: Uint8Array,
+  suffix: Uint8Array = new Uint8Array(),
+  level: 0 | 6 | 9 = 0
+) {
   const header = new Uint8Array(13),
     view = new DataView(header.buffer);
   view.setUint32(0, width);
@@ -45,9 +51,17 @@ export function pngFor(width: number, height: number, raw: Uint8Array) {
     26,
     10,
     ...chunk("IHDR", header),
-    ...chunk("IDAT", zlibSync(raw, { level: 0 })),
+    ...chunk("IDAT", new Uint8Array([...zlibSync(raw, { level }), ...suffix])),
     ...chunk("IEND", new Uint8Array()),
   ]);
+}
+export function malformedPNGStreams() {
+  const raw = new Uint8Array([0, 20, 100, 220, 255]);
+  const compressed = zlibSync(raw, { level: 0 });
+  return [
+    pngFor(1, 1, raw, new Uint8Array([1, 2, 3, 4, ...compressed.slice(-4)])),
+    pngFor(1, 1, raw, compressed),
+  ];
 }
 export const png = pngFor(1, 1, new Uint8Array([0, 20, 100, 220, 255]));
 export const assets: OwnAssets = {
