@@ -92,16 +92,18 @@ export class TestArtifactRoom extends ArtifactRoom {
               ...scope,
               kind: "deck",
               revision: 0,
-              state: createDeckCheckpoint(
-                {
-                  slides: get<string[]>("slides") ?? [],
-                  title: "Fixture deck",
-                },
-                (path) =>
-                  (get<string[]>("urls") ?? ["/files/own-image.png"]).includes(
-                    path
-                  )
-              ),
+              state: get<number[]>("checkpoint")
+                ? Uint8Array.from(get<number[]>("checkpoint") ?? [])
+                : createDeckCheckpoint(
+                    {
+                      slides: get<string[]>("slides") ?? [],
+                      title: "Fixture deck",
+                    },
+                    (path) =>
+                      (
+                        get<string[]>("urls") ?? ["/files/own-image.png"]
+                      ).includes(path)
+                  ),
             }
           : { ...scope, ...initial() },
       ownBlobUrls: async () =>

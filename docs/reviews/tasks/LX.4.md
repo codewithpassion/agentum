@@ -93,3 +93,24 @@ The actual production fixture verifies private-source URL refusal, retained clie
 Independent probes: `@repo/live-deck` embed suite passed 5 tests / 31 assertions; the service suite described in LX.3 passed 35 / 190. Workerd and mounted browser results follow below. No environment file was copied, no secret requested, and no deployment, push, PR or real email occurred.
 
 Focused web run passed 44 tests / 596 assertions across actual production composition, deck room, checkpoint codec, content route, mounted element-ask browser and captured EMAIL adapter. The mounted fixture exercises real bridge and persisted run paths with fixture identity/mail; it is not deployed-provider evidence. The whole root suite was not rerun in this review.
+
+## Controller followup: exact retained elements and cold initialization
+
+Retained source permission is now keyed by slide ID, element ID and source identity; it no longer grants that identity to arbitrary new elements. The core ownership callback supplies the element context through isolated candidates and the MCP scene adapter. The room keeps current eligible sources separately from retained placeholders and refreshes retained bindings after a successful durable mutation. A removed binding cannot authorize later reuse while the source is unavailable.
+
+Cold initialization and durable recovery first validate the entire trusted persisted checkpoint using the closed deck grammar, image ownership and placeholder-only embed identities. Only then are exact existing embed bindings retained. This path is used only for authoritative stored bytes, never incoming WebSocket or tool updates. New edits still need current source eligibility or an exact retained binding, and serving content still requires fresh resolver authorization.
+
+Regressions cover a binary candidate that duplicates a retained source, actual warm-room and cold-room duplicate refusal without revision changes, cold initialization from an unavailable-source checkpoint, and clean owner restore. Previous combined main frozen install/check/test/build passed before this followup, including the LX.3 workerd bundler fix (logs interactions-*).
+
+Focused followup validation: six core embed tests pass; four production/deck-room/checkpoint tests pass with actual workerd. Core and MCP typechecks pass; web/root combined followup remains to run. No full-app or staging acceptance.
+
+## Independent bounded followup recheck — 2026-10-28
+
+Reviewed main `2188a62b7c511d287489e20b920250bd36c7fe9c`. **Verdict: no new findings within the requested remediation boundaries**, subject to the independent execution limitation below. This is not phase, full-app, guest, or staging approval. The earlier discovery pagination concern remains outside this bounded recheck.
+
+- Core `validateContent` passes slide and element IDs to ownership checks. Binary `applyUpdate` validates an isolated candidate with the same options before applying the original update; restore validates its checkpoint and resulting candidate. The MCP stage and its readers receive the room ownership callback, and the room's trial decks use that same contextual callback.
+- The room keeps current eligible embed sources separate from retained `(slide ID, element ID, source)` bindings. It rebuilds bindings from the accepted scene after a durable changed commit. Consequently, after a successful removal or clean restore, a later write or restore containing the removed unavailable source has no matching binding and fails candidate validation, including reuse of the same element ID. The existing fixture covers duplicate insertion refusal in warm and cold rooms without revision change, and clean owner restore; the core regression covers raw binary duplicate refusal.
+- Cold initialization and durable recovery derive bindings only from authoritative persisted bytes after an isolated `Deck.applyUpdate` validates the closed scene, limits, image ownership, and embed identity grammar. Incoming edits do not use this placeholder admission path. Fresh content authorization remains separate: `resolveEmbed` checks member deck access and the current exact eligible workspace/artifact/version/path/hash query before issuing a URL.
+- Independent execution was attempted with an additional temporary workerd fixture probe for writing the same removed element and restoring the old unavailable checkpoint after clean restore. The test did not run: this checkout lacks installed dependencies (`@repo/live-doc`, `@repo/mcp`, `@repo/services`, and `yjs` could not resolve). The temporary probe was reverted. No dependencies or environment files were installed or changed. Thus the removal/reuse conclusion is code inspection, not an independently executed result; the controller's reported six core and four workerd passing tests are not represented as this review's own runs.
+
+No secrets, real sends or provider calls, deployment, push, or PR were performed.

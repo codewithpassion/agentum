@@ -137,3 +137,28 @@ test("contested source identity is skipped while independent embed geometry appl
     x: "77",
   });
 });
+
+test("host retention can bind unavailable source to an exact element on binary ingress", () => {
+  const original = fixture();
+  const retained = new Deck(new Doc(), richTextCodec, {
+    ownsBlob: (path, slideId, elementId) =>
+      path === source && slideId === "s" && elementId === "embed",
+  });
+  retained.applyUpdate(encodeStateAsUpdate(original.doc));
+  original.addElement("s", {
+    ...structuredClone(original.read("s").slide.elements[0] as ElementData),
+    id: "duplicate",
+    order: "a1",
+  });
+  const before = encodeStateAsUpdate(retained.doc);
+  expect(() => retained.applyUpdate(encodeStateAsUpdate(original.doc))).toThrow(
+    "belong"
+  );
+  expect(encodeStateAsUpdate(retained.doc)).toEqual(before);
+  retained.setElementKey("s", "embed", "props", "x", "20");
+  expect(retained.read("s").slide.elements[0]?.props.x).toBe("20");
+  retained.destroy();
+  retained.doc.destroy();
+  original.destroy();
+  original.doc.destroy();
+});

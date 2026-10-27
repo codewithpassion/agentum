@@ -180,7 +180,53 @@ try {
     },
     embedRoom
   );
+  const acceptedEmbedState = await call("/snapshot", {}, embedRoom);
   await controls("urls", [], embedRoom);
+  const coldRoom = "cold-revoked-embed";
+  await controls("deck", true, coldRoom);
+  await controls("checkpoint", acceptedEmbedState.state, coldRoom);
+  await controls("urls", [], coldRoom);
+  const cold = await call("/deck-read", {}, coldRoom);
+  check(
+    cold.slides[0].html.includes('id="embedded"'),
+    "fresh room opens unavailable checkpoint embed as a retained placeholder"
+  );
+  for (const room of [embedRoom, coldRoom]) {
+    const current = await call("/deck-read", {}, room);
+    const prior = await call("/snapshot", {}, room);
+    await fails(
+      "/deck-write",
+      {
+        ops: [
+          {
+            html: current.slides[0].html.replace(
+              "</slide>",
+              `<element id="duplicate" type="embed" parent="s1" order="a3" prop-src="${embedSource}" prop-x="0" prop-y="0" prop-w="100" prop-h="100"></element></slide>`
+            ),
+            op: "write",
+            revision: current.slides[0].revision,
+            slideId: "s1",
+          },
+        ],
+      },
+      room
+    );
+    check(
+      (await call("/snapshot", {}, room)).revision === prior.revision,
+      "unavailable reference cannot authorize another element"
+    );
+  }
+  await call(
+    "/deck-restore",
+    { requestId: "cold-remove", state: cleanEmbedState.state },
+    coldRoom
+  );
+  check(
+    !(await call("/deck-read", {}, coldRoom)).slides[0].html.includes(
+      'id="embedded"'
+    ),
+    "fresh room can restore clean state without source access"
+  );
   await call(
     "/deck-restore",
     { requestId: "remove-revoked", state: cleanEmbedState.state },
