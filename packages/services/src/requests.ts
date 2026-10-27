@@ -2,6 +2,7 @@ import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { runRequests } from "@repo/db/schema/requests";
+import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { agentToolRules } from "@repo/db/schema/tool-rules";
 import {
@@ -45,6 +46,7 @@ import {
   scrubbedRecord,
   scrubText,
 } from "./requests/records.ts";
+import { currentGuestRun, guestUnavailable } from "./runs/guest-scope.ts";
 import { loadRun } from "./runs/queries.ts";
 import type { Clock, RunRecord } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
@@ -108,6 +110,9 @@ export const createRequestsService = ({
       kind: "run",
       workspaceId: run.workspaceId,
     });
+    if (run.scopeArtifactId) {
+      await runs.authorizeScopedRun(principal, run.id);
+    }
     return run;
   };
   const writer = (principal: Principal, run: RunRecord) => {
@@ -281,6 +286,9 @@ export const createRequestsService = ({
     } else {
       writer(principal, run);
     }
+    if (run.scopeArtifactId) {
+      return true;
+    }
     // The ask keys include the platform tools a switch covers (SWITCH_COVERS).
     return (
       await askKeysOf(db, { id: run.agentId, workspaceId: run.workspaceId })
@@ -338,6 +346,9 @@ export const createRequestsService = ({
     run: RunRecord,
     input: z.infer<typeof openInputSchema>
   ): Promise<RequestRecord["display"]> => {
+    if (run.scopeArtifactId && input.kind === "takeover") {
+      throw guestUnavailable();
+    }
     const masker = await secrets.maskerFor(run.workspaceId, run.agentId);
     const toolKey = await approvalToolKey(run, input);
     if (input.kind === "takeover") {
@@ -370,7 +381,23 @@ export const createRequestsService = ({
       })),
     };
   };
-  const insertPending = (row: RequestRow) => {
+  const insertPending = (row: RequestRow, run: RunRecord) => {
+    if (run.scopeArtifactId) {
+      const keys = Object.keys(
+        getTableColumns(runRequests)
+      ) as (keyof RequestRow)[];
+      return db
+        .insert(runRequests)
+        .select(sql`select ${sql.join(
+          keys.map((key) => sql`${row[key]}`),
+          sql`, `
+        )}
+        where exists (select 1 from ${runRows} where ${runRows.id} = ${run.id} and ${currentGuestRun(clock.now().toISOString())})`)
+        .onConflictDoNothing({
+          target: [runRequests.runId, runRequests.toolUseId],
+        })
+        .returning();
+    }
     if (row.kind !== "takeover") {
       return db
         .insert(runRequests)
@@ -397,6 +424,11 @@ export const createRequestsService = ({
       })
       .returning();
   };
+  const pendingConflict = (run: RunRecord) =>
+    run.scopeArtifactId
+      ? guestUnavailable()
+      : new ServiceError("conflict", "A takeover is already pending");
+
   const open = async (
     principal: Principal,
     raw: z.input<typeof openInputSchema>
@@ -418,37 +450,40 @@ export const createRequestsService = ({
     const display = await prepareOpen(run, input);
     const toolKey = "toolKey" in display ? display.toolKey : null;
     const now = clock.now();
-    const [row] = await insertPending({
-      agentId: run.agentId,
-      answer: null,
-      answeredAt: null,
-      answeredBy: null,
-      answeredVia: null,
-      createdAt: now.toISOString(),
-      deliveredAt: null,
-      display: JSON.stringify(display),
-      expiresAt: new Date(now.getTime() + TTL[input.kind]).toISOString(),
-      id: ulid(),
-      kind: input.kind,
-      // The runtime's own question texts; answers come back keyed by them.
-      questionKeys:
-        input.kind === "question"
-          ? JSON.stringify(input.questions.map(({ question }) => question))
-          : null,
-      runId: run.id,
-      sessionId: run.sessionId,
-      slackMessage: null,
-      status: "pending",
-      toolKey: input.kind === "approval" ? toolKey : null,
-      toolName:
-        input.kind === "takeover" ? "request_human_takeover" : input.toolName,
-      toolUseId: input.toolUseId,
-      workspaceId: run.workspaceId,
-    });
+    const [row] = await insertPending(
+      {
+        agentId: run.agentId,
+        answer: null,
+        answeredAt: null,
+        answeredBy: null,
+        answeredVia: null,
+        createdAt: now.toISOString(),
+        deliveredAt: null,
+        display: JSON.stringify(display),
+        expiresAt: new Date(now.getTime() + TTL[input.kind]).toISOString(),
+        id: ulid(),
+        kind: input.kind,
+        // The runtime's own question texts; answers come back keyed by them.
+        questionKeys:
+          input.kind === "question"
+            ? JSON.stringify(input.questions.map(({ question }) => question))
+            : null,
+        runId: run.id,
+        sessionId: run.sessionId,
+        slackMessage: null,
+        status: "pending",
+        toolKey: input.kind === "approval" ? toolKey : null,
+        toolName:
+          input.kind === "takeover" ? "request_human_takeover" : input.toolName,
+        toolUseId: input.toolUseId,
+        workspaceId: run.workspaceId,
+      },
+      run
+    );
     if (!row) {
       const [winner] = await db.select().from(runRequests).where(key);
       if (!winner) {
-        throw new ServiceError("conflict", "A takeover is already pending");
+        throw pendingConflict(run);
       }
       return requestRecord(winner);
     }
@@ -479,8 +514,26 @@ export const createRequestsService = ({
     // An append listener may already have answered; reconcile its state.
     await markRunningIfSettled(row.runId);
   };
+  const mayResume = async (row: RequestRow) => {
+    const run = await loadRun(db, row.runId, row.workspaceId);
+    if (!run?.scopeArtifactId) {
+      return true;
+    }
+    try {
+      await runs.authorizeScopedRun(SYSTEM_PRINCIPAL, run.id);
+      return true;
+    } catch (error) {
+      if (error instanceof ForbiddenError) {
+        return false;
+      }
+      throw error;
+    }
+  };
   const resume = async (row: RequestRow) => {
     if (isDetachedApproval(row)) {
+      return;
+    }
+    if (!(await mayResume(row))) {
       return;
     }
     await markRunningIfSettled(row.runId);
@@ -511,7 +564,26 @@ export const createRequestsService = ({
         answeredVia: input.via,
         status: "answered",
       })
-      .where(and(eq(runRequests.id, row.id), eq(runRequests.status, "pending")))
+      .where(
+        and(
+          eq(runRequests.id, row.id),
+          eq(runRequests.status, "pending"),
+          inArray(
+            runRequests.runId,
+            db
+              .select({ id: runRows.id })
+              .from(runRows)
+              .where(currentGuestRun(clock.now().toISOString()))
+          ),
+          inArray(
+            runRequests.sessionId,
+            db
+              .select({ id: sessions.id })
+              .from(sessions)
+              .where(await visibleSessions(db, principal))
+          )
+        )
+      )
       .returning();
     if (!closed) {
       throw new ServiceError("conflict", "Already answered");
@@ -553,7 +625,26 @@ export const createRequestsService = ({
     const [closed] = await db
       .update(runRequests)
       .set({ status: "cancelled" })
-      .where(and(eq(runRequests.id, row.id), eq(runRequests.status, "pending")))
+      .where(
+        and(
+          eq(runRequests.id, row.id),
+          eq(runRequests.status, "pending"),
+          inArray(
+            runRequests.runId,
+            db
+              .select({ id: runRows.id })
+              .from(runRows)
+              .where(currentGuestRun(clock.now().toISOString()))
+          ),
+          inArray(
+            runRequests.sessionId,
+            db
+              .select({ id: sessions.id })
+              .from(sessions)
+              .where(await visibleSessions(db, principal))
+          )
+        )
+      )
       .returning();
     if (!closed) {
       throw new ServiceError("conflict", "Already answered");

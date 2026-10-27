@@ -1,13 +1,17 @@
 /** Composition only; no application route/runtime imports this backend. */
+import type { RunsService } from "../runs.ts";
 import { createGuestAccessReader } from "./access.ts";
 import { createGuestAuthService, type GuestAuthDeps } from "./auth.ts";
 import { createGuestInvitations } from "./invitations.ts";
+import { createGuestRunStarter } from "./runs.ts";
 import { createGuestSessionLifecycle } from "./sessions.ts";
 
 type InvitationDeps = Parameters<typeof createGuestInvitations>[0];
 export interface LiveGuestsDeps extends Omit<InvitationDeps, "inviterName"> {
   inviterName: GuestAuthDeps["inviterName"];
   pepper: GuestAuthDeps["pepper"];
+  /** Omit until scoped runtimes/tools are integrated. */
+  runs?: Pick<RunsService, "startForGuest">;
 }
 /** Authenticated app members use invite/changeRole/revoke. Only guest HTTP
  * adapters may call the separate invitation/requestCode/verify/open/renew/
@@ -39,6 +43,7 @@ export const createLiveGuestsService = async (deps: LiveGuestsDeps) => {
       return deps.guestsOff() ? null : { ...landing, inviterName };
     },
     resolve: access.resolve,
+    startRun: createGuestRunStarter({ access, runs: deps.runs }).start,
   };
 };
 export type LiveGuestsService = Awaited<

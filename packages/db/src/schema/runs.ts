@@ -82,6 +82,12 @@ export const runs = sqliteTable(
     uniqueIndex("runs_request_unique").on(t.workspaceId, t.requestId),
     // The runs of one actor in time order, which is how a routine's runs are found.
     index("runs_actor_idx").on(t.actorId, t.id),
+    index("runs_guest_daily_idx").on(
+      t.workspaceId,
+      t.actorKind,
+      t.actorId,
+      t.createdAt
+    ),
     // The desk's lanes and agent filter, the queued-run sweep and `claimRun`.
     index("runs_workspace_status_idx").on(t.workspaceId, t.status),
     index("runs_workspace_finished_idx").on(t.workspaceId, t.finishedAt),

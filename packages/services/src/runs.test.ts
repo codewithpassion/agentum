@@ -7,6 +7,7 @@ import { files as fileRows } from "@repo/db/schema/files";
 import {
   artifactMembers,
   guestIdentities,
+  guestSessions,
 } from "@repo/db/schema/live-artifacts";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
@@ -22,6 +23,7 @@ import { eq, inArray } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { CLOUD_LEASE_MS } from "./cloud/lease.ts";
+import { hashToken } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
 import {
   type Blobs,
@@ -31,6 +33,9 @@ import {
 } from "./events.ts";
 import { memoryLibraryBlobs } from "./library/memory.ts";
 import { createLibraryService } from "./library.ts";
+import { createGuestAccessReader } from "./live-guests/access.ts";
+import { createGuestRunStarter } from "./live-guests/runs.ts";
+import { createRequestsService } from "./requests.ts";
 import type {
   Clock,
   DeliveryContext,
@@ -2778,6 +2783,21 @@ describe("the run task folder", () => {
   });
 });
 
+const guestSessionToken = `hm_guest_${"a".repeat(43)}`;
+const seedGuestSession = async () => {
+  db.insert(guestSessions)
+    .values({
+      createdAt: START,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      guestId: "g1",
+      id: "gs1",
+      lastUsedAt: START,
+      tokenHash: await hashToken(guestSessionToken),
+      workspaceId: WORKSPACE,
+    })
+    .run();
+};
+
 describe("guest artifact starts", () => {
   const artifactId = "11111111-1111-4111-8111-111111111111";
   const grant: GuestGrant = {
@@ -2793,9 +2813,8 @@ describe("guest artifact starts", () => {
     reply: { kind: "none" },
     session: { externalKey: artifactId, origin: "artifact" },
   });
-  const setupArtifact = () =>
-    db
-      .insert(artifacts)
+  const setupArtifact = async () => {
+    db.insert(artifacts)
       .values({
         audience: "private",
         createdAt: START,
@@ -2809,15 +2828,467 @@ describe("guest artifact starts", () => {
         workspaceId: WORKSPACE,
       })
       .run();
+    db.insert(guestIdentities)
+      .values({
+        createdAt: START,
+        displayName: "Ana",
+        email: "ana@example.com",
+        id: "g1",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    db.insert(artifactMembers)
+      .values({
+        artifactId,
+        createdAt: START,
+        createdBy: "u1",
+        expiresAt: grant.expiresAt,
+        guestId: "g1",
+        id: "gm1",
+        principalKind: "guest",
+        role: "commenter",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    await seedGuestSession();
+  };
+
   const guestRuns = (overrides: Partial<RunsServiceOptions> = {}) =>
     buildRuns({
       authorizeGuestGrant: async () => {
         await Promise.resolve();
       },
       guestRuntimeReady: () => true,
+      guestsOff: () => false,
       ...overrides,
     });
 
+  const queuedGuest = (service: RunsService, requestId?: string) =>
+    service.startForGuest(
+      grant,
+      { ...guestInput(), requestId },
+      { guestSessionToken, offerLater: true }
+    );
+
+  test("cookie-authenticated starter resolves current grants and leaves disabled composition closed", async () => {
+    await setupArtifact();
+    const access = createGuestAccessReader({
+      clock,
+      db,
+      guestsOff: () => false,
+    });
+    const input = {
+      artifactId,
+      run: guestInput(),
+      sessionToken: guestSessionToken,
+      workspaceId: WORKSPACE,
+    };
+    await expect(
+      createGuestRunStarter({ access }).start(input)
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    const started = await createGuestRunStarter({
+      access,
+      runs: guestRuns(),
+    }).start(input);
+    expect(runRow(started.runId)?.actorId).toBe("g1");
+    expect(dispatched).toHaveLength(0);
+    db.update(artifactMembers).set({ revokedAt: START }).run();
+    await expect(
+      createGuestRunStarter({ access, runs: guestRuns() }).start(input)
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  test("daily budget aggregates across artifacts and cancellation never refunds it", async () => {
+    await setupArtifact();
+    db.update(artifactMembers).set({ agentRunsPerDay: 1 }).run();
+    const otherArtifact = "22222222-2222-4222-8222-222222222222";
+    const original = db
+      .select()
+      .from(artifacts)
+      .where(eq(artifacts.id, artifactId))
+      .get();
+    if (!original) {
+      throw new Error("No artifact");
+    }
+    db.insert(artifacts)
+      .values({ ...original, id: otherArtifact })
+      .run();
+    db.insert(artifactMembers)
+      .values({
+        agentRunsPerDay: 1,
+        artifactId: otherArtifact,
+        createdAt: START,
+        createdBy: "u1",
+        expiresAt: grant.expiresAt,
+        guestId: "g1",
+        id: "other-grant",
+        principalKind: "guest",
+        role: "commenter",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    const service = guestRuns();
+    const first = await queuedGuest(service);
+    await service.cancelRun(user, first.runId);
+    await expect(
+      service.startForGuest(
+        { ...grant, artifactId: otherArtifact },
+        {
+          ...guestInput(),
+          session: { externalKey: otherArtifact, origin: "artifact" },
+        },
+        { guestSessionToken, offerLater: true }
+      )
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(runRowCount()).toBe(1);
+  });
+
+  test("daily cap serializes competing service instances and retries charge once", async () => {
+    await setupArtifact();
+    db.update(artifactMembers).set({ agentRunsPerDay: 3 }).run();
+    const attempts = await Promise.allSettled(
+      Array.from({ length: 24 }, (_, n) => queuedGuest(guestRuns(), `cap-${n}`))
+    );
+    expect(attempts.filter((r) => r.status === "fulfilled")).toHaveLength(3);
+    expect(runRowCount()).toBe(3);
+    const winner = attempts.find((r) => r.status === "fulfilled");
+    if (winner?.status !== "fulfilled") {
+      throw new Error("No winner");
+    }
+    const stored = runRow(winner.value.runId);
+    expect(
+      (await queuedGuest(guestRuns(), stored?.requestId ?? "")).runId
+    ).toBe(winner.value.runId);
+    expect(runRowCount()).toBe(3);
+    advance(24 * 60 * 60 * SECOND);
+    // Renew the grant as well: the original fixture expires at this boundary.
+    db.update(artifactMembers)
+      .set({ expiresAt: "2099-01-01T00:00:00.000Z" })
+      .run();
+    const nextGrant = { ...grant, expiresAt: "2099-01-01T00:00:00.000Z" };
+    await guestRuns().startForGuest(nextGrant, guestInput(), {
+      guestSessionToken,
+      offerLater: true,
+    });
+    expect(runRowCount()).toBe(4);
+  });
+
+  test("concurrent identical starts and continuations insert only one charged run", async () => {
+    await setupArtifact();
+    db.update(artifactMembers).set({ agentRunsPerDay: 1 }).run();
+    const results = await Promise.all(
+      Array.from({ length: 16 }, () => queuedGuest(guestRuns(), "same"))
+    );
+    expect(new Set(results.map((r) => r.runId)).size).toBe(1);
+    expect(runRowCount()).toBe(1);
+    const retry = await guestRuns().startForGuest(
+      grant,
+      { ...guestInput(), requestId: "same" },
+      { guestSessionToken, offerLater: true, sessionId: results[0]?.sessionId }
+    );
+    expect(retry.runId).toBe(results[0]?.runId ?? "missing");
+    await expect(queuedGuest(guestRuns(), "next")).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+  });
+
+  test("zero cap and revoked grant at the insertion boundary roll back all writes", async () => {
+    await setupArtifact();
+    db.update(artifactMembers).set({ agentRunsPerDay: 0 }).run();
+    await expect(queuedGuest(guestRuns())).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+    expect(runRowCount()).toBe(0);
+    expect(db.select().from(sessionRows).all()).toHaveLength(0);
+    db.update(artifactMembers).set({ agentRunsPerDay: 20 }).run();
+    let raced = false;
+    const service = guestRuns({
+      atomic: async (statements) => {
+        if (!raced) {
+          raced = true;
+          db.update(artifactMembers).set({ revokedAt: START }).run();
+        }
+        await sqliteAtomic(db)(statements);
+      },
+    });
+    await expect(queuedGuest(service)).rejects.toBeInstanceOf(ForbiddenError);
+    expect(runRowCount()).toBe(0);
+    expect(db.select().from(sessionRows).all()).toHaveLength(0);
+  });
+
+  test("forged and signed-out sessions cannot start or replay a previously valid request", async () => {
+    await setupArtifact();
+    await queuedGuest(guestRuns(), "valid");
+    await expect(
+      guestRuns().startForGuest(grant, guestInput(), {
+        guestSessionToken: `hm_guest_${"b".repeat(43)}`,
+        offerLater: true,
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    db.delete(guestSessions).run();
+    await expect(queuedGuest(guestRuns(), "valid")).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+    expect(runRowCount()).toBe(1);
+  });
+
+  for (const change of [
+    "revoke",
+    "expire",
+    "session expiry",
+    "workspace switch",
+    "workspace move",
+    "delete",
+    "viewer",
+  ] as const) {
+    test(
+      "current " +
+        change +
+        " fences dispatch, claim, resume and run operations",
+      async () => {
+        await setupArtifact();
+        const service = guestRuns();
+        const started = await queuedGuest(service);
+        await service.claimRun(SYSTEM_PRINCIPAL, started.runId);
+        await service.markWaiting(SYSTEM_PRINCIPAL, started.runId);
+        if (change === "revoke") {
+          db.update(artifactMembers).set({ revokedAt: START }).run();
+        }
+        if (change === "expire") {
+          advance(24 * 60 * 60 * SECOND);
+        }
+        if (change === "session expiry") {
+          db.update(guestSessions).set({ expiresAt: START }).run();
+        }
+        if (change === "workspace switch") {
+          db.update(workspaceRows).set({ liveGuestsEnabled: false }).run();
+        }
+        if (change === "workspace move") {
+          db.update(guestSessions).set({ workspaceId: "w2" }).run();
+        }
+        if (change === "delete") {
+          db.update(artifacts).set({ deletedAt: START }).run();
+        }
+        if (change === "viewer") {
+          db.update(artifactMembers).set({ role: "viewer" }).run();
+        }
+        await expect(
+          service.markRunning(SYSTEM_PRINCIPAL, started.runId)
+        ).rejects.toBeInstanceOf(ForbiddenError);
+        await expect(
+          service.heartbeatRun(SYSTEM_PRINCIPAL, started.runId)
+        ).rejects.toBeInstanceOf(ForbiddenError);
+        await expect(
+          service.ingestRunEvents(SYSTEM_PRINCIPAL, started.runId, [])
+        ).rejects.toBeInstanceOf(ForbiddenError);
+        await expect(
+          service.completeRun(SYSTEM_PRINCIPAL, started.runId, {
+            status: "done",
+          })
+        ).rejects.toBeInstanceOf(ForbiddenError);
+        const principal = runPrincipal(started.runId, spyAgentId);
+        await expect(
+          service.getRun(principal, started.runId)
+        ).rejects.toBeInstanceOf(ForbiddenError);
+        // Restore queue status to exercise the actual dispatch and claim entry points.
+        db.update(runRows).set({ status: "queued" }).run();
+        await expect(
+          service.offerQueuedRun(SYSTEM_PRINCIPAL, started.runId)
+        ).rejects.toBeInstanceOf(ForbiddenError);
+        await expect(
+          service.claimRun(SYSTEM_PRINCIPAL, started.runId)
+        ).rejects.toBeInstanceOf(ForbiddenError);
+        expect(dispatched).toHaveLength(0);
+      }
+    );
+  }
+
+  test("legacy machine claim never resolves guest secrets or emits a token", async () => {
+    await setupArtifact();
+    let secretsRead = false;
+    const service = guestRuns({
+      runTokenKey: RUN_TOKEN_KEY,
+      secrets: {
+        announceDelivery: () => Promise.resolve(),
+        maskerFor: () => Promise.resolve(null),
+        resolveForAgent: () => {
+          secretsRead = true;
+          return Promise.reject(new Error("must not read"));
+        },
+      },
+    });
+    const started = await queuedGuest(service);
+    await expect(
+      service.claimRunForMachine(
+        { kind: "machine", machineId: "m1", workspaceId: WORKSPACE },
+        started.runId,
+        { platformUrl: "https://example.com" }
+      )
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(secretsRead).toBe(false);
+    expect(runRow(started.runId)?.status).toBe("queued");
+  });
+
+  for (const operation of ["claim", "resume"] as const) {
+    test(`revocation between ${operation} preflight and UPDATE cannot transition the run`, async () => {
+      await setupArtifact();
+      const service = guestRuns();
+      const started = await queuedGuest(service);
+      if (operation === "resume") {
+        await service.claimRun(SYSTEM_PRINCIPAL, started.runId);
+        await service.markWaiting(SYSTEM_PRINCIPAL, started.runId);
+      }
+      const update = db.update.bind(db);
+      let raced = false;
+      const hook = spyOn(db, "update").mockImplementation((table) => {
+        if (Object.is(table, runRows) && !raced) {
+          raced = true;
+          update(artifactMembers).set({ revokedAt: START }).run();
+        }
+        return update(table);
+      });
+      try {
+        if (operation === "claim") {
+          await expect(
+            service.claimRun(SYSTEM_PRINCIPAL, started.runId)
+          ).rejects.toBeInstanceOf(ForbiddenError);
+        } else {
+          await expect(
+            service.markRunning(SYSTEM_PRINCIPAL, started.runId)
+          ).rejects.toBeInstanceOf(ForbiddenError);
+        }
+        expect(raced).toBe(true);
+        expect(runRow(started.runId)?.status).toBe(
+          operation === "claim" ? "queued" : "waiting"
+        );
+      } finally {
+        hook.mockRestore();
+      }
+    });
+  }
+
+  test("credential rotation preserves run authority and replacement grants never revive old runs", async () => {
+    await setupArtifact();
+    const service = guestRuns();
+    const started = await queuedGuest(service);
+    db.update(guestSessions)
+      .set({ tokenHash: await hashToken("rotated-token") })
+      .run();
+    await service.offerQueuedRun(SYSTEM_PRINCIPAL, started.runId);
+    expect(dispatched).toContain(started.runId);
+    db.update(artifactMembers).set({ revokedAt: START }).run();
+    db.insert(artifactMembers)
+      .values({
+        artifactId,
+        createdAt: START,
+        createdBy: "u1",
+        expiresAt: grant.expiresAt,
+        guestId: "g1",
+        id: "replacement",
+        principalKind: "guest",
+        role: "editor",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    await expect(
+      service.claimRun(SYSTEM_PRINCIPAL, started.runId)
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  test("a retry racing revocation cannot return a previously authorized run", async () => {
+    await setupArtifact();
+    const service = guestRuns();
+    await queuedGuest(service, "repeat");
+    let raced = false;
+    const retry = guestRuns({
+      atomic: async (statements) => {
+        if (!raced) {
+          raced = true;
+          db.update(artifactMembers).set({ revokedAt: START }).run();
+        }
+        await sqliteAtomic(db)(statements);
+      },
+    });
+    await expect(queuedGuest(retry, "repeat")).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+    expect(runRowCount()).toBe(1);
+  });
+
+  test("emergency switch is live and missing callback fails closed", async () => {
+    await setupArtifact();
+    let off = false;
+    const service = guestRuns({ guestsOff: () => off });
+    const started = await queuedGuest(service);
+    off = true;
+    await expect(
+      service.offerQueuedRun(SYSTEM_PRINCIPAL, started.runId)
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(queuedGuest(service)).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      queuedGuest(guestRuns({ guestsOff: undefined }))
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  test("guest requests are owner-visible, member-answerable and guest answers are denied", async () => {
+    await setupArtifact();
+    const service = guestRuns();
+    const requests = createRequestsService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+      events,
+      runs: service,
+      secrets: { maskerFor: () => Promise.resolve(null) },
+    });
+    const started = await queuedGuest(service);
+    await service.claimRun(SYSTEM_PRINCIPAL, started.runId);
+    expect(
+      await requests.needsApproval(SYSTEM_PRINCIPAL, {
+        runId: started.runId,
+        toolKey: "anything",
+      })
+    ).toBe(true);
+    const request = await requests.open(SYSTEM_PRINCIPAL, {
+      input: {},
+      kind: "approval",
+      runId: started.runId,
+      toolName: "document_read",
+      toolUseId: "call",
+    });
+    expect((await requests.listPending(user)).map((r) => r.id)).toContain(
+      request.id
+    );
+    expect(await requests.listPending(colleague)).toHaveLength(0);
+    await expect(
+      requests.answer(runPrincipal(started.runId, spyAgentId), {
+        answer: { decision: "allow_once" },
+        requestId: request.id,
+        via: "web",
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    db.insert(artifactMembers)
+      .values({
+        artifactId,
+        createdAt: START,
+        createdBy: "u1",
+        id: "member",
+        principalKind: "user",
+        role: "viewer",
+        userId: "u2",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    expect((await requests.listPending(colleague)).map((r) => r.id)).toContain(
+      request.id
+    );
+    await requests.answer(colleague, {
+      answer: { decision: "allow_once" },
+      requestId: request.id,
+      via: "web",
+    });
+    expect(runRow(started.runId)?.status).toBe("running");
+  });
   test("GuestGrant is rejected by the Principal-only type contract", () => {
     const compileOnly = () => {
       // @ts-expect-error a GuestGrant is not an authenticated Principal
@@ -2826,9 +3297,10 @@ describe("guest artifact starts", () => {
     expect(typeof compileOnly).toBe("function");
   });
   test("stores guest identity, null delegation and artifact scope on every queued event", async () => {
-    setupArtifact();
+    await setupArtifact();
     const service = guestRuns();
     const started = await service.startForGuest(grant, guestInput(), {
+      guestSessionToken,
       offerLater: true,
     });
     const row = runRow(started.runId);
@@ -2843,6 +3315,7 @@ describe("guest artifact starts", () => {
       ["guest", "g1"],
     ]);
     const next = await service.startForGuest(grant, guestInput(), {
+      guestSessionToken,
       offerLater: true,
       sessionId: started.sessionId,
     });
@@ -2880,14 +3353,16 @@ describe("guest artifact starts", () => {
     expect(runRowCount()).toBe(0);
   });
   test("cannot continue another artifact or web session and cannot hand off", async () => {
-    setupArtifact();
+    await setupArtifact();
     const web = await start(user, spyAgentId);
     await expect(
       guestRuns().startForGuest(grant, guestInput(), {
+        guestSessionToken,
         sessionId: web.sessionId,
       })
     ).rejects.toBeInstanceOf(ForbiddenError);
     const started = await guestRuns().startForGuest(grant, guestInput(), {
+      guestSessionToken,
       offerLater: true,
     });
     const principal: Principal = {
@@ -2901,7 +3376,7 @@ describe("guest artifact starts", () => {
     );
   });
   test("artifact authorization applies to direct and sessionId starts", async () => {
-    setupArtifact();
+    await setupArtifact();
     await expect(runs.startRun(colleague, guestInput())).rejects.toBeInstanceOf(
       ServiceError
     );
@@ -2913,7 +3388,6 @@ describe("guest artifact starts", () => {
     ).rejects.toBeInstanceOf(ServiceError);
   });
   test("history and live names use actor lookups, never payload identity or guest email", async () => {
-    setupArtifact();
     db.insert(guestIdentities)
       .values({
         createdAt: START,
@@ -3000,9 +3474,11 @@ test("scoped guest runs see only their artifact session, and revoked membership 
       workspaceId: WORKSPACE,
     })
     .run();
+  await seedGuestSession();
   const service = buildRuns({
     authorizeGuestGrant: () => Promise.resolve(),
     guestRuntimeReady: () => true,
+    guestsOff: () => false,
   });
   const own = await service.startForGuest(
     {
@@ -3018,7 +3494,7 @@ test("scoped guest runs see only their artifact session, and revoked membership 
       reply: { kind: "none" },
       session: { externalKey: artifactId, origin: "artifact" },
     },
-    { offerLater: true }
+    { guestSessionToken, offerLater: true }
   );
   const other = await start(
     user,
@@ -3033,7 +3509,11 @@ test("scoped guest runs see only their artifact session, and revoked membership 
     runId: own.runId,
     workspaceId: WORKSPACE,
   };
-  const sessionsService = createSessionsService({ db, events });
+  const sessionsService = createSessionsService({
+    authorizeScopedRun: service.authorizeScopedRun,
+    db,
+    events,
+  });
   expect((await sessionsService.get(principal, own.sessionId)).id).toBe(
     own.sessionId
   );
@@ -3049,7 +3529,7 @@ test("scoped guest runs see only their artifact session, and revoked membership 
     .run();
   await expect(
     sessionsService.get(principal, own.sessionId)
-  ).rejects.toBeInstanceOf(ServiceError);
+  ).rejects.toBeInstanceOf(ForbiddenError);
   await expect(
     buildRuns().offerQueuedRun(SYSTEM_PRINCIPAL, own.runId)
   ).rejects.toBeInstanceOf(ForbiddenError);
