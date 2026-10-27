@@ -20,3 +20,17 @@ The real service/router request shapes are inferred from the existing router fac
 The current `changes` API contains no authoritative relative changed ranges. L.7/controller were notified; no quote-based approximation or fabricated attribution was added. A real agent/runtime and second authorized member are required to certify all three ask surfaces' speaker envelopes and actual revert preservation. Staging is an external-auth/deployment gate owned by the controller. No task status files were edited in this lane; neither L.8 nor L.9 is asserted end-to-end complete here.
 
 Integration-ready validation: root check/test/build pass; focused editor/provider suite is 38 tests with 198 assertions. Both component and actual workerd-room browser checks pass at the required desktop/phone sizes. The actual room check covers transport and presence, **not** shared-thread/comment/revert app interactions. Full L.9 authenticated acceptance still requires the L.7 mount, verified service endpoints, an actual agent change, and a second authorized member.
+
+## Independent review — 2026-10-27
+
+Reviewed merged client `4d852d19` at checkout `2e4ac2495a7bfcf608206512179f26c24ea00c76`. Verdict: **changes required**.
+
+### Medium — retry controls are offered for replies that have no dispatch
+
+`CommentThread` offers “Retry agent delivery” for every current user's comment in an unanswered addressed thread. Replies have `toAgent: false` and create no addressed-comment dispatch, while `retryCommentAsk` requires a dispatch for the specific comment ID. A user replying to such a thread sees a retry button that fails with the service's missing error. Show retry only for the original addressed comment with a retryable dispatch, ideally using an explicit server-provided delivery state rather than inferring it from thread state. The present control also appears after successful dispatch until answered; an idempotent service avoids a duplicate run but the UI misleadingly suggests a failure.
+
+### Medium — selection context survives a successful ask
+
+`AgentComposer` clears the text after sending but `CollaborationPanel` retains the selection and original ask intent. The next ordinary message therefore remains `via: ask_agent` and republishes the old selection unless the user explicitly clears it. Clear the attached selection on successful submission, or otherwise make its persistent attachment explicit. This is a client state-path finding, not a completed authenticated browser reproduction.
+
+The panel uses actual typed service shapes, stable request IDs across unchanged failed addressed drafts, relative anchors and role-gated mutations; pagination reloads the requested number of pages. Comment author names fall back to raw kind/ID when the author is absent from current presence, so the roster is not a durable author directory. Shared transcript and panel behavior, speaker identity, anchored deletion, retries and revert still require authenticated full-app browser acceptance with two distinct members and a real agent. The L.7 root namespace and policy/upload/export/attribution integration is absent at this checkout; this is a separate integration gate, not a passing L.9 result. The passing 38 focused tests and two browser fixtures reported in L.8 do not exercise these panel flows. No product edits or preview tools were used.
