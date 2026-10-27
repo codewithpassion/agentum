@@ -5,16 +5,21 @@ import * as Y from "yjs";
 
 const doc = new Y.Doc();
 let provider: YProvider;
+let flush: () => void;
 Object.assign(window, {
   clientId: doc.clientID,
-  connect(ticket: string) {
-    provider = new YProvider("localhost:18987", "test", doc, {
+  connect(ticket: string, room = "test", clientId?: number) {
+    if (clientId !== undefined) {
+      doc.clientID = clientId;
+    }
+    provider = new YProvider("localhost:18987", room, doc, {
       disableBc: true,
       params: { ticket },
       party: "live",
     });
   },
   connected: () => provider.wsconnected,
+  disconnect: () => provider.disconnect(),
   forge(id: number) {
     const update = encoding.createEncoder();
     encoding.writeVarUint(update, 1);
@@ -36,6 +41,31 @@ Object.assign(window, {
       name,
     }),
   insert: (text: string) => doc.getText("test").insert(0, text),
+  offlineInsert: (index: number, text: string) => {
+    const { ws } = provider;
+    if (!ws) {
+      throw new Error("socket missing");
+    }
+    const send = ws.send.bind(ws);
+    const queued: ArrayBufferLike[] = [];
+    ws.send = (data) => {
+      queued.push(data as ArrayBufferLike);
+    };
+    doc.getText("test").insert(index, text);
+    flush = () => {
+      ws.send = send;
+      for (const data of queued) {
+        send(data);
+      }
+    };
+  },
+  reconnect: () => flush(),
+  relative: (index: number) =>
+    Array.from(
+      Y.encodeRelativePosition(
+        Y.createRelativePositionFromTypeIndex(doc.getText("test"), index)
+      )
+    ),
   states: () => [...provider.awareness.getStates().entries()],
   text: () => doc.getText("test").toString(),
 });

@@ -320,6 +320,18 @@ export class Live extends YServer {
       );
     }
   }
+  insertAgent(encoded) {
+    this.document.getText("test");
+    const relative = Y.decodeRelativePosition(Uint8Array.from(encoded));
+    const position = Y.createAbsolutePositionFromRelativePosition(
+      relative,
+      this.document
+    );
+    if (!position || position.type !== this.document.getText("test")) {
+      throw new Error("missing target");
+    }
+    position.type.insert(position.index, "agent ");
+  }
   agent() {
     const d = new Y.Doc();
     while (
@@ -342,6 +354,9 @@ export class Live extends YServer {
 }
 export default {
   async fetch(request, env) {
+    if (env.LOCAL_FIXTURE_CAPABILITY !== "local-only") {
+      return new Response("local fixture disabled", { status: 403 });
+    }
     const url = new URL(request.url);
     const artifact = url.pathname.split("/").at(-1);
     const stub = env.LIVE.getByName(artifact || "test");
@@ -353,6 +368,10 @@ export default {
     }
     if (url.pathname === "/stats") {
       return Response.json(await env.LIVE.getByName("test").stats());
+    }
+    if (url.pathname === "/insert-agent") {
+      await env.LIVE.getByName("test").insertAgent(await request.json());
+      return new Response("ok");
     }
     if (url.pathname === "/agent") {
       await env.LIVE.getByName("test").agent();

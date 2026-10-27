@@ -1,3 +1,4 @@
+// biome-ignore-all lint/performance/noAwaitInLoops: ordered connections are intentional.
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: this executable is a standalone integration check.
 
 import { strict as assert } from "node:assert/strict";
@@ -62,6 +63,24 @@ try {
   await Promise.all(pages.map((p) => wait(p, "window.connected()")));
   await api(pages[0], `window.insert('hello')`);
   await wait(pages[1], `window.text() === 'hello'`);
+  const relative = await api(pages[0], "window.relative(0)");
+  await api(pages[0], `window.offlineInsert(0, 'human ')`);
+  const inserted = await fetch("http://localhost:18987/insert-agent", {
+    body: JSON.stringify(relative),
+    method: "POST",
+  });
+  assert.equal(inserted.status, 200);
+  await wait(pages[1], `window.text().includes('agent ')`);
+  await api(pages[0], "window.reconnect()");
+  await wait(pages[0], `window.text().includes('agent ')`);
+  await wait(pages[1], `window.text().includes('human ')`);
+  const merged = await api(pages[0], "window.text()");
+  assert.equal(await api(pages[1], "window.text()"), merged);
+  assert(
+    merged.includes("human ") &&
+      merged.includes("agent ") &&
+      merged.endsWith("hello")
+  );
   await api(pages[0], `window.identity('Forged')`);
   await wait(
     pages[1],
@@ -95,7 +114,7 @@ try {
     ))
   );
   await api(pages[1], `window.insert('!')`);
-  await wait(pages[0], `window.text() === '!hello'`);
+  await wait(pages[0], `window.text() === ${JSON.stringify(`!${merged}`)}`);
   assert.equal((await upgrade(tickets[0])).status, 403);
   assert.equal(
     (await upgrade(await ticket(claims(0, { clientId: 12_345 })), "other"))
@@ -125,10 +144,10 @@ try {
   );
   await api(reader, `window.connect(${JSON.stringify(readTicket)})`);
   await wait(reader, "window.connected()");
-  await wait(reader, `window.text() === '!hello'`);
+  await wait(reader, `window.text() === ${JSON.stringify(`!${merged}`)}`);
   await api(reader, `window.insert('ILLEGAL')`);
   await new Promise((r) => setTimeout(r, 500));
-  assert.equal(await api(pages[1], "window.text()"), "!hello");
+  assert.equal(await api(pages[1], "window.text()"), `!${merged}`);
   assert.equal((await upgrade(`${tickets[0]}x`)).status, 403);
   const revoke = await (
     await fetch("http://localhost:18987/revoke?id=participant0")
@@ -136,6 +155,67 @@ try {
   assert.equal(revoke, 1);
   await wait(pages[0], "!window.connected()");
   assert(await api(pages[1], "window.connected()"));
+  // The observer retains the high-clock tombstone across a clean close.
+  const makePage = async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.route("http://fixture.test/", (route) =>
+      route.fulfill({
+        body: `<script>${bundle}</script>`,
+        contentType: "text/html",
+      })
+    );
+    await page.goto("http://fixture.test/");
+    return page;
+  };
+  const observer = await makePage();
+  const first = await makePage();
+  const replacement = await makePage();
+  const unique = await makePage();
+  const observerId = await api(observer, "window.clientId");
+  const firstId = await api(first, "window.clientId");
+  const uniqueId = await api(unique, "window.clientId");
+  const clockTicket = (id, name) =>
+    ticket(
+      claims(0, { artifact: "clock", clientId: id, name, participant: name })
+    );
+  for (const [page, id, name] of [
+    [observer, observerId, "observer"],
+    [first, firstId, "first"],
+  ]) {
+    const token = await clockTicket(id, name);
+    await api(page, `window.connect(${JSON.stringify(token)}, 'clock')`);
+    await wait(page, "window.connected()");
+  }
+  await api(first, `window.forge(${firstId})`);
+  await wait(
+    observer,
+    `window.states().some(([id,s]) => id === ${firstId} && s.user?.name === 'first')`
+  );
+  await api(first, "window.disconnect()");
+  await wait(observer, `!window.states().some(([id]) => id === ${firstId})`);
+  const sameTicket = await clockTicket(firstId, "replacement");
+  await api(
+    replacement,
+    `window.connect(${JSON.stringify(sameTicket)}, 'clock', ${firstId})`
+  );
+  await wait(replacement, "window.connected()");
+  await api(replacement, `window.identity('replacement')`);
+  await new Promise((r) => setTimeout(r, 500));
+  assert(
+    !(await api(
+      observer,
+      `window.states().some(([id,s]) => id === ${firstId} && s.user?.name === 'replacement')`
+    ))
+  );
+  const uniqueTicket = await clockTicket(uniqueId, "unique");
+  await api(unique, `window.connect(${JSON.stringify(uniqueTicket)}, 'clock')`);
+  await wait(unique, "window.connected()");
+  await api(unique, `window.identity('unique')`);
+  await wait(
+    observer,
+    `window.states().some(([id,s]) => id === ${uniqueId} && s.user?.name === 'unique')`
+  );
   console.log(
     JSON.stringify({
       after,
@@ -148,9 +228,12 @@ try {
       identitySanitized: true,
       postIdleConvergence: true,
       readOnlyRejected: true,
+      relativeInsertConverged: merged,
       replay: 403,
       revoke,
+      sameIdReplacementSuppressed: true,
       tampered: 403,
+      uniqueIdReplacementVisible: true,
     })
   );
 } finally {

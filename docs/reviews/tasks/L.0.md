@@ -49,3 +49,11 @@ Ticket verification binds artifact, expiry, identity, role and client ID. transa
 ## Explicitly deferred work
 
 L.3 owns connection expiry/renewal, abandoned reservation recovery, production issuance/RPC authorization, private signing keys, rate limits, snapshot generations/compaction/recovery, size caps and agent presence lifetime/republishing. Those production implementations do not block this throwaway spike. L.2 owns complete schema/corpus/sanitisation and structural editor convergence; staging acceptance remains later work. Findings above concern missing L.0 evidence, a concrete negative result requiring a decision, and containing the deliberately unauthenticated fixture.
+
+
+## Resolution evidence — 2026-10-27
+
+- Two Chromium replicas captured a Yjs relative position before a queued, unmerged human insertion. The room inserted the agent contribution before release of the queued update; both converged to `agent human hello`. This tests Y.Text rather than full ProseMirror structure.
+- The retained regression sends a high clock for the sender's own ID, cleanly disconnects, reconnects with a fresh ticket and the same ID, and observes suppression. A distinct ID is visible. The chosen L.3 strategy is connection-unique IDs, with non-reuse and lifecycle enforcement still required; clearing only server metadata cannot reset peers.
+- The config's build hook rejects `wrangler deploy --dry-run` and `wrangler versions upload --dry-run` before uploading. Explicit local dev succeeds. A separate local run without the capability returned 403 for issuer, insert, agent, revoke and room routes. The capability is deliberately local setup, not production authentication; guard bypass or deliberately provisioning it remotely is outside the accidental-command protection.
+- `check.ts` and `browser-test.ts` passed on fresh local state; the browser run reported two retained sockets, starts 1 to 2, both insert contributions, same-ID suppression and distinct-ID visibility. No remote deployment was attempted.
