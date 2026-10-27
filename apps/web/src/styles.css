@@ -349,6 +349,18 @@ body {
     transform: translate(-50%, -50%);
   }
 
+  /* Text fields and native selects are 32px by default. */
+  [data-slot="input"],
+  [data-slot="native-select"] {
+    min-height: 2.5rem;
+  }
+
+  /* Clerk's avatar button is 28px wide. */
+  .cl-userButtonTrigger {
+    justify-content: center;
+    min-width: 2.5rem;
+  }
+
   /* The nav badge is centred on a 32px row; the row is now 40px. */
   [data-sidebar="menu-badge"] {
     top: 0.625rem;

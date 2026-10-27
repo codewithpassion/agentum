@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 import {
   DESK_POLL_INTERVAL_MS,
   usePolledQuery,
@@ -30,6 +31,7 @@ import {
   NEW_NODE_MIME,
   type NewNodeKind,
   newNodeKeys,
+  type PaletteItem,
   triggerIdOfKey,
 } from "./editor-logic.ts";
 import { FitViewButton, MapCanvas, type MapPosition } from "./map-canvas.tsx";
@@ -208,23 +210,30 @@ export function MapPage() {
     [refresh]
   );
 
-  /** Runs an edit, shows its failure in the banner and reloads the graph. */
+  /**
+   * Runs an edit, shows its failure in the banner and reloads the graph.
+   * Resolves to whether the edit went through.
+   */
   const edit = useCallback(
     async (change: () => Promise<unknown>) => {
       setEditError(null);
+      let done = true;
       try {
         await change();
       } catch (cause) {
+        done = false;
         setEditError(errorMessage(cause));
       }
       await refresh();
+      return done;
     },
     [refresh]
   );
 
   const savePositions = useCallback(
-    (positions: { key: string; x: number; y: number }[]) =>
-      edit(() => getTrpc().map.savePositions.mutate(positions)),
+    async (positions: { key: string; x: number; y: number }[]) => {
+      await edit(() => getTrpc().map.savePositions.mutate(positions));
+    },
     [edit]
   );
 
@@ -239,10 +248,49 @@ export function MapPage() {
     [edit]
   );
 
+  const agentName = useCallback(
+    (agentId: string) =>
+      graph?.nodes.find((node) => agentIdOf(node.key) === agentId)?.label ??
+      "the agent",
+    [graph]
+  );
+  /** A tap plugs a tool in, and its toast can take it back out. */
+  const plugFromTap = useCallback(
+    async (agentId: string, item: PaletteItem) => {
+      if (!(await plug(agentId, item.tool))) {
+        return;
+      }
+      toast(`Plugged ${item.label} into ${agentName(agentId)}`, {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            unplug(agentId, item.tool);
+          },
+        },
+      });
+    },
+    [agentName, plug, unplug]
+  );
   const askConfirm = useCallback((request: ConfirmRequest) => {
     setConfirmError(null);
     setConfirm(request);
   }, []);
+
+  /** Unplugging cannot be undone exactly (tool limits and pins are lost), so it asks first. */
+  const unplugFromTouch = useCallback(
+    (agentId: string, tool: MapTool, label: string) => {
+      askConfirm({
+        body: `${label} stops being available to ${agentName(agentId)}. Plugging it back in starts from the default settings.`,
+        confirm: "Remove",
+        destructive: true,
+        run: async () => {
+          await getTrpc().map.unplugTool.mutate({ agentId, tool });
+        },
+        title: `Remove ${label}?`,
+      });
+    },
+    [agentName, askConfirm]
+  );
 
   const connectWire = useCallback(
     (sourceKey: string, targetKey: string) => {
@@ -405,16 +453,16 @@ export function MapPage() {
 
   const { clearPick, pickTool, picked, selectNode } = useTapToPlug({
     boardRef,
-    plug,
+    plug: plugFromTap,
     select: setSelectedKey,
   });
   const touch = useMemo(
     () => ({
       onConnectWire: connectWire,
       onDeleteWire: deleteWire,
-      onUnplug: unplug,
+      onUnplug: unplugFromTouch,
     }),
-    [connectWire, deleteWire, unplug]
+    [connectWire, deleteWire, unplugFromTouch]
   );
 
   const changeMode = useCallback(

@@ -16,6 +16,7 @@ import {
 } from "#/components/ui/table.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { EventLogEntry } from "#/integrations/trpc/types";
+import { cn } from "#/lib/utils";
 import { cancelEntryIds } from "./log-logic.ts";
 
 interface LogTableProps {
@@ -44,6 +45,10 @@ function agentLabel(
 }
 
 const CANCEL_FAILED = "Could not cancel the run.";
+
+/** Shows the "Links" label beside the actions cell in the phone card, as ResponsiveCell does for its cells. */
+const LINKS_LABEL_CLASS =
+  "max-md:before:content-[attr(data-label)] max-md:before:shrink-0 max-md:before:text-left max-md:before:font-medium max-md:before:text-muted-foreground max-md:before:text-xs";
 
 function CancelRunButton({ runId }: { runId: string }) {
   const router = useRouter();
@@ -104,7 +109,10 @@ function LogRow({ agentName, cancellable, entry }: LogRowProps) {
       <ResponsiveCell className="md:max-w-md md:truncate" label="Summary">
         {entry.summary === "" ? "-" : entry.summary}
       </ResponsiveCell>
-      <ResponsiveActions className="whitespace-nowrap">
+      <ResponsiveActions
+        className={cn("whitespace-nowrap", LINKS_LABEL_CLASS)}
+        data-label="Links"
+      >
         {entry.runId === null ? "-" : <TaskLink runId={entry.runId} />}
         {entry.runId !== null && cancellable ? (
           <CancelRunButton runId={entry.runId} />

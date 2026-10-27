@@ -78,6 +78,7 @@ function ChoiceButton({
   return (
     <Button
       aria-pressed={pressed}
+      className="w-full text-base sm:w-auto sm:text-[0.8rem]"
       disabled={disabled}
       onClick={handleClick}
       size="sm"
@@ -296,7 +297,9 @@ function ApprovalCard({
       </p>
       {mail === null ? (
         <details className="text-muted-foreground text-xs">
-          <summary className="cursor-pointer">Input</summary>
+          <summary className="pointer-coarse:min-h-10 cursor-pointer">
+            Input
+          </summary>
           <pre className="mt-1 overflow-x-auto whitespace-pre-wrap">
             {inputText}
           </pre>
@@ -313,19 +316,31 @@ function ApprovalCard({
           value={note}
         />
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Button disabled={pending} onClick={allowOnce} type="button">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <Button
+          className="w-full sm:w-auto"
+          disabled={pending}
+          onClick={allowOnce}
+          type="button"
+        >
           Allow once
         </Button>
+        <div className="flex flex-col gap-1 border-border border-t pt-2 max-sm:order-last sm:border-t-0 sm:pt-0">
+          <Button
+            className="w-full sm:w-auto"
+            disabled={pending}
+            onClick={alwaysAllow}
+            type="button"
+            variant="outline"
+          >
+            Always allow
+          </Button>
+          <p className="text-muted-foreground text-xs sm:hidden">
+            Saves a rule if one fits.
+          </p>
+        </div>
         <Button
-          disabled={pending}
-          onClick={alwaysAllow}
-          type="button"
-          variant="outline"
-        >
-          Always allow
-        </Button>
-        <Button
+          className="w-full sm:w-auto"
           disabled={pending}
           onClick={deny}
           type="button"

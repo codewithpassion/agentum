@@ -123,7 +123,7 @@ export function TaskFilesList({ files }: { files: TaskFilesView }) {
       )}
       <div>
         <Link
-          className="inline-block rounded-md border px-2.5 py-1 text-xs hover:bg-muted"
+          className="inline-block pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center rounded-md border px-2.5 py-1 text-xs hover:bg-muted"
           search={{ dir: folder }}
           to="/library"
         >

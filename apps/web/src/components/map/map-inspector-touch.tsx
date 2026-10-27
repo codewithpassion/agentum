@@ -19,7 +19,7 @@ const HEADING =
 export interface TouchActions {
   onConnectWire: (sourceKey: string, targetKey: string) => void;
   onDeleteWire: (edgeId: string) => void;
-  onUnplug: (agentId: string, tool: MapTool) => void;
+  onUnplug: (agentId: string, tool: MapTool, label: string) => void;
 }
 
 type TouchGraph = Parameters<typeof connectChoices>[0];
@@ -122,7 +122,7 @@ function RemovePortButton({
   port: MapPortData;
 }) {
   const remove = useCallback(
-    () => actions.onUnplug(agentId, toolOfPort(port)),
+    () => actions.onUnplug(agentId, toolOfPort(port), port.label),
     [actions, agentId, port]
   );
   return (

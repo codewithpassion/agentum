@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useState } from "react";
-import type { MapTool, PaletteItem } from "./editor-logic.ts";
+import type { PaletteItem } from "./editor-logic.ts";
 import { agentIdOf } from "./map-logic.ts";
 
 /**
@@ -13,7 +13,7 @@ export function useTapToPlug({
   select,
 }: {
   boardRef: RefObject<HTMLElement | null>;
-  plug: (agentId: string, tool: MapTool) => void;
+  plug: (agentId: string, item: PaletteItem) => void;
   select: (key: string | null) => void;
 }) {
   const [picked, setPicked] = useState<PaletteItem | null>(null);
@@ -35,7 +35,7 @@ export function useTapToPlug({
     (key: string | null) => {
       const agentId = key === null ? null : agentIdOf(key);
       if (picked !== null && agentId !== null) {
-        plug(agentId, picked.tool);
+        plug(agentId, picked);
         setPicked(null);
         return;
       }

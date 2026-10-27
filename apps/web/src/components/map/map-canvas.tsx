@@ -38,9 +38,11 @@ const FIT_OPTIONS = { duration: 200, padding: 0.15 } as const;
 
 /**
  * On a phone, fitting the whole graph into the canvas makes the nodes
- * unreadable, so the fit stops at this zoom and the person pans instead.
+ * unreadable. The fit stops at zoom 1, where the node text (12px or more on
+ * screen, see the phone sizes in map-nodes.tsx) stays readable, and the
+ * person pans instead.
  */
-const PHONE_FIT_OPTIONS = { ...FIT_OPTIONS, minZoom: 0.7 } as const;
+const PHONE_FIT_OPTIONS = { ...FIT_OPTIONS, minZoom: 1 } as const;
 
 const fitOptions = () =>
   window.matchMedia("(max-width: 767px)").matches

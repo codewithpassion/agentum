@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { ConfirmButton } from "#/components/confirm-action/confirm-button";
 import { errorMessage } from "#/components/library/library-logic.ts";
 import {
   type AssignedSkill,
@@ -144,15 +145,18 @@ function AssignedRow({
             ))}
           </select>
         </label>
-        <Button
+        <ConfirmButton
+          confirmLabel="Unassign"
           data-testid="agent-skill-unassign"
-          onClick={unassign}
+          description={`${row.name} stops applying to this agent. You can assign it again later.`}
+          onConfirm={unassign}
           size="sm"
+          title={`Unassign ${row.name}?`}
           type="button"
           variant="outline"
         >
           Unassign
-        </Button>
+        </ConfirmButton>
       </div>
       {logError === undefined ? null : (
         <p className="text-destructive text-sm">{logError}</p>
