@@ -1,7 +1,8 @@
 import { type ReactNode, useCallback } from "react";
+import { ResponsiveCell } from "#/components/responsive-table/responsive-table";
 import { Badge } from "#/components/ui/badge";
 import { Switch } from "#/components/ui/switch";
-import { TableCell, TableRow } from "#/components/ui/table";
+import { TableRow } from "#/components/ui/table";
 import type { RouterOutputs } from "#/integrations/trpc/types";
 import { hostsOf } from "./grants.ts";
 import type { SecretStatus } from "./status.ts";
@@ -34,26 +35,32 @@ export function SecretRow({
 
   return (
     <TableRow>
-      <TableCell>
+      <ResponsiveCell label="Granted">
         <Switch
           aria-label={`Grant ${secret.name}`}
           checked={granted}
           disabled={disabled}
           onCheckedChange={handleChange}
         />
-      </TableCell>
-      <TableCell className="font-mono text-xs">{secret.name}</TableCell>
-      <TableCell>
+      </ResponsiveCell>
+      <ResponsiveCell className="font-mono text-xs" label="Name">
+        {secret.name}
+      </ResponsiveCell>
+      <ResponsiveCell label="Mode">
         <Badge variant="secondary">{secret.mode}</Badge>
-      </TableCell>
-      <TableCell className="font-mono text-muted-foreground text-xs">
+      </ResponsiveCell>
+      <ResponsiveCell
+        className="font-mono text-muted-foreground text-xs"
+        label="Hosts"
+      >
         {hosts}
-      </TableCell>
-      <TableCell
+      </ResponsiveCell>
+      <ResponsiveCell
         className={`text-xs ${status?.works === false ? "text-destructive" : "text-muted-foreground"}`}
+        label="Status"
       >
         {status?.text}
-      </TableCell>
+      </ResponsiveCell>
     </TableRow>
   );
 }

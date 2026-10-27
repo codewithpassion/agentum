@@ -5,9 +5,9 @@ import { useCallback, useState } from "react";
 import { EnrollDialog } from "#/components/machines/enroll-dialog";
 import { MachineRow } from "#/components/machines/machine-row";
 import { RevokeDialog } from "#/components/machines/revoke-dialog";
+import { ResponsiveTable } from "#/components/responsive-table/responsive-table";
 import { Button } from "#/components/ui/button";
 import {
-  Table,
   TableBody,
   TableHead,
   TableHeader,
@@ -87,7 +87,7 @@ function MachinesPage() {
           an agent to use.
         </p>
       ) : (
-        <Table>
+        <ResponsiveTable>
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -108,7 +108,7 @@ function MachinesPage() {
               />
             ))}
           </TableBody>
-        </Table>
+        </ResponsiveTable>
       )}
       {dialog ? (
         <EnrollDialog

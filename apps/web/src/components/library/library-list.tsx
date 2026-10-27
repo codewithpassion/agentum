@@ -2,6 +2,11 @@ import { Link } from "@tanstack/react-router";
 import { File, Folder, FolderInput, Pencil, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import {
+  ResponsiveActions,
+  ResponsiveCell,
+  ResponsiveTable,
+} from "#/components/responsive-table/responsive-table";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -13,9 +18,7 @@ import {
 } from "#/components/ui/alert-dialog.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
-  Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
@@ -127,16 +130,22 @@ function EntryRow({
   );
   return (
     <TableRow data-testid="library-row">
-      <TableCell>
+      <ResponsiveCell label="Name">
         <EntryName dir={dir} entry={entry} />
-      </TableCell>
-      <TableCell className="whitespace-nowrap text-muted-foreground">
+      </ResponsiveCell>
+      <ResponsiveCell
+        className="whitespace-nowrap text-muted-foreground"
+        label="Size"
+      >
         {entry.kind === "dir" ? "-" : formatSize(entry.size)}
-      </TableCell>
-      <TableCell className="whitespace-nowrap text-muted-foreground">
+      </ResponsiveCell>
+      <ResponsiveCell
+        className="whitespace-nowrap text-muted-foreground"
+        label="Modified"
+      >
         {formatMtime(entry.mtime)}
-      </TableCell>
-      <TableCell className="text-right">
+      </ResponsiveCell>
+      <ResponsiveActions className="text-right">
         <Button
           aria-label={`Rename ${name}`}
           data-testid="library-rename"
@@ -167,7 +176,7 @@ function EntryRow({
         >
           <Trash2 aria-hidden="true" />
         </Button>
-      </TableCell>
+      </ResponsiveActions>
     </TableRow>
   );
 }
@@ -258,7 +267,7 @@ export function LibraryList({
       {entries.length === 0 ? (
         <p className="text-muted-foreground text-sm">This folder is empty.</p>
       ) : (
-        <Table>
+        <ResponsiveTable>
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -281,7 +290,7 @@ export function LibraryList({
               />
             ))}
           </TableBody>
-        </Table>
+        </ResponsiveTable>
       )}
       <DeleteDialog
         entry={pending}

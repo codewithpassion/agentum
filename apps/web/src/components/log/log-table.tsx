@@ -1,12 +1,15 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  ResponsiveActions,
+  ResponsiveCell,
+  ResponsiveTable,
+} from "#/components/responsive-table/responsive-table";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
-  Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
@@ -88,22 +91,22 @@ function TaskLink({ runId }: { runId: string }) {
 function LogRow({ agentName, cancellable, entry }: LogRowProps) {
   return (
     <TableRow data-testid="log-row">
-      <TableCell className="whitespace-nowrap">
+      <ResponsiveCell className="whitespace-nowrap" label="Time">
         <time dateTime={entry.createdAt}>{formatUtc(entry.createdAt)}</time>
-      </TableCell>
-      <TableCell>
+      </ResponsiveCell>
+      <ResponsiveCell label="Type">
         <Badge variant="secondary">{entry.type}</Badge>
-      </TableCell>
-      <TableCell>{agentName}</TableCell>
-      <TableCell className="max-w-md truncate">
+      </ResponsiveCell>
+      <ResponsiveCell label="Agent">{agentName}</ResponsiveCell>
+      <ResponsiveCell className="md:max-w-md md:truncate" label="Summary">
         {entry.summary === "" ? "-" : entry.summary}
-      </TableCell>
-      <TableCell className="whitespace-nowrap">
+      </ResponsiveCell>
+      <ResponsiveActions className="whitespace-nowrap">
         {entry.runId === null ? "-" : <TaskLink runId={entry.runId} />}
         {entry.runId !== null && cancellable ? (
           <CancelRunButton runId={entry.runId} />
         ) : null}
-      </TableCell>
+      </ResponsiveActions>
     </TableRow>
   );
 }
@@ -114,7 +117,7 @@ export function LogTable({ agentNames, entries }: LogTableProps) {
   }
   const cancellable = cancelEntryIds(entries);
   return (
-    <Table>
+    <ResponsiveTable>
       <TableHeader>
         <TableRow>
           <TableHead>Time</TableHead>
@@ -134,6 +137,6 @@ export function LogTable({ agentNames, entries }: LogTableProps) {
           />
         ))}
       </TableBody>
-    </Table>
+    </ResponsiveTable>
   );
 }

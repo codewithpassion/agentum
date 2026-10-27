@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
+import { ResponsiveTable } from "#/components/responsive-table/responsive-table";
 import { Button } from "#/components/ui/button";
 import {
   Empty,
@@ -9,7 +10,6 @@ import {
   EmptyTitle,
 } from "#/components/ui/empty";
 import {
-  Table,
   TableBody,
   TableHead,
   TableHeader,
@@ -122,7 +122,7 @@ export function SecretsPanel({ agent }: AgentPanelProps) {
         </Empty>
       ) : (
         <>
-          <Table>
+          <ResponsiveTable>
             <TableHeader>
               <TableRow>
                 <TableHead>Granted</TableHead>
@@ -148,7 +148,7 @@ export function SecretsPanel({ agent }: AgentPanelProps) {
                 />
               ))}
             </TableBody>
-          </Table>
+          </ResponsiveTable>
           <RuntimeNotes />
         </>
       )}

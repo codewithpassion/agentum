@@ -1,12 +1,16 @@
 import { isPendingProposal, ROUTINE_ERROR_LIMIT } from "@repo/db/shared";
 import { formatDistanceToNow } from "date-fns";
 import { useCallback } from "react";
+import { ConfirmButton } from "#/components/confirm-action/confirm-button";
+import {
+  ResponsiveActions,
+  ResponsiveCell,
+  ResponsiveTable,
+} from "#/components/responsive-table/responsive-table";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
-  Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
@@ -75,38 +79,42 @@ function RoutineRow({
 
   return (
     <TableRow>
-      <TableCell className="font-medium">
+      <ResponsiveCell className="font-medium" label="Name">
         {routine.name}
         {pending ? (
           <div className="font-normal text-muted-foreground text-xs">
             Proposed by {routine.agentName}
           </div>
         ) : null}
-      </TableCell>
-      {showAgent ? <TableCell>{routine.agentName}</TableCell> : null}
-      <TableCell>
-        <div title={routine.cron}>
-          {describeCron(routine.cron, routine.timezone)}
+      </ResponsiveCell>
+      {showAgent ? (
+        <ResponsiveCell label="Agent">{routine.agentName}</ResponsiveCell>
+      ) : null}
+      <ResponsiveCell label="Schedule">
+        <div>
+          <div title={routine.cron}>
+            {describeCron(routine.cron, routine.timezone)}
+          </div>
+          <div className="font-mono text-muted-foreground text-xs">
+            {routine.cron} {routine.timezone}
+          </div>
         </div>
-        <div className="font-mono text-muted-foreground text-xs">
-          {routine.cron} {routine.timezone}
-        </div>
-      </TableCell>
-      <TableCell className="text-muted-foreground">
+      </ResponsiveCell>
+      <ResponsiveCell className="text-muted-foreground" label="Next run">
         {nextRunLabel(routine)}
-      </TableCell>
-      <TableCell className="text-muted-foreground">
+      </ResponsiveCell>
+      <ResponsiveCell className="text-muted-foreground" label="Last fired">
         {lastFiredLabel(routine.lastFiredAt)}
-      </TableCell>
-      <TableCell>
+      </ResponsiveCell>
+      <ResponsiveCell label="Status">
         <Badge
           title={routine.lastError ?? undefined}
           variant={active && !pending ? "default" : "secondary"}
         >
           {statusLabel(routine)}
         </Badge>
-      </TableCell>
-      <TableCell className="text-right">
+      </ResponsiveCell>
+      <ResponsiveActions className="text-right">
         <div className="flex justify-end gap-2">
           {pending ? (
             <>
@@ -122,13 +130,19 @@ function RoutineRow({
               <Button onClick={toggle} size="sm" variant="outline">
                 {active ? "Pause" : "Resume"}
               </Button>
-              <Button onClick={remove} size="sm" variant="outline">
+              <ConfirmButton
+                description={`Remove "${routine.name}"? It stops running and cannot be restored.`}
+                onConfirm={remove}
+                size="sm"
+                title="Remove routine?"
+                variant="outline"
+              >
                 Remove
-              </Button>
+              </ConfirmButton>
             </>
           )}
         </div>
-      </TableCell>
+      </ResponsiveActions>
     </TableRow>
   );
 }
@@ -149,7 +163,7 @@ export function RoutineTable({
   showAgent: boolean;
 }) {
   return (
-    <Table>
+    <ResponsiveTable>
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
@@ -176,6 +190,6 @@ export function RoutineTable({
           />
         ))}
       </TableBody>
-    </Table>
+    </ResponsiveTable>
   );
 }
