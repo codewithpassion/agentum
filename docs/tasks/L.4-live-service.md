@@ -19,3 +19,5 @@ executor: codex
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
 
 - 2026-10-27: Terra dispatched. Required review gates: artifact-session access across list/transcript/run-read/continuation paths, and same-workspace validation for every parent/child read/write, each with cross-tenant/private-artifact regression tests.
+
+- 2026-10-27: Partial 9e804902 merged: read-side artifact session visibility and workspace regression only. Remaining implementation split into L.4a (core persistence/tickets), L.4b (comments/changes), L.4c (ask/router/continuation). Parent stays in_progress until all pass.
