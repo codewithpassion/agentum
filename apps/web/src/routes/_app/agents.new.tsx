@@ -231,7 +231,10 @@ function NewAgent() {
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-4">
       <div className="text-muted-foreground text-sm">
-        <Link className="hover:text-foreground" to="/agents">
+        <Link
+          className="pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center hover:text-foreground"
+          to="/agents"
+        >
           Agents
         </Link>
         {" › New agent"}

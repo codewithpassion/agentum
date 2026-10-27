@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button.tsx";
+import { cn } from "#/lib/utils.ts";
 
 /** Smooth scrolling, unless the person asks for reduced motion. */
 export const scrollBehaviorFor = (reducedMotion: boolean): ScrollBehavior =>
@@ -44,7 +45,10 @@ export function ReplyBar({ targetId }: { targetId: string }) {
 
   return (
     <div
-      className={`fixed inset-x-0 bottom-0 z-20 border-t bg-card p-3 md:hidden ${hidden ? "hidden" : ""}`}
+      className={cn(
+        "fixed inset-x-0 bottom-0 z-20 border-t bg-card p-3 md:hidden",
+        hidden && "hidden"
+      )}
     >
       <Button className="w-full" onClick={reply} type="button">
         Reply

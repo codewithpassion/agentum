@@ -271,28 +271,26 @@ export function MapPage() {
     },
     [agentName, plug, unplug]
   );
-  /** Unplugging from the touch panel can be undone from its toast. */
-  const unplugFromTouch = useCallback(
-    async (agentId: string, tool: MapTool, label: string) => {
-      if (!(await unplug(agentId, tool))) {
-        return;
-      }
-      toast(`Unplugged ${label} from ${agentName(agentId)}`, {
-        action: {
-          label: "Undo",
-          onClick: () => {
-            plug(agentId, tool);
-          },
-        },
-      });
-    },
-    [agentName, plug, unplug]
-  );
-
   const askConfirm = useCallback((request: ConfirmRequest) => {
     setConfirmError(null);
     setConfirm(request);
   }, []);
+
+  /** Unplugging cannot be undone exactly (tool limits and pins are lost), so it asks first. */
+  const unplugFromTouch = useCallback(
+    (agentId: string, tool: MapTool, label: string) => {
+      askConfirm({
+        body: `${label} stops being available to ${agentName(agentId)}. Plugging it back in starts from the default settings.`,
+        confirm: "Remove",
+        destructive: true,
+        run: async () => {
+          await getTrpc().map.unplugTool.mutate({ agentId, tool });
+        },
+        title: `Remove ${label}?`,
+      });
+    },
+    [agentName, askConfirm]
+  );
 
   const connectWire = useCallback(
     (sourceKey: string, targetKey: string) => {

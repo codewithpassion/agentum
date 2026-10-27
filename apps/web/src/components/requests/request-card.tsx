@@ -325,7 +325,7 @@ function ApprovalCard({
         >
           Allow once
         </Button>
-        <div className="flex flex-col gap-1 border-border border-t pt-2 sm:border-t-0 sm:pt-0">
+        <div className="flex flex-col gap-1 border-border border-t pt-2 max-sm:order-last sm:border-t-0 sm:pt-0">
           <Button
             className="w-full sm:w-auto"
             disabled={pending}
