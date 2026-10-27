@@ -3,7 +3,7 @@ id: L.4a
 title: Live service core persistence and room tickets
 milestone: L
 size: M
-status: review
+status: done
 depends_on: [L.1]
 branch: t3/live-artifacts-service
 lane: services
@@ -25,3 +25,5 @@ Follow the full design in docs/v3/live-artifacts-prd.md and parent L.4 requireme
 - 2026-10-27: Complete core 8fdc8e70 merged, 118 affected tests and full root suite/build/check passed. Independent persistence/authorization review starts.
 
 - 2026-10-27: Independent review 693bf759 requires recoverable access invalidation, fresh admission authorization and atomic workspace quota accounting. Access fixes assigned to ongoing L.4b implementation; quota isolated as L.Q. L.4a remains in review.
+
+- 2026-10-27: Service implementation and review findings resolved, including durable dispatch/CAS audits and current source+target ask permissions independently checked in c8b54f05. Real authentication, room adapters, durable processing and release validation remain L.7/L.10 gates.

@@ -3,7 +3,7 @@ id: L.4
 title: Live artifacts service and router
 milestone: L
 size: L
-status: in_progress
+status: done
 depends_on: [L.1]
 branch: null
 lane: services
@@ -21,3 +21,5 @@ executor: codex
 - 2026-10-27: Terra dispatched. Required review gates: artifact-session access across list/transcript/run-read/continuation paths, and same-workspace validation for every parent/child read/write, each with cross-tenant/private-artifact regression tests.
 
 - 2026-10-27: Partial 9e804902 merged: read-side artifact session visibility and workspace regression only. Remaining implementation split into L.4a (core persistence/tickets), L.4b (comments/changes), L.4c (ask/router/continuation). Parent stays in_progress until all pass.
+
+- 2026-10-27: Service implementation and review findings resolved, including durable dispatch/CAS audits and current source+target ask permissions independently checked in c8b54f05. Real authentication, room adapters, durable processing and release validation remain L.7/L.10 gates.

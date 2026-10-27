@@ -3,7 +3,7 @@ id: L.4c
 title: Artifact ask sessions router and continuation
 milestone: L
 size: M
-status: review
+status: done
 depends_on: [L.4b]
 branch: t3/live-ask-router
 lane: services
@@ -23,3 +23,5 @@ Follow the full design in docs/v3/live-artifacts-prd.md and parent L.4 requireme
 - 2026-10-27: Sol dispatched artifact asks/shared session router using merged L.6 envelope and L.4b service APIs.
 
 - 2026-10-27: Merged 4aeb361b shared sessions, trusted asks, durable addressed-comment dispatch/recovery and thin router. Implementation root checks passed; independent authorization/crash-recovery review pending. Production mounting and durable processor scheduling remain L.7.
+
+- 2026-10-27: Service implementation and review findings resolved, including durable dispatch/CAS audits and current source+target ask permissions independently checked in c8b54f05. Real authentication, room adapters, durable processing and release validation remain L.7/L.10 gates.
