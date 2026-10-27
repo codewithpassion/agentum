@@ -24,7 +24,7 @@ import { ulid } from "ulidx";
 import { ForbiddenError } from "./authz.ts";
 import { hashToken } from "./crypto.ts";
 import { isServiceError, isUniqueViolation } from "./errors.ts";
-import type { EventsService } from "./events.ts";
+import type { EventsService, PeopleLookup } from "./events.ts";
 import type { Clock, StartRunInput } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
 import {
@@ -49,6 +49,7 @@ import {
 } from "./slack/messages.ts";
 import { withRetry } from "./slack/post.ts";
 import { verifySlackRequest } from "./slack/signature.ts";
+import { slackSpeakerText } from "./slack/speaker.ts";
 import type { SlackStatus } from "./slack/status.ts";
 import { findThreadSession } from "./slack/threads.ts";
 import { SYSTEM_PRINCIPAL } from "./workspaces.ts";
@@ -103,6 +104,7 @@ export const createSlackService = ({
   clock,
   db,
   directory,
+  people,
   events,
   fetch: slackFetch,
   runs,
@@ -113,6 +115,7 @@ export const createSlackService = ({
   clock: Clock;
   db: Database;
   directory: SlackDirectory;
+  people?: PeopleLookup;
   events: EventsService;
   fetch: SlackFetch;
   runs: Pick<RunsService, "fetchPendingFiles" | "offerQueuedRun" | "startRun">;
@@ -467,7 +470,17 @@ export const createSlackService = ({
     const now = clock.now().toISOString();
     const input: StartRunInput = {
       agentId: app.agentId,
-      input: { text },
+      input: {
+        text: await slackSpeakerText(db, people, {
+          appId: app.id,
+          channelId: event.channelId,
+          teamId: app.teamId,
+          text,
+          threadTs,
+          userId: clerkUserId,
+          workspaceId: app.workspaceId,
+        }),
+      },
       reply: {
         channel: event.channelId,
         kind: "slack",

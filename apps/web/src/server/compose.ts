@@ -718,6 +718,7 @@ export const composeWith = ({
     devFakeRuntime: infra.devFakeRuntime,
     gateways,
     library,
+    people: infra.people,
     runTokenKey: infra.runTokenKey,
     secrets,
   });
@@ -851,6 +852,7 @@ export const composeWith = ({
     directory: infra.slackDirectory ?? unlinkedDirectory,
     events,
     fetch: connectorFetch,
+    people: infra.people,
     runs,
     secretsKey: infra.secretsKey,
     status: slackStatus,

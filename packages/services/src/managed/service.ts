@@ -67,6 +67,7 @@ import { outcomeOf } from "../requests/records.ts";
 import type { RequestsService } from "../requests.ts";
 import { importRunTokenKey, signSessionToken } from "../run-tokens.ts";
 import { loadRun } from "../runs/queries.ts";
+import { sessionSupportsSpeakers } from "../runs/speakers.ts";
 import type { Clock, RunRecord } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
 import { secretsGuidance } from "../secrets/guidance.ts";
@@ -244,7 +245,8 @@ const systemOf = (
   slackText: string,
   secretsText: string,
   libraryText: string,
-  computer: AgentComputer | null
+  computer: AgentComputer | null,
+  multiPerson: boolean
 ): string =>
   [
     // Preserve the managed runtime's default identity when instructions are blank.
@@ -253,7 +255,8 @@ const systemOf = (
         ...agent,
         instructions: agent.instructions.trim() || `You are ${agent.name}.`,
       },
-      handoffNames
+      handoffNames,
+      { multiPerson }
     ),
     workspaceInstructions({
       // A managed run's reply is shown as it is: nothing reads the markers.
@@ -914,7 +917,8 @@ export const createManagedService = ({
       slack,
       grants.guidance,
       libraryGuidanceOf(agent, publicBaseUrl, resolved),
-      computer
+      computer,
+      await sessionSupportsSpeakers(db, run)
     );
     const askKeys = await askKeysOf(agent);
     const fingerprint = await hashToken(
