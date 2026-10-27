@@ -270,6 +270,17 @@ try {
           });
           const page = await context.newPage();
           const errors = [];
+          const activeRequests = new Map();
+          page.on("request", (request) =>
+            activeRequests.set(request, {
+              action: new URL(request.url()).pathname.split("/").at(-1),
+              started: Date.now(),
+            })
+          );
+          page.on("requestfinished", (request) =>
+            activeRequests.delete(request)
+          );
+          page.on("requestfailed", (request) => activeRequests.delete(request));
           page.on("response", (response) => {
             const path = new URL(response.url()).pathname;
             if (path.startsWith("/api/guest/artifacts/") && !response.ok()) {
@@ -535,7 +546,19 @@ try {
             assert.deepEqual(await snapshot(), acceptedBytes);
             // Let the failure handler's queued credential verification consume
             // its rotated response before navigating away from the host lock.
-            await page.waitForLoadState("networkidle");
+            await page.waitForLoadState("networkidle").catch(async (cause) => {
+              console.error("Decision reload diagnostics", {
+                active: [...activeRequests.values()].map((entry) => ({
+                  ...entry,
+                  elapsed: Date.now() - entry.started,
+                })),
+                kind,
+                locks: await page.evaluate(() => navigator.locks.query()),
+                role,
+                viewport,
+              });
+              throw cause;
+            });
             await page.reload();
             await expect(
               stale.getByText("pending", { exact: true })

@@ -24,6 +24,9 @@ export class GuestHttp {
       headers: { Accept: "application/json", ...init?.headers },
     });
     if (!response.ok) {
+      // Refusals still rotate the host cookie. Finish disposing the response
+      // while holding its queue/lock, before a retry or navigation can start.
+      await response.body?.cancel();
       throw new Error(
         response.status === 404 || response.status === 403
           ? "This invite has ended"
