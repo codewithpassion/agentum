@@ -264,6 +264,24 @@ try {
     FROM artifact_version_files,n WHERE version_id=(SELECT current_version_id FROM artifacts WHERE id=?) AND path='pages/chart.html'`)
     .bind(embedPage.artifactId)
     .run();
+  const discovered = new Set();
+  let cursor;
+  do {
+    const pageResponse = await runtime.dispatchFetch(
+      `http://localhost/fixture/embed-sources/${deckCreated.artifactId}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`
+    );
+    check(pageResponse.ok, "paginated discovery succeeds in workerd");
+    const page = await pageResponse.json();
+    for (const source of page.sources) {
+      check(!discovered.has(source), "keyset discovery has no duplicates");
+      discovered.add(source);
+    }
+    cursor = page.next;
+  } while (cursor);
+  check(
+    discovered.size === 2002 && discovered.has(embedSource),
+    "discovery reaches every source beyond 2000"
+  );
   const grownCatalog = await mcp("deck_read", {
     artifactId: deckCreated.artifactId,
   });

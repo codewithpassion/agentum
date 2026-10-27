@@ -35,7 +35,17 @@ import {
   commentAnchorSchema,
   type LiveOperationOrigin,
 } from "@repo/protocol/live";
-import { and, asc, eq, gt, inArray, isNull, like, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  like,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { ulid } from "ulidx";
 import {
   blobKey,
@@ -245,8 +255,10 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
   // Private pages and apps with privileged bridge grants require a separate sharing contract.
   const embedSources = async (
     workspaceId: string,
-    exact?: NonNullable<ReturnType<typeof parseEmbedSource>>
+    exact?: NonNullable<ReturnType<typeof parseEmbedSource>>,
+    page?: { cursor?: string; limit: number }
   ) => {
+    const identity = sql<string>`'artifact:' || ${artifacts.id} || ':' || ${artifactVersions.id} || ':' || ${artifactVersionFiles.sha256} || ':' || ${artifactVersionFiles.path}`;
     const files = await db
       .select({
         artifactId: artifacts.id,
@@ -277,6 +289,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
           isNull(artifacts.deletedAt),
           eq(artifactVersions.status, "published"),
           like(artifactVersionFiles.path, "%.html"),
+          page?.cursor ? gt(identity, page.cursor) : undefined,
           ...(exact
             ? [
                 eq(artifacts.id, exact.artifactId),
@@ -286,7 +299,10 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
               ]
             : [])
         )
-      );
+      )
+      .orderBy(asc(identity))
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: exact authorization calls omit discovery pagination.
+      .limit(page?.limit ?? 2_147_483_647);
     return files
       .map(
         (f) => `artifact:${f.artifactId}:${f.versionId}:${f.sha256}:${f.path}`
@@ -867,13 +883,23 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       }
       return persist(member, row, input, false, from, input);
     },
-    async embedSources(principal: Principal, input: { artifactId: string }) {
+    async embedSources(
+      principal: Principal,
+      input: { artifactId: string; cursor?: string; limit?: number }
+    ) {
       const { row } = await access(principal, input.artifactId);
       if (row.kind !== "deck") {
         throw invalid("Artifact is not a deck");
       }
-      // Discovery may be bounded; authorization and room policy never use this slice.
-      return { sources: (await embedSources(row.workspaceId)).slice(0, 2000) };
+      const limit = Math.min(500, Math.max(1, input.limit ?? 200));
+      const sources = await embedSources(row.workspaceId, undefined, {
+        cursor: input.cursor,
+        limit: limit + 1,
+      });
+      return {
+        next: sources.length > limit ? sources[limit - 1] : undefined,
+        sources: sources.slice(0, limit),
+      };
     },
     async ensureDeckCell(
       principal: Principal,

@@ -94,6 +94,24 @@ app.get("/fixture/policy/:id", async (c) => {
     })
   );
 });
+app.get("/fixture/embed-sources/:id", async (c) =>
+  c.json(
+    await requiredLive(c.get("composed").services).embedSources(
+      {
+        isAdmin: false,
+        kind: "user",
+        userId: "u1",
+        via: "session",
+        workspaceId: "w1",
+      },
+      {
+        artifactId: c.req.param("id"),
+        cursor: c.req.query("cursor"),
+        limit: 500,
+      }
+    )
+  )
+);
 app.post("/fixture/embed/:id", async (c) => {
   const input = await c.req.json<{ source: string }>();
   return c.json(

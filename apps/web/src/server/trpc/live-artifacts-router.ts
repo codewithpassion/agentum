@@ -95,7 +95,13 @@ export const createLiveArtifactsRouter = (
         service(ctx).createDocument(ctx.principal, input)
       ),
     embedSources: workspaceProcedure
-      .input(z.strictObject(artifact))
+      .input(
+        z.strictObject({
+          ...artifact,
+          cursor: z.string().max(1400).optional(),
+          limit: z.number().int().min(1).max(500).optional(),
+        })
+      )
       .query(({ ctx, input }) =>
         service(ctx).embedSources(ctx.principal, input)
       ),
