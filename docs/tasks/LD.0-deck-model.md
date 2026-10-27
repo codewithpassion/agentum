@@ -19,3 +19,5 @@ Use meaningful tests and required root checks. Commit substantial tasks. Follow 
 ## Log
 
 - 2026-10-27: Dispatched additional independent worktree at user request to increase parallel throughput.
+
+- 2026-10-27: Terra prototype b5b0b2cc left unmerged: known revision ABA bug, incomplete trust/operations/limits and 46 lint failures. Sol assigned completion on its isolated branch; prototype is not phase acceptance.
