@@ -349,6 +349,9 @@ export const BRIDGE_JS = `(function () {
         label.textContent = "Selected " + snapshot.tag + ": " + snapshot.text.slice(0, 100);
       } catch (error) { clear(); label.textContent = error.message; }
     }, true);
+    question.addEventListener("input", function () {
+      if (selected && !busy) { requestId = crypto.randomUUID(); }
+    });
     send.addEventListener("click", function () {
       if (busy || !selected || !question.value.trim()) { return; }
       var current = describe(selected);
@@ -356,6 +359,7 @@ export const BRIDGE_JS = `(function () {
         clear(); label.textContent = "Element changed. Select it again."; return;
       }
       busy = true;
+      question.disabled = true;
       send.disabled = true;
       label.textContent = "Asking agent…";
       call("ui/message", {
@@ -368,7 +372,7 @@ export const BRIDGE_JS = `(function () {
       }).catch(function (error) {
         label.textContent = error.message;
         send.disabled = false;
-      }).finally(function () { busy = false; });
+      }).finally(function () { busy = false; question.disabled = false; });
     });
   }).catch(function () {});
 
