@@ -139,13 +139,17 @@ const runApp = async (
 /** Every answer, success, refusal or error, leaves through the content headers. */
 const finished = (response: Response, deps: AppGatewayDeps): Response => {
   const wrapped = deps.applyContentHeaders(response);
+  // Copied so a wrapper that returns immutable headers cannot make this throw.
+  const answer = new Response(wrapped.body, {
+    headers: new Headers(wrapped.headers),
+    status: wrapped.status,
+  });
   // Live data must not sit in the browser's cache for the wrapper's five minutes.
-  wrapped.headers.set("Cache-Control", "private, no-store");
-  return wrapped;
+  answer.headers.set("Cache-Control", "private, no-store");
+  return answer;
 };
 
-/** The gateway's one entry. `claims` come from a verified view token that names this artifact. */
-export const handleAppRequest = async (
+const serve = async (
   request: Request,
   claims: ViewTokenClaims,
   deps: AppGatewayDeps
@@ -188,4 +192,17 @@ export const handleAppRequest = async (
     deps
   );
   return finished(answer, deps);
+};
+
+/** The gateway's one entry. `claims` come from a verified view token that names this artifact. A failing port answers 502 through the content headers like any other answer. */
+export const handleAppRequest = async (
+  request: Request,
+  claims: ViewTokenClaims,
+  deps: AppGatewayDeps
+): Promise<Response> => {
+  try {
+    return await serve(request, claims, deps);
+  } catch {
+    return finished(text(502, BAD_GATEWAY_BODY), deps);
+  }
 };

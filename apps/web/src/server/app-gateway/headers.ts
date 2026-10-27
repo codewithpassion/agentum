@@ -15,7 +15,17 @@ const COPIED_RESPONSE_HEADERS = [
 ] as const;
 
 /** Headers a page's request carries that the app's code never needs. */
-const DROPPED_REQUEST_HEADERS = ["cookie", "authorization", "service-worker"];
+const DROPPED_REQUEST_HEADERS = [
+  "cookie",
+  "authorization",
+  "service-worker",
+  "forwarded",
+  "via",
+  "x-real-ip",
+  "true-client-ip",
+];
+/** The platform adds the visitor's address and place under these. App code must not see them: the platform never stores a full IP. */
+const DROPPED_REQUEST_PREFIXES = ["cf-", "x-forwarded-"];
 
 const PREFLIGHT_MAX_AGE_SECONDS = "600";
 const PREFLIGHT_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
@@ -47,8 +57,13 @@ export const filteredResponse = (answer: Response): Response => {
 /** The request headers the app sees. */
 export const forwardedRequestHeaders = (from: Headers): Headers => {
   const headers = new Headers(from);
-  for (const name of DROPPED_REQUEST_HEADERS) {
-    headers.delete(name);
+  for (const name of [...headers.keys()]) {
+    if (
+      DROPPED_REQUEST_HEADERS.includes(name) ||
+      DROPPED_REQUEST_PREFIXES.some((prefix) => name.startsWith(prefix))
+    ) {
+      headers.delete(name);
+    }
   }
   return headers;
 };

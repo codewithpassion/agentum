@@ -70,6 +70,13 @@ const viewerKeyOf = (caller: Caller): string => {
   return caller.kind === "link" ? `l:${caller.shareId}` : "test";
 };
 
+const checkArea = (area: unknown): StorageArea => {
+  if (area !== "viewer" && area !== "shared") {
+    throw new TypeError("the area must be viewer or shared");
+  }
+  return area;
+};
+
 const byteLength = (value: string): number => encoder.encode(value).byteLength;
 
 const checkKey = (key: unknown): string => {
@@ -153,11 +160,13 @@ export const createAppHost = (props: AppHostProps, ports: Ports): HM => {
       call(await callerOf(props, ports), toolKey, args),
 
     deleteItem: async (area, key) => {
+      checkArea(area);
       const caller = await mayWrite(area);
       await ports.store.delete(scopeOf(caller, area), checkKey(key));
     },
 
     getItem: async (area, key) => {
+      checkArea(area);
       const caller = await callerOf(props, ports);
       const checked = checkKey(key);
       if (hasNothingIn(caller, area)) {
@@ -167,18 +176,20 @@ export const createAppHost = (props: AppHostProps, ports: Ports): HM => {
     },
 
     listItems: async (area, prefix, limit) => {
+      checkArea(area);
       const caller = await callerOf(props, ports);
       if (hasNothingIn(caller, area)) {
         return [];
       }
       return await ports.store.list(
         scopeOf(caller, area),
-        String(prefix),
+        typeof prefix === "string" ? prefix : "",
         clampLimit(limit)
       );
     },
 
     setItem: async (area, key, value) => {
+      checkArea(area);
       const caller = await mayWrite(area);
       await ports.store.set(
         scopeOf(caller, area),

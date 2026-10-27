@@ -209,3 +209,26 @@ describe("createAppHost: test viewer", () => {
     expect(await host.whoami()).toEqual({ dataMode: null, viewer: "test" });
   });
 });
+
+describe("createAppHost: arguments from app code", () => {
+  test("an area other than viewer or shared is refused on every method", async () => {
+    const ports = fakePorts();
+    const host = createAppHost(member(), ports);
+    const area = "made-up" as never;
+    expect(await failure(host.setItem(area, "k", "v"))).toContain("area");
+    expect(await failure(host.deleteItem(area, "k"))).toContain("area");
+    expect(await failure(host.getItem(area, "k"))).toContain("area");
+    expect(await failure(host.listItems(area))).toContain("area");
+    expect(ports.store.rows.size).toBe(0);
+  });
+
+  test("listItems without a prefix lists everything in the area", async () => {
+    const host = createAppHost(member(), fakePorts());
+    await host.setItem("shared", "a", "1");
+    await host.setItem("shared", "b", "2");
+    expect((await host.listItems("shared")).length).toBe(2);
+    expect((await host.listItems("shared", undefined, undefined)).length).toBe(
+      2
+    );
+  });
+});

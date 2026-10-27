@@ -162,6 +162,40 @@ describe("handleAppRequest: routing and claims", () => {
     expect(headers?.get("x-keep")).toBe("1");
   });
 
+  test("the visitor's address headers do not reach the app", async () => {
+    const t = setup(ok);
+    await t.run("/api/x", {
+      headers: {
+        "cf-connecting-ip": "203.0.113.9",
+        "cf-ipcountry": "AU",
+        "true-client-ip": "203.0.113.9",
+        "x-forwarded-for": "203.0.113.9",
+        "x-keep": "1",
+        "x-real-ip": "203.0.113.9",
+      },
+    });
+    const headers = t.inputs.at(0)?.request.headers;
+    expect(headers?.get("x-keep")).toBe("1");
+    for (const name of [
+      "cf-connecting-ip",
+      "cf-ipcountry",
+      "true-client-ip",
+      "x-forwarded-for",
+      "x-real-ip",
+    ]) {
+      expect(headers?.has(name)).toBe(false);
+    }
+  });
+
+  test("a failing port answers 502 through the content headers", async () => {
+    const t = setup(ok);
+    t.ports.source.workspaceOf = () => Promise.reject(new Error("D1 is down"));
+    const answer = await t.run("/api/x");
+    expect(answer.status).toBe(502);
+    expect(answer.headers.get("content-security-policy")).toContain("sandbox");
+    expect(await answer.text()).not.toContain("D1");
+  });
+
   test("a body over the cap is 413 and the app is not called", async () => {
     const t = setup(ok);
     const answer = await t.run("/api/x", {
