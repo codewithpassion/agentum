@@ -93,7 +93,8 @@
     "vaul": "^1.1.2",
     "y-protocols": "^1.0.7",
     "yjs": "13.6.33",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "@repo/live-deck": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.64.0",
