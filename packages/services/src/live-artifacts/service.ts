@@ -31,6 +31,7 @@ import {
   blobKey,
   createArtifactBlobWriter,
   manifestKey,
+  rethrowArtifactQuotaError,
 } from "../artifacts/blob-writer.ts";
 import {
   agentCanSee,
@@ -142,10 +143,11 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     throw invalid("A private room ticket key is required");
   }
   const now = () => clock.now().toISOString();
-  const { checkQuota, writeBlobs, writeManifest } = createArtifactBlobWriter({
-    blobs,
-    db,
-  });
+  const { checkQuota, quotaStatement, writeBlobs, writeManifest } =
+    createArtifactBlobWriter({
+      blobs,
+      db,
+    });
   const memberOf = (principal: Principal): Member => {
     if (principal.kind !== "user" && principal.kind !== "run") {
       throw new ForbiddenError("liveArtifacts");
@@ -431,10 +433,12 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
           ]),
       event(member, row, "artifact.live_checkpoint", payload),
       event(member, row, "artifact.published", payload),
+      quotaStatement(row.workspaceId, versionId),
     ];
     try {
       await atomic(statements);
     } catch (error) {
+      rethrowArtifactQuotaError(error);
       if (isUniqueViolation(error)) {
         // biome-ignore lint/style/useErrorCause: ServiceError has no cause parameter
         throw new ServiceError("conflict", "A concurrent checkpoint won");

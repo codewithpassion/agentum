@@ -64,6 +64,7 @@ import {
   blobKey,
   createArtifactBlobWriter,
   manifestKey,
+  rethrowArtifactQuotaError,
 } from "./blob-writer.ts";
 import type { ArtifactGrantsService } from "./grants.ts";
 import { MANIFEST_PATH } from "./manifest.ts";
@@ -307,10 +308,11 @@ export const createArtifactsService = ({
   people?: PeopleLookup;
 }) => {
   const nowIso = () => clock.now().toISOString();
-  const { checkQuota, writeBlobs, writeManifest } = createArtifactBlobWriter({
-    blobs,
-    db,
-  });
+  const { checkQuota, quotaStatement, writeBlobs, writeManifest } =
+    createArtifactBlobWriter({
+      blobs,
+      db,
+    });
 
   // Principals
 
@@ -648,6 +650,7 @@ export const createArtifactsService = ({
           }))
         )
       ),
+      quotaStatement(member.workspaceId, draft.versionId),
     ];
   };
 
@@ -676,6 +679,7 @@ export const createArtifactsService = ({
     try {
       await atomic(statements);
     } catch (error) {
+      rethrowArtifactQuotaError(error);
       if (isUniqueViolation(error)) {
         // biome-ignore lint/style/useErrorCause: ServiceError takes a code and a message only
         throw new ServiceError(
