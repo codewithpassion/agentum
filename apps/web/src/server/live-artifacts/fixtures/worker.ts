@@ -83,7 +83,8 @@ export class TestArtifactRoom extends ArtifactRoom {
         };
       },
       open: async () => ({ ...scope, ...initial() }),
-      ownBlobUrls: async () => ["/files/own-image.png"],
+      ownBlobUrls: async () =>
+        get<string[]>("urls") ?? ["/files/own-image.png"],
       protectedRanges: async () =>
         get<
           Array<{

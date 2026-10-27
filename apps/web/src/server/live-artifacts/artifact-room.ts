@@ -190,8 +190,6 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     );
     this.policy = new Set(urls);
     this.live.options.ownBlobUrls = this.policy;
-    this.meta.ownBlobUrls = urls;
-    this.store.put("state", this.meta);
   }
   private recover() {
     const doc = new Y.Doc({ gc: false });
@@ -478,7 +476,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       error instanceof Error &&
       error.message === "Document exceeds 8 MiB"
     ) {
-      message = error.message;
+      message = "Document exceeds 8 MiB";
     }
     try {
       socket.send(
@@ -613,10 +611,11 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     const doc = new Y.Doc({ gc: false });
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(this.live.doc));
     const trial = new LiveDocument(doc, {
-      ownBlobUrls: this.policy,
+      ownBlobUrls: new Set(this.meta.ownBlobUrls),
       protectedRanges: () => ranges,
       revision: this.meta.revision,
     });
+    trial.options.ownBlobUrls = this.policy;
     try {
       const vector = Y.encodeStateVector(doc);
       const result = action(trial);
@@ -654,6 +653,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
           this.meta.sequence += 1;
           this.meta.revision = revision;
           this.meta.blockRevisions = blockRevisions;
+          this.meta.ownBlobUrls = [...this.policy];
           this.meta.updateBytes += update.length;
           this.meta.dirtySince ??= Date.now();
           this.store.write("update", String(this.meta.sequence), update);

@@ -584,6 +584,15 @@ try {
     "binary update cannot grant itself ownership of an image"
   );
   imageDoc.destroy();
+  await controls("urls", [], "images");
+  await fails(
+    "/ops",
+    {
+      ops: [{ content: { text: "policy revoked" }, op: "insert" }],
+      origin: origin("revoked-policy"),
+    },
+    "images"
+  );
   // 512 KiB chunks, 1 MiB compaction, 8 MiB cap and recovered multi-MiB state.
   await call("/seed", { markdown: "x".repeat(1_300_000) }, "large");
   let stats = await call("/stats", {}, "large");
@@ -612,6 +621,12 @@ try {
   check(
     five.chunks.find((c) => c.kind === "snapshot").n >= 10,
     "5 MiB document stored below SQLite row limit"
+  );
+  check(
+    (await call("/read", {}, "images")).content.includes(
+      "/files/own-image.png"
+    ),
+    "rejected policy change cannot corrupt durable recovery policy"
   );
   // A persisted due deadline triggers periodic checkpoint after a restart.
   await call(

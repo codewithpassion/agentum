@@ -41,9 +41,9 @@ The room exposes these trusted RPC methods:
 - `checkpoint()` -> `{ artifactId, versionId, revision }`.
 - `presence()`, `setAgentPresence(entry | null)`, `refresh(participantId?)`, `disconnect(participantId)`.
 - `resolveAnchor(anchor)` -> `{ anchor, quote }`, mapping `LiveAnchorPort.resolve`. Use plain JSON relative positions across RPC boundaries: Yjs's structurally JSON-compatible ID objects must pass through JSON serialization rather than be sent as arbitrary runtime classes.
-- `guardAgentSnapshot({ snapshot, runId })`, mapping `LiveAnchorPort.guardAgentSnapshot`. Current document comment ranges come from the mandatory trusted `protectedRanges(scope)` callback. Agent mutations, binary agent updates, reverts and guarded checkpoints refuse deletion of anchored CRDT characters, including cross-inline ranges or replacement with identical text. Detached comments do not freeze unrelated text. Engine semantic guards run as well; checking only at checkpoint time would be too late.
+- `guardAgentSnapshot({ snapshot, runId })`, mapping `LiveAnchorPort.guardAgentSnapshot`. Current document comment ranges come from the mandatory trusted `protectedRanges(scope)` callback. Agent mutations, binary agent updates, reverts and guarded checkpoints refuse deletion of anchored CRDT characters, including cross-inline ranges or replacement with identical text. Detached comments do not freeze unrelated text. The anchor adapter projects text runs once per candidate and compares CRDT character intervals, avoiding per-character metadata for a multi-megabyte document. Engine semantic guards run as well; checking only at checkpoint time would be too late.
 
-`ownBlobUrls(scope)` is mandatory and trusted. Browser fields never supply image ownership policy. Verified URLs persist for deterministic recovery, including when a deleted artifact can no longer supply a content policy; every mutation refreshes policy from the service before candidate validation. `refresh` closes/downgrades sockets independently of a blob-policy outage. The fixture accepts an own-image through the port and refuses a binary update replacing it with another artifact's image.
+`ownBlobUrls(scope)` is mandatory and trusted. Browser fields never supply image ownership policy. Verified URLs persist for deterministic recovery, including when a deleted artifact can no longer supply a content policy; every mutation refreshes policy from the service before candidate validation. Only a successfully validated document commits its recovery policy; a rejected update under a newly restrictive policy cannot make the previous generation unrecoverable. `refresh` closes/downgrades sockets independently of a blob-policy outage. The fixture accepts an own-image through the port and refuses a binary update replacing it with another artifact's image.
 
 ## Checkpoint and access adapters
 
@@ -59,4 +59,16 @@ L.4b's durable `artifact_room_invalidations` outbox delivers `rooms.refresh(scop
 
 Local hibernation is actual workerd constructor reentry, not a fake in-memory reset. Staging R1.14 remains an external L.10 deployment gate. The fixture service is an executable trusted-port double; it does not claim production authentication, R2 or D1 composition. No server was deployed and no production binding was added.
 
-Final command results are recorded below after completion.
+Final validation on branch `t3/implement-artifact-room`, with main's `a4857b01` revert/audit contract fix and L.2/L.4b/L.Q fixes merged:
+
+- `bun install --frozen-lockfile`: passed. The missing ignored `apps/web/.env` was initialized from `.env.example`; no existing environment file was overwritten.
+- `bun run --cwd apps/web test src/server/live-artifacts/room.test.ts`: **1 pass, 0 fail**, more than 60 real workerd assertions; final focused run **47.00 seconds**. TCP sockets survive actual constructor reentry, and rich Yjs edits still apply after wake.
+- `bun run check`: **passed**, all **11 tasks** successful, boundary lint clean (9 cached/2 executed on the final run).
+- `bun run --cwd apps/web typecheck`: **passed** independently.
+- `bun run test`: **passed to completion**, all **11 workspace tasks** successful, plus root script tests. Aggregate Bun results: **8,188 pass, 1 existing skip, 0 fail**. Web: 3,255 pass/1 skip; services: 3,099 pass; root scripts: 284 pass. Computer Go tests also pass. The room scenario passed again inside the root suite in 46.11 seconds.
+- `bun run build`: **passed to completion**, all **3 tasks** successful. The existing Vite CSS sourcemap warning remains; `check-dev-only` passes for 193 server files. Client output contains no `drizzle` matches.
+- `git diff --check`: clean. No pushes, PRs, deployment, subagents or additional checkouts.
+
+Substantial implementation commits include `ea7470dd` (room/storage/fixtures), `c91c40a2` (durable guards/revert actors/anchor adapter), `d1aca9cb` (TCP socket regressions), and `c11cba0c` (trusted admission context and integration evidence). The final follow-up commits the text-run protection bound, policy-recovery regression and completed validation evidence.
+
+Remaining **external-only gates**: L.7 production namespace exports/bindings/routes and authenticated service/credential-reference adapters; actual idempotent R2/DB checkpoint/restore-provenance reconciliation; durable invalidation processing with its five-second delivery budget; editor control/awareness-ID adapter and tool presence heartbeats; and L.10's staging hibernation sign-off. The room class, candidate validation, persistence, RPC implementation and local workerd/socket evidence are complete in this bounded slice.
