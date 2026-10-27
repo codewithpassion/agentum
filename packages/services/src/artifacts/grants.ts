@@ -257,6 +257,28 @@ export const createArtifactGrantsService = ({
   };
 
   /**
+   * Refuses a manifest before a version is written: it must parse and ask only
+   * for tools that exist and are read-only. Create and update call it first, so
+   * a bad app never becomes a version.
+   */
+  const checkManifest = async (
+    principal: Principal,
+    files: { path: string; text?: string }[]
+  ) => {
+    if (principal.kind === "system") {
+      throw new ForbiddenError("artifacts.grants");
+    }
+    authorize(principal, "artifacts.grants", {
+      kind: "artifact",
+      workspaceId: principal.workspaceId,
+    });
+    await checkTools(
+      principal.workspaceId,
+      declaredGrants(parseManifest(recordFilesSchema.parse(files)))
+    );
+  };
+
+  /**
    * Writes the grant rows of a new version from its `harbourmaster.json`. Call it
    * once the version row exists. Calling it again for the same version returns
    * the rows already there. A person's own version is approved as written. An
@@ -861,7 +883,14 @@ export const createArtifactGrantsService = ({
     }
   });
 
-  return { decideGrant, handTo, list, promote, recordVersionGrants };
+  return {
+    checkManifest,
+    decideGrant,
+    handTo,
+    list,
+    promote,
+    recordVersionGrants,
+  };
 };
 
 export type ArtifactGrantsService = ReturnType<
