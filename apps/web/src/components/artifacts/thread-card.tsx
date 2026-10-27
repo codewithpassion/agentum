@@ -146,7 +146,7 @@ export function ThreadCardView({
         <span className="text-muted-foreground text-xs">
           v{artifact.version}
         </span>
-        <Button asChild size="sm" variant="outline">
+        <Button asChild className="max-md:min-h-10" size="sm" variant="outline">
           <a href={artifactViewerHref(artifact.artifactId)}>
             Open
             <ExternalLinkIcon aria-hidden />
