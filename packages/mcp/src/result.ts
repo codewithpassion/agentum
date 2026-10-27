@@ -19,7 +19,12 @@ export type ToolErrorCode =
   | "forbidden"
   | "validation"
   | "not_found"
-  | "conflict";
+  | "conflict"
+  | "guard_mismatch"
+  | "block_gone"
+  | "anchor_conflict"
+  | "find_not_found"
+  | "find_ambiguous";
 
 /** A failure a tool means to show the agent: its code and message say what to do next. */
 export class ToolError extends Error {

@@ -604,3 +604,106 @@ describe("artifact_promote", () => {
     expect(recorded.map((skip) => skip.tool)).toEqual(["artifact_promote"]);
   });
 });
+
+describe("live document creation", () => {
+  test("document markdown uses only the live port and returns no extra credentials", async () => {
+    const input = {
+      description: "A plan",
+      kind: "document",
+      markdown: "# Plan",
+      message: "Initial",
+      title: "Plan",
+    };
+    const live = {
+      comment: uncalled("live.comment"),
+      comments: uncalled("live.comments"),
+      create: (received: unknown) => {
+        expect(received).toEqual(input);
+        return Promise.resolve({
+          artifactId: ID,
+          revision: 0,
+          secret: "hidden",
+          url: URL,
+        });
+      },
+      edit: uncalled("live.edit"),
+      read: uncalled("live.read"),
+    };
+    const result = await callTool(
+      fakePorts({ artifacts: port(), live }),
+      "artifact_create",
+      input
+    );
+    expect(result.structuredContent).toEqual({
+      artifactId: ID,
+      revision: 0,
+      url: URL,
+    });
+    expect(textOf(result)).toContain("document_edit");
+    expect(textOf(result)).not.toContain("hidden");
+  });
+
+  test("empty document is allowed and live create dry-runs never call either port", async () => {
+    let creates = 0;
+    const live = {
+      comment: uncalled("live.comment"),
+      comments: uncalled("live.comments"),
+      create: () => {
+        creates += 1;
+        return Promise.resolve({ artifactId: ID, revision: 0, url: URL });
+      },
+      edit: uncalled("live.edit"),
+      read: uncalled("live.read"),
+    };
+    const ports = fakePorts({ artifacts: port(), live });
+    const input = { kind: "document", title: "Plan" };
+    expect((await callTool(ports, "artifact_create", input)).isError).not.toBe(
+      true
+    );
+    expect(creates).toBe(1);
+    const result = await callTool(ports, "artifact_create", input, {
+      dryRun: { record: async () => undefined },
+    });
+    expect(textOf(result)).toStartWith(
+      "Skipped in dry run: would create an artifact"
+    );
+    expect(creates).toBe(1);
+  });
+
+  test("mixed static/live payloads and unavailable live creation fail clearly", async () => {
+    await Promise.all(
+      [
+        { files: [html], kind: "document", title: "Plan" },
+        { entry: "index.md", kind: "document", title: "Plan" },
+        { fromLibraryPath: "tasks/a", kind: "document", title: "Plan" },
+        { files: [html], kind: "page", markdown: "wrong", title: "Plan" },
+      ].map(async (input) => {
+        const result = await call(port(), "artifact_create", input);
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toMatchObject({ code: "validation" });
+      })
+    );
+    const result = await call(port(), "artifact_create", {
+      kind: "document",
+      title: "Plan",
+    });
+    expect(textOf(result)).toContain("not available");
+  });
+});
+
+test("artifact_update preserves the adapter's refusal to replace a live document", async () => {
+  const result = await call(
+    port({
+      update: () =>
+        Promise.reject(
+          new ToolError("validation", "Use document_edit for a live document.")
+        ),
+    }),
+    "artifact_update",
+    { artifactId: ID, baseVersion: 1, files: [html] }
+  );
+  expect(result.structuredContent).toEqual({
+    code: "validation",
+    message: "Use document_edit for a live document.",
+  });
+});

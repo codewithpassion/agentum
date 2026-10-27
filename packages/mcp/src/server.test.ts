@@ -39,6 +39,9 @@ const SLACK_READ_NAMES = [
 
 const SLACK_WRITE_NAMES = ["slack_send"];
 
+const LIVE_READ_NAMES = ["document_read", "document_comments"];
+const LIVE_WRITE_NAMES = ["document_edit", "document_comment"];
+
 const ARTIFACT_READ_NAMES = ["artifact_list", "artifact_read", "artifact_test"];
 const ARTIFACT_WRITE_NAMES = [
   "artifact_create",
@@ -72,7 +75,9 @@ const EXPECTED_NAMES = [
   "send_message",
   "set_routine_enabled",
   "set_trigger_enabled",
+  ...LIVE_READ_NAMES,
   ...ARTIFACT_READ_NAMES,
+  ...LIVE_WRITE_NAMES,
   ...ARTIFACT_WRITE_NAMES,
   ...SKILL_READ_NAMES,
   ...SKILL_WRITE_NAMES,
@@ -94,6 +99,7 @@ const READ_NAMES = [
   "list_triggers",
   "read_session",
   "search_sessions",
+  ...LIVE_READ_NAMES,
   ...ARTIFACT_READ_NAMES,
   ...SKILL_READ_NAMES,
   ...SLACK_READ_NAMES,
@@ -137,6 +143,13 @@ const fakePorts: McpPorts = {
   listSessions: uncalled,
   listSkills: uncalled,
   listTriggers: uncalled,
+  live: {
+    comment: uncalled,
+    comments: uncalled,
+    create: uncalled,
+    edit: uncalled,
+    read: uncalled,
+  },
   pinSkill: uncalled,
   readSession: uncalled,
   rejectSkillVersion: uncalled,

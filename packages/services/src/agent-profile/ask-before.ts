@@ -43,6 +43,10 @@ export const PLATFORM_TOOL_LABELS: Readonly<Record<string, string>> = {
   "harbourmaster/computer_edit_file": "editing a file on the computer",
   "harbourmaster/computer_exec": "the computer shell",
   "harbourmaster/computer_write_file": "writing a file on the computer",
+  "harbourmaster/document_comment": "commenting on a live document",
+  "harbourmaster/document_comments": "reading live document comments",
+  "harbourmaster/document_edit": "editing a live document",
+  "harbourmaster/document_read": "reading a live document",
   "harbourmaster/library_write": "writing library files",
 };
 
