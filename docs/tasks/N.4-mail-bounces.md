@@ -30,3 +30,4 @@ Dom asked on 27 Oct 2026. Outbound agent mail uses the Email Sending binding, wh
 - 2026-10-27: added at Dom's request.
 - 2026-10-27: dispatched.
 - 2026-10-27: review clean after 0 fix rounds; merged. Queues and email.sending subscriptions created by the controller.
+- 2026-10-27: staging check passed (2d24ca90): controller mail to a nonexistent gmail address (approved via the desk) turned bounced within ~90 s, so payload.messageId matches the stored id. Nit: mail_read shows no bounce reason.
