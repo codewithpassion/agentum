@@ -115,7 +115,7 @@ export type DocumentErrorCode =
   | "guard_mismatch"
   | "block_gone"
   | "invalid_content"
-  | "find_not_found"
+  | "find_none"
   | "ambiguous_find"
   | "invalid_position"
   | "comment_anchor"
@@ -173,6 +173,31 @@ export interface DocumentOptions extends ContentPolicy {
   /** Room-authoritative revision seed; persist alongside checkpoints. */
   revision?: number;
 }
+const HASHED_MARK_SUFFIX = /--[a-zA-Z0-9+/=]{8}$/;
+function validateTextMarks(text: XmlText): void {
+  if (
+    text
+      .toDelta()
+      .some((part: { insert: unknown }) => typeof part.insert !== "string")
+  ) {
+    throw new DocumentError("invalid_content");
+  }
+  for (const part of text.toDelta()) {
+    for (const [name, attrs] of Object.entries(part.attributes ?? {})) {
+      const mark = schema.marks[name.replace(HASHED_MARK_SUFFIX, "")];
+      if (
+        !(mark && attrs) ||
+        typeof attrs !== "object" ||
+        Array.isArray(attrs) ||
+        Object.keys(attrs).some(
+          (key) => !Object.hasOwn(mark.spec.attrs ?? {}, key)
+        )
+      ) {
+        throw new DocumentError("invalid_content");
+      }
+    }
+  }
+}
 /** Validate raw XML before projection, which deliberately ignores unknown PM attributes. */
 function validatedJSON(doc: Doc, policy: ContentPolicy): JSONContent {
   if (doc.store.pendingStructs || doc.store.pendingDs) {
@@ -193,15 +218,7 @@ function validatedJSON(doc: Doc, policy: ContentPolicy): JSONContent {
         }
         visit(child);
       } else if (child instanceof XmlText) {
-        if (
-          child
-            .toDelta()
-            .some(
-              (part: { insert: unknown }) => typeof part.insert !== "string"
-            )
-        ) {
-          throw new DocumentError("invalid_content");
-        }
+        validateTextMarks(child);
       } else {
         throw new DocumentError("invalid_content");
       }
@@ -486,7 +503,9 @@ export class LiveDocument {
       const start = this.resolve(anchor.start);
       const end = this.resolve(anchor.end);
       return {
-        detached: start.type === end.type && start.index >= end.index,
+        detached:
+          this.inlineLocation(start).block !== this.inlineLocation(end).block ||
+          this.inlineLocation(start).offset >= this.inlineLocation(end).offset,
         end,
         start,
       };
@@ -625,7 +644,7 @@ export class LiveDocument {
       return { block: this.block(target.blockId) };
     }
     if (!target.find) {
-      throw new DocumentError("find_not_found");
+      throw new DocumentError("find_none");
     }
     const matches: Array<{ block: Block; start: number; end: number }> = [];
     for (const block of this.blocks.filter(
@@ -646,9 +665,47 @@ export class LiveDocument {
     }
     const match = matches[(target.nth ?? 1) - 1];
     if (!match) {
-      throw new DocumentError("find_not_found");
+      throw new DocumentError("find_none");
     }
     return match;
+  }
+  private inlineLocation(position: AbsolutePosition): {
+    block: XmlElement;
+    offset: number;
+  } {
+    const block =
+      position.type instanceof XmlText ? position.type.parent : position.type;
+    if (
+      !(
+        block instanceof XmlElement &&
+        schema.nodes[block.nodeName]?.inlineContent
+      )
+    ) {
+      throw new DocumentError("invalid_position");
+    }
+    let offset = 0;
+    const children = block.toArray();
+    for (let index = 0; index < children.length; index += 1) {
+      const child = children[index];
+      if (child === position.type) {
+        return { block, offset: offset + position.index };
+      }
+      if (position.type === block && index === position.index) {
+        return { block, offset };
+      }
+      if (child instanceof XmlText) {
+        offset += child.length;
+      } else if (child instanceof XmlElement) {
+        offset +=
+          child.nodeName === "hardBreak"
+            ? 1
+            : String(child.getAttribute("label") ?? "").length;
+      }
+    }
+    if (position.type === block && position.index === children.length) {
+      return { block, offset };
+    }
+    throw new DocumentError("invalid_position");
   }
   private protect(el: XmlElement, from?: number, to?: number) {
     for (const range of this.options.protectedRanges?.() ?? []) {
@@ -667,10 +724,10 @@ export class LiveDocument {
       if (
         parent === el &&
         (from === undefined ||
-          (a.type === b.type &&
-            from < b.index &&
+          this.inlineLocation(a).block !== this.inlineLocation(b).block ||
+          (from < this.inlineLocation(b).offset &&
             to !== undefined &&
-            to > a.index))
+            to > this.inlineLocation(a).offset))
       ) {
         throw new DocumentError("comment_anchor");
       }
@@ -776,7 +833,7 @@ export class LiveDocument {
         if (start.type !== end.type) {
           throw new DocumentError("invalid_position");
         }
-        this.protect(this.element(match.block.id), start.index, end.index);
+        this.protect(this.element(match.block.id), match.start, match.end);
         if (!(start.type instanceof XmlText)) {
           throw new DocumentError("invalid_position");
         }
