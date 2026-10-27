@@ -122,7 +122,8 @@ const injectBridge = (response: Response, src: string): Response => {
   return new HTMLRewriter()
     .on("head", {
       element(element) {
-        // Only the page's own <head>, not one inside <svg> or <template>.
+        // Only the first <head> gets the script, so a <head> inside <svg> or
+        // <template> later in the page does not add a second copy.
         if (injected) {
           return;
         }

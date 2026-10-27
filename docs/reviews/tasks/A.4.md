@@ -33,6 +33,24 @@ Every check passed in both browsers, framed and direct:
 
 ## Review rounds
 
-Round 0: the opus reviewer could not start (the session's subagent limit of 20 was full on three tries). Nothing here is reviewed by anyone but the dispatcher. The dispatcher's own pass found no open must-fix. A reviewer still has to run on this head before the merge.
+Round 1 (6fc9048): not clean. One must-fix: the manifest lookup used `manifest.files[path]`, so names like `constructor` matched `Object.prototype` and `If-None-Match: "undefined"` got a 304 for a file that does not exist. Fixed with `Object.hasOwn` in `serveDoc` and `serveFile`, with a test. Also fixed the nit that the bridge was injected into every `<head>` (an `<svg>` one included), with a test, and added a test that a document load with a matching `If-None-Match` still gets 302.
 
-Known test flake: `@repo/services` `an hour of never-claimed runs stays bounded...` takes about 50 s alone and timed out at 60 s under the full parallel run. It does not touch A.4.
+Round 2 (49ec20b, fix commit only): clean. The reviewer put the old routes.ts back and saw both new tests fail, then pass again. One comment nit, fixed after.
+
+Nits left, for later:
+- A page with no `<head>` gets the bridge appended at the end of the document, so its own scripts run before the storage stand-ins. Agents are told to write full pages.
+- The bare folder URL (no trailing slash) answers 308, and a path that does not parse answers 404, before the token is checked. A forged token there gets 308 or 404, not 401. Nothing leaks.
+- After the bridge gives up (40 tries), a late initialize result still connects, so `ready` says null while `viewer` and `theme` are set.
+- `_hm/doc.html` resolves relative links under `_hm/`; the viewer (A.8) should load the empty path.
+- ETags for HTML and doc pages do not include a renderer or injection version; a deploy that changes them can serve a stale render for up to 300 s.
+- HEAD on a doc renders it and drops the result; markdown up to 10 MB is parsed inside the Worker's CPU budget. `react-dom/server` has not run in workerd.
+- Error responses (404, 500) carry `max-age=300`, so a just-published version can show 404 for five minutes. The PRD asks for the header on every response.
+- Some 404 test cases check only the sandbox substring, not the exact CSP.
+
+Notes for later tasks:
+- A.6: the `frame-ancestors 'none'` middleware for app responses must skip content paths, or it will overwrite the content CSP. Content paths must never redirect a subresource off the folder (a redirect drops CSP path matching).
+- A.6: pass `claims.workspaceId` to the `workspaceId` parameter once A.3 adds the claim (the controller asked A.3 for it).
+
+Ideas beyond scope: Range requests for video; a `Content-Length` on HTML.
+
+Steps for Dom: none for this task. Before launch, A.11 confirms the Clerk `__session` cookie path and SameSite in devtools, and checks Safari by hand.
