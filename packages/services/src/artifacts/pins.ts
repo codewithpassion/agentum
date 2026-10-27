@@ -13,7 +13,7 @@ import {
   maxPinPosition,
 } from "@repo/db/artifact-grants";
 import type { Atomic } from "@repo/db/atomic";
-import type { ArtifactPinSurface } from "@repo/db/shared";
+import type { ArtifactKind, ArtifactPinSurface } from "@repo/db/shared";
 import {
   artifactsPinInputSchema,
   artifactsUnpinInputSchema,
@@ -29,7 +29,7 @@ type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
 export interface PinnedArtifactView {
   artifactId: string;
-  kind: string;
+  kind: ArtifactKind;
   position: number;
   surface: ArtifactPinSurface;
   title: string;
