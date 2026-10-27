@@ -3,7 +3,7 @@ id: L.4c
 title: Artifact ask sessions router and continuation
 milestone: L
 size: M
-status: todo
+status: in_progress
 depends_on: [L.4b]
 branch: null
 lane: services
@@ -19,3 +19,5 @@ Follow the full design in docs/v3/live-artifacts-prd.md and parent L.4 requireme
 ## Log
 
 - 2026-10-27: Split from incomplete L.4 implementation to keep each delegate deliverable concrete.
+
+- 2026-10-27: Sol dispatched artifact asks/shared session router using merged L.6 envelope and L.4b service APIs.
