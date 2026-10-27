@@ -604,6 +604,18 @@ describe("rate limits (R2.13)", () => {
     ).toHaveLength(1);
   });
 
+  test("calls at the same moment cannot all pass an old count", async () => {
+    const link = await liveLink();
+    const answers = await Promise.all(
+      Array.from({ length: 15 }, () =>
+        service.callLink(link.token, { tool: LIST }, request())
+      )
+    );
+    expect(runs.length).toBeLessThanOrEqual(10);
+    expect(answers.filter(({ ok }) => ok)).toHaveLength(runs.length);
+    expect(viewsOf(link.id)).toHaveLength(15);
+  });
+
   test("a link gets 60 calls a minute across visitors", async () => {
     const link = await liveLink();
     const answers = await callInTurn(

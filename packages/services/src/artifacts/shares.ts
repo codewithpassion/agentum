@@ -245,6 +245,12 @@ const shareStatus = (
   return "active";
 };
 
+/** What a log line may say of a failed call: the code or the type, never the upstream text. */
+const errorLabel = (error: unknown): string =>
+  isArtifactCallError(error)
+    ? error.code
+    : (error instanceof Error && error.name) || "unknown";
+
 /** A stored value as the bridge gives it: parsed JSON, or the raw text an app server wrote. */
 const storedValue = (text: string | null): unknown => {
   if (text === null) {
@@ -960,29 +966,31 @@ export const createArtifactSharesService = ({
       surface: "live_call" as const,
       toolKey: call.tool,
     };
-    const finish = async (
-      outcome: NewArtifactView["outcome"],
-      reason: Extract<LinkCallResult, { ok: false }>["reason"]
-    ): Promise<LinkCallResult> => {
-      await atomic([insertViewStatement(db, { ...base, outcome })]);
-      return { ok: false, reason };
-    };
-
     const dead = linkOutcome(share, version !== undefined, now, linksOff);
     if (dead !== "ok" || !version) {
-      return await finish(dead === "ok" ? "revoked" : dead, "not_found");
+      await atomic([
+        insertViewStatement(db, {
+          ...base,
+          outcome: dead === "ok" ? "revoked" : dead,
+        }),
+      ]);
+      return { ok: false, reason: "not_found" };
     }
+    // The row goes in first, as the reservation of this call. The limits count
+    // it, so calls in flight at the same moment cannot all pass an old count.
+    // Its outcome is set once the call is decided.
+    await atomic([insertViewStatement(db, base)]);
     if (await overLimit(share.shareId, base.visitorHash ?? null, now)) {
-      return await finish("rate_limited", "rate_limited");
+      await atomic([setViewOutcomeStatement(db, base.id, "rate_limited")]);
+      return { ok: false, reason: "rate_limited" };
     }
-
-    return await runGranted(share, version.id, call, base);
+    return await runGranted(share, version.id, call, base.id);
   };
 
   /**
    * The checks that need the granter and the version's grants, then the run.
-   * The row goes in before the run so that calls in flight count against the
-   * limits, and its outcome is set afterwards when the run did not work.
+   * The row of the call already exists with outcome `ok`; a refusal or a
+   * failure sets its outcome.
    */
   const runGranted = async (
     share: Parameters<typeof liveCallAllowed>[0] & {
@@ -991,26 +999,20 @@ export const createArtifactSharesService = ({
     },
     versionId: string,
     call: ShareCallInput,
-    row: NewArtifactView
+    viewId: string
   ): Promise<LinkCallResult> => {
-    const refuse = async (
-      outcome: NewArtifactView["outcome"],
-      reason: "failed" | "forbidden"
-    ): Promise<LinkCallResult> => {
-      await atomic([insertViewStatement(db, { ...row, outcome })]);
-      return { ok: false, reason };
-    };
     try {
       const allowed = await liveCallAllowed(share, versionId, call.tool);
-      if (!(allowed && runner && share.grantedBy)) {
-        return await refuse("refused", "forbidden");
+      if (allowed && runner && share.grantedBy) {
+        return await runRecorded(runner, share.grantedBy, share, call, viewId);
       }
-      await atomic([insertViewStatement(db, row)]);
-      return await runRecorded(runner, share.grantedBy, share, call, row.id);
+      await atomic([setViewOutcomeStatement(db, viewId, "refused")]);
+      return { ok: false, reason: "forbidden" };
     } catch (error) {
       // A failed check (the membership lookup, the database) fails closed.
-      console.error("Live link check failed", error);
-      return await refuse("error", "failed");
+      console.error("Live link check failed", errorLabel(error));
+      await atomic([setViewOutcomeStatement(db, viewId, "error")]);
+      return { ok: false, reason: "failed" };
     }
   };
 
@@ -1037,13 +1039,13 @@ export const createArtifactSharesService = ({
         setViewOutcomeStatement(db, viewId, refused ? "refused" : "error"),
       ]);
       if (!refused) {
-        console.error("Live link call failed", error);
+        console.error("Live link call failed", errorLabel(error));
       }
       return { ok: false, reason: refused ? "forbidden" : "failed" };
     }
   };
 
-  /** Whether the link or the visitor is over a live call limit right now (R2.13). */
+  /** Whether the link or the visitor is over a live call limit right now (R2.13). The counts include the call asking. */
   const overLimit = async (
     shareId: string,
     visitorKey: string | null,
@@ -1060,9 +1062,9 @@ export const createArtifactSharesService = ({
       }),
     ]);
     return (
-      minute >= LIVE_CALLS_PER_LINK_MINUTE ||
-      day >= LIVE_CALLS_PER_LINK_DAY ||
-      byVisitor >= LIVE_CALLS_PER_VISITOR_MINUTE
+      minute > LIVE_CALLS_PER_LINK_MINUTE ||
+      day > LIVE_CALLS_PER_LINK_DAY ||
+      byVisitor > LIVE_CALLS_PER_VISITOR_MINUTE
     );
   };
 
