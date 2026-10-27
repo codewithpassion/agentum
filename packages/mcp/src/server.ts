@@ -4,6 +4,7 @@ import type { McpPorts } from "./ports";
 import { registerTools } from "./register";
 import { adminSetupTools, adminWriteTools } from "./tools/admin";
 import { agentTools, agentWriteTools } from "./tools/agents";
+import { artifactTools } from "./tools/artifacts";
 import { browserTools } from "./tools/browser";
 import { computerTools } from "./tools/computer";
 import type { ToolDefinition } from "./tools/define";
@@ -77,6 +78,12 @@ export const harbourmasterTools = (
   ...(readOnly ? [] : agentWriteTools(ports)),
   ...sessionTools(ports),
   ...inboxTools(ports),
+  // Offered once the app wires the port; a read-only caller keeps the read tools.
+  ...(ports.artifacts
+    ? artifactTools(ports.artifacts).filter(
+        (tool) => !readOnly || tool.annotations.readOnlyHint === true
+      )
+    : []),
   // V4.13 leaves read-only callers unspecified: new writes follow the skills convention.
   // Keep the existing bash availability unchanged.
   ...[...libraryTools(ports), ...wikiTools(ports)].filter(
@@ -107,6 +114,13 @@ const unusedPort = (): Promise<never> =>
 /** Default tool names in registration order; mail, Q&A, computer and browser groups require opt-in. */
 export const TOOL_NAMES = harbourmasterTools({
   approveSkillVersion: unusedPort,
+  artifacts: {
+    create: unusedPort,
+    list: unusedPort,
+    read: unusedPort,
+    test: unusedPort,
+    update: unusedPort,
+  },
   assignSkill: unusedPort,
   cancelRun: unusedPort,
   commitSkill: unusedPort,
