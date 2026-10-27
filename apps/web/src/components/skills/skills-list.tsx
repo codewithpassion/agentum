@@ -55,7 +55,7 @@ function SkillRow({
       : versionLabel(skill.latestApprovedVersion);
 
   return (
-    <li className="flex items-center gap-4 py-3">
+    <li className="flex items-center gap-4 py-3 max-md:min-h-10">
       <Link
         className="flex min-w-0 flex-1 flex-col gap-1 text-foreground no-underline hover:text-primary"
         data-testid="skills-row"

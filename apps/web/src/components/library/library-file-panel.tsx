@@ -189,8 +189,18 @@ export function LibraryFilePanel({
     }
   }, [path, source, onChanged, onClosed]);
 
+  // On a phone the panel sits below the list, out of sight. Bring it into view once the file has
+  // loaded, since the page is too short to scroll before that.
+  const panel = useRef<HTMLElement>(null);
+  const loaded = file !== null;
+  useEffect(() => {
+    if (loaded && window.matchMedia("(max-width: 767px)").matches) {
+      panel.current?.scrollIntoView({ block: "start" });
+    }
+  }, [loaded]);
+
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex scroll-mt-16 flex-col gap-4" ref={panel}>
       {file === null ? null : (
         <FileHeader
           downloadHref={source.downloadHref}
