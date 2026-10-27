@@ -32,6 +32,7 @@ import type {
   TriggerWithSecret,
 } from "@repo/services/triggers";
 import type { Principal } from "@repo/services/workspaces";
+import type { ArtifactTestBrowser } from "../artifact-test/driver.ts";
 import type { Services } from "../compose.ts";
 import { runLibraryBash } from "../library-bash/run.ts";
 import { bindLibraryOps } from "../library-env/library-ops.ts";
@@ -42,6 +43,7 @@ import {
 } from "../web-fetch/run-fetcher.ts";
 import type { WebFetcher } from "../web-fetch/types.ts";
 import { createAdminPorts } from "./admin-ports.ts";
+import { createArtifactPorts } from "./artifact-ports.ts";
 import { createBrowserPorts } from "./browser-ports.ts";
 import { createComputerPorts } from "./computer-ports.ts";
 import { guarded } from "./guarded.ts";
@@ -187,6 +189,7 @@ export const resolveRunBrowser = async (
 };
 
 export const createMcpPorts = ({
+  artifactTestBrowser,
   computerMachineId,
   fetch,
   principal,
@@ -195,6 +198,8 @@ export const createMcpPorts = ({
   requestHost,
   services,
 }: {
+  /** The browser `artifact_test` opens pages in. Without it the tool answers that the browser is unavailable. */
+  artifactTestBrowser?: ArtifactTestBrowser;
   /** The machine of the run's computer (see `resolveRunComputer`). Without it, or without `relay`, the run has no computer tools. */
   computerMachineId?: string;
   /** Replaces the global `fetch` for `curl`. Tests inject a fake here. */
@@ -304,6 +309,12 @@ export const createMcpPorts = ({
     // The browser is every run's. The computer is the one attached to its agent.
     ...(principal.kind === "run"
       ? {
+          artifacts: createArtifactPorts({
+            principal,
+            publicBaseUrl,
+            services,
+            testBrowser: artifactTestBrowser,
+          }),
           browser: createBrowserPorts({ principal, services }),
           ...(relay && computerMachineId
             ? {

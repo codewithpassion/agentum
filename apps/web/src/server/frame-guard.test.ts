@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { Hono } from "hono";
+import { mountArtifactContentRoutes } from "./artifact-content/routes.ts";
 import { frameGuard } from "./frame-guard.ts";
+import type { AppEnv } from "./routes/groups.ts";
 
 const app = new Hono();
 app.use("*", frameGuard);
@@ -50,5 +52,27 @@ describe("frame guard", () => {
     const res = await app.request("/redirect");
     expect(res.status).toBe(302);
     expect(csp(res)).toBe("frame-ancestors 'none'");
+  });
+});
+
+describe("R1.21a with the real content routes", () => {
+  const real = new Hono<AppEnv>();
+  real.use("*", frameGuard);
+  mountArtifactContentRoutes(real, {
+    bucket: () => ({ get: () => Promise.resolve(null) }),
+    viewKey: () => "key",
+    workspaceId: () => "ws",
+  });
+  real.get("/page", (c) => c.text("page"));
+  const ID = "6f1c2f0e-8f0e-4c3a-9f37-2b3f3c1d9a10";
+
+  it("a content response keeps its own frame-ancestors, a page gets none", async () => {
+    const content = await real.request(`https://hm.test/a/${ID}/c/bad/x.js`);
+    expect(content.status).toBe(401);
+    const contentCsp = csp(content) ?? "";
+    expect(contentCsp).toContain("frame-ancestors https://hm.test");
+    expect(contentCsp).not.toContain("frame-ancestors 'none'");
+    const page = await real.request("https://hm.test/page");
+    expect(csp(page)).toBe("frame-ancestors 'none'");
   });
 });

@@ -100,6 +100,11 @@ function ArtifactViewerPage() {
 
   const currentNumber = detail.currentVersion.number;
   const shownNumber = shownVersionNumber(detail, v);
+  // The shown version's files other than its entry, for the share dialog.
+  const shownVersion = versions.find((item) => item.number === shownNumber);
+  const dataFiles = shownVersion?.files
+    ?.filter((file) => file.path !== shownVersion.entry)
+    .map(({ path, size }) => ({ path, size }));
 
   // One open per version shown, and a new one after a restore bumps the
   // current version. Each open writes a log row.
@@ -271,6 +276,7 @@ function ArtifactViewerPage() {
       )}
       <ShareDialog
         artifactId={artifactId}
+        dataFiles={dataFiles}
         onOpenChange={setShareOpen}
         open={shareOpen}
       />
