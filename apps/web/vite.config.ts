@@ -14,6 +14,10 @@ const config = defineConfig({
     viteReact(),
   ],
   resolve: { tsconfigPaths: true },
+  // Vite answers CORS preflights itself and refuses the "null" origin of a
+  // sandboxed artifact, so an app's POST to /api/* never reached the Worker in
+  // dev. The Worker answers them, as in production.
+  server: { cors: false },
 });
 
 export default config;

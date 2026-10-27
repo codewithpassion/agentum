@@ -9,6 +9,7 @@ import { isReadOnly } from "@repo/services/automation-access";
 import type { Principal } from "@repo/services/workspaces";
 import { createMcpHandler } from "agents/mcp/server";
 import type { Context } from "hono";
+import { artifactTestBrowser } from "../browser-run.ts";
 import { readCappedBody } from "../mcp/body.ts";
 import { OAuthVerificationUnavailableError } from "../mcp/clerk-oauth.ts";
 import {
@@ -394,6 +395,7 @@ export const mcpRoutes = ({
     // The browser is on for every run unless its agent's map unplugged it.
     const browser = await resolveRunBrowser(composed.services, principal);
     const ports = createMcpPorts({
+      artifactTestBrowser: artifactTestBrowser(c.env.BROWSER),
       computerMachineId: computer?.machineId,
       principal,
       publicBaseUrl: c.env.PUBLIC_BASE_URL,

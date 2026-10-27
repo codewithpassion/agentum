@@ -36,6 +36,9 @@ export const BUILTIN_ACTIONS: readonly BuiltinAction[] = [
 
 /** What a person reads for a platform tool a switch covers, by rule key. */
 export const PLATFORM_TOOL_LABELS: Readonly<Record<string, string>> = {
+  "harbourmaster/artifact_create": "publishing a new artifact",
+  "harbourmaster/artifact_promote": "making a new version of an app live",
+  "harbourmaster/artifact_update": "publishing a new version of an artifact",
   "harbourmaster/bash": "the library script shell",
   "harbourmaster/computer_edit_file": "editing a file on the computer",
   "harbourmaster/computer_exec": "the computer shell",

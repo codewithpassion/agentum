@@ -24,6 +24,38 @@ import {
   createApiKeysService,
 } from "@repo/services/api-keys";
 import {
+  type AppGrantsService,
+  createAppGrantsService,
+} from "@repo/services/artifacts/app-grants";
+import {
+  type ArtifactToolPort,
+  createArtifactCallsService,
+  createConnectorToolCatalog,
+  createToolRunner,
+  type ToolRunner,
+} from "@repo/services/artifacts/calls";
+import {
+  type ArtifactGrantsService,
+  createArtifactGrantsService,
+} from "@repo/services/artifacts/grants";
+import {
+  type ArtifactPinsService,
+  createArtifactPinsService,
+} from "@repo/services/artifacts/pins";
+import {
+  type ArtifactsService,
+  createArtifactsService,
+} from "@repo/services/artifacts/service";
+import {
+  type ArtifactSharesService,
+  createArtifactSharesService,
+} from "@repo/services/artifacts/shares";
+import {
+  type AppStorePort,
+  type ArtifactStorageService,
+  createArtifactStorageService,
+} from "@repo/services/artifacts/storage";
+import {
   type BrowserService,
   createBrowserService,
 } from "@repo/services/browser";
@@ -211,13 +243,16 @@ import {
 } from "@repo/services/wiki/suggestions";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
+import { appStorePort } from "./app-store/port.ts";
 import { browserRunDriver } from "./browser-run.ts";
+import { clerkOrgName } from "./clerk-org-name.ts";
 import { clerkPeople } from "./clerk-people.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
 import { libraryNotifier } from "./library-notifier.ts";
 import { type MailEnv, mailInfra } from "./mail-infra.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
 import { clerkEmailMemberLookup } from "./mcp/clerk-email-member.ts";
+import { clerkOrgMemberCheckFresh } from "./mcp/clerk-membership.ts";
 import { takeDesktopScreenshot } from "./mcp/computer-ports.ts";
 import { durableRunnerPort } from "./pi-run-port.ts";
 import { r2Blobs } from "./r2-blobs.ts";
@@ -234,7 +269,20 @@ import {
 import { clerkSlackDirectory } from "./slack-directory.ts";
 
 /** What the runs service needs besides a database. */
+const unavailableAppStore: AppStorePort = {
+  delete: () => Promise.reject(new Error("App storage is not set up.")),
+  get: () => Promise.reject(new Error("App storage is not set up.")),
+  list: () => Promise.reject(new Error("App storage is not set up.")),
+  set: () => Promise.reject(new Error("App storage is not set up.")),
+};
+
 export interface Infra {
+  /** The app storage Durable Object behind its port. B.8 wires it; without it, storage answers "unavailable". */
+  appStore?: AppStorePort;
+  /** `ARTIFACT_LINKS_OFF` is set: every share-link open is refused in this environment. */
+  artifactLinksOff?: boolean;
+  /** `ARTIFACT_VIEW_KEY`. Artifact view tokens are signed with it; without it, opening an artifact fails. */
+  artifactViewKey?: string;
   atomic: Atomic;
   blobs: Blobs;
   /** Drives the agents' browser: Browser Run in the app. Without it, browser tools answer "unavailable". */
@@ -253,6 +301,8 @@ export interface Infra {
   github?: GithubSkillFetcher;
   /** `GITHUB_TOKEN`, optional. Raises GitHub's rate limit; without it the fetcher is unauthenticated. */
   githubToken?: string;
+  /** Whether a user is in a Clerk org right now, with no cache. Live link calls need it; without it they are refused. */
+  isOrgMember?: (userId: string, clerkOrgId: string) => Promise<boolean>;
   /** Where the workspace library keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
   libraryBlobs?: LibraryBlobs;
   mailbox?: MailboxPort;
@@ -264,6 +314,8 @@ export interface Infra {
   managedPoller?: ManagedPollerPort;
   /** Finds the workspace member behind a verified email, for the desk API. Without one, no desk key resolves a member. */
   memberDirectory?: MemberDirectory;
+  /** Reads a Clerk organisation's name, for naming a workspace. Without it, a workspace is named by its org id. */
+  orgName?: (clerkOrgId: string) => Promise<string | null>;
   /** Names the people behind user ids in the Log. Without it, the Log shows ids. */
   people?: PeopleLookup;
   /** `PUBLIC_BASE_URL`. A Connect path posted to Slack becomes a link under it. */
@@ -279,6 +331,8 @@ export interface Infra {
   slackDirectory?: SlackDirectory;
   /** Where the live frames of a session go: the SessionStream Durable Object in the app. Without it nothing is streamed. */
   streams?: SessionStreamPort;
+  /** Runs a granted tool for artifacts (B.5). Tests replace it; the app builds the real one over its credentials. */
+  toolRunner?: ToolRunner;
   /** Asks Anthropic whether a key works. Without it, `managedKeys` checks only the key's shape. */
   validateAnthropicKey?: (apiKey: string) => Promise<boolean>;
   /** Asks the provider whether a key works. Without it, `modelKeys` checks only the key's shape. */
@@ -294,6 +348,13 @@ export interface Services {
   agentProfile: AgentProfileService;
   agents: AgentsService;
   apiKeys: ApiKeysService;
+  artifactApp: AppGrantsService;
+  artifactCalls: ArtifactToolPort;
+  artifactGrants: ArtifactGrantsService;
+  artifactPins: ArtifactPinsService;
+  artifactShares: ArtifactSharesService;
+  artifactStorage: ArtifactStorageService;
+  artifacts: ArtifactsService;
   browser: BrowserService;
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
@@ -349,6 +410,9 @@ export interface Composed {
 export type ComposeEnv = Pick<
   Env,
   | "ALLOWED_ORG_IDS"
+  | "APP_STORE"
+  | "ARTIFACT_LINKS_OFF"
+  | "ARTIFACT_VIEW_KEY"
   | "BROWSER"
   | "CLERK_SECRET_KEY"
   | "DB"
@@ -445,7 +509,11 @@ export const composeWith = ({
       : []),
   ];
 
-  const workspaces = createWorkspacesService({ allowedOrgIds, db });
+  const workspaces = createWorkspacesService({
+    allowedOrgIds,
+    db,
+    orgName: infra.orgName,
+  });
   const events = createEventsService({
     blobs: infra.blobs,
     db,
@@ -478,6 +546,14 @@ export const composeWith = ({
     fetch: connectorFetch,
     secretsKey: infra.secretsKey,
   });
+  const toolRunner =
+    infra.toolRunner ??
+    createToolRunner({ credentials, db, fetch: connectorFetch });
+  const artifactCalls = createArtifactCallsService({ db, runner: toolRunner });
+  const artifactStorage = createArtifactStorageService({
+    db,
+    store: infra.appStore ?? unavailableAppStore,
+  });
   const files = createFilesService({
     blobs: infra.fileBlobs,
     clock: infra.clock,
@@ -506,6 +582,21 @@ export const composeWith = ({
       relay: infra.relay,
       runner: infra.cloudRunner,
     }),
+  });
+  const artifactShares = createArtifactSharesService({
+    allowedOrgIds,
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    isOrgMember: infra.isOrgMember,
+    linksOff: infra.artifactLinksOff,
+    origin: infra.publicBaseUrl ?? "",
+    people: infra.people,
+    runner: toolRunner,
+    secretsKey: infra.secretsKey,
+    store: infra.appStore ?? unavailableAppStore,
+    viewKey: infra.artifactViewKey ?? "",
   });
   const browser = createBrowserService({
     atomic: infra.atomic,
@@ -648,6 +739,35 @@ export const composeWith = ({
     events,
     runs,
     secrets,
+  });
+  const artifactApp = createAppGrantsService({
+    allowedOrgIds,
+    db,
+    isOrgMember: infra.isOrgMember,
+    secrets,
+  });
+  const artifactGrants = createArtifactGrantsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    requests,
+    tools: createConnectorToolCatalog(db),
+  });
+  const artifactPins = createArtifactPinsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+  });
+  const artifacts = createArtifactsService({
+    atomic: infra.atomic,
+    blobs: libraryBlobs,
+    clock: infra.clock,
+    db,
+    events,
+    grants: artifactGrants,
+    library,
+    people: infra.people,
   });
   const mailOutbound = createMailOutbound({
     atomic: infra.atomic,
@@ -850,6 +970,13 @@ export const composeWith = ({
       agentProfile,
       agents,
       apiKeys,
+      artifactApp,
+      artifactCalls,
+      artifactGrants,
+      artifactPins,
+      artifactShares,
+      artifactStorage,
+      artifacts,
       browser,
       connectorOAuth,
       connectors,
@@ -914,6 +1041,10 @@ export const compose = (
     allowedOrgIds: parseOrgIds(env.ALLOWED_ORG_IDS),
     db,
     infra: {
+      // An empty `ARTIFACT_LINKS_OFF` leaves links on.
+      appStore: appStorePort(env.APP_STORE),
+      artifactLinksOff: Boolean(env.ARTIFACT_LINKS_OFF),
+      artifactViewKey: env.ARTIFACT_VIEW_KEY || undefined,
       atomic: d1Atomic(db),
       blobs: r2Blobs(env.FILES),
       browserDriver: browserRunDriver(env.BROWSER),
@@ -926,6 +1057,7 @@ export const compose = (
       github: createGithubSkillFetcher((url, init) => fetch(url, init)),
       // An unset secret reads as an empty string: GitHub then sees no credential.
       githubToken: env.GITHUB_TOKEN || undefined,
+      isOrgMember: clerkOrgMemberCheckFresh(env.CLERK_SECRET_KEY),
       libraryBlobs: r2LibraryBlobs(env.FILES),
       ...mailInfra(env),
       managedGatewayFor: ({ apiKey, environment }) =>
@@ -935,6 +1067,7 @@ export const compose = (
         }),
       managedPoller: durablePollerPort(env.MANAGED_POLLER),
       memberDirectory: clerkEmailMemberLookup(env.CLERK_SECRET_KEY),
+      orgName: clerkOrgName(env.CLERK_SECRET_KEY),
       people: clerkPeople(env.CLERK_SECRET_KEY),
       publicBaseUrl: env.PUBLIC_BASE_URL,
       relay: durableRelayPort(env.MACHINE_RELAY),

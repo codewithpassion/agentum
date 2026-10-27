@@ -588,6 +588,69 @@ export const createCredentialsService = ({
       : { credential: current, ok: true };
   };
 
+  const connectorSummary = (connector: ConnectorRow) => ({
+    callTimeoutSeconds: connector.callTimeoutSeconds,
+    id: connector.id,
+    name: connector.name,
+    url: connector.url,
+  });
+
+  /** A connector with no auth: nothing to look up, nothing to refresh. */
+  const openConnectorResolution = (
+    connector: ConnectorRow,
+    allowedTools: string[] | null
+  ): Resolution => ({
+    allowedTools,
+    connector: connectorSummary(connector),
+    credential: null,
+    note: null,
+    ok: true,
+    ownerKind: null,
+    version: null,
+  });
+
+  /** Once the owner is chosen: their stored login, usable and refreshed. */
+  const resolveOwned = async (
+    connector: ConnectorRow,
+    owner: Owner,
+    extra: { allowedTools: string[] | null; note: ResolveNote | null }
+  ): Promise<Resolution> => {
+    const [row] =
+      owner.id === null
+        ? []
+        : await db
+            .select()
+            .from(credentials)
+            .where(
+              and(
+                eq(credentials.connectorId, connector.id),
+                eq(credentials.ownerKind, owner.kind),
+                eq(credentials.ownerId, owner.id),
+                eq(credentials.workspaceId, connector.workspaceId)
+              )
+            )
+            .limit(1);
+    if (!row) {
+      return needsAuth(connector.id, owner, "missing");
+    }
+    const current = await usable(row, connector);
+    if (!current.ok) {
+      return current;
+    }
+    const ready = await refreshedAhead(row, connector, current.credential);
+    return ready.ok
+      ? {
+          allowedTools: extra.allowedTools,
+          connector: connectorSummary(connector),
+          credential: ready.credential,
+          note: extra.note,
+          ok: true,
+          ownerKind: ready.credential.ownerKind,
+          version: ready.credential.version,
+        }
+      : ready;
+  };
+
   const resolve = async (input: ResolveInput): Promise<Resolution> => {
     const { agentId, connectorId, workspaceId } = input;
     const [link] = await db
@@ -612,63 +675,38 @@ export const createCredentialsService = ({
     }
     const { connector } = link;
     const allowedTools = decodeAllowedTools(link.allowedTools);
-    const summary = {
-      callTimeoutSeconds: connector.callTimeoutSeconds,
-      id: connector.id,
-      name: connector.name,
-      url: connector.url,
-    };
     if (connector.authKind === "none") {
-      return {
-        allowedTools,
-        connector: summary,
-        credential: null,
-        note: null,
-        ok: true,
-        ownerKind: null,
-        version: null,
-      };
+      return openConnectorResolution(connector, allowedTools);
     }
 
     const chosen = await chooseOwner(link.mode, input);
     if (!chosen.ok) {
       return needsAuth(connector.id, chosen.owner, chosen.cause);
     }
-    const { owner } = chosen;
-    const [row] =
-      owner.id === null
-        ? []
-        : await db
-            .select()
-            .from(credentials)
-            .where(
-              and(
-                eq(credentials.connectorId, connector.id),
-                eq(credentials.ownerKind, owner.kind),
-                eq(credentials.ownerId, owner.id),
-                eq(credentials.workspaceId, workspaceId)
-              )
-            )
-            .limit(1);
-    if (!row) {
-      return needsAuth(connector.id, owner, "missing");
+    return await resolveOwned(connector, chosen.owner, {
+      allowedTools,
+      note: chosen.note,
+    });
+  };
+
+  /** The viewer's own login, with no agent in play and no fallback to one. */
+  const resolveUser = async (input: {
+    connectorId: string;
+    userId: string;
+    workspaceId: string;
+  }): Promise<Resolution> => {
+    const connector = await loadConnector(input.connectorId, input.workspaceId);
+    if (!connector) {
+      return { ok: false, reason: "not_assigned" };
     }
-    const current = await usable(row, connector);
-    if (!current.ok) {
-      return current;
+    if (connector.authKind === "none") {
+      return openConnectorResolution(connector, null);
     }
-    const ready = await refreshedAhead(row, connector, current.credential);
-    return ready.ok
-      ? {
-          allowedTools,
-          connector: summary,
-          credential: ready.credential,
-          note: chosen.note,
-          ok: true,
-          ownerKind: ready.credential.ownerKind,
-          version: ready.credential.version,
-        }
-      : ready;
+    return await resolveOwned(
+      connector,
+      { id: input.userId, kind: "user" },
+      { allowedTools: null, note: null }
+    );
   };
 
   /** What the run row says about whom the run is for and where it runs. */
@@ -692,7 +730,7 @@ export const createCredentialsService = ({
     return row ?? null;
   };
 
-  return { refresh, resolve, runContext };
+  return { refresh, resolve, resolveUser, runContext };
 };
 
 export type CredentialsService = ReturnType<typeof createCredentialsService>;

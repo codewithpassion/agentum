@@ -668,3 +668,111 @@ describe("allowed tools", () => {
     expect(await resolve(null)).toMatchObject({ allowedTools: null, ok: true });
   });
 });
+
+describe("resolveUser", () => {
+  const OAUTH = "con_user_oauth";
+
+  const resolveUser = (userId: string, connectorId = CONNECTOR) =>
+    service.resolveUser({ connectorId, userId, workspaceId: WORKSPACE });
+
+  test("returns the user's own credential", async () => {
+    await addCredential("user", dom, "dom-key");
+
+    const result = await resolveUser(dom);
+
+    expect(headerOf(result)).toBe("dom-key");
+    expect(result).toMatchObject({
+      allowedTools: null,
+      note: null,
+      ok: true,
+      ownerKind: "user",
+    });
+  });
+
+  test("never returns another user's or an agent's credential", async () => {
+    await addCredential("user", dom, "dom-key");
+    await addCredential("agent", agentId, "agent-key");
+
+    expect(await resolveUser(sam)).toEqual({
+      cause: "missing",
+      connectPath: `/connect/${CONNECTOR}?as=user`,
+      ok: false,
+      ownerId: sam,
+      ownerKind: "user",
+      reason: "needs_auth",
+    });
+  });
+
+  test("a connector with only an agent credential is needs_auth missing", async () => {
+    await assign("user_or_agent");
+    await addCredential("agent", agentId, "agent-key");
+
+    expect(await resolveUser(dom)).toMatchObject({
+      cause: "missing",
+      ok: false,
+      reason: "needs_auth",
+    });
+  });
+
+  test("a connector with no auth gives a null credential", async () => {
+    await seedConnector(db, {
+      authKind: "none",
+      id: "con_open",
+      now: START,
+      workspaceId: WORKSPACE,
+    });
+
+    expect(await resolveUser(dom, "con_open")).toMatchObject({
+      allowedTools: null,
+      credential: null,
+      note: null,
+      ok: true,
+      ownerKind: null,
+      version: null,
+    });
+  });
+
+  test("an unknown connector, or one in another workspace, is not_assigned", async () => {
+    await addCredential("user", dom, "dom-key");
+
+    expect(await resolveUser(dom, "con_missing")).toEqual({
+      ok: false,
+      reason: "not_assigned",
+    });
+    expect(
+      await service.resolveUser({
+        connectorId: CONNECTOR,
+        userId: dom,
+        workspaceId: OTHER_WORKSPACE,
+      })
+    ).toEqual({ ok: false, reason: "not_assigned" });
+  });
+
+  test("an expiring OAuth token is refreshed first", async () => {
+    await seedConnector(db, {
+      authKind: "oauth",
+      id: OAUTH,
+      now: START,
+      oauth: testOAuthConfig(ORIGIN),
+      workspaceId: WORKSPACE,
+    });
+    await seedCredential(db, key, {
+      connectorId: OAUTH,
+      expiresAt: iso(MINUTE_MS),
+      now: START,
+      ownerId: dom,
+      ownerKind: "user",
+      secret: JSON.stringify({
+        accessToken: "old-access",
+        refreshToken: "old-refresh",
+      }),
+      workspaceId: WORKSPACE,
+    });
+
+    const result = await resolveUser(dom, OAUTH);
+
+    expect(tokenCalls).toBe(1);
+    expect(result).toMatchObject({ ok: true, version: 2 });
+    expect(headerOf(result)).toBe("Bearer fresh-1");
+  });
+});

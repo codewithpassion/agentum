@@ -276,6 +276,18 @@ export const EVENT_TYPES = [
   "qa.closed",
   "map.edited",
   "workspace.snapshot",
+  "artifact.created",
+  "artifact.published",
+  "artifact.restored",
+  "artifact.renamed",
+  "artifact.audience_changed",
+  "artifact.deleted",
+  "artifact.share_created",
+  "artifact.share_revoked",
+  "artifact.links_switched",
+  "artifact.promoted",
+  "artifact.grant_decided",
+  "artifact.handed_to",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -709,4 +721,111 @@ export interface MapWire {
 export interface MapGraph<TRequest = unknown> {
   nodes: MapNode<TRequest>[];
   wires: MapWire[];
+}
+
+/** `app` is phase 2: a micro app with a server part. Pages and dashboards are served the same way. */
+export const ARTIFACT_KINDS = ["page", "doc", "dashboard", "app"] as const;
+export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
+
+/** `private`: the owner and admins. `workspace`: every member. Phase 4 adds `people` and `public`. */
+export const ARTIFACT_AUDIENCES = ["private", "workspace"] as const;
+export type ArtifactAudience = (typeof ARTIFACT_AUDIENCES)[number];
+
+export const ARTIFACT_AUTHOR_KINDS = ["user", "agent"] as const;
+export type ArtifactAuthorKind = (typeof ARTIFACT_AUTHOR_KINDS)[number];
+
+/** Phase 2: an agent's app version starts `proposed` until promoted, `rejected` when a person says no. */
+export const ARTIFACT_VERSION_STATUSES = [
+  "published",
+  "proposed",
+  "rejected",
+] as const;
+export type ArtifactVersionStatus = (typeof ARTIFACT_VERSION_STATUSES)[number];
+
+/** Who a view token was minted for. `test` is the Browser Run token of `artifact_test`. */
+export const ARTIFACT_VIEWER_KINDS = ["member", "link", "test"] as const;
+export type ArtifactViewerKind = (typeof ARTIFACT_VIEWER_KINDS)[number];
+
+/** Where an open happened. `live_call` is a tool call on a live link (phase 2). */
+export const ARTIFACT_VIEW_SURFACES = [
+  "viewer",
+  "thread",
+  "share",
+  "test",
+  "live_call",
+] as const;
+export type ArtifactViewSurface = (typeof ARTIFACT_VIEW_SURFACES)[number];
+
+/** `refused`, `rate_limited` and `error` are phase 2 outcomes of a live call. */
+export const ARTIFACT_VIEW_OUTCOMES = [
+  "ok",
+  "revoked",
+  "expired",
+  "disabled",
+  "refused",
+  "rate_limited",
+  "error",
+] as const;
+export type ArtifactViewOutcome = (typeof ARTIFACT_VIEW_OUTCOMES)[number];
+
+export const ARTIFACT_SHARE_KINDS = ["link"] as const;
+export type ArtifactShareKind = (typeof ARTIFACT_SHARE_KINDS)[number];
+
+/** A `snapshot` link shows the data shipped in the version. A `live` link may call tools as its granter. */
+export const ARTIFACT_SHARE_DATA_MODES = ["snapshot", "live"] as const;
+export type ArtifactShareDataMode = (typeof ARTIFACT_SHARE_DATA_MODES)[number];
+
+export const ARTIFACT_GRANT_KINDS = ["tool", "secret", "host"] as const;
+export type ArtifactGrantKind = (typeof ARTIFACT_GRANT_KINDS)[number];
+
+export const ARTIFACT_GRANT_STATUSES = [
+  "pending",
+  "approved",
+  "rejected",
+] as const;
+export type ArtifactGrantStatus = (typeof ARTIFACT_GRANT_STATUSES)[number];
+
+export const ARTIFACT_PIN_SURFACES = ["sidebar", "desk"] as const;
+export type ArtifactPinSurface = (typeof ARTIFACT_PIN_SURFACES)[number];
+
+/** Most files in one artifact version. */
+export const ARTIFACT_MAX_FILES = 200;
+
+/** Most bytes in one artifact version, over all files: 16 MB. */
+export const ARTIFACT_MAX_BYTES = 16 * 1024 * 1024;
+
+/** Most bytes in one artifact file: 10 MB. */
+export const ARTIFACT_FILE_MAX_BYTES = 10 * 1024 * 1024;
+
+/** Most bytes in one workspace's artifact blobs: 1 GB. */
+export const ARTIFACT_WORKSPACE_MAX_BYTES = 1024 * 1024 * 1024;
+
+/** Access-log rows older than this are deleted. */
+export const ARTIFACT_VIEW_KEEP_DAYS = 365;
+
+/** Most bytes of storage one micro app may hold (phase 2): 20 MB. */
+export const ARTIFACT_APP_STORAGE_MAX_BYTES = 20 * 1024 * 1024;
+
+/** Limits on a live link's tool calls (phase 2). */
+export const ARTIFACT_LIVE_LINK_LIMITS = {
+  perDay: 1000,
+  perMinute: 60,
+  perVisitorPerMinute: 10,
+} as const;
+
+/**
+ * Payload of `artifact.published`, appended once per new version (create,
+ * update or restore). It reaches the session stream and the thread fold, which
+ * key the card on this event, not on the tool name. Never holds a token.
+ */
+export interface ArtifactPublishedPayload {
+  artifactId: string;
+  kind: ArtifactKind;
+  runId: string | null;
+  sessionId: string | null;
+  title: string;
+  /** The tool call that made the version, when an agent did. */
+  toolCallId?: string;
+  version: number;
+  versionId: string;
 }

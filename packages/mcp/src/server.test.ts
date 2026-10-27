@@ -39,6 +39,13 @@ const SLACK_READ_NAMES = [
 
 const SLACK_WRITE_NAMES = ["slack_send"];
 
+const ARTIFACT_READ_NAMES = ["artifact_list", "artifact_read", "artifact_test"];
+const ARTIFACT_WRITE_NAMES = [
+  "artifact_create",
+  "artifact_promote",
+  "artifact_update",
+];
+
 const EXPECTED_NAMES = [
   "library_list",
   "library_read",
@@ -65,6 +72,8 @@ const EXPECTED_NAMES = [
   "send_message",
   "set_routine_enabled",
   "set_trigger_enabled",
+  ...ARTIFACT_READ_NAMES,
+  ...ARTIFACT_WRITE_NAMES,
   ...SKILL_READ_NAMES,
   ...SKILL_WRITE_NAMES,
   ...SLACK_READ_NAMES,
@@ -85,6 +94,7 @@ const READ_NAMES = [
   "list_triggers",
   "read_session",
   "search_sessions",
+  ...ARTIFACT_READ_NAMES,
   ...SKILL_READ_NAMES,
   ...SLACK_READ_NAMES,
 ].sort();
@@ -94,6 +104,14 @@ const uncalled = (): Promise<never> =>
 
 const fakePorts: McpPorts = {
   approveSkillVersion: uncalled,
+  artifacts: {
+    create: uncalled,
+    list: uncalled,
+    promote: uncalled,
+    read: uncalled,
+    test: uncalled,
+    update: uncalled,
+  },
   assignSkill: uncalled,
   cancelRun: uncalled,
   commitSkill: uncalled,

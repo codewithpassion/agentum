@@ -98,7 +98,7 @@ export const contentDisposition = (
  * private cache. No Range support: files are sent whole (200).
  */
 export const fileResponseHeaders = (
-  file: FileRecord
+  file: Pick<FileRecord, "mime" | "name" | "size">
 ): Record<string, string> => {
   const contentType = file.mime;
   const disposition = INLINE_CONTENT_TYPES.has(contentType)

@@ -2,6 +2,16 @@ import { expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { agents, browserSessions } from "./schema/agents.ts";
 import {
+  artifactGrants,
+  artifactPins,
+  artifactShares,
+  artifacts,
+  artifactVersionFiles,
+  artifactVersions,
+  artifactViewSalts,
+  artifactViews,
+} from "./schema/artifacts.ts";
+import {
   agentLibraryAccess,
   libraryConflicts,
   libraryLinks,
@@ -780,4 +790,251 @@ test("a map position is unique per workspace and node, and refuses an unknown wo
     .values({ ...position, nodeKey: "out:qa", workspaceId: "w1" })
     .run();
   expect(db.select().from(mapPositions).all()).toHaveLength(2);
+});
+
+const FK = "FOREIGN KEY constraint failed";
+
+const artifactRow = (
+  overrides: Partial<typeof artifacts.$inferInsert> = {}
+) => ({
+  audience: "workspace" as const,
+  createdAt: NOW,
+  createdById: "u1",
+  createdByKind: "user" as const,
+  id: "ar1",
+  kind: "page" as const,
+  title: "Report",
+  updatedAt: NOW,
+  workspaceId: "w1",
+  ...overrides,
+});
+
+const versionRow = (
+  overrides: Partial<typeof artifactVersions.$inferInsert> = {}
+) => ({
+  artifactId: "ar1",
+  authorId: "u1",
+  authorKind: "user" as const,
+  createdAt: NOW,
+  entry: "index.html",
+  fileCount: 1,
+  id: "av1",
+  manifestKey: "w1/artifact-manifests/av1.json",
+  message: "first",
+  number: 1,
+  status: "published" as const,
+  totalBytes: 10,
+  workspaceId: "w1",
+  ...overrides,
+});
+
+const shareRow = (
+  overrides: Partial<typeof artifactShares.$inferInsert> = {}
+) => ({
+  artifactId: "ar1",
+  createdAt: NOW,
+  createdBy: "u1",
+  id: "sh1",
+  kind: "link" as const,
+  tokenEncrypted: "enc",
+  tokenHash: "hash1",
+  workspaceId: "w1",
+  ...overrides,
+});
+
+const viewRow = (
+  overrides: Partial<typeof artifactViews.$inferInsert> = {}
+) => ({
+  artifactId: "ar1",
+  createdAt: NOW,
+  id: "vw1",
+  outcome: "ok" as const,
+  surface: "viewer" as const,
+  workspaceId: "w1",
+  ...overrides,
+});
+
+test("an artifact refuses an unknown workspace, agent, session, run and handed-to agent", () => {
+  const db = migrated();
+  seedRun(db);
+  expect(() =>
+    db
+      .insert(artifacts)
+      .values(artifactRow({ workspaceId: "nope" }))
+      .run()
+  ).toThrow(FK);
+  for (const field of [
+    "agentId",
+    "sessionId",
+    "runId",
+    "handedToAgentId",
+  ] as const) {
+    expect(() =>
+      db
+        .insert(artifacts)
+        .values(artifactRow({ [field]: "nope" }))
+        .run()
+    ).toThrow(FK);
+  }
+  db.insert(artifacts)
+    .values(
+      artifactRow({
+        agentId: "a1",
+        handedToAgentId: "a1",
+        runId: "r1",
+        sessionId: "s1",
+      })
+    )
+    .run();
+  expect(db.select().from(artifacts).all()).toHaveLength(1);
+});
+
+test("an artifact version needs its artifact and workspace", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  expect(() => db.insert(artifactVersions).values(versionRow()).run()).toThrow(
+    FK
+  );
+  db.insert(artifacts).values(artifactRow()).run();
+  expect(() =>
+    db
+      .insert(artifactVersions)
+      .values(versionRow({ workspaceId: "nope" }))
+      .run()
+  ).toThrow(FK);
+  db.insert(artifactVersions).values(versionRow()).run();
+  expect(db.select().from(artifactVersions).all()).toHaveLength(1);
+});
+
+test("an artifact version file needs its version and workspace", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  db.insert(artifacts).values(artifactRow()).run();
+  const file = {
+    contentType: "text/html",
+    path: "index.html",
+    sha256: "abc",
+    size: 10,
+    versionId: "av1",
+    workspaceId: "w1",
+  };
+  expect(() => db.insert(artifactVersionFiles).values(file).run()).toThrow(FK);
+  db.insert(artifactVersions).values(versionRow()).run();
+  expect(() =>
+    db
+      .insert(artifactVersionFiles)
+      .values({ ...file, workspaceId: "nope" })
+      .run()
+  ).toThrow(FK);
+  db.insert(artifactVersionFiles).values(file).run();
+  expect(() => db.insert(artifactVersionFiles).values(file).run()).toThrow(
+    "UNIQUE constraint failed"
+  );
+});
+
+test("an artifact share refuses an unknown artifact, version and workspace, and null version is fine", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  expect(() => db.insert(artifactShares).values(shareRow()).run()).toThrow(FK);
+  db.insert(artifacts).values(artifactRow()).run();
+  expect(() =>
+    db
+      .insert(artifactShares)
+      .values(shareRow({ versionId: "nope" }))
+      .run()
+  ).toThrow(FK);
+  expect(() =>
+    db
+      .insert(artifactShares)
+      .values(shareRow({ workspaceId: "nope" }))
+      .run()
+  ).toThrow(FK);
+  db.insert(artifactShares).values(shareRow()).run();
+  const share = db.select().from(artifactShares).get();
+  expect(share?.versionId).toBeNull();
+  expect(share?.openCount).toBe(0);
+  expect(share?.dataMode).toBe("snapshot");
+});
+
+test("an artifact view refuses an unknown artifact, version, share and workspace", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  expect(() => db.insert(artifactViews).values(viewRow()).run()).toThrow(FK);
+  db.insert(artifacts).values(artifactRow()).run();
+  for (const overrides of [
+    { versionId: "nope" },
+    { shareId: "nope" },
+    { workspaceId: "nope" },
+  ]) {
+    expect(() =>
+      db.insert(artifactViews).values(viewRow(overrides)).run()
+    ).toThrow(FK);
+  }
+  db.insert(artifactViews).values(viewRow()).run();
+  expect(db.select().from(artifactViews).all()).toHaveLength(1);
+});
+
+test("an artifact view salt needs a workspace and is unique per workspace and day", () => {
+  const db = migrated();
+  const salt = { day: "2026-01-01", salt: "s", workspaceId: "w1" };
+  expect(() => db.insert(artifactViewSalts).values(salt).run()).toThrow(FK);
+  db.insert(workspaces).values(workspace("w1")).run();
+  db.insert(workspaces).values(workspace("w2")).run();
+  db.insert(artifactViewSalts).values(salt).run();
+  expect(() => db.insert(artifactViewSalts).values(salt).run()).toThrow(
+    "UNIQUE constraint failed"
+  );
+  db.insert(artifactViewSalts)
+    .values({ ...salt, workspaceId: "w2" })
+    .run();
+  expect(db.select().from(artifactViewSalts).all()).toHaveLength(2);
+});
+
+test("an artifact grant needs its version and workspace", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  const grant = {
+    createdAt: NOW,
+    id: "g1",
+    kind: "tool" as const,
+    status: "pending" as const,
+    target: "mail_send",
+    versionId: "av1",
+    workspaceId: "w1",
+  };
+  expect(() => db.insert(artifactGrants).values(grant).run()).toThrow(FK);
+  db.insert(artifacts).values(artifactRow()).run();
+  db.insert(artifactVersions).values(versionRow()).run();
+  expect(() =>
+    db
+      .insert(artifactGrants)
+      .values({ ...grant, workspaceId: "nope" })
+      .run()
+  ).toThrow(FK);
+  db.insert(artifactGrants).values(grant).run();
+  expect(db.select().from(artifactGrants).all()).toHaveLength(1);
+});
+
+test("an artifact pin needs its artifact and workspace", () => {
+  const db = migrated();
+  db.insert(workspaces).values(workspace("w1")).run();
+  const pin = {
+    artifactId: "ar1",
+    createdAt: NOW,
+    id: "p1",
+    position: 0,
+    surface: "sidebar" as const,
+    userId: "u1",
+    workspaceId: "w1",
+  };
+  expect(() => db.insert(artifactPins).values(pin).run()).toThrow(FK);
+  db.insert(artifacts).values(artifactRow()).run();
+  expect(() =>
+    db
+      .insert(artifactPins)
+      .values({ ...pin, workspaceId: "nope" })
+      .run()
+  ).toThrow(FK);
+  db.insert(artifactPins).values(pin).run();
+  expect(db.select().from(artifactPins).all()).toHaveLength(1);
 });

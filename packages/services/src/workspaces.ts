@@ -78,18 +78,48 @@ const MEMBERSHIP_TTL_MS = 60_000;
 
 /**
  * Workspace access by Clerk org. `allowedOrgIds` is the set of orgs this
- * deployment serves; an org outside it has no workspace here.
+ * deployment serves; an org outside it has no workspace here. `orgName` reads
+ * the organisation's name from Clerk; null means Clerk has none.
  */
 export const createWorkspacesService = ({
   allowedOrgIds,
   db,
+  orgName,
 }: {
   allowedOrgIds: readonly string[];
   db: Database;
+  orgName?: (clerkOrgId: string) => Promise<string | null>;
 }) => {
+  const selectRow = async (clerkOrgId: string) => {
+    const [row] = await db
+      .select(WORKSPACE_COLUMNS)
+      .from(workspaces)
+      .where(eq(workspaces.clerkOrgId, clerkOrgId))
+      .limit(1);
+    return row;
+  };
+
+  /**
+   * The Clerk name for an org, or null. A failed lookup is null too: the name
+   * is cosmetic, so a Clerk outage must not fail the request, and the next
+   * request tries again.
+   */
+  const lookupName = async (clerkOrgId: string): Promise<string | null> => {
+    if (!orgName) {
+      return null;
+    }
+    try {
+      return (await orgName(clerkOrgId))?.trim() || null;
+    } catch {
+      return null;
+    }
+  };
+
   /**
    * The workspace for `clerkOrgId`, created on the first call. Null when the
-   * org is not in `allowedOrgIds`. `name` only applies when the row is created.
+   * org is not in `allowedOrgIds`. The name is `name`, else the Clerk
+   * organisation's name, else the org id. A row whose name still equals its
+   * org id is looked up again and renamed once Clerk has a name.
    */
   const forOrg = async ({
     clerkOrgId,
@@ -101,22 +131,31 @@ export const createWorkspacesService = ({
     if (!allowedOrgIds.includes(clerkOrgId)) {
       return null;
     }
-    // Two concurrent first calls both insert; the unique clerk_org_id keeps one.
-    await db
-      .insert(workspaces)
-      .values({
-        clerkOrgId,
-        createdAt: new Date().toISOString(),
-        id: ulid(),
-        name: name ?? clerkOrgId,
-        timezone: "UTC",
-      })
-      .onConflictDoNothing();
-    const [row] = await db
-      .select(WORKSPACE_COLUMNS)
-      .from(workspaces)
-      .where(eq(workspaces.clerkOrgId, clerkOrgId))
-      .limit(1);
+    let row = await selectRow(clerkOrgId);
+    if (row && row.name !== clerkOrgId) {
+      return row;
+    }
+    const resolved = name ?? (await lookupName(clerkOrgId));
+    if (!row) {
+      // Two concurrent first calls both insert; the unique clerk_org_id keeps one.
+      await db
+        .insert(workspaces)
+        .values({
+          clerkOrgId,
+          createdAt: new Date().toISOString(),
+          id: ulid(),
+          name: resolved ?? clerkOrgId,
+          timezone: "UTC",
+        })
+        .onConflictDoNothing();
+      row = await selectRow(clerkOrgId);
+    } else if (resolved && resolved !== row.name) {
+      await db
+        .update(workspaces)
+        .set({ name: resolved })
+        .where(eq(workspaces.clerkOrgId, clerkOrgId));
+      row = await selectRow(clerkOrgId);
+    }
     if (!row) {
       throw new Error(`Workspace for ${clerkOrgId} is missing after insert.`);
     }
