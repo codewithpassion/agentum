@@ -87,8 +87,9 @@ export function ArtifactFrame({
   // lost its port never handshakes again.
   const takesMessages = onMessage !== undefined;
   const frameKey = `${contentUrl}:${reloadKey}:${viewer}:${shareToken ?? ""}:${takesMessages}`;
-  // A fresh nonce for every iframe load this component starts, so only the
-  // page it loaded can open the bridge.
+  // A fresh nonce for every iframe this component mounts. It travels in the
+  // iframe's name, so every page loaded in the frame has it: the gate keeps
+  // out pages that never read it, like one that cleared `window.name`.
   const [issued, setIssued] = useState(() => ({
     key: frameKey,
     nonce: newNonce(),

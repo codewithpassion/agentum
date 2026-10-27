@@ -118,8 +118,8 @@ const bridgeSrcFor = (path: string): string =>
 /**
  * Puts the bridge script before the first element of the page, whatever the
  * page looks like. The bridge must run before any script the artifact wrote:
- * its one-time nonce sits in the URL fragment until the bridge has used it,
- * and a page script that ran first could carry it to another page. A script
+ * it reads the nonce from `window.name`, and a page script that ran first could
+ * change it, which blanks the frame. A script
  * before `<html>` or `<head>` lands in the implicit head, so this is valid
  * for pages with no `<head>`, or with scripts ahead of it.
  */

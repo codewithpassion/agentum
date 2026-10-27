@@ -128,7 +128,8 @@ export const BRIDGE_JS = `(function () {
   // only from a page that sends it back. window.name survives every
   // navigation in the same tab, so the next page of the artifact has it too. It
   // is defence in depth, not a secret: this page's own scripts can read it.
-  // The grants are what limit a page.
+  // The grants are what limit a page. A page that
+  // assigns window.name itself loses the nonce, and the frame blanks.
   function readNonce() {
     try {
       var name = window.name;

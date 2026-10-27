@@ -91,7 +91,7 @@ export interface FrameBridgeOptions {
   /** The iframe's `contentWindow`, read on every message. */
   getTarget: () => (BridgeTarget & object) | null;
   graceMs?: number;
-  /** The value the iframe URL fragment carries, fixed for the bridge's life. */
+  /** The value the iframe's `name` carries, fixed for the bridge's life. */
   nonce: string;
   /** Clock in ms, for the repeat window. Defaults to `Date.now`. */
   now?: () => number;
@@ -334,8 +334,8 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
         return;
       }
       // Any page in the iframe can send this message, since every sandboxed
-      // document shares the opaque origin. Only the page that got the nonce
-      // from the frame's URL fragment may take the port.
+      // document shares the opaque origin. Only a page that sends the nonce
+      // the frame put in the iframe's name may take the port.
       if (message.params.nonce !== nonce) {
         return;
       }

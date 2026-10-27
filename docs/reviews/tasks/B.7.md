@@ -6,7 +6,7 @@ Round 1 (f545aebd): must-fix. The nonce was valid for the iframe's life and sat 
 Round 2 (5fe19be2, fix commit only): must-fix. A page with no `<head>`, or a script before it, ran before `bridge.js`.
 Round 3 (a523671d, fix commit only): must-fix. UTF-16 HTML and a non-page `entry` (.svg, .xml) were served without the bridge, and the ETag was stale.
 Round 4 (4f17c776, controller decisions only): must-fix, one item. The click listener that carried the nonce through links ran in the capture phase, so its `defaultPrevented` check never saw what the page did. Fixed in a83ff5cd, then the controller moved the nonce from the URL fragment to `window.name`, which removed the click rewriting altogether.
-Round 5: see the end of this file.
+Round 5 (f50df21e, nonce in `window.name`): clean. The reviewer checked in Chrome 143 and Firefox 156 that a sandboxed, opaque-origin iframe keeps the `name` attribute as `window.name` through same-origin, cross-origin and form navigations. Its nits are in the list below.
 
 ## What was built
 
@@ -31,6 +31,11 @@ Link viewers: `tools/call` through the share route, storage reads of the shared 
 - `artifact-frame.tsx` gives a bare "Method not found" when no handlers can be built (unparseable member URL, link without a share token).
 - `content-ref.ts` reads the version id from the unverified token claims. Adding the version id to the `artifacts.open` output would drop that coupling.
 - Round 4's other nits (carry tests for `target="_self"`, BOM refusal tested on create only) stand.
+
+- A page that assigns `window.name` itself loses the nonce on its next page and the frame blanks (Reload recovers). Older libraries that use `window.name` for state will hit this.
+- Changing the `name` of a live iframe is unreliable in Chrome. Not needed: a new nonce always comes with a new iframe key.
+- The gate now means close to the existing `event.source` check: every document loaded in the frame has the name. It keeps out pages that never read it.
+- The task file still describes the `src` fragment (controller's file).
 
 ## Beyond scope
 
