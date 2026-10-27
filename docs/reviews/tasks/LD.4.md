@@ -174,3 +174,16 @@ Persist actual Yjs state, never HTML. Bind own-blob membership deterministically
 throughout each synchronous admission. Static/live refusal guidance, creation
 lifecycle cleanup, runtime approvals and real service/room round trips remain
 controller integration gates. Core APIs were sufficient; no core edit was needed.
+
+## Independent review — merged main 335ca888
+
+Verdict: **accepted for the bounded LD.4 tool and adapter leaf; no severity-rated findings**. Reviewed implementation `77158e47` and handoff `fe990bc0` against CLAUDE.md, LD.4, PRD §7 and R2.4/R2.5, and the accepted LD.0/LD.2 contracts. This is not production or phase 2 acceptance.
+
+The strict MCP schemas, registration filtering and dry-run path, mandatory authorization callbacks, real Deck and rich-text codec, capability scoping and consumption, original-update shadow synchronization, per-element and per-key merging, structural and theme guards, atomic staged admission, ownership checks, validation error translation and isolated creation checkpoint were inspected. The implementation depends on a retained room adapter and synchronized authoritative Deck; capabilities are scoped to that adapter instance and invalidated on reset or destruction. Authorization policy is supplied by the host and must be checked on every call.
+
+Checks independently run on merged main after `bun install --frozen-lockfile --ignore-scripts`:
+
+- `bun run --cwd packages/mcp test src/tools/deck.test.ts`: **16 passed, 79 assertions** against actual MCP transport, adapter, core and codec. The initial attempt failed because dependencies were absent; the frozen install resolved it.
+- A temporary independent Bun probe made a remote replica change and revert a theme token and slide notes, admitted its aggregated original Yjs update, then submitted an old theme/delete proposal. The changed theme token and deletion were skipped, an independently changed theme token applied, and replay of the consumed revision failed: **1 passed, 3 assertions**. Probe removed after execution. This exercises one adversarial history, not all possible Yjs interleavings.
+
+Mandatory integration gates remain: real authenticated service and room policy for workspace, artifact kind, run and guest scope on every call; serialized validated room admission, ownership, presence, attribution, persistence and broadcast; runtime MCP registration and approval resolver wiring; creation allocation and persistence; and real room/service round trips. Callback tests and in-memory Yjs admission do not establish those gates or production authorization/persistence. No mock-success port is accepted as evidence for them.
