@@ -67,25 +67,7 @@
   padding-block: 12px;
   border-bottom: 1px solid var(--border);
 }
-.live-panel-toggle {
-  display: none;
-}
-@media (max-width: 640px) {
-  .live-panel-toggle {
-    display: block;
-  }
-  .live-collaboration-panel {
-    display: none;
-  }
-  .live-collaboration-panel.is-open {
-    position: fixed;
-    inset: 12dvh 0 0;
-    z-index: 50;
-    display: block;
-    padding: 16px;
-    overflow-y: auto;
-    background: var(--background);
-    border-radius: 12px 12px 0 0;
-    box-shadow: 0 -4px 20px #0003;
-  }
+.live-collaboration-sheet button {
+  min-width: 40px;
+  min-height: 40px;
 }

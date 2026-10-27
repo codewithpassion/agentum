@@ -48,3 +48,8 @@ export type MailToolRule = RouterOutputs["requests"]["rules"]["list"][number];
 export type QaQuestionRecord = RouterOutputs["qa"]["list"]["questions"][number];
 export type QaQuestionView = RouterOutputs["qa"]["get"];
 export type QaAnswerRecord = QaQuestionView["answers"][number];
+
+/** Factory contract before the production root mounts liveArtifacts. */
+export type LiveArtifactsRouter = ReturnType<
+  typeof import("#/server/trpc/live-artifacts-router").createLiveArtifactsRouter
+>;

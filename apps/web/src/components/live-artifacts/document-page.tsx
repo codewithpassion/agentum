@@ -1,6 +1,13 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Selection handlers capture their panel intent. */
 import type { Editor } from "@tiptap/core";
-import { Component, type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  Component,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { CollaborationPanel, type PanelIntent } from "./collaboration-panel";
 import { DocumentEditor } from "./document-editor";
 import { documentServices } from "./document-services";
@@ -30,6 +37,8 @@ class EditorBoundary extends Component<
     );
   }
 }
+const RETRYABLE_CONNECTION =
+  /^(Room disconnected|Could not connect|Room synchronization|Room renewal)/;
 export function LiveDocumentPage({
   artifactId,
   title,
@@ -37,6 +46,7 @@ export function LiveDocumentPage({
   artifactId: string;
   title: string;
 }) {
+  const retries = useRef(0);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [ready, setReady] = useState<TicketedRoom>();
@@ -49,18 +59,28 @@ export function LiveDocumentPage({
     setReady(undefined);
     setError(undefined);
     setIntent(undefined);
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const room = new TicketedRoom({
       failed: (message) => {
         setReady(undefined);
         setError(message);
+        if (RETRYABLE_CONNECTION.test(message) && retries.current < 5) {
+          const delay = Math.min(30_000, 1000 * 2 ** retries.current);
+          retries.current += 1;
+          retryTimer = setTimeout(() => setAttempt((old) => old + 1), delay);
+        }
       },
       join: () => liveApi.join.mutate({ artifactId }),
       policy: services.policy,
-      ready: setReady,
+      ready: (connected) => {
+        retries.current = 0;
+        setReady(connected);
+      },
       roleChanged: setRole,
     });
     room.connect();
     return () => {
+      clearTimeout(retryTimer);
       room.dispose();
       setTimeout(() => room.document.destroy(), 0);
     };

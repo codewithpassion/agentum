@@ -3,6 +3,7 @@ import {
   awarenessEntrySchema,
   type LiveJoinResult,
   liveRoleSchema,
+  type RelativePositionJSON,
   relativePositionSchema,
 } from "@repo/protocol/live";
 import {
@@ -14,14 +15,11 @@ import {
 import {
   createEncoder,
   toUint8Array,
+  writeVarString,
   writeVarUint,
   writeVarUint8Array,
 } from "lib0/encoding";
-import {
-  Awareness,
-  applyAwarenessUpdate,
-  encodeAwarenessUpdate,
-} from "y-protocols/awareness";
+import { Awareness, applyAwarenessUpdate } from "y-protocols/awareness";
 import { applyUpdate, Doc, encodeStateAsUpdate, encodeStateVector } from "yjs";
 import { z } from "zod";
 import type {
@@ -31,6 +29,42 @@ import type {
   TrustedParticipant,
 } from "./editor-ports";
 
+// y-tiptap publishes RelativePosition instances whose unused keys are null.
+// The room contract deliberately accepts canonical JSON with unused keys omitted.
+const positionId = z.object({
+  client: z.int().nonnegative(),
+  clock: z.int().nonnegative(),
+});
+const editorRelativeSchema = z
+  .object({
+    assoc: z.int().optional(),
+    item: positionId.nullable().optional(),
+    tname: z.string().nullable().optional(),
+    type: positionId.nullable().optional(),
+  })
+  .transform(
+    ({ assoc, item, tname, type }): RelativePositionJSON => ({
+      assoc,
+      item: item ?? undefined,
+      tname: tname ?? undefined,
+      type: type ?? undefined,
+    })
+  )
+  .pipe(relativePositionSchema);
+const roomCursorSchema = z.object({
+  anchor: editorRelativeSchema,
+  head: editorRelativeSchema,
+});
+const serverPresenceSchema = z
+  .object({
+    user: z.object({
+      color: z.string(),
+      id: z.string(),
+      kind: z.enum(["member", "guest", "agent"]),
+      name: z.string(),
+    }),
+  })
+  .passthrough();
 const controlSchema = z.discriminatedUnion("type", [
   z.object({
     awarenessId: z.int().nonnegative(),
@@ -119,12 +153,7 @@ export class TicketedRoom {
           this.lifecycle.assigned &&
           [...added, ...updated, ...removed].includes(this.awareness.clientID)
         ) {
-          this.send(
-            frame(
-              1,
-              encodeAwarenessUpdate(this.awareness, [this.awareness.clientID])
-            )
-          );
+          this.send(this.localPresenceFrame());
         }
       }
     );
@@ -170,6 +199,19 @@ export class TicketedRoom {
       this.fail(error);
     }
   }
+  private localPresenceFrame() {
+    const encoder = createEncoder();
+    writeVarUint(encoder, 1);
+    writeVarUint(encoder, this.awareness.clientID);
+    writeVarUint(encoder, 0); // The room owns lifecycle clocks.
+    const state = this.awareness.getLocalState();
+    const cursor = roomCursorSchema.safeParse(state?.cursor);
+    const value = cursor.success ? { cursor: cursor.data } : {};
+    // Tiptap sends cursor:null on blur. The room accepts an omitted cursor, not
+    // null; never forward editor-only user data or unknown presence fields.
+    writeVarString(encoder, JSON.stringify(state === null ? null : value));
+    return frame(1, toUint8Array(encoder));
+  }
   private send(bytes: Uint8Array | string) {
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.send(bytes);
@@ -207,6 +249,9 @@ export class TicketedRoom {
       case "error":
         throw new Error(control.message);
       case "role":
+        if (control.role === this.role) {
+          return;
+        }
         this.role = control.role;
         this.options.roleChanged(this.role);
         // Drop all local optimistic state on authorization changes.
@@ -231,7 +276,7 @@ export class TicketedRoom {
             name: joined.participant.name,
           },
         ];
-        this.awareness.setLocalState({ ...joined.participant });
+        this.awareness.setLocalState({ user: { ...joined.participant } });
         this.scheduleRenewal(control.expiresAt);
         this.send(frame(0, encodeStateVector(this.document), 0));
         const query = createEncoder();
@@ -293,7 +338,8 @@ export class TicketedRoom {
         roster.delete(clientId);
       } else {
         // Only authenticated server frames feed the identity roster; raw local user fields never do.
-        const entry = awarenessEntrySchema.parse(raw);
+        const { user, ...fields } = serverPresenceSchema.parse(raw);
+        const entry = awarenessEntrySchema.parse({ ...fields, ...user });
         if (clientId === this.awareness.clientID) {
           for (const waiter of this.selectionWaiters) {
             if (JSON.stringify(entry.cursor) === waiter.key) {

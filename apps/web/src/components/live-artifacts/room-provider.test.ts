@@ -1,8 +1,13 @@
 /** biome-ignore-all lint/suspicious/useAwait: Test transport callbacks model async network ports. */
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import type { LiveJoinResult } from "@repo/protocol/live";
+import { awarenessEntrySchema, type LiveJoinResult } from "@repo/protocol/live";
 import { Window } from "happy-dom";
-import { createDecoder, readVarUint, readVarUint8Array } from "lib0/decoding";
+import {
+  createDecoder,
+  readVarString,
+  readVarUint,
+  readVarUint8Array,
+} from "lib0/decoding";
 import {
   createEncoder,
   toUint8Array,
@@ -91,7 +96,23 @@ const presence = (id: number, entry: unknown) => {
   writeVarUint(payload, 1);
   writeVarUint(payload, id);
   writeVarUint(payload, 1);
-  writeVarString(payload, JSON.stringify(entry));
+  const parsed = entry === null ? null : awarenessEntrySchema.parse(entry);
+  const wire = parsed
+    ? {
+        cursor: parsed.cursor,
+        pointer: parsed.pointer,
+        selection: parsed.selection,
+        slideId: parsed.slideId,
+        status: parsed.status,
+        user: {
+          color: parsed.color,
+          id: parsed.id,
+          kind: parsed.kind,
+          name: parsed.name,
+        },
+      }
+    : null;
+  writeVarString(payload, JSON.stringify(wire));
   writeVarUint(encoder, 1);
   writeVarUint8Array(encoder, toUint8Array(payload));
   return toUint8Array(encoder);
@@ -257,4 +278,111 @@ test("ticket cannot be sent to a foreign room origin", async () => {
   await room.connect();
   expect(failures).toEqual(["Untrusted room URL"]);
   expect(TestSocket.sockets).toHaveLength(0);
+});
+
+test("renews with a newly issued ticket before expiry and accepts the renewal acknowledgement", async () => {
+  let joins = 0;
+  const failures: string[] = [];
+  const room = new TicketedRoom({
+    failed: (message) => failures.push(message),
+    join: async () => {
+      joins += 1;
+      return { ...joined, ticket: `ticket-${joins}` };
+    },
+    policy: async () => new Set(),
+    ready: () => {
+      /* No content required for renewal control. */
+    },
+    roleChanged: () => {
+      /* No role change expected. */
+    },
+  });
+  rooms.push(room);
+  const socket = await session(room, Date.now() + 60_100);
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  expect(joins).toBe(2);
+  expect(socket.sent.filter((item) => typeof item === "string")).toContain(
+    JSON.stringify({ ticket: "ticket-2", type: "renew" })
+  );
+  socket.receive(
+    JSON.stringify({ expiresAt: Date.now() + 900_000, type: "renewed" })
+  );
+  await settle();
+  expect(failures).toEqual([]);
+});
+test("authoritative policy refresh precedes every remote update, including removal", async () => {
+  let urls = new Set(["/files/old.png"]);
+  const { room } = setup(async () => urls);
+  const socket = await session(room);
+  const server = new Doc();
+  socket.receive(sync(server));
+  await settle();
+  expect(room.policy.ownBlobUrls.has("/files/old.png")).toBe(true);
+  urls = new Set(["/files/new.png"]);
+  let observed = false;
+  room.document.on("update", () => {
+    observed =
+      room.policy.ownBlobUrls.has("/files/new.png") &&
+      !room.policy.ownBlobUrls.has("/files/old.png");
+  });
+  server.getText("test").insert(0, "remote image update");
+  socket.receive(sync(server, 2));
+  await settle();
+  expect(observed).toBe(true);
+  server.destroy();
+});
+
+test("Tiptap blur cursor and user fields are translated to the room's bounded presence protocol", async () => {
+  const { room } = setup();
+  const socket = await session(room);
+  room.awareness.setLocalState({
+    cursor: null,
+    status: "FORGED STATUS",
+    user: { id: "forged", name: "FORGED" },
+  });
+  const outgoing = socket.sent.at(-1);
+  if (!(outgoing instanceof Uint8Array)) {
+    throw new Error("Missing presence frame");
+  }
+  const frame = createDecoder(outgoing);
+  expect(readVarUint(frame)).toBe(1);
+  const payload = createDecoder(readVarUint8Array(frame));
+  expect(readVarUint(payload)).toBe(1);
+  expect(readVarUint(payload)).toBe(42);
+  readVarUint(payload);
+  expect(JSON.parse(readVarString(payload))).toEqual({});
+});
+
+test("Yjs relative-position instances normalize null fields before publishing", async () => {
+  const { room } = setup();
+  const socket = await session(room);
+  room.awareness.setLocalStateField("cursor", {
+    anchor: {
+      assoc: 0,
+      item: { client: 12, clock: 2 },
+      tname: null,
+      type: { client: 12, clock: 1 },
+    },
+    head: { assoc: 0, item: null, tname: null, type: { client: 12, clock: 1 } },
+  });
+  const outgoing = socket.sent.at(-1);
+  if (!(outgoing instanceof Uint8Array)) {
+    throw new Error("Missing canonical presence frame");
+  }
+  const outer = createDecoder(outgoing);
+  readVarUint(outer);
+  const decoder = createDecoder(readVarUint8Array(outer));
+  readVarUint(decoder);
+  readVarUint(decoder);
+  readVarUint(decoder);
+  expect(JSON.parse(readVarString(decoder))).toEqual({
+    cursor: {
+      anchor: {
+        assoc: 0,
+        item: { client: 12, clock: 2 },
+        type: { client: 12, clock: 1 },
+      },
+      head: { assoc: 0, type: { client: 12, clock: 1 } },
+    },
+  });
 });

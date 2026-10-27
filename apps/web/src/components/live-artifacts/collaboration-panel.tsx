@@ -2,11 +2,25 @@
 
 import type { LiveCommentThread } from "@repo/protocol/live";
 import type { Editor } from "@tiptap/core";
-import { useCallback, useEffect, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   createAbsolutePositionFromRelativePosition,
   createRelativePositionFromJSON,
 } from "yjs";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "#/components/ui/sheet";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
 import { AgentComposer, AgentTranscript } from "./agent-thread";
@@ -47,13 +61,22 @@ export function CollaborationPanel({
   const [mobileOpen, setMobileOpen] = useState(false);
   const canComment = room.role !== "viewer";
   const canEdit = room.role === "owner" || room.role === "editor";
+  const pageCounts = useRef({ changes: 1, threads: 1 });
   const refresh = useCallback(async () => {
     try {
       const [nextSession, nextThreads, nextChanges, nextAgents] =
         await Promise.all([
           liveApi.session.query({ artifactId }),
-          liveApi.threads.query({ artifactId, limit: 100 }),
-          liveApi.changes.query({ artifactId, limit: 100 }),
+          loadPages(
+            (cursor) =>
+              liveApi.threads.query({ artifactId, cursor, limit: 100 }),
+            pageCounts.current.threads
+          ),
+          loadPages(
+            (cursor) =>
+              liveApi.changes.query({ artifactId, cursor, limit: 100 }),
+            pageCounts.current.changes
+          ),
           getTrpc().agents.list.query({}),
         ]);
       setSession(nextSession);
@@ -95,216 +118,252 @@ export function CollaborationPanel({
       setBusy(false);
     }
   };
+  const selectionBeforeSend = () =>
+    selection ? room.confirmSelection(selection) : Promise.resolve();
   const agentName =
     agents.find((agent) => agent.id === session?.agentId)?.name ?? "Agent";
   return (
-    <>
-      <button
-        className="live-panel-toggle"
-        onClick={() => setMobileOpen(true)}
-        type="button"
-      >
-        Agent, comments and changes
-      </button>
-      <aside
-        aria-label="Artifact collaboration"
-        className={`live-collaboration-panel ${mobileOpen ? "is-open" : ""}`}
-      >
-        <button
-          className="live-panel-toggle"
-          onClick={() => setMobileOpen(false)}
-          type="button"
-        >
-          Close panel
-        </button>
-        <nav aria-label="Collaboration panels">
-          {(["agent", "comments", "changes"] as const).map((name) => (
-            <ToolButton
-              aria-pressed={tab === name}
-              key={name}
-              onClick={() => setTab(name)}
-            >
+    <PanelFrame onOpenChange={setMobileOpen} open={mobileOpen}>
+      <nav aria-label="Collaboration panels">
+        {(["agent", "comments", "changes"] as const).map((name) => (
+          <ToolButton
+            aria-pressed={tab === name}
+            key={name}
+            onClick={() => setTab(name)}
+          >
+            {
               {
-                {
-                  agent: "Agent thread",
-                  changes: "Agent changes",
-                  comments: "Comments",
-                }[name]
-              }
-            </ToolButton>
-          ))}
-        </nav>
-        {!loaded && <p role="status">Loading collaboration…</p>}
-        {Boolean(error) && (
-          <p role="alert">
-            {error}
-            <ToolButton onClick={refresh}>Retry</ToolButton>
-          </p>
-        )}
-        {tab === "agent" && (
-          <>
-            <label>
-              Agent
-              <select
-                aria-label="Select agent"
-                disabled={!canComment || busy}
-                onChange={(event) =>
-                  run(() =>
-                    liveApi.selectAgent.mutate({
-                      agentId: event.target.value,
-                      artifactId,
-                    })
-                  )
-                }
-                value={session?.agentId ?? ""}
-              >
-                <option disabled value="">
-                  Select an agent
-                </option>
-                {agents
-                  .filter((agent) => agent.status === "active")
-                  .map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            {session ? (
-              <AgentTranscript
-                agentName={agentName}
-                key={session.id}
-                sessionId={session.id}
-              />
-            ) : (
-              <p>Select an agent to open this artifact’s shared thread.</p>
-            )}
-            <AgentComposer
-              artifactId={artifactId}
-              beforeSend={
-                intent?.kind === "ask" && selection
-                  ? () => room.confirmSelection(selection)
-                  : undefined
-              }
-              canAsk={canComment && Boolean(session)}
-              onSent={refresh}
-              selection={intent?.kind === "ask" ? selection?.text : undefined}
-            />
-            {selection !== undefined && (
-              <ToolButton onClick={() => setSelection(undefined)}>
-                Clear selection
-              </ToolButton>
-            )}
-          </>
-        )}
-        {tab === "comments" && (
-          <>
-            {canComment && (
-              <CommentForm
-                artifactId={artifactId}
-                onSaved={refresh}
-                selection={selection}
-              />
-            )}
-            {threads.items.map((thread) => (
-              <CommentThread
-                artifactId={artifactId}
-                canComment={canComment}
-                editor={editor}
-                key={thread.id}
-                onSaved={refresh}
-                room={room}
-                thread={thread}
-              />
-            ))}
-            {Boolean(threads.next) && (
-              <ToolButton
-                onClick={() =>
-                  run(async () => {
-                    const page = await liveApi.threads.query({
-                      artifactId,
-                      cursor: threads.next,
-                      limit: 100,
-                    });
-                    setThreads({
-                      ...page,
-                      items: [...threads.items, ...page.items],
-                    });
+                agent: "Agent thread",
+                changes: "Agent changes",
+                comments: "Comments",
+              }[name]
+            }
+          </ToolButton>
+        ))}
+      </nav>
+      {!loaded && <p role="status">Loading collaboration…</p>}
+      {Boolean(error) && (
+        <p role="alert">
+          {error}
+          <ToolButton onClick={refresh}>Retry</ToolButton>
+        </p>
+      )}
+      {tab === "agent" && (
+        <>
+          <label>
+            Agent
+            <select
+              aria-label="Select agent"
+              disabled={!canComment || busy}
+              onChange={(event) =>
+                run(() =>
+                  liveApi.selectAgent.mutate({
+                    agentId: event.target.value,
+                    artifactId,
                   })
-                }
-              >
-                More comments
-              </ToolButton>
-            )}
-          </>
-        )}
-        {revertId !== undefined && (
-          <section aria-label="Confirm revert" role="alertdialog">
-            <p>Revert this agent change, preserving later human edits?</p>
+                )
+              }
+              value={session?.agentId ?? ""}
+            >
+              <option disabled value="">
+                Select an agent
+              </option>
+              {agents
+                .filter((agent) => agent.status === "active")
+                .map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {session ? (
+            <AgentTranscript
+              agentName={agentName}
+              key={session.id}
+              sessionId={session.id}
+            />
+          ) : (
+            <p>Select an agent to open this artifact’s shared thread.</p>
+          )}
+          <AgentComposer
+            artifactId={artifactId}
+            beforeSend={
+              intent?.kind === "ask" ? selectionBeforeSend : undefined
+            }
+            canAsk={canComment && Boolean(session)}
+            onSent={refresh}
+            selection={intent?.kind === "ask" ? selection?.text : undefined}
+          />
+          {selection !== undefined && (
+            <ToolButton onClick={() => setSelection(undefined)}>
+              Clear selection
+            </ToolButton>
+          )}
+        </>
+      )}
+      {tab === "comments" && (
+        <>
+          {canComment && (
+            <CommentForm
+              artifactId={artifactId}
+              key={intent?.nonce}
+              onSaved={refresh}
+              selection={selection}
+            />
+          )}
+          {threads.items.map((thread) => (
+            <CommentThread
+              artifactId={artifactId}
+              canComment={canComment}
+              editor={editor}
+              key={thread.id}
+              onSaved={refresh}
+              room={room}
+              thread={thread}
+            />
+          ))}
+          {Boolean(threads.next) && (
             <ToolButton
-              disabled={busy}
               onClick={() =>
                 run(async () => {
-                  await liveApi.revertChange.mutate({ changeId: revertId });
-                  setRevertId(undefined);
+                  pageCounts.current.threads += 1;
+                  await refresh();
                 })
               }
             >
-              Confirm revert
+              More comments
             </ToolButton>
-            <ToolButton onClick={() => setRevertId(undefined)}>
-              Cancel revert
-            </ToolButton>
-          </section>
-        )}
-        {tab === "changes" && (
-          <ul>
-            {changes.items.map((change) => (
-              <li key={change.id}>
-                <p>{change.summary}</p>
-                <time>{change.createdAt}</time>{" "}
-                <a href={`/tasks/${encodeURIComponent(change.runId)}`}>Run</a>
-                {change.revertedAt ? (
-                  <p>Reverted by {change.revertedBy}</p>
-                ) : (
-                  canEdit && (
-                    <ToolButton
-                      disabled={busy}
-                      onClick={() => {
-                        setRevertId(change.id);
-                      }}
-                    >
-                      Revert
-                    </ToolButton>
-                  )
-                )}
-              </li>
-            ))}
-            {Boolean(changes.next) && (
-              <li>
-                <ToolButton
-                  onClick={() =>
-                    run(async () => {
-                      const page = await liveApi.changes.query({
-                        artifactId,
-                        cursor: changes.next,
-                        limit: 100,
-                      });
-                      setChanges({
-                        ...page,
-                        items: [...changes.items, ...page.items],
-                      });
-                    })
-                  }
-                >
-                  More changes
-                </ToolButton>
-              </li>
-            )}
-          </ul>
-        )}
+          )}
+        </>
+      )}
+      {revertId !== undefined && (
+        <section aria-label="Confirm revert" role="alertdialog">
+          <p>Revert this agent change, preserving later human edits?</p>
+          <ToolButton
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                await liveApi.revertChange.mutate({ changeId: revertId });
+                setRevertId(undefined);
+              })
+            }
+          >
+            Confirm revert
+          </ToolButton>
+          <ToolButton onClick={() => setRevertId(undefined)}>
+            Cancel revert
+          </ToolButton>
+        </section>
+      )}
+      {tab === "changes" && (
+        <ul>
+          {changes.items.map((change) => (
+            <li key={change.id}>
+              <p>{change.summary}</p>
+              <time>{change.createdAt}</time>{" "}
+              <a href={`/tasks/${encodeURIComponent(change.runId)}`}>Run</a>
+              {change.revertedAt ? (
+                <p>Reverted by {change.revertedBy}</p>
+              ) : (
+                canEdit && (
+                  <ToolButton
+                    disabled={busy}
+                    onClick={() => {
+                      setRevertId(change.id);
+                    }}
+                  >
+                    Revert
+                  </ToolButton>
+                )
+              )}
+            </li>
+          ))}
+          {Boolean(changes.next) && (
+            <li>
+              <ToolButton
+                onClick={() =>
+                  run(async () => {
+                    pageCounts.current.changes += 1;
+                    await refresh();
+                  })
+                }
+              >
+                More changes
+              </ToolButton>
+            </li>
+          )}
+        </ul>
+      )}
+    </PanelFrame>
+  );
+}
+
+async function loadPages<T>(
+  load: (cursor?: string) => Promise<{ items: T[]; next?: string }>,
+  count: number
+) {
+  const items: T[] = [];
+  let next: string | undefined;
+  for (let index = 0; index < count; index += 1) {
+    // biome-ignore lint/performance/noAwaitInLoops: Each page requires the preceding cursor.
+    const page = await load(next);
+    items.push(...page.items);
+    ({ next } = page);
+    if (!next) {
+      break;
+    }
+  }
+  return { items, next };
+}
+
+function PanelFrame({
+  open,
+  onOpenChange,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 640px)");
+    const update = () => setMobile(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  if (!mobile) {
+    return (
+      <aside
+        aria-label="Artifact collaboration"
+        className="live-collaboration-panel"
+      >
+        {children}
       </aside>
-    </>
+    );
+  }
+  return (
+    <Sheet onOpenChange={onOpenChange} open={open}>
+      <SheetTrigger asChild>
+        <button className="min-h-10 p-2" type="button">
+          Agent, comments and changes
+        </button>
+      </SheetTrigger>
+      <SheetContent
+        className="live-collaboration-sheet max-h-[88dvh] overflow-y-auto"
+        side="bottom"
+      >
+        <SheetHeader>
+          <SheetTitle>Artifact collaboration</SheetTitle>
+          <SheetDescription>
+            Shared agent thread, anchored comments and agent changes.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="live-collaboration-panel">{children}</div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -324,6 +383,7 @@ function CommentForm({
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const postLabel = threadId ? "Post reply" : "Post comment";
   const submit = async () => {
     if (busy || !body.trim()) {
       return;
@@ -381,6 +441,7 @@ function CommentForm({
         <label>
           <input
             checked={toAgent}
+            disabled={busy}
             onChange={(event) => {
               setToAgent(event.target.checked);
               setRequestId(crypto.randomUUID());
@@ -391,7 +452,7 @@ function CommentForm({
         </label>
       )}
       <ToolButton disabled={busy || !body.trim()} onClick={submit}>
-        {busy ? "Posting…" : "Post"}
+        {busy ? <span>Posting…</span> : <span>{postLabel}</span>}
       </ToolButton>
       {Boolean(error) && (
         <p role="alert">{error} Retry preserves the request ID.</p>
@@ -499,22 +560,30 @@ function CommentThread({
           </b>
           <time>{comment.createdAt}</time>
           <p>{comment.body}</p>
-          {thread.toAgent && !thread.answeredAt && canComment && (
-            <ToolButton
-              disabled={busy}
-              onClick={() =>
-                run(() =>
-                  liveApi.retryCommentAsk.mutate({
-                    artifactId,
-                    commentId: comment.id,
-                    threadId: thread.id,
-                  })
-                )
-              }
-            >
-              Retry agent delivery
-            </ToolButton>
-          )}
+          {thread.toAgent &&
+            !thread.answeredAt &&
+            canComment &&
+            comment.authorKind === "user" &&
+            comment.authorId ===
+              room.presence
+                .getSnapshot()
+                .find((person) => person.clientId === room.awareness.clientID)
+                ?.id && (
+              <ToolButton
+                disabled={busy}
+                onClick={() =>
+                  run(() =>
+                    liveApi.retryCommentAsk.mutate({
+                      artifactId,
+                      commentId: comment.id,
+                      threadId: thread.id,
+                    })
+                  )
+                }
+              >
+                Retry agent delivery
+              </ToolButton>
+            )}
         </div>
       ))}
       {canComment && !thread.resolvedAt && (

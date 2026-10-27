@@ -150,7 +150,7 @@ const ports = (index: 0 | 1): DocumentEditorPorts => ({
     subscribe: () => () => undefined,
     synced: true,
   },
-  role: "editor",
+  role: "owner",
   sidebar: <p>Injected sidebar slot</p>,
   uploadImage: async (file) => {
     const result = await fetch("/fixture/upload", {
@@ -172,7 +172,7 @@ if (!root) {
 const reactRoot = createRoot(root);
 const alicePorts = ports(0),
   bobPorts = ports(1);
-function render(role: EditorRole = "editor") {
+function render(role: EditorRole = "owner") {
   reactRoot.render(
     <main>
       <div data-replica="alice">
