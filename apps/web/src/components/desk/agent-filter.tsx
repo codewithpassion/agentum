@@ -40,7 +40,7 @@ export function AgentFilter({
   return (
     <fieldset
       aria-label="Filter by agent"
-      className="m-0 flex min-w-0 flex-wrap gap-1.5 border-0 p-0"
+      className="m-0 flex min-w-0 flex-wrap gap-1.5 pointer-coarse:gap-2 border-0 p-0"
     >
       <FilterChip
         id={null}

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { PostComposer } from "#/components/inbox/post-composer";
 import { PostList } from "#/components/inbox/post-list";
 import { usePolledQuery } from "#/components/inbox/use-polled-query";
@@ -23,6 +23,16 @@ export function ThreadPanel({
     null
   );
   const { refresh: refreshView } = view;
+  const end = useRef<HTMLDivElement>(null);
+  const loaded = view.data !== null;
+
+  // On a phone the thread opens at its latest post, by the composer. This
+  // runs once per thread, so a poll never moves the page.
+  useEffect(() => {
+    if (loaded && window.matchMedia("(max-width: 767px)").matches) {
+      end.current?.scrollIntoView({ block: "end" });
+    }
+  }, [loaded]);
 
   const handleSent = useCallback(() => {
     refreshView();
@@ -50,6 +60,7 @@ export function ThreadPanel({
         posts={view.data.posts}
         userId={userId}
       />
+      <div ref={end} />
       <PostComposer onSent={handleSent} threadId={threadId} />
     </section>
   );

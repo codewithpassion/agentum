@@ -1,6 +1,7 @@
 import type { KeyChip, ReceiptStep, ReceiptStepKind } from "@repo/db/shared";
 import { Fragment } from "react";
 import { bandClass } from "#/components/desk/desk-logic.ts";
+import { ExpandableText } from "#/components/expandable-text/expandable-text.tsx";
 import { RequestCard } from "#/components/requests/request-card.tsx";
 import type {
   AnswerPayload,
@@ -129,11 +130,12 @@ function ReceiptCard({
       <KeyChips chips={step.in} label="in" />
       <KeyChips chips={step.out} label="out" />
       {showBand ? (
-        <p
-          className={`line-clamp-3 whitespace-pre-wrap border-t px-3 py-1.5 text-xs ${bandClass(stepTone(step.state))}`}
+        <ExpandableText
+          className={`whitespace-pre-wrap border-t px-3 py-1.5 text-xs ${bandClass(stepTone(step.state))}`}
+          lines={3}
         >
           {step.detail}
-        </p>
+        </ExpandableText>
       ) : null}
       {request !== undefined && nowMs !== null ? (
         <div className="p-3">

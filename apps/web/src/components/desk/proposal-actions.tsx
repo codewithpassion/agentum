@@ -132,7 +132,7 @@ export function ProposalActions({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 pointer-coarse:gap-3">
         <Button
           disabled={pending || versionMissing}
           onClick={approve}
