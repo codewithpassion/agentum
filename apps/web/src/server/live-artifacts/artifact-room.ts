@@ -1,11 +1,22 @@
 // biome-ignore-all lint/performance/noNamespaceImport: lib0 and Yjs expose protocol primitives.
+
 import { DurableObject } from "cloudflare:workers";
+import { Deck } from "@repo/live-deck";
+import { richTextCodec } from "@repo/live-deck/rich-text";
 import {
   type CapturedChange,
   DocumentError,
   LiveDocument,
   type Operation,
 } from "@repo/live-doc";
+import type { DeckReadInput, DeckWriteInput } from "@repo/mcp/tools/deck";
+import { DeckSceneAdapter } from "@repo/mcp/tools/deck-scene";
+import {
+  PRESENTER_LEASE_MS,
+  type PresentationResult,
+  presentationControlSchema,
+  type TrustedPresentationPosition,
+} from "@repo/protocol/deck";
 import {
   type AwarenessEntry,
   awarenessEntrySchema,
@@ -41,11 +52,18 @@ interface Session extends RoomIdentity {
   expires: number;
   present: AwarenessEntry | null;
 }
+interface PresenterLease {
+  awarenessId: number;
+  expiresAt: number;
+  leaseId: string;
+  position: TrustedPresentationPosition;
+}
 interface Metadata {
   baseSequence: number;
   blockRevisions: Record<string, number>;
   dirtySince: number | null;
   generation: number;
+  kind?: "document" | "deck";
   nextAwarenessId: number;
   origins: LiveOperationOrigin[];
   ownBlobUrls: string[];
@@ -111,8 +129,22 @@ function presenceFrame(
 /** Native hibernation + Yjs sync protocol fallback. No stock handler can apply an unvalidated update. */
 export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   private readonly store: RoomStorage;
+  private readonly epoch = crypto.randomUUID();
   private meta!: Metadata;
   private live!: LiveDocument;
+  private deck?: Deck;
+  private deckTools?: DeckSceneAdapter;
+  private deckCall?: {
+    input: DeckWriteInput;
+    origin: LiveOperationOrigin;
+    before: number;
+  };
+  private get doc() {
+    return this.deck?.doc ?? this.live.doc;
+  }
+  private get maxBytes() {
+    return this.deck ? 16_000_000 : MAX_DOCUMENT_BYTES;
+  }
   private policy = new Set<string>();
   private initialization: Promise<void> | undefined;
   private tail: Promise<unknown> = Promise.resolve();
@@ -121,7 +153,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     super(ctx, env);
     this.store = new RoomStorage(ctx.storage);
   }
-  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+  private exclusive<T>(fn: () => T | Promise<T>): Promise<T> {
     const result = this.tail.then(async () => {
       await this.ensureInitialized();
       return fn();
@@ -151,22 +183,33 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       this.policy = new Set(
         await this.env.ARTIFACT_ROOM_SERVICE.ownBlobUrls(initial)
       );
-      if (initial.state.length > MAX_DOCUMENT_BYTES) {
+      if (
+        initial.state.length >
+        (initial.kind === "deck" ? 16_000_000 : MAX_DOCUMENT_BYTES)
+      ) {
         throw new Error("Document exceeds 8 MiB");
       }
       const doc = new Y.Doc({ gc: false });
-      Y.applyUpdate(doc, initial.state);
-      this.live = new LiveDocument(doc, {
-        ownBlobUrls: this.policy,
-        revision: initial.revision,
-      });
+      if (initial.kind === "deck") {
+        this.installDeck(doc);
+        this.requiredDeck().applyUpdate(initial.state);
+      } else {
+        Y.applyUpdate(doc, initial.state);
+        this.live = new LiveDocument(doc, {
+          ownBlobUrls: this.policy,
+          revision: initial.revision,
+        });
+      }
       this.meta = {
         baseSequence: 0,
-        blockRevisions: Object.fromEntries(
-          this.live.read().blocks.map((b) => [b.id, b.revision])
-        ),
+        blockRevisions: this.deck
+          ? {}
+          : Object.fromEntries(
+              this.live.read().blocks.map((b) => [b.id, b.revision])
+            ),
         dirtySince: null,
         generation: 1,
+        kind: initial.kind ?? "document",
         nextAwarenessId: 1,
         origins: [],
         ownBlobUrls: [...this.policy],
@@ -183,6 +226,9 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         this.store.write("snapshot", "1", initial.state);
         this.store.put("state", this.meta);
       });
+      if (this.deck) {
+        this.installDeckTools();
+      }
     }
   }
   private async refreshPolicy() {
@@ -190,7 +236,9 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       this.meta.scope
     );
     this.policy = new Set(urls);
-    this.live.options.ownBlobUrls = this.policy;
+    if (!this.deck) {
+      this.live.options.ownBlobUrls = this.policy;
+    }
   }
   private recover() {
     const doc = new Y.Doc({ gc: false });
@@ -201,17 +249,310 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     for (let i = this.meta.baseSequence + 1; i <= this.meta.sequence; i += 1) {
       Y.applyUpdate(doc, this.store.read("update", String(i)));
     }
+    this.deckTools?.destroy();
+    this.deck?.destroy();
+    this.deck?.doc.destroy();
     this.live?.destroy();
     this.live?.doc.destroy();
-    this.live = new LiveDocument(doc, {
-      ownBlobUrls: this.policy,
-      revision: this.meta.revision,
+    if (this.meta.kind === "deck") {
+      // Persisted bytes are validated independently before becoming authority.
+      const bytes = Y.encodeStateAsUpdate(doc);
+      doc.destroy();
+      this.installDeck(new Y.Doc({ gc: false }));
+      this.requiredDeck().applyUpdate(bytes);
+      this.installDeckTools();
+    } else {
+      this.live = new LiveDocument(doc, {
+        ownBlobUrls: this.policy,
+        revision: this.meta.revision,
+      });
+    }
+  }
+  private requiredDeck() {
+    if (!this.deck) {
+      throw new Error("Deck required");
+    }
+    return this.deck;
+  }
+  private installDeck(doc: Y.Doc) {
+    this.deck = new Deck(doc, richTextCodec, {
+      ownsBlob: (path) => this.policy.has(path),
     });
+  }
+  private installDeckTools() {
+    this.deckTools?.destroy();
+    this.deckTools = new DeckSceneAdapter({
+      artifactId: this.meta.scope.artifactId,
+      authority: this.requiredDeck(),
+      authorize: async () => {
+        await Promise.resolve();
+      }, // caller is checked inside exclusive deckRead/deckWrite below
+      commit: (update, result) =>
+        this.commitDeck(update, (revision) => {
+          const call = this.deckCall;
+          if (!call) {
+            throw new Error("Guarded tool context required");
+          }
+          this.store.put(`deckCall:${call.origin.changeId}`, {
+            input: JSON.stringify(call.input),
+            result,
+          });
+          this.meta.origins.push(call.origin);
+          this.store.put(`change:${call.origin.changeId}`, {
+            origin: call.origin,
+            revision,
+          });
+          this.store.put(`productionChange:${call.origin.changeId}`, {
+            revFrom: call.before,
+            summary: "Edit deck",
+          });
+        }),
+      ownsBlob: (path) => this.policy.has(path),
+      presence: () => this.currentPresence(),
+    });
+  }
+  /** Validate isolated candidate; atomic durable commit precedes authority/broadcast. */
+  private commitDeck(
+    update: Uint8Array,
+    persist?: (revision: number, full: Uint8Array) => void
+  ) {
+    const trial = new Deck(new Y.Doc({ gc: false }), richTextCodec, {
+      ownsBlob: (path) => this.policy.has(path),
+    });
+    let full: Uint8Array;
+    try {
+      trial.applyUpdate(Y.encodeStateAsUpdate(this.doc));
+      trial.applyUpdate(update);
+      full = Y.encodeStateAsUpdate(trial.doc);
+    } finally {
+      trial.destroy();
+      trial.doc.destroy();
+    }
+    const previous = structuredClone(this.meta);
+    try {
+      this.ctx.storage.transactionSync(() => {
+        this.meta.sequence += 1;
+        this.meta.revision += 1;
+        this.meta.dirtySince ??= Date.now();
+        this.meta.ownBlobUrls = [...this.policy];
+        this.meta.updateBytes += update.length;
+        this.store.write("update", String(this.meta.sequence), update);
+        persist?.(this.meta.revision, full);
+        if (
+          this.meta.sequence - this.meta.baseSequence >= COMPACT_UPDATES ||
+          this.meta.updateBytes >= COMPACT_BYTES
+        ) {
+          const old = this.meta.generation;
+          this.meta.generation += 1;
+          this.store.write("snapshot", String(this.meta.generation), full);
+          for (
+            let i = this.meta.baseSequence + 1;
+            i <= this.meta.sequence;
+            i += 1
+          ) {
+            this.store.remove("update", String(i));
+          }
+          this.store.remove("snapshot", String(old));
+          this.meta.baseSequence = this.meta.sequence;
+          this.meta.updateBytes = 0;
+        }
+        this.store.put("state", this.meta);
+      });
+    } catch (error) {
+      this.meta = previous;
+      throw error;
+    }
+    this.requiredDeck().applyUpdate(update);
+    this.broadcast(syncFrame(2, update));
+    const lease = this.store.get<PresenterLease>("presenter");
+    if (lease && !this.requiredDeck().ids().includes(lease.position.slideId)) {
+      this.clearPresentation();
+    }
+  }
+  deckRead(
+    input: DeckReadInput,
+    subject: Pick<RoomIdentity, "participantId" | "kind">
+  ) {
+    return this.exclusive(async () => {
+      await this.authorize(subject);
+      if (!this.deckTools || input.artifactId !== this.meta.scope.artifactId) {
+        throw new Error("Deck required");
+      }
+      return this.deckTools.read(input);
+    });
+  }
+  deckWrite(input: DeckWriteInput, origin: LiveOperationOrigin) {
+    return this.exclusive(async () => {
+      await this.writer({ kind: "agent", participantId: origin.participantId });
+      if (!this.deckTools || input.artifactId !== this.meta.scope.artifactId) {
+        throw new Error("Deck required");
+      }
+      const prior = this.store.get<{ input: string; result: unknown }>(
+        `deckCall:${origin.changeId}`
+      );
+      if (prior) {
+        if (prior.input !== JSON.stringify(input)) {
+          throw new Error("Tool call ID collision");
+        }
+        return prior.result as import("@repo/mcp/tools/deck").DeckWriteResult;
+      }
+      await this.refreshPolicy();
+      this.deckCall = { before: this.meta.revision, input, origin };
+      let result: import("@repo/mcp/tools/deck").DeckWriteResult;
+      try {
+        result = await this.deckTools.write(input);
+      } finally {
+        this.deckCall = undefined;
+      }
+      await this.schedule();
+      return result;
+    });
+  }
+  deckLocation(entry: AwarenessEntry | null | undefined) {
+    return this.exclusive(() => {
+      if (!(this.deck && entry?.slideId)) {
+        return;
+      }
+      const index = this.deck.ids().indexOf(entry.slideId);
+      if (index < 0) {
+        return;
+      }
+      const { slide } = this.deck.read(entry.slideId);
+      return {
+        elementIds: (entry.selection ?? []).filter((id) =>
+          slide.elements.some((e) => e.id === id)
+        ),
+        slideId: entry.slideId,
+        slideNumber: index + 1,
+      };
+    });
+  }
+  private validateDeckPresence(entry: AwarenessEntry) {
+    if (entry.cursor) {
+      throw new Error("Document cursor in deck");
+    }
+    if (!entry.slideId) {
+      if (entry.selection?.length || entry.pointer) {
+        throw new Error("Slide required");
+      }
+      return;
+    }
+    if (!this.requiredDeck().ids().includes(entry.slideId)) {
+      throw new Error("Unknown slide");
+    }
+    const { slide } = this.requiredDeck().read(entry.slideId);
+    if (
+      entry.selection?.some((id) => !slide.elements.some((e) => e.id === id)) ||
+      new Set(entry.selection).size !== (entry.selection?.length ?? 0)
+    ) {
+      throw new Error("Unknown selection");
+    }
+    if (
+      entry.pointer &&
+      (Math.abs(entry.pointer.x) > 100_000 ||
+        Math.abs(entry.pointer.y) > 100_000)
+    ) {
+      throw new Error("Pointer out of bounds");
+    }
+  }
+  private sendPresentation(socket?: WebSocket) {
+    if (!this.deck) {
+      return;
+    }
+    const lease = this.store.get<PresenterLease>("presenter");
+    const bytes = JSON.stringify({
+      position: lease && lease.expiresAt > Date.now() ? lease.position : null,
+      type: "presentation",
+    });
+    if (socket) {
+      socket.send(bytes);
+    } else {
+      for (const peer of this.ctx.getWebSockets()) {
+        if (session(peer).expires > Date.now()) {
+          peer.send(bytes);
+        }
+      }
+    }
+  }
+  private clearPresentation() {
+    this.store.put("presenter", null);
+    this.sendPresentation();
+  }
+  private releasePresenter(awarenessId: number) {
+    if (
+      this.store.get<PresenterLease>("presenter")?.awarenessId === awarenessId
+    ) {
+      this.clearPresentation();
+    }
+  }
+  private expirePresenter() {
+    const lease = this.store.get<PresenterLease>("presenter");
+    if (lease && lease.expiresAt <= Date.now()) {
+      this.clearPresentation();
+    }
+  }
+  private presentation(socket: WebSocket, state: Session, raw: unknown) {
+    const input = presentationControlSchema.parse(raw);
+    this.expirePresenter();
+    const old = this.store.get<PresenterLease>("presenter");
+    const result: PresentationResult = {
+      ok: false,
+      requestId: input.requestId,
+      type: "presentation-result",
+    };
+    if (!(this.deck && writable(state))) {
+      result.reason = "Editing role required";
+    } else if (input.action === "acquire" && old) {
+      result.reason = "Presenter already active";
+    } else if (
+      input.action !== "acquire" &&
+      (!old ||
+        old.awarenessId !== state.awarenessId ||
+        old.leaseId !== input.leaseId)
+    ) {
+      result.reason = "Lease is not owned by this connection";
+    } else if (
+      (input.action === "acquire" || input.action === "position") &&
+      !this.deck.ids().includes(input.slideId)
+    ) {
+      result.reason = "Unknown slide";
+    } else {
+      result.ok = true;
+      if (input.action === "release") {
+        this.clearPresentation();
+      } else {
+        const lease: PresenterLease = {
+          awarenessId: state.awarenessId,
+          expiresAt: Math.min(state.expires, Date.now() + PRESENTER_LEASE_MS),
+          leaseId: old?.leaseId ?? crypto.randomUUID(),
+          position:
+            input.action === "renew"
+              ? (this.store.get<PresenterLease>("presenter")?.position ?? {
+                  build: 0,
+                  presenterId: state.participantId,
+                  slideId: "",
+                })
+              : {
+                  build: input.build,
+                  presenterId: state.participantId,
+                  slideId: input.slideId,
+                },
+        };
+        this.store.put("presenter", lease);
+        result.leaseId = lease.leaseId;
+        result.expiresAt = lease.expiresAt;
+        this.sendPresentation();
+      }
+    }
+    socket.send(JSON.stringify(result));
+  }
+  authoritativeSnapshot() {
+    return this.exclusive(async () => this.snapshot());
   }
   private snapshot(): RoomSnapshot {
     return {
       revision: this.meta.revision,
-      state: Y.encodeStateAsUpdate(this.live.doc),
+      state: Y.encodeStateAsUpdate(this.doc),
     };
   }
   private broadcast(bytes: Uint8Array, except?: WebSocket) {
@@ -268,6 +609,10 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     const agent = this.store.get<AgentState>("agent");
     if (agent) {
       times.push(agent.expires);
+    }
+    const lease = this.store.get<PresenterLease>("presenter");
+    if (lease) {
+      times.push(lease.expiresAt);
     }
     if (
       this.meta.dirtySince !== null &&
@@ -379,11 +724,21 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         server.send(
           JSON.stringify({
             awarenessId: state.awarenessId,
+            epoch: this.epoch,
             expiresAt: state.expires,
+            kind: this.meta.kind ?? "document",
+            ownBlobUrls: [...this.policy],
+            participant: {
+              color: state.color,
+              id: state.participantId,
+              kind: state.kind,
+              name: state.name,
+            },
+            role: state.role,
             type: "session",
           })
         );
-        server.send(syncFrame(0, Y.encodeStateVector(this.live.doc)));
+        server.send(syncFrame(0, Y.encodeStateVector(this.doc)));
         for (const socket of this.ctx.getWebSockets()) {
           const other = session(socket);
           if (other.present && other.expires > Date.now()) {
@@ -398,6 +753,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
             presenceFrame(agent.awarenessId, agent.clock, agent.entry)
           );
         }
+        this.sendPresentation(server);
         await this.schedule();
         return new Response(null, { status: 101, webSocket: client });
       } catch {
@@ -410,6 +766,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     if (state.expires === 0) {
       return;
     }
+    this.releasePresenter(state.awarenessId);
     state.expires = 0;
     state.clock += 1;
     state.present = null;
@@ -431,27 +788,15 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         // Also fail closed on messages while a durable refresh is being retried.
         const current = await this.authorize(state);
         state = { ...state, ...current };
+        if (!writable(state)) {
+          this.releasePresenter(state.awarenessId);
+        }
         socket.serializeAttachment(state);
         if (typeof message === "string") {
-          if (message.length > 8192) {
-            throw new Error("Message too large");
-          }
-          const input = JSON.parse(message) as {
-            type?: string;
-            ticket?: string;
-          };
-          if (input.type !== "renew" || typeof input.ticket !== "string") {
-            throw new Error("Invalid control");
-          }
-          const renewed = await this.admit(input.ticket, socket);
-          socket.serializeAttachment({ ...state, ...renewed });
-          socket.send(
-            JSON.stringify({ expiresAt: renewed.expires, type: "renewed" })
-          );
-          await this.schedule();
+          await this.receiveControl(socket, state, message);
           return;
         }
-        if (message.byteLength > MAX_DOCUMENT_BYTES + 1024) {
+        if (message.byteLength > this.maxBytes + 1024) {
           throw new Error("Message too large");
         }
         const decoder = decoding.createDecoder(new Uint8Array(message));
@@ -473,6 +818,33 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         this.rejectMessage(socket, error);
       }
     });
+  }
+  private async receiveControl(
+    socket: WebSocket,
+    state: Session,
+    message: string
+  ) {
+    if (message.length > 8192) {
+      throw new Error("Message too large");
+    }
+    const input = JSON.parse(message) as {
+      type?: string;
+      ticket?: string;
+    };
+    if (input.type === "presentation") {
+      this.presentation(socket, state, JSON.parse(message));
+      await this.schedule();
+      return;
+    }
+    if (input.type !== "renew" || typeof input.ticket !== "string") {
+      throw new Error("Invalid control");
+    }
+    const renewed = await this.admit(input.ticket, socket);
+    socket.serializeAttachment({ ...state, ...renewed });
+    socket.send(
+      JSON.stringify({ expiresAt: renewed.expires, type: "renewed" })
+    );
+    await this.schedule();
   }
   private rejectMessage(socket: WebSocket, error: unknown) {
     let message = "Rejected message";
@@ -512,13 +884,17 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       if (!writable(state)) {
         return; // Viewers still complete the normal Yjs read/sync handshake.
       }
-      await this.mutate(
-        (trial) =>
-          trial.applyUpdate(bytes, {
-            participantId: state.participantId,
-          }),
-        { agent: state.kind === "agent", participantId: state.participantId }
-      );
+      if (this.deck) {
+        await this.refreshPolicy();
+        this.commitDeck(bytes);
+        await this.schedule();
+      } else {
+        await this.mutate(
+          (trial) =>
+            trial.applyUpdate(bytes, { participantId: state.participantId }),
+          { agent: state.kind === "agent", participantId: state.participantId }
+        );
+      }
     } else {
       throw new Error("Invalid sync type");
     }
@@ -561,6 +937,9 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
             selection: raw.selection,
             slideId: raw.slideId,
           });
+    if (this.deck && state.present) {
+      this.validateDeckPresence(state.present);
+    }
     state.clock += 1;
     socket.serializeAttachment(state);
     this.broadcast(
@@ -619,7 +998,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       ? await this.env.ARTIFACT_ROOM_SERVICE.protectedRanges(this.meta.scope)
       : [];
     const doc = new Y.Doc({ gc: false });
-    Y.applyUpdate(doc, Y.encodeStateAsUpdate(this.live.doc));
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(this.doc));
     const trial = new LiveDocument(doc, {
       ownBlobUrls: new Set(this.meta.ownBlobUrls),
       protectedRanges: () => ranges,
@@ -745,10 +1124,28 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     }) as Operation[];
   }
   resolveAnchor(anchor: CommentAnchor) {
-    return this.exclusive(async () => resolveDocumentAnchor(this.live, anchor));
+    return this.exclusive(() => {
+      if (!this.deck) {
+        return resolveDocumentAnchor(this.live, anchor);
+      }
+      if (anchor.kind !== "deck") {
+        throw new Error("Deck anchor required");
+      }
+      const slide = this.deck.ids().includes(anchor.slideId)
+        ? this.deck.read(anchor.slideId).slide
+        : undefined;
+      const attached =
+        slide &&
+        (!anchor.elementId ||
+          slide.elements.some((e) => e.id === anchor.elementId));
+      return { anchor: { ...anchor, detached: !attached }, quote: null };
+    });
   }
   guardAgentSnapshot(input: { snapshot: RoomSnapshot; runId: string }) {
     return this.exclusive(async () => {
+      if (this.deck) {
+        throw new Error("Deck snapshots require guarded deck_write");
+      }
       if (input.snapshot.state.length > MAX_DOCUMENT_BYTES) {
         throw new Error("Document exceeds 8 MiB");
       }
@@ -766,9 +1163,15 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       }
     });
   }
+  private readContent(view: "outline" | "markdown") {
+    if (this.deck) {
+      return "deck";
+    }
+    return view === "markdown" ? this.live.markdown() : this.outline();
+  }
   read(view: "outline" | "markdown" = "outline") {
     return this.exclusive(async () => ({
-      content: view === "markdown" ? this.live.markdown() : this.outline(),
+      content: this.readContent(view),
       present: this.currentPresence(),
       revision: this.meta.revision,
     }));
@@ -833,8 +1236,8 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       if (current.role !== "owner") {
         throw new Error("Owner required");
       }
-      if (input.snapshot.state.length > MAX_DOCUMENT_BYTES) {
-        throw new Error("Document exceeds 8 MiB");
+      if (input.snapshot.state.length > this.maxBytes) {
+        throw new Error("Snapshot too large");
       }
       const key = `restore:${input.requestId}`;
       const prior = this.store.get<RestoreProvenance & { revision: number }>(
@@ -857,19 +1260,45 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         requestId: input.requestId,
         versionId: input.versionId,
       };
-      await this.mutate(
-        (trial) =>
-          trial.restoreSnapshot(input.snapshot.state, {
-            participantId: input.byParticipant,
-          }),
-        { participantId: input.byParticipant },
-        (_result, revision, full) => {
-          this.store.write("restore", input.requestId, full);
-          this.store.put(key, { ...provenance, revision });
-          // Capture exact restore result for idempotent service retries, even after later edits.
-          this.meta.restores.push(provenance);
+      if (this.deck) {
+        await this.refreshPolicy();
+        const trial = new Deck(new Y.Doc({ gc: false }), richTextCodec, {
+          ownsBlob: (path) => this.policy.has(path),
+        });
+        try {
+          trial.applyUpdate(Y.encodeStateAsUpdate(this.doc));
+          const vector = Y.encodeStateVector(trial.doc);
+          trial.restore(input.snapshot.state);
+          this.commitDeck(
+            Y.encodeStateAsUpdate(trial.doc, vector),
+            (revision, full) => {
+              this.store.write("restore", input.requestId, full);
+              this.store.put(key, { ...provenance, revision });
+              this.meta.restores.push(provenance);
+            }
+          );
+          this.installDeckTools(); // restore explicitly expires every opaque observation.
+          this.clearPresentation();
+          await this.schedule();
+        } finally {
+          trial.destroy();
+          trial.doc.destroy();
         }
-      );
+      } else {
+        await this.mutate(
+          (trial) =>
+            trial.restoreSnapshot(input.snapshot.state, {
+              participantId: input.byParticipant,
+            }),
+          { participantId: input.byParticipant },
+          (_result, revision, full) => {
+            this.store.write("restore", input.requestId, full);
+            this.store.put(key, { ...provenance, revision });
+            // Capture exact restore result for idempotent service retries, even after later edits.
+            this.meta.restores.push(provenance);
+          }
+        );
+      }
       return this.snapshot();
     });
   }
@@ -934,6 +1363,9 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     try {
       const current = await this.authorize(state);
       const updated = { ...state, ...current };
+      if (!writable(updated)) {
+        this.releasePresenter(updated.awarenessId);
+      }
       if (updated.expires <= Date.now()) {
         this.close(socket, "Expired");
         return;
@@ -1056,6 +1488,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   }
   override alarm(): Promise<void> {
     return this.exclusive(async () => {
+      this.expirePresenter();
       for (const socket of this.ctx.getWebSockets()) {
         if (session(socket).expires <= Date.now()) {
           this.close(socket, "Expired");

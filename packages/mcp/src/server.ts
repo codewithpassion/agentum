@@ -7,6 +7,7 @@ import { agentTools, agentWriteTools } from "./tools/agents";
 import { artifactTools } from "./tools/artifacts";
 import { browserTools } from "./tools/browser";
 import { computerTools } from "./tools/computer";
+import { deckTools } from "./tools/deck";
 import type { ToolDefinition } from "./tools/define";
 import { inboxTools } from "./tools/inbox";
 import { libraryTools } from "./tools/library";
@@ -81,7 +82,12 @@ export const harbourmasterTools = (
   ...inboxTools(ports),
   // Offered once the app wires the port; a read-only caller keeps the read tools.
   ...(ports.artifacts
-    ? artifactTools(ports.artifacts, ports.live).filter(
+    ? artifactTools(ports.artifacts, ports.live, ports.deckCreation).filter(
+        (tool) => !readOnly || tool.annotations.readOnlyHint === true
+      )
+    : []),
+  ...(ports.deck
+    ? deckTools(ports.deck).filter(
         (tool) => !readOnly || tool.annotations.readOnlyHint === true
       )
     : []),
@@ -134,6 +140,8 @@ export const TOOL_NAMES = harbourmasterTools({
   createRoutine: unusedPort,
   createSkill: unusedPort,
   createTrigger: unusedPort,
+  deck: { read: unusedPort, write: unusedPort },
+  deckCreation: { create: unusedPort },
   deleteRoutine: unusedPort,
   deleteSkill: unusedPort,
   deleteTrigger: unusedPort,

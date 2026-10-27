@@ -67,6 +67,16 @@ export const createLiveArtifactsRouter = (
       .mutation(({ ctx, input }) =>
         service(ctx).convertDoc(ctx.principal, input)
       ),
+    createDeck: workspaceProcedure
+      .input(
+        z.strictObject({
+          slides: z.array(z.string().max(2_000_000)).max(500).optional(),
+          title: z.string().trim().min(1).max(120),
+        })
+      )
+      .mutation(({ ctx, input }) =>
+        service(ctx).createDeck(ctx.principal, input)
+      ),
     createDocument: workspaceProcedure
       .input(
         z.strictObject({
@@ -82,6 +92,9 @@ export const createLiveArtifactsRouter = (
       .query(({ ctx, input }) =>
         service(ctx).exportMarkdown(ctx.principal, input)
       ),
+    history: workspaceProcedure
+      .input(z.strictObject(artifact))
+      .query(({ ctx, input }) => service(ctx).history(ctx.principal, input)),
     invalidateAccess: workspaceProcedure
       .input(z.strictObject({ ...artifact, participantId: id.optional() }))
       .mutation(({ ctx, input }) =>
@@ -90,6 +103,9 @@ export const createLiveArtifactsRouter = (
     join: workspaceProcedure
       .input(z.strictObject(artifact))
       .mutation(({ ctx, input }) => service(ctx).join(ctx.principal, input)),
+    open: workspaceProcedure
+      .input(z.strictObject(artifact))
+      .query(({ ctx, input }) => service(ctx).open(ctx.principal, input)),
     ownBlobUrls: workspaceProcedure
       .input(z.strictObject(artifact))
       .query(({ ctx, input }) =>

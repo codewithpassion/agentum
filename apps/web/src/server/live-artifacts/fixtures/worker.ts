@@ -1,6 +1,9 @@
 // biome-ignore-all lint/suspicious/useAwait: fixture implements asynchronous service ports with synchronous SQLite.
 // biome-ignore-all lint/performance/noNamespaceImport: Yjs fixture primitives.
+
 import { LiveDocument, type Operation } from "@repo/live-doc";
+import type { DeckReadInput, DeckWriteInput } from "@repo/mcp/tools/deck";
+import { createDeckCheckpoint } from "@repo/mcp/tools/deck-scene";
 import type {
   AwarenessEntry,
   LiveOperationOrigin,
@@ -82,7 +85,24 @@ export class TestArtifactRoom extends ArtifactRoom {
           role: role ?? (subject.kind === "agent" ? "editor" : "owner"),
         };
       },
-      open: async () => ({ ...scope, ...initial() }),
+      open: async () =>
+        get<boolean>("deck")
+          ? {
+              ...scope,
+              kind: "deck",
+              revision: 0,
+              state: createDeckCheckpoint(
+                {
+                  slides: get<string[]>("slides") ?? [],
+                  title: "Fixture deck",
+                },
+                (path) =>
+                  (get<string[]>("urls") ?? ["/files/own-image.png"]).includes(
+                    path
+                  )
+              ),
+            }
+          : { ...scope, ...initial() },
       ownBlobUrls: async () =>
         get<string[]>("urls") ?? ["/files/own-image.png"],
       protectedRanges: async () =>
@@ -281,6 +301,42 @@ export default {
     try {
       let result: unknown;
       switch (url.pathname) {
+        case "/snapshot": {
+          const snapshot = await stub.authoritativeSnapshot();
+          result = { revision: snapshot.revision, state: [...snapshot.state] };
+          break;
+        }
+        case "/deck-read":
+          result = await stub.deckRead(
+            { artifactId: scope.artifactId, ...input } as DeckReadInput,
+            { kind: "agent", participantId: "agent" }
+          );
+          break;
+        case "/deck-write":
+          result = await stub.deckWrite(
+            { artifactId: scope.artifactId, ops: input.ops } as DeckWriteInput,
+            {
+              changeId:
+                (input.changeId as string | undefined) ?? crypto.randomUUID(),
+              mode: "direct",
+              participantId: "agent",
+              runId: "run",
+              toolCallId: "call",
+            }
+          );
+          break;
+        case "/deck-restore":
+          result = await stub.restore({
+            byParticipant: "owner",
+            requestId:
+              (input.requestId as string | undefined) ?? crypto.randomUUID(),
+            snapshot: {
+              revision: 0,
+              state: Uint8Array.from(input.state as number[]),
+            },
+            versionId: "fixture",
+          });
+          break;
         case "/ticket":
           result = await stub.ticket(input);
           break;

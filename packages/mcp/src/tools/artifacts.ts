@@ -13,6 +13,7 @@ import type {
   ArtifactTestInfo,
 } from "../ports";
 import { ToolError } from "../result";
+import type { DeckCreationPort } from "./deck";
 import {
   defineTool,
   READ_ONLY,
@@ -20,7 +21,6 @@ import {
   WRITE_CREATE,
   WRITE_UPDATE,
 } from "./define";
-
 import type { LivePort } from "./live";
 
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
@@ -93,7 +93,7 @@ export const artifactCreateInputSchema = z.strictObject({
     .optional()
     .describe("What the artifact is, up to 500 characters."),
   kind: z
-    .enum(["page", "doc", "dashboard", "app", "document"])
+    .enum(["page", "doc", "dashboard", "app", "document", "deck"])
     .describe(
       "document: a live collaborative document with optional markdown. page/doc/dashboard/app: static file-based artifacts."
     ),
@@ -103,6 +103,7 @@ export const artifactCreateInputSchema = z.strictObject({
     .describe(
       "Initial live document markdown; omit for an empty document. Only for kind document."
     ),
+  slides: z.array(z.string().max(2_000_000)).max(500).optional(),
   title: z
     .string()
     .trim()
@@ -318,9 +319,35 @@ const testText = (info: ArtifactTestInfo): string => {
   ].join("\n");
 };
 
+const createLiveDeck = async (
+  input: z.infer<typeof artifactCreateInputSchema>,
+  deck: DeckCreationPort | undefined
+) => {
+  if (
+    input.markdown !== undefined ||
+    input.files !== undefined ||
+    input.entry !== undefined ||
+    input.fromLibraryPath !== undefined
+  ) {
+    invalid("Deck creation takes constrained slides, not markdown or files");
+  }
+  if (!deck) {
+    throw new ToolError("validation", "Live decks are unavailable");
+  }
+  const result = await deck.create({
+    slides: input.slides,
+    title: input.title,
+  });
+  return {
+    data: result,
+    text: `Created deck ${result.artifactId}. Open ${result.url}. Use deck_read and guarded deck_write; people win.`,
+  };
+};
+
 export const artifactTools = (
   port: ArtifactsPort,
-  live?: LivePort
+  live?: LivePort,
+  deck?: DeckCreationPort
 ): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
@@ -328,6 +355,12 @@ export const artifactTools = (
     inputSchema: artifactCreateInputSchema,
     name: "artifact_create",
     run: async (input) => {
+      if (input.kind === "deck") {
+        return createLiveDeck(input, deck);
+      }
+      if (input.slides !== undefined) {
+        invalid("slides are only for kind deck");
+      }
       if (input.kind === "document") {
         if (
           input.files !== undefined ||

@@ -171,7 +171,11 @@ export const createLiveAskService = (deps: LiveAskDeps) => {
     });
     const scope = { artifactId: row.id, workspaceId: row.workspaceId };
     const room = await deps.presence(scope, member);
-    if (input.via === "ask_agent" && !room.where?.selection) {
+    if (
+      input.via === "ask_agent" &&
+      !room.where?.selection &&
+      !room.where?.slideId
+    ) {
       throw invalid("No current selection");
     }
     const identity = await deps.identity(member);
