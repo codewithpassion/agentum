@@ -74,3 +74,10 @@ Reviewed merged HEAD `f0687e34` (including L.4b `7879f38a`, L.Q and controller f
 ### Independent validation
 
 After `bun install --frozen-lockfile` (the initial attempt lacked workspace dependencies), `bun run --cwd packages/services test src/live-artifacts src/artifacts/service src/artifacts/quota.test.ts` passed **142 tests**. `bun run --cwd packages/db test src/schema.test.ts src/artifacts.test.ts src/foreign-keys.test.ts` passed **50 tests**. A temporary, removed DB-backed barrier probe reproduced the duplicate revert audit (1 pass asserting two events). Existing focused tests cover atomic rollback, deleted-row retry, acknowledgement failure, pagination, old-ticket revoke/downgrade and quota races. Full root check/build were not repeated for this report-only review; prior implementation evidence above records them.
+
+
+## Controller resolution: concurrent finalization
+
+Resolve and revert now use compare-and-set updates and condition their audit insert on the immediately preceding update's `changes() = 1` within the same atomic batch. A concurrent loser neither overwrites the successful actor nor emits another audit event. The trusted room revert contract now returns the persisted original `byParticipant` alongside its revision; retries by a different authorized caller must return that original result. Production room enforcement remains an L.3 integration gate.
+
+A database-backed concurrent regression covers two distinct callers for both revert and resolve, asserting exactly one event and matching stored actor. Focused live-artifacts and events tests passed (65 tests). The addressed-comment durable dispatch finding remains assigned to L.4c and is not closed by this change.
