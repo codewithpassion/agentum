@@ -76,3 +76,9 @@ Independent local evidence on this SHA:
 - `bun apps/web/src/components/guests/browser-check.ts --production-assets`: 12 scenarios passed against the emitted guest bundle and local workerd services, including desktop/mobile roles, two-grant navigation, downgrade, revoke and signout. This is the existing fixture rerun independently, not a delayed-invitation-response test.
 
 Guest execution and guest embeds remain intentionally disabled and are not accepted as complete. Real signing credentials, Clerk, external email and staging acceptance remain open. No secrets were requested, no real emails or model calls were made, and no deployment, push or PR was performed. The controller's combined root suite was not repeated.
+
+## Controller navigation remediation
+
+Invitation components are keyed by token/path, resetting metadata, code input, errors and send/busy state on navigation. Landing responses have effect-lifetime guards. Send and verification completions check the still-mounted lifetime and current pathname before state changes or redirects. Requests themselves remain serialized and are allowed to finish consuming rotating-cookie responses; stale UI effects are discarded.
+
+The actual-workerd browser fixture now delays real landing, code-send and successful-verification responses while navigating to a different invitation. At both 1280×800 and 390×844 it checks that the prior title/form disappear, old completions do not reveal the previous form or redirect, and the new invitation is usable. All 18 scenarios pass (six new delayed-response cases plus the prior 12 collaboration cases). Only response delivery timing is intercepted; guest services, code issuance/verification and cookies are real local workerd behavior with captured EMAIL. Web typecheck passes. Fullapp external credentials and staging remain gates.

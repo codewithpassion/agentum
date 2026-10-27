@@ -107,6 +107,111 @@ try {
       { height: 800, width: 1280 },
       { height: 844, width: 390 },
     ]) {
+      // Hold actual server responses to reproduce navigation before completion.
+      for (const phase of ["landing", "send", "verify"]) {
+        const first = await create(
+          `nav-${phase}-${viewport.width}@example.com`,
+          "editor",
+          undefined,
+          "document"
+        );
+        const next = await create(
+          `next-${phase}-${viewport.width}@example.com`,
+          "viewer",
+          undefined,
+          "document"
+        );
+        await db
+          .prepare(
+            "UPDATE artifacts SET title='Previous invitation' WHERE id=?"
+          )
+          .bind(first.artifactId)
+          .run();
+        await db
+          .prepare("UPDATE artifacts SET title='Current invitation' WHERE id=?")
+          .bind(next.artifactId)
+          .run();
+        const context = await browser.newContext({ viewport });
+        const page = await context.newPage();
+        let release;
+        let arrived;
+        const held = new Promise((resolve) => {
+          arrived = resolve;
+        });
+        const gate = new Promise((resolve) => {
+          release = resolve;
+        });
+        let captured = false;
+        await page.route("**/*", async (route) => {
+          const path = new URL(route.request().url()).pathname;
+          if (
+            path === "/guest.js" ||
+            path === "/guest.css" ||
+            path.startsWith("/assets/")
+          ) {
+            await route.fulfill({
+              body: await readFile(join(output, path.slice(1))),
+              contentType: path.endsWith(".css")
+                ? "text/css"
+                : "application/javascript",
+            });
+            return;
+          }
+          const target =
+            phase === "landing"
+              ? `/g/${first.token}`
+              : `/api/guest/${first.token}/${phase === "send" ? "code" : "verify"}`;
+          if (
+            !captured &&
+            path === target &&
+            (phase !== "landing" ||
+              route.request().headers().accept?.includes("application/json"))
+          ) {
+            captured = true;
+            const response = await route.fetch();
+            arrived();
+            await gate;
+            await route.fulfill({ response });
+            return;
+          }
+          await route.continue();
+        });
+        await page.goto(`${base}/g/${first.token}`);
+        if (phase !== "landing") {
+          await expect(
+            page.getByRole("heading", { name: "Previous invitation" })
+          ).toBeVisible();
+          await page.getByRole("button", { name: "Send me a code" }).click();
+          if (phase === "verify") {
+            await expect(page.getByLabel("6-digit code")).toBeVisible();
+            const mail = await (await request("/fixture/mail")).json();
+            await page
+              .getByLabel("6-digit code")
+              .fill(mail.at(-1).text.match(/\n(\d{6})\n/)[1]);
+            await page.getByRole("button", { name: "Verify code" }).click();
+          }
+        }
+        await held;
+        await page.evaluate((path) => {
+          history.pushState({}, "", path);
+          window.dispatchEvent(new PopStateEvent("popstate"));
+        }, `/g/${next.token}`);
+        await expect(
+          page.getByRole("heading", { name: "Previous invitation" })
+        ).toHaveCount(0);
+        await expect(page.getByLabel("6-digit code")).toHaveCount(0);
+        release();
+        await expect(
+          page.getByRole("heading", { name: "Current invitation" })
+        ).toBeVisible();
+        await expect(
+          page.getByRole("button", { name: "Send me a code" })
+        ).toBeEnabled();
+        await expect(page.getByLabel("6-digit code")).toHaveCount(0);
+        assert.equal(new URL(page.url()).pathname, `/g/${next.token}`);
+        await context.close();
+        passed += 1;
+      }
       for (const kind of ["document", "deck"]) {
         for (const role of ["editor", "commenter", "viewer"]) {
           const invitation = await create(

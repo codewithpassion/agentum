@@ -4,35 +4,65 @@ import type {
   GuestVerifyResult,
 } from "@repo/protocol/guest";
 import { guestEndpoints } from "@repo/protocol/guest";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { guestHttp } from "./http";
 
 export function GuestLanding({ token }: { token: string }) {
+  return <Invitation key={token} token={token} />;
+}
+
+function Invitation({ token }: { token: string }) {
+  const active = useRef<boolean>(false);
   const [landing, setLanding] = useState<GuestLandingResult>();
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
+    let disposed = false;
+    const path = window.location.pathname;
+    active.current = true;
     guestHttp
       .json<GuestLandingResult>(guestEndpoints.invitation(token))
-      .then(setLanding)
-      .catch(() => setError("This invite is not available."));
+      .then((result) => {
+        if (!disposed && window.location.pathname === path) {
+          setLanding(result);
+        }
+      })
+      .catch(() => {
+        if (!disposed && window.location.pathname === path) {
+          setError("This invite is not available.");
+        }
+      });
+    return () => {
+      disposed = true;
+      active.current = false;
+    };
   }, [token]);
   const send = async () => {
+    const path = window.location.pathname;
     setBusy(true);
     setError("");
     try {
       await guestHttp.json(guestEndpoints.code(token), {});
-      setSent(true);
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: Effect cleanup changes this ref while the request awaits.
+      if (active.current && window.location.pathname === path) {
+        setSent(true);
+      }
     } catch {
-      setError("Could not request a code. Please try again.");
+      if (active.current && window.location.pathname === path) {
+        setError("Could not request a code. Please try again.");
+      }
     } finally {
-      setBusy(false);
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: Effect cleanup changes this ref while the request awaits.
+      if (active.current && window.location.pathname === path) {
+        setBusy(false);
+      }
     }
   };
   const verify = async (event: React.FormEvent) => {
     event.preventDefault();
+    const path = window.location.pathname;
     setBusy(true);
     setError("");
     try {
@@ -40,16 +70,25 @@ export function GuestLanding({ token }: { token: string }) {
         guestEndpoints.verify(token),
         { code }
       );
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: Navigation may unmount the invitation while verification awaits.
+      if (!active.current || window.location.pathname !== path) {
+        return;
+      }
       // Do not follow an arbitrary server-provided redirect.
       window.location.assign(
         `/g/a/${encodeURIComponent(result.grant.artifactId)}`
       );
     } catch {
-      setError(
-        "This invite is not available. Check your code or request a new one."
-      );
+      if (active.current && window.location.pathname === path) {
+        setError(
+          "This invite is not available. Check your code or request a new one."
+        );
+      }
     } finally {
-      setBusy(false);
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: Effect cleanup changes this ref while the request awaits.
+      if (active.current && window.location.pathname === path) {
+        setBusy(false);
+      }
     }
   };
   return (

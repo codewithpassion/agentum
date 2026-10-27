@@ -20,7 +20,7 @@ function GuestApp() {
       key={path}
     />
   ) : (
-    <GuestLanding token={decodeURIComponent(segments[2] ?? "")} />
+    <GuestLanding key={path} token={decodeURIComponent(segments[2] ?? "")} />
   );
 }
 const root = document.getElementById("guest-root");
