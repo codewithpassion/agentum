@@ -87,7 +87,7 @@ function Title({ canRename, onRename, title }: TitleProps) {
     <h1 className="min-w-0 truncate font-medium text-sm">
       {canRename ? (
         <button
-          className="max-w-full truncate text-left hover:underline"
+          className="max-w-full truncate text-left hover:underline max-md:min-h-10"
           onClick={startEditing}
           title="Rename"
           type="button"

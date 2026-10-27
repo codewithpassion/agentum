@@ -66,7 +66,13 @@ function LinkRow({
   const onConfirm = useCallback(() => onRevoke(share.id), [onRevoke, share.id]);
   return (
     <TableRow className={live ? undefined : "text-muted-foreground"}>
-      <ResponsiveCell label="Created by">{share.createdBy}</ResponsiveCell>
+      <ResponsiveCell
+        className="md:max-w-40 md:truncate"
+        label="Created by"
+        title={share.createdBy}
+      >
+        {share.createdBy}
+      </ResponsiveCell>
       <ResponsiveCell label="Created">
         {formatTimestamp(share.createdAt)}
       </ResponsiveCell>

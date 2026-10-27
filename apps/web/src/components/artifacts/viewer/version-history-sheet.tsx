@@ -19,6 +19,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "#/components/ui/sheet";
+import { SheetCloseButton } from "../sheet-close";
 
 interface VersionRowProps {
   canRestore: boolean;
@@ -132,7 +133,11 @@ export function VersionHistorySheet({
   return (
     <>
       <Sheet onOpenChange={onOpenChange} open={open}>
-        <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+        <SheetContent
+          className="w-full overflow-y-auto sm:max-w-md"
+          showCloseButton={false}
+        >
+          <SheetCloseButton />
           <SheetHeader>
             <SheetTitle>Version history</SheetTitle>
             <SheetDescription>Newest first.</SheetDescription>
