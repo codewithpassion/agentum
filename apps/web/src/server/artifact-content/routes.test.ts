@@ -157,7 +157,9 @@ const expectContentHeaders = (
   expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
   expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
   expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
-  expect(res.headers.get("Cache-Control")).toBe("private, max-age=300");
+  expect(res.headers.get("Cache-Control")).toBe(
+    "private, max-age=300, no-transform"
+  );
   expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
   expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
   expect(res.headers.get("Service-Worker-Allowed")).toBeNull();

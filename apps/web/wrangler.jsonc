@@ -104,6 +104,9 @@
     // Previews never touch production. See README "Pull request previews".
     "staging": {
       "preview_urls": true,
+      // Triggers are inherited too: an empty list keeps the minute tick off
+      // this Worker, as the comment on the top-level `triggers` says.
+      "triggers": { "crons": [] },
       // Routes are inherited: staging must name its own, or it takes production's domain.
       "routes": [
         {
