@@ -3,7 +3,7 @@ id: A.8
 title: Framed viewer, artifact frame and share page
 milestone: A
 size: L
-status: in_progress
+status: done
 depends_on: [A.1]
 branch: task/A.8-viewer-frame-share-page
 lane: web-viewer
@@ -27,3 +27,4 @@ UI tasks run beside the backend tasks and code against the A.1 tRPC schemas. If 
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at a4efa57, review clean after 1 fix round; browser check moved to A.14; download route and manifest listing missing; merged.
