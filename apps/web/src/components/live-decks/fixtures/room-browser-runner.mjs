@@ -307,6 +307,17 @@ try {
       )
       .toBe(4);
     await alice.evaluate(() =>
+      Reflect.get(window, "deckRoom").confirmLocation({
+        elementIds: ["headline", "box"],
+        slideId: "opening",
+        slideNumber: 1,
+      })
+    );
+    const trustedPresence = await call("/presence");
+    expect(
+      trustedPresence.find((person) => person.id === "alice").selection
+    ).toEqual(["headline", "box"]);
+    await alice.evaluate(() =>
       Reflect.get(window, "deckRoom").publishPresence({
         pointer: { x: 120, y: 140 },
         selection: ["box"],
@@ -392,6 +403,24 @@ try {
         )
         .toBe("480");
     }
+    await alice.evaluate(() =>
+      Reflect.get(window, "deckRoom")
+        .document.getMap("optimistic_invalid")
+        .set("payload", "must never reach authority")
+    );
+    await expect(alice.getByRole("alert")).toContainText("unknown root");
+    await alice.getByRole("button", { name: "Reconnect fixture" }).click();
+    await expect(
+      alice.getByRole("region", { name: "Live deck editor" })
+    ).toBeVisible();
+    expect(
+      await alice.evaluate(() =>
+        Reflect.get(window, "deckRoom").document.share.has("optimistic_invalid")
+      )
+    ).toBe(false);
+    expect(JSON.stringify(await call("/deck-read"))).not.toContain(
+      "must never reach authority"
+    );
     holdPresentation = true;
     await alice.getByRole("button", { exact: true, name: "Present" }).click();
     await alice

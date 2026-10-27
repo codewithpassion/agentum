@@ -1,125 +1,131 @@
 # LD.6 — deck client route and room integration
 
-Work in progress; this is not phase-2 acceptance. Client implementation starts at
-`aca29ff6`. Read CLAUDE.md, the phase-2 PRD, LD.3/LD.4 contracts and L.8/L.8a/L.9
-review evidence. Backend contracts are the actual LD.5 router and native room,
-merged through `9d5c18cc` and the request-correlated presenter fixture fix.
+Implemented the production client integration on `t3/ld6-deck-client-integration`.
+Implementation commits: `aca29ff6`, `bb4b22b7`, `de72dcec`, plus the final acceptance
+commit containing this report. Actual-room desktop/mobile acceptance passes.
+Authenticated full-app acceptance remains blocked by the previously cancelled
+missing ARTIFACT_VIEW_KEY setup; this is not staging or whole-PRD acceptance.
 
-## Implemented client path
+Read CLAUDE.md, phase-2 PRD, LD.3/LD.4 and L.8/L.8a/L.9 evidence. Coordinated exact
+contracts with LD.5 and merged its actual implementation through `f1808116`, the
+presenter fixture timing fix `de5e349d`, and controller core fixes `1f30cc5f` /
+`e2183512`. No server/service/protocol/schema/task-file changes were authored in
+this lane. Those files entered only through the integration merges.
 
-The existing `/a/$artifactId` route mounts `LiveDeckPage` for a deck and retains
-`LiveDocumentPage` for documents. The artifacts list has typed deck creation.
-Creation, open, history, restore, join and ownership use actual `liveArtifacts`
-procedures; uploads use the existing authenticated image endpoint. No root-router
-casts, runtime fake success ports, service/protocol/schema edits or task-file
-edits were authored in this lane. Backend commits were merged for integration.
+## Production path
 
-`TicketedDeckRoom` consumes the mandatory deck session (kind, role, participant,
-assigned awareness ID, epoch, ownership manifest and expiration). It keeps the
-assigned awareness ID separate from the Y.Doc ID; network updates enter a Deck
-constructed with the production richTextCodec through `Deck.applyUpdate`.
-The client refuses uninitialized themes and never creates shared theme maps on
-replicas. Per-update verified ownership precedes admission. Local publication
-validates the actual encoded state in an isolated Deck, so empty unencoded local
-Tiptap migration roots do not incorrectly break ordinary undo. Populated unknown
-roots remain rejected. Rejection, role changes and disconnect discard the
-connection; reconnect creates a fresh document and one-use ticket.
+- `/a/$artifactId` mounts `LiveDeckPage` for decks, retaining the document and
+  static routes. The artifacts list exposes authenticated typed deck creation.
+- Actual `liveArtifacts` procedures supply create/open/join/history/restore,
+  ownership and sparse-cell initialization. Upload uses the authenticated image
+  endpoint and verifies the returned path in the refreshed ownership manifest
+  before insertion. No root-router casts or runtime successful mock ports.
+- `TicketedDeckRoom` consumes mandatory kind, role, authenticated participant,
+  assigned awareness ID, epoch, ownership manifest and expiry. Awareness ID stays
+  separate from Y.Doc ID. Every incoming update uses `Deck.applyUpdate` with the
+  production richTextCodec and verified current ownership. The authority must
+  initialize the theme; clients never create competing theme maps.
+- Local publication validates actual encoded bytes through an isolated Deck.
+  Empty unencoded local migration maps do not break ordinary undo; malformed or
+  unsupported encoded content fails closed. Rejection, role change (including
+  ticket renewal) or disconnect disposes the connection. Reconnect creates a
+  fresh document and one-use ticket, never reoffers the rejected optimistic state.
+- Presence sends only slide/selection/pointer and replaces the old ephemeral
+  location, including pointer clearing. Identity comes from the admitted session
+  and server frames. Agent asks await matching sender awareness echo. The backend
+  derives the current one-based slide number and surviving selected element IDs.
+- Presentation controls are serialized and request-correlated. The client retains
+  the connection-owned lease ID and renews every five seconds. Disposal rejects
+  pending requests and closes the lease connection. Delayed starts after exit or
+  permission loss cannot resume broadcasting. Trusted slide/build positions feed
+  the existing presentation follow/leave/rejoin UI.
+- Missing table cells use mandatory `DeckEditorPorts.ensureCell`: await the real
+  serialized authority operation, validate/merge its returned state through the
+  provider, recheck edit permission and cell existence, then bind the existing
+  fragment. No local sparse-cell allocation remains in the production component.
+  A pending/error cell stays noneditable. Existing filled cells keep their ID.
+- History lists published versions, confirms restore, preserves request ID across
+  retry and reloads accepted room state after success. The collaboration panel
+  supports selected slide/element comments, replies, shared agent conversation,
+  paginated comments/changes and confirmed guarded revert. It is a desktop side
+  panel and mobile bottom sheet. Document components remain unchanged.
 
-Presence publishes only slide/selection/pointer, replacing the old ephemeral
-location. Identity comes from the admitted session and server awareness frames.
-Agent asks await the sender's matching room echo; the service derives current
-slide number and existing element IDs. Presentation requests are serialized,
-correlated with acknowledgements, and retain the connection-owned lease ID;
-renewal runs every five seconds. Disconnect/downgrade disposes pending requests
-and closes the lease connection. Delayed successful starts are released by the
-component/room lifecycle. Upload membership is refreshed and verified before the
-promise permits insertion. History restore retains a request ID on retry and
-reconnects to the accepted state after success.
+## Final real-room evidence
 
-## Verification so far
+Command:
+`bun apps/web/src/components/live-decks/fixtures/room-browser-check.ts`
 
-- Focused deck/provider suite initially passed 16 tests / 57 assertions. Added
-  regressions now include lists/splits/cell formatting and two mounted cell
-  bindings with peer-preserving undo/redo.
-- Actual workerd room, two independent Chromium contexts, **1280×800 and
-  390×844** passed concurrent properties and typing, peer-preserving headline
-  undo/redo, concurrent slide creation, trusted presence, presentation follow /
-  leave / rejoin, checkpoint/reload, actual room restore, and a delayed native
-  presentation acknowledgement followed by role loss. The delay is a WebSocket
-  proxy over the actual server, not a successful substitute port.
-- The test-only room issuer is not authenticated full-app acceptance. Fixture
-  upload/comment/agent actions explicitly refuse use: those require app services.
-- Root build passed (5 tasks); boundary lint passed and the emitted browser bundle
-  had no drizzle, cloudflare:workers or server-path matches.
-- Root check ran; lint and 11/12 Turbo tasks passed, but default Worker generation
-  lacks secret declarations without a checkout env file. Explicit
-  `wrangler types --env-file .env.example`, followed by web typecheck, passed.
-  No environment file or credential was changed. The first implementation commit
-  bypassed the global hook for this exact environment-generated-types gate.
-- Root tests exposed the backend presenter's fixed-delay race; LD.5 fixed it in
-  `de5e349d`. Final combined root replay remains pending.
+Passed two independent Chromium contexts at **1280×800** and **390×844**, using
+the real workerd ArtifactRoom, real Deck/core/production codec and native ticketed
+WebSockets. The fixture issuer is explicitly test-only; it does not bypass app
+authentication or claim authenticated full-app acceptance.
 
-## Structural rich-text gate and experiment
+The final run covers:
 
-The actual production y-tiptap binding writes populated
-`__tiptap_position_migrations:item:<client>:<clock>` metadata during Bullet list /
-paragraph structural edits. The strict deck core currently refuses those roots.
-Reproduction: concurrent headline Alice/Bob typing, local Alice undo, then
-Bullet list. Encoded scene and complete migration JSON are preserved at
-`/tmp/ld6-browser-evidence-QC02o6/structural-1280.json` and were sent to controller.
-This is a real admission failure, not bypassed or converted to a passing result.
+- Concurrent per-key changes to one shape, concurrent headline typing, own text
+  undo/redo preserving the peer, concurrent slide additions and stable IDs.
+- Real list conversion and paragraph/list splitting; concurrent first opening
+  of an omitted table cell through the real ensure endpoint; matching fragment
+  IDs in both profiles; concurrent cell typing, own undo/redo preserving the peer,
+  and rich lists inside the cell.
+- Trusted participants, pointer/selection publication and confirmed selected
+  slide/element echo before agent attachment.
+- Presenter slide/build updates, follow/leave/rejoin and release. A WebSocket
+  proxy delays the actual server's admission acknowledgement, then a real role
+  downgrade releases the lease; delivering the late acknowledgement cannot resume
+  broadcasting. No successful replacement presentation port is used.
+- Actual checkpoint/reload and room restore after structural migrations;
+  invalid optimistic local state closes the client before publication, reconnect
+  rebuilds accepted state, and the authority never contains the rejected payload.
+- Downgrade/reconnect leaves scene controls disabled for the viewer.
 
-At controller direction a deck-only pinned y-prosemirror 1.3.7 binding was tried
-with the same schema/codec. It passed lists/splits and headline undo/redo after
-matching Tiptap's view-remount undo-manager lifecycle. It failed concurrent first
-text in an already shared, initialized empty table cell: local/peer undo could
-retain own text or fail to preserve the peer consistently. The direct two-binding
-regression reproduces this; original y-tiptap passes that regression. The stable
-binding/dependency experiment was reverted. Its patch is retained at
-`/tmp/ld6-y-prosemirror-experiment.patch`; no alternate dependency remains.
-Controller owns the core metadata resolution. Structural admission and the full
-extended browser run are required before this task can be accepted.
+Final log: `/tmp/ld6-room-browser-final.log`.
+Screenshots: `/tmp/ld6-browser-evidence-zo1KLI/deck-1280.png` and
+`/tmp/ld6-browser-evidence-zo1KLI/deck-390.png`.
+Earlier evidence directories remain intact. Fixture upload/comment/ask actions
+explicitly reject use because those need authenticated app services; production
+hosts bind the actual service callbacks.
 
-## Remaining acceptance gates
+## Checks and limits
 
-Controller core resolution, final extended two-browser structural/cell run, and
-combined root checks/tests/build remain open. Full-app auth remains blocked by
-the previously cancelled missing ARTIFACT_VIEW_KEY configuration. No credentials
-were generated/requested, no env files modified, no auth bypass added, and no
-push, PR or deployment performed. Existing screenshots were not deleted; new
-network runs use fresh `/tmp/ld6-browser-evidence-*` directories.
+- Focused final deck/provider tests: **19 passed, 69 assertions**, including same
+  attached cell identity, structural edits, hostile authority/local updates,
+  theme initialization, assigned IDs, downgrade/pending leases and RPC ingress.
+- Root `bun run test`: **12/12 tasks passed**, web **3330 passed / 1 existing skip**,
+  services **3166 passed**, followed by **284 root script tests**, zero failures.
+  Log `/tmp/ld6-tests-combined.log`.
+- Root build: **5/5 tasks passed**. Existing Vite size warning only. Browser bundle
+  scan for drizzle, cloudflare:workers and server-path imports returned no matches.
+- Root lint: clean. Boundary lint: clean. `git diff --check`: clean.
+- Standard root `bun run check` ran: lint and **11/12 Turbo tasks passed**. Its
+  default Worker type generation omits secret declarations in this env-file-free
+  checkout, so web typecheck reports missing Env keys. Explicit
+  `wrangler types --env-file .env.example` followed by web typecheck passes.
+  This generates declarations from the existing example without modifying any
+  environment file or creating credentials. Logs `/tmp/ld6-check-combined.log`,
+  `/tmp/ld6-tsc-final.log`. Global commit hooks were bypassed for this known
+  environment gate, with focused lint/typecheck/tests performed explicitly.
 
-The original-binding isolated cell run now passes both viewports using
-`bun apps/web/src/components/live-decks/fixtures/room-browser-check.ts --without-structural`.
-This flag isolates the pending structural gate; the default command retains it.
-The exact shared cell fragment IDs matched across profiles: desktop
-`{client:3741830159,clock:76}`, mobile `{client:549816583,clock:76}`. Both cells were
-preallocated in the authoritative seed. Concurrent cell typing and own undo/redo
-preserved the peer, followed by the native lease/downgrade/restore checks.
-Screenshots are in `/tmp/ld6-browser-evidence-kMBgTt`. The original-binding direct
-same-empty-cell regression also passes. This rules out competing initialization
-for the reproduced stable-binding failure. The full structural test remains
-intentionally active and failing until controller's core resolution lands.
+Full-app auth, actual upload/history/agent/comment UI round trips through a signed
+in app session, staging and maximum-scene performance remain unclaimed. No secret
+was generated/requested, no env file changed, and no push, PR or deployment ran.
 
-## Serialized sparse-cell integration
+## Resolved integration findings
 
-Merged backend `f1808116`. `DeckEditorPorts.ensureCell` is mandatory for editable
-hosts. The component no longer calls local setCell to allocate a sparse cell.
-It awaits the actual typed `liveArtifacts.ensureDeckCell` mutation, validates and
-merges its returned state through the provider's serialized authority ingress,
-rechecks current edit permission and confirms the existing cell before binding.
-The scene surfaces initialization failures and stays noneditable while pending.
-Both authoritative-image and ensure-cell RPC states use production core admission.
+Real sync exposed LD.5's document-only sync-step-0 authority access; backend fixed
+it in `e7a9125d`. Full root tests exposed a fixed-50ms presenter fixture race;
+backend replaced it with request-correlated event waiting in `de5e349d`.
 
-Actual two-browser `--without-structural` run with cell 0:0 OMITTED from the seed
-passed at both viewports: simultaneous first opens received identical new
-fragment IDs (desktop `1033726276:0`, mobile `756728168:0`), then concurrent typing
-and own undo/redo preserved the peer. Screenshots:
-`/tmp/ld6-browser-evidence-xQlBKa`; log `/tmp/ld6-room-sparse.log`.
+Structural rich text exposed populated y-tiptap position-migration metadata that
+was absent from the original strict deck grammar. Captures remain at
+`/tmp/ld6-browser-evidence-QC02o6/structural-1280.json` and
+`/tmp/ld6-structural-regression-xsrmjU/scene.json`. Controller's bounded validator
+now checks the exact version-1 records, known fragment ancestry and retained
+history, including native ID objects and merged boundary ranges. The full room
+run passes with the original binding and strict core; no client bypass exists.
 
-Controller core `1f30cc5f` admitted the captured list transform but the expanded
-structural regression produced a legitimate boundary transfer of length 2 after
-splitListItem. Captured encoded state + metadata:
-`/tmp/ld6-structural-regression-xsrmjU/scene.json`. The original-binding direct
-same-cell regression passes. Full structural admission remains with controller;
-no core edits or validator bypass were authored here.
+A controller-authorized pinned y-prosemirror 1.3.7 experiment was rejected after
+same-empty-cell peer undo failed despite identical preallocated fragment IDs.
+Original y-tiptap passes that regression. The alternate binding and dependency
+were reverted; its diagnostic patch remains at
+`/tmp/ld6-y-prosemirror-experiment.patch`.

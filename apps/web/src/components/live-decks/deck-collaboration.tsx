@@ -1,5 +1,19 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Collaboration actions capture trusted records and current drafts. */
-import { useCallback, useEffect, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "#/components/ui/sheet";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
 import { AgentComposer, AgentTranscript } from "../live-artifacts/agent-thread";
@@ -19,20 +33,34 @@ export function DeckCollaboration({
   const [session, setSession] = useState<LiveOutputs["session"]>(null);
   const [agents, setAgents] = useState<RouterOutputs["agents"]["list"]>([]);
   const [threads, setThreads] = useState<LiveOutputs["threads"]>({ items: [] });
+  const pages = useRef({ changes: 1, threads: 1 });
+  const [changes, setChanges] = useState<LiveOutputs["changes"]>({ items: [] });
+  const [revertId, setRevertId] = useState<string>();
   const [error, setError] = useState<string>();
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const refresh = useCallback(async () => {
     try {
-      const [nextSession, nextAgents, nextThreads] = await Promise.all([
-        liveApi.session.query({ artifactId }),
-        getTrpc().agents.list.query({}),
-        liveApi.threads.query({ artifactId, limit: 100 }),
-      ]);
+      const [nextSession, nextAgents, nextThreads, nextChanges] =
+        await Promise.all([
+          liveApi.session.query({ artifactId }),
+          getTrpc().agents.list.query({}),
+          loadPages(
+            (cursor) =>
+              liveApi.threads.query({ artifactId, cursor, limit: 100 }),
+            pages.current.threads
+          ),
+          loadPages(
+            (cursor) =>
+              liveApi.changes.query({ artifactId, cursor, limit: 100 }),
+            pages.current.changes
+          ),
+        ]);
       setSession(nextSession);
       setAgents(nextAgents);
       setThreads(nextThreads);
+      setChanges(nextChanges);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Collaboration unavailable"
@@ -60,9 +88,10 @@ export function DeckCollaboration({
     }
   };
   const canComment = room.role !== "viewer";
+  const canEdit = room.role === "owner" || room.role === "editor";
   const where = intent?.where;
   return (
-    <aside aria-label="Deck collaboration">
+    <DeckPanelFrame intent={intent}>
       {Boolean(error) && <p role="alert">{error}</p>}
       <label>
         Agent
@@ -172,6 +201,13 @@ export function DeckCollaboration({
             </div>
           ))}
           {canComment && !thread.resolvedAt && (
+            <DeckReply
+              artifactId={artifactId}
+              onSaved={refresh}
+              threadId={thread.id}
+            />
+          )}
+          {canComment && !thread.resolvedAt && (
             <button
               disabled={busy}
               onClick={() =>
@@ -188,16 +224,9 @@ export function DeckCollaboration({
         <button
           disabled={busy}
           onClick={() =>
-            run(async () => {
-              const next = await liveApi.threads.query({
-                artifactId,
-                cursor: threads.next,
-                limit: 100,
-              });
-              setThreads((old) => ({
-                items: [...old.items, ...next.items],
-                next: next.next,
-              }));
+            run(() => {
+              pages.current.threads += 1;
+              return Promise.resolve();
             })
           }
           type="button"
@@ -205,6 +234,186 @@ export function DeckCollaboration({
           More comments
         </button>
       )}
-    </aside>
+      <details>
+        <summary>Agent changes</summary>
+        {changes.items.map((change) => (
+          <article key={change.id}>
+            <p>{change.summary}</p>
+            <time>{change.createdAt}</time>
+            <a href={`/tasks/${encodeURIComponent(change.runId)}`}>Open run</a>
+            {change.revertedAt ? (
+              <p>Reverted</p>
+            ) : (
+              canEdit && (
+                <button
+                  disabled={busy}
+                  onClick={() => setRevertId(change.id)}
+                  type="button"
+                >
+                  Revert change
+                </button>
+              )
+            )}
+          </article>
+        ))}
+        {Boolean(changes.next) && (
+          <button
+            disabled={busy}
+            onClick={() =>
+              run(() => {
+                pages.current.changes += 1;
+                return Promise.resolve();
+              })
+            }
+            type="button"
+          >
+            More changes
+          </button>
+        )}
+      </details>
+      {canEdit && revertId !== undefined && (
+        <section aria-label="Confirm revert" role="alertdialog">
+          <p>Revert this agent change, preserving later human edits?</p>
+          <button
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                await liveApi.revertChange.mutate({ changeId: revertId });
+                setRevertId(undefined);
+              })
+            }
+            type="button"
+          >
+            Confirm revert
+          </button>
+          <button onClick={() => setRevertId(undefined)} type="button">
+            Cancel revert
+          </button>
+        </section>
+      )}
+    </DeckPanelFrame>
+  );
+}
+
+function DeckPanelFrame({
+  children,
+  intent,
+}: {
+  children: ReactNode;
+  intent?: object;
+}) {
+  const [mobile, setMobile] = useState(false);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px)");
+    const update = () => setMobile(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    if (intent) {
+      setOpen(true);
+    }
+  }, [intent]);
+  if (!mobile) {
+    return (
+      <aside aria-label="Deck collaboration" className="ld-collaboration">
+        {children}
+      </aside>
+    );
+  }
+  return (
+    <Sheet onOpenChange={setOpen} open={open}>
+      <SheetTrigger asChild>
+        <button className="min-h-10 rounded border p-2" type="button">
+          Agent and comments
+        </button>
+      </SheetTrigger>
+      <SheetContent className="max-h-[88dvh] overflow-y-auto" side="bottom">
+        <SheetHeader>
+          <SheetTitle>Deck collaboration</SheetTitle>
+          <SheetDescription>
+            Shared agent thread and slide or element comments.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="ld-collaboration">{children}</div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+async function loadPages<T>(
+  load: (cursor?: string) => Promise<{ items: T[]; next?: string }>,
+  count: number
+) {
+  const items: T[] = [];
+  let next: string | undefined;
+  for (let index = 0; index < count; index += 1) {
+    // biome-ignore lint/performance/noAwaitInLoops: Each page requires the preceding cursor.
+    const page = await load(next);
+    items.push(...page.items);
+    ({ next } = page);
+    if (!next) {
+      break;
+    }
+  }
+  return { items, next };
+}
+function DeckReply({
+  artifactId,
+  threadId,
+  onSaved,
+}: {
+  artifactId: string;
+  threadId: string;
+  onSaved: () => Promise<void>;
+}) {
+  const [body, setBody] = useState("");
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const submit = async () => {
+    if (busy || !body.trim()) {
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      await liveApi.comment.mutate({ artifactId, body, requestId, threadId });
+      setBody("");
+      setRequestId(crypto.randomUUID());
+      await onSaved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not post reply");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
+      <label>
+        Reply
+        <textarea
+          aria-label="Reply"
+          disabled={busy}
+          maxLength={4096}
+          onChange={(event) => {
+            setBody(event.target.value);
+            setRequestId(crypto.randomUUID());
+          }}
+          value={body}
+        />
+      </label>
+      <button disabled={busy || !body.trim()} type="submit">
+        Post reply
+      </button>
+      {Boolean(error) && <p role="alert">{error}</p>}
+    </form>
   );
 }

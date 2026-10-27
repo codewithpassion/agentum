@@ -617,6 +617,9 @@ export class TicketedDeckRoom {
       this.applying = true;
       try {
         this.deck.applyUpdate(Uint8Array.from(state));
+        if (!this.document.getMap("meta").has("theme")) {
+          throw new Error("Deck theme is not initialized by the authority");
+        }
       } finally {
         this.applying = false;
       }
