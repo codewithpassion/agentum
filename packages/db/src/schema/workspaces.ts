@@ -1,9 +1,18 @@
-import { sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
 import { IDENTITY_PROVIDERS } from "../shared.ts";
 
 /** Created on first request from a Clerk org. The only table with no workspace_id. */
 export const workspaces = sqliteTable("workspaces", {
+  // 0 stops the workspace from making public artifact links.
+  artifactLinksEnabled: integer("artifact_links_enabled", { mode: "boolean" })
+    .notNull()
+    .default(true),
   clerkOrgId: text("clerk_org_id").notNull().unique(),
   createdAt: createdAt(),
   id: id(),
