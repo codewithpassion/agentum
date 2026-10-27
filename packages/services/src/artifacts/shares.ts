@@ -419,10 +419,15 @@ export const createArtifactSharesService = ({
     }));
   };
 
-  /** Resolves the version a member asks for: the number, else the current one. */
+  /**
+   * Resolves the version a member asks for: the number, else the current one.
+   * Someone who manages the artifact may also open a proposed version, to
+   * look at it before promoting it.
+   */
   const resolveVersion = async (
     artifact: ArtifactAccessRow,
-    number: number | undefined
+    number: number | undefined,
+    mayOpenProposed: boolean
   ): Promise<ArtifactVersionRef> => {
     let version: ArtifactVersionRef | undefined;
     if (number === undefined) {
@@ -432,7 +437,10 @@ export const createArtifactSharesService = ({
     } else {
       version = await getVersionByNumber(db, artifact.id, number);
     }
-    if (version?.status !== "published") {
+    const openable =
+      version?.status === "published" ||
+      (mayOpenProposed && version?.status === "proposed");
+    if (!(version && openable)) {
       throw new ServiceError("not_found", "Version not found");
     }
     return version;
@@ -453,7 +461,11 @@ export const createArtifactSharesService = ({
       version: number,
     } = artifactsOpenInputSchema.parse(input);
     const artifact = await openableArtifact(user, OPEN_ACTION, artifactId);
-    const version = await resolveVersion(artifact, number);
+    const version = await resolveVersion(
+      artifact,
+      number,
+      canManage(artifact, policyUser(user))
+    );
     await atomic([
       insertViewStatement(db, {
         artifactId,
