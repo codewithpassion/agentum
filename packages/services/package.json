@@ -13,6 +13,7 @@
     "./agents": "./src/agents.ts",
     "./api-keys": "./src/api-keys.ts",
     "./artifacts/policy": "./src/artifacts/policy.ts",
+    "./artifacts/service": "./src/artifacts/service.ts",
     "./artifacts/shares": "./src/artifacts/shares.ts",
     "./artifacts/view-token": "./src/artifacts/view-token.ts",
     "./authz": "./src/authz.ts",
