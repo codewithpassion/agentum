@@ -21,6 +21,7 @@ import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { CryptoError, fromBase64Url, toBase64Url } from "./crypto.ts";
 import { MANAGED_CLAIMER } from "./managed/types.ts";
+import { currentGuestRun } from "./runs/guest-scope.ts";
 
 export const RUN_TOKEN_PREFIX = "hm_run_";
 /**
@@ -67,7 +68,12 @@ export type RunTokenRefusal = "expired" | "invalid" | "not_running";
 
 /** `dryRun` is read from the live run row, never from the token. */
 export type RunTokenResult =
-  | { claims: RunTokenClaims; dryRun: boolean; ok: true }
+  | {
+      claims: RunTokenClaims;
+      dryRun: boolean;
+      scopeArtifactId?: string;
+      ok: true;
+    }
   | { ok: false; reason: RunTokenRefusal };
 
 /** The HMAC key from `RUN_TOKEN_KEY` (standard base64 of 32 bytes). */
@@ -213,11 +219,16 @@ export const verifyRunToken = async ({
     return { ok: false, reason: "expired" };
   }
   const live = await db
-    .select({ dryRun: runs.dryRun, id: runs.id })
+    .select({
+      dryRun: runs.dryRun,
+      id: runs.id,
+      scopeArtifactId: runs.scopeArtifactId,
+    })
     .from(runs)
     .where(
       and(
         eq(runs.id, claims.runId),
+        currentGuestRun(now.toISOString()),
         eq(runs.workspaceId, claims.workspaceId),
         eq(runs.agentId, claims.agentId),
         inArray(runs.status, ["running", "waiting"]),
@@ -226,7 +237,14 @@ export const verifyRunToken = async ({
     )
     .limit(1);
   return live[0]
-    ? { claims, dryRun: live[0].dryRun, ok: true }
+    ? {
+        claims,
+        dryRun: live[0].dryRun,
+        ok: true,
+        ...(live[0].scopeArtifactId
+          ? { scopeArtifactId: live[0].scopeArtifactId }
+          : {}),
+      }
     : { ok: false, reason: "not_running" };
 };
 
@@ -287,6 +305,7 @@ export const verifySessionToken = async ({
         eq(runs.workspaceId, workspaceId),
         eq(runs.agentId, agentId),
         eq(runs.claimedBy, MANAGED_CLAIMER),
+        isNull(runs.scopeArtifactId),
         inArray(runs.status, ["running", "waiting"]),
         gt(runs.leaseUntil, now.toISOString())
       )

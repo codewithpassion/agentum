@@ -21,6 +21,10 @@ export interface LiveInfra
       "anchors" | "changes" | "content" | "identity" | "rooms" | "ticketKey"
     >,
     Pick<LiveAskDeps, "presence" | "resolveMember"> {
+  guestPresence?: (scope: {
+    artifactId: string;
+    workspaceId: string;
+  }) => Promise<boolean>;
   mentions?: LiveMentionPort;
   roomFor: (
     principal: import("@repo/services/workspaces").Principal,
@@ -103,6 +107,10 @@ export const productionLiveInfra = (
           : new Set()
       ),
     },
+    guestPresence: async (scope) =>
+      (await (await stub(scope)).askPresence("")).present.some(
+        (entry) => entry.kind === "guest"
+      ),
     identity: async (principal) => {
       if (principal.kind === "run") {
         const agent = await composed().services.agents.get(

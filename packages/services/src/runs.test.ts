@@ -3321,6 +3321,33 @@ describe("guest artifact starts", () => {
     ).rejects.toBeInstanceOf(ForbiddenError);
   });
 
+  test("trusted guest presence forces member approvals regardless of stored agent rules", async () => {
+    await setupArtifact();
+    const service = guestRuns();
+    const member = await service.startRun(user, guestInput(), {
+      offerLater: true,
+    });
+    let present = false;
+    const make = (guestPresence?: () => Promise<boolean>) =>
+      createRequestsService({
+        atomic: sqliteAtomic(db),
+        clock,
+        db,
+        events,
+        guestPresence,
+        runs: service,
+        secrets: { maskerFor: () => Promise.resolve(null) },
+      });
+    const requests = make(() => Promise.resolve(present));
+    const input = { runId: member.runId, toolKey: "harbourmaster/slack_send" };
+    expect(await requests.needsApproval(SYSTEM_PRINCIPAL, input)).toBe(false);
+    present = true;
+    expect(await requests.needsApproval(SYSTEM_PRINCIPAL, input)).toBe(true);
+    present = false;
+    expect(await requests.needsApproval(SYSTEM_PRINCIPAL, input)).toBe(false);
+    expect(await make().needsApproval(SYSTEM_PRINCIPAL, input)).toBe(true);
+  });
+
   test("guest requests are owner-visible, member-answerable and guest answers are denied", async () => {
     await setupArtifact();
     const service = guestRuns();

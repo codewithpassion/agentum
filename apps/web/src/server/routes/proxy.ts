@@ -608,7 +608,7 @@ export const proxyRoutes = ({
       now: clock.now(),
       token,
     });
-    return result.ok ? result.claims : null;
+    return result.ok && !result.scopeArtifactId ? result.claims : null;
   };
 
   /** Everything after the token: assignment, credential, forward, answer. */

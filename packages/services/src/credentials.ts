@@ -725,7 +725,13 @@ export const createCredentialsService = ({
         sessionId: runs.sessionId,
       })
       .from(runs)
-      .where(and(eq(runs.id, run.runId), eq(runs.workspaceId, run.workspaceId)))
+      .where(
+        and(
+          eq(runs.id, run.runId),
+          eq(runs.workspaceId, run.workspaceId),
+          isNull(runs.scopeArtifactId)
+        )
+      )
       .limit(1);
     return row ?? null;
   };

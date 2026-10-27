@@ -318,6 +318,7 @@ export interface Infra {
   /** `GITHUB_TOKEN`, optional. Raises GitHub's rate limit; without it the fetcher is unauthenticated. */
   githubToken?: string;
   guests?: (input: GuestComposition) => ReturnType<typeof guestService>;
+  guestsOff?: () => boolean;
   /** Whether a user is in a Clerk org right now, with no cache. Live link calls need it; without it they are refused. */
   isOrgMember?: (userId: string, clerkOrgId: string) => Promise<boolean>;
   /** Where the workspace library keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
@@ -757,6 +758,7 @@ export const composeWith = ({
     db,
     devFakeRuntime: infra.devFakeRuntime,
     gateways,
+    guestsOff: infra.guestsOff,
     library,
     people: infra.people,
     runTokenKey: infra.runTokenKey,
@@ -778,6 +780,7 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     events,
+    guestPresence: infra.live?.guestPresence,
     runs,
     secrets,
   });
@@ -884,7 +887,11 @@ export const composeWith = ({
     events,
     runs,
   });
-  const sessions = createSessionsService({ db, events });
+  const sessions = createSessionsService({
+    authorizeScopedRun: runs.authorizeScopedRun,
+    db,
+    events,
+  });
   const slack = createSlackService({
     atomic: infra.atomic,
     clock: infra.clock,
@@ -1136,6 +1143,10 @@ export const compose = (
       // An unset secret reads as an empty string: GitHub then sees no credential.
       githubToken: env.GITHUB_TOKEN || undefined,
       guests: (input) => guestService(env, input),
+      guestsOff: () =>
+        Boolean(
+          (env as ComposeEnv & { LIVE_GUESTS_OFF?: string }).LIVE_GUESTS_OFF
+        ),
       isOrgMember: clerkOrgMemberCheckFresh(env.CLERK_SECRET_KEY),
       libraryBlobs: r2LibraryBlobs(env.FILES),
       live: productionLiveInfra(env as Env, () => composed),

@@ -11,6 +11,7 @@ import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { agentGrants } from "../library/access.ts";
 import { librarySyncScope } from "../library/sync-paths.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
+import { requireOrdinaryMachineRun } from "../runs/guest-scope.ts";
 import { sessionSupportsSpeakers } from "../runs/speakers.ts";
 import type { AdapterDeps, RunRecord, RuntimeAdapter } from "../runs/types.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
@@ -107,6 +108,7 @@ export const createCloudRuntime = ({
     agent: AgentRecord,
     deps: AdapterDeps
   ): Promise<void> => {
+    requireOrdinaryMachineRun(run);
     const computer = await computerFor(db, run);
     const assigned = await db
       .select({ id: connectors.id, name: connectors.name })
@@ -187,6 +189,7 @@ export const createCloudRuntime = ({
       }
     },
     dispatch: async (db, run, agent, deps) => {
+      requireOrdinaryMachineRun(run);
       try {
         await startRunner(db, run, agent, deps);
       } catch (error) {
@@ -198,6 +201,7 @@ export const createCloudRuntime = ({
     kind: "cloud",
     offerNextOnEnd: true,
     resume: async (run, request) => {
+      requireOrdinaryMachineRun(run);
       await runner.answered?.(run.id, run.sessionId, request.id);
     },
   };

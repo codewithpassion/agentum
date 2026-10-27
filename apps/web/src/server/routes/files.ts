@@ -179,7 +179,7 @@ export const runPrincipal = async (
     key,
     token,
   });
-  if (!result.ok) {
+  if (!result.ok || result.scopeArtifactId) {
     return null;
   }
   const { agentId, runId, workspaceId } = result.claims;
