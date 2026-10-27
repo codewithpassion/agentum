@@ -58,31 +58,38 @@ async function fails(path, input = {}, room = "test") {
 }
 const ticket = (claims = {}, room = "test") => call("/ticket", claims, room);
 async function connect(token, room = "test") {
-  const r = await runtime.dispatchFetch(
-    `http://room.test/socket?room=${room}&ticket=${encodeURIComponent(token)}`,
-    { headers: { Upgrade: "websocket" } }
+  const url = new URL(
+    `/socket?room=${room}&ticket=${encodeURIComponent(token)}`,
+    await runtime.ready
   );
-  if (r.status !== 101) {
-    return { status: r.status };
-  }
-  const ws = r.webSocket;
+  url.protocol = "ws:";
+  const ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
   const messages = [];
   let closed = false;
   ws.addEventListener("message", (event) => messages.push(event.data));
   ws.addEventListener("close", () => {
     closed = true;
   });
-  ws.accept();
+  const status = await new Promise((resolve) => {
+    ws.addEventListener("open", () => resolve(101), { once: true });
+    ws.addEventListener("error", () => resolve(403), { once: true });
+  });
   await pause(20);
   return {
     get closed() {
-      return closed;
+      return (
+        closed ||
+        ws.readyState === WebSocket.CLOSING ||
+        ws.readyState === WebSocket.CLOSED
+      );
     },
     messages,
-    status: 101,
+    status,
     ws,
   };
 }
+
 const controls = (name, value, room = "test") =>
   call("/control", { name, value }, room);
 function update(bytes, kind = 2) {
@@ -171,7 +178,7 @@ try {
     concurrent.filter((c) => c.status === 101).length === 1,
     "atomic concurrent consume"
   );
-  const raceSocket = concurrent.find((c) => c.ws);
+  const raceSocket = concurrent.find((c) => c.status === 101);
   raceSocket.ws.close();
   const revokedTicket = await ticket({ participantId: "revoked" });
   await controls("role:revoked", null);
@@ -194,6 +201,9 @@ try {
     (await connect(deletedTicket)).status === 403,
     "old unexpired ticket after deletion"
   );
+  await pause(50);
+  check(owner.closed, "deletion refresh closes already attached socket");
+  await call("/refresh");
   await controls("deleted", false);
   const observer = await connect(await ticket());
   const alice = await connect(await ticket({ participantId: "alice" }));
@@ -335,6 +345,19 @@ try {
       `${role} cannot write`
     );
   }
+  const active = await connect(await ticket({ participantId: "active" }));
+  await controls("role:active", "viewer");
+  await call("/refresh", { id: "active" });
+  active.ws.send(update(Y.encodeStateAsUpdate(replica)));
+  await pause(50);
+  check(
+    !active.closed && (await call("/read")).content === goodContent,
+    "refresh downgrades attached writer and refuses writes"
+  );
+  await controls("role:active", null);
+  await call("/refresh", { id: "active" });
+  await pause(50);
+  check(active.closed, "targeted refresh closes revoked attached socket");
   const stale = await ticket({ participantId: "renew" });
   const renewer = await connect(stale);
   const renewal = await ticket({ participantId: "renew" });
@@ -357,10 +380,9 @@ try {
   const expiring = await connect(await ticket());
   await call("/expire");
   await call("/alarm");
-  expiring.ws.send(awareness(1, 1, {}));
   await pause(150);
   check(
-    (await call("/stats")).sockets === 0,
+    expiring.closed && (await call("/stats")).sockets === 0,
     "connection expiration alarm removes server sockets"
   );
   // Restart-safe captured agent edits and monotonic authoritative revisions.

@@ -28,5 +28,5 @@ test("ArtifactRoom admission, Yjs validation, SQLite, restart, awareness and che
   if (code !== 0) {
     throw new Error(`${stdout}\n${stderr}`);
   }
-  expect(JSON.parse(stdout).passed).toBeGreaterThanOrEqual(30);
+  expect(JSON.parse(stdout).passed).toBeGreaterThanOrEqual(60);
 }, 120_000);

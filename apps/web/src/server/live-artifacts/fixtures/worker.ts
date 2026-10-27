@@ -332,7 +332,7 @@ export default {
         case "/revert":
           result = await stub.revert(
             input.id as string,
-            (input.byParticipant as string) ?? "owner"
+            (input.byParticipant as string | undefined) ?? "owner"
           );
           break;
         case "/restore":
