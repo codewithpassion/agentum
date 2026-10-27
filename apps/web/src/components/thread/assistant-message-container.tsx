@@ -3,6 +3,10 @@ import {
   type TextMessagePartProps,
   useAuiState,
 } from "@assistant-ui/react";
+import {
+  ThreadCard,
+  threadCardArtifactOf,
+} from "#/components/artifacts/thread-card.tsx";
 import { Markdown } from "#/components/markdown/markdown.tsx";
 import { RequestCard } from "#/components/requests/request-card.tsx";
 import { Bubble, BubbleContent } from "#/components/ui/bubble.tsx";
@@ -55,6 +59,12 @@ function AttachmentPart({ data }: { data: unknown }) {
   ) : null;
 }
 
+/** An artifact the agent published: a card with a live preview, keyed on the part. */
+function ArtifactPart({ data }: { data: unknown }) {
+  const artifact = threadCardArtifactOf(data);
+  return artifact === null ? null : <ThreadCard artifact={artifact} />;
+}
+
 function StatusLine() {
   const status = useAuiState((state) => state.message.status);
   if (status === undefined) {
@@ -91,7 +101,11 @@ export function AssistantMessageContainer() {
           <MessagePrimitive.Parts
             components={{
               data: {
-                by_name: { attachment: AttachmentPart, request: RequestPart },
+                by_name: {
+                  artifact: ArtifactPart,
+                  attachment: AttachmentPart,
+                  request: RequestPart,
+                },
               },
               Reasoning: ReasoningPart,
               ReasoningGroup: ReasoningContainer,
