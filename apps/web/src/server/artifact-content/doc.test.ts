@@ -23,6 +23,20 @@ describe("renderDocPage", () => {
     expect(html).toContain("<del>gone</del>");
   });
 
+  it("renders task lists as disabled checkboxes", () => {
+    const html = page("- [x] done\n- [ ] todo");
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain("disabled");
+  });
+
+  it("keeps raw html and javascript: links inert inside tables", () => {
+    const html = page(
+      "| a |\n|---|\n| <img src=x onerror=alert(1)> |\n| [x](javascript:alert(1)) |"
+    );
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("javascript:");
+  });
+
   it("starts with a doctype and the bridge script first in head", () => {
     const html = page("hi");
     expect(html.startsWith("<!doctype html>")).toBe(true);

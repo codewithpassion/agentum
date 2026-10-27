@@ -23,6 +23,7 @@ import { getTrpc } from "#/integrations/trpc/client";
 import { CreateLinkForm } from "./create-link-form";
 import { LinkList } from "./link-list";
 import { errorMessage } from "./share-model";
+import { SheetCloseButton } from "./sheet-close";
 
 export interface ShareDataFile {
   path: string;
@@ -246,8 +247,10 @@ export function ShareDialog({
         <SheetContent
           className="max-h-[90dvh] w-full overflow-y-auto"
           data-testid="share-dialog"
+          showCloseButton={false}
           side="bottom"
         >
+          <SheetCloseButton />
           <SheetHeader>
             <SheetTitle>Share</SheetTitle>
           </SheetHeader>
