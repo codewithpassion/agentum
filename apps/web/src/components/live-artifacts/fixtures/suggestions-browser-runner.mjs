@@ -44,6 +44,10 @@ try {
       }
       const page = await browser.newPage({ viewport: { height: 844, width } });
       const errors = [];
+      let holdPoll = false;
+      let releasePoll;
+      let pollHeld;
+      let pollDelivered;
       page.on("pageerror", (error) => errors.push(error.message));
       await page.route("**/*", async (route) => {
         const url = new URL(route.request().url());
@@ -69,10 +73,25 @@ try {
             }
             results.push({ result: { data } });
           }
+          const delayed =
+            // biome-ignore lint/suspicious/noUnnecessaryConditions: The test arms this flag after mounting.
+            holdPoll && paths.includes("liveArtifacts.suggestions");
+          // biome-ignore lint/suspicious/noUnnecessaryConditions: The route callback observes the armed poll flag.
+          if (delayed) {
+            holdPoll = false;
+            await new Promise((resolve) => {
+              releasePoll = resolve;
+              pollHeld();
+            });
+          }
           await route.fulfill({
             body: JSON.stringify(results),
             contentType: "application/json",
           });
+          // biome-ignore lint/suspicious/noUnnecessaryConditions: The route callback observes the armed poll flag.
+          if (delayed) {
+            pollDelivered();
+          }
           return;
         }
         const path =
@@ -127,11 +146,32 @@ try {
       ).toBeVisible({ timeout: 12_000 });
       await page.getByText(`Preview ${kind} suggestion`).click();
       await expect(page.locator("pre")).toContainText("accept-browser");
+      const held = new Promise((resolve) => {
+        pollHeld = resolve;
+      });
+      const delivered = new Promise((resolve) => {
+        pollDelivered = resolve;
+      });
+      holdPoll = true;
+      await held;
       await page
         .getByRole("button", { exact: true, name: "Accept suggestion" })
         .click();
       await expect(page.getByText(/Trusted agent · accepted/)).toBeVisible();
       expect(await accepted()).toContain("accept-browser");
+      releasePoll();
+      await delivered;
+      // Let the fetched response and React update finish before checking stale UI.
+      await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(resolve));
+          })
+      );
+      await expect(page.getByText(/Trusted agent · accepted/)).toBeVisible();
+      await expect(
+        page.getByRole("button", { exact: true, name: "Accept suggestion" })
+      ).toHaveCount(0);
       await propose("reject-browser");
       await expect(
         page.getByRole("button", { exact: true, name: "Reject suggestion" })
@@ -150,7 +190,7 @@ try {
         )
       ).toBe(true);
       expect(errors).toEqual([]);
-      assertions += 11;
+      assertions += 13;
       await page.close();
     }
   }

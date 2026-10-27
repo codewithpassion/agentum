@@ -1,5 +1,5 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Review actions capture one suggestion. */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ToolButton } from "./editor-toolbar";
 import { type LiveOutputs, liveApi } from "./live-api";
 
@@ -14,32 +14,61 @@ export function Suggestions({
   const [data, setData] = useState<LiveOutputs["suggestions"]>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const generation = useRef(0);
+  const mutating = useRef<boolean>(false);
   const refresh = useCallback(async () => {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Event callbacks mutate this ref between requests.
+    if (mutating.current) {
+      return;
+    }
+    generation.current += 1;
+    const request = generation.current;
     try {
-      setData(await liveApi.suggestions.query({ artifactId }));
+      const result = await liveApi.suggestions.query({ artifactId });
+      if (request === generation.current) {
+        setData(result);
+      }
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Suggestions unavailable"
-      );
+      if (request === generation.current) {
+        setError(
+          cause instanceof Error ? cause.message : "Suggestions unavailable"
+        );
+      }
     }
   }, [artifactId]);
   useEffect(() => {
     refresh();
     const timer = setInterval(refresh, 5000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      generation.current += 1;
+      mutating.current = false;
+    };
   }, [refresh]);
   const act = async (work: () => Promise<LiveOutputs["suggestions"]>) => {
-    if (busy) {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Event callbacks mutate this ref between requests.
+    if (mutating.current) {
       return;
     }
+    mutating.current = true;
+    generation.current += 1;
+    const request = generation.current;
     setBusy(true);
     setError(undefined);
     try {
-      setData(await work());
+      const result = await work();
+      if (request === generation.current) {
+        setData(result);
+      }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Decision failed");
+      if (request === generation.current) {
+        setError(cause instanceof Error ? cause.message : "Decision failed");
+      }
     } finally {
-      setBusy(false);
+      if (request === generation.current) {
+        mutating.current = false;
+        setBusy(false);
+      }
     }
   };
   return (
