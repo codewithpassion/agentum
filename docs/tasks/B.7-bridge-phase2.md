@@ -3,7 +3,7 @@ id: B.7
 title: Bridge phase 2 (tools/call, storage, ui/message)
 milestone: B
 size: M
-status: in_progress
+status: done
 depends_on: [A.4, A.8, B.5]
 branch: task/B.7-bridge-phase2
 lane: web-viewer
@@ -28,3 +28,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at 8416dbf, review clean after 4 fix rounds; nonce carried in iframe name (window.name), not the URL fragment, which supersedes the refinement above; entry restricted to html/htm/md; merged.

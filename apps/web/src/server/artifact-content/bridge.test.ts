@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  storageDeleteRequestSchema,
+  storageGetRequestSchema,
+  storageListRequestSchema,
+  storageSetRequestSchema,
+  toolsCallRequestSchema,
   uiInitializedNotificationSchema,
   uiInitializeRequestSchema,
+  uiMessageRequestSchema,
   uiOpenLinkRequestSchema,
   uiSizeChangedNotificationSchema,
 } from "@repo/protocol/artifacts";
@@ -19,11 +25,23 @@ interface Timer {
   id: number;
 }
 
+type Scope = "viewer" | "shared";
+
 interface HarbourmasterApi {
   openLink: (url: string) => Promise<unknown>;
   ready: Promise<unknown>;
   request: (method: string, params?: unknown) => Promise<unknown>;
+  sendMessage: (text: string) => Promise<unknown>;
+  storage: {
+    delete: (key: string, scope?: Scope) => Promise<unknown>;
+    get: (key: string, scope?: Scope) => Promise<unknown>;
+    list: (prefix?: string, scope?: Scope) => Promise<unknown>;
+    set: (key: string, value: unknown, scope?: Scope) => Promise<unknown>;
+  };
   readonly theme: string | null;
+  tools: {
+    call: (name: string, args?: Record<string, unknown>) => Promise<unknown>;
+  };
   readonly version: unknown;
   readonly viewer: string | null;
 }
@@ -87,9 +105,9 @@ class Inbox {
 }
 
 const makeEnv = (
-  options: { framed?: boolean; withObserver?: boolean } = {}
+  options: { framed?: boolean; name?: string; withObserver?: boolean } = {}
 ) => {
-  const { framed = true, withObserver = false } = options;
+  const { framed = true, name, withObserver = false } = options;
   const posted: Posted[] = [];
   const listeners = new Map<string, Listener[]>();
   const documentListeners = new Map<string, Listener[]>();
@@ -115,6 +133,9 @@ const makeEnv = (
   };
   if (!framed) {
     win.parent = win;
+  }
+  if (name !== undefined) {
+    win.name = name;
   }
   let rect = { height: 100.2, width: 640.7 };
   if (withObserver) {
@@ -536,5 +557,254 @@ describe("bridge storage stand-ins", () => {
     (env.win.localStorage as Storage).setItem("k", "local");
     expect((env.win.sessionStorage as Storage).getItem("k")).toBeNull();
     expect(env.win.localStorage).toBe(env.win.localStorage);
+  });
+});
+
+describe("bridge nonce", () => {
+  const initParams = (env: Env) =>
+    uiInitializeRequestSchema.parse(env.posted[0]?.message).params;
+
+  test("window.name is sent as the nonce in ui/initialize", () => {
+    const env = makeEnv({ name: "abc123" });
+    expect(
+      uiInitializeRequestSchema.parse(env.posted[0]?.message).params
+    ).toEqual({
+      appInfo: { name: "harbourmaster-bridge", version: "1" },
+      nonce: "abc123",
+      protocolVersion: "2026-01-26",
+    });
+  });
+
+  test("no name, or an empty one, sends no nonce key", () => {
+    for (const name of [undefined, ""]) {
+      expect("nonce" in initParams(makeEnv({ name }))).toBe(false);
+    }
+  });
+
+  test("links to other pages of the artifact are left to the browser, the name travels with the tab", async () => {
+    const env = makeEnv({ name: "abc123" });
+    const inbox = connect(env);
+    await inbox.take(2);
+    expect(env.click(link(`${FOLDER}page2.html#top`)).defaultPrevented).toBe(
+      false
+    );
+  });
+});
+
+describe("bridge phase 2 API", () => {
+  const respond = (id: number, result: unknown) => {
+    channels.at(0)?.port1.postMessage({ id, jsonrpc: "2.0", result });
+  };
+
+  /** Starts one call on a connected page, answers it, and returns what the frame saw. */
+  const roundTrip = async (
+    inbox: Inbox,
+    start: () => Promise<unknown>,
+    reply: unknown
+  ) => {
+    const pending = start();
+    const [, , sent] = await inbox.take(3);
+    respond((sent as { id: number }).id, reply);
+    return { result: await pending, sent };
+  };
+
+  test("tools.call sends tools/call and resolves to the frame result", async () => {
+    const env = makeEnv();
+    const inbox = connect(env);
+    await inbox.take(2);
+
+    const reply = {
+      content: [{ text: "hi", type: "text" }],
+      structuredContent: { n: 1 },
+    };
+    const { result, sent } = await roundTrip(
+      inbox,
+      () => env.harbourmaster.tools.call("search", { q: "x" }),
+      reply
+    );
+    expect(toolsCallRequestSchema.parse(sent).params).toEqual({
+      arguments: { q: "x" },
+      name: "search",
+    });
+    expect(result).toEqual(reply);
+  });
+
+  test("tools.call omits arguments when none are given", async () => {
+    const env = makeEnv();
+    const inbox = connect(env);
+    await inbox.take(2);
+
+    const { sent } = await roundTrip(
+      inbox,
+      () => env.harbourmaster.tools.call("ping"),
+      { content: [] }
+    );
+    const { params } = toolsCallRequestSchema.parse(sent);
+    expect(params).toEqual({ name: "ping" });
+    expect("arguments" in params).toBe(false);
+  });
+
+  test("storage.get defaults to viewer scope and unwraps the value", async () => {
+    const env = makeEnv();
+    const inbox = connect(env);
+    await inbox.take(2);
+
+    const { result, sent } = await roundTrip(
+      inbox,
+      () => env.harbourmaster.storage.get("draft"),
+      { value: { step: 2 } }
+    );
+    expect(storageGetRequestSchema.parse(sent).params).toEqual({
+      key: "draft",
+      scope: "viewer",
+    });
+    expect(result).toEqual({ step: 2 });
+  });
+
+  test("storage.get with shared scope resolves null when nothing is stored", async () => {
+    const env = makeEnv();
+    const inbox = connect(env);
+    await inbox.take(2);
+
+    const { result, sent } = await roundTrip(
+      inbox,
+      () => env.harbourmaster.storage.get("board", "shared"),
+      { value: null }
+    );
+    expect(storageGetRequestSchema.parse(sent).params).toEqual({
+      key: "board",
+      scope: "shared",
+    });
+    expect(result).toBeNull();
+  });
+
+  test("storage.set sends the value and resolves to undefined", async () => {
+    const env = makeEnv();
+    const inbox = connect(env);
+    await inbox.take(2);
+
+    const { result, sent } = await roundTrip(
+      inbox,
+      () => env.harbourmaster.storage.set("n", [1, "two"], "shared"),
+      {}
+    );
+    expect(storageSetRequestSchema.parse(sent).params).toEqual({
+      key: "n",
+      scope: "shared",
+      value: [1, "two"],
+    });
+    expect(result).toBeUndefined();
+  });
+
+  test("storage.delete sends storage/delete with the default scope", async () => {
+    const env = makeEnv();
+    const inbox = connect(env);
+    await inbox.take(2);
+
+    const { result, sent } = await roundTrip(
+      inbox,
+      () => env.harbourmaster.storage.delete("gone"),
+      {}
+    );
+    expect(storageDeleteRequestSchema.parse(sent).params).toEqual({
+      key: "gone",
+      scope: "viewer",
+    });
+    expect(result).toBeUndefined();
+  });
+
+  test("storage.list omits prefix when undefined and resolves to the keys", async () => {
+    const env = makeEnv();
+    const inbox = connect(env);
+    await inbox.take(2);
+
+    const all = await roundTrip(inbox, () => env.harbourmaster.storage.list(), {
+      keys: ["a", "b"],
+    });
+    const allParams = storageListRequestSchema.parse(all.sent).params;
+    expect(allParams).toEqual({ scope: "viewer" });
+    expect("prefix" in allParams).toBe(false);
+    expect(all.result).toEqual(["a", "b"]);
+  });
+
+  test("storage.list sends the prefix and scope", async () => {
+    const env = makeEnv();
+    const inbox = connect(env);
+    await inbox.take(2);
+
+    const { result, sent } = await roundTrip(
+      inbox,
+      () => env.harbourmaster.storage.list("note:", "shared"),
+      { keys: ["note:1"] }
+    );
+    expect(storageListRequestSchema.parse(sent).params).toEqual({
+      prefix: "note:",
+      scope: "shared",
+    });
+    expect(result).toEqual(["note:1"]);
+  });
+
+  test("sendMessage sends a user ui/message and resolves to undefined", async () => {
+    const env = makeEnv();
+    const inbox = connect(env);
+    await inbox.take(2);
+
+    const { result, sent } = await roundTrip(
+      inbox,
+      () => env.harbourmaster.sendMessage("hello"),
+      {}
+    );
+    expect(uiMessageRequestSchema.parse(sent).params).toEqual({
+      content: [{ text: "hello", type: "text" }],
+      role: "user",
+    });
+    expect(result).toBeUndefined();
+  });
+
+  test("an error response rejects with its message and code", async () => {
+    const env = makeEnv();
+    const inbox = connect(env);
+    await inbox.take(2);
+
+    const pending = env.harbourmaster.tools.call("broken");
+    const [, , sent] = await inbox.take(3);
+    channels.at(0)?.port1.postMessage({
+      error: { code: -32_602, message: "bad arguments" },
+      id: (sent as { id: number }).id,
+      jsonrpc: "2.0",
+    });
+    const error = await pending.catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("bad arguments");
+    expect((error as Error & { code: number }).code).toBe(-32_602);
+  });
+
+  test("a call made before the handshake is sent once connected", async () => {
+    const env = makeEnv();
+    const pending = env.harbourmaster.storage.get("early", "shared");
+    const inbox = connect(env);
+
+    const [, , sent] = await inbox.take(3);
+    expect(storageGetRequestSchema.parse(sent).params).toEqual({
+      key: "early",
+      scope: "shared",
+    });
+    respond((sent as { id: number }).id, { value: "later" });
+    expect(await pending).toBe("later");
+  });
+
+  test("calls reject with not connected when the page was opened directly", async () => {
+    const env = makeEnv({ framed: false });
+    await expect(env.harbourmaster.tools.call("x")).rejects.toThrow(
+      "not connected"
+    );
+    await expect(env.harbourmaster.storage.get("k")).rejects.toThrow(
+      "not connected"
+    );
+    await expect(env.harbourmaster.sendMessage("hi")).rejects.toThrow(
+      "not connected"
+    );
+    expect(Object.isFrozen(env.harbourmaster.tools)).toBe(true);
+    expect(Object.isFrozen(env.harbourmaster.storage)).toBe(true);
   });
 });

@@ -124,6 +124,24 @@ export const BRIDGE_JS = `(function () {
     contentFolder = null;
   }
 
+  // The viewer sets the iframe's name attribute to a nonce, and accepts a port
+  // only from a page that sends it back. window.name survives every
+  // navigation in the same tab, so the next page of the artifact has it too. It
+  // is defence in depth, not a secret: this page's own scripts can read it.
+  // The grants are what limit a page. A page that
+  // assigns window.name itself loses the nonce, and the frame blanks.
+  function readNonce() {
+    try {
+      var name = window.name;
+      return typeof name === "string" && name !== "" ? name : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  // Taken once, before any page script can reassign it.
+  var parentWindow = window.parent;
+  var nonce = readNonce();
   var port = null;
   var initResult = null;
   var nextId = 2;
@@ -134,11 +152,6 @@ export const BRIDGE_JS = `(function () {
   });
 
   function request(method, params) {
-    // PHASE 2 EXTENSION POINT
-    // Phase 2 adds tools.call(...) and storage.get/set/delete/list(...) to
-    // window.harbourmaster as thin wrappers over request(), using the
-    // tools/call and storage/* methods from the protocol package
-    // (packages/protocol/src/artifacts.ts). They are not implemented yet.
     return new Promise(function (resolve, reject) {
       if (!port) {
         reject(new Error("Harbourmaster bridge is not connected"));
@@ -167,6 +180,69 @@ export const BRIDGE_JS = `(function () {
       );
     }
     return request("ui/open-link", { url: String(url) });
+  }
+
+  // Waits for the handshake, so a call made early still goes out once connected.
+  function call(method, params) {
+    return ready.then(function () {
+      return request(method, params);
+    });
+  }
+
+  function scopeOf(scope) {
+    return scope === undefined ? "viewer" : scope;
+  }
+
+  function noValue() {}
+
+  var tools = Object.freeze({
+    call: function (name, args) {
+      var params = { name: String(name) };
+      if (args !== undefined) {
+        params.arguments = args;
+      }
+      return call("tools/call", params);
+    },
+  });
+
+  var storage = Object.freeze({
+    delete: function (key, scope) {
+      return call("storage/delete", {
+        key: String(key),
+        scope: scopeOf(scope),
+      }).then(noValue);
+    },
+    get: function (key, scope) {
+      return call("storage/get", {
+        key: String(key),
+        scope: scopeOf(scope),
+      }).then(function (result) {
+        return result.value;
+      });
+    },
+    list: function (prefix, scope) {
+      var params = { scope: scopeOf(scope) };
+      if (prefix !== undefined) {
+        params.prefix = String(prefix);
+      }
+      return call("storage/list", params).then(function (result) {
+        return result.keys;
+      });
+    },
+    set: function (key, value, scope) {
+      return call("storage/set", {
+        key: String(key),
+        scope: scopeOf(scope),
+        value: value,
+      }).then(noValue);
+    },
+  });
+
+  function sendMessage(text) {
+    return call("ui/message", {
+      content: [{ text: String(text), type: "text" }],
+      role: "user",
+    }).then(noValue);
   }
 
   function handlePortMessage(event) {
@@ -267,10 +343,17 @@ export const BRIDGE_JS = `(function () {
   function startHandshake() {
     var tries = 0;
     var timer = null;
+    var initParams = {
+      appInfo: { name: "harbourmaster-bridge", version: "1" },
+      protocolVersion: PROTOCOL_VERSION,
+    };
+    if (nonce !== null) {
+      initParams.nonce = nonce;
+    }
 
     window.addEventListener("message", function (event) {
       try {
-        if (port || event.source !== window.parent) {
+        if (port || event.source !== parentWindow) {
           return;
         }
         if (!isInitializeResponse(event.data)) {
@@ -301,15 +384,12 @@ export const BRIDGE_JS = `(function () {
       }
       tries += 1;
       try {
-        window.parent.postMessage(
+        parentWindow.postMessage(
           {
             id: 1,
             jsonrpc: "2.0",
             method: "ui/initialize",
-            params: {
-              appInfo: { name: "harbourmaster-bridge", version: "1" },
-              protocolVersion: PROTOCOL_VERSION,
-            },
+            params: initParams,
           },
           "*"
         );
@@ -322,7 +402,7 @@ export const BRIDGE_JS = `(function () {
   }
 
   try {
-    if (window.parent === window) {
+    if (parentWindow === window) {
       resolveReady(null);
     } else {
       startHandshake();
@@ -349,6 +429,9 @@ export const BRIDGE_JS = `(function () {
       openLink: openLink,
       ready: ready,
       request: request,
+      sendMessage: sendMessage,
+      storage: storage,
+      tools: tools,
     });
   } catch (_error) {
     // The page keeps running without the API.
