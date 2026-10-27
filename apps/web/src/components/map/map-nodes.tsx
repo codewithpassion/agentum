@@ -132,7 +132,7 @@ function PortChip({
       {editor && agentId !== null ? (
         <button
           aria-label={`Remove ${port.label}`}
-          className="nodrag nopan cursor-pointer leading-none hover:text-destructive"
+          className="nodrag nopan pointer-coarse:hidden cursor-pointer leading-none hover:text-destructive"
           onClick={remove}
           type="button"
         >

@@ -66,7 +66,7 @@ export function CountEdge({
         <EdgeLabelRenderer>
           <button
             aria-label="Delete wire"
-            className="nodrag nopan pointer-events-auto absolute grid size-5 cursor-pointer place-items-center rounded-full border border-border bg-card text-[13px] text-muted-foreground leading-none hover:border-destructive hover:text-destructive"
+            className="nodrag nopan pointer-events-auto absolute grid pointer-coarse:hidden size-5 cursor-pointer place-items-center rounded-full border border-border bg-card text-[13px] text-muted-foreground leading-none hover:border-destructive hover:text-destructive"
             onClick={handleDelete}
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY + 20}px)`,

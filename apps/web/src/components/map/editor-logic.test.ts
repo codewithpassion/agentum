@@ -2,8 +2,10 @@ import { expect, test } from "bun:test";
 import type { MachineRecord } from "#/integrations/trpc/types";
 import {
   buildPalette,
+  connectChoices,
   decodeNewNode,
   decodeTool,
+  deletableWiresFrom,
   disconnectMessage,
   type EditGraph,
   encodeNewNode,
@@ -567,4 +569,27 @@ test("buildPalette adds the built-in browser as its own section", () => {
     ],
     title: "Browser",
   });
+});
+
+test("connectChoices lists the agents a movable trigger is not wired to yet", () => {
+  expect(connectChoices(graph, "trigger:h1")).toEqual([
+    { key: "agent:bookkeeper", label: "Bookkeeper" },
+  ]);
+  expect(connectChoices(graph, "trigger:r1").map((c) => c.key)).toEqual([
+    "agent:researcher",
+    "agent:bookkeeper",
+  ]);
+});
+
+test("connectChoices is empty for a trigger that cannot be moved and for non-triggers", () => {
+  expect(connectChoices(graph, "trigger:m1")).toEqual([]);
+  expect(connectChoices(graph, "agent:researcher")).toEqual([]);
+});
+
+test("deletableWiresFrom gives the canvas edge id of each deletable wire", () => {
+  expect(deletableWiresFrom(graph, "trigger:h1")).toEqual([
+    { edgeId: "trigger:trigger:h1:agent:researcher", label: "Researcher" },
+  ]);
+  expect(deletableWiresFrom(graph, "trigger:slack:T1")).toEqual([]);
+  expect(deletableWiresFrom(graph, "agent:researcher")).toEqual([]);
 });

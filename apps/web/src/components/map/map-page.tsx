@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -18,6 +19,7 @@ import {
 import { useNowMs } from "#/components/task/use-now-ms.ts";
 import { errorMessage } from "#/components/triggers/format.ts";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
+import { useIsMobile } from "#/hooks/use-mobile.ts";
 import { getTrpc } from "#/integrations/trpc/client";
 import {
   disconnectMessage,
@@ -38,6 +40,7 @@ import {
 import { MapEditContext } from "./map-edit-context.ts";
 import { MapInspectorPane } from "./map-inspector-pane.tsx";
 import { agentIdOf, runCountsByAgent } from "./map-logic.ts";
+import { PickBanner, SideArea } from "./map-touch-panels.tsx";
 import { NewTriggerFlow } from "./new-trigger-flow.tsx";
 import {
   forgetAgentDrop,
@@ -45,7 +48,7 @@ import {
   rememberAgentDrop,
   resolveAgentDrop,
 } from "./pending-drop.ts";
-import { ToolPalette } from "./tool-palette.tsx";
+import { useTapToPlug } from "./use-tap-to-plug.ts";
 
 const TASK_WINDOW = 100;
 
@@ -158,6 +161,8 @@ const NEW_AGENT_PATH = "/agents/new";
 
 export function MapPage() {
   const nowMs = useNowMs();
+  const isMobile = useIsMobile();
+  const boardRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>("runs");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -398,10 +403,28 @@ export function MapPage() {
     [editor, deleteWire, plug, unplug]
   );
 
-  const changeMode = useCallback((next: Mode) => {
-    setMode(next);
-    setEditError(null);
-  }, []);
+  const { clearPick, pickTool, picked, selectNode } = useTapToPlug({
+    boardRef,
+    plug,
+    select: setSelectedKey,
+  });
+  const touch = useMemo(
+    () => ({
+      onConnectWire: connectWire,
+      onDeleteWire: deleteWire,
+      onUnplug: unplug,
+    }),
+    [connectWire, deleteWire, unplug]
+  );
+
+  const changeMode = useCallback(
+    (next: Mode) => {
+      setMode(next);
+      clearPick();
+      setEditError(null);
+    },
+    [clearPick]
+  );
   const closeInspector = useCallback(() => setSelectedKey(null), []);
   const reload = useCallback(() => {
     refresh();
@@ -409,6 +432,20 @@ export function MapPage() {
   const selected =
     data?.graph.nodes.find((node) => node.key === selectedKey) ?? null;
 
+  const inspector =
+    data === null || nowMs === null || selected === null ? null : (
+      <MapInspectorPane
+        editor={editor}
+        graph={data.graph}
+        key={`${selected.key}:${editor}`}
+        node={selected}
+        nowMs={nowMs}
+        onAnswer={answer}
+        onChanged={reload}
+        onClose={closeInspector}
+        touch={isMobile ? touch : undefined}
+      />
+    );
   return (
     <section className="mx-auto flex max-w-7xl flex-col gap-4">
       <header className="flex flex-wrap items-center gap-3">
@@ -437,48 +474,48 @@ export function MapPage() {
       ) : (
         <div className="flex flex-wrap items-start gap-4">
           <div
-            className="h-[min(70vh,640px)] min-w-0 flex-[999_1_600px] overflow-hidden rounded-xl border border-border"
-            data-testid="map-board"
+            className="flex min-w-0 flex-[999_1_600px] scroll-mt-20 flex-col gap-2"
+            ref={boardRef}
           >
-            <MapEditContext.Provider value={editApi}>
-              <MapCanvas
-                agents={data.agents}
-                editor={editor}
-                graph={data.graph}
-                onConnectWire={connectWire}
-                onDropNew={dropNew}
-                onSavePositions={savePositions}
-                onSelect={setSelectedKey}
-                qaOpenCount={data.qaOpenCount}
-                runCounts={runCounts}
-                selectedKey={selectedKey}
-              />
-            </MapEditContext.Provider>
-          </div>
-          {editor || selected !== null ? (
-            <div className="flex min-w-0 flex-[1_1_300px] flex-col gap-4 lg:min-w-[360px]">
-              {editor ? <ToolPalette /> : null}
-              {selected === null ? null : (
-                <MapInspectorPane
+            {picked === null ? null : (
+              <PickBanner item={picked} onCancel={clearPick} />
+            )}
+            <div
+              className="h-[min(70vh,640px)] overflow-hidden rounded-xl border border-border"
+              data-testid="map-board"
+            >
+              <MapEditContext.Provider value={editApi}>
+                <MapCanvas
+                  agents={data.agents}
                   editor={editor}
                   graph={data.graph}
-                  key={`${selected.key}:${editor}`}
-                  node={selected}
-                  nowMs={nowMs}
-                  onAnswer={answer}
-                  onChanged={reload}
-                  onClose={closeInspector}
+                  onConnectWire={connectWire}
+                  onDropNew={dropNew}
+                  onSavePositions={savePositions}
+                  onSelect={selectNode}
+                  qaOpenCount={data.qaOpenCount}
+                  runCounts={runCounts}
+                  selectedKey={selectedKey}
                 />
-              )}
+              </MapEditContext.Provider>
             </div>
-          ) : null}
+          </div>
+          <SideArea
+            editor={editor}
+            inspector={inspector}
+            isMobile={isMobile}
+            label={selected?.label ?? "Selected node"}
+            onClose={closeInspector}
+            onPick={pickTool}
+            pickedKey={picked?.key ?? null}
+          />
         </div>
       )}
       <p className="text-muted-foreground text-xs">
         Green wires carried work in the last 7 days, grey ones are idle. Counts
         are items passed along each wire.
         {editor
-          ? " Drag nodes to move them, draw a wire from a trigger to an agent, and drop a tool on an agent to plug it in."
+          ? " Drag nodes to move them, draw a wire from a trigger to an agent, and drop a tool on an agent to plug it in. On a phone, tap a tool, then an agent, and use the node's panel to connect or unplug."
           : ""}
       </p>
       {confirm === null ? null : (
