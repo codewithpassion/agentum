@@ -250,7 +250,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
     <section className="mx-auto flex max-w-6xl flex-col gap-4">
       <nav aria-label="Breadcrumb" className="text-muted-foreground text-sm">
         <Link
-          className="inline-flex pointer-coarse:min-h-10 pointer-coarse:min-w-10 items-center"
+          className="pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:min-w-10 pointer-coarse:items-center"
           to="/desk"
         >
           Desk

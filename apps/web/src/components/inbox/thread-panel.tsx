@@ -60,8 +60,8 @@ export function ThreadPanel({
         posts={view.data.posts}
         userId={userId}
       />
-      <div ref={end} />
       <PostComposer onSent={handleSent} threadId={threadId} />
+      <div ref={end} />
     </section>
   );
 }

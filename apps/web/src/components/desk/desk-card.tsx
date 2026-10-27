@@ -29,7 +29,7 @@ export function DeskCardView({
           {agentInitials(agentName)}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="font-semibold max-md:line-clamp-2 md:truncate">
+          <div className="break-words font-semibold max-md:line-clamp-2 md:truncate">
             {card.title}
           </div>
           <div className="truncate text-muted-foreground text-xs">

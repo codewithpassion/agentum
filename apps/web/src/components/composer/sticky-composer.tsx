@@ -47,7 +47,7 @@ export function StickyComposer({
   return (
     <div
       className={cn(
-        "sticky bottom-[var(--keyboard-inset)] z-10 border-t pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:static md:border-t-0 md:bg-transparent md:p-0",
+        "sticky bottom-[var(--keyboard-inset)] z-10 border-t pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:static md:z-auto md:border-t-0 md:bg-transparent md:p-0",
         background
       )}
       style={style}
