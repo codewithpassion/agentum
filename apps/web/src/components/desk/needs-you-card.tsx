@@ -1,5 +1,7 @@
 import type { DeskCard, NeedsYouKind } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
+import { GrantApprovalCard } from "#/components/artifacts/grant-approval-card.tsx";
+import { parsePromoteApproval } from "#/components/artifacts/grant-approval-model.ts";
 import { RequestCard } from "#/components/requests/request-card.tsx";
 import type {
   AnswerPayload,
@@ -99,6 +101,24 @@ function NeedsYouBody({
 }: NeedsYouBodyProps) {
   switch (card.needsYouKind) {
     case "approval":
+      if (request?.kind === "approval") {
+        const promote = parsePromoteApproval(request.display);
+        if (promote !== null) {
+          return (
+            <GrantApprovalCard
+              expiresAt={request.expiresAt}
+              items={promote}
+              nowMs={nowMs}
+              onChanged={onChanged}
+            />
+          );
+        }
+      }
+      return request === null ? (
+        <AskFallback card={card} />
+      ) : (
+        <RequestCard nowMs={nowMs} onAnswer={onAnswer} view={request} />
+      );
     case "question":
     case "takeover":
       return request === null ? (

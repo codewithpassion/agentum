@@ -26,7 +26,7 @@ import {
   type CredentialOwner as Owner,
   writeCredential,
 } from "./connectors/credential-write.ts";
-import type { Fetcher } from "./connectors/mcp.ts";
+import { type Fetcher, probeMcpServer } from "./connectors/mcp.ts";
 import {
   buildAuthorizeUrl,
   challengeFor,
@@ -190,6 +190,31 @@ export const createConnectorOAuthService = ({
     }
     importedKey ??= importSecretsKey(secretsKey);
     return importedKey;
+  };
+
+  /**
+   * Reads the tool list with the new token and caches it, as pasting a header
+   * credential does. A connector made before sign-in has an empty list, and
+   * artifact grants and tool pickers read the cache. Best effort: a server that
+   * answers badly leaves the old list.
+   */
+  const cacheTools = async (
+    connector: { id: string; url: string },
+    accessToken: string,
+    fetchedAt: string
+  ): Promise<void> => {
+    try {
+      const { tools } = await probeMcpServer(connector.url, {
+        fetchImpl,
+        token: accessToken,
+      });
+      await db
+        .update(connectors)
+        .set({ tools: JSON.stringify(tools), toolsFetchedAt: fetchedAt })
+        .where(eq(connectors.id, connector.id));
+    } catch {
+      // The credential is saved; the tool list refreshes on the next connect.
+    }
   };
 
   const saveConfig = async (
@@ -461,6 +486,7 @@ export const createConnectorOAuthService = ({
         workspaceId: row.workspaceId,
       }
     );
+    await cacheTools(connector, tokens.accessToken, now.toISOString());
     await events.append({
       actor: { id: user.userId, kind: "user" },
       agentId: owner.kind === "agent" ? owner.id : null,

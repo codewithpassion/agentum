@@ -102,3 +102,59 @@ test("concurrent first calls for one org leave one row with one id", async () =>
   expect(ids.size).toBe(1);
   expect(rowsFor("org_a")).toHaveLength(1);
 });
+
+const withNames = (
+  names: Record<string, string | null>,
+  calls: string[] = []
+) =>
+  createWorkspacesService({
+    allowedOrgIds: ["org_a"],
+    db,
+    orgName: (clerkOrgId) => {
+      calls.push(clerkOrgId);
+      return Promise.resolve(names[clerkOrgId] ?? null);
+    },
+  });
+
+test("forOrg names a new workspace after the Clerk organisation", async () => {
+  const workspace = await withNames({ org_a: "Acme Pty" }).forOrg({
+    clerkOrgId: "org_a",
+  });
+  expect(workspace?.name).toBe("Acme Pty");
+});
+
+test("forOrg falls back to the org id when Clerk has no name or fails", async () => {
+  expect((await withNames({}).forOrg({ clerkOrgId: "org_a" }))?.name).toBe(
+    "org_a"
+  );
+  db = migrated();
+  const failing = createWorkspacesService({
+    allowedOrgIds: ["org_a"],
+    db,
+    orgName: () => Promise.reject(new Error("Clerk is down")),
+  });
+  expect((await failing.forOrg({ clerkOrgId: "org_a" }))?.name).toBe("org_a");
+});
+
+test("forOrg renames a row still named by its org id once Clerk has a name", async () => {
+  const first = await service().forOrg({ clerkOrgId: "org_a" });
+  expect(first?.name).toBe("org_a");
+  const later = await withNames({ org_a: "Acme Pty" }).forOrg({
+    clerkOrgId: "org_a",
+  });
+  expect(later).toEqual({
+    clerkOrgId: "org_a",
+    id: first?.id as string,
+    name: "Acme Pty",
+    timezone: "UTC",
+  });
+  expect(rowsFor("org_a")).toHaveLength(1);
+});
+
+test("forOrg leaves a named workspace alone and does not call Clerk", async () => {
+  const calls: string[] = [];
+  const svc = withNames({ org_a: "Acme Pty" }, calls);
+  await svc.forOrg({ clerkOrgId: "org_a" });
+  await svc.forOrg({ clerkOrgId: "org_a" });
+  expect(calls).toEqual(["org_a"]);
+});

@@ -158,6 +158,134 @@ export interface LibraryVersionInfo {
   version: number;
 }
 
+/** Kinds an agent can publish. */
+export type ArtifactKindInput = "page" | "doc" | "dashboard" | "app";
+
+/** One file of a version, given as text or base64 bytes. */
+export interface ArtifactFileInput {
+  base64?: string;
+  path: string;
+  text?: string;
+}
+
+/** What `artifact_create` sends to the port. `entry` is always set. */
+export interface ArtifactCreateInput {
+  description?: string;
+  entry: string;
+  files?: ArtifactFileInput[];
+  fromLibraryPath?: string;
+  kind: ArtifactKindInput;
+  message?: string;
+  title: string;
+}
+
+/** What `artifact_update` sends to the port. Without `entry` the version keeps the current one. */
+export interface ArtifactUpdateInput {
+  artifactId: string;
+  baseVersion: number;
+  entry?: string;
+  files?: ArtifactFileInput[];
+  fromLibraryPath?: string;
+  message?: string;
+  title?: string;
+}
+
+/** A published version. Never carries a view or share token. */
+export interface ArtifactPublished {
+  artifactId: string;
+  bytes: number;
+  files: number;
+  /** The sign-in URL, `https://<app>/a/<artifactId>`. */
+  url: string;
+  version: number;
+  versionId: string;
+}
+
+export interface ArtifactVersionInfo {
+  authorKind: "user" | "agent";
+  createdAt: string;
+  message: string | null;
+  number: number;
+  versionId: string;
+}
+
+export interface ArtifactFileText {
+  contentType: string;
+  path: string;
+  size: number;
+  text: string;
+  version: number;
+}
+
+export interface ArtifactReadInfo {
+  artifactId: string;
+  audience: string;
+  currentVersion: number;
+  description: string | null;
+  /** The text of the requested file, or of the entry file of the requested version. */
+  file: ArtifactFileText;
+  kind: string;
+  title: string;
+  url: string;
+  versions: ArtifactVersionInfo[];
+}
+
+export interface ArtifactSummary {
+  artifactId: string;
+  audience: string;
+  currentVersion: number;
+  description: string | null;
+  kind: string;
+  title: string;
+  updatedAt: string;
+  url: string;
+}
+
+export interface ArtifactTestInfo {
+  /** Console errors and warnings, CSP violations included. */
+  consoleMessages: { level: "error" | "warning"; text: string }[];
+  /** Requests that failed or answered 4xx/5xx. `status` is null when none came back. */
+  failedRequests: { status: number | null; url: string }[];
+  /** Library path of the screenshot saved in the run's task folder. */
+  screenshotPath: string;
+  /** Text snapshot of the page. */
+  snapshot: string;
+  title: string;
+  version: number;
+}
+
+/**
+ * Artifacts as the tools see them, bound to the run. A port throws `ToolError`
+ * with `forbidden` for an artifact the run may not write, `not_found`, and
+ * `conflict` for a stale `baseVersion` with the current version in the message.
+ * `promote` answers `waiting` when a person must approve the version's grants.
+ */
+export interface ArtifactsPort {
+  create: (input: ArtifactCreateInput) => Promise<ArtifactPublished>;
+  list: (input: {
+    cursor?: string;
+    kind?: ArtifactKindInput;
+  }) => Promise<{ items: ArtifactSummary[]; next?: string }>;
+  promote: (input: {
+    artifactId: string;
+    version?: number;
+  }) => Promise<
+    | { status: "promoted"; version: number }
+    | { status: "waiting"; version: number }
+  >;
+  read: (input: {
+    artifactId: string;
+    path?: string;
+    version?: number;
+  }) => Promise<ArtifactReadInfo>;
+  test: (input: {
+    artifactId: string;
+    version?: number;
+    viewport?: "desktop" | "phone";
+  }) => Promise<ArtifactTestInfo>;
+  update: (input: ArtifactUpdateInput) => Promise<ArtifactPublished>;
+}
+
 export interface WikiPageInfo {
   backlinks: { path: string; title: string }[];
   body: string;
@@ -630,6 +758,8 @@ export interface McpPorts {
     skillId: string;
     version: number;
   }) => Promise<SkillVersionInfo>;
+  /** Set once the app wires artifacts; the artifact tools are offered only then. */
+  artifacts?: ArtifactsPort;
   assignSkill: (input: {
     agent: string;
     skillId: string;

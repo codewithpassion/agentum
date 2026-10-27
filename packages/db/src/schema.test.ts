@@ -33,6 +33,14 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "agent_tool_rules",
     "agents",
     "api_keys",
+    "artifact_grants",
+    "artifact_pins",
+    "artifact_shares",
+    "artifact_version_files",
+    "artifact_versions",
+    "artifact_view_salts",
+    "artifact_views",
+    "artifacts",
     "browser_sessions",
     "connectors",
     "credentials",
@@ -91,7 +99,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(52);
+  expect(tables.length).toBe(60);
 
   for (const table of tables) {
     const column = client
@@ -122,6 +130,27 @@ test("the computer columns are nullable and the enrol token defaults to agent_ho
   const role = find("machine_enroll_tokens", "role");
   expect(role?.notnull).toBe(1);
   expect(role?.dflt_value).toBe("'agent_host'");
+});
+
+test("workspaces.artifact_links_enabled is NOT NULL, defaults to 1 and is true on a bare insert", () => {
+  const db = migrated();
+  const column = db.client
+    .query<Column, []>("PRAGMA table_info(workspaces)")
+    .all()
+    .find((c) => c.name === "artifact_links_enabled");
+  expect(column?.notnull).toBe(1);
+  // drizzle writes the boolean default as the SQL literal `true`, which SQLite stores as 1.
+  expect(column?.dflt_value).toBe("true");
+  db.client.run(
+    "INSERT INTO workspaces (id, clerk_org_id, created_at, name, timezone) VALUES ('w1', 'org_w1', 'x', 'w1', 'UTC')"
+  );
+  expect(
+    db.client
+      .query<{ artifact_links_enabled: number }, []>(
+        "SELECT artifact_links_enabled FROM workspaces WHERE id = 'w1'"
+      )
+      .get()?.artifact_links_enabled
+  ).toBe(1);
 });
 
 test("agents.computer_machine_id is a partial unique index", () => {

@@ -251,6 +251,30 @@ const listTools = async (
 };
 
 /**
+ * `initialize` and `notifications/initialized`. The notification is required by
+ * the spec before any other request, and answered with 202 and no body. A
+ * server that rejects it is not a reason to fail.
+ */
+const handshake = async (
+  url: string,
+  options: McpClientOptions,
+  session: Session
+): Promise<JsonRpcResponse | null> => {
+  const initialized = await callRpc(url, options, session, {
+    method: "initialize",
+    params: {
+      capabilities: {},
+      clientInfo: CLIENT_INFO,
+      protocolVersion: PROTOCOL_VERSION,
+    },
+  });
+  await callRpc(url, options, session, {
+    method: "notifications/initialized",
+  }).catch(() => null);
+  return initialized;
+};
+
+/**
  * One round trip through the handshake and the tool list. Throws
  * `McpUnauthorizedError` (the ladder's trigger), `McpError`, or whatever
  * `fetch` threw for a connection failure.
@@ -262,20 +286,7 @@ export const probeMcpServer = async (
   const url = assertSafeUrl(rawUrl).toString();
   const session: Session = { id: null };
 
-  const initialized = await callRpc(url, options, session, {
-    method: "initialize",
-    params: {
-      capabilities: {},
-      clientInfo: CLIENT_INFO,
-      protocolVersion: PROTOCOL_VERSION,
-    },
-  });
-
-  // Required by the spec before any other request, and answered with 202 and no
-  // body. A server that rejects it is not a reason to fail the probe.
-  await callRpc(url, options, session, {
-    method: "notifications/initialized",
-  }).catch(() => null);
+  const initialized = await handshake(url, options, session);
 
   const serverInfo = initialized?.result?.serverInfo as
     | { name?: unknown }
@@ -285,4 +296,26 @@ export const probeMcpServer = async (
     serverName: typeof serverInfo?.name === "string" ? serverInfo.name : null,
     tools: await listTools(url, options, session),
   };
+};
+
+/**
+ * The handshake, then one `tools/call`. Returns the JSON-RPC `result` as is,
+ * so an `isError` result is data for the caller. Errors are those of
+ * `probeMcpServer`.
+ */
+export const callMcpTool = async (
+  rawUrl: string,
+  options: McpClientOptions,
+  call: { arguments: Record<string, unknown>; name: string }
+): Promise<Record<string, unknown>> => {
+  const url = assertSafeUrl(rawUrl).toString();
+  const session: Session = { id: null };
+
+  await handshake(url, options, session);
+
+  const envelope = await callRpc(url, options, session, {
+    method: "tools/call",
+    params: { arguments: call.arguments, name: call.name },
+  });
+  return envelope?.result ?? {};
 };

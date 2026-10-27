@@ -26,9 +26,9 @@ import { ServiceError } from "./errors.ts";
 import { redactToolPayload } from "./events/scrub.ts";
 import type { EventInput, EventsService } from "./events.ts";
 import {
-  isMailApproval,
+  isDetachedApproval,
   mailSendError,
-  notMailApproval,
+  notDetachedApproval,
 } from "./mail/approval.ts";
 import { askKeysOf } from "./requests/ask-keys.ts";
 import {
@@ -294,7 +294,7 @@ export const createRequestsService = ({
         and(
           eq(runRequests.runId, runId),
           eq(runRequests.status, "pending"),
-          notMailApproval
+          notDetachedApproval
         )
       )
       .limit(1);
@@ -471,8 +471,8 @@ export const createRequestsService = ({
     return requestRecord(row);
   };
   const waitForRuntime = async (row: RequestRow) => {
-    // Mail approvals outlive the run; the tool returns immediately.
-    if (isMailApproval(row)) {
+    // Mail and promote approvals outlive the run; the tool returns immediately.
+    if (isDetachedApproval(row)) {
       return;
     }
     await runs.markWaiting(SYSTEM_PRINCIPAL, row.runId);
@@ -480,7 +480,7 @@ export const createRequestsService = ({
     await markRunningIfSettled(row.runId);
   };
   const resume = async (row: RequestRow) => {
-    if (isMailApproval(row)) {
+    if (isDetachedApproval(row)) {
       return;
     }
     await markRunningIfSettled(row.runId);
@@ -609,7 +609,7 @@ export const createRequestsService = ({
         and(
           eq(runRequests.runId, run.id),
           eq(runRequests.workspaceId, run.workspaceId),
-          notMailApproval,
+          notDetachedApproval,
           eq(runRequests.status, "pending")
         )
       )

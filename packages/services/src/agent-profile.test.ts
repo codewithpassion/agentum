@@ -12,6 +12,7 @@ import type { RunStatus } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
 import { eq } from "drizzle-orm";
+import { PLATFORM_TOOL_LABELS } from "./agent-profile/ask-before.ts";
 import { createAgentProfileService } from "./agent-profile.ts";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
@@ -764,4 +765,16 @@ test("only a signed-in person may read or write a profile", async () => {
   await expect(
     service.setAskBefore(run, { action: "bash", agentId: a1, ask: true })
   ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("the artifact write tools have platform labels for Ask me before", () => {
+  expect(PLATFORM_TOOL_LABELS["harbourmaster/artifact_create"]).toBe(
+    "publishing a new artifact"
+  );
+  expect(PLATFORM_TOOL_LABELS["harbourmaster/artifact_promote"]).toBe(
+    "making a new version of an app live"
+  );
+  expect(PLATFORM_TOOL_LABELS["harbourmaster/artifact_update"]).toBe(
+    "publishing a new version of an artifact"
+  );
 });

@@ -20,6 +20,7 @@ export const settingsNav: readonly SettingsNavGroup[] = [
     items: [
       { label: "Connectors", to: "/settings/connectors" },
       { label: "Secrets", to: "/settings/secrets" },
+      { label: "Artifacts", to: "/settings/artifacts" },
     ],
     label: "Agents can use",
   },

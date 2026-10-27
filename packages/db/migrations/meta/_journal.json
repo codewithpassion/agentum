@@ -169,6 +169,13 @@
       "when": 1793041064032,
       "tag": "0023_icy_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1793070116768,
+      "tag": "0024_rare_jack_flag",
+      "breakpoints": true
     }
   ]
 }
