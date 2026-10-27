@@ -112,6 +112,13 @@ const uncalled = (name: string) => (): Promise<never> =>
 /** Ports where every method rejects with `error`, to test failures. */
 const failingPorts = (error: Error): McpPorts => ({
   approveSkillVersion: () => Promise.reject(error),
+  artifacts: {
+    create: () => Promise.reject(error),
+    list: () => Promise.reject(error),
+    read: () => Promise.reject(error),
+    test: () => Promise.reject(error),
+    update: () => Promise.reject(error),
+  },
   assignSkill: () => Promise.reject(error),
   cancelRun: () => Promise.reject(error),
   commitSkill: () => Promise.reject(error),
@@ -160,6 +167,13 @@ const failingPorts = (error: Error): McpPorts => ({
 /** Ports that answer what a test needs and reject any other call. */
 const fakePorts = (overrides: Partial<McpPorts>): McpPorts => ({
   approveSkillVersion: uncalled("approveSkillVersion"),
+  artifacts: {
+    create: uncalled("artifacts.create"),
+    list: uncalled("artifacts.list"),
+    read: uncalled("artifacts.read"),
+    test: uncalled("artifacts.test"),
+    update: uncalled("artifacts.update"),
+  },
   assignSkill: uncalled("assignSkill"),
   cancelRun: uncalled("cancelRun"),
   commitSkill: uncalled("commitSkill"),
@@ -253,7 +267,14 @@ const ALL_TOOLS = [
   "library_versions",
   "wiki_read",
   "wiki_suggest_edit",
+  "artifact_create",
+  "artifact_update",
+  "artifact_read",
+  "artifact_list",
+  "artifact_test",
 ];
+
+const ARTIFACT_ID = "5b1c1a3e-0a52-4f5f-8f07-0b3d8e9a1c11";
 
 /** One valid call per real tool, used by the failure tests. */
 const CALLS: [string, Record<string, unknown>][] = [
@@ -274,6 +295,25 @@ const CALLS: [string, Record<string, unknown>][] = [
   ["library_versions", { path: "tasks/t1/file" }],
   ["wiki_read", { path: "wiki/start.md" }],
   ["wiki_suggest_edit", { body: "new", path: "wiki/start.md", summary: "Fix" }],
+  [
+    "artifact_create",
+    {
+      files: [{ path: "index.html", text: "<h1>Hi</h1>" }],
+      kind: "page",
+      title: "Hi",
+    },
+  ],
+  [
+    "artifact_update",
+    {
+      artifactId: ARTIFACT_ID,
+      baseVersion: 1,
+      files: [{ path: "index.html", text: "<h1>Hi</h1>" }],
+    },
+  ],
+  ["artifact_read", { artifactId: ARTIFACT_ID }],
+  ["artifact_list", {}],
+  ["artifact_test", { artifactId: ARTIFACT_ID }],
 ];
 
 describe("tools/list", () => {
@@ -941,18 +981,24 @@ const DRY_RUN_INPUTS: Record<string, Record<string, unknown>> = {
   unassign_skill: { agent: "ops-bot", skillId: "sk_1" },
 };
 
-const countedPorts = (calls: string[]): McpPorts =>
-  fakePorts(
-    Object.fromEntries(
-      Object.keys(fakePorts({})).map((name) => [
-        name,
-        () => {
-          calls.push(name);
-          return Promise.reject(new Error("Unexpected port call"));
-        },
-      ])
-    )
-  );
+const countedPorts = (calls: string[]): McpPorts => {
+  const counted = (name: string) => () => {
+    calls.push(name);
+    return Promise.reject(new Error("Unexpected port call"));
+  };
+  return fakePorts({
+    ...Object.fromEntries(
+      Object.keys(fakePorts({})).map((name) => [name, counted(name)])
+    ),
+    artifacts: {
+      create: counted("artifacts.create"),
+      list: counted("artifacts.list"),
+      read: counted("artifacts.read"),
+      test: counted("artifacts.test"),
+      update: counted("artifacts.update"),
+    },
+  });
+};
 
 describe("dry-run gate", () => {
   for (const tool of harbourmasterTools(fakePorts({})).filter(
