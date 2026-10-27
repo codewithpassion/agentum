@@ -9,6 +9,10 @@ import {
 } from "@cloudflare/playwright";
 import type { RawSnapshot } from "@repo/services/browser/snapshot";
 import type { BrowserDriver, BrowserPage } from "@repo/services/browser/types";
+import type {
+  ArtifactTestBrowser,
+  ArtifactTestPage,
+} from "./artifact-test/driver.ts";
 
 /**
  * The only place `@cloudflare/playwright` is imported. Browser Run is beta, so
@@ -116,6 +120,57 @@ export const browserRunDriver = (binding: Env["BROWSER"]): BrowserDriver => ({
     return {
       page: browserPage(await singlePage(browser), keepSessionOpen),
       sessionId: browser.sessionId(),
+    };
+  },
+});
+
+const artifactTestPage = (page: Page): ArtifactTestPage => ({
+  goto: async (url) => {
+    await page.goto(url, { timeout: NAVIGATION_TIMEOUT_MS, waitUntil: "load" });
+  },
+  listen: (listeners) => {
+    page.on("console", (message) => {
+      listeners.console({ text: message.text(), type: message.type() });
+    });
+    page.on("pageerror", (error) => {
+      listeners.pageError(error.message);
+    });
+    page.on("requestfailed", (request) => {
+      listeners.requestFailed({
+        method: request.method(),
+        reason: request.failure()?.errorText ?? "failed",
+        url: request.url(),
+      });
+    });
+    page.on("response", (response) => {
+      listeners.response({ status: response.status(), url: response.url() });
+    });
+  },
+  screenshot: async () => await page.screenshot({ type: "png" }),
+  settle: async (milliseconds) => {
+    await page.waitForTimeout(milliseconds);
+  },
+  snapshot: async () => await readPage(page),
+  title: async () => await page.title(),
+});
+
+/**
+ * A throwaway browser per `artifact_test` run, at the run's viewport. `launch`
+ * without `persistent` or `keep_alive`: `close()` ends the session, so nothing
+ * outlives the call.
+ */
+export const artifactTestBrowser = (
+  binding: Env["BROWSER"]
+): ArtifactTestBrowser => ({
+  open: async (viewport) => {
+    const browser = await launch(endpoint(binding));
+    const page = await browser.newPage({ viewport });
+    page.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    return {
+      close: async () => {
+        await browser.close();
+      },
+      page: artifactTestPage(page),
     };
   },
 });
