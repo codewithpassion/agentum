@@ -839,6 +839,8 @@ export const createArtifactsService = ({
           .update(artifacts)
           .set({
             currentVersionId: draft.versionId,
+            // The new version has no thumbnail until `artifact_test` makes one.
+            thumbnailKey: null,
             title,
             updatedAt: nowIso(),
           })
@@ -896,7 +898,11 @@ export const createArtifactsService = ({
         ...versionStatements(user, row.id, draft),
         db
           .update(artifacts)
-          .set({ currentVersionId: draft.versionId, updatedAt: nowIso() })
+          .set({
+            currentVersionId: draft.versionId,
+            thumbnailKey: null,
+            updatedAt: nowIso(),
+          })
           .where(
             and(
               eq(artifacts.id, row.id),

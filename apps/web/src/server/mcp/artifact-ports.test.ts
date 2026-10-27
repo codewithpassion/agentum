@@ -27,6 +27,9 @@ const PNG = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
 const HOST = "https://hm.example.com";
 
 let composed: Composed;
+/** A view token that was not redacted. */
+const RAW_VIEW_TOKEN = /hm_view_(?!\[redacted\])/;
+
 let user: Extract<Principal, { kind: "user" }>;
 let run: Extract<Principal, { kind: "run" }>;
 let visited: string[];
@@ -39,6 +42,12 @@ const fakeBrowser: ArtifactTestBrowser = {
       goto: (url) => {
         visited.push(url);
         listeners?.console({ text: "boom in page script", type: "error" });
+        // Requests made from the content folder carry the view token in their URL.
+        listeners?.console({
+          text: `Failed to load ${url}missing.js`,
+          type: "error",
+        });
+        listeners?.response({ status: 404, url: `${url}missing.js` });
         listeners?.response({
           status: 404,
           url: "https://cdn.example.com/x.js",
@@ -204,14 +213,19 @@ test("a run publishes, updates, reads, lists and tests an artifact", async () =>
       screenshotPath.startsWith(`${taskFolderPath("builder", run.runId)}/`)
     ).toBe(true);
     const saved = await composed.services.library.read(run, screenshotPath);
-    expect(JSON.stringify(saved)).toBeDefined();
+    expect(saved.bytes).toEqual(PNG);
+    const views = await composed.services.artifactShares.views(user, {
+      artifactId,
+    });
+    expect(views.items.some((view) => view.surface === "test")).toBe(true);
     expect(
       (await composed.services.artifacts.get(user, artifactId)).hasThumbnail
     ).toBe(true);
 
+    // The fake page reported URLs with the token: they come back redacted (R1.13).
     for (const output of [tested.text, JSON.stringify(tested.data)]) {
-      expect(output).not.toContain("hm_view_");
-      expect(output).not.toContain("/c/");
+      expect(output).toContain("hm_view_[redacted]");
+      expect(output).not.toMatch(RAW_VIEW_TOKEN);
     }
   } finally {
     await session.close();

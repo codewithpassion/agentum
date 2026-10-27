@@ -325,6 +325,9 @@ export const createArtifactSharesService = ({
     claims: Omit<ViewTokenClaims, "expiresAt">,
     seconds: number
   ) => {
+    if (!viewKey) {
+      throw new ServiceError("invalid", "Artifact viewing is not set up.");
+    }
     const expiresAt = Math.floor(clock.now().getTime() / 1000) + seconds;
     return signViewToken({ ...claims, expiresAt }, viewKey).then((token) => ({
       contentUrl: artifactContentPath({ artifactId: claims.artifactId, token }),
@@ -700,7 +703,8 @@ export const createArtifactSharesService = ({
     token: string,
     request: ShareRequestInfo
   ): Promise<LinkOpenResult> => {
-    if (!token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX)) {
+    // Without a signing key no link can open: refuse like any dead link, before a view row is written.
+    if (!(viewKey && token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX))) {
       return { ok: false };
     }
     const share = await getShareByHash(db, await hashToken(token));

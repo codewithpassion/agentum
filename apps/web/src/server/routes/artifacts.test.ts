@@ -90,7 +90,11 @@ beforeEach(async () => {
   limit = null;
   limitKeys = [];
   const db = migrated();
-  composed = composeWith({ allowedOrgIds: ["org_a"], db, infra: infra(db) });
+  composed = composeWith({
+    allowedOrgIds: ["org_a", "org_b"],
+    db,
+    infra: infra(db),
+  });
   const workspace = await composed.services.workspaces.forOrg({
     clerkOrgId: "org_a",
   });
@@ -146,6 +150,16 @@ describe("POST /api/share/:token/open", () => {
     for (const body of bodies) {
       expect(body).toEqual(UNAVAILABLE);
     }
+  });
+
+  it("R1.29 answers 404 once the workspace switch is off", async () => {
+    const { token } = await newLink();
+    await composed.services.artifactShares.setLinksEnabled(owner, {
+      enabled: false,
+    });
+    const res = await open(token);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual(UNAVAILABLE);
   });
 
   it("R1.36 refuses every link while ARTIFACT_LINKS_OFF is set", async () => {
@@ -258,7 +272,18 @@ describe("GET /api/artifacts/:id/download", () => {
     expect(text).toContain("data.json");
   });
 
-  it("needs a session and hides other workspaces' artifacts", async () => {
+  it("hides the artifact from another workspace", async () => {
+    // Make the other workspace exist, then ask as one of its members.
+    await composed.services.workspaces.forOrg({ clerkOrgId: "org_b" });
+    session = { orgId: "org_b", userId: "user_b" };
+    const [download, thumbnail] = await Promise.all([
+      request(`/api/artifacts/${artifactId}/download`),
+      request(`/api/artifacts/${artifactId}/thumbnail`),
+    ]);
+    expect([download.status, thumbnail.status]).toEqual([404, 404]);
+  });
+
+  it("needs a session", async () => {
     session = { orgId: null, userId: "user_a" };
     expect(
       (await request(`/api/artifacts/${artifactId}/download`)).status

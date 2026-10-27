@@ -92,7 +92,7 @@ let service: ArtifactSharesService;
 let secretsKey: string;
 let versionIds: { v1: string; v2: string };
 
-const build = (overrides: { linksOff?: boolean } = {}) => {
+const build = (overrides: { linksOff?: boolean; viewKey?: string } = {}) => {
   const store = new Map<string, string>();
   return createArtifactSharesService({
     atomic: sqliteAtomic(db),
@@ -725,6 +725,17 @@ describe("link open", () => {
     ).toBe("disabled");
     await expect(
       off.createShare(owner, { artifactId: ARTIFACT })
+    ).rejects.toMatchObject({ code: "invalid" });
+  });
+
+  test("a missing view key refuses a link like a dead one and writes no view row", async () => {
+    const { token } = await create();
+    const before = db.select().from(artifactViews).all().length;
+    const keyless = build({ viewKey: "" });
+    expect(await keyless.openLink(token, request())).toEqual({ ok: false });
+    expect(db.select().from(artifactViews).all()).toHaveLength(before);
+    await expect(
+      keyless.open(owner, { artifactId: ARTIFACT, surface: "viewer" })
     ).rejects.toMatchObject({ code: "invalid" });
   });
 

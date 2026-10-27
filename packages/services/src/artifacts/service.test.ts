@@ -1025,6 +1025,37 @@ describe("versions files, thumbnails and download", () => {
     ).toEqual(PNG);
   });
 
+  test("a new version clears the card's thumbnail so the two agree", async () => {
+    const h = harness();
+    const made = await make(h);
+    await h.service.setThumbnail(principals.agentOne, {
+      artifactId: made.artifactId,
+      png: PNG,
+      versionId: made.versionId,
+    });
+    const updated = await h.service.update(principals.agentOne, {
+      artifactId: made.artifactId,
+      baseVersion: 1,
+      files: FILES,
+    });
+    expect(
+      (await h.service.get(principals.agentOne, made.artifactId)).hasThumbnail
+    ).toBe(false);
+    await expectServiceError(
+      () => h.service.thumbnail(principals.agentOne, made.artifactId),
+      "not_found"
+    );
+    await h.service.setThumbnail(principals.agentOne, {
+      artifactId: made.artifactId,
+      png: PNG,
+      versionId: updated.versionId,
+    });
+    await h.service.restore(principals.owner, made.artifactId, 1);
+    expect(
+      (await h.service.get(principals.agentOne, made.artifactId)).hasThumbnail
+    ).toBe(false);
+  });
+
   test("setThumbnail is refused for a person and for a foreign version", async () => {
     const h = harness();
     const made = await make(h);
