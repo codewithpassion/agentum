@@ -18,7 +18,15 @@ A run with pending files is not claimable, and a younger run of the same agent w
 
 ## Verdicts
 
-(filled per round below)
+- Round 1 (4199a92): clean.
+
+## Nits left
+
+- `offerAgainIfFree` also runs when no run of the agent is live, so a Slack message with files offers its run twice. The repeat start is ignored by PiRun but costs a `startRunner` call.
+- `offerAgainIfFree` can throw on a DB error after a successful download, where `offerNextWaiting` logs and swallows.
+- Its live-run query filters on agent only, not workspace.
+- When several runs expire in one batch, failing the first offers the second, which the loop then fails.
+- `offeringRuns` in the test file is not used by the two older tests that repeat its setup.
 
 ## Ideas beyond the scope
 
