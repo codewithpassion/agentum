@@ -3,7 +3,7 @@ id: A.5
 title: Artifact MCP tools
 milestone: A
 size: M
-status: in_progress
+status: done
 depends_on: [A.1]
 branch: task/A.5-artifact-mcp-tools
 lane: mcp
@@ -26,3 +26,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at 4d7dc89, review clean after 0 fix rounds; McpPorts.artifacts is optional, A.6 must wire it; merged.

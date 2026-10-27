@@ -17,6 +17,7 @@ test("paths appear in order", () => {
     "/settings/machines",
     "/settings/connectors",
     "/settings/secrets",
+    "/settings/artifacts",
     "/settings/api-keys",
     "/settings/connected-apps",
   ]);

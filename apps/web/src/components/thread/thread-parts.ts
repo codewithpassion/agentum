@@ -2,7 +2,6 @@
 // Pure: it reads its input and returns new objects.
 
 import type { ThreadMessageLike } from "@assistant-ui/react";
-import type { ArtifactThreadPart } from "@repo/protocol/artifacts";
 import type {
   ThreadMessage,
   ThreadPart,
@@ -54,7 +53,7 @@ const toolCallOf = (part: ToolCallPart): Content => {
   };
 };
 
-const assistantContent = (part: ThreadPart | ArtifactThreadPart): Content[] => {
+const assistantContent = (part: ThreadPart): Content[] => {
   if (part.type === "tool-call") {
     return [toolCallOf(part)];
   }
