@@ -176,3 +176,17 @@ temporary file afterward. No new checkout, delegate, push, PR or deployment.
 
 L.7 integration remains intentionally outside this task: the real app adapter
 round trip depends on L.2/L.4 and is not claimed by these mock-port tests.
+
+## Independent review — 2026-10-27
+
+Verdict: **changes requested** for one L.5 contract discrepancy. Reviewed `e24a7c51cfb729967a1777477a25e96dbecdf46c` on branch `t3/3d3e1c4c`, against the task, PRD and existing callers. No product or task files changed.
+
+### P2 — Missing-find error does not match the PRD
+
+`packages/mcp/src/result.ts:26` and `packages/mcp/src/tools/live.test.ts:341` expose and test `find_not_found`, while `docs/v3/live-artifacts-prd.md:500` specifies `find_none`. An adapter following the exported `ToolErrorCode` cannot return the specified code without changing the contract, and consumers using the PRD name will not recognize the emitted result. Align the exported code, tests and adapter guidance with `find_none`, or explicitly amend the PRD if the alternate name is intentional.
+
+### Evidence and integration gates
+
+The four schemas use strict objects; guarded block-id replace/delete require both hash and revision, and find targets are exact. Descriptions cover person-wins, pending blocks and detached comments. Annotations, tool labels, shared approval keys and conditional registration are present; read-only filtering and the shared dry-run gate cover the mutations, including document creation. Existing static artifact callers retain their port and validation behavior; `live` is optional. The package MCP suite passed: **387 tests, 0 failures**. Initial run before locked dependency installation failed on missing modules; the rerun passed.
+
+`packages/mcp/src/tools/live.ts:284` delegates authorization, guards, atomic application and anchoring to the service; `:325` and `:340` describe anchor protection and agent-addressed answered state. These are contracts, not proof of enforcement. L.7 must bind principal, workspace, agent, run and tool-call identity and test actual permissions: created/handed or in-artifact edits, guest scope/role, protection of comment anchors including the agent's own, and answered updates only for the addressed agent. It must also implement static/live refusal guidance, error mapping and real room round trips. `apps/web/src/server/mcp/ports.ts:312` currently supplies static artifact ports but no live port, so production runtime registration and R1.22/R1.28 approval behavior across Pi, Managed Agents and machines remain integration gates, not demonstrated behavior or L.5 authorization defects. Mock-port tests cannot establish these properties.
