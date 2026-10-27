@@ -23,11 +23,17 @@ import { Awareness, applyAwarenessUpdate } from "y-protocols/awareness";
 import { applyUpdate, Doc, encodeStateAsUpdate, encodeStateVector } from "yjs";
 import { z } from "zod";
 import type {
+  AgentDecoration,
   EditorRole,
   EditorSelection,
   PresencePort,
   TrustedParticipant,
 } from "./editor-ports";
+
+export interface RoomPolicy {
+  agentChanges?: readonly AgentDecoration[];
+  ownBlobUrls: ReadonlySet<string>;
+}
 
 // y-tiptap publishes RelativePosition instances whose unused keys are null.
 // The room contract deliberately accepts canonical JSON with unused keys omitted.
@@ -88,7 +94,7 @@ export interface RoomOptions {
   failed: (message: string) => void;
   join: () => Promise<LiveJoinResult>;
   /** Refresh verified ownership before applying every room update. */
-  policy: () => Promise<ReadonlySet<string>>;
+  policy: () => Promise<ReadonlySet<string> | RoomPolicy>;
   ready: (room: TicketedRoom) => void;
   roleChanged: (role: EditorRole) => void;
 }
@@ -98,12 +104,20 @@ export class TicketedRoom {
   readonly document = new Doc();
   readonly awareness = new Awareness(this.document);
   readonly policy = { ownBlobUrls: new Set<string>() };
+  private agentChanges: readonly AgentDecoration[] = [];
+  private readonly policyListeners = new Set<() => void>();
+  readonly getAgentChanges = () => this.agentChanges;
+  readonly subscribePolicy = (listener: () => void) => {
+    this.policyListeners.add(listener);
+    return () => this.policyListeners.delete(listener);
+  };
   readonly presence: PresencePort;
   role: EditorRole = "viewer";
   private roster: readonly TrustedParticipant[] = [];
   private readonly listeners = new Set<() => void>();
   private socket?: WebSocket;
   private renewTimer?: ReturnType<typeof setTimeout>;
+  private policyTimer?: ReturnType<typeof setInterval>;
   private readonly lifecycle = {
     assigned: false,
     disposed: false,
@@ -230,6 +244,12 @@ export class TicketedRoom {
             if (joined.role !== this.role) {
               this.role = joined.role;
               this.options.roleChanged(this.role);
+              this.fail(
+                new Error(
+                  "Document permissions changed. Reconnect to refresh access."
+                )
+              );
+              return;
             }
             this.send(JSON.stringify({ ticket: joined.ticket, type: "renew" }));
             // A missing renewed control must not leave the editor writable indefinitely.
@@ -308,22 +328,49 @@ export class TicketedRoom {
       if (subtype !== 1 && subtype !== 2) {
         throw new Error("Unknown document frame");
       }
-      const urls = await this.options.policy();
-      if (this.lifecycle.disposed) {
+      if (!(await this.refreshPolicy())) {
         return;
       }
-      this.policy.ownBlobUrls = new Set(urls);
       applyUpdate(this.document, update, this);
+      this.publishPolicy();
       if (!this.lifecycle.synced && subtype === 1) {
         clearTimeout(this.connectionTimer);
         this.lifecycle.synced = true;
         this.options.ready(this);
+        this.policyTimer = setInterval(() => {
+          this.receiving = this.receiving
+            .then(async () => {
+              if (!this.lifecycle.disposed && (await this.refreshPolicy())) {
+                this.publishPolicy();
+              }
+            })
+            .catch((error: unknown) => this.fail(error));
+        }, 30_000);
       }
     } else if (type === 1) {
       const update = readVarUint8Array(decoder);
       this.receivePresence(update);
     } else {
       throw new Error("Unknown room frame");
+    }
+  }
+  private async refreshPolicy() {
+    const manifest = await this.options.policy();
+    if (this.lifecycle.disposed) {
+      return false;
+    }
+    if ("ownBlobUrls" in manifest) {
+      this.policy.ownBlobUrls = new Set(manifest.ownBlobUrls);
+      this.agentChanges = manifest.agentChanges ?? [];
+    } else {
+      this.policy.ownBlobUrls = new Set(manifest);
+      this.agentChanges = [];
+    }
+    return true;
+  }
+  private publishPolicy() {
+    for (const listener of this.policyListeners) {
+      listener();
     }
   }
   private receivePresence(update: Uint8Array) {
@@ -366,6 +413,9 @@ export class TicketedRoom {
   /** Keep the selected relative range alive when the panel takes focus. */
   select(start: object, end: object) {
     this.awareness.setLocalStateField("cursor", { anchor: start, head: end });
+  }
+  clearSelection() {
+    this.awareness.setLocalStateField("cursor", null);
   }
   async confirmSelection(selection: EditorSelection): Promise<void> {
     if (this.lifecycle.disposed || !this.lifecycle.synced) {
@@ -411,6 +461,7 @@ export class TicketedRoom {
     this.lifecycle.disposed = true;
     clearTimeout(this.renewTimer);
     clearTimeout(this.connectionTimer);
+    clearInterval(this.policyTimer);
     for (const waiter of this.selectionWaiters) {
       waiter.reject(new Error("Room disconnected"));
     }
