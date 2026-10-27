@@ -187,11 +187,12 @@ const authorOf = (member: Member) =>
         runId: member.runId,
       };
 
-const checkSnapshot = (snapshot: DocumentSnapshot) => {
+const checkSnapshot = (snapshot: DocumentSnapshot, kind = "document") => {
   if (
     !Number.isSafeInteger(snapshot.revision) ||
     snapshot.revision < 0 ||
-    snapshot.state.byteLength > LIVE_DOC_MAX_BYTES ||
+    snapshot.state.byteLength >
+      (kind === "deck" ? 16_000_000 : LIVE_DOC_MAX_BYTES) ||
     snapshot.state.byteLength === 0
   ) {
     throw invalid("Invalid document state or revision");
@@ -475,7 +476,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       >;
     }
   ): Promise<LivePublishResult> => {
-    checkSnapshot(snapshot);
+    checkSnapshot(snapshot, row.kind);
     if (checkpoint) {
       const existing = await existingCheckpoint(
         row,
@@ -489,6 +490,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     const number = await nextVersion(row, snapshot.revision, initial);
     const raw = await checkpointFiles(row, snapshot);
     if (
+      raw.length > ARTIFACT_MAX_FILES ||
       raw.some((file) => file.bytes.byteLength > ARTIFACT_FILE_MAX_BYTES) ||
       raw.reduce((sum, file) => sum + file.bytes.byteLength, 0) >
         ARTIFACT_MAX_BYTES
@@ -1179,7 +1181,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       input: DocumentSnapshot & { artifactId: string }
     ) {
       const { member, row } = await access(principal, input.artifactId, true);
-      checkSnapshot(input);
+      checkSnapshot(input, row.kind);
       if (rooms.checkpointCanonical) {
         const result = await rooms.checkpointCanonical(
           { artifactId: row.id, workspaceId: row.workspaceId },

@@ -38,7 +38,7 @@ export const createLiveArtifactsRouter = (
           state: z
             .array(z.number().int().min(0).max(255))
             .min(1)
-            .max(LIVE_DOC_MAX_BYTES)
+            .max(16_000_000)
             .transform((value) => Uint8Array.from(value)),
         })
       )
