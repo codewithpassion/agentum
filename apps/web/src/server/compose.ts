@@ -119,6 +119,11 @@ import {
   type LiveArtifactsWithAsk,
 } from "@repo/services/live-artifacts/factory";
 import {
+  createLiveExportsService,
+  type LiveExportsService,
+  type PrintPDF,
+} from "@repo/services/live-exports";
+import {
   createMachinesService,
   type MachinesService,
 } from "@repo/services/machines";
@@ -248,7 +253,7 @@ import {
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { appStorePort } from "./app-store/port.ts";
-import { browserRunDriver } from "./browser-run.ts";
+import { browserRunDriver, exportPrintPDF } from "./browser-run.ts";
 import { clerkOrgName } from "./clerk-org-name.ts";
 import { clerkPeople } from "./clerk-people.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
@@ -299,6 +304,7 @@ export interface Infra {
   /** Runs work after the response: `waitUntil` in a request. Without it, work is awaited. */
   defer?: (work: Promise<void>) => void;
   devFakeRuntime: boolean;
+  exportPDF?: PrintPDF;
   /** How connector probes reach the network. Defaults to the global `fetch`. */
   fetch?: Fetcher;
   /** Where uploaded files live: R2 in the app. */
@@ -375,6 +381,7 @@ export interface Services {
   libraryAccess: LibraryAccessService;
   libraryLinks: LibraryLinksService;
   liveArtifacts?: LiveArtifactsWithAsk;
+  liveExports?: LiveExportsService;
   liveRoom?: LiveInfra["roomFor"];
   machines: MachinesService;
   mail: MailService & MailOutbound;
@@ -1019,6 +1026,16 @@ export const composeWith = ({
       libraryAccess,
       libraryLinks,
       liveArtifacts,
+      liveExports: liveArtifacts
+        ? createLiveExportsService({
+            clock: infra.clock,
+            db,
+            files,
+            live: liveArtifacts,
+            printPDF: infra.exportPDF,
+            rooms: infra.live?.rooms,
+          })
+        : undefined,
       liveRoom: infra.live?.roomFor,
       machines,
       mail: { ...mail, ...mailOutbound },
@@ -1084,6 +1101,7 @@ export const compose = (
       cloudRunner: durableRunnerPort(env.PI_RUN),
       defer,
       devFakeRuntime,
+      exportPDF: exportPrintPDF(env.BROWSER),
       fileBlobs: r2FileBlobs(env.FILES),
       // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
       github: createGithubSkillFetcher((url, init) => fetch(url, init)),

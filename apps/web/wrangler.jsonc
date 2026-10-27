@@ -84,6 +84,11 @@
   // per key: the route calls them once per token and once per IP prefix. Each environment has its own namespace.
   "ratelimits": [
     {
+      "name": "EXPORT_LIMIT",
+      "namespace_id": "2012",
+      "simple": { "limit": 6, "period": 60 }
+    },
+    {
       "name": "SHARE_OPEN_LIMIT",
       "namespace_id": "2001",
       "simple": { "limit": 30, "period": 60 }
@@ -175,6 +180,11 @@
       // once per token and once per IP prefix. Each environment has its own namespace.
       "ratelimits": [
         {
+          "name": "EXPORT_LIMIT",
+          "namespace_id": "2013",
+          "simple": { "limit": 6, "period": 60 }
+        },
+        {
           "name": "SHARE_OPEN_LIMIT",
           "namespace_id": "2002",
           "simple": { "limit": 30, "period": 60 }
@@ -244,6 +254,11 @@
         // Artifact link flood guards (opens, then calls and storage reads). Counted per key: the route calls them
         // once per token and once per IP prefix. Each environment has its own namespace.
         "ratelimits": [
+          {
+            "name": "EXPORT_LIMIT",
+            "namespace_id": "2014",
+            "simple": { "limit": 6, "period": 60 }
+          },
           {
             "name": "SHARE_OPEN_LIMIT",
             "namespace_id": "2003",
