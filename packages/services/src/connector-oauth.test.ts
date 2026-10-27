@@ -608,3 +608,14 @@ test("the authorisation request carries PKCE, the resource and the state", async
     new Date(START.getTime() + OAUTH_STATE_TTL_MS).toISOString()
   );
 });
+
+test("connecting caches the tool list the new token can read", async () => {
+  const connector = await addConnector();
+  expect(connector.tools).toEqual([]);
+
+  await oauth.complete(dom, await connect(dom, connector.id, "user"));
+
+  const [list] = await connectorsService.list(dom);
+  expect(list.tools.map((tool) => tool.name)).toEqual(["echo"]);
+  expect(list.toolsFetchedAt).not.toBeNull();
+});
