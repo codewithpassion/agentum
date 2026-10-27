@@ -18,7 +18,7 @@ import { folderLabel, LIBRARY_NOTE, WIKI_LABEL } from "./profile-logic.ts";
 function PathText({ path }: { path: string }) {
   const parts = path.split("/");
   return (
-    <span className="min-w-0 break-words font-mono text-xs">
+    <span className="font-mono text-xs max-md:min-w-0 max-md:break-words">
       {parts.map((part, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: path segments repeat and never reorder
         <span key={index}>

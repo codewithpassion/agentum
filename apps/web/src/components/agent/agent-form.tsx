@@ -433,7 +433,7 @@ export function AgentForm({
           {error}
         </p>
       )}
-      <div className="sticky -bottom-6 z-10 -mx-4 flex flex-wrap items-center gap-2 border-border border-t bg-background px-4 pt-3 pb-9 md:static md:mx-0 md:border-t-0 md:bg-transparent md:p-0">
+      <div className="sticky -bottom-6 z-10 -mx-4 flex flex-wrap items-center gap-2 border-border border-t bg-background px-4 pt-3 pb-9 md:contents">
         <Button disabled={pending} type="submit">
           {submitLabel}
         </Button>

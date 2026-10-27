@@ -8,7 +8,7 @@ export const TONE_CLASS: Record<Chip["tone"], string> = {
 };
 
 export const CHIP_CLASS =
-  "inline-flex max-w-full items-center gap-1.5 whitespace-normal [overflow-wrap:anywhere] rounded-full border px-2.5 py-0.5 text-xs md:whitespace-nowrap";
+  "inline-flex items-center gap-1.5 whitespace-normal max-md:max-w-full max-md:[overflow-wrap:anywhere] rounded-full border px-2.5 py-0.5 text-xs md:whitespace-nowrap";
 
 /** A row of chips, then the action that opens the manage sheet. */
 export function ChipList({

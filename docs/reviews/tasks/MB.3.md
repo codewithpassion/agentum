@@ -1,6 +1,6 @@
 # MB.3 review: mobile agent profile and its sheets
 
-Status: in progress (checks pass, reviewer pending).
+Status: round 2 review pending.
 
 ## Fixes
 - F-04: chips wrap (`whitespace-normal`, break anywhere) below md and keep `nowrap` at md and up. Docwidth is 390 at 390 and 360 at 360.
@@ -11,4 +11,7 @@ Status: in progress (checks pass, reviewer pending).
 - F-09: sheets are full width through MB.1's rule; no element in any sheet overflows 390px. The Skills version select is `max-w-full min-w-0` and 40px high on phones. The secrets and routines tables were handled by MB.2.
 
 ## Browser check
-Local dev server with dev login, two test agents created through tRPC. Screenshots in `docs/reviews/tasks/MB.3-shots/`: `p390.png` (profile), `sheet-{edit,tools,skills,hands,starts}-390.png`, `profile-1280.png`, `sheet-edit-1280.png`. Not exercised: the Skills version select with an assigned skill (no skills in the local database), a long schedule chip (no routine created).
+Local dev server with dev login, two test agents created through tRPC. Screenshots in `docs/reviews/tasks/MB.3-shots/`: `p390.png` (profile), `sheet-{edit,tools,skills,hands,starts}-390.png`, `profile-1280.png`, `sheet-edit-1280.png`. Round 2 added `sheet-mail-390.png`, `sheet-skills-390.png` (with an assigned skill: the Version select stays inside the sheet, no element past 390px) and 1280 shots of Skills, Hands to and Edit. Mail sheet: no overflow at 390. Not exercised: a long schedule chip (no routine created).
+
+## Round 1
+Must-fix: Save changes lost its full width at md (sticky wrapper), Mail sheet and Skills select unchecked. Fixed with `md:contents` on the wrapper and the checks above. Also scoped the wrap and break classes to below md so desktop is unchanged, and "Show more" shows only for long text.

@@ -24,6 +24,9 @@ import { Row } from "./profile-row.tsx";
 import type { SheetId } from "./sheet-ids.ts";
 import { VoiceField } from "./voice-field.tsx";
 
+/** Characters that can overflow four lines on a 360px phone. */
+const LONG_DOES = 150;
+
 /** The instruction text, clamped to four lines. On phones a toggle shows all of it. */
 function DoesText({ does }: { does: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -34,19 +37,21 @@ function DoesText({ does }: { does: string }) {
   return (
     <>
       <p
-        className={`whitespace-pre-line [overflow-wrap:anywhere] ${expanded ? "" : "line-clamp-4"}`}
+        className={`whitespace-pre-line max-md:[overflow-wrap:anywhere] ${expanded ? "" : "line-clamp-4"}`}
         data-testid="profile-does"
       >
         {does}
       </p>
-      <button
-        aria-expanded={expanded}
-        className="mt-1 text-primary text-xs hover:underline md:hidden"
-        onClick={toggle}
-        type="button"
-      >
-        {expanded ? "Show less" : "Show more"}
-      </button>
+      {does.length > LONG_DOES || does.split("\n").length > 4 ? (
+        <button
+          aria-expanded={expanded}
+          className="mt-1 text-primary text-xs hover:underline md:hidden"
+          onClick={toggle}
+          type="button"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      ) : null}
     </>
   );
 }

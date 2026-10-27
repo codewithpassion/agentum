@@ -137,7 +137,7 @@ export function AskBeforeCard({
         <span className="min-w-0 text-sm">
           Emails someone outside the workspace: always asks
         </span>
-        <span className="shrink-0 whitespace-nowrap text-muted-foreground text-xs">
+        <span className="text-muted-foreground text-xs max-md:shrink-0 max-md:whitespace-nowrap">
           Always
         </span>
       </div>
