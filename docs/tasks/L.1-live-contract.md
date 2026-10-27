@@ -3,7 +3,7 @@ id: L.1
 title: Live artifacts contract
 milestone: L
 size: L
-status: todo
+status: in_progress
 depends_on: [L.0, L.P]
 branch: null
 lane: db
@@ -17,3 +17,5 @@ executor: codex
 ## Log
 
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
+
+- 2026-10-27: Sol begins stable schema/protocol contracts using the partial spike evidence; integration remains gated on completed L.0. No room implementation depends on an unverified relay assumption.

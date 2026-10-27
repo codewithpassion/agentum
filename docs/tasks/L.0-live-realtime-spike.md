@@ -21,3 +21,5 @@ Run relevant executable checks and record actual results, distinguishing unverif
 ## Log
 
 - 2026-10-27: Dispatched through T3 isolated worktrees. User requested Sol and Terra in place of the repository's legacy model assignments. All four PRD phases remain in scope; commits required after substantial tasks.
+
+- 2026-10-27: Partial spike a488f74e merged; core workerd probes pass. Completion requires two-browser coverage, verified awareness identity filtering, signed expiring ticket probes. Terra follow-up dispatched.
