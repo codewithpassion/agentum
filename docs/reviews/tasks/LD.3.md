@@ -89,3 +89,5 @@ Pending presentation starts now carry a cancellation generation and check curren
 Desktop and phone Chromium probes passed with deferred admission resolved after all three cancellation cases, plus trusted follower position held against keyboard navigation and the automatic build timer. Fixture control events are dispatched directly when the presentation overlay covers harness controls. Production presenter lease enforcement remains an integration gate. Root check currently reports unrelated L.7 checkpoint lint diagnostics being fixed in that active lane; this component's focused formatting check passes.
 
 The global pre-commit hook also encounters those existing L.7 errors, so this isolated remediation commit bypasses that hook after focused formatting, eight core tests and both browser viewport checks pass. No L.7 files are included.
+
+Subsequent combined root check/test/build passed after L.7 followups and export remediations; the prior hook/lint blocker is resolved. Generated Worker types were refreshed before the successful typecheck.
