@@ -13,6 +13,7 @@ import { appGatewayWiring } from "./server/app-gateway/wiring.ts";
 import { mountArtifactContentRoutes } from "./server/artifact-content/routes.ts";
 import { compose } from "./server/compose.ts";
 import { frameGuard } from "./server/frame-guard.ts";
+import { guestEmbeds } from "./server/live-artifacts/guest-embeds";
 import { guestRoutes } from "./server/live-artifacts/guest-routes";
 import {
   liveImageRoutes,
@@ -66,6 +67,8 @@ mountAppGatewayRoutes(app, {
 // Artifact content: signed view tokens, R2 only. Mounted before Clerk and the
 // compose middleware, so these paths never reach either (R1.21a).
 mountArtifactContentRoutes(app, {
+  authorizeGuestEmbed: (claims, env) =>
+    guestEmbeds(env, compose(env, false)).authorize(claims),
   bucket: (env) => env.FILES,
   viewKey: (env) => env.ARTIFACT_VIEW_KEY,
   workspaceId: (claims) => claims.workspaceId,

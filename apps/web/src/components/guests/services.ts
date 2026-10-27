@@ -55,7 +55,7 @@ export function guestServices(artifactId: string) {
         endpoint("policy")
       );
       for (const path of policy.ownBlobUrls) {
-        if (!images.has(path)) {
+        if (path.startsWith("/files/") && !images.has(path)) {
           const blob = await guestHttp.run(async () =>
             (
               await guestHttp.response(
@@ -74,6 +74,12 @@ export function guestServices(artifactId: string) {
       }
       return { ownBlobUrls: new Set(policy.ownBlobUrls) };
     },
+    resolveEmbed: (source: string) =>
+      guestHttp.json<{
+        contentUrl: string;
+        expiresAt: string;
+        recheckAfterMs?: number;
+      }>(endpoint("embed"), { source }),
     async upload(file: File) {
       const form = new FormData();
       form.append("file", file);

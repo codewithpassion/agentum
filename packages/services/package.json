@@ -144,6 +144,7 @@
     "./live-guests/auth": "./src/live-guests/auth.ts",
     "./live-guests/http-scope": "./src/live-guests/http-scope.ts",
     "./live-guests/artifacts": "./src/live-guests/artifacts.ts",
+    "./live-guests/embeds": "./src/live-guests/embeds.ts",
     "./live-guests/images": "./src/live-guests/images.ts",
     "./live-guests/service": "./src/live-guests/service.ts",
     "./live-exports": "./src/live-exports/service.ts"

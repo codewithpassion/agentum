@@ -41,6 +41,10 @@ const options = {
     SESSION_STREAM: { className: "SessionStream" },
   },
   modules: true,
+  outboundService: () =>
+    new Response("External providers disabled in local fixture", {
+      status: 503,
+    }),
   r2Buckets: ["FILES"],
   resourcePersistencePath: directory,
   script,
@@ -281,6 +285,74 @@ try {
   check(
     cell.state.length > 0 && cell.revision > 0,
     "guest editor uses actual production sparse cell authority"
+  );
+  const resolveEmbed = async (source, artifactId = deck.artifactId) => {
+    const response = await post(
+      guest(artifactId, "embed"),
+      { source },
+      editorCookie
+    );
+    editorCookie =
+      response.headers.get("Set-Cookie")?.split(";")[0] ?? editorCookie;
+    return response;
+  };
+  const guestEmbed = await resolveEmbed(deck.embedSource);
+  assert.equal(guestEmbed.status, 200, await guestEmbed.clone().text());
+  const embedded = await guestEmbed.json();
+  const embeddedContent = await request(embedded.contentUrl, {
+    headers: { "Sec-Fetch-Dest": "iframe" },
+  });
+  check(
+    embeddedContent.ok &&
+      (await embeddedContent.text()).includes("Guest scoped embed"),
+    "guest exact retained embed renders through actual sandbox content route"
+  );
+  const embedPolicy = await request(guest(deck.artifactId, "policy"), {
+    headers: { Cookie: editorCookie },
+  });
+  editorCookie = embedPolicy.headers.get("Set-Cookie").split(";")[0];
+  check(
+    (await embedPolicy.json()).ownBlobUrls.includes(deck.embedSource),
+    "guest policy retains deck embed identity without treating it as an image"
+  );
+  check(
+    (await resolveEmbed(deck.embedSource.replace("chart.html", "other.html")))
+      .status === 404,
+    "guest cannot select another source path"
+  );
+  check(
+    (
+      await resolveEmbed(
+        deck.embedSource.replace(/:[a-f0-9]{64}:/, `:${"b".repeat(64)}:`)
+      )
+    ).status === 404,
+    "guest cannot select another source hash"
+  );
+  check(
+    (await resolveEmbed(deck.embedSource, editor.artifactId)).status === 404,
+    "grant on another artifact cannot read deck source"
+  );
+  const sourceId = deck.embedSource.split(":")[1];
+  await db
+    .prepare("UPDATE artifacts SET audience='private' WHERE id=?")
+    .bind(sourceId)
+    .run();
+  check(
+    (await request(embedded.contentUrl)).status === 403,
+    "issued guest content URL checks current source eligibility"
+  );
+  await db
+    .prepare("UPDATE artifacts SET audience='workspace' WHERE id=?")
+    .bind(sourceId)
+    .run();
+  check(
+    (await request(embedded.contentUrl)).ok,
+    "session reference survives normal HTTP credential rotation"
+  );
+  await post(`/fixture/revoke/${deck.artifactId}/${deck.memberId}`, {});
+  check(
+    (await request(embedded.contentUrl)).status === 403,
+    "issued guest embed capability is revoked with exact invited deck grant"
   );
   await db.batch([
     db

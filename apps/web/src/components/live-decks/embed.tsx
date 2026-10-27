@@ -5,7 +5,7 @@ import { contentRef } from "../artifacts/content-ref";
 import { SandboxArtifactFrame } from "../artifacts/sandbox-frame";
 import type { DeckEditorPorts } from "./ports";
 
-/** Resolve only on a member-bound port. Never persist or accept a content URL as scene data. */
+/** Resolve only on an authenticated deck-bound port. Never persist or accept a content URL as scene data. */
 export function DeckEmbed({
   source,
   resolve,
@@ -47,10 +47,21 @@ export function DeckEmbed({
         if (disposed) {
           return;
         }
-        setOpened({ ...next, source });
+        setOpened((previous) =>
+          previous?.source === source &&
+          Date.parse(previous.expiresAt) > Date.now() + 30_000
+            ? previous
+            : { ...next, source }
+        );
         timer = setTimeout(
           refresh,
-          Math.max(1000, Date.parse(next.expiresAt) - Date.now() - 30_000)
+          Math.max(
+            1000,
+            Math.min(
+              next.recheckAfterMs ?? Number.POSITIVE_INFINITY,
+              Date.parse(next.expiresAt) - Date.now() - 30_000
+            )
+          )
         );
       } catch {
         if (!disposed) {
@@ -66,9 +77,7 @@ export function DeckEmbed({
     };
   }, [source, resolve]);
   if (!resolve) {
-    return (
-      <div role="status">Embed requires an authorized member session.</div>
-    );
+    return <div role="status">Embed requires authorized deck access.</div>;
   }
   if (error) {
     return <div role="alert">{error}</div>;
@@ -84,7 +93,7 @@ export function DeckEmbed({
       preview
       title="Sandboxed deck embed"
       version={{ createdAt: "", number: 0 }}
-      viewer="member"
+      viewer="link"
     />
   );
 }

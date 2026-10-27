@@ -13,6 +13,7 @@ import type { Composed } from "../compose";
 import { readCappedBody } from "../mcp/body";
 import { r2Blobs } from "../r2-blobs";
 import { r2FileBlobs } from "../r2-files";
+import { resolveGuestEmbed } from "./guest-embeds";
 import { roomStub } from "./namespace";
 import { requiredLive } from "./required";
 
@@ -177,6 +178,16 @@ export const guestActions: Record<
       ),
     method: "POST",
   },
+  embed: {
+    execute: async ({ env, composed, credential, request }) => {
+      const body = (await guestJson(request)) as { source?: unknown };
+      if (typeof body.source !== "string" || body.source.length > 1400) {
+        throw new Error("Invalid source");
+      }
+      return resolveGuestEmbed(env, composed, credential, body.source);
+    },
+    method: "POST",
+  },
   "ensure-deck-cell": {
     execute: async ({ env, grant, credential, request }) => {
       const body = await guestJson(request);
@@ -206,8 +217,22 @@ export const guestActions: Record<
   join: { execute: join, method: "POST" },
   open: { execute: open, method: "GET" },
   policy: {
-    execute: async ({ composed, grant }) =>
-      requiredLive(composed.services).roomPolicy(SYSTEM_PRINCIPAL, grant),
+    execute: async ({ env, composed, grant }) => {
+      const policy = await requiredLive(composed.services).roomPolicy(
+        SYSTEM_PRINCIPAL,
+        grant
+      );
+      const retained = await (
+        await roomStub(env.ARTIFACT_ROOM, grant)
+      ).retainedDeckEmbeds();
+      return {
+        ...policy,
+        ownBlobUrls: [
+          ...policy.ownBlobUrls.filter((url) => url.startsWith("/files/")),
+          ...retained,
+        ],
+      };
+    },
     method: "GET",
   },
   resolve: {

@@ -53,6 +53,7 @@ export interface ContentBucket {
 
 export interface ArtifactContentDeps {
   /** The R2 bucket holding manifests and blobs (`env.FILES`). */
+  authorizeGuestEmbed?: (claims: ViewTokenClaims, env: Env) => Promise<boolean>;
   bucket: (env: Env) => ContentBucket;
   /** Test seam for the clock; defaults to the current time. */
   nowSeconds?: () => number;
@@ -327,6 +328,13 @@ const allowsEmbedFile = (
  * `csp` as soon as the URL parses so the wrapper can scope the CSP to the
  * content folder, even on the error paths after that.
  */
+const guestContentAllowed = async (
+  claims: ViewTokenClaims,
+  env: Env,
+  deps: ArtifactContentDeps
+) =>
+  !claims.guestEmbed || Boolean(await deps.authorizeGuestEmbed?.(claims, env));
+
 const respond = async (
   c: Context<AppEnv>,
   deps: ArtifactContentDeps,
@@ -383,6 +391,10 @@ const respond = async (
   );
   if (!claims || claims.artifactId !== parsed.artifactId) {
     return textResponse(UNAUTHORIZED);
+  }
+  csp.noStore = Boolean(claims.guestEmbed);
+  if (!(await guestContentAllowed(claims, c.env, deps))) {
+    return textResponse(FORBIDDEN);
   }
   if (
     c.req.header("Sec-Fetch-Dest") === "document" &&

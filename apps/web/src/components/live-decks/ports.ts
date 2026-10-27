@@ -49,9 +49,11 @@ export interface DeckEditorPorts {
       pointer?: { x: number; y: number };
     }) => void;
   };
-  resolveEmbed?: (
-    source: string
-  ) => Promise<{ contentUrl: string; expiresAt: string }>;
+  resolveEmbed?: (source: string) => Promise<{
+    contentUrl: string;
+    expiresAt: string;
+    recheckAfterMs?: number;
+  }>;
   role: "owner" | "editor" | "commenter" | "viewer";
   selfId: string;
   upload: (file: File) => Promise<{ path: string }>;

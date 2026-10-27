@@ -40,6 +40,10 @@ const options = {
     SESSION_STREAM: { className: "SessionStream" },
   },
   modules: true,
+  outboundService: () =>
+    new Response("External providers disabled in local fixture", {
+      status: 503,
+    }),
   r2Buckets: ["FILES"],
   resourcePersistencePath: directory,
   script,
@@ -344,6 +348,30 @@ try {
               page.getByText("Connecting to the deck room…")
             ).toHaveCount(0);
             await expect(page.getByLabel("Live deck editor")).toBeVisible();
+            const frame = page.frameLocator(
+              'iframe[title="Sandboxed deck embed"]'
+            );
+            await expect(
+              frame.getByRole("heading", { name: "Guest scoped embed" })
+            ).toBeVisible();
+            await expect(
+              page.locator('iframe[title="Sandboxed deck embed"]')
+            ).toHaveAttribute("sandbox", "allow-scripts allow-forms");
+            if (role === "viewer") {
+              const sourceId = invitation.embedSource.split(":")[1];
+              await db
+                .prepare("UPDATE artifacts SET audience='private' WHERE id=?")
+                .bind(sourceId)
+                .run();
+              await expect(
+                page
+                  .getByRole("alert")
+                  .filter({ hasText: "Embed source is unavailable" })
+              ).toBeVisible({ timeout: 7000 });
+              await expect(
+                page.locator('iframe[title="Sandboxed deck embed"]')
+              ).toHaveCount(0);
+            }
           }
           if (other) {
             await page

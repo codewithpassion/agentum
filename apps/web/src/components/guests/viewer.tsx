@@ -264,6 +264,7 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
                   publishPresence: room.publishPresence,
                   state: "synced",
                 },
+                resolveEmbed: services.resolveEmbed,
                 role: room.role,
                 selfId: room.selfId,
                 upload: async (file) => {
