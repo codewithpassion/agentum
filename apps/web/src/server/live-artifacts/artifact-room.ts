@@ -13,6 +13,8 @@ import { ToolError } from "@repo/mcp/result";
 import type { DeckReadInput, DeckWriteInput } from "@repo/mcp/tools/deck";
 import { DeckSceneAdapter } from "@repo/mcp/tools/deck-scene";
 import {
+  type EnsureDeckCellInput,
+  ensureDeckCellInputSchema,
   PRESENTER_LEASE_MS,
   type PresentationResult,
   presentationControlSchema,
@@ -401,6 +403,68 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       }
       throw error;
     }
+  }
+  ensureDeckCellOutcome(
+    input: Omit<EnsureDeckCellInput, "artifactId">,
+    subject: Pick<RoomIdentity, "participantId" | "kind">
+  ) {
+    return this.deckOutcome(() => this.ensureDeckCell(input, subject));
+  }
+  ensureDeckCell(
+    raw: Omit<EnsureDeckCellInput, "artifactId">,
+    subject: Pick<RoomIdentity, "participantId" | "kind">
+  ) {
+    return this.exclusive(async () => {
+      const current = await this.authorize(subject);
+      if (!writable(current)) {
+        throw new ToolError(
+          "forbidden",
+          "Editing role required to allocate a cell"
+        );
+      }
+      const input = ensureDeckCellInputSchema.parse({
+        ...raw,
+        artifactId: this.meta.scope.artifactId,
+      });
+      const deck = this.requiredDeck();
+      if (!deck.ids().includes(input.slideId)) {
+        throw new ToolError("not_found", "Slide no longer exists");
+      }
+      const element = deck
+        .read(input.slideId)
+        .slide.elements.find((e) => e.id === input.elementId);
+      if (element?.type !== "table") {
+        throw new ToolError("not_found", "Table no longer exists");
+      }
+      const [row, col] = input.key.split(":").map(Number);
+      if (
+        row === undefined ||
+        col === undefined ||
+        row >= Number(element.props.rows) ||
+        col >= Number(element.props.cols)
+      ) {
+        throw new ToolError("validation", "Cell is outside table dimensions");
+      }
+      if (!Object.hasOwn(element.cells ?? {}, input.key)) {
+        await this.refreshPolicy();
+        const trial = new Deck(new Y.Doc({ gc: false }), richTextCodec, {
+          ownsBlob: (path) => this.policy.has(path),
+        });
+        try {
+          trial.applyUpdate(Y.encodeStateAsUpdate(this.doc));
+          const vector = Y.encodeStateVector(trial.doc);
+          trial.setCell(input.slideId, input.elementId, input.key, [
+            { attrs: {}, children: [], tag: "p" },
+          ]);
+          this.commitDeck(Y.encodeStateAsUpdate(trial.doc, vector));
+          await this.schedule();
+        } finally {
+          trial.destroy();
+          trial.doc.destroy();
+        }
+      }
+      return this.snapshot();
+    });
   }
   deckReadOutcome(
     input: DeckReadInput,

@@ -63,3 +63,20 @@ export interface DeckRoomSession {
   role: "owner" | "editor" | "commenter" | "viewer";
   type: "session";
 }
+
+/** Allocate a sparse table cell only on the serialized authority. Apply returned
+ * admitted state before binding a client editor; never locally create the key. */
+export const ensureDeckCellInputSchema = z.strictObject({
+  artifactId: z.uuid(),
+  elementId: z.string().min(1).max(80),
+  key: z
+    .string()
+    .regex(/^(0|[1-9]\d*):(0|[1-9]\d*)$/)
+    .max(20),
+  slideId: z.string().min(1).max(80),
+});
+export type EnsureDeckCellInput = z.infer<typeof ensureDeckCellInputSchema>;
+export interface EnsureDeckCellResult {
+  revision: number;
+  state: number[];
+}
