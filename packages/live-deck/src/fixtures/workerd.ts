@@ -9,9 +9,14 @@ import {
 import { Deck, parseSlide } from "../index";
 import { richTextCodec as codec } from "../rich-text";
 import { slide } from "./rich-text";
+import migrationCapture from "./structural-migration.json";
 
 export default {
   fetch() {
+    const migrated = new Deck(new Doc(), codec);
+    migrated.applyUpdate(new Uint8Array(migrationCapture.state));
+    migrated.restore(encodeStateAsUpdate(migrated.doc));
+    migrated.validate();
     const deck = new Deck(new Doc(), codec);
     deck.addSlide(slide());
     const observed = deck.readHtml("s");
@@ -44,6 +49,7 @@ export default {
       accepted,
       cells: parsed.elements.find((element) => element.type === "table")?.cells,
       dom: typeof (globalThis as { document?: unknown }).document,
+      migrations: migrated.ids().length === 2,
       refused,
       unchanged: before.toString() === after.toString(),
     });

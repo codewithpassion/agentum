@@ -12,6 +12,7 @@ import {
   XmlText as YXmlText,
   type YEvent as YYEvent,
 } from "yjs";
+import { validatePositionMigrations } from "./migrations";
 
 const absoluteUrlGrammar = /^(https?:\/\/|mailto:)/;
 const effectGrammar = /^(fade|rise|drop|left|right|scale|pop)$/;
@@ -875,6 +876,9 @@ export class Deck {
     ) {
       fail("/codec", "rich text codec is required");
     }
+    // Position migration records refer to deleted XML identities. Keep their
+    // ancestry until a bounded scene checkpoint is replaced/compacted.
+    doc.gc = false;
     this.doc = doc;
     this.codec = codec;
     if (
@@ -1667,11 +1671,12 @@ export class Deck {
       );
     }
   }
-  validate() {
-    if (YencodeStateAsUpdate(this.doc).byteLength > LIMITS.sceneBytes) {
-      fail("/deck", "encoded scene size limit; compact checkpoint required");
-    }
+  private validateRoots() {
+    const migrations = validatePositionMigrations(this.doc);
     for (const [name, value] of this.doc.share) {
+      if (migrations.has(name)) {
+        continue;
+      }
       if (!["meta", "sections", "slides"].includes(name)) {
         fail(`/${name}`, "unknown root");
       }
@@ -1681,6 +1686,12 @@ export class Deck {
         fail(`/${name}`, "invalid root");
       }
     }
+  }
+  validate() {
+    if (YencodeStateAsUpdate(this.doc).byteLength > LIMITS.sceneBytes) {
+      fail("/deck", "encoded scene size limit; compact checkpoint required");
+    }
+    this.validateRoots();
     this.validateMetaSections();
     if (this.slides.size > LIMITS.slides) {
       fail("/slides", "slide limit");

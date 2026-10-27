@@ -25,6 +25,7 @@ test("production deck codec runs rich text and hostile binary admission in actua
   expect(exitCode).toBe(0);
   const result = JSON.parse(stdout);
   expect(result.dom).toBe("undefined");
+  expect(result.migrations).toBe(true);
   expect(result.refused).toBe(true);
   expect(result.unchanged).toBe(true);
   expect(result.accepted).toContain("worker ");
