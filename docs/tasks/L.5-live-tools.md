@@ -3,9 +3,9 @@ id: L.5
 title: Live document MCP tools
 milestone: L
 size: L
-status: in_progress
+status: review
 depends_on: [L.1]
-branch: null
+branch: t3/live-document-tools
 lane: mcp
 executor: codex
 ---
@@ -19,3 +19,5 @@ executor: codex
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
 
 - 2026-10-27: Sol dispatched tool adapters against L.1 contracts, isolated from ongoing engine/service lanes.
+
+- 2026-10-27: e24a7c51 merged, four tools/create adapter, 387 MCP tests and root suites reported passing. Independent review plus controller integration checks underway; L.7 owns actual runtime ports.
