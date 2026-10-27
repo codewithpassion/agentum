@@ -78,6 +78,9 @@ const RUN_STATUS_OF: Partial<Record<EventType, RunStatus>> = {
 export const eventFrame = (record: EventRecord): StreamFrame => {
   const fields = {
     actor: record.actor,
+    ...(record.actorDisplay
+      ? { actorDisplay: { name: record.actorDisplay.name } }
+      : {}),
     createdAt: record.createdAt,
     frame: "event" as const,
     id: record.id,

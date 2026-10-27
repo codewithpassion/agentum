@@ -113,3 +113,24 @@ describe("pingFrameSchema and streamFrameSchema", () => {
     expect(streamFrameSchema.safeParse({ frame: "pong" }).success).toBe(false);
   });
 });
+
+test("trusted actor display is optional and carries only a name on both event variants", () => {
+  expect(
+    eventFrameSchema.parse({ ...event, actorDisplay: { name: "Ana" } })
+      .actorDisplay
+  ).toEqual({ name: "Ana" });
+  const { payload: _payload, ...rest } = event;
+  expect(
+    eventFrameSchema.parse({
+      ...rest,
+      actorDisplay: { name: "Ana" },
+      truncated: true,
+    }).actorDisplay
+  ).toEqual({ name: "Ana" });
+  expect(
+    eventFrameSchema.safeParse({
+      ...event,
+      actorDisplay: { email: "private@example.com", name: "Ana" },
+    }).success
+  ).toBe(false);
+});

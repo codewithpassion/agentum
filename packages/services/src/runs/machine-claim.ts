@@ -31,6 +31,7 @@ import type { SecretsService } from "../secrets.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
 import type { Principal } from "../workspaces.ts";
 import { loadRun } from "./queries.ts";
+import { sessionSupportsSpeakers } from "./speakers.ts";
 import type { MachineClaim, RunRecord } from "./types.ts";
 
 const CLAIM_ACTION = "runs.claim";
@@ -278,7 +279,9 @@ export const claimForMachine = async (
     ...(Object.keys(env).length > 0 ? { env } : {}),
     inputFileIds: claimedRun.inputFileIds,
     instructions: [
-      agentPrompt(agent, await handsToNames(db, agent)),
+      agentPrompt(agent, await handsToNames(db, agent), {
+        multiPerson: await sessionSupportsSpeakers(db, claimedRun),
+      }),
       guidance,
       slack,
     ]

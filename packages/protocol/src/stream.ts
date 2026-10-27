@@ -25,6 +25,7 @@ const eventFields = {
     id: z.string().min(1),
     kind: z.enum(EVENT_ACTOR_KINDS),
   }),
+  actorDisplay: z.strictObject({ name: z.string().min(1).max(200) }).optional(),
   createdAt: isoTimestampSchema,
   frame: z.literal("event"),
   id: z.string().min(1),

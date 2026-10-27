@@ -592,7 +592,7 @@ test("a run sees the ui sessions of the user it runs for, not another user's", a
   ).toMatchObject({ code: "not_found" });
 });
 
-test("a run with no user behind it, or a missing run, sees no ui session", async () => {
+test("a run without a user sees shared sessions; a missing run sees none", async () => {
   const mine = await send(user("u1"), "mine");
   const shared = await startIn(user("u2"), agentId, "shared", {
     externalKey: "thread-1",
@@ -609,7 +609,7 @@ test("a run with no user behind it, or a missing run, sees no ui session", async
   });
 
   expect(orphan.map((item) => item.id)).toEqual([shared.sessionId]);
-  expect(missing.map((item) => item.id)).toEqual([shared.sessionId]);
+  expect(missing.map((item) => item.id)).toEqual([]);
 });
 
 test("a private Slack DM is visible only to the user who started it, and to runs for that user", async () => {

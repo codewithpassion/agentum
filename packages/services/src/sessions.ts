@@ -183,6 +183,22 @@ export const visibleSessions = async (
   db: Database,
   reader: Reader
 ): Promise<SQL | undefined> => {
+  if (reader.kind === "run") {
+    const run = await loadRun(db, reader.runId, reader.workspaceId);
+    if (!run || run.agentId !== reader.agentId) {
+      return sql`0`;
+    }
+    if (run.scopeArtifactId) {
+      return and(
+        eq(sessions.workspaceId, reader.workspaceId),
+        eq(sessions.agentId, reader.agentId),
+        eq(sessions.origin, "artifact"),
+        eq(sessions.externalKey, run.scopeArtifactId),
+        sql`exists (select 1 from ${artifacts} where ${artifacts.id} = ${sessions.externalKey} and ${artifacts.workspaceId} = ${sessions.workspaceId} and ${artifacts.deletedAt} is null)`,
+        sql`exists (select 1 from ${artifactMembers} where ${artifactMembers.artifactId} = ${sessions.externalKey} and ${artifactMembers.workspaceId} = ${sessions.workspaceId} and ${artifactMembers.principalKind} = 'guest' and ${artifactMembers.guestId} = ${run.actor.id} and ${artifactMembers.revokedAt} is null and ${artifactMembers.expiresAt} > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`
+      );
+    }
+  }
   const opener = await openerOf(db, reader);
   return and(
     eq(sessions.workspaceId, reader.workspaceId),

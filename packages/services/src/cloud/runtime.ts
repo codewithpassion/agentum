@@ -11,6 +11,7 @@ import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { agentGrants } from "../library/access.ts";
 import { librarySyncScope } from "../library/sync-paths.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
+import { sessionSupportsSpeakers } from "../runs/speakers.ts";
 import type { AdapterDeps, RunRecord, RuntimeAdapter } from "../runs/types.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
 import { CLOUD_DEFAULT_MODEL, findCloudModel } from "./models.ts";
@@ -131,7 +132,12 @@ export const createCloudRuntime = ({
     await runner.start({
       agent: {
         id: agent.id,
-        instructions: [agentPrompt(agent, await handsToNames(db, agent)), slack]
+        instructions: [
+          agentPrompt(agent, await handsToNames(db, agent), {
+            multiPerson: await sessionSupportsSpeakers(db, run),
+          }),
+          slack,
+        ]
           .filter((part) => part !== "")
           .join("\n\n"),
         model:
