@@ -5,12 +5,27 @@ import {
   applyUpdate as YapplyUpdate,
   Doc as YDoc,
   encodeStateAsUpdate as YencodeStateAsUpdate,
+  encodeStateVector as YencodeStateVector,
   Map as YMap,
   Text as YText,
   XmlFragment as YXmlFragment,
+  XmlText as YXmlText,
   type YEvent as YYEvent,
 } from "yjs";
 
+const absoluteUrlGrammar = /^(https?:\/\/|mailto:)/;
+const effectGrammar = /^(fade|rise|drop|left|right|scale|pop)$/;
+const shapeGrammar = /^(rect|ellipse|triangle|line)$/;
+const altGrammar = /^[^<>]{0,512}$/;
+const anchorGrammar = /^(top|right|bottom|left|center)$/;
+const flexGrammar = /^(0|[1-9]\d?|100)$/;
+const basisGrammar = /^(auto|(0|[1-9]\d{0,3})(\.\d{1,2})?px)$/;
+const alignGrammar = /^(start|end|center|stretch)$/;
+const justifyGrammar =
+  /^(start|end|center|space-between|space-around|space-evenly)$/;
+const gridSpanGrammar = /^(span )?([1-9]|1\d|2[0-4])$/;
+const gridTracksGrammar = /^repeat\(([1-9]|1\d|2[0-4]), 1fr\)$/;
+const textAlignGrammar = /^(left|center|right|justify)$/;
 const idGrammar = /^[A-Za-z0-9_-]{1,80}$/;
 const orderGrammar = /^[A-Za-z0-9]{2,128}$/;
 const colorGrammar =
@@ -88,7 +103,9 @@ export const LIMITS = {
   depth: 16,
   elements: 200,
   nodes: 20_000,
+  sceneBytes: 16_000_000,
   slides: 500,
+  updateBytes: 16_000_000,
 } as const;
 export interface Theme {
   colors: Record<string, string>;
@@ -192,40 +209,59 @@ const types = new Set([
   "connector",
   "group",
 ]);
-const propNames = new Set([
-  "x",
-  "y",
-  "w",
-  "h",
-  "rotate",
-  "flow",
-  "src",
-  "rows",
-  "cols",
-  "build-in",
-  "build-out",
-  "build-order",
-  "build-trigger",
-]);
-const styles = new Set([
-  "color",
-  "background-color",
-  "border-color",
-  "border-width",
-  "font-family",
-  "font-size",
-  "font-weight",
-  "opacity",
-]);
-const effects = new Set([
-  "fade",
-  "rise",
-  "drop",
-  "left",
-  "right",
-  "scale",
-  "pop",
-]);
+const propGrammars: Record<string, RegExp> = {
+  "align-self": alignGrammar,
+  alt: altGrammar,
+  "build-in": effectGrammar,
+  "build-order": buildOrderGrammar,
+  "build-out": effectGrammar,
+  "build-trigger": triggerGrammar,
+  cols: dimensionGrammar,
+  "flex-basis": basisGrammar,
+  "flex-grow": flexGrammar,
+  "flex-shrink": flexGrammar,
+  flow: flowGrammar,
+  from: idGrammar,
+  "from-anchor": anchorGrammar,
+  "grid-column": gridSpanGrammar,
+  "grid-row": gridSpanGrammar,
+  h: coordinateGrammar,
+  icon: idGrammar,
+  rotate: coordinateGrammar,
+  rows: dimensionGrammar,
+  shape: shapeGrammar,
+  src: blobGrammar,
+  to: idGrammar,
+  "to-anchor": anchorGrammar,
+  w: coordinateGrammar,
+  x: coordinateGrammar,
+  y: coordinateGrammar,
+};
+const propNames = new Set(Object.keys(propGrammars));
+const styleGrammars: Record<string, RegExp> = {
+  "background-color": colorGrammar,
+  "border-color": colorGrammar,
+  "border-radius": lengthGrammar,
+  "border-width": lengthGrammar,
+  color: colorGrammar,
+  "font-family": fontGrammar,
+  "font-size": lengthGrammar,
+  "font-weight": weightGrammar,
+  "line-height": lengthGrammar,
+  opacity: opacityGrammar,
+  "text-align": textAlignGrammar,
+};
+const styles = new Set(Object.keys(styleGrammars));
+const layoutGrammars: Record<string, RegExp> = {
+  "align-items": alignGrammar,
+  direction: directionGrammar,
+  display: displayGrammar,
+  gap: gapGrammar,
+  "grid-template-columns": gridTracksGrammar,
+  "grid-template-rows": gridTracksGrammar,
+  "justify-content": justifyGrammar,
+  padding: lengthGrammar,
+};
 const escapeHtml = (s: string) =>
   s
     .replaceAll("&", "&amp;")
@@ -251,59 +287,31 @@ function checkOrder(value: string, path: string) {
   }
 }
 function validateStyle(key: string, value: string, path: string) {
-  if (!styles.has(key)) {
+  const grammar = Object.hasOwn(styleGrammars, key)
+    ? styleGrammars[key]
+    : undefined;
+  if (!grammar) {
     fail(path, `unknown style ${key}`);
   }
-  const color = colorGrammar;
-  const length = lengthGrammar;
-  let grammar = length;
-  if (key.endsWith("color")) {
-    grammar = color;
-  }
-  if (key === "font-family") {
-    grammar = fontGrammar;
-  }
-  if (key === "font-weight") {
-    grammar = weightGrammar;
-  }
-  if (key === "opacity") {
-    grammar = opacityGrammar;
-  }
-  const valid = typeof value === "string" && grammar.test(value);
-  if (!valid) {
+  if (typeof value !== "string" || !grammar.test(value)) {
     fail(path, `invalid style ${key}`);
   }
 }
 function validateProp(key: string, value: string, path: string) {
-  if (!propNames.has(key)) {
+  const grammar = Object.hasOwn(propGrammars, key)
+    ? propGrammars[key]
+    : undefined;
+  if (!grammar) {
     fail(path, `unknown property ${key}`);
   }
-  let valid = false;
-  if (["x", "y", "w", "h", "rotate"].includes(key)) {
-    valid =
-      coordinateGrammar.test(value) &&
-      (!["w", "h"].includes(key) || Number(value) > 0);
-  }
-  if (key === "flow") {
-    valid = flowGrammar.test(value);
-  }
-  if (key === "src") {
-    valid = typeof value === "string" && blobGrammar.test(value);
-  }
-  if (key === "rows" || key === "cols") {
-    valid = dimensionGrammar.test(value);
-  }
-  if (key === "build-in" || key === "build-out") {
-    valid = effects.has(value);
-  }
-  if (key === "build-order") {
-    valid = buildOrderGrammar.test(value) && Number(value) <= 50;
-  }
-  if (key === "build-trigger") {
-    valid = triggerGrammar.test(value);
-  }
-  if (!valid) {
+  if (typeof value !== "string" || !grammar.test(value)) {
     fail(path, `invalid property ${key}`);
+  }
+  if (["w", "h"].includes(key) && Number(value) <= 0) {
+    fail(path, "size must be positive");
+  }
+  if (key === "build-order" && Number(value) > 50) {
+    fail(path, "build order limit");
   }
 }
 function validateSlide(slide: SlideData) {
@@ -358,13 +366,9 @@ function validateSlide(slide: SlideData) {
   validateStyle("background-color", slide.background, path);
   for (const [key, value] of Object.entries(slide.layout)) {
     if (
-      !(
-        (key === "display" && displayGrammar.test(value)) ||
-        (key === "direction" && directionGrammar.test(value)) ||
-        (key === "gap" && gapGrammar.test(value))
-      )
+      !(Object.hasOwn(layoutGrammars, key) && layoutGrammars[key]?.test(value))
     ) {
-      fail(path, `invalid layout ${key}`);
+      fail(`${path}/@layout-${key}`, "invalid layout");
     }
   }
   if (slide.elements.length > 200) {
@@ -375,6 +379,7 @@ function validateSlide(slide: SlideData) {
   }
   for (const e of slide.elements) {
     validateElement(e, path, slide.id);
+    validateConnector(e, slide, path);
   }
   if (tableCells(slide) > LIMITS.cells) {
     fail(path, "table cell limit exceeded");
@@ -404,6 +409,7 @@ function validateElement(e: ElementData, path: string, slideId: string) {
   if (e.id === slideId || !types.has(e.type)) {
     fail(p, "duplicate id or invalid type");
   }
+  validateElementProps(e, p);
   for (const [k, v] of Object.entries(e.props)) {
     validateProp(k, v, `${p}/@prop-${k}`);
   }
@@ -502,7 +508,7 @@ function parseXml(html: string): Node {
   const path = () => `/${stack.map((n) => n.tag).join("/") || "slide"}`;
   parser.on("opentag", (tag) => {
     nodeCount += 1;
-    if (nodeCount > LIMITS.nodes || stack.length > LIMITS.depth) {
+    if (nodeCount > LIMITS.nodes || stack.length > LIMITS.depth + 2) {
       fail(path(), "HTML complexity limit");
     }
     const attrs: Record<string, string> = {};
@@ -655,9 +661,7 @@ export function parseSlide(html: string, codec: RichTextCodec): SlideData {
       "background",
       "transition",
       "duration",
-      "layout-display",
-      "layout-direction",
-      "layout-gap",
+      ...Object.keys(layoutGrammars).map((key) => `layout-${key}`),
       "section",
     ],
     path
@@ -760,23 +764,29 @@ export function serializeSlide(slide: SlideData, codec: RichTextCodec): string {
     ],
     tag: "slide",
   };
-  return renderNode(root);
+  const html = renderNode(root);
+  if (new TextEncoder().encode(html).byteLength > LIMITS.bytes) {
+    fail("/slide", "serialized HTML size limit");
+  }
+  return html;
 }
 type SharedMap = YMap<unknown>;
-const map = (value: unknown): SharedMap => {
+const map = (value: unknown, path = "/scene"): SharedMap => {
   if (!(value instanceof YMap) || value._start !== null) {
-    fail("/scene", "invalid scene map");
+    fail(path, "invalid scene map");
   }
   return value;
 };
-const str = (value: unknown): string => {
+const str = (value: unknown, path = "/scene"): string => {
   if (typeof value !== "string") {
-    fail("/scene", "invalid scene value");
+    fail(path, "invalid scene value");
   }
   return value;
 };
-const entries = (value: unknown): Record<string, string> =>
-  Object.fromEntries([...map(value).entries()].map(([k, v]) => [k, str(v)]));
+const entries = (value: unknown, path = "/scene"): Record<string, string> =>
+  Object.fromEntries(
+    [...map(value, path).entries()].map(([k, v]) => [k, str(v, `${path}/${k}`)])
+  );
 const canonical = (value: unknown): string =>
   JSON.stringify(value, (_k, v: unknown) =>
     v && typeof v === "object" && !Array.isArray(v)
@@ -807,6 +817,7 @@ const keys = (value: SharedMap, allowed: string[], path: string) => {
 export class Deck {
   readonly doc: YDoc;
   readonly codec: RichTextCodec;
+  private readonly authorClientId = newClientId();
   private readonly options: DeckOptions;
   private readonly history = new Map<string, number>();
   private readonly observations = new Map<
@@ -815,30 +826,37 @@ export class Deck {
   >();
   private readonly changed = (events: YYEvent<YAbstractType<unknown>>[]) => {
     for (const event of events) {
-      const [sid, area, eid] = event.path;
-      if (typeof sid !== "string") {
-        for (const key of event.changes.keys.keys()) {
-          this.bump(`${key}:root`);
-        }
-        continue;
-      }
-      if (area === "elements") {
-        if (typeof eid === "string") {
-          this.bump(`${sid}:element:${eid}`);
-        } else {
-          for (const key of event.changes.keys.keys()) {
-            this.bump(`${sid}:element:${key}`);
-          }
-        }
-      } else if (area) {
-        this.bump(`${sid}:${area}`);
-      } else {
-        for (const key of event.changes.keys.keys()) {
-          this.bump(`${sid}:${key}`);
-        }
-      }
+      this.trackChange(event);
     }
   };
+  private trackChange(event: YYEvent<YAbstractType<unknown>>) {
+    const [sid, area, eid] = event.path;
+    if (typeof sid !== "string") {
+      for (const key of event.changes.keys.keys()) {
+        this.bump(`${key}:root`);
+      }
+      return;
+    }
+    if (area === "elements") {
+      if (typeof eid === "string") {
+        this.bump(`${sid}:element:${eid}`);
+      } else {
+        for (const key of event.changes.keys.keys()) {
+          this.bump(`${sid}:element:${key}`);
+        }
+      }
+    } else if (area === "layout") {
+      for (const key of event.changes.keys.keys()) {
+        this.bump(`${sid}:layout:${key}`);
+      }
+    } else if (area) {
+      this.bump(`${sid}:${area}`);
+    } else {
+      for (const key of event.changes.keys.keys()) {
+        this.bump(`${sid}:${key}`);
+      }
+    }
+  }
   private bump(key: string) {
     if (this.history.size > 120_000) {
       this.history.clear();
@@ -847,6 +865,13 @@ export class Deck {
     this.history.set(key, (this.history.get(key) ?? 0) + 1);
   }
   constructor(doc: YDoc, codec: RichTextCodec, options: DeckOptions = {}) {
+    if (
+      !codec ||
+      typeof codec.parse !== "function" ||
+      typeof codec.serialize !== "function"
+    ) {
+      fail("/codec", "rich text codec is required");
+    }
     this.doc = doc;
     this.codec = codec;
     if (
@@ -879,6 +904,9 @@ export class Deck {
     if (this.slides.size >= 500 || this.slides.has(slide.id)) {
       throw new Error("slide limit or duplicate id");
     }
+    this.commitMutation((candidate) => candidate.insertSlide(slide));
+  }
+  private insertSlide(slide: SlideData) {
     this.doc.transact(() => {
       const s = new YMap<unknown>();
       s.set("elements", new YMap());
@@ -895,6 +923,19 @@ export class Deck {
     key: string,
     value: string
   ): void {
+    if (area === "props") {
+      validateProp(
+        key,
+        value,
+        `/slide/${slideId}/element/${elementId}/@prop-${key}`
+      );
+    } else {
+      validateStyle(
+        key,
+        value,
+        `/slide/${slideId}/element/${elementId}/@style-${key}`
+      );
+    }
     const snapshot = this.snapshot(slideId);
     const element = snapshot.elements.find((item) => item.id === elementId);
     if (!element) {
@@ -902,14 +943,10 @@ export class Deck {
     }
     element[area][key] = value;
     this.validateContent(snapshot);
-    map(
-      map(
-        map(map(this.slides.get(slideId)).get("elements")).get(elementId)
-      ).get(area)
-    ).set(key, value);
+    this.commitSlide(snapshot);
   }
   moveSlide(id: string, before: string | null, after: string | null): void {
-    const slide = map(this.slides.get(id));
+    map(this.slides.get(id));
     if (id === before || id === after) {
       throw new Error("cannot order against itself");
     }
@@ -917,70 +954,89 @@ export class Deck {
       before === null ? null : str(map(this.slides.get(before)).get("order"));
     const right =
       after === null ? null : str(map(this.slides.get(after)).get("order"));
-    slide.set("order", generateKeyBetween(left, right));
+    this.updateSlide(id, { order: generateKeyBetween(left, right) });
+  }
+  private serializeFragment(fragment: YXmlFragment, path: string): Node[] {
+    checkXmlComplexity(fragment, path);
+    try {
+      const nodes = this.codec.serialize(fragment).map((node) => {
+        if (typeof node === "string") {
+          fail(path, "expected block node");
+        }
+        return node;
+      });
+      validateText(nodes, this.codec, path);
+      return nodes;
+    } catch (error) {
+      fail(path, `invalid rich text: ${String(error)}`);
+    }
   }
   private snapshot(id: string): SlideData {
-    const s = map(this.slides.get(id));
+    const s = map(this.slides.get(id), `/slide/${id}`);
     const notes = s.get("notes");
     if (!(notes instanceof YText)) {
-      throw new Error("invalid notes");
+      fail(`/slide/${id}/notes`, "expected Y.Text");
     }
-    const elements: ElementData[] = [...map(s.get("elements")).entries()]
+    const elements: ElementData[] = [
+      ...map(s.get("elements"), `/slide/${id}/elements`).entries(),
+    ]
       .map(([eid, raw]) => {
-        const e = map(raw);
-        const type = str(e.get("type")) as ElementType;
+        const e = map(raw, `/slide/${id}/element/${eid}`);
+        const type = str(
+          e.get("type"),
+          `/slide/${id}/element/${eid}/@type`
+        ) as ElementType;
         const result: ElementData = {
           id: eid,
-          order: str(e.get("order")),
-          parent: str(e.get("parent")),
-          props: entries(e.get("props")),
-          style: entries(e.get("style")),
+          order: str(e.get("order"), `/slide/${id}/element/${eid}/@order`),
+          parent: str(e.get("parent"), `/slide/${id}/element/${eid}/@parent`),
+          props: entries(e.get("props"), `/slide/${id}/element/${eid}/props`),
+          style: entries(e.get("style"), `/slide/${id}/element/${eid}/style`),
           type,
         };
         if (type === "text") {
           const fragment = e.get("text");
           if (!(fragment instanceof YXmlFragment)) {
-            throw new Error("invalid text");
+            fail(`/slide/${id}/element/${eid}/text`, "expected Y.XmlFragment");
           }
-          result.text = this.codec.serialize(fragment).map((n) => {
-            if (typeof n === "string") {
-              throw new Error("invalid text block");
-            }
-            return n;
-          });
+          result.text = this.serializeFragment(
+            fragment,
+            `/slide/${id}/element/${eid}/text`
+          );
         }
         if (type === "table") {
           result.cells = {};
-          for (const [key, fragment] of map(e.get("cells"))) {
+          for (const [key, fragment] of map(
+            e.get("cells"),
+            `/slide/${id}/element/${eid}/cells`
+          )) {
             if (!(fragment instanceof YXmlFragment)) {
               fail(
                 `/slide/${id}/element/${eid}/cell/${key}`,
                 "invalid fragment"
               );
             }
-            result.cells[key] = this.codec.serialize(fragment).map((node) => {
-              if (typeof node === "string") {
-                fail("/cell", "expected block");
-              }
-              return node;
-            });
+            result.cells[key] = this.serializeFragment(
+              fragment,
+              `/slide/${id}/element/${eid}/cell/${key}`
+            );
           }
         }
         return result;
       })
       .sort((a, b) => a.id.localeCompare(b.id));
     const slide: SlideData = {
-      background: str(s.get("background")),
-      duration: str(s.get("duration")),
+      background: str(s.get("background"), `/slide/${id}/@background`),
+      duration: str(s.get("duration"), `/slide/${id}/@duration`),
       elements,
       id,
-      layout: entries(s.get("layout")),
-      notes: notes.toString(),
-      order: str(s.get("order")),
-      transition: str(s.get("transition")),
+      layout: entries(s.get("layout"), `/slide/${id}/layout`),
+      notes: plainText(notes, `/slide/${id}/notes`),
+      order: str(s.get("order"), `/slide/${id}/@order`),
+      transition: str(s.get("transition"), `/slide/${id}/@transition`),
     };
     if (s.has("section")) {
-      slide.section = str(s.get("section"));
+      slide.section = str(s.get("section"), `/slide/${id}/@section`);
     }
     this.validateContent(slide);
     return slide;
@@ -1003,7 +1059,9 @@ export class Deck {
       slide,
     };
     this.observations.set(observation.revision, {
-      history: new Map(this.history),
+      history: new Map(
+        [...this.history].filter(([key]) => key.startsWith(`${id}:`))
+      ),
       observation: structuredClone(observation),
     });
     while (
@@ -1016,6 +1074,13 @@ export class Deck {
       }
     }
     return observation;
+  }
+  readHtml(id: string): { html: string; revision: string } {
+    const observation = this.read(id);
+    return {
+      html: serializeSlide(observation.slide, this.codec),
+      revision: observation.revision,
+    };
   }
   private observationBytes() {
     return [...this.observations.values()].reduce(
@@ -1031,27 +1096,7 @@ export class Deck {
       .every((key) => history.get(key) === this.history.get(key));
   }
   private validateContent(slide: SlideData) {
-    validateSlide(slide);
-    const others = [...this.slides].filter(([id]) => id !== slide.id);
-    const cells = others.reduce(
-      (sum, [, raw]) =>
-        sum +
-        [...map(map(raw).get("elements")).values()].reduce<number>(
-          (total, value) => {
-            const element = map(value);
-            if (element.get("type") !== "table") {
-              return total;
-            }
-            const props = entries(element.get("props"));
-            return total + Number(props.rows) * Number(props.cols);
-          },
-          0
-        ),
-      tableCells(slide)
-    );
-    if (cells > LIMITS.cells) {
-      fail("/slides", "deck table cell limit");
-    }
+    serializeSlide(slide, this.codec);
     const theme = this.theme();
     for (const e of slide.elements) {
       const path = `/slide/${slide.id}/element/${e.id}`;
@@ -1063,12 +1108,6 @@ export class Deck {
         !Object.values(theme.fonts).includes(e.style["font-family"])
       ) {
         fail(`${path}/@style-font-family`, "font outside theme");
-      }
-      if (e.text) {
-        validateText(e.text, this.codec, `${path}/text`);
-      }
-      for (const [key, nodes] of Object.entries(e.cells ?? {})) {
-        validateText(nodes, this.codec, `${path}/cell/${key}`);
       }
     }
     if (slide.section && !this.doc.getMap("sections").has(slide.section)) {
@@ -1172,19 +1211,18 @@ export class Deck {
     if (raw === undefined) {
       return structuredClone(defaultTheme);
     }
-    const theme = map(raw);
+    const theme = map(raw, "/meta/theme");
     const result = {
-      colors: entries(theme.get("colors")),
-      fonts: entries(theme.get("fonts")),
-      sizes: entries(theme.get("sizes")),
+      colors: entries(theme.get("colors"), "/meta/theme/colors"),
+      fonts: entries(theme.get("fonts"), "/meta/theme/fonts"),
+      sizes: entries(theme.get("sizes"), "/meta/theme/sizes"),
     };
     validateTheme(result);
     return result;
   }
   setTheme(theme: Theme): void {
     validateTheme(theme);
-    this.mutateCandidate((candidate) => candidate.applyTheme(theme));
-    this.applyTheme(theme);
+    this.commitMutation((candidate) => candidate.applyTheme(theme));
   }
   private applyTheme(theme: Theme) {
     this.doc.transact(() => {
@@ -1206,7 +1244,9 @@ export class Deck {
     if (typeof title !== "string" || title.length > 500) {
       fail("/meta/title", "invalid title");
     }
-    this.doc.getMap("meta").set("title", title);
+    this.commitMutation((candidate) =>
+      candidate.doc.getMap("meta").set("title", title)
+    );
   }
   sections(): Section[] {
     return [...this.doc.getMap("sections")]
@@ -1232,6 +1272,10 @@ export class Deck {
     if (!sections.has(section.id) && sections.size >= LIMITS.slides) {
       fail("/sections", "section limit");
     }
+    this.commitMutation((candidate) => candidate.applySection(section));
+  }
+  private applySection(section: Section) {
+    const sections = this.doc.getMap("sections");
     this.doc.transact(() => {
       let entry = sections.get(section.id);
       if (!(entry instanceof YMap)) {
@@ -1242,6 +1286,9 @@ export class Deck {
     });
   }
   deleteSection(id: string) {
+    this.commitMutation((candidate) => candidate.removeSection(id));
+  }
+  private removeSection(id: string) {
     this.doc.transact(() => {
       for (const raw of this.slides.values()) {
         const slide = map(raw);
@@ -1253,7 +1300,7 @@ export class Deck {
     });
   }
   deleteSlide(id: string) {
-    this.slides.delete(id);
+    this.commitMutation((candidate) => candidate.slides.delete(id));
   }
   duplicateSlide(
     id: string,
@@ -1276,13 +1323,21 @@ export class Deck {
       element.parent =
         element.parent === id ? newId : (elementIds[element.parent] ?? "");
       element.id = elementIds[element.id] ?? "";
+      if (element.type === "connector") {
+        for (const key of ["from", "to"]) {
+          const value = element.props[key];
+          if (value) {
+            element.props[key] = elementIds[value] ?? "";
+          }
+        }
+      }
     }
     this.addSlide(slide);
   }
   updateSlide(id: string, patch: Partial<Omit<SlideData, "id" | "elements">>) {
     const slide = { ...this.snapshot(id), ...structuredClone(patch), id };
     this.validateContent(slide);
-    this.doc.transact(() => this.applySlide(map(this.slides.get(id)), slide));
+    this.commitSlide(slide);
   }
   addElement(slideId: string, element: ElementData) {
     const slide = this.snapshot(slideId);
@@ -1324,7 +1379,8 @@ export class Deck {
       }
     }
     slide.elements = slide.elements.filter(
-      (element) => !deleted.has(element.id)
+      (element) =>
+        !(deleted.has(element.id) || connectorTouches(element, deleted))
     );
     this.commitSlide(slide);
   }
@@ -1416,14 +1472,53 @@ export class Deck {
     }
     return fragment;
   }
-  duplicateElement(slideId: string, id: string, newId: string, order: string) {
-    const element = this.snapshot(slideId).elements.find(
-      (entry) => entry.id === id
-    );
-    if (!element || element.type === "group") {
-      fail("/slide/element", "duplicate a non-group element");
+  duplicateElement(
+    slideId: string,
+    id: string,
+    newId: string,
+    order: string,
+    descendantIds: Record<string, string> = {}
+  ) {
+    const slide = this.snapshot(slideId);
+    const element = slide.elements.find((entry) => entry.id === id);
+    if (!element) {
+      fail("/slide/element", "missing element");
     }
-    this.addElement(slideId, { ...element, id: newId, order });
+    const copies = new Set([id]);
+    for (let depth = 0; depth < LIMITS.depth; depth += 1) {
+      for (const entry of slide.elements) {
+        if (copies.has(entry.parent)) {
+          copies.add(entry.id);
+        }
+      }
+    }
+    const ids = { ...descendantIds, [id]: newId };
+    const cloned = slide.elements
+      .filter((entry) => copies.has(entry.id))
+      .map((entry) => {
+        const eid = ids[entry.id];
+        if (!eid) {
+          fail("/slide/element", "provide descendant ids");
+        }
+        return {
+          ...structuredClone(entry),
+          id: eid,
+          order: entry.id === id ? order : entry.order,
+          parent: entry.id === id ? entry.parent : (ids[entry.parent] ?? ""),
+        };
+      });
+    for (const entry of cloned) {
+      if (entry.type === "connector") {
+        for (const key of ["from", "to"]) {
+          const value = entry.props[key];
+          if (value && ids[value]) {
+            entry.props[key] = ids[value];
+          }
+        }
+      }
+    }
+    slide.elements.push(...cloned);
+    this.commitSlide(slide);
   }
   updateElements(
     slideId: string,
@@ -1453,6 +1548,9 @@ export class Deck {
   }
   private commitSlide(slide: SlideData) {
     this.validateContent(slide);
+    this.commitMutation((candidate) => candidate.replaceSlide(slide));
+  }
+  private replaceSlide(slide: SlideData) {
     this.doc.transact(() => {
       const target = map(this.slides.get(slide.id));
       const elements = map(target.get("elements"));
@@ -1465,13 +1563,24 @@ export class Deck {
       this.applySlide(target, slide);
     });
   }
-  private mutateCandidate(change: (candidate: Deck) => void) {
+  private commitMutation(change: (candidate: Deck) => void) {
+    const update = this.mutateCandidate(change, true);
+    YapplyUpdate(this.doc, update);
+  }
+  private mutateCandidate(
+    change: (candidate: Deck) => void,
+    author = false
+  ): Uint8Array {
     const doc = new YDoc({ gc: false });
     YapplyUpdate(doc, YencodeStateAsUpdate(this.doc));
     const candidate = new Deck(doc, this.codec, this.options);
+    if (author) {
+      doc.clientID = this.authorClientId;
+    }
     try {
       change(candidate);
       candidate.validate();
+      return YencodeStateAsUpdate(doc, YencodeStateVector(this.doc));
     } finally {
       candidate.destroy();
       doc.destroy();
@@ -1479,7 +1588,7 @@ export class Deck {
   }
   /** Authenticate/authorize and rate-limit before this synchronous boundary. Never apply network updates directly. */
   applyUpdate(update: Uint8Array) {
-    if (update.byteLength > LIMITS.bytes) {
+    if (update.byteLength > LIMITS.updateBytes) {
       fail("/update", "update size limit");
     }
     this.mutateCandidate((candidate) => {
@@ -1493,7 +1602,7 @@ export class Deck {
   }
   /** Checkpoint replacement is a new authoritative transaction, not a merge of an old checkpoint. */
   restore(update: Uint8Array) {
-    if (update.byteLength > LIMITS.bytes) {
+    if (update.byteLength > LIMITS.updateBytes) {
       fail("/restore", "checkpoint size limit");
     }
     const doc = new YDoc({ gc: false });
@@ -1504,17 +1613,19 @@ export class Deck {
         fail("/restore", "incomplete checkpoint");
       }
       candidate.validate();
-      this.doc.transact(() => {
-        for (const name of ["meta", "sections", "slides"]) {
-          const target = this.doc.getMap(name);
-          target.clear();
-          for (const [key, value] of doc.getMap(name)) {
-            target.set(
-              key,
-              value instanceof YAbstractType ? value.clone() : value
-            );
+      this.commitMutation((target) => {
+        target.doc.transact(() => {
+          for (const name of ["meta", "sections", "slides"]) {
+            const root = target.doc.getMap(name);
+            root.clear();
+            for (const [key, value] of doc.getMap(name)) {
+              root.set(
+                key,
+                value instanceof YAbstractType ? value.clone() : value
+              );
+            }
           }
-        }
+        });
       });
       this.observations.clear();
     } finally {
@@ -1554,6 +1665,9 @@ export class Deck {
     }
   }
   validate() {
+    if (YencodeStateAsUpdate(this.doc).byteLength > LIMITS.sceneBytes) {
+      fail("/deck", "encoded scene size limit; compact checkpoint required");
+    }
     for (const [name, value] of this.doc.share) {
       if (!["meta", "sections", "slides"].includes(name)) {
         fail(`/${name}`, "unknown root");
@@ -1570,7 +1684,7 @@ export class Deck {
     }
     let totalCells = 0;
     for (const id of this.slides.keys()) {
-      const raw = map(this.slides.get(id));
+      const raw = map(this.slides.get(id), `/slide/${id}`);
       keys(
         raw,
         [
@@ -1586,7 +1700,7 @@ export class Deck {
         `/slide/${id}`
       );
       for (const [eid, value] of map(raw.get("elements"))) {
-        const element = map(value);
+        const element = map(value, `/slide/${id}/element/${eid}`);
         keys(
           element,
           ["type", "parent", "order", "props", "style", "text", "cells"],
@@ -1612,30 +1726,62 @@ export class Deck {
     if (totalCells > LIMITS.cells) {
       fail("/slides", "deck table cell limit");
     }
-    if (YencodeStateAsUpdate(this.doc).byteLength > LIMITS.bytes * 8) {
-      fail("/deck", "encoded scene size limit; compact checkpoint required");
-    }
   }
-  write(id: string, html: string, observed: Observation): WriteResult {
+  private mergeLayout(
+    id: string,
+    observed: Record<string, string>,
+    desired: Record<string, string>,
+    current: Record<string, string>,
+    unchanged: (key: string) => boolean,
+    result: WriteResult
+  ): Record<string, string> {
+    const layout = { ...current };
+    for (const key of new Set([
+      ...Object.keys(observed),
+      ...Object.keys(desired),
+    ])) {
+      if (observed[key] === desired[key]) {
+        continue;
+      }
+      if (
+        !(unchanged("layout") && unchanged(`layout:${key}`)) ||
+        observed[key] !== current[key]
+      ) {
+        result.skipped.push({ id, reason: `layout:${key} changed since read` });
+        continue;
+      }
+      const value = desired[key];
+      if (value === undefined) {
+        delete layout[key];
+      } else {
+        layout[key] = value;
+      }
+      result.applied.push(`${id}:layout:${key}`);
+    }
+    return layout;
+  }
+  write(id: string, html: string, observed: Observation | string): WriteResult {
     const desired = parseSlide(html, this.codec);
-    const retained = this.observations.get(observed.revision);
+    const token = typeof observed === "string" ? observed : observed.revision;
+    const retained = this.observations.get(token);
     if (
       !retained ||
-      canonical(retained.observation) !== canonical(observed) ||
+      (typeof observed !== "string" &&
+        canonical(retained.observation) !== canonical(observed)) ||
       id !== desired.id ||
-      id !== observed.slide.id
+      id !== retained.observation.slide.id
     ) {
       throw new Error("invalid or expired observation");
     }
+    const { observation } = retained;
     const unchanged = (key: string) =>
       retained.history.get(`${id}:${key}`) ===
         this.history.get(`${id}:${key}`) &&
       retained.history.get(`${id}:root`) === this.history.get(`${id}:root`);
     const current = this.read(id);
-    const target = map(this.slides.get(id));
     const result: WriteResult = { applied: [], skipped: [] };
     // Check the final merged scene before mutating. Human-modified elements always win.
-    const old = new Map(observed.slide.elements.map((e) => [e.id, e]));
+    const old = new Map(observation.slide.elements.map((e) => [e.id, e]));
     const now = new Map(current.slide.elements.map((e) => [e.id, e]));
     const wanted = new Map(desired.elements.map((e) => [e.id, e]));
     const merged = new Map(now);
@@ -1662,18 +1808,17 @@ export class Deck {
       "background",
       "transition",
       "duration",
-      "layout",
       "notes",
       "section",
     ] as const;
     const final = { ...current.slide, elements: [...merged.values()] };
     for (const key of slideKeys) {
-      if (canonical(observed.slide[key]) === canonical(desired[key])) {
+      if (canonical(observation.slide[key]) === canonical(desired[key])) {
         continue;
       }
       if (
         !unchanged(key) ||
-        canonical(observed.slide[key]) !== canonical(current.slide[key])
+        canonical(observation.slide[key]) !== canonical(current.slide[key])
       ) {
         result.skipped.push({ id, reason: `${key} changed since read` });
         continue;
@@ -1681,16 +1826,16 @@ export class Deck {
       Object.assign(final, { [key]: desired[key] });
       result.applied.push(`${id}:${key}`);
     }
+    final.layout = this.mergeLayout(
+      id,
+      observation.slide.layout,
+      desired.layout,
+      current.slide.layout,
+      unchanged,
+      result
+    );
     this.validateContent(final);
-    this.doc.transact(() => {
-      const elements = map(target.get("elements"));
-      for (const eid of elements.keys()) {
-        if (!merged.has(eid)) {
-          elements.delete(eid);
-        }
-      }
-      this.applySlide(target, final);
-    });
+    this.commitSlide(final);
     return result;
   }
 }
@@ -1744,4 +1889,159 @@ function stringRecord(
 function nodePath(path: string, node: Node) {
   const suffix = node.attrs.id ? `[@id='${node.attrs.id}']` : "";
   return `${path}/${node.tag}${suffix}`;
+}
+
+function checkXmlComplexity(
+  fragment: YXmlFragment,
+  path: string,
+  depth = 0,
+  count = { value: 0 }
+) {
+  if (depth > LIMITS.depth) {
+    fail(path, "XML depth limit");
+  }
+  for (const child of fragment.toArray()) {
+    count.value += 1;
+    if (count.value > LIMITS.nodes) {
+      fail(path, "XML node limit");
+    }
+    if (child instanceof YXmlFragment) {
+      checkXmlComplexity(child, path, depth + 1, count);
+    } else if (!(child instanceof YXmlText)) {
+      fail(path, "unknown XML type");
+    }
+  }
+}
+/** Shared codecs may use this URL grammar; they remain responsible for validating every node and mark. */
+export function validateLinkUrl(value: string, path = "/text/@href"): void {
+  if (
+    typeof value !== "string" ||
+    value.length > 2048 ||
+    value.trim() !== value ||
+    unsafeUrl(value)
+  ) {
+    fail(path, "unsafe link URL");
+  }
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    fail(path, "malformed URL escape");
+  }
+  if (unsafeUrl(decoded)) {
+    fail(path, "unsafe link URL");
+  }
+  const local = value.startsWith("/") && !value.startsWith("//");
+  let url: URL;
+  try {
+    url = new URL(value, "https://deck.invalid");
+  } catch {
+    fail(path, "invalid URL");
+  }
+  if (local && url.origin === "https://deck.invalid") {
+    return;
+  }
+  if (
+    !(
+      absoluteUrlGrammar.test(value) &&
+      ["http:", "https:", "mailto:"].includes(url.protocol)
+    ) ||
+    url.username ||
+    url.password
+  ) {
+    fail(path, "unsafe link URL");
+  }
+}
+
+function unsafeUrl(value: string): boolean {
+  return [...value].some(
+    (char) =>
+      (char.codePointAt(0) ?? 0) <= 32 || char === "\u007f" || char === "\\"
+  );
+}
+
+function newClientId(): number {
+  const doc = new YDoc();
+  const id = doc.clientID;
+  doc.destroy();
+  return id;
+}
+
+function validateElementProps(element: ElementData, path: string) {
+  const owners: Record<string, ElementType> = {
+    alt: "image",
+    cols: "table",
+    from: "connector",
+    "from-anchor": "connector",
+    icon: "icon",
+    rows: "table",
+    shape: "shape",
+    src: "image",
+    to: "connector",
+    "to-anchor": "connector",
+  };
+  for (const key of Object.keys(element.props)) {
+    if (owners[key] && owners[key] !== element.type) {
+      fail(`${path}/@prop-${key}`, `property only allowed on ${owners[key]}`);
+    }
+  }
+}
+function validateConnector(
+  element: ElementData,
+  slide: SlideData,
+  path: string
+) {
+  if (element.type !== "connector") {
+    return;
+  }
+  for (const key of ["from", "to"]) {
+    const id = element.props[key];
+    if (
+      id &&
+      (id === element.id ||
+        !slide.elements.some(
+          (entry) => entry.id === id && entry.type !== "connector"
+        ))
+    ) {
+      fail(
+        `${path}/element/${element.id}/@prop-${key}`,
+        "invalid connector endpoint"
+      );
+    }
+  }
+}
+
+function plainText(text: YText, path: string): string {
+  if (
+    text._map.size ||
+    text
+      .toDelta()
+      .some(
+        (delta: { insert?: unknown; attributes?: Record<string, unknown> }) =>
+          typeof delta.insert !== "string" ||
+          (delta.attributes && Object.keys(delta.attributes).length)
+      )
+  ) {
+    fail(path, "notes must be plain text");
+  }
+  return text.toString();
+}
+
+function connectorTouches(element: ElementData, ids: Set<string>): boolean {
+  return (
+    element.type === "connector" &&
+    [element.props.from, element.props.to].some(
+      (id) => id !== undefined && ids.has(id)
+    )
+  );
+}
+
+export function orderedElements(
+  slide: SlideData,
+  parent = slide.id
+): ElementData[] {
+  return slide.elements
+    .filter((element) => element.parent === parent)
+    .sort((a, b) => compareOrder(a.order, b.order) || compareOrder(a.id, b.id))
+    .map((element) => structuredClone(element));
 }

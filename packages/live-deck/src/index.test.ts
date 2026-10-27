@@ -4,6 +4,7 @@ import {
   Doc as YDoc,
   encodeStateAsUpdate as YencodeStateAsUpdate,
   Map as YMap,
+  Text as YText,
   XmlElement as YXmlElement,
   XmlFragment as YXmlFragment,
   XmlText as YXmlText,
@@ -11,11 +12,13 @@ import {
 import {
   Deck,
   generateKeyBetween,
+  LIMITS,
   type Node,
   parseSlide,
   type RichTextCodec,
   type SlideData,
   serializeSlide,
+  validateLinkUrl,
 } from "./index";
 
 // Test codec deliberately implements only paragraphs with plain text; production supplies L.2.
@@ -39,7 +42,11 @@ const codec: RichTextCodec = {
   },
   serialize(source) {
     return source.toArray().map((p): Node => {
-      if (!(p instanceof YXmlElement) || p.nodeName !== "p") {
+      if (
+        !(p instanceof YXmlElement) ||
+        p.nodeName !== "p" ||
+        Object.keys(p.getAttributes()).length
+      ) {
         throw new Error("bad paragraph");
       }
       return {
@@ -47,7 +54,24 @@ const codec: RichTextCodec = {
         children: [
           p
             .toArray()
-            .map((x) => x.toString())
+            .map((x) => {
+              if (
+                !(x instanceof YXmlText) ||
+                x
+                  .toDelta()
+                  .some(
+                    (delta: {
+                      insert?: unknown;
+                      attributes?: Record<string, unknown>;
+                    }) =>
+                      typeof delta.insert !== "string" ||
+                      (delta.attributes && Object.keys(delta.attributes).length)
+                  )
+              ) {
+                throw new Error("bad inline text");
+              }
+              return x.toString();
+            })
             .join(""),
         ],
         tag: "p",
@@ -271,6 +295,17 @@ describe("authoritative boundaries", () => {
       (doc) =>
         fieldMap(element(doc), "style").set("color", "url(javascript:x)"),
       (doc) => element(doc).set("parent", "se"),
+      (doc) => {
+        const fragment = element(doc).get("text");
+        if (!(fragment instanceof YXmlFragment)) {
+          throw new Error("fixture");
+        }
+        const paragraph = fragment.get(0);
+        if (!(paragraph instanceof YXmlElement)) {
+          throw new Error("fixture");
+        }
+        paragraph.setAttribute("onclick", "x");
+      },
       (doc) => fieldMap(element(doc), "props").set("src", "/files/other/x"),
       (doc) => element(doc).set("cells", new YMap()),
       (doc) => {
@@ -344,3 +379,511 @@ function fieldMap(parent: YMap<unknown>, key: string): YMap<unknown> {
   }
   return value;
 }
+
+describe("editor model", () => {
+  test("slide, element, group and batch geometry operations retain IDs and validate atomically", () => {
+    const deck = new Deck(new YDoc(), codec);
+    deck.addSlide(slide("s"));
+    deck.duplicateElement("s", "se", "copy", "a1");
+    deck.updateElements("s", {
+      copy: { props: { h: "50", w: "100", x: "20", y: "80" } },
+      se: { props: { h: "50", rotate: "45", w: "100", x: "20", y: "30" } },
+    });
+    deck.groupElements(
+      "s",
+      {
+        id: "g",
+        order: "a0",
+        parent: "s",
+        props: {},
+        style: {},
+        type: "group",
+      },
+      ["se", "copy"]
+    );
+    expect(
+      deck.read("s").slide.elements.filter((e) => e.parent === "g")
+    ).toHaveLength(2);
+    const baseline = YencodeStateAsUpdate(deck.doc);
+    expect(() => deck.moveElement("s", "g", "g", null, null)).toThrow("group");
+    expect(() =>
+      deck.updateElements("s", { copy: { props: { w: "-1" } } })
+    ).toThrow("prop-w");
+    expect(YencodeStateAsUpdate(deck.doc)).toEqual(baseline);
+    deck.moveElement("s", "copy", "g", null, "se");
+    deck.duplicateSlide("s", "t", "a1", { copy: "tc", g: "tg", se: "te" });
+    expect(
+      deck.read("t").slide.elements.find((e) => e.id === "te")?.parent
+    ).toBe("tg");
+    deck.ungroupElements("s", "g");
+    expect(deck.read("s").slide.elements.every((e) => e.parent === "s")).toBe(
+      true
+    );
+    deck.deleteElement("t", "tg");
+    expect(deck.read("t").slide.elements).toEqual([]);
+    deck.deleteElement("s", "copy");
+    expect(deck.read("s").slide.elements).toHaveLength(1);
+    deck.deleteSlide("t");
+    expect(deck.ids()).toEqual(["s"]);
+    deck.validate();
+  });
+  test("theme tokens and sections have per-key Yjs storage", () => {
+    const deck = new Deck(new YDoc(), codec);
+    deck.addSlide(slide("s"));
+    deck.setTitle("My deck");
+    deck.setTheme({
+      colors: { accent: "#123456" },
+      fonts: { body: "Arial" },
+      sizes: { body: "16px" },
+    });
+    deck.setSection({ id: "intro", order: "a0", title: "Introduction" });
+    deck.updateSlide("s", { section: "intro" });
+    deck.setElementKey("s", "se", "style", "font-family", "Arial");
+    const baseline = YencodeStateAsUpdate(deck.doc);
+    expect(() =>
+      deck.setTheme({ colors: {}, fonts: { body: "Other" }, sizes: {} })
+    ).toThrow("font");
+    expect(() =>
+      deck.setTheme({ colors: { bad: "#12345" }, fonts: {}, sizes: {} })
+    ).toThrow("/meta/theme/colors/bad");
+    expect(() =>
+      deck.setTheme({ colors: {}, fonts: { bad: "var(--font)" }, sizes: {} })
+    ).toThrow("fonts/bad");
+    expect(YencodeStateAsUpdate(deck.doc)).toEqual(baseline);
+    const other = new Deck(replica(deck.doc), codec);
+    deck.setTheme({ ...deck.theme(), colors: { accent: "#f00" } });
+    other.setTheme({ ...other.theme(), sizes: { body: "20px" } });
+    sync(deck.doc, other.doc);
+    expect(deck.theme()).toEqual({
+      colors: { accent: "#f00" },
+      fonts: { body: "Arial" },
+      sizes: { body: "20px" },
+    });
+    expect(deck.sections()).toEqual([
+      { id: "intro", order: "a0", title: "Introduction" },
+    ]);
+    deck.deleteSection("intro");
+    expect(deck.read("s").slide.section).toBeUndefined();
+    expect(() => deck.updateSlide("s", { section: "missing" })).toThrow(
+      "section"
+    );
+    deck.validate();
+  });
+  test("table cells and text are real independent XmlFragments", () => {
+    const deck = new Deck(new YDoc(), codec);
+    const s = slide("s");
+    s.elements.push(table("t", "s", "2", "2"));
+    deck.addSlide(s);
+    deck.setCell("s", "t", "0:0", paragraphs("one"));
+    deck.setCell("s", "t", "0:1", paragraphs("two"));
+    const other = new Deck(replica(deck.doc), codec);
+    replaceText(deck.cellFragment("s", "t", "0:0"), "left");
+    replaceText(other.cellFragment("s", "t", "0:1"), "right");
+    replaceText(deck.textFragment("s", "se"), "updated");
+    deck.applyUpdate(YencodeStateAsUpdate(other.doc));
+    other.applyUpdate(YencodeStateAsUpdate(deck.doc));
+    const result = deck.read("s").slide;
+    expect(result.elements.find((e) => e.id === "t")?.cells).toEqual({
+      "0:0": paragraphs("left"),
+      "0:1": paragraphs("right"),
+    });
+    expect(result.elements.find((e) => e.id === "se")?.text).toEqual(
+      paragraphs("updated")
+    );
+    expect(deck.cellFragment("s", "t", "1:1")).toBeInstanceOf(YXmlFragment);
+    const html = serializeSlide(deck.read("s").slide, codec);
+    expect(parseSlide(html, codec)).toEqual(deck.read("s").slide);
+    const baseline = YencodeStateAsUpdate(deck.doc);
+    expect(() => deck.setCell("s", "t", "2:0", paragraphs("outside"))).toThrow(
+      "outside"
+    );
+    expect(() => deck.setCell("s", "t", "00:0", [])).toThrow("cell key");
+    expect(() =>
+      deck.updateElement("s", "t", { props: { cols: "1", rows: "1" } })
+    ).toThrow("outside");
+    expect(YencodeStateAsUpdate(deck.doc)).toEqual(baseline);
+  });
+  test("images require artifact ownership as well as a safe canonical local path", () => {
+    const s = slide("s");
+    s.elements = [
+      {
+        id: "image",
+        order: "a0",
+        parent: "s",
+        props: { src: "/files/owned/image" },
+        style: {},
+        type: "image",
+      },
+    ];
+    expect(() => new Deck(new YDoc(), codec).addSlide(s)).toThrow("belong");
+    const deck = new Deck(new YDoc(), codec, {
+      ownsBlob: (path) => path === "/files/owned/image",
+    });
+    deck.addSlide(s);
+    for (const src of [
+      "https://evil.test/x",
+      "javascript:alert(1)",
+      "//evil.test/x",
+      "/files/../secret",
+      "/files/owned/%2f",
+      "/files/owned/image?x",
+      "/files//image",
+      "/files/other/image",
+    ]) {
+      expect(() =>
+        deck.setElementKey("s", "image", "props", "src", src)
+      ).toThrow();
+    }
+    deck.validate();
+  });
+});
+
+describe("strict grammar and bounds", () => {
+  test("malformed HTML, unsupported constructs and lossy codecs cannot enter", () => {
+    const html = serializeSlide(slide("s"), codec);
+    for (const bad of [
+      html.replace("<slide ", '<slide id="extra" '),
+      html.replace("<p>", "<![CDATA[hidden]]><p>"),
+      html.replace("<p>", "<?unsafe x?><p>"),
+      html.replace("hello", "&unknown;"),
+      html.replace('style-color="#000"', 'style-color="#12345"'),
+      html.replace('order="a0"', 'order="zz"'),
+      html.replace('parent="s"', 'parent="missing"'),
+      html.replace("<p>", '<p onclick="x">'),
+      html.replace("<notes>", '<notes src="x">'),
+      html.replace("</slide>", "</slide><slide></slide>"),
+      html.replace("hello", `${"<p>".repeat(20)}deep${"</p>".repeat(20)}`),
+    ]) {
+      expect(() => parseSlide(bad, codec)).toThrow("/");
+    }
+    const lossy: RichTextCodec = {
+      parse() {
+        /* Deliberately drops unknown data. */
+      },
+      serialize() {
+        return [];
+      },
+    };
+    expect(() => parseSlide(html, lossy)).toThrow("lossy");
+    const unsafe = slide("s");
+    first(unsafe.elements).text = [
+      { attrs: {}, children: ["x"], tag: "script" },
+    ];
+    expect(() => serializeSlide(unsafe, codec)).toThrow("rich text");
+    const escaped = slide("s");
+    escaped.notes = "&".repeat(450_000);
+    expect(() => new Deck(new YDoc(), codec).addSlide(escaped)).toThrow(
+      "HTML size"
+    );
+    const large = slide("s");
+    large.notes = "𐐀".repeat(500_001);
+    expect(() => serializeSlide(large, codec)).toThrow("size");
+  });
+  test("slide, element, group, table and text limits apply to local edits and restores", () => {
+    const deck = new Deck(new YDoc(), codec);
+    const s = slide("s");
+    s.elements = Array.from({ length: 200 }, (_, i) => ({
+      ...first(s.elements),
+      id: `e${i}`,
+    }));
+    deck.addSlide(s);
+    expect(() =>
+      deck.addElement("s", { ...first(s.elements), id: "overflow" })
+    ).toThrow("limit");
+    const groupSlide = slide("gslide");
+    groupSlide.elements = [
+      {
+        id: "group",
+        order: "a0",
+        parent: "gslide",
+        props: {},
+        style: {},
+        type: "group",
+      },
+      ...Array.from({ length: 25 }, (_, i) => ({
+        ...first(slide("gslide").elements),
+        id: `g${i}`,
+        parent: "group",
+      })),
+    ];
+    expect(() => deck.addSlide(groupSlide)).toThrow("pinned child");
+    const deep = slide("deep");
+    deep.elements = Array.from({ length: 18 }, (_, i) => ({
+      id: `g${i}`,
+      order: "a0",
+      parent: i === 0 ? "deep" : `g${i - 1}`,
+      props: {},
+      style: {},
+      type: "group",
+    }));
+    expect(() => deck.addSlide(deep)).toThrow("depth");
+    const tables = new Deck(new YDoc(), codec);
+    const ts = slide("tables");
+    ts.elements = [table("t", "tables", "40", "100")];
+    tables.addSlide(ts);
+    const more = slide("more");
+    more.elements = [table("extra", "more", "1", "1")];
+    expect(() => tables.addSlide(more)).toThrow("cell limit");
+    const badTable = slide("bad");
+    badTable.elements = [table("badtable", "bad", "41", "100")];
+    expect(() => tables.addSlide(badTable)).toThrow("cell limit");
+    const all = new Deck(new YDoc(), codec);
+    const empty = slide("s0");
+    empty.elements = [];
+    all.addSlide(empty);
+    // Construct a valid large checkpoint fixture, then exercise the actual 500th/501st admissions.
+    all.doc.transact(() => {
+      const slides = all.doc.getMap("slides");
+      for (let i = 1; i < 499; i += 1) {
+        slides.set(`s${i}`, fieldMap(slides, "s0").clone());
+      }
+    });
+    all.addSlide({ ...empty, id: "s499" });
+    const baseline = YencodeStateAsUpdate(all.doc);
+    expect(() => all.addSlide(slide("overflow"))).toThrow("limit");
+    const remote = replica(all.doc);
+    remote
+      .getMap("slides")
+      .set("extra", fieldMap(remote.getMap("slides"), "s0").clone());
+    expect(() => all.applyUpdate(YencodeStateAsUpdate(remote))).toThrow(
+      "limit"
+    );
+    expect(() => all.restore(YencodeStateAsUpdate(remote))).toThrow("limit");
+    expect(YencodeStateAsUpdate(all.doc)).toEqual(baseline);
+    expect(() =>
+      all.applyUpdate(new Uint8Array(LIMITS.updateBytes + 1))
+    ).toThrow("size");
+    expect(() => all.restore(new Uint8Array(LIMITS.updateBytes + 1))).toThrow(
+      "size"
+    );
+  });
+  test("concurrent valid additions exceeding a limit are refused by the authority", () => {
+    const authority = new Deck(new YDoc(), codec);
+    const s = slide("s");
+    s.elements = Array.from({ length: 199 }, (_, i) => ({
+      ...first(s.elements),
+      id: `e${i}`,
+    }));
+    authority.addSlide(s);
+    const a = new Deck(replica(authority.doc), codec),
+      b = new Deck(replica(authority.doc), codec);
+    a.addElement("s", { ...first(s.elements), id: "a" });
+    b.addElement("s", { ...first(s.elements), id: "b" });
+    authority.applyUpdate(YencodeStateAsUpdate(a.doc));
+    const accepted = YencodeStateAsUpdate(authority.doc);
+    expect(() => authority.applyUpdate(YencodeStateAsUpdate(b.doc))).toThrow(
+      "limit"
+    );
+    expect(YencodeStateAsUpdate(authority.doc)).toEqual(accepted);
+  });
+});
+
+function paragraphs(text: string): Node[] {
+  return [{ attrs: {}, children: [text], tag: "p" }];
+}
+function table(
+  id: string,
+  parent: string,
+  rows: string,
+  cols: string
+): import("./index").ElementData {
+  return {
+    cells: {},
+    id,
+    order: "a1",
+    parent,
+    props: { cols, rows },
+    style: {},
+    type: "table",
+  };
+}
+function replaceText(fragment: YXmlFragment, value: string) {
+  fragment.delete(0, fragment.length);
+  codec.parse(paragraphs(value), fragment);
+}
+
+test("shared link URL grammar rejects executable schemes, controls, credentials and protocol-relative links", () => {
+  for (const url of [
+    "https://example.test/path?q=1",
+    "http://example.test",
+    "mailto:person@example.test",
+    "/workspaces/ours/live/id",
+  ]) {
+    expect(() => validateLinkUrl(url)).not.toThrow();
+  }
+  for (const url of [
+    "javascript:alert(1)",
+    "data:text/html,x",
+    "//evil.test/x",
+    "/\\evil.test",
+    " https://example.test",
+    "https://user:password@example.test",
+    "mailto:x@example.test%0d%0abcc:other@example.test",
+    "https://example.test/%zz",
+    "https://example.test/\n",
+  ]) {
+    expect(() => validateLinkUrl(url, "/p/a/@href")).toThrow("/p/a/@href");
+  }
+});
+
+test("agent layout patches preserve unrelated human keys and detect layout ABA", () => {
+  const deck = new Deck(new YDoc(), codec);
+  deck.addSlide(slide("s"));
+  const observed = deck.read("s"),
+    desired = structuredClone(observed.slide);
+  desired.layout.direction = "column";
+  deck.updateSlide("s", { layout: { display: "flex", gap: "12px" } });
+  expect(
+    deck.write("s", serializeSlide(desired, codec), observed).applied
+  ).toEqual(["s:layout:direction"]);
+  expect(deck.read("s").slide.layout).toEqual({
+    direction: "column",
+    display: "flex",
+    gap: "12px",
+  });
+  const next = deck.read("s"),
+    wanted = structuredClone(next.slide);
+  wanted.layout.gap = "30px";
+  deck.updateSlide("s", { layout: { ...next.slide.layout, gap: "20px" } });
+  deck.updateSlide("s", { layout: next.slide.layout });
+  expect(deck.write("s", serializeSlide(wanted, codec), next).skipped).toEqual([
+    { id: "s", reason: "layout:gap changed since read" },
+  ]);
+});
+
+test("shape, icon, connector and flow grammar roundtrip; group duplication remaps references", () => {
+  const deck = new Deck(new YDoc(), codec);
+  const s = slide("s");
+  s.layout = {
+    "align-items": "center",
+    display: "grid",
+    "grid-template-columns": "repeat(2, 1fr)",
+    padding: "20px",
+  };
+  s.elements.push({
+    id: "shape",
+    order: "a1",
+    parent: "s",
+    props: {
+      "flex-grow": "1",
+      flow: "flow",
+      "grid-column": "span 2",
+      shape: "ellipse",
+    },
+    style: { "background-color": "#f00", "border-radius": "4px" },
+    type: "shape",
+  });
+  s.elements.push({
+    id: "icon",
+    order: "a2",
+    parent: "s",
+    props: { icon: "arrow-right" },
+    style: {},
+    type: "icon",
+  });
+  s.elements.push({
+    id: "edge",
+    order: "a3",
+    parent: "s",
+    props: { from: "shape", "from-anchor": "right", to: "icon" },
+    style: {},
+    type: "connector",
+  });
+  deck.addSlide(s);
+  deck.groupElements(
+    "s",
+    { id: "g", order: "a0", parent: "s", props: {}, style: {}, type: "group" },
+    ["shape", "icon", "edge"]
+  );
+  deck.duplicateElement("s", "g", "gc", "a4", {
+    edge: "ec",
+    icon: "ic",
+    shape: "sc",
+  });
+  expect(
+    deck.read("s").slide.elements.find((e) => e.id === "ec")?.props.from
+  ).toBe("sc");
+  expect(
+    parseSlide(serializeSlide(deck.read("s").slide, codec), codec)
+  ).toEqual(deck.read("s").slide);
+  deck.deleteElement("s", "shape");
+  expect(deck.read("s").slide.elements.some((e) => e.id === "edge")).toBe(
+    false
+  );
+  expect(() =>
+    deck.setElementKey("s", "sc", "props", "shape", "url(x)")
+  ).toThrow("prop-shape");
+  expect(() =>
+    deck.setElementKey("s", "ic", "props", "src", "/files/x")
+  ).toThrow("only allowed");
+});
+
+test("notes embeds, hidden root arrays and deep XML cannot cross ingress", () => {
+  const deck = new Deck(new YDoc(), codec);
+  deck.addSlide(slide("s"));
+  const baseline = YencodeStateAsUpdate(deck.doc);
+  const embedded = replica(deck.doc);
+  const notes = scene(embedded).get("notes");
+  if (!(notes instanceof YText)) {
+    throw new Error("fixture");
+  }
+  notes.insertEmbed(0, { html: "<script>x</script>" });
+  expect(() => deck.applyUpdate(YencodeStateAsUpdate(embedded))).toThrow(
+    "notes"
+  );
+  const hidden = new YDoc();
+  hidden.getArray("slides").insert(0, ["hidden"]);
+  expect(() => deck.applyUpdate(YencodeStateAsUpdate(hidden))).toThrow("root");
+  const deep = replica(deck.doc);
+  const fragment = element(deep).get("text");
+  if (!(fragment instanceof YXmlFragment)) {
+    throw new Error("fixture");
+  }
+  const nodes: YXmlElement[] = Array.from(
+    { length: 20 },
+    () => new YXmlElement("p")
+  );
+  fragment.insert(0, [first(nodes)]);
+  for (let i = 1; i < nodes.length; i += 1) {
+    at(nodes, i - 1).insert(0, [at(nodes, i)]);
+  }
+  expect(() => deck.applyUpdate(YencodeStateAsUpdate(deep))).toThrow("depth");
+  expect(YencodeStateAsUpdate(deck.doc)).toEqual(baseline);
+});
+
+test("rich-text and notes ABA are guarded; token-only HTML writes retain untouched fragments", () => {
+  const deck = new Deck(new YDoc(), codec);
+  deck.addSlide(slide("s"));
+  const observed = deck.read("s"),
+    desired = structuredClone(observed.slide);
+  first(desired.elements).text = paragraphs("agent");
+  desired.notes = "agent notes";
+  replaceText(deck.textFragment("s", "se"), "human");
+  replaceText(deck.textFragment("s", "se"), "hello");
+  deck.updateSlide("s", { notes: "human notes" });
+  deck.updateSlide("s", { notes: "notes" });
+  const result = deck.write(
+    "s",
+    serializeSlide(desired, codec),
+    observed.revision
+  );
+  expect(result.skipped).toEqual([
+    { id: "se", reason: "changed since read" },
+    { id: "s", reason: "notes changed since read" },
+  ]);
+  const read = deck.readHtml("s"),
+    fragment = deck.textFragment("s", "se"),
+    paragraph = fragment.get(0);
+  expect(
+    deck.write(
+      "s",
+      read.html.replace('style-color="#000"', 'style-color="#f00"'),
+      read.revision
+    ).applied
+  ).toEqual(["se"]);
+  expect(deck.textFragment("s", "se")).toBe(fragment);
+  expect(fragment.get(0)).toBe(paragraph);
+  expect(() => deck.write("s", read.html, "invented-token")).toThrow(
+    "observation"
+  );
+});
