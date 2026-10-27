@@ -236,9 +236,10 @@
   gap: 8px;
 }
 .ld-present-stage {
+  flex-shrink: 0;
   width: 960px;
   max-width: 100%;
-  height: 540px;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   color: #111827;
 }
@@ -356,9 +357,6 @@
   .ld-main {
     padding: 10px;
   }
-  .ld-present-stage {
-    zoom: 0.7;
-  }
 }
 @media (max-width: 450px) {
   .ld-workspace {
@@ -376,9 +374,6 @@
   }
   .ld-main {
     padding: 8px;
-  }
-  .ld-present-stage {
-    zoom: 0.36;
   }
   .ld-toolbar {
     max-height: 200px;
@@ -398,4 +393,15 @@
     transition-duration: 1ms !important;
     animation-duration: 1ms !important;
   }
+}
+
+.ld-embed {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.ld-present-stage > .ld-scene {
+  transform: scale(var(--ld-deck-scale, 1));
+  transform-origin: top left;
 }

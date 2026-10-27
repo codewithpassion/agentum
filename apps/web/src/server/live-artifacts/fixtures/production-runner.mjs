@@ -209,6 +209,137 @@ try {
       deckFiles.results.some((f) => f.path === "state.ydoc"),
     "production deck checkpoint uses ordinary artifact version files"
   );
+  // Actual MCP -> production room -> D1 ownership policy -> signed sandbox route.
+  const embedPage = await mcp("artifact_create", {
+    entry: "pages/chart.html",
+    files: [
+      {
+        path: "pages/chart.html",
+        text: "<!doctype html><html><body><h1>Controlled embed</h1></body></html>",
+      },
+    ],
+    kind: "page",
+    title: "Embed page",
+  });
+  await db
+    .prepare("UPDATE artifacts SET audience='workspace' WHERE id=?")
+    .bind(embedPage.artifactId)
+    .run();
+  const sources = await mcp("deck_read", {
+    artifactId: deckCreated.artifactId,
+  });
+  const embedSource = sources.embedSources.find((source) =>
+    source.includes(embedPage.artifactId)
+  );
+  check(
+    Boolean(embedSource),
+    "production deck_read exposes exact authorized source identity"
+  );
+  const embedHTML = `<element id="embedded" type="embed" parent="s1" order="a2" prop-src="${embedSource}" prop-x="350" prop-y="0" prop-w="400" prop-h="200"></element>`;
+  await mcp("deck_write", {
+    artifactId: deckCreated.artifactId,
+    ops: [
+      {
+        html: sources.slides[0].html.replace(
+          "</slide>",
+          `${embedHTML}</slide>`
+        ),
+        op: "write",
+        revision: sources.slides[0].revision,
+        slideId: "s1",
+      },
+    ],
+  });
+  check(
+    (
+      await mcp("deck_read", { artifactId: deckCreated.artifactId })
+    ).slides[0].html.includes('type="embed"'),
+    "actual production room accepts guarded embed HTML"
+  );
+  const resolved = await runtime.dispatchFetch(
+    `http://localhost/fixture/embed/${deckCreated.artifactId}`,
+    { body: JSON.stringify({ source: embedSource }), method: "POST" }
+  );
+  check(resolved.ok, "member resolver authorizes deck and source");
+  const openedEmbed = await resolved.json();
+  const servedEmbed = await runtime.dispatchFetch(
+    `http://localhost${openedEmbed.contentUrl}`
+  );
+  check(
+    servedEmbed.ok && (await servedEmbed.text()).includes("Controlled embed"),
+    "existing sandbox route serves exact artifact-owned HTML"
+  );
+  check(
+    servedEmbed.headers
+      .get("Content-Security-Policy")
+      .includes("sandbox allow-scripts allow-forms"),
+    "embed keeps production CSP sandbox"
+  );
+  for (const bad of [
+    "https://evil.test",
+    embedSource.replace(/:[a-f0-9]{64}:/, `:${"f".repeat(64)}:`),
+  ]) {
+    const read = await mcp("deck_read", { artifactId: deckCreated.artifactId });
+    let refused = false;
+    try {
+      await mcp("deck_write", {
+        artifactId: deckCreated.artifactId,
+        ops: [
+          {
+            html: read.slides[0].html.replace(embedSource, bad),
+            op: "write",
+            revision: read.slides[0].revision,
+            slideId: "s1",
+          },
+        ],
+      });
+    } catch {
+      refused = true;
+    }
+    check(
+      refused,
+      "production room refuses unsupported or wrong-identity source"
+    );
+  }
+  await db
+    .prepare("UPDATE artifacts SET audience='private' WHERE id=?")
+    .bind(embedPage.artifactId)
+    .run();
+  const revokedEmbed = await runtime.dispatchFetch(
+    `http://localhost/fixture/embed/${deckCreated.artifactId}`,
+    { body: JSON.stringify({ source: embedSource }), method: "POST" }
+  );
+  check(!revokedEmbed.ok, "private source cannot mint embed content URL");
+  await db
+    .prepare("UPDATE artifacts SET audience='workspace' WHERE id=?")
+    .bind(embedPage.artifactId)
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO workspaces (id,clerk_org_id,name,timezone,created_at) VALUES ('w2','org_w2','Other workspace','UTC',?)"
+    )
+    .bind(now)
+    .run();
+  await db
+    .prepare(
+      "UPDATE artifact_version_files SET workspace_id='w2' WHERE version_id=(SELECT current_version_id FROM artifacts WHERE id=?)"
+    )
+    .bind(embedPage.artifactId)
+    .run();
+  const wrongScopeEmbed = await runtime.dispatchFetch(
+    `http://localhost/fixture/embed/${deckCreated.artifactId}`,
+    { body: JSON.stringify({ source: embedSource }), method: "POST" }
+  );
+  check(
+    !wrongScopeEmbed.ok,
+    "exact file workspace must match both artifact and published version"
+  );
+  await db
+    .prepare(
+      "UPDATE artifact_version_files SET workspace_id='w1' WHERE version_id=(SELECT current_version_id FROM artifacts WHERE id=?)"
+    )
+    .bind(embedPage.artifactId)
+    .run();
   const deckJoin = await (
     await runtime.dispatchFetch(
       `http://localhost/fixture/join/${deckCreated.artifactId}`,

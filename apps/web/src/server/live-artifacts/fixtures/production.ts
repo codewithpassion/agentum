@@ -3,6 +3,7 @@
 
 import { importRunTokenKey, signRunToken } from "@repo/services/run-tokens";
 import { Hono } from "hono";
+import { mountArtifactContentRoutes } from "../../artifact-content/routes";
 import { compose } from "../../compose";
 import type { AppEnv } from "../../routes/groups";
 import { mcpRoutes } from "../../routes/mcp";
@@ -61,6 +62,11 @@ export class ArtifactRoom extends ProductionRoom {
 }
 
 const app = new Hono<AppEnv>();
+mountArtifactContentRoutes(app, {
+  bucket: (env) => env.FILES,
+  viewKey: (env) => env.ARTIFACT_VIEW_KEY,
+  workspaceId: (claims) => claims.workspaceId,
+});
 app.route("/", liveRoomRoutes());
 app.use("*", async (c, next) => {
   c.set("composed", compose(c.env, false));
@@ -76,6 +82,21 @@ app.route(
     verifyOAuthToken: () => async () => null,
   })
 );
+app.post("/fixture/embed/:id", async (c) => {
+  const input = await c.req.json<{ source: string }>();
+  return c.json(
+    await requiredLive(c.get("composed").services).resolveEmbed(
+      {
+        isAdmin: false,
+        kind: "user",
+        userId: "u1",
+        via: "session",
+        workspaceId: "w1",
+      },
+      { artifactId: c.req.param("id"), source: input.source }
+    )
+  );
+});
 app.post("/fixture/token", async (c) =>
   c.json({
     token: await signRunToken(await importRunTokenKey(c.env.RUN_TOKEN_KEY), {

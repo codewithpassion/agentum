@@ -8,6 +8,7 @@ import { artifactMembers } from "@repo/db/schema/live-artifacts";
 import { ExportError } from "@repo/live-export";
 import { eq } from "drizzle-orm";
 import { unzipSync } from "fflate";
+import { deckEmbedFixture } from "../../../live-export/src/fixtures/content";
 import { principals } from "../artifacts/test-harness";
 import { SYSTEM_PRINCIPAL } from "../workspaces";
 import { exportHarness } from "./fixture";
@@ -300,4 +301,27 @@ test("ownership removed while printing refuses delivery and request cleanup is r
   ).rejects.toMatchObject({ code: "export_asset_scope" });
   await Promise.all(pending);
   expect(pending.length).toBe(1);
+});
+
+test("deck embed inventory remains authorized but exports a warning and visible placeholder without reading HTML", async () => {
+  const h = await exportHarness("deck");
+  const source = `artifact:11111111-1111-4111-8111-111111111111:version_1:${"a".repeat(64)}:chart.html`;
+  h.urls.add(source);
+  const state = deckEmbedFixture(source);
+  const service = createLiveExportsService({
+    ...h.deps,
+    rooms: { snapshot: async () => ({ revision: 18, state }) },
+  });
+  const result = await service.download(principals.owner, {
+    artifactId: h.artifactId,
+    format: "pptx",
+  });
+  const archive = unzipSync(result.bytes);
+  expect(new TextDecoder().decode(archive["ppt/slides/slide1.xml"])).toContain(
+    "Sandboxed embed"
+  );
+  expect(JSON.parse(decodeURIComponent(result.warnings))).toContainEqual(
+    expect.objectContaining({ code: "embed_placeholder" })
+  );
+  expect(h.counts().reads).toBe(1); // Existing PNG only; HTML never reaches the asset reader.
 });

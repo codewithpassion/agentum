@@ -342,6 +342,24 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
           )
         )}
         <label>
+          Embed page
+          <select
+            aria-label="Embed page"
+            disabled={!(slide && ports.embedSources?.length)}
+            onChange={(event) =>
+              perform(() => add("embed", { src: event.target.value }))
+            }
+            value=""
+          >
+            <option value="">Choose a published workspace page</option>
+            {ports.embedSources?.map((source) => (
+              <option key={source} value={source}>
+                {source.split(":").at(-1)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
           Upload image
           <input
             accept="image/*"
@@ -703,6 +721,7 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
                     participants={ports.participants.filter(
                       (p) => p.id !== ports.selfId
                     )}
+                    resolveEmbed={ports.resolveEmbed}
                     select={select}
                     selection={selection}
                     slide={slide}

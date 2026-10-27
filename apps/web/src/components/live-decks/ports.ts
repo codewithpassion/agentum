@@ -25,6 +25,8 @@ export interface DeckEditorPorts {
   comment: (where: DeckWhere) => Promise<void>;
   /** Trusted local replica constructed with the production richTextCodec. */
   deck: Deck;
+  /** Absent for guests; never reinterpret a guest as a member. */
+  embedSources?: readonly string[];
   /** Serialize missing-cell initialization in the authority, then admit its state. */
   ensureCell: (
     slideId: string,
@@ -47,6 +49,9 @@ export interface DeckEditorPorts {
       pointer?: { x: number; y: number };
     }) => void;
   };
+  resolveEmbed?: (
+    source: string
+  ) => Promise<{ contentUrl: string; expiresAt: string }>;
   role: "owner" | "editor" | "commenter" | "viewer";
   selfId: string;
   upload: (file: File) => Promise<{ path: string }>;

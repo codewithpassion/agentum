@@ -58,6 +58,7 @@ export interface DeckRoomSession {
   epoch: string;
   expiresAt: number;
   kind: "deck";
+  /** Legacy field name: includes image paths and authorized immutable artifact embed identities. */
   ownBlobUrls: string[];
   participant: Pick<AwarenessEntry, "id" | "kind" | "name" | "color">;
   role: "owner" | "editor" | "commenter" | "viewer";
@@ -79,4 +80,30 @@ export type EnsureDeckCellInput = z.infer<typeof ensureDeckCellInputSchema>;
 export interface EnsureDeckCellResult {
   revision: number;
   state: number[];
+}
+
+const embedSourcePattern =
+  /^artifact:([0-9a-f-]{36}):([A-Za-z0-9_-]{1,80}):([0-9a-f]{64}):([A-Za-z0-9_-]+(?:\/[A-Za-z0-9_.-]+)*\.html)$/;
+/** Persistent identity, never a URL or a bearer token. Authorization is supplied by the host. */
+export function parseEmbedSource(source: string | undefined): {
+  artifactId: string;
+  versionId: string;
+  sha256: string;
+  path: string;
+} | null {
+  if (typeof source !== "string" || source.length > 1200) {
+    return null;
+  }
+  const match = embedSourcePattern.exec(source);
+  if (!match) {
+    return null;
+  }
+  const [, artifactId, versionId, sha256, path] = match;
+  if (
+    !(artifactId && versionId && sha256 && path) ||
+    path.split("/").some((part) => part === "." || part === "..")
+  ) {
+    return null;
+  }
+  return { artifactId, path, sha256, versionId };
 }
