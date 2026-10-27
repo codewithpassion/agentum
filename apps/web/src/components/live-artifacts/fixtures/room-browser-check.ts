@@ -10,6 +10,7 @@ import { build } from "vite";
 const output = await mkdtemp(join(tmpdir(), "l8-room-browser-"));
 try {
   const worker = await bundle({
+    conditions: ["workerd"],
     entrypoints: [
       resolve(
         import.meta.dir,

@@ -29,6 +29,15 @@ function exposeEditor(editor: Editor | null) {
 }
 function NetworkEditor() {
   const [room, setRoom] = useState<TicketedRoom>();
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const unsubscribe = room?.subscribePolicy(() =>
+      setRevision((value) => value + 1)
+    );
+    return () => {
+      unsubscribe?.();
+    };
+  }, [room]);
   const [error, setError] = useState<string>();
   useEffect(() => {
     const provider = new TicketedRoom({
@@ -78,7 +87,7 @@ function NetworkEditor() {
     };
   }, []);
   return (
-    <main>
+    <main data-revision={revision}>
       {error !== undefined && <p role="alert">{error}</p>}
       {room === undefined ? (
         <p>Connecting actual room…</p>
@@ -86,18 +95,42 @@ function NetworkEditor() {
         <DocumentEditor
           document={room.document}
           history={{
-            downloadMarkdown: () =>
-              Promise.reject(
-                new Error("Export belongs to the full app acceptance")
-              ),
-            list: () =>
-              Promise.reject(
-                new Error("History belongs to the full app acceptance")
-              ),
-            restore: () =>
-              Promise.reject(
-                new Error("Restore belongs to the full app acceptance")
-              ),
+            downloadMarkdown: async () => ({
+              filename: "checkpoint.md",
+              ...z
+                .object({ markdown: z.string() })
+                .parse(await call("/checkpoint-markdown")),
+            }),
+            list: async () => [
+              {
+                createdAt: "2026-10-28T00:00:00.000Z",
+                id: "initial",
+                label: "Initial fixture",
+              },
+            ],
+            restore: async () => {
+              await call("/restore", {
+                byParticipant: participant,
+                requestId: crypto.randomUUID(),
+                versionId: "initial",
+              });
+            },
+          }}
+          importImage={async (url) => {
+            const response = await fetch(
+              `/fixture-image?room=${encodeURIComponent(roomName)}`,
+              {
+                body: JSON.stringify({ url }),
+                headers: { "Content-Type": "application/json" },
+                method: "POST",
+              }
+            );
+            if (!response.ok) {
+              throw new Error("Captured import failed");
+            }
+            return z
+              .object({ alt: z.string(), url: z.string() })
+              .parse(await response.json());
           }}
           onAskAgent={() => setError("Ask belongs to the full app acceptance")}
           onCommentSelection={() =>
@@ -107,11 +140,18 @@ function NetworkEditor() {
           policy={room.policy}
           provider={room.presence}
           role={room.role}
-          uploadImage={() =>
-            Promise.reject(
-              new Error("Uploads belong to the full app acceptance")
-            )
-          }
+          uploadImage={async (file) => {
+            const response = await fetch(
+              `/fixture-image?room=${encodeURIComponent(roomName)}`,
+              { body: file, method: "POST" }
+            );
+            if (!response.ok) {
+              throw new Error("Captured upload failed");
+            }
+            return z
+              .object({ alt: z.string(), url: z.string() })
+              .parse(await response.json());
+          }}
         />
       )}
     </main>

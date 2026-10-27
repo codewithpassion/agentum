@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
+import { documentActionMatrix } from "./action-matrix.mjs";
 
 const editorText = (page) =>
   page.evaluate(
@@ -54,6 +55,7 @@ try {
     ]);
     const pages = await Promise.all(pair.map((context) => context.newPage()));
     const errors = [];
+    const externalRequests = [];
     for (const [index, page] of pages.entries()) {
       page.on("pageerror", (error) => errors.push(error.message));
       page.on("console", (event) => {
@@ -70,7 +72,17 @@ try {
         }
       });
       await page.route("**/*", async (route) => {
-        const path = new URL(route.request().url()).pathname;
+        const address = new URL(route.request().url());
+        if (address.hostname === "fonts.googleapis.com") {
+          await route.fulfill({ body: "", contentType: "text/css" });
+          return;
+        }
+        if (address.origin !== base) {
+          externalRequests.push(address.origin);
+          await route.abort();
+          return;
+        }
+        const path = address.pathname;
         if (path !== "/" && !path.startsWith("/assets/")) {
           await route.continue();
           return;
@@ -217,9 +229,34 @@ try {
         .poll(() => editorText(bob))
         .toContain(role === "commenter" ? "BobC" : "BobCV");
     }
+    await runtime.dispatchFetch(`${base}/control?room=${room}`, {
+      body: JSON.stringify({ name: "role:bob", value: "owner" }),
+      method: "POST",
+    });
+    await bob.reload();
+    await expect(bob.locator(".tiptap")).toHaveAttribute(
+      "contenteditable",
+      "true"
+    );
+    await documentActionMatrix({
+      alice,
+      bob,
+      call: async (path, body) => {
+        const response = await runtime.dispatchFetch(
+          `${base}${path}?room=${room}`,
+          {
+            body: JSON.stringify(body),
+            method: "POST",
+          }
+        );
+        expect(response.ok).toBe(true);
+        return response.json();
+      },
+    });
     for (const page of pages) {
       await expect(page.getByRole("alert")).toHaveCount(0);
     }
+    expect(externalRequests).toEqual([]);
     if (errors.length) {
       throw new Error(errors.join("\n"));
     }

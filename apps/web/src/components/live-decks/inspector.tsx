@@ -333,6 +333,23 @@ export function DeckInspector({
             options={["click", "withPrevious", "afterPrevious"]}
             value={first.props["build-trigger"] ?? "click"}
           />
+          {(["Fill", "Border"] as const).map((target) => (
+            <Field
+              change={(key) => {
+                const value = theme.colors[key];
+                if (value) {
+                  style(
+                    target === "Fill" ? "background-color" : "border-color",
+                    value
+                  );
+                }
+              }}
+              key={target}
+              label={`Apply theme ${target.toLowerCase()}`}
+              options={["", ...Object.keys(theme.colors)]}
+              value=""
+            />
+          ))}
           {Object.entries(theme).map(([area, tokens]) => (
             <Field
               change={(key) => {
