@@ -3,7 +3,7 @@ id: L.7
 title: Live artifacts wiring
 milestone: L
 size: L
-status: todo
+status: in_progress
 depends_on: [L.3, L.4, L.5]
 branch: null
 lane: worker
@@ -17,3 +17,5 @@ executor: codex
 ## Log
 
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
+
+- 2026-10-27: Starting production integration against merged room, ask factory, core, engine and tools. Must complete real adapters and durable processors; no stub acceptance.
