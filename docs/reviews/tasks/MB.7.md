@@ -2,7 +2,9 @@
 
 ## Verdict per round
 
-Round 1: pending.
+Round 1: must-fix. Touch gestures also took over touch laptops and tablets at md and up; the Keyboard button's focus could scroll a zoomed view to the corner; touch state was not reset when control was lost. All fixed in f75abf4.
+
+Round 2 (fixes only): clean.
 
 ## What changed (F-14)
 
@@ -19,4 +21,7 @@ The audit's problem stands: the only computer is offline, so a live screen was n
 ## Nits and ideas
 
 - Scroll speed uses the same 100px per click as the wheel; may want tuning on a real phone.
+- Gesture mode is read on every pointer event, not latched at pointerdown, so a rotation across 768px mid-gesture could leave a stray mouse_up.
+- `take()` focuses the keyboard without `preventScroll`.
+- The phone-width gate and the reset on control loss have no unit tests.
 - No pinch-to-zoom, only the zoom buttons.
