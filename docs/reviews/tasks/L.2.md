@@ -68,3 +68,14 @@ Consulted 27 October 2026: [Tiptap MarkdownManager](https://tiptap.dev/docs/edit
 Focused tests include every op/guard, stale batch writes nothing, rich table/checklist markdown, chips/marks/hard breaks/empty blocks, comment protection/detachment, three independent delayed replicas, concurrent table-cell typing/row insertion, concurrent block reconciliation, deleted pending/positions, scoped undo and restart-safe selective revert. Security tests include hostile JSON/markdown/URLs/styles, deterministic 1,000-case structural fuzz, sanitizer idempotence, DOMSerializer inspection in happy-dom, an independent editor schema transaction gate, malformed binary ingress and incomplete update rejection. Workerd runs the bundled rich schema, DOM-free markdown, tables/checklists, positional ops and undo at compatibility date 2026-08-19; this is local runtime evidence, not staging or browser UI sign-off.
 
 Root checks, final test counts and commit evidence are recorded in the implementation handoff. L.3/L.4/L.8 must integrate these boundaries; this package does not authorize a claim that the unwired product already meets every R1 end-to-end acceptance criterion.
+
+Final verification on 27 October 2026, after implementation commits `32961698` and `1f87583e`:
+
+- `bun run --cwd packages/live-doc typecheck`: pass.
+- `bun run --cwd packages/live-doc test`: 31 pass, zero failures, 3,239 assertions. Includes actual local workerd execution, 1,000 structural fuzz cases and 100 cases across every content ingress followed by DOM inspection.
+- Root `bun run check`: pass, all 10 tasks successful, boundary lint clean.
+- Root `bun run test`: pass, all 10 workspace tasks successful; root script suite 284 pass. Services 3,039 pass; web 3,249 pass with one existing skipped enumeration-race test. No unrelated test failures.
+- Root `bun run build`: pass, all 3 build tasks successful, including the new live-doc browser bundles. Existing Vite CSS sourcemap warning is non-failing.
+- `bun install --frozen-lockfile --ignore-scripts --network-concurrency 1`: pass. The explicit network concurrency avoids the local Bun resolver stalling during initial installation.
+- `rg -l drizzle apps/web/dist/client`: no matches. `git diff --check`: clean.
+- Ignored `apps/web/.env` initialized from its example only when absent; existing values were preserved. No secrets printed or committed. No DB/schema/migration, app wiring or `docs/tasks` changes; no push, PR or deployment.
