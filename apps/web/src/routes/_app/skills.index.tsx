@@ -57,7 +57,7 @@ function SkillsIndex() {
         type="button"
         variant="outline"
       >
-        {adding ? "Hide add skill" : "Add skill"}
+        {adding ? "Hide forms" : "Add skill"}
       </Button>
       <div
         className={`${adding ? "flex" : "hidden"} flex-col gap-8 md:flex`}
