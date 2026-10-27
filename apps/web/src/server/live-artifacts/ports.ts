@@ -46,7 +46,9 @@ export interface ArtifactRoomService {
     }
   ) => Promise<RoomIdentity | null>;
   /** Resolve the namespace object ID to its immutable scope and authorized initial checkpoint. */
-  open: (objectId: string) => Promise<RoomScope & RoomSnapshot>;
+  open: (
+    objectId: string
+  ) => Promise<RoomScope & RoomSnapshot & { kind?: "document" | "deck" }>;
   /** URLs verified as this artifact/workspace's own blobs; never accept a browser policy. */
   ownBlobUrls: (scope: RoomScope) => Promise<string[]>;
   /** Current active document comment ranges, resolved inside the serialized agent mutation. */

@@ -15,7 +15,8 @@
     "./skills": "./src/skills.ts",
     "./stream": "./src/stream.ts",
     "./thread": "./src/thread.ts",
-    "./live": "./src/live.ts"
+    "./live": "./src/live.ts",
+    "./deck": "./src/deck.ts"
   },
   "scripts": {
     "test": "bun test",

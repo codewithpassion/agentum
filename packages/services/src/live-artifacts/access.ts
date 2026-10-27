@@ -169,7 +169,7 @@ export const createLiveAccess = ({
   ) => {
     const member = memberOf(principal);
     const row = await findArtifact(db, member.workspaceId, artifactId);
-    if (!row || (live && row.kind !== "document")) {
+    if (!row || (live && row.kind !== "document" && row.kind !== "deck")) {
       throw missing();
     }
     authorize(member, "liveArtifacts.access", {

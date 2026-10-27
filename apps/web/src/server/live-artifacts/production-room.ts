@@ -16,7 +16,7 @@ import { commentAnchorSchema } from "@repo/protocol/live";
 import type { DocumentSnapshot } from "@repo/services/live-artifacts/service";
 import type { SpeakerRoom } from "@repo/services/speaker-envelope";
 import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
-import { applyUpdate, Doc, encodeStateAsUpdate, XmlElement } from "yjs";
+import { applyUpdate, Doc, XmlElement } from "yjs";
 import { type Composed, compose } from "../compose";
 import { resolveDocumentAnchor } from "./anchors";
 import { ArtifactRoom as Room } from "./artifact-room";
@@ -538,6 +538,29 @@ export class ArtifactRoom extends Room {
     const sender = sessions.find(
       (session) => session.participantId === participantId
     );
+    const snapshot = await super.authoritativeSnapshot();
+    const probe = new Doc();
+    applyUpdate(probe, snapshot.state);
+    const isDeck = probe.share.has("slides");
+    probe.destroy();
+    if (isDeck) {
+      return {
+        present: await Promise.all(
+          present
+            .filter((entry) => entry.id !== participantId)
+            .map(async (entry) => ({
+              id: entry.id,
+              kind: entry.kind,
+              name: entry.name,
+              role:
+                sessions.find((s) => s.participantId === entry.id)?.role ??
+                "viewer",
+              where: await super.deckLocation(entry),
+            }))
+        ),
+        where: await super.deckLocation(sender?.present),
+      };
+    }
     const { live } = await this.snapshotController();
     try {
       const where = this.selectionLocation(live, sender?.present?.cursor);
@@ -608,6 +631,14 @@ export class ArtifactRoom extends Room {
     }
   }
   async agentChanges(): Promise<AgentRange[]> {
+    const snapshot = await super.authoritativeSnapshot();
+    const probe = new Doc();
+    applyUpdate(probe, snapshot.state);
+    const isDeck = probe.share.has("slides");
+    probe.destroy();
+    if (isDeck) {
+      return [];
+    }
     const { live } = await this.snapshotController();
     const store = new RoomStorage(this.state.storage);
     try {
@@ -785,19 +816,13 @@ export class ArtifactRoom extends Room {
     return this.applyAgentOps(ops, origin);
   }
   async checkpointCanonical(snapshot: DocumentSnapshot) {
-    const { live, meta } = await this.snapshotController();
-    try {
-      const bytes = encodeStateAsUpdate(live.doc);
-      if (
-        meta.revision !== snapshot.revision ||
-        bytes.length !== snapshot.state.length ||
-        !bytes.every((byte, i) => byte === snapshot.state[i])
-      ) {
-        throw new Error("Checkpoint must match the current authoritative room");
-      }
-    } finally {
-      live.destroy();
-      live.doc.destroy();
+    const current = await super.authoritativeSnapshot();
+    if (
+      current.revision !== snapshot.revision ||
+      current.state.length !== snapshot.state.length ||
+      !current.state.every((b, i) => b === snapshot.state[i])
+    ) {
+      throw new Error("Checkpoint must match the current authoritative room");
     }
     return this.checkpoint();
   }

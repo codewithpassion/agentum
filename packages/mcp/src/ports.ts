@@ -1,5 +1,6 @@
 import type { QaAuthorKind, QaStatus } from "@repo/db/shared";
 import type { DesktopAction } from "@repo/protocol/computer";
+import type { DeckCreationPort, DeckPort } from "./tools/deck";
 import type { LivePort } from "./tools/live";
 
 export type { LivePort } from "./tools/live";
@@ -796,6 +797,8 @@ export interface McpPorts {
     agentId: string;
     name: string;
   }) => Promise<TriggerChange>;
+  deck?: DeckPort;
+  deckCreation?: DeckCreationPort;
   deleteRoutine: (input: { routineId: string }) => Promise<void>;
   /** Removes a skill with all its versions, files and assignments. */
   deleteSkill: (input: { skillId: string }) => Promise<void>;

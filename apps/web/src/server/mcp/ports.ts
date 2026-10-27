@@ -46,6 +46,7 @@ import { createAdminPorts } from "./admin-ports.ts";
 import { createArtifactPorts } from "./artifact-ports.ts";
 import { createBrowserPorts } from "./browser-ports.ts";
 import { createComputerPorts } from "./computer-ports.ts";
+import { createDeckPorts } from "./deck-ports";
 import { guarded } from "./guarded.ts";
 import { createLibraryPorts } from "./library-ports.ts";
 import { createLivePorts } from "./live-ports";
@@ -299,6 +300,12 @@ export const createMcpPorts = ({
   return {
     ...(services.liveArtifacts
       ? {
+          ...createDeckPorts({
+            principal,
+            publicBaseUrl,
+            services,
+            toolCallId,
+          }),
           live: createLivePorts({
             principal,
             publicBaseUrl,
