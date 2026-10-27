@@ -84,6 +84,7 @@ const fakeShares = (failure?: unknown) => {
     };
   const service = {
     createShare: answer("createShare", share),
+    linksEnabled: answer("linksEnabled", true),
     open: answer("open", opened),
     revokeShare: answer("revokeShare", undefined),
     setLinksEnabled: answer("setLinksEnabled", undefined),
@@ -158,6 +159,17 @@ describe("artifact shares procedures call the service", () => {
       expect(result).toEqual(expected);
     }
   );
+
+  test("linksEnabled passes the principal alone and answers { enabled }", async () => {
+    const { received, service } = fakeShares();
+    const caller = callerWith({ artifactShares: service });
+
+    expect(await caller.artifacts.linksEnabled()).toEqual({ enabled: true });
+    expect(received).toEqual([{ args: [principal], method: "linksEnabled" }]);
+    await expect(callerWith({}).artifacts.linksEnabled()).rejects.toMatchObject(
+      { code: "NOT_IMPLEMENTED" }
+    );
+  });
 
   test("an anonymous caller is unauthorized and never reaches the service", async () => {
     const { received, service } = fakeShares();

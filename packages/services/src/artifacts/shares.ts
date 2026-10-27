@@ -100,6 +100,7 @@ const CREATE_SHARE_ACTION = "artifacts.createShare";
 const REVOKE_SHARE_ACTION = "artifacts.revokeShare";
 const VIEWS_ACTION = "artifacts.views";
 const SWITCH_ACTION = "artifacts.setLinksEnabled";
+const LINKS_ENABLED_ACTION = "artifacts.linksEnabled";
 
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
 type RunPrincipal = Extract<Principal, { kind: "run" }>;
@@ -374,6 +375,7 @@ export const createArtifactSharesService = ({
         userId: user.userId,
         versionId: version.id,
         viewer: "member",
+        workspaceId: user.workspaceId,
       },
       MEMBER_TOKEN_SECONDS
     );
@@ -425,7 +427,12 @@ export const createArtifactSharesService = ({
       }),
     ]);
     return await sign(
-      { artifactId: artifact.id, versionId: version.id, viewer: "test" },
+      {
+        artifactId: artifact.id,
+        versionId: version.id,
+        viewer: "test",
+        workspaceId: run.workspaceId,
+      },
       TEST_TOKEN_SECONDS
     );
   };
@@ -569,6 +576,16 @@ export const createArtifactSharesService = ({
       : { items };
   };
 
+  /** Whether the workspace switch for link sharing is on. Any member may read it. */
+  const linksEnabled = async (principal: Principal): Promise<boolean> => {
+    const user = requireUser(principal, LINKS_ENABLED_ACTION);
+    authorize(user, LINKS_ENABLED_ACTION, {
+      kind: "workspace",
+      workspaceId: user.workspaceId,
+    });
+    return await getLinkSwitch(db, user.workspaceId);
+  };
+
   /** The workspace switch for link sharing. Admins only. */
   const setLinksEnabled = async (
     principal: Principal,
@@ -709,6 +726,7 @@ export const createArtifactSharesService = ({
         shareId: share.shareId,
         versionId: version.id,
         viewer: "link",
+        workspaceId: share.workspaceId,
       },
       seconds
     );
@@ -753,6 +771,7 @@ export const createArtifactSharesService = ({
 
   return {
     createShare,
+    linksEnabled,
     mintTestToken,
     open,
     openLink,

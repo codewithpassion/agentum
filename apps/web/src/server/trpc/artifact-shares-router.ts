@@ -5,6 +5,7 @@
 import {
   artifactsCreateShareInputSchema,
   artifactsCreateShareOutputSchema,
+  artifactsLinksEnabledOutputSchema,
   artifactsOpenInputSchema,
   artifactsOpenOutputSchema,
   artifactsRevokeShareInputSchema,
@@ -42,6 +43,11 @@ export const artifactSharesRouter = router({
     .mutation(({ ctx, input }) =>
       sharesService(ctx).createShare(ctx.principal, input)
     ),
+  linksEnabled: workspaceProcedure
+    .output(artifactsLinksEnabledOutputSchema)
+    .query(async ({ ctx }) => ({
+      enabled: await sharesService(ctx).linksEnabled(ctx.principal),
+    })),
   open: workspaceProcedure
     .input(artifactsOpenInputSchema)
     .output(artifactsOpenOutputSchema)

@@ -267,6 +267,7 @@ describe("member open", () => {
       userId: "u_member",
       versionId: "v2",
       viewer: "member",
+      workspaceId: W1,
     });
     expect(claims?.expiresAt).toBe(nowMs / 1000 + 3600);
     expect(opened.expiresAt).toBe(new Date(nowMs + HOUR).toISOString());
@@ -345,6 +346,7 @@ describe("artifact_test token", () => {
       artifactId: OTHER_ARTIFACT,
       versionId: "p1",
       viewer: "test",
+      workspaceId: W1,
     });
     expect(claims?.expiresAt).toBe(nowMs / 1000 + 300);
     expect(claims?.userId).toBeUndefined();
@@ -583,6 +585,7 @@ describe("link open", () => {
       shareId: share.id,
       versionId: "v2",
       viewer: "link",
+      workspaceId: W1,
     });
     expect(claims?.userId).toBeUndefined();
     expect(claims?.expiresAt).toBe(nowMs / 1000 + 3600);
@@ -783,6 +786,16 @@ describe("workspace switch", () => {
       db.select().from(workspaces).where(eq(workspaces.id, W2)).get()
         ?.artifactLinksEnabled
     ).toBe(true);
+  });
+
+  test("any member reads the switch, a run does not", async () => {
+    expect(await service.linksEnabled(member)).toBe(true);
+    await service.setLinksEnabled(admin, { enabled: false });
+    expect(await service.linksEnabled(member)).toBe(false);
+    expect(await service.linksEnabled(outsider)).toBe(true);
+    await expect(
+      service.linksEnabled(run("agent_maker"))
+    ).rejects.toBeInstanceOf(ForbiddenError);
   });
 
   test("no new link while the switch is off", async () => {
