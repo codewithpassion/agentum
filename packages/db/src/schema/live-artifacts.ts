@@ -298,3 +298,35 @@ export const guestRunScopes = sqliteTable("guest_run_scopes", {
   sessionId: text("session_id").notNull(),
   workspaceId: workspaceId().references(() => workspaces.id),
 });
+
+/** Durable member mention intent. Contains no address or message body.
+ * As with artifactAskDispatches, delivery must tenant-join the comment's thread
+ * to this artifact and resolve current recipient membership/access afresh.
+ * Claim/acknowledgement must match the exact leaseToken; delivery caps attempts.
+ */
+export const artifactMentionDeliveries = sqliteTable(
+  "artifact_mention_deliveries",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id),
+    attempts: integer("attempts").notNull().default(0),
+    commentId: text("comment_id")
+      .notNull()
+      .references(() => artifactComments.id),
+    completedAt: text("completed_at"),
+    createdAt: createdAt(),
+    id: id(),
+    leaseToken: text("lease_token"),
+    leaseUntil: text("lease_until"),
+    userId: text("user_id").notNull(),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [
+    uniqueIndex("artifact_mention_deliveries_recipient_unique").on(
+      t.commentId,
+      t.userId
+    ),
+    index("artifact_mention_deliveries_pending_idx").on(t.completedAt, t.id),
+  ]
+);
