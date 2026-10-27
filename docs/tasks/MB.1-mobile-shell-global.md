@@ -3,9 +3,9 @@ id: MB.1
 title: "Mobile: app shell, global form sizes, dialog and sheet limits, touch targets"
 milestone: MB
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/MB.1-mobile-shell-global
 lane: web-shell
 executor: claude
 ---
@@ -29,3 +29,4 @@ Dom asked on 27 Oct 2026 for every function of the app to work from a phone. The
 
 ## Log
 - 2026-10-27: added from the mobile audit.
+- 2026-10-27: dispatched.

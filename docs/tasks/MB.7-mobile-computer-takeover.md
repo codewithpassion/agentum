@@ -3,9 +3,9 @@ id: MB.7
 title: "Mobile: computer takeover with touch and the phone keyboard"
 milestone: MB
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/MB.7-mobile-computer-takeover
 lane: computer
 executor: claude
 ---
@@ -26,3 +26,4 @@ Dom asked on 27 Oct 2026 for every function of the app to work from a phone. The
 
 ## Log
 - 2026-10-27: added from the mobile audit.
+- 2026-10-27: dispatched.
