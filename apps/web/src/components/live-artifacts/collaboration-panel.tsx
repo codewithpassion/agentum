@@ -29,6 +29,7 @@ import type { EditorSelection } from "./editor-ports";
 import { ToolButton } from "./editor-toolbar";
 import { type LiveOutputs, liveApi } from "./live-api";
 import type { TicketedRoom } from "./room-provider";
+import { useAgentAttachment } from "./use-agent-attachment";
 
 const messageOf = (cause: unknown) =>
   cause instanceof Error ? cause.message : "The action failed";
@@ -57,7 +58,6 @@ export function CollaborationPanel({
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [revertId, setRevertId] = useState<string>();
-  const [selection, setSelection] = useState<EditorSelection>();
   const [mobileOpen, setMobileOpen] = useState(false);
   const canComment = room.role !== "viewer";
   const canEdit = room.role === "owner" || room.role === "editor";
@@ -89,6 +89,12 @@ export function CollaborationPanel({
       setError(messageOf(cause));
     }
   }, [artifactId]);
+  const {
+    selection,
+    setSelection,
+    sent: asked,
+    clear: clearAttachment,
+  } = useAgentAttachment(room, refresh);
   useEffect(() => {
     refresh();
     const timer = setInterval(refresh, 5000);
@@ -102,7 +108,7 @@ export function CollaborationPanel({
     setTab(intent.kind === "ask" ? "agent" : "comments");
     setMobileOpen(true);
     room.select(intent.selection.start, intent.selection.end);
-  }, [intent, room]);
+  }, [intent, room, setSelection]);
   const run = async (action: () => Promise<unknown>) => {
     if (busy) {
       return;
@@ -192,13 +198,11 @@ export function CollaborationPanel({
               intent?.kind === "ask" ? selectionBeforeSend : undefined
             }
             canAsk={canComment && Boolean(session)}
-            onSent={refresh}
+            onSent={asked}
             selection={intent?.kind === "ask" ? selection?.text : undefined}
           />
           {selection !== undefined && (
-            <ToolButton onClick={() => setSelection(undefined)}>
-              Clear selection
-            </ToolButton>
+            <ToolButton onClick={clearAttachment}>Clear selection</ToolButton>
           )}
         </>
       )}
@@ -383,7 +387,10 @@ function CommentForm({
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const postLabel = threadId ? "Post reply" : "Post comment";
+  let postLabel = threadId ? "Post reply" : "Post comment";
+  if (!threadId && toAgent && error) {
+    postLabel = "Retry agent delivery";
+  }
   const submit = async () => {
     if (busy || !body.trim()) {
       return;
@@ -431,6 +438,7 @@ function CommentForm({
           disabled={busy}
           maxLength={4096}
           onChange={(event) => {
+            setError(undefined);
             setBody(event.target.value);
             setRequestId(crypto.randomUUID());
           }}
@@ -443,6 +451,7 @@ function CommentForm({
             checked={toAgent}
             disabled={busy}
             onChange={(event) => {
+              setError(undefined);
               setToAgent(event.target.checked);
               setRequestId(crypto.randomUUID());
             }}
@@ -461,7 +470,7 @@ function CommentForm({
   );
 }
 
-function CommentThread({
+export function CommentThread({
   artifactId,
   thread,
   room,
@@ -560,30 +569,6 @@ function CommentThread({
           </b>
           <time>{comment.createdAt}</time>
           <p>{comment.body}</p>
-          {thread.toAgent &&
-            !thread.answeredAt &&
-            canComment &&
-            comment.authorKind === "user" &&
-            comment.authorId ===
-              room.presence
-                .getSnapshot()
-                .find((person) => person.clientId === room.awareness.clientID)
-                ?.id && (
-              <ToolButton
-                disabled={busy}
-                onClick={() =>
-                  run(() =>
-                    liveApi.retryCommentAsk.mutate({
-                      artifactId,
-                      commentId: comment.id,
-                      threadId: thread.id,
-                    })
-                  )
-                }
-              >
-                Retry agent delivery
-              </ToolButton>
-            )}
         </div>
       ))}
       {canComment && !thread.resolvedAt && (

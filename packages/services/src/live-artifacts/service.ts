@@ -683,6 +683,36 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     return await persist(member, row, snapshot, true);
   };
 
+  const publicationActor = async (
+    principal: Principal,
+    scope: LiveRoomScope,
+    acceptedActor?: Principal
+  ) => {
+    if (!acceptedActor) {
+      return access(principal, scope.artifactId, true);
+    }
+    // Only internal publication may consume durable provenance. It grants no
+    // authority for new edits, connections or restore requests.
+    if (principal.kind !== "system") {
+      throw new ForbiddenError("liveArtifacts.durablePublication");
+    }
+    const member = memberOf(acceptedActor);
+    const [row] = await db
+      .select()
+      .from(artifacts)
+      .where(
+        and(
+          eq(artifacts.id, scope.artifactId),
+          eq(artifacts.workspaceId, scope.workspaceId),
+          isNull(artifacts.deletedAt)
+        )
+      )
+      .limit(1);
+    if (row?.kind !== "document" || member.workspaceId !== scope.workspaceId) {
+      throw missing();
+    }
+    return { member, row };
+  };
   const shared = { ...deps, access, authorOf, event, now, participantId };
   return {
     ...createCommentsModule(shared),
@@ -728,9 +758,14 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
               revTo: number;
             }
           >;
-        }
+        },
+      acceptedActor?: Principal
     ) {
-      const { member, row } = await access(principal, input.artifactId, true);
+      const { member, row } = await publicationActor(
+        principal,
+        input,
+        acceptedActor
+      );
       if (row.workspaceId !== input.workspaceId) {
         throw missing();
       }

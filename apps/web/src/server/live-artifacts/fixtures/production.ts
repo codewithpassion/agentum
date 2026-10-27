@@ -23,6 +23,19 @@ export class ArtifactRoom extends ProductionRoom {
       throw error;
     }
   }
+  async expireActorCredentials() {
+    const credentials = await this.ctx.storage.list<{ expiresAt: number }>({
+      prefix: "credential:",
+    });
+    for (const [key, value] of credentials) {
+      // biome-ignore lint/performance/noAwaitInLoops: Fixture expires persisted credentials in order.
+      await this.ctx.storage.put(key, {
+        ...value,
+        expiresAt: Date.now() - 16 * 60_000,
+      });
+    }
+    return credentials.size;
+  }
   storageLimits() {
     return this.ctx.storage.sql
       .exec<{ largest: number }>(
@@ -147,4 +160,14 @@ app.post("/fixture/large", async (c) => {
     chars: outline.blocks[0]?.text.length,
     limits: await typed.storageLimits(),
   });
+});
+
+app.post("/fixture/expire-credentials/:id", async (c) => {
+  const namespace = c.env
+    .ARTIFACT_ROOM as unknown as DurableObjectNamespace<ArtifactRoom>;
+  return c.json(
+    await namespace
+      .getByName(JSON.stringify(["w1", c.req.param("id")]))
+      .expireActorCredentials()
+  );
 });
