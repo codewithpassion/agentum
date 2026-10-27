@@ -76,3 +76,7 @@ Reproducer: with the migrated SQLite test harness and actual RunsService, create
 ### Checks
 
 Installed dependencies using `bun install --frozen-lockfile` after initial focused tests could not resolve workspace packages. Focused live ask and core services: **48 passed**, including the concurrent audit regression; machine claims: **26 passed**; router: **4 passed**; migrated DB schema and foreign keys: **45 passed**. The separate temporary real-DB cross-artifact probe passed as described above. Root checks and build were not repeated for this report-only review; implementation evidence above records the previous full run. No product or task files were changed, and no push, PR or deployment was performed.
+
+## Controller authorization remediation
+
+Artifact-session runs now apply the asking member's current source and target grants to every live-artifact target. Cross-artifact requests additionally retain the existing agent policy ceiling, and ordinary non-artifact runs retain their prior policy. The run cannot borrow a private handover, escape a commenter source via a workspace target, or continue after source revocation. A migrated-DB/real-RunsService regression covers those cases plus target viewer denial and a valid editor/editor request. Focused ask/core suites pass: 49 tests, 207 assertions. Production fresh identity, room admission and durable sweep wiring remain L.7 gates.

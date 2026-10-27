@@ -105,6 +105,40 @@ export const createLiveAccess = ({
     }
     return row.audience === "workspace" ? "editor" : null;
   };
+  const artifactRunRole = async (
+    member: Extract<Member, { kind: "run" }>,
+    row: Row,
+    sourceId: string | null,
+    askerId: string | null
+  ): Promise<Role | null> => {
+    if (!(sourceId && askerId)) {
+      throw new ForbiddenError("liveArtifacts.scope");
+    }
+    const source = await findArtifact(db, member.workspaceId, sourceId);
+    if (!source) {
+      throw new ForbiddenError("liveArtifacts.scope");
+    }
+    const sourceRole = await userRole(source, askerId);
+    const targetRole = await userRole(row, askerId);
+    if (!(sourceRole && targetRole)) {
+      throw new ForbiddenError("liveArtifacts.scope");
+    }
+    // Bound every target by the current asker and originating artifact rights.
+    const roles: Role[] = [sourceRole, targetRole];
+    if (sourceId !== row.id) {
+      if (!agentCanSee(row, member.agentId)) {
+        return null;
+      }
+      roles.push(agentCanUpdate(row, member.agentId) ? "editor" : "viewer");
+    }
+    if (roles.includes("viewer")) {
+      return "viewer";
+    }
+    if (roles.includes("commenter")) {
+      return "commenter";
+    }
+    return "editor";
+  };
   const runRole = async (
     member: Extract<Member, { kind: "run" }>,
     row: Row
@@ -113,17 +147,13 @@ export const createLiveAccess = ({
     if (run.scopeArtifactId && run.scopeArtifactId !== row.id) {
       throw new ForbiddenError("liveArtifacts.scope");
     }
-    if (
-      run.scopeArtifactId ||
-      (session.origin === "artifact" && session.externalKey === row.id)
-    ) {
-      const asker = run.onBehalfOfUserId
-        ? await userRole(row, run.onBehalfOfUserId)
-        : null;
-      if (!asker) {
-        throw new ForbiddenError("liveArtifacts.scope");
-      }
-      return asker === "owner" ? "editor" : asker;
+    if (run.scopeArtifactId || session.origin === "artifact") {
+      return await artifactRunRole(
+        member,
+        row,
+        run.scopeArtifactId ?? session.externalKey,
+        run.onBehalfOfUserId
+      );
     }
     if (!agentCanSee(row, member.agentId)) {
       return null;

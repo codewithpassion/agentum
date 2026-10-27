@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { agents } from "@repo/db/schema/agents";
+import { artifacts } from "@repo/db/schema/artifacts";
 import { events } from "@repo/db/schema/events";
 import {
   artifactAskDispatches,
@@ -722,4 +723,77 @@ describe("durable addressed comment dispatch", () => {
       })
     ).rejects.toMatchObject({ code: "not_found" });
   });
+});
+
+test("artifact asks cannot borrow agent rights on other targets or escape current source roles", async () => {
+  const h = setup();
+  const sourceId = await h.create();
+  const targetId = await h.create();
+  h.grant(sourceId, "commenter");
+  h.db
+    .update(artifacts)
+    .set({ handedToAgentId: "a1" })
+    .where(eq(artifacts.id, targetId))
+    .run();
+  const asked = await h.service.ask(principals.stranger, {
+    agentId: "a1",
+    artifactId: sourceId,
+    text: "ask",
+    via: "artifact_thread",
+  });
+  const actor = {
+    agentId: "a1",
+    kind: "run" as const,
+    runId: asked.runId,
+    workspaceId: "w1",
+  };
+  const checkpoint = () =>
+    h.service.checkpoint(actor, {
+      artifactId: targetId,
+      revision: 1,
+      state: bytes("target"),
+    });
+  await expect(
+    h.service.session(principals.stranger, { artifactId: targetId })
+  ).rejects.toMatchObject({ code: "not_found" });
+  await expect(
+    h.service.threads(actor, { artifactId: targetId })
+  ).rejects.toMatchObject({ code: "forbidden" });
+  await expect(checkpoint()).rejects.toMatchObject({ code: "forbidden" });
+  await h.service.setAudience(principals.owner, {
+    artifactId: targetId,
+    audience: "workspace",
+  });
+  await expect(checkpoint()).rejects.toMatchObject({ code: "forbidden" });
+  h.db
+    .update(artifactMembers)
+    .set({ role: "editor" })
+    .where(eq(artifactMembers.artifactId, sourceId))
+    .run();
+  await h.service.setAudience(principals.owner, {
+    artifactId: targetId,
+    audience: "private",
+  });
+  h.grant(targetId, "viewer");
+  await expect(checkpoint()).rejects.toMatchObject({ code: "forbidden" });
+  h.db
+    .update(artifactMembers)
+    .set({ role: "editor" })
+    .where(eq(artifactMembers.artifactId, targetId))
+    .run();
+  await checkpoint();
+  h.db
+    .update(artifactMembers)
+    .set({ role: "commenter" })
+    .where(eq(artifactMembers.artifactId, sourceId))
+    .run();
+  await expect(checkpoint()).rejects.toMatchObject({ code: "forbidden" });
+  h.db
+    .update(artifactMembers)
+    .set({ revokedAt: "2026-10-27T00:00:00Z" })
+    .where(eq(artifactMembers.artifactId, sourceId))
+    .run();
+  await expect(
+    h.service.threads(actor, { artifactId: targetId })
+  ).rejects.toMatchObject({ code: "forbidden" });
 });
