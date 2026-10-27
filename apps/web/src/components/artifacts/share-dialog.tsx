@@ -174,7 +174,7 @@ function ShareBody({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}
@@ -259,7 +259,7 @@ export function ShareDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open>
       <DialogContent
-        className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
+        className="max-h-[90dvh] overflow-y-auto sm:max-w-5xl"
         data-testid="share-dialog"
       >
         <DialogHeader>
