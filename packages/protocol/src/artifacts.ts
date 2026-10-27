@@ -563,6 +563,8 @@ export const artifactsListInputSchema = z.strictObject({
   cursor: z.string().min(1).optional(),
   kind: kindSchema.optional(),
   madeBy: z.enum(["agent", "person"]).optional(),
+  /** Only artifacts a version of which this run published. */
+  runId: idSchema.optional(),
   shared: z.boolean().optional(),
 });
 export type ArtifactsListInput = z.infer<typeof artifactsListInputSchema>;

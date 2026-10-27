@@ -1,6 +1,7 @@
 import {
   Bot,
   CalendarClock,
+  Component,
   FolderOpen,
   Inbox,
   LayoutDashboard,
@@ -34,6 +35,7 @@ export const mainNavItems: readonly NavItem[] = [
     to: "/qa",
   },
   { icon: FolderOpen, id: "library", label: "Library", to: "/library" },
+  { icon: Component, id: "artifacts", label: "Artifacts", to: "/artifacts" },
   { icon: Sparkles, id: "skills", label: "Skills", to: "/skills" },
   // `/machines` redirects to `/settings/machines`, so this item never shows
   // active on the settings page. Fine until V6.
