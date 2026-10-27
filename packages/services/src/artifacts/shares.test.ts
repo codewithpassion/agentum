@@ -401,10 +401,38 @@ describe("link shares", () => {
     expect(first.url).not.toBe(second.url);
 
     advance(HOUR);
-    const listed = await service.shares(member, { artifactId: ARTIFACT });
+    const listed = await service.shares(owner, { artifactId: ARTIFACT });
     expect(listed.map((s) => s.url).sort()).toEqual(
       [first.url, second.url].sort()
     );
+    const asAdmin = await service.shares(admin, { artifactId: ARTIFACT });
+    expect(asAdmin.map((s) => s.url).sort()).toEqual(
+      [first.url, second.url].sort()
+    );
+  });
+
+  test("a member who may open the artifact sees the links without their tokens", async () => {
+    const share = await service.createShare(owner, { artifactId: ARTIFACT });
+    const listed = await service.shares(member, { artifactId: ARTIFACT });
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({ id: share.id, status: "active" });
+    expect(listed[0]?.url).toBe(`${ORIGIN}/s/`);
+    expect(JSON.stringify(listed)).not.toContain("hm_share_");
+  });
+
+  test("an API key or an agent cannot read links, open as a member or read the log", async () => {
+    for (const caller of [keyUser, run("agent_maker")]) {
+      // biome-ignore lint/performance/noAwaitInLoops: the calls run one after another on purpose
+      await expect(
+        service.shares(caller, { artifactId: ARTIFACT })
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        service.open(caller, { artifactId: ARTIFACT, surface: "viewer" })
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        service.views(caller, { artifactId: ARTIFACT })
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    }
   });
 
   test("the row keeps the hash and an encrypted copy, never the token (R1.13)", async () => {

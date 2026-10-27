@@ -38,6 +38,7 @@ import {
   type ArtifactsCreateShareInput,
   type ArtifactsOpenInput,
   type ArtifactsOpenOutput,
+  type ArtifactsRevokeShareInput,
   type ArtifactsSetLinksEnabledInput,
   type ArtifactsSharesInput,
   type ArtifactsViewsInput,
@@ -45,6 +46,7 @@ import {
   artifactContentPath,
   artifactsCreateShareInputSchema,
   artifactsOpenInputSchema,
+  artifactsRevokeShareInputSchema,
   artifactsSetLinksEnabledInputSchema,
   artifactsSharesInputSchema,
   artifactsViewsInputSchema,
@@ -242,15 +244,23 @@ export const createArtifactSharesService = ({
     workspaceId,
   });
 
+  /**
+   * The share as the API shows it. `showUrl` false (a member who may not
+   * manage links) leaves the token out: the URL is `<origin>/s/` and nothing
+   * is decrypted, so the bearer secret stays with the owner and admins.
+   */
   const toShare = async (
     row: ArtifactShareRow,
-    now: Date
+    now: Date,
+    showUrl: boolean
   ): Promise<ArtifactShare> => {
-    const token = await decryptSecret(
-      secretsKey,
-      shareBinding(row.workspaceId, row.id),
-      row.tokenEncrypted
-    );
+    const token = showUrl
+      ? await decryptSecret(
+          secretsKey,
+          shareBinding(row.workspaceId, row.id),
+          row.tokenEncrypted
+        )
+      : "";
     return {
       artifactId: row.artifactId,
       createdAt: row.createdAt,
@@ -338,7 +348,7 @@ export const createArtifactSharesService = ({
     principal: Principal,
     input: ArtifactsOpenInput
   ): Promise<ArtifactsOpenOutput> => {
-    const user = requireUser(principal, OPEN_ACTION);
+    const user = requireSessionUser(principal, OPEN_ACTION);
     const {
       artifactId,
       surface,
@@ -420,17 +430,21 @@ export const createArtifactSharesService = ({
     );
   };
 
-  /** The links of an artifact the member may open, with copyable URLs. */
+  /**
+   * The links of an artifact the member may open. Only the owner and admins
+   * get copyable URLs; other members see the links without the token.
+   */
   const shares = async (
     principal: Principal,
     input: ArtifactsSharesInput
   ): Promise<ArtifactShare[]> => {
-    const user = requireUser(principal, SHARES_ACTION);
+    const user = requireSessionUser(principal, SHARES_ACTION);
     const { artifactId } = artifactsSharesInputSchema.parse(input);
-    await openableArtifact(user, SHARES_ACTION, artifactId);
+    const artifact = await openableArtifact(user, SHARES_ACTION, artifactId);
+    const showUrl = canManage(artifact, policyUser(user));
     const rows = await listShares(db, user.workspaceId, artifactId);
     const now = clock.now();
-    return await Promise.all(rows.map((row) => toShare(row, now)));
+    return await Promise.all(rows.map((row) => toShare(row, now, showUrl)));
   };
 
   /** A new snapshot link. Live links are phase 2 and refused here. */
@@ -502,16 +516,17 @@ export const createArtifactSharesService = ({
         workspaceId: user.workspaceId,
       }),
     ]);
-    return { ...(await toShare(row, now)), url: `${origin}/s/${token}` };
+    return await toShare(row, now, true);
   };
 
   /** Revokes a link. A link that is already revoked keeps its first revocation. */
   const revokeShare = async (
     principal: Principal,
-    input: { shareId: string }
+    input: ArtifactsRevokeShareInput
   ): Promise<void> => {
     const user = requireSessionUser(principal, REVOKE_SHARE_ACTION);
-    const share = await getShareById(db, user.workspaceId, input.shareId);
+    const { shareId } = artifactsRevokeShareInputSchema.parse(input);
+    const share = await getShareById(db, user.workspaceId, shareId);
     if (!share) {
       throw new ServiceError("not_found", "Link not found");
     }
@@ -536,7 +551,7 @@ export const createArtifactSharesService = ({
     principal: Principal,
     input: ArtifactsViewsInput
   ): Promise<ArtifactsViewsOutput> => {
-    const user = requireUser(principal, VIEWS_ACTION);
+    const user = requireSessionUser(principal, VIEWS_ACTION);
     const { artifactId, cursor, shareId } =
       artifactsViewsInputSchema.parse(input);
     await managedArtifact(user, VIEWS_ACTION, artifactId);
