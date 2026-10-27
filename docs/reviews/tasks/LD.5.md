@@ -58,3 +58,11 @@ At implementation head `9d5c18cc`:
 - Focused final production workerd test: passed, 24.6 seconds. Combined actual document/deck room test run: two passed, 61.9 seconds. Extended deck runner includes a real 15-second presenter expiry. Focused checkpoint rendering/ownership tests: two passed, 11 assertions.
 
 Backend implementation and local verification are complete. Independent backend review remains a controller gate. LD.6 owns actual desktop/mobile editor/provider tests, including its deck-only binding experiment for structural rich-text operations; this backend does not admit y-tiptap migration roots or claim that client gate complete. Authenticated full-app/staging acceptance remains open under the cancelled signing-key setup.
+
+### Combined-main verification and fixture timing follow-up
+
+The controller merged `9d5c18cc` as `2831c182` and independently completed combined-main root check/test/build successfully. The recorded logs are `/tmp/harbourmaster-live-checks/deck-merged-{check,test,build}.log`: check 12/12 plus clean boundary lint, all workspace tests plus root scripts 284/0, build 5/5 plus the 203-file dev-only check. The controller's client JS scan found no `drizzle` or `cloudflare:workers`.
+
+A parallel loaded client-worktree root run exposed a presenter-test timing assumption: the runner slept 50 ms and then searched for the response. It now listens for the actual WebSocket response matching the request ID, with a five-second failure deadline; no production timing or assertion was relaxed. The focused actual deck workerd test passed after that change (19.6 seconds). The controller requested no repeat of its completed root runs for this fixture-only fix.
+
+The client lane subsequently rejected its temporary stable-binding experiment because initially empty table-cell undo could diverge between bound peers. That lane is reverting to the original y-tiptap binding and coordinating a controller-owned strict metadata resolution. This is an explicitly open client/core acceptance issue; the backend does not silently admit unknown roots or claim the structural rich-text browser gate complete.
