@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { sanitizeJSON } from "@repo/live-doc/schema";
 import type { Editor } from "@tiptap/core";
+import { yCursorPluginKey } from "@tiptap/y-tiptap";
 import { Window } from "happy-dom";
 import { Awareness } from "y-protocols/awareness";
 import { applyUpdate, Doc, encodeStateAsUpdate } from "yjs";
@@ -15,6 +16,7 @@ import {
 import {
   agentDecorationsKey,
   createDocumentEditor,
+  relativeAt,
   resolveRelative,
   selectedContext,
   trustedAwareness,
@@ -68,11 +70,17 @@ afterEach(() => {
     ports.document.destroy();
   }
 });
-function setup(doc = new Doc(), role: DocumentEditorPorts["role"] = "editor") {
+function setup(
+  doc = new Doc(),
+  role: DocumentEditorPorts["role"] = "editor",
+  awarenessId = doc.clientID
+) {
   const awareness = new Awareness(doc);
+  awareness.setLocalState(null);
+  awareness.clientID = awarenessId;
   const roster = [
     {
-      clientId: doc.clientID,
+      clientId: awarenessId,
       color: "#3b82f6",
       id: "me",
       kind: "member" as const,
@@ -518,4 +526,37 @@ test("authoritative image policy removes stale URLs and reconciles local uploads
   expect(JSON.stringify(sanitizeJSON(image, policy))).not.toContain(
     "/files/a.png"
   );
+});
+
+test("caret filtering uses assigned awareness ID and preserves a remote ID equal to the document ID", () => {
+  const replica = setup(undefined, "owner", 101);
+  text(replica.editor, "hello");
+  const cursor = {
+    anchor: relativeAt(replica.editor, 1),
+    head: relativeAt(replica.editor, 2),
+  };
+  replica.ports.provider.awareness.setLocalState({ cursor });
+  const documentId = replica.ports.document.clientID;
+  expect(documentId).not.toBe(101);
+  replica.roster.push({
+    clientId: documentId,
+    color: "#123456",
+    id: "remote",
+    kind: "member",
+    name: "Bob",
+  });
+  replica.ports.provider.awareness.states.set(documentId, {
+    cursor,
+    user: { name: "FORGED" },
+  });
+  replica.editor.view.dispatch(
+    replica.editor.state.tr.setMeta(yCursorPluginKey, {
+      awarenessUpdated: true,
+    })
+  );
+  expect(replica.editor.view.dom.textContent).toContain("Bob");
+  expect(replica.editor.view.dom.textContent).not.toContain("Alice");
+  expect(replica.editor.view.dom.textContent).not.toContain("FORGED");
+  expect(replica.ports.document.clientID).toBe(documentId);
+  expect(replica.ports.provider.awareness.clientID).toBe(101);
 });

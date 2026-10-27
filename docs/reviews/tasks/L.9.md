@@ -1,0 +1,22 @@
+# L.9 — real agent thread, comments and change panels
+
+`CollaborationPanel` is mounted in the actual document editor sidebar. Desktop uses a margin panel; phones use the existing bottom Sheet with focus trapping, Escape and focus return. It presents three surfaces: the shared agent thread, anchored comments and agent changes. There are no production fixture callbacks.
+
+## Implemented behavior
+
+- Agent choice calls `liveArtifacts.selectAgent` and preserves the artifact's shared session. Transcript history comes from `sessions.transcript`; the existing session SSE hook, protocol fold and thread components render actual messages, streaming text and trusted authors. Artifact messages always request author labels. The transcript links to the real run for approvals and other task actions.
+- Ordinary thread asks call `liveArtifacts.ask` with `via: artifact_thread`. A saved editor selection opens the thread, republishes the relative cursor, waits for canonical room acknowledgement and calls the same service with `via: ask_agent`. Neither request supplies author, role, session, roster, selected text or a speaker envelope. The service resolves trusted room selection and sender identity.
+- Comment creation calls `liveArtifacts.comment` with the selected Yjs-relative anchor. Replies, resolve and addressed-comment delivery retry call their actual service procedures. Addressed posts keep a stable request ID after a failed send; changing the draft makes a new request. Busy drafts cannot change underneath an in-flight request. Polling discovers a comment even when its durable commit succeeded but agent dispatch failed, providing the persisted-comment retry path.
+- Comment records resolve against the current provider document on updates, show detachment, retain the service-derived quote and offer navigation back to the live relative range. Reply and resolve controls respect viewer/commenter/editor/owner roles. Delivery retry controls are restricted to the current original user author's comments, matching the service.
+- Agent changes display actual summaries, run links, time and original revert actor. Revert uses explicit confirmation and `liveArtifacts.revertChange`; the client never applies an old snapshot or performs a local substitute undo. Only editors/owners see mutation controls.
+- Paginated comments/changes retain the number of pages explicitly requested and refresh those pages, so a periodic refresh cannot silently throw away loaded history. Loading, busy states, network/service errors and retry controls are visible.
+
+## Verification and remaining acceptance gates
+
+The real service/router request shapes are inferred from the existing router factory, with no unsafe root-router cast. Root check/test/build and the transport/editor browser evidence are described in `L.8.md`; these are not evidence that the collaboration panels have passed authenticated end-to-end acceptance.
+
+`apps/web/e2e/live-artifacts.ts` drives the real app without network interception: two browser profiles at both required viewports, document creation, initial content, bidirectional edits/own undo, selection comments, peer visibility, reply/resolve, available real changes/revert and viewport bounds. It records actual-agent, distinct-member and staging gates explicitly. Its first authenticated run reached the missing `liveArtifacts.createDocument` procedure, so no downstream app interaction has yet been certified. L.7's mounted router/endpoints are the concrete blocking dependency.
+
+The current `changes` API contains no authoritative relative changed ranges. L.7/controller were notified; no quote-based approximation or fabricated attribution was added. A real agent/runtime and second authorized member are required to certify all three ask surfaces' speaker envelopes and actual revert preservation. Staging is an external-auth/deployment gate owned by the controller. No task status files were edited in this lane; neither L.8 nor L.9 is asserted end-to-end complete here.
+
+Integration-ready validation: root check/test/build pass; focused editor/provider suite is 38 tests with 198 assertions. Both component and actual workerd-room browser checks pass at the required desktop/phone sizes. The actual room check covers transport and presence, **not** shared-thread/comment/revert app interactions. Full L.9 authenticated acceptance still requires the L.7 mount, verified service endpoints, an actual agent change, and a second authorized member.
