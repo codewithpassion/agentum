@@ -711,7 +711,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       )
       .limit(1);
     if (
-      !(row && ["document", "deck"].includes(row.kind)) ||
+      (row?.kind !== "document" && row?.kind !== "deck") ||
       member.workspaceId !== scope.workspaceId
     ) {
       throw missing();

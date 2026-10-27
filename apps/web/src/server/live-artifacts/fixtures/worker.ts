@@ -105,6 +105,8 @@ export class TestArtifactRoom extends ArtifactRoom {
           : { ...scope, ...initial() },
       ownBlobUrls: async () =>
         get<string[]>("urls") ?? ["/files/own-image.png"],
+      prepareCheckpoint: async () =>
+        get<string>("publicationActor") ?? "initial-actor",
       protectedRanges: async () =>
         get<
           Array<{

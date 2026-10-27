@@ -315,30 +315,36 @@ export class ArtifactRoom extends Room {
         }
         return (await live().roomPolicy(SYSTEM_PRINCIPAL, scope)).ownBlobUrls;
       },
+      prepareCheckpoint: async (scope, restores) => {
+        const ref = restores.at(-1)
+          ? await ctx.storage.get<string>(
+              `actor:${restores.at(-1)?.byParticipant}`
+            )
+          : await ctx.storage.get<string>("checkpointActor");
+        const actor = ref
+          ? await ctx.storage.get<Principal>(`acceptedActor:${ref}`)
+          : undefined;
+        if (
+          !actor ||
+          actor.kind === "system" ||
+          actor.workspaceId !== scope.workspaceId
+        ) {
+          throw new Error("Missing accepted checkpoint provenance");
+        }
+        return JSON.stringify(actor);
+      },
       protectedRanges: async (scope) =>
         (await live().roomPolicy(SYSTEM_PRINCIPAL, scope)).ranges,
       save: async (scope, input) => {
-        const publicationKey = `checkpointPublication:${input.checkpointId}`;
-        let actor = await ctx.storage.get<Principal>(publicationKey);
-        if (!actor) {
-          const ref = input.restores.at(-1)
-            ? await ctx.storage.get<string>(
-                `actor:${input.restores.at(-1)?.byParticipant}`
-              )
-            : await ctx.storage.get<string>("checkpointActor");
-          actor = ref
-            ? await ctx.storage.get<Principal>(`acceptedActor:${ref}`)
-            : undefined;
-          if (
-            !actor ||
-            actor.kind === "system" ||
-            actor.workspaceId !== scope.workspaceId
-          ) {
-            throw new Error("Missing accepted checkpoint provenance");
-          }
-          // Freeze provenance before external publication. This receipt cannot
-          // authorize new room operations and does not contain a bearer secret.
-          await ctx.storage.put(publicationKey, actor);
+        if (!input.publicationReceipt) {
+          throw new Error("Missing frozen checkpoint provenance");
+        }
+        const actor: Principal = JSON.parse(input.publicationReceipt);
+        if (
+          actor.kind === "system" ||
+          actor.workspaceId !== scope.workspaceId
+        ) {
+          throw new Error("Wrong checkpoint publication scope");
         }
         const store = new RoomStorage(ctx.storage);
         const origins = input.origins
@@ -850,8 +856,7 @@ export class ArtifactRoom extends Room {
     const pending = store.get<{ retryAt?: number }>("pending");
     if (
       pending ||
-      (meta?.dirtySince !== null &&
-        meta?.dirtySince !== undefined &&
+      (typeof meta?.dirtySince === "number" &&
         meta.dirtySince + 300_000 <= Date.now())
     ) {
       await super.checkpoint();
