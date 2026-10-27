@@ -176,3 +176,11 @@ test("invalid input is a bad request", async () => {
     code: "BAD_REQUEST",
   });
 });
+
+test("list filters by the run that wrote a version", async () => {
+  const { caller, made } = setup();
+  await made();
+  const api = caller(u1).artifacts;
+  expect((await api.list({})).items).toHaveLength(1);
+  expect((await api.list({ runId: "r-none" })).items).toEqual([]);
+});
