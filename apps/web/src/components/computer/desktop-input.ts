@@ -308,6 +308,18 @@ export function isSendableKeys(keys: string): boolean {
   );
 }
 
+/** Keys a phone keyboard lacks, as the buttons beside the screen and the keys they send. */
+export const PHONE_KEYS: readonly { keys: string; label: string }[] = [
+  { keys: "Return", label: "Enter" },
+  { keys: "BackSpace", label: "Backspace" },
+  { keys: "Escape", label: "Esc" },
+  { keys: "Tab", label: "Tab" },
+  { keys: "Left", label: "←" },
+  { keys: "Up", label: "↑" },
+  { keys: "Down", label: "↓" },
+  { keys: "Right", label: "→" },
+];
+
 /** Text to type, split so no action exceeds the per-action limit. */
 export function typeActions(text: string): DesktopAction[] {
   const actions: DesktopAction[] = [];
