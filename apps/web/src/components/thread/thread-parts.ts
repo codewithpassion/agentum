@@ -107,13 +107,16 @@ const fileAttachment = (fileId: string): Attachment => ({
 
 /** Converts a protocol thread message to a new assistant-ui message. */
 export const toThreadMessageLike = (
-  message: ThreadMessage
+  message: ThreadMessage,
+  authorLabel?: string
 ): ThreadMessageLike => {
   const base = {
     createdAt:
       message.createdAt === null ? undefined : new Date(message.createdAt),
     id: message.id,
-    metadata: { custom: { runId: message.runId } },
+    metadata: {
+      custom: { runId: message.runId, ...(authorLabel ? { authorLabel } : {}) },
+    },
     role: message.role,
   };
   if (message.role === "assistant") {

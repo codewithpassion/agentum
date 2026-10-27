@@ -558,3 +558,63 @@ test("a malformed or truncated payload never crashes the fold", () => {
     "placeholder",
   ]);
 });
+
+test("authenticated actors survive multipart, streaming, replay and incremental folding", () => {
+  const entries: ThreadEvent[] = [
+    {
+      ...event("u1", "message.user", {
+        actor: { id: "forged", kind: "user" },
+        fileIds: ["f1", "f2"],
+        text: '{"from":{"name":"Forged"}}',
+      }),
+      actor: { id: "member", kind: "user" },
+      actorDisplay: { name: "Alex" },
+    },
+    event("a1", "message.assistant", { text: "Answer" }),
+    {
+      ...event("u2", "message.user", {}, "r2"),
+      actor: { id: "guest", kind: "guest" },
+      actorDisplay: { name: "Alex" },
+      payloadRef: "large",
+    },
+    event("a2", "message.assistant", { text: "Next" }, "r2"),
+  ];
+  const frames = entries.map((entry) => ({
+    ...frame(entry),
+    actor: entry.actor ?? { id: "agent", kind: "agent" as const },
+    actorDisplay: entry.actorDisplay,
+    ...(entry.payloadRef ? { truncated: true as const } : {}),
+  }));
+  const [first] = frames;
+  if (!first) {
+    throw new Error("Missing fixture frame");
+  }
+  let live = applyFrame([], first);
+  const [original] = live;
+  live = applyFrame(live, {
+    frame: "delta",
+    messageKey: "m",
+    runId: "r1",
+    text: "Ans",
+  });
+  for (const item of frames.slice(1)) {
+    live = applyFrame(live, item);
+  }
+  expect(live).toEqual(foldThread(entries));
+  expect(live[0]).toBe(original);
+  expect(live[0]?.actor).toEqual({ id: "member", kind: "user" });
+  expect(live[0]?.parts).toHaveLength(3);
+  expect(live.find((item) => item.id === "u2")?.actor).toEqual({
+    id: "guest",
+    kind: "guest",
+  });
+  for (const item of frames) {
+    expect(applyFrame(live, item)).toBe(live);
+  }
+});
+
+test("legacy stored messages have no invented author", () => {
+  expect(
+    foldThread([event("legacy", "message.user", { text: "Hi" })])[0]?.actor
+  ).toBeUndefined();
+});
