@@ -16,9 +16,10 @@
  *   the viewer may open the artifact and that the tool is among the version's
  *   approved grants, then runs it as the viewer.
  *
- * `<serverKey>/<tool>` names a connector by the key that
- * `connectorServerKeys` gives over the workspace's connectors in creation
- * order (`workspaceConnectors`).
+ * `<serverKey>/<tool>` names a connector by the key a run gives it:
+ * `connectorServerKeys` over the making agent's assigned connectors in
+ * assignment order, or over the workspace's connectors in creation order for
+ * an artifact a person made (`callableConnectors`).
  */
 
 import type { Database } from "@repo/db";
