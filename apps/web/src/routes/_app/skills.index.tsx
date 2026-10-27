@@ -1,9 +1,10 @@
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ImportGithubForm } from "#/components/skills/import-github-form.tsx";
 import { SkillNewForm } from "#/components/skills/skill-new-form.tsx";
 import { SkillsList } from "#/components/skills/skills-list.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 
 export const Route = createFileRoute("/_app/skills/")({
@@ -40,12 +41,31 @@ function SkillsIndex() {
   );
 
   const refresh = useCallback(() => router.invalidate(), [router]);
+  // On phones the list comes first and the three add forms wait behind one button.
+  const [adding, setAdding] = useState(false);
+  const toggleAdding = useCallback(() => setAdding((open) => !open), []);
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-8">
       <h1 className="font-heading text-3xl text-foreground">Skills</h1>
-      <SkillNewForm onDone={refresh} />
-      <ImportGithubForm onDone={refresh} />
+      <Button
+        aria-controls="skills-add-forms"
+        aria-expanded={adding}
+        className="md:hidden"
+        data-testid="skills-add-toggle"
+        onClick={toggleAdding}
+        type="button"
+        variant="outline"
+      >
+        {adding ? "Hide forms" : "Add skill"}
+      </Button>
+      <div
+        className={`${adding ? "flex" : "hidden"} flex-col gap-8 md:flex`}
+        id="skills-add-forms"
+      >
+        <SkillNewForm onDone={refresh} />
+        <ImportGithubForm onDone={refresh} />
+      </div>
       <SkillsList
         agentNames={agentNames}
         assignments={assignments}

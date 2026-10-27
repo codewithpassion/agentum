@@ -3,7 +3,7 @@ id: MB.6
 title: "Mobile: library file panel and skills index"
 milestone: MB
 size: S
-status: in_progress
+status: done
 depends_on: [MB.1]
 branch: task/MB.6-mobile-library-skills
 lane: web-library
@@ -27,3 +27,4 @@ Dom asked on 27 Oct 2026 for every function of the app to work from a phone. The
 ## Log
 - 2026-10-27: added from the mobile audit.
 - 2026-10-27: dispatched.
+- 2026-10-27: review clean after 0 fix rounds; merged.
