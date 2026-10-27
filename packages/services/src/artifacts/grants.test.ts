@@ -36,9 +36,14 @@ const TOOLS: Record<string, boolean> = {
   "linear/list_issues": true,
   "linear/save_issue": false,
 };
+const lookedUpFor: (string | null)[] = [];
 const catalog: ToolCatalog = {
-  lookup: (_workspaceId, key) =>
-    Promise.resolve(key in TOOLS ? { readOnly: TOOLS[key] === true } : null),
+  lookup: (_workspaceId, key, forAgentId) => {
+    lookedUpFor.push(forAgentId);
+    return Promise.resolve(
+      key in TOOLS ? { readOnly: TOOLS[key] === true } : null
+    );
+  },
 };
 
 const manifest = (body: object) => [
@@ -803,4 +808,21 @@ test("promoting a version older than the live one is refused, also after a stale
     service.promote(runPrincipal, { artifactId: ARTIFACT, versionId: "v2" })
   ).rejects.toMatchObject({ code: "conflict" });
   expect(await currentVersion()).toBe("v3");
+});
+
+test("checkManifest names tools by the artifact's maker when one is given, not the calling agent", async () => {
+  await setup();
+  lookedUpFor.length = 0;
+  const handedRun: Principal = {
+    agentId: otherAgentId,
+    kind: "run",
+    runId: "r-handed",
+    workspaceId: "w1",
+  };
+  const files = manifest({ tools: [{ tool: "linear/get_issue" }] });
+  await service.checkManifest(handedRun, files);
+  expect(lookedUpFor).toEqual([otherAgentId]);
+  lookedUpFor.length = 0;
+  await service.checkManifest(handedRun, files, agentId);
+  expect(lookedUpFor).toEqual([agentId]);
 });

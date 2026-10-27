@@ -73,21 +73,32 @@ export const createArtifactPorts = ({
     versionId: result.versionId,
   });
 
-  /** The version `artifact_test` opens: the numbered one, else the current. */
+  /**
+   * The version `artifact_test` opens: the numbered one, else the latest. An
+   * app an agent just made has no live version yet, so "the current one" would
+   * not exist.
+   */
   const versionToTest = async (
     artifactId: string,
     number: number | undefined
   ): Promise<{ id: string; number: number }> => {
+    const versions = await services.artifacts.versions(principal, artifactId);
     const found =
       number === undefined
-        ? (await services.artifacts.get(principal, artifactId)).currentVersion
-        : (await services.artifacts.versions(principal, artifactId)).find(
-            (row) => row.number === number
-          );
+        ? versions.reduce<(typeof versions)[number] | undefined>(
+            (best, row) => (!best || row.number > best.number ? row : best),
+            undefined
+          )
+        : versions.find((row) => row.number === number);
     if (!found) {
-      throw new ToolError("not_found", `Version ${number} not found.`);
+      throw new ToolError(
+        "not_found",
+        number === undefined
+          ? "The artifact has no versions."
+          : `Version ${number} not found.`
+      );
     }
-    return found;
+    return { id: found.id, number: found.number };
   };
 
   /** Writes the PNG into the run's task folder and returns its library path. */
