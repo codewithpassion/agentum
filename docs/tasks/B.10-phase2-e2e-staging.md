@@ -3,7 +3,7 @@ id: B.10
 title: Phase 2 end-to-end and staging check
 milestone: B
 size: M
-status: in_progress
+status: done
 depends_on: [A.14, B.7, B.8, B.9]
 branch: task/B.10-phase2-e2e-staging
 lane: staging
@@ -30,3 +30,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched (local part first; staging after A.11).
+- 2026-10-27: ready at 5bc0687, review clean after 2 fix rounds; staging needs one more deploy for the review fixes; R2.5/R2.11 partial (no-login connector, one member), R2.13/R2.14 gaps (flood guard below service limit, refused calls write no row); merged.
