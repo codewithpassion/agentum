@@ -39,6 +39,11 @@ function AppLayout() {
     null,
     DESK_POLL_INTERVAL_MS
   );
+  const { data: pinned } = usePolledQuery(
+    () => getTrpc().artifacts.pins.query({ surface: "sidebar" }),
+    null,
+    DESK_POLL_INTERVAL_MS
+  );
   const { data: openQaCount } = usePolledQuery(
     () => getTrpc().qa.openCount.query(),
     null,
@@ -51,6 +56,7 @@ function AppLayout() {
         agents={agents}
         needsYouCount={needsYouCount ?? 0}
         openQaCount={openQaCount ?? 0}
+        pinned={pinned ?? []}
       />
       <SidebarInset>
         {/* Desktop keeps this bar. On phones the menu button lives in the

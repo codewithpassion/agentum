@@ -78,37 +78,56 @@ export type CreateShareResult =
 /**
  * The `createShare` input for the form. Following the latest version sends
  * `versionId: null`; pinning sends the id of the version being viewed.
- * Phase 2 adds the data choice here: it sets `dataMode` and `liveTools`.
+ * A snapshot link sends no `liveTools`; a live link sends the ticked tools and
+ * needs at least one.
  */
 export function buildCreateShareInput({
   artifactId,
   currentVersionId,
   date,
   expiry,
+  mode = "snapshot",
   now,
   pin,
+  tools = [],
 }: {
   artifactId: string;
   currentVersionId: string;
   date: string;
   expiry: ExpiryChoice;
+  /** `snapshot` when omitted. */
+  mode?: "live" | "snapshot";
   now: Date;
   pin: boolean;
+  tools?: readonly string[];
 }): CreateShareResult {
   const resolved = resolveExpiry(expiry, date, now);
   if (!resolved.ok) {
     return resolved;
   }
+  const base = {
+    artifactId,
+    expiresAt: resolved.expiresAt,
+    versionId: pin ? currentVersionId : null,
+  };
+  if (mode === "snapshot") {
+    return { input: { ...base, dataMode: "snapshot" }, ok: true };
+  }
+  if (tools.length === 0) {
+    return { error: "Pick at least one tool.", ok: false };
+  }
   return {
-    input: {
-      artifactId,
-      dataMode: "snapshot",
-      expiresAt: resolved.expiresAt,
-      versionId: pin ? currentVersionId : null,
-    },
+    input: { ...base, dataMode: "live", liveTools: [...tools] },
     ok: true,
   };
 }
+
+/**
+ * The server sends the token-less `<origin>/s/` to members who are not the
+ * owner or an admin. Such a URL cannot be copied as a working link.
+ */
+export const shareUrlHasToken = (url: string): boolean =>
+  !url.endsWith("/s/") && url.length > 0;
 
 /** What the revoke confirmation says. Revoke never runs on one tap. */
 export function revokeConfirmCopy(share: ArtifactShare) {

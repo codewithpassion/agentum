@@ -16,11 +16,13 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { getTrpc } from "#/integrations/trpc/client";
+import { withoutArgumentLimits } from "./live-link-model";
 import {
   errorMessage,
   formatTimestamp,
   revokeConfirmCopy,
   SHARE_STATUS_LABELS,
+  shareUrlHasToken,
   shareVersionLabel,
 } from "./share-model";
 
@@ -28,6 +30,8 @@ export interface LinkListProps {
   /** Only the owner and admins copy or revoke links; others see the list. */
   canManage: boolean;
   onChanged: () => void;
+  /** Named in the "Live as ..." badge; null shows "the owner". */
+  ownerName: string | null;
   shares: readonly ArtifactShare[];
   versionNumbers: ReadonlyMap<string, number>;
 }
@@ -47,11 +51,13 @@ const copyLink = async (url: string) => {
 function LinkRow({
   canManage,
   onRevoke,
+  ownerName,
   share,
   versionNumbers,
 }: {
   canManage: boolean;
   onRevoke: (shareId: string) => void;
+  ownerName: string | null;
   share: ArtifactShare;
   versionNumbers: ReadonlyMap<string, number>;
 }) {
@@ -80,19 +86,29 @@ function LinkRow({
         <Badge variant={live ? "default" : "secondary"}>
           {SHARE_STATUS_LABELS[share.status]}
         </Badge>
+        {share.dataMode === "live" ? (
+          <div className="mt-1 space-y-1">
+            <Badge variant="outline">{`Live as ${ownerName ?? "the owner"}`}</Badge>
+            <p className="text-muted-foreground text-xs [overflow-wrap:anywhere]">
+              {withoutArgumentLimits(share.liveTools ?? []).join(", ")}
+            </p>
+          </div>
+        ) : null}
       </ResponsiveCell>
       <ResponsiveActions>
         {live && canManage ? (
           <>
-            <Button
-              className="min-h-10"
-              onClick={onCopy}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Copy
-            </Button>
+            {shareUrlHasToken(share.url) ? (
+              <Button
+                className="min-h-10"
+                onClick={onCopy}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Copy
+              </Button>
+            ) : null}
             <ConfirmButton
               {...revokeConfirmCopy(share)}
               className="min-h-10"
@@ -113,6 +129,7 @@ function LinkRow({
 export function LinkList({
   canManage,
   onChanged,
+  ownerName,
   shares,
   versionNumbers,
 }: LinkListProps) {
@@ -162,6 +179,7 @@ export function LinkList({
               canManage={canManage}
               key={share.id}
               onRevoke={revoke}
+              ownerName={ownerName}
               share={share}
               versionNumbers={versionNumbers}
             />

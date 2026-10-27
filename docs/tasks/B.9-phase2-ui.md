@@ -3,7 +3,7 @@ id: B.9
 title: "Phase 2 UI, live links, grant approvals, pins, hand-to"
 milestone: B
 size: M
-status: in_progress
+status: done
 depends_on: [A.8, A.10, B.4]
 branch: task/B.9-phase2-ui
 lane: web-share
@@ -32,3 +32,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched early (B.6 dependency dropped).
+- 2026-10-27: ready, review clean after 0 fix rounds; browser check deferred to B.10; artifacts.grants and artifacts.pins queries added; merged.
