@@ -97,6 +97,8 @@ export interface ListArtifactsFilter {
   madeBy?: "agent" | "person";
   /** Now, ISO: a link expiring before it is no longer active. */
   now: string;
+  /** Only artifacts with a version written by this run. */
+  runId?: string;
   /** True: only artifacts with an active link. False: only those without. */
   shared?: boolean;
   visibility: ArtifactVisibility;
@@ -145,6 +147,19 @@ export const listArtifacts = (
                 filter.madeBy === "agent" ? "agent" : "user"
               ),
           sharedFilter,
+          filter.runId
+            ? exists(
+                db
+                  .select({ one: sql`1` })
+                  .from(artifactVersions)
+                  .where(
+                    and(
+                      eq(artifactVersions.artifactId, artifacts.id),
+                      eq(artifactVersions.authorRunId, filter.runId)
+                    )
+                  )
+              )
+            : undefined,
           after
             ? or(
                 lt(artifacts.updatedAt, after.updatedAt),

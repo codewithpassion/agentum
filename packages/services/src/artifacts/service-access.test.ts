@@ -330,6 +330,31 @@ describe("list", () => {
     expect(items.map((c) => c.artifactId)).toEqual([doc.artifactId]);
   });
 
+  test("filters by a run that wrote a version", async () => {
+    const h = harness();
+    const create = (principal: typeof principals.agentOne, title: string) =>
+      h.service.create(principal, { files: page(), kind: "page", title });
+    const first = await create(principals.agentOne, "Shared run");
+    const second = await create(principals.agentOneInUi, "Ui run");
+    await make(h, principals.owner, "By person");
+    const ids = async (runId: string) =>
+      (await h.service.list(principals.owner, { runId })).items
+        .map((c) => c.artifactId)
+        .sort();
+    expect(await ids("r-shared")).toEqual([first.artifactId]);
+    expect(await ids("r-ui")).toEqual([second.artifactId]);
+    // A later version by another run puts the artifact under that run too.
+    await h.service.update(principals.agentOne, {
+      artifactId: second.artifactId,
+      baseVersion: 1,
+      files: page("two"),
+    });
+    expect(await ids("r-shared")).toEqual(
+      [first.artifactId, second.artifactId].sort()
+    );
+    expect(await ids("r-unknown")).toEqual([]);
+  });
+
   test("filters by who made it", async () => {
     const h = harness();
     const byPerson = await make(h, principals.owner, "By person");

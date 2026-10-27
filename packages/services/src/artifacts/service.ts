@@ -138,6 +138,8 @@ export interface ArtifactListFilters {
   cursor?: string;
   kind?: ArtifactKind;
   madeBy?: "agent" | "person";
+  /** Only artifacts with a version this run wrote. */
+  runId?: string;
   shared?: boolean;
 }
 
@@ -1092,6 +1094,7 @@ export const createArtifactsService = ({
       limit: PAGE_SIZE,
       madeBy: filters.madeBy,
       now: nowIso(),
+      runId: filters.runId,
       shared: filters.shared,
       visibility: visibilityOf(member),
     });
