@@ -35,7 +35,7 @@ const options = {
   },
   modules: true,
   outboundService: (request) => {
-    assert.equal(new URL(request.url).hostname, "images.unsplash.com");
+    assert.equal(new URL(request.url).hostname, "public-images.example.com");
     externalImageRequests += 1;
     return new Response(
       new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]),
@@ -45,6 +45,7 @@ const options = {
   r2Buckets: ["FILES"],
   resourcePersistencePath: directory,
   script,
+  workerLoaders: { LOADER: {} },
 };
 let runtime = new Miniflare(convertV4MiniflareOptions(options));
 let passed = 0;
@@ -624,7 +625,7 @@ try {
   const importedResponse = await runtime.dispatchFetch(
     `http://localhost/fixture/import-image/${created.artifactId}`,
     {
-      body: JSON.stringify({ url: "https://images.unsplash.com/photo" }),
+      body: JSON.stringify({ url: "https://public-images.example.com/photo" }),
       headers: { "Content-Type": "application/json" },
       method: "POST",
     }

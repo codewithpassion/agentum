@@ -13,6 +13,7 @@ import { documentContent } from "./content";
 import { deckContent } from "./deck-content";
 import { productionMentionInfra } from "./mention-infra";
 import { roomStub } from "./namespace";
+import { publicImageFetch } from "./public-image-fetch";
 import { requiredLive } from "./required";
 
 export interface LiveInfra
@@ -113,7 +114,7 @@ export const productionLiveInfra = (
           : new Set()
       ),
     },
-    externalImageFetch: fetch,
+    externalImageFetch: publicImageFetch(env.LOADER),
     guestPresence: async (scope) =>
       (await (await stub(scope)).askPresence("")).present.some(
         (entry) => entry.kind === "guest"

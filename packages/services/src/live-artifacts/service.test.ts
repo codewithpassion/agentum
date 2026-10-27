@@ -2078,7 +2078,7 @@ test("external image import authorizes before fetch and again after fetch, regis
   });
   const input = {
     artifactId: created.artifactId,
-    url: "https://images.unsplash.com/photo",
+    url: "https://photos.example.com/image",
   };
   await expect(
     service.importImage(principals.keyReader, input)
