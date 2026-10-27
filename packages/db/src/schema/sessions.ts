@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   integer,
   sqliteTable,
@@ -30,6 +31,9 @@ export const sessions = sqliteTable(
     workspaceId: workspaceId().references(() => workspaces.id),
   },
   (t) => [
+    uniqueIndex("sessions_artifact_unique")
+      .on(t.workspaceId, t.externalKey)
+      .where(sql`${t.origin} = 'artifact'`),
     uniqueIndex("sessions_key_unique").on(
       t.workspaceId,
       t.agentId,

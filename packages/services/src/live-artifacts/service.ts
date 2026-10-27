@@ -1,20 +1,16 @@
 import type { Database } from "@repo/db";
 import {
-  findArtifact,
+  type findArtifact,
   findVersionById,
   findVersionByNumber,
   versionFiles,
 } from "@repo/db/artifacts";
 import type { Atomic, Statement } from "@repo/db/atomic";
-import { agents } from "@repo/db/schema/agents";
 import {
   artifacts,
   artifactVersionFiles,
   artifactVersions,
 } from "@repo/db/schema/artifacts";
-import { artifactMembers } from "@repo/db/schema/live-artifacts";
-import { runs } from "@repo/db/schema/runs";
-import { sessions } from "@repo/db/schema/sessions";
 import {
   ARTIFACT_FILE_MAX_BYTES,
   ARTIFACT_MAX_BYTES,
@@ -23,8 +19,8 @@ import {
   ROOM_TICKET_SECONDS,
 } from "@repo/db/shared";
 import { contentTypeForPath } from "@repo/protocol/artifacts";
-import type { LiveJoinResult, RoomTicketClaims } from "@repo/protocol/live";
-import { and, eq, isNull, type SQL } from "drizzle-orm";
+import type { LiveJoinResult } from "@repo/protocol/live";
+import { and, eq, type SQL } from "drizzle-orm";
 import { ulid } from "ulidx";
 import {
   blobKey,
@@ -32,18 +28,15 @@ import {
   manifestKey,
   rethrowArtifactQuotaError,
 } from "../artifacts/blob-writer.ts";
-import {
-  agentCanSee,
-  agentCanUpdate,
-  defaultAudience,
-} from "../artifacts/policy.ts";
+import { defaultAudience } from "../artifacts/policy.ts";
 import type { ArtifactsService, PublishResult } from "../artifacts/service.ts";
-import { authorize, ForbiddenError } from "../authz.ts";
+import { ForbiddenError } from "../authz.ts";
 import { isUniqueViolation, ServiceError } from "../errors.ts";
 import type { EventsService } from "../events.ts";
 import type { LibraryBlobs } from "../library.ts";
 import type { Clock } from "../runs/types.ts";
 import type { Principal } from "../workspaces.ts";
+import { createLiveAccess } from "./access.ts";
 import { createAccessLifecycle } from "./access-lifecycle.ts";
 import { createChangesModule } from "./changes.ts";
 import { createCommentsModule } from "./comments.ts";
@@ -115,7 +108,6 @@ export interface LiveArtifactsDeps extends LiveInteractionPorts {
 
 export type Member = Extract<Principal, { kind: "user" | "run" }>;
 export type Row = NonNullable<Awaited<ReturnType<typeof findArtifact>>>;
-type Role = RoomTicketClaims["role"];
 const missing = () =>
   new ServiceError("not_found", "Artifact or checkpoint not found");
 const invalid = (message: string) => new ServiceError("invalid", message);
@@ -160,139 +152,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       blobs,
       db,
     });
-  const memberOf = (principal: Principal): Member => {
-    if (principal.kind !== "user" && principal.kind !== "run") {
-      throw new ForbiddenError("liveArtifacts");
-    }
-    authorize(principal, "liveArtifacts", {
-      kind: "artifact",
-      workspaceId: principal.workspaceId,
-    });
-    return principal;
-  };
-  const runContext = async (member: Extract<Member, { kind: "run" }>) => {
-    const [run] = await db
-      .select()
-      .from(runs)
-      .where(
-        and(
-          eq(runs.id, member.runId),
-          eq(runs.workspaceId, member.workspaceId),
-          eq(runs.agentId, member.agentId)
-        )
-      )
-      .limit(1);
-    const [agent] = await db
-      .select()
-      .from(agents)
-      .where(
-        and(
-          eq(agents.id, member.agentId),
-          eq(agents.workspaceId, member.workspaceId)
-        )
-      )
-      .limit(1);
-    const [session] = run
-      ? await db
-          .select()
-          .from(sessions)
-          .where(
-            and(
-              eq(sessions.id, run.sessionId),
-              eq(sessions.workspaceId, member.workspaceId),
-              eq(sessions.agentId, member.agentId)
-            )
-          )
-          .limit(1)
-      : [];
-    if (!(run && agent && session)) {
-      throw missing();
-    }
-    return { run, session };
-  };
-  const userRole = async (
-    row: Row,
-    userId: string,
-    admin = false
-  ): Promise<Role | null> => {
-    if (admin || row.ownerUserId === userId) {
-      return "owner";
-    }
-    const [grant] = await db
-      .select()
-      .from(artifactMembers)
-      .where(
-        and(
-          eq(artifactMembers.workspaceId, row.workspaceId),
-          eq(artifactMembers.artifactId, row.id),
-          eq(artifactMembers.principalKind, "user"),
-          eq(artifactMembers.userId, userId),
-          isNull(artifactMembers.revokedAt)
-        )
-      )
-      .limit(1);
-    if (grant && (!grant.expiresAt || grant.expiresAt > now())) {
-      return grant.role;
-    }
-    return row.audience === "workspace" ? "editor" : null;
-  };
-  const runRole = async (
-    member: Extract<Member, { kind: "run" }>,
-    row: Row
-  ): Promise<Role | null> => {
-    const { run } = await runContext(member);
-    if (run.scopeArtifactId && run.scopeArtifactId !== row.id) {
-      throw new ForbiddenError("liveArtifacts.scope");
-    }
-    if (run.scopeArtifactId) {
-      const asker = run.onBehalfOfUserId
-        ? await userRole(row, run.onBehalfOfUserId)
-        : null;
-      if (!asker) {
-        throw new ForbiddenError("liveArtifacts.scope");
-      }
-      return asker === "owner" ? "editor" : asker;
-    }
-    if (!agentCanSee(row, member.agentId)) {
-      return null;
-    }
-    return agentCanUpdate(row, member.agentId) ? "editor" : "viewer";
-  };
-  const access = async (
-    principal: Principal,
-    artifactId: string,
-    write = false,
-    owner = false,
-    live = true
-  ) => {
-    const member = memberOf(principal);
-    const row = await findArtifact(db, member.workspaceId, artifactId);
-    if (!row || (live && row.kind !== "document")) {
-      throw missing();
-    }
-    authorize(member, "liveArtifacts.access", {
-      id: row.id,
-      kind: "artifact",
-      workspaceId: row.workspaceId,
-    });
-    let role =
-      member.kind === "user"
-        ? await userRole(row, member.userId, member.isAdmin)
-        : await runRole(member, row);
-    if (!role) {
-      throw missing();
-    }
-    if (readOnly(member)) {
-      role = "viewer";
-    }
-    if (
-      (write && role !== "editor" && role !== "owner") ||
-      (owner && role !== "owner")
-    ) {
-      throw new ForbiddenError("liveArtifacts.write");
-    }
-    return { member, role, row };
-  };
+  const { access, memberOf, runContext } = createLiveAccess(deps);
   const event = (
     member: Member,
     row: Row,

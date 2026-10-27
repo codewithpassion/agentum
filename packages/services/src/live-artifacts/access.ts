@@ -1,0 +1,169 @@
+import { findArtifact } from "@repo/db/artifacts";
+import { agents } from "@repo/db/schema/agents";
+import { artifactMembers } from "@repo/db/schema/live-artifacts";
+import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
+import type { RoomTicketClaims } from "@repo/protocol/live";
+import { and, eq, isNull, or } from "drizzle-orm";
+import { agentCanSee, agentCanUpdate } from "../artifacts/policy.ts";
+import { authorize, ForbiddenError } from "../authz.ts";
+import { ServiceError } from "../errors.ts";
+import type { Principal } from "../workspaces.ts";
+import type { LiveArtifactsDeps, Member, Row } from "./service.ts";
+
+type Role = RoomTicketClaims["role"];
+const missing = () =>
+  new ServiceError("not_found", "Artifact or checkpoint not found");
+const readOnly = (member: Member) =>
+  member.kind === "run"
+    ? member.dryRun === true
+    : member.apiKey?.access === "read" || member.oauthClient?.access === "read";
+
+export const createLiveAccess = ({
+  db,
+  clock,
+}: Pick<LiveArtifactsDeps, "db"> & {
+  clock: Pick<LiveArtifactsDeps["clock"], "now">;
+}) => {
+  const now = () => clock.now().toISOString();
+  const memberOf = (principal: Principal): Member => {
+    if (principal.kind !== "user" && principal.kind !== "run") {
+      throw new ForbiddenError("liveArtifacts");
+    }
+    authorize(principal, "liveArtifacts", {
+      kind: "artifact",
+      workspaceId: principal.workspaceId,
+    });
+    return principal;
+  };
+  const runContext = async (member: Extract<Member, { kind: "run" }>) => {
+    const [run] = await db
+      .select()
+      .from(runs)
+      .where(
+        and(
+          eq(runs.id, member.runId),
+          eq(runs.workspaceId, member.workspaceId),
+          eq(runs.agentId, member.agentId)
+        )
+      )
+      .limit(1);
+    const [agent] = await db
+      .select()
+      .from(agents)
+      .where(
+        and(
+          eq(agents.id, member.agentId),
+          eq(agents.workspaceId, member.workspaceId)
+        )
+      )
+      .limit(1);
+    const [session] = run
+      ? await db
+          .select()
+          .from(sessions)
+          .where(
+            and(
+              eq(sessions.id, run.sessionId),
+              eq(sessions.workspaceId, member.workspaceId),
+              or(
+                eq(sessions.agentId, member.agentId),
+                eq(sessions.origin, "artifact")
+              )
+            )
+          )
+          .limit(1)
+      : [];
+    if (!(run && agent && session)) {
+      throw missing();
+    }
+    return { run, session };
+  };
+  const userRole = async (
+    row: Row,
+    userId: string,
+    admin = false
+  ): Promise<Role | null> => {
+    if (admin || row.ownerUserId === userId) {
+      return "owner";
+    }
+    const [grant] = await db
+      .select()
+      .from(artifactMembers)
+      .where(
+        and(
+          eq(artifactMembers.workspaceId, row.workspaceId),
+          eq(artifactMembers.artifactId, row.id),
+          eq(artifactMembers.principalKind, "user"),
+          eq(artifactMembers.userId, userId),
+          isNull(artifactMembers.revokedAt)
+        )
+      )
+      .limit(1);
+    if (grant && (!grant.expiresAt || grant.expiresAt > now())) {
+      return grant.role;
+    }
+    return row.audience === "workspace" ? "editor" : null;
+  };
+  const runRole = async (
+    member: Extract<Member, { kind: "run" }>,
+    row: Row
+  ): Promise<Role | null> => {
+    const { run, session } = await runContext(member);
+    if (run.scopeArtifactId && run.scopeArtifactId !== row.id) {
+      throw new ForbiddenError("liveArtifacts.scope");
+    }
+    if (
+      run.scopeArtifactId ||
+      (session.origin === "artifact" && session.externalKey === row.id)
+    ) {
+      const asker = run.onBehalfOfUserId
+        ? await userRole(row, run.onBehalfOfUserId)
+        : null;
+      if (!asker) {
+        throw new ForbiddenError("liveArtifacts.scope");
+      }
+      return asker === "owner" ? "editor" : asker;
+    }
+    if (!agentCanSee(row, member.agentId)) {
+      return null;
+    }
+    return agentCanUpdate(row, member.agentId) ? "editor" : "viewer";
+  };
+  const access = async (
+    principal: Principal,
+    artifactId: string,
+    write = false,
+    owner = false,
+    live = true
+  ) => {
+    const member = memberOf(principal);
+    const row = await findArtifact(db, member.workspaceId, artifactId);
+    if (!row || (live && row.kind !== "document")) {
+      throw missing();
+    }
+    authorize(member, "liveArtifacts.access", {
+      id: row.id,
+      kind: "artifact",
+      workspaceId: row.workspaceId,
+    });
+    let role =
+      member.kind === "user"
+        ? await userRole(row, member.userId, member.isAdmin)
+        : await runRole(member, row);
+    if (!role) {
+      throw missing();
+    }
+    if (readOnly(member)) {
+      role = "viewer";
+    }
+    if (
+      (write && role !== "editor" && role !== "owner") ||
+      (owner && role !== "owner")
+    ) {
+      throw new ForbiddenError("liveArtifacts.write");
+    }
+    return { member, role, row };
+  };
+  return { access, memberOf, runContext };
+};

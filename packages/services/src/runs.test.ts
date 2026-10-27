@@ -2903,14 +2903,14 @@ describe("guest artifact starts", () => {
   test("artifact authorization applies to direct and sessionId starts", async () => {
     setupArtifact();
     await expect(runs.startRun(colleague, guestInput())).rejects.toBeInstanceOf(
-      ForbiddenError
+      ServiceError
     );
     const own = await runs.startRun(user, guestInput(), { offerLater: true });
     await expect(
       start(colleague, spyAgentId, {}, "forge continuation", {
         sessionId: own.sessionId,
       })
-    ).rejects.toBeInstanceOf(ForbiddenError);
+    ).rejects.toBeInstanceOf(ServiceError);
   });
   test("history and live names use actor lookups, never payload identity or guest email", async () => {
     setupArtifact();

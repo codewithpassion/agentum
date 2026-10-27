@@ -1,5 +1,6 @@
 import type { Statement } from "@repo/db/atomic";
 import {
+  artifactAskDispatches,
   artifactComments as comments,
   artifactCommentThreads as threads,
 } from "@repo/db/schema/live-artifacts";
@@ -36,6 +37,7 @@ const validateComment = (
     threadId?: string;
     anchor?: CommentAnchor;
     toAgent?: boolean;
+    requestId?: string;
   },
   memberKind: string
 ) => {
@@ -47,6 +49,12 @@ const validateComment = (
   }
   if (input.threadId && (input.anchor || input.toAgent)) {
     throw invalid("Replies cannot change thread addressing or anchor");
+  }
+  if (
+    input.toAgent &&
+    (!input.requestId?.trim() || input.requestId.length > 200)
+  ) {
+    throw invalid("Addressed comments require a stable requestId");
   }
   if (input.toAgent && memberKind !== "user") {
     throw new ForbiddenError("liveArtifacts.ask");
@@ -174,6 +182,77 @@ export const createCommentsModule = (ctx: InteractionContext) => {
       throw error;
     }
   };
+  const threadStatements = (
+    row: { id: string; workspaceId: string },
+    input: { threadId?: string; toAgent?: boolean },
+    threadId: string,
+    anchor: CommentAnchor | null,
+    quote: string | null
+  ): Statement[] =>
+    input.threadId
+      ? []
+      : [
+          db.insert(threads).select(
+            db
+              .select({
+                anchor: sql<
+                  string | null
+                >`${anchor ? JSON.stringify(anchor) : null}`.as("anchor"),
+                answeredAt: sql<string | null>`NULL`.as("answeredAt"),
+                artifactId: sql<string>`${row.id}`.as("artifactId"),
+                id: sql<string>`${threadId}`.as("id"),
+                quote: sql<string | null>`${quote}`.as("quote"),
+                resolvedAt: sql<string | null>`NULL`.as("resolvedAt"),
+                resolvedBy: sql<string | null>`NULL`.as("resolvedBy"),
+                toAgent: sql<boolean>`${input.toAgent ? 1 : 0}`.as("toAgent"),
+                workspaceId: sql<string>`${row.workspaceId}`.as("workspaceId"),
+              })
+              .from(sql`(select 1)`)
+              .where(
+                sql`(select count(*) from artifact_comment_threads where workspace_id = ${row.workspaceId} and artifact_id = ${row.id}) < ${LIVE_THREADS_MAX}`
+              )
+          ),
+        ];
+  const replayAddressed = async (
+    principal: Principal,
+    row: { id: string; workspaceId: string },
+    authorId: string,
+    input: { toAgent?: boolean; requestId?: string; body: string }
+  ) => {
+    if (!(input.toAgent && input.requestId)) {
+      return null;
+    }
+    const [prior] = await db
+      .select({ comment: comments, dispatch: artifactAskDispatches })
+      .from(artifactAskDispatches)
+      .innerJoin(comments, eq(comments.id, artifactAskDispatches.commentId))
+      .where(
+        and(
+          eq(artifactAskDispatches.workspaceId, row.workspaceId),
+          eq(artifactAskDispatches.authorId, authorId),
+          eq(artifactAskDispatches.requestId, input.requestId)
+        )
+      )
+      .limit(1);
+    if (!prior) {
+      return null;
+    }
+    if (
+      prior.dispatch.artifactId !== row.id ||
+      prior.comment.body !== input.body
+    ) {
+      throw new ServiceError("conflict", "Comment requestId already used");
+    }
+    if (!prior.dispatch.completedAt) {
+      await ctx.ask.startComment(principal, {
+        ...scope(row),
+        commentId: prior.comment.id,
+        text: prior.comment.body,
+        threadId: prior.comment.threadId,
+      });
+    }
+    return prior.comment;
+  };
   return {
     async answered(principal: Principal, input: { threadId: string }) {
       const { member, row, role, thread } = await threadAccess(
@@ -220,6 +299,7 @@ export const createCommentsModule = (ctx: InteractionContext) => {
         body: string;
         anchor?: CommentAnchor;
         toAgent?: boolean;
+        requestId?: string;
       }
     ) {
       const { member, row, role } = await ctx.access(
@@ -234,6 +314,15 @@ export const createCommentsModule = (ctx: InteractionContext) => {
       }
       canComment(role);
       validateComment(input, member.kind);
+      const prior = await replayAddressed(
+        principal,
+        row,
+        ctx.authorOf(member).id,
+        input
+      );
+      if (prior) {
+        return prior;
+      }
       const { anchor, quote } = await resolveNewAnchor(row, input);
       const threadId = input.threadId ?? ulid();
       await checkQuota(principal, row, threadId, input);
@@ -272,48 +361,47 @@ export const createCommentsModule = (ctx: InteractionContext) => {
           })
           .from(sql`(select 1)`)
       );
-      await commitComment(
-        [
-          ...(input.threadId
-            ? []
-            : [
-                db.insert(threads).select(
-                  db
-                    .select({
-                      anchor: sql<
-                        string | null
-                      >`${anchor ? JSON.stringify(anchor) : null}`.as("anchor"),
-                      answeredAt: sql<string | null>`NULL`.as("answeredAt"),
-                      artifactId: sql<string>`${row.id}`.as("artifactId"),
-                      id: sql<string>`${threadId}`.as("id"),
-                      quote: sql<string | null>`${quote}`.as("quote"),
-                      resolvedAt: sql<string | null>`NULL`.as("resolvedAt"),
-                      resolvedBy: sql<string | null>`NULL`.as("resolvedBy"),
-                      toAgent: sql<boolean>`${input.toAgent ? 1 : 0}`.as(
-                        "toAgent"
-                      ),
-                      workspaceId: sql<string>`${row.workspaceId}`.as(
-                        "workspaceId"
-                      ),
-                    })
-                    .from(sql`(select 1)`)
-                    .where(
-                      sql`(select count(*) from artifact_comment_threads where workspace_id = ${row.workspaceId} and artifact_id = ${row.id}) < ${LIVE_THREADS_MAX}`
-                    )
-                ),
-              ]),
-          insertComment,
-          ctx.event(member, row, "artifact.comment_created", {
-            artifactId: row.id,
-            commentId: comment.id,
-            threadId,
-          }),
-        ],
-        principal,
-        row,
-        threadId,
-        input
-      );
+      try {
+        await commitComment(
+          [
+            ...threadStatements(row, input, threadId, anchor, quote),
+            insertComment,
+            ...(input.toAgent
+              ? [
+                  db.insert(artifactAskDispatches).values({
+                    artifactId: row.id,
+                    authorId: author.id,
+                    commentId: comment.id,
+                    createdAt: ctx.now(),
+                    id: ulid(),
+                    requestId: input.requestId ?? "",
+                    workspaceId: row.workspaceId,
+                  }),
+                ]
+              : []),
+            ctx.event(member, row, "artifact.comment_created", {
+              artifactId: row.id,
+              commentId: comment.id,
+              threadId,
+            }),
+          ],
+          principal,
+          row,
+          threadId,
+          input
+        );
+      } catch (error) {
+        const duplicate = await replayAddressed(
+          principal,
+          row,
+          ctx.authorOf(member).id,
+          input
+        );
+        if (duplicate) {
+          return duplicate;
+        }
+        throw error;
+      }
       const [saved] = await db
         .select()
         .from(comments)

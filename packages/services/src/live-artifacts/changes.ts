@@ -1,5 +1,5 @@
 import { artifactLiveChanges as changes } from "@repo/db/schema/live-artifacts";
-import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
@@ -141,7 +141,13 @@ export const createChangesModule = (ctx: InteractionContext) => ({
         and(
           eq(sessions.id, run.sessionId),
           eq(sessions.workspaceId, row.workspaceId),
-          eq(sessions.agentId, run.agentId)
+          or(
+            eq(sessions.agentId, run.agentId),
+            and(
+              eq(sessions.origin, "artifact"),
+              eq(sessions.externalKey, row.id)
+            )
+          )
         )
       )
       .limit(1);

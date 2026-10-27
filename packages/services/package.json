@@ -128,7 +128,9 @@
     "./wiki/suggestions": "./src/wiki/suggestions.ts",
     "./live-artifacts/access-lifecycle": "./src/live-artifacts/access-lifecycle.ts",
     "./live-artifacts/ports": "./src/live-artifacts/ports.ts",
-    "./live-artifacts/service": "./src/live-artifacts/service.ts"
+    "./live-artifacts/service": "./src/live-artifacts/service.ts",
+    "./live-artifacts/ask": "./src/live-artifacts/ask.ts",
+    "./live-artifacts/factory": "./src/live-artifacts/factory.ts"
   },
   "scripts": {
     "test": "bun test",
