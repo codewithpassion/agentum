@@ -24,7 +24,18 @@ const setup = async () => {
   const liveService = () =>
     createLiveArtifactsService({
       ...h,
+      anchors: {
+        guardAgentSnapshot: () =>
+          Promise.reject(new Error("Unused quota-test port")),
+        resolve: () => Promise.reject(new Error("Unused quota-test port")),
+      },
       artifacts: h.service,
+      ask: {
+        startComment: () => Promise.reject(new Error("Unused quota-test port")),
+      },
+      changes: {
+        revert: () => Promise.reject(new Error("Unused quota-test port")),
+      },
       clock: {
         now: () => new Date("2026-10-27T00:00:00Z"),
         sleep: async () => undefined,

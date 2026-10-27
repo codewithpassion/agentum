@@ -1,4 +1,5 @@
 import type { RoomTicketClaims } from "@repo/protocol/live";
+import type { SQL } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
 import type { Principal } from "../workspaces.ts";
@@ -26,7 +27,8 @@ export interface InteractionContext extends LiveArtifactsDeps {
       | "artifact.agent_change_reverted"
       | "artifact.deleted"
       | "artifact.audience_changed",
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
+    condition?: SQL
   ) => ReturnType<LiveArtifactsDeps["events"]["insertStatement"]>;
   now: () => string;
   participantId: (member: Member) => string;

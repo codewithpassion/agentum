@@ -87,7 +87,12 @@ const setup = () => {
     },
     artifacts: h.service,
     ask: { startComment: async () => ({ runId: "r-shared" }) },
-    changes: { revert: async () => ({ revision: 100 }) },
+    changes: {
+      revert: async (_scope, input) => ({
+        byParticipant: input.byParticipant,
+        revision: 100,
+      }),
+    },
     clock: { now: () => new Date(NOW), sleep: async () => undefined },
     content,
     identity: async () => ({ color: "#123abc", name: "Server identity" }),
@@ -1197,7 +1202,7 @@ describe("live comments and changes", () => {
     ).toHaveLength(0);
     h.deps.changes.revert = (...args) => {
       calls.push(args);
-      return Promise.resolve({ revision: 8 });
+      return Promise.resolve({ byParticipant: "u:u1", revision: 8 });
     };
     await h.service.revertChange(principals.owner, { changeId: change.id });
     expect(calls[1]).toEqual([
@@ -1495,7 +1500,7 @@ describe("change authorization and audit failures", () => {
     const ids: string[] = [];
     h.deps.changes.revert = (_scope, input) => {
       ids.push(input.changeId);
-      return Promise.resolve({ revision: 2 });
+      return Promise.resolve({ byParticipant: "u:u1", revision: 2 });
     };
     const failed = createLiveArtifactsService({
       ...h.deps,
@@ -1630,4 +1635,65 @@ test("invalidation pagination can pass failed entries without starving later wor
     attempted: 1,
     completed: 1,
   });
+});
+
+test("concurrent revert and resolve finalize one audit and preserve the original actor", async () => {
+  const h = setup();
+  const { artifactId } = await h.service.createDocument(principals.agentOne, {
+    title: "Agent doc",
+  });
+  const change = await h.service.recordChange(principals.agentOne, {
+    artifactId,
+    revFrom: 0,
+    revTo: 1,
+    summary: "Edit",
+    toolCallId: "race",
+  });
+  let entered = 0;
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let originalActor: string | undefined;
+  h.deps.changes.revert = async (_scope, input) => {
+    originalActor ??= input.byParticipant;
+    entered += 1;
+    if (entered === 2) {
+      release();
+    }
+    await barrier;
+    return { byParticipant: originalActor, revision: 2 };
+  };
+  await Promise.all([
+    h.service.revertChange(principals.owner, { changeId: change.id }),
+    h.service.revertChange(principals.admin, { changeId: change.id }),
+  ]);
+  const changeRows = (await h.service.changes(principals.owner, { artifactId }))
+    .items;
+  expect(changeRows[0]?.revertedBy).toBe(originalActor);
+  const audit = h.db
+    .select()
+    .from(events)
+    .where(eq(events.type, "artifact.agent_change_reverted"))
+    .all();
+  expect(audit).toHaveLength(1);
+  expect(audit[0]?.actorId).toBe(originalActor?.slice(2));
+  const comment = await h.service.comment(principals.owner, {
+    artifactId,
+    body: "Resolve once",
+  });
+  await Promise.all([
+    h.service.resolve(principals.owner, { threadId: comment.threadId }),
+    h.service.resolve(principals.admin, { threadId: comment.threadId }),
+  ]);
+  const resolutions = h.db
+    .select()
+    .from(events)
+    .where(eq(events.type, "artifact.comment_resolved"))
+    .all();
+  expect(resolutions).toHaveLength(1);
+  const {
+    items: [thread],
+  } = await h.service.threads(principals.owner, { artifactId });
+  expect(thread?.resolvedBy).toBe(`u:${resolutions[0]?.actorId}`);
 });

@@ -88,3 +88,7 @@ Reviewed merged core at `8fdc8e70342dfb7c97a34e02d3859e89bbd31f36` from branch `
 ### Independent validation
 
 `bun install --frozen-lockfile` succeeded in this worktree (the first test attempt before installation failed to resolve workspace packages). `bun run --cwd packages/services test src/live-artifacts src/artifacts/service` then passed: **118 pass, 0 fail**, including migrated SQLite-backed live service and static artifact tests. No product or task files were edited. Full root checks/build were not rerun for this report-only review; the implementation report above records the earlier run.
+
+### L.4b independent re-check — 2026-10-27
+
+High findings 1 and 2 are addressed at the **service boundary**, not yet end-to-end resolved. The atomic outbox, deleted-row retry and current-role admission checks are present. Mandatory L.7 durable processing and fresh-principal wiring, plus L.3 serialized socket admission/refresh, single-use and expiry, remain explicit integration gates; see the independent findings and tests in [L.4b](L.4b.md). High 3 remains resolved by L.Q; its competing static/live quota tests also pass on this merged head.

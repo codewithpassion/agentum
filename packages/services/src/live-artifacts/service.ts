@@ -20,7 +20,7 @@ import {
 } from "@repo/db/shared";
 import { contentTypeForPath } from "@repo/protocol/artifacts";
 import type { LiveJoinResult } from "@repo/protocol/live";
-import { and, eq } from "drizzle-orm";
+import { and, eq, type SQL } from "drizzle-orm";
 import { ulid } from "ulidx";
 import {
   blobKey,
@@ -166,17 +166,21 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       | "artifact.agent_change_reverted"
       | "artifact.deleted"
       | "artifact.audience_changed",
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
+    condition?: SQL
   ) =>
-    events.insertStatement({
-      actor: { id: authorOf(member).id, kind: authorOf(member).kind },
-      agentId: authorOf(member).agentId,
-      payload,
-      runId: authorOf(member).runId,
-      sessionId: row.sessionId,
-      type,
-      workspaceId: member.workspaceId,
-    });
+    events.insertStatement(
+      {
+        actor: { id: authorOf(member).id, kind: authorOf(member).kind },
+        agentId: authorOf(member).agentId,
+        payload,
+        runId: authorOf(member).runId,
+        sessionId: row.sessionId,
+        type,
+        workspaceId: member.workspaceId,
+      },
+      condition
+    );
 
   const nextVersion = async (row: Row, revision: number, initial: boolean) => {
     if (!initial && revision <= (row.liveRoomRev ?? -1)) {

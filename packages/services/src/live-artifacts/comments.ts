@@ -438,13 +438,20 @@ export const createCommentsModule = (ctx: InteractionContext) => {
           .where(
             and(
               eq(threads.id, thread.id),
-              eq(threads.workspaceId, row.workspaceId)
+              eq(threads.workspaceId, row.workspaceId),
+              isNull(threads.resolvedAt)
             )
           ),
-        ctx.event(member, row, "artifact.comment_resolved", {
-          artifactId: row.id,
-          threadId: thread.id,
-        }),
+        ctx.event(
+          member,
+          row,
+          "artifact.comment_resolved",
+          {
+            artifactId: row.id,
+            threadId: thread.id,
+          },
+          sql`changes() = 1`
+        ),
       ]);
     },
     async threads(
