@@ -52,9 +52,16 @@ interface FakeWindow {
   [key: string]: unknown;
 }
 
+/** Extra event fields, and the page's own click handler. */
+interface ClickExtra {
+  pageHandler?: (event: FakeClickEvent) => void;
+  [key: string]: unknown;
+}
+
 interface FakeClickEvent {
   defaultPrevented: boolean;
   preventDefault: () => void;
+  stopped?: boolean;
   target: unknown;
 }
 
@@ -192,20 +199,26 @@ const makeEnv = (
   const harbourmaster = win.harbourmaster as HarbourmasterApi;
 
   return {
-    click: (
-      target: unknown,
-      extra: Record<string, unknown> = {}
-    ): FakeClickEvent => {
+    click: (target: unknown, extra: ClickExtra = {}): FakeClickEvent => {
+      const { pageHandler, ...fields } = extra;
       const event: FakeClickEvent = {
         defaultPrevented: false,
         preventDefault: () => {
           event.defaultPrevented = true;
         },
         target,
-        ...extra,
+        ...fields,
       };
       for (const listener of documentListeners.get("click") ?? []) {
         listener(event);
+      }
+      // The page's own handlers run between capture and the window's bubble
+      // listeners; `pageHandler` stands in for them.
+      pageHandler?.(event);
+      if (!event.stopped) {
+        for (const listener of listeners.get("click") ?? []) {
+          listener(event);
+        }
       }
       return event;
     },
@@ -635,6 +648,21 @@ describe("bridge nonce", () => {
         `${FOLDER}page2.html#hm=abc123`,
         `${FOLDER}page2.html#top&hm=abc123`,
       ]);
+    });
+
+    test("a link the page handles itself (preventDefault or stopPropagation) is left to it", () => {
+      const { assigned, env } = setupClick();
+      connect(env);
+      const prevented = env.click(link(`${FOLDER}page2.html`), {
+        pageHandler: (event: FakeClickEvent) => event.preventDefault(),
+      });
+      expect(prevented.defaultPrevented).toBe(true);
+      env.click(link(`${FOLDER}page2.html`), {
+        pageHandler: (event: FakeClickEvent) => {
+          event.stopped = true;
+        },
+      });
+      expect(assigned).toEqual([]);
     });
 
     test("leave alone: same-document anchors, links that carry it already, modifier clicks, other targets, downloads, a page with no nonce", () => {

@@ -506,7 +506,6 @@ export const BRIDGE_JS = `(function () {
               return;
             }
             if (href.indexOf(contentFolder) === 0) {
-              carryNonce(event, anchor, href);
               return;
             }
             event.preventDefault();
@@ -516,6 +515,27 @@ export const BRIDGE_JS = `(function () {
           }
         },
         true
+      );
+      // Links to other pages of the artifact are decided after the page's own
+      // handlers ran (bubble phase on window), so a link the page handles
+      // itself, with a router or tabs, is left to it.
+      window.addEventListener(
+        "click",
+        function (event) {
+          try {
+            var anchor = findAnchor(event.target);
+            if (!anchor) {
+              return;
+            }
+            var href = new URL(anchor.href).href;
+            if (isHttpUrl(href) && href.indexOf(contentFolder) === 0) {
+              carryNonce(event, anchor, href);
+            }
+          } catch (_error) {
+            // Let the browser handle the click.
+          }
+        },
+        false
       );
     } catch (_error) {
       // Links keep their default behaviour.
