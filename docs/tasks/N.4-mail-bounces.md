@@ -3,9 +3,9 @@ id: N.4
 title: Mark agent mail bounced from Email Sending events
 milestone: N
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/N.4-mail-bounces
 lane: mail
 executor: claude
 ---
@@ -28,3 +28,4 @@ Dom asked on 27 Oct 2026. Outbound agent mail uses the Email Sending binding, wh
 
 ## Log
 - 2026-10-27: added at Dom's request.
+- 2026-10-27: dispatched.

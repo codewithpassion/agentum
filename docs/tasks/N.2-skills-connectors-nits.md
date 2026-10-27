@@ -3,9 +3,9 @@ id: N.2
 title: Review nits in skill and connector delete (SK.5)
 milestone: N
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/N.2-skills-connectors-nits
 lane: skills
 executor: claude
 ---
@@ -25,3 +25,4 @@ Dom asked on 27 Oct 2026 to clear the nits the SK.5 review left (`docs/reviews/t
 
 ## Log
 - 2026-10-27: added at Dom's request (clear review nits).
+- 2026-10-27: dispatched.
