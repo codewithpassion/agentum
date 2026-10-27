@@ -48,6 +48,8 @@ let admin: AdminService;
 let secrets: SecretsService;
 let events: EventsService;
 let apiKeysService: ReturnType<typeof createApiKeysService>;
+let agentsService: ReturnType<typeof createAgentsService>;
+let connectorsService: ReturnType<typeof createConnectorsService>;
 
 const clock: Clock = {
   now: () => new Date(START),
@@ -85,6 +87,7 @@ beforeEach(() => {
   const atomic = sqliteAtomic(db);
   events = createEventsService({ blobs, db });
   const agents = createAgentsService({ db, events });
+  agentsService = agents;
   apiKeysService = createApiKeysService({ clock, db, events });
   secrets = createSecretsService({
     atomic,
@@ -93,17 +96,18 @@ beforeEach(() => {
     events,
     secretsKey: SECRETS_KEY,
   });
+  connectorsService = createConnectorsService({
+    atomic,
+    clock,
+    db,
+    events,
+    fetch: () => Promise.reject(new Error("no network in tests")),
+    secretsKey: SECRETS_KEY,
+  });
   admin = createAdminService({
     agents,
     apiKeys: apiKeysService,
-    connectors: createConnectorsService({
-      atomic,
-      clock,
-      db,
-      events,
-      fetch: () => Promise.reject(new Error("no network in tests")),
-      secretsKey: SECRETS_KEY,
-    }),
+    connectors: connectorsService,
     events,
     inbox: createInboxService({
       atomic,
@@ -222,6 +226,63 @@ describe("an admin key", () => {
       name: "Help",
     });
     expect(adminEvents()).toHaveLength(2);
+  });
+
+  test("a repeat update keeps the credential mode of a connector the agent holds", async () => {
+    db.insert(connectorRows)
+      .values({
+        authKind: "none",
+        createdAt: START,
+        createdBy: "u1",
+        id: "c1",
+        name: "docs",
+        status: "ok",
+        url: "https://docs.example.com/mcp",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    const agent = await admin.createAgent(writeKey, agentInput);
+    await connectorsService.assign(session, {
+      agentId: agent.id,
+      connectorId: "c1",
+      credentialMode: "agent",
+    });
+    await admin.updateAgent(writeKey, {
+      agentId: agent.id,
+      connectors: ["c1"],
+      name: "Help",
+    });
+    expect(
+      await connectorsService.assignments(session, { agentId: agent.id })
+    ).toMatchObject([{ connectorId: "c1", credentialMode: "agent" }]);
+  });
+
+  test("update_agent on an archived agent fails before it saves or writes an event", async () => {
+    const agent = await admin.createAgent(writeKey, agentInput);
+    await agentsService.archive(session, agent.id);
+    const before = everyEventText();
+    await expect(
+      admin.updateAgent(writeKey, { agentId: agent.id, name: "Help" })
+    ).rejects.toMatchObject({ code: "invalid" });
+    expect((await agentsService.get(session, agent.id)).name).toBe("Support");
+    expect(everyEventText()).toBe(before);
+  });
+
+  test("a runtime setting change loses to a concurrent one instead of overwriting it", async () => {
+    const agent = await admin.createAgent(adminKey, {
+      ...agentInput,
+      runtime: "cloud",
+    });
+    const results = await Promise.allSettled([
+      admin.updateAgent(adminKey, { agentId: agent.id, maxTurns: 10 }),
+      admin.updateAgent(adminKey, { agentId: agent.id, networkAccess: false }),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected).toMatchObject({ reason: { code: "conflict" } });
   });
 
   test("creates a proxy secret, grants it, revokes it, and never leaks the value", async () => {
