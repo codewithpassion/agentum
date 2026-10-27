@@ -500,6 +500,7 @@ export const createArtifactSharesService = ({
     return {
       contentUrl: signed.contentUrl,
       expiresAt: signed.expiresAt,
+      ...(version.status === "proposed" && { preview: true }),
       version: { createdAt: version.createdAt, number: version.number },
     };
   };

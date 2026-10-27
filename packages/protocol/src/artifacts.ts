@@ -719,6 +719,8 @@ export type ArtifactsOpenInput = z.infer<typeof artifactsOpenInputSchema>;
 export const artifactsOpenOutputSchema = z.strictObject({
   contentUrl: z.string().min(1),
   expiresAt: timestampSchema,
+  /** True for a proposed version (unreviewed code): the frame answers none of its tool or storage calls. */
+  preview: z.boolean().optional(),
   version: openedVersionSchema,
 });
 export type ArtifactsOpenOutput = z.infer<typeof artifactsOpenOutputSchema>;

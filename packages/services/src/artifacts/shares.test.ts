@@ -974,6 +974,13 @@ test("a manager opens a proposed version, another member does not", async () => 
     version: 3,
   });
   expect(opened.version.number).toBe(3);
+  expect(opened.preview).toBe(true);
+  const published = await shares.open(owner, {
+    artifactId: ARTIFACT,
+    surface: "viewer",
+    version: 2,
+  });
+  expect(published.preview).toBeUndefined();
   const claims = await claimsOf(opened.contentUrl);
   expect(claims).toMatchObject({ versionId: "v3", viewer: "test" });
   expect(claims?.userId).toBeUndefined();

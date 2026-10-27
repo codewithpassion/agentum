@@ -43,6 +43,8 @@ export interface ThreadCardPreview {
   contentUrl: string;
   createdAt: string;
   number: number;
+  /** A proposed version: the frame answers none of its tool or storage calls. */
+  preview?: boolean;
 }
 
 const KIND_ICONS: Record<ArtifactKind, LucideIcon> = {
@@ -172,6 +174,7 @@ export function ThreadCardView({
                 className={cn("size-full")}
                 contentUrl={preview.contentUrl}
                 interactive={interactive}
+                preview={preview.preview}
                 title={artifact.title}
                 version={{
                   createdAt: preview.createdAt,
@@ -241,6 +244,7 @@ export function ThreadCard({ artifact }: { artifact: ThreadCardArtifact }) {
             contentUrl: opened.contentUrl,
             createdAt: opened.version.createdAt,
             number: opened.version.number,
+            preview: opened.preview === true,
           });
         }
       })
