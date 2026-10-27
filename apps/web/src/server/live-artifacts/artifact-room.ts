@@ -880,7 +880,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       throw new Error("Trailing bytes");
     }
     if (kind === 0) {
-      socket.send(syncFrame(1, Y.encodeStateAsUpdate(this.live.doc, bytes)));
+      socket.send(syncFrame(1, Y.encodeStateAsUpdate(this.doc, bytes)));
     } else if (kind === 1 || kind === 2) {
       if (!writable(state)) {
         return; // Viewers still complete the normal Yjs read/sync handshake.
