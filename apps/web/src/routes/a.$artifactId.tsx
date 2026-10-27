@@ -28,6 +28,7 @@ import {
   togglePinned,
 } from "#/components/artifacts/viewer/viewer-menu-model.ts";
 import { LiveDocumentPage } from "#/components/live-artifacts/document-page";
+import { LiveDeckPage } from "#/components/live-decks/deck-page";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -100,6 +101,15 @@ function ArtifactViewerPage() {
   if (detail.kind === "document") {
     return (
       <LiveDocumentPage
+        artifactId={artifactId}
+        key={artifactId}
+        title={detail.title}
+      />
+    );
+  }
+  if (detail.kind === "deck") {
+    return (
+      <LiveDeckPage
         artifactId={artifactId}
         key={artifactId}
         title={detail.title}
