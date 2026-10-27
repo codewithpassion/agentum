@@ -20,6 +20,7 @@ import type { CloudEnvironment } from "./cloud/environment.ts";
 import { CLOUD_ENVIRONMENT_KEY } from "./cloud/environment.ts";
 import { CLOUD_NETWORK_KEY } from "./cloud/network.ts";
 import type { ConnectorsService } from "./connectors.ts";
+import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import type { InboxService, ThreadRecord } from "./inbox.ts";
 import type { MachinesService } from "./machines.ts";
@@ -213,13 +214,18 @@ export const createAdminService = ({
       ...fields
     } = input;
     const settings = runtimeSettings({ environment, maxTurns, networkAccess });
-    const current = await agents.get(principal, agentId);
-    const agent = await agents.update(principal, agentId, {
-      ...fields,
-      ...(Object.keys(settings).length === 0
-        ? {}
-        : { runtimeConfig: { ...current.runtimeConfig, ...settings } }),
-    });
+    // Before anything is saved: assigning connectors to an archived agent fails.
+    if ((await agents.get(principal, agentId)).status === "archived") {
+      throw new ServiceError("invalid", "That agent is archived");
+    }
+    const agent = await agents.update(
+      principal,
+      agentId,
+      fields,
+      Object.keys(settings).length === 0
+        ? undefined
+        : { runtimeConfigPatch: settings }
+    );
     await record(
       key,
       "update_agent",
