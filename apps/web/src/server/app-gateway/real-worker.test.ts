@@ -86,6 +86,7 @@ const member = (userId: string, versionId: string) => ({
   userId,
   versionId,
   viewer: "member",
+  workspaceId: "ws-1",
 });
 
 interface Answer {

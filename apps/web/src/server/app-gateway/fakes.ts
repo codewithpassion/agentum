@@ -91,7 +91,6 @@ export const fakePorts = (): FakePorts => {
     shares: { state: () => Promise.resolve(share.state) },
     source: {
       bundle: () => Promise.resolve(null),
-      workspaceOf: () => Promise.resolve("ws-1"),
     },
     store: fakeStore(),
   };

@@ -161,13 +161,7 @@ const serve = async (
   if (!path) {
     return finished(text(404, NOT_FOUND_BODY), deps);
   }
-  const workspaceId = await deps.ports.source.workspaceOf(
-    claims.artifactId,
-    claims.versionId
-  );
-  if (workspaceId === null) {
-    return finished(text(404, NOT_FOUND_BODY), deps);
-  }
+  const { workspaceId } = claims;
   const viewer = await viewerOf(claims, deps);
   if (!viewer.ok) {
     return finished(viewer.response, deps);

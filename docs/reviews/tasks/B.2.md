@@ -33,6 +33,8 @@ Round 2 on 1ee6251: clean.
 
 A per-request outbound that knows the viewer would need either a per-viewer-class Worker id or Workers for Platforms.
 
-## For Dom
+## For B.8
 
-Decide the outbound rule for snapshot links. `AppOutbound` is per version, so a snapshot-link or just-revoked viewer's `/api` call can make the app reach approved hosts with vault secrets filled in, which R2.6 would call a server call needing a person's rights. Options: accept it for now, or have B.8's route refuse `/api` for snapshot links on versions that declare hosts.
+Decided by the controller: B.8's route refuses `/api` for snapshot-link and test viewers on versions that declare hosts. `AppOutbound` is per version and cannot tell viewers apart, so a snapshot-link or just-revoked viewer's `/api` call could otherwise make the app reach approved hosts with vault secrets filled in (R2.6). The gateway itself does not enforce this.
+
+The gateway takes the workspace from the signed token claims (`claims.workspaceId`, added by A.1's later change), so `AppSourcePort` has only `bundle`.

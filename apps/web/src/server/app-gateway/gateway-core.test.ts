@@ -16,6 +16,7 @@ const memberClaims: ViewTokenClaims = {
   userId: "alice",
   versionId: "ver-1",
   viewer: "member",
+  workspaceId: "ws-1",
 };
 const url = (rest: string) =>
   `https://app.test/a/${ARTIFACT}/c/${TOKEN}${rest}`;
@@ -94,13 +95,6 @@ describe("handleAppRequest: routing and claims", () => {
       viewer: { kind: "member", userId: "alice" },
       workspaceId: "ws-1",
     });
-  });
-
-  test("a version that does not belong to the artifact is 404", async () => {
-    const t = setup(ok);
-    t.ports.source.workspaceOf = () => Promise.resolve(null);
-    expect((await t.run("/api/x")).status).toBe(404);
-    expect(t.inputs).toEqual([]);
   });
 
   test("a member token with no user, or a link token with no share, is 401", async () => {
@@ -189,7 +183,7 @@ describe("handleAppRequest: routing and claims", () => {
 
   test("a failing port answers 502 through the content headers", async () => {
     const t = setup(ok);
-    t.ports.source.workspaceOf = () => Promise.reject(new Error("D1 is down"));
+    t.deps.requestMeta = () => Promise.reject(new Error("D1 is down"));
     const answer = await t.run("/api/x");
     expect(answer.status).toBe(502);
     expect(answer.headers.get("content-security-policy")).toContain("sandbox");

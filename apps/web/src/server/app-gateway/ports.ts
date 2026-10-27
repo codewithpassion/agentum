@@ -24,11 +24,6 @@ export interface AppBundle {
 export interface AppSourcePort {
   /** Read on a cold start only: the loader callback runs once per version. */
   bundle: (artifactId: string, versionId: string) => Promise<AppBundle | null>;
-  /** The workspace that owns the artifact, or null when the version does not belong to it. Read on every request. */
-  workspaceOf: (
-    artifactId: string,
-    versionId: string
-  ) => Promise<string | null>;
 }
 
 export type ShareState =
