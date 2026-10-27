@@ -34,6 +34,7 @@ function setup(overrides: Partial<FrameBridgeOptions> = {}) {
   const opened: string[] = [];
   const confirmed: string[] = [];
   let blanked = 0;
+  const clock = { time: 0 };
   const sizes: unknown[] = [];
   const bridge = createFrameBridge({
     clearTimer: (handle) => {
@@ -57,6 +58,7 @@ function setup(overrides: Partial<FrameBridgeOptions> = {}) {
     },
     getInit: () => INIT,
     getTarget: () => target,
+    now: () => clock.time,
     onBlank: () => {
       blanked += 1;
     },
@@ -95,6 +97,9 @@ function setup(overrides: Partial<FrameBridgeOptions> = {}) {
     }
   };
   return {
+    advance: (ms: number) => {
+      clock.time += ms;
+    },
     blanked: () => blanked,
     bridge,
     confirmed,
@@ -329,11 +334,33 @@ test("a new document after a load needs its own initialize, and gets a fresh por
   const t = setup();
   t.initialize();
   t.bridge.handleLoad();
+  t.advance(1500);
   t.initialize(t.target, 2);
   t.bridge.handleLoad();
   expect(t.blanked()).toBe(0);
   expect(t.ports).toHaveLength(2);
   expect(t.posted).toHaveLength(2);
+});
+
+test("repeat initializes from the page's retry loop are ignored", () => {
+  const t = setup();
+  t.initialize();
+  // In flight before the page saw the reply, before and after its load event.
+  t.advance(250);
+  t.initialize();
+  t.bridge.handleLoad();
+  t.advance(250);
+  t.initialize();
+  expect(t.posted).toHaveLength(1);
+  expect(t.ports).toHaveLength(1);
+});
+
+test("a second initialize without a load in between is ignored, however late", () => {
+  const t = setup();
+  t.initialize();
+  t.advance(60_000);
+  t.initialize();
+  expect(t.posted).toHaveLength(1);
 });
 
 test("messages over a replaced port get no reply", async () => {
@@ -342,7 +369,10 @@ test("messages over a replaced port get no reply", async () => {
   const stalePort = t.ports.at(0);
   const staleHandler = stalePort?.port1.onmessage;
   expect(staleHandler).toBeTruthy();
+  t.bridge.handleLoad();
+  t.advance(1500);
   t.initialize(t.target, 2);
+  expect(t.ports).toHaveLength(2);
   staleHandler?.({
     data: {
       id: 3,

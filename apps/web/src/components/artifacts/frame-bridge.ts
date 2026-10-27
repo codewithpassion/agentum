@@ -26,6 +26,13 @@ export const BRIDGE_ERROR = {
 /** How long after an iframe `load` a fresh `ui/initialize` may still arrive. */
 export const INITIALIZE_GRACE_MS = 2000;
 
+/**
+ * The page retries `ui/initialize` every 250 ms until it gets the reply, so
+ * repeats can already be in flight when the reply goes out. For this long
+ * after an accepted initialize, further ones are ignored.
+ */
+export const INITIALIZE_REPEAT_WINDOW_MS = 1000;
+
 export type BridgeMethod = BridgeMessage["method"];
 
 type RequestOf<M extends BridgeMethod> = Extract<BridgeMessage, { method: M }>;
@@ -82,6 +89,8 @@ export interface FrameBridgeOptions {
   /** The iframe's `contentWindow`, read on every message. */
   getTarget: () => (BridgeTarget & object) | null;
   graceMs?: number;
+  /** Clock in ms, for the repeat window. Defaults to `Date.now`. */
+  now?: () => number;
   /** Called when the iframe left its page without a fresh `ui/initialize`. */
   onBlank: () => void;
   /** Called when the page reports a size. */
@@ -139,6 +148,7 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
       return { port1: channel.port1, port2: channel.port2 };
     });
   const graceMs = options.graceMs ?? INITIALIZE_GRACE_MS;
+  const now = options.now ?? Date.now;
 
   let port: BridgePort | null = null;
   let blanked = false;
@@ -148,6 +158,10 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
   // zero, waits out a grace period before it blanks.
   let initializesSinceLoad = 0;
   let timer: unknown = null;
+  // A second initialize is a repeat unless the iframe has loaded a document
+  // since the accepted one and the repeat window is over.
+  let acceptedAt = Number.NEGATIVE_INFINITY;
+  let loadedSinceAccept = true;
   let linkPending = false;
 
   const stopTimer = () => {
@@ -285,6 +299,7 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
       if (blanked || disposed) {
         return;
       }
+      loadedSinceAccept = true;
       // The port stays: an initialize that came just before this `load` belongs
       // to this document. A navigation kills the old port by itself.
       if (initializesSinceLoad > 0) {
@@ -312,6 +327,15 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
       if (message?.method !== "ui/initialize" || !("id" in message)) {
         return;
       }
+      const isRepeat =
+        port !== null &&
+        (!loadedSinceAccept ||
+          now() - acceptedAt < INITIALIZE_REPEAT_WINDOW_MS);
+      if (isRepeat) {
+        return;
+      }
+      acceptedAt = now();
+      loadedSinceAccept = false;
       initializesSinceLoad += 1;
       stopTimer();
       closePort();
