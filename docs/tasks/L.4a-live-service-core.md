@@ -23,3 +23,5 @@ Follow the full design in docs/v3/live-artifacts-prd.md and parent L.4 requireme
 - 2026-10-27: Merged partial 6198644b ticket crypto helper only. Service factory/persistence remains unimplemented; Sol assigned remaining core slice. Task stays in_progress. Delegate root test was not finished at handoff; no full-suite success claimed.
 
 - 2026-10-27: Complete core 8fdc8e70 merged, 118 affected tests and full root suite/build/check passed. Independent persistence/authorization review starts.
+
+- 2026-10-27: Independent review 693bf759 requires recoverable access invalidation, fresh admission authorization and atomic workspace quota accounting. Access fixes assigned to ongoing L.4b implementation; quota isolated as L.Q. L.4a remains in review.
