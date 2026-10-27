@@ -28,7 +28,7 @@ import type { EventInput, EventsService } from "./events.ts";
 import {
   isDetachedApproval,
   mailSendError,
-  notMailApproval,
+  notDetachedApproval,
 } from "./mail/approval.ts";
 import { askKeysOf } from "./requests/ask-keys.ts";
 import {
@@ -294,7 +294,7 @@ export const createRequestsService = ({
         and(
           eq(runRequests.runId, runId),
           eq(runRequests.status, "pending"),
-          notMailApproval
+          notDetachedApproval
         )
       )
       .limit(1);
@@ -609,7 +609,7 @@ export const createRequestsService = ({
         and(
           eq(runRequests.runId, run.id),
           eq(runRequests.workspaceId, run.workspaceId),
-          notMailApproval,
+          notDetachedApproval,
           eq(runRequests.status, "pending")
         )
       )

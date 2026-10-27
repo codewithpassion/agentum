@@ -41,7 +41,7 @@ export const isDetachedApproval = (row: {
 }): boolean => isMailApproval(row) || isPromoteApproval(row);
 
 /** The SQL twin of `isDetachedApproval` that keeps mail and promote approvals out. `substr` compares case-sensitively, unlike `LIKE`. */
-export const notMailApproval = sql`NOT ((${runRequests.toolName} = ${MAIL_SEND_TOOL} AND substr(${runRequests.toolUseId}, 1, ${MAIL_TOOL_USE_PREFIX.length}) = ${MAIL_TOOL_USE_PREFIX}) OR (${runRequests.toolName} = ${PROMOTE_TOOL_NAME} AND substr(${runRequests.toolUseId}, 1, ${PROMOTE_TOOL_USE_PREFIX.length}) = ${PROMOTE_TOOL_USE_PREFIX}))`;
+export const notDetachedApproval = sql`NOT ((${runRequests.toolName} = ${MAIL_SEND_TOOL} AND substr(${runRequests.toolUseId}, 1, ${MAIL_TOOL_USE_PREFIX.length}) = ${MAIL_TOOL_USE_PREFIX}) OR (${runRequests.toolName} = ${PROMOTE_TOOL_NAME} AND substr(${runRequests.toolUseId}, 1, ${PROMOTE_TOOL_USE_PREFIX.length}) = ${PROMOTE_TOOL_USE_PREFIX}))`;
 
 /**
  * Why the mail behind an answered approval never left, or null when it did, is

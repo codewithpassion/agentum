@@ -132,7 +132,8 @@ const setup = async () => {
   const run = await runs.startRun(owner, {
     agentId,
     input: { text: "go" },
-    session: { origin: "ui" },
+    // Every member sees a slack session, so a member who is not the owner can answer its cards.
+    session: { origin: "slack" },
   });
   await runs.claimRun(system, run.runId);
   runPrincipal = {
@@ -638,4 +639,141 @@ test("answering a stale card decides the grants but does not roll the app back",
     versionId: "v2",
   });
   expect(grant?.status).toBe("approved");
+});
+
+const count = async (type: string) =>
+  (await eventTypes()).filter((found) => found === type).length;
+
+test("deciding the last grant of a requested promote takes the version live, once", async () => {
+  await addVersion("v2", 2);
+  const grants = await record("v2", { hosts: ["files.example.com"] });
+  await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  await service.decideGrant(owner, {
+    decision: "approved",
+    grantId: grants[0]?.id as string,
+  });
+  expect(await versionStatus("v2")).toBe("published");
+  expect(await currentVersion()).toBe("v2");
+  expect(await count("artifact.promoted")).toBe(1);
+  expect(await count("artifact.grant_decided")).toBe(1);
+  const [card] = await db.select().from(runRequests);
+  expect(card?.status).toBe("answered");
+  // The card's answer event and a repeated promote add nothing.
+  expect(
+    await service.promote(runPrincipal, {
+      artifactId: ARTIFACT,
+      versionId: "v2",
+    })
+  ).toEqual({ status: "promoted", version: 2 });
+  expect(await count("artifact.promoted")).toBe(1);
+  expect(await count("artifact.grant_decided")).toBe(1);
+});
+
+test("deciding grants when no promote was asked leaves the version proposed", async () => {
+  await addVersion("v2", 2);
+  const grants = await record("v2", { hosts: ["files.example.com"] });
+  await service.decideGrant(owner, {
+    decision: "approved",
+    grantId: grants[0]?.id as string,
+  });
+  expect(await versionStatus("v2")).toBe("proposed");
+  expect(await count("artifact.promoted")).toBe(0);
+});
+
+test("two decisions on one grant write one event", async () => {
+  await addVersion("v2", 2);
+  const grants = await record("v2", { hosts: ["files.example.com"] });
+  const grantId = grants[0]?.id as string;
+  const results = await Promise.allSettled([
+    service.decideGrant(owner, { decision: "approved", grantId }),
+    service.decideGrant(owner, { decision: "approved", grantId }),
+  ]);
+  expect(
+    results.filter((result) => result.status === "fulfilled")
+  ).toHaveLength(1);
+  expect(await count("artifact.grant_decided")).toBe(1);
+});
+
+test("a member who is not the owner answering the card decides nothing", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { hosts: ["files.example.com"] });
+  const waiting = await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  if (waiting.status !== "waiting") {
+    throw new Error("expected waiting");
+  }
+  await requests.answer(stranger, {
+    answer: { decision: "allow_once" },
+    requestId: waiting.requestId,
+    via: "web",
+  });
+  expect(await versionStatus("v2")).toBe("proposed");
+  expect(await count("artifact.grant_decided")).toBe(0);
+  await expect(
+    service.promote(runPrincipal, {
+      artifactId: ARTIFACT,
+      versionId: "v2",
+    })
+  ).rejects.toMatchObject({ code: "conflict" });
+  // The owner still decides on the artifact page, and the version goes live.
+  const [grant] = await service.list(owner, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  await service.decideGrant(owner, {
+    decision: "approved",
+    grantId: grant?.id as string,
+  });
+  expect(await currentVersion()).toBe("v2");
+  expect(await db.select().from(runRequests)).toHaveLength(1);
+});
+
+test("a card for another kind of request is left alone", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { hosts: ["files.example.com"] });
+  await requests.open(system, {
+    input: { command: "ls" },
+    kind: "approval",
+    runId: (runPrincipal as { runId: string }).runId,
+    toolKey: "bash",
+    toolName: "bash",
+    toolUseId: "call1",
+  });
+  const [card] = await db.select().from(runRequests);
+  await requests.answer(owner, {
+    answer: { decision: "allow_once" },
+    requestId: card?.id as string,
+    via: "web",
+  });
+  expect(await versionStatus("v2")).toBe("proposed");
+  expect(await count("artifact.grant_decided")).toBe(0);
+});
+
+test("two promotes at once announce one promotion", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { tools: [{ tool: "linear/get_issue" }] });
+  const results = await Promise.all([
+    service.promote(runPrincipal, { artifactId: ARTIFACT, versionId: "v2" }),
+    service.promote(runPrincipal, { artifactId: ARTIFACT, versionId: "v2" }),
+  ]);
+  expect(results).toEqual([
+    { status: "promoted", version: 2 },
+    { status: "promoted", version: 2 },
+  ]);
+  expect(await currentVersion()).toBe("v2");
+  expect(await count("artifact.promoted")).toBe(1);
+});
+
+test("a go-live that stopped after publishing is finished by the next promote", async () => {
+  await addVersion("v2", 2, { status: "published" });
+  expect(await currentVersion()).toBe("v1");
+  expect(
+    await service.promote(owner, { artifactId: ARTIFACT, versionId: "v2" })
+  ).toEqual({ status: "promoted", version: 2 });
+  expect(await currentVersion()).toBe("v2");
 });

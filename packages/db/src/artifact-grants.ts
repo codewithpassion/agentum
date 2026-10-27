@@ -2,7 +2,7 @@
 // They take a drizzle instance and never make one. Writes that must land
 // together come back as unexecuted statements for `atomic`.
 
-import { and, asc, desc, eq, isNull, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, like, sql } from "drizzle-orm";
 import type { Database } from "./database.ts";
 import {
   artifactGrants,
@@ -135,17 +135,24 @@ export const approvedGrants = async (
 export const insertGrants = (db: Database, rows: ArtifactGrantInsert[]) =>
   db.insert(artifactGrants).values(rows);
 
-/** Decides a grant that is still pending. A decided grant stays as it is. */
-export const decideGrantStatement = (
+/**
+ * Decides the grants that are still pending and returns the ids this call
+ * decided. It is the arbiter between callers that race: only the one whose
+ * update changed a row writes the event, so an event is written once.
+ */
+export const claimGrants = async (
   db: Database,
   query: {
     decidedAt: string;
     decidedBy: string;
-    id: string;
+    ids: string[];
     status: Exclude<ArtifactGrantStatus, "pending">;
   }
-) =>
-  db
+): Promise<string[]> => {
+  if (query.ids.length === 0) {
+    return [];
+  }
+  const rows = await db
     .update(artifactGrants)
     .set({
       decidedAt: query.decidedAt,
@@ -153,8 +160,14 @@ export const decideGrantStatement = (
       status: query.status,
     })
     .where(
-      and(eq(artifactGrants.id, query.id), eq(artifactGrants.status, "pending"))
-    );
+      and(
+        inArray(artifactGrants.id, query.ids),
+        eq(artifactGrants.status, "pending")
+      )
+    )
+    .returning({ id: artifactGrants.id });
+  return rows.map((row) => row.id);
+};
 
 /** A proposed version a person declined. */
 export const rejectVersionStatement = (db: Database, versionId: string) =>
@@ -168,25 +181,35 @@ export const rejectVersionStatement = (db: Database, versionId: string) =>
       )
     );
 
-/** Makes a proposed version published and current, in that order. */
-export const promoteStatements = (
+/**
+ * Publishes a proposed version and says whether this call did it, so of two
+ * callers that race only one announces the promote.
+ */
+export const claimProposedVersion = async (
   db: Database,
-  query: { artifactId: string; now: string; versionId: string }
-) => [
-  db
+  versionId: string
+): Promise<boolean> => {
+  const rows = await db
     .update(artifactVersions)
     .set({ status: "published" })
     .where(
       and(
-        eq(artifactVersions.id, query.versionId),
+        eq(artifactVersions.id, versionId),
         eq(artifactVersions.status, "proposed")
       )
-    ),
+    )
+    .returning({ id: artifactVersions.id });
+  return rows.length > 0;
+};
+
+export const setCurrentVersionStatement = (
+  db: Database,
+  query: { artifactId: string; now: string; versionId: string }
+) =>
   db
     .update(artifacts)
     .set({ currentVersionId: query.versionId, updatedAt: query.now })
-    .where(eq(artifacts.id, query.artifactId)),
-];
+    .where(eq(artifacts.id, query.artifactId));
 
 export const setHandedToStatement = (
   db: Database,

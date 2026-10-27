@@ -14,7 +14,8 @@ import {
   type ArtifactGrantRow,
   type ArtifactRow,
   approvedGrants,
-  decideGrantStatement,
+  claimGrants,
+  claimProposedVersion,
   findArtifact,
   findGrant,
   findVersion,
@@ -24,8 +25,8 @@ import {
   PROMOTE_TOOL_NAME,
   PROMOTE_TOOL_USE_PREFIX,
   promoteRequests,
-  promoteStatements,
   rejectVersionStatement,
+  setCurrentVersionStatement,
   setHandedToStatement,
 } from "@repo/db/artifact-grants";
 import type { Atomic } from "@repo/db/atomic";
@@ -340,32 +341,54 @@ export const createArtifactGrantsService = ({
     return rows.map(grantRecord);
   };
 
-  /** Writes one decision over some grants of a version, with an event each. A rejection rejects the version. */
+  /** Whether the version is newer than the live one, so taking it live never rolls the app back. */
+  const newerThanCurrent = async (
+    artifact: ArtifactRow,
+    version: { number: number }
+  ) => {
+    const current = artifact.currentVersionId
+      ? await findVersionById(db, {
+          id: artifact.currentVersionId,
+          workspaceId: artifact.workspaceId,
+        })
+      : null;
+    return !current || version.number > current.number;
+  };
+
+  /**
+   * Writes one decision over some grants of a version, with an event each. A
+   * rejection rejects the version. When `goLive` is set (a promote was asked
+   * for), an approval that leaves nothing pending takes the version live. Only
+   * the call whose update changed a grant writes its event and goes live, so a
+   * repeat or a racing call finds nothing to do and the result is `stale`.
+   */
   const applyDecisions = async (
     artifact: ArtifactRow,
     grants: ArtifactGrantRow[],
     decision: "approved" | "rejected",
-    userId: string
-  ) => {
+    userId: string,
+    goLive: boolean
+  ): Promise<"decided" | "live" | "stale"> => {
     const [first] = grants;
     if (!first) {
-      return;
+      return "stale";
     }
-    const now = clock.now().toISOString();
-    await atomic([
-      ...grants.map((grant) =>
-        decideGrantStatement(db, {
-          decidedAt: now,
-          decidedBy: userId,
-          id: grant.id,
-          status: decision,
-        })
-      ),
-      ...(decision === "rejected"
-        ? [rejectVersionStatement(db, first.versionId)]
-        : []),
-    ]);
-    for (const grant of grants) {
+    const claimed = new Set(
+      await claimGrants(db, {
+        decidedAt: clock.now().toISOString(),
+        decidedBy: userId,
+        ids: grants.map((grant) => grant.id),
+        status: decision,
+      })
+    );
+    const won = grants.filter((grant) => claimed.has(grant.id));
+    if (won.length === 0) {
+      return "stale";
+    }
+    if (decision === "rejected") {
+      await atomic([rejectVersionStatement(db, first.versionId)]);
+    }
+    for (const grant of won) {
       // biome-ignore lint/performance/noAwaitInLoops: events keep the order of the grants
       await events.append({
         actor: { id: userId, kind: "user" },
@@ -381,6 +404,30 @@ export const createArtifactGrantsService = ({
         workspaceId: artifact.workspaceId,
       });
     }
+    if (!(goLive && decision === "approved" && artifact.kind === "app")) {
+      return "decided";
+    }
+    const [version, rows] = await Promise.all([
+      findVersionById(db, {
+        id: first.versionId,
+        workspaceId: artifact.workspaceId,
+      }),
+      listGrants(db, {
+        versionId: first.versionId,
+        workspaceId: artifact.workspaceId,
+      }),
+    ]);
+    if (
+      version &&
+      rows.every((row) => row.status === "approved") &&
+      (await newerThanCurrent(artifact, version)) &&
+      (await goLiveVersion(artifact, version, {
+        actor: { id: userId, kind: "user" },
+      }))
+    ) {
+      return "live";
+    }
+    return "decided";
   };
 
   /**
@@ -406,7 +453,8 @@ export const createArtifactGrantsService = ({
       artifact,
       pending,
       denied ? "rejected" : "approved",
-      card.answeredBy
+      card.answeredBy,
+      true
     );
     if (denied) {
       throw new ServiceError(
@@ -488,7 +536,22 @@ export const createArtifactGrantsService = ({
     if (grant.status !== "pending") {
       throw new ServiceError("conflict", "Grant already decided");
     }
-    await applyDecisions(artifact, [grant], input.decision, principal.userId);
+    const asked = (
+      await promoteRequests(db, {
+        versionId: grant.versionId,
+        workspaceId: artifact.workspaceId,
+      })
+    ).length;
+    const outcome = await applyDecisions(
+      artifact,
+      [grant],
+      input.decision,
+      principal.userId,
+      asked > 0
+    );
+    if (outcome === "stale") {
+      throw new ServiceError("conflict", "Grant already decided");
+    }
     await settleRequest(principal, artifact, grant.versionId);
   };
 
@@ -529,19 +592,12 @@ export const createArtifactGrantsService = ({
     return opened.id;
   };
 
-  const goLive = async (
+  const announcePromoted = (
     artifact: ArtifactRow,
     version: { id: string; number: number },
     actor: Awaited<ReturnType<typeof actorOf>>
-  ) => {
-    await atomic(
-      promoteStatements(db, {
-        artifactId: artifact.id,
-        now: clock.now().toISOString(),
-        versionId: version.id,
-      })
-    );
-    await events.append({
+  ) =>
+    events.append({
       ...actor,
       payload: {
         artifactId: artifact.id,
@@ -552,6 +608,70 @@ export const createArtifactGrantsService = ({
       type: "artifact.promoted",
       workspaceId: artifact.workspaceId,
     });
+
+  /**
+   * Takes a proposed version live and says whether this call did it. The claim
+   * on the version is the arbiter: of two callers that race, one writes the
+   * event. A crash between the claim and the current pointer is finished by the
+   * next `promote` of the version.
+   */
+  const goLiveVersion = async (
+    artifact: ArtifactRow,
+    version: { id: string; number: number },
+    actor: Awaited<ReturnType<typeof actorOf>>
+  ): Promise<boolean> => {
+    if (!(await claimProposedVersion(db, version.id))) {
+      return false;
+    }
+    await atomic([
+      setCurrentVersionStatement(db, {
+        artifactId: artifact.id,
+        now: clock.now().toISOString(),
+        versionId: version.id,
+      }),
+    ]);
+    await announcePromoted(artifact, version, actor);
+    return true;
+  };
+
+  /**
+   * What a promote does about grants still pending: apply an answered card,
+   * then, for a run, open (or reuse) the card and answer `waiting`; for a
+   * person, refuse. Null when nothing is left to wait for.
+   */
+  const holdForGrants = async (
+    principal: Principal,
+    artifact: ArtifactRow,
+    version: { id: string; number: number },
+    pending: ArtifactGrantRow[]
+  ): Promise<PromoteResult | null> => {
+    if (pending.length === 0) {
+      return null;
+    }
+    const [card] = await promoteRequests(db, {
+      versionId: version.id,
+      workspaceId: artifact.workspaceId,
+    });
+    if (card?.status === "answered") {
+      await applyCardAnswer(artifact, card, pending);
+      return null;
+    }
+    if (principal.kind !== "run") {
+      throw new ServiceError(
+        "conflict",
+        `${pending.length} grant(s) of this version need a decision first`
+      );
+    }
+    return {
+      pending: pending.map(grantRecord),
+      requestId: await openPromoteRequest(
+        principal,
+        artifact,
+        version,
+        pending
+      ),
+      status: "waiting",
+    };
   };
 
   /**
@@ -579,6 +699,20 @@ export const createArtifactGrantsService = ({
     ) {
       return { status: "promoted", version: version.number };
     }
+    if (
+      version.status === "published" &&
+      (await newerThanCurrent(artifact, version))
+    ) {
+      // A go-live that stopped after publishing the version: finish it.
+      await atomic([
+        setCurrentVersionStatement(db, {
+          artifactId: artifact.id,
+          now: clock.now().toISOString(),
+          versionId: version.id,
+        }),
+      ]);
+      return { status: "promoted", version: version.number };
+    }
     if (version.status !== "proposed") {
       throw new ServiceError(
         "conflict",
@@ -595,36 +729,16 @@ export const createArtifactGrantsService = ({
         "A grant of this version was rejected"
       );
     }
-    let pending = rows.filter((row) => row.status === "pending");
-    if (pending.length > 0) {
-      const [card] = await promoteRequests(db, {
-        versionId: version.id,
-        workspaceId: artifact.workspaceId,
-      });
-      if (card?.status === "answered") {
-        await applyCardAnswer(artifact, card, pending);
-        pending = [];
-      }
+    const waiting = await holdForGrants(
+      principal,
+      artifact,
+      version,
+      rows.filter((row) => row.status === "pending")
+    );
+    if (waiting) {
+      return waiting;
     }
-    if (pending.length > 0) {
-      if (principal.kind !== "run") {
-        throw new ServiceError(
-          "conflict",
-          `${pending.length} grant(s) of this version need a decision first`
-        );
-      }
-      return {
-        pending: pending.map(grantRecord),
-        requestId: await openPromoteRequest(
-          principal,
-          artifact,
-          version,
-          pending
-        ),
-        status: "waiting",
-      };
-    }
-    await goLive(artifact, version, await actorOf(principal));
+    await goLiveVersion(artifact, version, await actorOf(principal));
     return { status: "promoted", version: version.number };
   };
 
@@ -735,21 +849,6 @@ export const createArtifactGrantsService = ({
         return;
       }
       throw error;
-    }
-    // A stale card must not roll the live app back to an older version.
-    const current = artifact.currentVersionId
-      ? await findVersionById(db, {
-          id: artifact.currentVersionId,
-          workspaceId: artifact.workspaceId,
-        })
-      : null;
-    if (
-      artifact.kind === "app" &&
-      (!current || version.number > current.number)
-    ) {
-      await goLive(artifact, version, {
-        actor: { id: card.answeredBy ?? "system", kind: "user" },
-      });
     }
   });
 
