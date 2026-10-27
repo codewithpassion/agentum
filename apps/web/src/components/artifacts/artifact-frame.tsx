@@ -40,7 +40,7 @@ interface PendingLink {
   url: string;
 }
 
-/** 128 random bits as hex, for the `#hm=<nonce>` fragment of the iframe URL. */
+/** 128 random bits as hex, for the iframe's `name`, which the bridge sends back. */
 const newNonce = (): string =>
   Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
     byte.toString(16).padStart(2, "0")
@@ -219,11 +219,12 @@ export function ArtifactFrame({
           !interactive && "pointer-events-none"
         )}
         key={frameKey}
+        name={nonce}
         onLoad={handleLoad}
         ref={iframeRef}
         referrerPolicy="no-referrer"
         sandbox="allow-scripts allow-forms"
-        src={`${contentUrl}#hm=${nonce}`}
+        src={contentUrl}
         title={title}
       />
       <AlertDialog onOpenChange={refuseLink} open={pendingLink !== null}>

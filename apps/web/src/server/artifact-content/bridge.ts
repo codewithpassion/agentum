@@ -124,23 +124,18 @@ export const BRIDGE_JS = `(function () {
     contentFolder = null;
   }
 
-  // The viewer puts a nonce in the fragment as "#hm=<nonce>" and accepts a
-  // port only from a page that sends it back. It stays in the address, so a
-  // reload keeps it, and clicks on links inside the artifact carry it to the
-  // next page (below). It is defence in depth, not a secret: this page's own
-  // scripts can read it. The grants are what limit a page.
+  // The viewer sets the iframe's name attribute to a nonce, and accepts a port
+  // only from a page that sends it back. window.name survives every
+  // navigation in the same tab, so the next page of the artifact has it too. It
+  // is defence in depth, not a secret: this page's own scripts can read it.
+  // The grants are what limit a page.
   function readNonce() {
     try {
-      var parts = String(window.location.hash || "").slice(1).split("&");
-      for (var i = 0; i < parts.length; i += 1) {
-        if (parts[i].indexOf("hm=") === 0 && parts[i].length > 3) {
-          return parts[i].slice(3);
-        }
-      }
+      var name = window.name;
+      return typeof name === "string" && name !== "" ? name : null;
     } catch (_error) {
-      // No location to read, so no nonce.
+      return null;
     }
-    return null;
   }
 
   // Taken once, before any page script can reassign it.
@@ -457,37 +452,6 @@ export const BRIDGE_JS = `(function () {
     return null;
   }
 
-  // A click on a link to another page of this artifact loads a new document,
-  // and the frame lets that page in only if its address has the nonce.
-  function carryNonce(event, anchor, href) {
-    if (
-      nonce === null ||
-      event.defaultPrevented ||
-      event.button > 0 ||
-      event.ctrlKey ||
-      event.metaKey ||
-      event.shiftKey ||
-      event.altKey ||
-      (anchor.target && anchor.target !== "_self") ||
-      (typeof anchor.hasAttribute === "function" &&
-        anchor.hasAttribute("download"))
-    ) {
-      return;
-    }
-    var target = new URL(href);
-    var here = String(window.location.href || "").split("#")[0];
-    if (target.href.split("#")[0] === here) {
-      return;
-    }
-    var fragment = target.hash.slice(1);
-    if (fragment.split("&").indexOf("hm=" + nonce) >= 0) {
-      return;
-    }
-    target.hash = (fragment === "" ? "" : fragment + "&") + "hm=" + nonce;
-    event.preventDefault();
-    window.location.assign(target.href);
-  }
-
   if (contentFolder !== null) {
     try {
       document.addEventListener(
@@ -502,10 +466,7 @@ export const BRIDGE_JS = `(function () {
               return;
             }
             var href = new URL(anchor.href).href;
-            if (!isHttpUrl(href)) {
-              return;
-            }
-            if (href.indexOf(contentFolder) === 0) {
+            if (!isHttpUrl(href) || href.indexOf(contentFolder) === 0) {
               return;
             }
             event.preventDefault();
@@ -515,27 +476,6 @@ export const BRIDGE_JS = `(function () {
           }
         },
         true
-      );
-      // Links to other pages of the artifact are decided after the page's own
-      // handlers ran (bubble phase on window), so a link the page handles
-      // itself, with a router or tabs, is left to it.
-      window.addEventListener(
-        "click",
-        function (event) {
-          try {
-            var anchor = findAnchor(event.target);
-            if (!anchor) {
-              return;
-            }
-            var href = new URL(anchor.href).href;
-            if (isHttpUrl(href) && href.indexOf(contentFolder) === 0) {
-              carryNonce(event, anchor, href);
-            }
-          } catch (_error) {
-            // Let the browser handle the click.
-          }
-        },
-        false
       );
     } catch (_error) {
       // Links keep their default behaviour.

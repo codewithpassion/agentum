@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ArtifactFrame } from "./artifact-frame.tsx";
 
-const NONCE_IN_SRC = /src="[^"#]*#hm=([0-9a-f]{32})"/;
+const NONCE_IN_SRC = / name="([0-9a-f]{32})"/;
 
 const html = renderToStaticMarkup(
   <ArtifactFrame
@@ -21,7 +21,7 @@ test("the iframe carries exactly the sandbox, referrer policy and allow of R1.18
   expect(html).not.toContain("allow-same-origin");
 });
 
-test("the iframe URL carries a fresh 128-bit nonce in its fragment (the bridge gate)", () => {
+test("the iframe carries a fresh 128-bit nonce in its name (the bridge gate), and its URL has no fragment", () => {
   const nonceOf = (markup: string) => NONCE_IN_SRC.exec(markup)?.[1];
   const first = nonceOf(html);
   expect(first).toBeDefined();
@@ -38,4 +38,5 @@ test("the iframe URL carries a fresh 128-bit nonce in its fragment (the bridge g
   );
   expect(second).toBeDefined();
   expect(second).not.toBe(first);
+  expect(html).not.toContain("#hm=");
 });

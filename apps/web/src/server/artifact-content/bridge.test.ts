@@ -52,16 +52,9 @@ interface FakeWindow {
   [key: string]: unknown;
 }
 
-/** Extra event fields, and the page's own click handler. */
-interface ClickExtra {
-  pageHandler?: (event: FakeClickEvent) => void;
-  [key: string]: unknown;
-}
-
 interface FakeClickEvent {
   defaultPrevented: boolean;
   preventDefault: () => void;
-  stopped?: boolean;
   target: unknown;
 }
 
@@ -112,15 +105,9 @@ class Inbox {
 }
 
 const makeEnv = (
-  options: {
-    framed?: boolean;
-    hash?: string;
-    history?: unknown;
-    location?: Record<string, unknown>;
-    withObserver?: boolean;
-  } = {}
+  options: { framed?: boolean; name?: string; withObserver?: boolean } = {}
 ) => {
-  const { framed = true, hash, withObserver = false } = options;
+  const { framed = true, name, withObserver = false } = options;
   const posted: Posted[] = [];
   const listeners = new Map<string, Listener[]>();
   const documentListeners = new Map<string, Listener[]>();
@@ -147,11 +134,8 @@ const makeEnv = (
   if (!framed) {
     win.parent = win;
   }
-  if (hash !== undefined) {
-    win.location = { hash, ...options.location };
-  }
-  if (options.history) {
-    win.history = options.history;
+  if (name !== undefined) {
+    win.name = name;
   }
   let rect = { height: 100.2, width: 640.7 };
   if (withObserver) {
@@ -199,26 +183,16 @@ const makeEnv = (
   const harbourmaster = win.harbourmaster as HarbourmasterApi;
 
   return {
-    click: (target: unknown, extra: ClickExtra = {}): FakeClickEvent => {
-      const { pageHandler, ...fields } = extra;
+    click: (target: unknown): FakeClickEvent => {
       const event: FakeClickEvent = {
         defaultPrevented: false,
         preventDefault: () => {
           event.defaultPrevented = true;
         },
         target,
-        ...fields,
       };
       for (const listener of documentListeners.get("click") ?? []) {
         listener(event);
-      }
-      // The page's own handlers run between capture and the window's bubble
-      // listeners; `pageHandler` stands in for them.
-      pageHandler?.(event);
-      if (!event.stopped) {
-        for (const listener of listeners.get("click") ?? []) {
-          listener(event);
-        }
       }
       return event;
     },
@@ -590,14 +564,8 @@ describe("bridge nonce", () => {
   const initParams = (env: Env) =>
     uiInitializeRequestSchema.parse(env.posted[0]?.message).params;
 
-  test("hash with only the nonce sends it in ui/initialize", () => {
-    const params = initParams(makeEnv({ hash: "#hm=abc123" }));
-    expect(params.nonce).toBe("abc123");
-  });
-
-  test("the nonce is found among other fragment parts", () => {
-    const env = makeEnv({ hash: "#x=1&hm=abc123" });
-    expect(initParams(env).nonce).toBe("abc123");
+  test("window.name is sent as the nonce in ui/initialize", () => {
+    const env = makeEnv({ name: "abc123" });
     expect(
       uiInitializeRequestSchema.parse(env.posted[0]?.message).params
     ).toEqual({
@@ -607,102 +575,19 @@ describe("bridge nonce", () => {
     });
   });
 
-  test("the nonce stays in the address", () => {
-    const urls: string[] = [];
-    const env = makeEnv({
-      hash: "#hm=abc123",
-      history: {
-        replaceState: (_s: unknown, _t: string, url: string) => {
-          urls.push(url);
-        },
-      },
-    });
-    expect(initParams(env).nonce).toBe("abc123");
-    expect(urls).toEqual([]);
-  });
-
-  describe("on clicks to other pages of the artifact", () => {
-    const here = `${FOLDER}index.html#hm=abc123`;
-    const setupClick = (hash = "#hm=abc123") => {
-      const assigned: string[] = [];
-      const env = makeEnv({
-        hash,
-        location: {
-          assign: (url: string) => {
-            assigned.push(url);
-          },
-          href: `${FOLDER}index.html${hash}`,
-        },
-      });
-      return { assigned, env };
-    };
-
-    test("carry the nonce to the next page, keeping a fragment", () => {
-      const { assigned, env } = setupClick();
-      connect(env);
-      const plain = env.click(link(`${FOLDER}page2.html`));
-      expect(plain.defaultPrevented).toBe(true);
-      const withFragment = env.click(link(`${FOLDER}page2.html#top`));
-      expect(withFragment.defaultPrevented).toBe(true);
-      expect(assigned).toEqual([
-        `${FOLDER}page2.html#hm=abc123`,
-        `${FOLDER}page2.html#top&hm=abc123`,
-      ]);
-    });
-
-    test("a link the page handles itself (preventDefault or stopPropagation) is left to it", () => {
-      const { assigned, env } = setupClick();
-      connect(env);
-      const prevented = env.click(link(`${FOLDER}page2.html`), {
-        pageHandler: (event: FakeClickEvent) => event.preventDefault(),
-      });
-      expect(prevented.defaultPrevented).toBe(true);
-      env.click(link(`${FOLDER}page2.html`), {
-        pageHandler: (event: FakeClickEvent) => {
-          event.stopped = true;
-        },
-      });
-      expect(assigned).toEqual([]);
-    });
-
-    test("leave alone: same-document anchors, links that carry it already, modifier clicks, other targets, downloads, a page with no nonce", () => {
-      const { assigned, env } = setupClick();
-      connect(env);
-      const cases: Record<string, unknown>[] = [
-        link(`${FOLDER}index.html#section`),
-        link(here),
-        link(`${FOLDER}page2.html#x&hm=abc123`),
-        { ...link(`${FOLDER}p.html`), target: "_blank" },
-        { ...link(`${FOLDER}p.html`), hasAttribute: () => true },
-      ];
-      for (const anchor of cases) {
-        expect(env.click(anchor).defaultPrevented).toBe(false);
-      }
-      for (const extra of [
-        { ctrlKey: true },
-        { metaKey: true },
-        { button: 1 },
-      ]) {
-        expect(env.click(link(`${FOLDER}p.html`), extra).defaultPrevented).toBe(
-          false
-        );
-      }
-      expect(assigned).toEqual([]);
-
-      const bare = setupClick("");
-      connect(bare.env);
-      expect(bare.env.click(link(`${FOLDER}p.html`)).defaultPrevented).toBe(
-        false
-      );
-      expect(bare.assigned).toEqual([]);
-    });
-  });
-
-  test("no hash, a hash without hm, or an empty nonce sends no nonce key", () => {
-    for (const hash of [undefined, "", "#x=1", "#hm=", "#hmx=1"]) {
-      const params = initParams(makeEnv({ hash }));
-      expect("nonce" in params).toBe(false);
+  test("no name, or an empty one, sends no nonce key", () => {
+    for (const name of [undefined, ""]) {
+      expect("nonce" in initParams(makeEnv({ name }))).toBe(false);
     }
+  });
+
+  test("links to other pages of the artifact are left to the browser, the name travels with the tab", async () => {
+    const env = makeEnv({ name: "abc123" });
+    const inbox = connect(env);
+    await inbox.take(2);
+    expect(env.click(link(`${FOLDER}page2.html#top`)).defaultPrevented).toBe(
+      false
+    );
   });
 });
 

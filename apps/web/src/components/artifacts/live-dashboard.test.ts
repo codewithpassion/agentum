@@ -80,14 +80,14 @@ const makeStore = (shared: Record<string, unknown> = {}) => {
 
 interface PageOptions {
   calls: FrameCalls;
-  /** What the iframe URL fragment says; the frame expects NONCE. */
-  hash?: string;
   messages?: string[] | null;
+  /** The iframe's `name`; the frame expects NONCE. */
+  name?: string;
 }
 
 /** One iframe document running the fixture, wired to a frame bridge. */
 const loadPage = (options: PageOptions) => {
-  const { calls, hash = `#hm=${NONCE}`, messages = null } = options;
+  const { calls, name = NONCE, messages = null } = options;
   const text = new Map<string, string>();
   const elements = new Map<
     string,
@@ -158,7 +158,7 @@ const loadPage = (options: PageOptions) => {
         pageListeners.push(listener);
       }
     },
-    location: { hash },
+    name,
     parent,
   };
   const doc = {
@@ -303,8 +303,8 @@ describe("live dashboard, share link", () => {
 describe("live dashboard, nonce gate", () => {
   test("a page without the frame's nonce gets no port and the frame blanks", async () => {
     const store = makeStore();
-    const pages = ["", "#hm=wrong", "#other=1"].map((hash) =>
-      loadPage({ calls: { ...store.calls, viewer: "member" }, hash })
+    const pages = ["", "wrong", "other"].map((name) =>
+      loadPage({ calls: { ...store.calls, viewer: "member" }, name })
     );
     await pause(20);
     for (const page of pages) {
