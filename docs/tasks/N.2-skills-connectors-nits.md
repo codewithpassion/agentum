@@ -3,7 +3,7 @@ id: N.2
 title: Review nits in skill and connector delete (SK.5)
 milestone: N
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/N.2-skills-connectors-nits
 lane: skills
@@ -26,3 +26,4 @@ Dom asked on 27 Oct 2026 to clear the nits the SK.5 review left (`docs/reviews/t
 ## Log
 - 2026-10-27: added at Dom's request (clear review nits).
 - 2026-10-27: dispatched.
+- 2026-10-27: review clean after 2 fix rounds; merged.
