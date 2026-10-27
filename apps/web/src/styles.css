@@ -273,7 +273,8 @@ body {
    Mobile rules (task MB.1). These are unlayered on purpose: they beat the
    Tailwind utilities on the shadcn components in components/ui/, which are
    CLI output and never hand-edited. Desktop (md and up, fine pointers) is
-   untouched. Later mobile tasks (MB.3 to MB.6) build on these.
+   untouched, except the dialog height cap below, which applies at every
+   width. Later mobile tasks (MB.3 to MB.6) build on these.
    ------------------------------------------------------------------------ */
 
 /* Form fields: 16px below md so iOS Safari does not zoom the page on focus. */
@@ -285,9 +286,11 @@ body {
   }
 }
 
-/* Dialogs: never taller than the visible viewport. The content scrolls
-   inside, so the title is at the top and the footer buttons are reachable
-   even with the on-screen keyboard open. */
+/* Dialogs: never taller than the visible viewport. The whole dialog scrolls,
+   so the title and Close are visible when it opens and the footer buttons
+   are reachable by scrolling. This overrides a caller's own max-h and
+   overflow classes (use !important in a caller that needs an inner-scroll
+   layout). Alert dialogs and top/bottom sheets are not capped. */
 [data-slot="dialog-content"] {
   max-height: calc(100dvh - 2rem);
   overflow-y: auto;
@@ -307,7 +310,8 @@ body {
    Buttons grow; checkboxes and switches keep their look and gain an
    invisible hit area instead. */
 @media (pointer: coarse) {
-  button:not([role="switch"], [role="checkbox"]),
+  button:not([role="switch"], [role="checkbox"], [role="radio"]),
+  a[data-slot="button"],
   [role="button"],
   [data-slot="select-trigger"],
   [data-sidebar="menu-button"] {
@@ -315,6 +319,7 @@ body {
   }
 
   [data-slot="button"][data-size^="icon"],
+  [data-slot="sidebar-trigger"],
   [data-slot="dialog-close"],
   [data-slot="sheet-close"] {
     min-width: 2.5rem;
@@ -324,6 +329,9 @@ body {
     height: auto;
     min-height: 2.5rem;
   }
+
+  /* Links styled with buttonVariants() carry no data-slot, so a caller adds
+     pointer-coarse:min-h-10 itself. */
 
   [role="switch"],
   [role="checkbox"] {

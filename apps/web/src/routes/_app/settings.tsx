@@ -27,7 +27,7 @@ function SettingsLayout() {
                 className={buttonVariants({
                   variant: "ghost",
                   className:
-                    "shrink-0 justify-start whitespace-nowrap md:w-full",
+                    "pointer-coarse:min-h-10 shrink-0 justify-start whitespace-nowrap md:w-full",
                 })}
                 key={item.to}
                 to={item.to}
