@@ -27,6 +27,7 @@ import {
 } from "yjs";
 import { BlockDragHandles } from "./editor-drag";
 import {
+  AGENT_PRESENCE_TTL_MS,
   type AgentDecoration,
   canEdit,
   type DocumentEditorPorts,
@@ -50,6 +51,12 @@ export function trustedAwareness(port: PresencePort): Awareness {
             id,
             {
               ...state,
+              cursor:
+                peer.kind === "agent" &&
+                (!peer.status ||
+                  Date.now() - peer.status.updatedAt >= AGENT_PRESENCE_TTL_MS)
+                  ? null
+                  : state.cursor,
               user: { color: peer.color, kind: peer.kind, name: peer.name },
             },
           ] as const,

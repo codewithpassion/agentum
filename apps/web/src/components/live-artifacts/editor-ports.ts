@@ -58,3 +58,6 @@ export interface DocumentEditorPorts {
 }
 export const canEdit = (role: EditorRole) =>
   role === "owner" || role === "editor";
+
+/** Refresh every 500ms, allowing stale agent presence to clear within five seconds. */
+export const AGENT_PRESENCE_TTL_MS = 4500;

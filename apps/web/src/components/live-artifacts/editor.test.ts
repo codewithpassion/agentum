@@ -247,6 +247,8 @@ test("upload waits for persistence, rejects hotlinks and inserts at the relative
   await result;
   expect(allowed.has("/files/owned.png")).toBe(true);
   expect(JSON.stringify(editor.getJSON())).toContain("Owned image");
+  expect(editor.state.doc.child(0).textContent).toBe("NEWhe");
+  expect(editor.state.doc.child(2).textContent).toBe("llo");
   ports.uploadImage = async () => ({
     alt: "bad",
     url: "https://evil/image.png",
@@ -453,4 +455,43 @@ test("two disconnected editors merge concurrent typing and each undo keeps the o
   expect(b.editor.commands.undo()).toBe(true);
   applyUpdate(a.ports.document, encodeStateAsUpdate(doc), "wire");
   expect(a.editor.getText()).toBe("hello");
+});
+
+test("stale agent cursors clear locally even if the final awareness packet is lost", () => {
+  const { editor, ports } = setup();
+  text(editor, "hello");
+  const selection = selectedContext(editor);
+  if (!selection) {
+    throw new Error("Missing selection");
+  }
+  ports.provider.awareness.states.set(42, {
+    cursor: { anchor: selection.start, head: selection.end },
+    user: { name: "forged" },
+  });
+  ports.provider.getSnapshot = () => [
+    {
+      clientId: 42,
+      color: "#8b5cf6",
+      id: "agent",
+      kind: "agent",
+      name: "Trusted agent",
+      status: { text: "Working", updatedAt: Date.now() - 6000 },
+    },
+  ];
+  expect(
+    trustedAwareness(ports.provider).getStates().get(42)?.cursor
+  ).toBeNull();
+});
+
+test("case changes handle Unicode expansion while preserving formatting and own undo", () => {
+  const { editor } = setup();
+  text(editor, "straße café");
+  editor.commands.setBold();
+  expect(changeCase(editor, "upper")).toBe(true);
+  expect(editor.getText()).toBe("STRASSE CAFÉ");
+  expect(editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name).toBe(
+    "bold"
+  );
+  editor.commands.undo();
+  expect(editor.getText()).toBe("straße café");
 });

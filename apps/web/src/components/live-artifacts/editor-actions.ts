@@ -148,7 +148,7 @@ export function setThemeColor(
 export function moveBlock(
   editor: Editor,
   blockId: string,
-  beforeId: string
+  beforeId: string | null
 ): boolean {
   if (!editor.isEditable || blockId === beforeId) {
     return false;
@@ -159,7 +159,7 @@ export function moveBlock(
   });
   const source = blocks.find((block) => block.id === blockId),
     target = blocks.find((block) => block.id === beforeId);
-  if (!(source && target)) {
+  if (!source || (beforeId !== null && !target)) {
     return false;
   }
   const node = editor.state.doc.nodeAt(source.pos);
@@ -167,7 +167,10 @@ export function moveBlock(
     return false;
   }
   const tr = editor.state.tr.delete(source.pos, source.pos + source.size);
-  tr.insert(tr.mapping.map(target.pos), Fragment.from(node));
+  tr.insert(
+    tr.mapping.map(target?.pos ?? editor.state.doc.content.size),
+    Fragment.from(node)
+  );
   editor.view.dispatch(tr);
   return true;
 }
