@@ -1,6 +1,6 @@
 // Query functions for a member's live tool calls and app storage (phase 2,
 // task B.5). They take a drizzle instance and never make one.
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./database.ts";
 import {
   artifactGrants,
@@ -77,6 +77,28 @@ export const approvedToolTargets = async (
       )
     );
   return rows.map((row) => row.target);
+};
+
+/**
+ * The argument-limit rows (`<tool>#<json>`) a version holds for one tool, in
+ * any status. A caller that sees a row that is not approved refuses the call.
+ */
+export const toolLimitRows = async (
+  db: Database,
+  query: { tool: string; versionId: string; workspaceId: string }
+): Promise<{ status: string; target: string }[]> => {
+  const prefix = `${query.tool}#`;
+  return await db
+    .select({ status: artifactGrants.status, target: artifactGrants.target })
+    .from(artifactGrants)
+    .where(
+      and(
+        eq(artifactGrants.versionId, query.versionId),
+        eq(artifactGrants.workspaceId, query.workspaceId),
+        eq(artifactGrants.kind, "tool"),
+        sql`substr(${artifactGrants.target}, 1, ${prefix.length}) = ${prefix}`
+      )
+    );
 };
 
 export interface ConnectorCallRow {

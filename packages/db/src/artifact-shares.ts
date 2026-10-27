@@ -179,12 +179,8 @@ export interface ShareLookup {
   workspaceName: string;
 }
 
-/** The link whose token hashes to `tokenHash`, across workspaces. */
-export const getShareByHash = async (
-  db: Database,
-  tokenHash: string
-): Promise<ShareLookup | undefined> => {
-  const [row] = await db
+const shareLookupQuery = (db: Database) =>
+  db
     .select({
       agentId: artifacts.agentId,
       agentName: agents.name,
@@ -209,8 +205,32 @@ export const getShareByHash = async (
     .from(artifactShares)
     .innerJoin(artifacts, eq(artifacts.id, artifactShares.artifactId))
     .innerJoin(workspaces, eq(workspaces.id, artifactShares.workspaceId))
-    .leftJoin(agents, eq(agents.id, artifacts.agentId))
+    .leftJoin(agents, eq(agents.id, artifacts.agentId));
+
+/** The link whose token hashes to `tokenHash`, across workspaces. */
+export const getShareByHash = async (
+  db: Database,
+  tokenHash: string
+): Promise<ShareLookup | undefined> => {
+  const [row] = await shareLookupQuery(db)
     .where(eq(artifactShares.tokenHash, tokenHash))
+    .limit(1);
+  return row;
+};
+
+/** The link with this id on this artifact, across workspaces. */
+export const getShareLookupById = async (
+  db: Database,
+  shareId: string,
+  artifactId: string
+): Promise<ShareLookup | undefined> => {
+  const [row] = await shareLookupQuery(db)
+    .where(
+      and(
+        eq(artifactShares.id, shareId),
+        eq(artifactShares.artifactId, artifactId)
+      )
+    )
     .limit(1);
   return row;
 };

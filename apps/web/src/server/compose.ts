@@ -24,8 +24,13 @@ import {
   createApiKeysService,
 } from "@repo/services/api-keys";
 import {
+  type AppGrantsService,
+  createAppGrantsService,
+} from "@repo/services/artifacts/app-grants";
+import {
   type ArtifactToolPort,
   createArtifactCallsService,
+  createConnectorToolCatalog,
   createToolRunner,
   type ToolRunner,
 } from "@repo/services/artifacts/calls";
@@ -238,6 +243,7 @@ import {
 } from "@repo/services/wiki/suggestions";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
+import { appStorePort } from "./app-store/port.ts";
 import { browserRunDriver } from "./browser-run.ts";
 import { clerkPeople } from "./clerk-people.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
@@ -339,6 +345,7 @@ export interface Services {
   agentProfile: AgentProfileService;
   agents: AgentsService;
   apiKeys: ApiKeysService;
+  artifactApp: AppGrantsService;
   artifactCalls: ArtifactToolPort;
   artifactGrants: ArtifactGrantsService;
   artifactPins: ArtifactPinsService;
@@ -400,6 +407,7 @@ export interface Composed {
 export type ComposeEnv = Pick<
   Env,
   | "ALLOWED_ORG_IDS"
+  | "APP_STORE"
   | "ARTIFACT_LINKS_OFF"
   | "ARTIFACT_VIEW_KEY"
   | "BROWSER"
@@ -725,15 +733,19 @@ export const composeWith = ({
     runs,
     secrets,
   });
+  const artifactApp = createAppGrantsService({
+    allowedOrgIds,
+    db,
+    isOrgMember: infra.isOrgMember,
+    secrets,
+  });
   const artifactGrants = createArtifactGrantsService({
     atomic: infra.atomic,
     clock: infra.clock,
     db,
     events,
     requests,
-    // B.8 replaces this with the connector and platform tool catalog. Until
-    // then no tool is known, so no tool grant is accepted.
-    tools: { lookup: () => Promise.resolve(null) },
+    tools: createConnectorToolCatalog(db),
   });
   const artifactPins = createArtifactPinsService({
     atomic: infra.atomic,
@@ -951,6 +963,7 @@ export const composeWith = ({
       agentProfile,
       agents,
       apiKeys,
+      artifactApp,
       artifactCalls,
       artifactGrants,
       artifactPins,
@@ -1022,6 +1035,7 @@ export const compose = (
     db,
     infra: {
       // An empty `ARTIFACT_LINKS_OFF` leaves links on.
+      appStore: appStorePort(env.APP_STORE),
       artifactLinksOff: Boolean(env.ARTIFACT_LINKS_OFF),
       artifactViewKey: env.ARTIFACT_VIEW_KEY || undefined,
       atomic: d1Atomic(db),

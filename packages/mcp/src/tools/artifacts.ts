@@ -7,6 +7,7 @@ import { artifactPathSchema } from "@repo/protocol/artifacts";
 import { z } from "zod";
 import type {
   ArtifactFileInput,
+  ArtifactKindInput,
   ArtifactPublished,
   ArtifactsPort,
   ArtifactTestInfo,
@@ -33,9 +34,9 @@ const artifactId = z
   .describe("The artifact id from artifact_create or artifact_list.");
 
 const kind = z
-  .enum(["page", "doc", "dashboard"])
+  .enum(["page", "doc", "dashboard", "app"])
   .describe(
-    "page: static HTML (entry index.html). doc: Markdown (entry index.md). dashboard: an HTML page that reads data files shipped in the same version, such as data.json."
+    "page: static HTML (entry index.html). doc: Markdown (entry index.md). dashboard: an HTML page that reads data files shipped in the same version, such as data.json. app: index.html plus server/index.js (JavaScript only, export default { fetch(request, env) }, reads env.HM) and harbourmaster.json."
   );
 
 const file = z.strictObject({
@@ -139,6 +140,15 @@ const listInput = z.strictObject({
   kind: kind.optional(),
 });
 
+const promoteInput = z.strictObject({
+  artifactId,
+  version: z
+    .int()
+    .positive()
+    .optional()
+    .describe("The version to make live. Defaults to the latest version."),
+});
+
 const testInput = z.strictObject({
   artifactId,
   version: z
@@ -231,7 +241,7 @@ const checkContent = (input: ContentFields): void => {
   }
 };
 
-const defaultEntry = (artifactKind: "page" | "doc" | "dashboard"): string =>
+const defaultEntry = (artifactKind: ArtifactKindInput): string =>
   artifactKind === "doc" ? "index.md" : "index.html";
 
 /**
@@ -299,7 +309,7 @@ const testText = (info: ArtifactTestInfo): string => {
 export const artifactTools = (port: ArtifactsPort): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
-    description: `Publishes a new artifact (a page, doc or dashboard) as version 1 and returns artifactId, version, url, files and bytes. ${BUILD_GUIDE} Give either files or fromLibraryPath (usually your task folder). The url needs sign-in; you cannot create share links. A repeat call creates another artifact, so use artifact_update to change one.`,
+    description: `Publishes a new artifact (a page, doc or dashboard) as version 1 and returns artifactId, version, url, files and bytes. ${BUILD_GUIDE} Give either files or fromLibraryPath (usually your task folder). The url needs sign-in; you cannot create share links. A repeat call creates another artifact, so use artifact_update to change one. A new app version from an agent is proposed, not live, until artifact_promote. artifact_test opens the proposed version.`,
     inputSchema: createInput,
     name: "artifact_create",
     run: async (input) => {
@@ -318,7 +328,7 @@ export const artifactTools = (port: ArtifactsPort): ToolDefinition[] => [
   }),
   defineTool({
     annotations: WRITE_UPDATE,
-    description: `Publishes a new version of an artifact your agent created, built on baseVersion, and returns artifactId, version, url, files and bytes. Send the whole file tree: files or fromLibraryPath replaces the previous version's files. If someone published a newer version, you get a conflict naming the current version: read it with artifact_read, reconcile and retry. ${BUILD_GUIDE}`,
+    description: `Publishes a new version of an artifact your agent created, built on baseVersion, and returns artifactId, version, url, files and bytes. Send the whole file tree: files or fromLibraryPath replaces the previous version's files. If someone published a newer version, you get a conflict naming the current version: read it with artifact_read, reconcile and retry. For an app, the new version is proposed, not live, until artifact_promote; artifact_test opens the proposed version. ${BUILD_GUIDE}`,
     inputSchema: updateInput,
     name: "artifact_update",
     run: async (input) => {
@@ -404,5 +414,22 @@ export const artifactTools = (port: ArtifactsPort): ToolDefinition[] => [
     },
     title: "Test an artifact",
   }),
-  // B.4 adds artifact_promote here.
+  defineTool({
+    annotations: WRITE_UPDATE,
+    description:
+      "Asks to make a version of an app artifact live (the latest unless you give version). It goes live at once, or waits for a person to approve the version's grants in Needs you. If it waits, stop and do not retry.",
+    inputSchema: promoteInput,
+    name: "artifact_promote",
+    run: async (input) => {
+      const result = await port.promote(input);
+      return {
+        data: result,
+        text:
+          result.status === "promoted"
+            ? `Version ${result.version} is now live.`
+            : `Version ${result.version} waits for a person to approve its grants in Needs you. Stop here and do not retry.`,
+      };
+    },
+    title: "Promote an artifact version",
+  }),
 ];

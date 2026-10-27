@@ -35,7 +35,7 @@ const ARTIFACT = crypto.randomUUID();
 const LIST = "xero/list_invoices";
 const GET = "xero/get_invoice";
 const NEW_TOOL = "xero/list_contacts";
-const LIMITED = `${LIST}#{"limit":{"max":5}}`;
+const LIMITED = `${GET}#{"limit":{"max":5}}`;
 
 const user = (userId: string, isAdmin = false): Principal => ({
   isAdmin,
@@ -827,5 +827,250 @@ describe("storage reads by link (B.6 addition)", () => {
       ok: false,
       reason: "failed",
     });
+  });
+});
+
+describe("argument limits on a link call (B.8)", () => {
+  const LIST_LIMITS = `${LIST}#{"limit":{"max":5}}`;
+
+  test("a call outside the limits is refused and never reaches the runner", async () => {
+    grant("v1", LIST_LIMITS);
+    const link = await liveLink({ versionId: "v1" });
+    for (const args of [{ limit: 6 }, {}, { limit: "5" }]) {
+      expect(
+        // biome-ignore lint/performance/noAwaitInLoops: each call is checked in turn
+        await service.callLink(
+          link.token,
+          { arguments: args, tool: LIST },
+          request()
+        )
+      ).toEqual({ ok: false, reason: "forbidden" });
+    }
+    expect(runs).toEqual([]);
+    expect(viewsOf(link.id).map((row) => row.outcome)).toEqual([
+      "refused",
+      "refused",
+      "refused",
+    ]);
+  });
+
+  test("a call inside the limits runs", async () => {
+    grant("v1", LIST_LIMITS);
+    const link = await liveLink({ versionId: "v1" });
+    const answer = await service.callLink(
+      link.token,
+      { arguments: { limit: 5 }, tool: LIST },
+      request()
+    );
+    expect(answer.ok).toBe(true);
+    expect(runs).toHaveLength(1);
+  });
+
+  test("a limits row that is not approved refuses", async () => {
+    grant("v1", LIST_LIMITS, "pending");
+    const link = await liveLink({ versionId: "v1" });
+    expect(
+      await service.callLink(
+        link.token,
+        { arguments: { limit: 1 }, tool: LIST },
+        request()
+      )
+    ).toEqual({ ok: false, reason: "forbidden" });
+    expect(runs).toEqual([]);
+  });
+});
+
+describe("visitorMeta (B.8)", () => {
+  test("the hash is stable for the same ip and agent within a day, and differs for another ip", async () => {
+    const one = await service.visitorMeta(W1, request("203.0.113.7"));
+    const same = await service.visitorMeta(W1, request("203.0.113.7"));
+    const other = await service.visitorMeta(W1, request("198.51.100.9"));
+    expect(one.visitorHash).toBeString();
+    expect(same.visitorHash).toBe(one.visitorHash);
+    expect(other.visitorHash).not.toBe(one.visitorHash);
+    expect(one).toMatchObject({ place: "AU", userAgent: "Mozilla/5.0" });
+    expect(one.ipPrefix).not.toBe("203.0.113.7");
+  });
+
+  test("without an ip there is no hash and no prefix", async () => {
+    expect(await service.visitorMeta(W1, request(null))).toEqual({
+      ipPrefix: null,
+      place: "AU",
+      userAgent: "Mozilla/5.0",
+      visitorHash: null,
+    });
+    expect(
+      await service.visitorMeta(W1, { ip: null, userAgent: null })
+    ).toEqual({
+      ipPrefix: null,
+      place: null,
+      userAgent: null,
+      visitorHash: null,
+    });
+  });
+});
+
+describe("shareState (B.8)", () => {
+  test("an alive live link and an alive snapshot link", async () => {
+    const live = await liveLink();
+    const snapshot = await service.createShare(owner, { artifactId: ARTIFACT });
+    expect(await service.shareState(live.id, ARTIFACT)).toEqual({
+      dataMode: "live",
+      ok: true,
+    });
+    expect(await service.shareState(snapshot.id, ARTIFACT)).toEqual({
+      dataMode: "snapshot",
+      ok: true,
+    });
+  });
+
+  test("revoked, expired and workspace switch off", async () => {
+    const revoked = await liveLink();
+    await service.revokeShare(owner, { shareId: revoked.id });
+    expect(await service.shareState(revoked.id, ARTIFACT)).toEqual({
+      ok: false,
+      reason: "revoked",
+    });
+    const expiring = await liveLink({
+      expiresAt: new Date(nowMs + HOUR).toISOString(),
+    });
+    nowMs += 2 * HOUR;
+    expect(await service.shareState(expiring.id, ARTIFACT)).toEqual({
+      ok: false,
+      reason: "expired",
+    });
+    const alive = await liveLink();
+    await service.setLinksEnabled(admin, { enabled: false });
+    expect(await service.shareState(alive.id, ARTIFACT)).toEqual({
+      ok: false,
+      reason: "disabled",
+    });
+  });
+
+  test("a deleted artifact is revoked, an unknown id or wrong artifact is unknown", async () => {
+    const link = await liveLink();
+    expect(await service.shareState("nope", ARTIFACT)).toEqual({
+      ok: false,
+      reason: "unknown",
+    });
+    expect(await service.shareState(link.id, "other-artifact")).toEqual({
+      ok: false,
+      reason: "unknown",
+    });
+    db.update(artifacts)
+      .set({ deletedAt: START })
+      .where(eq(artifacts.id, ARTIFACT))
+      .run();
+    expect(await service.shareState(link.id, ARTIFACT)).toEqual({
+      ok: false,
+      reason: "revoked",
+    });
+  });
+});
+
+describe("callShare (B.8)", () => {
+  const meta = async (ip = "203.0.113.7") =>
+    await service.visitorMeta(W1, request(ip));
+
+  test("runs as granted_by and writes a live_call row with the meta's visitor fields", async () => {
+    const link = await liveLink();
+    const visitor = await meta();
+    const answer = await service.callShare(
+      link.id,
+      ARTIFACT,
+      { tool: LIST },
+      visitor
+    );
+    expect(answer.ok).toBe(true);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      toolKey: LIST,
+      userId: "u_owner",
+      workspaceId: W1,
+    });
+    const [row] = viewsOf(link.id);
+    expect(row).toMatchObject({
+      asn: null,
+      city: null,
+      country: "AU",
+      ipPrefix: visitor.ipPrefix,
+      outcome: "ok",
+      referrerHost: null,
+      surface: "live_call",
+      toolKey: LIST,
+      userAgent: "Mozilla/5.0",
+      visitorHash: visitor.visitorHash,
+    });
+  });
+
+  test("refuses a tool outside live_tools", async () => {
+    const link = await liveLink();
+    expect(
+      await service.callShare(link.id, ARTIFACT, { tool: GET }, await meta())
+    ).toEqual({ ok: false, reason: "forbidden" });
+    expect(runs).toEqual([]);
+    expect(viewsOf(link.id).map((row) => row.outcome)).toEqual(["refused"]);
+  });
+
+  test("rate limits per visitor hash from the meta", async () => {
+    const link = await liveLink();
+    const visitor = await meta();
+    const answers: LinkCallResult[] = [];
+    for (let index = 0; index < 11; index += 1) {
+      answers.push(
+        // biome-ignore lint/performance/noAwaitInLoops: the calls must land one after another
+        await service.callShare(link.id, ARTIFACT, { tool: LIST }, visitor)
+      );
+    }
+    expect(answers.slice(0, 10).every(({ ok }) => ok)).toBe(true);
+    expect(answers[10]).toEqual({ ok: false, reason: "rate_limited" });
+    expect(
+      (
+        await service.callShare(
+          link.id,
+          ARTIFACT,
+          { tool: LIST },
+          await meta("198.51.100.9")
+        )
+      ).ok
+    ).toBe(true);
+  });
+
+  test("enforces argument limits", async () => {
+    grant("v1", `${LIST}#{"limit":{"max":5}}`);
+    const link = await liveLink({ versionId: "v1" });
+    expect(
+      await service.callShare(
+        link.id,
+        ARTIFACT,
+        { arguments: { limit: 9 }, tool: LIST },
+        await meta()
+      )
+    ).toEqual({ ok: false, reason: "forbidden" });
+    expect(runs).toEqual([]);
+  });
+
+  test("a revoked link is not found and the row says revoked", async () => {
+    const link = await liveLink();
+    await service.revokeShare(owner, { shareId: link.id });
+    expect(
+      await service.callShare(link.id, ARTIFACT, { tool: LIST }, await meta())
+    ).toEqual({ ok: false, reason: "not_found" });
+    expect(runs).toEqual([]);
+    expect(viewsOf(link.id).map((row) => row.outcome)).toEqual(["revoked"]);
+  });
+
+  test("an unknown share or another artifact is not found and writes nothing", async () => {
+    const link = await liveLink();
+    for (const [id, artifact] of [
+      ["nope", ARTIFACT],
+      [link.id, "other-artifact"],
+    ] as const) {
+      expect(
+        // biome-ignore lint/performance/noAwaitInLoops: each case is checked in turn
+        await service.callShare(id, artifact, { tool: LIST }, await meta())
+      ).toEqual({ ok: false, reason: "not_found" });
+    }
+    expect(db.select().from(artifactViews).all()).toEqual([]);
   });
 });

@@ -221,6 +221,26 @@ export interface ProxyMatch {
   value: string;
 }
 
+/** The proxy rules of `granted` that apply to a request to `host`. */
+const proxyMatches = (
+  granted: readonly GrantedSecret[],
+  host: string
+): ProxyMatch[] => {
+  const target = normalizeHost(host);
+  return granted
+    .filter((secret) => secret.mode === "proxy")
+    .flatMap((secret) =>
+      secret.rules
+        .filter((rule) => matchHost(rule.host, target))
+        .map((rule) => ({
+          header: rule.header,
+          headerValue: renderHeader(rule, secret.value),
+          name: secret.name,
+          value: secret.value,
+        }))
+    );
+};
+
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
 type SecretRow = typeof secrets.$inferSelect;
 
@@ -595,6 +615,32 @@ export const createSecretsService = ({
       );
   };
 
+  /** Decrypts secret rows of one workspace. */
+  const decryptRows = async (
+    workspaceId: string,
+    rows: readonly SecretRow[]
+  ): Promise<GrantedSecret[]> => {
+    if (rows.length === 0) {
+      return [];
+    }
+    const key = await cryptoKey();
+    return await Promise.all(
+      rows.map(async (row) => ({
+        allowedHosts: allowedHostsOf(row),
+        id: row.id,
+        mode: row.mode,
+        name: row.name,
+        rules: rulesOf(row),
+        value: await decryptSecret(
+          key,
+          binding(workspaceId, row.id),
+          row.valueEnc
+        ),
+        version: row.version,
+      }))
+    );
+  };
+
   /** The agent's granted secrets, decrypted. Internal: callers keep the values out of anything stored or shown. */
   const grantedTo = async (
     workspaceId: string,
@@ -612,24 +658,9 @@ export const createSecretsService = ({
         )
       )
       .orderBy(asc(secrets.name));
-    if (rows.length === 0) {
-      return [];
-    }
-    const key = await cryptoKey();
-    return await Promise.all(
-      rows.map(async ({ row }) => ({
-        allowedHosts: allowedHostsOf(row),
-        id: row.id,
-        mode: row.mode,
-        name: row.name,
-        rules: rulesOf(row),
-        value: await decryptSecret(
-          key,
-          binding(workspaceId, row.id),
-          row.valueEnc
-        ),
-        version: row.version,
-      }))
+    return await decryptRows(
+      workspaceId,
+      rows.map(({ row }) => row)
     );
   };
 
@@ -719,21 +750,29 @@ export const createSecretsService = ({
     workspaceId: string,
     agentId: string,
     host: string
+  ): Promise<ProxyMatch[]> =>
+    proxyMatches(await grantedTo(workspaceId, agentId), host);
+
+  /** The proxy rules for `host` of the workspace's secrets called `names`. Unknown names are ignored. */
+  const proxyForNames = async (
+    workspaceId: string,
+    names: readonly string[],
+    host: string
   ): Promise<ProxyMatch[]> => {
-    const target = normalizeHost(host);
-    const granted = await grantedTo(workspaceId, agentId);
-    return granted
-      .filter((secret) => secret.mode === "proxy")
-      .flatMap((secret) =>
-        secret.rules
-          .filter((rule) => matchHost(rule.host, target))
-          .map((rule) => ({
-            header: rule.header,
-            headerValue: renderHeader(rule, secret.value),
-            name: secret.name,
-            value: secret.value,
-          }))
-      );
+    if (names.length === 0) {
+      return [];
+    }
+    const rows = await db
+      .select()
+      .from(secrets)
+      .where(
+        and(
+          eq(secrets.workspaceId, workspaceId),
+          inArray(secrets.name, [...names])
+        )
+      )
+      .orderBy(asc(secrets.name));
+    return proxyMatches(await decryptRows(workspaceId, rows), host);
   };
 
   const sessionOf = async (
@@ -824,6 +863,7 @@ export const createSecretsService = ({
     maskerFor,
     placeholdersFor,
     proxyFor,
+    proxyForNames,
     remove,
     resolveForAgent,
     revoke,

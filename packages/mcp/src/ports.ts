@@ -158,8 +158,8 @@ export interface LibraryVersionInfo {
   version: number;
 }
 
-/** Kinds an agent can publish in phase 1. */
-export type ArtifactKindInput = "page" | "doc" | "dashboard";
+/** Kinds an agent can publish. */
+export type ArtifactKindInput = "page" | "doc" | "dashboard" | "app";
 
 /** One file of a version, given as text or base64 bytes. */
 export interface ArtifactFileInput {
@@ -258,7 +258,7 @@ export interface ArtifactTestInfo {
  * Artifacts as the tools see them, bound to the run. A port throws `ToolError`
  * with `forbidden` for an artifact the run may not write, `not_found`, and
  * `conflict` for a stale `baseVersion` with the current version in the message.
- * Phase 2 adds `promote` here.
+ * `promote` answers `waiting` when a person must approve the version's grants.
  */
 export interface ArtifactsPort {
   create: (input: ArtifactCreateInput) => Promise<ArtifactPublished>;
@@ -266,6 +266,13 @@ export interface ArtifactsPort {
     cursor?: string;
     kind?: ArtifactKindInput;
   }) => Promise<{ items: ArtifactSummary[]; next?: string }>;
+  promote: (input: {
+    artifactId: string;
+    version?: number;
+  }) => Promise<
+    | { status: "promoted"; version: number }
+    | { status: "waiting"; version: number }
+  >;
   read: (input: {
     artifactId: string;
     path?: string;

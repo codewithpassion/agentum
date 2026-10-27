@@ -20,6 +20,7 @@ import {
   getLiveArtifact,
   getShareByHash,
   getShareById,
+  getShareLookupById,
   getVersionById,
   getVersionByNumber,
   insertShareStatement,
@@ -74,6 +75,7 @@ import { ServiceError } from "../errors.ts";
 import type { EventsService, PeopleLookup } from "../events.ts";
 import type { Clock } from "../runs/types.ts";
 import type { Principal } from "../workspaces.ts";
+import { checkToolLimits } from "./arg-limits.ts";
 import { isArtifactCallError, type ToolRunner } from "./calls.ts";
 import {
   agentCanSee,
@@ -166,6 +168,18 @@ export type LinkStorageResult =
   | { ok: false; reason: "not_found" | "forbidden" | "failed" };
 
 /** What a link viewer's tool call comes to. The route maps the reasons to 404, 403, 429 and 502. */
+/** What the access log keeps of a visitor (R1.33). */
+export interface VisitorMeta {
+  ipPrefix: string | null;
+  place: string | null;
+  userAgent: string | null;
+  visitorHash: string | null;
+}
+
+export type ShareState =
+  | { dataMode: "snapshot" | "live"; ok: true }
+  | { ok: false; reason: "revoked" | "expired" | "disabled" | "unknown" };
+
 export type LinkCallResult =
   | { ok: true; result: unknown }
   | {
@@ -785,6 +799,33 @@ export const createArtifactSharesService = ({
   };
 
   /**
+   * What the access log keeps of a visitor: a salted daily hash of the IP and
+   * user agent, the IP prefix and the cut user agent. Never the address.
+   */
+  const visitorMeta = async (
+    workspaceId: string,
+    request: Pick<ShareRequestInfo, "cf" | "ip" | "userAgent">,
+    now: Date = clock.now()
+  ): Promise<VisitorMeta> => {
+    let hash: string | null = null;
+    if (request.ip) {
+      const salt = await ensureViewSalt(
+        db,
+        workspaceId,
+        utcDay(now),
+        newSalt()
+      );
+      hash = await visitorHash(salt, request.ip, request.userAgent ?? "");
+    }
+    return {
+      ipPrefix: request.ip ? truncateIp(request.ip) : null,
+      place: request.cf?.country || null,
+      userAgent: cutUserAgent(request.userAgent),
+      visitorHash: hash,
+    };
+  };
+
+  /**
    * The row for a link open. The full IP goes into the hash and the prefix
    * only; the row keeps neither the address nor the token.
    */
@@ -795,17 +836,7 @@ export const createArtifactSharesService = ({
     request: ShareRequestInfo,
     now: Date
   ): Promise<NewArtifactView> => {
-    const userAgent = cutUserAgent(request.userAgent);
-    let hash: string | null = null;
-    if (request.ip) {
-      const salt = await ensureViewSalt(
-        db,
-        share.workspaceId,
-        utcDay(now),
-        newSalt()
-      );
-      hash = await visitorHash(salt, request.ip, request.userAgent ?? "");
-    }
+    const meta = await visitorMeta(share.workspaceId, request, now);
     const cf = request.cf ?? {};
     const text = (value: string | null | undefined) => value || null;
     return {
@@ -813,18 +844,18 @@ export const createArtifactSharesService = ({
       asn: cf.asn === null || cf.asn === undefined ? null : String(cf.asn),
       asOrg: text(cf.asOrganization),
       city: text(cf.city),
-      country: text(cf.country),
+      country: meta.place,
       createdAt: now.toISOString(),
       id: ulid(now.getTime()),
-      ipPrefix: request.ip ? truncateIp(request.ip) : null,
+      ipPrefix: meta.ipPrefix,
       outcome,
       referrerHost: referrerHost(request.referrer),
       region: text(cf.region),
       shareId: share.shareId,
       surface: "share",
-      userAgent,
+      userAgent: meta.userAgent,
       versionId,
-      visitorHash: hash,
+      visitorHash: meta.visitorHash,
       workspaceId: share.workspaceId,
     };
   };
@@ -954,17 +985,103 @@ export const createArtifactSharesService = ({
       return { ok: false, reason: "not_found" };
     }
     const now = clock.now();
+    return await callKnownShare(
+      share,
+      call,
+      now,
+      await viewRow(share, null, "ok", request, now)
+    );
+  };
+
+  /**
+   * A link viewer calls a tool through the app gateway, which holds the share
+   * id and the visitor's request metadata but not the token. The same checks
+   * as `callLink` run; the row's visitor fields come from `meta`. An unknown
+   * share id, or one of another artifact, writes nothing.
+   */
+  const callShare = async (
+    shareId: string,
+    artifactId: string,
+    input: ShareCallInput,
+    meta: VisitorMeta
+  ): Promise<LinkCallResult> => {
+    const call = shareCallInputSchema.parse(input);
+    const share = await getShareLookupById(db, shareId, artifactId);
+    if (!share) {
+      return { ok: false, reason: "not_found" };
+    }
+    const now = clock.now();
+    return await callKnownShare(share, call, now, {
+      artifactId: share.artifactId,
+      asn: null,
+      asOrg: null,
+      city: null,
+      country: meta.place,
+      createdAt: now.toISOString(),
+      id: ulid(now.getTime()),
+      ipPrefix: meta.ipPrefix,
+      outcome: "ok",
+      referrerHost: null,
+      region: null,
+      shareId: share.shareId,
+      surface: "share",
+      userAgent: meta.userAgent,
+      versionId: null,
+      visitorHash: meta.visitorHash,
+      workspaceId: share.workspaceId,
+    });
+  };
+
+  /** The state of a link by id, with no cache: alive (and its data mode) or why not. */
+  const shareState = async (
+    shareId: string,
+    artifactId: string
+  ): Promise<ShareState> => {
+    const share = await getShareLookupById(db, shareId, artifactId);
+    if (!share) {
+      return { ok: false, reason: "unknown" };
+    }
+    const version = await linkVersion(share);
+    const outcome = linkOutcome(
+      share,
+      version !== undefined,
+      clock.now(),
+      linksOff
+    );
+    if (outcome === "ok") {
+      return { dataMode: share.dataMode, ok: true };
+    }
+    // `linkOutcome` only refuses with these three.
+    return {
+      ok: false,
+      reason:
+        outcome === "expired" || outcome === "disabled" ? outcome : "revoked",
+    };
+  };
+
+  /**
+   * The checks and the run for a link that is known, whichever way it was
+   * found. `row` holds the visitor fields; the version and the outcome are
+   * set here.
+   */
+  const callKnownShare = async (
+    share: Parameters<typeof runGranted>[0] &
+      Parameters<typeof linkOutcome>[0] & {
+        artifactId: string;
+        currentVersionId: string | null;
+        shareId: string;
+        versionId: string | null;
+      },
+    call: ShareCallInput,
+    now: Date,
+    row: NewArtifactView
+  ): Promise<LinkCallResult> => {
     const version = await linkVersion(share);
     const base = {
-      ...(await viewRow(
-        share,
-        version ? version.id : null,
-        "ok",
-        request,
-        now
-      )),
+      ...row,
       surface: "live_call" as const,
       toolKey: call.tool,
+      versionId: version ? version.id : null,
     };
     const dead = linkOutcome(share, version !== undefined, now, linksOff);
     if (dead !== "ok" || !version) {
@@ -1002,7 +1119,14 @@ export const createArtifactSharesService = ({
     viewId: string
   ): Promise<LinkCallResult> => {
     try {
-      const allowed = await liveCallAllowed(share, versionId, call.tool);
+      const allowed =
+        (await liveCallAllowed(share, versionId, call.tool)) &&
+        (await checkToolLimits(db, {
+          args: call.arguments ?? {},
+          tool: call.tool,
+          versionId,
+          workspaceId: share.workspaceId,
+        })) === null;
       if (allowed && runner && share.grantedBy) {
         return await runRecorded(runner, share.grantedBy, share, call, viewId);
       }
@@ -1134,6 +1258,7 @@ export const createArtifactSharesService = ({
 
   return {
     callLink,
+    callShare,
     createShare,
     linksEnabled,
     mintTestToken,
@@ -1142,9 +1267,11 @@ export const createArtifactSharesService = ({
     prune,
     revokeShare,
     setLinksEnabled,
+    shareState,
     shares,
     storageLink,
     views,
+    visitorMeta,
   };
 };
 

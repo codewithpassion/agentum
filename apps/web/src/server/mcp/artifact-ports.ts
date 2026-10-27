@@ -49,7 +49,7 @@ export const createArtifactPorts = ({
   publicBaseUrl?: string;
   services: Pick<
     Services,
-    "agents" | "artifactShares" | "artifacts" | "library"
+    "agents" | "artifactGrants" | "artifactShares" | "artifacts" | "library"
   >;
   testBrowser?: ArtifactTestBrowser;
 }): ArtifactsPort => {
@@ -145,6 +145,35 @@ export const createArtifactPorts = ({
           })),
           ...(next === undefined ? {} : { next }),
         };
+      }),
+    promote: ({ artifactId, version }) =>
+      guarded(async () => {
+        const versions = await services.artifacts.versions(
+          principal,
+          artifactId
+        );
+        const target =
+          version === undefined
+            ? versions.reduce<(typeof versions)[number] | undefined>(
+                (best, row) => (!best || row.number > best.number ? row : best),
+                undefined
+              )
+            : versions.find((row) => row.number === version);
+        if (!target) {
+          throw new ToolError(
+            "not_found",
+            version === undefined
+              ? "The artifact has no versions."
+              : `Version ${version} not found.`
+          );
+        }
+        const result = await services.artifactGrants.promote(principal, {
+          artifactId,
+          versionId: target.id,
+        });
+        return result.status === "promoted"
+          ? { status: "promoted" as const, version: result.version }
+          : { status: "waiting" as const, version: target.number };
       }),
     read: ({ artifactId, path, version }) =>
       guarded(async () => {

@@ -29,6 +29,7 @@ const uncalled = (name: string) => (): Promise<never> =>
 const port = (overrides: Partial<ArtifactsPort> = {}): ArtifactsPort => ({
   create: uncalled("create"),
   list: uncalled("list"),
+  promote: uncalled("promote"),
   read: uncalled("read"),
   test: uncalled("test"),
   update: uncalled("update"),
@@ -48,9 +49,10 @@ describe("registration", () => {
   const tools = harbourmasterTools(fakePorts({ artifacts: port() }));
   const find = (name: string) => tools.find((tool) => tool.name === name);
 
-  test("the five tools carry the spec's annotations", () => {
+  test("the tools carry the spec's annotations", () => {
     expect(find("artifact_create")?.annotations).toEqual(WRITE_CREATE);
     expect(find("artifact_update")?.annotations).toEqual(WRITE_UPDATE);
+    expect(find("artifact_promote")?.annotations).toEqual(WRITE_UPDATE);
     for (const name of ["artifact_read", "artifact_list", "artifact_test"]) {
       expect(find(name)?.annotations).toEqual(READ_ONLY);
     }
@@ -521,5 +523,84 @@ describe("artifact_test", () => {
       { artifactId: ID }
     );
     expect(textOf(result)).toContain("No console errors or failed requests.");
+  });
+});
+
+describe("app artifacts", () => {
+  test("create takes the app kind and defaults the entry to index.html", async () => {
+    let received: { entry?: string; kind?: string } = {};
+    const result = await call(
+      port({
+        create: (input) => {
+          received = input;
+          return Promise.resolve(published);
+        },
+      }),
+      "artifact_create",
+      {
+        files: [
+          html,
+          { path: "server/index.js", text: "export default {};" },
+          { path: "harbourmaster.json", text: "{}" },
+        ],
+        kind: "app",
+        title: "App",
+      }
+    );
+    expect(result.isError).toBeFalsy();
+    expect(received.kind).toBe("app");
+    expect(received.entry).toBe("index.html");
+  });
+});
+
+describe("artifact_promote", () => {
+  test("forwards the version and says it is live", async () => {
+    let received: unknown;
+    const result = await call(
+      port({
+        promote: (input) => {
+          received = input;
+          return Promise.resolve({ status: "promoted", version: 3 });
+        },
+      }),
+      "artifact_promote",
+      { artifactId: ID, version: 3 }
+    );
+    expect(received).toEqual({ artifactId: ID, version: 3 });
+    expect(textOf(result)).toBe("Version 3 is now live.");
+  });
+
+  test("a waiting version tells the agent to stop", async () => {
+    const result = await call(
+      port({
+        promote: () => Promise.resolve({ status: "waiting", version: 2 }),
+      }),
+      "artifact_promote",
+      { artifactId: ID }
+    );
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toContain("Version 2 waits for a person");
+    expect(textOf(result)).toContain("Needs you");
+    expect(textOf(result)).toContain("do not retry");
+  });
+
+  test("dry run skips the promote and records it", async () => {
+    const recorded: { summary: string; tool: string }[] = [];
+    const result = await call(
+      port(),
+      "artifact_promote",
+      { artifactId: ID },
+      {
+        dryRun: {
+          record: (skip) => {
+            recorded.push(skip);
+            return Promise.resolve();
+          },
+        },
+      }
+    );
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toStartWith("Skipped in dry run: would ");
+    expect(recorded.map((skip) => skip.tool)).toEqual(["artifact_promote"]);
   });
 });

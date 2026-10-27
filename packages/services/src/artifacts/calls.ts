@@ -47,6 +47,7 @@ import { ServiceError } from "../errors.ts";
 import type { Payload } from "../events/payload.ts";
 import { redactToolPayload } from "../events/scrub.ts";
 import type { Principal } from "../workspaces.ts";
+import { checkToolLimits } from "./arg-limits.ts";
 import { canOpen } from "./policy.ts";
 
 /** The most a scrubbed result may weigh, as UTF-8 JSON. Bigger results are refused, not cut. */
@@ -158,6 +159,33 @@ const findReadOnlyTool = async (
   }
   return { connector, toolName: parts.toolName };
 };
+
+/**
+ * The tools a version may ask for, for the grant checks: every connector tool
+ * of the workspace under the key a run would give it (`agentId` is the maker
+ * whose connector list gives the keys, null for a person's artifact). The
+ * platform's own tools (`harbourmaster/...`) are not here, because the runner
+ * only runs connector tools, so a grant for one could never be used.
+ */
+export const createConnectorToolCatalog = (db: Database) => ({
+  lookup: async (
+    workspaceId: string,
+    toolKey: string,
+    agentId: string | null
+  ): Promise<{ readOnly: boolean } | null> => {
+    const parts = splitToolKey(toolKey);
+    if (!parts) {
+      return null;
+    }
+    const rows = await callableConnectors(db, { agentId, workspaceId });
+    const keys = connectorServerKeys(rows.map(({ name }) => name));
+    const connector = rows[keys.indexOf(parts.serverKey)];
+    const tool = connector
+      ? cachedTools(connector.tools).find(({ name }) => name === parts.toolName)
+      : undefined;
+    return tool ? { readOnly: tool.readOnly } : null;
+  },
+});
 
 /** A refusal by the connector means the viewer must connect again, anything else is a failed call. */
 const toCallError = (
@@ -335,9 +363,19 @@ export const createArtifactCallsService = ({
     if (!granted.includes(input.tool)) {
       throw notGranted();
     }
+    const args = input.arguments ?? {};
+    const outside = await checkToolLimits(db, {
+      args,
+      tool: input.tool,
+      versionId: input.versionId,
+      workspaceId,
+    });
+    if (outside) {
+      throw new ArtifactCallError("not_granted", outside);
+    }
     return await runner.run({
       agentId: artifact.agentId,
-      arguments: input.arguments ?? {},
+      arguments: args,
       toolKey: input.tool,
       userId,
       workspaceId,

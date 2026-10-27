@@ -12,7 +12,8 @@
       { "name": "PI_RUN", "class_name": "PiRun" },
       { "name": "LINUX_VM", "class_name": "VmSession" },
       { "name": "SESSION_STREAM", "class_name": "SessionStream" },
-      { "name": "MAILBOX", "class_name": "MailboxDO" }
+      { "name": "MAILBOX", "class_name": "MailboxDO" },
+      { "name": "APP_STORE", "class_name": "AppStore" }
     ]
   },
   // The Linux VM of a cloud agent session (task C.14): a Sandbox SDK container,
@@ -49,7 +50,8 @@
     { "tag": "v3", "new_sqlite_classes": ["ManagedPoller"] },
     { "tag": "v4", "new_sqlite_classes": ["VmSession"] },
     { "tag": "v5", "new_sqlite_classes": ["SessionStream"] },
-    { "tag": "v6", "new_sqlite_classes": ["MailboxDO"] }
+    { "tag": "v6", "new_sqlite_classes": ["MailboxDO"] },
+    { "tag": "v7", "new_sqlite_classes": ["AppStore"] }
   ],
   // The minute tick (src/server/tick). Crons are not per environment either:
   // only the production Worker runs them.
@@ -112,7 +114,8 @@
           { "name": "PI_RUN", "class_name": "PiRun" },
           { "name": "LINUX_VM", "class_name": "VmSession" },
           { "name": "SESSION_STREAM", "class_name": "SessionStream" },
-          { "name": "MAILBOX", "class_name": "MailboxDO" }
+          { "name": "MAILBOX", "class_name": "MailboxDO" },
+          { "name": "APP_STORE", "class_name": "AppStore" }
         ]
       },
       "containers": [
@@ -171,7 +174,8 @@
             { "name": "PI_RUN", "class_name": "PiRun" },
             { "name": "LINUX_VM", "class_name": "VmSession" },
             { "name": "SESSION_STREAM", "class_name": "SessionStream" },
-            { "name": "MAILBOX", "class_name": "MailboxDO" }
+            { "name": "MAILBOX", "class_name": "MailboxDO" },
+            { "name": "APP_STORE", "class_name": "AppStore" }
           ]
         },
         // Wrangler accepts no Durable Object container for previews, so a Linux

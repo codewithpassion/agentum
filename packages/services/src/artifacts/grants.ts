@@ -68,10 +68,15 @@ const LIMITS_SEPARATOR = "#";
 
 /** What the grant checks need to know about a tool a version asks for. */
 export interface ToolCatalog {
-  /** The tool by `<serverKey>/<tool>`, or null when the workspace has no such tool. */
+  /**
+   * The tool by `<serverKey>/<tool>`, or null when the workspace has no such
+   * tool. `agentId` is the agent whose connector list gives the server keys
+   * (the artifact's maker), or null for an artifact a person made.
+   */
   lookup: (
     workspaceId: string,
-    toolKey: string
+    toolKey: string,
+    agentId: string | null
   ) => Promise<{ readOnly: boolean } | null>;
 }
 
@@ -237,13 +242,17 @@ export const createArtifactGrantsService = ({
     return { actor: { id: "system", kind: "system" as const } };
   };
 
-  const checkTools = async (workspaceId: string, declared: DeclaredGrant[]) => {
+  const checkTools = async (
+    workspaceId: string,
+    agentId: string | null,
+    declared: DeclaredGrant[]
+  ) => {
     for (const grant of declared) {
       if (grant.kind !== "tool" || grant.target.includes(LIMITS_SEPARATOR)) {
         continue;
       }
       // biome-ignore lint/performance/noAwaitInLoops: at most 50 tools, and the first refusal ends it
-      const found = await tools.lookup(workspaceId, grant.target);
+      const found = await tools.lookup(workspaceId, grant.target, agentId);
       if (!found) {
         throw new ServiceError("invalid", `Unknown tool ${grant.target}`);
       }
@@ -274,6 +283,7 @@ export const createArtifactGrantsService = ({
     });
     await checkTools(
       principal.workspaceId,
+      principal.kind === "run" ? principal.agentId : null,
       declaredGrants(parseManifest(recordFilesSchema.parse(files)))
     );
   };
@@ -305,7 +315,7 @@ export const createArtifactGrantsService = ({
       return existing.map(grantRecord);
     }
     const declared = declaredGrants(parseManifest(files));
-    await checkTools(artifact.workspaceId, declared);
+    await checkTools(artifact.workspaceId, artifact.agentId, declared);
     const carried =
       artifact.currentVersionId && artifact.currentVersionId !== version.id
         ? await approvedGrants(db, {
