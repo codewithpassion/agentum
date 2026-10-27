@@ -72,7 +72,7 @@ export const currentGuestRun = (at: string): SQL => sql`(
       select 1 from guest_run_scopes b
       join sessions s on s.id = ${runs.sessionId}
         and s.workspace_id = ${runs.workspaceId}
-        and s.origin = 'artifact' and s.external_key = ${runs.scopeArtifactId}
+        and s.origin = 'artifact' and s.private = 0 and s.external_key = ${runs.scopeArtifactId}
       where b.run_id = ${runs.id} and b.workspace_id = ${runs.workspaceId} and ${liveGrant(
         sql`b.member_id`,
         sql`b.session_id`,

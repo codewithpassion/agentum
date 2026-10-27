@@ -680,6 +680,28 @@ export class ArtifactRoom extends Room {
       revision: chosen.revision,
     };
   }
+  /** Resolve the cookie against this room before reading trusted presence. */
+  async guestAskPresence(sessionToken: string) {
+    const scope = await this.state.storage.get<RoomScope>("productionScope");
+    if (!scope) {
+      throw new Error("Wrong scope");
+    }
+    const composed = this.composed();
+    const guests = createGuestArtifacts({
+      ...composed,
+      guestsOff: () =>
+        Boolean(
+          (this.productionEnv as Env & { LIVE_GUESTS_OFF?: string })
+            .LIVE_GUESTS_OFF
+        ),
+    });
+    const credential = { ...scope, sessionToken };
+    const grant = await guests.current(credential, true);
+    const result = await this.askPresence(`g:${grant.guestId}`);
+    await guests.current(credential, true);
+    return result;
+  }
+
   async askPresence(
     participantId: string
   ): Promise<Pick<SpeakerRoom, "present" | "where">> {

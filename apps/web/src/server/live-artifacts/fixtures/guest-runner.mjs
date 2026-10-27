@@ -204,15 +204,28 @@ try {
     ).status === 401,
     "member image policy ignores guest cookie"
   );
+  const disabledAsk = await post(
+    guest(editor.artifactId, "ask"),
+    { requestId: "disabled-guest-ask", text: "No guest agent" },
+    editorCookie
+  );
+  check(
+    disabledAsk.status === 404,
+    "guest execution remains disabled without restricted adapter"
+  );
+  const nextAskCookie = disabledAsk.headers.get("Set-Cookie")?.split(";")[0];
+  check(
+    nextAskCookie && nextAskCookie !== editorCookie,
+    "failed ask rotates cookie"
+  );
+  editorCookie = nextAskCookie;
   check(
     (
-      await post(
-        guest(editor.artifactId, "ask"),
-        { text: "No guest agent" },
-        editorCookie
-      )
-    ).status === 404,
-    "guest agent execution route absent"
+      await db
+        .prepare("SELECT count(*) n FROM runs WHERE actor_kind='guest'")
+        .first()
+    ).n === 0,
+    "disabled guest ask inserts no run and charges no cap"
   );
   const image = new FormData();
   image.set(

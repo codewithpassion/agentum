@@ -47,5 +47,9 @@ export const authenticateBearer = async (
       workspaces: composed.services.workspaces,
     }),
   });
-  return await resolver.resolve(authorization);
+  const principal = await resolver.resolve(authorization);
+  if (principal?.kind === "run" && principal.scopeArtifactId) {
+    await composed.services.runs.authorizeScopedRun(principal, principal.runId);
+  }
+  return principal;
 };

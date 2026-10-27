@@ -360,26 +360,48 @@ describe("the gate hook", () => {
     expect(fake.ruleReads).toEqual(["bash", "web_fetch"]);
   });
 
-  test("reads the rules once for repeated calls, and again after an answer or the cache time", async () => {
+  test("rechecks every negative rule decision so newly joined guests cannot bypass approval", async () => {
     const fake = fakeRequests([]);
     let now = 0;
     const gate = gateOf(fake.port, { now: () => now });
 
     await gate.beforeTool(callOf("read", "a"), HOOK_API, BACKGROUND_CONTEXT);
     await gate.beforeTool(callOf("read", "b"), HOOK_API, BACKGROUND_CONTEXT);
-    expect(fake.ruleReads).toHaveLength(1);
+    expect(fake.ruleReads).toHaveLength(2);
 
     gate.answered("req1");
     await gate.beforeTool(callOf("read", "c"), HOOK_API, BACKGROUND_CONTEXT);
-    expect(fake.ruleReads).toHaveLength(2);
+    expect(fake.ruleReads).toHaveLength(3);
 
     now += RULE_CACHE_MS;
     await gate.beforeTool(callOf("read", "d"), HOOK_API, BACKGROUND_CONTEXT);
-    expect(fake.ruleReads).toHaveLength(3);
+    expect(fake.ruleReads).toHaveLength(4);
 
     gate.checkOpen();
     await gate.beforeTool(callOf("read", "e"), HOOK_API, BACKGROUND_CONTEXT);
-    expect(fake.ruleReads).toHaveLength(4);
+    expect(fake.ruleReads).toHaveLength(5);
+  });
+
+  test("guest joining after an unruled call requires approval before the next tool", async () => {
+    const rules: string[] = [];
+    const fake = fakeRequests(rules);
+    const gate = gateOf(fake.port);
+    await gate.beforeTool(
+      callOf("bash", "before"),
+      HOOK_API,
+      BACKGROUND_CONTEXT
+    );
+    rules.push("bash");
+    const pending = gate.beforeTool(
+      callOf("bash", "after"),
+      HOOK_API,
+      BACKGROUND_CONTEXT
+    );
+    expect(await resultOf(pending)).toBe("pending");
+    expect(fake.opens).toHaveLength(1);
+    fake.close("req1", ALLOW);
+    gate.answered("req1");
+    expect(await pending).toBeUndefined();
   });
 
   test("does not gate ask_user", async () => {

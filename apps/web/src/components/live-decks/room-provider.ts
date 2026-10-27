@@ -99,6 +99,8 @@ const frame = (type: number, payload: Uint8Array, subtype?: number) => {
   return toUint8Array(encoder);
 };
 export interface RoomOptions {
+  /** Called after authenticated WebSocket upgrade, before policy HTTP reads. */
+  admitted?: () => void;
   failed: (message: string) => void;
   join: () => Promise<LiveJoinResult>;
   /** Refresh verified ownership before applying every room update. */
@@ -228,6 +230,7 @@ export class TicketedDeckRoom {
       url.searchParams.set("ticket", joined.ticket);
       const socket = new WebSocket(url);
       socket.binaryType = "arraybuffer";
+      socket.onopen = () => this.options.admitted?.();
       this.socket = socket;
       this.connectionTimer = setTimeout(
         () => this.fail(new Error("Room synchronization timed out")),

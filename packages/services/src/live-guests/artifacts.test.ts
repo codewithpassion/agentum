@@ -218,3 +218,20 @@ test("guest transcript selects only the exact non-private artifact-origin sessio
     .where(eq(sessions.id, "guest-artifact-thread"));
   expect((await h.service.transcript(h.credential)).events).toEqual([]);
 });
+
+test("guest invitation list contains only current same-identity live grants", async () => {
+  const h = await setup();
+  expect(await h.service.invitations(h.credential)).toEqual([
+    {
+      artifactId: h.credential.artifactId,
+      expiresAt: "2026-10-28T00:00:00.000Z",
+      role: "commenter",
+      title: "Guest",
+    },
+  ]);
+  await h.db
+    .update(artifactMembers)
+    .set({ revokedAt: "2026-10-27T00:01:00Z" })
+    .where(eq(artifactMembers.id, "m1"));
+  await expect(h.service.invitations(h.credential)).rejects.toThrow();
+});

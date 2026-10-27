@@ -195,7 +195,7 @@ export const createGate = ({
   const isRuled = async (runId: string, key: string): Promise<boolean> => {
     const id = `${runId}\u0000${key}`;
     const known = rules.get(id);
-    if (known && now() - known.at < RULE_CACHE_MS) {
+    if (known?.ruled && now() - known.at < RULE_CACHE_MS) {
       return known.ruled;
     }
     const ruled = await requests.needsApproval({ runId, toolKey: key });

@@ -6,6 +6,7 @@ import {
   createGuestArtifacts,
   type GuestCredential,
 } from "@repo/services/live-guests/artifacts";
+import { createGuestAsk } from "@repo/services/live-guests/ask";
 import { createGuestImages } from "@repo/services/live-guests/images";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { z } from "zod";
@@ -64,6 +65,7 @@ const requiredGuests = async (composed: Composed) => {
 interface Input {
   composed: Composed;
   credential: GuestCredential;
+  defer: (work: Promise<unknown>) => void;
   env: Env;
   grant: GuestGrant;
   request: Request;
@@ -147,6 +149,27 @@ export const guestActions: Record<
   string,
   { method: string; execute: (input: Input) => Promise<unknown> }
 > = {
+  ask: {
+    execute: async ({ composed, env, credential, request, defer }) => {
+      const guests = await requiredGuests(composed);
+      const start = createGuestAsk({
+        db: composed.db,
+        guests,
+        presence: async (scope) =>
+          (await roomStub(env.ARTIFACT_ROOM, scope)).guestAskPresence(
+            scope.sessionToken
+          ),
+        runs: composed.services.runs,
+      });
+      const { offer, ...result } = await start(
+        credential,
+        await guestJson(request)
+      );
+      defer(offer());
+      return result;
+    },
+    method: "POST",
+  },
   comment: {
     execute: async ({ env, composed, credential, request }) =>
       scopedGuests(env, composed).comment(
@@ -189,6 +212,11 @@ export const guestActions: Record<
     method: "POST",
   },
   images: { execute: images, method: "POST" },
+  invitations: {
+    execute: async ({ env, composed, credential }) =>
+      scopedGuests(env, composed).invitations(credential),
+    method: "GET",
+  },
   join: { execute: join, method: "POST" },
   open: { execute: open, method: "GET" },
   policy: {

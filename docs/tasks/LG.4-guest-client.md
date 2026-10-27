@@ -3,9 +3,9 @@ id: LG.4
 title: Guest sign-in and scoped collaboration client
 milestone: L
 size: L
-status: in_progress
+status: review
 depends_on: [LG.3]
-branch: null
+branch: t3/guest-client
 lane: guest-client
 executor: codex
 ---
@@ -17,3 +17,5 @@ Implement phase 3 guest landing/code sign-in, artifact viewer without workspace 
 ## Log
 
 - 2026-10-27: Queued after merged guest backend and bounded review; all phase acceptance remains open.
+
+- 2026-10-28: Merged implementation through ac2b8a7d and evidence62a68e46, including production-bundle desktop/mobile workerd scenarios. Independent review and combined main validation queued. Guest execution, guest embeds and external acceptance remain gates.
