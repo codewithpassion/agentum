@@ -36,6 +36,7 @@ import { currentGuestRun } from "./runs/guest-scope.ts";
 import { loadRun } from "./runs/queries.ts";
 import { toRecord, toSummary } from "./runs/records.ts";
 import {
+  type Clock,
   DRY_RUN_ORIGIN,
   type RunSummary,
   type SessionOrigin,
@@ -182,7 +183,8 @@ const openerOf = async (
  */
 export const visibleSessions = async (
   db: Database,
-  reader: Reader
+  reader: Reader,
+  at = new Date().toISOString()
 ): Promise<SQL | undefined> => {
   if (reader.kind === "run") {
     const run = await loadRun(db, reader.runId, reader.workspaceId);
@@ -196,7 +198,7 @@ export const visibleSessions = async (
         eq(sessions.origin, "artifact"),
         eq(sessions.externalKey, run.scopeArtifactId),
         sql`exists (select 1 from ${artifacts} where ${artifacts.id} = ${sessions.externalKey} and ${artifacts.workspaceId} = ${sessions.workspaceId} and ${artifacts.deletedAt} is null)`,
-        sql`exists (select 1 from ${runs} where ${runs.id} = ${run.id} and ${currentGuestRun(new Date().toISOString())})`
+        sql`exists (select 1 from ${runs} where ${runs.id} = ${run.id} and ${currentGuestRun(at)})`
       );
     }
   }
@@ -369,10 +371,12 @@ export const createSessionsService = ({
   db,
   events,
   authorizeScopedRun,
+  clock = { now: () => new Date() },
 }: {
   db: Database;
   events: EventsService;
   authorizeScopedRun?: (principal: Principal, runId: string) => Promise<void>;
+  clock?: Pick<Clock, "now">;
 }) => {
   const visibleTo = async (reader: Reader) => {
     if (reader.kind === "run") {
@@ -384,7 +388,7 @@ export const createSessionsService = ({
         await authorizeScopedRun(reader, run.id);
       }
     }
-    return visibleSessions(db, reader);
+    return visibleSessions(db, reader, clock.now().toISOString());
   };
 
   /**

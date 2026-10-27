@@ -3314,6 +3314,19 @@ describe("guest artifact starts", () => {
       ["guest", "g1"],
       ["guest", "g1"],
     ]);
+    const caller = runPrincipal(started.runId, spyAgentId);
+    expect((await service.getRun(caller, started.runId)).id).toBe(
+      started.runId
+    );
+    const guestSessionsService = createSessionsService({
+      authorizeScopedRun: service.authorizeScopedRun,
+      clock,
+      db,
+      events,
+    });
+    expect((await guestSessionsService.get(caller, started.sessionId)).id).toBe(
+      started.sessionId
+    );
     const next = await service.startForGuest(grant, guestInput(), {
       guestSessionToken,
       offerLater: true,

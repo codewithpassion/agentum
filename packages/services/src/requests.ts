@@ -138,7 +138,10 @@ export const createRequestsService = ({
       .select({ id: sessions.id })
       .from(sessions)
       .where(
-        and(eq(sessions.id, sessionId), await visibleSessions(db, principal))
+        and(
+          eq(sessions.id, sessionId),
+          await visibleSessions(db, principal, clock.now().toISOString())
+        )
       );
     if (!session) {
       throw new ServiceError("not_found", "Request not found");
@@ -580,7 +583,9 @@ export const createRequestsService = ({
             db
               .select({ id: sessions.id })
               .from(sessions)
-              .where(await visibleSessions(db, principal))
+              .where(
+                await visibleSessions(db, principal, clock.now().toISOString())
+              )
           )
         )
       )
@@ -641,7 +646,9 @@ export const createRequestsService = ({
             db
               .select({ id: sessions.id })
               .from(sessions)
-              .where(await visibleSessions(db, principal))
+              .where(
+                await visibleSessions(db, principal, clock.now().toISOString())
+              )
           )
         )
       )
@@ -733,7 +740,7 @@ export const createRequestsService = ({
     const visibleIds = db
       .select({ id: sessions.id })
       .from(sessions)
-      .where(await visibleSessions(db, principal));
+      .where(await visibleSessions(db, principal, clock.now().toISOString()));
     const rows = await db
       .select()
       .from(runRequests)

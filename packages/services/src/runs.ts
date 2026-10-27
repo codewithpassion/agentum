@@ -467,7 +467,7 @@ export const createRunsService = ({
       .from(sessions)
       .where(
         and(
-          await visibleSessions(db, principal),
+          await visibleSessions(db, principal, nowIso()),
           eq(sessions.id, run.sessionId)
         )
       )
