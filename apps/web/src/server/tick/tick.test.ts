@@ -177,6 +177,32 @@ test("a tick off the prune slot does not call pruneVersions", async () => {
   expect(calls).toHaveLength(1);
 });
 
+test("the artifact prune runs once a day at 03:17 UTC", async () => {
+  const job = tickJobs.find((item) => item.name === "artifacts.prune");
+  expect(job).toBeDefined();
+  let calls = 0;
+  const services = {
+    ...deps.services,
+    artifactShares: {
+      prune: () => {
+        calls += 1;
+        return Promise.resolve();
+      },
+    },
+  } as unknown as Services;
+  const at = (iso: string): TickDeps => ({
+    clock: { ...deps.clock, now: () => new Date(iso) },
+    services,
+  });
+
+  await runTick(job ? [job] : [], at("2026-11-16T03:16:00.000Z"));
+  await runTick(job ? [job] : [], at("2026-11-16T04:17:00.000Z"));
+  expect(calls).toBe(0);
+
+  await runTick(job ? [job] : [], at("2026-11-16T03:17:00.000Z"));
+  expect(calls).toBe(1);
+});
+
 test("the registered jobs append nothing to events when none has work", async () => {
   const report = await runTick(tickJobs, deps);
 

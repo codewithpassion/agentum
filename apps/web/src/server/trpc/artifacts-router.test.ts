@@ -15,25 +15,7 @@ const caller = appRouter.createCaller({
 } as unknown as Context);
 const artifactId = crypto.randomUUID();
 
-const calls: Record<string, () => Promise<unknown>> = {
-  createShare: () => caller.artifacts.createShare({ artifactId }),
-  open: () => caller.artifacts.open({ artifactId, surface: "viewer" }),
-  revokeShare: () => caller.artifacts.revokeShare({ shareId: "x" }),
-  setLinksEnabled: () => caller.artifacts.setLinksEnabled({ enabled: true }),
-  shares: () => caller.artifacts.shares({ artifactId }),
-  views: () => caller.artifacts.views({ artifactId }),
-};
-
-test("every artifacts procedure but callTool is stubbed as NOT_IMPLEMENTED", async () => {
-  expect(Object.keys(calls)).toHaveLength(6);
-  await Promise.all(
-    Object.entries(calls).map(([name, call]) =>
-      expect(call(), name).rejects.toMatchObject({ code: "NOT_IMPLEMENTED" })
-    )
-  );
-});
-
-test("the input schema runs before the stub body", async () => {
+test("the input schema runs before the procedure body", async () => {
   await expect(
     caller.artifacts.get({ artifactId: "nope" })
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
