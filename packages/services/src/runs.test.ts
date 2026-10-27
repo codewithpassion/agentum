@@ -1591,6 +1591,111 @@ test("reaping a run offers the agent's next waiting run", async () => {
   expect(dispatched).toEqual([waiting.runId]);
 });
 
+const offeringRuns = (gateways: Gateway[] = []) => {
+  const offering: RuntimeAdapter = { ...spyAdapter(), offerNextOnEnd: true };
+  runs = buildRuns({ adapters: [offering], gateways });
+};
+
+test("the oldest run still downloading blocks the offer when a run ends", async () => {
+  offeringRuns([slackGateway(() => Promise.resolve([]))]);
+  const running = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, running.runId);
+  await start(user, spyAgentId, { reply: SLACK_REPLY }, "files", {
+    pendingFiles: [{ id: "F1" }],
+  });
+  await start(user, spyAgentId);
+  dispatched = [];
+
+  advance(91 * SECOND);
+  await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+  expect(runRow(running.runId)).toMatchObject({ status: "interrupted" });
+  expect(dispatched).toEqual([]);
+});
+
+test("the third failed download offers the agent's next run", async () => {
+  offeringRuns([
+    slackGateway(() => Promise.reject(new Error("slack is down"))),
+  ]);
+  const downloading = await start(
+    user,
+    spyAgentId,
+    { reply: SLACK_REPLY },
+    "files",
+    { pendingFiles: [{ id: "F1" }] }
+  );
+  const next = await start(user, spyAgentId);
+  dispatched = [];
+
+  await failure(runs.fetchPendingFiles(SYSTEM_PRINCIPAL, downloading.runId));
+  await failure(runs.fetchPendingFiles(SYSTEM_PRINCIPAL, downloading.runId));
+  expect(dispatched).toEqual([]);
+  expect(
+    await runs.fetchPendingFiles(SYSTEM_PRINCIPAL, downloading.runId)
+  ).toBe("failed");
+  expect(dispatched).toEqual([next.runId]);
+});
+
+test("a download that lands while a live run ends is offered again once the claim is free", async () => {
+  let liveId = "";
+  offeringRuns([
+    slackGateway(() => {
+      // The live run ends while the files download.
+      db.update(runRows)
+        .set({ finishedAt: START, status: "interrupted" })
+        .where(eq(runRows.id, liveId))
+        .run();
+      return Promise.resolve(["file_1"]);
+    }),
+  ]);
+  const live = await start(user, spyAgentId);
+  liveId = live.runId;
+  await runs.claimRun(SYSTEM_PRINCIPAL, live.runId);
+  const downloading = await start(
+    user,
+    spyAgentId,
+    { reply: SLACK_REPLY },
+    "files",
+    { pendingFiles: [{ id: "F1" }] }
+  );
+  dispatched = [];
+
+  expect(
+    await runs.fetchPendingFiles(SYSTEM_PRINCIPAL, downloading.runId)
+  ).toBe("downloaded");
+  expect(dispatched).toEqual([downloading.runId, downloading.runId]);
+});
+
+test("a download that lands behind a live run is offered once", async () => {
+  offeringRuns([slackGateway(() => Promise.resolve(["file_1"]))]);
+  const live = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, live.runId);
+  const downloading = await start(
+    user,
+    spyAgentId,
+    { reply: SLACK_REPLY },
+    "files",
+    { pendingFiles: [{ id: "F1" }] }
+  );
+  dispatched = [];
+
+  await runs.fetchPendingFiles(SYSTEM_PRINCIPAL, downloading.runId);
+  expect(dispatched).toEqual([downloading.runId]);
+});
+
+test("failing an unclaimed run offers the agent's next waiting run", async () => {
+  offeringRuns();
+  const expired = await start(user, spyAgentId);
+  advance(61 * 60 * SECOND);
+  const next = await start(user, spyAgentId);
+  dispatched = [];
+
+  const swept = await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+  expect(swept.failed).toEqual([
+    { message: "Never claimed", runId: expired.runId },
+  ]);
+  expect(dispatched).toEqual([next.runId]);
+});
+
 test("two simultaneous claims of one run have one winner", async () => {
   const { runId } = await start(user, spyAgentId);
 

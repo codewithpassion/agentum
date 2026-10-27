@@ -1578,6 +1578,25 @@ export const createRunsService = ({
   };
 
   /**
+   * A download can land while a live run of the agent is ending, so the offer
+   * above is refused and the run's own end offered before the files were in.
+   * If the run is still waiting and the agent has no live run now, the claim
+   * is free: offer the agent's next run again instead of leaving it to the
+   * sweep.
+   */
+  const offerAgainIfFree = async (run: RunRecord): Promise<void> => {
+    const [live] = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(and(eq(runs.agentId, run.agentId), inArray(runs.status, LIVE)))
+      .limit(1);
+    const current = await loadRun(db, run.id);
+    if (!live && current && STARTING.includes(current.status)) {
+      await offerNextWaiting(current);
+    }
+  };
+
+  /**
    * Tells the run's runtime that the reaper or the sweep ended the run, for a
    * runtime that has an `abandon`. A failure is logged and never thrown, so one
    * run cannot stop the job that is ending the others.
@@ -1629,6 +1648,7 @@ export const createRunsService = ({
       const fetched = await loadRun(db, runId);
       if (fetched && STARTING.includes(fetched.status)) {
         await offerRun(fetched);
+        await offerAgainIfFree(fetched);
       }
     }
     return outcome;
@@ -1721,6 +1741,7 @@ export const createRunsService = ({
             { error: NEVER_CLAIMED_ERROR }
           );
           await abandonEnded(toRecord(row));
+          await offerNextWaiting(toRecord(row));
           result.failed.push({ message: NEVER_CLAIMED_ERROR, runId: row.id });
         }
       } catch (error) {
