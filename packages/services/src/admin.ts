@@ -214,7 +214,7 @@ export const createAdminService = ({
       ...fields
     } = input;
     const settings = runtimeSettings({ environment, maxTurns, networkAccess });
-    // Before anything is saved: assigning connectors to an archived agent fails.
+    // Refused before anything is saved, so no field changes and no event is written.
     if ((await agents.get(principal, agentId)).status === "archived") {
       throw new ServiceError("invalid", "That agent is archived");
     }
