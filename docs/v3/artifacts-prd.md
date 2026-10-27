@@ -296,7 +296,7 @@ Live links, in detail:
 - Calls run through the existing credentials path in `user` mode on behalf of `granted_by` (`credentials.resolve`, `packages/services/src/credentials.ts:591`). Results pass the event scrubber (`packages/services/src/events/scrub.ts`) and a size cap before they reach the page. Keys never leave the server.
 - Rate limits per link: 60 calls a minute, 1,000 a day, and 10 a minute per visitor hash. They are tighter than the share-open limit.
 - Every call, allowed or refused, writes an `artifact_views` row with surface `live_call`, the tool key, the outcome and the same IP prefix, place and browser fields as an open. The owner sees them in the link's access log.
-- A live link must have an expiry, 30 days at most. That is a design choice to bound how long the owner's rights are out, not one of Dom's stated rules.
+- The person creating a live link chooses its expiry from the same choices as any link, including never (Dom, 27 Oct 2026). The dialog shows the expiry next to the live warning.
 
 ### 5. Server parts for micro apps (phase 2)
 
@@ -596,7 +596,7 @@ Sharing and the log
 - R2.12 After a live link is revoked or expires, the next call is refused, with no caching in between.
 - R2.13 A live link's calls are limited to 60 a minute and 1,000 a day per link and 10 a minute per visitor; above that they answer `rate_limited`.
 - R2.14 Every live call, allowed or refused, writes one `artifact_views` row with the tool key and outcome.
-- R2.15 The share dialog shows the data mode as a choice with snapshot preselected, lists the tools with none ticked, and shows a warning naming whose rights the link uses before it creates a live link; a live link requires an expiry of at most 30 days.
+- R2.15 The share dialog shows the data mode as a choice with snapshot preselected, lists the tools with none ticked, and shows a warning naming whose rights the link uses before it creates a live link; the person creating the link chooses the expiry, as for any link.
 - R2.7 People can pin an artifact to the sidebar and as a desk tile.
 - R2.8 Before R2.1 ships, a review checks the subdomain triggers of section 3 against phase 2's apps and records the answer.
 - R2.9 A person can hand an artifact to another agent, which may then update it.
