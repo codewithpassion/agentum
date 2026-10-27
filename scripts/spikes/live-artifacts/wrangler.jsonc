@@ -1,1 +1,12 @@
-{"name":"live-spike-local","main":"worker.ts","compatibility_date":"2026-08-19","durable_objects":{"bindings":[{"name":"ROOM","class_name":"Room"},{"name":"LIVE","class_name":"Live"}]},"migrations":[{"tag":"v1","new_sqlite_classes":["Room","Live"]}]}
+{
+  "name": "live-spike-local",
+  "main": "worker.ts",
+  "compatibility_date": "2026-08-19",
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOM", "class_name": "Room" },
+      { "name": "LIVE", "class_name": "Live" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room", "Live"] }]
+}
