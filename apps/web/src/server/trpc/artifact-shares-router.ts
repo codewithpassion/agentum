@@ -1,4 +1,6 @@
-// A.3 fills this file.
+// Opens, link shares and the access log of artifacts (A.3). Thin over
+// `@repo/services/artifacts/shares`. A.6 adds the service to `Services` in
+// compose.ts; until then the procedures answer NOT_IMPLEMENTED.
 
 import {
   artifactsCreateShareInputSchema,
@@ -14,62 +16,58 @@ import {
   artifactsViewsInputSchema,
   artifactsViewsOutputSchema,
 } from "@repo/protocol/artifacts";
+import type { ArtifactSharesService } from "@repo/services/artifacts/shares";
 import { TRPCError } from "@trpc/server";
+import type { Services } from "../compose.ts";
+import type { Context } from "./context.ts";
 import { router, workspaceProcedure } from "./init.ts";
+
+const sharesService = (ctx: Context): ArtifactSharesService => {
+  const { artifactShares } = ctx.services as Services & {
+    artifactShares?: ArtifactSharesService;
+  };
+  if (!artifactShares) {
+    throw new TRPCError({
+      code: "NOT_IMPLEMENTED",
+      message: "The artifact shares service is not wired yet",
+    });
+  }
+  return artifactShares;
+};
 
 export const artifactSharesRouter = router({
   createShare: workspaceProcedure
     .input(artifactsCreateShareInputSchema)
     .output(artifactsCreateShareOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.createShare is not implemented yet",
-      });
-    }),
+    .mutation(({ ctx, input }) =>
+      sharesService(ctx).createShare(ctx.principal, input)
+    ),
   open: workspaceProcedure
     .input(artifactsOpenInputSchema)
     .output(artifactsOpenOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.open is not implemented yet",
-      });
-    }),
+    .mutation(({ ctx, input }) =>
+      sharesService(ctx).open(ctx.principal, input)
+    ),
   revokeShare: workspaceProcedure
     .input(artifactsRevokeShareInputSchema)
     .output(artifactsRevokeShareOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.revokeShare is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await sharesService(ctx).revokeShare(ctx.principal, input);
+      return {};
     }),
   setLinksEnabled: workspaceProcedure
     .input(artifactsSetLinksEnabledInputSchema)
     .output(artifactsSetLinksEnabledOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.setLinksEnabled is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await sharesService(ctx).setLinksEnabled(ctx.principal, input);
+      return {};
     }),
   shares: workspaceProcedure
     .input(artifactsSharesInputSchema)
     .output(artifactsSharesOutputSchema)
-    .query(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.shares is not implemented yet",
-      });
-    }),
+    .query(({ ctx, input }) => sharesService(ctx).shares(ctx.principal, input)),
   views: workspaceProcedure
     .input(artifactsViewsInputSchema)
     .output(artifactsViewsOutputSchema)
-    .query(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.views is not implemented yet",
-      });
-    }),
+    .query(({ ctx, input }) => sharesService(ctx).views(ctx.principal, input)),
 });
