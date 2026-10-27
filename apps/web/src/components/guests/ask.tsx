@@ -4,10 +4,11 @@ import type {
   GuestAskAvailability,
   GuestAskResult,
 } from "@repo/protocol/guest";
-import { guestAskSchema } from "@repo/protocol/guest";
+import type { GuestGrant } from "@repo/protocol/live";
 import { useEffect, useRef, useState } from "react";
 import type { EditorRole } from "../live-artifacts/editor-ports";
 import { guestHttp } from "./http";
+import { clearPendingAsk, pendingAskKey, readPendingAsk } from "./pending-ask";
 import type { GuestServices } from "./services";
 
 interface Pending {
@@ -15,20 +16,9 @@ interface Pending {
   requestId: string;
   text: string;
 }
-const readPending = (key: string): Pending | undefined => {
-  try {
-    const value = guestAskSchema.safeParse(
-      JSON.parse(sessionStorage.getItem(key) ?? "null")
-    );
-    if (value.success) {
-      return value.data;
-    }
-  } catch {
-    /* Storage may be disabled. In-memory retries still retain identity. */
-  }
-};
 export function GuestAsk({
   services,
+  grant,
   role,
   contextVersion,
   beforeSend,
@@ -36,15 +26,18 @@ export function GuestAsk({
   onAvailability,
 }: {
   services: GuestServices;
+  grant: GuestGrant;
   role: EditorRole;
   contextVersion: number;
   beforeSend: () => Promise<void>;
   sent: () => void;
   onAvailability: (available: boolean) => void;
 }) {
-  const key = services.endpoint("ask");
-  const [pending, setPending] = useState(() => readPending(key));
-  const [text, setText] = useState(() => readPending(key)?.text ?? "");
+  const key = pendingAskKey(grant);
+  const [pending, setPending] = useState<Pending | undefined>(() =>
+    readPendingAsk(key)
+  );
+  const [text, setText] = useState(() => readPendingAsk(key)?.text ?? "");
   const [availability, setAvailability] = useState<GuestAskAvailability>();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -114,13 +107,15 @@ export function GuestAsk({
     setNotice("");
     try {
       await beforeSend();
-      const result = await guestHttp.json<GuestAskResult>(key, request);
-      try {
-        sessionStorage.removeItem(key);
-      } catch {
-        /* Optional storage. */
+      if (!alive.current) {
+        return;
       }
+      const result = await guestHttp.json<GuestAskResult>(
+        services.endpoint("ask"),
+        request
+      );
       if (alive.current) {
+        clearPendingAsk(key, request.requestId);
         sent();
         setPending(undefined);
         setText("");
@@ -184,11 +179,7 @@ export function GuestAsk({
       {pending && !busy && (
         <button
           onClick={() => {
-            try {
-              sessionStorage.removeItem(key);
-            } catch {
-              /* Optional storage. */
-            }
+            clearPendingAsk(key, pending.requestId);
             setPending(undefined);
             setNotice(
               "Saved retry cleared. The earlier request may still run in the shared thread."

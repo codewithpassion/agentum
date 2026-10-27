@@ -12,6 +12,7 @@ import { TooltipProvider } from "../ui/tooltip";
 import { GuestAsk } from "./ask";
 import { GuestComments } from "./comments";
 import { guestHttp } from "./http";
+import { clearGuestAsks, pendingAskKey } from "./pending-ask";
 import { guestServices } from "./services";
 import { GuestSuggestions } from "./suggestions";
 import { GuestTranscript } from "./transcript";
@@ -198,11 +199,7 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
           onClick={async () => {
             try {
               await guestHttp.json(guestEndpoints.signout, {});
-              try {
-                sessionStorage.removeItem(services.endpoint("ask"));
-              } catch {
-                /* Optional storage. */
-              }
+              clearGuestAsks();
               room?.dispose();
               setSignedOut(true);
             } catch (cause) {
@@ -320,10 +317,12 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
         {room !== undefined && (
           <GuestSuggestions failed={failed} role={role} services={services} />
         )}
-        {room !== undefined && (
+        {room !== undefined && opened !== undefined && (
           <GuestAsk
             beforeSend={prepareAsk}
             contextVersion={askContext}
+            grant={opened.grant}
+            key={pendingAskKey(opened.grant)}
             onAvailability={setAskAvailable}
             role={role}
             sent={() => {
