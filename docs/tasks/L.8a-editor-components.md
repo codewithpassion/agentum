@@ -3,7 +3,7 @@ id: L.8a
 title: Rich document editor components and presence UI
 milestone: L
 size: L
-status: in_progress
+status: review
 depends_on: [L.2]
 branch: null
 lane: web
@@ -17,3 +17,5 @@ Build L.8 rich editor components against the shared live-doc schema with injecte
 ## Log
 
 - 2026-10-27: Sol dispatched ahead of room wiring to parallelize the web critical path. Parent L.8 stays incomplete until route integration and browser acceptance.
+
+- 2026-10-27: Merged editor f6beacee with dependency/lock reconciliation; independent review pending.

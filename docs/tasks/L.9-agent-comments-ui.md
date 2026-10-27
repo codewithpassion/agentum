@@ -3,7 +3,7 @@ id: L.9
 title: Agent panel and comments UI
 milestone: L
 size: L
-status: todo
+status: in_progress
 depends_on: [L.6, L.8]
 branch: null
 lane: web
@@ -17,3 +17,5 @@ executor: codex
 ## Log
 
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
+
+- 2026-10-27: Starting shared thread, selection ask, anchored comments and change/revert panels in UI integration lane.

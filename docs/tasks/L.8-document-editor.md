@@ -3,7 +3,7 @@ id: L.8
 title: Document editor and presence
 milestone: L
 size: L
-status: todo
+status: in_progress
 depends_on: [L.2, L.7]
 branch: null
 lane: web
@@ -17,3 +17,5 @@ executor: codex
 ## Log
 
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
+
+- 2026-10-27: Starting real artifact route/provider and editor integration together with L.9 panels, separate from server L.7.

@@ -3,7 +3,7 @@ id: LD.2
 title: Shared document-schema deck rich-text codec
 milestone: L
 size: M
-status: review
+status: done
 depends_on: [L.2]
 branch: t3/ld2-shared-deck-codec
 lane: deck-codec
@@ -19,3 +19,5 @@ Implement production DOM-free RichTextCodec for packages/live-deck using the exi
 - 2026-10-27: Dispatched shared rich-text integration while room/editor/guest/ask implementations proceed independently. LD.0 review findings fixed on main; all focused deck checks pass.
 
 - 2026-10-27: Merged 5722fc90 production shared codec; 36 focused tests including workerd and implementation root check/test/build passed. Independent review pending.
+
+- 2026-10-27: Independent Terra review249edd76 accepted shared codec; 36 focused tests/workerd and adversarial probes passed.
