@@ -850,6 +850,8 @@ export const createSkillsStoreService = ({
       }
       throw error;
     }
+    // As in `publish`: a delete may have removed a shared blob before these rows existed.
+    await storeBlobs(migrated.flatMap((entry) => entry.skill.files));
     migratedWorkspaces.add(c.workspaceId);
     return { migrated: migrated.length, skipped: snapshot.skipped };
   };

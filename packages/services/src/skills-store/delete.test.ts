@@ -139,16 +139,20 @@ describe("deleting a skill", () => {
     finishRuns(db);
     await createSkill(service, "first", { "s.txt": "shared" });
     const { exists } = blobs;
+    const race: { armed: boolean } = { armed: false };
     let vanished = false;
+    const isShared = (key: string) =>
+      new TextDecoder().decode(blobs.objects.get(key)) === "shared";
     blobs.exists = async (key) => {
       const found = await exists(key);
       // The delete removes the blob right after the commit saw it stored.
-      if (found && !vanished) {
+      if (race.armed && found && !vanished && isShared(key)) {
         vanished = true;
         blobs.objects.delete(key);
       }
       return found;
     };
+    race.armed = true;
     await createSkill(service, "second", { "s.txt": "shared" });
     expect(vanished).toBe(true);
     const held = [...blobs.objects.values()].map((bytes) =>
