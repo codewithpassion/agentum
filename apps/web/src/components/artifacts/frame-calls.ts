@@ -1,3 +1,4 @@
+import type { PageElement } from "@repo/protocol/element-ask";
 // Phase 2 handlers for the frame bridge: tools, app storage and messages.
 // No DOM and no React in here. The page is untrusted, so no server text may
 // reach it: every failure leaves as a `BridgeError` with a fixed message.
@@ -143,7 +144,10 @@ const toolResult = (result: unknown): ToolsCallResult => {
 
 export function createCallHandlers(options: {
   calls: FrameCalls;
-  onMessage?: (text: string) => void | Promise<void>;
+  onMessage?: (
+    text: string,
+    context?: { element: PageElement; requestId: string }
+  ) => void | Promise<void>;
 }): BridgeHandlers {
   const { calls, onMessage } = options;
 
@@ -215,7 +219,18 @@ export function createCallHandlers(options: {
       if (text.length > MAX_MESSAGE_CHARS) {
         throw denied("That message is too long.");
       }
-      await onMessage(text);
+      if (calls.viewer !== "member") {
+        throw denied("Shared links cannot ask an agent.");
+      }
+      if (params.element && !params.requestId) {
+        throw denied("Element questions need a request id.");
+      }
+      await onMessage(
+        text,
+        params.element && params.requestId
+          ? { element: params.element, requestId: params.requestId }
+          : undefined
+      );
       return {};
     }),
   };

@@ -1175,6 +1175,7 @@ const LIVE_WAKE_METHODS = new Set<PropertyKey>([
   "resolve",
   "answered",
   "ask",
+  "askElement",
   "selectAgent",
   "retryCommentAsk",
   "revertChange",

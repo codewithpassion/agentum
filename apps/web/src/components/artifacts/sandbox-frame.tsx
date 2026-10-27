@@ -1,3 +1,4 @@
+import type { PageElement } from "@repo/protocol/element-ask";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertDialog,
@@ -18,10 +19,15 @@ export interface ArtifactFrameProps {
   className?: string;
   contentUrl: string;
   createCalls?: () => FrameCalls | null;
+  /** Enabled only by a member host with real message handlers. */
+  elementAsk?: boolean;
   /** False blocks pointer events, so a thread preview doesn't catch scrolling. */
   interactive: boolean;
   /** Takes a `ui/message` from the page. Without it the frame refuses them. */
-  onMessage?: (text: string) => void | Promise<void>;
+  onMessage?: (
+    text: string,
+    context?: { element: PageElement; requestId: string }
+  ) => void | Promise<void>;
   /** A proposed version: unreviewed code, so the frame answers none of its tool or storage calls. */
   preview?: boolean;
   /** The share token, for a `link` viewer's live calls. */
@@ -51,6 +57,7 @@ const currentTheme = (): "light" | "dark" =>
  */
 export function SandboxArtifactFrame({
   createCalls,
+  elementAsk = false,
   className,
   contentUrl,
   interactive,
@@ -68,7 +75,7 @@ export function SandboxArtifactFrame({
   // Anything the bridge is built from restarts the iframe, since a page that
   // lost its port never handshakes again.
   const takesMessages = onMessage !== undefined;
-  const frameKey = `${contentUrl}:${reloadKey}:${viewer}:${shareToken ?? ""}:${takesMessages}:${preview}`;
+  const frameKey = `${contentUrl}:${reloadKey}:${viewer}:${shareToken ?? ""}:${takesMessages}:${preview}:${elementAsk}`;
   // A fresh nonce for every iframe this component mounts. It travels in the
   // iframe's name, so every page loaded in the frame has it: the gate keeps
   // out pages that never read it, like one that cleared `window.name`.
@@ -109,11 +116,17 @@ export function SandboxArtifactFrame({
         ? createCallHandlers({
             calls,
             onMessage: takesMessages
-              ? (text) => onMessageRef.current?.(text)
+              ? (text, context) => onMessageRef.current?.(text, context)
               : undefined,
           })
         : undefined,
       getInit: () => ({
+        elementAsk:
+          elementAsk &&
+          takesMessages &&
+          calls?.viewer === "member" &&
+          viewer === "member" &&
+          !preview,
         theme: currentTheme(),
         version: initRef.current.version,
         viewer: initRef.current.viewer,
@@ -138,7 +151,16 @@ export function SandboxArtifactFrame({
       bridgeRef.current = null;
       dropPendingLink();
     };
-  }, [blanked, createCalls, dropPendingLink, nonce, preview, takesMessages]);
+  }, [
+    blanked,
+    createCalls,
+    dropPendingLink,
+    elementAsk,
+    nonce,
+    preview,
+    takesMessages,
+    viewer,
+  ]);
 
   const handleLoad = useCallback(() => bridgeRef.current?.handleLoad(), []);
   const reload = useCallback(() => {

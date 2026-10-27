@@ -27,7 +27,7 @@ export const authorizeArtifactRun = async (
     false,
     false
   );
-  if (row.kind !== "document" && row.kind !== "deck") {
+  if (!["document", "deck", "page", "dashboard"].includes(row.kind)) {
     throw new ServiceError("not_found", "Artifact not found");
   }
   canComment(role);

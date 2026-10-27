@@ -1,4 +1,6 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Collaboration actions capture trusted records and current drafts. */
+import { readableMentions } from "@repo/protocol/member-mentions";
+
 import {
   type ReactNode,
   useCallback,
@@ -6,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { MemberMention } from "#/components/live-artifacts/member-mention";
 import {
   Sheet,
   SheetContent,
@@ -176,13 +179,25 @@ export function DeckCollaboration({
               value={body}
             />
           </label>
+          <MemberMention
+            artifactId={artifactId}
+            disabled={busy}
+            onInsert={(token) => {
+              setBody((old) => `${old}${old ? " " : ""}${token} `);
+              setRequestId(crypto.randomUUID());
+            }}
+          />
           <button disabled={busy || !body.trim()} type="submit">
             Post comment
           </button>
         </form>
       )}
       {threads.items.map((thread) => (
-        <article aria-label="Comment thread" key={thread.id}>
+        <article
+          aria-label="Comment thread"
+          id={`comment-${thread.id}`}
+          key={thread.id}
+        >
           {thread.anchor?.kind === "deck" && (
             <p>
               Slide {thread.anchor.slideId}
@@ -197,7 +212,7 @@ export function DeckCollaboration({
                   (person) => person.id === comment.authorId
                 )?.name ?? comment.authorId}
               </b>
-              <p>{comment.body}</p>
+              <p>{readableMentions(comment.body)}</p>
             </div>
           ))}
           {canComment && !thread.resolvedAt && (
@@ -410,6 +425,14 @@ function DeckReply({
           value={body}
         />
       </label>
+      <MemberMention
+        artifactId={artifactId}
+        disabled={busy}
+        onInsert={(token) => {
+          setBody((old) => `${old}${old ? " " : ""}${token} `);
+          setRequestId(crypto.randomUUID());
+        }}
+      />
       <button disabled={busy || !body.trim()} type="submit">
         Post reply
       </button>

@@ -4,12 +4,14 @@ import { signViewToken } from "@repo/services/artifacts/view-token";
 import { ForbiddenError } from "@repo/services/authz";
 import { ServiceError } from "@repo/services/errors";
 import type { LiveAskDeps } from "@repo/services/live-artifacts/ask";
+import type { LiveMentionPort } from "@repo/services/live-artifacts/mentions";
 import type { LiveArtifactsDeps } from "@repo/services/live-artifacts/service";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import type { Composed } from "../compose";
 import { freshMember } from "./auth";
 import { documentContent } from "./content";
 import { deckContent } from "./deck-content";
+import { productionMentionInfra } from "./mention-infra";
 import { roomStub } from "./namespace";
 import { requiredLive } from "./required";
 
@@ -19,6 +21,7 @@ export interface LiveInfra
       "anchors" | "changes" | "content" | "identity" | "rooms" | "ticketKey"
     >,
     Pick<LiveAskDeps, "presence" | "resolveMember"> {
+  mentions?: LiveMentionPort;
   roomFor: (
     principal: import("@repo/services/workspaces").Principal,
     artifactId: string
@@ -120,6 +123,7 @@ export const productionLiveInfra = (
           "Member",
       };
     },
+    mentions: productionMentionInfra(env, composed),
     presence: async (scope, member) =>
       (await stub(scope)).askPresence(`u:${member.userId}`),
     resolveMember: (scope, userId) =>

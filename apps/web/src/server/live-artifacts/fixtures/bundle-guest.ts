@@ -5,6 +5,9 @@ import { build } from "bun";
 const PLAYWRIGHT = /^@cloudflare\/playwright$/;
 const ANY_FILE = /.*/;
 const built = await build({
+  // The combined codec graph includes HTML entity decoding. Resolve Worker
+  // exports instead of the browser DOM implementation, as production does.
+  conditions: ["workerd"],
   entrypoints: [`${import.meta.dir}/guest.ts`],
   external: ["cloudflare:workers", "node:*"],
   plugins: [
