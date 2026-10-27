@@ -4,10 +4,12 @@ import {
   Doc,
   encodeStateAsUpdate,
   getState,
+  ID,
   type XmlFragment,
   Map as YMap,
 } from "yjs";
 import capture from "./fixtures/structural-migration.json";
+import splitCapture from "./fixtures/structural-split.json";
 import { Deck } from "./index";
 import { richTextCodec } from "./rich-text";
 
@@ -28,6 +30,23 @@ interface Migration {
   [key: string]: unknown;
 }
 const bytes = new Uint8Array(capture.state);
+test("list split admits merged boundary ranges and local native Y.ID targets", () => {
+  const deck = new Deck(new Doc(), richTextCodec);
+  deck.applyUpdate(new Uint8Array(splitCapture.state));
+  deck.validate();
+  const local = replica();
+  rewrite(local.doc, (v) => {
+    const target = v.transfers[0].target.type;
+    v.transfers[0].target.type = new ID(
+      Number(target.client),
+      Number(target.clock)
+    ) as unknown as Record<string, unknown>;
+  });
+  local.validate();
+  const authority = replica();
+  authority.applyUpdate(encodeStateAsUpdate(local.doc));
+  authority.validate();
+});
 function replica() {
   const deck = new Deck(new Doc(), richTextCodec);
   deck.applyUpdate(bytes);
@@ -179,4 +198,23 @@ test("prefix lookalikes, nested shared payloads and root sequence content remain
   const candidate = replica();
   applyUpdate(candidate.doc, encodeStateAsUpdate(sequence));
   expect(() => candidate.validate()).toThrow();
+});
+test("deleted and overwritten migration entries cannot retain hidden payloads", () => {
+  for (const payload of [
+    new YMap([["hidden", "secret payload"]]),
+    { hidden: "secret payload" },
+  ]) {
+    const remote = replica();
+    const store = root(remote.doc);
+    remote.doc.transact(() => {
+      store.set("hidden", payload);
+      store.delete("hidden");
+    });
+    const authority = replica();
+    const before = encodeStateAsUpdate(authority.doc);
+    expect(() =>
+      authority.applyUpdate(encodeStateAsUpdate(remote.doc))
+    ).toThrow();
+    expect(encodeStateAsUpdate(authority.doc)).toEqual(before);
+  }
 });

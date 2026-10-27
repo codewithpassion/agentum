@@ -1,5 +1,6 @@
 import {
   AbstractType,
+  ContentAny,
   ContentType,
   type Doc,
   getItem,
@@ -41,6 +42,13 @@ function record(value: unknown, allowed: string[]): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 function identity(value: unknown): ID {
+  // The binding supplies Y.ID locally; Yjs decodes the wire value as plain JSON.
+  if (value instanceof ID) {
+    if (Object.keys(value).some((key) => key !== "client" && key !== "clock")) {
+      return reject();
+    }
+    return new ID(integer(value.client), integer(value.clock));
+  }
   const v = record(value, ["client", "clock"]);
   return new ID(integer(v.client), integer(v.clock));
 }
@@ -153,9 +161,6 @@ function transfer(
     return reject();
   }
   boundary(source.boundary);
-  if (source.boundary !== undefined && length !== 1) {
-    return reject();
-  }
   range(
     doc,
     fragment,
@@ -183,7 +188,8 @@ function transfer(
     length
   );
   if (target.type === null) {
-    if (target.boundary === undefined || length !== 1) {
+    // Upstream merges adjacent node-boundary transfers just like characters.
+    if (target.boundary === undefined) {
       return reject();
     }
   } else {
@@ -206,7 +212,7 @@ function boundary(value: unknown) {
 function migration(
   doc: Doc,
   fragment: XmlFragment,
-  store: YMap<unknown>,
+  entry: Item,
   key: string,
   input: unknown,
   budget: Budget
@@ -220,11 +226,10 @@ function migration(
   ]);
   const client = integer(value.client);
   const clock = integer(value.clock);
-  const entry = store._map.get(key);
   if (
     value.version !== 1 ||
     key !== `${client}:${clock}` ||
-    entry?.id.client !== client ||
+    entry.id.client !== client ||
     entry.id.clock !== clock
   ) {
     return reject();
@@ -274,8 +279,18 @@ export function validatePositionMigrations(doc: Doc): Set<string> {
     if (store._start !== null || accepted.size >= 20_000) {
       return reject();
     }
-    for (const [key, value] of store) {
-      migration(doc, fragment, store, key, value, budget);
+    // Visible entries alone miss same-transaction insert/delete payloads. With
+    // gc disabled every retained map value must satisfy the closed grammar.
+    for (const [key, latest] of store._map) {
+      for (let entry: Item | null = latest; entry; entry = entry.left) {
+        if (
+          !(entry.content instanceof ContentAny) ||
+          entry.content.arr.length !== 1
+        ) {
+          return reject();
+        }
+        migration(doc, fragment, entry, key, entry.content.arr[0], budget);
+      }
     }
     accepted.add(name);
   }

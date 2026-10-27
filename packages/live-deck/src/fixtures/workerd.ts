@@ -10,6 +10,7 @@ import { Deck, parseSlide } from "../index";
 import { richTextCodec as codec } from "../rich-text";
 import { slide } from "./rich-text";
 import migrationCapture from "./structural-migration.json";
+import splitCapture from "./structural-split.json";
 
 export default {
   fetch() {
@@ -17,6 +18,9 @@ export default {
     migrated.applyUpdate(new Uint8Array(migrationCapture.state));
     migrated.restore(encodeStateAsUpdate(migrated.doc));
     migrated.validate();
+    const split = new Deck(new Doc(), codec);
+    split.applyUpdate(new Uint8Array(splitCapture.state));
+    split.validate();
     const deck = new Deck(new Doc(), codec);
     deck.addSlide(slide());
     const observed = deck.readHtml("s");
@@ -49,7 +53,7 @@ export default {
       accepted,
       cells: parsed.elements.find((element) => element.type === "table")?.cells,
       dom: typeof (globalThis as { document?: unknown }).document,
-      migrations: migrated.ids().length === 2,
+      migrations: migrated.ids().length === 2 && split.ids().length === 1,
       refused,
       unchanged: before.toString() === after.toString(),
     });
