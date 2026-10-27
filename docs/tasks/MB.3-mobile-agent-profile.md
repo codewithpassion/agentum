@@ -3,9 +3,9 @@ id: MB.3
 title: "Mobile: agent profile page and its sheets"
 milestone: MB
 size: M
-status: todo
+status: in_progress
 depends_on: [MB.1]
-branch: null
+branch: task/MB.3-mobile-agent-profile
 lane: web-profile
 executor: claude
 ---
@@ -27,3 +27,4 @@ Dom asked on 27 Oct 2026 for every function of the app to work from a phone. The
 
 ## Log
 - 2026-10-27: added from the mobile audit.
+- 2026-10-27: dispatched.

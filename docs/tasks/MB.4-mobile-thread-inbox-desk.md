@@ -3,9 +3,9 @@ id: MB.4
 title: "Mobile: task thread, inbox, desk cards and request cards"
 milestone: MB
 size: M
-status: todo
+status: in_progress
 depends_on: [MB.1]
-branch: null
+branch: task/MB.4-mobile-thread-inbox-desk
 lane: web-thread
 executor: claude
 ---
@@ -28,3 +28,4 @@ Dom asked on 27 Oct 2026 for every function of the app to work from a phone. The
 
 ## Log
 - 2026-10-27: added from the mobile audit.
+- 2026-10-27: dispatched.
