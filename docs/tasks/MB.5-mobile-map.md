@@ -3,7 +3,7 @@ id: MB.5
 title: "Mobile: map editor and inspector with touch"
 milestone: MB
 size: M
-status: in_progress
+status: done
 depends_on: [MB.1]
 branch: task/MB.5-mobile-map
 lane: web-map
@@ -27,3 +27,4 @@ Dom asked on 27 Oct 2026 for every function of the app to work from a phone. The
 ## Log
 - 2026-10-27: added from the mobile audit.
 - 2026-10-27: dispatched.
+- 2026-10-27: review clean after 1 fix round; merged.
