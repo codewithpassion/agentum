@@ -700,7 +700,7 @@ export const proxyRoutes = ({
 
     const limitSeconds = resolution.connector.callTimeoutSeconds;
     const started = Date.now();
-    const send = upstreamSender({
+    const transmit = upstreamSender({
       body: body.bytes,
       fetchImpl,
       limitMs: limitSeconds * MS_PER_SECOND,
@@ -709,7 +709,13 @@ export const proxyRoutes = ({
       url,
     });
 
-    await guardOutbound(c, claims, connectorId, call, body.bytes, url);
+    // A 401 does not prove the remote effect was absent. Each actual send,
+    // including the post-refresh retry, needs current authorization and its
+    // own receipt when a guest is present.
+    const send = async (credential: Credential) => {
+      await guardOutbound(c, claims, connectorId, call, body.bytes, url);
+      return transmit(credential);
+    };
     const tried = await sendWithRefresh({
       credential: resolution.credential,
       credentials,

@@ -932,7 +932,7 @@ export const createRequestsService = ({
     }
     const consumed = await db
       .update(runRequests)
-      .set({ toolUseId: `consumed:${digest}` })
+      .set({ toolUseId: `consumed:${request.id}` })
       .where(
         and(
           eq(runRequests.id, request.id),

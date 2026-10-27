@@ -1228,8 +1228,14 @@ describe("tool allowlist", () => {
 });
 
 /** Real approval persistence and current-presence port; only connector I/O is captured. */
-const guestPresentProxy = async () => {
-  await seedHeaderCredential();
+const guestPresentProxy = async (
+  options: { oauth?: boolean; present?: () => boolean } = {}
+) => {
+  if (options.oauth) {
+    await seedOAuthCredential();
+  } else {
+    await seedHeaderCredential();
+  }
   addRun("guest-present");
   const now = clock.now().toISOString();
   await db.insert(artifacts).values({
@@ -1263,7 +1269,7 @@ const guestPresentProxy = async () => {
       ) {
         throw new Error("Wrong trusted presence scope");
       }
-      return Promise.resolve(true);
+      return Promise.resolve(options.present?.() ?? true);
     },
   });
   const sent: { body: string; headers: Record<string, string>; url: string }[] =
@@ -1275,9 +1281,11 @@ const guestPresentProxy = async () => {
         headers: Object.fromEntries(new Headers(init?.headers)),
         url: urlOf(input),
       });
-      return Promise.resolve(
-        Response.json({ jsonrpc: "2.0", id: 7, result: { content: [] } })
-      );
+      return options.oauth
+        ? toStub(input, init)
+        : Promise.resolve(
+            Response.json({ jsonrpc: "2.0", id: 7, result: { content: [] } })
+          );
     },
   });
   const token = await tokenFor("guest-present");
@@ -1361,4 +1369,39 @@ test("connector approval binds destination, all forwarded headers and complete b
   expect(f.sent[0]?.body).toBe(echoBody);
   expect((await f.send(echoBody)).status).not.toBe(200);
   expect(f.sent).toHaveLength(1);
+});
+
+test("a connector 401 refresh cannot resend under a consumed guest-present approval", async () => {
+  startStub({ failOnce: true });
+  const f = await guestPresentProxy({ oauth: true });
+  expect((await f.send(echoBody)).status).not.toBe(200);
+  expect(f.sent).toHaveLength(0);
+  await f.approve();
+  expect((await f.send(echoBody)).status).not.toBe(200);
+  expect(f.sent).toHaveLength(1);
+  expect(stubOf().stats().tokenCalls).toBe(1);
+  expect(stubOf().stats().calls).toHaveLength(0);
+  await f.approve();
+  expect(await echoed(await f.send(echoBody))).toBe("hello");
+  expect(f.sent).toHaveLength(2);
+  expect(stubOf().stats().calls).toHaveLength(1);
+  expect((await f.send(echoBody)).status).not.toBe(200);
+  expect(f.sent).toHaveLength(2);
+});
+
+test("a guest joining during real credential refresh blocks the second connector send", async () => {
+  startStub({ failOnce: true });
+  let present = false;
+  const f = await guestPresentProxy({ oauth: true, present: () => present });
+  onTokenRequest = () => {
+    present = true;
+  };
+  expect((await f.send(echoBody)).status).not.toBe(200);
+  expect(f.sent).toHaveLength(1);
+  expect(stubOf().stats().tokenCalls).toBe(1);
+  expect(stubOf().stats().calls).toHaveLength(0);
+  await f.approve();
+  expect(await echoed(await f.send(echoBody))).toBe("hello");
+  expect(f.sent).toHaveLength(2);
+  expect(stubOf().stats().calls).toHaveLength(1);
 });
