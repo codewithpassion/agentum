@@ -4,8 +4,11 @@ import {
   agentConnectors,
   connectors,
   credentials,
+  oauthStates,
 } from "@repo/db/schema/connectors";
 import { events as eventsTable } from "@repo/db/schema/events";
+import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
@@ -46,6 +49,7 @@ let service: ReturnType<typeof createConnectorsService>;
 let agents: ReturnType<typeof createAgentsService>;
 let events: ReturnType<typeof createEventsService>;
 let agent: AgentRecord;
+let beforeBatch: (() => void) | undefined;
 
 const clock: Clock = {
   now: () => new Date(START),
@@ -71,6 +75,7 @@ const toStub: Fetcher = (input, init) => {
 };
 
 const build = () => {
+  const plain = sqliteAtomic(db);
   const store = new Map<string, string>();
   events = createEventsService({
     blobs: {
@@ -84,7 +89,12 @@ const build = () => {
   });
   agents = createAgentsService({ db, events });
   service = createConnectorsService({
-    atomic: sqliteAtomic(db),
+    atomic: (statements) => {
+      const hook = beforeBatch;
+      beforeBatch = undefined;
+      hook?.();
+      return plain(statements);
+    },
     clock,
     db,
     events,
@@ -752,8 +762,101 @@ test("a draft connector assignment explains that the agent is not active", async
   });
 });
 
+/** A run of the test agent in the given state. */
+const seedRun = (status: "done" | "running") => {
+  db.insert(sessions)
+    .values({
+      actorId: "user_dom",
+      actorKind: "user",
+      agentId: agent.id,
+      createdAt: START,
+      id: "s-live",
+      origin: "ui",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(runs)
+    .values({
+      actorId: "user_dom",
+      actorKind: "user",
+      agentId: agent.id,
+      createdAt: START,
+      id: "r-live",
+      inputFileIds: "[]",
+      inputText: "hi",
+      outputFileIds: "[]",
+      sessionId: "s-live",
+      status,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+};
+
+const seedOauthState = (connectorId: string) =>
+  db
+    .insert(oauthStates)
+    .values({
+      connectorId,
+      createdAt: START,
+      expiresAt: "2026-10-16T10:10:00.000Z",
+      initiatorUserId: "user_dom",
+      ownerId: "user_dom",
+      ownerKind: "user",
+      redirectUri: "https://app.test/callback",
+      returnTo: "/settings",
+      state: `state-${connectorId}`,
+      verifier: "verifier",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+
+test("remove is refused while a run of an assigned agent is live, and works once it ends", async () => {
+  const connector = await addHeaderConnector();
+  await service.assign(dom, { agentId: agent.id, connectorId: connector.id });
+  seedRun("running");
+  await expect(
+    service.remove(dom, { connectorId: connector.id })
+  ).rejects.toMatchObject({ code: "conflict" });
+  expect(await service.list(dom)).toHaveLength(1);
+  db.update(runs).set({ status: "done" }).where(eq(runs.id, "r-live")).run();
+  await service.remove(dom, { connectorId: connector.id });
+  expect(await service.list(dom)).toEqual([]);
+});
+
+test("remove stops when a run goes live after the first check", async () => {
+  const connector = await addHeaderConnector();
+  await service.assign(dom, { agentId: agent.id, connectorId: connector.id });
+  seedRun("done");
+  // The batch is built after the first check, so the run starts in between.
+  beforeBatch = () =>
+    db
+      .update(runs)
+      .set({ status: "running" })
+      .where(eq(runs.id, "r-live"))
+      .run();
+  await expect(
+    service.remove(dom, { connectorId: connector.id })
+  ).rejects.toMatchObject({ code: "conflict" });
+  expect(await service.list(dom)).toHaveLength(1);
+  expect(
+    db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.type, "connector.deleted"))
+      .all()
+  ).toEqual([]);
+  expect(
+    db
+      .select()
+      .from(agentConnectors)
+      .where(eq(agentConnectors.connectorId, connector.id))
+      .all()
+  ).toHaveLength(1);
+});
+
 test("remove deletes the connector with its credentials and assignments, and logs it", async () => {
   const connector = await addHeaderConnector();
+  seedOauthState(connector.id);
   await service.setCredential(dom, {
     connectorId: connector.id,
     value: `Bearer ${TOKEN}`,
@@ -777,6 +880,13 @@ test("remove deletes the connector with its credentials and assignments, and log
       .select()
       .from(agentConnectors)
       .where(eq(agentConnectors.connectorId, connector.id))
+      .all()
+  ).toEqual([]);
+  expect(
+    db
+      .select()
+      .from(oauthStates)
+      .where(eq(oauthStates.connectorId, connector.id))
       .all()
   ).toEqual([]);
   expect(await service.assignments(dom, { agentId: agent.id })).toHaveLength(1);

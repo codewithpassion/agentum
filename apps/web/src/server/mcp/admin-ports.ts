@@ -96,7 +96,10 @@ export const createAdminPorts = ({
       ),
 
     deleteConnector: ({ connectorId }) =>
-      guarded(() => connectors.remove(principal, { connectorId })),
+      guarded(async () => {
+        await connectors.remove(principal, { connectorId });
+        await admin.audit(principal, "delete_connector", { connectorId });
+      }),
 
     grantSecret: ({ agent, secretId }) =>
       guarded(async () =>

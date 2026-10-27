@@ -224,7 +224,42 @@ export const createSkillsSync = ({
     }
   };
 
-  return { removeStale, sync };
+  /**
+   * Forgets the uploads of a deleted skill: its Anthropic skill, then its rows.
+   * Without a gateway (the workspace has no key) only the rows go. A failed
+   * Anthropic delete keeps the rows and is logged. Nothing retries it, because
+   * the skill is gone, so the upload stays at Anthropic until someone removes it.
+   */
+  const retire = async (
+    gateway: Pick<SkillsGateway, "deleteSkill"> | null,
+    skillId: string
+  ): Promise<void> => {
+    const rows = await db
+      .select()
+      .from(managedSkillVersions)
+      .where(eq(managedSkillVersions.skillId, skillId));
+    if (gateway) {
+      for (const anthropicSkillId of new Set(
+        rows.map((row) => row.anthropicSkillId)
+      )) {
+        try {
+          // biome-ignore lint/performance/noAwaitInLoops: one delete at a time
+          await gateway.deleteSkill(anthropicSkillId);
+        } catch (error) {
+          console.error(
+            `Deleting the upload of skill ${skillId} failed:`,
+            error instanceof Error ? error.name : "unknown error"
+          );
+          return;
+        }
+      }
+    }
+    await db
+      .delete(managedSkillVersions)
+      .where(eq(managedSkillVersions.skillId, skillId));
+  };
+
+  return { removeStale, retire, sync };
 };
 
 export type SkillsSync = ReturnType<typeof createSkillsSync>;

@@ -104,6 +104,103 @@ describe("deleting a skill", () => {
     expect(only).toHaveLength(0);
   });
 
+  test("a blob that cannot be removed does not fail a delete that happened", async () => {
+    const { blobs, db, service } = setup();
+    finishRuns(db);
+    const { skill } = await createSkill(service, "stuck", { "a.txt": "a" });
+    blobs.remove = () => Promise.reject(new Error("r2 down"));
+    await service.remove(user(), { skillId: skill.id });
+    expect(countOf(db, skill.id).skill).toBe(0);
+  });
+
+  test("a blob a commit starts using during the delete is put back", async () => {
+    const { blobs, db, service } = setup();
+    finishRuns(db);
+    const first = await createSkill(service, "first", { "s.txt": "shared" });
+    const { remove } = blobs;
+    let raced = false;
+    // A commit that saw the blob stored and wrote its rows before the removal.
+    blobs.remove = async (key) => {
+      if (!raced) {
+        raced = true;
+        await createSkill(service, "racer", { "s.txt": "shared" });
+      }
+      await remove(key);
+    };
+    await service.remove(user(), { skillId: first.skill.id });
+    const held = [...blobs.objects.values()].map((bytes) =>
+      new TextDecoder().decode(bytes)
+    );
+    expect(held).toContain("shared");
+  });
+
+  test("a commit stores a shared blob again when a delete removed it after the commit's check", async () => {
+    const { blobs, db, service } = setup();
+    finishRuns(db);
+    await createSkill(service, "first", { "s.txt": "shared" });
+    const { exists } = blobs;
+    const race: { armed: boolean } = { armed: false };
+    let vanished = false;
+    const isShared = (key: string) =>
+      new TextDecoder().decode(blobs.objects.get(key)) === "shared";
+    blobs.exists = async (key) => {
+      const found = await exists(key);
+      // The delete removes the blob right after the commit saw it stored.
+      if (race.armed && found && !vanished && isShared(key)) {
+        vanished = true;
+        blobs.objects.delete(key);
+      }
+      return found;
+    };
+    race.armed = true;
+    await createSkill(service, "second", { "s.txt": "shared" });
+    expect(vanished).toBe(true);
+    const held = [...blobs.objects.values()].map((bytes) =>
+      new TextDecoder().decode(bytes)
+    );
+    expect(held).toContain("shared");
+  });
+
+  test("is stopped when a run goes live after the first check, and logs no delete", async () => {
+    const { db, hooks, service } = setup();
+    finishRuns(db);
+    const { skill } = await createSkill(service, "racing");
+    await service.assign(user(), { agentId: A1, skillId: skill.id });
+    hooks.beforeBatch = () =>
+      db
+        .update(runRows)
+        .set({ status: "running" })
+        .where(eq(runRows.id, R1))
+        .run();
+    const error = await errorOf(service.remove(user(), { skillId: skill.id }));
+    expect(isServiceError(error) && error.code).toBe("conflict");
+    expect(countOf(db, skill.id)).toMatchObject({
+      assignments: 1,
+      skill: 1,
+      versions: 1,
+    });
+    expect(
+      db
+        .select()
+        .from(eventRows)
+        .where(eq(eventRows.type, "skill.deleted"))
+        .all()
+    ).toEqual([]);
+  });
+
+  test("tells onDeleted which skill went, and survives its failure", async () => {
+    const seen: string[] = [];
+    const { db, service } = setup(undefined, ({ skillId, workspaceId }) => {
+      seen.push(`${workspaceId}/${skillId}`);
+      return Promise.reject(new Error("anthropic down"));
+    });
+    finishRuns(db);
+    const { skill } = await createSkill(service, "cleaned");
+    await service.remove(user(), { skillId: skill.id });
+    expect(seen).toEqual([`w1/${skill.id}`]);
+    expect(countOf(db, skill.id).skill).toBe(0);
+  });
+
   test("is refused while a run of an agent that carries the skill is live", async () => {
     const { db, service } = setup();
     finishRuns(db);

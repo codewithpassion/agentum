@@ -21,6 +21,7 @@ import {
   credentials,
   oauthStates,
 } from "@repo/db/schema/connectors";
+import { runs } from "@repo/db/schema/runs";
 import {
   CONNECTOR_CALL_TIMEOUT_SECONDS,
   type ConnectorAuthKind,
@@ -30,7 +31,7 @@ import {
   type CredentialOwnerKind,
   type CredentialStatus,
 } from "@repo/db/shared";
-import { and, asc, eq, or } from "drizzle-orm";
+import { and, asc, eq, inArray, notExists, or } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { requireKey } from "./admin-access.ts";
@@ -68,7 +69,7 @@ import {
 import { encryptSecret, importSecretsKey } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import type { Clock } from "./runs/types.ts";
+import { type Clock, LIVE_RUN_STATUSES } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
 
 const CONNECTOR_KIND = "connector";
@@ -749,13 +750,59 @@ export const createConnectorsService = ({
       parsed.connectorId,
       user.workspaceId
     );
+    // The check and the delete run as one batch: each delete also requires that
+    // no run is live, so a run that starts in between stops the delete.
+    // Read once: the batch deletes the assignments, which its own guards must not see.
+    const carriers = await db
+      .select({ agentId: agentConnectors.agentId })
+      .from(agentConnectors)
+      .where(eq(agentConnectors.connectorId, connector.id));
+    const liveRuns = () =>
+      db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(
+          and(
+            inArray(
+              runs.agentId,
+              carriers.map((row) => row.agentId)
+            ),
+            inArray(runs.status, [...LIVE_RUN_STATUSES])
+          )
+        );
+    const [live] = await liveRuns().limit(1);
+    if (live) {
+      throw new ServiceError(
+        "conflict",
+        `A run is using ${connector.name}. Delete it when the run has finished, or cancel the run first.`
+      );
+    }
+    const idle = notExists(liveRuns());
     await atomic([
-      db.delete(oauthStates).where(eq(oauthStates.connectorId, connector.id)),
-      db.delete(credentials).where(eq(credentials.connectorId, connector.id)),
+      db
+        .delete(oauthStates)
+        .where(and(eq(oauthStates.connectorId, connector.id), idle)),
+      db
+        .delete(credentials)
+        .where(and(eq(credentials.connectorId, connector.id), idle)),
       db
         .delete(agentConnectors)
-        .where(eq(agentConnectors.connectorId, connector.id)),
-      db.delete(connectors).where(eq(connectors.id, connector.id)),
+        .where(and(eq(agentConnectors.connectorId, connector.id), idle)),
+      db.delete(connectors).where(and(eq(connectors.id, connector.id), idle)),
+    ]);
+    const [left] = await db
+      .select({ id: connectors.id })
+      .from(connectors)
+      .where(eq(connectors.id, connector.id))
+      .limit(1);
+    if (left) {
+      throw new ServiceError(
+        "conflict",
+        `A run started using ${connector.name}. Try again when it has finished.`
+      );
+    }
+    // Written once the delete is known to have happened, so a stopped delete leaves no event.
+    await atomic([
       events.insertStatement({
         actor: { id: user.userId, kind: "user" },
         payload: { connectorId: connector.id, name: connector.name },

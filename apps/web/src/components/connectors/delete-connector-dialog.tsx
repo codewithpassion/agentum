@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { errorMessage } from "#/components/library/library-logic.ts";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -10,9 +11,6 @@ import {
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 export function DeleteConnectorDialog({
   connector,
@@ -54,7 +52,8 @@ export function DeleteConnectorDialog({
           <AlertDialogTitle>Delete {connector.name}?</AlertDialogTitle>
           <AlertDialogDescription>
             Deleting removes its stored credentials and its assignments to
-            agents. This cannot be undone.
+            agents. It is refused while a run of an assigned agent is live. This
+            cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error === null ? null : (

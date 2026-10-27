@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { managedSkillVersions } from "@repo/db/schema/managed";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import type { ResolvedSkill } from "../skills-store/records.ts";
@@ -104,6 +105,38 @@ describe("skills sync", () => {
       expect.objectContaining({ skillId: "skill_1" }),
     ]);
     expect(next.refs).toEqual([{ skillId: "skill_1", version: "2" }]);
+  });
+
+  test("retiring a skill deletes its Anthropic skill and its rows, and keeps the rows when the delete fails", async () => {
+    await sync("a1", [resolved("hm1", 1), resolved("hm2", 1)]);
+    await sync("a1", [resolved("hm1", 2)]);
+    const rows = () => db.select().from(managedSkillVersions).all();
+    const deleted: string[] = [];
+    const sync0 = createSkillsSync({ db, now: () => START });
+    await sync0.retire(
+      {
+        deleteSkill: (id) => {
+          deleted.push(id);
+          return Promise.reject(new Error("down"));
+        },
+      },
+      "hm1"
+    );
+    expect(rows()).toHaveLength(3);
+    deleted.length = 0;
+    await sync0.retire(
+      {
+        deleteSkill: (id) => {
+          deleted.push(id);
+          return Promise.resolve();
+        },
+      },
+      "hm1"
+    );
+    expect(deleted).toEqual(["skill_1"]);
+    expect(rows().map((row) => row.skillId)).toEqual(["hm2"]);
+    await sync0.retire(null, "hm2");
+    expect(rows()).toEqual([]);
   });
 
   test("different skills get their own Anthropic skills", async () => {

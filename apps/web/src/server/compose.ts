@@ -541,6 +541,8 @@ export const composeWith = ({
     github: infra.github && skillsStoreGithub(infra.github),
     githubToken: infra.githubToken,
     library,
+    onDeleted: ({ skillId, workspaceId }) =>
+      managed.retireSkill(workspaceId, skillId),
   });
   const runSkills = createRunSkillsService({ skillsStore });
   const machines = createMachinesService({

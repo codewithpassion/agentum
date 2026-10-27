@@ -29,16 +29,26 @@ import {
   skillVersionFiles,
   skillVersions,
 } from "@repo/db/schema/skills";
-import type { EventType, RunStatus, SkillAuthorKind } from "@repo/db/shared";
+import type { EventType, SkillAuthorKind } from "@repo/db/shared";
 import { SKILLS_MAX_BYTES, SKILLS_MAX_FILES } from "@repo/protocol/skills";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import type { Clock } from "./runs/types.ts";
+import { type Clock, LIVE_RUN_STATUSES } from "./runs/types.ts";
 import { packArchive, unpackArchive } from "./skills-store/archive.ts";
 import { isTextBytes, unifiedDiff } from "./skills-store/diff.ts";
 import {
@@ -253,6 +263,7 @@ export const createSkillsStoreService = ({
   library,
   github,
   githubToken,
+  onDeleted,
 }: {
   github?: GithubSkillFetcher;
   githubToken?: string;
@@ -262,6 +273,11 @@ export const createSkillsStoreService = ({
   db: Database;
   events: Pick<EventsService, "insertStatement">;
   library: SkillsSourceLibrary;
+  /** Called after a skill is deleted, to clean up what lives outside this database, such as its Anthropic uploads. A failure is logged, not raised. */
+  onDeleted?: (skill: {
+    skillId: string;
+    workspaceId: string;
+  }) => Promise<void>;
 }) => {
   const migratedWorkspaces = new Set<string>();
 
@@ -633,6 +649,10 @@ export const createSkillsStoreService = ({
       }
       throw error;
     }
+    // A delete of another skill may have removed a shared blob between the
+    // first check and the rows. Its own recheck puts the bytes back when it sees
+    // these rows, and this one when it ran first.
+    await storeBlobs(p.files);
     const approved = p.status
       ? p.status === "approved"
       : p.caller.kind !== "agent";
@@ -830,6 +850,8 @@ export const createSkillsStoreService = ({
       }
       throw error;
     }
+    // As in `publish`: a delete may have removed a shared blob before these rows existed.
+    await storeBlobs(migrated.flatMap((entry) => entry.skill.files));
     migratedWorkspaces.add(c.workspaceId);
     return { migrated: migrated.length, skipped: snapshot.skipped };
   };
@@ -1449,14 +1471,6 @@ export const createSkillsStoreService = ({
 
   // --- deleting ---
 
-  /** Runs in these states may still read the skill. */
-  const LIVE_RUN_STATUSES: RunStatus[] = [
-    "queued",
-    "offered",
-    "running",
-    "waiting",
-  ];
-
   /** The hashes among `hashes` that no remaining version file holds. */
   const unusedHashes = async (hashes: readonly string[]): Promise<string[]> => {
     const used = new Set<string>();
@@ -1474,10 +1488,45 @@ export const createSkillsStoreService = ({
   };
 
   /**
+   * Removes the bytes no version holds any more. Best effort: the skill is
+   * already deleted, so a failure is logged and leaves an unused blob. A
+   * commit may reuse a blob between the check and the removal. The bytes are
+   * read first and put back when a row points at them again, and a commit
+   * whose rows land after that recheck stores its blobs again once they are
+   * written (`publish`), so one of the two always restores the bytes.
+   */
+  const removeBlobs = async (hashes: readonly string[]): Promise<void> => {
+    try {
+      const orphaned = await unusedHashes(hashes);
+      const held = await Promise.all(
+        orphaned.map(async (hash) => ({
+          bytes: await blobs.get(blobKey(hash)),
+          hash,
+        }))
+      );
+      await Promise.all(orphaned.map((hash) => blobs.remove(blobKey(hash))));
+      const stillOrphaned = new Set(await unusedHashes(orphaned));
+      await Promise.all(
+        held
+          .filter(({ bytes, hash }) => bytes && !stillOrphaned.has(hash))
+          .map(({ bytes, hash }) => bytes && blobs.put(blobKey(hash), bytes))
+      );
+    } catch (error) {
+      console.error(
+        "Removing the file bytes of a deleted skill failed:",
+        error instanceof Error ? error.name : "unknown error"
+      );
+    }
+  };
+
+  /**
    * Deletes a skill with its versions, files, assignments and upstream source.
    * People only. Refused while a run of an agent that owns or carries the skill
    * is queued, running or waiting, because that run may be reading it. The
-   * file bytes go from blob storage when no other version holds them.
+   * check is repeated inside every delete of the batch, so a run that starts
+   * after the first check stops the delete instead of racing it. The file
+   * bytes go from blob storage when no other version holds them, and the
+   * skill's uploads at Anthropic go through `onDeleted`. Both are best effort.
    */
   const remove = async (
     principal: Principal,
@@ -1491,28 +1540,30 @@ export const createSkillsStoreService = ({
       .select({ agentId: skillAssignments.agentId })
       .from(skillAssignments)
       .where(eq(skillAssignments.skillId, skill.id));
+    // Read once: the batch deletes the assignments, which its own guards must not see.
     const agentIds = [
       ...new Set([
         ...carriers.map((row) => row.agentId),
         ...(skill.ownerAgentId ? [skill.ownerAgentId] : []),
       ]),
     ];
-    if (agentIds.length > 0) {
-      const [live] = await db
+    const liveRuns = () =>
+      db
         .select({ id: runs.id })
         .from(runs)
         .where(
           and(
             inArray(runs.agentId, agentIds),
-            inArray(runs.status, LIVE_RUN_STATUSES)
+            inArray(runs.status, [...LIVE_RUN_STATUSES])
           )
-        )
-        .limit(1);
-      if (live) {
-        throw conflict(
-          `A run is using ${skill.name}. Delete it when the run has finished, or cancel the run first.`
         );
-      }
+    const [live] = agentIds.length > 0 ? await liveRuns().limit(1) : [];
+    const busy = () =>
+      conflict(
+        `A run is using ${skill.name}. Delete it when the run has finished, or cancel the run first.`
+      );
+    if (live) {
+      throw busy();
     }
     const files = await db
       .select({ hash: skillVersionFiles.hash })
@@ -1527,14 +1578,32 @@ export const createSkillsStoreService = ({
       .select({ id: skillVersions.id })
       .from(skillVersions)
       .where(eq(skillVersions.skillId, skill.id));
+    const idle = notExists(liveRuns());
     await atomic([
-      db.delete(skillAssignments).where(eq(skillAssignments.skillId, skill.id)),
+      db
+        .delete(skillAssignments)
+        .where(and(eq(skillAssignments.skillId, skill.id), idle)),
       db
         .delete(skillVersionFiles)
-        .where(inArray(skillVersionFiles.versionId, ofSkill)),
-      db.delete(skillVersions).where(eq(skillVersions.skillId, skill.id)),
-      db.delete(skillSources).where(eq(skillSources.skillId, skill.id)),
-      db.delete(skills).where(eq(skills.id, skill.id)),
+        .where(and(inArray(skillVersionFiles.versionId, ofSkill), idle)),
+      db
+        .delete(skillVersions)
+        .where(and(eq(skillVersions.skillId, skill.id), idle)),
+      db
+        .delete(skillSources)
+        .where(and(eq(skillSources.skillId, skill.id), idle)),
+      db.delete(skills).where(and(eq(skills.id, skill.id), idle)),
+    ]);
+    const [left] = await db
+      .select({ id: skills.id })
+      .from(skills)
+      .where(eq(skills.id, skill.id))
+      .limit(1);
+    if (left) {
+      throw busy();
+    }
+    // Written once the delete is known to have happened, so a stopped delete leaves no event.
+    await atomic([
       eventStatement(
         c,
         "skill.deleted",
@@ -1542,8 +1611,15 @@ export const createSkillsStoreService = ({
         skill.ownerAgentId
       ),
     ]);
-    const orphaned = await unusedHashes(hashes);
-    await Promise.all(orphaned.map((hash) => blobs.remove(blobKey(hash))));
+    await removeBlobs(hashes);
+    try {
+      await onDeleted?.({ skillId: skill.id, workspaceId: skill.workspaceId });
+    } catch (error) {
+      console.error(
+        `Cleaning up after skill ${skill.name} failed:`,
+        error instanceof Error ? error.name : "unknown error"
+      );
+    }
   };
 
   /** The version an assignment resolves to: its pin, else the latest approved one. Null when there is none. */

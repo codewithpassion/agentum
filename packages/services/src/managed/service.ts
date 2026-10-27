@@ -1658,7 +1658,16 @@ export const createManagedService = ({
     return { kicked };
   };
 
-  return { abandon, interrupt, rearm, step };
+  /** Deletes the Anthropic uploads of a deleted skill and the rows that remember them. */
+  const retireSkill = async (
+    workspaceId: string,
+    skillId: string
+  ): Promise<void> => {
+    const key = await keys.resolve(workspaceId);
+    await skillsSync.retire(key ? gatewayOf(workspaceId, key) : null, skillId);
+  };
+
+  return { abandon, interrupt, rearm, retireSkill, step };
 };
 
 export type ManagedService = ReturnType<typeof createManagedService>;

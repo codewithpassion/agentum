@@ -317,3 +317,11 @@ export interface Gateway {
   ) => Promise<string[]>;
   kind: ReplyTarget["kind"];
 }
+
+/** Runs in these states may still read the skills and connectors of their agent. */
+export const LIVE_RUN_STATUSES: readonly RunStatus[] = [
+  "queued",
+  "offered",
+  "running",
+  "waiting",
+];

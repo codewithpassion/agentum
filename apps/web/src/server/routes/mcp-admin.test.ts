@@ -3,6 +3,7 @@
 // reach an event.
 import { beforeEach, describe, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { connectors } from "@repo/db/schema/connectors";
 import { events } from "@repo/db/schema/events";
 import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
@@ -319,5 +320,45 @@ describe("the setup flow with an admin key", () => {
     expect(new Set(audited.map((row) => row.actorKind))).toEqual(
       new Set(["api_key"])
     );
+  });
+
+  test("delete_connector writes an admin.action event naming the key", async () => {
+    const { secret: token } = await mintKey("admin");
+    db.insert(connectors)
+      .values({
+        authKind: "header",
+        createdAt: "2026-10-27T10:00:00.000Z",
+        createdBy: "u1",
+        id: "conn_1",
+        name: "Stub",
+        status: "needs_auth",
+        url: "https://mcp.example.com/mcp",
+        workspaceId,
+      })
+      .run();
+    const deleted = await call(token, "delete_connector", {
+      connectorId: "conn_1",
+    });
+    expect(deleted.isError).toBeFalsy();
+    const audited = db
+      .select()
+      .from(events)
+      .all()
+      .filter((row) => row.type === "admin.action")
+      .map((row) => JSON.parse(row.payload ?? "null"));
+    expect(audited).toEqual([
+      expect.objectContaining({
+        connectorId: "conn_1",
+        keyName: "admin key",
+        tool: "delete_connector",
+      }),
+    ]);
+    expect(
+      db
+        .select()
+        .from(events)
+        .all()
+        .map((row) => row.type)
+    ).toContain("connector.deleted");
   });
 });
