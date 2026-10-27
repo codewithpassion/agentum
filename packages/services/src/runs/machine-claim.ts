@@ -2,7 +2,6 @@ import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { runs } from "@repo/db/schema/runs";
-import { sessions } from "@repo/db/schema/sessions";
 import { taskFolderPath } from "@repo/db/shared";
 import {
   and,
@@ -30,7 +29,7 @@ import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
 import type { SecretsService } from "../secrets.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
 import type { Principal } from "../workspaces.ts";
-import { loadRun } from "./queries.ts";
+import { findSessionById, loadRun } from "./queries.ts";
 import { sessionSupportsSpeakers } from "./speakers.ts";
 import type { MachineClaim, RunRecord } from "./types.ts";
 
@@ -179,7 +178,10 @@ export const claimForMachine = async (
             .from(sibling)
             .where(
               and(
-                eq(sibling.agentId, runs.agentId),
+                or(
+                  eq(sibling.agentId, runs.agentId),
+                  eq(sibling.sessionId, runs.sessionId)
+                ),
                 inArray(sibling.status, ["running", "waiting"])
               )
             )
@@ -190,7 +192,10 @@ export const claimForMachine = async (
             .from(older)
             .where(
               and(
-                eq(older.agentId, runs.agentId),
+                or(
+                  eq(older.agentId, runs.agentId),
+                  eq(older.sessionId, runs.sessionId)
+                ),
                 inArray(older.status, STARTING),
                 or(
                   lt(older.createdAt, runs.createdAt),
@@ -209,9 +214,13 @@ export const claimForMachine = async (
     throw new ServiceError("conflict", "Run cannot be claimed");
   }
 
-  const [claimedRun, [session], assigned] = await Promise.all([
+  const [claimedRun, session, assigned] = await Promise.all([
     loadRun(db, run.id),
-    db.select().from(sessions).where(eq(sessions.id, run.sessionId)).limit(1),
+    findSessionById(db, {
+      agentId: run.agentId,
+      id: run.sessionId,
+      workspaceId: run.workspaceId,
+    }),
     db
       .select({ id: connectors.id, name: connectors.name })
       .from(agentConnectors)
@@ -304,8 +313,9 @@ export const claimForMachine = async (
     ...daemonRules(toolRules),
     session: {
       id: session.id,
-      runtimeMachineId: session.runtimeMachineId,
-      runtimeRef: session.runtimeRef,
+      runtimeMachineId:
+        session.agentId === run.agentId ? session.runtimeMachineId : null,
+      runtimeRef: session.agentId === run.agentId ? session.runtimeRef : null,
     },
   };
 };

@@ -210,3 +210,32 @@ export const artifactRoomInvalidations = sqliteTable(
     index("artifact_room_invalidations_pending_idx").on(t.completedAt, t.id),
   ]
 );
+
+/** Dispatch intent commits with its addressed comment. Acknowledged after a durable run exists. */
+export const artifactAskDispatches = sqliteTable(
+  "artifact_ask_dispatches",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id),
+    authorId: text("author_id").notNull(),
+    commentId: text("comment_id")
+      .notNull()
+      .unique()
+      .references(() => artifactComments.id),
+    completedAt: text("completed_at"),
+    createdAt: createdAt(),
+    id: id(),
+    requestId: text("request_id").notNull(),
+    runId: text("run_id").references(() => runs.id),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [
+    uniqueIndex("artifact_ask_dispatches_request_unique").on(
+      t.workspaceId,
+      t.authorId,
+      t.requestId
+    ),
+    index("artifact_ask_dispatches_pending_idx").on(t.completedAt, t.id),
+  ]
+);

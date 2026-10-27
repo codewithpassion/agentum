@@ -23,6 +23,7 @@ import {
   lt,
   or,
   type SQL,
+  sql,
 } from "drizzle-orm";
 import { z } from "zod";
 import { resolveActorDisplays } from "./actor-display.ts";
@@ -321,7 +322,7 @@ export const createEventsService = ({
    * over 64 KB is refused instead of moved. It does not notify `onAppend`
    * listeners, because the row is not written yet when this returns.
    */
-  const insertStatement = (input: EventInput): Statement => {
+  const insertStatement = (input: EventInput, condition?: SQL): Statement => {
     const parsed = eventInputSchema.parse(input);
     const now = new Date();
     const id = newEventId(now);
@@ -333,7 +334,29 @@ export const createEventsService = ({
         "Payload too large for an atomic write"
       );
     }
-    return db.insert(events).values(toRow(parsed, id, now, redacted, null));
+    const row = toRow(parsed, id, now, redacted, null);
+    if (condition) {
+      return db.insert(events).select(
+        db
+          .select({
+            actorId: sql<string>`${row.actorId}`.as("actorId"),
+            actorKind: sql<string>`${row.actorKind}`.as("actorKind"),
+            agentId: sql<string | null>`${row.agentId}`.as("agentId"),
+            createdAt: sql<string>`${row.createdAt}`.as("createdAt"),
+            id: sql<string>`${row.id}`.as("id"),
+            payload: sql<string | null>`${row.payload}`.as("payload"),
+            payloadRef: sql<string | null>`${row.payloadRef}`.as("payloadRef"),
+            runId: sql<string | null>`${row.runId}`.as("runId"),
+            seq: sql<number | null>`${row.seq}`.as("seq"),
+            sessionId: sql<string | null>`${row.sessionId}`.as("sessionId"),
+            type: sql<string>`${row.type}`.as("type"),
+            workspaceId: sql<string>`${row.workspaceId}`.as("workspaceId"),
+          })
+          .from(sql`(select 1)`)
+          .where(condition)
+      );
+    }
+    return db.insert(events).values(row);
   };
 
   /**

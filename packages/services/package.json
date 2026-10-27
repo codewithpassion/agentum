@@ -133,7 +133,9 @@
     "./live-guests/ports": "./src/live-guests/ports.ts",
     "./live-guests/security": "./src/live-guests/security.ts",
     "./live-guests/invitations": "./src/live-guests/invitations.ts",
-    "./live-guests/sessions": "./src/live-guests/sessions.ts"
+    "./live-guests/sessions": "./src/live-guests/sessions.ts",
+    "./live-artifacts/ask": "./src/live-artifacts/ask.ts",
+    "./live-artifacts/factory": "./src/live-artifacts/factory.ts"
   },
   "scripts": {
     "test": "bun test",

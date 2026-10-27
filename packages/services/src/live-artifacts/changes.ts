@@ -1,5 +1,5 @@
 import { artifactLiveChanges as changes } from "@repo/db/schema/live-artifacts";
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
@@ -141,7 +141,13 @@ export const createChangesModule = (ctx: InteractionContext) => ({
         and(
           eq(sessions.id, run.sessionId),
           eq(sessions.workspaceId, row.workspaceId),
-          eq(sessions.agentId, run.agentId)
+          or(
+            eq(sessions.agentId, run.agentId),
+            and(
+              eq(sessions.origin, "artifact"),
+              eq(sessions.externalKey, row.id)
+            )
+          )
         )
       )
       .limit(1);
@@ -164,7 +170,10 @@ export const createChangesModule = (ctx: InteractionContext) => ({
     );
     if (
       !Number.isSafeInteger(result.revision) ||
-      result.revision <= change.revTo
+      result.revision <= change.revTo ||
+      typeof result.byParticipant !== "string" ||
+      !result.byParticipant.startsWith("u:") ||
+      result.byParticipant.length <= 2
     ) {
       throw new ServiceError(
         "conflict",
@@ -174,19 +183,26 @@ export const createChangesModule = (ctx: InteractionContext) => ({
     await ctx.atomic([
       ctx.db
         .update(changes)
-        .set({ revertedAt: ctx.now(), revertedBy: ctx.participantId(member) })
+        .set({ revertedAt: ctx.now(), revertedBy: result.byParticipant })
         .where(
           and(
             eq(changes.id, change.id),
-            eq(changes.workspaceId, row.workspaceId)
+            eq(changes.workspaceId, row.workspaceId),
+            isNull(changes.revertedAt)
           )
         ),
-      ctx.event(member, row, "artifact.agent_change_reverted", {
-        artifactId: row.id,
-        changeId: change.id,
-        revision: result.revision,
-        runId: change.runId,
-      }),
+      ctx.event(
+        { ...member, userId: result.byParticipant.slice(2) },
+        row,
+        "artifact.agent_change_reverted",
+        {
+          artifactId: row.id,
+          changeId: change.id,
+          revision: result.revision,
+          runId: change.runId,
+        },
+        sql`changes() = 1`
+      ),
     ]);
   },
 });

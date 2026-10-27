@@ -197,6 +197,13 @@
       "when": 1793093838454,
       "tag": "0027_lyrical_shaman",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1793094715819,
+      "tag": "0028_chemical_sinister_six",
+      "breakpoints": true
     }
   ]
 }
