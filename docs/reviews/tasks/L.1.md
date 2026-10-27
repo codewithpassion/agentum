@@ -59,3 +59,7 @@ All eight PRD tables and specified columns are represented, including phase 3 gu
 Inspected shared kind/origin/actor consumers, session and run access paths, artifact schemas and changed presentation consumers. Existing browser run starts remain `ui`-only; the added kind values propagate to filters and output schemas, while the existing artifact creation input remains restricted to its four legacy kinds. No newly reachable guest principal or live endpoint was found in this change.
 
 After `bun install --frozen-lockfile`, `bun run test` in `packages/db` passed 83 tests and in `packages/protocol` passed 348 tests. DB tests include fresh migration, FK checks, and update/delete event-trigger checks. `bun run generate` in `packages/db` reported “No schema changes, nothing to migrate”; migrations 0025/0026 add tables/columns without rebuilding events. This establishes fresh migration and generated snapshot consistency, not an independent populated D1 upgrade test. Full root check/test/build were not rerun in this review.
+
+## Controller resolution — 2026-10-27
+
+Added required signed `color` to room-ticket claims with the same six-digit hex grammar as awareness. Tests round-trip it and reject missing colour, CSS-like values, short hex and invalid digits. Protocol suite: 348 passed. The earlier combined main install/check/test/build passed. Session/run access and same-workspace relationship regression gates are explicitly carried into L.4; GuestGrant negative typing and scoped tool enforcement remain phase 3 gates.

@@ -3,7 +3,7 @@ id: L.1
 title: Live artifacts contract
 milestone: L
 size: L
-status: review
+status: done
 depends_on: [L.0, L.P]
 branch: t3/live-artifact-contract
 lane: db
@@ -21,3 +21,5 @@ executor: codex
 - 2026-10-27: Sol begins stable schema/protocol contracts using the partial spike evidence; integration remains gated on completed L.0. No room implementation depends on an unverified relay assumption.
 
 - 2026-10-27: Contract 678636b5 merged, independent review and controller combined validation underway. Implementation reports package/script tests, types, build and boundary scan passed; stale spike lint failures are resolved in current main.
+
+- 2026-10-27: Controller fixed independent review must-fix: required signed ticket colour plus rejection tests, 348 protocol tests pass. Combined root check/test/build previously passed; forward isolation gates assigned to L.4 and phase 3.

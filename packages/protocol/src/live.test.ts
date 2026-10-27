@@ -22,6 +22,7 @@ const participant = {
 const ticket = {
   artifactId,
   audience: "artifact-room",
+  color: "#112233",
   connectionExpiresAt: 1000,
   expiresAt: 220,
   issuedAt: 100,
@@ -91,6 +92,10 @@ test("ticket claims constrain audience, identity and both lifetimes", () => {
   expect(roomTicketClaimsSchema.parse(ticket)).toEqual(ticket);
   for (const change of [
     { audience: "other" },
+    { color: undefined },
+    { color: "url(evil)" },
+    { color: "#123" },
+    { color: "#gggggg" },
     { expiresAt: 221 },
     { expiresAt: 100 },
     { connectionExpiresAt: 1001 },

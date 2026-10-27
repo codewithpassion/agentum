@@ -70,6 +70,7 @@ export const roomTicketClaimsSchema = z
   .strictObject({
     artifactId: z.uuid(),
     audience: z.literal("artifact-room"),
+    color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
     connectionExpiresAt: z.int().positive(),
     expiresAt: z.int().positive(),
     issuedAt: z.int().nonnegative(),

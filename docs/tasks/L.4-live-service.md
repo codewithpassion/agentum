@@ -3,7 +3,7 @@ id: L.4
 title: Live artifacts service and router
 milestone: L
 size: L
-status: todo
+status: in_progress
 depends_on: [L.1]
 branch: null
 lane: services
@@ -17,3 +17,5 @@ executor: codex
 ## Log
 
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
+
+- 2026-10-27: Terra dispatched. Required review gates: artifact-session access across list/transcript/run-read/continuation paths, and same-workspace validation for every parent/child read/write, each with cross-tenant/private-artifact regression tests.
