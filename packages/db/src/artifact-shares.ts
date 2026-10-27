@@ -1,7 +1,7 @@
 // Query functions for artifact links and the access log (A.3). They take a
 // drizzle instance and never make one. The writes that must land together
 // return an unexecuted statement for `atomic`.
-import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lt, ne, type SQL, sql } from "drizzle-orm";
 import type { Statement } from "./atomic.ts";
 import type { Database } from "./database.ts";
 import { agents } from "./schema/agents.ts";
@@ -157,13 +157,19 @@ export const getShareById = async (
 
 /** A link joined with what an open needs to decide and to answer. */
 export interface ShareLookup {
+  agentId: string | null;
   agentName: string | null;
   artifactDeletedAt: string | null;
   artifactId: string;
+  clerkOrgId: string;
   currentVersionId: string | null;
+  dataMode: "snapshot" | "live";
   expiresAt: string | null;
+  grantedBy: string | null;
   kind: "page" | "doc" | "dashboard" | "app";
   linksEnabled: boolean;
+  /** JSON array of tool keys, or null. */
+  liveTools: string | null;
   ownerUserId: string | null;
   revokedAt: string | null;
   shareId: string;
@@ -180,13 +186,18 @@ export const getShareByHash = async (
 ): Promise<ShareLookup | undefined> => {
   const [row] = await db
     .select({
+      agentId: artifacts.agentId,
       agentName: agents.name,
       artifactDeletedAt: artifacts.deletedAt,
       artifactId: artifacts.id,
+      clerkOrgId: workspaces.clerkOrgId,
       currentVersionId: artifacts.currentVersionId,
+      dataMode: artifactShares.dataMode,
       expiresAt: artifactShares.expiresAt,
+      grantedBy: artifactShares.grantedBy,
       kind: artifacts.kind,
       linksEnabled: workspaces.artifactLinksEnabled,
+      liveTools: artifactShares.liveTools,
       ownerUserId: artifacts.ownerUserId,
       revokedAt: artifactShares.revokedAt,
       shareId: artifactShares.id,
@@ -359,3 +370,46 @@ export const setLinkSwitchStatement = (
     .update(workspaces)
     .set({ artifactLinksEnabled: enabled })
     .where(eq(workspaces.id, workspaceId));
+
+/**
+ * How many live calls a link took since `since` (ISO), for the rate limits.
+ * Rows that were themselves rate limited do not count, so a window recovers on
+ * its own. `visitorHash` narrows the count to one visitor; null counts the
+ * visitors the Worker could not hash (no IP).
+ */
+export const countLiveCalls = async (
+  db: Database,
+  query: {
+    shareId: string;
+    since: string;
+    visitorHash?: string | null;
+  }
+): Promise<number> => {
+  let visitor: SQL | undefined;
+  if (query.visitorHash === null) {
+    visitor = isNull(artifactViews.visitorHash);
+  } else if (query.visitorHash !== undefined) {
+    visitor = eq(artifactViews.visitorHash, query.visitorHash);
+  }
+  const [row] = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(artifactViews)
+    .where(
+      and(
+        eq(artifactViews.shareId, query.shareId),
+        eq(artifactViews.surface, "live_call"),
+        ne(artifactViews.outcome, "rate_limited"),
+        gte(artifactViews.createdAt, query.since),
+        visitor
+      )
+    );
+  return Number(row?.total ?? 0);
+};
+
+/** Sets the outcome of a view row written before its call ran. */
+export const setViewOutcomeStatement = (
+  db: Database,
+  viewId: string,
+  outcome: NewArtifactView["outcome"]
+): Statement =>
+  db.update(artifactViews).set({ outcome }).where(eq(artifactViews.id, viewId));

@@ -43,6 +43,10 @@ const clerkCheck = (secretKey: string): OrgMemberCheck => {
   };
 };
 
+/** The membership check with no cache, for callers that must see a removal at once. */
+export const clerkOrgMemberCheckFresh = (secretKey: string): OrgMemberCheck =>
+  clerkCheck(secretKey);
+
 const checks = new Map<string, OrgMemberCheck>();
 
 /** The cached membership check for a Clerk secret key, one per isolate. */

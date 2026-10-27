@@ -27,6 +27,7 @@ import {
   type ArtifactToolPort,
   createArtifactCallsService,
   createToolRunner,
+  type ToolRunner,
 } from "@repo/services/artifacts/calls";
 import {
   type ArtifactGrantsService,
@@ -244,6 +245,7 @@ import { libraryNotifier } from "./library-notifier.ts";
 import { type MailEnv, mailInfra } from "./mail-infra.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
 import { clerkEmailMemberLookup } from "./mcp/clerk-email-member.ts";
+import { clerkOrgMemberCheckFresh } from "./mcp/clerk-membership.ts";
 import { takeDesktopScreenshot } from "./mcp/computer-ports.ts";
 import { durableRunnerPort } from "./pi-run-port.ts";
 import { r2Blobs } from "./r2-blobs.ts";
@@ -292,6 +294,8 @@ export interface Infra {
   github?: GithubSkillFetcher;
   /** `GITHUB_TOKEN`, optional. Raises GitHub's rate limit; without it the fetcher is unauthenticated. */
   githubToken?: string;
+  /** Whether a user is in a Clerk org right now, with no cache. Live link calls need it; without it they are refused. */
+  isOrgMember?: (userId: string, clerkOrgId: string) => Promise<boolean>;
   /** Where the workspace library keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
   libraryBlobs?: LibraryBlobs;
   mailbox?: MailboxPort;
@@ -318,6 +322,8 @@ export interface Infra {
   slackDirectory?: SlackDirectory;
   /** Where the live frames of a session go: the SessionStream Durable Object in the app. Without it nothing is streamed. */
   streams?: SessionStreamPort;
+  /** Runs a granted tool for artifacts (B.5). Tests replace it; the app builds the real one over its credentials. */
+  toolRunner?: ToolRunner;
   /** Asks Anthropic whether a key works. Without it, `managedKeys` checks only the key's shape. */
   validateAnthropicKey?: (apiKey: string) => Promise<boolean>;
   /** Asks the provider whether a key works. Without it, `modelKeys` checks only the key's shape. */
@@ -525,10 +531,10 @@ export const composeWith = ({
     fetch: connectorFetch,
     secretsKey: infra.secretsKey,
   });
-  const artifactCalls = createArtifactCallsService({
-    db,
-    runner: createToolRunner({ credentials, db, fetch: connectorFetch }),
-  });
+  const toolRunner =
+    infra.toolRunner ??
+    createToolRunner({ credentials, db, fetch: connectorFetch });
+  const artifactCalls = createArtifactCallsService({ db, runner: toolRunner });
   const artifactStorage = createArtifactStorageService({
     db,
     store: infra.appStore ?? unavailableAppStore,
@@ -563,14 +569,18 @@ export const composeWith = ({
     }),
   });
   const artifactShares = createArtifactSharesService({
+    allowedOrgIds,
     atomic: infra.atomic,
     clock: infra.clock,
     db,
     events,
+    isOrgMember: infra.isOrgMember,
     linksOff: infra.artifactLinksOff,
     origin: infra.publicBaseUrl ?? "",
     people: infra.people,
+    runner: toolRunner,
     secretsKey: infra.secretsKey,
+    store: infra.appStore ?? unavailableAppStore,
     viewKey: infra.artifactViewKey ?? "",
   });
   const browser = createBrowserService({
@@ -1026,6 +1036,7 @@ export const compose = (
       github: createGithubSkillFetcher((url, init) => fetch(url, init)),
       // An unset secret reads as an empty string: GitHub then sees no credential.
       githubToken: env.GITHUB_TOKEN || undefined,
+      isOrgMember: clerkOrgMemberCheckFresh(env.CLERK_SECRET_KEY),
       libraryBlobs: r2LibraryBlobs(env.FILES),
       ...mailInfra(env),
       managedGatewayFor: ({ apiKey, environment }) =>
