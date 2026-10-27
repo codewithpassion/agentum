@@ -1,4 +1,5 @@
 import { LIVE_DOC_MAX_BYTES } from "@repo/db/shared";
+import { ensureDeckCellInputSchema } from "@repo/protocol/deck";
 import { commentAnchorSchema } from "@repo/protocol/live";
 import { liveAskInputSchema } from "@repo/services/live-artifacts/ask";
 import type { LiveArtifactsWithAsk } from "@repo/services/live-artifacts/factory";
@@ -86,6 +87,11 @@ export const createLiveArtifactsRouter = (
       )
       .mutation(({ ctx, input }) =>
         service(ctx).createDocument(ctx.principal, input)
+      ),
+    ensureDeckCell: workspaceProcedure
+      .input(ensureDeckCellInputSchema)
+      .mutation(({ ctx, input }) =>
+        service(ctx).ensureDeckCell(ctx.principal, input)
       ),
     exportMarkdown: workspaceProcedure
       .input(z.strictObject(artifact))

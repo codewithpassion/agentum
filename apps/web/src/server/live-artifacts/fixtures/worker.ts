@@ -308,6 +308,25 @@ export default {
           result = { revision: snapshot.revision, state: [...snapshot.state] };
           break;
         }
+        case "/ensure-deck-cell":
+        case "/ensure-cell": {
+          const snapshot = await stub.ensureDeckCell(
+            {
+              elementId: input.elementId as string,
+              key: input.key as string,
+              slideId: input.slideId as string,
+            },
+            {
+              kind: "member",
+              participantId:
+                typeof input.participantId === "string"
+                  ? input.participantId
+                  : "owner",
+            }
+          );
+          result = { revision: snapshot.revision, state: [...snapshot.state] };
+          break;
+        }
         case "/deck-read":
           result = await stub.deckRead(
             { artifactId: scope.artifactId, ...input } as DeckReadInput,

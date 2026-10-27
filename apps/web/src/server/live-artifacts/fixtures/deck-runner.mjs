@@ -549,6 +549,86 @@ try {
   await call("/alarm");
   await pause(60);
   check(exp.closed, "connection expiry enforced by alarm");
+  await controls("deck", true, "sparse-cell");
+  await controls(
+    "slides",
+    [
+      '<slide id="s" order="a0" background="#fff" transition="none" duration="0"><element id="table" type="table" parent="s" order="a0" prop-rows="2" prop-cols="2" prop-x="0" prop-y="0" prop-w="300" prop-h="200"></element></slide>',
+    ],
+    "sparse-cell"
+  );
+  const cellOne = await connect(await ticket({}, "sparse-cell"), "sparse-cell"),
+    cellTwo = await connect(
+      await ticket({ participantId: "second" }, "sparse-cell"),
+      "sparse-cell"
+    );
+  const cellInput = { elementId: "table", key: "0:0", slideId: "s" };
+  const [allocatedA, allocatedB] = await Promise.all([
+    call("/ensure-cell", cellInput, "sparse-cell"),
+    call(
+      "/ensure-cell",
+      { ...cellInput, participantId: "second" },
+      "sparse-cell"
+    ),
+  ]);
+  const ca = new Y.Doc(),
+    cb = new Y.Doc();
+  Y.applyUpdate(ca, Uint8Array.from(allocatedA.state));
+  Y.applyUpdate(cb, Uint8Array.from(allocatedB.state));
+  const cell = (doc) =>
+    doc
+      .getMap("slides")
+      .get("s")
+      .get("elements")
+      .get("table")
+      .get("cells")
+      .get("0:0");
+  check(
+    JSON.stringify(cell(ca)._item.id) === JSON.stringify(cell(cb)._item.id) &&
+      allocatedA.revision === allocatedB.revision,
+    "two concurrent sparse-cell requests share one persisted fragment and revision"
+  );
+  const observedCellA = await syncReplica(cellOne),
+    observedCellB = await syncReplica(cellTwo);
+  check(
+    JSON.stringify(cell(observedCellA)._item.id) ===
+      JSON.stringify(cell(observedCellB)._item.id),
+    "both real clients receive same authoritative cell identity"
+  );
+  const beforeCellEdit = Y.encodeStateVector(observedCellA);
+  cell(observedCellA)
+    .get(0)
+    .insert(0, [new Y.XmlText("Filled cell")]);
+  cellOne.ws.send(update(Y.encodeStateAsUpdate(observedCellA, beforeCellEdit)));
+  await pause(100);
+  const filled = await call("/ensure-cell", cellInput, "sparse-cell");
+  const filledDoc = new Y.Doc();
+  Y.applyUpdate(filledDoc, Uint8Array.from(filled.state));
+  check(
+    cell(filledDoc).toString().includes("Filled cell") &&
+      JSON.stringify(cell(filledDoc)._item.id) ===
+        JSON.stringify(cell(ca)._item.id),
+    "idempotent ensure preserves filled cell and fragment identity"
+  );
+  await controls("role:commenter", "commenter", "sparse-cell");
+  await fails(
+    "/ensure-cell",
+    { ...cellInput, participantId: "commenter" },
+    "sparse-cell"
+  );
+  await fails("/ensure-cell", { ...cellInput, key: "9:0" }, "sparse-cell");
+  await fails("/ensure-cell", { ...cellInput, key: "01:0" }, "sparse-cell");
+  check(
+    (await call("/snapshot", {}, "sparse-cell")).revision === filled.revision,
+    "forbidden and invalid cell requests leave authority unchanged"
+  );
+  ca.destroy();
+  cb.destroy();
+  observedCellA.destroy();
+  observedCellB.destroy();
+  filledDoc.destroy();
+  cellOne.ws.close();
+  cellTwo.ws.close();
   await controls("deck", true, "lease-expiry");
   await controls("slides", [slide("s1", "a0")], "lease-expiry");
   const ep1 = await connect(await ticket({}, "lease-expiry"), "lease-expiry"),

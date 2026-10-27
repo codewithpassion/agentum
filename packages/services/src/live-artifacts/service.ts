@@ -24,6 +24,11 @@ import {
   ROOM_TICKET_SECONDS,
 } from "@repo/db/shared";
 import { contentTypeForPath } from "@repo/protocol/artifacts";
+import {
+  type EnsureDeckCellInput,
+  type EnsureDeckCellResult,
+  ensureDeckCellInputSchema,
+} from "@repo/protocol/deck";
 import type { LiveJoinResult } from "@repo/protocol/live";
 import {
   commentAnchorSchema,
@@ -121,6 +126,10 @@ export interface LiveRoomsPort {
     input: DocumentSnapshot & { principal: Principal }
   ) => Promise<{ versionId: string; revision: number }>;
   checkpointIfDue?: (scope: LiveRoomScope) => Promise<void>;
+  ensureDeckCell?: (
+    scope: LiveRoomScope,
+    input: Omit<EnsureDeckCellInput, "artifactId"> & { principal: Principal }
+  ) => Promise<DocumentSnapshot>;
   /** Recheck current DB access for one participant, or every connection if omitted. */
   refresh: (
     scope: LiveRoomScope,
@@ -808,6 +817,26 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         from = source.number;
       }
       return persist(member, row, input, false, from, input);
+    },
+    async ensureDeckCell(
+      principal: Principal,
+      raw: EnsureDeckCellInput
+    ): Promise<EnsureDeckCellResult> {
+      const input = ensureDeckCellInputSchema.parse(raw);
+      const { member, row } = await access(principal, input.artifactId, true);
+      if (row.kind !== "deck" || !rooms.ensureDeckCell) {
+        throw invalid("Deck cell authority is unavailable");
+      }
+      const snapshot = await rooms.ensureDeckCell(
+        { artifactId: row.id, workspaceId: row.workspaceId },
+        {
+          elementId: input.elementId,
+          key: input.key,
+          principal: member,
+          slideId: input.slideId,
+        }
+      );
+      return { revision: snapshot.revision, state: [...snapshot.state] };
     },
     async exportMarkdown(principal: Principal, input: { artifactId: string }) {
       const { row } = await access(principal, input.artifactId);

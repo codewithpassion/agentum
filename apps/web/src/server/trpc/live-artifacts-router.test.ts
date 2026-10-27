@@ -21,6 +21,12 @@ const inputs = {
   convertDoc: { artifactId },
   createDeck: { slides: [], title: "Deck" },
   createDocument: { title: "Doc" },
+  ensureDeckCell: {
+    artifactId,
+    elementId: "table",
+    key: "0:0",
+    slideId: "slide",
+  },
   history: { artifactId },
   invalidateAccess: { artifactId },
   join: { artifactId },
