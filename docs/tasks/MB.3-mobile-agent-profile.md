@@ -3,7 +3,7 @@ id: MB.3
 title: "Mobile: agent profile page and its sheets"
 milestone: MB
 size: M
-status: in_progress
+status: done
 depends_on: [MB.1]
 branch: task/MB.3-mobile-agent-profile
 lane: web-profile
@@ -28,3 +28,4 @@ Dom asked on 27 Oct 2026 for every function of the app to work from a phone. The
 ## Log
 - 2026-10-27: added from the mobile audit.
 - 2026-10-27: dispatched.
+- 2026-10-27: last round must-fix applied after the cap, not re-reviewed; merged, staging re-audit covers it.
