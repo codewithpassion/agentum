@@ -979,6 +979,43 @@ export const createRunsService = ({
     return finishStart(prepared, input, options);
   };
 
+  /** Read-only admission probe. The start path repeats this check before charging. */
+  const guestReadiness = async (grant: GuestGrant, agentId: string) => {
+    if (
+      !(authorizeGuestGrant && guestRuntimeReady) ||
+      (guestsOff?.() ?? true) ||
+      grant.role === "viewer" ||
+      Date.parse(grant.expiresAt) <= clock.now().getTime()
+    ) {
+      throw guestUnavailable();
+    }
+    const agent = await findAgent(db, {
+      id: agentId,
+      workspaceId: grant.workspaceId,
+    });
+    const adapter = agent && (guestAdapter ?? adapterByKind.get(agent.runtime));
+    if (
+      agent?.status !== "active" ||
+      !adapter ||
+      !guestRuntimeReady(agent.runtime)
+    ) {
+      throw guestUnavailable();
+    }
+    try {
+      await authorizeGuestGrant(grant, {
+        agentId: agent.id,
+        artifactId: grant.artifactId,
+        workspaceId: grant.workspaceId,
+      });
+    } catch (error) {
+      if (error instanceof ForbiddenError) {
+        throw guestUnavailable();
+      }
+      throw error;
+    }
+    return { adapter, agent };
+  };
+
   const startForGuest = async (
     rawGrant: GuestGrant,
     rawInput: StartRunInput,
@@ -1001,36 +1038,13 @@ export const createRunsService = ({
     ) {
       throw guestUnavailable();
     }
-    const agent = await findAgent(db, {
-      id: input.agentId,
-      workspaceId: grant.workspaceId,
-    });
-    const adapter = agent && (guestAdapter ?? adapterByKind.get(agent.runtime));
-    if (
-      agent?.status !== "active" ||
-      !adapter ||
-      !guestRuntimeReady(agent.runtime)
-    ) {
-      throw guestUnavailable();
-    }
+    const { agent, adapter } = await guestReadiness(grant, input.agentId);
     const binding = await authenticateGuestRun(
       db,
       grant,
       options.guestSessionToken,
       nowIso()
     );
-    try {
-      await authorizeGuestGrant(grant, {
-        agentId: agent.id,
-        artifactId: grant.artifactId,
-        workspaceId: grant.workspaceId,
-      });
-    } catch (error) {
-      if (error instanceof ForbiddenError) {
-        throw guestUnavailable();
-      }
-      throw error;
-    }
     return finishStart(
       {
         adapter,
@@ -2330,6 +2344,9 @@ export const createRunsService = ({
     getRun,
     guestContext,
     guestExecution,
+    guestReadiness: async (grant: GuestGrant, agentId: string) => {
+      await guestReadiness(grant, agentId);
+    },
     heartbeatRun,
     ingestRunEvents,
     markRunning,

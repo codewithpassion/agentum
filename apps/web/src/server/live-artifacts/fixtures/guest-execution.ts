@@ -13,6 +13,7 @@ import { guestRunRpc } from "../../guest-run-rpc";
 import type { AppEnv } from "../../routes/groups";
 import { guestEmailAdapter } from "../guest-infra";
 import { guestRoutes } from "../guest-routes";
+import { roomStub } from "../namespace";
 import { requiredLive } from "../required";
 
 export { SessionStream } from "../../session-stream";
@@ -156,10 +157,44 @@ export class GuestRun extends ProductionGuestRun {
   }
 }
 const app = new Hono<AppEnv>();
-app.route("/", guestRoutes({ compose: fixtureCompose }));
+app.route(
+  "/",
+  guestRoutes({
+    compose: fixtureCompose,
+    page: async () =>
+      new Response(
+        '<!doctype html><html lang="en"><head><link rel="stylesheet" href="/guest.css"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="guest-root"></div><script type="module" src="/guest.js"></script></body></html>',
+        { headers: { "Content-Type": "text/html" } }
+      ),
+  })
+);
+app.get("/fixture/snapshot/:id", async (c) => {
+  const snapshot = await (
+    await roomStub(c.env.ARTIFACT_ROOM, {
+      artifactId: c.req.param("id"),
+      workspaceId: "w1",
+    })
+  ).authoritativeSnapshot();
+  return c.json({ revision: snapshot.revision, state: [...snapshot.state] });
+});
+app.post("/fixture/role/:artifact/:member", async (c) => {
+  await (await fixtureCompose(c.env).services.liveGuests?.())?.changeRole(
+    owner,
+    {
+      artifactId: c.req.param("artifact"),
+      memberId: c.req.param("member"),
+      role: "viewer",
+    }
+  );
+  return c.json({ ok: true });
+});
 app.post("/fixture/create", async (c) => {
   const composed = fixtureCompose(c.env);
-  const input = await c.req.json<{ kind?: string }>();
+  const input = await c.req.json<{
+    kind?: string;
+    email?: string;
+    role?: "viewer" | "commenter" | "editor";
+  }>();
   const live = requiredLive(composed.services);
   const artifact =
     input.kind === "deck"
@@ -180,9 +215,11 @@ app.post("/fixture/create", async (c) => {
   const invite = await guests.invite(owner, {
     agentRunsPerDay: 2,
     artifactId: artifact.artifactId,
-    email: input.kind === "deck" ? "deck@example.com" : "guest@example.com",
+    email:
+      input.email ??
+      (input.kind === "deck" ? "deck@example.com" : "guest@example.com"),
     expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-    role: "editor",
+    role: input.role ?? "editor",
   });
   return c.json({ ...artifact, ...invite, mail });
 });

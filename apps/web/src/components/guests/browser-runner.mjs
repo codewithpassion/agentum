@@ -243,13 +243,12 @@ try {
               .run();
             await db
               .prepare(
-                "INSERT INTO runs (id,workspace_id,agent_id,actor_id,actor_kind,created_at,input_text,session_id,status,on_behalf_of_user_id,scope_artifact_id,lease_until) VALUES (?,'w1','review-agent','u1','user',?,'fixture',?,'running','u1',?,?)"
+                "INSERT INTO runs (id,workspace_id,agent_id,actor_id,actor_kind,created_at,input_text,session_id,status,on_behalf_of_user_id,lease_until) VALUES (?,'w1','review-agent','u1','user',?,'fixture',?,'running','u1',?)"
               )
               .bind(
                 `review-run-${invitation.artifactId}`,
                 now,
                 `review-session-${invitation.artifactId}`,
-                invitation.artifactId,
                 _lease
               )
               .run();

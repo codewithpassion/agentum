@@ -126,6 +126,9 @@ export class TicketedRoom {
     synced: false,
   };
   private receiving = Promise.resolve();
+  // An explicit ask/comment attachment survives the editor cursor plugin's blur
+  // updates. Only clearSelection consumes it; ordinary caret presence stays live.
+  private attachedCursor?: { anchor: object; head: object };
   private readonly selectionWaiters = new Set<{
     key: string;
     resolve: () => void;
@@ -222,7 +225,9 @@ export class TicketedRoom {
     writeVarUint(encoder, this.awareness.clientID);
     writeVarUint(encoder, 0); // The room owns lifecycle clocks.
     const state = this.awareness.getLocalState();
-    const cursor = roomCursorSchema.safeParse(state?.cursor);
+    const cursor = roomCursorSchema.safeParse(
+      this.attachedCursor ?? state?.cursor
+    );
     const value = cursor.success ? { cursor: cursor.data } : {};
     // Tiptap sends cursor:null on blur. The room accepts an omitted cursor, not
     // null; never forward editor-only user data or unknown presence fields.
@@ -415,9 +420,11 @@ export class TicketedRoom {
   }
   /** Keep the selected relative range alive when the panel takes focus. */
   select(start: object, end: object) {
-    this.awareness.setLocalStateField("cursor", { anchor: start, head: end });
+    this.attachedCursor = { anchor: start, head: end };
+    this.awareness.setLocalStateField("cursor", this.attachedCursor);
   }
   clearSelection() {
+    this.attachedCursor = undefined;
     this.awareness.setLocalStateField("cursor", null);
   }
   async confirmSelection(selection: EditorSelection): Promise<void> {
@@ -447,6 +454,7 @@ export class TicketedRoom {
         },
       };
       this.selectionWaiters.add(waiter);
+      this.attachedCursor = cursor;
       this.awareness.setLocalStateField("cursor", cursor);
     });
   }

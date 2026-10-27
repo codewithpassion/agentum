@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { spawn } from "bun";
 import { build } from "vite";
 
+const execution = process.argv.includes("--execution");
 const output = await mkdtemp(join(tmpdir(), "guest-browser-assets-"));
 try {
   if (process.argv.includes("--production-assets")) {
@@ -43,6 +44,7 @@ try {
         import.meta.dir,
         "../../server/live-artifacts/fixtures/bundle-guest.ts"
       ),
+      ...(execution ? ["guest-execution"] : []),
     ],
     { stderr: "inherit", stdout: "pipe" }
   );
@@ -51,7 +53,13 @@ try {
     throw new Error("Guest worker build failed");
   }
   const runner = spawn(
-    ["node", resolve(import.meta.dir, "browser-runner.mjs")],
+    [
+      "node",
+      resolve(
+        import.meta.dir,
+        execution ? "ask-browser-runner.mjs" : "browser-runner.mjs"
+      ),
+    ],
     {
       stderr: "inherit",
       stdin: new Blob([JSON.stringify({ output, script })]),

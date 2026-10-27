@@ -48,8 +48,8 @@ export function GuestComments({
     <section aria-label="Comments" className="guest-comments">
       <h2>Comments</h2>
       <p>
-        Agent requests are unavailable until restricted guest execution is
-        enabled.
+        Use Ask agent above to request help. Comments here are shared with
+        everyone who can access this artifact.
       </p>
       {threads.map((thread) => (
         <article key={thread.id}>

@@ -9,6 +9,7 @@ import { TicketedRoom } from "../live-artifacts/room-provider";
 import { TicketedDeckRoom } from "../live-decks/room-provider";
 import { DeckRuntimeGate } from "../live-decks/runtime-gate";
 import { TooltipProvider } from "../ui/tooltip";
+import { GuestAsk } from "./ask";
 import { GuestComments } from "./comments";
 import { guestHttp } from "./http";
 import { guestServices } from "./services";
@@ -26,6 +27,11 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
   const [error, setError] = useState("");
   const [ended, setEnded] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
+  const [askAvailable, setAskAvailable] = useState(false);
+  const [prepareAsk, setPrepareAsk] = useState<() => Promise<void>>(
+    () => async () => undefined
+  );
+  const [askContext, setAskContext] = useState(0);
   const [anchor, setAnchor] = useState<CommentAnchor>();
   const [, render] = useState(0);
   const failed = useCallback(
@@ -192,6 +198,11 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
           onClick={async () => {
             try {
               await guestHttp.json(guestEndpoints.signout, {});
+              try {
+                sessionStorage.removeItem(services.endpoint("ask"));
+              } catch {
+                /* Optional storage. */
+              }
               room?.dispose();
               setSignedOut(true);
             } catch (cause) {
@@ -220,6 +231,20 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
           <DocumentEditor
             document={room.document}
             imageUrl={services.imageUrl}
+            onAskAgent={
+              role === "viewer" || !askAvailable
+                ? undefined
+                : (selection) => {
+                    const prepare = () => room.confirmSelection(selection);
+                    setPrepareAsk(() => prepare);
+                    document
+                      .querySelector<HTMLTextAreaElement>(".guest-ask textarea")
+                      ?.focus();
+                    prepare()
+                      .then(() => setAskContext((old) => old + 1))
+                      .catch((cause: Error) => failed(cause.message));
+                  }
+            }
             onCommentSelection={(selection) => {
               room.select(selection.start, selection.end);
               setAnchor({
@@ -239,6 +264,20 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
           <DeckRuntimeGate
             runtime={{
               ports: {
+                ask:
+                  role === "viewer" || !askAvailable
+                    ? undefined
+                    : async (where) => {
+                        const prepare = () => room.confirmLocation(where);
+                        setPrepareAsk(() => prepare);
+                        document
+                          .querySelector<HTMLTextAreaElement>(
+                            ".guest-ask textarea"
+                          )
+                          ?.focus();
+                        await prepare();
+                        setAskContext((old) => old + 1);
+                      },
                 comment: (where) => {
                   setAnchor({
                     detached: false,
@@ -280,6 +319,22 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
         ) : null}
         {room !== undefined && (
           <GuestSuggestions failed={failed} role={role} services={services} />
+        )}
+        {room !== undefined && (
+          <GuestAsk
+            beforeSend={prepareAsk}
+            contextVersion={askContext}
+            onAvailability={setAskAvailable}
+            role={role}
+            sent={() => {
+              setPrepareAsk(() => async () => undefined);
+              if (room instanceof TicketedRoom) {
+                room.clearSelection();
+              }
+              setAskContext((old) => old + 1);
+            }}
+            services={services}
+          />
         )}
         {room !== undefined && (
           <GuestTranscript failed={failed} services={services} />
