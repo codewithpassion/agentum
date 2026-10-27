@@ -1,6 +1,6 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Page actions capture current artifact and selection. */
 import { useEffect, useMemo, useState } from "react";
-import type { RouterOutputs } from "#/integrations/trpc/types";
+import type { LiveOutputs } from "../live-artifacts/live-api";
 import { liveApi } from "../live-artifacts/live-api";
 import { DeckCollaboration } from "./deck-collaboration";
 import { deckServices } from "./deck-services";
@@ -25,8 +25,7 @@ export function LiveDeckPage({
     kind: "ask" | "comment";
     where: DeckWhere;
   }>();
-  const [versions, setVersions] =
-    useState<RouterOutputs["artifacts"]["versions"]>();
+  const [versions, setVersions] = useState<LiveOutputs["history"]>();
   const [confirm, setConfirm] = useState<number>();
   const [busy, setBusy] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt deliberately replaces all optimistic state.
@@ -39,7 +38,13 @@ export function LiveDeckPage({
         setRoom(undefined);
         setError(message);
       },
-      join: () => liveApi.join.mutate({ artifactId }),
+      join: async () => {
+        const opened = await services.open();
+        if (opened.kind !== "deck") {
+          throw new Error("Artifact is not a deck");
+        }
+        return liveApi.join.mutate({ artifactId });
+      },
       policy: services.policy,
       ready: (connected) => setRoom(connected),
       roleChanged: () => setRevision((old) => old + 1),

@@ -121,8 +121,11 @@ async function connect() {
 function session(socket: Socket) {
   socket.receive({
     awarenessId: 9001,
+    epoch: "test-epoch",
     expiresAt: Date.now() + 300_000,
     kind: "deck",
+    ownBlobUrls: [],
+    participant: joined.participant,
     role: "owner",
     type: "session",
   });
@@ -212,4 +215,48 @@ test("presentation admission waits for acknowledgement and serialized release ha
     type: "presentation-result",
   });
   await release;
+});
+
+test("local invalid optimistic edits close without publication and replacement starts from accepted bytes", async () => {
+  const first = await connect();
+  session(first.socket);
+  const accepted = checkpoint();
+  first.socket.receive(sync(accepted));
+  await tick();
+  const before = first.socket.sent.length;
+  first.room.document.getMap("hostile").set("payload", "invalid");
+  expect(first.failure()).toContain("unknown root");
+  expect(first.socket.sent.length).toBe(before);
+  const replacement = await connect();
+  session(replacement.socket);
+  replacement.socket.receive(sync(accepted));
+  await tick();
+  expect(replacement.ready()).toBe(true);
+  expect(replacement.room.document.getMap("hostile").size).toBe(0);
+});
+test("role loss during pending native presentation admission rejects completion and closes lease connection", async () => {
+  const client = await connect();
+  session(client.socket);
+  client.socket.receive(sync(checkpoint()));
+  await tick();
+  const start = client.room.presentToEveryone({ build: 0, slideId: "slide" });
+  const rejected = start.then(
+    () => "admitted",
+    (error: Error) => error.message
+  );
+  await tick();
+  const request = JSON.parse(String(client.socket.sent.at(-1)));
+  client.socket.receive({ role: "viewer", type: "role" });
+  expect(await rejected).toBe("Room disconnected");
+  client.socket.receive({
+    expiresAt: Date.now() + 15_000,
+    leaseId: "late-lease",
+    ok: true,
+    requestId: request.requestId,
+    type: "presentation-result",
+  });
+  await tick();
+  expect(client.room.role).toBe("viewer");
+  expect(client.room.presentation).toBeNull();
+  expect(client.failure()).toContain("permissions");
 });

@@ -9,6 +9,7 @@ import {
   type ArtifactFilters,
   listInput,
 } from "#/components/artifacts/list/artifacts-logic.ts";
+import { CreateDeck } from "#/components/live-decks/create-deck";
 import { useNowMs } from "#/components/task/use-now-ms.ts";
 import { getTrpc } from "#/integrations/trpc/client";
 
@@ -61,6 +62,7 @@ function ArtifactsPage() {
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-6">
       <h1 className="font-heading text-3xl text-foreground">Artifacts</h1>
+      <CreateDeck />
       <ArtifactsFilters filters={filters} onChange={changeFilters} />
       <ArtifactsGrid
         filters={filters}

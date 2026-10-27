@@ -1,6 +1,11 @@
 /** biome-ignore-all lint/suspicious/noUnnecessaryConditions: Network callbacks mutate lifecycle flags asynchronously; they are not constant across events. */
+
 import { Deck } from "@repo/live-deck";
 import { richTextCodec } from "@repo/live-deck/rich-text";
+import {
+  type DeckRoomSession,
+  presentationControlSchema,
+} from "@repo/protocol/deck";
 import {
   awarenessEntrySchema,
   type LiveJoinResult,
@@ -8,6 +13,8 @@ import {
 } from "@repo/protocol/live";
 import {
   createDecoder,
+  type Decoder,
+  hasContent,
   readVarString,
   readVarUint,
   readVarUint8Array,
@@ -46,8 +53,16 @@ const presentationPositionSchema = z.object({
 const controlSchema = z.discriminatedUnion("type", [
   z.object({
     awarenessId: z.int().nonnegative(),
+    epoch: z.string().min(1),
     expiresAt: z.number(),
     kind: z.literal("deck"),
+    ownBlobUrls: z.array(z.string()),
+    participant: z.object({
+      color: awarenessEntrySchema.shape.color,
+      id: awarenessEntrySchema.shape.id,
+      kind: awarenessEntrySchema.shape.kind,
+      name: awarenessEntrySchema.shape.name,
+    }),
     role: liveRoleSchema,
     type: z.literal("session"),
   }),
@@ -55,7 +70,7 @@ const controlSchema = z.discriminatedUnion("type", [
   z.object({ role: liveRoleSchema, type: z.literal("role") }),
   z.object({ message: z.string(), type: z.literal("error") }),
 ]);
-const presentationControlSchema = z.discriminatedUnion("type", [
+const presentationMessageSchema = z.discriminatedUnion("type", [
   z.object({
     position: presentationPositionSchema.nullable(),
     type: z.literal("presentation"),
@@ -116,6 +131,7 @@ export class TicketedDeckRoom {
     };
   };
   role: EditorRole = "viewer";
+  epoch?: string;
   private roster: readonly (DeckParticipant & { clientId: number })[] = [];
   private readonly listeners = new Set<() => void>();
   private socket?: WebSocket;
@@ -158,7 +174,17 @@ export class TicketedDeckRoom {
         (this.role === "owner" || this.role === "editor")
       ) {
         try {
-          this.deck.validate();
+          // Tiptap may materialize an empty local migration map during undo.
+          // Validate the actual encoded wire state; empty local roots are not encoded.
+          const candidate = new Deck(new Doc(), richTextCodec, {
+            ownsBlob: (path) => this.policy.ownBlobUrls.has(path),
+          });
+          try {
+            candidate.applyUpdate(encodeStateAsUpdate(this.document));
+          } finally {
+            candidate.destroy();
+            candidate.doc.destroy();
+          }
           this.send(frame(0, update, 2));
         } catch (error) {
           this.fail(error);
@@ -177,6 +203,7 @@ export class TicketedDeckRoom {
       ) => {
         if (
           origin !== this &&
+          !this.lifecycle.disposed &&
           this.lifecycle.assigned &&
           [...added, ...updated, ...removed].includes(this.awareness.clientID)
         ) {
@@ -234,8 +261,7 @@ export class TicketedDeckRoom {
     const state = this.awareness.getLocalState();
     const cursor = locationSchema.safeParse(state);
     const value = cursor.success ? cursor.data : {};
-    // Tiptap sends cursor:null on blur. The room accepts an omitted cursor, not
-    // null; never forward editor-only user data or unknown presence fields.
+    // Location replaces the previous ephemeral value; identity is supplied by the room.
     writeVarString(encoder, JSON.stringify(state === null ? null : value));
     return frame(1, toUint8Array(encoder));
   }
@@ -276,9 +302,8 @@ export class TicketedDeckRoom {
       Math.max(1000, expiresAt - Date.now() - 60_000)
     );
   }
-  private receiveControl(data: string, joined: LiveJoinResult) {
-    const raw: unknown = JSON.parse(data);
-    const presentation = presentationControlSchema.safeParse(raw);
+  private receivePresentation(raw: unknown) {
+    const presentation = presentationMessageSchema.safeParse(raw);
     if (presentation.success) {
       const message = presentation.data;
       if (message.type === "presentation") {
@@ -296,6 +321,13 @@ export class TicketedDeckRoom {
           }
         }
       }
+      return true;
+    }
+    return false;
+  }
+  private receiveControl(data: string, joined: LiveJoinResult) {
+    const raw: unknown = JSON.parse(data);
+    if (this.receivePresentation(raw)) {
       return;
     }
     const control = controlSchema.parse(raw);
@@ -322,18 +354,21 @@ export class TicketedDeckRoom {
         if (control.role !== this.role) {
           throw new Error("Room admission role changed");
         }
+        const admission: DeckRoomSession = control;
+        this.epoch = admission.epoch;
+        if (admission.participant.id !== joined.participant.id) {
+          throw new Error("Room participant changed during admission");
+        }
+        this.policy.ownBlobUrls = new Set(admission.ownBlobUrls);
         this.awareness.clientID = control.awarenessId;
         this.lifecycle.assigned = true;
         this.roster = [
           {
             clientId: control.awarenessId,
-            color: joined.participant.color,
-            id: joined.participant.id,
-            kind: joined.participant.kind,
-            name: joined.participant.name,
+            ...admission.participant,
           },
         ];
-        this.awareness.setLocalState({ user: { ...joined.participant } });
+        this.awareness.setLocalState({});
         this.scheduleRenewal(control.expiresAt);
         this.send(frame(0, encodeStateVector(this.document), 0));
         const query = createEncoder();
@@ -359,47 +394,56 @@ export class TicketedDeckRoom {
     const decoder = createDecoder(new Uint8Array(data));
     const type = readVarUint(decoder);
     if (type === 0) {
-      const subtype = readVarUint(decoder);
-      const update = readVarUint8Array(decoder);
-      if (subtype === 0) {
-        this.send(frame(0, encodeStateAsUpdate(this.document, update), 1));
-        return;
-      }
-      if (subtype !== 1 && subtype !== 2) {
-        throw new Error("Unknown deck frame");
-      }
-      if (!(await this.refreshPolicy())) {
-        return;
-      }
-      this.applying = true;
-      try {
-        this.deck.applyUpdate(update);
-      } finally {
-        this.applying = false;
-      }
-      if (!this.document.getMap("meta").has("theme")) {
-        throw new Error("Deck theme is not initialized by the authority");
-      }
-      this.publishPolicy();
-      if (!this.lifecycle.synced && subtype === 1) {
-        clearTimeout(this.connectionTimer);
-        this.lifecycle.synced = true;
-        this.options.ready(this);
-        this.policyTimer = setInterval(() => {
-          this.receiving = this.receiving
-            .then(async () => {
-              if (!this.lifecycle.disposed && (await this.refreshPolicy())) {
-                this.publishPolicy();
-              }
-            })
-            .catch((error: unknown) => this.fail(error));
-        }, 30_000);
-      }
+      await this.receiveSync(decoder);
     } else if (type === 1) {
       const update = readVarUint8Array(decoder);
+      if (hasContent(decoder)) {
+        throw new Error("Trailing deck frame bytes");
+      }
       this.receivePresence(update);
     } else {
       throw new Error("Unknown room frame");
+    }
+  }
+  private async receiveSync(decoder: Decoder) {
+    const subtype = readVarUint(decoder);
+    const update = readVarUint8Array(decoder);
+    if (hasContent(decoder)) {
+      throw new Error("Trailing deck frame bytes");
+    }
+    if (subtype === 0) {
+      this.send(frame(0, encodeStateAsUpdate(this.document, update), 1));
+      return;
+    }
+    if (subtype !== 1 && subtype !== 2) {
+      throw new Error("Unknown deck frame");
+    }
+    if (!(await this.refreshPolicy())) {
+      return;
+    }
+    this.applying = true;
+    try {
+      this.deck.applyUpdate(update);
+    } finally {
+      this.applying = false;
+    }
+    if (!this.document.getMap("meta").has("theme")) {
+      throw new Error("Deck theme is not initialized by the authority");
+    }
+    this.publishPolicy();
+    if (!this.lifecycle.synced && subtype === 1) {
+      clearTimeout(this.connectionTimer);
+      this.lifecycle.synced = true;
+      this.options.ready(this);
+      this.policyTimer = setInterval(() => {
+        this.receiving = this.receiving
+          .then(async () => {
+            if (!this.lifecycle.disposed && (await this.refreshPolicy())) {
+              this.publishPolicy();
+            }
+          })
+          .catch((error: unknown) => this.fail(error));
+      }, 30_000);
     }
   }
   private async refreshPolicy() {
@@ -422,6 +466,9 @@ export class TicketedDeckRoom {
   private receivePresence(update: Uint8Array) {
     const entries = createDecoder(update);
     const count = readVarUint(entries);
+    if (count > 1000) {
+      throw new Error("Room participant limit exceeded");
+    }
     const roster = new Map(this.roster.map((entry) => [entry.clientId, entry]));
     for (let index = 0; index < count; index += 1) {
       const clientId = readVarUint(entries);
@@ -434,10 +481,7 @@ export class TicketedDeckRoom {
         const { user, ...fields } = serverPresenceSchema.parse(raw);
         const entry = awarenessEntrySchema.parse({ ...fields, ...user });
         if (clientId === this.awareness.clientID) {
-          const key = JSON.stringify({
-            selection: entry.selection ?? [],
-            slideId: entry.slideId,
-          });
+          const key = JSON.stringify([entry.slideId, entry.selection ?? []]);
           for (const waiter of this.locationWaiters) {
             if (waiter.key === key) {
               waiter.resolve();
@@ -451,6 +495,9 @@ export class TicketedDeckRoom {
           status: entry.status,
         });
       }
+    }
+    if (hasContent(entries)) {
+      throw new Error("Trailing awareness bytes");
     }
     applyAwarenessUpdate(this.awareness, update, this);
     this.roster = [...roster.values()];
@@ -474,19 +521,30 @@ export class TicketedDeckRoom {
       }
       const requestId = crypto.randomUUID();
       const timer = setTimeout(() => {
-        this.pending.delete(requestId);
-        reject(new Error("Presentation acknowledgement timed out"));
+        this.fail(new Error("Presentation acknowledgement timed out"));
       }, 5000);
       this.pending.set(requestId, { reject, resolve, timer });
-      this.send(
-        JSON.stringify({
-          action,
-          leaseId: this.leaseId,
-          requestId,
-          type: "presentation",
-          ...position,
-        })
-      );
+      try {
+        this.send(
+          JSON.stringify(
+            presentationControlSchema.parse({
+              action,
+              requestId,
+              type: "presentation",
+              ...(this.leaseId ? { leaseId: this.leaseId } : {}),
+              ...position,
+            })
+          )
+        );
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(requestId);
+        reject(
+          error instanceof Error
+            ? error
+            : new Error("Invalid presentation request")
+        );
+      }
     });
   }
   presentToEveryone = (
@@ -533,7 +591,7 @@ export class TicketedDeckRoom {
         reject(new Error("Selection was not acknowledged by the room"));
       }, 5000);
       const waiter = {
-        key: JSON.stringify(location),
+        key: JSON.stringify([location.slideId, location.selection]),
         reject: (error: Error) => {
           clearTimeout(timer);
           reject(error);

@@ -396,3 +396,77 @@ test("entrance and exit are separate events and withPrevious batches entrances b
     f.destroy();
   }
 });
+
+test("deck rich text list, split, cell formatting and undo/redo remain inside the strict scene grammar", () => {
+  const f = fixture();
+  const text = new Editor({
+    extensions: deckTextExtensions(f.deck.textFragment(f.slide.id, f.text.id)),
+  });
+  const cell = new Editor({
+    extensions: deckTextExtensions(
+      f.deck.cellFragment(f.slide.id, f.table.id, "0:0")
+    ),
+  });
+  try {
+    text.commands.toggleBulletList();
+    text.commands.insertContentAt(1, "List item");
+    text.commands.splitListItem("listItem");
+    cell.commands.insertContentAt(1, "Cell content");
+    cell.commands.toggleBold();
+    cell.commands.toggleBulletList();
+    f.deck.validate();
+    f.remote.applyUpdate(encodeStateAsUpdate(f.deck.doc));
+    expect(f.remote.read(f.slide.id).slide).toEqual(
+      f.deck.read(f.slide.id).slide
+    );
+    cell.commands.undo();
+    f.deck.validate();
+    cell.commands.redo();
+    f.deck.validate();
+    f.remote.applyUpdate(encodeStateAsUpdate(f.deck.doc));
+    expect(f.remote.read(f.slide.id).slide).toEqual(
+      f.deck.read(f.slide.id).slide
+    );
+  } finally {
+    text.destroy();
+    cell.destroy();
+    f.destroy();
+  }
+});
+
+test("two mounted cell bindings preserve the peer's text through local undo and redo", () => {
+  const f = fixture();
+  const localCell = f.deck.cellFragment(f.slide.id, f.table.id, "0:0");
+  const remoteCell = f.remote.cellFragment(f.slide.id, f.table.id, "0:0");
+  expect(localCell._item?.id).toEqual(remoteCell._item?.id);
+  const a = new Editor({
+    extensions: deckTextExtensions(
+      f.deck.cellFragment(f.slide.id, f.table.id, "0:0")
+    ),
+  });
+  const b = new Editor({
+    extensions: deckTextExtensions(
+      f.remote.cellFragment(f.slide.id, f.table.id, "0:0")
+    ),
+  });
+  try {
+    a.commands.insertContentAt(1, "Cell Alice");
+    b.commands.insertContentAt(1, "Cell Bob");
+    f.deck.applyUpdate(encodeStateAsUpdate(f.remote.doc));
+    f.remote.applyUpdate(encodeStateAsUpdate(f.deck.doc));
+    expect(a.getText()).toContain("Cell Bob");
+    expect(b.getText()).toContain("Cell Alice");
+    a.commands.undo();
+    f.remote.applyUpdate(encodeStateAsUpdate(f.deck.doc));
+    expect(a.getText()).toBe("Cell Bob");
+    expect(b.getText()).toBe("Cell Bob");
+    a.commands.redo();
+    f.remote.applyUpdate(encodeStateAsUpdate(f.deck.doc));
+    expect(b.getText()).toContain("Cell Alice");
+    expect(b.getText()).toContain("Cell Bob");
+  } finally {
+    a.destroy();
+    b.destroy();
+    f.destroy();
+  }
+});
