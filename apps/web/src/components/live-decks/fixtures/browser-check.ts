@@ -253,6 +253,12 @@ try {
     await expect(
       remotePresent.getByLabel("Presentation position")
     ).toContainText("Slide 1 / 2, build 0 / 3");
+    await expect(
+      remotePresent.getByRole("button", {
+        exact: true,
+        name: "Next build / slide",
+      })
+    ).toBeDisabled();
     await remotePresent
       .getByRole("button", { exact: true, name: "Leave presenter" })
       .click();
@@ -272,6 +278,75 @@ try {
     await alice
       .getByRole("button", { exact: true, name: "Exit presentation" })
       .click();
+
+    await page
+      .getByRole("button", { name: "Trusted remote position" })
+      .dispatchEvent("click");
+    await expect(
+      remotePresent.getByLabel("Presentation position")
+    ).toContainText("build 2 / 3");
+    await page.keyboard.press("End");
+    await page.waitForTimeout(300);
+    await expect(
+      remotePresent.getByLabel("Presentation position")
+    ).toContainText("Slide 1 / 2, build 2 / 3");
+    await page
+      .getByRole("button", { name: "Clear remote position" })
+      .dispatchEvent("click");
+    for (const replica of [alice, bob]) {
+      const exit = replica.getByRole("button", {
+        exact: true,
+        name: "Exit presentation",
+      });
+      if (await exit.count()) {
+        await exit.dispatchEvent("click");
+      }
+    }
+    await page
+      .getByRole("button", { name: "Toggle delayed start" })
+      .dispatchEvent("click");
+    for (const cancellation of [
+      "Toggle Alice role",
+      "Toggle connection",
+      "Exit presentation",
+    ]) {
+      await alice
+        .getByRole("button", { exact: true, name: "Present" })
+        .dispatchEvent("click");
+      await alice
+        .getByRole("button", { exact: true, name: "Present to everyone" })
+        .dispatchEvent("click");
+      if (cancellation === "Exit presentation") {
+        await alice
+          .getByRole("button", { exact: true, name: cancellation })
+          .dispatchEvent("click");
+      } else {
+        await page
+          .getByRole("button", { exact: true, name: cancellation })
+          .dispatchEvent("click");
+      }
+      await page
+        .getByRole("button", { name: "Complete delayed start" })
+        .dispatchEvent("click");
+      await expect(page.getByTestId("spotlight")).toHaveText("null");
+      await expect(
+        alice.getByRole("button", {
+          exact: true,
+          name: "Stop presenting to everyone",
+        })
+      ).toHaveCount(0);
+      if (cancellation !== "Exit presentation") {
+        await page
+          .getByRole("button", { exact: true, name: cancellation })
+          .dispatchEvent("click");
+        await alice
+          .getByRole("button", { exact: true, name: "Exit presentation" })
+          .dispatchEvent("click");
+      }
+    }
+    await page
+      .getByRole("button", { name: "Toggle delayed start" })
+      .dispatchEvent("click");
 
     await alice.getByRole("button", { exact: true, name: "Add slide" }).click();
     await expect(bob.locator(".ld-thumbnail")).toHaveCount(3);

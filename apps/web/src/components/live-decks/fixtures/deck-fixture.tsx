@@ -3,7 +3,7 @@
 /** Executable local adapter, never imported by product routes. Updates cross actual Deck admission. */
 import { Deck } from "@repo/live-deck";
 import { richTextCodec } from "@repo/live-deck/rich-text";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Doc, encodeStateAsUpdate } from "yjs";
 import { DeckEditor } from "../deck-editor";
@@ -89,6 +89,9 @@ const roster: DeckParticipant[] = [
   { color: "#10b981", id: "bob", kind: "member", name: "Bob" },
 ];
 function Fixture() {
+  const deferred = useRef<(() => void) | null>(null);
+  const [delayStart, setDelayStart] = useState(false);
+  const [connected, setConnected] = useState(true);
   const [role, setRole] = useState<DeckEditorPorts["role"]>("editor");
   const [participants, setParticipants] = useState(roster);
   const [spotlight, setSpotlight] = useState<PresentationPosition | null>(null);
@@ -110,6 +113,11 @@ function Fixture() {
     participants,
     presentation: spotlight,
     presentToEveryone: async (position) => {
+      if (position && delayStart && index === 0) {
+        await new Promise<void>((resolve) => {
+          deferred.current = resolve;
+        });
+      }
       setSpotlight(position);
       record(`present:${JSON.stringify(position)}`);
     },
@@ -123,7 +131,7 @@ function Fixture() {
             ? previous
             : next;
         }),
-      state: "synced",
+      state: connected ? "synced" : "disconnected",
     },
     role: index === 0 ? role : "editor",
     selfId: roster[index]?.id ?? "alice",
@@ -149,6 +157,25 @@ function Fixture() {
       >
         Toggle Alice role
       </button>
+      <button onClick={() => setDelayStart(!delayStart)} type="button">
+        Toggle delayed start
+      </button>
+      <button onClick={() => deferred.current?.()} type="button">
+        Complete delayed start
+      </button>
+      <button onClick={() => setConnected(!connected)} type="button">
+        Toggle connection
+      </button>
+      <button
+        onClick={() => setSpotlight({ build: 2, slideId: "opening" })}
+        type="button"
+      >
+        Trusted remote position
+      </button>
+      <button onClick={() => setSpotlight(null)} type="button">
+        Clear remote position
+      </button>
+      <output data-testid="spotlight">{JSON.stringify(spotlight)}</output>
       <output data-testid="events">{events.join("\n")}</output>
       <div data-replica="alice">
         <DeckEditor ports={ports(0)} />

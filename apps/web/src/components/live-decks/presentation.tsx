@@ -21,6 +21,11 @@ export function DeckPresentation({
   const [position, setPosition] = useState(initial);
   const [presenter, setPresenter] = useState(false);
   const [broadcast, setBroadcast] = useState(false);
+  const [broadcastPending, setBroadcastPending] = useState(false);
+  const broadcastRequest = useRef(0);
+  const broadcastActive = useRef(false);
+  const requestPending = useRef(false);
+  const mounted = useRef(true);
   const [spotlight, setSpotlight] = useState(true);
   const [finishedBuild, setFinishedBuild] = useState("");
   const nextRef = useRef<() => void>(() => undefined);
@@ -28,29 +33,86 @@ export function DeckPresentation({
   const stage = useRef<HTMLDivElement>(null);
   const current = useRef(ports);
   current.current = ports;
+  const following = spotlight && !!ports.presentation && !broadcast;
+  const permitted =
+    (ports.role === "editor" || ports.role === "owner") &&
+    ports.provider.state === "synced";
+  const release = useCallback(() => {
+    broadcastRequest.current += 1;
+    const needed = broadcastActive.current || requestPending.current;
+    broadcastActive.current = false;
+    setBroadcast(false);
+    if (needed) {
+      current.current.presentToEveryone(null).catch(report);
+    }
+  }, [report]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      broadcastRequest.current += 1;
+      if (broadcastActive.current || requestPending.current) {
+        current.current.presentToEveryone(null).catch(report);
+      }
+      broadcastActive.current = false;
+    };
+  }, [report]);
+  const toggleBroadcast = async () => {
+    if (!permitted || requestPending.current) {
+      return;
+    }
+    if (broadcastActive.current) {
+      release();
+      return;
+    }
+    broadcastRequest.current += 1;
+    const request = broadcastRequest.current;
+    requestPending.current = true;
+    setBroadcastPending(true);
+    try {
+      await current.current.presentToEveryone(position);
+      const latest = current.current;
+      if (
+        !mounted.current ||
+        request !== broadcastRequest.current ||
+        (latest.role !== "editor" && latest.role !== "owner") ||
+        latest.provider.state !== "synced"
+      ) {
+        await latest.presentToEveryone(null);
+        return;
+      }
+      broadcastActive.current = true;
+      setBroadcast(true);
+    } catch (error) {
+      report(error);
+    } finally {
+      requestPending.current = false;
+      if (mounted.current) {
+        setBroadcastPending(false);
+      }
+    }
+  };
   const ids = ports.deck.ids();
   const slideId = ids.includes(position.slideId) ? position.slideId : ids[0];
   const slide = slideId ? ports.deck.read(slideId).slide : null;
   const steps = slide ? buildSteps(slide) : [];
   const index = slideId ? ids.indexOf(slideId) : 0;
   useEffect(() => {
-    if (
-      broadcast &&
-      ((ports.role !== "editor" && ports.role !== "owner") ||
-        ports.provider.state !== "synced")
-    ) {
-      setBroadcast(false);
-      current.current.presentToEveryone(null).catch(report);
+    if (!permitted) {
+      release();
     }
-  }, [broadcast, ports.role, ports.provider.state, report]);
+  }, [permitted, release]);
   const navigate = useCallback(
     (destination: PresentationPosition) => {
+      if (following) {
+        return;
+      }
       setPosition(destination);
       if (broadcast) {
         current.current.presentToEveryone(destination).catch(report);
       }
     },
-    [broadcast, report]
+    [broadcast, following, report]
   );
   const next = useCallback(() => {
     if (!slideId) {
@@ -71,29 +133,27 @@ export function DeckPresentation({
     }
   }, [report]);
   const end = useCallback(() => {
-    if (broadcast) {
-      current.current.presentToEveryone(null).catch(report);
-    }
+    release();
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(report);
     }
     close();
-  }, [broadcast, close, report]);
+  }, [release, close, report]);
   useEffect(() => {
-    if (spotlight && ports.presentation) {
+    if (following && ports.presentation) {
       setPosition(ports.presentation);
     }
-  }, [ports.presentation, spotlight]);
+  }, [ports.presentation, following]);
   const nextTrigger = steps[position.build]?.[0]?.trigger;
   const positionKey = `${slideId}:${position.build}`;
   const duration = Number(slide?.duration ?? 350);
   useEffect(() => {
-    if (!positionKey || nextTrigger !== "afterPrevious") {
+    if (following || !positionKey || nextTrigger !== "afterPrevious") {
       return;
     }
     const timer = setTimeout(() => nextRef.current(), Math.max(1, duration));
     return () => clearTimeout(timer);
-  }, [nextTrigger, duration, positionKey]);
+  }, [nextTrigger, duration, positionKey, following]);
   useEffect(() => {
     const timer = setTimeout(
       () => setFinishedBuild(positionKey),
@@ -224,24 +284,15 @@ export function DeckPresentation({
         <button onClick={fullscreen} type="button">
           Fullscreen (F)
         </button>
-        <button onClick={next} type="button">
+        <button disabled={following} onClick={next} type="button">
           Next build / slide
         </button>
         <button onClick={() => setPresenter(!presenter)} type="button">
           Presenter notes
         </button>
         <button
-          disabled={
-            (ports.role !== "owner" && ports.role !== "editor") ||
-            ports.provider.state !== "synced"
-          }
-          onClick={() => {
-            const value = !broadcast;
-            ports
-              .presentToEveryone(value ? position : null)
-              .then(() => setBroadcast(value))
-              .catch(report);
-          }}
+          disabled={!permitted || broadcastPending}
+          onClick={toggleBroadcast}
           type="button"
         >
           {broadcast ? "Stop presenting to everyone" : "Present to everyone"}

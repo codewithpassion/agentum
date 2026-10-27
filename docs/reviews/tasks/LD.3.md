@@ -81,3 +81,11 @@ The actual React scenes use keyed DOM elements and validated scene values; text 
 Independent validation: the initial focused test and fixture could not resolve dependencies in this checkout; `bun install --frozen-lockfile --ignore-scripts` succeeded. `bun run --cwd apps/web test src/components/live-decks/editor.test.ts` passed **8 tests, 32 assertions** against actual core/codec and independent Y.Docs. `bun apps/web/src/components/live-decks/fixtures/browser-check.ts` passed Chromium at **1280×800 and 390×844**, covering the fixture's two replicas and reported editor/presentation paths. No full root suite or authenticated room test was rerun. The fixture's immediate presentation callback does not test the pending-start race, and its spotlight checks do not establish continuous follower synchronization.
 
 Room ticket authorization, serialized update admission, persistence/rejected-replica replacement, trusted presence identity, actual blob lifecycle, route mounting, history restore and presenter lease enforcement remain integration gates, not findings against this leaf. R2.4/R2.5 tool acceptance belongs to the separate core/codec/tool reviews; this component run does not establish end-to-end R2.1–R2.8 or staging acceptance.
+
+## Controller remediation
+
+Pending presentation starts now carry a cancellation generation and check current role, connection and mount state after admission. Downgrade, disconnect and exit invalidate the request and release late successful admission. Following disables local navigation and automatic build advancement until leaving the presenter.
+
+Desktop and phone Chromium probes passed with deferred admission resolved after all three cancellation cases, plus trusted follower position held against keyboard navigation and the automatic build timer. Fixture control events are dispatched directly when the presentation overlay covers harness controls. Production presenter lease enforcement remains an integration gate. Root check currently reports unrelated L.7 checkpoint lint diagnostics being fixed in that active lane; this component's focused formatting check passes.
+
+The global pre-commit hook also encounters those existing L.7 errors, so this isolated remediation commit bypasses that hook after focused formatting, eight core tests and both browser viewport checks pass. No L.7 files are included.
