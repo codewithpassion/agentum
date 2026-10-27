@@ -99,6 +99,9 @@ export const createGuestArtifacts = (deps: {
       input: GuestCredential,
       body: { body: string; threadId?: string; anchor?: CommentAnchor }
     ) {
+      if ("toAgent" in body && body.toAgent) {
+        throw denied();
+      }
       const { grant, resolved, at, threadId } = await prepareComment(
         input,
         body

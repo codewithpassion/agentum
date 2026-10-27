@@ -338,10 +338,12 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
         {room !== undefined && (
           <GuestTranscript failed={failed} services={services} />
         )}
-        {room !== undefined && (
+        {room !== undefined && opened && (
           <GuestComments
             anchor={anchor}
             failed={failed}
+            grant={opened.grant}
+            key={`${opened.grant.workspaceId}:${opened.grant.guestId}:${opened.grant.artifactId}`}
             role={role}
             services={services}
           />

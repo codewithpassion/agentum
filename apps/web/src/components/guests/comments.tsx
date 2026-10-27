@@ -1,33 +1,58 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Guest callbacks capture thread identity. */
+/** biome-ignore-all lint/suspicious/noUnnecessaryConditions: The mutable mount ref changes in effect cleanup across awaited requests. */
 import type { GuestThread } from "@repo/protocol/guest";
-import type { CommentAnchor } from "@repo/protocol/live";
+import type { CommentAnchor, GuestGrant } from "@repo/protocol/live";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditorRole } from "../live-artifacts/editor-ports";
 import { guestHttp } from "./http";
+import {
+  clearPendingComment,
+  pendingCommentKey,
+  readPendingComment,
+} from "./pending-comment";
 import type { GuestServices } from "./services";
 export function GuestComments({
   services,
+  grant,
   role,
   anchor,
   failed,
 }: {
   services: GuestServices;
+  grant: GuestGrant;
   role: EditorRole;
   anchor?: CommentAnchor;
   failed: (message: string) => void;
 }) {
+  const storageKey = pendingCommentKey(grant);
+  const [pending, setPending] = useState(() => readPendingComment(storageKey));
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const [threads, setThreads] = useState<GuestThread[]>([]);
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState(pending?.body ?? "");
   const [reply, setReply] = useState("");
   const [busy, setBusy] = useState(false);
-  const [toAgent, setToAgent] = useState(false);
+  const [toAgent, setToAgent] = useState(Boolean(pending));
   const requestId = useRef<string | null>(null);
   const refresh = useCallback(
     () =>
       guestHttp
         .json<GuestThread[]>(services.endpoint("threads"))
-        .then(setThreads)
-        .catch((cause: Error) => failed(cause.message)),
+        .then((value) => {
+          if (alive.current) {
+            setThreads(value);
+          }
+        })
+        .catch((cause: Error) => {
+          if (alive.current) {
+            failed(cause.message);
+          }
+        }),
     [services, failed]
   );
   useEffect(() => {
@@ -39,11 +64,18 @@ export function GuestComments({
     setBusy(true);
     try {
       await action();
+      if (!alive.current) {
+        return;
+      }
       await refresh();
     } catch (cause) {
-      failed(cause instanceof Error ? cause.message : "Comment failed");
+      if (alive.current) {
+        failed(cause instanceof Error ? cause.message : "Comment failed");
+      }
     } finally {
-      setBusy(false);
+      if (alive.current) {
+        setBusy(false);
+      }
     }
   };
   return (
@@ -57,6 +89,7 @@ export function GuestComments({
         <article key={thread.id}>
           <p>
             {thread.quote}
+            {thread.answeredAt ? " · Answered" : ""}
             {thread.resolvedAt ? " · Resolved" : ""}
           </p>
           {thread.comments
@@ -69,6 +102,7 @@ export function GuestComments({
           {role !== "viewer" && !thread.resolvedAt && (
             <>
               <button
+                disabled={busy || Boolean(pending)}
                 onClick={() => {
                   setReply(thread.id);
                   requestId.current = null;
@@ -100,13 +134,27 @@ export function GuestComments({
             event.preventDefault();
             run(async () => {
               requestId.current ??= crypto.randomUUID();
-              await guestHttp.json(services.endpoint("comment"), {
+              const input = pending ?? {
                 body,
                 ...(!reply && toAgent
                   ? { requestId: requestId.current, toAgent: true }
                   : {}),
                 ...(reply ? { threadId: reply } : { anchor }),
-              });
+              };
+              if (input.toAgent) {
+                setPending(input);
+                try {
+                  sessionStorage.setItem(storageKey, JSON.stringify(input));
+                } catch {
+                  /* Optional storage. */
+                }
+              }
+              await guestHttp.json(services.endpoint("comment"), input);
+              if (!alive.current) {
+                return;
+              }
+              clearPendingComment(storageKey, input.requestId ?? "");
+              setPending(undefined);
               setBody("");
               requestId.current = null;
             });
@@ -115,7 +163,7 @@ export function GuestComments({
           <label>
             {reply ? "Reply to thread" : "New comment"}
             <textarea
-              disabled={busy}
+              disabled={busy || Boolean(pending)}
               maxLength={4096}
               onChange={(event) => {
                 setBody(event.target.value);
@@ -129,7 +177,7 @@ export function GuestComments({
             <label>
               <input
                 checked={toAgent}
-                disabled={busy}
+                disabled={busy || Boolean(pending)}
                 onChange={(event) => {
                   setToAgent(event.target.checked);
                   requestId.current = null;
@@ -150,8 +198,23 @@ export function GuestComments({
               Cancel reply
             </button>
           )}
+          {Boolean(pending) && (
+            <button
+              disabled={busy}
+              onClick={() => {
+                if (pending?.requestId) {
+                  clearPendingComment(storageKey, pending.requestId);
+                }
+                setPending(undefined);
+                requestId.current = null;
+              }}
+              type="button"
+            >
+              Discard saved comment retry
+            </button>
+          )}
           <button disabled={busy || !body.trim()} type="submit">
-            Post comment
+            {pending ? "Retry addressed comment" : "Post comment"}
           </button>
         </form>
       )}

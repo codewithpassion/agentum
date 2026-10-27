@@ -522,6 +522,65 @@ try {
         total.n === 1,
         "normal comment and addressed retries create no extra runs"
       );
+      const changed = await post(`/api/guest/artifacts/${id}/comment`, {
+        ...commentInput,
+        body: "Changed request payload",
+      });
+      rotate(changed);
+      check(
+        changed.status === 404,
+        "reused addressed request cannot substitute a different human comment"
+      );
+      const held = await post(`/api/guest/artifacts/${id}/comment`, {
+        body: "Held addressed request",
+        requestId: "held-two",
+        toAgent: true,
+      });
+      rotate(held);
+      check(
+        held.status === 200,
+        "second addressed start charges the remaining daily slot atomically"
+      );
+      const heldStart = await held.json();
+      const overCap = await post(`/api/guest/artifacts/${id}/comment`, {
+        body: "Must not persist",
+        requestId: "over-three",
+        toAgent: true,
+      });
+      rotate(overCap);
+      check(
+        overCap.status === 404,
+        "cap refusal leaves no addressed comment or thread"
+      );
+      const beforeLoss = await db
+        .prepare(
+          "SELECT count(*) n FROM artifact_comments c JOIN artifact_comment_threads t ON t.id=c.thread_id WHERE t.artifact_id=?"
+        )
+        .bind(id)
+        .first();
+      check(
+        beforeLoss.n === 5,
+        "failed addressed start rolls back comment and binding with the run"
+      );
+      await db
+        .prepare(
+          "UPDATE artifact_members SET role='viewer' WHERE artifact_id=? AND principal_kind='guest'"
+        )
+        .bind(id)
+        .run();
+      await post(`/fixture/advance/${heldStart.runId}`, {}, false);
+      const revokedRun = await db
+        .prepare("SELECT status FROM runs WHERE id=?")
+        .bind(heldStart.runId)
+        .first();
+      const afterLoss = await db
+        .prepare("SELECT count(*) n FROM artifact_comments WHERE thread_id=?")
+        .bind(heldStart.threadId)
+        .first();
+      check(
+        revokedRun.status === "cancelled" && afterLoss.n === 1,
+        "current role loss prevents agent answer/comment effects after durable dispatch"
+      );
     }
   }
   process.stdout.write(`${JSON.stringify({ checks, runId: started.runId })}\n`);

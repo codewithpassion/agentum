@@ -1,6 +1,6 @@
 # LG.5 — restricted guest execution integration
 
-Status: implemented for the dedicated cloud inference executor; unsupported guest machine/managed/native paths remain disabled. Independent combined-main review and staging acceptance remain gates. This record supersedes the earlier read-only foundation report (`2d32d4ab`, `37e0ae48`).
+Status: the dedicated inference executor now covers agents configured on cloud, machine and managed runtimes; ordinary native capability paths remain disabled. [LG.7](LG.7.md) supersedes the original cloud-only and comment-capability limits below. Independent combined-main review and staging acceptance remain gates. This record supersedes the earlier read-only foundation report (`2d32d4ab`, `37e0ae48`).
 
 Implementation tranche `ac6f85eb`, durable queue follow-up `a2132d6d`; merge `c489b70f` integrates current main `7469b4bc`, including LX.5 through `4af346fe` and the public-image/guest-response corrections. Read the PRD design 8–9/R3.8–11, LG.2 exact lifecycle/provenance contracts, LG.3 backend contract and LG.5 task. Phase-4 suggestion requirements supersede historical direct guest-agent edits. No docs/tasks edits, D1 schema changes, environment values, secrets, paid inference, external sends, subagents, push, PR or deployment. The new SQLite `GuestRun` Durable Object uses Wrangler migration v9; D1 migration 0032 remains unused.
 

@@ -183,15 +183,28 @@ try {
           composer.getByRole("button", { name: "Send request" })
         ).toBeDisabled();
         await expect(composer.getByLabel("Message to agent")).toBeEnabled();
-        await db
-          .prepare("UPDATE agents SET runtime='machine' WHERE id='a1'")
-          .run();
-        await expect(composer.getByLabel("Message to agent")).toBeDisabled({
-          timeout: 10_000,
-        });
-        await expect(
-          composer.getByText(/Agent requests are currently unavailable/)
-        ).toBeVisible();
+        for (const configuredRuntime of ["machine", "managed"]) {
+          await db
+            .prepare("UPDATE agents SET runtime=? WHERE id='a1'")
+            .bind(configuredRuntime)
+            .run();
+          const ready = await page.evaluate(
+            (artifactId) =>
+              navigator.locks.request("harbourmaster-guest-cookie", async () =>
+                (
+                  await fetch(
+                    `/api/guest/artifacts/${artifactId}/ask-availability`
+                  )
+                ).json()
+              ),
+            id
+          );
+          assert.equal(
+            ready.available,
+            true,
+            "configured runtime uses dedicated restricted inference"
+          );
+        }
         await db
           .prepare(
             "UPDATE agents SET runtime='cloud', model='unsupported-model' WHERE id='a1'"
@@ -446,6 +459,7 @@ try {
         const nextGuest = await post("/fixture/create", {
           artifactId: id,
           email: `next-${kind}-${viewport.width}@example.com`,
+          role: "commenter",
         });
         const nextToken = nextGuest.mail
           .at(-1)
@@ -464,6 +478,76 @@ try {
           composer.getByRole("button", { name: "Retry request" })
         ).toHaveCount(0);
         checks += 3;
+        await db
+          .prepare("UPDATE agents SET runtime=?,model='sonnet' WHERE id='a1'")
+          .bind(viewport.width === 1280 ? "machine" : "managed")
+          .run();
+        const comments = page.getByRole("region", {
+          exact: true,
+          name: "Comments",
+        });
+        await comments.getByLabel("Address to agent").check();
+        await comments
+          .getByLabel("New comment", { exact: true })
+          .fill("Please answer this browser addressed comment");
+        const posted = page.waitForResponse(
+          (response) =>
+            response.url().endsWith(`/api/guest/artifacts/${id}/comment`) &&
+            response.request().method() === "POST"
+        );
+        await comments
+          .getByRole("button", { exact: true, name: "Post comment" })
+          .click();
+        const addressedResponse = await posted;
+        assert.equal(
+          addressedResponse.status(),
+          200,
+          await addressedResponse.text()
+        );
+        const addressed = await addressedResponse.json();
+        const sentComment = addressedResponse.request().postDataJSON();
+        assert.ok(
+          sentComment.toAgent && sentComment.requestId,
+          "UI uses explicit addressed trigger with stable request id"
+        );
+        for (let i = 0; i < 4; i += 1) {
+          await post(`/fixture/advance/${addressed.runId}`, {});
+        }
+        const waiting = await (await request("/fixture/requests")).json();
+        assert.equal(waiting.length, 1);
+        await post(`/fixture/answer/${waiting[0].id}`, {});
+        for (let i = 0; i < 7; i += 1) {
+          await post(`/fixture/advance/${addressed.runId}`, {});
+        }
+        await expect(
+          comments.getByText("Scoped commenter reply", { exact: false })
+        ).toBeVisible({ timeout: 10_000 });
+        await expect(
+          comments.getByText("Captured guest completion", { exact: false })
+        ).toBeVisible();
+        const original = await db
+          .prepare("SELECT * FROM artifact_comment_threads WHERE id=?")
+          .bind(addressed.threadId)
+          .first();
+        assert.ok(
+          original.answered_at && original.resolved_at === null,
+          "browser agent answers original human thread without resolving"
+        );
+        const guestRun = await db
+          .prepare("SELECT * FROM runs WHERE id=?")
+          .bind(addressed.runId)
+          .first();
+        assert.equal(guestRun.status, "done");
+        assert.equal(guestRun.actor_kind, "guest");
+        assert.equal(guestRun.scope_artifact_id, id);
+        await reload();
+        await expect(
+          comments.getByText("Scoped commenter reply", { exact: false })
+        ).toBeVisible();
+        await expect(
+          comments.getByText("Captured guest completion", { exact: false })
+        ).toBeVisible();
+        checks += 9;
         assert.deepEqual(errors, []);
         checks += 8;
         await context.close();

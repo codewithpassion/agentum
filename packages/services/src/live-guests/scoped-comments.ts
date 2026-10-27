@@ -283,6 +283,9 @@ export const createScopedGuestComments = (deps: {
         return;
       }
       const chunks = commentChunks(text);
+      if (!chunks.length) {
+        throw new ServiceError("invalid", "Answer must contain text");
+      }
       for (const [index, body] of chunks.entries()) {
         // biome-ignore lint/performance/noAwaitInLoops: ordered durable chunks; only the last marks the thread answered.
         await apply(

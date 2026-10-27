@@ -7,6 +7,7 @@ import {
   artifactCommentThreads,
   guestCommentRuns,
 } from "@repo/db/schema/live-artifacts";
+import { runs } from "@repo/db/schema/runs";
 import type { CommentAnchor } from "@repo/protocol/live";
 import { and, eq, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -19,7 +20,10 @@ export const createGuestAddressedComment =
   (deps: {
     db: Database;
     events: Pick<EventsService, "insertStatement">;
-    artifacts: Pick<ReturnType<typeof createGuestArtifacts>, "prepareComment">;
+    artifacts: Pick<
+      ReturnType<typeof createGuestArtifacts>,
+      "prepareComment" | "current"
+    >;
     ask: ReturnType<typeof createGuestAsk>;
   }) =>
   async (
@@ -37,13 +41,52 @@ export const createGuestAddressedComment =
         "Addressed comments require a new thread and stable requestId"
       );
     }
-    const { grant, resolved, at } = await deps.artifacts.prepareComment(
-      input,
-      body
-    );
-    const threadId = ulid();
-    const commentId = ulid();
+    const grant = await deps.artifacts.current(input, true);
     const requestId = `guest-comment:${await hashToken(JSON.stringify([grant.guestId, grant.artifactId, body.requestId]))}`;
+    const [previous] = await deps.db
+      .select({
+        body: artifactComments.body,
+        deletedAt: artifactComments.deletedAt,
+        threadId: guestCommentRuns.threadId,
+      })
+      .from(guestCommentRuns)
+      .innerJoin(
+        runs,
+        and(
+          eq(runs.id, guestCommentRuns.runId),
+          eq(runs.workspaceId, guestCommentRuns.workspaceId)
+        )
+      )
+      .innerJoin(
+        artifactComments,
+        and(
+          eq(artifactComments.id, guestCommentRuns.commentId),
+          eq(artifactComments.workspaceId, guestCommentRuns.workspaceId)
+        )
+      )
+      .where(
+        and(
+          eq(guestCommentRuns.workspaceId, grant.workspaceId),
+          eq(guestCommentRuns.artifactId, grant.artifactId),
+          eq(runs.requestId, requestId),
+          eq(runs.actorKind, "guest"),
+          eq(runs.actorId, grant.guestId)
+        )
+      )
+      .limit(1);
+    if (
+      previous &&
+      (previous.body !== body.body.trim() || previous.deletedAt)
+    ) {
+      throw new ServiceError("conflict", "Comment requestId already used");
+    }
+    const prepared = previous
+      ? null
+      : await deps.artifacts.prepareComment(input, body);
+    const threadId = previous?.threadId ?? ulid();
+    const commentId = ulid();
+    const resolved = prepared?.resolved;
+    const at = prepared?.at ?? "";
     const started = await deps.ask(
       input,
       { requestId, text: body.body },

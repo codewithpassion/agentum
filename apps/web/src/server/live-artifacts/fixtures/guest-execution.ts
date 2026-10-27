@@ -32,6 +32,11 @@ const owner = {
 const fixtureCompose = (env: Env): Composed => {
   const composed = compose(env, false);
   // Explicit captured inference fixture only; no provider credentials/network.
+  composed.services.managedKeys.resolve = () =>
+    Promise.resolve({
+      apiKey: "fixture-inference-has-no-provider",
+      environmentId: null,
+    });
   composed.services.modelKeys.resolve = () =>
     Promise.resolve({ apiKey: "fixture-inference-has-no-provider" });
   composed.services.liveGuests = () =>
