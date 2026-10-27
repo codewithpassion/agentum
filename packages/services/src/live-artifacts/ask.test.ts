@@ -305,10 +305,22 @@ describe("artifact asks with real run persistence", () => {
       })
     ).rejects.toMatchObject({ code: "forbidden" });
     h.db.update(artifactMembers).set({ role: "editor" }).run();
-    await h.service.checkpoint(runPrincipal, {
+    expect((await h.service.roomIdentity(runPrincipal, artifactId)).role).toBe(
+      "editor"
+    );
+    await expect(
+      h.service.checkpoint(runPrincipal, {
+        artifactId,
+        revision: 1,
+        state: bytes("allowed"),
+      })
+    ).rejects.toThrow("Agents must use guarded room operations");
+    // Fixture has no canonical room. Publish the accepted revision as its human
+    // owner before exercising the independently authorized history contract.
+    await h.service.checkpoint(principals.owner, {
       artifactId,
       revision: 1,
-      state: bytes("allowed"),
+      state: bytes("accepted"),
     });
     const change = await h.service.recordChange(runPrincipal, {
       artifactId,
@@ -781,7 +793,10 @@ test("artifact asks cannot borrow agent rights on other targets or escape curren
     .set({ role: "editor" })
     .where(eq(artifactMembers.artifactId, targetId))
     .run();
-  await checkpoint();
+  expect((await h.service.roomIdentity(actor, targetId)).role).toBe("editor");
+  await expect(checkpoint()).rejects.toThrow(
+    "Agents must use guarded room operations"
+  );
   h.db
     .update(artifactMembers)
     .set({ role: "commenter" })

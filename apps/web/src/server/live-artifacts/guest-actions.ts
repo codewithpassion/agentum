@@ -9,6 +9,7 @@ import {
 import { createGuestAsk } from "@repo/services/live-guests/ask";
 import { createGuestImages } from "@repo/services/live-guests/images";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
+import { z } from "zod";
 import type { Composed } from "../compose";
 import { readCappedBody } from "../mcp/body";
 import { r2Blobs } from "../r2-blobs";
@@ -177,6 +178,19 @@ export const guestActions: Record<
       ),
     method: "POST",
   },
+  "decide-suggestion": {
+    execute: async ({ env, grant, credential, request }) =>
+      (await roomStub(env.ARTIFACT_ROOM, grant)).guestSuggestions(
+        credential.sessionToken,
+        z
+          .strictObject({
+            decision: z.enum(["accept", "reject"]),
+            suggestionId: z.string().min(1).max(200),
+          })
+          .parse(await guestJson(request))
+      ),
+    method: "POST",
+  },
   "ensure-deck-cell": {
     execute: async ({ env, grant, credential, request }) => {
       const body = await guestJson(request);
@@ -233,6 +247,13 @@ export const guestActions: Record<
       scopedGuests(env, composed).transcript(
         credential,
         new URL(request.url).searchParams.get("after")?.slice(0, 200)
+      ),
+    method: "GET",
+  },
+  suggestions: {
+    execute: async ({ env, grant, credential }) =>
+      (await roomStub(env.ARTIFACT_ROOM, grant)).guestSuggestions(
+        credential.sessionToken
       ),
     method: "GET",
   },

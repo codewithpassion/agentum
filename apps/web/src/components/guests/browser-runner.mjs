@@ -220,6 +220,36 @@ try {
             undefined,
             kind
           );
+          if (role === "editor") {
+            await db
+              .prepare(
+                "INSERT OR IGNORE INTO agents (id,workspace_id,created_by,created_at,instructions,model,name,runtime,runtime_config,slug,status) VALUES ('review-agent','w1','u1',?,'','model','Review agent','machine','{}','review-agent','active')"
+              )
+              .bind(now)
+              .run();
+            await db
+              .prepare(
+                "INSERT INTO sessions (id,workspace_id,agent_id,actor_id,actor_kind,created_at,origin,external_key) VALUES (?,'w1','review-agent','u1','user',?,'artifact',?)"
+              )
+              .bind(
+                `review-session-${invitation.artifactId}`,
+                now,
+                invitation.artifactId
+              )
+              .run();
+            await db
+              .prepare(
+                "INSERT INTO runs (id,workspace_id,agent_id,actor_id,actor_kind,created_at,input_text,session_id,status,on_behalf_of_user_id,scope_artifact_id,lease_until) VALUES (?,'w1','review-agent','u1','user',?,'fixture',?,'running','u1',?,?)"
+              )
+              .bind(
+                `review-run-${invitation.artifactId}`,
+                now,
+                `review-session-${invitation.artifactId}`,
+                invitation.artifactId,
+                _lease
+              )
+              .run();
+          }
           const other =
             kind === "document" && role === "editor"
               ? await create(
@@ -363,28 +393,139 @@ try {
               page.getByLabel("Document content", { exact: true })
             ).toContainText(`Guest edit ${viewport.width}`);
           }
-          if (kind === "document" && role === "editor") {
+          if (role === "editor") {
+            const snapshot = async () =>
+              (
+                await request(`/fixture/accepted/${invitation.artifactId}`)
+              ).json();
+            // Let the preceding human editor transaction reach authority before
+            // comparing the exact accepted revision and CRDT bytes.
+            await page.waitForTimeout(200);
+            const baseline = await snapshot();
+            const propose = async (key) => {
+              const response = await post(
+                `/fixture/review-proposal/${invitation.artifactId}`,
+                { key, kind }
+              );
+              assert.equal(response.status, 200, await response.clone().text());
+              const value = await response.json();
+              assert.ok(value.suggestionId);
+              return page.getByRole("article", {
+                exact: true,
+                name: `Suggestion ${value.suggestionId}`,
+              });
+            };
+            const accepted = await propose("accept");
+            assert.deepEqual(
+              await snapshot(),
+              baseline,
+              "proposal leaves accepted bytes unchanged"
+            );
+            await expect(
+              accepted.getByText("pending", { exact: true })
+            ).toBeVisible({ timeout: 12_000 });
+            await accepted.getByText(`Preview ${kind} suggestion`).click();
+            await expect(accepted.locator("pre")).toContainText(
+              kind === "document" ? "Review accept" : "review-accept"
+            );
+            const acceptResponse = page.waitForResponse((response) =>
+              new URL(response.url()).pathname.endsWith("/decide-suggestion")
+            );
+            await accepted
+              .getByRole("button", { exact: true, name: "Accept suggestion" })
+              .click();
+            assert.equal((await acceptResponse).status(), 200);
+            await expect(
+              accepted.getByText("accepted", { exact: true })
+            ).toBeVisible();
+            const acceptedBytes = await snapshot();
+            assert.notDeepEqual(acceptedBytes, baseline);
+            const rejected = await propose("reject");
+            assert.deepEqual(await snapshot(), acceptedBytes);
+            await expect(
+              rejected.getByRole("button", {
+                exact: true,
+                name: "Reject suggestion",
+              })
+            ).toBeVisible({ timeout: 12_000 });
+            await rejected
+              .getByRole("button", { exact: true, name: "Reject suggestion" })
+              .click();
+            await expect(
+              rejected.getByText("rejected", { exact: true })
+            ).toBeVisible();
+            assert.deepEqual(
+              await snapshot(),
+              acceptedBytes,
+              "rejection leaves accepted bytes unchanged"
+            );
+            await page.reload();
+            await expect(
+              accepted.getByText("accepted", { exact: true })
+            ).toBeVisible();
+            await expect(
+              rejected.getByText("rejected", { exact: true })
+            ).toBeVisible();
+            const stale = await propose("downgrade");
+            await expect(
+              stale.getByRole("button", {
+                exact: true,
+                name: "Accept suggestion",
+              })
+            ).toBeVisible({ timeout: 12_000 });
+            let arrived, release;
+            const held = new Promise((resolve) => {
+              arrived = resolve;
+            });
+            const gate = new Promise((resolve) => {
+              release = resolve;
+            });
+            const hold = async (route) => {
+              arrived();
+              await gate;
+              await route.continue();
+            };
+            await page.route("**/decide-suggestion", hold);
+            const denied = page.waitForResponse((response) =>
+              new URL(response.url()).pathname.endsWith("/decide-suggestion")
+            );
+            await stale
+              .getByRole("button", { exact: true, name: "Accept suggestion" })
+              .click();
+            await held;
             await post(
               `/fixture/role/${invitation.artifactId}/${invitation.memberId}`,
               {}
             );
-            await page
-              .getByRole("button", { name: "Reconnect" })
-              .click({ timeout: 7000 })
-              .catch(async (cause) => {
-                console.error(
-                  "After downgrade",
-                  await page.locator("body").innerText(),
-                  await db
-                    .prepare("SELECT count(*) n FROM guest_sessions")
-                    .first()
-                );
-                throw cause;
-              });
+            release();
+            assert.equal(
+              (await denied).status(),
+              404,
+              "decision rechecks current downgraded role"
+            );
+            await page.unroute("**/decide-suggestion", hold);
+            assert.deepEqual(await snapshot(), acceptedBytes);
+            // Let the failure handler's queued credential verification consume
+            // its rotated response before navigating away from the host lock.
+            await page.waitForLoadState("networkidle");
+            await page.reload();
             await expect(
-              page.getByText("Read only", { exact: true })
+              stale.getByText("pending", { exact: true })
             ).toBeVisible();
-            await expect(page.getByLabel("New comment")).toHaveCount(0);
+            await expect(
+              page.getByRole("button", {
+                exact: true,
+                name: "Accept suggestion",
+              })
+            ).toHaveCount(0);
+            await expect(
+              page.getByRole("button", {
+                exact: true,
+                name: "Reject suggestion",
+              })
+            ).toHaveCount(0);
+            assert.deepEqual(await snapshot(), acceptedBytes);
+            assert.deepEqual(errors, []);
             await post(
               `/fixture/revoke/${invitation.artifactId}/${invitation.memberId}`,
               {}
@@ -392,11 +533,8 @@ try {
             await expect(
               page.getByRole("heading", { name: "This invite has ended" })
             ).toBeVisible({ timeout: 7000 });
-            await expect(
-              page.getByText("Contact Inviter for access.")
-            ).toBeVisible();
             await context.close();
-            passed += 1;
+            passed += 12;
             continue;
           }
           assert.deepEqual(errors, []);

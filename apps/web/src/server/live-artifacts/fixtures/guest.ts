@@ -135,6 +135,87 @@ app.post("/fixture/checkpoint/:id", async (c) =>
     ).checkpoint()
   )
 );
+// Test-only fixtures use fixed seeded principals and actual production room edit boundaries.
+app.get("/fixture/accepted/:id", async (c) => {
+  const room = await roomStub(c.env.ARTIFACT_ROOM, {
+    artifactId: c.req.param("id"),
+    workspaceId: "w1",
+  });
+  const snapshot = await room.authoritativeSnapshot();
+  return c.json({ revision: snapshot.revision, state: [...snapshot.state] });
+});
+app.post("/fixture/review-proposal/:id", async (c) => {
+  const artifactId = c.req.param("id");
+  const { kind, key } = await c.req.json<{
+    kind: "document" | "deck";
+    key: string;
+  }>();
+  const { services } = get(c.env);
+  if (!services.liveRoom) {
+    throw new Error("Missing room");
+  }
+  const principal = {
+    agentId: "review-agent",
+    kind: "run" as const,
+    runId: `review-run-${artifactId}`,
+    workspaceId: "w1",
+  };
+  const room = await services.liveRoom(principal, artifactId);
+  const origin = {
+    changeId: `${artifactId}:${key}`,
+    mode: "suggestion" as const,
+    participantId: `a:review-agent:review-run-${artifactId}`,
+    runId: principal.runId,
+    toolCallId: key,
+  };
+  return c.json(
+    kind === "document"
+      ? await room.documentEdit(
+          [{ content: { text: `Review ${key}` }, op: "insert" }],
+          origin,
+          "Browser review proposal"
+        )
+      : await room.deckWrite(
+          {
+            artifactId,
+            ops: [
+              {
+                html: `<slide id="review-${key}" order="a1" background="#fff" transition="none" duration="0"><notes>Review ${key}</notes></slide>`,
+                op: "add",
+              },
+            ],
+          },
+          origin
+        )
+  );
+});
+// Fixed fixture run, never mounted in production and never accepts caller identity.
+app.post("/fixture/suggestion/:id", async (c) => {
+  const { services } = get(c.env);
+  if (!services.liveRoom) {
+    throw new Error("Missing room");
+  }
+  const principal = {
+    agentId: "thread-agent",
+    kind: "run" as const,
+    runId: "suggestion-run",
+    workspaceId: "w1",
+  };
+  const room = await services.liveRoom(principal, c.req.param("id"));
+  return c.json(
+    await room.documentEdit(
+      [{ content: { text: "Reviewed by a guest" }, op: "insert" }],
+      {
+        changeId: "guest-review",
+        mode: "suggestion",
+        participantId: "a:thread-agent:suggestion-run",
+        runId: "suggestion-run",
+        toolCallId: "guest-review",
+      },
+      "Guest review fixture"
+    )
+  );
+});
 app.post("/fixture/revoke/:artifact/:member", async (c) => {
   const composed = get(c.env);
   await (await guests(composed)).revoke(owner, {

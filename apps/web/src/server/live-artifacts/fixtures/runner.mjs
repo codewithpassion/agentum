@@ -751,6 +751,253 @@ try {
       "leave",
     "last participant checkpoints with agent provenance"
   );
+
+  const reviewRoom = "suggest-doc";
+  const suggest = (id, ops) =>
+    call(
+      "/ops",
+      { ops, origin: { ...origin(id), mode: "suggestion" } },
+      reviewRoom
+    );
+  const decide = (id, decision, extra = {}) =>
+    call(
+      "/suggestion-decision",
+      { decision, suggestionId: id, ...extra },
+      reviewRoom
+    );
+  const baseline = await call("/snapshot", {}, reviewRoom);
+  await suggest("reject-me", [
+    { content: { text: "Pending rejection" }, op: "insert" },
+  ]);
+  check(
+    JSON.stringify(await call("/snapshot", {}, reviewRoom)) ===
+      JSON.stringify(baseline),
+    "pending document does not alter accepted snapshot"
+  );
+  await decide("reject-me", "reject");
+  await decide("reject-me", "accept");
+  check(
+    (await call("/read", {}, reviewRoom)).content.indexOf("Pending rejection") <
+      0,
+    "reject wins idempotently over later accept"
+  );
+  await controls("force:agent", true, reviewRoom);
+  await call(
+    "/ops",
+    {
+      ops: [{ content: { text: "Forced guest" }, op: "insert" }],
+      origin: origin("forced-guest"),
+    },
+    reviewRoom
+  );
+  check(
+    (await call("/suggestions", {}, reviewRoom)).items[0].origin.mode ===
+      "suggestion",
+    "trusted guest mode overrides direct caller"
+  );
+  check(
+    !(await call("/read", {}, reviewRoom)).content.includes("Forced guest"),
+    "forced guest cannot directly change content"
+  );
+  await fails(
+    "/suggestion-decision",
+    { decision: "accept", kind: "agent", suggestionId: "forced-guest" },
+    reviewRoom
+  );
+  await controls("role:revoked-editor", "viewer", reviewRoom);
+  await fails(
+    "/suggestion-decision",
+    {
+      decision: "accept",
+      participantId: "revoked-editor",
+      suggestionId: "forced-guest",
+    },
+    reviewRoom
+  );
+  await controls("role:revoked-editor", null, reviewRoom);
+  await fails(
+    "/suggestion-decision",
+    {
+      decision: "reject",
+      participantId: "revoked-editor",
+      suggestionId: "forced-guest",
+    },
+    reviewRoom
+  );
+  await decide("forced-guest", "accept");
+  check(
+    (await call("/read", {}, reviewRoom)).content.includes("Forced guest"),
+    "human accepts forced guest proposal"
+  );
+  await controls("force:agent", false, reviewRoom);
+  const beforeEdit = await call("/outline", {}, reviewRoom);
+  const target = beforeEdit.content.blocks.find((b) =>
+    b.text.includes("Hello human")
+  );
+  await suggest("guarded-conflict", [
+    {
+      content: { text: "Agent overwrite" },
+      ifHash: target.hash,
+      ifRev: target.revision,
+      op: "replace",
+      target: { blockId: target.id },
+    },
+  ]);
+  const human = await connect(await ticket({}, reviewRoom), reviewRoom);
+  const humanDoc = await syncReplica(human);
+  const humanText = humanDoc
+    .getXmlFragment("content")
+    .toArray()
+    .find((n) => n.nodeName === "paragraph")
+    .toArray()
+    .find((n) => n instanceof Y.XmlText);
+  const humanVector = Y.encodeStateVector(humanDoc);
+  humanText.insert(0, "Intervening human ");
+  human.ws.send(update(Y.encodeStateAsUpdate(humanDoc, humanVector)));
+  await pause(50);
+  await decide("guarded-conflict", "accept");
+  check(
+    (await call("/suggestions", {}, reviewRoom)).items.find(
+      (x) => x.id === "guarded-conflict"
+    ).status === "conflict",
+    "accept reports concurrent document guard conflict"
+  );
+  check(
+    (await call("/read", {}, reviewRoom)).content.includes("Intervening human"),
+    "conflict preserves human words"
+  );
+  await suggest("merge-insert", [
+    { content: { text: "Independent proposal" }, op: "insert" },
+  ]);
+  const v2 = Y.encodeStateVector(humanDoc);
+  humanText.insert(0, "More human ");
+  human.ws.send(update(Y.encodeStateAsUpdate(humanDoc, v2)));
+  await pause(50);
+  await decide("merge-insert", "accept");
+  check(
+    (await call("/read", {}, reviewRoom)).content.includes("More human"),
+    "selective accept preserves unrelated human edit"
+  );
+  await suggest("race-decision", [
+    { content: { text: "Race once" }, op: "insert" },
+  ]);
+  await Promise.all([
+    decide("race-decision", "accept"),
+    decide("race-decision", "reject"),
+    decide("race-decision", "accept"),
+  ]);
+  const winner = (await call("/suggestions", {}, reviewRoom)).items.find(
+    (x) => x.id === "race-decision"
+  );
+  const raceText = (await call("/read", {}, reviewRoom)).content;
+  check(
+    winner.status === "accepted"
+      ? raceText.split("Race once").length === 2
+      : !raceText.includes("Race once"),
+    "concurrent decisions have one durable winner"
+  );
+  await suggest("restart-pending", [
+    { content: { text: "After restart" }, op: "insert" },
+  ]);
+  human.ws.close();
+  humanDoc.destroy();
+  await runtime.dispose();
+  runtime = boot();
+  check(
+    (await call("/suggestions", {}, reviewRoom)).items.find(
+      (x) => x.id === "restart-pending"
+    ).status === "pending",
+    "pending preview survives real restart"
+  );
+  await decide("restart-pending", "accept");
+  await runtime.dispose();
+  runtime = boot();
+  await decide("restart-pending", "reject");
+  check(
+    (await call("/read", {}, reviewRoom)).content.split("After restart")
+      .length === 2,
+    "accepted decision survives restart without duplicate application"
+  );
+
+  const deckReview = "suggest-deck";
+  await controls("deck", true, deckReview);
+  await controls("force:agent", true, deckReview);
+  const deckBefore = await call("/snapshot", {}, deckReview);
+  const deckAdd = await call(
+    "/deck-write",
+    {
+      changeId: "deck-proposal",
+      ops: [
+        {
+          html: '<slide id="proposal" order="a0" background="#fff" transition="none" duration="0"><element id="heading" type="text" parent="proposal" order="a0" prop-x="10" prop-y="10" prop-w="200" prop-h="80"><p>Suggested slide</p></element></slide>',
+          op: "add",
+        },
+      ],
+    },
+    deckReview
+  );
+  check(
+    deckAdd.suggestionId === "deck-proposal",
+    "deck caller receives pending suggestion metadata"
+  );
+  check(
+    JSON.stringify(await call("/snapshot", {}, deckReview)) ===
+      JSON.stringify(deckBefore),
+    "pending deck does not change accepted content"
+  );
+  await runtime.dispose();
+  runtime = boot();
+  await call(
+    "/suggestion-decision",
+    { decision: "accept", suggestionId: "deck-proposal" },
+    deckReview
+  );
+  check(
+    (await call("/deck-read", {}, deckReview)).slides.some(
+      (x) => x.id === "proposal"
+    ),
+    "durable deck selective delta accepts after restart"
+  );
+  await call(
+    "/deck-write",
+    {
+      changeId: "deck-conflict",
+      ops: [
+        {
+          html: '<slide id="blocked" order="a1" background="#fff" transition="none" duration="0"></slide>',
+          op: "add",
+        },
+      ],
+    },
+    deckReview
+  );
+  const deckHuman = await connect(await ticket({}, deckReview), deckReview);
+  const deckDoc = new Y.Doc({ gc: false });
+  Y.applyUpdate(
+    deckDoc,
+    Uint8Array.from((await call("/snapshot", {}, deckReview)).state)
+  );
+  const dv = Y.encodeStateVector(deckDoc);
+  deckDoc.getMap("meta").set("title", "Human deck title");
+  deckHuman.ws.send(update(Y.encodeStateAsUpdate(deckDoc, dv)));
+  await pause(50);
+  await call(
+    "/suggestion-decision",
+    { decision: "accept", suggestionId: "deck-conflict" },
+    deckReview
+  );
+  check(
+    (await call("/suggestions", {}, deckReview)).items[0].status === "conflict",
+    "deck intervening human edit explicitly conflicts"
+  );
+  check(
+    !(await call("/deck-read", {}, deckReview)).slides.some(
+      (x) => x.id === "blocked"
+    ),
+    "conflicting deck proposal never applies"
+  );
+  deckHuman.ws.close();
+  deckDoc.destroy();
   process.stdout.write(
     JSON.stringify({
       hibernation: { after: stats.fixture.starts, before: starts },

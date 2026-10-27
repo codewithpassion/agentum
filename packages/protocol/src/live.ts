@@ -261,3 +261,19 @@ export interface LiveArtifactsContract<TCaller> {
     input: { artifactId: string; cursor?: string }
   ) => Promise<{ items: LiveCommentThread[]; next?: string }>;
 }
+
+/** Room-owned review record. Preview is inert text, never executable HTML. */
+export interface LiveSuggestion {
+  authorName: string;
+  baseRevision: number;
+  conflict?: string;
+  createdAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+  id: string;
+  kind: "document" | "deck";
+  origin: LiveOperationOrigin;
+  preview: string;
+  revision?: number;
+  status: "pending" | "accepted" | "rejected" | "conflict";
+}

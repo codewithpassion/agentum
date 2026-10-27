@@ -15,6 +15,7 @@ import {
   artifactCommentThreads,
   artifactLiveChanges,
 } from "@repo/db/schema/live-artifacts";
+import { runs } from "@repo/db/schema/runs";
 import {
   ARTIFACT_FILE_MAX_BYTES,
   ARTIFACT_MAX_BYTES,
@@ -159,6 +160,19 @@ export interface LiveRoomsPort {
     scope: LiveRoomScope
   ) => Promise<{ versionId: string; revision: number }>;
   snapshot?: (scope: LiveRoomScope) => Promise<DocumentSnapshot>;
+  suggestions?: (
+    scope: LiveRoomScope,
+    input: {
+      principal: Principal;
+      action: "list" | "mode" | "decide";
+      enabled?: boolean;
+      suggestionId?: string;
+      decision?: "accept" | "reject";
+    }
+  ) => Promise<{
+    mode: boolean;
+    items: import("@repo/protocol/live").LiveSuggestion[];
+  }>;
   suspend?: (scope: LiveRoomScope, mutationId: string) => Promise<void>;
   url: (scope: LiveRoomScope) => string;
 }
@@ -801,6 +815,23 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       };
       return persist(member, row, snapshot, true);
     },
+    async decideSuggestion(
+      principal: Principal,
+      input: {
+        artifactId: string;
+        suggestionId: string;
+        decision: "accept" | "reject";
+      }
+    ) {
+      const { row } = await access(principal, input.artifactId, true);
+      if (principal.kind !== "user" || !rooms.suggestions) {
+        throw new ForbiddenError("liveArtifacts.decideSuggestion");
+      }
+      return rooms.suggestions(
+        { artifactId: row.id, workspaceId: row.workspaceId },
+        { ...input, action: "decide", principal }
+      );
+    },
     async durableCheckpoint(
       principal: Principal,
       input: DocumentSnapshot &
@@ -1100,7 +1131,37 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     },
     async roomIdentity(principal: Principal, artifactId: string) {
       const { member, role } = await access(principal, artifactId);
+      let forceSuggestions = false;
+      let runId: string | null = member.kind === "run" ? member.runId : null;
+      const seen = new Set<string>();
+      while (runId) {
+        if (seen.has(runId) || seen.size >= 16) {
+          throw new ForbiddenError("liveArtifacts.runLineage");
+        }
+        seen.add(runId);
+        const [run]: { actorKind: string; parentRunId: string | null }[] =
+          // biome-ignore lint/performance/noAwaitInLoops: traverse trusted persisted ancestry, never caller lineage.
+          await db
+            .select({
+              actorKind: runs.actorKind,
+              parentRunId: runs.parentRunId,
+            })
+            .from(runs)
+            .where(
+              and(eq(runs.id, runId), eq(runs.workspaceId, member.workspaceId))
+            )
+            .limit(1);
+        if (!run) {
+          throw new ForbiddenError("liveArtifacts.runLineage");
+        }
+        if (run.actorKind === "guest") {
+          forceSuggestions = true;
+          break;
+        }
+        runId = run.parentRunId;
+      }
       return {
+        forceSuggestions,
         ...(await deps.identity(member)),
         kind: member.kind === "user" ? ("member" as const) : ("agent" as const),
         participantId: participantId(member),
@@ -1255,6 +1316,29 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         )
       );
     },
+    async setSuggestionMode(
+      principal: Principal,
+      input: { artifactId: string; enabled: boolean }
+    ) {
+      const { row } = await access(principal, input.artifactId, true);
+      if (principal.kind !== "user" || !rooms.suggestions) {
+        throw new ForbiddenError("liveArtifacts.suggestionMode");
+      }
+      return rooms.suggestions(
+        { artifactId: row.id, workspaceId: row.workspaceId },
+        { ...input, action: "mode", principal }
+      );
+    },
+    async suggestions(principal: Principal, input: { artifactId: string }) {
+      const { row } = await access(principal, input.artifactId);
+      if (!rooms.suggestions) {
+        throw invalid("Suggestions unavailable");
+      }
+      return rooms.suggestions(
+        { artifactId: row.id, workspaceId: row.workspaceId },
+        { action: "list", principal }
+      );
+    },
     async uploadImage(
       principal: Principal,
       input: { artifactId: string; body: Blob; name: string }
@@ -1330,11 +1414,9 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         };
       }
       if (member.kind === "run") {
-        await deps.anchors.guardAgentSnapshot(
-          { artifactId: row.id, workspaceId: row.workspaceId },
-          { runId: member.runId, snapshot: input }
-        );
+        throw invalid("Agents must use guarded room operations");
       }
+
       return await persist(member, row, input);
     },
     async convertDoc(

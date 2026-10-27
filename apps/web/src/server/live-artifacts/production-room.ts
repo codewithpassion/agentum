@@ -187,7 +187,7 @@ const translateBatch = (
     const engineOp = translateOperation(live, op);
     translated.push(engineOp);
     const trialOp = trialOperation(live, engineOp);
-    live.apply([trialOp], origin);
+    live.apply([trialOp], { ...origin, mode: "direct" });
   }
 
   return translated;
@@ -883,6 +883,15 @@ export class ArtifactRoom extends Room {
     if (prior?.ops !== undefined && prior.ops !== JSON.stringify(ops)) {
       throw new Error("Tool call ID collision");
     }
+    if (store.get(`suggestion:${origin.changeId}`)) {
+      const result = await super.applyAgentOps(
+        JSON.parse(
+          store.get<string>(`suggestionPayload:${origin.changeId}`) ?? "null"
+        ),
+        origin
+      );
+      return { ok: true as const, ...result };
+    }
     if (store.get(`change:${origin.changeId}`)) {
       const result = await super.applyAgentOps([], origin);
       return { ok: true as const, ...result };
@@ -949,6 +958,45 @@ export class ArtifactRoom extends Room {
       throw new Error("Immutable room scope");
     }
     await this.state.storage.put("productionScope", scope);
+  }
+  async guestSuggestions(
+    sessionToken: string,
+    decision?: { suggestionId: string; decision: "accept" | "reject" }
+  ) {
+    const scope = await this.state.storage.get<RoomScope>("productionScope");
+    if (!scope) {
+      throw new Error("Unbound scope");
+    }
+    const access = createGuestArtifacts({
+      ...this.composed(),
+      guestsOff: () =>
+        Boolean(
+          (this.productionEnv as Env & { LIVE_GUESTS_OFF?: string })
+            .LIVE_GUESTS_OFF
+        ),
+    });
+    const row = await access.sessionReference({ ...scope, sessionToken });
+    if (!row || (decision && row.role !== "editor")) {
+      throw new Error("Guest access unavailable");
+    }
+    const ref = crypto.randomUUID();
+    await this.state.storage.put(`credential:${ref}`, {
+      expiresAt: Date.now() + 900_000,
+      guest: { ...scope, sessionId: row.sessionId },
+    } satisfies Credential);
+    const identity = {
+      authorizationRef: ref,
+      kind: "guest" as const,
+      participantId: `g:${row.guestId}`,
+    };
+    await this.state.storage.put(`actor:${identity.participantId}`, ref);
+    if (decision) {
+      const result = await super.decideSuggestion(decision, identity);
+      if (result.status === "accepted") {
+        await this.checkpoint();
+      }
+    }
+    return super.listSuggestions(identity);
   }
   /** Separate credential boundary for guest-only HTTP sparse table allocation. */
   async guestEnsureDeckCell(

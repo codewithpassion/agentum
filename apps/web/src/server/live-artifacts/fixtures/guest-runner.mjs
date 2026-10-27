@@ -299,6 +299,61 @@ try {
       )
       .bind(JSON.stringify({ text: "Exact artifact thread" }), now),
   ]);
+
+  const review = await create("review-editor@example.com", "editor");
+  const reviewViewer = await create(
+    "review-viewer@example.com",
+    "viewer",
+    review.artifactId
+  );
+  let reviewCookie = await signIn(review);
+  let reviewViewerCookie = await signIn(reviewViewer);
+  await db
+    .prepare(
+      "INSERT INTO runs (id,workspace_id,agent_id,actor_id,actor_kind,created_at,input_text,session_id,status,on_behalf_of_user_id,scope_artifact_id,lease_until) VALUES ('suggestion-run','w1','thread-agent','u1','user',?,'fixture','guest-artifact-thread','running','u1',?,?)"
+    )
+    .bind(now, review.artifactId, _lease)
+    .run();
+  const proposed = await post(`/fixture/suggestion/${review.artifactId}`, {});
+  assert.equal(proposed.status, 200, await proposed.clone().text());
+  check(
+    (await proposed.json()).suggestionId === "guest-review",
+    "production document MCP path stages suggestion"
+  );
+  const listed = await request(guest(review.artifactId, "suggestions"), {
+    headers: { Cookie: reviewCookie },
+  });
+  assert.equal(listed.status, 200, await listed.clone().text());
+  reviewCookie = listed.headers.get("Set-Cookie").split(";")[0];
+  check(
+    (await listed.json()).items[0].status === "pending",
+    "real guest endpoint lists durable pending preview"
+  );
+  const viewerDecision = await post(
+    guest(review.artifactId, "decide-suggestion"),
+    { decision: "accept", suggestionId: "guest-review" },
+    reviewViewerCookie
+  );
+  check(
+    viewerDecision.status !== 200,
+    "current viewer cannot accept suggestion"
+  );
+  reviewViewerCookie =
+    viewerDecision.headers.get("Set-Cookie")?.split(";")[0] ??
+    reviewViewerCookie;
+  const acceptedReview = await post(
+    guest(review.artifactId, "decide-suggestion"),
+    { decision: "accept", suggestionId: "guest-review" },
+    reviewCookie
+  );
+  assert.equal(acceptedReview.status, 200, await acceptedReview.clone().text());
+  reviewCookie = acceptedReview.headers.get("Set-Cookie").split(";")[0];
+  const acceptedRecord = (await acceptedReview.json()).items[0];
+  check(
+    acceptedRecord.status === "accepted" &&
+      acceptedRecord.decidedBy.startsWith("g:"),
+    "real current guest editor accepts with guest attribution"
+  );
   const transcript = await request(guest(editor.artifactId, "session"), {
     headers: { Cookie: editorCookie },
   });

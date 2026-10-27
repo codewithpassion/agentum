@@ -12,6 +12,7 @@ import { TooltipProvider } from "../ui/tooltip";
 import { GuestComments } from "./comments";
 import { guestHttp } from "./http";
 import { guestServices } from "./services";
+import { GuestSuggestions } from "./suggestions";
 import { GuestTranscript } from "./transcript";
 export function GuestViewer({ artifactId }: { artifactId: string }) {
   const services = useMemo(() => guestServices(artifactId), [artifactId]);
@@ -276,6 +277,9 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
             }}
           />
         ) : null}
+        {room !== undefined && (
+          <GuestSuggestions failed={failed} role={role} services={services} />
+        )}
         {room !== undefined && (
           <GuestTranscript failed={failed} services={services} />
         )}

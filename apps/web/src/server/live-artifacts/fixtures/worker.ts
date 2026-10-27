@@ -82,6 +82,8 @@ export class TestArtifactRoom extends ArtifactRoom {
           ...subject,
           authorizationRef: `fixture:${subject.participantId}`,
           color: "#123456",
+          forceSuggestions:
+            get<boolean>(`force:${subject.participantId}`) ?? false,
           name: `Trusted ${subject.participantId}`,
           role: role ?? (subject.kind === "agent" ? "editor" : "owner"),
         };
@@ -309,6 +311,45 @@ export default {
     try {
       let result: unknown;
       switch (url.pathname) {
+        case "/suggestions":
+          result = await stub.listSuggestions({
+            kind:
+              (input.kind as "member" | "guest" | "agent" | undefined) ??
+              "member",
+            participantId:
+              (input.participantId as string | undefined) ?? "owner",
+          });
+          break;
+        case "/suggestion-mode":
+          result = await stub.setSuggestionMode(input.enabled === true, {
+            kind: "member",
+            participantId:
+              (input.participantId as string | undefined) ?? "owner",
+          });
+          result = await stub.listSuggestions({
+            kind: "member",
+            participantId: "owner",
+          });
+          break;
+        case "/suggestion-decision":
+          await stub.decideSuggestion(
+            {
+              decision: input.decision as "accept" | "reject",
+              suggestionId: input.suggestionId as string,
+            },
+            {
+              kind:
+                (input.kind as "member" | "guest" | "agent" | undefined) ??
+                "member",
+              participantId:
+                (input.participantId as string | undefined) ?? "owner",
+            }
+          );
+          result = await stub.listSuggestions({
+            kind: "member",
+            participantId: "owner",
+          });
+          break;
         case "/snapshot": {
           const snapshot = await stub.authoritativeSnapshot();
           result = { revision: snapshot.revision, state: [...snapshot.state] };
@@ -345,7 +386,7 @@ export default {
             {
               changeId:
                 (input.changeId as string | undefined) ?? crypto.randomUUID(),
-              mode: "direct",
+              mode: input.mode === "suggestion" ? "suggestion" : "direct",
               participantId: "agent",
               runId: "run",
               toolCallId: "call",
