@@ -736,7 +736,17 @@ export const createArtifactGrantsService = ({
       }
       throw error;
     }
-    if (artifact.kind === "app") {
+    // A stale card must not roll the live app back to an older version.
+    const current = artifact.currentVersionId
+      ? await findVersionById(db, {
+          id: artifact.currentVersionId,
+          workspaceId: artifact.workspaceId,
+        })
+      : null;
+    if (
+      artifact.kind === "app" &&
+      (!current || version.number > current.number)
+    ) {
       await goLive(artifact, version, {
         actor: { id: card.answeredBy ?? "system", kind: "user" },
       });

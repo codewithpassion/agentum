@@ -610,3 +610,32 @@ test("a card answered by someone who cannot decide is a conflict, not a new card
   expect(await db.select().from(runRequests)).toHaveLength(1);
   expect(await versionStatus("v2")).toBe("proposed");
 });
+
+test("answering a stale card decides the grants but does not roll the app back", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { hosts: ["files.example.com"] });
+  const waiting = await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  if (waiting.status !== "waiting") {
+    throw new Error("expected waiting");
+  }
+  await addVersion("v3", 3);
+  await record("v3", { tools: [{ tool: "linear/get_issue" }] });
+  await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v3",
+  });
+  await requests.answer(owner, {
+    answer: { decision: "allow_once" },
+    requestId: waiting.requestId,
+    via: "web",
+  });
+  expect(await currentVersion()).toBe("v3");
+  const [grant] = await service.list(owner, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  expect(grant?.status).toBe("approved");
+});
