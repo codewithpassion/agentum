@@ -9,11 +9,12 @@ const output = await mkdtemp(join(tmpdir(), "guest-browser-assets-"));
 try {
   await build({
     build: {
+      cssCodeSplit: false,
       emptyOutDir: true,
       outDir: output,
       rolldownOptions: {
         input: resolve(import.meta.dir, "../../guest-entry.tsx"),
-        output: { entryFileNames: "guest.js" },
+        output: { assetFileNames: "guest.[ext]", entryFileNames: "guest.js" },
       },
     },
     configFile: false,

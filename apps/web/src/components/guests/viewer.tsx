@@ -15,21 +15,45 @@ import { guestServices } from "./services";
 import { GuestTranscript } from "./transcript";
 export function GuestViewer({ artifactId }: { artifactId: string }) {
   const services = useMemo(() => guestServices(artifactId), [artifactId]);
+  const [invitations, setInvitations] = useState<
+    Array<{ artifactId: string; title: string }>
+  >([]);
   const [opened, setOpened] = useState<GuestOpenResult>();
   const [room, setRoom] = useState<TicketedRoom | TicketedDeckRoom>();
   const [role, setRole] = useState<EditorRole>("viewer");
+  const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState("");
   const [ended, setEnded] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
   const [anchor, setAnchor] = useState<CommentAnchor>();
   const [, render] = useState(0);
-  const failed = useCallback((message: string) => {
-    setError(message);
-    if (message === "This invite has ended") {
-      setEnded(true);
-    }
-  }, []);
+  const failed = useCallback(
+    (message: string) => {
+      setError(
+        message === "This invite has ended"
+          ? "Action unavailable. Reconnect to refresh access."
+          : message
+      );
+      const verify = async () => {
+        try {
+          await guestHttp.json(services.endpoint("rotate"), {});
+        } catch (cause) {
+          if (
+            cause instanceof Error &&
+            cause.message === "This invite has ended"
+          ) {
+            setEnded(true);
+          }
+        }
+      };
+      verify();
+    },
+    [services]
+  );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt recreates the room after its queued rotations finish.
   useEffect(() => {
+    setRoom(undefined);
+    setError("");
     let disposed = false;
     let provider: TicketedRoom | TicketedDeckRoom | undefined;
     let release: (() => void) | undefined;
@@ -67,12 +91,9 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
           result.kind === "document"
             ? new TicketedRoom({
                 ...options,
-                ready: (connected) => setRoom(connected),
+                ready: setRoom,
               })
-            : new TicketedDeckRoom({
-                ...options,
-                ready: (connected) => setRoom(connected),
-              });
+            : new TicketedDeckRoom({ ...options, ready: setRoom });
         if (provider instanceof TicketedDeckRoom) {
           unsubscribe = provider.subscribe(() => render((old) => old + 1));
         }
@@ -92,7 +113,18 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
         provider?.document.destroy();
       }, 0);
     };
-  }, [services, failed]);
+  }, [services, failed, attempt]);
+  useEffect(() => {
+    if (room === undefined) {
+      return;
+    }
+    guestHttp
+      .json<Array<{ artifactId: string; title: string }>>(
+        services.endpoint("invitations")
+      )
+      .then(setInvitations)
+      .catch((cause: Error) => failed(cause.message));
+  }, [room, services, failed]);
   useEffect(() => {
     if (ended || signedOut) {
       room?.dispose();
@@ -129,6 +161,18 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
           Your visits are logged.
         </p>
         <span>{role}</span>
+        {invitations.length > 1 && (
+          <nav aria-label="Shared with you">
+            {invitations.map((invitation) => (
+              <a
+                href={`/g/a/${encodeURIComponent(invitation.artifactId)}`}
+                key={invitation.artifactId}
+              >
+                {invitation.title}
+              </a>
+            ))}
+          </nav>
+        )}
         <button
           onClick={async () => {
             try {
@@ -151,7 +195,7 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
         {Boolean(error) && (
           <div role="alert">
             <p>{error}</p>
-            <button onClick={() => window.location.reload()} type="button">
+            <button onClick={() => setAttempt((old) => old + 1)} type="button">
               Reconnect
             </button>
           </div>

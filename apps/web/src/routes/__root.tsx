@@ -8,6 +8,8 @@ import { cn } from "#/lib/utils";
 import Footer from "../components/footer";
 import Header from "../components/header";
 import ThemedToaster from "../components/themed-toaster";
+// Reference the standalone guest asset from the client build as well as the
+// Worker build, so its URL is emitted into the public assets directory.
 import guestEntry from "../guest-entry.tsx?worker&url";
 
 import ClerkProvider from "../integrations/clerk/provider";

@@ -108,87 +108,177 @@ try {
       { height: 844, width: 390 },
     ]) {
       for (const kind of ["document", "deck"]) {
-        const invitation = await create(
-          `guest-${kind}-${viewport.width}@example.com`,
-          "editor",
-          undefined,
-          kind
-        );
-        const context = await browser.newContext({
-          hasTouch: viewport.width === 390,
-          isMobile: viewport.width === 390,
-          viewport,
-        });
-        const page = await context.newPage();
-        const errors = [];
-        page.on("pageerror", (error) => errors.push(error.message));
-        await page.route("**/*", async (route) => {
-          const path = new URL(route.request().url()).pathname;
-          if (path === "/guest.js" || path.startsWith("/assets/")) {
-            const file = join(output, path.slice(1));
-            await route.fulfill({
-              body: await readFile(file),
-              contentType: path.endsWith(".css")
-                ? "text/css"
-                : "application/javascript",
-            });
-          } else {
-            await route.continue();
-          }
-        });
-        await page.goto(`${base}/g/${invitation.token}`);
-        await expect(
-          page.getByRole("button", { name: "Send me a code" })
-        ).toBeVisible();
-        const before = await db
-          .prepare("SELECT count(*) n FROM guest_codes")
-          .first();
-        await page.reload();
-        await expect(
-          page.getByRole("button", { name: "Send me a code" })
-        ).toBeVisible();
-        assert.equal(
-          (await db.prepare("SELECT count(*) n FROM guest_codes").first()).n,
-          before.n
-        );
-        await page.getByRole("button", { name: "Send me a code" }).click();
-        const mail = await (await request("/fixture/mail")).json();
-        const code = mail.at(-1).text.match(/\n(\d{6})\n/)[1];
-        await page.getByLabel("6-digit code").fill(code);
-        await page.getByRole("button", { name: "Verify code" }).click();
-        await expect(
-          page.getByText("Your visits are logged.", { exact: false })
-        ).toBeVisible();
-        if (kind === "document") {
-          const editor = page.getByLabel("Document content", { exact: true });
-          await expect(editor).toBeVisible();
-          await editor.press("ControlOrMeta+End");
-          await editor.press("Enter");
-          await editor.pressSequentially(`Guest edit ${viewport.width}`);
-          await expect(editor).toContainText(`Guest edit ${viewport.width}`);
-          await page.getByLabel("New comment").fill("Browser guest comment");
-          await page.getByRole("button", { name: "Post comment" }).click();
+        for (const role of ["editor", "commenter", "viewer"]) {
+          const invitation = await create(
+            `guest-${kind}-${role}-${viewport.width}@example.com`,
+            role,
+            undefined,
+            kind
+          );
+          const context = await browser.newContext({
+            hasTouch: viewport.width === 390,
+            isMobile: viewport.width === 390,
+            viewport,
+          });
+          const page = await context.newPage();
+          const errors = [];
+          page.on("response", (response) => {
+            const path = new URL(response.url()).pathname;
+            if (path.startsWith("/api/guest/artifacts/") && !response.ok()) {
+              console.error(
+                "Guest HTTP refusal",
+                path.split("/").at(-1),
+                response.status()
+              );
+            }
+          });
+          page.on("pageerror", (error) => errors.push(error.message));
+          await page.route("**/*", async (route) => {
+            const path = new URL(route.request().url()).pathname;
+            if (
+              path === "/guest.js" ||
+              path === "/guest.css" ||
+              path.startsWith("/assets/")
+            ) {
+              const file = join(output, path.slice(1));
+              await route.fulfill({
+                body: await readFile(file),
+                contentType: path.endsWith(".css")
+                  ? "text/css"
+                  : "application/javascript",
+              });
+            } else {
+              await route.continue();
+            }
+          });
+          await page.goto(`${base}/g/${invitation.token}`);
           await expect(
-            page.getByText("Browser guest comment", { exact: false })
+            page.getByRole("button", { name: "Send me a code" })
           ).toBeVisible();
-        } else {
+          const before = await db
+            .prepare("SELECT count(*) n FROM guest_codes")
+            .first();
+          await page.reload();
           await expect(
-            page.getByRole("button", { name: "Version history" })
-          ).toHaveCount(0);
+            page.getByRole("button", { name: "Send me a code" })
+          ).toBeVisible();
+          assert.equal(
+            (await db.prepare("SELECT count(*) n FROM guest_codes").first()).n,
+            before.n
+          );
+          await page.getByRole("button", { name: "Send me a code" }).click();
+          await expect(page.getByLabel("6-digit code")).toBeVisible();
+          const mail = await (await request("/fixture/mail")).json();
+          const code = mail.at(-1).text.match(/\n(\d{6})\n/)[1];
+          await page.getByLabel("6-digit code").fill(code);
+          await page.getByRole("button", { name: "Verify code" }).click();
           await expect(
-            page.getByText("Connecting to the deck room…")
-          ).toHaveCount(0);
-          await expect(page.getByLabel("Live deck editor")).toBeVisible();
+            page.getByText("Your visits are logged.", { exact: false })
+          ).toBeVisible();
+          if (kind === "document") {
+            const editor = page.getByLabel("Document content", { exact: true });
+            await expect(editor).toBeVisible();
+            if (role === "editor") {
+              await editor.press("ControlOrMeta+End");
+              await editor.press("Enter");
+              await editor.pressSequentially(`Guest edit ${viewport.width}`);
+              await expect(editor).toContainText(
+                `Guest edit ${viewport.width}`
+              );
+              await page
+                .getByLabel("Upload image")
+                .setInputFiles({
+                  buffer: Buffer.from(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4qkAAAAASUVORK5CYII=",
+                    "base64"
+                  ),
+                  mimeType: "image/png",
+                  name: "guest.png",
+                });
+              await expect(editor.locator("img")).toHaveAttribute(
+                "src",
+                /^blob:/
+              );
+              await expect
+                .poll(() =>
+                  editor.locator("img").evaluate((img) => img.naturalWidth)
+                )
+                .toBe(1);
+            } else {
+              await expect(editor).toHaveAttribute("contenteditable", "false");
+            }
+            if (role === "viewer") {
+              await expect(page.getByLabel("New comment")).toHaveCount(0);
+            } else {
+              await page
+                .getByLabel("New comment")
+                .fill("Browser guest comment");
+              const posted = page.waitForResponse((response) =>
+                new URL(response.url()).pathname.endsWith("/comment")
+              );
+              await page.getByRole("button", { name: "Post comment" }).click();
+              assert.equal((await posted).status(), 200);
+              await expect(
+                page
+                  .locator(".guest-comments article")
+                  .getByText("Browser guest comment", { exact: false })
+              ).toBeVisible();
+            }
+          } else {
+            await expect(
+              page.getByRole("button", { name: "Version history" })
+            ).toHaveCount(0);
+            await expect(
+              page.getByText("Connecting to the deck room…")
+            ).toHaveCount(0);
+            await expect(page.getByLabel("Live deck editor")).toBeVisible();
+          }
+          if (kind === "document" && role === "editor") {
+            await post(
+              `/fixture/role/${invitation.artifactId}/${invitation.memberId}`,
+              {}
+            );
+            await page
+              .getByRole("button", { name: "Reconnect" })
+              .click({ timeout: 7000 })
+              .catch(async (cause) => {
+                console.error(
+                  "After downgrade",
+                  await page.locator("body").innerText(),
+                  await db
+                    .prepare("SELECT count(*) n FROM guest_sessions")
+                    .first()
+                );
+                throw cause;
+              });
+            await expect(
+              page.getByText("Read only", { exact: true })
+            ).toBeVisible();
+            await expect(page.getByLabel("New comment")).toHaveCount(0);
+            await post(
+              `/fixture/revoke/${invitation.artifactId}/${invitation.memberId}`,
+              {}
+            );
+            await expect(
+              page.getByRole("heading", { name: "This invite has ended" })
+            ).toBeVisible({ timeout: 7000 });
+            await expect(
+              page.getByText("Contact Inviter for access.")
+            ).toBeVisible();
+            await context.close();
+            passed += 1;
+            continue;
+          }
+          assert.deepEqual(errors, []);
+          await page
+            .getByRole("button", { exact: true, name: "Sign out" })
+            .click();
+          await expect(
+            page.getByRole("heading", { name: "Signed out" })
+          ).toBeVisible();
+          await context.close();
+          passed += 1;
         }
-        assert.deepEqual(errors, []);
-        await page
-          .getByRole("button", { exact: true, name: "Sign out" })
-          .click();
-        await expect(
-          page.getByRole("heading", { name: "Signed out" })
-        ).toBeVisible();
-        await context.close();
-        passed += 1;
       }
     }
   } finally {

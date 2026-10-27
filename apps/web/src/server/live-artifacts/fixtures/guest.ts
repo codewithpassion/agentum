@@ -66,7 +66,7 @@ app.route(
     compose: get,
     page: async () =>
       new Response(
-        '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="guest-root"></div><script type="module" src="/guest.js"></script></body></html>',
+        '<!doctype html><html lang="en"><head><link rel="stylesheet" href="/guest.css"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="guest-root"></div><script type="module" src="/guest.js"></script></body></html>',
         { headers: { "Content-Type": "text/html" } }
       ),
   })

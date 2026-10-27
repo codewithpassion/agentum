@@ -3,7 +3,17 @@
 export class GuestHttp {
   private tail: Promise<unknown> = Promise.resolve();
   run<T>(action: () => Promise<T>): Promise<T> {
-    const result = this.tail.then(action);
+    const result = this.tail.then(async () => {
+      // The host cookie is shared across tabs. Hold the browser lock through
+      // response consumption and the initial socket admission barrier too.
+      if (typeof navigator !== "undefined" && navigator.locks) {
+        return await navigator.locks.request(
+          "harbourmaster-guest-cookie",
+          action
+        );
+      }
+      return action();
+    });
     this.tail = result.catch(() => undefined);
     return result;
   }

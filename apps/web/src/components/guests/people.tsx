@@ -37,7 +37,7 @@ export function GuestPeople({ artifactId }: { artifactId: string }) {
     <section aria-label="People">
       <h3>People</h3>
       {Boolean(error) && <p role="alert">{error}</p>}
-      {Boolean(data?.canSwitch) && (
+      {data?.canSwitch === true && (
         <label>
           <input
             checked={data.enabled}
@@ -54,7 +54,7 @@ export function GuestPeople({ artifactId }: { artifactId: string }) {
           Guests can be invited in this workspace
         </label>
       )}
-      {Boolean(data) && (
+      {data !== undefined && (
         <>
           {!data.enabled && <p>Guest access is off for this workspace.</p>}
           <form

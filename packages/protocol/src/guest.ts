@@ -40,6 +40,7 @@ export const guestEndpoints = {
   artifact: (
     id: string,
     action:
+      | "invitations"
       | "open"
       | "join"
       | "rotate"

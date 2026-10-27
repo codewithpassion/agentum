@@ -86,6 +86,18 @@ export function guestServices(artifactId: string) {
             })
           ).json() as Promise<GuestImageResult>
       );
+      const blob = await guestHttp.run(async () =>
+        (
+          await guestHttp.response(
+            guestEndpoints.image(artifactId, result.url.slice("/files/".length))
+          )
+        ).blob()
+      );
+      const previous = images.get(result.url);
+      if (previous) {
+        URL.revokeObjectURL(previous);
+      }
+      images.set(result.url, URL.createObjectURL(blob));
       return { alt: file.name, url: result.url };
     },
   };

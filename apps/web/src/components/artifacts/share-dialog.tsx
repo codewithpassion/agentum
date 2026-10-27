@@ -182,7 +182,10 @@ function ShareBody({
 
   return (
     <div className="min-w-0 space-y-5">
-      {detail.canManage && (detail.kind === "document" || detail.kind === "deck") && <GuestPeople artifactId={artifactId} />}
+      {detail.canManage &&
+        (detail.kind === "document" || detail.kind === "deck") && (
+          <GuestPeople artifactId={artifactId} />
+        )}
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}

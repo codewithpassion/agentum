@@ -562,3 +562,30 @@ test("concurrent reissues retain one grant and only its token remains usable", a
   );
   expect(invitations.filter(Boolean)).toHaveLength(1);
 });
+
+test("People reads require owner/admin and expose only this artifact's grants", async () => {
+  const h = setup();
+  const invited = await h.service.invite(principals.owner, {
+    artifactId: h.artifactId,
+    email: "guest@example.com",
+    expiresAt: EXPIRY,
+    role: "commenter",
+  });
+  const result = await h.service.people(principals.owner, h.artifactId);
+  expect(result.grants).toHaveLength(1);
+  expect(result.grants[0]).toMatchObject({
+    email: "guest@example.com",
+    id: invited.memberId,
+    role: "commenter",
+  });
+  expect(JSON.stringify(result)).not.toContain("tokenHash");
+  await expect(
+    h.service.people(
+      { ...principals.owner, isAdmin: false, userId: "other" },
+      h.artifactId
+    )
+  ).rejects.toThrow();
+  await expect(
+    h.service.people({ ...principals.owner, workspaceId: "w2" }, h.artifactId)
+  ).rejects.toThrow();
+});

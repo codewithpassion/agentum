@@ -2,7 +2,7 @@
  * including foreign keys: the L.1 foreign keys themselves are not composite.
  * Mutations return unexecuted statements for the service atomic write.
  */
-import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import type { Database } from "./database.ts";
 import { artifacts } from "./schema/artifacts.ts";
 import {
@@ -63,14 +63,14 @@ export const findGuestInvitation = async (
 /** Authentication evidence plus CURRENT artifact grant. No audience fallback:
  * even workspace-visible artifacts require an explicit guest grant.
  */
-export const findGuestSessionGrant = async (
+const findSessionGrant = async (
   db: Database,
   input: {
     artifactId: string;
-    tokenHash: string;
     workspaceId: string;
     at: string;
-  }
+  },
+  credential: SQL
 ) => {
   const [row] = await db
     .select({
@@ -94,7 +94,7 @@ export const findGuestSessionGrant = async (
     .where(
       and(
         eq(guestSessions.workspaceId, input.workspaceId),
-        eq(guestSessions.tokenHash, input.tokenHash),
+        credential,
         gt(guestSessions.expiresAt, input.at),
         eq(artifactMembers.artifactId, input.artifactId),
         liveMember(input.workspaceId, input.at)
@@ -103,6 +103,28 @@ export const findGuestSessionGrant = async (
     .limit(1);
   return row ?? null;
 };
+
+/** Browser HTTP authentication requires the current rotating token. */
+export const findGuestSessionGrant = (
+  db: Database,
+  input: {
+    artifactId: string;
+    workspaceId: string;
+    at: string;
+    tokenHash: string;
+  }
+) => findSessionGrant(db, input, eq(guestSessions.tokenHash, input.tokenHash));
+/** Socket references validate the persisted session in one query, independently
+ * of concurrent HTTP token rotation. Signout/expiry still invalidate the row. */
+export const findGuestSessionReferenceGrant = (
+  db: Database,
+  input: {
+    artifactId: string;
+    workspaceId: string;
+    at: string;
+    sessionId: string;
+  }
+) => findSessionGrant(db, input, eq(guestSessions.id, input.sessionId));
 
 /** Optimistic compare-and-swap assertion, using the existing NOT NULL role
  * constraint (same pattern as artifactQuotaGuard). A competing role/revoke

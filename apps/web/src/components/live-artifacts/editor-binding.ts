@@ -5,7 +5,7 @@ import {
   schema,
 } from "@repo/live-doc/schema";
 import type { RelativePositionJSON } from "@repo/protocol/live";
-import { Editor, Extension } from "@tiptap/core";
+import { Editor, Extension, type Node } from "@tiptap/core";
 import { Collaboration } from "@tiptap/extension-collaboration";
 import { CollaborationCaret } from "@tiptap/extension-collaboration-caret";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
@@ -269,7 +269,7 @@ export function createDocumentEditor(
     extensions: [
       ...createExtensions(ports.policy).map((extension) =>
         extension.name === "image" && ports.imageUrl
-          ? extension.extend({
+          ? (extension as Node).extend({
               addNodeView:
                 () =>
                 ({ node }) => {
