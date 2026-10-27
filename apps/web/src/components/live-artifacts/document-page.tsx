@@ -9,6 +9,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { ExportControls } from "../live-exports/export-controls";
 import { CollaborationPanel, type PanelIntent } from "./collaboration-panel";
 import { DocumentEditor } from "./document-editor";
 import { documentServices } from "./document-services";
@@ -109,6 +110,12 @@ export function LiveDocumentPage({
         <h1>{title}</h1>
         <span>{ready ? `Connected · ${role}` : "Disconnected"}</span>
       </header>
+      <ExportControls
+        artifactId={artifactId}
+        connected={ready !== undefined}
+        key={artifactId}
+        kind="document"
+      />
       {error ? (
         <div role="alert">
           <p>{error}</p>

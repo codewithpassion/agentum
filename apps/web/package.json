@@ -42,6 +42,7 @@
     "@repo/library-sync": "workspace:*",
     "@repo/live-deck": "workspace:*",
     "@repo/live-doc": "workspace:*",
+    "@repo/live-export": "workspace:*",
     "@repo/mailbox": "workspace:*",
     "@repo/mcp": "workspace:*",
     "@repo/protocol": "workspace:*",

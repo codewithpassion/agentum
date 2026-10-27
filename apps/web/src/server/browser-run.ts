@@ -13,6 +13,7 @@ import type {
   ArtifactTestBrowser,
   ArtifactTestPage,
 } from "./artifact-test/driver.ts";
+import { type PrintSession, printPDF } from "./live-exports/pdf";
 
 /**
  * The only place `@cloudflare/playwright` is imported. Browser Run is beta, so
@@ -179,3 +180,29 @@ export const artifactTestBrowser = (
     };
   },
 });
+
+/** Dedicated ephemeral export browser; never shares an agent's persistent session. */
+interface ExportBrowser {
+  close: () => Promise<void>;
+  newPage: (options: {
+    javaScriptEnabled: false;
+    serviceWorkers: "block";
+  }) => Promise<PrintSession["page"]>;
+}
+export const exportPrintPDF = (
+  binding: Env["BROWSER"],
+  open: (worker: BrowserWorker) => Promise<ExportBrowser> = launch
+) =>
+  printPDF(async () => {
+    const browser = await open(endpoint(binding));
+    try {
+      const page = await browser.newPage({
+        javaScriptEnabled: false,
+        serviceWorkers: "block",
+      });
+      return { close: () => browser.close(), page };
+    } catch (error) {
+      await browser.close();
+      throw error;
+    }
+  });
