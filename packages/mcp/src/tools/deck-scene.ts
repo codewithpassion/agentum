@@ -35,7 +35,7 @@ export interface DeckScenePorts {
   authorize: (action: "read" | "write", artifactId: string) => Promise<void>;
   /** Host persists synchronously before authority application and broadcast. */
   commit?: (update: Uint8Array, result: DeckWriteResult) => void;
-  ownsBlob: (path: string) => boolean;
+  ownsBlob: (path: string, slideId?: string, elementId?: string) => boolean;
   presence: () => DeckReadResult["present"];
 }
 interface Guard {

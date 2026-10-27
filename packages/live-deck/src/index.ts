@@ -126,7 +126,7 @@ export interface Section {
 export interface DeckOptions {
   maxObservations?: number;
   /** Exact authorized image paths and immutable embed file identities from the host policy. */
-  ownsBlob?: (path: string) => boolean;
+  ownsBlob?: (path: string, slideId?: string, elementId?: string) => boolean;
 }
 const defaultTheme: Theme = { colors: {}, fonts: {}, sizes: {} };
 function validateTheme(theme: Theme) {
@@ -1124,7 +1124,10 @@ export class Deck {
     const theme = this.theme();
     for (const e of slide.elements) {
       const path = `/slide/${slide.id}/element/${e.id}`;
-      if (e.props.src && !this.options.ownsBlob?.(e.props.src)) {
+      if (
+        e.props.src &&
+        !this.options.ownsBlob?.(e.props.src, slide.id, e.id)
+      ) {
         fail(`${path}/@prop-src`, "blob does not belong to artifact");
       }
       if (

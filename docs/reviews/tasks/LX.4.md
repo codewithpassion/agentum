@@ -93,3 +93,13 @@ The actual production fixture verifies private-source URL refusal, retained clie
 Independent probes: `@repo/live-deck` embed suite passed 5 tests / 31 assertions; the service suite described in LX.3 passed 35 / 190. Workerd and mounted browser results follow below. No environment file was copied, no secret requested, and no deployment, push, PR or real email occurred.
 
 Focused web run passed 44 tests / 596 assertions across actual production composition, deck room, checkpoint codec, content route, mounted element-ask browser and captured EMAIL adapter. The mounted fixture exercises real bridge and persisted run paths with fixture identity/mail; it is not deployed-provider evidence. The whole root suite was not rerun in this review.
+
+## Controller followup: exact retained elements and cold initialization
+
+Retained source permission is now keyed by slide ID, element ID and source identity; it no longer grants that identity to arbitrary new elements. The core ownership callback supplies the element context through isolated candidates and the MCP scene adapter. The room keeps current eligible sources separately from retained placeholders and refreshes retained bindings after a successful durable mutation. A removed binding cannot authorize later reuse while the source is unavailable.
+
+Cold initialization and durable recovery first validate the entire trusted persisted checkpoint using the closed deck grammar, image ownership and placeholder-only embed identities. Only then are exact existing embed bindings retained. This path is used only for authoritative stored bytes, never incoming WebSocket or tool updates. New edits still need current source eligibility or an exact retained binding, and serving content still requires fresh resolver authorization.
+
+Regressions cover a binary candidate that duplicates a retained source, actual warm-room and cold-room duplicate refusal without revision changes, cold initialization from an unavailable-source checkpoint, and clean owner restore. Previous combined main frozen install/check/test/build passed before this followup, including the LX.3 workerd bundler fix (logs interactions-*).
+
+Focused followup validation: six core embed tests pass; four production/deck-room/checkpoint tests pass with actual workerd. Core and MCP typechecks pass; web/root combined followup remains to run. No full-app or staging acceptance.

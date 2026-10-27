@@ -154,6 +154,8 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     return this.deck ? 16_000_000 : MAX_DOCUMENT_BYTES;
   }
   private policy = new Set<string>();
+  private availableEmbedSources = new Set<string>();
+  private retainedEmbedElements = new Map<string, string>();
   private initialization: Promise<void> | undefined;
   private tail: Promise<unknown> = Promise.resolve();
 
@@ -199,6 +201,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       }
       const doc = new Y.Doc({ gc: false });
       if (initial.kind === "deck") {
+        this.retainCheckpointEmbeds(initial.state);
         this.installDeck(doc);
         this.requiredDeck().applyUpdate(initial.state);
       } else {
@@ -246,6 +249,9 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     // Accepted scene references remain valid opaque placeholders when a source
     // is deleted/restricted. This grants no content access: resolveEmbed checks
     // current source permission independently. Never retain unadmitted catalog entries.
+    this.availableEmbedSources = new Set(
+      urls.filter((url) => parseEmbedSource(url) !== null)
+    );
     const retained = this.acceptedEmbedReferences();
     this.policy = new Set([...urls, ...retained]);
     if (!this.deck) {
@@ -270,6 +276,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       // Persisted bytes are validated independently before becoming authority.
       const bytes = Y.encodeStateAsUpdate(doc);
       doc.destroy();
+      this.retainCheckpointEmbeds(bytes);
       this.installDeck(new Y.Doc({ gc: false }));
       this.requiredDeck().applyUpdate(bytes);
       this.installDeckTools();
@@ -286,9 +293,52 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     }
     return this.deck;
   }
+  private ownsDeckSource(path: string, slideId?: string, elementId?: string) {
+    if (!parseEmbedSource(path)) {
+      return this.policy.has(path);
+    }
+    return (
+      this.availableEmbedSources.has(path) ||
+      (slideId !== undefined &&
+        elementId !== undefined &&
+        this.retainedEmbedElements.get(JSON.stringify([slideId, elementId])) ===
+          path)
+    );
+  }
+  private retainDeckElements(deck: Deck) {
+    const bindings = new Map<string, string>();
+    for (const id of deck.ids()) {
+      for (const element of deck.read(id).slide.elements) {
+        if (element.type === "embed" && element.props.src) {
+          bindings.set(JSON.stringify([id, element.id]), element.props.src);
+        }
+      }
+    }
+    this.retainedEmbedElements = bindings;
+  }
+  /** Only trusted stored/checkpoint bytes enter here, never an incoming edit.
+   * Validate the entire closed scene before retaining exact placeholder bindings. */
+  private retainCheckpointEmbeds(bytes: Uint8Array) {
+    const validator = new Deck(new Y.Doc({ gc: false }), richTextCodec, {
+      ownsBlob: (path) =>
+        this.policy.has(path) || parseEmbedSource(path) !== null,
+    });
+    try {
+      validator.applyUpdate(bytes);
+      this.retainDeckElements(validator);
+      this.policy = new Set([
+        ...this.policy,
+        ...this.retainedEmbedElements.values(),
+      ]);
+    } finally {
+      validator.destroy();
+      validator.doc.destroy();
+    }
+  }
   private installDeck(doc: Y.Doc) {
     this.deck = new Deck(doc, richTextCodec, {
-      ownsBlob: (path) => this.policy.has(path),
+      ownsBlob: (path, slideId, elementId) =>
+        this.ownsDeckSource(path, slideId, elementId),
     });
   }
   private installDeckTools() {
@@ -329,7 +379,8 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
             summary: "Edit deck",
           });
         }),
-      ownsBlob: (path) => this.policy.has(path),
+      ownsBlob: (path, slideId, elementId) =>
+        this.ownsDeckSource(path, slideId, elementId),
       presence: () => this.currentPresence(),
     });
   }
@@ -340,7 +391,8 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     publicationReceipt?: string
   ) {
     const trial = new Deck(new Y.Doc({ gc: false }), richTextCodec, {
-      ownsBlob: (path) => this.policy.has(path),
+      ownsBlob: (path, slideId, elementId) =>
+        this.ownsDeckSource(path, slideId, elementId),
     });
     let full: Uint8Array;
     let changed = false;
@@ -394,6 +446,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     }
     if (changed) {
       this.requiredDeck().applyUpdate(update);
+      this.retainDeckElements(this.requiredDeck());
       this.broadcast(syncFrame(2, update));
       this.pruneDeckPresence();
     }
@@ -456,7 +509,8 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       if (!Object.hasOwn(element.cells ?? {}, input.key)) {
         await this.refreshPolicy();
         const trial = new Deck(new Y.Doc({ gc: false }), richTextCodec, {
-          ownsBlob: (path) => this.policy.has(path),
+          ownsBlob: (path, slideId, elementId) =>
+            this.ownsDeckSource(path, slideId, elementId),
         });
         try {
           trial.applyUpdate(Y.encodeStateAsUpdate(this.doc));
@@ -1545,7 +1599,8 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       if (this.deck) {
         await this.refreshPolicy();
         const trial = new Deck(new Y.Doc({ gc: false }), richTextCodec, {
-          ownsBlob: (path) => this.policy.has(path),
+          ownsBlob: (path, slideId, elementId) =>
+            this.ownsDeckSource(path, slideId, elementId),
         });
         try {
           trial.applyUpdate(Y.encodeStateAsUpdate(this.doc));
