@@ -6,6 +6,7 @@ import { LinkList } from "./link-list.tsx";
 import { ShareDialog } from "./share-dialog.tsx";
 
 const noop = () => undefined;
+const REVOKE_BUTTON = /<button[^>]*>Revoke<\/button>/;
 
 const share = (overrides: Partial<ArtifactShare>): ArtifactShare => ({
   artifactId: "a1",
@@ -47,21 +48,52 @@ test("CreateLinkForm lists the expiry options in order with both version choices
 test("LinkList shows Copy, Revoke and the counts for an active share", () => {
   const html = renderToStaticMarkup(
     <LinkList
+      canManage
       onChanged={noop}
       shares={[share({ openCount: 12 })]}
       versionNumbers={new Map()}
     />
   );
   expect(html).toContain("Copy");
-  expect(html).toContain("Revoke");
+  expect(html).toContain(">Revoke<");
   expect(html).toContain(">12<");
   expect(html).toContain("Follows latest");
   expect(html).toContain("Never");
 });
 
+test("Revoke is the trigger of a confirm dialog, not a direct action", () => {
+  const html = renderToStaticMarkup(
+    <LinkList
+      canManage
+      onChanged={noop}
+      shares={[share({})]}
+      versionNumbers={new Map()}
+    />
+  );
+  const revoke = REVOKE_BUTTON.exec(html);
+  expect(revoke).not.toBeNull();
+  expect(revoke?.[0]).toContain('aria-haspopup="dialog"');
+  expect(revoke?.[0]).toContain('data-state="closed"');
+});
+
+test("LinkList hides Copy and Revoke from members who cannot manage links", () => {
+  const html = renderToStaticMarkup(
+    <LinkList
+      canManage={false}
+      onChanged={noop}
+      shares={[share({ openCount: 4 })]}
+      versionNumbers={new Map()}
+    />
+  );
+  expect(html).toContain(">4<");
+  expect(html).not.toContain("Copy");
+  expect(html).not.toContain(">Revoke<");
+});
+
 test("LinkList shows neither Copy nor Revoke for a revoked share", () => {
   const html = renderToStaticMarkup(
     <LinkList
+      canManage
       onChanged={noop}
       shares={[
         share({ revokedAt: "2026-10-02T10:00:00.000Z", status: "revoked" }),
@@ -77,6 +109,7 @@ test("LinkList shows neither Copy nor Revoke for a revoked share", () => {
 test("LinkList lists the newest link first", () => {
   const html = renderToStaticMarkup(
     <LinkList
+      canManage
       onChanged={noop}
       shares={[
         share({

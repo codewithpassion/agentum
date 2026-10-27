@@ -66,7 +66,7 @@ export function resolveExpiry(
     999
   );
   if (Number.isNaN(end.getTime()) || end.getTime() <= now.getTime()) {
-    return { error: "Pick a date after today.", ok: false };
+    return { error: "Pick a date that is not in the past.", ok: false };
   }
   return { expiresAt: end.toISOString(), ok: true };
 }

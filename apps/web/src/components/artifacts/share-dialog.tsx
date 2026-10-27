@@ -219,6 +219,7 @@ function ShareBody({
       <section className="space-y-2">
         <h3 className="font-medium text-sm">Links</h3>
         <LinkList
+          canManage={detail.canManage}
           onChanged={load}
           shares={shares}
           versionNumbers={versionNumbers}
@@ -244,6 +245,7 @@ export function ShareDialog({
       <Sheet onOpenChange={onOpenChange} open>
         <SheetContent
           className="max-h-[90dvh] w-full overflow-y-auto"
+          data-testid="share-dialog"
           side="bottom"
         >
           <SheetHeader>
@@ -256,7 +258,10 @@ export function ShareDialog({
   }
   return (
     <Dialog onOpenChange={onOpenChange} open>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
+        data-testid="share-dialog"
+      >
         <DialogHeader>
           <DialogTitle>Share</DialogTitle>
         </DialogHeader>

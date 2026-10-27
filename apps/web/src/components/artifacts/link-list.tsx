@@ -25,6 +25,8 @@ import {
 } from "./share-model";
 
 export interface LinkListProps {
+  /** Only the owner and admins copy or revoke links; others see the list. */
+  canManage: boolean;
   onChanged: () => void;
   shares: readonly ArtifactShare[];
   versionNumbers: ReadonlyMap<string, number>;
@@ -43,10 +45,12 @@ const copyLink = async (url: string) => {
 };
 
 function LinkRow({
+  canManage,
   onRevoke,
   share,
   versionNumbers,
 }: {
+  canManage: boolean;
   onRevoke: (shareId: string) => void;
   share: ArtifactShare;
   versionNumbers: ReadonlyMap<string, number>;
@@ -78,7 +82,7 @@ function LinkRow({
         </Badge>
       </ResponsiveCell>
       <ResponsiveActions>
-        {live ? (
+        {live && canManage ? (
           <>
             <Button
               className="min-h-10"
@@ -106,7 +110,12 @@ function LinkRow({
   );
 }
 
-export function LinkList({ onChanged, shares, versionNumbers }: LinkListProps) {
+export function LinkList({
+  canManage,
+  onChanged,
+  shares,
+  versionNumbers,
+}: LinkListProps) {
   const [error, setError] = useState<string | null>(null);
 
   const revoke = useCallback(
@@ -150,6 +159,7 @@ export function LinkList({ onChanged, shares, versionNumbers }: LinkListProps) {
         <TableBody>
           {[...shares].sort(byNewest).map((share) => (
             <LinkRow
+              canManage={canManage}
               key={share.id}
               onRevoke={revoke}
               share={share}

@@ -68,8 +68,10 @@ test("day choices add whole days to now", () => {
 test("a date ends at the close of that day", () => {
   const result = resolveExpiry("date", "2026-12-24", now);
   expect(result.ok).toBe(true);
-  if (result.ok && result.expiresAt !== null) {
-    const end = new Date(result.expiresAt);
+  const expiresAt = result.ok ? result.expiresAt : null;
+  expect(expiresAt).not.toBeNull();
+  if (expiresAt !== null) {
+    const end = new Date(expiresAt);
     expect([end.getFullYear(), end.getMonth(), end.getDate()]).toEqual([
       2026, 11, 24,
     ]);
@@ -79,7 +81,7 @@ test("a date ends at the close of that day", () => {
 
 test("a date needs a value and must be in the future", () => {
   expect(resolveExpiry("date", "", now).ok).toBe(false);
-  expect(resolveExpiry("date", "2026-10-26", now).ok).toBe(false);
+  expect(resolveExpiry("date", "2026-10-20", now).ok).toBe(false);
   expect(resolveExpiry("date", "not-a-date", now).ok).toBe(false);
 });
 

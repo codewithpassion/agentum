@@ -1,5 +1,5 @@
 import { useAuth } from "@clerk/tanstack-react-start";
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { Label } from "#/components/ui/label";
 import { Switch } from "#/components/ui/switch";
 import { getTrpc } from "#/integrations/trpc/client";
@@ -21,6 +21,7 @@ export function LinksSwitch({
   onChange,
   pending,
 }: LinksSwitchProps) {
+  const id = useId();
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3">
@@ -28,10 +29,10 @@ export function LinksSwitch({
           checked={enabled}
           className="after:-inset-y-3"
           disabled={!isAdmin || pending}
-          id="artifact-links-switch"
+          id={id}
           onCheckedChange={onChange}
         />
-        <Label className="min-h-10" htmlFor="artifact-links-switch">
+        <Label className="min-h-10" htmlFor={id}>
           Allow link sharing
         </Label>
       </div>

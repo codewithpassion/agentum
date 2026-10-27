@@ -13,7 +13,10 @@ import {
 } from "#/components/responsive-table/responsive-table";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
-import { NativeSelect } from "#/components/ui/native-select";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "#/components/ui/native-select";
 import {
   TableBody,
   TableHead,
@@ -169,16 +172,16 @@ export function AccessLog({ artifactId }: AccessLogProps) {
       <div className="flex flex-col gap-1 text-sm sm:max-w-sm">
         <label htmlFor={filterId}>Filter by link</label>
         <NativeSelect
-          className="w-full"
+          className="w-full max-md:[&_select]:h-10"
           id={filterId}
           onChange={changeFilter}
           value={shareId}
         >
-          <option value="">All links</option>
+          <NativeSelectOption value="">All opens</NativeSelectOption>
           {shares.map((share) => (
-            <option key={share.id} value={share.id}>
+            <NativeSelectOption key={share.id} value={share.id}>
               {describeLink(share)}
-            </option>
+            </NativeSelectOption>
           ))}
         </NativeSelect>
       </div>
