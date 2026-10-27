@@ -3,7 +3,7 @@ id: A.13
 title: Thread card for artifacts
 milestone: A
 size: M
-status: in_progress
+status: done
 depends_on: [A.1]
 branch: task/A.13-thread-card
 lane: web-thread
@@ -26,3 +26,4 @@ UI tasks run beside the backend tasks and code against the A.1 tRPC schemas. If 
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at 4e13524, review clean after 0 fix rounds; R1.22 browser check moved to A.14; merged.
