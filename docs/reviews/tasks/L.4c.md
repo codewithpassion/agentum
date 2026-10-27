@@ -80,3 +80,7 @@ Installed dependencies using `bun install --frozen-lockfile` after initial focus
 ## Controller authorization remediation
 
 Artifact-session runs now apply the asking member's current source and target grants to every live-artifact target. Cross-artifact requests additionally retain the existing agent policy ceiling, and ordinary non-artifact runs retain their prior policy. The run cannot borrow a private handover, escape a commenter source via a workspace target, or continue after source revocation. A migrated-DB/real-RunsService regression covers those cases plus target viewer denial and a valid editor/editor request. Focused ask/core suites pass: 49 tests, 207 assertions. Production fresh identity, room admission and durable sweep wiring remain L.7 gates.
+
+### Independent remediation re-check — 2026-10-27
+
+Reviewed controller fix `886204039b60f742805d18d0905746393c956074` in checkout `447fb7f72b6489e3f815acb2dfb1bcb2aea42fe4`. The previous high cross-artifact repro is resolved at this service boundary: artifact-session runs take the minimum of the current asker's source and target roles, with the agent's existing policy as an additional cross-target ceiling. The migrated-DB real-RunsService regression covers private handover, workspace target, source revocation/downgrade, target viewer and valid editor/editor; the focused ask and core suites passed (49 tests, 207 assertions). Fresh authenticated membership/credential resolution and production wiring remain integration requirements.

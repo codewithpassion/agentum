@@ -72,3 +72,29 @@ Final validation on branch `t3/implement-artifact-room`, with main's `a4857b01` 
 Substantial implementation commits include `ea7470dd` (room/storage/fixtures), `c91c40a2` (durable guards/revert actors/anchor adapter), `d1aca9cb` (TCP socket regressions), and `c11cba0c` (trusted admission context and integration evidence). The final follow-up commits the text-run protection bound, policy-recovery regression and completed validation evidence.
 
 Remaining **external-only gates**: L.7 production namespace exports/bindings/routes and authenticated service/credential-reference adapters; actual idempotent R2/DB checkpoint/restore-provenance reconciliation; durable invalidation processing with its five-second delivery budget; editor control/awareness-ID adapter and tool presence heartbeats; and L.10's staging hibernation sign-off. The room class, candidate validation, persistence, RPC implementation and local workerd/socket evidence are complete in this bounded slice.
+
+## Independent review — 2026-10-27
+
+Reviewed bounded merged implementation `4b859af2` in checkout `447fb7f72b6489e3f815acb2dfb1bcb2aea42fe4` (the room paths are unchanged). Verdict: **changes required**. The following are room defects, independent of the production adapter gates.
+
+### High — checkpoint retries can be postponed indefinitely by activity
+
+`schedule()` sets a pending checkpoint's retry to `Date.now() + 5000` on every call, rather than retaining the first retry deadline. Each successful mutation and agent presence heartbeat calls `schedule()`, replacing the alarm. Repro: make `save` fail, creating a durable pending checkpoint; keep editing or heartbeat agent presence more frequently than five seconds after the save recovers. Each activity moves the alarm forward, so the pending save is never retried while activity continues. This violates the five-minute checkpoint requirement even with a correct, available idempotent save adapter. Persist a retry deadline and do not postpone it on subsequent scheduling.
+
+### Medium — later dirty activity loses its original checkpoint deadline
+
+After a pending checkpoint succeeds, `saveCheckpoint()` sets `dirtySince = Date.now()` whenever later revisions exist. Repro: fail a checkpoint, edit again while it is pending, wait more than five minutes, then allow the pending checkpoint to succeed. The later edit remains unsaved but receives a new five-minute deadline from the acknowledgement, potentially almost ten minutes or longer after the edit. Track the first dirty time after the frozen pending revision independently and preserve it across retries and restart. A prolonged save outage itself cannot meet the deadline, but once saving recovers the room must not add another five-minute delay.
+
+### Medium — awareness query omits active agent presence
+
+`sendPresence()` answers standard awareness query message 3 with socket presences only; unlike initial admission and `presence()`, it never sends the persisted active agent. A client that issues a query after missing or clearing the broadcast cannot recover the agent caret/status until another heartbeat. In a temporary real-workerd fixture probe, publish the agent, clear the observer's received messages, send binary `[3]` and inspect returned awareness frames: none contains the active agent, although `presence()` reports it. Include the unexpired agent entry in the query response.
+
+### Security and integration boundaries
+
+The room serializes its own admission, socket messages, refresh and RPC operations and validates candidate Yjs state before durable application. SQLite consumes ticket JTIs transactionally; attachments retain credential references and unique server awareness IDs. The fixture exercises hostile updates, replay, role and expiry, hibernation, recovery, anchors, restore and revert, but its `admit` derives identity from signed claims and its `authorize` ignores credential references. It is therefore **not** evidence of real credential authentication or current credential revocation. L.7 must authenticate the request and freshly resolve the stored credential reference, and must coordinate access mutations with room authorization using a real generation/serialization mechanism; simply reading current rights before a later mutation has a TOCTOU window. Broadcasts to existing sockets do not reauthorize each recipient, so durable invalidation delivery within five seconds is also mandatory. Trusted RPC callers must authorize reads, presence, checkpoint and anchor methods at their own boundary; these methods do not accept an authenticated actor. Do not expose the room RPC surface directly to untrusted callers.
+
+Actual R2/DB save must be idempotent by checkpoint ID and reconcile restore provenance, events and revision after ambiguous success; a bare revision-increasing service call does not fulfill this contract. L.7 must also install durable invalidation delivery and the editor control/awareness adapter. Staging hibernation remains L.10. These are required integration gates, not evidence that this bounded room has already met end-to-end security or persistence requirements.
+
+### Checks
+
+`bun install --frozen-lockfile` passed. The unmodified real Miniflare/workerd fixture passed (1 test, 43.63 s); its focused adversarial scenarios include malformed candidates, awareness spoofing, ticket replay and renewal, role changes, interrupted generation, recovery and ambiguous checkpoint acknowledgement. A second run with the temporary awareness-query probe passed (1 test, 42.84 s); the probe asserted the defective omission and was removed. The two checkpoint scheduling findings above are code-path reproductions, not separately timed workerd experiments. The initial fixture attempt failed because workspace dependencies were absent; installation resolved it. No production adapters, staging, product files, push, PR or deployment were changed.
