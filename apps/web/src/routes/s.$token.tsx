@@ -25,7 +25,11 @@ function SharePage() {
     }
     openedToken.current = token;
     setResult(null);
-    openShare(token).then(setResult);
+    openShare(token).then((next) => {
+      if (openedToken.current === token) {
+        setResult(next);
+      }
+    });
   }, [token]);
 
   if (result === null) {

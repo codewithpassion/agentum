@@ -48,6 +48,14 @@ export function ArtifactFrame({
   const [blanked, setBlanked] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [pendingLink, setPendingLink] = useState<PendingLink | null>(null);
+  // Mirrors `pendingLink` so the bridge callbacks can refuse a prompt that is
+  // still open when the frame blanks or goes away.
+  const pendingLinkRef = useRef<PendingLink | null>(null);
+  pendingLinkRef.current = pendingLink;
+  const dropPendingLink = useCallback(() => {
+    pendingLinkRef.current?.resolve(false);
+    setPendingLink(null);
+  }, []);
   // The bridge reads the latest values without being rebuilt on every render.
   const initRef = useRef({ version, viewer });
   initRef.current = { version, viewer };
@@ -67,7 +75,10 @@ export function ArtifactFrame({
         viewer: initRef.current.viewer,
       }),
       getTarget: () => iframeRef.current?.contentWindow ?? null,
-      onBlank: () => setBlanked(true),
+      onBlank: () => {
+        dropPendingLink();
+        setBlanked(true);
+      },
       openLink: (url) => {
         window.open(url, "_blank", "noopener,noreferrer");
       },
@@ -80,8 +91,9 @@ export function ArtifactFrame({
       window.removeEventListener("message", onMessage);
       bridge.dispose();
       bridgeRef.current = null;
+      dropPendingLink();
     };
-  }, [blanked]);
+  }, [blanked, dropPendingLink]);
 
   const handleLoad = useCallback(() => bridgeRef.current?.handleLoad(), []);
   const reload = useCallback(() => {

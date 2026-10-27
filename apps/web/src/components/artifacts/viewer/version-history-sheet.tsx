@@ -61,7 +61,7 @@ function VersionRow({
       </p>
       {version.authorRunId ? (
         <Link
-          className="text-xs underline"
+          className="inline-flex min-h-10 items-center text-xs underline md:min-h-0"
           params={{ runId: version.authorRunId }}
           to="/tasks/$runId"
         >

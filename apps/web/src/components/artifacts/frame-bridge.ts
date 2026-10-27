@@ -187,7 +187,7 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
       linkPending = true;
       try {
         const agreed = await confirmOpenLink(message.params.url);
-        if (!agreed) {
+        if (!agreed || blanked || disposed) {
           throw new BridgeError(BRIDGE_ERROR.denied, "The viewer said no");
         }
         openLink(message.params.url);

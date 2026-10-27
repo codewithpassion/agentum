@@ -101,13 +101,17 @@ function ArtifactViewerPage() {
   const currentNumber = detail.currentVersion.number;
   const shownNumber = shownVersionNumber(detail, v);
 
-  // One open per version shown. Each open writes a log row, so the current
-  // version is requested without a number and an older one by its number.
+  // One open per version shown, and a new one after a restore bumps the
+  // current version. Each open writes a log row.
   useEffect(() => {
     let cancelled = false;
     setOpen({ status: "loading" });
     getTrpc()
-      .artifacts.open.mutate({ artifactId, surface: "viewer", version: v })
+      .artifacts.open.mutate({
+        artifactId,
+        surface: "viewer",
+        version: v ?? currentNumber,
+      })
       .then((opened) => {
         if (!cancelled) {
           setOpen({ opened, status: "ready" });
@@ -121,7 +125,7 @@ function ArtifactViewerPage() {
     return () => {
       cancelled = true;
     };
-  }, [artifactId, v]);
+  }, [artifactId, v, currentNumber]);
 
   const showVersion = useCallback(
     (number: number) => {

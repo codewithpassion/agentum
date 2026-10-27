@@ -24,6 +24,9 @@ import {
 } from "#/components/ui/select";
 import { byline, downloadPath } from "./viewer-logic.ts";
 
+// Menu rows are 40 px tall on phones (R1.26).
+const ITEM_CLASS = "min-h-10 md:min-h-0";
+
 interface TitleProps {
   canRename: boolean;
   onRename: (title: string) => void;
@@ -61,7 +64,7 @@ function Title({ canRename, onRename, title }: TitleProps) {
       <Input
         aria-label="Title"
         autoFocus
-        className="h-8 max-w-xs"
+        className="h-10 max-w-xs md:h-8"
         maxLength={120}
         onBlur={commit}
         onChange={change}
@@ -116,6 +119,7 @@ export function ViewerBar({
   versions,
 }: ViewerBarProps) {
   const parts = byline(detail);
+  const taskJoiner = parts.agent ? " in " : " · made in ";
   const sorted = [...versions].sort((a, b) => b.number - a.number);
   const changeVersion = useCallback(
     (value: string) => onVersion(Number(value)),
@@ -138,7 +142,7 @@ export function ViewerBar({
         <p className="hidden min-w-0 truncate text-muted-foreground text-xs md:block">
           by {parts.owner}
           {parts.agent ? ` · made by ${parts.agent}` : ""}
-          {parts.agent && parts.task ? " in " : ""}
+          {parts.task ? taskJoiner : ""}
           {parts.task ? (
             <Link
               className="underline"
@@ -182,14 +186,16 @@ export function ViewerBar({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={onFullScreen}>
+          <DropdownMenuItem className={ITEM_CLASS} onSelect={onFullScreen}>
             Open full screen
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onHistory}>
+          <DropdownMenuItem className={ITEM_CLASS} onSelect={onHistory}>
             Version history
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onCopyLink}>Copy link</DropdownMenuItem>
-          <DropdownMenuItem asChild>
+          <DropdownMenuItem className={ITEM_CLASS} onSelect={onCopyLink}>
+            Copy link
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild className={ITEM_CLASS}>
             <a download href={downloadPath(detail.artifactId, shownNumber)}>
               Download
             </a>
@@ -202,15 +208,19 @@ export function ViewerBar({
                 onValueChange={changeAudience}
                 value={detail.audience}
               >
-                <DropdownMenuRadioItem value="private">
+                <DropdownMenuRadioItem className={ITEM_CLASS} value="private">
                   Private
                 </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="workspace">
+                <DropdownMenuRadioItem className={ITEM_CLASS} value="workspace">
                   Workspace
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onDelete} variant="destructive">
+              <DropdownMenuItem
+                className={ITEM_CLASS}
+                onSelect={onDelete}
+                variant="destructive"
+              >
                 Delete
               </DropdownMenuItem>
             </>
