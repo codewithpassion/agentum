@@ -64,7 +64,10 @@ export const errorOf = (promise: Promise<unknown>): Promise<unknown> =>
     (caught: unknown) => caught
   );
 
-export const setup = (github?: GithubSkillFetcher) => {
+export const setup = (
+  github?: GithubSkillFetcher,
+  onDeleted?: Parameters<typeof createSkillsStoreService>[0]["onDeleted"]
+) => {
   const db = migrated();
   const atomic = sqliteAtomic(db);
   for (const id of [W1, W2]) {
@@ -151,6 +154,7 @@ export const setup = (github?: GithubSkillFetcher) => {
     events,
     github,
     library,
+    onDeleted,
   });
   return { atomic, blobs, db, events, library, libraryBlobs, service };
 };
