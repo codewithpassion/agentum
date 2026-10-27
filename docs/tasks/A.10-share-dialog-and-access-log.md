@@ -3,7 +3,7 @@ id: A.10
 title: Share dialog, access log and links switch
 milestone: A
 size: M
-status: in_progress
+status: done
 depends_on: [A.1]
 branch: task/A.10-share-dialog-and-access-log
 lane: web-share
@@ -27,3 +27,4 @@ UI tasks run beside the backend tasks and code against the A.1 tRPC schemas. If 
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at ef55db8, review clean after 1 fix round; browser check moved to A.14; ShareDialog dataFiles prop; merged.

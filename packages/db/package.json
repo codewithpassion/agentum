@@ -4,6 +4,8 @@
   "type": "module",
   "exports": {
     ".": "./src/database.ts",
+    "./artifacts": "./src/artifacts.ts",
+    "./artifact-shares": "./src/artifact-shares.ts",
     "./atomic": "./src/atomic.ts",
     "./schema/*": "./src/schema/*.ts",
     "./map": "./src/map.ts",
