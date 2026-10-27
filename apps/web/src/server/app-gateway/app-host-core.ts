@@ -19,7 +19,7 @@ export const MAX_KEY_BYTES = 256;
 export const MAX_VALUE_BYTES = 1024 * 1024;
 const DEFAULT_LIST_LIMIT = 100;
 const MAX_LIST_LIMIT = 1000;
-const TOOL_KEY = /^[^/\s]+\/[^/\s]+$/;
+const TOOL_KEY = /^[^/\s#]+\/[^/\s#]+$/;
 
 const encoder = new TextEncoder();
 

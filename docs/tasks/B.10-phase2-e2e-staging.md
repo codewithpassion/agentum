@@ -3,9 +3,9 @@ id: B.10
 title: Phase 2 end-to-end and staging check
 milestone: B
 size: M
-status: todo
-depends_on: [A.11, B.7, B.8, B.9]
-branch: null
+status: in_progress
+depends_on: [A.14, B.7, B.8, B.9]
+branch: task/B.10-phase2-e2e-staging
 lane: staging
 executor: claude
 ---
@@ -20,5 +20,13 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 ## Check
 - Every R2 requirement has a pass line with evidence, or a line naming what blocks it.
 
+## Refinements (2026-10-27)
+- Start the local part now. A.11 (the phase 1 staging deploy) runs in parallel. Don't deploy staging until `docs/tasks/A.11-staging-check.md` in /home/roboto/devel/harbourmaster-wt/v3 says `status: done`, then merge v3/artifacts and deploy once.
+- B.8: the `v7` migration adds the `AppStore` Durable Object class, and `APP_API_LIMIT` uses rate-limit namespace ids 2004 to 2006, which wrangler creates on deploy. Platform `harbourmaster/*` tools can't be granted; only connector tools can. Argument limits fail closed.
+- B.8 could not reach a connector that answers locally, because the URL check refuses local addresses. On staging, use a real connector the workspace has (Linear or another connector already set up there). If none exists, say so.
+- The same refused-command rule as A.11: stop and report blocked with the exact command for Dom.
+- Browser checks deferred from B.9 are yours.
+
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched (local part first; staging after A.11).

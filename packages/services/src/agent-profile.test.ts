@@ -771,6 +771,9 @@ test("the artifact write tools have platform labels for Ask me before", () => {
   expect(PLATFORM_TOOL_LABELS["harbourmaster/artifact_create"]).toBe(
     "publishing a new artifact"
   );
+  expect(PLATFORM_TOOL_LABELS["harbourmaster/artifact_promote"]).toBe(
+    "making a new version of an app live"
+  );
   expect(PLATFORM_TOOL_LABELS["harbourmaster/artifact_update"]).toBe(
     "publishing a new version of an artifact"
   );

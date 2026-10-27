@@ -115,6 +115,7 @@ const failingPorts = (error: Error): McpPorts => ({
   artifacts: {
     create: () => Promise.reject(error),
     list: () => Promise.reject(error),
+    promote: () => Promise.reject(error),
     read: () => Promise.reject(error),
     test: () => Promise.reject(error),
     update: () => Promise.reject(error),
@@ -170,6 +171,7 @@ const fakePorts = (overrides: Partial<McpPorts>): McpPorts => ({
   artifacts: {
     create: uncalled("artifacts.create"),
     list: uncalled("artifacts.list"),
+    promote: uncalled("artifacts.promote"),
     read: uncalled("artifacts.read"),
     test: uncalled("artifacts.test"),
     update: uncalled("artifacts.update"),
@@ -272,6 +274,7 @@ const ALL_TOOLS = [
   "artifact_read",
   "artifact_list",
   "artifact_test",
+  "artifact_promote",
 ];
 
 const ARTIFACT_ID = "5b1c1a3e-0a52-4f5f-8f07-0b3d8e9a1c11";
@@ -314,6 +317,7 @@ const CALLS: [string, Record<string, unknown>][] = [
   ["artifact_read", { artifactId: ARTIFACT_ID }],
   ["artifact_list", {}],
   ["artifact_test", { artifactId: ARTIFACT_ID }],
+  ["artifact_promote", { artifactId: ARTIFACT_ID }],
 ];
 
 describe("tools/list", () => {
@@ -993,6 +997,7 @@ const countedPorts = (calls: string[]): McpPorts => {
     artifacts: {
       create: counted("artifacts.create"),
       list: counted("artifacts.list"),
+      promote: counted("artifacts.promote"),
       read: counted("artifacts.read"),
       test: counted("artifacts.test"),
       update: counted("artifacts.update"),

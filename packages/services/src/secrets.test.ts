@@ -630,6 +630,48 @@ describe("proxy rules", () => {
     ).toEqual([]);
   });
 
+  test("proxyForNames returns the named proxy secrets' rules for a host, without an agent grant", async () => {
+    await service.create(user, {
+      mode: "proxy",
+      name: "NAMED_KEY",
+      rules: [rule],
+      value: OPENAI,
+    });
+    await service.create(user, {
+      mode: "env",
+      name: "NAMED_ENV",
+      value: ECHO,
+    });
+    // No agent grant is needed: the names come from a version's grants.
+    expect(
+      await service.proxyForNames(
+        WORKSPACE,
+        ["NAMED_KEY", "NAMED_ENV", "MISSING"],
+        "API.openai.com"
+      )
+    ).toEqual([
+      {
+        header: "Authorization",
+        headerValue: `Bearer ${OPENAI}`,
+        name: "NAMED_KEY",
+        value: OPENAI,
+      },
+    ]);
+    expect(
+      await service.proxyForNames(WORKSPACE, ["NAMED_KEY"], "evil.com")
+    ).toEqual([]);
+    expect(
+      await service.proxyForNames(WORKSPACE, [], "api.openai.com")
+    ).toEqual([]);
+    expect(
+      await service.proxyForNames(
+        OTHER_WORKSPACE,
+        ["NAMED_KEY"],
+        "api.openai.com"
+      )
+    ).toEqual([]);
+  });
+
   test("an env secret is never added to a request", async () => {
     const env = await service.create(user, {
       mode: "env",

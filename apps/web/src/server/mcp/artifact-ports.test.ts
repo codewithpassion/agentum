@@ -4,6 +4,7 @@ import { taskFolderPath } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { createHarbourmasterMcpServer } from "@repo/mcp/server";
 import { connectClient } from "@repo/mcp/testing";
+import { ServiceError } from "@repo/services/errors";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
@@ -14,6 +15,7 @@ import type {
   TestPageListeners,
 } from "../artifact-test/driver.ts";
 import { type Composed, composeWith } from "../compose.ts";
+import { createArtifactPorts } from "./artifact-ports.ts";
 import { createMcpPorts } from "./ports.ts";
 
 const TOOLS = [
@@ -261,4 +263,65 @@ test("a phone test leaves the thumbnail alone and an unknown version is not foun
   } finally {
     await session.close();
   }
+});
+
+const fakePromotePorts = (
+  promote: (input: { artifactId: string; versionId: string }) => unknown
+) =>
+  createArtifactPorts({
+    principal: run,
+    services: {
+      artifactGrants: {
+        promote: (_principal: unknown, input: never) => promote(input),
+      },
+      artifacts: {
+        versions: () =>
+          Promise.resolve([
+            { id: "ver_2", number: 2 },
+            { id: "ver_3", number: 3 },
+            { id: "ver_1", number: 1 },
+          ]),
+      },
+    } as never,
+  });
+
+test("promote picks the highest version and maps a promoted result", async () => {
+  const seen: string[] = [];
+  const ports = fakePromotePorts((input) => {
+    seen.push(input.versionId);
+    return Promise.resolve({ status: "promoted", version: 3 });
+  });
+  expect(await ports.promote({ artifactId: "a1" })).toEqual({
+    status: "promoted",
+    version: 3,
+  });
+  expect(seen).toEqual(["ver_3"]);
+});
+
+test("promote of a numbered version that waits carries that number", async () => {
+  const ports = fakePromotePorts(() =>
+    Promise.resolve({ pending: [], requestId: "req_1", status: "waiting" })
+  );
+  expect(await ports.promote({ artifactId: "a1", version: 2 })).toEqual({
+    status: "waiting",
+    version: 2,
+  });
+  await expect(
+    ports.promote({ artifactId: "a1", version: 9 })
+  ).rejects.toMatchObject({ code: "not_found" });
+});
+
+test("promote maps service conflict and invalid errors", async () => {
+  const conflict = fakePromotePorts(() =>
+    Promise.reject(new ServiceError("conflict", "Already promoted"))
+  );
+  await expect(conflict.promote({ artifactId: "a1" })).rejects.toMatchObject({
+    code: "conflict",
+  });
+  const invalid = fakePromotePorts(() =>
+    Promise.reject(new ServiceError("invalid", "Only apps"))
+  );
+  await expect(invalid.promote({ artifactId: "a1" })).rejects.toMatchObject({
+    code: "validation",
+  });
 });

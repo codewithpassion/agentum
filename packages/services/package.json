@@ -12,6 +12,8 @@
     "./agent-profile": "./src/agent-profile.ts",
     "./agents": "./src/agents.ts",
     "./api-keys": "./src/api-keys.ts",
+    "./artifacts/app-grants": "./src/artifacts/app-grants.ts",
+    "./artifacts/arg-limits": "./src/artifacts/arg-limits.ts",
     "./artifacts/grants": "./src/artifacts/grants.ts",
     "./artifacts/manifest": "./src/artifacts/manifest.ts",
     "./artifacts/pins": "./src/artifacts/pins.ts",
