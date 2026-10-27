@@ -1,6 +1,6 @@
 ---
 id: B.9
-title: Phase 2 UI: live links, grant approvals, pins, hand-to
+title: "Phase 2 UI, live links, grant approvals, pins, hand-to"
 milestone: B
 size: M
 status: todo
