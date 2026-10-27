@@ -3,9 +3,9 @@ id: LG.0
 title: Guest invitations email codes and scoped sessions
 milestone: L
 size: L
-status: in_progress
+status: review
 depends_on: [L.1]
-branch: null
+branch: t3/guest-auth-service
 lane: guest-auth
 executor: codex
 ---
@@ -17,3 +17,5 @@ Implement phase3 guest identity/grant authentication backend in isolated service
 ## Log
 
 - 2026-10-27: Sol dispatched ahead of route wiring to use independent implementation capacity. No guest execution enabled by this task.
+
+- 2026-10-27: Merged complete backend0bb7caa7 and migration0029 after0028. Implementation25 guest tests,85 DB tests and root validation passed; independent auth review pending. Routes/runtimes and real email remain phase3 integration gates.
