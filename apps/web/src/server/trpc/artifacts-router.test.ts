@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { ArtifactCallError } from "@repo/services/artifacts/calls";
 import type { Context } from "./context.ts";
 import { appRouter } from "./router.ts";
 
@@ -15,26 +16,16 @@ const caller = appRouter.createCaller({
 const artifactId = crypto.randomUUID();
 
 const calls: Record<string, () => Promise<unknown>> = {
-  callTool: () =>
-    caller.artifacts.callTool({ artifactId, tool: "x", versionId: "x" }),
   createShare: () => caller.artifacts.createShare({ artifactId }),
-  get: () => caller.artifacts.get({ artifactId }),
-  list: () => caller.artifacts.list({}),
   open: () => caller.artifacts.open({ artifactId, surface: "viewer" }),
-  remove: () => caller.artifacts.remove({ artifactId }),
-  rename: () => caller.artifacts.rename({ artifactId, title: "x" }),
-  restore: () => caller.artifacts.restore({ artifactId, version: 1 }),
   revokeShare: () => caller.artifacts.revokeShare({ shareId: "x" }),
-  setAudience: () =>
-    caller.artifacts.setAudience({ artifactId, audience: "private" }),
   setLinksEnabled: () => caller.artifacts.setLinksEnabled({ enabled: true }),
   shares: () => caller.artifacts.shares({ artifactId }),
-  versions: () => caller.artifacts.versions({ artifactId }),
   views: () => caller.artifacts.views({ artifactId }),
 };
 
-test("every artifacts procedure is stubbed as NOT_IMPLEMENTED", async () => {
-  expect(Object.keys(calls)).toHaveLength(14);
+test("every artifacts procedure but callTool is stubbed as NOT_IMPLEMENTED", async () => {
+  expect(Object.keys(calls)).toHaveLength(6);
   await Promise.all(
     Object.entries(calls).map(([name, call]) =>
       expect(call(), name).rejects.toMatchObject({ code: "NOT_IMPLEMENTED" })
@@ -63,4 +54,36 @@ test("the merged router exposes both halves under artifacts", () => {
     appRouter.artifacts.createShare;
   expect(list).toBeDefined();
   expect(createShare).toBeDefined();
+});
+
+test("callTool maps the call errors to tRPC codes", async () => {
+  const expected = {
+    failed: "BAD_GATEWAY",
+    needs_auth: "PRECONDITION_FAILED",
+    not_granted: "FORBIDDEN",
+    too_large: "PAYLOAD_TOO_LARGE",
+  } as const;
+  await Promise.all(
+    Object.entries(expected).map(([code, trpcCode]) => {
+      const failing = appRouter.createCaller({
+        principal,
+        services: {
+          artifactCalls: {
+            callTool: () =>
+              Promise.reject(
+                new ArtifactCallError(code as keyof typeof expected, "no")
+              ),
+          },
+        },
+      } as unknown as Context);
+      return expect(
+        failing.artifacts.callTool({
+          artifactId,
+          tool: "x/y",
+          versionId: "x",
+        }),
+        code
+      ).rejects.toMatchObject({ code: trpcCode });
+    })
+  );
 });

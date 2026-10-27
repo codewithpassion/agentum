@@ -3,7 +3,7 @@ id: B.5
 title: Member live tool calls and storage procedures
 milestone: B
 size: M
-status: in_progress
+status: done
 depends_on: [A.1, B.1]
 branch: task/B.5-member-live-calls
 lane: services-calls
@@ -30,3 +30,4 @@ Dom asked to move phase 2 work up, so this runs beside A.2 and A.3. Where this d
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at df23661, review clean after 1 fix round; createToolRunner entry for B.6; B.8 sets Infra.appStore; merged.

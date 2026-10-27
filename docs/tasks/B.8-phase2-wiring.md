@@ -23,5 +23,11 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 - A local round trip: an `app` artifact with `server/index.js` that stores a submission through `HM` and lists it, called from its page through `/api/*`; a live dashboard calling a granted tool as a member; a live link call from a fresh browser.
 - `bun run check && bun run test && bun run build` pass.
 
+## Refinements (2026-10-27)
+- B.2: pass a factory to `defineAppEntrypoints(portsOf)` and export `AppHost` and `AppOutbound` from its result; the route checks the path uuid equals `claims.artifactId`; refuse `/api` for snapshot-link and test viewers on versions that declare hosts.
+- B.3: `APP_STORE` binding in three places, the `v7` `new_sqlite_classes: ["AppStore"]` migration, and the `server.ts` export.
+- B.5: set `Infra.appStore` to `appStorePort(env.APP_STORE)` in `compose.ts`.
+- B.4: replace the stub tool catalog in `artifactGrants` with the real connector and platform catalog; `promote` returns `{status:"promoted"} | {status:"waiting"}`.
+
 ## Log
 - 2026-10-27: planned (controller).

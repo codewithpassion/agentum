@@ -1,5 +1,6 @@
 import { accessRouter } from "./access-router.ts";
 import { artifactSharesRouter } from "./artifact-shares-router.ts";
+import { artifactStorageRouter } from "./artifact-storage-router.ts";
 import { artifactsRouter } from "./artifacts-router.ts";
 import { automationRouter } from "./automation-router.ts";
 import { mergeRouters, router, workspaceProcedure } from "./init.ts";
@@ -23,7 +24,11 @@ export const appRouter = mergeRouters(
   automationRouter,
   mailRouter,
   router({
-    artifacts: mergeRouters(artifactsRouter, artifactSharesRouter),
+    artifacts: mergeRouters(
+      artifactsRouter,
+      artifactSharesRouter,
+      artifactStorageRouter
+    ),
   })
 );
 

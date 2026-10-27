@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ThreadMessageLike } from "@assistant-ui/react";
+import type { ArtifactThreadPart } from "@repo/protocol/artifacts";
 import type {
   RequestPart,
   ThreadMessage,
@@ -256,6 +257,66 @@ test("an assistant message turns fileId and path attachments into data parts", (
     { data: { path: "/work/out.csv" }, type: "data-attachment" },
   ]);
   expect(result).not.toHaveProperty("attachments");
+});
+
+const artifactPart: ArtifactThreadPart = {
+  artifactId: "3f0c8a7e-6b1d-4c2a-9e5f-1a2b3c4d5e6f",
+  kind: "doc",
+  title: "Q4 plan",
+  toolCallId: "tool-1",
+  type: "artifact",
+  version: 2,
+  versionId: "ver-2",
+};
+
+test("an assistant message maps an artifact part to a data-artifact after its tool call", () => {
+  const parts: ThreadMessage["parts"] = [
+    { text: "Here it is", type: "text" },
+    {
+      input: { q: "plan" },
+      name: "write",
+      ok: true,
+      result: "saved",
+      toolUseId: "tool-1",
+      type: "tool-call",
+    },
+    artifactPart,
+  ];
+
+  const result = toThreadMessageLike(assistant(parts));
+
+  expect(result.content).toEqual([
+    { text: "Here it is", type: "text" },
+    {
+      args: { q: "plan" },
+      isError: false,
+      result: "saved",
+      toolCallId: "tool-1",
+      toolName: "write",
+      type: "tool-call",
+    },
+    {
+      data: {
+        artifactId: "3f0c8a7e-6b1d-4c2a-9e5f-1a2b3c4d5e6f",
+        kind: "doc",
+        title: "Q4 plan",
+        version: 2,
+        versionId: "ver-2",
+      },
+      type: "data-artifact",
+    },
+  ]);
+});
+
+test("a user message maps an artifact part to no content", () => {
+  const parts: ThreadMessage["parts"] = [
+    { text: "Look", type: "text" },
+    artifactPart,
+  ];
+
+  const result = toThreadMessageLike(user(parts));
+
+  expect(result.content).toEqual([{ text: "Look", type: "text" }]);
 });
 
 test("a null createdAt gives an undefined createdAt", () => {

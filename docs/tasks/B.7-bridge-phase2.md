@@ -3,9 +3,9 @@ id: B.7
 title: Bridge phase 2 (tools/call, storage, ui/message)
 milestone: B
 size: M
-status: todo
+status: in_progress
 depends_on: [A.4, A.8, B.5]
-branch: null
+branch: task/B.7-bridge-phase2
 lane: web-viewer
 executor: claude
 ---
@@ -21,5 +21,10 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 - Component tests for each message on the member and link paths, including refusals.
 - `bun run check && bun run test && bun run build` pass.
 
+## Refinements (2026-10-27)
+- A.8 found that any page loaded in the iframe can send its own `ui/initialize`, because all sandboxed documents share origin `null`. Before `tools/call` and storage calls go live, gate the bridge: the frame puts a fresh random nonce in the iframe `src` fragment (`#hm=<nonce>`), `bridge.js` sends it in `ui/initialize`, and the frame accepts a port only from an initialize carrying the current nonce. Any other load counts as leaving the page (R1.21). Test both.
+- B.2's gateway refuses `/api` for snapshot-link and test viewers on versions that declare hosts (controller default, pending Dom).
+
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

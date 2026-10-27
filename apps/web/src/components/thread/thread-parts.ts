@@ -71,6 +71,15 @@ const assistantContent = (part: ThreadPart): Content[] => {
       },
     ];
   }
+  if (part.type === "artifact") {
+    const { artifactId, kind, title, version, versionId } = part;
+    return [
+      {
+        data: { artifactId, kind, title, version, versionId },
+        type: "data-artifact",
+      },
+    ];
+  }
   return [{ text: part.text, type: part.type }];
 };
 

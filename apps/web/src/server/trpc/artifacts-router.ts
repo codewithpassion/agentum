@@ -1,4 +1,5 @@
-// A.2 fills this file.
+// Core procedures over the artifacts service (A.2). The shares half is in
+// artifact-shares-router.ts, the phase 2 procedures throw until their tasks.
 
 import {
   artifactsCallToolInputSchema,
@@ -28,19 +29,49 @@ import {
   artifactsVersionsInputSchema,
   artifactsVersionsOutputSchema,
 } from "@repo/protocol/artifacts";
+import { isArtifactCallError } from "@repo/services/artifacts/calls";
+import type { ArtifactsService } from "@repo/services/artifacts/service";
 import { ServiceError } from "@repo/services/errors";
 import { TRPCError } from "@trpc/server";
+import type { Services } from "../compose.ts";
 import { router, workspaceProcedure } from "./init.ts";
+
+const CALL_ERROR_CODES = {
+  failed: "BAD_GATEWAY",
+  needs_auth: "PRECONDITION_FAILED",
+  not_granted: "FORBIDDEN",
+  too_large: "PAYLOAD_TOO_LARGE",
+} as const;
+// A.6 adds `artifacts` to `Services`; until then the service may be missing.
+// A.6 replaces this accessor with `ctx.services.artifacts`.
+const artifactsOf = (ctx: { services: Services }): ArtifactsService => {
+  const service = (ctx.services as Partial<{ artifacts: ArtifactsService }>)
+    .artifacts;
+  if (!service) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Artifacts service is not wired",
+    });
+  }
+  return service;
+};
 
 export const artifactsRouter = router({
   callTool: workspaceProcedure
     .input(artifactsCallToolInputSchema)
     .output(artifactsCallToolOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.callTool is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await ctx.services.artifactCalls.callTool(ctx.principal, input);
+      } catch (error) {
+        throw isArtifactCallError(error)
+          ? new TRPCError({
+              cause: error,
+              code: CALL_ERROR_CODES[error.code],
+              message: error.message,
+            })
+          : error;
+      }
     }),
   decideGrant: workspaceProcedure
     .input(artifactsDecideGrantInputSchema)
@@ -52,12 +83,9 @@ export const artifactsRouter = router({
   get: workspaceProcedure
     .input(artifactsGetInputSchema)
     .output(artifactsGetOutputSchema)
-    .query(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.get is not implemented yet",
-      });
-    }),
+    .query(({ ctx, input }) =>
+      artifactsOf(ctx).get(ctx.principal, input.artifactId)
+    ),
   handTo: workspaceProcedure
     .input(artifactsHandToInputSchema)
     .output(artifactsHandToOutputSchema)
@@ -68,12 +96,7 @@ export const artifactsRouter = router({
   list: workspaceProcedure
     .input(artifactsListInputSchema)
     .output(artifactsListOutputSchema)
-    .query(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.list is not implemented yet",
-      });
-    }),
+    .query(({ ctx, input }) => artifactsOf(ctx).list(ctx.principal, input)),
   pin: workspaceProcedure
     .input(artifactsPinInputSchema)
     .output(artifactsPinOutputSchema)
@@ -97,38 +120,37 @@ export const artifactsRouter = router({
   remove: workspaceProcedure
     .input(artifactsRemoveInputSchema)
     .output(artifactsRemoveOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.remove is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await artifactsOf(ctx).remove(ctx.principal, input.artifactId);
+      return {};
     }),
   rename: workspaceProcedure
     .input(artifactsRenameInputSchema)
     .output(artifactsRenameOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.rename is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await artifactsOf(ctx).rename(
+        ctx.principal,
+        input.artifactId,
+        input.title
+      );
+      return {};
     }),
   restore: workspaceProcedure
     .input(artifactsRestoreInputSchema)
     .output(artifactsRestoreOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.restore is not implemented yet",
-      });
-    }),
+    .mutation(({ ctx, input }) =>
+      artifactsOf(ctx).restore(ctx.principal, input.artifactId, input.version)
+    ),
   setAudience: workspaceProcedure
     .input(artifactsSetAudienceInputSchema)
     .output(artifactsSetAudienceOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.setAudience is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await artifactsOf(ctx).setAudience(
+        ctx.principal,
+        input.artifactId,
+        input.audience
+      );
+      return {};
     }),
   unpin: workspaceProcedure
     .input(artifactsUnpinInputSchema)
@@ -140,10 +162,7 @@ export const artifactsRouter = router({
   versions: workspaceProcedure
     .input(artifactsVersionsInputSchema)
     .output(artifactsVersionsOutputSchema)
-    .query(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.versions is not implemented yet",
-      });
-    }),
+    .query(({ ctx, input }) =>
+      artifactsOf(ctx).versions(ctx.principal, input.artifactId)
+    ),
 });

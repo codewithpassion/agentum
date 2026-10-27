@@ -3,7 +3,7 @@ id: A.7
 title: Thread fold for artifacts
 milestone: A
 size: S
-status: in_progress
+status: done
 depends_on: [A.1]
 branch: task/A.7-thread-fold
 lane: protocol-thread
@@ -22,3 +22,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at b191ad6, review clean after 1 fix round; ThreadPart includes ArtifactThreadPart, A.13 widening dropped; merged.

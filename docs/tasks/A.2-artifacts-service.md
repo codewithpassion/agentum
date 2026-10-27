@@ -3,7 +3,7 @@ id: A.2
 title: Artifacts core service and router
 milestone: A
 size: L
-status: in_progress
+status: done
 depends_on: [A.1]
 branch: task/A.2-artifacts-service
 lane: services
@@ -25,3 +25,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at 05ce2a0, review clean after 1 fix round; ServiceError code invalid; url added by A.5/A.6; merged.

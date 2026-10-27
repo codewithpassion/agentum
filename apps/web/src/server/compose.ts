@@ -24,6 +24,11 @@ import {
   createApiKeysService,
 } from "@repo/services/api-keys";
 import {
+  type ArtifactToolPort,
+  createArtifactCallsService,
+  createToolRunner,
+} from "@repo/services/artifacts/calls";
+import {
   type ArtifactGrantsService,
   createArtifactGrantsService,
 } from "@repo/services/artifacts/grants";
@@ -31,6 +36,11 @@ import {
   type ArtifactPinsService,
   createArtifactPinsService,
 } from "@repo/services/artifacts/pins";
+import {
+  type AppStorePort,
+  type ArtifactStorageService,
+  createArtifactStorageService,
+} from "@repo/services/artifacts/storage";
 import {
   type BrowserService,
   createBrowserService,
@@ -242,7 +252,16 @@ import {
 import { clerkSlackDirectory } from "./slack-directory.ts";
 
 /** What the runs service needs besides a database. */
+const unavailableAppStore: AppStorePort = {
+  delete: () => Promise.reject(new Error("App storage is not set up.")),
+  get: () => Promise.reject(new Error("App storage is not set up.")),
+  list: () => Promise.reject(new Error("App storage is not set up.")),
+  set: () => Promise.reject(new Error("App storage is not set up.")),
+};
+
 export interface Infra {
+  /** The app storage Durable Object behind its port. B.8 wires it; without it, storage answers "unavailable". */
+  appStore?: AppStorePort;
   atomic: Atomic;
   blobs: Blobs;
   /** Drives the agents' browser: Browser Run in the app. Without it, browser tools answer "unavailable". */
@@ -302,8 +321,10 @@ export interface Services {
   agentProfile: AgentProfileService;
   agents: AgentsService;
   apiKeys: ApiKeysService;
+  artifactCalls: ArtifactToolPort;
   artifactGrants: ArtifactGrantsService;
   artifactPins: ArtifactPinsService;
+  artifactStorage: ArtifactStorageService;
   browser: BrowserService;
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
@@ -487,6 +508,14 @@ export const composeWith = ({
     db,
     fetch: connectorFetch,
     secretsKey: infra.secretsKey,
+  });
+  const artifactCalls = createArtifactCallsService({
+    db,
+    runner: createToolRunner({ credentials, db, fetch: connectorFetch }),
+  });
+  const artifactStorage = createArtifactStorageService({
+    db,
+    store: infra.appStore ?? unavailableAppStore,
   });
   const files = createFilesService({
     blobs: infra.fileBlobs,
@@ -875,8 +904,10 @@ export const composeWith = ({
       agentProfile,
       agents,
       apiKeys,
+      artifactCalls,
       artifactGrants,
       artifactPins,
+      artifactStorage,
       browser,
       connectorOAuth,
       connectors,
