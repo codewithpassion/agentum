@@ -1,8 +1,10 @@
+import { XIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -36,7 +38,10 @@ function Row({ id, label, value }: RowProps) {
   return (
     <div className="flex min-h-10 items-center gap-3 md:min-h-8">
       <RadioGroupItem id={id} value={value} />
-      <label className="flex-1 text-sm" htmlFor={id}>
+      <label
+        className="flex min-h-10 flex-1 items-center text-sm md:min-h-8"
+        htmlFor={id}
+      >
         {label}
       </label>
     </div>
@@ -161,7 +166,18 @@ export function HandToDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent>
+      <DialogContent showCloseButton={false}>
+        {/* 40 px on phones, since the built-in close button is 28 px (R1.26). */}
+        <DialogClose asChild>
+          <Button
+            className="absolute top-2 right-2 size-10"
+            size="icon"
+            variant="ghost"
+          >
+            <XIcon aria-hidden />
+            <span className="sr-only">Close</span>
+          </Button>
+        </DialogClose>
         <DialogHeader>
           <DialogTitle>Hand to agent</DialogTitle>
         </DialogHeader>

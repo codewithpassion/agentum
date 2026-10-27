@@ -325,3 +325,28 @@ test("promote maps service conflict and invalid errors", async () => {
     code: "validation",
   });
 });
+
+test("artifact_test opens the latest version of an app that has none live", async () => {
+  const session = await connect();
+  try {
+    const created = await session.call("artifact_create", {
+      files: [
+        { path: "index.html", text: "<h1>App</h1>" },
+        {
+          path: "server/index.js",
+          text: "export default { fetch() { return new Response('ok'); } };",
+        },
+      ],
+      kind: "app",
+      title: "A proposed app",
+    });
+    expect(created.isError).toBe(false);
+    const tested = await session.call("artifact_test", {
+      artifactId: created.data.artifactId as string,
+    });
+    expect(tested.isError).toBe(false);
+    expect(tested.data.version).toBe(1);
+  } finally {
+    await session.close();
+  }
+});

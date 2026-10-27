@@ -28,6 +28,8 @@ export interface ArtifactFrameProps {
   interactive: boolean;
   /** Takes a `ui/message` from the page. Without it the frame refuses them. */
   onMessage?: (text: string) => void | Promise<void>;
+  /** A proposed version: unreviewed code, so the frame answers none of its tool or storage calls. */
+  preview?: boolean;
   /** The share token, for a `link` viewer's live calls. */
   shareToken?: string;
   title: string;
@@ -74,6 +76,7 @@ export function ArtifactFrame({
   contentUrl,
   interactive,
   onMessage,
+  preview = false,
   shareToken,
   title,
   version,
@@ -86,7 +89,7 @@ export function ArtifactFrame({
   // Anything the bridge is built from restarts the iframe, since a page that
   // lost its port never handshakes again.
   const takesMessages = onMessage !== undefined;
-  const frameKey = `${contentUrl}:${reloadKey}:${viewer}:${shareToken ?? ""}:${takesMessages}`;
+  const frameKey = `${contentUrl}:${reloadKey}:${viewer}:${shareToken ?? ""}:${takesMessages}:${preview}`;
   // A fresh nonce for every iframe this component mounts. It travels in the
   // iframe's name, so every page loaded in the frame has it: the gate keeps
   // out pages that never read it, like one that cleared `window.name`.
@@ -117,7 +120,7 @@ export function ArtifactFrame({
     if (blanked) {
       return;
     }
-    const calls = callsFor(viewer, contentUrl, shareToken);
+    const calls = preview ? null : callsFor(viewer, contentUrl, shareToken);
     const bridge = createFrameBridge({
       confirmOpenLink: (url) =>
         new Promise<boolean>((resolve) => {
@@ -161,6 +164,7 @@ export function ArtifactFrame({
     contentUrl,
     dropPendingLink,
     nonce,
+    preview,
     shareToken,
     takesMessages,
     viewer,

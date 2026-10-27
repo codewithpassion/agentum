@@ -58,10 +58,17 @@ export function GrantApprovalView({
         </p>
       )}
       <div className="flex gap-2">
-        <Button disabled={busy} onClick={onApprove} size="sm" type="button">
+        <Button
+          className="h-10 md:h-7"
+          disabled={busy}
+          onClick={onApprove}
+          size="sm"
+          type="button"
+        >
           Approve
         </Button>
         <Button
+          className="h-10 md:h-7"
           disabled={busy}
           onClick={onReject}
           size="sm"

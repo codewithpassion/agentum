@@ -948,3 +948,70 @@ describe("types", () => {
     );
   });
 });
+
+test("a manager opens a proposed version, another member does not", async () => {
+  db.insert(artifactVersions)
+    .values({
+      artifactId: ARTIFACT,
+      authorId: "agent_maker",
+      authorKind: "agent",
+      createdAt: START,
+      entry: "index.html",
+      fileCount: 1,
+      id: "v3",
+      manifestKey: `${W1}/artifact-manifests/v3.json`,
+      message: "m",
+      number: 3,
+      status: "proposed",
+      totalBytes: 1,
+      workspaceId: W1,
+    })
+    .run();
+  const shares = build();
+  const opened = await shares.open(owner, {
+    artifactId: ARTIFACT,
+    surface: "viewer",
+    version: 3,
+  });
+  expect(opened.version.number).toBe(3);
+  expect(opened.preview).toBe(true);
+  const published = await shares.open(owner, {
+    artifactId: ARTIFACT,
+    surface: "viewer",
+    version: 2,
+  });
+  expect(published.preview).toBeUndefined();
+  const claims = await claimsOf(opened.contentUrl);
+  expect(claims).toMatchObject({ versionId: "v3", viewer: "test" });
+  expect(claims?.userId).toBeUndefined();
+  await expect(
+    shares.open(member, {
+      artifactId: ARTIFACT,
+      surface: "viewer",
+      version: 3,
+    })
+  ).rejects.toThrow("Version not found");
+});
+
+test("a rejected version stays not found, even for a manager", async () => {
+  db.insert(artifactVersions)
+    .values({
+      artifactId: ARTIFACT,
+      authorId: "agent_maker",
+      authorKind: "agent",
+      createdAt: START,
+      entry: "index.html",
+      fileCount: 1,
+      id: "v4",
+      manifestKey: `${W1}/artifact-manifests/v4.json`,
+      message: "m",
+      number: 4,
+      status: "rejected",
+      totalBytes: 1,
+      workspaceId: W1,
+    })
+    .run();
+  await expect(
+    build().open(owner, { artifactId: ARTIFACT, surface: "viewer", version: 4 })
+  ).rejects.toThrow("Version not found");
+});

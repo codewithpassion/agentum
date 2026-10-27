@@ -272,7 +272,9 @@ export const createArtifactGrantsService = ({
    */
   const checkManifest = async (
     principal: Principal,
-    files: { path: string; text?: string }[]
+    files: { path: string; text?: string }[],
+    /** The artifact's maker, whose connectors name the tools. Defaults to the caller's agent. */
+    makerAgentId?: string | null
   ) => {
     if (principal.kind === "system") {
       throw new ForbiddenError("artifacts.grants");
@@ -281,9 +283,10 @@ export const createArtifactGrantsService = ({
       kind: "artifact",
       workspaceId: principal.workspaceId,
     });
+    const callerAgentId = principal.kind === "run" ? principal.agentId : null;
     await checkTools(
       principal.workspaceId,
-      principal.kind === "run" ? principal.agentId : null,
+      makerAgentId === undefined ? callerAgentId : makerAgentId,
       declaredGrants(parseManifest(recordFilesSchema.parse(files)))
     );
   };

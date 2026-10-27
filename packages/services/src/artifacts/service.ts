@@ -650,7 +650,9 @@ export const createArtifactsService = ({
   const checkApp = async (
     member: Member,
     kind: ArtifactKind,
-    files: ResolvedFile[]
+    files: ResolvedFile[],
+    /** The existing artifact's maker: tool keys follow its connectors, as `recordVersionGrants` reads them. Left out for a new artifact. */
+    makerAgentId?: string | null
   ) => {
     if (kind !== "app") {
       return;
@@ -658,7 +660,7 @@ export const createArtifactsService = ({
     if (!grants) {
       throw invalid("Apps are not enabled");
     }
-    await grants.checkManifest(member, manifestFiles(files));
+    await grants.checkManifest(member, manifestFiles(files), makerAgentId);
   };
 
   /** After an app version is written: one grant row per ask. */
@@ -937,7 +939,7 @@ export const createArtifactsService = ({
     // index refuses the second one.
     const number = (await maxVersionNumber(db, member.workspaceId, row.id)) + 1;
     const content = await resolveContent(member, input, row.kind);
-    await checkApp(member, row.kind, content.files);
+    await checkApp(member, row.kind, content.files, row.agentId);
     const fresh = await checkQuota(member.workspaceId, content.files);
     const draft = draftOf(content, {
       message: input.message ?? "",
@@ -1020,7 +1022,7 @@ export const createArtifactsService = ({
     // manifest is checked again and its grants are recorded like a new version's.
     const appFiles = row.kind === "app" ? await manifestOf(user, files) : [];
     if (row.kind === "app") {
-      await checkApp(user, row.kind, appFiles);
+      await checkApp(user, row.kind, appFiles, row.agentId);
     }
     await writeManifest(user.workspaceId, draft);
     await commit(
