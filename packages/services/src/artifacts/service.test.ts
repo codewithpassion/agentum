@@ -390,6 +390,31 @@ describe("R1.4 limits and validation", () => {
   });
 });
 
+describe("R1.3 racing updates", () => {
+  test("two updates on the same base: one wins, the other conflicts", async () => {
+    const h = harness();
+    const { artifactId } = await h.service.create(principals.owner, {
+      files: page(),
+      kind: "page",
+      title: "Race",
+    });
+    const attempt = (body: string) =>
+      h.service.update(principals.owner, {
+        artifactId,
+        baseVersion: 1,
+        files: page(body),
+      });
+    const results = await Promise.allSettled([attempt("a"), attempt("b")]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((r) => r.status === "rejected");
+    expect(rejected?.status === "rejected" && rejected.reason).toMatchObject({
+      code: "conflict",
+    });
+    const versions = await h.service.versions(principals.owner, artifactId);
+    expect(versions.map((v) => v.number)).toEqual([2, 1]);
+  });
+});
+
 describe("R1.5 default audience and owner", () => {
   const audienceOf = async (principal: typeof principals.agentOne) => {
     const h = harness();

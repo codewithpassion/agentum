@@ -406,6 +406,10 @@ export const createArtifactsService = ({
     }
     // The library refuses a folder outside the member's read scope with not_found.
     const listed = await walkLibrary(member, folder);
+    // The listing carries sizes: refuse before reading any bytes into memory.
+    if (listed.reduce((sum, item) => sum + item.size, 0) > ARTIFACT_MAX_BYTES) {
+      throw invalid(`An artifact holds at most ${ARTIFACT_MAX_BYTES} bytes`);
+    }
     const files: Omit<ResolvedFile, "sha256">[] = [];
     for (const item of listed) {
       if (item.size > ARTIFACT_FILE_MAX_BYTES) {
@@ -808,9 +812,12 @@ export const createArtifactsService = ({
         `Stale baseVersion ${input.baseVersion}: the current version is ${current.number}`
       );
     }
+    // Read the number right after the stale check, before the slow work below,
+    // so a racing update on the same base picks the same number and the unique
+    // index refuses the second one.
+    const number = (await maxVersionNumber(db, member.workspaceId, row.id)) + 1;
     const content = await resolveContent(member, input, row.kind);
     const fresh = await checkQuota(member.workspaceId, content.files);
-    const number = (await maxVersionNumber(db, member.workspaceId, row.id)) + 1;
     const draft = draftOf(content, {
       message: input.message ?? "",
       number,
