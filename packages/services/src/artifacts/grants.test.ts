@@ -253,6 +253,12 @@ test("a person's own version is approved as written", async () => {
   ]);
 });
 
+test("an agent recording a person's version gets no approval from the person", async () => {
+  await addVersion("v2", 2, { authorId: "u1", authorKind: "user" });
+  const grants = await record("v2", { hosts: ["files.example.com"] });
+  expect(grants.map((grant) => grant.status)).toEqual(["pending"]);
+});
+
 test("an agent's version keeps approved grants the current version holds and waits on the rest", async () => {
   await addVersion("v2", 2);
   const grants = await record("v2", {

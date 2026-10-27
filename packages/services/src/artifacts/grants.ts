@@ -259,7 +259,12 @@ export const createArtifactGrantsService = ({
           })
         : [];
     const now = clock.now().toISOString();
-    const byPerson = version.authorKind === "user";
+    // Approved as written only when the author is the person calling: an agent
+    // that names a person's version does not get that person's approval.
+    const byPerson =
+      principal.kind === "user" &&
+      version.authorKind === "user" &&
+      version.authorId === principal.userId;
     const rows = declared.map((grant) => {
       const approved =
         byPerson || carried.some((held) => sameGrant(held, grant));
