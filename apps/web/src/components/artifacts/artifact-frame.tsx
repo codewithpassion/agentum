@@ -83,12 +83,12 @@ export function ArtifactFrame({
   const bridgeRef = useRef<FrameBridge | null>(null);
   const [blanked, setBlanked] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
-  // A fresh nonce for every iframe load this component starts, so only the
-  // page it loaded can open the bridge.
-  // Anything the bridge is built from restarts the iframe too, since a page
-  // that lost its port never handshakes again.
+  // Anything the bridge is built from restarts the iframe, since a page that
+  // lost its port never handshakes again.
   const takesMessages = onMessage !== undefined;
   const frameKey = `${contentUrl}:${reloadKey}:${viewer}:${shareToken ?? ""}:${takesMessages}`;
+  // A fresh nonce for every iframe load this component starts, so only the
+  // page it loaded can open the bridge.
   const [issued, setIssued] = useState(() => ({
     key: frameKey,
     nonce: newNonce(),

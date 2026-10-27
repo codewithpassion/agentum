@@ -126,8 +126,9 @@ export const BRIDGE_JS = `(function () {
 
   // The viewer puts a one-time nonce in the fragment as "#hm=<nonce>". The
   // script takes it and removes it from the address, so the page's own scripts
-  // and its router don't see it. The frame honours it once, so a copy that
-  // leaks anyway is no use to a page the artifact navigates to.
+  // and its router don't see it. The route injects this script before the
+  // first element, so it runs ahead of the page's scripts. The frame honours
+  // the nonce once, and this script's initialize is the first to reach it.
   function readNonce() {
     try {
       var parts = String(window.location.hash || "").slice(1).split("&");
@@ -160,6 +161,8 @@ export const BRIDGE_JS = `(function () {
     return null;
   }
 
+  // Taken once, before any page script can reassign it.
+  var parentWindow = window.parent;
   var nonce = readNonce();
   var port = null;
   var initResult = null;
@@ -372,7 +375,7 @@ export const BRIDGE_JS = `(function () {
 
     window.addEventListener("message", function (event) {
       try {
-        if (port || event.source !== window.parent) {
+        if (port || event.source !== parentWindow) {
           return;
         }
         if (!isInitializeResponse(event.data)) {
@@ -403,7 +406,7 @@ export const BRIDGE_JS = `(function () {
       }
       tries += 1;
       try {
-        window.parent.postMessage(
+        parentWindow.postMessage(
           {
             id: 1,
             jsonrpc: "2.0",
@@ -421,7 +424,7 @@ export const BRIDGE_JS = `(function () {
   }
 
   try {
-    if (window.parent === window) {
+    if (parentWindow === window) {
       resolveReady(null);
     } else {
       startHandshake();

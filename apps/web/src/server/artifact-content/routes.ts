@@ -115,25 +115,31 @@ const etagMatches = (header: string | null, etag: string): boolean => {
 const bridgeSrcFor = (path: string): string =>
   `${"../".repeat(path.split("/").length - 1)}${BRIDGE_PATH}`;
 
+/**
+ * Puts the bridge script before the first element of the page, whatever the
+ * page looks like. The bridge must run before any script the artifact wrote:
+ * its one-time nonce sits in the URL fragment until the bridge has used it,
+ * and a page script that ran first could carry it to another page. A script
+ * before `<html>` or `<head>` lands in the implicit head, so this is valid
+ * for pages with no `<head>`, or with scripts ahead of it.
+ */
 const injectBridge = (response: Response, src: string): Response => {
   const tag = `<script src="${src}"></script>`;
   let injected = false;
   // biome-ignore lint/correctness/noUndeclaredVariables: HTMLRewriter is a workerd and bun global
   return new HTMLRewriter()
-    .on("head", {
+    .on("*", {
       element(element) {
-        // Only the first <head> gets the script, so a <head> inside <svg> or
-        // <template> later in the page does not add a second copy.
         if (injected) {
           return;
         }
         injected = true;
-        element.prepend(tag, { html: true });
+        element.before(tag, { html: true });
       },
     })
     .onDocument({
       end(end) {
-        // No <head> in the page: the script still loads, just not first.
+        // A page with no element at all.
         if (!injected) {
           end.append(tag, { html: true });
         }

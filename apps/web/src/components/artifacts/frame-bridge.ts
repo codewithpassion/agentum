@@ -4,8 +4,8 @@
 // The iframe is sandboxed without `allow-same-origin`, so its origin is
 // opaque: messages from it carry `origin: "null"` and replies must target
 // "*". The only trust anchor is `event.source`, compared with the iframe's
-// `contentWindow`. The first `ui/initialize` from that window that carries the
-// frame's one-time nonce gets a reply with one transferred MessagePort. Everything after that goes through the port.
+// `contentWindow`. The first `ui/initialize` from that window that carries
+// the frame's one-time nonce gets a reply with one transferred MessagePort. Everything after that goes through the port.
 // Navigating the iframe kills the port with its document, so the frame can
 // never post data to a page that replaced the artifact.
 
