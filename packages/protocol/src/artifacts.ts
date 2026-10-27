@@ -1,3 +1,4 @@
+import { pageElementSchema } from "./element-ask.ts";
 // What the Worker, the frame and the artifact page agree on (A.1). Spec:
 // docs/v3/artifacts-prd.md.
 
@@ -290,6 +291,7 @@ export const uiInitializeRequestSchema = jsonRpcRequestSchema(
 export type UiInitializeRequest = z.infer<typeof uiInitializeRequestSchema>;
 
 export const uiInitializeResultSchema = z.strictObject({
+  elementAsk: z.boolean().optional(),
   theme: z.enum(["light", "dark"]),
   version: z.strictObject({ createdAt: z.string(), number: z.int() }),
   viewer: z.enum(["member", "link"]),
@@ -335,6 +337,8 @@ export const uiMessageRequestSchema = jsonRpcRequestSchema(
     content: z
       .array(z.strictObject({ text: z.string(), type: z.literal("text") }))
       .min(1),
+    element: pageElementSchema.optional(),
+    requestId: z.string().min(1).max(200).optional(),
     role: z.literal("user"),
   })
 );

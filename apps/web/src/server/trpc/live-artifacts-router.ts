@@ -1,5 +1,6 @@
 import { LIVE_DOC_MAX_BYTES } from "@repo/db/shared";
 import { ensureDeckCellInputSchema } from "@repo/protocol/deck";
+import { elementAskInputSchema } from "@repo/protocol/element-ask";
 import { commentAnchorSchema } from "@repo/protocol/live";
 import { liveAskInputSchema } from "@repo/services/live-artifacts/ask";
 import type { LiveArtifactsWithAsk } from "@repo/services/live-artifacts/factory";
@@ -28,6 +29,11 @@ export const createLiveArtifactsRouter = (
     ask: workspaceProcedure
       .input(liveAskInputSchema)
       .mutation(({ ctx, input }) => service(ctx).ask(ctx.principal, input)),
+    askElement: workspaceProcedure
+      .input(elementAskInputSchema)
+      .mutation(({ ctx, input }) =>
+        service(ctx).askElement(ctx.principal, input)
+      ),
     changes: workspaceProcedure
       .input(z.strictObject({ ...artifact, ...page }))
       .query(({ ctx, input }) => service(ctx).changes(ctx.principal, input)),
@@ -109,6 +115,11 @@ export const createLiveArtifactsRouter = (
     join: workspaceProcedure
       .input(z.strictObject(artifact))
       .mutation(({ ctx, input }) => service(ctx).join(ctx.principal, input)),
+    mentionMember: workspaceProcedure
+      .input(z.strictObject({ ...artifact, email: z.email().max(254) }))
+      .query(({ ctx, input }) =>
+        service(ctx).mentionMember(ctx.principal, input)
+      ),
     open: workspaceProcedure
       .input(z.strictObject(artifact))
       .query(({ ctx, input }) => service(ctx).open(ctx.principal, input)),

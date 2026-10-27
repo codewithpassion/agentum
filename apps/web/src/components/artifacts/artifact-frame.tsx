@@ -1,3 +1,4 @@
+import type { PageElement } from "@repo/protocol/element-ask";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertDialog,
@@ -24,10 +25,14 @@ import {
 export interface ArtifactFrameProps {
   className?: string;
   contentUrl: string;
+  elementAsk?: boolean;
   /** False blocks pointer events, so a thread preview doesn't catch scrolling. */
   interactive: boolean;
   /** Takes a `ui/message` from the page. Without it the frame refuses them. */
-  onMessage?: (text: string) => void | Promise<void>;
+  onMessage?: (
+    text: string,
+    context?: { element: PageElement; requestId: string }
+  ) => void | Promise<void>;
   /** A proposed version: unreviewed code, so the frame answers none of its tool or storage calls. */
   preview?: boolean;
   /** The share token, for a `link` viewer's live calls. */
@@ -73,6 +78,7 @@ const currentTheme = (): "light" | "dark" =>
  */
 export function ArtifactFrame({
   className,
+  elementAsk = false,
   contentUrl,
   interactive,
   onMessage,
@@ -89,7 +95,7 @@ export function ArtifactFrame({
   // Anything the bridge is built from restarts the iframe, since a page that
   // lost its port never handshakes again.
   const takesMessages = onMessage !== undefined;
-  const frameKey = `${contentUrl}:${reloadKey}:${viewer}:${shareToken ?? ""}:${takesMessages}:${preview}`;
+  const frameKey = `${contentUrl}:${reloadKey}:${viewer}:${shareToken ?? ""}:${takesMessages}:${preview}:${elementAsk}`;
   // A fresh nonce for every iframe this component mounts. It travels in the
   // iframe's name, so every page loaded in the frame has it: the gate keeps
   // out pages that never read it, like one that cleared `window.name`.
@@ -130,11 +136,13 @@ export function ArtifactFrame({
         ? createCallHandlers({
             calls,
             onMessage: takesMessages
-              ? (text) => onMessageRef.current?.(text)
+              ? (text, context) => onMessageRef.current?.(text, context)
               : undefined,
           })
         : undefined,
       getInit: () => ({
+        elementAsk:
+          elementAsk && takesMessages && viewer === "member" && !preview,
         theme: currentTheme(),
         version: initRef.current.version,
         viewer: initRef.current.viewer,
@@ -163,6 +171,7 @@ export function ArtifactFrame({
     blanked,
     contentUrl,
     dropPendingLink,
+    elementAsk,
     nonce,
     preview,
     shareToken,
