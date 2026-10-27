@@ -34,3 +34,4 @@ The mobile re-audit after MB.1 to MB.7 is `docs/reviews/mobile-audit-2/report.md
 - 2026-10-27: added from the mobile re-audit.
 - 2026-10-27: dispatched.
 - 2026-10-27: review clean after 1 fix round; merged.
+- 2026-10-27: checked on staging (9d3c982b): N-01 fixed (no sideways scroll on 17 routes at 1280 and 1024), N-02, N-03, N-06, N-07, F-13, F-18 fixed, N-04 remove/unassign confirm; plug undo and N-05 checked from source only. Screenshots in docs/reviews/mobile-audit-2/mb8-check/.
