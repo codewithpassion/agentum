@@ -3,7 +3,7 @@ id: MB.8
 title: "Mobile: fixes from the re-audit"
 milestone: MB
 size: M
-status: in_progress
+status: done
 depends_on: [MB.1, MB.2, MB.3, MB.4, MB.5, MB.6]
 branch: task/MB.8-mobile-reaudit-fixes
 lane: web-shell
@@ -33,3 +33,4 @@ The mobile re-audit after MB.1 to MB.7 is `docs/reviews/mobile-audit-2/report.md
 ## Log
 - 2026-10-27: added from the mobile re-audit.
 - 2026-10-27: dispatched.
+- 2026-10-27: review clean after 1 fix round; merged.
