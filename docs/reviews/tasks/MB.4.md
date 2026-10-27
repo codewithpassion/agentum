@@ -14,10 +14,18 @@ Screenshots are in `docs/reviews/tasks/MB.4/` (390x844, 360x740, 1280x800), take
 
 Round 1: must-fix. The inbox scroll marker sat above the sticky composer, so the last posts hid behind it (fixed: marker after the composer, `inbox-thread-390.png` retaken), and a viewport-sized composer screenshot was missing (`task-composer-390.png`, composer pinned at the bottom of the Thread card). Nits fixed: `md:z-auto` on the sticky wrapper, `inline-flex` on the Desk link only for coarse pointers, `break-words` on desk titles.
 
-Round 2: pending.
+Round 2: clean. Nits left: `task-composer-390.png` is taken at the page end, so it does not prove the pin mid-page. The task thread has its own 60dvh scroll box, so the composer pins only while the thread block reaches below the screen edge.
 
 ## Notes
 
 The agent-browser viewport does not report a coarse pointer, so the 40px targets were checked from the CSS rules, not measured.
 
 Nits left: two-column fact chips truncate long values (agent name, cost) on a phone, the full text is in the receipt; the Done lane can show "Show N more" next to the server's "+ M more" line; the keyboard-inset hook is untested on a real device; `useCallback` on `nameOf` in the desk board is not needed.
+
+## Ideas beyond scope
+
+A task title that is cut by `titleFor` in the service could carry the full text for an expand control. The sticky composer could use `interactive-widget=resizes-content` in the viewport meta on Chrome.
+
+## Steps for Dom
+
+None. Check the sticky composer and keyboard inset on a real phone when convenient.
