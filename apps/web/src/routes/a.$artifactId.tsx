@@ -280,7 +280,7 @@ function ArtifactViewerPage() {
   const confirmDelete = useCallback(async () => {
     try {
       await getTrpc().artifacts.remove.mutate({ artifactId });
-      navigate({ to: "/desk" });
+      navigate({ to: "/artifacts" });
     } catch (error) {
       toast.error(errorMessage(error));
     }

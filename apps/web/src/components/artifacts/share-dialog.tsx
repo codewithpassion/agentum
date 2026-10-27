@@ -24,6 +24,7 @@ import { CreateLinkForm } from "./create-link-form";
 import { LinkList } from "./link-list";
 import { type GrantLike, liveToolOptions } from "./live-link-model";
 import { errorMessage } from "./share-model";
+import { SheetCloseButton } from "./sheet-close";
 
 export interface ShareDataFile {
   path: string;
@@ -179,7 +180,7 @@ function ShareBody({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}
@@ -254,8 +255,10 @@ export function ShareDialog({
         <SheetContent
           className="max-h-[90dvh] w-full overflow-y-auto"
           data-testid="share-dialog"
+          showCloseButton={false}
           side="bottom"
         >
+          <SheetCloseButton />
           <SheetHeader>
             <SheetTitle>Share</SheetTitle>
           </SheetHeader>
@@ -267,7 +270,7 @@ export function ShareDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open>
       <DialogContent
-        className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
+        className="max-h-[90dvh] overflow-y-auto sm:max-w-5xl"
         data-testid="share-dialog"
       >
         <DialogHeader>

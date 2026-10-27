@@ -3,7 +3,7 @@ id: A.14
 title: Phase 1 local end-to-end check and fixes
 milestone: A
 size: M
-status: in_progress
+status: done
 depends_on: [A.6, A.7, A.8, A.9, A.10, A.13]
 branch: task/A.14-local-e2e
 lane: e2e
@@ -34,3 +34,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at e44c65e, review clean after 1 fix round; 5 UI fixes; remark-gfm added; workspace name shows Clerk org id locally; merged.
