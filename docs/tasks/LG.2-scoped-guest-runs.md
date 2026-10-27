@@ -3,7 +3,7 @@ id: LG.2
 title: Guest run charging and current scoped authorization
 milestone: L
 size: L
-status: in_progress
+status: review
 depends_on: [LG.0, L.6]
 branch: null
 lane: services
@@ -17,3 +17,5 @@ Implement atomic per-guest daily run caps and idempotent run creation/continuati
 ## Log
 
 - 2026-10-27: Started in parallel with deck room/client integration; sole new schema writer if needed (next migration 0030), no shared app composition edits.
+
+- 2026-10-27: Merged bounded atomic guest quotas and current scoped lifecycle authorization through5bf6b9de, migration0030. Guest production execution remains disabled pending scope/tool/route integration and independent review.
