@@ -383,6 +383,7 @@ export const storageSetRequestSchema = jsonRpcRequestSchema(
     value: z.json(),
   })
 );
+export type StorageSetRequest = z.infer<typeof storageSetRequestSchema>;
 export const storageSetResponseSchema = jsonRpcResultSchema(emptyResultSchema);
 
 export const storageDeleteRequestSchema = jsonRpcRequestSchema(

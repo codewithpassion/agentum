@@ -124,6 +124,22 @@ export const BRIDGE_JS = `(function () {
     contentFolder = null;
   }
 
+  // The viewer puts a one-time nonce in the fragment as "#hm=<nonce>".
+  function readNonce() {
+    try {
+      var parts = String(window.location.hash || "").slice(1).split("&");
+      for (var i = 0; i < parts.length; i += 1) {
+        if (parts[i].indexOf("hm=") === 0 && parts[i].length > 3) {
+          return parts[i].slice(3);
+        }
+      }
+    } catch (_error) {
+      // No location to read, so no nonce.
+    }
+    return null;
+  }
+
+  var nonce = readNonce();
   var port = null;
   var initResult = null;
   var nextId = 2;
@@ -134,11 +150,6 @@ export const BRIDGE_JS = `(function () {
   });
 
   function request(method, params) {
-    // PHASE 2 EXTENSION POINT
-    // Phase 2 adds tools.call(...) and storage.get/set/delete/list(...) to
-    // window.harbourmaster as thin wrappers over request(), using the
-    // tools/call and storage/* methods from the protocol package
-    // (packages/protocol/src/artifacts.ts). They are not implemented yet.
     return new Promise(function (resolve, reject) {
       if (!port) {
         reject(new Error("Harbourmaster bridge is not connected"));
@@ -167,6 +178,69 @@ export const BRIDGE_JS = `(function () {
       );
     }
     return request("ui/open-link", { url: String(url) });
+  }
+
+  // Waits for the handshake, so a call made early still goes out once connected.
+  function call(method, params) {
+    return ready.then(function () {
+      return request(method, params);
+    });
+  }
+
+  function scopeOf(scope) {
+    return scope === undefined ? "viewer" : scope;
+  }
+
+  function noValue() {}
+
+  var tools = Object.freeze({
+    call: function (name, args) {
+      var params = { name: String(name) };
+      if (args !== undefined) {
+        params.arguments = args;
+      }
+      return call("tools/call", params);
+    },
+  });
+
+  var storage = Object.freeze({
+    delete: function (key, scope) {
+      return call("storage/delete", {
+        key: String(key),
+        scope: scopeOf(scope),
+      }).then(noValue);
+    },
+    get: function (key, scope) {
+      return call("storage/get", {
+        key: String(key),
+        scope: scopeOf(scope),
+      }).then(function (result) {
+        return result.value;
+      });
+    },
+    list: function (prefix, scope) {
+      var params = { scope: scopeOf(scope) };
+      if (prefix !== undefined) {
+        params.prefix = String(prefix);
+      }
+      return call("storage/list", params).then(function (result) {
+        return result.keys;
+      });
+    },
+    set: function (key, value, scope) {
+      return call("storage/set", {
+        key: String(key),
+        scope: scopeOf(scope),
+        value: value,
+      }).then(noValue);
+    },
+  });
+
+  function sendMessage(text) {
+    return call("ui/message", {
+      content: [{ text: String(text), type: "text" }],
+      role: "user",
+    }).then(noValue);
   }
 
   function handlePortMessage(event) {
@@ -267,6 +341,13 @@ export const BRIDGE_JS = `(function () {
   function startHandshake() {
     var tries = 0;
     var timer = null;
+    var initParams = {
+      appInfo: { name: "harbourmaster-bridge", version: "1" },
+      protocolVersion: PROTOCOL_VERSION,
+    };
+    if (nonce !== null) {
+      initParams.nonce = nonce;
+    }
 
     window.addEventListener("message", function (event) {
       try {
@@ -306,10 +387,7 @@ export const BRIDGE_JS = `(function () {
             id: 1,
             jsonrpc: "2.0",
             method: "ui/initialize",
-            params: {
-              appInfo: { name: "harbourmaster-bridge", version: "1" },
-              protocolVersion: PROTOCOL_VERSION,
-            },
+            params: initParams,
           },
           "*"
         );
@@ -349,6 +427,9 @@ export const BRIDGE_JS = `(function () {
       openLink: openLink,
       ready: ready,
       request: request,
+      sendMessage: sendMessage,
+      storage: storage,
+      tools: tools,
     });
   } catch (_error) {
     // The page keeps running without the API.

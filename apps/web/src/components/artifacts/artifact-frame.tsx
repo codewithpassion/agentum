@@ -10,14 +10,26 @@ import {
   AlertDialogTitle,
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
+import { getTrpc } from "#/integrations/trpc/client";
 import { cn } from "#/lib/utils";
+import { contentRef } from "./content-ref.ts";
 import { createFrameBridge, type FrameBridge } from "./frame-bridge.ts";
+import {
+  createCallHandlers,
+  type FrameCalls,
+  linkCallsFromFetch,
+  memberCallsFromTrpc,
+} from "./frame-calls.ts";
 
 export interface ArtifactFrameProps {
   className?: string;
   contentUrl: string;
   /** False blocks pointer events, so a thread preview doesn't catch scrolling. */
   interactive: boolean;
+  /** Takes a `ui/message` from the page. Without it the frame refuses them. */
+  onMessage?: (text: string) => void | Promise<void>;
+  /** The share token, for a `link` viewer's live calls. */
+  shareToken?: string;
   title: string;
   version: { createdAt: string; number: number };
   viewer: "member" | "link";
@@ -27,6 +39,28 @@ interface PendingLink {
   resolve: (agreed: boolean) => void;
   url: string;
 }
+
+/** 128 random bits as hex, for the `#hm=<nonce>` fragment of the iframe URL. */
+const newNonce = (): string =>
+  Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+
+const callsFor = (
+  viewer: "member" | "link",
+  contentUrl: string,
+  shareToken: string | undefined
+): FrameCalls | null => {
+  if (viewer === "link") {
+    return shareToken
+      ? { ...linkCallsFromFetch(shareToken), viewer: "link" }
+      : null;
+  }
+  const ref = contentRef(contentUrl);
+  return ref
+    ? { ...memberCallsFromTrpc(getTrpc(), ref), viewer: "member" }
+    : null;
+};
 
 const currentTheme = (): "light" | "dark" =>
   document.documentElement.classList.contains("dark") ? "dark" : "light";
@@ -39,6 +73,8 @@ export function ArtifactFrame({
   className,
   contentUrl,
   interactive,
+  onMessage,
+  shareToken,
   title,
   version,
   viewer,
@@ -47,6 +83,17 @@ export function ArtifactFrame({
   const bridgeRef = useRef<FrameBridge | null>(null);
   const [blanked, setBlanked] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  // A fresh nonce for every iframe load this component starts, so only the
+  // page it loaded can open the bridge.
+  const nonceKey = `${contentUrl}:${reloadKey}`;
+  const [issued, setIssued] = useState(() => ({
+    key: nonceKey,
+    nonce: newNonce(),
+  }));
+  if (issued.key !== nonceKey) {
+    setIssued({ key: nonceKey, nonce: newNonce() });
+  }
+  const { nonce } = issued;
   const [pendingLink, setPendingLink] = useState<PendingLink | null>(null);
   // Mirrors `pendingLink` so the bridge callbacks can refuse a prompt that is
   // still open when the frame blanks or goes away.
@@ -59,22 +106,35 @@ export function ArtifactFrame({
   // The bridge reads the latest values without being rebuilt on every render.
   const initRef = useRef({ version, viewer });
   initRef.current = { version, viewer };
+  const onMessageRef = useRef(onMessage);
+  onMessageRef.current = onMessage;
+  const takesMessages = onMessage !== undefined;
 
   useEffect(() => {
     if (blanked) {
       return;
     }
+    const calls = callsFor(viewer, contentUrl, shareToken);
     const bridge = createFrameBridge({
       confirmOpenLink: (url) =>
         new Promise<boolean>((resolve) => {
           setPendingLink({ resolve, url });
         }),
+      extraHandlers: calls
+        ? createCallHandlers({
+            calls,
+            onMessage: takesMessages
+              ? (text) => onMessageRef.current?.(text)
+              : undefined,
+          })
+        : undefined,
       getInit: () => ({
         theme: currentTheme(),
         version: initRef.current.version,
         viewer: initRef.current.viewer,
       }),
       getTarget: () => iframeRef.current?.contentWindow ?? null,
+      nonce,
       onBlank: () => {
         dropPendingLink();
         setBlanked(true);
@@ -84,16 +144,24 @@ export function ArtifactFrame({
       },
     });
     bridgeRef.current = bridge;
-    const onMessage = (event: MessageEvent) =>
+    const onWindowMessage = (event: MessageEvent) =>
       bridge.handleWindowMessage(event);
-    window.addEventListener("message", onMessage);
+    window.addEventListener("message", onWindowMessage);
     return () => {
-      window.removeEventListener("message", onMessage);
+      window.removeEventListener("message", onWindowMessage);
       bridge.dispose();
       bridgeRef.current = null;
       dropPendingLink();
     };
-  }, [blanked, dropPendingLink]);
+  }, [
+    blanked,
+    contentUrl,
+    dropPendingLink,
+    nonce,
+    shareToken,
+    takesMessages,
+    viewer,
+  ]);
 
   const handleLoad = useCallback(() => bridgeRef.current?.handleLoad(), []);
   const reload = useCallback(() => {
@@ -153,7 +221,7 @@ export function ArtifactFrame({
         ref={iframeRef}
         referrerPolicy="no-referrer"
         sandbox="allow-scripts allow-forms"
-        src={contentUrl}
+        src={`${contentUrl}#hm=${nonce}`}
         title={title}
       />
       <AlertDialog onOpenChange={refuseLink} open={pendingLink !== null}>

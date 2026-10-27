@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { UiInitializeResult } from "@repo/protocol/artifacts";
 import {
   BRIDGE_ERROR,
+  BridgeError,
   type BridgePort,
   type BridgeTarget,
   createFrameBridge,
@@ -19,6 +20,8 @@ interface Posted {
   origin: string;
   transfer: Transferable[];
 }
+
+const NONCE = "nonce-1";
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -58,6 +61,7 @@ function setup(overrides: Partial<FrameBridgeOptions> = {}) {
     },
     getInit: () => INIT,
     getTarget: () => target,
+    nonce: NONCE,
     now: () => clock.time,
     onBlank: () => {
       blanked += 1;
@@ -75,13 +79,21 @@ function setup(overrides: Partial<FrameBridgeOptions> = {}) {
     },
     ...overrides,
   });
-  const initialize = (source: unknown = target, id: string | number = 1) =>
+  // `nonce: null` sends an initialize with no nonce at all.
+  const initialize = (
+    source: unknown = target,
+    id: string | number = 1,
+    nonce: string | null = NONCE
+  ) =>
     bridge.handleWindowMessage({
       data: {
         id,
         jsonrpc: "2.0",
         method: "ui/initialize",
-        params: { protocolVersion: "2026-01-26" },
+        params: {
+          protocolVersion: "2026-01-26",
+          ...(nonce === null ? {} : { nonce }),
+        },
       },
       source,
     });
@@ -392,4 +404,106 @@ test("dispose stops everything", () => {
   t.bridge.handleLoad();
   expect(t.posted).toHaveLength(0);
   expect(t.timers).toHaveLength(0);
+});
+
+test("an initialize with the right nonce gets a port", () => {
+  const t = setup();
+  t.initialize(t.target, 3, NONCE);
+  expect(t.ports).toHaveLength(1);
+  expect(t.posted).toHaveLength(1);
+});
+
+test("an initialize with a wrong nonce gets no reply and no port", () => {
+  const t = setup();
+  t.initialize(t.target, 3, "not-the-nonce");
+  expect(t.posted).toHaveLength(0);
+  expect(t.ports).toHaveLength(0);
+});
+
+test("an initialize with no nonce gets no reply and no port", () => {
+  const t = setup();
+  t.initialize(t.target, 3, null);
+  expect(t.posted).toHaveLength(0);
+  expect(t.ports).toHaveLength(0);
+});
+
+test("a load followed only by wrong-nonce initializes blanks the frame after the grace period", () => {
+  const t = setup();
+  t.bridge.handleLoad();
+  t.initialize(t.target, 1, "wrong");
+  t.initialize(t.target, 2, null);
+  expect(t.timers).toHaveLength(1);
+  t.fireTimers();
+  expect(t.blanked()).toBe(1);
+  expect(t.posted).toHaveLength(0);
+});
+
+test("a wrong-nonce initialize cannot replace a live port", () => {
+  const t = setup();
+  t.initialize(t.target, 1);
+  t.bridge.handleLoad();
+  t.advance(1500);
+  t.initialize(t.target, 2, "wrong");
+  expect(t.ports).toHaveLength(1);
+  expect(t.posted).toHaveLength(1);
+});
+
+test("a correct-nonce initialize after a load still gets a fresh port", () => {
+  const t = setup();
+  t.initialize(t.target, 1);
+  t.bridge.handleLoad();
+  t.advance(1500);
+  t.initialize(t.target, 2, NONCE);
+  expect(t.ports).toHaveLength(2);
+  expect(t.posted).toHaveLength(2);
+});
+
+test("an extra handler's plain Error is answered with a fixed message", async () => {
+  const t = setup({
+    extraHandlers: {
+      "storage/get": () => {
+        throw new Error("secret detail");
+      },
+    },
+  });
+  t.initialize();
+  t.toPort({
+    id: 1,
+    jsonrpc: "2.0",
+    method: "storage/get",
+    params: { key: "k", scope: "viewer" },
+  });
+  await flush();
+  expect(t.ports[0]?.sent).toEqual([
+    {
+      error: { code: BRIDGE_ERROR.denied, message: "Request failed" },
+      id: 1,
+      jsonrpc: "2.0",
+    },
+  ]);
+});
+
+test("an extra handler's BridgeError is answered with its own code and message", async () => {
+  const t = setup({
+    extraHandlers: {
+      "storage/get": () => {
+        throw new BridgeError(BRIDGE_ERROR.failed, "Nope");
+      },
+    },
+  });
+  t.initialize();
+  t.toPort({
+    id: 1,
+    jsonrpc: "2.0",
+    method: "storage/get",
+    params: { key: "k", scope: "viewer" },
+  });
+  await flush();
+  expect(t.ports[0]?.sent).toEqual([
+    {
+      error: { code: BRIDGE_ERROR.failed, message: "Nope" },
+      id: 1,
+      jsonrpc: "2.0",
+    },
+  ]);
 });
