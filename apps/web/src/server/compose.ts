@@ -29,6 +29,14 @@ import {
   createToolRunner,
 } from "@repo/services/artifacts/calls";
 import {
+  type ArtifactGrantsService,
+  createArtifactGrantsService,
+} from "@repo/services/artifacts/grants";
+import {
+  type ArtifactPinsService,
+  createArtifactPinsService,
+} from "@repo/services/artifacts/pins";
+import {
   type AppStorePort,
   type ArtifactStorageService,
   createArtifactStorageService,
@@ -314,6 +322,8 @@ export interface Services {
   agents: AgentsService;
   apiKeys: ApiKeysService;
   artifactCalls: ArtifactToolPort;
+  artifactGrants: ArtifactGrantsService;
+  artifactPins: ArtifactPinsService;
   artifactStorage: ArtifactStorageService;
   browser: BrowserService;
   connectorOAuth: ConnectorOAuthService;
@@ -678,6 +688,21 @@ export const composeWith = ({
     runs,
     secrets,
   });
+  const artifactGrants = createArtifactGrantsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    requests,
+    // B.8 replaces this with the connector and platform tool catalog. Until
+    // then no tool is known, so no tool grant is accepted.
+    tools: { lookup: () => Promise.resolve(null) },
+  });
+  const artifactPins = createArtifactPinsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+  });
   const mailOutbound = createMailOutbound({
     atomic: infra.atomic,
     clock: infra.clock,
@@ -880,6 +905,8 @@ export const composeWith = ({
       agents,
       apiKeys,
       artifactCalls,
+      artifactGrants,
+      artifactPins,
       artifactStorage,
       browser,
       connectorOAuth,
